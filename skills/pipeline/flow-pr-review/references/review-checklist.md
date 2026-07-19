@@ -1647,3 +1647,11 @@ real-time waits as a surfaceable determinism finding, not style.
 
 **General rule:** when production behavior is a deterministic in-process timer, the spec
 advances fake timers; real-time waits are reserved for genuinely async boundaries.
+
+### Dangling separator on empty optional subfield (PR #453)
+
+When a UI renders `label — detail` (or similar separator-joined pairs) from defensively-parsed data where a subfield may be empty, check that the separator renders only when the subfield is non-empty. Lenient parsers that keep partially-empty entries make the dangling-separator state reachable. Look for: template literals or markup joining two optional strings with a fixed separator.
+
+### Exact-count assertion against an additive contract (PR #453)
+
+When a test asserts an exact count of rendered items/sections (`expect(x).toHaveLength(6)`) over a surface whose contract is explicitly additive ("later producers may add sections"), flag it as brittle — prefer asserting presence of each required item or a minimum count. Look for: hard-coded totals in tests adjacent to superset-stable/additive contract doc comments.

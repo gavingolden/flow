@@ -216,6 +216,7 @@ describe("epic-run e2e — scenario 3: atomic launch + old-run.json tolerance", 
         cwd: repoDir,
         epicsDir,
         spawn: okSpawn,
+        tmuxOnPath: () => true,
       }),
     ).toBe(0);
     expect(readEpicRunState("epic3", epicsDir)!.features["feat-c"].slug).toBe(
@@ -234,6 +235,7 @@ describe("epic-run e2e — scenario 3: atomic launch + old-run.json tolerance", 
         cwd: repoDir,
         epicsDir,
         spawn: failSpawn,
+        tmuxOnPath: () => true,
       }),
     ).not.toBe(0);
     // No run.json record was written on the failed launch.

@@ -13,6 +13,8 @@ import {
   sessionExists,
   FLOW_SESSION,
 } from "./tmux";
+import { readState } from "./state";
+import { plainAttachHint } from "./launcher";
 
 /**
  * CLI shim for `bin/flow`'s `attach` verb. Intercepts --help / -h before
@@ -37,7 +39,26 @@ export function runAttachCli(args: string[]): number {
 }
 
 export function runAttach(name?: string): number {
+  // A named pipeline with recorded state but NO tmux window is (most likely)
+  // plain-launched: attach is a tmux-launcher feature, so print the named
+  // hint (pid included) instead of the generic not-found error.
+  const plainHint = (slug: string): number | null => {
+    const state = readState(slug);
+    // Only claim "runs under the plain launcher" for pipelines this PR's
+    // recorded `launcher` field actually confirms as plain — a tmux-launched
+    // pipeline whose window died (or a legacy pre-launcher state file) has
+    // no such confirmation, so fall through to the generic not-found error
+    // rather than misreport it as plain.
+    if (state == null || state.launcher !== "plain") return null;
+    console.error(plainAttachHint(state));
+    return 1;
+  };
+
   if (!sessionExists()) {
+    if (name) {
+      const hinted = plainHint(name);
+      if (hinted != null) return hinted;
+    }
     console.error(
       `flow attach: no '${FLOW_SESSION}' tmux session. Start one with 'flow feature create'.`,
     );
@@ -62,6 +83,8 @@ export function runAttach(name?: string): number {
   }
 
   if (!findWindowBySlug(windows, name)) {
+    const hinted = plainHint(name);
+    if (hinted != null) return hinted;
     console.error(
       `flow attach: pipeline '${name}' not found in '${FLOW_SESSION}' session.`,
     );

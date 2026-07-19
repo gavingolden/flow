@@ -68,7 +68,20 @@ vi.mock("./models-config", async () => {
   };
 });
 
-import { runEpicCli, parseRunArgs } from "./epic";
+import {
+  runEpicCli as runEpicCliReal,
+  parseRunArgs,
+  type EpicOptions,
+} from "./epic";
+
+// Epic orchestration is tmux-only and the launcher backend now defaults to
+// plain, so this file's create specs opt in via the per-run `--tmux` override
+// (the dedicated launcher-guard specs below call runEpicCliReal directly).
+const runEpicCli = (args: string[], options: EpicOptions = {}) =>
+  runEpicCliReal(
+    args[0] === "create" ? [args[0], "--tmux", ...args.slice(1)] : args,
+    { tmuxOnPath: () => true, ...options },
+  );
 import { deriveWorktreePath } from "./feature";
 import { FLOW_CLAUDE_HOME } from "./paths";
 import { writeState } from "./state";
@@ -2174,5 +2187,41 @@ describe("runEpicCli done", () => {
       runEpicCli(["done", "silent", "--yes"], { stateDir, epicsDir }),
     ).toBe(0);
     expect(logs.join("\n")).not.toMatch(/flow done/);
+  });
+});
+
+describe("epic create launcher guard (tmux-only)", () => {
+  it("refuses a plain-resolved backend with the named opt-in notice", () => {
+    const errors: string[] = [];
+    const errSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation((...a: unknown[]) => {
+        errors.push(a.map(String).join(" "));
+      });
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runEpicCliReal(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({}),
+      tmuxOnPath: () => true,
+    });
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toContain(
+      "epic orchestration requires the tmux launcher — opt in with --tmux",
+    );
+    errSpy.mockRestore();
+  });
+
+  it("a tmux config value satisfies the guard without --tmux", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCliReal(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ launcher: "tmux" }),
+      tmuxOnPath: () => true,
+    });
+    // Passes the guard; downstream launch proceeds through the mocked tmux.
+    expect(code).toBe(0);
   });
 });

@@ -28,6 +28,7 @@ function makeDeps(opts: {
   stdin?: string;
   pane?: string;
   slug?: string;
+  flowSlugEnv?: string;
   state?: PipelineState | null;
   turnTracking?: TurnTracking | null;
   nowIso?: string;
@@ -38,6 +39,7 @@ function makeDeps(opts: {
   const readTurn = vi.fn(() => opts.turnTracking ?? null);
   const deps: Deps = {
     readStdin: async () => opts.stdin ?? "",
+    flowSlugEnv: opts.flowSlugEnv,
     tmuxPane: opts.pane,
     showFlowSlug: () => opts.slug ?? "",
     loadState: (slug) => {
@@ -93,16 +95,62 @@ describe("flow-stop-guard short-circuits", () => {
     );
   });
 
-  it("exits 0 when TMUX_PANE is undefined (not in tmux)", async () => {
+  it("exits 0 when NO slug resolves (no FLOW_SLUG, no pane — not a flow session)", async () => {
     const { deps, loadCalls, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({}),
       pane: undefined,
+      flowSlugEnv: undefined,
       state: fakeState("implementing"),
     });
     expect(await run(deps)).toBe(0);
     expect(loadCalls).toEqual([]);
     expect(writeTurn).not.toHaveBeenCalled();
     expect(errLines).toEqual([]);
+  });
+
+  it("blocks (exit 2) when FLOW_SLUG resolves with no pane at all — the plain-launcher guard", async () => {
+    const { deps, loadCalls } = makeDeps({
+      stdin: JSON.stringify({}),
+      pane: undefined,
+      flowSlugEnv: "demo",
+      state: fakeState("implementing"),
+    });
+    expect(await run(deps)).toBe(2);
+    expect(loadCalls).toEqual(["demo"]);
+  });
+
+  it("permits (exit 0) at a terminal phase when the slug resolved via FLOW_SLUG/no-pane", async () => {
+    const { deps } = makeDeps({
+      stdin: JSON.stringify({}),
+      pane: undefined,
+      flowSlugEnv: "demo",
+      state: fakeState("merged"),
+    });
+    expect(await run(deps)).toBe(0);
+  });
+
+  it("FLOW_SLUG wins over the pane option when both are set", async () => {
+    const { deps, loadCalls } = makeDeps({
+      stdin: JSON.stringify({}),
+      pane: "%1",
+      slug: "pane-slug",
+      flowSlugEnv: "env-slug",
+      state: fakeState("merged"),
+    });
+    expect(await run(deps)).toBe(0);
+    expect(loadCalls).toEqual(["env-slug"]);
+  });
+
+  it("a shape-invalid FLOW_SLUG is ignored and the pane fallback applies", async () => {
+    const { deps, loadCalls } = makeDeps({
+      stdin: JSON.stringify({}),
+      pane: "%1",
+      slug: "pane-slug",
+      flowSlugEnv: "NOT A SLUG",
+      state: fakeState("merged"),
+    });
+    expect(await run(deps)).toBe(0);
+    expect(loadCalls).toEqual(["pane-slug"]);
   });
 
   it("exits 0 when @flow-slug is empty (not a flow window)", async () => {

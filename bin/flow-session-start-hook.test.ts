@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deliverResumeSeed,
   run,
+  sessionStartOutput,
   type DeliverSeams,
   type Deps,
 } from "./flow-session-start-hook";
@@ -11,6 +12,7 @@ import { TERMINAL_PHASES, type PipelineState } from "./lib/state";
 type Stub = {
   deps: Deps;
   dispatched: string[];
+  emitted: string[];
   loadCalls: string[];
 };
 
@@ -18,13 +20,16 @@ function makeDeps(opts: {
   stdin?: string;
   pane?: string;
   slug?: string;
+  flowSlugEnv?: string;
   state?: PipelineState | null;
   markerExists?: boolean;
 }): Stub {
   const dispatched: string[] = [];
+  const emitted: string[] = [];
   const loadCalls: string[] = [];
   const deps: Deps = {
     readStdin: async () => opts.stdin ?? "",
+    flowSlugEnv: opts.flowSlugEnv,
     tmuxPane: opts.pane,
     showFlowSlug: () => opts.slug ?? "",
     loadState: (slug) => {
@@ -35,8 +40,11 @@ function makeDeps(opts: {
     dispatchResume: (slug) => {
       dispatched.push(slug);
     },
+    emitContext: (context) => {
+      emitted.push(context);
+    },
   };
-  return { deps, dispatched, loadCalls };
+  return { deps, dispatched, emitted, loadCalls };
 }
 
 function fakeState(
@@ -92,6 +100,7 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
         // delivery happens out-of-band and is NOT awaited by run().
         dispatchedSlug = slug;
       },
+      emitContext: () => undefined,
     };
     await expect(run(deps)).resolves.toBe(0);
     // Dispatch was actually invoked (proves run() didn't skip it) AND run()
@@ -374,5 +383,78 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
       { text: RESUME_REMAINDER, literal: true },
       { text: "Enter", literal: false },
     ]);
+  });
+});
+
+describe("plain-mode additionalContext fallback (FLOW_SLUG, no pane)", () => {
+  it("emits the resume seed as additionalContext instead of send-keys", async () => {
+    const { deps, dispatched, emitted } = makeDeps({
+      pane: undefined,
+      flowSlugEnv: "demo",
+      state: fakeState("checkpoint-pending-clear"),
+      markerExists: true,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(emitted).toEqual([flowPipelineResumeSeed("demo")]);
+  });
+
+  it("no-ops (no emit) when the checkpoint marker is absent", async () => {
+    const { deps, dispatched, emitted } = makeDeps({
+      pane: undefined,
+      flowSlugEnv: "demo",
+      state: fakeState("checkpoint-pending-clear"),
+      markerExists: false,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(emitted).toEqual([]);
+  });
+
+  it("tmux path is unchanged: a pane-resolved slug still dispatches send-keys, never emits context", async () => {
+    const { deps, dispatched, emitted } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("checkpoint-pending-clear"),
+      markerExists: true,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual(["demo"]);
+    expect(emitted).toEqual([]);
+  });
+
+  it("FLOW_SLUG with a live pane still uses send-keys (env resolves the slug, the pane owns delivery)", async () => {
+    const { deps, dispatched, emitted, loadCalls } = makeDeps({
+      pane: "%1",
+      slug: "pane-slug",
+      flowSlugEnv: "env-slug",
+      state: fakeState("checkpoint-pending-clear"),
+      markerExists: true,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(loadCalls).toEqual(["env-slug"]);
+    expect(dispatched).toEqual(["env-slug"]);
+    expect(emitted).toEqual([]);
+  });
+
+  it("a plain-launched pipeline resumed from inside a tmux pane emits context, never send-keys (regression: TMUX_PANE inherited from the user's terminal used to route to dispatchResume against a nonexistent window)", async () => {
+    const { deps, dispatched, emitted } = makeDeps({
+      pane: "%1",
+      flowSlugEnv: "demo",
+      state: { ...fakeState("checkpoint-pending-clear"), launcher: "plain" },
+      markerExists: true,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(emitted).toEqual([flowPipelineResumeSeed("demo")]);
+  });
+
+  it("sessionStartOutput wraps the context in the SessionStart hookSpecificOutput shape", () => {
+    expect(JSON.parse(sessionStartOutput("ctx"))).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: "ctx",
+      },
+    });
   });
 });

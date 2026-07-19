@@ -1,11 +1,11 @@
 # Escalation Recipes
 
-This file carries the six worked heredoc + validate + `mv` recipes
+This file carries the eight worked heredoc + validate + `mv` recipes
 for the bail-out paths in `/flow-pr-review`'s wrapper. Each recipe writes
 `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
 and the per-tag `completed_steps[]` / `missed_steps[]` arrays the
 supervisor's branch-on-status logic reads at `/flow-pipeline` step 8.
-The six blocks are kept distinct (not templated) because the
+The eight blocks are kept distinct (not templated) because the
 per-tag arrays differ in load-bearing ways — see each recipe's intro
 for what fires it.
 
@@ -17,6 +17,52 @@ if `pr-review-result.json` already exists with `status: "escalated"`
 generic escalation must NOT overwrite it. Each heredoc below should
 be preceded by the guard's `[ "$(jq -r '.status' "$RESULT_PATH"
 2>/dev/null || true)" = "escalated" ] && exit 0` check.
+
+## `task-tool-unavailable: pr-review-gatekeeper`
+
+Raised by Step 1.5's spawn-site preamble when
+`ToolSearch query="select:Task"` returns neither `"name": "Task"` nor
+`"name": "Agent"`. Only Step 1 ran before the bail; Step 1.5 onward did
+not.
+
+```bash
+RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
+cat > "$RESULT_PATH.tmp" <<'EOF'
+{
+  "status": "escalated",
+  "completed_steps": ["1"],
+  "missed_steps": ["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+  "escalation_tag": "task-tool-unavailable: pr-review-gatekeeper",
+  "summary": "Bailed at the Gatekeeper spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
+}
+EOF
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
+  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+```
+
+## `gatekeeper-missing-artifact`
+
+Raised by Step 1.5's post-spawn existence check when
+`test -s "$ARTIFACT_PATH"` fails (the Gatekeeper subagent returned but
+wrote no artifact at `.flow-tmp/gatekeeper-result.json`). Only Step 1 ran
+before the bail; Step 1.5 onward did not.
+
+```bash
+RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
+cat > "$RESULT_PATH.tmp" <<'EOF'
+{
+  "status": "escalated",
+  "completed_steps": ["1"],
+  "missed_steps": ["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+  "escalation_tag": "gatekeeper-missing-artifact",
+  "summary": "Gatekeeper subagent returned but wrote no artifact at .flow-tmp/gatekeeper-result.json; supervisor must escalate without retry per the no-retry-on-missing-artifact contract."
+}
+EOF
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
+  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+```
 
 ## `task-tool-unavailable: pr-review-multi-agent-review`
 

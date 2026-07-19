@@ -66,7 +66,10 @@ import {
 } from "./lib/pipeline-summary-sources";
 import { renderEchoRecap } from "./lib/echo-recap";
 import { collectFixApplierTolerant } from "./lib/fix-applier-tolerant";
-import { validateConsolidatorResult } from "./lib/agent-finding-schema";
+import {
+  normalizeParsedFindings,
+  validateConsolidatorResult,
+} from "./lib/agent-finding-schema";
 
 /** Single-line HTML-comment dedup key for the persisted snapshot comment.
  *  Stable across releases (hence the -v1 suffix); it is the lookup key for
@@ -397,7 +400,7 @@ function deriveRecapScalars(inputs: {
   let findingCount: number | undefined;
   if (inputs.consolidatorRaw.trim()) {
     const v = validateConsolidatorResult(
-      parseJsonOrUndefined(inputs.consolidatorRaw),
+      normalizeParsedFindings(parseJsonOrUndefined(inputs.consolidatorRaw)),
     );
     if (v.ok) findingCount = v.value.consolidated_findings.length;
   }

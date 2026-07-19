@@ -102,6 +102,7 @@ import {
   type FeatureRunRecord,
 } from "./epic-run-state";
 import { readEpicMaxParallel } from "./epic-config";
+import { resolveLauncherBackend } from "./launcher-config";
 import { renderBoard, renderEpicList, type EpicListRow } from "./epic-render";
 
 /**
@@ -224,6 +225,8 @@ export type EpicOptions = {
    * config. Production uses the module default (reads via flowConfigPath()).
    */
   readConfig?: ReadConfigFile;
+  /** tmux-on-PATH probe seam for the launcher-backend guard (test only). */
+  tmuxOnPath?: () => boolean;
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
@@ -382,12 +385,15 @@ PR → review checkpoint), and writes initial epic state under
   const modelPlanning = modelPlanningResult.value;
   const modelPlanningValueToken = modelPlanningResult.valueToken;
 
+  const wantTmux = rest.includes("--tmux");
+
   let skipNext = false;
   const promptTokens = rest.filter((a) => {
     if (skipNext) {
       skipNext = false;
       return false;
     }
+    if (a === "--tmux") return false;
     if (a === "--effort") {
       skipNext =
         effortValueToken !== undefined && !effortValueToken.startsWith("--");
@@ -425,6 +431,28 @@ PR → review checkpoint), and writes initial epic state under
   if (!repo) {
     console.error(`flow epic create: ${cwd} is not inside a git repository.`);
     return 2;
+  }
+
+  // Epic orchestration is tmux-only (parallel feature windows are the whole
+  // point): resolve the backend BEFORE any state/window side-effect and
+  // refuse a plain resolution with the named opt-in notice. `--tmux` is the
+  // per-run override.
+  const backend = resolveLauncherBackend({
+    flag: wantTmux ? "tmux" : undefined,
+    read: options.readConfig,
+    tmuxOnPath: options.tmuxOnPath,
+  });
+  if (backend.id !== "tmux") {
+    // Don't print backend.notice here: when a tmux resolution degrades
+    // (tmux not on PATH), the notice claims "falling back to the plain
+    // launcher" — contradictory alongside the error below, since epic
+    // orchestration then refuses to proceed on the plain backend at all.
+    console.error(
+      backend.notice
+        ? "flow epic: epic orchestration requires the tmux launcher — tmux is not installed or not on PATH"
+        : "flow epic: epic orchestration requires the tmux launcher — opt in with --tmux, the flow install Q&A, or 'flow config launcher tmux'",
+    );
+    return 1;
   }
 
   if (windowExists(slug)) {
@@ -1383,6 +1411,7 @@ Options:
     spawn: options.spawn,
     epicSlug,
     overrides,
+    tmuxOnPath: options.tmuxOnPath,
   });
   if (!lr.ok) {
     // Write nothing on failure — the binding is only recorded once the pipeline

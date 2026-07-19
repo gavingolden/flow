@@ -31,7 +31,7 @@ Produce UI that is intentional, usable, and accessible rather than generic. The 
 
 # When NOT to Use
 
-- Writing the framework MECHANICS that render the judgment. Defer Tailwind / shadcn token, class, and component work to `tailwind-shadcn`. Defer Svelte 5 runes, stores, and component logic to `svelte`.
+- Writing the framework MECHANICS that render the judgment. Defer Tailwind / shadcn token, class, and component work to `tailwind-shadcn`. Defer Svelte 5 runes, stores, and component logic to `svelte`. Either deferral is a NAMED skip, not a hard failure, when the referenced skill's owning optional module isn't installed — check with `flow-module-status --check-skill <name>` (e.g. `--check-skill svelte`) before deferring, and if inactive, note the skip by name instead of silently deferring to a skill that isn't there.
 - Writing tests (defer to `flow-testing`) or backend/data changes (defer to the relevant stack skill).
 
 # Context

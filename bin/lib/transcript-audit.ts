@@ -80,6 +80,11 @@ export type FrontmatterEstimate = {
   charsPerToken: number;
 };
 
+export type StaticCostEstimate = {
+  files: { path: string; lines: number; chars: number; estTokens: number }[];
+  totals: { lines: number; chars: number; estTokens: number };
+};
+
 export type AnalyzeOk = {
   status: "ok";
   /** Strict headline: null-attribution records land in "unattributed",
@@ -568,6 +573,35 @@ async function findSkillMdFiles(root: string): Promise<string[]> {
 function extractFrontmatter(raw: string): string | null {
   const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   return match ? match[1] : null;
+}
+
+/** Human-legible line count (a trailing partial line without a final
+ * newline still counts), not raw `\n`-occurrence counting — the two agree
+ * whenever the file ends with a newline, which every file this CLI targets
+ * (AGENTS.md, SKILL.md) does. */
+function countLines(raw: string): number {
+  if (raw.length === 0) return 0;
+  const parts = raw.split("\n");
+  if (parts[parts.length - 1] === "") parts.pop();
+  return parts.length;
+}
+
+export async function estimateStaticCost(
+  paths: string[],
+): Promise<StaticCostEstimate> {
+  const files: StaticCostEstimate["files"] = [];
+  const totals = { lines: 0, chars: 0, estTokens: 0 };
+  for (const p of paths) {
+    const raw = await fs.promises.readFile(p, "utf8");
+    const chars = raw.length;
+    const lines = countLines(raw);
+    const estTokens = estimateTokens(chars);
+    files.push({ path: p, lines, chars, estTokens });
+    totals.lines += lines;
+    totals.chars += chars;
+    totals.estTokens += estTokens;
+  }
+  return { files, totals };
 }
 
 export async function estimateFrontmatterCost(

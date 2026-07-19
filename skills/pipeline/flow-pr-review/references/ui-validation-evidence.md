@@ -52,10 +52,15 @@ manifest yet, meaningful UI diff), the helper has inferred
 `launch`/`baseUrl`/`routes`/`loginUrl` + credential env-var NAMES plus a
 `needs[]` — allocate a free port, resolve the `{{PORT}}` placeholder,
 empirically verify the inference (launch starts, routes render, login succeeds
-with VALUES resolved from the local `.env`/shell env at run time), and write the
+with VALUES resolved from the local `.env`/shell env at run time via the Login
+step in step 1 below), and write the
 verified NAMES/config back into `.flow/ui-validation.json` — storing names and
 non-secret config only — never a secret value — committing it into the reviewable
-PR diff before driving the bucket. Then, per visual item:
+PR diff before driving the bucket. The same `{{PORT}}` sentinel is now honored on
+the committed ready path too, not just bootstrap: a manifest that still carries
+`{{PORT}}` in `launch`/`baseUrl`/`env` gets it resolved to a fresh per-run free
+port by `flow-ui-validate` itself (`meta.port` records it), so Step 8c never
+re-resolves the placeholder by hand on that path. Then, per visual item:
 
 0. Before driving any route, read `meta.env` from the `flow-ui-validate` ready
    envelope and inject it into the launch subprocess's environment, then bring
@@ -73,7 +78,36 @@ PR diff before driving the bucket. Then, per visual item:
    — `new_page` with `isolatedContext` set to the pipeline slug (read from
    `@flow-slug` / `~/.flow/state/<slug>.json` / the worktree basename) so
    concurrent pipelines sharing one chrome-devtools MCP server do not share
-   cookies/storage. Then, **per route, loop over `meta.viewports`** (the
+   cookies/storage. **Login step (auth-gated apps).** When the manifest
+   declares `loginUrl` and `credentialEnvVars` and both VALUES resolve from
+   the process env, drive the login form BEFORE the per-route drive:
+   `navigate_page` to `loginUrl` → `take_snapshot` to locate the fields (a
+   transient working snapshot — never saved or injected as evidence): the
+   email field (hint: `input[type=email]` / `#email` / `input[name=email]`),
+   the password field (hint: `input[type=password]` / `#password`), and the
+   submit control (hint: `button[type=submit]` / the form's submit
+   control); if a cookie-consent/overlay covers the form, dismiss it first,
+   and handle a multi-step flow (email → Next → password) if present →
+   `fill` the located fields with the resolved user/pass VALUES → click the
+   submit control (or press Enter) →
+   `wait_for` the post-login redirect and confirm `loginOk`. The selector
+   heuristic is a starting hint, not a rigid script — use the snapshot to
+   locate the real fields. Read the VALUES from `process.env` at runtime;
+   **never persist or inject as review evidence a screenshot or saved
+   a11y snapshot of the credential-bearing login form — capture evidence
+   only on the post-auth gated route** (the form is simply never
+   captured — this is not because the password field is masked: the
+   email/username field renders in plaintext in both a screenshot and an
+   a11y snapshot, so masking is not the protection here, the unconditional
+   no-capture rule is). When
+   `credentialEnvVars` is declared but the VALUES are absent from the env,
+   take the existing `NEEDS HUMAN: smoketest-needs-creds` escalation
+   (autonomous path) rather than driving an unauthenticated pass.
+   **Committed artifacts reference credential NAMES only** — the manifest,
+   plan, commit messages, and PR bodies name the env vars, never a VALUE;
+   reading the manifest-named VALUES at runtime to drive this login is
+   sanctioned only for zero-risk seed/test accounts, and is not a license
+   to hand-type arbitrary or production passwords. Then, **per route, loop over `meta.viewports`** (the
    `flow-ui-validate` ready envelope carries the declared set or the built-in
    default `xs 320 / mobile 390 / tablet 768 / desktop 1280 / wide 1440`):
    `resize_page` to each viewport `width` × its `height` when declared, else a
@@ -169,7 +203,16 @@ maintains, not a frozen contract.
 The a11y `take_snapshot` is the gate — it is the primary evidence injected via
 `flow-inject-evidence`. The screenshot is supplementary: referenced by its
 saved path inside the evidence block, never embedded (`gh` takes no inline
-binary).
+binary). Every screenshot path that survives the save-path cascade below is
+also recorded into `fix-applier-result.json`'s `ui_screenshots[]` (see
+"Merge-back into `fix-applier-result.json`" below), so the `/flow-pipeline`
+supervisor can surface each one as a clickable absolute path in the session —
+the PR body itself keeps the existing by-path reference unchanged. The a11y
+snapshot remains the gate either way; recording a screenshot path is
+additional evidence, never a substitute. Before/after comparison applies only
+where a design-fidelity `.flow-tmp/design/reference.*` baseline already
+exists (the spec-gated sub-pass) — general base-vs-head visual diffing is out
+of scope here.
 
 ## Screenshot save-path cascade
 
@@ -190,6 +233,33 @@ cleanly:
 2. On denial, FALL BACK to session-cwd `.flow-tmp/ui-evidence/`.
 3. Else SKIP with a loud note — the a11y snapshot is the gate, the screenshot
    supplementary, never blocking.
+
+## Merge-back into `fix-applier-result.json`
+
+This is a **wrapper-side patch, not a subagent write**: by the time Step 8c
+drives the browser, the Fix-Applier subagent has already written and
+returned `fix-applier-result.json` and exited — the browser capture happens
+outside that subagent's session — so the `/flow-pr-review` wrapper is the
+only write point for review-time captures. After the per-viewport capture
+loop, collect every path from the `ran:true` `flow-ui-validate --captures`
+envelope's `evidence_paths[]` that a `test -f` guard confirms still exists on
+disk, then union them into the artifact's `ui_screenshots[]` — written before
+`/flow-pr-review` Step 9's single read of that artifact:
+
+```bash
+ART="$WORKTREE/.flow-tmp/fix-applier-result.json"
+SHOTS=$(printf '%s' "$CAPTURES_JSON" | jq -r '.evidence_paths[]?' | while IFS= read -r p; do [ -f "$p" ] && printf '%s\n' "$p"; done)
+if [ -f "$ART" ] && [ -n "$SHOTS" ]; then
+  SHOTS_JSON=$(printf '%s\n' "$SHOTS" | jq -R . | jq -s 'map(select(length > 0))')
+  TMP=$(mktemp)
+  jq --argjson shots "$SHOTS_JSON" '.ui_screenshots = (((.ui_screenshots // []) + $shots) | unique)' "$ART" > "$TMP" && mv "$TMP" "$ART"
+fi
+```
+
+A headless run, an MCP-absent run, or a run that lands on the runnable
+bucket's branch-3 skip captures nothing, so `SHOTS` is empty and
+`ui_screenshots` stays absent from the artifact — a surfaced gap (via the
+existing `ui_smoke_reason` carrier), never a failure.
 
 ## UI traits to verify
 

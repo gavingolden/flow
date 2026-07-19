@@ -77,6 +77,8 @@ in-process for skills; shell out for scripts; never delegate.
 > contract as the `/flow-pr-review` auto-push and `/flow-pipeline`
 > auto-merge exemptions in `AGENTS.md`. If a future skill needs the
 > same license, add it here by name rather than generalising the rule.
+> Each exemption spawns its named `agents/flow-*.md` definition via a file-exists
+> guard falling back to `general-purpose` with a loud `NOTICE — agent-fallback:` line.
 >
 > **Load the Task tool at each spawn site.** Each of the nine spawn
 > procedures below must instruct the supervisor to load the Task
@@ -97,58 +99,56 @@ in-process for skills; shell out for scripts; never delegate.
 > not a tenth exemption.
 >
 > **Task-tool exemption #1: `/flow-pr-review` Independent Multi-Agent
-> Review.** Step 8's six parallel review agents, each writing its own
-> `agent-output-<lens>.json`; full contract in
+> Review.** Step 8's six parallel review agents (`flow-review-<lens>`),
+> each writing its own `agent-output-<lens>.json`; full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #2: `/flow-product-planning` Independent Discovery
-> Subagent.** Step 3's one discovery agent, writing `.flow-tmp/plan.md`
-> + `.flow-tmp/pr-description-draft.md`; full contract in
+> Subagent.** Step 3's one discovery agent (`flow-discovery`), writing
+> `.flow-tmp/plan.md` + `.flow-tmp/pr-description-draft.md`; full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #3: `/flow-new-feature` Independent Scout
-> Subagent.** Step 5's one scout agent (wider-scope path only — ≤3
-> affected files skip it), writing `.flow-tmp/scout.md`; full contract
-> in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
->
-> **Task-tool exemption #4: `/flow-pr-review` Fix-Applier Subagent.** Step
-> 8's one fix-applier agent for the per-finding address loop +
-> commit/push, writing `.flow-tmp/fix-applier-result.json`; full
+> Subagent.** Step 5's one scout agent (`flow-scout`; wider-scope path
+> only — ≤3 affected files skip it), writing `.flow-tmp/scout.md`; full
 > contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
+> **Task-tool exemption #4: `/flow-pr-review` Fix-Applier Subagent.** Step
+> 8's one fix-applier agent (`flow-fix-applier`) for the per-finding
+> address loop + commit/push, writing `.flow-tmp/fix-applier-result.json`;
+> full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
+>
 > **Task-tool exemption #5: Merge-Conflict Resolver Subagent.** Step
-> 10's one resolver agent for the rebase + per-file resolution +
-> force-push (per-pipeline branch only), writing
+> 10's one resolver agent (`flow-merge-resolver`) for the rebase +
+> per-file resolution + force-push (per-pipeline branch only), writing
 > `.flow-tmp/merge-resolver-result.json`; full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
 > `references/merge-resolver-instructions.md`.
 >
 > **Task-tool exemption #6: `/flow-coder` Independent Edit-Applier Subagent.**
-> The one edit-applier agent `/flow-coder` spawns when `/flow-new-feature` step 5,
-> `/flow-verify` step 3, or `/flow-refactoring` step 3 takes its wider-scope
-> path — or the `/flow-pipeline` supervisor's interactive code-change redirect
-> path fires (see the "Mid-flight code-change redirects" section and
-> `references/redirect-handling.md`) — writing `.flow-tmp/coder-result.json`;
-> full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
-> `skills/pipeline/flow-coder/SKILL.md`.
+> The one edit-applier agent (`flow-edit-applier`) `/flow-coder` spawns when
+> `/flow-new-feature` step 5, `/flow-verify` step 3, or `/flow-refactoring` step 3
+> takes its wider-scope path — or the `/flow-pipeline` supervisor's interactive
+> code-change redirect path fires (see the "Mid-flight code-change redirects"
+> section and `references/redirect-handling.md`) — writing
+> `.flow-tmp/coder-result.json`; full contract in
+> [references/exemption-contracts.md](../../../references/exemption-contracts.md) and `skills/pipeline/flow-coder/SKILL.md`.
 >
 > **Task-tool exemption #7: `/flow-pr-review` Independent Gatekeeper Subagent.**
-> `/flow-pr-review` Step 1.5's one gatekeeper agent with a `model: "haiku"`
-> cost-routing override, writing `.flow-tmp/gatekeeper-result.json`;
+> `/flow-pr-review` Step 1.5's one gatekeeper agent (`flow-gatekeeper`) with a
+> `model: "haiku"` cost-routing override, writing `.flow-tmp/gatekeeper-result.json`;
 > full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #8: `/flow-pr-review` Independent Consolidator-Validator
 > Subagent.** `/flow-pr-review` Step 3.5's one consolidator-validator agent
-> (default Sonnet, no model override), writing
-> `.flow-tmp/consolidator-result.json`; full contract in
-> [references/exemption-contracts.md](../../../references/exemption-contracts.md).
+> (`flow-consolidator`; default Sonnet, no model override), writing
+> `.flow-tmp/consolidator-result.json`; full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #9: Verify-Retry-Loop Subagent.** Step 6's one
-> verify-retry-loop agent owning the 3-outer-attempt `/flow-verify` loop
-> (isolating the re-pasted `flow-pre-commit --json` failure JSON),
-> writing `.flow-tmp/verify-loop-result.json`; full contract in
-> [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
-> `references/verify-loop-instructions.md`.
+> verify-retry-loop agent (`flow-verify`) owning the 3-outer-attempt
+> `/flow-verify` loop (isolating the re-pasted `flow-pre-commit --json`
+> failure JSON), writing `.flow-tmp/verify-loop-result.json`; full contract in
+> [references/exemption-contracts.md](../../../references/exemption-contracts.md) and `references/verify-loop-instructions.md`.
 >
 > **The `/flow-pr-review` Gemini cross-model lens is a Bash fan-out, not a
 > tenth exemption.** When the supervisor invokes `/flow-pr-review` in step 8
@@ -315,8 +315,10 @@ a model that has already chosen to stop, but a Stop hook fires
 
 Contract:
 
-- Reads `~/.flow/state/<slug>.json` (slug from the tmux window's
-  `@flow-slug` user option).
+- Reads `~/.flow/state/<slug>.json` (slug resolved env-first from the
+  `FLOW_SLUG` env var — set in the launch env by both launcher
+  backends — falling back to the tmux window's `@flow-slug` user
+  option).
 - Exits 2 with a stderr `DO NOT END THE TURN` reminder when phase
   is non-terminal-non-pending — the supervisor is mid-pipeline and
   must continue.
@@ -326,9 +328,9 @@ Contract:
   (`plan-pending-review`, `triaged-no-change`,
   `triage-pending-clarification`, `approval-pending-clarification`,
   `ci-wait-pending`, `checkpoint-pending-clear`).
-- Self-detects: exits 0 (no-op) outside tmux, in non-flow tmux
-  windows (no `@flow-slug` set), or when state.json is missing.
-  Safe to install in a global Stop hook list.
+- Self-detects: exits 0 (no-op) when no flow slug resolves (no
+  `FLOW_SLUG`, and no `@flow-slug` pane), or when state.json is
+  missing. Safe to install in a global Stop hook list.
 - Loop-break budget: a per-turn block counter persisted at
   `~/.flow/state/turns/<slug>.json` (a sibling subdirectory so `flow ls`
   ignores it). Legitimate pending exits do NOT consume it.
@@ -362,9 +364,11 @@ flow-notify --status <merged|gated|needs-human> \
 `--slug` is omitted because every slug-taking flow helper (`flow-notify`,
 `flow-state-update`, `flow-rename-window`, `flow-open-pr`,
 `flow-resume-decide`, `flow-gate-decide`, `flow-remove-worktree`)
-auto-resolves it from `$TMUX_PANE`'s durable `@flow-slug` window option
-(the per-Bash-call shell loses any `SLUG=…` between calls). Pass `--slug`
-explicitly only when invoking from outside the pipeline window.
+auto-resolves it env-first from the `FLOW_SLUG` env var (set in the
+launch env by both launcher backends), falling back to `$TMUX_PANE`'s
+durable `@flow-slug` window option (the per-Bash-call shell loses any
+`SLUG=…` between calls). Pass `--slug` explicitly only when invoking
+from outside the pipeline session.
 
 - darwin-only; non-mac hosts and unset `FLOW_NOTIFY` both no-op.
 - Backend: `terminal-notifier` preferred (click-through to
@@ -652,107 +656,44 @@ request as the argument:
 /flow-product-planning <verbatim user description>
 ```
 
-Fold the **ultimate goal** you inferred in step 1's goal-framing
-sub-step into this invocation as explicit context (append it after the
-verbatim request), so the isolated Discovery Subagent anchors the PRD
-Problem Statement on it instead of re-deriving from the surface request
-alone. Discovery still validates the supplied goal against the codebase
-and surfaces an Open Question if it disagrees rather than accepting it
-blindly — see `discovery-instructions.md` §3 ("User intent").
+Fold the **ultimate goal** you inferred in step 1's goal-framing sub-step
+into this invocation as explicit context (append it after the verbatim
+request) so the Discovery Subagent anchors the PRD Problem Statement on it;
+discovery still validates the goal against the codebase and surfaces an Open
+Question if it disagrees — see `discovery-instructions.md` §3 ("User intent").
 
-**Per-phase model (planning) threading.** The Discovery Subagent is the
-`planning` fan-out — resolution field `state.modelPlanning`, precedence
-`--model-planning > config.models.planning > inherited` (see
-[references/model-routing.md](references/model-routing.md)). Resolve it and,
-when non-empty, append a `MODEL_PLANNING: <alias>` marker line to the
-`/flow-product-planning` invocation through the **same append channel** as the
-ultimate goal below; `/flow-product-planning` forwards it to the Discovery
-Subagent's Task spawn as its per-spawn `model:` (empty ⇒ omit ⇒ inherit). This
-adds **no** new fan-out site — it is a `model:` override on the existing
-Discovery exemption:
+**Invocation threading.** Before invoking `/flow-product-planning`, thread up
+to four marker lines onto the same append channel as the inferred ultimate
+goal — full contract for each in
+[references/step3-threading.md](references/step3-threading.md); none add a
+new Task-tool exemption or spawn site (all are markers on the existing
+Discovery exemption, #2 in Hard rules):
 
-```bash
-SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
-PLANNING_MODEL=$(jq -r '.modelPlanning // empty' ~/.flow/state/"$SLUG".json)
-[ -z "$PLANNING_MODEL" ] && PLANNING_MODEL=$(jq -r '.models.planning // empty' ~/.flow/config.json 2>/dev/null)
-# When non-empty, append `MODEL_PLANNING: $PLANNING_MODEL` to the invocation.
-```
-
-**Force-on threading (mandatory).** BEFORE invoking `/flow-product-planning`,
-run `jq -r '.forceResearch // empty' ~/.flow/state/<slug>.json`. When the
-value is the literal `true`, append a
-`RESEARCH: force-on (flow feature create --research)` marker line to the
-`/flow-product-planning` invocation through the **same append channel** that
-carries the inferred ultimate goal above — drop it and a
-`flow feature create --research` pipeline silently loses its forced
-research. The spawn template forwards the marker to the discovery subagent,
-forcing discovery Step 1.5's web-grounded research on (bypassing the
-relevance gate and the `research.discovery` opt-in). Absent or non-`true` ≡
-not forced — append nothing.
-
-**Revision-pass threading (on step-3 re-entry).** When you re-enter step 3
-with an existing `<worktree>/.flow-tmp/plan.md` already on disk — a
-`plan-pending-review` redirect looped back here per step 4's imperative-redirect
-branch — append a `REVISION: <n>` marker line to the `/flow-product-planning`
-invocation through the **same append channel** as the `MODEL_PLANNING:` /
-`RESEARCH:` markers above. `<n>` is the in-context pass counter (2 on the first
-revision, 3 on the next, …); it carries no payload — the redirect text itself
-rides the normal `USER REDIRECT (received during plan-pending-review): <verbatim>`
-channel. The spawn template forwards the marker via `{{REVISION_OVERRIDE}}` and
-the discovery subagent runs its **Revision pass mode**
-(`discovery-instructions.md` "Revision pass mode"): read the existing plan.md
-first, update in place, preserve untouched sections and the embedded
-`### Cross-model review (AGY)` subsection + `<!-- flow-plan-review-hash: <sha> -->`
-marker verbatim, do NOT re-run Step 1.5 research when findings already exist, and
-extend `## Open Questions` with the redirect's questions. Absent an existing
-plan.md (the first step-3 pass), append nothing — this adds **no** new fan-out
-site, only a marker on the existing Discovery exemption.
-
-**Epic-membership threading.** Before invoking `/flow-product-planning`, check
-whether this pipeline was launched from an epic. `.epic` is stored as an
-object (`{ "slug": ..., "featureId": ... }`), so format it into the
-documented `<slug>/<featureId>` token rather than emitting the raw JSON:
-
-```bash
-jq -r '.epic | if type == "object" then "\(.slug)/\(.featureId)" else empty end' ~/.flow/state/<slug>.json
-```
-
-When non-empty, append an `EPIC: <slug>/<featureId> (design at
-.flow/epics/<slug>/design.md)` marker line to the `/flow-product-planning`
-invocation through the **same append channel** as `MODEL_PLANNING:` /
-`RESEARCH:` / `REVISION:` above — a marker on the existing Discovery
-exemption, **no** new fan-out site. The spawn template forwards it via the
-`{{EPIC_OVERRIDE}}` block (`flow-product-planning/SKILL.md`); discovery's step 1.7
-treats the marker as the PRIMARY epic-membership detection signal (the
-description pointer and manifest scan are fallbacks for manually launched
-pipelines). Absent or empty `.epic` ≡ not epic-launched — append nothing.
+- **Per-phase model (planning) threading** — append `MODEL_PLANNING: <alias>`
+  when `state.modelPlanning` / `config.models.planning` resolves non-empty
+  ([references/model-routing.md](references/model-routing.md)).
+- **Force-on threading (mandatory)** — when `state.forceResearch == true`,
+  append `RESEARCH: force-on (flow feature create --research)`.
+- **Revision-pass threading (on step-3 re-entry)** — when
+  `<worktree>/.flow-tmp/plan.md` already exists, append `REVISION: <n>` so
+  discovery runs its Revision pass mode.
+- **Epic-membership threading** — when `.epic` is set, append
+  `EPIC: <slug>/<featureId> (design at .flow/epics/<slug>/design.md)`.
 
 **Deterministic forced research (mandatory on the forced path).** The
-discovery subagent's own Step 1.5 was observed to skip the fan-out even
-when forced, so on the `forceResearch == true` path you MUST ALSO run the
-research deterministically yourself, BEFORE invoking `/flow-product-planning`:
-
-```bash
-flow-research-run --task "<verbatim user description>" \
-  --out "$WORKTREE/.flow-tmp/research-findings.md" \
-  --status-file "$WORKTREE/.flow-tmp/research-status.json"
-```
-
-This bounded gather+refute agy fan-out self-degrades to a graceful skip
-when agy is unavailable and NEVER blocks planning. Then, when
-`$WORKTREE/.flow-tmp/research-findings.md` exists and is non-empty, fold its
-contents into the `/flow-product-planning` invocation through the **same channel**
-as the ultimate goal and the `RESEARCH: force-on` marker, clearly labelled:
-
-```
-RESEARCH FINDINGS (web-grounded, pre-run by supervisor — use as prior context, do NOT re-run the fan-out):
-<contents of research-findings.md>
-```
-
-The discovery subagent reuses these findings rather than re-running the
-fan-out (avoiding double agy spend — see `discovery-instructions.md` (a0)).
-The non-forced (config-on) path is unchanged — it never calls
-`flow-research-run`; discovery's own Step 1.5 still owns research there.
+discovery subagent's own Step 1.5 was observed to skip the fan-out even when
+forced, so on the `forceResearch == true` path you MUST ALSO run the research
+yourself BEFORE invoking `/flow-product-planning`: probe
+`flow-module-status --check research` (non-zero ⇒ module deselected, notice
+already emitted — note the skip and proceed to planning appending nothing),
+then run `flow-research-run --task "<verbatim user description>" --out
+"$WORKTREE/.flow-tmp/research-findings.md" --status-file
+"$WORKTREE/.flow-tmp/research-status.json"`, folding non-empty findings into
+the invocation through the same channel, clearly labelled `RESEARCH FINDINGS
+(web-grounded, pre-run by supervisor — use as prior context, do NOT re-run
+the fan-out):`. This self-degrades to a graceful skip when agy is unavailable
+and NEVER blocks planning; full bash in
+[references/step3-threading.md](references/step3-threading.md#deterministic-forced-research-mandatory-on-the-forced-path).
 
 `/flow-product-planning` is a thin wrapper that spawns one **Independent
 Discovery Subagent** via the Task tool (exemption #2 in "Hard rules"
@@ -774,175 +715,76 @@ and how to force it (`flow feature create --research`). Reuse this
 read — do **not** open plan.md a second time.
 
 **Deterministic note backstop (mandatory, non-skippable).** The discovery
-subagent's `> [!NOTE]` is best-effort and has been observed to be skipped,
-so after the plan.md read ALWAYS run:
+subagent's `> [!NOTE]` is best-effort and has been observed to be skipped, so
+after the plan.md read ALWAYS run `flow-research-note ensure --plan-file
+"$WORKTREE/.flow-tmp/plan.md" --forced "$(jq -r '.forceResearch // false'
+~/.flow/state/<slug>.json)"` (idempotent; self-no-ops when research ran, the
+path was dormant, or a note already exists). When its stdout is non-empty,
+include that line **verbatim** in the 3-5 line chat summary. Full contract in
+[references/step3-threading.md](references/step3-threading.md#deterministic-note-backstop-mandatory-non-skippable).
 
-```bash
-flow-research-note ensure --plan-file "$WORKTREE/.flow-tmp/plan.md" \
-  --forced "$(jq -r '.forceResearch // false' ~/.flow/state/<slug>.json)"
-```
-
-This is idempotent and self-no-ops when research ran, when the path was
-dormant, and when the subagent already wrote a note. When its stdout is
-non-empty, include that line **verbatim** in the 3-5 line chat summary so
-the user always sees the research skip note.
-
-**Follow-up-reference consistency backstop (advisory, deterministic).**
-After the note backstop and BEFORE the cross-model plan review below, run the
-`flow-candidate-issues --lint` guard so a plan whose prose references a
-follow-up that is missing from `# Candidate follow-up issues` never ships
-silently — the exact drift an external reviewer caught in the econ-data run:
-
-```bash
-flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md"
-LINT_RC=$?
-```
-
-Exit 1 signals drift (the stdout JSON's `references[]` names each unresolved
-reference line); exit 0 is clean; exit 2 is a read error. This is
-**advisory and non-blocking** — on a non-zero exit, surface a one-line note in
-the 3-5 line chat summary (e.g. "follow-up-reference drift: plan prose
-references a follow-up missing from `# Candidate follow-up issues`") so the
-user can redirect at `plan-pending-review`; never block planning on it (the
-same "research/plan-review never block planning" invariant the cross-model
-review below honors).
+**Follow-up-reference consistency backstop (advisory, deterministic).** After
+the note backstop and BEFORE the cross-model plan review below, run
+`flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md"`
+(`LINT_RC=$?`) so a plan whose prose references a follow-up missing from
+`# Candidate follow-up issues` never ships silently. **Advisory and
+non-blocking** — a non-zero exit surfaces a one-line note in the chat
+summary, never blocks planning. Full contract in
+[references/step3-threading.md](references/step3-threading.md#follow-up-reference-consistency-backstop-advisory-deterministic).
 
 **Plan-shape backstop (advisory, deterministic).** Right after the
-follow-up-reference backstop above, independently lint the plan's shape —
-malformed plans are named in chat even when discovery's own self-check
-(`discovery-instructions.md`'s Verification checklist) was skipped:
-
-```bash
-if command -v flow-plan-lint >/dev/null 2>&1; then
-  flow-plan-lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md"
-  LINT_RC=$?
-else
-  LINT_RC=0   # helper not on PATH — skip silently (tolerant), per the contract below
-fi
-```
-
-Exit 0 is clean; exit 1 prints one named miss per line on stdout — surface a
-one-line note naming the misses in the 3-5 line chat summary; exit 2 is a
-read error — note-and-continue. **Advisory and non-blocking** — never block
-planning on it, and tolerant when the helper is missing from `PATH` (skip
-silently, mirroring discovery's own self-check contract).
+follow-up-reference backstop above, independently lint the plan's shape via
+`flow-plan-lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md"` when the helper
+is on `PATH` (tolerant skip otherwise) — malformed plans are named in chat
+even when discovery's own self-check was skipped. **Advisory and
+non-blocking**, same as above. Full contract in
+[references/step3-threading.md](references/step3-threading.md#plan-shape-backstop-advisory-deterministic).
 
 **Design-spec validation backstop (deterministic, advisory).** After the
 follow-up-reference consistency backstop above and BEFORE the cross-model
-plan review below, validate a frozen design spec before it reaches
-`plan-pending-review` — the net for a case discovery's own 1.6(c)
-self-validate should already have caught:
-
-```bash
-SPEC_RC=0
-DESIGN_SPEC_REASON=""
-if [ -f "$WORKTREE/.flow-tmp/design/spec.json" ]; then
-  DESIGN_SPEC_STDERR=$(flow-design-spec validate "$WORKTREE/.flow-tmp/design/spec.json" 2>&1 >/dev/null) || SPEC_RC=$?
-  if [ "$SPEC_RC" = "1" ]; then
-    DESIGN_SPEC_REASON=$(printf '%s' "$DESIGN_SPEC_STDERR" | jq -r '.reason')
-  elif [ "$SPEC_RC" != "0" ]; then
-    DESIGN_SPEC_REASON="spec.json unreadable: $(printf '%s' "$DESIGN_SPEC_STDERR" | head -n1)"
-  fi
-fi
-```
-
-This is **existence-gated**: a missing `.flow-tmp/design/spec.json` is a
-silent no-op — most pipelines have no design artifact. `SPEC_RC` and
-`DESIGN_SPEC_REASON` are initialized before the `if` block so a stale value
-from an earlier pipeline run in the same tmux window can never bleed into a
-later non-UI render, and the validate call is `set -e`-safe (`||
-SPEC_RC=$?` captures the exit code instead of exiting the shell on
-failure). Exit 0 is a silent pass. On exit 1 (schema-invalid spec), quote
-the stderr JSON's `reason` verbatim as a one-line note in the 3-5 line chat
-summary (worked example: "design spec invalid:
-`surfaces[0].assertions[1].properties` must be an object of string values —
-the mechanical tier is inert until fixed; redirect at plan-pending-review").
-On exit 2 (or any other non-zero exit — an unreadable or non-JSON
-spec.json, e.g. `flow-design-spec: spec at <path> is not valid JSON: ...`),
-surface the raw stderr line the same way instead of parsing it as JSON —
-this backstop surfaces both a schema-invalid (exit 1) AND an
-unreadable/corrupt (exit 2) spec. Either way, carry the same failure into
-the awaiting-approval gate render's `--why` string below (e.g. `--why "plan
-ready for review (intent=feature); design spec INVALID: <reason>"`), so the
-failure sits in the STATUS block the user reads to approve, not only a
-skimmable summary line (banner-blindness mitigation). It is **advisory and
-non-blocking** — never a `NEEDS HUMAN` halt — same "deterministic step-3
-checks never block planning" invariant as the candidate-issues lint above.
+plan review below, run `flow-design-spec validate` against
+`.flow-tmp/design/spec.json` when present (existence-gated no-op otherwise).
+On exit 1/2, capture the reason into `DESIGN_SPEC_REASON` and surface it in
+both the chat summary and the awaiting-approval gate's `--why` string below
+(`design spec INVALID: $DESIGN_SPEC_REASON`) — never a `NEEDS HUMAN` halt.
+Full bash + worked example in
+[references/step3-threading.md](references/step3-threading.md#design-spec-validation-backstop-deterministic-advisory).
 
 **Cross-model plan review (Layer 2, optional, config-gated).** After the
 note backstop above and BEFORE the End conditions branch below, run one
-independent cross-model review of the plan's consequential decisions. This
-fires for **ANY** intent (a bug/refactor plan can carry a consequential
-decision too), positioned before the feature/non-feature end-condition split.
-It is a Bash `flow-delegate` (AGY) fan-out — the same mechanism as
-`/flow-pr-review`'s Gemini lens — and spawns **no Task** (see Hard rules'
-"Bash fan-out, not a tenth exemption" sibling note). Two-part gate, both
-human-readable:
+independent cross-model review of the plan's consequential decisions —
+fires for **ANY** intent, before the feature/non-feature end-condition
+split. Bash `flow-delegate` (AGY) fan-out, same mechanism as
+`/flow-pr-review`'s Gemini lens, spawns **no Task** (Hard rules' "Bash
+fan-out, not a tenth exemption"). Three-part gate: `review.gemini == true`
+in `~/.flow/config.json` (same key the Gemini lens uses), AND a non-empty
+`## Decision analysis` section in plan.md, AND
+`flow-module-status --check research` passing (`flow-plan-review` is a
+`research` helper; the check emits its own named notice); when **any** part
+fails, record the reason in the chat summary and skip this sub-step unchanged.
 
-```bash
-jq -e '(.review | type == "object") and (.review.gemini == true)' ~/.flow/config.json \
-  && grep -q '^## Decision analysis' "$WORKTREE/.flow-tmp/plan.md"
-```
+When all three fire, run `flow-plan-review --plan-file
+"$WORKTREE/.flow-tmp/plan.md" --out "$WORKTREE/.flow-tmp/plan-review.md"`
+and branch on the `{ran}` envelope (never the exit code): `ran:false`
+records `skipReason` and proceeds unchanged (graceful no-op, e.g. agy
+unavailable); `ran:true` weighs each material AGY point as INPUT (never
+a verdict), revises plan.md **once** where warranted, and appends a
+`### Cross-model review (AGY)` subsection recording each point
+**accepted** or **overridden**. Then embed the marker hash — run
+`flow-plan-review --print-hash --plan-file "$WORKTREE/.flow-tmp/plan.md"`
+on the FINAL revised plan (never the pre-revision envelope hash, which
+would falsely re-fire the next pass) and embed its stdout as
+`<!-- flow-plan-review-hash: <sha> -->` inside the appended subsection.
 
-The config half reuses the SAME `review.gemini` opt-in that gates the
-`/flow-pr-review` Gemini lens (no new config key); the section half is the
-omit-when-empty `## Decision analysis` Layer-1 section — its absence means
-discovery found no consequential diverging decision, so there is nothing to
-cross-review. When **either** half fails, skip this sub-step and proceed to End
-conditions unchanged.
-
-When both fire, run ONE review and branch on the helper's `{ran}` envelope
-(NEVER the exit code):
-
-```bash
-flow-plan-review --plan-file "$WORKTREE/.flow-tmp/plan.md" \
-  --out "$WORKTREE/.flow-tmp/plan-review.md"
-```
-
-- `ran:false` → record the `skipReason` in the chat summary and proceed
-  unchanged (a graceful no-op — e.g. `agy-not-found` when agy is absent or
-  logged out). No revision, no reconciliation subsection.
-- `ran:true` → read `plan-review.md` and weigh EACH material AGY point against
-  the codebase context you hold. flow holds the most context; AGY is a
-  different model with less — its output is **INPUT you weigh, NOT a verdict**.
-  Revise plan.md **once** where a point is warranted, then append a
-  `### Cross-model review (AGY)` subsection under `## Decision analysis`
-  recording each material point as **accepted** (naming the revision made) or
-  **overridden** (with a one-line rationale — exactly how Step 1.5 treats
-  refuted research claims). Then compute the marker hash over the **FINAL**
-  plan — after the revision and the appended subsection are written — by running
-
-  ```bash
-  flow-plan-review --print-hash --plan-file "$WORKTREE/.flow-tmp/plan.md"
-  ```
-
-  and embed its stdout as a `<!-- flow-plan-review-hash: <sha> -->` marker line
-  inside that appended subsection, so a later revision pass can detect whether
-  `## Decision analysis` materially changed. Use `--print-hash`, **not** the
-  `ran:true` envelope's hash: the envelope hash is computed over the
-  pre-revision body, so embedding it would leave a stale marker that falsely
-  re-fires the review on the very next pass (safe direction — never a wrong-skip
-  — but it defeats the `decision-analysis-unchanged` skip for exactly the plans
-  that got a cross-model review plus a revision). The marker sits inside the
-  `### Cross-model review (AGY)` subsection, which the hash **excludes**, so
-  embedding it after computing the hash does not invalidate it.
-
-This is a **bounded single-pass per step-3 pass**: at most one review and one
-revision each pass — NOT an unbounded critic/revise loop within a pass.
-**Re-fire across passes (revision/redirect).** On a step-3 re-entry you re-run
-`flow-plan-review` unconditionally, but the helper re-fires the (agy-spending)
-review ONLY when `## Decision analysis` **materially changed** since the last
-reviewed revision: it hashes a normalized `## Decision analysis` body (excluding
-the `### Cross-model review (AGY)` subsection) and compares it to the
-`<!-- flow-plan-review-hash: <sha> -->` marker embedded on the prior pass,
-emitting `{ran:false, skipReason:"decision-analysis-unchanged"}` when they match
-(normalized, so incidental whitespace / bullet churn from an unrelated revision
-edit does not needlessly re-fire). On that skip, record a one-line rationale in
-the chat summary (e.g. "cross-model plan review skipped — `## Decision analysis`
-unchanged since the last reviewed revision") and proceed; do NOT hand-force a
-re-review. A missing/malformed marker re-fires (safe) and self-heals as the run
-re-embeds the hash. The plan-pending-review / advance end-condition below is
-unchanged; this sub-step only enriches plan.md before that gate fires.
+This is a **bounded single-pass per step-3 pass** — at most one review
+and one revision, not an unbounded loop. On re-entry the helper re-fires
+ONLY when `## Decision analysis` materially changed since the last
+reviewed revision, emitting `{ran:false,
+skipReason:"decision-analysis-unchanged"}` on a hash match; record that
+skip as a one-line chat-summary rationale and never hand-force a
+re-review. Full mechanics (the hash-embedding footgun, the
+normalized-diff re-fire detection) in
+[references/step3-threading.md](references/step3-threading.md#cross-model-plan-review-layer-2--re-fire-hashing-detail).
 
 **End conditions:**
 
@@ -960,15 +802,11 @@ unchanged; this sub-step only enriches plan.md before that gate fires.
     --plan-file "$WORKTREE/.flow-tmp/plan.md"
   ```
 
-  Then extract the block between `<!-- flow-echo-recap:start -->` and
-  `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM
-  as markdown bullets in your assistant message (prose, not tool output) — see
-  the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose)
-  subsection. At AWAITING APPROVAL no reviewable artifact exists yet, so
-  `flow-gate-summary --echo-prose` calls `renderEchoRecap({ planFile })`: the
-  block still carries the full bounded field set, but the plan-file path is the
-  only populated bullet — the PR URL and every review/CI/count field render the
-  literal `none`.
+  Then echo the recap per [Gate-stage echo-verbatim
+  recap](#gate-stage-echo-verbatim-recap---echo-prose). At AWAITING
+  APPROVAL no reviewable artifact exists yet, so `flow-gate-summary
+  --echo-prose` renders only the plan-file bullet — every other field
+  (PR URL, review/CI/count) is the literal `none`.
 
   The helper renders two markdown bullets as the **last** lines of
   the message — the worktree absolute path first, the plan file's
@@ -1093,11 +931,8 @@ unchanged; this sub-step only enriches plan.md before that gate fires.
       --plan-file "$WORKTREE/.flow-tmp/plan.md"
     ```
 
-    Then extract the block between `<!-- flow-echo-recap:start -->` and
-    `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM
-    as markdown bullets in your assistant message (prose, not tool output) — see
-    the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose)
-    subsection.
+    Then echo the recap per [Gate-stage echo-verbatim
+    recap](#gate-stage-echo-verbatim-recap---echo-prose).
 
     Then end the turn. The next turn re-enters at step 4 with the
     same affirmative/redirect/cancel/ambiguous branches as the
@@ -1182,14 +1017,11 @@ Branch on `.action`:
   write `flow-state-update --phase approval-pending-clarification`,
   end the turn. The next turn re-enters step 4.
 
-`AskUserQuestion` is the **only** Claude Code user-prompt primitive
-the supervisor calls — see "Hard rules" above for the
-narrow-and-named exemption that authorises this site (the same named
+`AskUserQuestion` is the **only** Claude Code user-prompt primitive the
+supervisor calls (see "Hard rules" for the exemption; the same named
 candidate-issues form also fires from step 3's non-feature
-`advance-to-step-5` sub-step). Other skills and steps may not invoke
-it. The decision to fire the form stays here in the supervisor;
-`flow-candidate-issues` is LLM-free parse/decide/flip only — it never
-calls `AskUserQuestion`.
+`advance-to-step-5` sub-step) — `flow-candidate-issues` itself is
+LLM-free parse/decide/flip only and never calls it.
 
 ### Auto-checkpoint sub-step
 
@@ -1225,11 +1057,9 @@ and resume into step 5 on a fresh, low-context session.
 
 On resume, Resume mode re-injects `checkpoint.md` and runs
 `flow-checkpoint --consume`; `flow-resume-decide` resolves
-`checkpoint-pending-clear` → step-5 (the approval → implement hand-off
-has no PR yet), so the fresh session re-enters at implement with the
-approval addenda folded in. No helper change is needed —
-`checkpoint-pending-clear` is a non-terminal phase the resume + hook
-machinery already handles.
+`checkpoint-pending-clear` → step-5, so the fresh session re-enters at
+implement with the approval addenda folded in (no helper change needed —
+it's a non-terminal phase the resume + hook machinery already handles).
 
 ## Step 5 — Implement
 
@@ -1538,9 +1368,11 @@ VERIFY_STATUS=$(jq -r '.verify_status' "$ARTIFACT_PATH")
 **Unverified-UI signal (user-visible, either branch).** When the artifact
 carries `ui_smoke: skipped` with a non-empty `ui_smoke_reason` (a UI diff
 that did not get browser-validated — MCP absent, launch/creds unresolvable,
-or a not-meaningful surface), upsert a user-visible line into the PR body as
-a sibling to the `> [!CAUTION]` verify block — idempotent, edit-in-place, do
-not stack — so a skipped UI diff is never silent:
+a not-meaningful surface, or a browser run whose screenshot save-path
+cascade was fully denied: `screenshots-unwritable`), upsert a user-visible
+line into the PR body as a sibling to the `> [!CAUTION]` verify block —
+idempotent, edit-in-place, do not stack — so a skipped UI diff is never
+silent:
 
   ```bash
   UI_SMOKE=$(jq -r '.ui_smoke // empty' "$ARTIFACT_PATH")
@@ -1554,7 +1386,25 @@ not stack — so a skipped UI diff is never silent:
   ```
 
   The same reason also flows into the gate summary's `WHY`/`NEXT ACTION`
-  where relevant; no new gate-summary status is introduced.
+  where relevant; no new gate-summary status is introduced. Also echo the
+  same "UI changed; browser validation did not run — `$UI_REASON`" note to
+  the user in-session (a plain assistant-message line, not only the PR-body
+  upsert above) so the gap is visible without opening the PR.
+
+**Surface UI screenshots.** Whether or not the unverified-UI signal fired,
+print every screenshot path the browser pass captured and confirmed on
+disk, so the user can click straight through to the image without leaving
+the session:
+
+  ```bash
+  jq -r '.ui_screenshots[]?' "$ARTIFACT_PATH" | while IFS= read -r p; do
+    [ -f "$p" ] && printf '%s\n' "$p"
+  done
+  ```
+
+  Print each surviving absolute path bare — one per line, no bullet
+  marker, no trailing punctuation (trailing punctuation breaks the
+  terminal's click-target auto-detection) — all of them, no cap.
 
 - **`exhausted`** → after three failed outer attempts, escalate
   `NEEDS HUMAN: verify-exhausted`. Surface the artifact's
@@ -1585,12 +1435,20 @@ Continue to step 7.
 
 **Phase:** `ci-wait`
 
+**Copilot-module precheck (before any of this).** Probe
+`flow-module-status --check copilot >/dev/null 2>&1` — non-zero means the
+`copilot` module is deselected (`flow-request-copilot` never on PATH): skip
+the request/classify subsection below (PR treated as declined), note the
+skip quietly, and invoke `flow-ci-wait` below with `--copilot-not-requested`
+(its self-guard prints the one user-facing notice — hence the discarded
+stderr). Full rationale in
+[references/polling-protocol.md](references/polling-protocol.md#copilot-module-precheck).
+
 **Copilot request decision (before the wait).** Copilot review is opt-in
-for non-trivial changes only. Decide whether to request it for this PR
-*before* invoking `flow-ci-wait`, so a declined PR can collapse the bot
-wait. The decision combines the per-pipeline `copilotReview` override
-(from state.json) with `flow-request-copilot`'s deterministic glob
-classifier:
+for non-trivial changes only; decide *before* invoking `flow-ci-wait`, so a
+declined PR can collapse the bot wait. The decision combines the
+per-pipeline `copilotReview` override (from state.json) with
+`flow-request-copilot`'s deterministic glob classifier:
 
 ```bash
 OVERRIDE=$(jq -r '.copilotReview // "auto"' ~/.flow/state/"$SLUG".json)
@@ -1620,35 +1478,28 @@ VERDICT=$(gh pr diff "$PR" --name-only \
 REQUESTED=$(printf '%s' "$VERDICT" | jq -r '.requestCopilot')
 ```
 
-`flow-ci-wait` consolidates the entire poll loop (presence checks →
-cadence ramp → 20-min wall-clock cap → 10-min Copilot timeout →
-CI/Copilot/PR-state decision matrix) into a single Bash call that returns
-one JSON verdict on stdout. The full contract (terminal-state taxonomy,
-cadence ramp, lowercased Copilot login, `not configured` overrides, the
-Copilot timeout relative to the first ci-terminal poll) lives in
-`references/polling-protocol.md` and is unit-tested at
-`bin/flow-ci-wait.test.ts`. Per-iteration progress is written to stderr so
-the stdout JSON is cleanly capturable.
+`flow-ci-wait` consolidates the entire poll loop (presence checks → cadence
+ramp → 20-min wall-clock cap → 10-min Copilot timeout → CI/Copilot/PR-state
+decision matrix) into a single Bash call returning one JSON verdict on
+stdout (per-iteration progress goes to stderr). Full contract in
+`references/polling-protocol.md`, unit-tested at `bin/flow-ci-wait.test.ts`.
 
 Append `--copilot-not-requested` to the `flow-ci-wait` call only when no
-Copilot review is coming. **Two** signals trigger it: the request decision
-was to **decline** (`$REQUESTED` is `false` — a trivial PR or the
-`bots.copilotSkipWait` budget short-circuit); or the verdict reports
-`copilotRequestable:false` (Copilot isn't available on this repo). Read
+Copilot review is coming — **two** signals: the request decision was to
+**decline** (`$REQUESTED` is `false` — trivial PR or the
+`bots.copilotSkipWait` budget short-circuit), or the verdict reports
+`copilotRequestable:false` (Copilot unavailable on this repo). Read
 `$REQUESTABLE` via `jq` alongside `$REQUESTED`; the verdict's `declineKind`
-field (`skip-wait` for the `bots.copilotSkipWait` budget toggle vs
-`skip-request` for an explicit `--override never` or an unqualifying glob
-class) makes the decline reason machine-checkable instead of string-sniffing
-`reason`.
+field (`skip-wait` vs `skip-request`) makes the decline reason
+machine-checkable instead of string-sniffing `reason`.
 
 A `requestSkipReason` (auto-review already enabled, so the helper skipped
 the redundant request) **deliberately does NOT** append the flag — the
-auto-review will still post, so the supervisor keeps waiting and picks it
-up via the historical/author-match path (only a genuine decline or
-unavailability should collapse the wait). The flag hard-forces
+auto-review will still post, so the supervisor keeps waiting and picks it up
+via the historical/author-match path. The flag hard-forces
 `copilotConfigured=false`, bypassing both the in-flight `reviewRequests`
-check and the historical-PR fallback; `$SKIP_REASON` is logged only, never
-a driver. A forced request (`--override always`) never yields a
+check and the historical-PR fallback; `$SKIP_REASON` is logged only, never a
+driver. A forced request (`--override always`) never yields a
 `requestSkipReason` — the POST always fires (the #260 fix).
 
 Launch the call (run the Bash tool with `run_in_background: true`):
@@ -1659,10 +1510,8 @@ rm -f "$VERDICT_FILE"   # clear any stale verdict from a prior CI cycle
 REQUESTABLE=$(printf '%s' "$VERDICT" | jq -r '.copilotRequestable // empty')
 SKIP_REASON=$(printf '%s' "$VERDICT" | jq -r '.requestSkipReason // empty')  # logged only; does NOT drive the flag
 NOT_REQUESTED_FLAG=""
-# Only a genuine decline ($REQUESTED=false: trivial PR or bots.copilotSkipWait
-# budget) or genuine unavailability ($REQUESTABLE=false) collapses the wait.
-# An auto-review skip ($SKIP_REASON set) keeps the wait so the auto-posted
-# Copilot review is still picked up.
+# Only a genuine decline ($REQUESTED=false) or genuine unavailability
+# ($REQUESTABLE=false) collapses the wait; an auto-review skip keeps it.
 if [ "$REQUESTED" = "false" ] || [ "$REQUESTABLE" = "false" ]; then
   NOT_REQUESTED_FLAG="--copilot-not-requested"
 fi
@@ -1773,6 +1622,20 @@ artifact to `<worktree>/.flow-tmp/fix-applier-result.json`; the
 wrapper reads it once and reuses the parsed object across its
 remaining steps. The supervisor never sees the per-finding fix
 prose, only `/flow-pr-review`'s brief return summary.
+
+**Surface UI screenshots (review-time).** `/flow-pr-review` Step 8c's
+browser pass (above) merges its captured screenshot paths into this same
+`fix-applier-result.json`'s `ui_screenshots[]` before this read, so mirror
+the same recipe used at step 6 against it:
+
+  ```bash
+  jq -r '.ui_screenshots[]?' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r p; do
+    [ -f "$p" ] && printf '%s\n' "$p"
+  done
+  ```
+
+  Print each surviving absolute path bare — one per line, no bullet
+  marker, no trailing punctuation — all of them, no cap.
 
 `/flow-pr-review` also spawns one **Independent Gatekeeper Subagent** via
 the Task tool (the seventh of the nine named Task-tool exemptions in
@@ -1920,108 +1783,66 @@ gate-override path below. See `references/auto-merge-rubric.md` "A
 
 After rendering the GATED block and writing `phase: gated`, arm a
 lightweight checkpoint so the user can `/clear` during manual validation
-without typing `/flow-checkpoint` first. `gated` routinely sits through
-several rounds of validation feedback plus small bug fixes while the
-supervisor carries a huge `/flow-pr-review` context the next fix does not
-need, so it is the highest-value context-clear point in the pipeline.
-**Non-clobbering:** only when `<worktree>/.flow-tmp/checkpoint.md` is
-absent or empty, write a minimal one-line pointer (e.g. `gated on PR
-#<pr> — feedback-mode checkpoint`); if the user already ran `/flow-checkpoint`
-at the gate, that file wins and is left untouched. Then arm the one-shot
-marker:
+without typing `/flow-checkpoint` first — `gated` is the highest-value
+context-clear point in the pipeline (it routinely sits through several
+rounds of feedback while the supervisor carries a huge `/flow-pr-review`
+context the next fix does not need). **Non-clobbering:** only when
+`<worktree>/.flow-tmp/checkpoint.md` is absent or empty, write a minimal
+one-line pointer (e.g. `gated on PR #<pr> — feedback-mode checkpoint`); a
+manual `/flow-checkpoint` at the gate wins and is left untouched. Then
+arm the one-shot marker:
 
 ```bash
 flow-checkpoint
 ```
 
-This is a **near-zero-residue** arm — unlike step 4's auto-checkpoint it
-flushes no approval state, only the pointer that lets the
-`SessionStart:clear` hook fire at `gated`. Add a one-line
-supervisor-prose nudge after the GATED render: **safe to `/clear` during
-validation — the pipeline auto-resumes** into feedback mode, because
-`flow-resume-decide` resolves `gated` + a checkpoint marker →
-`gated-feedback` (see Resume mode). A `gated` PR with no marker still
-`/clear`s to a blank session, unchanged. This arms a marker only; it
-grants no new merge authority — the gated verdict stays terminal per the
-paragraph above.
+This is a **near-zero-residue** arm — it flushes no approval state, only
+the pointer that lets `SessionStart:clear` fire at `gated`. Add a
+one-line nudge after the GATED render: **safe to `/clear` during
+validation — the pipeline auto-resumes** into feedback mode
+(`flow-resume-decide` resolves `gated` + a checkpoint marker →
+`gated-feedback`, see Resume mode). It grants no new merge authority —
+the gated verdict stays terminal.
 
 ### Gate override (post-verdict, opt-in)
 
-A `gated` run has ended, but the tmux window stays open. If the user then
-types a *new* instruction to merge the gated PR anyway, treat it as a
-mid-flight redirect and classify it per `references/redirect-handling.md`
-"Gate override". An override is authorised **only** when the instruction
-is all three of **fresh** (sent after the GATED block was surfaced),
-**unambiguous** (about merging this gated PR — bare "merge"/"ship it"/
-"lgtm" qualify; the `AskUserQuestion` form fired next is itself the
-conscious-confirmation step), and **in-context** (actually about this
-gate verdict, not inferred from an earlier instruction given for a
-different purpose). A stale or pre-verdict instruction never qualifies.
-The "unambiguous" test fails only on inputs that are not about merging
-at all (bare "cool", "thanks", "next").
+A `gated` run has ended, but the tmux window stays open. A *new*
+instruction to merge the gated PR anyway is a mid-flight redirect,
+classified per `references/redirect-handling.md` "Gate override" (full
+procedure, the `case`-statement bash, and the canonical anti-pattern this
+rule exists for live there). An override is authorised **only** when the
+instruction is all three of **fresh** (sent after the GATED block was
+surfaced), **unambiguous** (about merging this gated PR — bare
+"merge"/"ship it"/"lgtm" qualify; the `AskUserQuestion` form fired next
+is itself the conscious-confirmation step), and **in-context** (actually
+about this gate verdict, not inferred from an earlier instruction given
+for a different purpose). A stale or pre-verdict instruction never
+qualifies. The "unambiguous" test fails only on inputs that are not
+about merging at all (bare "cool", "thanks", "next").
 
 **Re-query the live gate first.** Before firing or refusing the
 override, always re-query the live verdict via `flow-gate-decide "$PR"`
-and branch on the result. The supervisor's local context may be stale:
-the user can tick `- [ ]` boxes in the PR body between the GATED render
-and their merge instruction, clearing the gate themselves. The re-query
-lets the supervisor distinguish "gate genuinely still applies, fire the
-override form" from "gate already cleared, proceed on the auto-merge
-path" — without it, the supervisor refuses an override that isn't
-needed.
+— the user may have ticked `- [ ]` boxes themselves between the GATED
+render and their instruction, clearing the gate. `auto-merge` ⇒ no
+override needed, route straight to step 10 (`flow-merge-guard` there
+re-confirms the cleared gate); `gated` ⇒ proceed to the confirmation
+below; any other decision ⇒ route per step 9's main decision table.
 
-```bash
-# 0. Re-query the live gate before deciding fire-form vs refuse-form.
-LIVE=$(flow-gate-decide "$PR")
-LIVE_DECISION=$(printf '%s' "$LIVE" | jq -r '.decision')
-case "$LIVE_DECISION" in
-  auto-merge)
-    # User cleared the gate themselves between the GATED render and
-    # their merge instruction. No override needed. Do NOT fire
-    # AskUserQuestion, do NOT call --record-override. Route directly
-    # to step 10's auto-merge path; flow-merge-guard there will
-    # re-confirm the cleared gate from the live body.
-    # supervisor: stop processing the override here and re-enter
-    # step 10's auto-merge path with the now-clean verdict.
-    return 0
-    ;;
-  gated)
-    # Gate genuinely still applies; proceed with the override
-    # decision per the softened "unambiguous" + retained "fresh" +
-    # retained "in-context" tests below.
-    ;;
-  merged-externally|closed-no-merge|escalate-heading-missing|escalate-gh-error)
-    # Route per the existing step 9 decision table above; the
-    # override flow does not apply.
-    # supervisor: handle per step 9's main decision table.
-    return 0
-    ;;
-esac
+When the three tests pass, fire exactly one `AskUserQuestion`
+confirmation naming the PR and the unchecked-step count (the named
+exemption in "Hard rules"); on an affirmative answer, run
+`flow-merge-guard "$PR" --record-override` and re-enter step 10 — the
+backstop there reads the token and lets the merge through. On any
+non-affirmative answer, or when the instruction fails the "fresh" or
+"in-context" test, do **not** fire the confirmation and do **not**
+record a token — re-render the GATED block via `flow-gate-summary
+--status gated ...`, restate that the verdict is terminal, and end. The
+PR stays `gated`.
 
-# 1. Confirm with the verdict in full view. This is the named
-#    AskUserQuestion exemption in "Hard rules" above.
-#    AskUserQuestion: "PR #<n> is gated — <N> Test Steps unverified
-#    (they may include functional checks). Merge anyway?"
-# 2. On an affirmative answer only, record the fresh-confirmation token:
-flow-merge-guard "$PR" --record-override
-# 3. Then re-enter step 10. The flow-merge-guard backstop there reads
-#    the token and lets the merge through.
-```
-
-On any non-affirmative answer — or when the instruction fails the
-"fresh" or "in-context" test, or the "unambiguous" test on an input
-that isn't about merging at all — do **not** fire the confirmation and
-do **not** record a token. Re-render the GATED block via
-`flow-gate-summary --status gated ...`, restate that the verdict is
-terminal, and end. The PR stays `gated`.
-
-**Step 10 needs no helper plumbing change.** The mechanical merge guard
-`flow-merge-guard` already re-fetches the live PR body via
-`fetchPrInputs` on every call (see `bin/flow-merge-guard.ts`'s `run()`
-entry — same `gh pr view` round-trip `flow-gate-decide` uses). The
-stale-verdict footgun this sub-step's step 0 closes is purely on the
-step 9 supervisor-prose decision path — step 10's backstop was already
-correct.
+**Step 10 needs no helper plumbing change.** `flow-merge-guard` already
+re-fetches the live PR body on every call (see `bin/flow-merge-guard.ts`'s
+`run()`), so the stale-verdict footgun the re-query above closes was
+purely on the step 9 supervisor-prose decision path.
 
 ## Step 10 — Merge
 
@@ -2164,11 +1985,14 @@ MERGE_RESOLVER_MODEL=$(jq -r '.modelMergeResolver // empty' ~/.flow/state/"$SLUG
 (cd "$WORKTREE" && git fetch origin "$BASE_BRANCH") || echo "warn: git fetch origin $BASE_BRANCH failed; resolver will retry the fetch in Step 2" >&2
 CONFLICTING_FILES=$(cd "$WORKTREE" && git diff --name-only --diff-filter=U)
 PR_DESCRIPTION=$(gh pr view "$PR" --json body -q .body)
+# Guarded agent resolution — contract in references/exemption-contracts.md (exemption #5)
+MERGE_RESOLVER_SUBAGENT=flow-merge-resolver
+[ -f ~/.claude/agents/flow-merge-resolver.md ] || { MERGE_RESOLVER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-merge-resolver → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
 ```
 
 See [references/merge-resolver-spawn-prompt.md](references/merge-resolver-spawn-prompt.md) for the verbatim spawn-prompt template (eight `{{...}}` placeholders). Fill the placeholders from the resolve-inputs block above before passing it to the Task tool.
 
-Make the Task call with `subagent_type: general-purpose`, the per-spawn
+Make the Task call with `subagent_type: $MERGE_RESOLVER_SUBAGENT`, the per-spawn
 `model: "$MERGE_RESOLVER_MODEL"` argument resolved above (precedence
 `--model-merge-resolver > config.models.mergeResolver > inherited`; when
 `$MERGE_RESOLVER_MODEL` is empty, omit `model:` so the resolver inherits the
@@ -2253,12 +2077,9 @@ else
   echo "Filed ${#FILED[@]} follow-up issues:"
   printf '  %s\n' "${FILED[@]}"
 fi
-# Capture the sweep's filed URLs + unfiled warnings to a flat file the
-# ## PIPELINE SNAPSHOT block reads as --filed-issues-file (a filed line is
-# `filed\t<url>`; an unfiled line is `unfiled\t<title>` — a bare `http…` line
-# is also accepted by the parser on the resume / hand-authored path). Truncate
-# first, then append each array guarded by a length check so an empty array
-# does not error.
+# Capture filed URLs + unfiled warnings to the flat file the ## PIPELINE
+# SNAPSHOT block reads as --filed-issues-file (filed\t<url> / unfiled\t<title>
+# lines; a bare http… line is also accepted on the resume path). Truncate first.
 : > "$WORKTREE/.flow-tmp/filed-issues.txt"
 if [ "${#FILED[@]}" -gt 0 ]; then printf 'filed\t%s\n' "${FILED[@]}" >> "$WORKTREE/.flow-tmp/filed-issues.txt"; fi
 if [ "${#WARN[@]}" -gt 0 ]; then printf 'unfiled\t%s\n' "${WARN[@]}" >> "$WORKTREE/.flow-tmp/filed-issues.txt"; fi
@@ -2328,11 +2149,8 @@ flow-notify --status merged --url "$PR_URL"
 flow-remove-worktree --delete-branch
 ```
 
-Then extract the block between `<!-- flow-echo-recap:start -->` and
-`<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as
-markdown bullets in your assistant message (prose, not tool output). See the
-[`### Gate-stage echo-verbatim recap (`--echo-prose`)`](#gate-stage-echo-verbatim-recap---echo-prose)
-subsection for the contract and the bounded field set.
+Then echo the recap per [Gate-stage echo-verbatim
+recap](#gate-stage-echo-verbatim-recap---echo-prose).
 
 The helper silently suppresses the FOLLOW-UPS slot when the follow-ups
 file is empty, so call sites do not stat the path first. End.
@@ -2696,14 +2514,11 @@ flow-state-update --phase needs-human
 flow-notify --status needs-human --reason "<reason>"
 ```
 
-On a POST-review escalation (a PR exists), after the helper runs, extract the
-block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->`
-from the helper output and echo it VERBATIM as markdown bullets in your assistant
-message (prose, not tool output) — see the
-[Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose)
-subsection. PRE-review escalations (triage-ambiguous, worktree-create-failed,
-plan-missing) have no PR/plan, so `ECHO_PROSE_ARGS` stays empty and no recap is
-emitted.
+On a POST-review escalation (a PR exists), after the helper runs, echo the
+recap per [Gate-stage echo-verbatim
+recap](#gate-stage-echo-verbatim-recap---echo-prose). PRE-review escalations
+(triage-ambiguous, worktree-create-failed, plan-missing) have no PR/plan, so
+`ECHO_PROSE_ARGS` stays empty and no recap is emitted.
 
 The helper looks up the `NEXT ACTION` text from
 `NEXT_ACTION_BY_REASON` in `bin/flow-gate-summary.ts` keyed off
@@ -2910,7 +2725,7 @@ After each phase transition:
   `/flow-pr-review`'s "Independent Multi-Agent Review",
   `/flow-product-planning`'s "Independent Discovery Subagent",
   `/flow-new-feature`'s "Independent Scout Subagent",
-  `/flow-pr-review`'s "Independent Fix-Applier Subagent",
+  `/flow-pr-review`'s "Fix-Applier Subagent",
   step 10's "Merge-Conflict Resolver Subagent",
   `/flow-coder`'s "Independent Edit-Applier Subagent",
   `/flow-pr-review`'s "Independent Gatekeeper Subagent",

@@ -57,6 +57,9 @@ import {
   FLOW_LAUNCH_SETTINGS_PATH,
 } from "./paths";
 import { installBaseBranchGuard } from "./base-branch-guard";
+import { resolveLauncherBackend, type LauncherId } from "./launcher-config";
+import { plainLaunch, plainResume, type PlainLaunchDeps } from "./launcher";
+import type { LivenessDeps } from "./liveness";
 
 /**
  * Bounded retry budget for the verified window launch. A single transient
@@ -225,9 +228,22 @@ export type FeatureOptions = {
    * the real ~/.flow and to assert the argv path.
    */
   launchSettingsPath?: string;
+  /**
+   * Explicit launcher backend from `--tmux` / `--no-tmux`. Wins over the
+   * pipeline's recorded `state.launcher` (resume) and the config `launcher`
+   * key. Absent ⇒ state > config > default-plain precedence.
+   */
+  launcher?: LauncherId;
+  /** tmux-on-PATH probe seam for launcher resolution (test only). */
+  tmuxOnPath?: () => boolean;
+  /** Plain-backend deps seam (spawn/isTTY/liveness — test only). */
+  plainDeps?: PlainLaunchDeps & { liveness?: LivenessDeps };
 };
 
-export function runNew(input: string, options: FeatureOptions = {}): number {
+export function runNew(
+  input: string,
+  options: FeatureOptions = {},
+): number | Promise<number> {
   if (options.resume) return runResume(input, options);
   return runFresh(input, options);
 }
@@ -244,7 +260,7 @@ export function runNew(input: string, options: FeatureOptions = {}): number {
 export function runFeatureCli(
   args: string[],
   options: FeatureOptions = {},
-): number {
+): number | Promise<number> {
   if (isHelpFlag(args[0])) {
     printVerbHelp("feature");
     return 0;
@@ -272,7 +288,10 @@ export function runFeatureCli(
  * straight through the byte-identical single-slug path (no preview), two or
  * more slugs preview the list and confirm once (unless -y/--yes).
  */
-function runResumeCli(rest: string[], options: FeatureOptions = {}): number {
+function runResumeCli(
+  rest: string[],
+  options: FeatureOptions = {},
+): number | Promise<number> {
   if (argsContainHelp(rest)) {
     printVerbHelp("feature");
     return 0;
@@ -285,6 +304,21 @@ function runResumeCli(rest: string[], options: FeatureOptions = {}): number {
   // autonomous-retry path). It's stripped from the slug list by the
   // `!a.startsWith("-")` filter below; detect it here to thread into options.
   const force = rest.includes("--force");
+  // --tmux / --no-tmux: per-run launcher override, mutually exclusive.
+  // Validated before any side-effect, mirroring runCreateCli.
+  const wantTmux = rest.includes("--tmux");
+  const wantNoTmux = rest.includes("--no-tmux");
+  if (wantTmux && wantNoTmux) {
+    console.error(
+      "flow feature resume: --tmux and --no-tmux are mutually exclusive.",
+    );
+    return 1;
+  }
+  const launcher: LauncherId | undefined = wantTmux
+    ? "tmux"
+    : wantNoTmux
+      ? "plain"
+      : options.launcher;
   const slugs = rest.filter(
     (a) => a !== "--yes" && a !== "-y" && !a.startsWith("-"),
   );
@@ -298,7 +332,7 @@ function runResumeCli(rest: string[], options: FeatureOptions = {}): number {
   // Single-slug resume routes straight through the UNCHANGED single-slug
   // path — no preview, no confirm — so its output stays byte-identical.
   if (deduped.length === 1) {
-    return runNew(deduped[0], { ...options, resume: true, force });
+    return runNew(deduped[0], { ...options, resume: true, force, launcher });
   }
   // Two or more slugs each spawn a Claude Code session: preview the count +
   // names and confirm once (unless --yes) before launching anything.
@@ -312,11 +346,25 @@ function runResumeCli(rest: string[], options: FeatureOptions = {}): number {
   }
   // Sequential launch (never concurrent) so tmux window creation stays
   // deterministic; per-slug validation/refusal is inherited from runResume.
+  // A plain-backend resume returns a Promise (the foreground child's exit is
+  // awaited); the step recursion sequences those without forcing the all-sync
+  // tmux path onto a Promise return.
   let failed = 0;
-  for (const slug of deduped) {
-    if (runNew(slug, { ...options, resume: true, force }) !== 0) failed += 1;
-  }
-  return failed > 0 ? 1 : 0;
+  const iter = deduped[Symbol.iterator]();
+  const step = (): number | Promise<number> => {
+    const next = iter.next();
+    if (next.done) return failed > 0 ? 1 : 0;
+    const r = runNew(next.value, { ...options, resume: true, force, launcher });
+    if (typeof r === "number") {
+      if (r !== 0) failed += 1;
+      return step();
+    }
+    return r.then((code) => {
+      if (code !== 0) failed += 1;
+      return step();
+    });
+  };
+  return step();
 }
 
 /**
@@ -324,7 +372,10 @@ function runResumeCli(rest: string[], options: FeatureOptions = {}): number {
  * any side-effect (slug computation, tmux window create, state file write),
  * parses + enum-validates the value flags, then dispatches to `runNew`.
  */
-function runCreateCli(args: string[], options: FeatureOptions = {}): number {
+function runCreateCli(
+  args: string[],
+  options: FeatureOptions = {},
+): number | Promise<number> {
   if (argsContainHelp(args)) {
     printVerbHelp("feature");
     return 0;
@@ -332,6 +383,23 @@ function runCreateCli(args: string[], options: FeatureOptions = {}): number {
   const noAutoMerge = args.includes("--no-auto-merge");
   const waitForCopilot = args.includes("--wait-for-copilot");
   const forceResearch = args.includes("--research");
+
+  // --tmux / --no-tmux: per-run launcher override, mutually exclusive.
+  // Validated here, before any side-effect (slug, state write), mirroring
+  // --slug's validate-before-state discipline.
+  const wantTmux = args.includes("--tmux");
+  const wantNoTmux = args.includes("--no-tmux");
+  if (wantTmux && wantNoTmux) {
+    console.error(
+      "flow feature create: --tmux and --no-tmux are mutually exclusive.",
+    );
+    return 1;
+  }
+  const launcher: LauncherId | undefined = wantTmux
+    ? "tmux"
+    : wantNoTmux
+      ? "plain"
+      : options.launcher;
 
   // --copilot-review <auto|always|never> is a VALUE flag. Validate the enum
   // here, before any side-effect (slug, tmux, writeState), so an invalid
@@ -550,12 +618,15 @@ function runCreateCli(args: string[], options: FeatureOptions = {}): number {
       return (
         a !== "--no-auto-merge" &&
         a !== "--wait-for-copilot" &&
-        a !== "--research"
+        a !== "--research" &&
+        a !== "--tmux" &&
+        a !== "--no-tmux"
       );
     })
     .join(" ");
   return runNew(description, {
     ...options,
+    launcher,
     noAutoMerge,
     waitForCopilot,
     forceResearch,
@@ -568,7 +639,10 @@ function runCreateCli(args: string[], options: FeatureOptions = {}): number {
   });
 }
 
-function runFresh(description: string, options: FeatureOptions): number {
+function runFresh(
+  description: string,
+  options: FeatureOptions,
+): number | Promise<number> {
   if (!description || description.trim() === "") {
     console.error("flow feature create: description is required.");
     console.error(
@@ -687,9 +761,61 @@ function runFresh(description: string, options: FeatureOptions): number {
   }
   const sessionModel = options.model ?? readDefaultModel(options.readConfig);
 
+  const makeBaseState = (launcher: LauncherId): PipelineState => ({
+    slug,
+    phase: "starting",
+    repo,
+    worktree: existing?.worktree,
+    autoMerge: options.noAutoMerge ? false : undefined,
+    waitForCopilot: options.waitForCopilot ? true : undefined,
+    forceResearch: options.forceResearch ? true : undefined,
+    copilotReview: options.copilotReview,
+    effort: options.effort,
+    model: sessionModel,
+    modelPlanning: options.modelPlanning,
+    modelImplement: options.modelImplement,
+    modelReview: options.modelReview,
+    modelVerify: options.modelVerify,
+    modelFixApplier: options.modelFixApplier,
+    modelConsolidator: options.modelConsolidator,
+    modelMergeResolver: options.modelMergeResolver,
+    epic: options.epic,
+    launcher,
+    updatedAt: nowIso(),
+  });
+  const existing = readState(slug, options.stateDir);
+
+  // Launcher dispatch: flag > config > default-plain (no state on a fresh
+  // launch). The collision detection above ran off the file signal, before
+  // either backend touched anything.
+  const backend = resolveLauncherBackend({
+    flag: options.launcher,
+    read: options.readConfig,
+    tmuxOnPath: options.tmuxOnPath,
+  });
+  if (backend.notice) console.error(dim(backend.notice));
+  if (backend.id === "plain") {
+    const plainCommand =
+      options.command ??
+      buildPlainCommand(worktree, options.effort, settingsPath, sessionModel);
+    writeState(makeBaseState("plain"), options.stateDir);
+    // plainLaunch owns the TTY guard, the flow:<slug> contract line, the
+    // pid/procStartedAt capture, and delete-on-fast-fail.
+    return plainLaunch(
+      { slug, repo, command: plainCommand, seed, stateDir: options.stateDir },
+      options.plainDeps,
+    ).then((r) => (r.status === "failed" ? 1 : 0));
+  }
+
   const command =
     options.command ??
-    buildLaunchCommand(worktree, options.effort, settingsPath, sessionModel);
+    buildLaunchCommand(
+      slug,
+      worktree,
+      options.effort,
+      settingsPath,
+      sessionModel,
+    );
 
   // Persist-then-verify-then-delete-on-failure: write state(phase=starting)
   // BEFORE the verified launch so the supervisor has a file to advance (its
@@ -699,7 +825,7 @@ function runFresh(description: string, options: FeatureOptions): number {
   // (launch !ok, Mode-2 vanish) rather than by the old write-after-verify order.
   // Pre-existing state for the same slug shouldn't happen because windowExists()
   // blocked above; if it does (e.g. external tmux reset), this write supersedes.
-  const existing = readState(slug, options.stateDir);
+  // (`existing` was read above, before the launcher dispatch.)
 
   // Re-establish the `starting` baseline at the START of EVERY launch attempt
   // (inside the retry closure), not once before the loop. `launchWithRetry`
@@ -712,28 +838,7 @@ function runFresh(description: string, options: FeatureOptions): number {
   // per attempt scopes consumption to THAT attempt. A retry only fires after a
   // killed/dead window, so no live supervisor races this rewrite.
   const launch = () => {
-    const baseState: PipelineState = {
-      slug,
-      phase: "starting",
-      repo,
-      worktree: existing?.worktree,
-      autoMerge: options.noAutoMerge ? false : undefined,
-      waitForCopilot: options.waitForCopilot ? true : undefined,
-      forceResearch: options.forceResearch ? true : undefined,
-      copilotReview: options.copilotReview,
-      effort: options.effort,
-      model: sessionModel,
-      modelPlanning: options.modelPlanning,
-      modelImplement: options.modelImplement,
-      modelReview: options.modelReview,
-      modelVerify: options.modelVerify,
-      modelFixApplier: options.modelFixApplier,
-      modelConsolidator: options.modelConsolidator,
-      modelMergeResolver: options.modelMergeResolver,
-      epic: options.epic,
-      updatedAt: nowIso(),
-    };
-    writeState(baseState, options.stateDir);
+    writeState(makeBaseState("tmux"), options.stateDir);
     // Verify the window's process actually stayed up AND consumed the seed (the
     // supervisor advanced state.json past `starting`) before keeping that
     // state. A bare `createWindow` only proves tmux forked the shell, and a
@@ -828,7 +933,10 @@ function runFresh(description: string, options: FeatureOptions): number {
   return 0;
 }
 
-function runResume(name: string, options: FeatureOptions): number {
+function runResume(
+  name: string,
+  options: FeatureOptions,
+): number | Promise<number> {
   if (!name || name.trim() === "") {
     console.error("flow feature resume: <name> is required.");
     console.error("usage: flow feature resume <name>");
@@ -868,6 +976,42 @@ function runResume(name: string, options: FeatureOptions): number {
     return 1;
   }
 
+  // Launcher dispatch: flag > the pipeline's recorded state.launcher >
+  // config > default-plain. Resolved before any tmux window probe so a
+  // plain pipeline resumes without tmux on PATH at all.
+  const backend = resolveLauncherBackend({
+    flag: options.launcher,
+    state: state.launcher,
+    read: options.readConfig,
+    tmuxOnPath: options.tmuxOnPath,
+  });
+  if (backend.notice) console.error(dim(backend.notice));
+  if (backend.id === "plain") {
+    const plainWorktree =
+      state.worktree ?? deriveWorktreePath(state.repo, slug);
+    const plainSettings = launchSettingsPathFor(options);
+    const plainCommand =
+      options.command ??
+      buildPlainCommand(
+        plainWorktree,
+        state.effort,
+        plainSettings,
+        state.model,
+      );
+    // plainResume owns the alive-refusal (a plain terminal cannot be
+    // reclaimed, --force included), the TTY guard, and the contract line.
+    return plainResume(
+      {
+        slug,
+        repo: state.repo,
+        command: plainCommand,
+        seed: flowPipelineResumeSeed(slug),
+        stateDir: options.stateDir,
+      },
+      { ...options.plainDeps, force: options.force },
+    ).then((r) => (r.status === "failed" ? 1 : 0));
+  }
+
   const exists = windowExists(slug);
   if (exists && isPaneAlive(slug)) {
     if (!options.force) {
@@ -900,7 +1044,7 @@ function runResume(name: string, options: FeatureOptions): number {
   const seed = flowPipelineResumeSeed(slug);
   const command =
     options.command ??
-    buildLaunchCommand(worktree, state.effort, settingsPath, state.model);
+    buildLaunchCommand(slug, worktree, state.effort, settingsPath, state.model);
   // Verify the relaunched process stays up AND consumes the resume seed, same as
   // the fresh path — a bare respawn/create exit code only proves tmux forked the
   // shell, and a claude idle at an empty input box passes a liveness probe. The
@@ -960,7 +1104,10 @@ function runResume(name: string, options: FeatureOptions): number {
         const current = readState(slug, options.stateDir);
         if (current != null) {
           const procStartedAt = pidStartEpoch(pid) ?? undefined;
-          writeState({ ...current, pid, procStartedAt }, options.stateDir);
+          writeState(
+            { ...current, pid, procStartedAt, launcher: "tmux" },
+            options.stateDir,
+          );
         }
       }
     }
@@ -1034,17 +1181,20 @@ export function deriveWorktreePath(repo: string, slug: string): string {
  * fallback, never blocking the pipeline.
  */
 function launchArgv(
+  slug: string,
   worktree: string,
   effort: EffortLevel | undefined,
   settingsPath: string,
   model?: ModelAlias,
 ): string[] {
-  // `env FLOW_PIPELINE=1` prefix: there is no env object on this launch path
-  // (the spawned claude inherits the parent env via tmux new-window), so the
-  // marker is injected as an argv prefix. It lets leaf skills like
-  // `/flow-research` detect they are running inside the supervisor and suppress
-  // their standalone-only `claude -p` fallback tier — the no-nested-LLM
-  // boundary the supervisor must never cross.
+  // `env FLOW_PIPELINE=1 FLOW_SLUG=<slug>` prefix: there is no env object on
+  // this launch path (the spawned claude inherits the parent env via tmux
+  // new-window), so the markers are injected as an argv prefix. FLOW_PIPELINE
+  // lets leaf skills like `/flow-research` detect they are running inside the
+  // supervisor and suppress their standalone-only `claude -p` fallback tier —
+  // the no-nested-LLM boundary the supervisor must never cross. FLOW_SLUG is
+  // the backend-agnostic ambient slug for helpers/hooks
+  // (`resolveSlugAmbient`), env-first over the tmux pane's `@flow-slug`.
   //
   // No positional seed: the seed is delivered ONLY via send-keys (the verified
   // launcher owns it), since claude does not auto-run a positional prompt — the
@@ -1054,21 +1204,33 @@ function launchArgv(
   //
   // `--model` precedes `--effort` (both before `--settings`) in a deterministic
   // order so the argv assertions stay stable. Each is omitted when unset.
-  //
-  // Two `--add-dir` entries, deterministic order (worktree first, skills home
-  // second): the worktree is the pipeline's working dir; the skills home
-  // (`~/.flow/claude-home`) is where flow's skills now live (no longer in the
-  // global `~/.claude/skills/`), so the supervisor session must add it to keep
-  // `/flow-pipeline` and the sub-skills it loads.
-  const base = [
+  return [
     "env",
     "FLOW_PIPELINE=1",
-    "claude",
-    "--add-dir",
-    worktree,
-    "--add-dir",
-    FLOW_CLAUDE_HOME,
+    `FLOW_SLUG=${slug}`,
+    ...claudeArgv(worktree, effort, settingsPath, model),
   ];
+}
+
+/**
+ * The bare claude argv (no `env` prefix) shared by both backends: the tmux
+ * path wraps it in the `env FLOW_PIPELINE=1 FLOW_SLUG=<slug>` argv prefix
+ * (launchArgv above); the plain path passes it to `plainLaunch`, which sets
+ * the same markers via a real env object on the spawned child.
+ *
+ * Two `--add-dir` entries, deterministic order (worktree first, skills home
+ * second): the worktree is the pipeline's working dir; the skills home
+ * (`~/.flow/claude-home`) is where flow's skills now live (no longer in the
+ * global `~/.claude/skills/`), so every launched session must add it to keep
+ * `/flow-pipeline` and the sub-skills it loads.
+ */
+function claudeArgv(
+  worktree: string,
+  effort: EffortLevel | undefined,
+  settingsPath: string,
+  model?: ModelAlias,
+): string[] {
+  const base = ["claude", "--add-dir", worktree, "--add-dir", FLOW_CLAUDE_HOME];
   const withModel = model ? [...base, "--model", model] : base;
   const withEffort = effort ? [...withModel, "--effort", effort] : withModel;
   return [...withEffort, "--settings", settingsPath];
@@ -1154,6 +1316,7 @@ function launchSettingsPathFor(options: FeatureOptions): string {
  * skill is invoked by the chat session itself; this argv just launches claude.
  */
 function buildLaunchCommand(
+  slug: string,
   worktree: string,
   effort: EffortLevel | undefined,
   settingsPath: string,
@@ -1168,7 +1331,31 @@ function buildLaunchCommand(
       ),
     );
   }
-  return launchArgv(worktree, effort, settingsPath, model);
+  return launchArgv(slug, worktree, effort, settingsPath, model);
+}
+
+/**
+ * The plain-backend launch argv: same hook registration side-effect as
+ * buildLaunchCommand, but the bare claude argv — `plainLaunch` sets
+ * FLOW_PIPELINE/FLOW_SLUG via a real env object on the spawned child, so no
+ * `env` argv prefix is needed.
+ */
+function buildPlainCommand(
+  worktree: string,
+  effort: EffortLevel | undefined,
+  settingsPath: string,
+  model?: ModelAlias,
+): string[] {
+  try {
+    ensureLaunchSettings(settingsPath);
+  } catch (err) {
+    process.stderr.write(
+      dim(
+        `flow feature create: could not write launch settings: ${err instanceof Error ? err.message : String(err)}\n`,
+      ),
+    );
+  }
+  return claudeArgv(worktree, effort, settingsPath, model);
 }
 
 /**

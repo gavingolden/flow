@@ -122,8 +122,8 @@ function setup(
 }
 
 describe("flow install", () => {
-  it("creates symlinks for every skill, agent, and helper from a fresh state", () => {
-    const summary = setup();
+  it("creates symlinks for every skill, agent, and helper from a fresh state", async () => {
+    const summary = await setup();
 
     expect(summary.created).toBeGreaterThan(0);
     expect(summary.blocked).toBe(0);
@@ -146,15 +146,15 @@ describe("flow install", () => {
     );
   });
 
-  it("strips the .ts extension when symlinking helpers", () => {
-    setup();
+  it("strips the .ts extension when symlinking helpers", async () => {
+    await setup();
     const t = targets();
     expect(fs.existsSync(path.join(t.binDir, "flow-helper"))).toBe(true);
     expect(fs.existsSync(path.join(t.binDir, "flow-helper.ts"))).toBe(false);
   });
 
-  it("excludes test files from helper discovery", () => {
-    setup();
+  it("excludes test files from helper discovery", async () => {
+    await setup();
     const t = targets();
     expect(fs.existsSync(path.join(t.binDir, "flow-helper.test"))).toBe(false);
   });
@@ -239,8 +239,8 @@ describe("flow install", () => {
     expect(discoverValidators(flowSource, targets())).toEqual([]);
   });
 
-  it("writes a manifest recording every symlink it created", () => {
-    setup();
+  it("writes a manifest recording every symlink it created", async () => {
+    await setup();
     const manifest = readManifest(manifestPath);
     const targets_ = manifest.symlinks.map((s) => path.basename(s.target));
     expect(targets_).toContain("alpha");
@@ -257,20 +257,20 @@ describe("flow install", () => {
     expect(targets_).not.toContain("flow-foo-schema");
   });
 
-  it("is idempotent: a second run produces only 'exists' results", () => {
-    setup();
-    const second = setup();
+  it("is idempotent: a second run produces only 'exists' results", async () => {
+    await setup();
+    const second = await setup();
     expect(second.created).toBe(0);
     expect(second.updated).toBe(0);
     expect(second.skipped).toBeGreaterThan(0);
   });
 
-  it("blocks non-symlink files at the target without --force", () => {
+  it("blocks non-symlink files at the target without --force", async () => {
     const t = targets();
     fs.mkdirSync(t.skillsDir, { recursive: true });
     // Pretend the user has authored their own 'alpha' skill at the target.
     fs.writeFileSync(path.join(t.skillsDir, "alpha"), "user content");
-    const summary = setup();
+    const summary = await setup();
     expect(summary.blocked).toBeGreaterThan(0);
     // Real file untouched.
     expect(fs.readFileSync(path.join(t.skillsDir, "alpha"), "utf8")).toBe(
@@ -278,20 +278,20 @@ describe("flow install", () => {
     );
   });
 
-  it("--force replaces a non-symlink file at the target", () => {
+  it("--force replaces a non-symlink file at the target", async () => {
     const t = targets();
     fs.mkdirSync(t.binDir, { recursive: true });
     fs.writeFileSync(path.join(t.binDir, "flow-helper"), "old content");
-    const summary = setup({ force: true });
+    const summary = await setup({ force: true });
     expect(summary.blocked).toBe(0);
     expect(
       fs.lstatSync(path.join(t.binDir, "flow-helper")).isSymbolicLink(),
     ).toBe(true);
   });
 
-  it("--upgrade reaps orphan symlinks recorded in a previous manifest", () => {
+  it("--upgrade reaps orphan symlinks recorded in a previous manifest", async () => {
     // First install — alpha + beta exist.
-    setup();
+    await setup();
     const t = targets();
 
     // Drop alpha from the source tree.
@@ -300,28 +300,30 @@ describe("flow install", () => {
     });
 
     // Re-run with --upgrade.
-    const summary = setup({ upgrade: true });
+    const summary = await setup({ upgrade: true });
     expect(summary.removed).toBe(1);
     expect(fs.existsSync(path.join(t.skillsDir, "alpha"))).toBe(false);
     expect(fs.existsSync(path.join(t.skillsDir, "beta"))).toBe(true);
   });
 
-  it("acquires the setup lock and releases it on success", () => {
-    setup();
+  it("acquires the setup lock and releases it on success", async () => {
+    await setup();
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 
-  it("times out instead of stomping when another live process holds the setup lock", () => {
+  it("times out instead of stomping when another live process holds the setup lock", async () => {
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
     fs.writeFileSync(lockPath, String(process.pid));
-    expect(() => setup({ lockTimeoutMs: 200 })).toThrow(LockTimeoutError);
+    await expect(setup({ lockTimeoutMs: 200 })).rejects.toThrow(
+      LockTimeoutError,
+    );
     fs.unlinkSync(lockPath);
   });
 
-  it("reclaims a stale setup lock left by a dead process", () => {
+  it("reclaims a stale setup lock left by a dead process", async () => {
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
     fs.writeFileSync(lockPath, String(pickDeadPid()));
-    const summary = setup({ lockTimeoutMs: 1000 });
+    const summary = await setup({ lockTimeoutMs: 1000 });
     expect(summary.created).toBeGreaterThan(0);
     expect(fs.existsSync(lockPath)).toBe(false);
   });
@@ -336,8 +338,8 @@ describe("flow install", () => {
       fs.writeFileSync(rcPath(name), contents);
     }
 
-    it("symlinks completion scripts into ~/.flow/completions/", () => {
-      setup();
+    it("symlinks completion scripts into ~/.flow/completions/", async () => {
+      await setup();
       const completionsDir = targets().completionsDir;
       expect(
         fs.lstatSync(path.join(completionsDir, "flow.bash")).isSymbolicLink(),
@@ -347,8 +349,8 @@ describe("flow install", () => {
       ).toBe(true);
     });
 
-    it("records completion symlinks in the manifest with kind 'completion'", () => {
-      setup();
+    it("records completion symlinks in the manifest with kind 'completion'", async () => {
+      await setup();
       const manifest = readManifest(manifestPath);
       const completionEntries = manifest.symlinks.filter(
         (s) => s.kind === "completion",
@@ -358,9 +360,9 @@ describe("flow install", () => {
       ).toEqual(["flow.bash", "flow.zsh"]);
     });
 
-    it("inserts the managed block into ~/.zshrc when it exists", () => {
+    it("inserts the managed block into ~/.zshrc when it exists", async () => {
       seedRc(".zshrc", "alias ll='ls -la'\n");
-      setup();
+      await setup();
       const after = fs.readFileSync(rcPath(".zshrc"), "utf8");
       expect(after).toContain("# managed by flow completions");
       expect(after).toContain("flow.zsh");
@@ -369,65 +371,65 @@ describe("flow install", () => {
       expect(after).toContain("alias ll='ls -la'");
     });
 
-    it("inserts the managed block into ~/.bashrc when it exists", () => {
+    it("inserts the managed block into ~/.bashrc when it exists", async () => {
       seedRc(".bashrc", "export EDITOR=vim\n");
-      setup();
+      await setup();
       const after = fs.readFileSync(rcPath(".bashrc"), "utf8");
       expect(after).toContain("# managed by flow completions");
       expect(after).toContain("flow.bash");
     });
 
-    it("inserts the managed block into ~/.bash_profile when it exists", () => {
+    it("inserts the managed block into ~/.bash_profile when it exists", async () => {
       seedRc(".bash_profile", "# bash login config\n");
-      setup();
+      await setup();
       const after = fs.readFileSync(rcPath(".bash_profile"), "utf8");
       expect(after).toContain("# managed by flow completions");
       expect(after).toContain("flow.bash");
     });
 
-    it("does not create rc files that don't already exist", () => {
-      setup();
+    it("does not create rc files that don't already exist", async () => {
+      await setup();
       expect(fs.existsSync(rcPath(".zshrc"))).toBe(false);
       expect(fs.existsSync(rcPath(".bashrc"))).toBe(false);
       expect(fs.existsSync(rcPath(".bash_profile"))).toBe(false);
     });
 
-    it("is idempotent: a second run leaves rc files byte-identical to the first", () => {
+    it("is idempotent: a second run leaves rc files byte-identical to the first", async () => {
       seedRc(".zshrc", "alias ll='ls -la'\n");
-      setup();
+      await setup();
       const afterFirst = fs.readFileSync(rcPath(".zshrc"), "utf8");
-      setup();
+      await setup();
       const afterSecond = fs.readFileSync(rcPath(".zshrc"), "utf8");
       expect(afterSecond).toBe(afterFirst);
     });
 
-    it("--no-completions on a fresh run does not edit any rc file", () => {
+    it("--no-completions on a fresh run does not edit any rc file", async () => {
       seedRc(".zshrc", "alias ll='ls -la'\n");
       const before = fs.readFileSync(rcPath(".zshrc"), "utf8");
-      setup({ noCompletions: true });
+      await setup({ noCompletions: true });
       const after = fs.readFileSync(rcPath(".zshrc"), "utf8");
       expect(after).toBe(before);
     });
 
-    it("--no-completions on a system that already has the block removes it cleanly", () => {
+    it("--no-completions on a system that already has the block removes it cleanly", async () => {
       const original = "alias ll='ls -la'\nexport EDITOR=vim\n";
       seedRc(".zshrc", original);
-      setup();
+      await setup();
       // Block is present after first run.
       expect(fs.readFileSync(rcPath(".zshrc"), "utf8")).toContain(
         "# managed by flow completions",
       );
       // Run again with --no-completions; rc returns to pre-install state.
-      setup({ noCompletions: true });
+      await setup({ noCompletions: true });
       expect(fs.readFileSync(rcPath(".zshrc"), "utf8")).toBe(original);
     });
 
-    it("--upgrade reaps an orphaned completion symlink when source is gone", () => {
-      setup();
+    it("--upgrade reaps an orphaned completion symlink when source is gone", async () => {
+      await setup();
       const completionsDir = targets().completionsDir;
       // Remove the bash script from the source — its target should be reaped.
       fs.rmSync(path.join(flowSource, "completions", "flow.bash"));
-      const summary = setup({ upgrade: true });
+      const summary = await setup({ upgrade: true });
       expect(summary.removed).toBeGreaterThanOrEqual(1);
       expect(fs.existsSync(path.join(completionsDir, "flow.bash"))).toBe(false);
       // Zsh script still installed.
@@ -435,8 +437,8 @@ describe("flow install", () => {
     });
   });
 
-  it("--upgrade refuses to delete an unmanaged symlink (points outside flow source)", () => {
-    setup();
+  it("--upgrade refuses to delete an unmanaged symlink (points outside flow source)", async () => {
+    await setup();
     const t = targets();
 
     // Manually replace alpha with a symlink to /tmp (not under flow source).
@@ -449,21 +451,21 @@ describe("flow install", () => {
       recursive: true,
     });
 
-    const summary = setup({ upgrade: true });
+    const summary = await setup({ upgrade: true });
     expect(summary.removed).toBe(0); // refused — replacement still resolves
     expect(fs.existsSync(path.join(t.skillsDir, "alpha"))).toBe(true);
 
     fs.rmSync(userTarget, { recursive: true, force: true });
   });
 
-  it("--upgrade reaps a dangling user-replaced symlink at our managed target", () => {
+  it("--upgrade reaps a dangling user-replaced symlink at our managed target", async () => {
     // Documents the relaxed-reaper's deliberate aggressive behavior: when an
     // on-disk symlink at a target we recorded in the manifest no longer
     // resolves to *anything* on disk, it gets reaped — regardless of whether
     // the dangling pointer was something we wrote or something the user
     // replaced ours with. The user-replacement-still-resolves case is
     // preserved by the test above.
-    setup();
+    await setup();
     const t = targets();
 
     // User replaces our `alpha` symlink with their own pointing somewhere else.
@@ -478,7 +480,7 @@ describe("flow install", () => {
     // And remove the user's replacement target so the symlink is dangling.
     fs.rmSync(userTarget, { recursive: true, force: true });
 
-    const summary = setup({ upgrade: true });
+    const summary = await setup({ upgrade: true });
     expect(summary.removed).toBeGreaterThanOrEqual(1);
     expect(fs.existsSync(path.join(t.skillsDir, "alpha"))).toBe(false);
   });
@@ -519,13 +521,13 @@ describe("flow install", () => {
       return n;
     }
 
-    it("registers the Stop hook entry on a fresh setup", () => {
-      setup();
+    it("registers the Stop hook entry on a fresh setup", async () => {
+      await setup();
       expect(countFlowStopEntries()).toBe(1);
     });
 
-    it("registers the SessionStart:clear hook on a fresh setup, absent under --no-hooks", () => {
-      setup();
+    it("registers the SessionStart:clear hook on a fresh setup, absent under --no-hooks", async () => {
+      await setup();
       expect(countFlowSessionStartEntries()).toBe(1);
       const settings = readSettings() as {
         hooks?: { SessionStart?: Array<{ matcher?: string }> };
@@ -535,11 +537,11 @@ describe("flow install", () => {
       // --no-hooks never touches settings.json (asserted here fresh: the
       // afterEach tears the whole home dir down, so a separate run has no file).
       fs.rmSync(settingsPath(), { force: true });
-      setup({ noHooks: true });
+      await setup({ noHooks: true });
       expect(fs.existsSync(settingsPath())).toBe(false);
     });
 
-    it("preserves user-authored Stop hook entries when registering", () => {
+    it("preserves user-authored Stop hook entries when registering", async () => {
       fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
       fs.writeFileSync(
         settingsPath(),
@@ -556,7 +558,7 @@ describe("flow install", () => {
           },
         }),
       );
-      setup();
+      await setup();
       const got = readSettings() as {
         theme: string;
         hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> };
@@ -569,32 +571,32 @@ describe("flow install", () => {
       expect(got.hooks.Stop[1].hooks[0].command).toBe("flow-stop-guard");
     });
 
-    it("is idempotent: re-running setup does not duplicate the entry", () => {
-      setup();
-      setup();
-      setup();
+    it("is idempotent: re-running setup does not duplicate the entry", async () => {
+      await setup();
+      await setup();
+      await setup();
       expect(countFlowStopEntries()).toBe(1);
     });
 
-    it("--no-hooks skips the merge entirely", () => {
-      setup({ noHooks: true });
+    it("--no-hooks skips the merge entirely", async () => {
+      await setup({ noHooks: true });
       expect(fs.existsSync(settingsPath())).toBe(false);
     });
 
-    it("--no-hooks does not flag a pre-existing malformed settings.json as a validation failure", () => {
+    it("--no-hooks does not flag a pre-existing malformed settings.json as a validation failure", async () => {
       // Regression: when the user passes --no-hooks, flow never touched
       // settings.json this run. A malformed file there is a pre-existing
       // condition, not a flow-induced regression — it must not block exit.
       fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
       fs.writeFileSync(settingsPath(), "{not valid json");
-      const summary = setup({ noHooks: true });
+      const summary = await setup({ noHooks: true });
       expect(summary.validationFailures).toEqual([]);
       // Malformed content survives — flow opted out of touching it.
       expect(fs.readFileSync(settingsPath(), "utf8")).toBe("{not valid json");
     });
 
     describe("--repair-settings recovery", () => {
-      it("repairs a malformed regular settings.json and registers the hook", () => {
+      it("repairs a malformed regular settings.json and registers the hook", async () => {
         // End-to-end: seed a malformed file, run setup with repairSettings,
         // assert the file is now valid JSON with the hook installed and a
         // timestamped backup landed next to the realpath target.
@@ -603,7 +605,7 @@ describe("flow install", () => {
         const seed = '{"theme":"dar';
         fs.writeFileSync(settingsP, seed);
 
-        const summary = setup({ repairSettings: true });
+        const summary = await setup({ repairSettings: true });
         expect(summary.validationFailures).toEqual([]);
 
         // File now parses cleanly and contains exactly one flow Stop hook.
@@ -621,7 +623,7 @@ describe("flow install", () => {
         expect(fs.readFileSync(path.join(dir, backups[0]), "utf8")).toBe(seed);
       });
 
-      it("emits the `repaired; backup at` log line on a regular file", () => {
+      it("emits the `repaired; backup at` log line on a regular file", async () => {
         const settingsP = settingsPath();
         fs.mkdirSync(path.dirname(settingsP), { recursive: true });
         fs.writeFileSync(settingsP, '{"theme":"dar');
@@ -630,7 +632,7 @@ describe("flow install", () => {
           .spyOn(console, "log")
           .mockImplementation(() => undefined);
         try {
-          runSetup({
+          await runSetup({
             repairSettings: true,
             flowSource,
             installRoot: flowSource,
@@ -651,7 +653,7 @@ describe("flow install", () => {
         }
       });
 
-      it("repairs a malformed file behind a symlink and preserves the symlink", () => {
+      it("repairs a malformed file behind a symlink and preserves the symlink", async () => {
         // Dotfiles-style layout: settings.json is a symlink. The repair
         // must target the realpath (so the symlink survives) and log the
         // `(followed symlink to ...)` line.
@@ -675,7 +677,7 @@ describe("flow install", () => {
             .spyOn(console, "log")
             .mockImplementation(() => undefined);
           try {
-            const summary = runSetup({
+            const summary = await runSetup({
               repairSettings: true,
               flowSource,
               installRoot: flowSource,
@@ -759,25 +761,25 @@ describe("flow install", () => {
     });
   });
 
-  it("flags a validation failure when a settings.json is corrupted between runs", () => {
+  it("flags a validation failure when a settings.json is corrupted between runs", async () => {
     // Integration counterpart to the validateJsonFiles unit tests: setup
     // runs once cleanly, then the file is corrupted on disk, then the next
     // setup run must surface the validation failure in the summary. (The
     // ensureStopHook safe-bailout preserves the malformed content; the
     // validator then catches it.)
-    setup();
+    await setup();
     // First run produced a clean settings.json — corrupt it.
     fs.writeFileSync(settingsPath(), "{not valid json");
-    const summary = setup();
+    const summary = await setup();
     expect(summary.validationFailures).toContain(settingsPath());
   });
 
-  it("all JSON files written by setup round-trip through JSON.parse", () => {
+  it("all JSON files written by setup round-trip through JSON.parse", async () => {
     // Catches any future regression that writes malformed JSON through any
     // of bin/'s writers. Walks both ~/.claude and ~/.flow under the fake
     // homeDir; the fixture writes settings.json (under .claude) and
     // installed.json (under .flow), and both must parse cleanly.
-    setup();
+    await setup();
 
     const roots = [path.join(homeDir, ".claude"), path.join(homeDir, ".flow")];
     for (const root of roots) {
@@ -804,7 +806,7 @@ describe("flow install", () => {
   });
 
   describe("--source <worktree> recording + cleanup", () => {
-    it("records install-root paths in the manifest when flowSource diverges from installRoot", () => {
+    it("records install-root paths in the manifest when flowSource diverges from installRoot", async () => {
       // Build a fake worktree alongside the install-root fixture, with one
       // extra skill that only exists in the worktree.
       const worktree = path.join(scratch, "worktree");
@@ -817,7 +819,7 @@ describe("flow install", () => {
         "# epsilon\n",
       );
 
-      setup({ flowSourceOverride: worktree });
+      await setup({ flowSourceOverride: worktree });
 
       const manifest = readManifest(manifestPath);
       // Every recorded source path must live under the install-root fixture,
@@ -836,7 +838,7 @@ describe("flow install", () => {
       );
     });
 
-    it("symlinks still point at the worktree's content during the in-flight session", () => {
+    it("symlinks still point at the worktree's content during the in-flight session", async () => {
       // The recording change must not break step-5.5's purpose: in-flight
       // worktree files have to be reachable through the install target.
       const worktree = path.join(scratch, "worktree");
@@ -849,7 +851,7 @@ describe("flow install", () => {
         "# epsilon\n",
       );
 
-      setup({ flowSourceOverride: worktree });
+      await setup({ flowSourceOverride: worktree });
 
       const t = targets();
       // realpath on both sides — ensureSymlink writes realpath'd targets, and
@@ -860,7 +862,7 @@ describe("flow install", () => {
       );
     });
 
-    it("the production CLI path keeps installRoot canonical and the wrapper anchored when --source overrides flowSource", () => {
+    it("the production CLI path keeps installRoot canonical and the wrapper anchored when --source overrides flowSource", async () => {
       // Regression: prior to the fix, runSetup's `installRoot` fell back
       // through `resolveFlowSource()` whenever the CLI didn't pass it
       // explicitly. Running from inside a worktree (or after a previous
@@ -895,7 +897,7 @@ describe("flow install", () => {
 
       // Drive via `runSetupCli`. Crucially we pass NO `installRoot` —
       // the CLI seam must compute it from `resolveFlowSource(homeDir)`.
-      const code = runSetupCli(["--source", worktree], {
+      const code = await runSetupCli(["--source", worktree], {
         targets: targets(),
         skipPreflight: true,
         manifestPath,
@@ -931,7 +933,7 @@ describe("flow install", () => {
       );
     });
 
-    it("reaps dangling symlinks left behind when a prior --source <worktree> worktree is gone", () => {
+    it("reaps dangling symlinks left behind when a prior --source <worktree> worktree is gone", async () => {
       // (a) Build a worktree with one helper that doesn't exist in the
       // install-root fixture — the realistic "PR adds a new skill/helper"
       // scenario.
@@ -943,7 +945,7 @@ describe("flow install", () => {
       );
 
       // (b) Simulate the supervisor's step-5.5: setup --upgrade --source $WORKTREE.
-      setup({ flowSourceOverride: worktree, upgrade: true });
+      await setup({ flowSourceOverride: worktree, upgrade: true });
       const t = targets();
       // The new helper symlink exists and resolves to the worktree file.
       const link = path.join(t.binDir, "flow-pipeline-only");
@@ -967,7 +969,7 @@ describe("flow install", () => {
       // The install-root has no `flow-pipeline-only.ts` (the PR was never
       // merged), so the manifest's stale entry is an orphan and the on-disk
       // symlink is dangling.
-      const summary = setup({ upgrade: true });
+      const summary = await setup({ upgrade: true });
 
       // (e) The orphan got reaped despite the dangling pointer landing
       // outside flowSource (the worktree path) — that's the relaxed-reaper fix.
@@ -981,7 +983,7 @@ describe("flow install", () => {
       ).toBe(false);
     });
 
-    it("points live symlinks for content present in canonical at the install-root, not the worktree (Story 1)", () => {
+    it("points live symlinks for content present in canonical at the install-root, not the worktree (Story 1)", async () => {
       // A shared helper + skill exist in BOTH the worktree and the
       // install-root fixture (buildFakeFlowSource builds identical trees).
       // Their live symlinks must resolve under installRoot so they survive
@@ -990,7 +992,7 @@ describe("flow install", () => {
       const worktree = path.join(scratch, "worktree");
       buildFakeFlowSource(worktree);
 
-      setup({ flowSourceOverride: worktree, upgrade: true });
+      await setup({ flowSourceOverride: worktree, upgrade: true });
 
       const t = targets();
       // realpath both sides — /var → /private/var on macOS would otherwise
@@ -1009,7 +1011,7 @@ describe("flow install", () => {
       ).toBe(false);
     });
 
-    it("keeps a genuinely worktree-only helper pointed at the worktree so it is usable during the pipeline (Story 2)", () => {
+    it("keeps a genuinely worktree-only helper pointed at the worktree so it is usable during the pipeline (Story 2)", async () => {
       const worktree = path.join(scratch, "worktree");
       buildFakeFlowSource(worktree);
       fs.writeFileSync(
@@ -1017,7 +1019,7 @@ describe("flow install", () => {
         "#!/usr/bin/env bun\n// only in worktree\n",
       );
 
-      setup({ flowSourceOverride: worktree, upgrade: true });
+      await setup({ flowSourceOverride: worktree, upgrade: true });
 
       const t = targets();
       const link = path.join(t.binDir, "flow-pipeline-only");
@@ -1027,11 +1029,11 @@ describe("flow install", () => {
       );
     });
 
-    it("keeps the flow wrapper anchored to install-root under a --source install (Story 3)", () => {
+    it("keeps the flow wrapper anchored to install-root under a --source install (Story 3)", async () => {
       const worktree = path.join(scratch, "worktree");
       buildFakeFlowSource(worktree);
 
-      setup({ flowSourceOverride: worktree, upgrade: true });
+      await setup({ flowSourceOverride: worktree, upgrade: true });
 
       const t = targets();
       expect(fs.realpathSync(path.join(t.binDir, "flow"))).toBe(
@@ -1039,7 +1041,7 @@ describe("flow install", () => {
       );
     });
 
-    it("re-links an existing helper to canonical while reaping a never-merged worktree-only helper after removal (Story 5)", () => {
+    it("re-links an existing helper to canonical while reaping a never-merged worktree-only helper after removal (Story 5)", async () => {
       // A worktree that adds a new-only helper on top of the shared tree.
       const worktree = path.join(scratch, "worktree");
       buildFakeFlowSource(worktree);
@@ -1050,7 +1052,7 @@ describe("flow install", () => {
 
       // Step 5.5: --source upgrade. Shared helper points at canonical; the
       // new-only helper points at the worktree.
-      setup({ flowSourceOverride: worktree, upgrade: true });
+      await setup({ flowSourceOverride: worktree, upgrade: true });
       const t = targets();
       expect(fs.realpathSync(path.join(t.binDir, "flow-helper"))).toBe(
         fs.realpathSync(path.join(flowSource, "bin", "flow-helper.ts")),
@@ -1060,7 +1062,7 @@ describe("flow install", () => {
       fs.rmSync(worktree, { recursive: true, force: true });
 
       // Post-merge canonical upgrade (no --source).
-      const summary = setup({ upgrade: true });
+      const summary = await setup({ upgrade: true });
 
       // The never-merged worktree-only helper is reaped (dangling branch)...
       expect(summary.removed).toBeGreaterThanOrEqual(1);
@@ -1078,7 +1080,7 @@ describe("flow install", () => {
   });
 
   describe("canonical-tree-presence backstop (PR #115 race)", () => {
-    it("preserves the symlink when the recorded source is in origin/<default>'s tree but absent from the working tree", () => {
+    it("preserves the symlink when the recorded source is in origin/<default>'s tree but absent from the working tree", async () => {
       // Mid-pipeline scenario: a previous --upgrade run installed a symlink
       // pointing at a skill, but the working tree's copy of that skill has
       // been removed by the user before the next reap pass. The backstop
@@ -1091,7 +1093,7 @@ describe("flow install", () => {
       // Stand up the symlink + manifest entry as if a prior run had installed
       // both alpha and beta.
       const t = targets();
-      setup({ upgrade: true });
+      await setup({ upgrade: true });
 
       // Now: the user (or the supervisor's race) deletes alpha from the
       // working tree, but it still lives in origin/main's tree.
@@ -1111,7 +1113,7 @@ describe("flow install", () => {
         // Re-run with --upgrade. The reap pass would normally fire on the
         // dangling pointer; the backstop should defer because origin/main
         // still contains skills/pipeline/alpha.
-        const summary = setup({ upgrade: true });
+        const summary = await setup({ upgrade: true });
         // Symlink survives.
         expect(fs.lstatSync(linkBefore).isSymbolicLink()).toBe(true);
         expect(summary.removed).toBe(0);
@@ -1120,7 +1122,7 @@ describe("flow install", () => {
       }
     });
 
-    it("falls through to the legacy reap when the recorded source is in NEITHER origin/<default> nor the working tree", () => {
+    it("falls through to the legacy reap when the recorded source is in NEITHER origin/<default> nor the working tree", async () => {
       // Symmetric to PR #79: the recorded source is genuinely orphaned
       // (origin/main has no record of it), so the backstop must NOT fire
       // and the legacy dangling-reap must reap it.
@@ -1130,7 +1132,7 @@ describe("flow install", () => {
       );
 
       // Install once.
-      setup({ upgrade: true });
+      await setup({ upgrade: true });
       const t = targets();
 
       // Inject a stale manifest entry for a skill that never existed in
@@ -1147,7 +1149,7 @@ describe("flow install", () => {
       });
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
-      const summary = setup({ upgrade: true });
+      const summary = await setup({ upgrade: true });
       // Legacy reap fires on ghost.
       expect(summary.removed).toBeGreaterThanOrEqual(1);
       expect(fs.existsSync(orphan)).toBe(false);
@@ -1173,7 +1175,7 @@ describe("flow install", () => {
       expect(fs.existsSync(targetPath)).toBe(false);
     });
 
-    it("e2e --upgrade fast-forwards canonical and the freshly-merged skill survives the reap", () => {
+    it("e2e --upgrade fast-forwards canonical and the freshly-merged skill survives the reap", async () => {
       // Mirrors the PR #115 race: the supervisor's `flow install --upgrade`
       // (post-merge sweep) advances canonical, then reap runs against the
       // post-merge tree and does NOT consider the new skill orphaned.
@@ -1190,7 +1192,7 @@ describe("flow install", () => {
         .spyOn(console, "log")
         .mockImplementation(() => undefined);
       try {
-        const summary = setup({ upgrade: true });
+        const summary = await setup({ upgrade: true });
         // The fast-forward should have advanced canonical, pulling epsilon
         // into the working tree.
         const epsilonDir = path.join(
@@ -1207,7 +1209,7 @@ describe("flow install", () => {
       }
     });
 
-    it("--no-pull-canonical opts out of the fast-forward (no `git fetch` recorded)", () => {
+    it("--no-pull-canonical opts out of the fast-forward (no `git fetch` recorded)", async () => {
       // Direct opt-out check: when the caller passes pullCanonicalFirst:
       // false, the FF call must not run — no fetch, no merge, the canonical
       // line is silent.
@@ -1220,7 +1222,7 @@ describe("flow install", () => {
         .spyOn(console, "log")
         .mockImplementation(() => undefined);
       try {
-        runSetup({
+        await runSetup({
           upgrade: true,
           pullCanonicalFirst: false,
           // Fixture-local cache so this upgrade:true call doesn't touch the
@@ -1252,7 +1254,7 @@ describe("flow install", () => {
   });
 
   describe("runtime-dependency resolution check", () => {
-    it("sets summary.missingRuntimeDeps and logs the remediation when a runtime dep is absent", () => {
+    it("sets summary.missingRuntimeDeps and logs the remediation when a runtime dep is absent", async () => {
       // Drop the resolved node_modules entry for one declared dep.
       fs.rmSync(path.join(flowSource, "node_modules", "picomatch"), {
         recursive: true,
@@ -1262,7 +1264,7 @@ describe("flow install", () => {
         .spyOn(console, "log")
         .mockImplementation(() => undefined);
       try {
-        const summary = runSetup({
+        const summary = await runSetup({
           flowSource,
           installRoot: flowSource,
           targets: targets(),
@@ -1285,12 +1287,12 @@ describe("flow install", () => {
       }
     });
 
-    it("leaves summary.missingRuntimeDeps empty and emits no dep error when all deps resolve", () => {
+    it("leaves summary.missingRuntimeDeps empty and emits no dep error when all deps resolve", async () => {
       const logSpy = vi
         .spyOn(console, "log")
         .mockImplementation(() => undefined);
       try {
-        const summary = setup();
+        const summary = await setup();
         expect(summary.missingRuntimeDeps).toEqual([]);
         const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
         expect(allLogs).not.toMatch(/missing runtime dependencies/);
@@ -1299,7 +1301,7 @@ describe("flow install", () => {
       }
     });
 
-    it("checks installRoot, not flowSource (Story 5): worktree missing the dep, canonical has it", () => {
+    it("checks installRoot, not flowSource (Story 5): worktree missing the dep, canonical has it", async () => {
       // flowSource (the --source worktree) lacks the dep; installRoot
       // (canonical) has it. The check must read installRoot and pass.
       const worktree = path.join(scratch, "worktree");
@@ -1308,11 +1310,11 @@ describe("flow install", () => {
         recursive: true,
         force: true,
       });
-      const summary = setup({ flowSourceOverride: worktree });
+      const summary = await setup({ flowSourceOverride: worktree });
       expect(summary.missingRuntimeDeps).toEqual([]);
     });
 
-    it("installDeps:true invokes the injected installRunner and clears the missing list on success", () => {
+    it("installDeps:true invokes the injected installRunner and clears the missing list on success", async () => {
       fs.rmSync(path.join(flowSource, "node_modules", "picomatch"), {
         recursive: true,
         force: true,
@@ -1329,12 +1331,12 @@ describe("flow install", () => {
         );
         return { ok: true };
       };
-      const summary = setup({ installDeps: true, installRunner });
+      const summary = await setup({ installDeps: true, installRunner });
       expect(ran).toBe(1);
       expect(summary.missingRuntimeDeps).toEqual([]);
     });
 
-    it("installDeps:true with a failing installRunner keeps the dep missing, logs the failure, and exits 1", () => {
+    it("installDeps:true with a failing installRunner keeps the dep missing, logs the failure, and exits 1", async () => {
       // The operationally important branch: a real `npm install` failure
       // (offline, registry 503, lockfile conflict) lands here. A failed
       // install must NOT silently turn into a green exit — the re-check
@@ -1352,7 +1354,7 @@ describe("flow install", () => {
           stderr: "boom",
         });
         // Summary seam: the failed install does not clear the missing list.
-        const summary = runSetup({
+        const summary = await runSetup({
           flowSource,
           installRoot: flowSource,
           targets: targets(),
@@ -1377,7 +1379,7 @@ describe("flow install", () => {
       }
 
       // Exit-code seam: the same still-missing dep drives runSetupCli to 1.
-      const code = runSetupCli(["--install-deps"], {
+      const code = await runSetupCli(["--install-deps"], {
         flowSource,
         installRoot: flowSource,
         targets: targets(),
@@ -1398,10 +1400,12 @@ describe("flow install", () => {
 
   describe("version-stamped outcome headline (Stories 1-4, 6)", () => {
     // Capture stdout (quiet:false) so we can assert the composed headline.
-    function setupLogged(opts: Parameters<typeof setup>[0] = {}): {
-      summary: ReturnType<typeof runSetup>;
+    async function setupLogged(
+      opts: Parameters<typeof setup>[0] = {},
+    ): Promise<{
+      summary: Awaited<ReturnType<typeof runSetup>>;
       logs: string[];
-    } {
+    }> {
       const logs: string[] = [];
       const logSpy = vi
         .spyOn(console, "log")
@@ -1410,7 +1414,7 @@ describe("flow install", () => {
         });
       try {
         const { flowSourceOverride, installRootOverride, ...rest } = opts;
-        const summary = runSetup({
+        const summary = await runSetup({
           // Same fixture-local defaults as setup(): keep upgrade:true callers
           // off the real ~/.flow/update-check.json, and keep every call in
           // this describe block off the real ~/.flow/config.json / a real
@@ -1467,12 +1471,12 @@ describe("flow install", () => {
       }
     }
 
-    it("Story 1: ahead → version + commit count + before→after SHA", () => {
+    it("Story 1: ahead → version + commit count + before→after SHA", async () => {
       buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
       pinVersionCommitted(flowSource, "0.0.1");
       addSkillToOriginMain(flowSource, "epsilon");
 
-      const { logs } = setupLogged({ upgrade: true });
+      const { logs } = await setupLogged({ upgrade: true });
       const joined = logs.join("\n");
       expect(joined).toMatch(/flow updated: v0\.0\.1, 1 commit/);
       // Before→after SHAs are short hex tokens joined by an arrow.
@@ -1482,63 +1486,63 @@ describe("flow install", () => {
       expect(joined).not.toMatch(/no changes/);
     });
 
-    it("Story 4: ahead → changed-list names the changed skill", () => {
+    it("Story 4: ahead → changed-list names the changed skill", async () => {
       buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
       addSkillToOriginMain(flowSource, "epsilon");
 
-      const { logs } = setupLogged({ upgrade: true });
+      const { logs } = await setupLogged({ upgrade: true });
       const joined = logs.join("\n");
       expect(joined).toMatch(/changed: .*epsilon/);
     });
 
-    it("Story 2: up-to-date → 'already up to date at v<ver>', no list, no throw", () => {
+    it("Story 2: up-to-date → 'already up to date at v<ver>', no list, no throw", async () => {
       buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
       pinVersionCommitted(flowSource, "0.0.1");
       // No addSkillToOriginMain → canonical is already at origin/main.
 
-      const { logs } = setupLogged({ upgrade: true });
+      const { logs } = await setupLogged({ upgrade: true });
       const joined = logs.join("\n");
       expect(joined).toMatch(/flow already up to date at v0\.0\.1/);
       expect(joined).not.toMatch(/changed:/);
       expect(joined).not.toMatch(/no changes/);
     });
 
-    it("Story 3: skipped(dirty) → prominent 'NOT refreshed', no false up-to-date", () => {
+    it("Story 3: skipped(dirty) → prominent 'NOT refreshed', no false up-to-date", async () => {
       buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
       // Make the canonical tree dirty so the fast-forward skips.
       fs.writeFileSync(path.join(flowSource, "DIRTY.txt"), "uncommitted\n");
 
-      const { logs } = setupLogged({ upgrade: true });
+      const { logs } = await setupLogged({ upgrade: true });
       const joined = logs.join("\n");
       expect(joined).toMatch(/NOT refreshed \(dirty\)/);
       expect(joined).not.toMatch(/up to date/);
     });
 
-    it("Story 3: skipped(non-default-branch) → quieter informational caveat", () => {
+    it("Story 3: skipped(non-default-branch) → quieter informational caveat", async () => {
       buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
       // Check out a feature branch so HEAD != default.
       spawnSync("git", ["-C", flowSource, "checkout", "-b", "feature/x"], {
         encoding: "utf8",
       });
 
-      const { logs } = setupLogged({ upgrade: true });
+      const { logs } = await setupLogged({ upgrade: true });
       const joined = logs.join("\n");
       expect(joined).toMatch(/not refreshed \(on a non-default branch\)/);
       expect(joined).not.toMatch(/NOT refreshed/);
       expect(joined).not.toMatch(/up to date/);
     });
 
-    it("first install (non-upgrade) → 'flow installed v<ver>'", () => {
+    it("first install (non-upgrade) → 'flow installed v<ver>'", async () => {
       pinVersion(flowSource, "0.0.1");
-      const { logs } = setupLogged();
+      const { logs } = await setupLogged();
       expect(logs.join("\n")).toMatch(/flow installed v0\.0\.1/);
     });
 
-    it("Story 6: idempotent zero-churn upgrade emits ≤3 substantive lines plus warnings", () => {
+    it("Story 6: idempotent zero-churn upgrade emits ≤3 substantive lines plus warnings", async () => {
       buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
       // First install wires everything; the second --upgrade has no churn.
-      setupLogged({ upgrade: true });
-      const { logs } = setupLogged({ upgrade: true });
+      await setupLogged({ upgrade: true });
+      const { logs } = await setupLogged({ upgrade: true });
       // Drop the start-of-run banner (flow: setup / source ...) — count the
       // outcome + any churn/warning lines.
       const substantive = logs.filter(
@@ -1546,7 +1550,7 @@ describe("flow install", () => {
       );
       const warnings = substantive.filter((l) => /\s!\s/.test(l));
       const nonWarning = substantive.filter((l) => !/\s!\s/.test(l));
-      // Budget raised from 2 to 3: the grouped by-module summary line
+      // Budget raised from 2 to 3 to 4: the grouped by-module summary line
       // (`by module: core N`) is a third always-on line, additive to the
       // up-to-date headline + the "N skipped" symlink-accounting line — it
       // fires regardless of churn. It reports `core` (not 0) even for this
@@ -1554,13 +1558,83 @@ describe("flow install", () => {
       // deliberately names its two `bin/lib/` fixtures after two real
       // `VALIDATOR_MODULES` allowlist entries (pr-review-result-schema.ts /
       // agent-finding-schema.ts) to exercise the allowlist-filter behavior,
-      // and those two names are also real `core` validator rows.
-      expect(nonWarning.length).toBeLessThanOrEqual(3);
+      // and those two names are also real `core` validator rows. That same
+      // collision is what pushes the budget to 4: those two linked records
+      // give `resolveModuleActivity` a non-empty relevant-record manifest,
+      // so it reports every OTHER (genuinely fictional, thus never-linked)
+      // module as inactive via the doctor summary's fourth always-on line
+      // (`inactive modules: ...`) — see setup.ts's `printInactiveModules`.
+      expect(nonWarning.length).toBeLessThanOrEqual(4);
       // The outcome line is the up-to-date headline (no symlink churn).
       expect(nonWarning.join("\n")).toMatch(/already up to date/);
       expect(nonWarning.join("\n")).toMatch(/by module: core \d+/);
+      expect(nonWarning.join("\n")).toMatch(/inactive modules:/);
       void warnings;
     });
+  });
+});
+
+describe("preflight tmux-on-PATH warning (hard-fail-to-warning flip)", () => {
+  it("installs cleanly with no error when no launcher is recorded and tmux is absent", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const summary = await runSetup({
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        // No recorded launcher config: preflight's tmux check only fires
+        // when the recorded launcher is "tmux" — the exact regression this
+        // spec pins is a hard exit(1) firing regardless of that recording.
+        commandOnPath: () => false,
+        quiet: true,
+      });
+      expect(summary.blocked).toBe(0);
+      const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allErrors).not.toMatch(/tmux/);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("warns (never exits) when the recorded launcher is tmux and tmux is absent", async () => {
+    const configPath = path.join(homeDir, ".flow", "config.json");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({ launcher: "tmux" }));
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const summary = await runSetup({
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath,
+        commandOnPath: () => false,
+        quiet: true,
+      });
+      expect(summary.blocked).toBe(0);
+      const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allErrors).toMatch(/warning: your recorded launcher is tmux/);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
 
@@ -1837,23 +1911,23 @@ describe("update-check cache invalidation on --upgrade", () => {
     return cachePath;
   }
 
-  it("removes the cache file on --upgrade so the next check re-fetches", () => {
+  it("removes the cache file on --upgrade so the next check re-fetches", async () => {
     const cachePath = seedCache();
-    setup({ upgrade: true, cachePath });
+    await setup({ upgrade: true, cachePath });
     expect(fs.existsSync(cachePath)).toBe(false);
   });
 
-  it("completes without throwing when no cache file is present", () => {
+  it("completes without throwing when no cache file is present", async () => {
     const cachePath = path.join(homeDir, ".flow", "update-check.json");
     expect(fs.existsSync(cachePath)).toBe(false);
-    const summary = setup({ upgrade: true, cachePath });
+    const summary = await setup({ upgrade: true, cachePath });
     expect(summary.created).toBeGreaterThan(0);
   });
 
-  it("leaves the cache file untouched on a plain (non-upgrade) setup", () => {
+  it("leaves the cache file untouched on a plain (non-upgrade) setup", async () => {
     const cachePath = seedCache();
     const before = fs.readFileSync(cachePath, "utf8");
-    setup({ cachePath });
+    await setup({ cachePath });
     expect(fs.existsSync(cachePath)).toBe(true);
     expect(fs.readFileSync(cachePath, "utf8")).toBe(before);
   });
@@ -1881,40 +1955,53 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
     return JSON.parse(fs.readFileSync(configPath(), "utf8"));
   }
 
-  it("(a) TTY with no recorded config prompts once per optional module and persists the resolved selection", () => {
+  it("(a) TTY with no recorded config prompts once per optional module and persists the resolved selection", async () => {
     const asked: string[] = [];
     const confirm = (prompt: string): boolean => {
       asked.push(prompt);
       return prompt.startsWith("Install research");
     };
-    setup({ all: false, isTTY: true, confirm, configPath: configPath() });
-    expect(asked.length).toBe(6); // every optional (non-core) module, once
+    await setup({ all: false, isTTY: true, confirm, configPath: configPath() });
+    // Every optional (non-core) module once, plus the one launcher question.
+    expect(asked.length).toBe(7);
+    expect(
+      asked.filter((p) => p.includes("Use tmux as your pipeline launcher?")),
+    ).toHaveLength(1);
     const written = readConfig();
     expect(new Set(written.modules as string[])).toEqual(
       new Set(["core", "research"]),
     );
+    // The launcher answer (declined) is persisted alongside modules.
+    expect(written.launcher).toBe("plain");
   });
 
-  it("(b) a recorded config selection re-links without invoking confirm", () => {
+  it("(b) a recorded config selection re-links without invoking confirm", async () => {
     fs.mkdirSync(path.dirname(configPath()), { recursive: true });
     fs.writeFileSync(
       configPath(),
       JSON.stringify({ modules: ["core", "copilot"] }),
     );
-    const confirm = vi.fn(() => true);
-    setup({ all: false, isTTY: true, confirm, configPath: configPath() });
-    expect(confirm).not.toHaveBeenCalled();
-    // Not re-persisted: the recorded file is untouched (still exactly what
-    // was seeded, modulo formatting — read back as the same ids).
+    const confirm = vi.fn((prompt: string) =>
+      prompt.includes("Use tmux as your pipeline launcher?"),
+    );
+    await setup({ all: false, isTTY: true, confirm, configPath: configPath() });
+    // Only the launcher question fires — never a module re-ask.
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(String(confirm.mock.calls[0]![0])).toContain(
+      "Use tmux as your pipeline launcher?",
+    );
+    // Not re-persisted: the recorded module ids are untouched (still exactly
+    // what was seeded, modulo formatting — read back as the same ids).
     expect(new Set(readConfig().modules as string[])).toEqual(
       new Set(["core", "copilot"]),
     );
+    expect(readConfig().launcher).toBe("tmux");
   });
 
-  it("(c) a non-TTY run with nothing recorded defaults to core, emits the one-line notice, and does not persist", () => {
+  it("(c) a non-TTY run with nothing recorded defaults to core, emits the one-line notice, and does not persist", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
-      runSetup({
+      await runSetup({
         flowSource,
         installRoot: flowSource,
         targets: targets(),
@@ -1935,11 +2022,62 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
     expect(fs.existsSync(configPath())).toBe(false);
   });
 
-  it("(d) --upgrade honors a recorded selection with zero confirm calls", () => {
+  it("launcher: a recorded config value never re-asks and is left untouched", async () => {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    fs.writeFileSync(
+      configPath(),
+      JSON.stringify({ modules: ["core"], launcher: "tmux" }),
+    );
+    const confirm = vi.fn(() => false);
+    await setup({ all: false, isTTY: true, confirm, configPath: configPath() });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(readConfig().launcher).toBe("tmux");
+  });
+
+  it("launcher: --upgrade with nothing recorded never asks and persists nothing", async () => {
     fs.mkdirSync(path.dirname(configPath()), { recursive: true });
     fs.writeFileSync(configPath(), JSON.stringify({ modules: ["core"] }));
     const confirm = vi.fn(() => true);
-    setup({
+    await setup({
+      all: false,
+      upgrade: true,
+      isTTY: true,
+      confirm,
+      configPath: configPath(),
+      cachePath: path.join(homeDir, ".flow", "update-check.json"),
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(readConfig().launcher).toBeUndefined();
+  });
+
+  it("launcher: non-TTY with nothing recorded defaults to plain, notices, persists nothing", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await runSetup({
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        isTTY: false,
+        configPath: configPath(),
+      });
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).toMatch(/launcher: defaulting to plain/);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(fs.existsSync(configPath())).toBe(false);
+  });
+
+  it("(d) --upgrade honors a recorded selection with zero confirm calls", async () => {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    fs.writeFileSync(configPath(), JSON.stringify({ modules: ["core"] }));
+    const confirm = vi.fn(() => true);
+    await setup({
       all: false,
       upgrade: true,
       isTTY: true,
@@ -1966,8 +2104,8 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
     // discovery reads from the real checkout.
     const realFlowSource = resolveFlowSource();
 
-    it("(e) --modules core,research links only those modules' artifacts", () => {
-      const summary = runSetup({
+    it("(e) --modules core,research links only those modules' artifacts", async () => {
+      const summary = await runSetup({
         flowSource: realFlowSource,
         installRoot: realFlowSource,
         targets: targets(),
@@ -2004,8 +2142,8 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       );
     });
 
-    it("(f) narrowing a prior --all install to --modules core prunes non-core symlinks while a planted non-flow file survives", () => {
-      runSetup({
+    it("(f) narrowing a prior --all install to --modules core prunes non-core symlinks while a planted non-flow file survives", async () => {
+      await runSetup({
         flowSource: realFlowSource,
         installRoot: realFlowSource,
         targets: targets(),
@@ -2027,7 +2165,7 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       const plantedFile = path.join(t.skillsDir, "my-notes.txt");
       fs.writeFileSync(plantedFile, "not a flow artifact\n");
 
-      const summary = runSetup({
+      const summary = await runSetup({
         flowSource: realFlowSource,
         installRoot: realFlowSource,
         targets: t,
@@ -2051,21 +2189,21 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       );
     });
 
-    it("(g) discoverSelected(every module id) set-equals discoverAll for target + source, byte-for-byte (the --all-equivalence precondition)", () => {
+    it("(g) discoverSelected(every module id) set-equals discoverAll for target + source, byte-for-byte (the --all-equivalence precondition)", async () => {
       const all = discoverAll(realFlowSource, realFlowSource);
-      const selected = discoverSelected(
+      const selected = await discoverSelected(
         realFlowSource,
         realFlowSource,
         moduleIds(),
       );
       const key = (e: { target: string; source: string }) =>
-        `${e.target} ${e.source}`;
+        `${e.target} ${e.source}`;
       expect(new Set(selected.map(key))).toEqual(new Set(all.map(key)));
       expect(selected.length).toBe(all.length);
     });
 
-    it("(h) --all persists the full module-id list to config.json, and a subsequent bare --upgrade replays it rather than narrowing", () => {
-      runSetup({
+    it("(h) --all persists the full module-id list to config.json, and a subsequent bare --upgrade replays it rather than narrowing", async () => {
+      await runSetup({
         flowSource: realFlowSource,
         installRoot: realFlowSource,
         targets: targets(),
@@ -2084,7 +2222,7 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       );
 
       const t = targets();
-      runSetup({
+      await runSetup({
         flowSource: realFlowSource,
         installRoot: realFlowSource,
         targets: t,
@@ -2100,6 +2238,176 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
         cachePath: path.join(homeDir, ".flow", "update-check.json"),
       });
       expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(true);
+    });
+
+    it("(i) --modules core prints the inactive-modules doctor line naming every deselected optional", async () => {
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        await runSetup({
+          flowSource: realFlowSource,
+          installRoot: realFlowSource,
+          targets: targets(),
+          skipPreflight: true,
+          manifestPath,
+          lockPath,
+          homeDir,
+          settingsPath: settingsPath(),
+          modules: ["core"],
+          isTTY: false,
+          configPath: configPath(),
+        });
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).toMatch(/inactive modules:/);
+        expect(allLogs).toMatch(/research \(deselected\)/);
+        expect(allLogs).toMatch(/copilot \(deselected\)/);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("(j) a full --all install prints no inactive-modules line — every module is fully linked", async () => {
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        await runSetup({
+          flowSource: realFlowSource,
+          installRoot: realFlowSource,
+          targets: targets(),
+          skipPreflight: true,
+          manifestPath,
+          lockPath,
+          homeDir,
+          settingsPath: settingsPath(),
+          all: true,
+          isTTY: false,
+          configPath: configPath(),
+        });
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).not.toMatch(/inactive modules:/);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+  });
+
+  describe("source-tree-aware module registry (PR #445 regression)", () => {
+    // Reproduces the exact silent-no-op scenario `resolveArtifactSetForSource`
+    // fixes: a --source (worktree) tree adds a brand-new artifact file AND
+    // registers it in a new bin/lib/modules.ts row, while the canonical
+    // installRoot fixture is stale — it has neither the file nor the row.
+    // Before the fix, `discoverSelected` resolved the module registry from
+    // the compiled-in (canonical-derived) registry unconditionally, so the
+    // new agent was silently never linked even though it physically exists
+    // in the worktree passed via `--source`.
+    it("picks up a new-file-plus-new-registry-row addition from a --source tree the compiled registry doesn't know about yet", async () => {
+      const worktree = path.join(scratch, "worktree-with-new-agent");
+      const canonicalRoot = path.join(scratch, "stale-canonical");
+      buildFakeFlowSource(worktree);
+      buildFakeFlowSource(canonicalRoot);
+
+      // The new artifact: an agent file that exists ONLY in the worktree.
+      fs.writeFileSync(
+        path.join(worktree, "agents", "new-agent.md"),
+        "# new-agent\n",
+      );
+
+      // The new registry row: the worktree's OWN bin/lib/modules.ts, unknown
+      // to the compiled-in (canonical-derived) registry this test process
+      // was built from. Mirrors buildFakeFlowSource's existing rows so the
+      // pre-existing fixture artifacts stay linked too, plus the new agent.
+      fs.mkdirSync(path.join(worktree, "bin", "lib"), { recursive: true });
+      fs.writeFileSync(
+        path.join(worktree, "bin", "lib", "modules.ts"),
+        `
+        export function resolveArtifactSet(selectedIds) {
+          return {
+            skills: ["alpha", "beta", "gamma", "delta"],
+            agents: ["reviewer.md", "new-agent.md"],
+            helpers: ["flow-helper"],
+            validators: ["pr-review-result-schema", "agent-finding-schema"],
+          };
+        }
+        `,
+      );
+
+      const t = targets();
+      const summary = await runSetup({
+        flowSource: worktree,
+        installRoot: canonicalRoot,
+        targets: t,
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        modules: ["core"],
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        quiet: true,
+      });
+
+      expect(summary.created).toBeGreaterThan(0);
+      expect(
+        fs.lstatSync(path.join(t.agentsDir, "new-agent.md")).isSymbolicLink(),
+      ).toBe(true);
+
+      const manifest = readManifest(manifestPath);
+      expect(
+        manifest.symlinks.some(
+          (s) => s.target === path.join(t.agentsDir, "new-agent.md"),
+        ),
+      ).toBe(true);
+    });
+
+    it("logs a '! module registry:' warning and falls back to the compiled-in registry when the --source tree's modules.ts is malformed", async () => {
+      const worktree = path.join(scratch, "worktree-with-malformed-registry");
+      const canonicalRoot = path.join(scratch, "stale-canonical-2");
+      buildFakeFlowSource(worktree);
+      buildFakeFlowSource(canonicalRoot);
+
+      // Malformed on purpose: throws instead of exporting resolveArtifactSet,
+      // so resolveArtifactSetForSource's catch path fires and threads its
+      // warning through discoverSelected's onWarning callback.
+      fs.mkdirSync(path.join(worktree, "bin", "lib"), { recursive: true });
+      fs.writeFileSync(
+        path.join(worktree, "bin", "lib", "modules.ts"),
+        `throw new Error("boom");`,
+      );
+
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        const t = targets();
+        const summary = await runSetup({
+          flowSource: worktree,
+          installRoot: canonicalRoot,
+          targets: t,
+          skipPreflight: true,
+          manifestPath,
+          lockPath,
+          homeDir,
+          settingsPath: settingsPath(),
+          modules: ["core"],
+          isTTY: false,
+          configPath: path.join(homeDir, ".flow", "config.json"),
+          cachePath: path.join(homeDir, ".flow", "update-check.json"),
+          quiet: false,
+        });
+
+        // Fell back to the compiled-in registry rather than erroring out.
+        expect(summary.created).toBeGreaterThan(0);
+
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).toMatch(/! module registry:/);
+        expect(allLogs).toMatch(/boom/);
+      } finally {
+        logSpy.mockRestore();
+      }
     });
   });
 });
@@ -2145,8 +2453,8 @@ describe("skills-home retarget + migration (Story 1)", () => {
     });
   }
 
-  it("links selected skills under the new claude-home target", () => {
-    runRetargeted();
+  it("links selected skills under the new claude-home target", async () => {
+    await runRetargeted();
     const skillsDir = newStyleTargets().skillsDir;
     expect(fs.lstatSync(path.join(skillsDir, "alpha")).isSymbolicLink()).toBe(
       true,
@@ -2156,7 +2464,7 @@ describe("skills-home retarget + migration (Story 1)", () => {
     );
   });
 
-  it("reaps a manifest-recorded old-location symlink and preserves a non-flow file", () => {
+  it("reaps a manifest-recorded old-location symlink and preserves a non-flow file", async () => {
     // Seed a pre-retarget install: an old-location symlink into the flow tree
     // plus a manifest record claiming it, and a real (non-flow) file alongside.
     const old = oldSkillsDir();
@@ -2183,7 +2491,7 @@ describe("skills-home retarget + migration (Story 1)", () => {
       manifestPath,
     );
 
-    runRetargeted({ upgrade: true });
+    await runRetargeted({ upgrade: true });
 
     expect(fs.existsSync(oldLink)).toBe(false); // reaped
     expect(fs.existsSync(path.join(userFile, "SKILL.md"))).toBe(true); // untouched
@@ -2194,7 +2502,7 @@ describe("skills-home retarget + migration (Story 1)", () => {
     ).toBe(true); // relinked at the new home
   });
 
-  it("drift-sweeps a flow-owned old-location symlink with no manifest record, leaving a foreign symlink", () => {
+  it("drift-sweeps a flow-owned old-location symlink with no manifest record, leaving a foreign symlink", async () => {
     // No manifest record at all (a pre-manifest / drifted install). The sweep
     // must still remove a flow-owned symlink at the old location while leaving
     // a user's own symlink (target outside the flow tree) intact.
@@ -2210,13 +2518,13 @@ describe("skills-home retarget + migration (Story 1)", () => {
     const foreign = path.join(old, "not-flow");
     fs.symlinkSync(externalTarget, foreign);
 
-    runRetargeted();
+    await runRetargeted();
 
     expect(fs.existsSync(flowOwned)).toBe(false); // swept (flow-owned)
     expect(fs.lstatSync(foreign).isSymbolicLink()).toBe(true); // foreign preserved
   });
 
-  it("drift-sweeps a DANGLING flow-owned old-location symlink, preserving a dangling foreign symlink", () => {
+  it("drift-sweeps a DANGLING flow-owned old-location symlink, preserving a dangling foreign symlink", async () => {
     // Exercises the `realpathSync(raw)` throws → `isPathUnder(raw, root)`
     // fallback branch: the old-location link points into the flow tree but its
     // target was since removed (a renamed/deleted skill), so realpath fails and
@@ -2240,7 +2548,7 @@ describe("skills-home retarget + migration (Story 1)", () => {
     const foreign = path.join(old, "not-flow");
     fs.symlinkSync(path.join(scratch, "external-gone"), foreign);
 
-    runRetargeted();
+    await runRetargeted();
 
     expect(fs.existsSync(flowOwned)).toBe(false); // swept via the raw fallback
     expect(fs.lstatSync(foreign).isSymbolicLink()).toBe(true); // foreign preserved
@@ -2254,10 +2562,10 @@ describe("gh#435 non-interactive --upgrade breadth preservation (Story 4)", () =
     return path.join(homeDir, ".flow", "config.json");
   }
 
-  it("a non-TTY --upgrade with a populated manifest and nothing recorded preserves breadth, not core-only, and does not persist", () => {
+  it("a non-TTY --upgrade with a populated manifest and nothing recorded preserves breadth, not core-only, and does not persist", async () => {
     const t = targets();
     // First install the full set so a populated manifest exists on disk.
-    runSetup({
+    await runSetup({
       flowSource: realFlowSource,
       installRoot: realFlowSource,
       targets: t,
@@ -2277,7 +2585,7 @@ describe("gh#435 non-interactive --upgrade breadth preservation (Story 4)", () =
     fs.rmSync(cfgPath(), { force: true });
     expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(true);
 
-    const summary = runSetup({
+    const summary = await runSetup({
       flowSource: realFlowSource,
       installRoot: realFlowSource,
       targets: t,
@@ -2302,9 +2610,9 @@ describe("gh#435 non-interactive --upgrade breadth preservation (Story 4)", () =
     expect(fs.existsSync(cfgPath())).toBe(false);
   });
 
-  it("a non-TTY install with an empty manifest and nothing recorded stays core-only", () => {
+  it("a non-TTY install with an empty manifest and nothing recorded stays core-only", async () => {
     const t = targets();
-    const summary = runSetup({
+    const summary = await runSetup({
       flowSource: realFlowSource,
       installRoot: realFlowSource,
       targets: t,
@@ -2343,34 +2651,38 @@ describe("gh#435 registry-unknown pass-through in discoverSelected (Story 4)", (
     return entries.filter((e) => e.kind === "skill").map((e) => e.displayName);
   }
 
-  it("passes through a registry-unknown skill under core-only while filtering a deselected known skill", () => {
+  it("passes through a registry-unknown skill under core-only while filtering a deselected known skill", async () => {
     const src = path.join(scratch, "unknown-passthrough");
     buildSkillsTree(src, [
       { tier: "stacks", name: "flow-svelte" }, // registry-known (stack-svelte)
       { tier: "pipeline", name: "my-worktree-skill" }, // registry-unknown
     ]);
-    const names = skillNames(discoverSelected(src, src, ["core"], targets()));
+    const names = skillNames(
+      await discoverSelected(src, src, ["core"], targets()),
+    );
     expect(names).toContain("my-worktree-skill"); // passed through
     expect(names).not.toContain("flow-svelte"); // deselected known — filtered
   });
 
-  it("links a deselected known skill once its module is selected", () => {
+  it("links a deselected known skill once its module is selected", async () => {
     const src = path.join(scratch, "known-selected");
     buildSkillsTree(src, [{ tier: "stacks", name: "flow-svelte" }]);
     const names = skillNames(
-      discoverSelected(src, src, ["core", "stack-svelte"], targets()),
+      await discoverSelected(src, src, ["core", "stack-svelte"], targets()),
     );
     expect(names).toContain("flow-svelte");
   });
 
-  it("never links a stray skills/ directory with no SKILL.md, any selection (validity bound)", () => {
+  it("never links a stray skills/ directory with no SKILL.md, any selection (validity bound)", async () => {
     const src = path.join(scratch, "stray-dir");
     buildSkillsTree(src, [
       { tier: "pipeline", name: "real-skill" },
       { tier: "pipeline", name: "stray-scratch", withSkillMd: false },
     ]);
     for (const sel of [["core"], moduleIds()]) {
-      const names = skillNames(discoverSelected(src, src, sel, targets()));
+      const names = skillNames(
+        await discoverSelected(src, src, sel, targets()),
+      );
       expect(names).toContain("real-skill"); // valid unknown → passed through
       expect(names).not.toContain("stray-scratch"); // no SKILL.md → never discovered
     }

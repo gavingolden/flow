@@ -148,10 +148,10 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
  * fake source path includes characters that aren't worth round-tripping
  * through arg parsing.
  */
-export function runSetupCli(
+export async function runSetupCli(
   args: string[],
   extraOptions?: SetupOptions,
-): number {
+): Promise<number> {
   if (argsContainHelp(args)) {
     printVerbHelp("install");
     return 0;
@@ -178,7 +178,7 @@ export function runSetupCli(
   if (parsed.flowSource !== undefined && opts.installRoot === undefined) {
     opts.installRoot = resolveFlowSource(opts.homeDir);
   }
-  const summary = runSetup(opts);
+  const summary = await runSetup(opts);
   return summary.blocked > 0 ||
     summary.validationFailures.length > 0 ||
     summary.missingRuntimeDeps.length > 0

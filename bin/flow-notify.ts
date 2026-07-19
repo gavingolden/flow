@@ -35,7 +35,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { resolveSlugFromPane } from "./lib/tmux";
+import { resolveSlugAmbient } from "./lib/session-identity";
 
 const VALID_STATUSES = new Set(["merged", "gated", "needs-human"]);
 const MESSAGE_MAX_CHARS = 120;
@@ -144,7 +144,7 @@ export type Deps = {
   spawnDetached: (cmd: string, args: readonly string[]) => void;
   /**
    * Slug fallback when `--slug` is omitted. Defaults to
-   * `resolveSlugFromPane()` so the supervisor's terminal-state
+   * `resolveSlugAmbient()` so the supervisor's terminal-state
    * notifications get the right window subtitle even when its
    * per-Bash-call shell loses any `SLUG=…` it sets.
    */
@@ -219,7 +219,7 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
     hasTerminalNotifier:
       deps?.hasTerminalNotifier ?? defaultHasTerminalNotifier,
     spawnDetached: deps?.spawnDetached ?? defaultSpawnDetached,
-    resolveSlug: deps?.resolveSlug ?? (() => resolveSlugFromPane()),
+    resolveSlug: deps?.resolveSlug ?? (() => resolveSlugAmbient()),
   };
   dispatch(parsed, resolved);
   return 0;

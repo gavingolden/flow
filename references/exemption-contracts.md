@@ -43,6 +43,15 @@ discovery agent via the Task tool. Artifacts: `.flow-tmp/plan.md` and
 SKILL_DIR + WORKTREE paths, exactly one Task call per invocation,
 wrapper-owned `mkdir -p .flow-tmp/`, single side-effect attribution
 site, main-session reads each artifact once and never re-reads.
+Spawned as the named `agents/flow-discovery.md` definition (judgment
+role: no frontmatter `effort`/`model`; per-spawn `model:` threading
+unchanged), with the
+`[ -f ~/.claude/agents/flow-discovery.md ] || general-purpose` fallback
+guard emitting the `NOTICE — agent-fallback:` line. The definition
+deliberately carries no `tools:` allowlist — discovery's research and
+design-artifact passes span Bash, `WebFetch`, MCP, and multimodal `Read`
+surfaces a fixed allowlist would silently break — so it inherits every
+tool the session has.
 
 ## `/flow-new-feature` Independent Scout Subagent
 
@@ -53,6 +62,10 @@ threshold (≤3 affected files skips the scout). Artifact:
 invariants verbatim, plus one addition: its return summary must surface
 both sides — at least one positive finding and at least one negative
 finding (off-limits surfaces, rejected approaches, foreclosed shortcuts).
+Spawned as the named `agents/flow-scout.md` definition (judgment role: no
+frontmatter `effort`/`model`; per-spawn `model:` threading unchanged),
+with the `[ -f ~/.claude/agents/flow-scout.md ] || general-purpose`
+fallback guard emitting the `NOTICE — agent-fallback:` line.
 
 ## `/flow-pr-review` Fix-Applier Subagent
 
@@ -61,9 +74,16 @@ Fix-Applier Subagent" step, one fix-applier agent is spawned via the
 Task tool to handle the per-finding address loop plus pre-commit /
 commit / push. Artifact: `.flow-tmp/fix-applier-result.json` (typed
 fields `commits`, `deferred`, `rejected_alternatives`,
-`anti_patterns_found`, `summary`). The subagent invokes `/flow-verify`
+`anti_patterns_found`, `summary`, `ui_screenshots?` — optional array of
+absolute screenshot paths captured by the browser pass, for supervisor
+session surfacing; typically populated by `/flow-pr-review` Step 8c's
+post-spawn merge-back rather than by the subagent itself). The subagent invokes `/flow-verify`
 against the post-fix worktree _before returning_, so a fix's CI breakage
-surfaces in-context while the fix rationale is still live.
+surfaces in-context while the fix rationale is still live. Spawned as
+the named `agents/flow-fix-applier.md` definition (judgment role: no
+frontmatter `effort`/`model`; per-spawn `model:` threading unchanged),
+with the `[ -f ~/.claude/agents/flow-fix-applier.md ] || general-purpose`
+fallback guard emitting the `NOTICE — agent-fallback:` line.
 
 ## Merge-Conflict Resolver Subagent
 
@@ -80,6 +100,11 @@ rebase + per-file resolution + force-push. Artifact:
 appended. **Force-push is permitted** here because the resolver runs
 inside `/flow-pipeline`'s auto-merge umbrella and is scoped to the
 per-pipeline branch only — never `main`, `master`, or the base branch.
+Spawned as the named `agents/flow-merge-resolver.md` definition (judgment
+role: no frontmatter `effort`/`model`; per-spawn `model:` threading
+unchanged), with the
+`[ -f ~/.claude/agents/flow-merge-resolver.md ] || general-purpose`
+fallback guard emitting the `NOTICE — agent-fallback:` line.
 
 ## `/flow-coder` Independent Edit-Applier Subagent
 
@@ -97,7 +122,11 @@ edit's type/lint/test breakage surfaces in-context. Trivially scoped
 edits skip the subagent via each caller's own hybrid threshold (see each
 caller's "Spawn procedure (wider-scope path only)" for the canonical
 bar). The full contract is in `skills/pipeline/flow-coder/SKILL.md`'s
-"Independent Edit-Applier Subagent" section.
+"Independent Edit-Applier Subagent" section. Spawned as the named
+`agents/flow-edit-applier.md` definition (judgment role: no frontmatter
+`effort`/`model`; per-spawn `model:` threading unchanged), with the
+`[ -f ~/.claude/agents/flow-edit-applier.md ] || general-purpose`
+fallback guard emitting the `NOTICE — agent-fallback:` line.
 
 ## `/flow-pr-review` Independent Gatekeeper Subagent
 
@@ -147,10 +176,16 @@ each retry re-invokes `/flow-verify` and re-pastes the prior attempt's
 branch) and the UI-smoke pass. Artifact:
 `<worktree>/.flow-tmp/verify-loop-result.json` (typed fields `verify_status`
 (`pass` | `exhausted`), `attempts`, `config_authored`, `ui_smoke`,
-`ui_smoke_reason?`, `final_failure_excerpt?`, `rejected_alternatives`, `anti_patterns_found`,
+`ui_smoke_reason?`, `ui_screenshots?` — optional array of absolute
+screenshot paths captured by the browser pass, for supervisor session
+surfacing — `final_failure_excerpt?`, `rejected_alternatives`, `anti_patterns_found`,
 `summary`). The supervisor reads it once and branches: `pass` continues to step
 7; `exhausted` escalates `verify-exhausted` and writes the `> [!CAUTION]` PR-body
 block from `final_failure_excerpt`. A committing subagent is consistent with the
-Fix-Applier (#4) and Merge-Conflict Resolver (#5) precedents. The subagent's full
-instructions are at
+Fix-Applier (#4) and Merge-Conflict Resolver (#5) precedents. Spawned as
+the named `agents/flow-verify.md` definition (judgment role: no
+frontmatter `effort`/`model`; per-spawn `model:` threading unchanged),
+with the `[ -f ~/.claude/agents/flow-verify.md ] || general-purpose`
+fallback guard emitting the `NOTICE — agent-fallback:` line. The
+subagent's full instructions are at
 `skills/pipeline/flow-pipeline/references/verify-loop-instructions.md`.

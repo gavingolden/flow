@@ -19,10 +19,12 @@ function fakeState(overrides: Partial<PipelineState> = {}): PipelineState {
 function makeDeps(opts: {
   pane?: string;
   slug?: string;
+  flowSlugEnv?: string;
   state?: PipelineState | null;
 }): { deps: Deps; saveState: ReturnType<typeof vi.fn> } {
   const saveState = vi.fn();
   const deps: Deps = {
+    flowSlugEnv: opts.flowSlugEnv,
     tmuxPane: opts.pane,
     showFlowSlug: () => opts.slug ?? "",
     loadState: () => opts.state ?? null,
@@ -44,6 +46,36 @@ describe("flow-seed-ingested-hook", () => {
     expect(saveState).toHaveBeenCalledWith(
       expect.objectContaining({ slug: "demo", seedIngestedAt: FROZEN_NOW }),
     );
+  });
+
+  it("stamps via FLOW_SLUG with no pane at all (plain launcher)", () => {
+    const { deps, saveState } = makeDeps({
+      pane: undefined,
+      flowSlugEnv: "demo",
+      state: fakeState(),
+    });
+    expect(run(deps)).toBe(0);
+    expect(saveState).toHaveBeenCalledWith(
+      expect.objectContaining({ slug: "demo", seedIngestedAt: FROZEN_NOW }),
+    );
+  });
+
+  it("ignores a shape-invalid FLOW_SLUG and falls back to the pane", () => {
+    const loadCalls: string[] = [];
+    const saveState = vi.fn();
+    const deps: Deps = {
+      flowSlugEnv: "NOT A SLUG",
+      tmuxPane: "%1",
+      showFlowSlug: () => "pane-slug",
+      loadState: (slug) => {
+        loadCalls.push(slug);
+        return fakeState({ slug: "pane-slug" });
+      },
+      saveState,
+      nowIso: () => FROZEN_NOW,
+    };
+    expect(run(deps)).toBe(0);
+    expect(loadCalls).toEqual(["pane-slug"]);
   });
 
   it("no-ops when not in tmux (pane undefined)", () => {

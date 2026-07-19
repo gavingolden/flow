@@ -11,7 +11,10 @@
 
 import { validatePrReviewResult } from "./pr-review-result-schema";
 import { collectFixApplierTolerant } from "./fix-applier-tolerant";
-import { validateConsolidatorResult } from "./agent-finding-schema";
+import {
+  normalizeParsedFindings,
+  validateConsolidatorResult,
+} from "./agent-finding-schema";
 import { formatDuration } from "./time";
 import {
   formatPlainText,
@@ -107,7 +110,9 @@ export function renderFindings(inputs: {
   if (inputs.consolidatorRaw.trim()) {
     const parsed = parseJson(inputs.consolidatorRaw);
     const v =
-      parsed === undefined ? undefined : validateConsolidatorResult(parsed);
+      parsed === undefined
+        ? undefined
+        : validateConsolidatorResult(normalizeParsedFindings(parsed));
     if (!v || !v.ok) lines.push("consolidator: (unreadable)");
     else {
       const r = v.value;
@@ -234,7 +239,9 @@ function rejectedDecisionLines(
   if (consolidatorRaw.trim()) {
     const parsed = parseJson(consolidatorRaw);
     const v =
-      parsed === undefined ? undefined : validateConsolidatorResult(parsed);
+      parsed === undefined
+        ? undefined
+        : validateConsolidatorResult(normalizeParsedFindings(parsed));
     if (v && v.ok) {
       for (const r of v.value.rejected_alternatives) lines.push(r);
     }

@@ -16,7 +16,10 @@
  */
 
 import { collectFixApplierTolerant } from "./fix-applier-tolerant";
-import { validateConsolidatorResult } from "./agent-finding-schema";
+import {
+  normalizeParsedFindings,
+  validateConsolidatorResult,
+} from "./agent-finding-schema";
 
 export const FORECLOSED_HEADING = "## Foreclosed Paths";
 
@@ -110,7 +113,9 @@ export function collectForeclosedEntries(inputs: {
   if (inputs.consolidatorRaw.trim()) {
     const parsed = parseJson(inputs.consolidatorRaw);
     const v =
-      parsed === undefined ? undefined : validateConsolidatorResult(parsed);
+      parsed === undefined
+        ? undefined
+        : validateConsolidatorResult(normalizeParsedFindings(parsed));
     if (!v || !v.ok) {
       entries.push({
         source: "consolidator",

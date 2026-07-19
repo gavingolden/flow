@@ -60,10 +60,18 @@ import {
   collectModuleConfigWarnings,
   deriveSelectionFromManifest,
   readConfigFileAt,
+  readModuleSelection,
   resolveModuleSelection,
   writeModuleSelection,
   type ReadConfigFile,
 } from "./modules-config";
+import { inactiveOptionalModules, type ModuleActivity } from "./module-status";
+import {
+  collectLauncherConfigWarnings,
+  readLauncherConfig,
+  resolveLauncherSelection,
+  writeLauncherConfig,
+} from "./launcher-config";
 
 const STOP_HOOK_COMMAND = "flow-stop-guard";
 const SESSION_START_HOOK_COMMAND = "flow-session-start-hook";
@@ -203,6 +211,13 @@ export type SetupOptions = {
    * flow is still linking into the old location, there is nothing to migrate.
    */
   oldSkillsDir?: string;
+  /**
+   * `command -v <cmd>` probe seam for preflight's tmux-on-PATH check.
+   * Test-only override (mirrors the `tmuxOnPath` seam `feature.ts`/`epic.ts`
+   * thread through `resolveLauncherBackend`). Defaults to a real
+   * `command -v` shell-out.
+   */
+  commandOnPath?: (cmd: string) => boolean;
 };
 
 export type SetupSummary = {
@@ -226,7 +241,9 @@ export type SetupSummary = {
   missingRuntimeDeps: string[];
 };
 
-export function runSetup(options: SetupOptions = {}): SetupSummary {
+export async function runSetup(
+  options: SetupOptions = {},
+): Promise<SetupSummary> {
   const flowSource = options.flowSource ?? resolveFlowSource();
   const installRoot = options.installRoot ?? resolveFlowSource();
   const targets = options.targets ?? DEFAULT_TARGETS;
@@ -234,7 +251,7 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
     ? () => undefined
     : (msg: string) => console.log(msg);
 
-  if (!options.skipPreflight) preflight(targets);
+  if (!options.skipPreflight) preflight(targets, options);
 
   // Preflight-like timing so a broken node_modules surfaces fast — but
   // reported through the summary (set inside runUnderLock), never via
@@ -283,7 +300,7 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
   );
 }
 
-function runUnderLock(
+async function runUnderLock(
   flowSource: string,
   installRoot: string,
   targets: InstallTargets,
@@ -291,8 +308,8 @@ function runUnderLock(
   options: SetupOptions,
   missingRuntimeDeps: string[],
   ff: FastForwardResult | undefined,
-): SetupSummary {
-  const { entries, persistIds } = resolveEntriesForRun(
+): Promise<SetupSummary> {
+  const { entries, persistIds } = await resolveEntriesForRun(
     options,
     flowSource,
     installRoot,
@@ -301,6 +318,33 @@ function runUnderLock(
   );
   if (persistIds) {
     writeModuleSelection(persistIds, { configPath: options.configPath });
+  }
+
+  // Launcher backend Q&A (default-off). A recorded config value or an
+  // `--upgrade` run never re-asks; a non-TTY run with nothing recorded
+  // defaults to plain with a one-line notice and persists nothing.
+  const readCfg: ReadConfigFile | undefined = options.configPath
+    ? () => readConfigFileAt(options.configPath!)
+    : undefined;
+  for (const w of collectLauncherConfigWarnings(readCfg)) {
+    log(dim(`  ! launcher config: ${w}`));
+  }
+  const launcher = resolveLauncherSelection({
+    isTTY: options.upgrade
+      ? false
+      : (options.isTTY ?? process.stdin.isTTY === true),
+    confirm: options.confirm ?? confirmStdin,
+    read: readCfg,
+  });
+  if (launcher.shouldPersist) {
+    writeLauncherConfig(launcher.id, { configPath: options.configPath });
+  }
+  if (launcher.source === "default" && !options.upgrade) {
+    log(
+      dim(
+        "  i launcher: defaulting to plain — opt into tmux with `flow config launcher tmux`",
+      ),
+    );
   }
   const summary: SetupSummary = {
     created: 0,
@@ -473,8 +517,29 @@ function runUnderLock(
     );
   }
 
-  printOutcome(summary, log, options, installRoot, ff, entries);
+  printOutcome(
+    summary,
+    log,
+    options,
+    installRoot,
+    ff,
+    entries,
+    manifestTargetPath,
+  );
   return summary;
+}
+
+/**
+ * The `~/.flow/config.json` module-selection reader seam, resolved once
+ * from `options.configPath` (test fixtures) or the real config path
+ * (production). Shared by `resolveEntriesForRun` and `printOutcome`'s
+ * doctor-summary read so both resolve the SAME fixture-scoped file rather
+ * than one of them silently falling through to the real `~/.flow`.
+ */
+function configReaderFor(options: SetupOptions): ReadConfigFile | undefined {
+  return options.configPath
+    ? () => readConfigFileAt(options.configPath!)
+    : undefined;
 }
 
 /**
@@ -492,13 +557,13 @@ function runUnderLock(
  * prints a one-line notice naming how to widen the selection — it does NOT
  * persist, since no user intent was expressed.
  */
-function resolveEntriesForRun(
+async function resolveEntriesForRun(
   options: SetupOptions,
   flowSource: string,
   installRoot: string,
   targets: InstallTargets,
   log: (msg: string) => void,
-): { entries: SourceEntry[]; persistIds: string[] | undefined } {
+): Promise<{ entries: SourceEntry[]; persistIds: string[] | undefined }> {
   if (options.all) {
     return {
       entries: discoverAll(flowSource, installRoot, targets),
@@ -506,9 +571,7 @@ function resolveEntriesForRun(
     };
   }
 
-  const read: ReadConfigFile | undefined = options.configPath
-    ? () => readConfigFileAt(options.configPath!)
-    : undefined;
+  const read = configReaderFor(options);
 
   for (const w of collectModuleConfigWarnings(read)) {
     log(dim(`  ! module config: ${w}`));
@@ -547,7 +610,13 @@ function resolveEntriesForRun(
   }
 
   return {
-    entries: discoverSelected(flowSource, installRoot, selection.ids, targets),
+    entries: await discoverSelected(
+      flowSource,
+      installRoot,
+      selection.ids,
+      targets,
+      (msg) => log(dim(`  ! module registry: ${msg}`)),
+    ),
     persistIds: selection.shouldPersist ? selection.ids : undefined,
   };
 }
@@ -578,15 +647,22 @@ export function validateJsonFiles(paths: string[]): {
   return { failures, errors };
 }
 
-function preflight(targets: InstallTargets): void {
-  if (!commandOnPath("tmux")) {
+function preflight(targets: InstallTargets, options: SetupOptions): void {
+  // tmux is no longer an install prerequisite — the plain launcher is the
+  // default backend. Warn (never fail) only when the RECORDED launcher is
+  // tmux and tmux is missing, since that recorded preference will degrade at
+  // launch time.
+  const read: ReadConfigFile | undefined = options.configPath
+    ? () => readConfigFileAt(options.configPath!)
+    : undefined;
+  const hasCommand = options.commandOnPath ?? commandOnPath;
+  if (readLauncherConfig(read) === "tmux" && !hasCommand("tmux")) {
     console.error(
-      "error: tmux is not on PATH.\n" +
-        "  flow uses tmux for pipeline windows. Install it first:\n" +
+      "warning: your recorded launcher is tmux, but tmux is not on PATH.\n" +
+        "  pipelines will fall back to the plain launcher. Install tmux:\n" +
         "    macOS:  brew install tmux\n" +
         "    Linux:  apt install tmux  (or your distro's equivalent)",
     );
-    process.exit(1);
   }
   if (!pathContains(targets.binDir)) {
     console.error(
@@ -775,6 +851,7 @@ function printOutcome(
   installRoot: string,
   ff: FastForwardResult | undefined,
   entries: SourceEntry[],
+  manifestPath: string,
 ): void {
   const version = (() => {
     try {
@@ -826,6 +903,18 @@ function printOutcome(
 
   printSummaryLine(s, log);
   printModuleBreakdown(entries, log);
+  // Deviation-2 fix: resolve activity from the SAME fixture-scoped
+  // manifest/config the rest of this run used (manifestPath / configPath),
+  // never the zero-arg real-`~/.flow` default — otherwise a test fixture's
+  // `runSetup` call would read the developer's real module state and this
+  // line would become non-deterministic under vitest.
+  printInactiveModules(
+    inactiveOptionalModules({
+      readManifest: () => readManifest(manifestPath),
+      readSelection: () => readModuleSelection(configReaderFor(options)),
+    }),
+    log,
+  );
 }
 
 function printSummaryLine(s: SetupSummary, log: (msg: string) => void): void {
@@ -849,6 +938,21 @@ function printSummaryLine(s: SetupSummary, log: (msg: string) => void): void {
  * excluded from the breakdown, matching how they're excluded from
  * `resolveArtifactSet`'s union.
  */
+/**
+ * Prints one dimmed doctor-summary line naming every currently-inactive
+ * optional module, e.g. `inactive modules: research (deselected), copilot
+ * (deselected)`. Prints nothing when `inactive` is empty — a full/`--all`
+ * install has no inactive optionals to report.
+ */
+function printInactiveModules(
+  inactive: ModuleActivity[],
+  log: (msg: string) => void,
+): void {
+  if (inactive.length === 0) return;
+  const parts = inactive.map((m) => `${m.id} (deselected)`);
+  log(dim(`      inactive modules: ${parts.join(", ")}`));
+}
+
 function printModuleBreakdown(
   entries: SourceEntry[],
   log: (msg: string) => void,

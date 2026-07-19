@@ -15,14 +15,18 @@ import { dim } from "./color";
  * spawn would add a per-commit interpreter start and a runtime dependency.
  *
  * BOTH session gates are load-bearing: `CLAUDE_CODE_SESSION_ID` alone is set
- * for the user's own hand-driven Claude Code commits, so the tmux `@flow-slug`
- * pane option is what narrows the guard to a flow-supervisor window — without
- * it the hook would block the user's own legitimate commits to the base branch.
+ * for the user's own hand-driven Claude Code commits, so the flow-session slug
+ * — the `FLOW_SLUG` env var (either launcher backend), falling back to the
+ * tmux `@flow-slug` pane option (tmux backend) — is what narrows the guard to
+ * a flow-supervisor session; without it the hook would block the user's own
+ * legitimate commits to the base branch.
  */
 export const BASE_BRANCH_GUARD_HOOK = `#!/bin/sh
 [ -n "$CLAUDE_CODE_SESSION_ID" ] || exit 0
-[ -n "$TMUX_PANE" ] || exit 0
-flow_slug=$(tmux show-options -w -t "$TMUX_PANE" -q -v @flow-slug 2>/dev/null)
+flow_slug=\${FLOW_SLUG:-}
+if [ -z "$flow_slug" ] && [ -n "$TMUX_PANE" ]; then
+  flow_slug=$(tmux show-options -w -t "$TMUX_PANE" -q -v @flow-slug 2>/dev/null)
+fi
 [ -n "$flow_slug" ] || exit 0
 
 # origin/HEAD is the source of truth for the default branch; the local

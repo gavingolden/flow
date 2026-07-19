@@ -76,6 +76,14 @@ const CODER_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "coder-instructions.md",
 );
+const PRODUCT_PLANNING_TOP_SKILL_MD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-product-planning",
+  "SKILL.md",
+);
 const REPORT_TEMPLATE_PATH = path.resolve(
   HERE,
   "..",
@@ -318,6 +326,10 @@ const discoveryInstructionsContent = fs.readFileSync(
 );
 const epicDiscoveryInstructionsContent = fs.readFileSync(
   EPIC_DISCOVERY_INSTRUCTIONS_PATH,
+  "utf8",
+);
+const productPlanningTopContent = fs.readFileSync(
+  PRODUCT_PLANNING_TOP_SKILL_MD_PATH,
   "utf8",
 );
 const prdTemplateContent = fs.readFileSync(PRD_TEMPLATE_PATH, "utf8");
@@ -919,8 +931,8 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
         "as one of the named Task-tool exemptions.",
     ).toBe(true);
     expect(
-      verificationSection.includes("Independent Fix-Applier Subagent"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Independent Fix-Applier Subagent' " +
+      verificationSection.includes("Fix-Applier Subagent"),
+      "flow-pipeline/SKILL.md Verification section must reference 'Fix-Applier Subagent' " +
         "as one of the named Task-tool exemptions.",
     ).toBe(true);
     expect(
@@ -1000,9 +1012,22 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * clear of the hard 40k warning (raising the budget PAST 40k was explicitly
    * rejected — the guard exists to keep the file under it). The NEXT contract
    * must offload-then-trim: there is no longer room to raise without crossing 40k.
+   * Dropped from 39_950 to 24_000 by the p5-context-diet pass (#431's
+   * follow-up): `## Output style`'s full rule bodies moved to
+   * references/output-style.md, `## Consumer-repo notes`' full surface area
+   * moved to references/consumer-repo-contract.md, and the session-marker /
+   * trailer + inline-intent-annotation mechanics plus several `## Don'ts`
+   * bullet bodies (Shared rationale, the two AskUserQuestion forms, the
+   * auto-merge and auto-issue-create exemptions, the epic-create/epic-run
+   * detail) moved to references/git-workflow.md — each replaced in AGENTS.md
+   * by its anchored opener/binding-bar plus a relative link. Measured
+   * post-diet size is ~19_978 chars
+   * (`bin/flow-transcript-audit.ts --static AGENTS.md`); 24_000 keeps
+   * headroom for incremental additions without inviting the regrowth back
+   * toward 40k the offload-then-trim discipline exists to prevent.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 39_950;
+    const CHAR_BUDGET = 24_000;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -1108,16 +1133,23 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     }
   });
 
-  // Frontmatter policy for the full ten-definition set (p4-review-agents):
-  // mechanical roles pin `effort: low` (checked above and re-checked here),
-  // the gatekeeper pins `model: haiku` as the declarative cost-routing
-  // record, and every judgment role omits both so session effort and the
-  // spawn site's per-spawn/config-threaded model always win.
+  // Frontmatter policy for the full fourteen-definition set
+  // (p4-review-agents + p4-pipeline-agents): mechanical roles pin
+  // `effort: low` (checked above and re-checked here), the gatekeeper
+  // pins `model: haiku` as the declarative cost-routing record, and
+  // every judgment role omits both so session effort and the spawn
+  // site's per-spawn/config-threaded model always win. flow-discovery
+  // is the one row with `inheritsAllTools: true` — plan Decision
+  // analysis 2 deliberately leaves it with no `tools:` allowlist
+  // (discovery's research + design-artifact passes span Bash/WebFetch/
+  // MCP surfaces a fixed allowlist would silently break), so the
+  // tools-presence assert below is skipped for that row only.
   const AGENT_FRONTMATTER_POLICY: Array<{
     file: string;
     wantModel?: string;
     wantEffort?: string;
     wantTools?: string;
+    inheritsAllTools?: boolean;
   }> = [
     { file: "flow-verify.md", wantEffort: "low" },
     { file: "flow-fix-applier.md", wantEffort: "low" },
@@ -1144,7 +1176,30 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       file: "flow-review-test-coverage.md",
       wantTools: "Read, Grep, Glob, Write",
     },
+    { file: "flow-scout.md", wantTools: "Bash, Read, Grep, Glob, Write" },
+    { file: "flow-discovery.md", inheritsAllTools: true },
+    {
+      file: "flow-merge-resolver.md",
+      wantTools: "Bash, Read, Edit, Write, Grep",
+    },
+    {
+      file: "flow-edit-applier.md",
+      wantTools: "Bash, Read, Edit, Write, Grep, Glob, NotebookEdit",
+    },
   ];
+
+  it("AGENT_FRONTMATTER_POLICY covers exactly the agents/ directory, with inheritsAllTools confined to flow-discovery.md", () => {
+    const onDisk = fs
+      .readdirSync(path.resolve(HERE, "..", "agents"))
+      .filter((f) => f.endsWith(".md"))
+      .sort();
+    expect(AGENT_FRONTMATTER_POLICY.map((r) => r.file).sort()).toEqual(onDisk);
+    expect(
+      AGENT_FRONTMATTER_POLICY.filter((r) => r.inheritsAllTools).map(
+        (r) => r.file,
+      ),
+    ).toEqual(["flow-discovery.md"]);
+  });
 
   it("every agents/*.md definition exists and follows the frontmatter policy", () => {
     for (const {
@@ -1152,6 +1207,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       wantModel,
       wantEffort,
       wantTools,
+      inheritsAllTools,
     } of AGENT_FRONTMATTER_POLICY) {
       const agentPath = path.resolve(HERE, "..", "agents", file);
       expect(
@@ -1160,11 +1216,21 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ).toBe(true);
       const frontmatter =
         fs.readFileSync(agentPath, "utf8").split("---")[1] ?? "";
-      expect(
-        /^tools:\s*\S/m.test(frontmatter),
-        `agents/${file} frontmatter must declare a 'tools:' allowlist — ` +
-          "tool containment is the point of the named definition.",
-      ).toBe(true);
+      if (inheritsAllTools) {
+        expect(
+          /^tools:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT declare a 'tools:' allowlist ` +
+            "— plan Decision analysis 2 deliberately leaves this row inheriting " +
+            "every session tool; a later edit that pins one must go red, not " +
+            "silently narrow discovery's research surface.",
+        ).toBe(false);
+      } else {
+        expect(
+          /^tools:\s*\S/m.test(frontmatter),
+          `agents/${file} frontmatter must declare a 'tools:' allowlist — ` +
+            "tool containment is the point of the named definition.",
+        ).toBe(true);
+      }
       if (wantTools) {
         expect(
           new RegExp(`^tools:\\s*${wantTools}\\s*$`, "m").test(frontmatter),
@@ -1198,6 +1264,44 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
             "roles scale with session effort (gatekeeper: already bounded by haiku).",
         ).toBe(false);
       }
+    }
+  });
+
+  it("flow-verify.md and flow-fix-applier.md retain the mcp__chrome-devtools__* and ToolSearch grants (UI-running agents)", () => {
+    for (const file of ["flow-verify.md", "flow-fix-applier.md"]) {
+      const content = fs.readFileSync(
+        path.resolve(HERE, "..", "agents", file),
+        "utf8",
+      );
+      for (const grant of ["ToolSearch", "mcp__chrome-devtools__*"]) {
+        expect(
+          content.includes(grant),
+          `agents/${file} must keep the '${grant}' grant in its tools: ` +
+            "frontmatter — the two sub-agents run the browser UI passes; dropping " +
+            "it silently re-breaks the browser gate (mcp-not-available).",
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("no agent other than flow-verify.md and flow-fix-applier.md carries the chrome-devtools MCP grant", () => {
+    const agentsDir = path.resolve(HERE, "..", "agents");
+    const otherAgentFiles = fs
+      .readdirSync(agentsDir)
+      .filter(
+        (file) =>
+          file.endsWith(".md") &&
+          file !== "flow-verify.md" &&
+          file !== "flow-fix-applier.md",
+      );
+    for (const file of otherAgentFiles) {
+      const content = fs.readFileSync(path.resolve(agentsDir, file), "utf8");
+      expect(
+        content.includes("mcp__chrome-devtools"),
+        `agents/${file} must NOT carry the chrome-devtools MCP grant — only ` +
+          "flow-verify.md and flow-fix-applier.md run the browser UI passes; " +
+          "granting it elsewhere silently widens the browser blast radius.",
+      ).toBe(false);
     }
   });
 
@@ -1261,6 +1365,88 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       content.includes("agent-fallback: flow-verify → general-purpose"),
       "flow-pipeline SKILL.md step-6 verify guard must emit the named agent-fallback " +
         "notice on its general-purpose fallback branch.",
+    ).toBe(true);
+    expect(
+      content.includes("agent-fallback: flow-merge-resolver → general-purpose"),
+      "flow-pipeline SKILL.md step-10 merge-resolver guard must emit the named " +
+        "agent-fallback notice on its general-purpose fallback branch.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes(
+        "agent-fallback: flow-scout → general-purpose",
+      ),
+      "flow-new-feature SKILL.md Step 1b scout guard must emit the named " +
+        "agent-fallback notice on its general-purpose fallback branch.",
+    ).toBe(true);
+    expect(
+      productPlanningTopContent.includes(
+        "agent-fallback: flow-discovery → general-purpose",
+      ),
+      "flow-product-planning SKILL.md discovery guard must emit the named " +
+        "agent-fallback notice on its general-purpose fallback branch.",
+    ).toBe(true);
+    expect(
+      coderContent.includes(
+        "agent-fallback: flow-edit-applier → general-purpose",
+      ),
+      "flow-coder SKILL.md edit-applier guard must emit the named " +
+        "agent-fallback notice on its general-purpose fallback branch.",
+    ).toBe(true);
+  });
+
+  it("the scout, discovery, merge-resolver, and edit-applier spawn sites resolve their named agents with guarded fallbacks", () => {
+    expect(
+      newFeatureContent.includes("SCOUT_SUBAGENT=flow-scout"),
+      "flow-new-feature SKILL.md Step 1b must resolve SCOUT_SUBAGENT to `flow-scout`.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("[ -f ~/.claude/agents/flow-scout.md ]"),
+      "flow-new-feature SKILL.md scout site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("subagent_type: $SCOUT_SUBAGENT"),
+      "flow-new-feature SKILL.md scout spawn must pass `subagent_type: $SCOUT_SUBAGENT`.",
+    ).toBe(true);
+
+    expect(
+      productPlanningTopContent.includes("DISCOVERY_SUBAGENT=flow-discovery"),
+      "flow-product-planning SKILL.md must resolve DISCOVERY_SUBAGENT to `flow-discovery`.",
+    ).toBe(true);
+    expect(
+      productPlanningTopContent.includes(
+        "[ -f ~/.claude/agents/flow-discovery.md ]",
+      ),
+      "flow-product-planning SKILL.md discovery site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      productPlanningTopContent.includes("subagent_type: $DISCOVERY_SUBAGENT"),
+      "flow-product-planning SKILL.md discovery spawn must pass `subagent_type: $DISCOVERY_SUBAGENT`.",
+    ).toBe(true);
+
+    expect(
+      content.includes("MERGE_RESOLVER_SUBAGENT=flow-merge-resolver"),
+      "flow-pipeline SKILL.md step 10 must resolve MERGE_RESOLVER_SUBAGENT to `flow-merge-resolver`.",
+    ).toBe(true);
+    expect(
+      content.includes("[ -f ~/.claude/agents/flow-merge-resolver.md ]"),
+      "flow-pipeline SKILL.md merge-resolver site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      content.includes("subagent_type: $MERGE_RESOLVER_SUBAGENT"),
+      "flow-pipeline SKILL.md merge-resolver spawn must pass `subagent_type: $MERGE_RESOLVER_SUBAGENT`.",
+    ).toBe(true);
+
+    expect(
+      coderContent.includes("CODER_SUBAGENT=flow-edit-applier"),
+      "flow-coder SKILL.md must resolve CODER_SUBAGENT to `flow-edit-applier`.",
+    ).toBe(true);
+    expect(
+      coderContent.includes("[ -f ~/.claude/agents/flow-edit-applier.md ]"),
+      "flow-coder SKILL.md edit-applier site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      coderContent.includes("subagent_type: $CODER_SUBAGENT"),
+      "flow-coder SKILL.md edit-applier spawn must pass `subagent_type: $CODER_SUBAGENT`.",
     ).toBe(true);
   });
 
@@ -3213,12 +3399,72 @@ describe("pr-review include-by-reference structure", () => {
     // gains the fired-notice echo paragraph. Every existing spawn keeps its
     // per-spawn model: param and artifact path — new-contract prose, not
     // regrowth of previously-trimmed prose.
+    //
+    // Lowered 2025 → 1750 (p5-context-diet): the lean-body + lazy-reference
+    // pass trimmed the file 2,016 → 1,698 lines by moving procedural detail
+    // (escalation recipes, the deployment follow-up checklist, UI-validation
+    // execution detail) into topic-owning reference files and collapsing
+    // duplicated spawn-procedure prose. The lowered ceiling locks in this
+    // win with modest headroom rather than leaving the old, now-stale 2025
+    // budget as ~327 lines of silent regrowth room — the exact failure mode
+    // this diet fights.
     expect(
       lineCount,
-      `flow-pr-review/SKILL.md line count must stay under the post-review-agents ` +
-        `budget of 2025 lines. Material regrowth past this ceiling would ` +
+      `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
+        `budget of 1750 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2025);
+    ).toBeLessThan(1750);
+  });
+
+  it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
+    const pipelineSkillPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pipeline",
+      "SKILL.md",
+    );
+    const content = fs.readFileSync(pipelineSkillPath, "utf8");
+    const lineCount = content.split("\n").length;
+    // New lint (p5-context-diet): the supervisor body had regrown 236 lines
+    // since its #411 split before this diet trimmed it 2,986 → 2,700 lines
+    // by moving the Step 3 threading/backstop contracts to
+    // references/step3-threading.md. 2750 leaves modest headroom above the
+    // 2,700-line post-diet floor without reopening the zero-headroom gate
+    // tension this same PR's Test Steps hit at exactly 2,700 — regrowth
+    // past 2750 should be treated as bloat creeping back in, the failure
+    // mode this diet exists to prevent.
+    expect(
+      lineCount,
+      `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
+        `budget of 2750 lines. Material regrowth past this ceiling would ` +
+        `indicate unrelated bloat creeping back in.`,
+    ).toBeLessThan(2750);
+  });
+
+  it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
+    const newFeatureSkillPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-new-feature",
+      "SKILL.md",
+    );
+    const content = fs.readFileSync(newFeatureSkillPath, "utf8");
+    const lineCount = content.split("\n").length;
+    // New lint (p5-context-diet): the Step 4b PR-description authoring
+    // rubric moved verbatim to references/pr-description-authoring.md,
+    // trimming the file 916 → 750 lines. 780 leaves modest headroom above
+    // the post-diet floor; regrowth past it should be treated as bloat
+    // creeping back in.
+    expect(
+      lineCount,
+      `flow-new-feature/SKILL.md line count must stay under the post-diet ` +
+        `budget of 780 lines. Material regrowth past this ceiling would ` +
+        `indicate unrelated bloat creeping back in.`,
+    ).toBeLessThan(780);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
@@ -5226,5 +5472,38 @@ describe("design-artifact fidelity structural anchors", () => {
         "INVALID: $DESIGN_SPEC_REASON\"' threading in both the feature " +
         "and tension-flag awaiting-approval gate renders.",
     ).toBe(true);
+  });
+});
+
+describe("module-status conditional-degradation guards (flow-pipeline/SKILL.md, discovery-instructions.md, AGENTS.md)", () => {
+  // Pins the `flow-module-status` runtime-gate call sites so a future edit
+  // can't silently drop the precheck: Step 7's Copilot request/wait guard,
+  // Step 3's forced-research + cross-model plan-review guards, and the
+  // AGENTS.md `## Don'ts` convention naming `--check-skill` for optional-
+  // module skill deferrals. These are structural anchors, not behavior
+  // tests — the runtime contract itself is unit-tested at
+  // bin/flow-module-status.test.ts and bin/lib/module-status.test.ts.
+  it("flow-pipeline/SKILL.md Step 7 gates the Copilot request path on the copilot module", () => {
+    expect(content).toContain("flow-module-status --check copilot");
+  });
+
+  it("flow-pipeline/SKILL.md Step 3 gates both the forced-research fan-out and the cross-model plan review on the research module", () => {
+    const matches = content.match(/flow-module-status --check research/g) ?? [];
+    expect(
+      matches.length,
+      "flow-pipeline/SKILL.md must carry 'flow-module-status --check research' " +
+        "at least twice — once before the forced-research flow-research-run " +
+        "block, once before the cross-model flow-plan-review block.",
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("discovery-instructions.md Step 1.5 gates the flow-delegate-fanout research fan-out on the research module", () => {
+    expect(discoveryInstructionsContent).toContain(
+      "flow-module-status --check research",
+    );
+  });
+
+  it("AGENTS.md ## Don'ts names the check-skill convention for optional-module skill deferrals", () => {
+    expect(agentsContent).toContain("check-skill");
   });
 });

@@ -333,14 +333,14 @@ describe("no-match case", () => {
     const files = parseDiff(diff);
     const envelope = buildEnvelope(files);
     expect(envelope.candidates).toEqual([]);
-    expect(envelope.overflowBullet).toBeUndefined();
+    expect(envelope.overflowNote).toBeUndefined();
   });
 });
 
 // --- Cap & overflow ---
 
 describe(rankAndCap, () => {
-  it("cap-overflow: 12 matched hunks → exactly 8 returned, overflowBullet present", () => {
+  it("cap-overflow: 12 matched hunks → exactly 8 returned, overflowNote present", () => {
     // 12 separate files, each with a single 12-LOC pure-addition hunk
     // matching rule (a). All have identical _hunkLoc=12 and
     // _restructure=0, so path-alphabetical and line tie-break.
@@ -355,9 +355,7 @@ describe(rankAndCap, () => {
     const files = parseDiff(diff);
     const envelope = buildEnvelope(files);
     expect(envelope.candidates).toHaveLength(ANNOTATION_FLOOR);
-    expect(envelope.overflowBullet).toBe(
-      overflowPointer(12 - ANNOTATION_FLOOR),
-    );
+    expect(envelope.overflowNote).toBe(overflowPointer(12 - ANNOTATION_FLOOR));
   });
 
   it("priority tie-break: two hunks both 15-LOC, the higher min(+,-) wins", () => {
@@ -408,7 +406,7 @@ describe(computeCap, () => {
     const files = parseDiff(parts.join("\n"));
     const envelope = buildEnvelope(files, override);
     expect(envelope.candidates).toHaveLength(10);
-    expect(envelope.overflowBullet).toBe(overflowPointer(10));
+    expect(envelope.overflowNote).toBe(overflowPointer(10));
   });
 });
 
@@ -480,7 +478,7 @@ describe(readCapConfig, () => {
     const surplus = 12 - kept;
     expect(Number.isInteger(kept)).toBe(true);
     expect(Number.isInteger(surplus)).toBe(true);
-    expect(envelope.overflowBullet).toBe(
+    expect(envelope.overflowNote).toBe(
       surplus > 0 ? overflowPointer(surplus) : undefined,
     );
   });
@@ -582,9 +580,15 @@ describe(buildEnvelope, () => {
 // --- overflowPointer text ---
 
 describe(overflowPointer, () => {
-  it("renders the documented surplus message", () => {
+  it("renders the documented surplus message (plural)", () => {
     expect(overflowPointer(3)).toBe(
-      "- 3 additional hunks exceeded the inline cap — see commit messages for details.",
+      "> [!NOTE]\n> **Annotation coverage:** 3 diff hunks beyond the inline self-review annotation cap are not annotated inline; their rationale lives in the commit messages.",
+    );
+  });
+
+  it("renders the documented surplus message (singular)", () => {
+    expect(overflowPointer(1)).toBe(
+      "> [!NOTE]\n> **Annotation coverage:** 1 diff hunk beyond the inline self-review annotation cap is not annotated inline; its rationale lives in the commit messages.",
     );
   });
 });

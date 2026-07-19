@@ -58,7 +58,7 @@ import {
 } from "./flow-gate-decide";
 import { readState, writeState, type PipelineState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
-import { resolveSlugFromPane } from "./lib/tmux";
+import { resolveSlugAmbient } from "./lib/session-identity";
 
 /**
  * A recorded gate-override token is honoured only when it matches the PR
@@ -272,7 +272,7 @@ function checkGuard(
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
-  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
+  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
   const now = deps.now ?? (() => Date.now());
 
   const parsed = parseArgs(argv);

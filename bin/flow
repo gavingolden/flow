@@ -57,7 +57,7 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
     case "help":
       return runHelpVerb(args);
     case "install":
-      return runSetupCli(args);
+      return await runSetupCli(args);
     case "feature":
       return runFeatureCli(args);
     case "epic":

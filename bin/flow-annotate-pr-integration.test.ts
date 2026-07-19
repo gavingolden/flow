@@ -44,7 +44,7 @@ function multiHunkDiff(
 // --- Tests ---
 
 describe("integration: full annotator flow", () => {
-  it("path 1 — cap-fires: 12-hunk diff yields exactly 8 candidates with overflowBullet", () => {
+  it("path 1 — cap-fires: 12-hunk diff yields exactly 8 candidates with overflowNote", () => {
     // 12 files each with a single 12-LOC pure-addition hunk → rule (a) on each.
     const parts: string[] = [];
     for (let i = 0; i < 12; i++) {
@@ -58,18 +58,18 @@ describe("integration: full annotator flow", () => {
     const files = parseDiff(parts.join("\n"));
     const envelope = buildEnvelope(files);
     expect(envelope.candidates).toHaveLength(ANNOTATION_FLOOR);
-    expect(envelope.overflowBullet).toBeDefined();
-    expect(envelope.overflowBullet).toContain("4 additional hunks");
+    expect(envelope.overflowNote).toBeDefined();
+    expect(envelope.overflowNote).toContain("4 diff hunks");
   });
 
-  it("path 2 — no-match-empty: small-hunks diff yields empty candidates, no overflowBullet", () => {
+  it("path 2 — no-match-empty: small-hunks diff yields empty candidates, no overflowNote", () => {
     const diff = multiHunkDiff("small.ts", [
       { oldStart: 1, newStart: 1, minuses: 1, pluses: 2 },
       { oldStart: 10, newStart: 10, minuses: 1, pluses: 2 },
     ]);
     const envelope = buildEnvelope(parseDiff(diff));
     expect(envelope.candidates).toEqual([]);
-    expect(envelope.overflowBullet).toBeUndefined();
+    expect(envelope.overflowNote).toBeUndefined();
   });
 
   it("path 3 — multi-line range: hunk spanning 40 lines yields candidate with end_line set", () => {

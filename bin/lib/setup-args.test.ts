@@ -388,30 +388,30 @@ describe("runSetupCli", () => {
     });
   }
 
-  it("returns exit code 0 when no targets are blocked", () => {
-    expect(cli([])).toBe(0);
+  it("returns exit code 0 when no targets are blocked", async () => {
+    expect(await cli([])).toBe(0);
   });
 
-  it("returns exit code 1 when at least one target is blocked", () => {
+  it("returns exit code 1 when at least one target is blocked", async () => {
     const t = targets();
     fs.mkdirSync(t.skillsDir, { recursive: true });
     fs.writeFileSync(path.join(t.skillsDir, "alpha"), "user content");
-    expect(cli([])).toBe(1);
+    expect(await cli([])).toBe(1);
   });
 
-  it("returns exit code 1 when validationFailures > 0 (malformed JSON at a validated path)", () => {
+  it("returns exit code 1 when validationFailures > 0 (malformed JSON at a validated path)", async () => {
     // Plant a malformed settings.json at the path the validator scans. The
     // ensureStopHook safe-bailout will refuse to overwrite it (preserving
     // user data), then end-of-run validation flips the exit code.
     const settingsP = path.join(homeDir, ".claude", "settings.json");
     fs.mkdirSync(path.dirname(settingsP), { recursive: true });
     fs.writeFileSync(settingsP, "{not valid json");
-    expect(cli([])).toBe(1);
+    expect(await cli([])).toBe(1);
     // Malformed content survives — the safe-bailout never stomped it.
     expect(fs.readFileSync(settingsP, "utf8")).toBe("{not valid json");
   });
 
-  it("returns exit code 1 when summary.missingRuntimeDeps > 0 (declared dep not in node_modules)", () => {
+  it("returns exit code 1 when summary.missingRuntimeDeps > 0 (declared dep not in node_modules)", async () => {
     // installRoot's package.json declares a runtime dep that has no
     // node_modules/<name>/package.json — the dep-resolution check populates
     // summary.missingRuntimeDeps and the CLI flips the exit code.
@@ -421,7 +421,7 @@ describe("runSetupCli", () => {
     );
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
-      const code = runSetupCli([], {
+      const code = await runSetupCli([], {
         flowSource,
         installRoot: flowSource,
         targets: targets(),
@@ -440,11 +440,11 @@ describe("runSetupCli", () => {
     }
   });
 
-  it("returns exit code 2 on a parser error and prints to stderr", () => {
+  it("returns exit code 2 on a parser error and prints to stderr", async () => {
     const errSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    const code = runSetupCli(["--bogus"]);
+    const code = await runSetupCli(["--bogus"]);
     expect(code).toBe(2);
     expect(errSpy).toHaveBeenCalledWith(
       "flow install: unknown option '--bogus'",
@@ -455,7 +455,7 @@ describe("runSetupCli", () => {
     errSpy.mockRestore();
   });
 
-  it("prints help and returns 0 for --help / -h, before parseSetupArgs runs", () => {
+  it("prints help and returns 0 for --help / -h, before parseSetupArgs runs", async () => {
     // Regression: parseSetupArgs(["--help"]) returns an unknown-option error.
     // The CLI shim must intercept --help/-h before delegating to the parser.
     for (const flag of ["--help", "-h"]) {
@@ -463,7 +463,7 @@ describe("runSetupCli", () => {
       const err = vi
         .spyOn(console, "error")
         .mockImplementation(() => undefined);
-      const code = runSetupCli([flag]);
+      const code = await runSetupCli([flag]);
       expect(code).toBe(0);
       expect(log).toHaveBeenCalled();
       expect(log.mock.calls[0][0]).toMatch(/^flow install — install skills/);
@@ -473,14 +473,14 @@ describe("runSetupCli", () => {
     }
   });
 
-  it("forwards --source to runSetup as flowSource", () => {
+  it("forwards --source to runSetup as flowSource", async () => {
     // Move flow-src under a fresh location and target it via --source.
     // On macOS, /tmp is a symlink to /private/tmp, so compare via realpath
     // — runSetup uses the path as given, but `scratch` may resolve to a
     // different prefix than the symlink content reports.
     const altSource = path.join(scratch, "alt-src");
     buildFakeFlowSource(altSource);
-    const code = runSetupCli(["--source", altSource], {
+    const code = await runSetupCli(["--source", altSource], {
       // omit flowSource here — runSetupCli should derive it from --source
       targets: targets(),
       skipPreflight: true,
@@ -512,14 +512,14 @@ describe("runSetupCli", () => {
     expect(path.basename(home as string)).toMatch(/^flow-vitest-home-/);
   });
 
-  it("plumbs pullCanonicalFirst=false through to runSetup when --no-pull-canonical is passed", () => {
+  it("plumbs pullCanonicalFirst=false through to runSetup when --no-pull-canonical is passed", async () => {
     // The fake flow-source fixture is not a git repo, so the default
     // upgrade path would run runSetup's fast-forward best-effort branch.
     // With --no-pull-canonical the CLI must skip that branch entirely, so
     // no `canonical:` diagnostics must appear.
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
-      const code = runSetupCli(["--upgrade", "--no-pull-canonical"], {
+      const code = await runSetupCli(["--upgrade", "--no-pull-canonical"], {
         flowSource,
         installRoot: flowSource,
         targets: targets(),
@@ -541,14 +541,14 @@ describe("runSetupCli", () => {
     }
   });
 
-  it("logs canonical: skipped on --upgrade alone (default pullCanonical=true) when fixture is not a git repo", () => {
+  it("logs canonical: skipped on --upgrade alone (default pullCanonical=true) when fixture is not a git repo", async () => {
     // Symmetric counterpart to the assertion above: confirms the default
     // path actually fires the FF probe (and falls through to the
     // not-a-git-repo skip on the fake fixture, surfaced in the outcome
     // headline as "content not refreshed (not-a-git-repo)").
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
-      const code = runSetupCli(["--upgrade"], {
+      const code = await runSetupCli(["--upgrade"], {
         flowSource,
         installRoot: flowSource,
         targets: targets(),
@@ -569,16 +569,16 @@ describe("runSetupCli", () => {
     }
   });
 
-  it("writes the completions rc-block inside the sandboxed homeDir, not the real $HOME", () => {
+  it("writes the completions rc-block inside the sandboxed homeDir, not the real $HOME", async () => {
     // Regression for the leak that stamped a stale `/var/folders/.../flow-cli-…`
-    // path into a real ~/.zshrc. If `cli()` ever drops `homeDir`, the block
+    // path into a real ~/.zshrc. If `await cli()` ever drops `homeDir`, the block
     // lands in the real home and this assertion fails — because the sandboxed
     // .zshrc gets nothing.
     fs.mkdirSync(homeDir, { recursive: true });
     const sandboxedZshrc = path.join(homeDir, ".zshrc");
     fs.writeFileSync(sandboxedZshrc, "");
 
-    expect(cli([])).toBe(0);
+    expect(await cli([])).toBe(0);
 
     const expectedSourceLine = path.join(targets().completionsDir, "flow.zsh");
     const after = fs.readFileSync(sandboxedZshrc, "utf8");

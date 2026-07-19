@@ -36,7 +36,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { readState } from "./lib/state";
-import { resolveSlugFromPane } from "./lib/tmux";
+import { resolveSlugAmbient } from "./lib/session-identity";
 import { upsertPrBodySection } from "./lib/pr-body-upsert";
 
 // Exact-match command strings the helper is permitted to execute when
@@ -118,7 +118,7 @@ export function resolveJsonlPath(
   deps: ResolveJsonlDeps = {},
 ): string | null {
   if (override) return override;
-  const resolveSlug = deps.resolveSlug ?? resolveSlugFromPane;
+  const resolveSlug = deps.resolveSlug ?? resolveSlugAmbient;
   const readSt = deps.readStateFn ?? readState;
   const slug = resolveSlug();
   if (slug) {

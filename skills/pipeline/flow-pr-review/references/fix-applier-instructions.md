@@ -423,9 +423,22 @@ The artifact MUST conform to this JSON schema:
       "introduced_by_this_pr": false
     }
   ],
-  "summary": "<3–5 sentence both-sides return summary; see step 10>"
+  "summary": "<3–5 sentence both-sides return summary; see step 10>",
+  "ui_screenshots": ["<optional array of absolute screenshot paths; see the note below — typically absent from what THIS subagent writes>"]
 }
 ```
+
+`ui_screenshots` is typically **ABSENT** from what this subagent writes: it
+is `/flow-pr-review` Step 8c's post-spawn step that populates it, and Step 8c
+runs AFTER this subagent has already written and returned this artifact and
+exited — the browser capture happens outside this subagent's session. The
+wrapper merges the captured paths into this same artifact file on disk
+before `/flow-pr-review` Step 9's single read (see
+[ui-validation-evidence.md](ui-validation-evidence.md)'s "Snapshot-primary,
+screenshot-by-reference" and "Merge-back into `fix-applier-result.json`"
+sections for the concrete recipe). Only set `ui_screenshots` yourself if a
+fix you applied in step 3 above itself captured a screenshot (rare);
+otherwise omit the field entirely and let Step 8c populate it later.
 
 **Negative-findings slots are required.** `rejected_alternatives` and
 `anti_patterns_found` are not optional decorations — they are the slots

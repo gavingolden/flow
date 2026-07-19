@@ -34,7 +34,8 @@ PR-description draft, written to `.flow-tmp/plan.md` and
 
 This skill is a thin wrapper around a one-shot **Independent Discovery
 Subagent**. The wrapper itself does no discovery — it spawns one Task-tool
-subagent (`subagent_type: general-purpose`), passes the user's verbatim
+subagent (`subagent_type: flow-discovery`, guarded `general-purpose`
+fallback), passes the user's verbatim
 description plus the absolute paths to write, and waits for the subagent to
 return a brief summary. The subagent does all the heavy lifting in its own
 isolated context: reading the codebase, scanning the skill directory,
@@ -116,10 +117,21 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
    mkdir -p "$WORKTREE/.flow-tmp"
    ```
 
-3. Make exactly **one** Task-tool call:
+3. Resolve the subagent type. The `agents/flow-discovery.md` definition
+   (no `tools:` allowlist — deliberately inherits every tool; no
+   `effort:`/`model:` pins) resolves via a file-exists guard that falls
+   back to `general-purpose` with a loud `NOTICE — agent-fallback:` line
+   so the pipeline never fails on an unknown agent type:
+
+   ```bash
+   DISCOVERY_SUBAGENT=flow-discovery
+   [ -f ~/.claude/agents/flow-discovery.md ] || { DISCOVERY_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-discovery → general-purpose (definition not installed — run \`flow install\`)."; }
+   ```
+
+   Make exactly **one** Task-tool call:
 
    ```
-   subagent_type: general-purpose
+   subagent_type: $DISCOVERY_SUBAGENT
    description:   Discovery for /flow-product-planning
    prompt:        <the prompt template below, with variables filled in>
    ```
@@ -318,7 +330,7 @@ exemption.
 
 # Verification
 
-- Exactly one Task-tool call was made with `subagent_type: general-purpose`.
+- Exactly one Task-tool call was made with `subagent_type: $DISCOVERY_SUBAGENT` (`flow-discovery`, or the guarded `general-purpose` fallback).
 - **Feature mode (default):** `.flow-tmp/plan.md` exists at the resolved
   absolute path with the three expected sections (`# PRD`, `# Task breakdown`,
   `# PR description draft`), and `.flow-tmp/pr-description-draft.md` exists at

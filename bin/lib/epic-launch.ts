@@ -21,6 +21,7 @@ import { spawnSync as nodeSpawnSync } from "node:child_process";
 import type { Feature } from "./epic-manifest-schema";
 import { slugify } from "./slug";
 import { FLOW_SESSION } from "./tmux";
+import { resolveLauncherBackend } from "./launcher-config";
 import type { EffortLevel, ModelAlias } from "./state";
 
 /**
@@ -107,6 +108,10 @@ export function buildFeatureCreateArgs(
   // collision-free by construction — pass it explicitly to skip the
   // description-derived slug (whose token cap can collide across sibling ids).
   args.push("--slug", slugify(feature.id));
+  // Epic-launched features run under the tmux launcher deterministically —
+  // the epic orchestrator's watch loop needs windows, and the child `flow
+  // feature create` must never fall back to a plain foreground launch.
+  args.push("--tmux");
   return args;
 }
 
@@ -161,8 +166,31 @@ function parseMintedSlug(stdout: string): string | null {
  */
 export function launchFeature(
   feature: Feature,
-  opts: { spawn?: SpawnFn; epicSlug: string; overrides?: LaunchOverrides },
+  opts: {
+    spawn?: SpawnFn;
+    epicSlug: string;
+    overrides?: LaunchOverrides;
+    /** tmux-on-PATH probe seam for the launcher guard (test only). */
+    tmuxOnPath?: () => boolean;
+  },
 ): LaunchResult {
+  // Same tmux-only guard as `flow epic create`: the child argv appends
+  // `--tmux`, so refuse up front when that resolution would only degrade
+  // (tmux off PATH) rather than launching a doomed child.
+  const backend = resolveLauncherBackend({
+    flag: "tmux",
+    tmuxOnPath: opts.tmuxOnPath,
+  });
+  if (backend.id !== "tmux") {
+    // The `flag: "tmux"` above means tmux is already the forced selection —
+    // if it didn't resolve, it's strictly because tmuxOnPath returned false.
+    // Don't suggest opt-in mechanisms the caller has already exercised.
+    return {
+      ok: false,
+      error:
+        "flow epic: epic orchestration requires the tmux launcher — tmux is not installed or not on PATH",
+    };
+  }
   const spawn = opts.spawn ?? defaultSpawn;
   const args = buildFeatureCreateArgs(feature, opts.epicSlug, opts.overrides);
   const r = spawn("flow", args);

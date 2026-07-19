@@ -74,14 +74,18 @@ export const MODULES: ModuleDefinition[] = [
     ],
     agents: [
       "flow-consolidator.md",
+      "flow-discovery.md",
+      "flow-edit-applier.md",
       "flow-fix-applier.md",
       "flow-gatekeeper.md",
+      "flow-merge-resolver.md",
       "flow-review-bug-detection.md",
       "flow-review-pattern-consistency.md",
       "flow-review-performance.md",
       "flow-review-security.md",
       "flow-review-supply-chain.md",
       "flow-review-test-coverage.md",
+      "flow-scout.md",
       "flow-verify.md",
     ],
     helpers: [
@@ -125,6 +129,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-epic-resume-decide",
       "flow-epic-judge-context",
       "flow-epic-membership",
+      "flow-module-status",
       "flow-transcript-audit",
     ],
     validators: [

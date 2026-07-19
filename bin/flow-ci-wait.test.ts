@@ -1366,6 +1366,7 @@ describe("readHistoricalBotReview default wiring", () => {
     };
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -1417,6 +1418,7 @@ describe("readHistoricalBotReview default wiring", () => {
     };
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -1464,6 +1466,7 @@ describe("readHistoricalBotReview default wiring", () => {
     };
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -1943,6 +1946,7 @@ describe("run() integration", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -1970,6 +1974,7 @@ describe("run() integration", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -1997,6 +2002,7 @@ describe("run() integration", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2028,6 +2034,7 @@ describe("run() integration", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2067,6 +2074,7 @@ describe("run() integration", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2131,6 +2139,7 @@ describe("run() integration", () => {
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2174,6 +2183,7 @@ describe("run() integration", () => {
     };
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2215,6 +2225,7 @@ describe("run() integration", () => {
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2246,6 +2257,7 @@ describe("run() integration", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2284,6 +2296,7 @@ describe("run() integration", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2305,18 +2318,19 @@ describe("run() integration", () => {
 
   it("--copilot-not-requested forces copilotConfigured=false even when historical fallback would say true (decline-collapse)", async () => {
     const clock = makeFakeClock();
-    // reviewRequests EMPTY (no explicit request) and readHistoricalBotReview
-    // returns true — without the flag this repo's history would keep
-    // copilotConfigured true and the declined PR would wait the 10-min
-    // Copilot timeout. With --copilot-not-requested the derivation is hard-
-    // forced false, so poll 1 (CI all-passed) exits proceed-to-review.
+    // --copilot-not-requested hard-forces the derivation false BEFORE the
+    // upstream fetchRequestedReviewers gh reads even fire (no reviewRequests
+    // step is queued here, so an unexpected gh call would fail the test),
+    // so without the flag this repo's history would keep copilotConfigured
+    // true and the declined PR would wait the 10-min Copilot timeout; with
+    // the flag poll 1 (CI all-passed) exits proceed-to-review instead.
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       { matches: isPrView, response: prViewResponse("OPEN", []) },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
     const exit = await run(["100", "--copilot-not-requested"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2336,6 +2350,48 @@ describe("run() integration", () => {
     expect(result.polls).toBe(1);
   });
 
+  it("a deselected copilot module collapses copilotConfigured to false, skips both live signals (including the upstream fetchRequestedReviewers gh reads), and emits a one-shot notice on stderr", async () => {
+    const clock = makeFakeClock();
+    // isCopilotModuleActive:false must short-circuit BEFORE either signal is
+    // consulted, AND before the upstream fetchRequestedReviewers gh reads
+    // even fire — readHistoricalBotReview throws if invoked, and no
+    // reviewRequests step is queued here, so an unexpected gh call for
+    // either would fail the test, proving both are skipped. CI all-passed
+    // on poll 1, so with copilotConfigured forced false the loop exits
+    // immediately.
+    const gh = makeGhSequence([
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      isCopilotModuleActive: () => false,
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => {
+        throw new Error(
+          "readHistoricalBotReview must not be called when copilot is deselected",
+        );
+      },
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.copilotConfigured).toBe(false);
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.polls).toBe(1);
+    expect(cap.stderr.join("")).toMatch(
+      /copilot module not installed \(deselected\)/,
+    );
+  });
+
   it("prints one progress line per iteration to stderr (not stdout)", async () => {
     const clock = makeFakeClock();
     const gh = makeGhSequence([
@@ -2344,6 +2400,7 @@ describe("run() integration", () => {
     ]);
     const cap = captureStreams();
     await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2365,6 +2422,7 @@ describe("run() integration", () => {
   it("exits 2 with usage error on bad CLI args", async () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const exit = await run([], {
+      isCopilotModuleActive: () => true,
       gh: vi.fn(),
       now: () => 0,
       sleep: async () => {},
@@ -2422,6 +2480,7 @@ describe("run() integration", () => {
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2454,6 +2513,7 @@ describe("run() integration", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2487,6 +2547,7 @@ describe("run() integration", () => {
     let fallbackCalls = 0;
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2538,6 +2599,7 @@ describe("run() integration", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2607,6 +2669,7 @@ describe("run() integration — Copilot retrigger", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2672,6 +2735,7 @@ describe("run() integration — Copilot retrigger", () => {
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2709,6 +2773,7 @@ describe("run() integration — Copilot retrigger", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2775,6 +2840,7 @@ describe("run() integration — Copilot retrigger", () => {
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2833,6 +2899,7 @@ describe("run() integration — Copilot retrigger", () => {
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2878,6 +2945,7 @@ describe("run() integration — Copilot retrigger", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2934,6 +3002,7 @@ describe("run() integration — Copilot retrigger", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -2977,6 +3046,7 @@ describe("run() integration — Copilot retrigger", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3029,6 +3099,7 @@ describe("run() integration — Copilot retrigger", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3085,6 +3156,7 @@ describe("run() integration — per-poll requested_reviewers signal", () => {
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3122,6 +3194,7 @@ describe("run() integration — per-poll requested_reviewers signal", () => {
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3176,6 +3249,7 @@ describe("run() integration — post-POST verification (item 2)", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3219,6 +3293,7 @@ describe("run() integration — post-POST verification (item 2)", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3280,6 +3355,7 @@ describe("run() integration — post-POST verification (item 2)", () => {
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3351,6 +3427,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100", "--claim-deadline-sec", "30"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3406,6 +3483,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3453,6 +3531,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100", "--claim-deadline-sec", "30"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3513,6 +3592,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3559,6 +3639,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3615,6 +3696,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
     const exit = await run(["100", "--wait-for-copilot"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3671,6 +3753,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     const exit = await run(
       ["100", "--wait-for-copilot", "--claim-deadline-sec", "30"],
       {
+        isCopilotModuleActive: () => true,
         gh,
         now: clock.now,
         sleep: clock.sleep,
@@ -3727,6 +3810,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100", "--claim-deadline-sec", "30"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3776,6 +3860,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3827,6 +3912,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3873,6 +3959,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3919,6 +4006,7 @@ describe("run() integration — branch-conflict short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3946,6 +4034,7 @@ describe("run() integration — branch-conflict short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -3980,6 +4069,7 @@ describe("run() integration — branch-conflict short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4012,6 +4102,7 @@ describe("run() integration — branch-conflict short-circuit", () => {
     let call = 0;
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4041,6 +4132,7 @@ describe("run() integration — branch-conflict short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4064,6 +4156,7 @@ describe("run() integration — branch-conflict short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4101,6 +4194,7 @@ describe("run() integration — branch-protection short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4135,6 +4229,7 @@ describe("run() integration — branch-protection short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4161,6 +4256,7 @@ describe("run() integration — branch-protection short-circuit", () => {
       ]);
       const cap = captureStreams();
       const exit = await run(["100"], {
+        isCopilotModuleActive: () => true,
         gh,
         now: clock.now,
         sleep: clock.sleep,
@@ -4189,6 +4285,7 @@ describe("run() integration — branch-protection short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4212,6 +4309,7 @@ describe("run() integration — branch-protection short-circuit", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4263,6 +4361,7 @@ describe("run() integration — branch-protection short-circuit", () => {
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4552,6 +4651,7 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4602,6 +4702,7 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4646,6 +4747,7 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4674,6 +4776,7 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4723,6 +4826,7 @@ describe("run() integration — verdict persistence", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100", "--out", outPath], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4755,6 +4859,7 @@ describe("run() integration — verdict persistence", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100", "--out", outPath], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4789,6 +4894,7 @@ describe("run() integration — verdict persistence", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100"], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,
@@ -4826,6 +4932,7 @@ describe("run() integration — verdict persistence", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(["100", "--out", outPath], {
+      isCopilotModuleActive: () => true,
       gh,
       now: clock.now,
       sleep: clock.sleep,

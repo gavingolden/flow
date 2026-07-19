@@ -153,6 +153,14 @@ flow. Record the outcome in `ui_smoke` (`passed` / `skipped` /
 `not-applicable`); on `skipped` with a UI-touching diff, also set
 `ui_smoke_reason` to a one-line reason so the supervisor can surface the
 user-visible "UI changed; browser validation did not run — <reason>" line.
+When the pass drives the browser and assembles a captures JSON, record the
+captured screenshot paths that exist on disk — sourced from
+`flow-ui-validate --captures`' `evidence_paths[]` — into the artifact's
+`ui_screenshots[]`; on a UI-touching diff that produced zero screenshots,
+set `ui_smoke: "skipped"` and `ui_smoke_reason` (including the new
+`screenshots-unwritable` reason, for a browser run whose save-path cascade
+was fully denied) rather than leaving `ui_screenshots` silently absent with
+no explanation.
 
 ## 5. Write the structured artifact
 
@@ -168,7 +176,8 @@ The artifact MUST conform to this JSON schema:
   "attempts": 1,
   "config_authored": false,
   "ui_smoke": "passed" | "skipped" | "not-applicable",
-  "ui_smoke_reason": "<present only when ui_smoke is 'skipped' AND the diff touched UI: a one-line reason (mcp-absent / no-creds / launch-failed / not-meaningful) the supervisor renders into the user-visible 'UI changed; browser validation did not run — <reason>' line>",
+  "ui_smoke_reason": "<present only when ui_smoke is 'skipped' AND the diff touched UI: a one-line reason (mcp-absent / no-creds / launch-failed / not-meaningful / screenshots-unwritable) the supervisor renders into the user-visible 'UI changed; browser validation did not run — <reason>' line>",
+  "ui_screenshots": ["<optional array of absolute screenshot paths captured by the browser pass and confirmed to exist on disk, sourced from flow-ui-validate --captures' evidence_paths[]>"],
   "final_failure_excerpt": "<present only when verify_status is 'exhausted': the head/tail-capped final failure log the supervisor renders into the PR-body `> [!CAUTION]` block>",
   "rejected_alternatives": [
     "<each fix-shape or strategy you considered and rolled back, one line each>"
@@ -229,6 +238,12 @@ Before writing the artifact and returning, self-check:
 - `ui_smoke` is one of `passed` / `skipped` / `not-applicable`; when it is
   `skipped` on a UI-touching diff, `ui_smoke_reason` carries the one-line
   reason for the user-visible unverified-UI line.
+- `ui_screenshots`, when present, is an array of absolute paths that were
+  confirmed to exist on disk at write time, copied from
+  `flow-ui-validate --captures`' `evidence_paths[]`; a UI-touching run that
+  captured zero screenshots sets `ui_smoke: "skipped"` +
+  `ui_smoke_reason` (including `screenshots-unwritable`) rather than
+  leaving the gap unexplained.
 - `rejected_alternatives` and `anti_patterns_found` reflect what you
   actually weighed; empty arrays only when you genuinely had none.
 - The artifact JSON parses (no trailing commas, no unescaped strings).

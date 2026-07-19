@@ -69,6 +69,82 @@ const fixApplierOneBadEntry = JSON.stringify({
   summary: "s",
 });
 
+// A well-formed consolidator artifact whose one finding carries a lens-name
+// label ("consistency") instead of a real VALID_LABELS entry, plus a
+// non-empty rejected_alternatives — the shape `normalizeParsedFindings` is
+// meant to coerce before validation runs.
+const consolidatorLensLabel = JSON.stringify({
+  consolidated_findings: [
+    {
+      file: "bin/lib/x.ts",
+      line: 10,
+      label: "consistency",
+      decoration: "non-blocking",
+      confidence: 0.8,
+      subject: "inconsistent naming",
+      body: "rename to match sibling functions",
+    },
+  ],
+  dropped_by_validation: [],
+  rejected_alternatives: ["kept the two lenses separate"],
+  anti_patterns_found: [],
+  summary: "s",
+});
+
+describe("collectForeclosedEntries — consolidator lens-name label", () => {
+  it("surfaces the real rejected_alternatives instead of an unreadable marker", () => {
+    const entries = collectForeclosedEntries({
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorLensLabel,
+    });
+    expect(entries).toEqual([
+      {
+        source: "consolidator",
+        category: "rejected-alternative",
+        raw: "kept the two lenses separate",
+      },
+    ]);
+    expect(entries.some((e) => e.unreadable)).toBe(false);
+  });
+});
+
+// A genuinely-malformed consolidator artifact: an unknown (non-lens) label
+// normalizeParsedFindings does not coerce — validation must still fail and
+// yield the unreadable marker (normalization must not mask real malformation).
+const consolidatorUnknownLabel = JSON.stringify({
+  consolidated_findings: [
+    {
+      file: "bin/lib/x.ts",
+      line: 10,
+      label: "xyzzy",
+      decoration: "non-blocking",
+      confidence: 0.8,
+      subject: "s",
+      body: "b",
+    },
+  ],
+  dropped_by_validation: [],
+  rejected_alternatives: ["kept the two lenses separate"],
+  anti_patterns_found: [],
+  summary: "s",
+});
+
+describe("collectForeclosedEntries — genuinely-malformed consolidator still degrades", () => {
+  it("yields the unreadable marker for an unknown (non-lens) label", () => {
+    const entries = collectForeclosedEntries({
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorUnknownLabel,
+    });
+    expect(entries).toEqual([
+      {
+        source: "consolidator",
+        category: "rejected-alternative",
+        unreadable: true,
+      },
+    ]);
+  });
+});
+
 describe("collectForeclosedEntries — shared core", () => {
   it("flattens all four arrays in a stable order", () => {
     const entries = collectForeclosedEntries({

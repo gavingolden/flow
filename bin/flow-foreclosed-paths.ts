@@ -30,7 +30,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { readState } from "./lib/state";
-import { resolveSlugFromPane } from "./lib/tmux";
+import { resolveSlugAmbient } from "./lib/session-identity";
 import { upsertPrBodySection } from "./lib/pr-body-upsert";
 import {
   formatMarkdown,
@@ -58,7 +58,7 @@ export type ResolveDeps = {
  * state.json `.worktree`, else cwd-relative (sub-skills cd into the worktree).
  */
 function resolveFlowTmpDir(deps: ResolveDeps = {}): string {
-  const resolveSlug = deps.resolveSlug ?? resolveSlugFromPane;
+  const resolveSlug = deps.resolveSlug ?? resolveSlugAmbient;
   const readSt = deps.readStateFn ?? readState;
   const slug = resolveSlug();
   if (slug) {

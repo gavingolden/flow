@@ -2,8 +2,9 @@
 /**
  * Claude Code Stop hook for the /flow-pipeline supervisor.
  *
- * Reads `~/.flow/state/<slug>.json` (slug from the tmux window's
- * `@flow-slug` user option) at every turn-end and blocks the stop
+ * Reads `~/.flow/state/<slug>.json` (slug resolved env-first from
+ * `FLOW_SLUG`, falling back to the tmux window's `@flow-slug` user
+ * option) at every turn-end and blocks the stop
  * (exit 2 + stderr reminder) when the phase is non-terminal-non-pending
  * — the supervisor is mid-pipeline and the contract says "do not end
  * the turn between sub-skills." This is the structural defence the
@@ -12,10 +13,10 @@
  * fire only after the model has already chosen to keep going; this hook
  * fires *at* the model's turn-end signal.
  *
- * Self-detection: the hook exits 0 when not in tmux, when the current
- * window has no `@flow-slug` option, or when state.json is missing —
- * making it safe to install in a global Stop-hook list. A normal
- * coding session sees no behaviour change.
+ * Self-detection: the hook exits 0 when NO flow slug resolves (no
+ * `FLOW_SLUG` env var, and no tmux pane carrying `@flow-slug`), or when
+ * state.json is missing — making it safe to install in a global
+ * Stop-hook list. A normal coding session sees no behaviour change.
  *
  * Per-turn tracking: the hook owns its own block counter at
  * `~/.flow/state/turns/<slug>.json` (a sibling subdirectory so
@@ -29,6 +30,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { resolveSlugFromEnv } from "./lib/session-identity";
 import {
   isLegitimateEndPhase,
   nowIso as defaultNowIso,
@@ -49,6 +51,8 @@ type HookInput = {
 
 export type Deps = {
   readStdin: () => Promise<string>;
+  /** FLOW_SLUG env value (env-first ambient slug; both launcher backends set it). */
+  flowSlugEnv?: string | undefined;
   tmuxPane: string | undefined;
   showFlowSlug: (pane: string) => string;
   loadState: (slug: string) => PipelineState | null;
@@ -68,10 +72,15 @@ export async function run(deps: Deps): Promise<number> {
     // as "no hook input" and fall through to the rest of the checks.
   }
 
-  const pane = deps.tmuxPane;
-  if (!pane) return 0;
-
-  const slug = deps.showFlowSlug(pane).trim();
+  // Env-first slug resolution: FLOW_SLUG (shape-validated) wins; only when
+  // NO slug resolves from either source is this a non-flow session (exit 0).
+  let slug =
+    resolveSlugFromEnv({ FLOW_SLUG: deps.flowSlugEnv } as NodeJS.ProcessEnv) ??
+    "";
+  if (slug.length === 0) {
+    const pane = deps.tmuxPane;
+    if (pane) slug = deps.showFlowSlug(pane).trim();
+  }
   if (slug.length === 0) return 0;
 
   const state = deps.loadState(slug);
@@ -218,6 +227,7 @@ async function defaultReadStdin(): Promise<string> {
 if (import.meta.main) {
   run({
     readStdin: defaultReadStdin,
+    flowSlugEnv: process.env.FLOW_SLUG,
     tmuxPane: process.env.TMUX_PANE,
     showFlowSlug: defaultShowFlowSlug,
     loadState: (slug) => readState(slug),
