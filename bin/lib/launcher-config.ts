@@ -33,10 +33,10 @@ export function isLauncherId(x: unknown): x is LauncherId {
  * PATH — the resolver degrades to `plain` rather than failing.
  */
 export const TMUX_DEGRADE_NOTICE =
-  "flow: tmux launcher selected but tmux is not on PATH — falling back to the plain launcher";
+  "flow: the tmux launcher is selected but tmux isn't on PATH — falling back to the plain launcher";
 
 const LAUNCHER_PROMPT =
-  "Use tmux as your pipeline launcher? (recommended for parallel pipelines and walk-away/attach)";
+  "Use tmux as your pipeline launcher? (plain is the default; tmux is recommended if you'll run several pipelines at once or want to walk away and re-attach)";
 
 function extractLauncher(raw: unknown): unknown {
   if (typeof raw !== "object" || raw === null) return undefined;

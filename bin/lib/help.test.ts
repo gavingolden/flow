@@ -166,7 +166,7 @@ describe("HELP_TEXT", () => {
 describe("HELP_TOP", () => {
   it("starts with the flow header line", () => {
     expect(
-      HELP_TOP.startsWith("flow — tmux-driven pipelines for Claude Code"),
+      HELP_TOP.startsWith("flow — end-to-end pipelines for Claude Code"),
     ).toBe(true);
   });
 

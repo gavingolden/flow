@@ -26,7 +26,7 @@ export function argsContainHelp(args: string[]): boolean {
   return false;
 }
 
-export const HELP_TOP = `flow — tmux-driven pipelines for Claude Code
+export const HELP_TOP = `flow — end-to-end pipelines for Claude Code
 
 Usage:
   flow                                  (on a TTY) launch an interactive Claude session
@@ -82,8 +82,9 @@ Usage:
   flow --help                           this help
   flow help <verb>                      print verb-specific usage
 
-Run 'flow install' once after cloning the flow source. Pipelines run inside
-tmux windows; the supervisor skill (/flow-pipeline) drives each one.
+Run 'flow install' once after cloning the flow source. Pipelines run in
+your terminal by default (opt into a tmux window with --tmux); the
+supervisor skill (/flow-pipeline) drives each one.
 Shell completions install automatically into ~/.zshrc / ~/.bashrc /
 ~/.bash_profile via 'flow install' — opt out with --no-completions.`;
 

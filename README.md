@@ -1,13 +1,13 @@
 # flow
 
-**Ship a change end-to-end from one command.** `flow feature create "<description>"` opens a tmux window, launches [Claude Code](https://docs.claude.com/en/docs/claude-code), and a single supervisor skill drives the whole run — plan, worktree, implement, verify, CI, review, and merge — while you watch or walk away. flow also ships a curated skill library that any Claude Code project can use on its own.
+**Ship a change end-to-end from one command.** `flow feature create "<description>"` launches [Claude Code](https://docs.claude.com/en/docs/claude-code) as a foreground session in your current terminal by default, and a single supervisor skill drives the whole run — plan, worktree, implement, verify, CI, review, and merge — while you watch or walk away. flow also ships a curated skill library that any Claude Code project can use on its own.
 
 ## Prerequisites
 
 - **git** — flow works in a per-pipeline worktree off your repo.
 - **node / npm** — installs flow's dependencies (`npm install`).
 - **bun** — the runtime for the `flow` wrapper and its helpers.
-- **tmux** — each pipeline runs in its own tmux window; `flow install` checks for it.
+- **tmux** (optional) — only needed if you opt into the tmux launcher for parallel pipelines / walk-away-and-attach; the default plain launcher does not require it.
 - **gh** (GitHub CLI, authenticated) — flow opens the PR, polls CI, and merges through it.
 
 Your target project must be a **git repo with a GitHub remote** — the pipeline opens and merges a PR, so without a remote there is nothing to push to.
@@ -39,19 +39,25 @@ To come current, run `flow install --upgrade`: it self-pulls (fast-forwards your
 
 ```sh
 flow                             # (on a TTY) launch an interactive Claude session with flow skills loaded
-flow feature create "add CSV export"        # start a pipeline in a new tmux window
+flow feature create "add CSV export"        # start a pipeline (runs in your terminal by default)
 flow ls                          # list active pipelines
-flow attach add-csv-export       # attach to a pipeline's window (alias: flow a)
-flow attach                      # attach into the session and browse windows
-flow done add-csv-export         # close a finished pipeline's window
-flow done --merged               # sweep windows that reached a terminal state
+flow attach add-csv-export       # tmux launcher: attach to a pipeline's window (alias: flow a)
+flow attach                      # tmux launcher: attach into the session and browse windows
+flow done add-csv-export         # close a finished pipeline (tmux: closes its window)
+flow done --merged               # sweep pipelines that reached a terminal state
 ```
 
 Bare `flow` on a terminal starts an interactive Claude session with your installed flow skills loaded (`claude --add-dir ~/.flow/claude-home`) — the way to get flow's skills in an ad-hoc session now that they no longer live in the global `~/.claude/skills/`. Run `flow help` (or `flow -h`) for the command reference; a non-interactive bare `flow` (a script, CI) prints that help instead of launching.
 
 By default a pipeline auto-merges its PR when the merge gate is clear; pass `flow feature create --no-auto-merge "<desc>"` to always stop at the gate for a manual merge.
 
-**New to tmux?** Your first `flow feature create` starts the pipeline in a tmux window but doesn't drop you into it — run `flow attach` (no args) to pop into the flow session (it lands you on your most-recent pipeline), or `flow attach <name>` (alias `flow a <name>`) to jump to a specific one. To step away from a running pipeline without stopping it, detach with `Ctrl-b d` (`Ctrl-b` is tmux's prefix key, then press `d`) — the pipeline keeps running in the background, and you come back with `flow attach`.
+**The plain shell is the default.** `flow feature create` runs Claude Code as a foreground process in whatever terminal you launched it from — no window management, no extra command to see it. It holds your terminal until the pipeline reaches a terminal state (`MERGED`, `GATED: <url>`, `NEEDS HUMAN: <reason>`, or `cancelled`). To check on other pipelines (or a pipeline running in a different terminal) without leaving your own, run `flow ls`. If you close the terminal or the process dies, `flow feature resume <slug>` re-launches it from the state saved on disk — see [Resuming](#resuming) below.
+
+### Power users: the tmux launcher
+
+Reach for the tmux launcher when you want to run several pipelines at once from one place, or start a pipeline and walk away, re-attaching from anywhere later. Opt in per run with `flow feature create --tmux "<description>"`, answer "yes" to the tmux question `flow install` asks on an interactive install, or set it as your default with `flow config launcher tmux`.
+
+Under the tmux launcher, your first `flow feature create` starts the pipeline in a tmux window but doesn't drop you into it — run `flow attach` (no args) to pop into the flow session (it lands you on your most-recent pipeline), or `flow attach <name>` (alias `flow a <name>`) to jump to a specific one. To step away from a running pipeline without stopping it, detach with `Ctrl-b d` (`Ctrl-b` is tmux's prefix key, then press `d`) — the pipeline keeps running in the background, and you come back with `flow attach`.
 
 <details>
 <summary>More <code>flow feature create</code> flags</summary>
@@ -118,7 +124,7 @@ Aliases are `opus`, `haiku`, `sonnet`, `fable`; flow forwards the alias verbatim
 
 ## How it works
 
-Each pipeline is a tmux window inside a single `flow` session. Inside it, Claude Code loads the `/flow-pipeline` supervisor skill and drives the run from triage to merge; sub-skills load in-process, not as nested agents. Each pipeline runs in its own git worktree and branch in a sibling directory named like `<repo>-<slug>`, so parallel pipelines are isolated from each other and your main checkout is never touched. Detach from tmux to walk away and re-attach (`flow attach <name>`) to pick the run back up — state persists at `~/.flow/state/<slug>.json` plus the worktree on disk plus the PR.
+By default, each pipeline is a plain foreground Claude Code session in your own terminal; opt into the tmux launcher (see "Power users" above) to run it as a tmux window inside a single `flow` session instead. Either way, Claude Code loads the `/flow-pipeline` supervisor skill and drives the run from triage to merge; sub-skills load in-process, not as nested agents. Each pipeline runs in its own git worktree and branch in a sibling directory named like `<repo>-<slug>`, so parallel pipelines are isolated from each other and your main checkout is never touched. State persists at `~/.flow/state/<slug>.json` plus the worktree on disk plus the PR, so a plain session can be re-launched with `flow feature resume` and a tmux session can be detached (`Ctrl-b d`) and re-attached (`flow attach <name>`) to pick the run back up.
 
 The supervisor pauses once for plan approval on feature work (type `approved`, a redirection, or `cancel`); non-feature changes run straight through. Every run ends with `MERGED`, `GATED: <url>` (a manual-merge needed), `NEEDS HUMAN: <reason>`, or `cancelled` printed to the window.
 
@@ -146,9 +152,9 @@ When the merge gate is not clear (an unchecked Test Steps item, or `flow feature
 
 There are two distinct ways to come back to a pipeline, and which one you need depends on whether it's still running.
 
-**Walk away and return.** If the pipeline is still running, just detach (`Ctrl-b d`) and later `flow attach` to re-enter — nothing special is needed, because the state lives on disk (`~/.flow/state/<slug>.json` plus the worktree plus the PR).
+**Walk away and return.** Under the default plain launcher, the run holds your terminal — closing that terminal or losing the process means `flow feature resume <slug>` re-launches Claude Code from the state saved on disk (`~/.flow/state/<slug>.json` plus the worktree plus the PR) and picks up where it left off; nothing is lost because nothing but the process itself went away. Under the tmux launcher, you don't even need to resume: just detach (`Ctrl-b d`) and later `flow attach` to re-enter — the pipeline keeps running in its window the whole time.
 
-**Resume after a crash.** If the supervisor crashed or you closed the window, run `flow ls` to find the pipeline's slug, then `flow feature resume <slug>` to re-launch Claude Code into the same window and pick up exactly where it left off — it reads the saved phase, worktree, and PR and continues. It refuses if the pipeline is actually still running, telling you to attach instead.
+**Resume after a crash.** Run `flow ls` to find the pipeline's slug, then `flow feature resume <slug>` to re-launch Claude Code and pick up exactly where it left off — it reads the saved phase, worktree, and PR and continues. Under the default plain launcher this drops you straight into a fresh foreground session in your terminal; under the tmux launcher it re-launches into the pipeline's tmux window. Either way it refuses if the pipeline is actually still running: a live plain run holds a terminal that can't be reclaimed from here (run `flow done` on it first, then resume), and a live tmux run tells you to `flow attach` instead.
 
 **Reset context mid-run (`/flow-checkpoint` → `/clear` → auto-resume).** A long pipeline accumulates a large chat transcript, and the priciest tokens are spent late in a run against a near-full context. Because `flow feature resume` re-launches a _fresh_ Claude Code process (a cleared context) and rebuilds pipeline state entirely from disk, it already **is** the context-reset path — the only thing a fresh process drops is ad-hoc conversational state that never reached an artifact (an "approved with condition X" addendum, a mid-flight redirect). The `/flow-checkpoint` skill closes that gap: invoke `/flow-checkpoint` (or just say "checkpoint this") and the supervisor flushes that conversational state to `<worktree>/.flow-tmp/checkpoint.md` and tells you it is safe to `/clear`. After you type `/clear`, a `SessionStart` hook auto-resumes the pipeline in the fresh session and re-injects the checkpoint, so you don't have to run `flow feature resume` by hand. The auto-resume is gated on a one-shot marker `/flow-checkpoint` writes, so a `/clear` **without** a prior checkpoint clears normally (you keep the choice); Claude cannot invoke `/clear` itself, so that one keystroke stays yours. The supervisor also auto-checkpoints at the plan-approval → implementation hand-off — the highest-value place to reset before the heavy phases. The hook is registered by `flow install` and skippable with `flow install --no-hooks`.
 
