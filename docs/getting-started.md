@@ -87,9 +87,11 @@ When a run reaches a terminal state, close it out:
 
 ```sh
 flow done add-csv-export   # close one finished pipeline (tmux: closes its window)
-flow done --merged         # sweep every pipeline that reached a terminal state
+flow done --merged         # sweep merged/cancelled pipelines
 flow done --orphans        # clean up state left behind by dead runs
 ```
+
+`GATED: <url>` and `NEEDS HUMAN: <reason>` runs aren't swept by `--merged` — close those individually with `flow done <slug>` once you've dealt with them.
 
 ## Next steps
 

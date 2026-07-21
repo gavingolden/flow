@@ -28,7 +28,7 @@ flow links its skills into a **standalone skills home** at `~/.flow/claude-home/
 
 ## Staying up to date
 
-To come current, run `flow install --upgrade`: it self-pulls (fast-forwards your canonical checkout to `origin`) and reports what changed, so a non-contributor needs only that one command. flow also surfaces a non-blocking staleness notice at `flow ls` and `flow version` when your checkout is behind origin, naming the exact upgrade command to run. Opt out by setting `update.checkFor` to `"off"` in `~/.flow/config.json` (or exporting `FLOW_UPDATE_CHECK=off`). A reserved `update.autoUpgrade` flag (default off, not yet executing) is parsed for a future opt-in that upgrades automatically.
+To come current, run `flow install --upgrade`: it self-pulls (fast-forwards your canonical checkout to `origin`) and reports what changed, so a non-contributor needs only that one command. flow also surfaces a non-blocking staleness notice at `flow ls` and `flow version` when your checkout is behind origin, naming the exact upgrade command to run. Opt out by setting the nested `checkFor` key under `update` (i.e. `{ "update": { "checkFor": "off" } }`) to `"off"` in `~/.flow/config.json` (or exporting `FLOW_UPDATE_CHECK=off`). A reserved `update.autoUpgrade` flag (default off, not yet executing) is parsed for a future opt-in that upgrades automatically.
 
 ## Per-phase models
 
@@ -88,6 +88,6 @@ Aliases are `opus`, `haiku`, `sonnet`, `fable`; flow forwards the alias verbatim
 | `update.checkFor`    | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                            |
 | `update.autoUpgrade` | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                         |
 | `research.discovery` | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run) |
-| launcher             | set with `flow config launcher tmux` — makes the tmux launcher your default instead of the plain shell            |
+| `launcher`           | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell        |
 
-The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher tmux`.
+The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher set tmux`.

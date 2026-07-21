@@ -59,7 +59,7 @@ flow feature create "add CSV export"        # start a pipeline (runs in your ter
 flow ls                          # list active pipelines (add --cost for spend)
 flow feature resume add-csv-export  # re-launch a crashed or closed pipeline from saved state
 flow done add-csv-export         # close a finished pipeline
-flow done --merged               # sweep pipelines that reached a terminal state
+flow done --merged               # sweep merged/cancelled pipelines
 ```
 
 Run `flow help` for the full command reference (`epic`, `config`, `attach`, `completion`, `version`, and every flag).
