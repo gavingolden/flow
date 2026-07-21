@@ -21,19 +21,27 @@ openers — it is not duplicated here.
 ## `/flow-pr-review` Independent Multi-Agent Review
 
 `/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
-Multi-Agent Review" step, six review agents are spawned in parallel via
-the Task tool. Each spawn names `subagent_type: flow-review-<lens>`
-(the `agents/flow-review-<lens>.md` definitions with a Read/Grep/Glob/
-Write `tools:` allowlist and no `effort:`/`model:` pins), resolved via
-the `[ -f ~/.claude/agents/flow-review-<lens>.md ]` file-exists guard
-that falls back to `general-purpose` with the loud
-`NOTICE — agent-fallback:` line. The fan-out itself emits no
-consolidated artifact — each agent persists its own
-`$WORKTREE/.flow-tmp/agent-output-<lens>.json`; the downstream
+Multi-Agent Review" step, six review agents PLUS one diff-only
+intent-guess agent are spawned in parallel, in the same fan-out message,
+via the Task tool. Each of the six lens spawns names
+`subagent_type: flow-review-<lens>` (the `agents/flow-review-<lens>.md`
+definitions with a Read/Grep/Glob/Write `tools:` allowlist and no
+`effort:`/`model:` pins), resolved via the
+`[ -f ~/.claude/agents/flow-review-<lens>.md ]` file-exists guard that
+falls back to `general-purpose` with the loud `NOTICE — agent-fallback:`
+line; the intent-guess spawn names `subagent_type:
+flow-review-intent-guess` (`agents/flow-review-intent-guess.md`, same
+tools allowlist plus the blindness contract — no PR title/body/plan/
+commit messages in its context, diff + file list only), resolved via
+the same file-exists-guard-with-fallback pattern. The fan-out itself
+emits no consolidated artifact — each of the six lens agents persists
+its own `$WORKTREE/.flow-tmp/agent-output-<lens>.json`, and the
+intent-guess agent persists `$WORKTREE/.flow-tmp/intent-guess.json`
+(NOT a Consolidator-Validator input); the downstream
 Consolidator-Validator step (a separate exemption) produces
-`consolidator-result.json`. The six agents run inside the supervisor's
-own in-process Skill load (`/flow-pr-review` has no `context: fork`
-directive).
+`consolidator-result.json` from the six lens outputs only. All seven
+agents run inside the supervisor's own in-process Skill load
+(`/flow-pr-review` has no `context: fork` directive).
 
 ## `/flow-product-planning` Independent Discovery Subagent
 

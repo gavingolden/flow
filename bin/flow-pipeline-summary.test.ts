@@ -119,12 +119,13 @@ describe("parseArgs", () => {
 });
 
 describe("render — explicit none discipline", () => {
-  it("prints all six sections with `none` when every source is empty", () => {
+  it("prints all seven sections with `none` when every source is empty", () => {
     const out = render(EMPTY_RENDER);
     expect(out).toContain("## PIPELINE SNAPSHOT");
     for (const header of [
       "CHANGES:",
       "PHASES:",
+      "INTENT:",
       "FINDINGS:",
       "FORECLOSED PATHS:",
       "FOLLOW-UP ISSUES:",
@@ -186,6 +187,55 @@ describe("render — PHASES", () => {
   it("prints `PHASES: none` for an absent phaseLog", () => {
     const out = render({ ...EMPTY_RENDER, phaseLog: null });
     expect(out).toContain("PHASES:\n  none");
+  });
+});
+
+describe("render — INTENT", () => {
+  it("prints `INTENT: none` when the artifact is absent", () => {
+    const out = render(EMPTY_RENDER);
+    expect(out).toContain("INTENT:\n  none");
+  });
+
+  it("renders the verdict + resolution line when present", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      intentResolutionRaw: JSON.stringify({
+        verdict: "scope-drift",
+        guessed_purpose: "Refactors the logger.",
+        resolution:
+          "Guess names only a logger refactor; PR also adds a new endpoint.",
+        cross_model: { ran: false, agreement: null },
+      }),
+    });
+    expect(out).toContain(
+      "INTENT:\n  scope-drift: Guess names only a logger refactor; PR also adds a new endpoint.",
+    );
+  });
+
+  it("appends a cross-model agreement line when present", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      intentResolutionRaw: JSON.stringify({
+        verdict: "fundamental",
+        guessed_purpose: "x",
+        resolution: "y",
+        cross_model: { ran: true, agreement: "agree" },
+      }),
+    });
+    expect(out).toContain("cross-model: agree");
+  });
+
+  it("degrades a shape-invalid intent-resolution artifact to (unreadable)", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      intentResolutionRaw: JSON.stringify({ foo: 1 }),
+    });
+    expect(out).toContain("INTENT:\n  (unreadable)");
+  });
+
+  it("degrades unparseable JSON to (unreadable)", () => {
+    const out = render({ ...EMPTY_RENDER, intentResolutionRaw: "{not json" });
+    expect(out).toContain("INTENT:\n  (unreadable)");
   });
 });
 
@@ -1135,6 +1185,38 @@ describe("renderComment — slim PR-comment block", () => {
     // CHANGES and REVIEW also fall back to `none`.
     expect(block).toContain("CHANGES:");
     expect(block).toContain("REVIEW:");
+  });
+
+  it("includes an INTENT section when the verdict is non-match", () => {
+    const block = renderComment({
+      ...POPULATED_COMMENT_INPUTS,
+      intentResolutionRaw: JSON.stringify({
+        verdict: "scope-drift",
+        guessed_purpose: "x",
+        resolution: "guess vs request diverge on scope",
+        cross_model: { ran: false, agreement: null },
+      }),
+    });
+    expect(block).toContain("INTENT:");
+    expect(block).toContain("scope-drift: guess vs request diverge on scope");
+  });
+
+  it("omits the INTENT section when the verdict is match", () => {
+    const block = renderComment({
+      ...POPULATED_COMMENT_INPUTS,
+      intentResolutionRaw: JSON.stringify({
+        verdict: "match",
+        guessed_purpose: "x",
+        resolution: "guess matches request",
+        cross_model: { ran: false, agreement: null },
+      }),
+    });
+    expect(block).not.toContain("INTENT:");
+  });
+
+  it("omits the INTENT section when the artifact is absent", () => {
+    const block = renderComment(POPULATED_COMMENT_INPUTS);
+    expect(block).not.toContain("INTENT:");
   });
 });
 

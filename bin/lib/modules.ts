@@ -80,6 +80,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-gatekeeper.md",
       "flow-merge-resolver.md",
       "flow-review-bug-detection.md",
+      "flow-review-intent-guess.md",
       "flow-review-pattern-consistency.md",
       "flow-review-performance.md",
       "flow-review-security.md",
@@ -183,7 +184,7 @@ export const MODULES: ModuleDefinition[] = [
   {
     id: "research",
     description:
-      "The Google-AI-Ultra (agy) delegation engine, the research helpers built on it, and the two agy-dependent cross-model reviewers.",
+      "The Google-AI-Ultra (agy) delegation engine, the research helpers built on it, and the three agy-dependent cross-model reviewers.",
     skills: ["flow-research"],
     agents: [],
     helpers: [
@@ -194,6 +195,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-research-cache",
       "flow-plan-review",
       "flow-gemini-lens",
+      "flow-gemini-intent-guess",
     ],
     validators: [],
   },

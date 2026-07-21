@@ -168,8 +168,9 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 Fill in the `{{...}}` placeholders before passing to the Task tool. The
 `{{OUTPUT_PATHS}}` block is **mode-dependent** — substitute the feature-mode
 text by default, the epic-mode text under `MODE: epic` (both shown after the
-template). The `{{RESEARCH_OVERRIDE}}`, `{{REVISION_OVERRIDE}}`, and `{{EPIC_OVERRIDE}}`
-blocks are all **omit-when-absent** (shown after the template). The other placeholders
+template). The `{{RESEARCH_OVERRIDE}}`, `{{REVISION_OVERRIDE}}`, `{{EPIC_OVERRIDE}}`,
+and `{{PROMPT_SANITY_OVERRIDE}}` blocks are all **omit-when-absent** (shown after the
+template). The other placeholders
 (`{{INSTRUCTIONS_PATH}}`, `{{USER_DESCRIPTION}}`, `{{WORKTREE}}`,
 `{{SKILL_DIR}}`) are mode-independent:
 
@@ -185,6 +186,7 @@ User feature description (verbatim):
 {{RESEARCH_OVERRIDE}}
 {{REVISION_OVERRIDE}}
 {{EPIC_OVERRIDE}}
+{{PROMPT_SANITY_OVERRIDE}}
 Working directory (cd here before reading any project files):
   {{WORKTREE}}
 
@@ -305,6 +307,30 @@ EPIC: <slug>/<id> (design at .flow/epics/<slug>/design.md)
 When the caller passed **no** marker, substitute the **empty string** — omit
 the block entirely (consistent with `{{RESEARCH_OVERRIDE}}` and
 `{{REVISION_OVERRIDE}}` above). This passthrough rides the existing single
+discovery Task call; it adds **no** new Task-tool spawn and **no** new
+exemption.
+
+### `{{PROMPT_SANITY_OVERRIDE}}` — optional prompt-sanity note passthrough
+
+`/flow-pipeline` step 1's "Prompt sanity gate" sub-step can reach a
+`suspect` verdict — a prompt claim that's unverifiable but not
+contradicted. The discovery subagent cannot see the supervisor's triage
+context, so this block is the only way that note reaches it. When the
+caller's triage verdict was `suspect`, substitute this block verbatim for
+`{{PROMPT_SANITY_OVERRIDE}}`:
+
+```
+PROMPT-SANITY: <note>
+  Triage's Prompt sanity gate flagged this claim as unverifiable (not
+  contradicted). Fold it into the premise check (discovery-instructions.md
+  step 3 "Premise check") as evidence to weigh alongside the codebase scan.
+```
+
+When the caller's triage verdict was `sound` or `contradicted` (a
+`contradicted` verdict never reaches discovery — it's resolved or
+escalated in step 1), substitute the **empty string** — omit the block
+entirely (consistent with `{{RESEARCH_OVERRIDE}}`, `{{REVISION_OVERRIDE}}`,
+and `{{EPIC_OVERRIDE}}` above). This passthrough rides the existing single
 discovery Task call; it adds **no** new Task-tool spawn and **no** new
 exemption.
 

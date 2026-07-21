@@ -207,6 +207,38 @@ DOES apply: if a prior `status: "escalated"` is already on disk
 `consolidator-schema-failure`), skip the write rather than overwrite
 the specific tag with this generic one.
 
+## `intent-drift`
+
+Raised by Step 3.6's "Intent-mismatch resolution" sub-step when the
+`fundamental` rung of the ladder fires — the diff-only intent-guess
+agent's `guessed_purpose` (optionally corroborated by
+`intent-guess-gemini.json`'s cross-model agreement) directly contradicts
+the actual-intent source (verbatim user description + triage's ultimate
+goal on a pipeline-launched review, or the PR body's `## Why` on a
+standalone invocation). Steps 1 through 3.6 ran before the bail; Step 4
+onward did not — this is a review-time escalation, not a merge-time one,
+so it never touches the PR's Test Steps or gate state.
+
+This is an escalation write — same read-before-overwrite guard as
+`consolidator-schema-failure` above: skip the write if a prior
+`status: "escalated"` with a more specific tag is already on disk.
+
+```bash
+RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
+cat > "$RESULT_PATH.tmp" <<EOF
+{
+  "status": "escalated",
+  "completed_steps": ["1", "1.5", "2", "3", "3.5", "3.6"],
+  "missed_steps": ["4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+  "escalation_tag": "intent-drift",
+  "summary": "Step 3.6's intent-mismatch resolution reached the fundamental rung: guessed purpose '$GUESSED_PURPOSE' (justification: '$JUSTIFICATION') contradicts the actual request '$ACTUAL_REQUEST'. Human judgment needed before review can proceed."
+}
+EOF
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
+  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+```
+
 ```bash
 RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
 [ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0

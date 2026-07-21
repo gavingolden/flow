@@ -683,6 +683,20 @@ Do NOT add a seventh row to the six-agent table above — the Gemini lens
 reviews the whole diff with no static-analysis lens, so it is deliberately
 absent from `AGENT_LENS_MAP`. This sub-step IS the lens's documentation.
 
+### Diff-only intent-guess agent (+ cross-model intent guess)
+
+Spawn ONE additional Task agent, `flow-review-intent-guess`, in the SAME
+fan-out message as the six lens agents above — rides the existing
+Multi-Agent Review exemption, no new Task-tool exemption, NOT a seventh
+table row, NOT in `AGENT_LENS_MAP`, NOT a Step 3.5 Consolidator input.
+Diff-only context (no PR title/body/plan/commit messages), writes
+`$WORKTREE/.flow-tmp/intent-guess.json`. `flow-gemini-intent-guess` adds
+a second, cross-model guess as a `review.gemini`-gated `flow-delegate`
+Bash fan-out (same contract as the Gemini lens above), writing
+`intent-guess-gemini.json`. Full spawn/context/artifact contract,
+subagent-type resolution, and graceful-skip reasons in
+[references/intent-mismatch-resolution.md](references/intent-mismatch-resolution.md).
+
 ## 3.5. Independent Consolidator-Validator
 
 Spawn the **Independent Consolidator-Validator Subagent** (see
@@ -759,6 +773,22 @@ After the subagent returns:
    [references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md)
    — if a more specific tag is already on disk, the wrapper's write is skipped.
 3. **Read once**, parse into a typed object, reuse across Steps 4–7.
+
+## 3.6. Intent-mismatch resolution
+
+Read the intent-guess artifact(s) and resolve the actual-intent source
+(pipeline-launched: verbatim request + triage's ultimate goal;
+standalone: PR body `## Why`), applying a three-rung ladder — benign
+divergence (note, proceed), scope drift (idempotently upsert one
+unchecked `- [ ] MANUAL: confirm scope drift is intentional` Test Steps
+item, holding the PR at `flow-gate-decide`), fundamental (escalate
+`NEEDS HUMAN: intent-drift` per
+[references/escalation-recipes.md](references/escalation-recipes.md)) —
+then write `$WORKTREE/.flow-tmp/intent-resolution.json`. Missing/invalid
+`intent-guess.json` is a graceful skip, never
+`consolidator-missing-artifact`. Full ladder detail, cross-model
+weighing, vagueness-as-signal rule, and the artifact shape are in
+[references/intent-mismatch-resolution.md](references/intent-mismatch-resolution.md).
 
 ## 4. Consume Consolidated Findings
 
