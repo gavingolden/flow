@@ -27,9 +27,9 @@ in-process when you invoke it; every helper script
 (`flow-new-worktree`, `flow-remove-worktree`, `gh`, etc.) is a Bash
 tool call. **You never spawn a Task-tool sub-agent.** flow's flat-fan-out
 policy (deliberate, not a platform limit — `docs/nested-subagents-assessment.md`,
-repo-only, not shipped) allows one exception, verify-loop → edit-applier;
-a long-running supervisor with sub-agents would also blow the context
-window. Stay in-process for skills; shell out for scripts; never delegate.
+repo-only, not shipped) allows one exception, verify-loop → edit-applier; a
+long-running supervisor with sub-agents would also blow the context window.
+Stay in-process for skills; shell out for scripts; never delegate.
 
 # When to Use
 
@@ -68,16 +68,14 @@ window. Stay in-process for skills; shell out for scripts; never delegate.
 > flat-fan-out policy (rationale: `docs/nested-subagents-assessment.md`,
 > not shipped by `flow install`), relaxed only at the one sanctioned
 > verify-loop → edit-applier site, and (2) a long-running supervisor with
-> sub-agents would bloat past the context window. The supervisor is a
-> top-level Claude Code session (started by `flow feature create` opening
-> tmux + `claude`), so constraint (1) is not a platform limit on its Task
-> calls — it is flow's own policy, and it is why exactly nine top-level
-> sites are enumerated below and only one nests. All nine exemptions
-> below are one-shot, not long-running, so constraint (2) doesn't apply
-> either. They are the **only nine** authorised Task-tool fan-out sites
-> from this supervisor; no other skill or step may call Task. Each is
-> anchored on its step heading name rather than its number so it survives
-> future renumbering. Same narrow-and-named contract as the
+> sub-agents would bloat past the context window. Constraint (1) is not a
+> platform limit on the supervisor's own Task calls — it is flow's policy,
+> and it is why exactly nine top-level sites are enumerated below and only
+> one nests. All nine are one-shot, not long-running, so constraint (2)
+> doesn't apply either. They are the **only nine** authorised Task-tool
+> fan-out sites from this supervisor; no other skill or step may call
+> Task. Each is anchored on its step heading name rather than its number
+> so it survives future renumbering. Same narrow-and-named contract as the
 > `/flow-pr-review` auto-push and `/flow-pipeline` auto-merge exemptions
 > in `AGENTS.md`. If a future skill needs the same license, add it here
 > by name rather than generalising the rule. Each exemption spawns its
@@ -95,10 +93,9 @@ window. Stay in-process for skills; shell out for scripts; never delegate.
 > than falling back to in-line execution — **except** the nested
 > verify-loop → edit-applier site, which records `coder_spawn:
 > task-tool-unavailable` and degrades inline instead (its known-good
-> fallback; the other nine have none). See each exemption's spawn
-> procedure for the canonical "Load the Task tool before spawning"
-> paragraph and `# Failure paths` below for the escalation script — a
-> sibling note to the nine exemption blocks, not a tenth exemption.
+> fallback; the other nine have none). See each exemption's spawn procedure
+> for the canonical "Load the Task tool before spawning" paragraph and
+> `# Failure paths` for the escalation script — a sibling note, not a tenth.
 >
 > **Task-tool exemption #1: `/flow-pr-review` Independent Multi-Agent
 > Review.** Step 8's six review agents + one diff-only intent-guess agent,
@@ -1433,9 +1430,8 @@ the session:
 row re-enters here and re-spawns the subagent (the `/flow-verify` loop
 observes the worktree fresh, so a re-spawn is idempotent). Narrow fixes
 stay inline; wider-scope fixes spawn one flow-edit-applier subagent per
-`references/verify-loop-instructions.md`'s nested-spawn contract —
-either way, the diff bytes stay inside the verify-loop subagent's
-isolated context.
+`references/verify-loop-instructions.md`'s nested-spawn contract — either
+way, the diff bytes stay out of the supervisor's own context.
 
 **End condition:** the artifact reports `verify_status: "pass"`.
 Continue to step 7.
