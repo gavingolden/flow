@@ -1,3 +1,6 @@
+> [!WARNING]
+> **Historical document.** This describes the deleted Node-orchestrator era of flow and is kept as a historical artefact. For the current state, see the [README](../../README.md) and [AGENTS.md](../../AGENTS.md).
+
 # Phase 8 — merge
 
 The pipeline's terminal phase. Squash-merges the PR, captures the merge

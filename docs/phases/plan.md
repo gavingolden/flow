@@ -1,3 +1,6 @@
+> [!WARNING]
+> **Historical document.** This describes the deleted Node-orchestrator era of flow and is kept as a historical artefact. For the current state, see the [README](../../README.md) and [AGENTS.md](../../AGENTS.md).
+
 # Phase 2 — plan
 
 The first headless phase. Reads a `worktree-ready` task and produces a

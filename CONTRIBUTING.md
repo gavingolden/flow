@@ -1,6 +1,6 @@
 # Contributing to flow
 
-This is the developer/maintainer guide for working **on** flow itself. If you only want to _use_ flow, the [README](README.md) is the front door. The canonical rules every agent (human or AI) must follow live in [`AGENTS.md`](AGENTS.md) — read that first; this file covers the mechanical how-to.
+This is the developer/maintainer guide for working **on** flow itself. If you only want to _use_ flow, the [README](README.md) is the front door, and [docs/getting-started.md](docs/getting-started.md) walks you through your first pipeline. The canonical rules every agent (human or AI) must follow live in [`AGENTS.md`](AGENTS.md) — read that first; this file covers the mechanical how-to.
 
 ## Dev setup
 

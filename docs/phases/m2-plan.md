@@ -1,3 +1,6 @@
+> [!WARNING]
+> **Historical document.** This describes the deleted Node-orchestrator era of flow and is kept as a historical artefact. For the current state, see the [README](../../README.md) and [AGENTS.md](../../AGENTS.md).
+
 # M2 — plan, worktree, implement
 
 The next milestone. After M2, a `triaged` task can become an open PR with

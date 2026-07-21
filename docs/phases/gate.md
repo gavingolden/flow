@@ -1,3 +1,6 @@
+> [!WARNING]
+> **Historical document.** This describes the deleted Node-orchestrator era of flow and is kept as a historical artefact. For the current state, see the [README](../../README.md) and [AGENTS.md](../../AGENTS.md).
+
 # Phase 7 — gate
 
 The pipeline's auto-merge decision point. Reads the rendered PR body's

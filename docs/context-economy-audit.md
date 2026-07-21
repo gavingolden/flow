@@ -1,3 +1,6 @@
+> [!WARNING]
+> **Historical document.** This describes the deleted Node-orchestrator era of flow and is kept as a historical artefact. For the current state, see the [README](../README.md) and [AGENTS.md](../AGENTS.md).
+
 # Context economy audit — a measured baseline for Phase-5 tightening
 
 Phase 5 of [`target-architecture.md`](target-architecture.md) ("measure,
