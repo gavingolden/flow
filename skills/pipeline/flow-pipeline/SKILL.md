@@ -510,40 +510,36 @@ in subsequent steps — the user's choice wins.
 
 #### Goal-framing: ladder up to the ultimate goal
 
-Before classifying, ladder up from the surface request to the
-underlying problem / friction / efficiency-gain it serves — what the
-user ultimately wants fixed, unblocked, or sped up — using the Ladder
-Up technique in
+Before classifying, ladder up from the surface request to the underlying
+problem / friction / efficiency-gain it serves — what the user ultimately
+wants fixed, unblocked, or sped up — using the Ladder Up technique in
 `skills/pipeline/flow-product-planning/references/discovery-playbook.md`
-(reference it; don't duplicate it here). Infer the **ultimate goal**
-and state it in **one line** in chat, then carry it in your context
-through to step 3.
+(reference it; don't duplicate it here). Infer the **ultimate goal** and
+state it in **one line** in chat, then carry it in your context to step 3.
 
 Laddering up is the default; the same playbook carries a broader set of
 **framing lenses** (internal-only Five Whys, Jobs-to-be-Done,
 first-principles, inversion, pre-mortem, second-order effects) for a
 request at the right altitude but still mis-framed — reach for one only
-when framing is genuinely in doubt, keep it internal (never an
-interrogation or an emitted section), and skip it on expert-specified /
-trivial / time-critical asks.
+when framing is genuinely in doubt, and keep it internal (never an
+interrogation or an emitted section).
 
 This is the triage-side entry point for the AGENTS.md `## Output style`
 rule **Understand the ultimate goal behind the request, not just the
-literal ask.**, and it is **conditional**: do NOT ladder up
-expert-specified / trivial / time-critical requests. Infer-and-proceed is
-the default — flow PRs are gated and revertible, so proceed on the
-most-likely goal and surface the considered alternative in the PRD and the
-PR `## Why` (gated at `plan-pending-review` for feature intent) rather than
-stopping to ask.
+literal ask.**, and it is **conditional**: skip the whole sub-step —
+laddering and lenses alike — on expert-specified / trivial /
+time-critical requests. Infer-and-proceed is the default: flow PRs are
+gated and revertible, so proceed on the most-likely goal and surface the
+considered alternative in the PRD and the PR `## Why` (gated at
+`plan-pending-review` for feature intent) rather than stopping to ask.
 
 **The one question (rare).** Ask exactly one focused goal-framing question
 ONLY when no defensible one-line goal can be stated even after laddering up
-AND guessing wrong would be costly or hard to reverse. When that bar is
-met, write `flow-state-update --phase triage-pending-clarification`, ask
-the single question, and end the turn; the next turn re-enters step 1 with
-the reply, and if still ambiguous, escalate `NEEDS HUMAN: triage-ambiguous`
-rather than asking twice. Never ask mid-run and never interrogate with a
-chain of "why".
+AND guessing wrong would be costly or hard to reverse. When that bar is met,
+write `flow-state-update --phase triage-pending-clarification`, ask the single
+question, and end the turn; the next turn re-enters step 1 with the reply, and
+if still ambiguous, escalate `NEEDS HUMAN: triage-ambiguous` rather than asking
+twice. Never ask mid-run and never interrogate with a chain of "why".
 
 #### Prompt sanity gate
 
