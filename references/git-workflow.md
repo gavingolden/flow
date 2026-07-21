@@ -54,7 +54,8 @@ override in `~/.flow/config.json`, `overflowNote`) and
 `/flow-pipeline`'s "Hard rules" forbid the supervisor from calling the
 `Task` / `Agent` tool, with nine named exceptions. The same rationale
 covers all nine: (a) the supervisor is itself a top-level Claude Code
-session, so its Task calls sit at depth 0; flow chooses flat one-shot
+session at depth 1, so its own Task calls are never themselves nested;
+flow chooses flat one-shot
 fan-out even though nesting is now platform-possible — with one
 sanctioned nested site, verify-loop → edit-applier, inside the
 Verify-Retry-Loop exemption; (b) each subagent is one-shot (returns an artifact + brief

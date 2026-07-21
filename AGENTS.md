@@ -244,7 +244,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
     the `--no-auto-merge` opt-out are at
     [references/git-workflow.md](references/git-workflow.md).
   - **Shared rationale for the nine Task-tool exemptions below**: the
-    supervisor is a top-level session (its Task calls sit at depth 0;
+    supervisor is a top-level session (it is depth 1, so its own Task
+    calls are never themselves nested;
     flow chooses flat one-shot fan-out even though nesting is now
     platform-possible — with one sanctioned nested site, verify-loop →
     edit-applier, inside the Verify-Retry-Loop exemption), each subagent
