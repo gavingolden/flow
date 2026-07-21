@@ -191,7 +191,7 @@ function checkCandidateTable(planText: string, misses: string[]): void {
     return;
   }
 
-  const headerLine = body.match(/^\|.*\|\s*$/m)?.[0] ?? "";
+  const headerLine = body.match(tableRowRe)?.[0] ?? "";
   if (!/Relation to current request/.test(headerLine)) {
     misses.push(
       "'# Candidate follow-up issues' candidate ranking table missing 'Relation to current request' column",

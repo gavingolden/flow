@@ -24,18 +24,24 @@
  *   flow-candidate-issues --plan-md-file <path> --tick <1-based,comma,indices>
  *   flow-candidate-issues --plan-md-file <path> --ticked
  *   flow-candidate-issues --plan-md-file <path> --lint
+ *   flow-candidate-issues --plan-md-file <path> --details
  *
  * `--json` (the default) emits the decision object on stdout:
- *   { action, candidates, untickedCount, tickedCount }
+ *   { action, candidates, untickedCount, tickedCount, rankedOrder }
  *   action ∈ "no-op" | "prompt" | "skip-already-ticked" | "overflow"
- *   candidates: [{ title, body }]  (the unticked items, in document order)
+ *   candidates: [{ title, body } & CandidateMeta]  (the unticked items, in
+ *     document order; CandidateMeta fields are null when the ranking table
+ *     is absent or has no matching row)
+ *   rankedOrder: 1-based indices into `candidates`, sorted High > Medium >
+ *     Low > unknown value, tie-broken by document order
  *
  * `--tick <indices>` flips the selected UNTICKED items (1-based into the
  * `candidates` enumeration order) from `- [ ]` to `- [x]` in place and
  * emits { tickedIndices, tickedCount }.
  *
- * `--ticked` emits { ticked: [{ title, body }] } — the already-`- [x]`
- * items (empty array when the section is absent or has zero ticked items).
+ * `--ticked` emits { ticked: [{ title, body } & CandidateMeta] } — the
+ * already-`- [x]` items (empty array when the section is absent or has
+ * zero ticked items).
  *
  * `--lint` is the follow-up-reference consistency guard: it scans plan.md
  * for prose that references a follow-up ("tracked as a follow-up", etc.)
@@ -46,8 +52,13 @@
  * Advisory-only: the supervisor surfaces drift in chat, never blocks
  * planning. Tolerant — never throws on malformed input.
  *
+ * `--details` prints a human-legible ranked table of the unticked
+ * candidates (rank, title, value, complexity, pull, recommended marker) to
+ * stdout for the supervisor to paste into chat. Always exits 0; empty
+ * stdout when there are zero unticked candidates.
+ *
  * Exit codes:
- *   0 — read / decision / tick / ticked / lint(no-drift) succeeded
+ *   0 — read / decision / tick / ticked / lint(no-drift) / details succeeded
  *   1 — --lint detected follow-up-reference drift
  *   2 — bad CLI args (file read failure, out-of-range tick index, etc.)
  */
@@ -83,6 +94,7 @@ const EMPTY_META: CandidateMeta = {
 };
 
 const VALUE_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+const HEADING_RE = /^# Candidate follow-up issues/;
 
 /**
  * Parses the ranking table (the six-column
@@ -92,10 +104,26 @@ const VALUE_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
  * whose Candidate cell doesn't exact-match (trimmed) any checkbox title are
  * simply not added to the map — callers fall back to null metadata. Keyed by
  * the trimmed Candidate cell text.
+ *
+ * Scoped to the `# Candidate follow-up issues` section (same bounds as
+ * `extractCandidateSection`), NOT the whole document — a six-plus-column
+ * table elsewhere in the plan (PRD sections, task tables) must not pollute
+ * the metadata map just because a row's first cell happens to match a
+ * candidate title.
  */
 export function parseRankingTable(planMd: string): Map<string, CandidateMeta> {
   const map = new Map<string, CandidateMeta>();
-  const lines = planMd.split("\n");
+  const allLines = planMd.split("\n");
+  const startIdx = allLines.findIndex((l) => HEADING_RE.test(l));
+  if (startIdx === -1) return map;
+  let endIdx = allLines.length;
+  for (let i = startIdx + 1; i < allLines.length; i++) {
+    if (/^# /.test(allLines[i])) {
+      endIdx = i;
+      break;
+    }
+  }
+  const lines = allLines.slice(startIdx, endIdx);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line.startsWith("|") || !line.endsWith("|")) continue;
@@ -120,7 +148,6 @@ export function parseRankingTable(planMd: string): Map<string, CandidateMeta> {
   return map;
 }
 
-const HEADING_RE = /^# Candidate follow-up issues/;
 const UNTICKED_RE = /^- \[ \] (.*)$/;
 const TICKED_RE = /^- \[[xX]\] (.*)$/;
 
@@ -204,7 +231,7 @@ export function decideCandidateIssues(planMd: string): Decision {
   const untickedCount = untickedItems.length;
   const candidates: Candidate[] = untickedItems.map((it) => {
     const c = splitCandidate(it.text);
-    return { ...c, ...(meta.get(c.title) ?? EMPTY_META) };
+    return { ...c, ...(meta.get(c.title.trim()) ?? EMPTY_META) };
   });
 
   let action: Action;
@@ -239,9 +266,9 @@ function rankCandidates(candidates: CandidateMeta[]): number[] {
 }
 
 /**
- * Pure extraction of the already-`- [x]` items as { title, body } pairs,
- * reusing the same section parse + first-` — `-split. Empty when the
- * section is absent or has zero ticked items.
+ * Pure extraction of the already-`- [x]` items as { title, body } & CandidateMeta
+ * entries, reusing the same section parse + first-` — `-split + ranking-table
+ * join. Empty when the section is absent or has zero ticked items.
  */
 export function extractTicked(planMd: string): Candidate[] {
   const section = extractCandidateSection(planMd);
@@ -251,7 +278,7 @@ export function extractTicked(planMd: string): Candidate[] {
     .filter((it) => it.ticked)
     .map((it) => {
       const c = splitCandidate(it.text);
-      return { ...c, ...(meta.get(c.title) ?? EMPTY_META) };
+      return { ...c, ...(meta.get(c.title.trim()) ?? EMPTY_META) };
     });
 }
 

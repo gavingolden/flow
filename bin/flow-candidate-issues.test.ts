@@ -195,6 +195,19 @@ describe(decideCandidateIssues, () => {
     const r = decideCandidateIssues(body);
     expect(r.candidates).toEqual([withMeta({ title: "a", body: "" })]);
   });
+
+  it("ranks a lowercase 'high' value the same as canonical 'High'", () => {
+    const body =
+      `${HEADING}\n\n` +
+      `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+      `| --- | --- | --- | --- | --- | --- |\n` +
+      `| low-one | Low | Small | x | y | No |\n` +
+      `| high-one | high | Small | x | y | No |\n\n` +
+      `- [ ] low-one\n- [ ] high-one\n`;
+    const r = decideCandidateIssues(body);
+    // document order: [low-one, high-one]; high-one must rank first.
+    expect(r.rankedOrder).toEqual([2, 1]);
+  });
 });
 
 // --- parseRankingTable -------------------------------------------------
@@ -205,9 +218,38 @@ describe(parseRankingTable, () => {
   });
 
   it("skips the header and separator rows", () => {
-    const body = `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| a | High | Small | x | y | No |\n`;
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| a | High | Small | x | y | No |\n`;
     const map = parseRankingTable(body);
     expect(map.size).toBe(1);
+    expect(map.get("a")).toEqual({
+      value: "High",
+      complexity: "Small",
+      rationale: "x",
+      relation: "y",
+      pull: "No",
+    });
+  });
+
+  it("ignores a same-shaped six-column table OUTSIDE the candidate section", () => {
+    const body =
+      `# PRD\n\n` +
+      `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+      `| --- | --- | --- | --- | --- | --- |\n` +
+      `| a | High | Small | unrelated table | y | No |\n\n` +
+      `${HEADING}\n\n- [ ] a\n`;
+    // No table inside the section itself — the out-of-section table must
+    // not leak into the map even though its first cell matches "a".
+    expect(parseRankingTable(body).size).toBe(0);
+  });
+
+  it("still joins a table placed AFTER the checkbox list, within the section bounds", () => {
+    const body =
+      `${HEADING}\n\n` +
+      `- [ ] a\n\n` +
+      `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+      `| --- | --- | --- | --- | --- | --- |\n` +
+      `| a | High | Small | x | y | No |\n`;
+    const map = parseRankingTable(body);
     expect(map.get("a")).toEqual({
       value: "High",
       complexity: "Small",
@@ -242,6 +284,24 @@ describe(renderDetails, () => {
     expect(rendered.indexOf("#1 alpha")).toBeLessThan(
       rendered.indexOf("#2 beta"),
     );
+  });
+
+  it("recognizes a lowercase 'yes' pull cell case-insensitively", () => {
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| alpha | Medium | Large | matters | close | YES |\n\n- [ ] alpha — a body\n`;
+    const decision = decideCandidateIssues(body);
+    expect(renderDetails(decision)).toContain(
+      "recommended: pull into this plan",
+    );
+  });
+
+  it("recommends on High + Small value/complexity alone, without pull=Yes", () => {
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| alpha | High | Small | matters | close | No |\n| beta | Medium | Trivial | later | far | No |\n\n- [ ] alpha — a body\n- [ ] beta — b body\n`;
+    const decision = decideCandidateIssues(body);
+    const rendered = renderDetails(decision);
+    expect(rendered).toContain("recommended: pull into this plan");
+    // beta is Medium/Trivial/No — neither clause fires, so no marker for it.
+    const betaLine = rendered.split("\n").find((l) => l.includes("#2 beta"));
+    expect(betaLine).not.toContain("recommended");
   });
 });
 
@@ -324,6 +384,21 @@ describe(extractTicked, () => {
     expect(extractTicked(body)).toEqual([
       withMeta({ title: "Filed one", body: "body one" }),
       withMeta({ title: "Filed two", body: "body two" }),
+    ]);
+  });
+
+  it("joins ranking-table metadata onto ticked items via the same title match", () => {
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| Filed one | High | Trivial | matters | close | Yes |\n\n- [x] Filed one — body one\n- [ ] not ticked\n`;
+    expect(extractTicked(body)).toEqual([
+      {
+        title: "Filed one",
+        body: "body one",
+        value: "High",
+        complexity: "Trivial",
+        rationale: "matters",
+        relation: "close",
+        pull: "Yes",
+      },
     ]);
   });
 });
