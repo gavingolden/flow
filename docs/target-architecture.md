@@ -526,6 +526,122 @@ option regardless of phase).
   of Phase 1's `--all` byte-parity guarantee, per the plugins-de-assumed
   redirect: the mechanism is chosen on evidence, not assumed.
 
+## Per-repo module granularity — evaluation (D3)
+
+### Context
+
+flow is distributed to users on heterogeneous stacks, and the skill catalog
+keeps growing. The governing question this decision answers is therefore
+**which skills a given user, on a given repo, GETS** — install-everything is
+never the default — not how much frontmatter a maintainer happens to carry.
+The measured maintainer tax below is evidence for the "is this worth a
+mechanism" question, not the driver of it.
+
+The **default-install policy is a standing commitment**, already enforced in
+code and reconfirmed here rather than re-decided: `flow install` never
+installs every module by default. Module selection resolves in this
+order — an explicit `--modules <csv>` (or `--all`, or `--core-only` sugar for
+`--modules core`) flag wins; failing that, a previously recorded selection is
+reused; failing that, an interactive TTY prompts once per optional module;
+failing that (non-interactive, nothing recorded), the install defaults to
+**core-only**. `--all` is strictly opt-in — it is never inferred. Verified
+against the resolver and its flag-parsing/module-config plumbing:
+`bin/lib/setup.ts` (the resolution order and the non-TTY core-only default),
+`bin/lib/setup-args.ts` (`--modules` / `--all` / `--core-only`, mutually
+exclusive), and `bin/lib/modules-config.ts` (the four-tier resolution:
+explicit flag → recorded selection → TTY per-module Q&A → non-TTY
+core-only).
+
+The premise this node evaluates against: the interactive launcher loads
+**every selected module's skills in one shot**, unconditionally.
+`bin/lib/launch.ts`'s `defaultLauncherArgv()` returns
+`["claude", "--add-dir", FLOW_CLAUDE_HOME]` with no per-repo filtering — a
+`flow` session on a multi-stack machine sees every installed module's
+frontmatter regardless of which repo it was launched from. D10's standalone
+skills home (`p2-standalone-skills-home`) already banked the machine-wide
+win this could be confused for: a plain `claude` session (no `--add-dir`)
+carries zero flow skills. What remains open is only the **narrower**
+question — whether a `flow`-launched session on repo A should also avoid
+paying for modules only repo B needs.
+
+**Measured figure.** The five current stack skills' frontmatter, by
+per-skill token estimate (chars/4 heuristic — no system tokenizer available
+in this evaluation): `flow-svelte` 77, `flow-testing-svelte` 120,
+`flow-tailwind-shadcn` 86, `flow-supabase-project` 85,
+`flow-cloudflare-pages` 94 — **total 1,859 bytes ≈ 463 tokens**. That is
+roughly 18% of flow's 21-skill routing table (≈2,481 tokens) and roughly
+0.23% of a 200K context, and it is prompt-cached (paid once per session, not
+per turn). Reproduction (run from a `flow` skills home):
+
+```sh
+total=0
+for s in flow-svelte flow-testing-svelte flow-tailwind-shadcn \
+         flow-supabase-project flow-cloudflare-pages; do
+  f=~/.flow/claude-home/.claude/skills/$s/SKILL.md
+  n=$(awk 'BEGIN{c=0} /^---$/{c++; if(c==2){exit}} c<2{print}' "$f" | wc -c)
+  echo "$s: $n bytes"
+  total=$((total + n))
+done
+echo "total bytes: $total"
+echo "approx tokens (chars/4): $((total / 4))"
+```
+
+The chars/4 heuristic is approximate by construction — re-run the one-liner
+rather than trusting the cited figure to stay exact as skill frontmatter
+drifts; the figure here is a falsifiable snapshot, not a guarantee.
+
+### Decision
+
+**No per-repo activation mechanism ships now.** Three candidate mechanisms
+were assessed against the measured tax:
+
+| Mechanism                                                                                                    | Verdict                    | Why                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repo-local `.claude/skills/` subset linking                                                                  | **REJECT**                 | Loaded by **every** `claude` session in that repo, including plain `claude` — this re-pollutes exactly what D10 (`p2-standalone-skills-home`) fixed — and it pollutes the consumer repo's own git tree.                                                   |
+| Per-repo activation file (`.flow/modules.json`) consumed by the launcher, which builds a filtered mirror dir | **Least-bad, not shipped** | Avoids both defects above, but is not worth 463 tokens of static, prompt-cached weight. Concrete rot risk: the filtered mirror must be rebuilt/invalidated on every `flow install --upgrade`, or the repo silently diverges from the canonical selection. |
+| Per-repo standalone homes (one `~/.flow/<repo>/claude-home` per repo)                                        | **REJECT**                 | N homes to keep updated defeats the single-home simplicity D10 just bought.                                                                                                                                                                               |
+
+A fourth shape was scoped but not built, for future reference if a mechanism
+ever does ship: **A3 — auto-inferred filtering.** The launcher detects stack
+markers (`go.mod`, `package.json`, `Cargo.toml`, …) in the repo it's launched
+from and filters modules without requiring an activation file at all. No
+such heuristic exists today; this is the **preferred shape** over the
+activation-file mirror IF a mechanism is ever built, since it needs no
+consumer-repo file and no explicit per-repo bookkeeping.
+
+**B4 forward check (re-verify before building anything):** re-check whether
+the Claude CLI has gained a **native** per-session skill blocklist/filter
+before building any filesystem-level mechanism. None was documented as of
+2026-07-05 per the epic design's D10 investigation
+(`.flow/epics/major-refactor-flow-modular-plugin/design.md`); a native
+mechanism would make every option above moot.
+
+### Consequences
+
+- **The tax persists on two axes**, not one: (a) negligible **static token
+  weight** (463 tokens, prompt-cached — the axis measured above), and (b) an
+  **unobserved-but-real mis-invocation risk** — every stack skill's `SKIP
+when:` frontmatter clause is a brittle negative constraint the router must
+  get right, and a wrong call in a non-stack repo is a correctness cost the
+  token count doesn't capture. This second axis could justify acting before
+  the token figure alone crosses any threshold.
+- **Split Phase-6 requirement.** `p6-distribution-impl`'s per-user
+  never-install-all default is **HARD** — the distribution winner MUST
+  provide per-user module selection with a never-install-all default, no
+  matter which mechanism (a/b/c) wins. Per-repo/per-project enablement stays
+  **DEFERRED (advisory)** per this verdict: if the Phase-6 winner provides it
+  natively (as the Claude plugin marketplace's per-project `enabledPlugins`
+  does), that is a welcome free outcome, not an acceptance-criterion-grade
+  requirement; if launcher + standalone-dir wins instead, add the
+  activation-file (or A3) filter only if the Phase-5 audit shows the tax has
+  grown or mis-invocation has actually been observed, and only after running
+  the B4 check above.
+- **Re-trigger threshold.** Re-evaluate this decision if any of: stack-skill
+  frontmatter in a single `flow` session exceeds ~1,500 tokens (today: 463);
+  the stack + integration module count exceeds ~8 (today: 4 stack +
+  2 integration = 6); or a stack skill is observed mis-invoking in a
+  non-stack repo.
+
 ---
 
 _Prior art: this document carries forward the ratified Phase-1 PRD and the
