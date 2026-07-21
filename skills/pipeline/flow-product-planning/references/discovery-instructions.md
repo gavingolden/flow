@@ -436,6 +436,23 @@ distinct from "Open Questions": Open Questions are assumptions about _this_ feat
 the user should confirm; candidate follow-up issues are _next-time_ work the user can
 opt into.
 
+**Objective-item triage (bundle by default).** A bug fix or a (nearly) objective
+hardening item — one where any competent engineer would reach the same fix given the
+same evidence, with no meaningful product trade-off to weigh — is folded into `#
+Task breakdown` (or the relevant task's acceptance criteria) at authoring time, and MUST
+NOT be written as a candidate follow-up issue. Only proposals that require subjective
+product judgment (a genuine value/complexity trade-off, a UX direction call, a scope
+decision reasonable engineers could disagree on) remain eligible for this section. For
+example: "the retry loop swallows the underlying error" is an objective bug — fix it in
+the task breakdown. "Add a settings toggle to let users disable retries" is a subjective
+product call — it belongs in the candidate table. Likewise, "off-by-one in the pagination
+cursor" bundles into the current task; "switch pagination from offset- to cursor-based
+site-wide" is a candidate. After authoring both sections, run a **mutual-exclusion
+self-check**: verify no item appears in BOTH `# Task breakdown` and `# Candidate follow-up
+issues` — dedup by intent (the same underlying change described two ways), not by string
+match — and fold any duplicate found back into the task breakdown, removing it from the
+candidate table.
+
 When (and only when) such ideas exist, add a top-level `# Candidate follow-up issues`
 section to `plan.md`, placed between `# PRD` and `# Task breakdown` (see step 8). The
 section has **two parts, in this order**: a value-vs-complexity **ranking table**, then
@@ -445,10 +462,10 @@ title and one-line body:
 ```markdown
 # Candidate follow-up issues
 
-| Candidate                       | Value | Complexity | Rationale                             | Pull into this pipeline? |
-| ------------------------------- | ----- | ---------- | ------------------------------------- | ------------------------ |
-| OAuth refresh path leaks tokens | High  | Medium     | real security gap but its own session | No                       |
-| Pin `gh-action-cache` to v4     | Low   | Trivial    | one-line CI bump, unblocks nothing    | No                       |
+| Candidate                       | Value | Complexity | Rationale                             | Relation to current request | Pull into this pipeline? |
+| ------------------------------- | ----- | ---------- | ------------------------------------- | --------------------------- | ------------------------ |
+| OAuth refresh path leaks tokens | High  | Medium     | real security gap but its own session | unrelated to this feature   | No                       |
+| Pin `gh-action-cache` to v4     | Low   | Trivial    | one-line CI bump, unblocks nothing    | unrelated to this feature   | No                       |
 
 - [ ] OAuth refresh path leaks tokens — separate concern; needs a dedicated session.
 - [ ] `gh-action-cache@v3` is deprecated — pin to v4 in CI.
@@ -457,9 +474,15 @@ title and one-line body:
 **The ranking table is mandatory whenever the section is present** (it is not itself
 omit-when-present — only the whole section is omit-when-empty). It forces an explicit
 value/complexity judgment per candidate so a cheap-and-valuable item is never silently
-parked as a follow-up when it should have been pulled into the current pipeline. Columns
-are exactly `Candidate | Value | Complexity | Rationale | Pull into this pipeline?`. The
-`Pull into this pipeline?` column carries **plain `Yes` / `No` text — never a `- [ ]`
+parked as a follow-up when it should have been pulled into the current pipeline. Rows
+should be ordered by Value (High → Low). Columns are exactly
+`Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline?`.
+Each Rationale cell must state why the item matters (the underlying reason it is worth
+tracking), never merely restating the candidate's title. The `Relation to current
+request` column names how the candidate connects to (or diverges from) the work this
+plan is about — the supervisor's pre-form details block and the `pull #N into the plan`
+redirect offer read this column to help the user decide. The `Pull into this pipeline?`
+column carries **plain `Yes` / `No` text — never a `- [ ]`
 checkbox**: the checkbox list BELOW the table is the sole machine-readable candidate
 contract (`flow-candidate-issues` parses only `- [ ]` / `- [x]` lines, so a checkbox in a
 table cell would be a parser-mis-read hazard). Value and Complexity are coarse buckets

@@ -897,18 +897,19 @@ normalized-diff re-fire detection) in
       turn-end; continue straight to step 5 in the same turn. This is
       the common autonomous case — it preserves the "non-feature
       runs to terminal in one uninterrupted turn" principle.
-    - **`prompt`** (1–4 unticked candidates) → fire the SAME named
-      candidate-issues `AskUserQuestion` multi-select built from
-      `.candidates`, map the selections back to 1-based positions,
+    - **`prompt`** (1–4 unticked candidates) → run `flow-candidate-issues
+      --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --details`, echo its output
+      VERBATIM (offer line `pull #N into the plan` — see the step-4 sub-step
+      below for the redirect/re-fire discipline, identical here), then absent
+      that reply fire the SAME named candidate-issues `AskUserQuestion`
+      multi-select built from `.candidates`, map selections to 1-based positions,
       `flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --tick <indices>`
-      to flip them, then continue to step 5 in the SAME turn. The
-      form is synchronous and does not end the turn, so no pending
-      phase is needed.
-    - **`overflow`** (5+ unticked candidates) → render the AWAITING
-      APPROVAL manual-edit guidance via `flow-gate-summary --status
-      awaiting-approval --why "5+ candidate follow-up issues —
-      option cap exceeded; tick desired items manually in plan.md"
-      --worktree "$WORKTREE" --plan-file
+      to flip them, and continue to step 5 in the SAME turn.
+    - **`overflow`** (5+ unticked candidates) → run the same `--details`
+      echo (as above) then render the AWAITING APPROVAL manual-edit
+      guidance via `flow-gate-summary --status awaiting-approval --why
+      "5+ candidate follow-up issues — option cap exceeded; tick desired
+      items manually in plan.md" --worktree "$WORKTREE" --plan-file
       "$WORKTREE/.flow-tmp/plan.md"`, touch the worktree-local marker
       `"$WORKTREE/.flow-tmp/candidate-issues-overflow.pending"` (so a
       crash-resume can tell this apart from a feature plan-approval
@@ -1000,26 +1001,31 @@ Branch on `.action`:
   **`skip-already-ticked`** (the user pre-ticked during plan review —
   their explicit choice wins) → no prompt; continue to the
   auto-checkpoint sub-step below.
-- **`prompt`** (1–4 unticked candidates) → fire one `AskUserQuestion`
-  (multi-select) built from `.candidates` — each `{ title, body }`
-  becomes an option. Map the user's selections back to their 1-based
-  positions in `.candidates`, then flip the chosen items to `- [x]`
-  via the helper (it owns the flip; no hand-matched `Edit`
-  `old_string`/`new_string`):
+- **`prompt`** (1–4 unticked candidates) → run `flow-candidate-issues
+  --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --details` and echo its output
+  VERBATIM as assistant prose before firing the form — same discipline as
+  the Gate-stage echo-verbatim recap; never compose the ranked block from
+  the `.json` fields by hand. The block ends with the offer line
+  `pull #N into the plan`; a matching reply loops to step 3 (Imperative
+  redirect branch above) with the candidate text as the redirect — on
+  re-entry here the sub-step RE-FIRES for the remaining (still-unticked)
+  candidates, so pulling one never silently drops the others. Absent
+  that reply, fire one `AskUserQuestion` (multi-select)
+  built from `.candidates` — each `{ title, body }` becomes an option.
+  Map selections to 1-based positions, then flip via the helper:
 
   ```bash
   flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --tick <comma,separated,indices>
   ```
 
   Then continue to the auto-checkpoint sub-step below.
-- **`overflow`** (5+ unticked candidates) → the form's option cap
-  can't fit the candidates. Render the AWAITING APPROVAL block via
+- **`overflow`** (5+ unticked candidates) → run the same `--details`
+  echo (as above), then render the AWAITING APPROVAL block via
   `flow-gate-summary --status awaiting-approval --why "5+ candidate
   follow-up issues — option cap exceeded; tick desired items manually
-  in plan.md" --worktree "$WORKTREE" --plan-file
-  "$WORKTREE/.flow-tmp/plan.md"` so the user can scroll-tap-edit,
-  write `flow-state-update --phase approval-pending-clarification`,
-  end the turn. The next turn re-enters step 4.
+  in plan.md" --worktree "$WORKTREE" --plan-file "$WORKTREE/.flow-tmp/plan.md"`
+  so the user can scroll-tap-edit, write `flow-state-update --phase
+  approval-pending-clarification`, end the turn. The next turn re-enters step 4.
 
 `AskUserQuestion` is the **only** Claude Code user-prompt primitive the
 supervisor calls (see "Hard rules" for the exemption; the same named
@@ -2047,19 +2053,17 @@ PLAN="$WORKTREE/.flow-tmp/plan.md"
 FILED=()
 WARN=()
 if [ -f "$PLAN" ] && grep -q '^# Candidate follow-up issues' "$PLAN"; then
-  # The same helper that owns the candidate-issues decision also owns
-  # the ticked-item extraction — `--ticked` reuses its section parse
-  # and first-` — ` split, so the section is parsed in exactly one
-  # place (no hand-rolled awk + Bash em-dash split here). Emits
-  # { ticked: [{ title, body }] }, empty when zero items are ticked.
+  # `--ticked` owns the section parse + em-dash split; metadata fields
+  # are `null` sans a matching ranking-table row.
   TICKED_JSON=$(flow-candidate-issues --plan-md-file "$PLAN" --ticked)
   COUNT=$(printf '%s' "$TICKED_JSON" | jq -r '.ticked | length')
   for ((i = 0; i < COUNT; i++)); do
-    TITLE=$(printf '%s' "$TICKED_JSON" | jq -r ".ticked[$i].title")
-    BODY=$(printf '%s' "$TICKED_JSON" | jq -r ".ticked[$i].body")
+    ITEM=$(printf '%s' "$TICKED_JSON" | jq -c ".ticked[$i]")
+    TITLE=$(printf '%s' "$ITEM" | jq -r '.title')
     BODY_FILE="$WORKTREE/.flow-tmp/sweep-$(echo "$TITLE" | tr ' /' '__').md"
-    printf '%s\n\nSurfaced by /flow-product-planning during the pipeline that landed PR #%s.\n' \
-      "$BODY" "$PR" > "$BODY_FILE"
+    # Body, then a Rationale/Relation line per non-null field, then the
+    # sweep attribution footer.
+    printf '%s' "$ITEM" | jq -r --arg pr "$PR" '[.body, (if .rationale then "\n**Rationale:** " + .rationale else empty end), (if .relation then "\n**Relation to current request:** " + .relation else empty end), "\nSurfaced by /flow-product-planning during the pipeline that landed PR #" + $pr + "."] | join("\n")' > "$BODY_FILE"
     JSON=$(flow-create-issue \
       --title "$TITLE" \
       --body-file "$BODY_FILE" \

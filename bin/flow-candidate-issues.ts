@@ -24,18 +24,24 @@
  *   flow-candidate-issues --plan-md-file <path> --tick <1-based,comma,indices>
  *   flow-candidate-issues --plan-md-file <path> --ticked
  *   flow-candidate-issues --plan-md-file <path> --lint
+ *   flow-candidate-issues --plan-md-file <path> --details
  *
  * `--json` (the default) emits the decision object on stdout:
- *   { action, candidates, untickedCount, tickedCount }
+ *   { action, candidates, untickedCount, tickedCount, rankedOrder }
  *   action ∈ "no-op" | "prompt" | "skip-already-ticked" | "overflow"
- *   candidates: [{ title, body }]  (the unticked items, in document order)
+ *   candidates: [{ title, body } & CandidateMeta]  (the unticked items, in
+ *     document order; CandidateMeta fields are null when the ranking table
+ *     is absent or has no matching row)
+ *   rankedOrder: 1-based indices into `candidates`, sorted High > Medium >
+ *     Low > unknown value, tie-broken by document order
  *
  * `--tick <indices>` flips the selected UNTICKED items (1-based into the
  * `candidates` enumeration order) from `- [ ]` to `- [x]` in place and
  * emits { tickedIndices, tickedCount }.
  *
- * `--ticked` emits { ticked: [{ title, body }] } — the already-`- [x]`
- * items (empty array when the section is absent or has zero ticked items).
+ * `--ticked` emits { ticked: [{ title, body } & CandidateMeta] } — the
+ * already-`- [x]` items (empty array when the section is absent or has
+ * zero ticked items).
  *
  * `--lint` is the follow-up-reference consistency guard: it scans plan.md
  * for prose that references a follow-up ("tracked as a follow-up", etc.)
@@ -46,8 +52,13 @@
  * Advisory-only: the supervisor surfaces drift in chat, never blocks
  * planning. Tolerant — never throws on malformed input.
  *
+ * `--details` prints a human-legible ranked table of the unticked
+ * candidates (rank, title, value, complexity, pull, recommended marker) to
+ * stdout for the supervisor to paste into chat. Always exits 0; empty
+ * stdout when there are zero unticked candidates.
+ *
  * Exit codes:
- *   0 — read / decision / tick / ticked / lint(no-drift) succeeded
+ *   0 — read / decision / tick / ticked / lint(no-drift) / details succeeded
  *   1 — --lint detected follow-up-reference drift
  *   2 — bad CLI args (file read failure, out-of-range tick index, etc.)
  */
@@ -56,16 +67,87 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 export type Action = "no-op" | "prompt" | "skip-already-ticked" | "overflow";
 
-export type Candidate = { title: string; body: string };
+export type CandidateMeta = {
+  value: string | null;
+  complexity: string | null;
+  rationale: string | null;
+  relation: string | null;
+  pull: string | null;
+};
+
+export type Candidate = { title: string; body: string } & CandidateMeta;
 
 export type Decision = {
   action: Action;
   candidates: Candidate[];
   untickedCount: number;
   tickedCount: number;
+  rankedOrder: number[];
 };
 
+const EMPTY_META: CandidateMeta = {
+  value: null,
+  complexity: null,
+  rationale: null,
+  relation: null,
+  pull: null,
+};
+
+const VALUE_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
 const HEADING_RE = /^# Candidate follow-up issues/;
+
+/**
+ * Parses the ranking table (the six-column
+ * `Candidate | Value | Complexity | Rationale | Relation to current request |
+ * Pull into this pipeline?` markdown table) that precedes the checkbox list.
+ * Tolerant: an absent table, malformed rows (wrong column count), or a row
+ * whose Candidate cell doesn't exact-match (trimmed) any checkbox title are
+ * simply not added to the map — callers fall back to null metadata. Keyed by
+ * the trimmed Candidate cell text.
+ *
+ * Scoped to the `# Candidate follow-up issues` section (same bounds as
+ * `extractCandidateSection`), NOT the whole document — a six-plus-column
+ * table elsewhere in the plan (PRD sections, task tables) must not pollute
+ * the metadata map just because a row's first cell happens to match a
+ * candidate title.
+ */
+export function parseRankingTable(planMd: string): Map<string, CandidateMeta> {
+  const map = new Map<string, CandidateMeta>();
+  const allLines = planMd.split("\n");
+  const startIdx = allLines.findIndex((l) => HEADING_RE.test(l));
+  if (startIdx === -1) return map;
+  let endIdx = allLines.length;
+  for (let i = startIdx + 1; i < allLines.length; i++) {
+    if (/^# /.test(allLines[i])) {
+      endIdx = i;
+      break;
+    }
+  }
+  const lines = allLines.slice(startIdx, endIdx);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line.startsWith("|") || !line.endsWith("|")) continue;
+    const cells = line
+      .slice(1, -1)
+      .split("|")
+      .map((c) => c.trim());
+    if (cells.length < 6) continue;
+    // Skip header and separator rows.
+    if (cells[0].toLowerCase() === "candidate") continue;
+    if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
+    const [title, value, complexity, rationale, relation, pull] = cells;
+    if (!title) continue;
+    map.set(title, {
+      value: value || null,
+      complexity: complexity || null,
+      rationale: rationale || null,
+      relation: relation || null,
+      pull: pull || null,
+    });
+  }
+  return map;
+}
+
 const UNTICKED_RE = /^- \[ \] (.*)$/;
 const TICKED_RE = /^- \[[xX]\] (.*)$/;
 
@@ -75,7 +157,7 @@ const TICKED_RE = /^- \[[xX]\] (.*)$/;
  * step-10 sweep's `${line%% — *}` / `${line#* — }` Bash split: only the
  * first em-dash splits, so any further ` — ` inside body is preserved.
  */
-export function splitCandidate(text: string): Candidate {
+export function splitCandidate(text: string): { title: string; body: string } {
   const idx = text.indexOf(" — ");
   if (idx === -1) return { title: text, body: "" };
   return { title: text.slice(0, idx), body: text.slice(idx + " — ".length) };
@@ -139,13 +221,18 @@ export function decideCandidateIssues(planMd: string): Decision {
       candidates: [],
       untickedCount: 0,
       tickedCount: 0,
+      rankedOrder: [],
     };
   }
 
+  const meta = parseRankingTable(planMd);
   const untickedItems = section.items.filter((it) => !it.ticked);
   const tickedCount = section.items.length - untickedItems.length;
   const untickedCount = untickedItems.length;
-  const candidates = untickedItems.map((it) => splitCandidate(it.text));
+  const candidates: Candidate[] = untickedItems.map((it) => {
+    const c = splitCandidate(it.text);
+    return { ...c, ...(meta.get(c.title.trim()) ?? EMPTY_META) };
+  });
 
   let action: Action;
   if (tickedCount >= 1) {
@@ -158,20 +245,41 @@ export function decideCandidateIssues(planMd: string): Decision {
     action = "overflow";
   }
 
-  return { action, candidates, untickedCount, tickedCount };
+  const rankedOrder = rankCandidates(candidates);
+
+  return { action, candidates, untickedCount, tickedCount, rankedOrder };
 }
 
 /**
- * Pure extraction of the already-`- [x]` items as { title, body } pairs,
- * reusing the same section parse + first-` — `-split. Empty when the
- * section is absent or has zero ticked items.
+ * Returns 1-based indices into `candidates` sorted High > Medium > Low >
+ * unknown, tie-broken by document order (stable sort preserves original
+ * relative order for equal ranks).
+ */
+function rankCandidates(candidates: CandidateMeta[]): number[] {
+  return candidates
+    .map((c, i) => ({
+      i,
+      rank: VALUE_RANK[(c.value ?? "").toLowerCase()] ?? 3,
+    }))
+    .sort((a, b) => a.rank - b.rank)
+    .map((x) => x.i + 1);
+}
+
+/**
+ * Pure extraction of the already-`- [x]` items as { title, body } & CandidateMeta
+ * entries, reusing the same section parse + first-` — `-split + ranking-table
+ * join. Empty when the section is absent or has zero ticked items.
  */
 export function extractTicked(planMd: string): Candidate[] {
   const section = extractCandidateSection(planMd);
   if (!section) return [];
+  const meta = parseRankingTable(planMd);
   return section.items
     .filter((it) => it.ticked)
-    .map((it) => splitCandidate(it.text));
+    .map((it) => {
+      const c = splitCandidate(it.text);
+      return { ...c, ...(meta.get(c.title.trim()) ?? EMPTY_META) };
+    });
 }
 
 /**
@@ -265,9 +373,43 @@ export function tickCandidates(
   };
 }
 
+const OFFER_LINE =
+  "To fold a candidate into the current work instead of filing it, reply `pull #N into the plan`.";
+
+/**
+ * Renders the `--details` plain-text ranked block: one entry per candidate
+ * in `rankedOrder` order, followed by the verbatim redirect-offer line.
+ * Quiet no-op (empty string) when there are zero unticked candidates — the
+ * caller should skip printing/echoing entirely in that case.
+ */
+export function renderDetails(decision: Decision): string {
+  if (decision.candidates.length === 0) return "";
+
+  const lines: string[] = [];
+  for (const idx of decision.rankedOrder) {
+    const c = decision.candidates[idx - 1];
+    const value = c.value ?? "unknown";
+    const complexity = c.complexity ?? "unknown";
+    lines.push(`#${idx} ${c.title} — ${value}/${complexity}`);
+    lines.push(`  rationale: ${c.rationale ?? "(none)"}`);
+    lines.push(`  relation: ${c.relation ?? "(none)"}`);
+    const pull = (c.pull ?? "").toLowerCase();
+    const recommended =
+      pull === "yes" ||
+      ((c.value ?? "").toLowerCase() === "high" &&
+        ["trivial", "small"].includes((c.complexity ?? "").toLowerCase()));
+    if (recommended) {
+      lines.push("  recommended: pull into this plan");
+    }
+  }
+  lines.push("");
+  lines.push(OFFER_LINE);
+  return lines.join("\n");
+}
+
 // --- CLI -------------------------------------------------------------------
 
-type Mode = "json" | "tick" | "ticked" | "lint";
+type Mode = "json" | "tick" | "ticked" | "lint" | "details";
 
 type Args = {
   planMdFile: string;
@@ -294,6 +436,8 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       mode = "ticked";
     } else if (flag === "--lint") {
       mode = "lint";
+    } else if (flag === "--details") {
+      mode = "details";
     } else if (flag === "--tick") {
       const v = argv[i + 1];
       if (!v || v.startsWith("--"))
@@ -324,7 +468,7 @@ export function run(argv: string[]): number {
   if ("error" in parsed) {
     console.error(`flow-candidate-issues: ${parsed.error}`);
     console.error(
-      "usage: flow-candidate-issues --plan-md-file <path> [--json | --tick <indices> | --ticked | --lint]",
+      "usage: flow-candidate-issues --plan-md-file <path> [--json | --tick <indices> | --ticked | --lint | --details]",
     );
     return 2;
   }
@@ -350,6 +494,13 @@ export function run(argv: string[]): number {
     const report = lintFollowUpReferences(planMd);
     process.stdout.write(JSON.stringify(report) + "\n");
     return report.drift ? 1 : 0;
+  }
+
+  if (parsed.mode === "details") {
+    const decision = decideCandidateIssues(planMd);
+    const rendered = renderDetails(decision);
+    if (rendered) process.stdout.write(rendered + "\n");
+    return 0;
   }
 
   if (parsed.mode === "tick") {
