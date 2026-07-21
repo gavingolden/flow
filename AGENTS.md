@@ -100,8 +100,10 @@ tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes
 `claude -p ...` subprocesses, **with nine narrowly-named exceptions** —
 the `**Task-tool exemption: ...**` bullets under `## Don'ts` below. This
-sidesteps two limits: the one-level sub-agent cap, and context bloat from
-a long-running supervisor with sub-agents. A standalone leaf skill
+sidesteps two problems: deep sub-agent fan-out (possible since Claude Code
+v2.1.172, capped at 5 levels, but ruinously token-expensive and hard to
+observe), and context bloat from a long-running supervisor with
+sub-agents. A standalone leaf skill
 (`/flow-research` run directly) firing `claude -p` is a context this
 constraint never governed.
 
@@ -242,8 +244,11 @@ three-layer resolution table, and the manifest/foundation fields — is at
     the `--no-auto-merge` opt-out are at
     [references/git-workflow.md](references/git-workflow.md).
   - **Shared rationale for the nine Task-tool exemptions below**: the
-    supervisor is a top-level session (the one-level sub-agent cap
-    doesn't bind its own Task calls), each subagent is one-shot, and
+    supervisor is a top-level session (its Task calls sit at depth 0;
+    flow chooses flat one-shot fan-out even though nesting is now
+    platform-possible — with one sanctioned nested site, verify-loop →
+    edit-applier, inside the Verify-Retry-Loop exemption), each subagent
+    is one-shot, and
     each exemption is documented bidirectionally with
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules". Full
     five-point rationale and each exemption's unique contract (spawn
@@ -289,7 +294,12 @@ three-layer resolution table, and the manifest/foundation fields — is at
     Subagent.** Step 6's one verify-retry-loop agent owning the
     3-outer-attempt `/flow-verify` loop, so the re-pasted failure JSON
     never accumulates in the supervisor's own context across attempts;
-    writing `.flow-tmp/verify-loop-result.json`.
+    writing `.flow-tmp/verify-loop-result.json`. The verify-loop subagent
+    may itself spawn one flow-edit-applier subagent (depth 3) on its
+    wider-scope path, writing `.flow-tmp/verify-coder-result.json`, with
+    an artifact-miss inline fallback — a sanctioned nested site inside
+    this exemption, not a tenth exemption; see
+    `docs/nested-subagents-assessment.md`.
   - **Task-tool spawn sites must load Task first.** Each of the nine
     sites above must load the Task schema via
     `ToolSearch query="select:Task"` before invoking Task (or its alias

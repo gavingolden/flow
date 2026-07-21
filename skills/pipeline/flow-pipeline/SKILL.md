@@ -25,10 +25,11 @@ You are the single LLM container for this pipeline. Every sub-skill
 (`/flow-product-planning`, `/flow-new-feature`, `/flow-verify`, `/flow-pr-review`) loads
 in-process when you invoke it; every helper script
 (`flow-new-worktree`, `flow-remove-worktree`, `gh`, etc.) is a Bash
-tool call. **You never spawn a Task-tool sub-agent.** Sub-agents
-can't spawn sub-agents (the one-level cap), and a long-running
-supervisor with sub-agents would blow the context window. Stay
-in-process for skills; shell out for scripts; never delegate.
+tool call. **You never spawn a Task-tool sub-agent.** flow's flat-fan-out
+policy (deliberate, not a platform limit — `docs/nested-subagents-assessment.md`)
+allows one exception, verify-loop → edit-applier; a long-running supervisor
+with sub-agents would also blow the context window. Stay in-process for
+skills; shell out for scripts; never delegate.
 
 # When to Use
 
@@ -63,12 +64,13 @@ in-process for skills; shell out for scripts; never delegate.
 > calls, and (c) the nine narrowly-named Task-tool exceptions that
 > follow.
 >
-> The two constraints behind the rule above are (1) sub-agents can't
-> spawn sub-agents (one-level cap) and (2) a long-running supervisor
-> with sub-agents would bloat past the context window. The supervisor
-> is itself a top-level Claude Code session (started by `flow feature create`
-> opening tmux + `claude`), so constraint (1) does not apply to *its*
-> Task calls — it applies to *its* sub-agents. All nine exemptions
+> The two constraints behind the rule above are (1) flow's deliberate
+> flat-fan-out policy (`docs/nested-subagents-assessment.md`), relaxed
+> only at the one sanctioned verify-loop → edit-applier site, and (2) a
+> long-running supervisor with sub-agents would bloat past the context
+> window. The supervisor is itself a top-level Claude Code session
+> (started by `flow feature create` opening tmux + `claude`), so constraint
+> (1) governs its *sub-agents*, not its own Task calls. All nine exemptions
 > below are also one-shot, not long-running, so constraint (2) doesn't
 > apply either. They are the **only nine** authorised Task-tool
 > fan-out sites from this supervisor; no other skill or step may call
@@ -1361,10 +1363,11 @@ returns:
 1. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
    `NEEDS HUMAN: verify-loop-missing-artifact` and end (do not re-spawn
    — exactly one verify-loop fan-out per step-6 entry).
-2. Read the artifact once and branch on `.verify_status`:
-
+2. Read the artifact once and branch on `.verify_status` (also emit a `coder_spawn` NOTICE when degraded — informational only):
 ```bash
 VERIFY_STATUS=$(jq -r '.verify_status' "$ARTIFACT_PATH")
+CODER_SPAWN=$(jq -r '.coder_spawn // empty' "$ARTIFACT_PATH")
+[ -n "$CODER_SPAWN" ] && [ "$CODER_SPAWN" != "ok" ] && [ "$CODER_SPAWN" != "not-attempted" ] && echo "NOTICE — verify-loop coder spawn degraded: $CODER_SPAWN"
 ```
 
 - **`pass`** → the loop exited clean (an outer attempt 1, 2, or 3
@@ -1428,10 +1431,11 @@ the session:
 
 **Re-entry / resume.** Phase stays `verifying` and the resume `step-6`
 row re-enters here and re-spawns the subagent (the `/flow-verify` loop
-observes the worktree fresh, so a re-spawn is idempotent). The subagent
-applies fixes **inline** — it never spawns `/flow-coder` (the one-level
-sub-agent cap forbids a nested Task call), so the per-edit diff bytes
-stay inside the subagent just as `/flow-coder` would have kept them.
+observes the worktree fresh, so a re-spawn is idempotent). Narrow fixes
+stay inline; wider-scope fixes spawn one flow-edit-applier subagent per
+`references/verify-loop-instructions.md`'s nested-spawn contract —
+either way, the diff bytes stay inside the verify-loop subagent's
+isolated context.
 
 **End condition:** the artifact reports `verify_status: "pass"`.
 Continue to step 7.

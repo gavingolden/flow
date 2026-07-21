@@ -114,7 +114,7 @@ Full autonomy ("orchestrator merges everything unattended") is an **anti-pattern
 
 ### D. Orchestrator ↔ running feature: READ state files; do NOT `tmux send-keys`. Recommend model (ii), evolving toward (iii).
 
-Architectural reality the user should internalize: **feature pipelines are separate, durable, tmux-hosted Claude Code sessions — not Task/Agent sub-agents of the orchestrator.** flow's whole design is in-process skills + Bash helpers, with the _only_ fan-out being the eight named Task exemptions, all one-shot. An epic orchestrator is a _peer_ launching sibling sessions, not a parent owning child agents. (Note: AGENTS.md's "subagents can't spawn subagents" line is now stale per prior research — nesting is allowed as of Claude Code v2.1.172 — but flow's in-process-only design is a deliberate context/cost choice, ~15x tokens for multi-agent per Anthropic, not a platform limit. The epic orchestrator should respect that: launch siblings, don't nest.)
+Architectural reality the user should internalize: **feature pipelines are separate, durable, tmux-hosted Claude Code sessions — not Task/Agent sub-agents of the orchestrator.** flow's whole design is in-process skills + Bash helpers, with the _only_ fan-out being the nine named Task exemptions, all one-shot (see `docs/nested-subagents-assessment.md`). An epic orchestrator is a _peer_ launching sibling sessions, not a parent owning child agents. (Note: AGENTS.md's "subagents can't spawn subagents" line was stale per prior research — nesting is allowed as of Claude Code v2.1.172 — but flow's in-process-only design is a deliberate context/cost choice, ~15x tokens for multi-agent per Anthropic, not a platform limit; `docs/nested-subagents-assessment.md` now documents this and the one adopted nested site. The epic orchestrator should respect that: launch siblings, don't nest.)
 
 Three interaction models for the binary the user posed ("can/should the orchestrator interact with the running feature?"):
 
@@ -226,10 +226,10 @@ The user's prompt named BOTH prescribed methods (a specific two-component split:
 
 # Candidate follow-up issues
 
-- [ ] `flow new` → `flow feature`/`feat` alias — add `feature` as an alias of `new` (do NOT rename) if epic-vs-feature symmetry is wanted; separate, shippable on its own.
-- [ ] Stale AGENTS.md line "subagents can't spawn subagents (one-level cap)" — now factually wrong per Claude Code v2.1.172; reframe as a deliberate context/cost choice in AGENTS.md + flow-pipeline SKILL.md "Hard rules". Separate doc-correctness fix.
-- [ ] Screenshot capture in the feature pipeline — surface app screenshots into the PR (via the existing PR-comment path) for UI-heavy features; standalone feature, valuable independent of epics.
-- [ ] GitHub Issues projection of an epic manifest — a read-only `flow epic` → sub-issues sync so an epic is visible on GitHub; the v2 tracker-adapter milestone, shippable as its own feature once the v1 manifest exists.
+- [ ] `flow new` → `flow feature`/`feat` alias — add `feature` as an alias of `new` (do NOT rename) if epic-vs-feature symmetry is wanted; separate, shippable on its own. (stale as of 2026-07-20: `feature` is now the primary verb — bin/flow dispatches `flow feature create` natively)
+- [x] Stale AGENTS.md line "subagents can't spawn subagents (one-level cap)" — now factually wrong per Claude Code v2.1.172; reframe as a deliberate context/cost choice in AGENTS.md + flow-pipeline SKILL.md "Hard rules". Separate doc-correctness fix. — actioned by this PR (docs/nested-subagents-assessment.md)
+- [ ] Screenshot capture in the feature pipeline — surface app screenshots into the PR (via the existing PR-comment path) for UI-heavy features; standalone feature, valuable independent of epics. (stale as of 2026-07-20: already implemented — `verify-loop-result.json`'s `ui_screenshots[]` is read and surfaced into the PR body at `skills/pipeline/flow-pipeline/SKILL.md`, e.g. around the step-6 artifact-read and the fix-applier `ui_screenshots[]` mirror; box left unticked pending a confirmation pass, not because the work is outstanding.)
+- [ ] GitHub Issues projection of an epic manifest — a read-only `flow epic` → sub-issues sync so an epic is visible on GitHub; the v2 tracker-adapter milestone, shippable as its own feature once the v1 manifest exists. (re-verified 2026-07-20: still not implemented — `docs/epic-designer/04-artifact-storage-recommendation.md` still lists this as a later, one-way projection with no current `bin/` sub-issues sync; claim stands, box correctly unticked.)
 
 # Task breakdown
 

@@ -314,7 +314,10 @@ Before writing the artifact and returning, self-check:
 - NEVER skip the `flow-pre-commit --json` re-run in step 3. The re-run
   is the load-bearing reason this subagent exists; skipping it returns
   the refactor to its pre-`/flow-coder` shape.
-- NEVER spawn a nested Task call. The one-level sub-agent cap forbids it.
+- NEVER spawn a nested Task call. flow's flat-fan-out policy forbids it
+  at this site — nesting is platform-possible since Claude Code v2.1.172
+  but deliberately not used here; see
+  `docs/nested-subagents-assessment.md`.
   If you need context the edit-set doesn't carry, record an
   `anti_patterns_found` entry and exit; do not fan out.
 - NEVER omit `rejected_alternatives` or `anti_patterns_found` from the

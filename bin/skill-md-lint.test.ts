@@ -1560,11 +1560,24 @@ describe("Compact Instructions + verify-loop-instructions structural anchors", (
       "verify-loop-instructions.md must document the `verify_status` artifact field.",
     ).toBe(true);
     expect(
-      /never spawn[^.]*`\/flow-coder`/i.test(content) ||
-        content.includes("never spawn `/flow-coder`"),
-      "verify-loop-instructions.md must document the load-bearing inline-fix " +
-        "invariant (the subagent applies /flow-verify fixes inline and never spawns " +
-        "/flow-coder — the one-level Task cap forbids a nested Task).",
+      content.includes("verify-coder-result.json"),
+      "verify-loop-instructions.md must document the load-bearing hybrid " +
+        "inline/nested-spawn invariant: narrow fixes apply inline; wider-scope " +
+        "fixes spawn one flow-edit-applier subagent writing " +
+        "verify-coder-result.json, recording coder_spawn and falling back " +
+        "inline on any miss — never hanging or retrying the spawn.",
+    ).toBe(true);
+    expect(
+      content.includes("coder_spawn"),
+      "verify-loop-instructions.md must document the coder_spawn artifact " +
+        "field (ok|not-attempted|task-tool-unavailable|artifact-missing|invalid).",
+    ).toBe(true);
+    expect(
+      content.includes("select:Task") ||
+        content.includes("Load the Task tool before spawning"),
+      "verify-loop-instructions.md must document the Task-load guard " +
+        "('Load the Task tool before spawning' / ToolSearch query=\"select:Task\") " +
+        "for its one sanctioned nested spawn.",
     ).toBe(true);
   });
 });
@@ -3075,7 +3088,7 @@ describe("pr-review result-artifact contract lint", () => {
   );
 });
 
-describe("Task-tool ToolSearch-load preamble at all nine spawn sites", () => {
+describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites plus the nested verify-loop site", () => {
   const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
     {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
@@ -3112,6 +3125,10 @@ describe("Task-tool ToolSearch-load preamble at all nine spawn sites", () => {
     {
       file: "skills/pipeline/flow-pipeline/SKILL.md",
       exemption_name: "flow-pipeline-verify-loop",
+    },
+    {
+      file: "skills/pipeline/flow-pipeline/references/verify-loop-instructions.md",
+      exemption_name: "verify-loop-edit-applier",
     },
   ];
 
