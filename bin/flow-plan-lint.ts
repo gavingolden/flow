@@ -168,6 +168,37 @@ function checkTaskContracts(planText: string, misses: string[]): void {
   }
 }
 
+/**
+ * Advisory check for the `# Candidate follow-up issues` section's ranking
+ * table (see discovery-instructions.md "Candidate follow-up issues
+ * (optional)"). Never fires when the section is absent or has zero
+ * checkbox items — only a populated section is expected to carry a table.
+ */
+function checkCandidateTable(planText: string, misses: string[]): void {
+  const headingMatch = planText.match(/^# Candidate follow-up issues\s*$/m);
+  if (!headingMatch) return;
+
+  const start = (headingMatch.index ?? 0) + headingMatch[0].length;
+  const body = sliceToNextHeading(planText, start);
+
+  if (!/^- \[[ xX]\] /m.test(body)) return; // empty section — nothing to lint
+
+  const tableRowRe = /^\|.*\|\s*$/m;
+  if (!tableRowRe.test(body)) {
+    misses.push(
+      "'# Candidate follow-up issues' is missing candidate ranking table",
+    );
+    return;
+  }
+
+  const headerLine = body.match(/^\|.*\|\s*$/m)?.[0] ?? "";
+  if (!/Relation to current request/.test(headerLine)) {
+    misses.push(
+      "'# Candidate follow-up issues' candidate ranking table missing 'Relation to current request' column",
+    );
+  }
+}
+
 function checkPromptInterpretation(planText: string, misses: string[]): void {
   if (!/^## Prompt interpretation\s*$/m.test(planText)) return;
   const recommendedPath = extractRecommendedPath(planText);
@@ -298,6 +329,7 @@ export function lintPlan(
       "every plan must name its single weakest assumption",
     );
     checkTaskContracts(planText, misses);
+    checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);
     checkExcludedPathsMirror(planText, opts.excludedPathsJson, misses);
   } catch (e) {

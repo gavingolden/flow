@@ -56,14 +56,69 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 export type Action = "no-op" | "prompt" | "skip-already-ticked" | "overflow";
 
-export type Candidate = { title: string; body: string };
+export type CandidateMeta = {
+  value: string | null;
+  complexity: string | null;
+  rationale: string | null;
+  relation: string | null;
+  pull: string | null;
+};
+
+export type Candidate = { title: string; body: string } & CandidateMeta;
 
 export type Decision = {
   action: Action;
   candidates: Candidate[];
   untickedCount: number;
   tickedCount: number;
+  rankedOrder: number[];
 };
+
+const EMPTY_META: CandidateMeta = {
+  value: null,
+  complexity: null,
+  rationale: null,
+  relation: null,
+  pull: null,
+};
+
+const VALUE_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+/**
+ * Parses the ranking table (the six-column
+ * `Candidate | Value | Complexity | Rationale | Relation to current request |
+ * Pull into this pipeline?` markdown table) that precedes the checkbox list.
+ * Tolerant: an absent table, malformed rows (wrong column count), or a row
+ * whose Candidate cell doesn't exact-match (trimmed) any checkbox title are
+ * simply not added to the map — callers fall back to null metadata. Keyed by
+ * the trimmed Candidate cell text.
+ */
+export function parseRankingTable(planMd: string): Map<string, CandidateMeta> {
+  const map = new Map<string, CandidateMeta>();
+  const lines = planMd.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line.startsWith("|") || !line.endsWith("|")) continue;
+    const cells = line
+      .slice(1, -1)
+      .split("|")
+      .map((c) => c.trim());
+    if (cells.length < 6) continue;
+    // Skip header and separator rows.
+    if (cells[0].toLowerCase() === "candidate") continue;
+    if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
+    const [title, value, complexity, rationale, relation, pull] = cells;
+    if (!title) continue;
+    map.set(title, {
+      value: value || null,
+      complexity: complexity || null,
+      rationale: rationale || null,
+      relation: relation || null,
+      pull: pull || null,
+    });
+  }
+  return map;
+}
 
 const HEADING_RE = /^# Candidate follow-up issues/;
 const UNTICKED_RE = /^- \[ \] (.*)$/;
@@ -75,7 +130,7 @@ const TICKED_RE = /^- \[[xX]\] (.*)$/;
  * step-10 sweep's `${line%% — *}` / `${line#* — }` Bash split: only the
  * first em-dash splits, so any further ` — ` inside body is preserved.
  */
-export function splitCandidate(text: string): Candidate {
+export function splitCandidate(text: string): { title: string; body: string } {
   const idx = text.indexOf(" — ");
   if (idx === -1) return { title: text, body: "" };
   return { title: text.slice(0, idx), body: text.slice(idx + " — ".length) };
@@ -139,13 +194,18 @@ export function decideCandidateIssues(planMd: string): Decision {
       candidates: [],
       untickedCount: 0,
       tickedCount: 0,
+      rankedOrder: [],
     };
   }
 
+  const meta = parseRankingTable(planMd);
   const untickedItems = section.items.filter((it) => !it.ticked);
   const tickedCount = section.items.length - untickedItems.length;
   const untickedCount = untickedItems.length;
-  const candidates = untickedItems.map((it) => splitCandidate(it.text));
+  const candidates: Candidate[] = untickedItems.map((it) => {
+    const c = splitCandidate(it.text);
+    return { ...c, ...(meta.get(c.title) ?? EMPTY_META) };
+  });
 
   let action: Action;
   if (tickedCount >= 1) {
@@ -158,7 +218,24 @@ export function decideCandidateIssues(planMd: string): Decision {
     action = "overflow";
   }
 
-  return { action, candidates, untickedCount, tickedCount };
+  const rankedOrder = rankCandidates(candidates);
+
+  return { action, candidates, untickedCount, tickedCount, rankedOrder };
+}
+
+/**
+ * Returns 1-based indices into `candidates` sorted High > Medium > Low >
+ * unknown, tie-broken by document order (stable sort preserves original
+ * relative order for equal ranks).
+ */
+function rankCandidates(candidates: CandidateMeta[]): number[] {
+  return candidates
+    .map((c, i) => ({
+      i,
+      rank: VALUE_RANK[(c.value ?? "").toLowerCase()] ?? 3,
+    }))
+    .sort((a, b) => a.rank - b.rank)
+    .map((x) => x.i + 1);
 }
 
 /**
@@ -169,9 +246,13 @@ export function decideCandidateIssues(planMd: string): Decision {
 export function extractTicked(planMd: string): Candidate[] {
   const section = extractCandidateSection(planMd);
   if (!section) return [];
+  const meta = parseRankingTable(planMd);
   return section.items
     .filter((it) => it.ticked)
-    .map((it) => splitCandidate(it.text));
+    .map((it) => {
+      const c = splitCandidate(it.text);
+      return { ...c, ...(meta.get(c.title) ?? EMPTY_META) };
+    });
 }
 
 /**
@@ -265,9 +346,43 @@ export function tickCandidates(
   };
 }
 
+const OFFER_LINE =
+  "To fold a candidate into the current work instead of filing it, reply `pull #N into the plan`.";
+
+/**
+ * Renders the `--details` plain-text ranked block: one entry per candidate
+ * in `rankedOrder` order, followed by the verbatim redirect-offer line.
+ * Quiet no-op (empty string) when there are zero unticked candidates — the
+ * caller should skip printing/echoing entirely in that case.
+ */
+export function renderDetails(decision: Decision): string {
+  if (decision.candidates.length === 0) return "";
+
+  const lines: string[] = [];
+  for (const idx of decision.rankedOrder) {
+    const c = decision.candidates[idx - 1];
+    const value = c.value ?? "unknown";
+    const complexity = c.complexity ?? "unknown";
+    lines.push(`#${idx} ${c.title} — ${value}/${complexity}`);
+    lines.push(`  rationale: ${c.rationale ?? "(none)"}`);
+    lines.push(`  relation: ${c.relation ?? "(none)"}`);
+    const pull = (c.pull ?? "").toLowerCase();
+    const recommended =
+      pull === "yes" ||
+      ((c.value ?? "").toLowerCase() === "high" &&
+        ["trivial", "small"].includes((c.complexity ?? "").toLowerCase()));
+    if (recommended) {
+      lines.push("  recommended: pull into this plan");
+    }
+  }
+  lines.push("");
+  lines.push(OFFER_LINE);
+  return lines.join("\n");
+}
+
 // --- CLI -------------------------------------------------------------------
 
-type Mode = "json" | "tick" | "ticked" | "lint";
+type Mode = "json" | "tick" | "ticked" | "lint" | "details";
 
 type Args = {
   planMdFile: string;
@@ -294,6 +409,8 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       mode = "ticked";
     } else if (flag === "--lint") {
       mode = "lint";
+    } else if (flag === "--details") {
+      mode = "details";
     } else if (flag === "--tick") {
       const v = argv[i + 1];
       if (!v || v.startsWith("--"))
@@ -324,7 +441,7 @@ export function run(argv: string[]): number {
   if ("error" in parsed) {
     console.error(`flow-candidate-issues: ${parsed.error}`);
     console.error(
-      "usage: flow-candidate-issues --plan-md-file <path> [--json | --tick <indices> | --ticked | --lint]",
+      "usage: flow-candidate-issues --plan-md-file <path> [--json | --tick <indices> | --ticked | --lint | --details]",
     );
     return 2;
   }
@@ -350,6 +467,13 @@ export function run(argv: string[]): number {
     const report = lintFollowUpReferences(planMd);
     process.stdout.write(JSON.stringify(report) + "\n");
     return report.drift ? 1 : 0;
+  }
+
+  if (parsed.mode === "details") {
+    const decision = decideCandidateIssues(planMd);
+    const rendered = renderDetails(decision);
+    if (rendered) process.stdout.write(rendered + "\n");
+    return 0;
   }
 
   if (parsed.mode === "tick") {

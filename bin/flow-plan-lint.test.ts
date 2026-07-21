@@ -183,6 +183,62 @@ describe("lintPlan — always-present sections", () => {
   });
 });
 
+describe("lintPlan — Candidate follow-up issues ranking table", () => {
+  it("never fires when the section is absent", () => {
+    const { misses } = lintPlan(CONFORMING_PLAN);
+    expect(misses.some((m) => m.includes("candidate ranking table"))).toBe(
+      false,
+    );
+  });
+
+  it("misses 'missing candidate ranking table' when items exist with no table", () => {
+    const plan =
+      CONFORMING_PLAN +
+      "\n# Candidate follow-up issues\n\n- [ ] Some idea — one-line body\n";
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => m.includes("missing candidate ranking table")),
+    ).toBe(true);
+  });
+
+  it("misses missing-Relation-column when the table lacks that column", () => {
+    const plan =
+      CONFORMING_PLAN +
+      "\n# Candidate follow-up issues\n\n" +
+      "| Candidate | Value | Complexity | Rationale | Pull into this pipeline? |\n" +
+      "| --- | --- | --- | --- | --- |\n" +
+      "| Some idea | High | Trivial | worth it | No |\n\n" +
+      "- [ ] Some idea — one-line body\n";
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("Relation to current request"))).toBe(
+      true,
+    );
+  });
+
+  it("no misses when a six-column table is present with the section", () => {
+    const plan =
+      CONFORMING_PLAN +
+      "\n# Candidate follow-up issues\n\n" +
+      "| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n" +
+      "| --- | --- | --- | --- | --- | --- |\n" +
+      "| Some idea | High | Trivial | worth it | close | No |\n\n" +
+      "- [ ] Some idea — one-line body\n";
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("candidate ranking table"))).toBe(
+      false,
+    );
+  });
+
+  it("never fires when the section is present but empty (no checkbox items)", () => {
+    const plan =
+      CONFORMING_PLAN + "\n# Candidate follow-up issues\n\nprose only.\n";
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("candidate ranking table"))).toBe(
+      false,
+    );
+  });
+});
+
 describe("lintPlan — Prompt interpretation / Recommended path", () => {
   it("does not check Recommended path when '## Prompt interpretation' is absent", () => {
     const { misses } = lintPlan(CONFORMING_PLAN);
