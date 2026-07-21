@@ -526,6 +526,8 @@ option regardless of phase).
   of Phase 1's `--all` byte-parity guarantee, per the plugins-de-assumed
   redirect: the mechanism is chosen on evidence, not assumed.
 
+---
+
 ## Per-repo module granularity — evaluation (D3)
 
 ### Context
@@ -542,19 +544,21 @@ code and reconfirmed here rather than re-decided: `flow install` never
 installs every module by default. Module selection resolves in this
 order — an explicit `--modules <csv>` (or `--all`, or `--core-only` sugar for
 `--modules core`) flag wins; failing that, a previously recorded selection is
-reused; failing that, an interactive TTY prompts once per optional module;
-failing that (non-interactive, nothing recorded), the install defaults to
+reused; failing that, a populated install manifest preserves the existing
+install's breadth when nothing is recorded (gh#435); failing that, an
+interactive TTY prompts once per optional module; failing that
+(non-interactive, nothing recorded, no manifest), the install defaults to
 **core-only**. `--all` is strictly opt-in — it is never inferred. Verified
 against the resolver and its flag-parsing/module-config plumbing:
 `bin/lib/setup.ts` (the resolution order and the non-TTY core-only default),
 `bin/lib/setup-args.ts` (`--modules` / `--all` / `--core-only`, mutually
-exclusive), and `bin/lib/modules-config.ts` (the four-tier resolution:
-explicit flag → recorded selection → TTY per-module Q&A → non-TTY
-core-only).
+exclusive), and `bin/lib/modules-config.ts` (the five-tier resolution:
+explicit flag → recorded selection → manifest-derived breadth of an
+existing install (gh#435) → TTY per-module Q&A → non-TTY core-only).
 
 The premise this node evaluates against: the interactive launcher loads
 **every selected module's skills in one shot**, unconditionally.
-`bin/lib/launch.ts`'s `defaultLauncherArgv()` returns
+`bin/lib/launch.ts`'s `buildInteractiveLaunchArgv()` returns
 `["claude", "--add-dir", FLOW_CLAUDE_HOME]` with no per-repo filtering — a
 `flow` session on a multi-stack machine sees every installed module's
 frontmatter regardless of which repo it was launched from. D10's standalone
@@ -565,13 +569,16 @@ question — whether a `flow`-launched session on repo A should also avoid
 paying for modules only repo B needs.
 
 **Measured figure.** The five current stack skills' frontmatter, by
-per-skill token estimate (chars/4 heuristic — no system tokenizer available
-in this evaluation): `flow-svelte` 77, `flow-testing-svelte` 120,
-`flow-tailwind-shadcn` 86, `flow-supabase-project` 85,
-`flow-cloudflare-pages` 94 — **total 1,859 bytes ≈ 463 tokens**. That is
-roughly 18% of flow's 21-skill routing table (≈2,481 tokens) and roughly
-0.23% of a 200K context, and it is prompt-cached (paid once per session, not
-per turn). Reproduction (run from a `flow` skills home):
+per-skill byte count (no system tokenizer available in this evaluation):
+`flow-svelte` 308, `flow-testing-svelte` 479, `flow-tailwind-shadcn` 343,
+`flow-supabase-project` 340, `flow-cloudflare-pages` 374 — **total 1,844
+bytes ≈ 461 tokens** (chars/4, floor division, per the reproduction script
+below — the per-skill bytes are the values the script prints and sum
+exactly to the total; the token figure is the single chars/4 conversion of
+that total, not a sum of per-skill token estimates). That is roughly 18% of
+flow's 21-skill routing table (≈2,481 tokens) and roughly 0.23% of a 200K
+context, and it is prompt-cached (paid once per session, not per turn).
+Reproduction (run from a `flow` skills home):
 
 ```sh
 total=0
@@ -598,7 +605,7 @@ were assessed against the measured tax:
 | Mechanism                                                                                                    | Verdict                    | Why                                                                                                                                                                                                                                                       |
 | ------------------------------------------------------------------------------------------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Repo-local `.claude/skills/` subset linking                                                                  | **REJECT**                 | Loaded by **every** `claude` session in that repo, including plain `claude` — this re-pollutes exactly what D10 (`p2-standalone-skills-home`) fixed — and it pollutes the consumer repo's own git tree.                                                   |
-| Per-repo activation file (`.flow/modules.json`) consumed by the launcher, which builds a filtered mirror dir | **Least-bad, not shipped** | Avoids both defects above, but is not worth 463 tokens of static, prompt-cached weight. Concrete rot risk: the filtered mirror must be rebuilt/invalidated on every `flow install --upgrade`, or the repo silently diverges from the canonical selection. |
+| Per-repo activation file (`.flow/modules.json`) consumed by the launcher, which builds a filtered mirror dir | **Least-bad, not shipped** | Avoids both defects above, but is not worth 461 tokens of static, prompt-cached weight. Concrete rot risk: the filtered mirror must be rebuilt/invalidated on every `flow install --upgrade`, or the repo silently diverges from the canonical selection. |
 | Per-repo standalone homes (one `~/.flow/<repo>/claude-home` per repo)                                        | **REJECT**                 | N homes to keep updated defeats the single-home simplicity D10 just bought.                                                                                                                                                                               |
 
 A fourth shape was scoped but not built, for future reference if a mechanism
@@ -619,9 +626,9 @@ mechanism would make every option above moot.
 ### Consequences
 
 - **The tax persists on two axes**, not one: (a) negligible **static token
-  weight** (463 tokens, prompt-cached — the axis measured above), and (b) an
-  **unobserved-but-real mis-invocation risk** — every stack skill's `SKIP
-when:` frontmatter clause is a brittle negative constraint the router must
+  weight** (461 tokens, prompt-cached — the axis measured above), and (b) an
+  **unobserved-but-real mis-invocation risk** — every stack skill's
+  `SKIP when:` frontmatter clause is a brittle negative constraint the router must
   get right, and a wrong call in a non-stack repo is a correctness cost the
   token count doesn't capture. This second axis could justify acting before
   the token figure alone crosses any threshold.
@@ -637,7 +644,7 @@ when:` frontmatter clause is a brittle negative constraint the router must
   grown or mis-invocation has actually been observed, and only after running
   the B4 check above.
 - **Re-trigger threshold.** Re-evaluate this decision if any of: stack-skill
-  frontmatter in a single `flow` session exceeds ~1,500 tokens (today: 463);
+  frontmatter in a single `flow` session exceeds ~1,500 tokens (today: 461);
   the stack + integration module count exceeds ~8 (today: 4 stack +
   2 integration = 6); or a stack skill is observed mis-invoking in a
   non-stack repo.
