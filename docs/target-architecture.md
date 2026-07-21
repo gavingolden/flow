@@ -545,10 +545,14 @@ version-anchored against the local Claude Code build (**2.1.215**, also
 the latest CHANGELOG entry — current-version evidence, not stale), and a
 throwaway spike packaging flow's `stack-svelte` module as a plugin with a
 live in-session `PATH` observation. Nothing from the spike was committed.
-The sibling `p2-per-repo-activation-eval` input is recorded here as
-**pending, not blocking** — this verdict does not require its per-repo
-granularity conclusion, only reconciles with it in Contracted scope
-item 4 below.
+The sibling `p2-per-repo-activation-eval` verdict (2026-07-20) resolves
+the input this ADR originally carried as pending: **per-user module
+selection with a never-install-all default is a hard requirement**, while
+**per-repo/per-project enablement is deferred** with recorded re-trigger
+thresholds. Rationale lives in that eval's forthcoming "Per-repo module
+granularity — evaluation (D3)" addendum in this document — the two
+sections cross-reference rather than duplicate each other. See Contracted
+scope items 4–5 below.
 
 Two evidence surprises moved the candidate space since the epic was
 designed: **skills-directory plugins** — any folder under
@@ -575,16 +579,16 @@ session (spawning a fresh `claude` session was out of contract for the
 spike) — mechanically implied by the live `PATH` observation but
 unverified; recorded as an open assumption below, not asserted as fact.
 
-| Criterion                                           | (a) plugins/marketplace                                                                                                                                                                          | (b) launcher + standalone-home                                                                          | (c) filtered symlinks                                                    |
-| --------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------ | :----------------------------------------------------------------------- |
-| Supply-chain/security surface                       | Trust-the-git-repo; no signing/checksums anywhere in the marketplace doc (verified); sha-pinning available but opt-in                                                                            | Local trust boundary only — no third-party registry; risk is the existing git-clone-and-symlink surface | Same local trust boundary as (b); no registry                            |
-| Cost/migration effort                               | Moving spec (breaking changes through 2.1.207, no `specVersion`); cache-copy isolation breaks flow's `bin/lib/*` shared imports across 50 helpers without per-plugin vendoring                   | Already shipped (Phase 2, D10) — zero incremental migration for the backbone                            | Moderate — new filtering logic, no packaging format change               |
-| Per-repo enablement                                 | Native `enabledPlugins` per settings scope (user/project/local/managed), `defaultEnabled: false` opt-in (v2.1.154+)                                                                              | None today — the gap `p2-per-repo-activation-eval` is chartered to close                                | Achievable via symlink selection, but bespoke (no first-party primitive) |
-| Update/rollback story                               | Marketplace `ref`/`sha`/`version` pinning; independent per-source                                                                                                                                | `git checkout` + `flow install --upgrade` re-materialization; single version store                      | Same as (b)                                                              |
-| Update atomicity / version-skew                     | Marketplace `autoUpdate` can advance the plugin surface independent of the shell-installed `flow` CLI — a split-state risk the epic's pre-mortem named explicitly                                | Single checkout drives both surfaces together — no skew possible                                        | Same as (b)                                                              |
-| Helper-binary (Bash-tool) + user-shell CLI coverage | Bash-tool: plugin `bin/` reaches it (confirmed by the spike's live PATH observation above). User-shell (`flow` CLI, completions): **not covered by any plugin mechanism** (verified by omission) | Both surfaces covered today via `~/.local/bin` symlinks + launcher                                      | Both surfaces covered, same mechanism as (b)                             |
-| Ecosystem stability                                 | Young and moving (`bin/` shipped 2.1.91; reserved-name expansion 2.1.205; a project-settings read path removed at 2.1.207)                                                                       | Stable — flow-owned, no external spec dependency                                                        | Stable — flow-owned                                                      |
-| Degradation-contract (D4) reuse                     | Would need a new skip-notice path for plugin-load failures                                                                                                                                       | Reuses D4 as-is (already the launcher's mechanism)                                                      | Reuses D4 as-is                                                          |
+| Criterion                                           | (a) plugins/marketplace                                                                                                                                                                          | (b) launcher + standalone-home                                                                              | (c) filtered symlinks                                                    |
+| --------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------- |
+| Supply-chain/security surface                       | Trust-the-git-repo; no signing/checksums anywhere in the marketplace doc (verified); sha-pinning available but opt-in                                                                            | Local trust boundary only — no third-party registry; risk is the existing git-clone-and-symlink surface     | Same local trust boundary as (b); no registry                            |
+| Cost/migration effort                               | Moving spec (breaking changes through 2.1.207, no `specVersion`); cache-copy isolation breaks flow's `bin/lib/*` shared imports across 50 helpers without per-plugin vendoring                   | Already shipped (Phase 2, D10) — zero incremental migration for the backbone                                | Moderate — new filtering logic, no packaging format change               |
+| Per-repo enablement                                 | Native `enabledPlugins` per settings scope (user/project/local/managed), `defaultEnabled: false` opt-in (v2.1.154+)                                                                              | None today — evaluated and deferred by `p2-per-repo-activation-eval` (re-trigger thresholds recorded there) | Achievable via symlink selection, but bespoke (no first-party primitive) |
+| Update/rollback story                               | Marketplace `ref`/`sha`/`version` pinning; independent per-source                                                                                                                                | `git checkout` + `flow install --upgrade` re-materialization; single version store                          | Same as (b)                                                              |
+| Update atomicity / version-skew                     | Marketplace `autoUpdate` can advance the plugin surface independent of the shell-installed `flow` CLI — a split-state risk the epic's pre-mortem named explicitly                                | Single checkout drives both surfaces together — no skew possible                                            | Same as (b)                                                              |
+| Helper-binary (Bash-tool) + user-shell CLI coverage | Bash-tool: plugin `bin/` reaches it (confirmed by the spike's live PATH observation above). User-shell (`flow` CLI, completions): **not covered by any plugin mechanism** (verified by omission) | Both surfaces covered today via `~/.local/bin` symlinks + launcher                                          | Both surfaces covered, same mechanism as (b)                             |
+| Ecosystem stability                                 | Young and moving (`bin/` shipped 2.1.91; reserved-name expansion 2.1.205; a project-settings read path removed at 2.1.207)                                                                       | Stable — flow-owned, no external spec dependency                                                            | Stable — flow-owned                                                      |
+| Degradation-contract (D4) reuse                     | Would need a new skip-notice path for plugin-load failures                                                                                                                                       | Reuses D4 as-is (already the launcher's mechanism)                                                          | Reuses D4 as-is                                                          |
 
 **Decision.** Winner: **(b) launcher + standalone-home distribution
 remains the backbone** — the git-clone canonical checkout, `flow install`
@@ -595,9 +599,12 @@ middle-ground check is **adopted by name**, in its **skills-directory-plugin
 form**: `p6-distribution-impl` will materialize selected modules as
 skills-dir plugins (`.claude-plugin/plugin.json` per module, discovered
 in place under a skills directory — no marketplace, no cache copy) to
-gain auto-namespacing, native per-repo enablement (`enabledPlugins`),
-plugin `bin/` `PATH` coverage for session helpers, and the `plugin
-details` token-cost inventory the symlink install has no equivalent of.
+gain auto-namespacing, plugin `bin/` `PATH` coverage for session
+helpers, and the `plugin details` token-cost inventory the symlink
+install has no equivalent of. Native per-repo enablement
+(`enabledPlugins`) comes along as a **bonus property** — the p2 verdict
+deferred it, so it is not part of this decision's rationale (see
+Contracted scope item 5).
 
 **Rejected by name:**
 
@@ -610,10 +617,12 @@ details` token-cost inventory the symlink install has no equivalent of.
   (the npm plugin source verified above) but adds npm-registry
   supply-chain surface and an update-provenance split for zero reach
   benefit while flow has no external users.
-- **Bare (c) status-quo-hardened symlinks** — forfeits the per-repo
-  enablement and collision-proof namespacing the epic values (D3/D11),
-  for no offsetting gain now that skills-dir plugins deliver both
-  without a registry.
+- **Bare (c) status-quo-hardened symlinks** — forfeits the
+  collision-proof namespacing the epic values (D3/D11), plugin `bin/`
+  session-helper coverage, and the token-cost inventory, for no
+  offsetting gain now that skills-dir plugins deliver them without a
+  registry. (Per-repo enablement is deliberately not part of this
+  rejection's rationale — the p2 verdict deferred it.)
 
 **Consequences.**
 
@@ -635,6 +644,11 @@ details` token-cost inventory the symlink install has no equivalent of.
   enable/disable semantics work identically for `@skills-dir` names as
   for marketplace-installed names — if refuted, per-repo enablement
   degrades to the existing symlink-selection mechanism.
+- **Install-policy commitment (hard, from the p2 verdict):** per-user
+  module selection with a never-install-all default — the core module
+  mandatory, every other module per-module opt-in, `--all` strictly
+  opt-in. The distribution switchover must preserve this; regressing to
+  install-everything at any layer is out of contract.
 - **Update atomicity.** The git checkout is the single version store, so
   the session surface and the CLI update together — no marketplace
   `autoUpdate` skew is possible. Rollback is `git checkout <earlier ref>`
@@ -665,10 +679,16 @@ details` token-cost inventory the symlink install has no equivalent of.
    confirmed, retaining `~/.local/bin` PATH symlinks for user-shell
    surfaces (`flow` CLI, completions) and as the degradation fallback
    when it is refuted.
-4. Wire and document per-repo enablement for consumers, reconciled with
-   the `p2-per-repo-activation-eval` verdict when it lands (pending
-   input — this ADR does not block on it).
-5. Document the update/rollback story: git-checkout-as-version-store,
+4. Preserve per-user module selection with a never-install-all default
+   across the plugin materialization path (core mandatory; per-module
+   opt-in; `--all` strictly opt-in) — the hard half of the
+   `p2-per-repo-activation-eval` verdict.
+5. Per-repo/per-project enablement is **deferred, not required** (the
+   other half of that verdict; re-trigger thresholds recorded in its D3
+   addendum in this document). If `@skills-dir` plugins honor
+   per-project `enabledPlugins` natively (assumption iii), document it
+   as a bonus property — it is not an acceptance criterion.
+6. Document the update/rollback story: git-checkout-as-version-store,
    idempotent `flow install --upgrade` re-materialization.
 
 Non-goals for `p6-distribution-impl`: marketplace hosting, npm
