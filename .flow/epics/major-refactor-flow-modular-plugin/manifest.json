@@ -242,12 +242,15 @@
         "autoMerge": false,
         "copilotReview": "auto",
         "effort": "high"
-      }
+      },
+      "learnings": [
+        "DECISION SPLIT (2026-07-20, docs/target-architecture.md '## Per-repo module granularity — evaluation (D3)'): the per-repo-activation-eval verdict (p2-per-repo-activation-eval) split this node's Phase-6 contract in two. Per-user module selection with a never-install-all default is HARD — the Phase-6 winner MUST provide it regardless of which candidate (a/b/c) wins. Per-repo/per-project enablement stays DEFERRED (advisory) — a free win if the winning mechanism provides it natively (e.g. plugin-marketplace per-project enabledPlugins), not an acceptance-criterion-grade requirement; re-trigger threshold (stack-skill frontmatter >~1,500 tokens, stack+integration module count >~8, or observed stack-skill mis-invocation in a non-stack repo) recorded in the docs addendum."
+      ]
     },
     {
       "id": "p6-distribution-impl",
       "title": "Distribution end-state implementation (winner only)",
-      "description": "Implement the distribution end-state chosen by p6-distribution-eval, contracted to the winning candidate only. IF plugins: package all modules per the eval's evidence/spike — flow-core (pipeline/universal skills plus the named agents/*.md definitions from p4-review-agents and p4-pipeline-agents bundled as plugin agents), the stack/integration modules, the decided helper-binary strategy (PATH symlinks stay the always-global CLI's job vs ${CLAUDE_PLUGIN_ROOT}-relative invocation), marketplace docs + versioning, and the flow install switchover/coexistence story (the first sanctioned break with the --all byte-parity guarantee, stated explicitly in the PR). IF launcher + standalone-dir: versioned ~/.flow payload with an update/rollback story, per-repo granularity per the p2-per-repo-activation-eval verdict, and the agents/hooks final placement. IF filtered symlinks: hardening + uninstall/upgrade polish + consumer onboarding docs as the ratified end-state. In every branch the distributed skill surface is the flow--prefixed set from p2-flow-prefix-rename. Expect this node to be re-decomposed against the eval verdict before execution (recorded in the epic design's Open Questions).\n\nPart of epic `major-refactor-flow-modular-plugin` (feature `p6-distribution-impl`) — design at `.flow/epics/major-refactor-flow-modular-plugin/design.md`.",
+      "description": "Implement the distribution end-state chosen by p6-distribution-eval, contracted to the winning candidate only. IF plugins: package all modules per the eval's evidence/spike — flow-core (pipeline/universal skills plus the named agents/*.md definitions from p4-review-agents and p4-pipeline-agents bundled as plugin agents), the stack/integration modules, the decided helper-binary strategy (PATH symlinks stay the always-global CLI's job vs ${CLAUDE_PLUGIN_ROOT}-relative invocation), marketplace docs + versioning, and the flow install switchover/coexistence story (the first sanctioned break with the --all byte-parity guarantee, stated explicitly in the PR). IF launcher + standalone-dir: versioned ~/.flow payload with an update/rollback story, per-repo granularity per the p2-per-repo-activation-eval verdict, and the agents/hooks final placement. IF filtered symlinks: hardening + uninstall/upgrade polish + consumer onboarding docs as the ratified end-state. In every branch the distributed skill surface is the flow--prefixed set from p2-flow-prefix-rename. Expect this node to be re-decomposed against the eval verdict before execution (recorded in the epic design's Open Questions). Per the p2-per-repo-activation-eval verdict, per-user never-install-all module selection is a HARD requirement of the chosen mechanism; per-repo/per-project enablement is explicitly DEFERRED (a free win if the mechanism provides it natively, not an acceptance-criterion-grade requirement) — re-trigger threshold recorded in the docs addendum.\n\nPart of epic `major-refactor-flow-modular-plugin` (feature `p6-distribution-impl`) — design at `.flow/epics/major-refactor-flow-modular-plugin/design.md`.",
       "dependsOn": [
         "p6-distribution-eval",
         "p4-review-agents",
@@ -257,7 +260,8 @@
       "rationale": "Closes D9 (implementation half) — the diamond-closing integration; consumes the eval verdict, the named agent files the core distribution carries, and the renamed skill surface.",
       "acceptanceCriteria": [
         "WHEN the implementation completes THE SYSTEM SHALL distribute every module via the chosen mechanism with the enablement granularity and helper-binary strategy the verdict specifies, documented for consumers",
-        "WHEN a consumer follows the published install docs THE SYSTEM SHALL get flow-core plus their chosen modules via the chosen mechanism"
+        "WHEN a consumer follows the published install docs THE SYSTEM SHALL get flow-core plus their chosen modules via the chosen mechanism",
+        "WHEN a new user installs flow via the chosen mechanism THE SYSTEM SHALL never install all modules by default; module selection SHALL be per-user opt-in (core mandatory, everything else chosen)"
       ],
       "flowNewHints": {
         "autoMerge": false,
