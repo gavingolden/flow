@@ -3,17 +3,35 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  type CandidateMeta,
   decideCandidateIssues,
   extractTicked,
   FOLLOWUP_REFERENCE_RES,
   lintFollowUpReferences,
   parseArgs,
+  parseRankingTable,
+  renderDetails,
   run,
   splitCandidate,
   tickCandidates,
 } from "./flow-candidate-issues";
 
 const HEADING = "# Candidate follow-up issues";
+
+const NO_META: CandidateMeta = {
+  value: null,
+  complexity: null,
+  rationale: null,
+  relation: null,
+  pull: null,
+};
+
+function withMeta(
+  c: { title: string; body: string },
+  meta: Partial<CandidateMeta> = {},
+) {
+  return { ...c, ...NO_META, ...meta };
+}
 
 // --- decideCandidateIssues -------------------------------------------------
 
@@ -25,6 +43,7 @@ describe(decideCandidateIssues, () => {
       candidates: [],
       untickedCount: 0,
       tickedCount: 0,
+      rankedOrder: [],
     });
   });
 
@@ -46,10 +65,10 @@ describe(decideCandidateIssues, () => {
     expect(r.untickedCount).toBe(1);
     expect(r.tickedCount).toBe(0);
     expect(r.candidates).toEqual([
-      {
+      withMeta({
         title: "OAuth refresh path leaks tokens",
         body: "separate concern; needs a session.",
-      },
+      }),
     ]);
   });
 
@@ -58,7 +77,7 @@ describe(decideCandidateIssues, () => {
       `${HEADING}\n\n- [ ] Title here — body part one — body part two\n`,
     );
     expect(r.candidates).toEqual([
-      { title: "Title here", body: "body part one — body part two" },
+      withMeta({ title: "Title here", body: "body part one — body part two" }),
     ]);
   });
 
@@ -109,7 +128,9 @@ describe(decideCandidateIssues, () => {
 
   it("yields body === '' when a candidate line has no ` — `", () => {
     const r = decideCandidateIssues(`${HEADING}\n\n- [ ] Just a title\n`);
-    expect(r.candidates).toEqual([{ title: "Just a title", body: "" }]);
+    expect(r.candidates).toEqual([
+      withMeta({ title: "Just a title", body: "" }),
+    ]);
   });
 
   it("stops parsing at the next top-level `# ` heading", () => {
@@ -119,7 +140,168 @@ describe(decideCandidateIssues, () => {
     const r = decideCandidateIssues(body);
     expect(r.action).toBe("prompt");
     expect(r.untickedCount).toBe(1);
-    expect(r.candidates).toEqual([{ title: "real candidate", body: "" }]);
+    expect(r.candidates).toEqual([
+      withMeta({ title: "real candidate", body: "" }),
+    ]);
+  });
+
+  it("joins ranking-table metadata by exact-trim title match", () => {
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| alpha | High | Trivial | matters a lot | tightly coupled | Yes |\n\n- [ ] alpha — body\n`;
+    const r = decideCandidateIssues(body);
+    expect(r.candidates).toEqual([
+      {
+        title: "alpha",
+        body: "body",
+        value: "High",
+        complexity: "Trivial",
+        rationale: "matters a lot",
+        relation: "tightly coupled",
+        pull: "Yes",
+      },
+    ]);
+  });
+
+  it("computes rankedOrder High > Medium > Low > unknown with document-order tie-break", () => {
+    const body =
+      `${HEADING}\n\n` +
+      `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+      `| --- | --- | --- | --- | --- | --- |\n` +
+      `| low-one | Low | Small | x | y | No |\n` +
+      `| high-one | High | Small | x | y | No |\n` +
+      `| medium-one | Medium | Small | x | y | No |\n` +
+      `| unknown-one |  |  |  |  |  |\n` +
+      `| high-two | High | Small | x | y | No |\n\n` +
+      `- [ ] low-one\n- [ ] high-one\n- [ ] medium-one\n- [ ] unknown-one\n- [ ] high-two\n`;
+    const r = decideCandidateIssues(body);
+    // document order: [low-one, high-one, medium-one, unknown-one, high-two]
+    // ranked: high-one(2), high-two(5), medium-one(3), low-one(1), unknown-one(4)
+    expect(r.rankedOrder).toEqual([2, 5, 3, 1, 4]);
+  });
+
+  it("leaves metadata null when the ranking table is absent", () => {
+    const r = decideCandidateIssues(`${HEADING}\n\n- [ ] a\n`);
+    expect(r.candidates).toEqual([withMeta({ title: "a", body: "" })]);
+    expect(r.rankedOrder).toEqual([1]);
+  });
+
+  it("leaves metadata null on a malformed row (too few columns)", () => {
+    const body = `${HEADING}\n\n| Candidate | Value |\n| --- | --- |\n| a | High |\n\n- [ ] a\n`;
+    const r = decideCandidateIssues(body);
+    expect(r.candidates).toEqual([withMeta({ title: "a", body: "" })]);
+  });
+
+  it("leaves metadata null on a title mismatch", () => {
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| something else | High | Small | x | y | No |\n\n- [ ] a\n`;
+    const r = decideCandidateIssues(body);
+    expect(r.candidates).toEqual([withMeta({ title: "a", body: "" })]);
+  });
+
+  it("ranks a lowercase 'high' value the same as canonical 'High'", () => {
+    const body =
+      `${HEADING}\n\n` +
+      `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+      `| --- | --- | --- | --- | --- | --- |\n` +
+      `| low-one | Low | Small | x | y | No |\n` +
+      `| high-one | high | Small | x | y | No |\n\n` +
+      `- [ ] low-one\n- [ ] high-one\n`;
+    const r = decideCandidateIssues(body);
+    // document order: [low-one, high-one]; high-one must rank first.
+    expect(r.rankedOrder).toEqual([2, 1]);
+  });
+});
+
+// --- parseRankingTable -------------------------------------------------
+
+describe(parseRankingTable, () => {
+  it("returns an empty map when no table is present", () => {
+    expect(parseRankingTable(`${HEADING}\n\n- [ ] a\n`).size).toBe(0);
+  });
+
+  it("skips the header and separator rows", () => {
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| a | High | Small | x | y | No |\n`;
+    const map = parseRankingTable(body);
+    expect(map.size).toBe(1);
+    expect(map.get("a")).toEqual({
+      value: "High",
+      complexity: "Small",
+      rationale: "x",
+      relation: "y",
+      pull: "No",
+    });
+  });
+
+  it("ignores a same-shaped six-column table OUTSIDE the candidate section", () => {
+    const body =
+      `# PRD\n\n` +
+      `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+      `| --- | --- | --- | --- | --- | --- |\n` +
+      `| a | High | Small | unrelated table | y | No |\n\n` +
+      `${HEADING}\n\n- [ ] a\n`;
+    // No table inside the section itself — the out-of-section table must
+    // not leak into the map even though its first cell matches "a".
+    expect(parseRankingTable(body).size).toBe(0);
+  });
+
+  it("still joins a table placed AFTER the checkbox list, within the section bounds", () => {
+    const body =
+      `${HEADING}\n\n` +
+      `- [ ] a\n\n` +
+      `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+      `| --- | --- | --- | --- | --- | --- |\n` +
+      `| a | High | Small | x | y | No |\n`;
+    const map = parseRankingTable(body);
+    expect(map.get("a")).toEqual({
+      value: "High",
+      complexity: "Small",
+      rationale: "x",
+      relation: "y",
+      pull: "No",
+    });
+  });
+});
+
+// --- renderDetails -----------------------------------------------------
+
+describe(renderDetails, () => {
+  it("is a quiet no-op with zero unticked candidates", () => {
+    const decision = decideCandidateIssues(
+      `${HEADING}\n\n- [x] already done\n`,
+    );
+    expect(renderDetails(decision)).toBe("");
+  });
+
+  it("renders ranked entries, a recommended marker, and the verbatim offer line", () => {
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| alpha | High | Trivial | matters | close | Yes |\n| beta | Low | Large | later | far | No |\n\n- [ ] alpha — a body\n- [ ] beta — b body\n`;
+    const decision = decideCandidateIssues(body);
+    const rendered = renderDetails(decision);
+    expect(rendered).toContain("#1 alpha — High/Trivial");
+    expect(rendered).toContain("recommended: pull into this plan");
+    expect(rendered).toContain("#2 beta — Low/Large");
+    expect(rendered).toContain(
+      "To fold a candidate into the current work instead of filing it, reply `pull #N into the plan`.",
+    );
+    // alpha ranks before beta (High before Low).
+    expect(rendered.indexOf("#1 alpha")).toBeLessThan(
+      rendered.indexOf("#2 beta"),
+    );
+  });
+
+  it("recognizes a lowercase 'yes' pull cell case-insensitively", () => {
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| alpha | Medium | Large | matters | close | YES |\n\n- [ ] alpha — a body\n`;
+    const decision = decideCandidateIssues(body);
+    expect(renderDetails(decision)).toContain(
+      "recommended: pull into this plan",
+    );
+  });
+
+  it("recommends on High + Small value/complexity alone, without pull=Yes", () => {
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| alpha | High | Small | matters | close | No |\n| beta | Medium | Trivial | later | far | No |\n\n- [ ] alpha — a body\n- [ ] beta — b body\n`;
+    const decision = decideCandidateIssues(body);
+    const rendered = renderDetails(decision);
+    expect(rendered).toContain("recommended: pull into this plan");
+    // beta is Medium/Trivial/No — neither clause fires, so no marker for it.
+    const betaLine = rendered.split("\n").find((l) => l.includes("#2 beta"));
+    expect(betaLine).not.toContain("recommended");
   });
 });
 
@@ -200,8 +382,23 @@ describe(extractTicked, () => {
   it("returns only the ticked items as { title, body } pairs", () => {
     const body = `${HEADING}\n\n- [x] Filed one — body one\n- [ ] not ticked\n- [X] Filed two — body two\n`;
     expect(extractTicked(body)).toEqual([
-      { title: "Filed one", body: "body one" },
-      { title: "Filed two", body: "body two" },
+      withMeta({ title: "Filed one", body: "body one" }),
+      withMeta({ title: "Filed two", body: "body two" }),
+    ]);
+  });
+
+  it("joins ranking-table metadata onto ticked items via the same title match", () => {
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| Filed one | High | Trivial | matters | close | Yes |\n\n- [x] Filed one — body one\n- [ ] not ticked\n`;
+    expect(extractTicked(body)).toEqual([
+      {
+        title: "Filed one",
+        body: "body one",
+        value: "High",
+        complexity: "Trivial",
+        rationale: "matters",
+        relation: "close",
+        pull: "Yes",
+      },
     ]);
   });
 });
@@ -402,11 +599,12 @@ describe("run() integration", () => {
     expect(parsed).toEqual({
       action: "prompt",
       candidates: [
-        { title: "alpha", body: "first" },
-        { title: "beta", body: "" },
+        withMeta({ title: "alpha", body: "first" }),
+        withMeta({ title: "beta", body: "" }),
       ],
       untickedCount: 2,
       tickedCount: 0,
+      rankedOrder: [1, 2],
     });
   });
 
@@ -441,7 +639,7 @@ describe("run() integration", () => {
     );
     expect(exit).toBe(0);
     expect(JSON.parse(out)).toEqual({
-      ticked: [{ title: "beta", body: "second" }],
+      ticked: [withMeta({ title: "beta", body: "second" })],
     });
   });
 
@@ -483,6 +681,25 @@ describe("run() integration", () => {
     );
     expect(exit).toBe(0);
     expect(JSON.parse(out).references).toEqual([]);
+  });
+
+  it("--details renders the ranked block for unticked candidates", () => {
+    writePlan(`${HEADING}\n\n- [ ] alpha — first\n`);
+    const { exit, out } = captureStdout(() =>
+      run(["--plan-md-file", planFile, "--details"]),
+    );
+    expect(exit).toBe(0);
+    expect(out).toContain("#1 alpha");
+    expect(out).toContain("pull #N into the plan");
+  });
+
+  it("--details is a quiet no-op with zero unticked candidates", () => {
+    writePlan(`${HEADING}\n\n- [x] already done\n`);
+    const { exit, out } = captureStdout(() =>
+      run(["--plan-md-file", planFile, "--details"]),
+    );
+    expect(exit).toBe(0);
+    expect(out).toBe("");
   });
 
   it("returns 2 when --plan-md-file points at a missing file", () => {

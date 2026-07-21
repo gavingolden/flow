@@ -309,10 +309,10 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      skills/pipeline/flow-product-planning/references/discovery-instructions.md
      "Candidate follow-up issues (optional)" — the single source of truth. Do NOT inline
      the contract here; this is a thin sketch.
-     Columns (exact, keep verbatim): Candidate | Value | Complexity | Rationale | Pull into this pipeline? -->
+     Columns (exact, keep verbatim): Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? -->
 
-| Candidate         | Value             | Complexity                   | Rationale      | Pull into this pipeline? |
-| ----------------- | ----------------- | ---------------------------- | -------------- | ------------------------ |
-| [orthogonal idea] | [High/Medium/Low] | [Trivial/Small/Medium/Large] | [one-line why] | [Yes/No]                 |
+| Candidate         | Value             | Complexity                   | Rationale      | Relation to current request | Pull into this pipeline? |
+| ----------------- | ----------------- | ---------------------------- | -------------- | --------------------------- | ------------------------ |
+| [orthogonal idea] | [High/Medium/Low] | [Trivial/Small/Medium/Large] | [one-line why] | [how it relates]            | [Yes/No]                 |
 
 - [ ] [orthogonal idea] — [one-line body; the machine-readable candidate the post-merge sweep files]

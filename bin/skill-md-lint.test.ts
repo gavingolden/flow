@@ -5139,7 +5139,7 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
     fs.readFileSync(path.resolve(skillsDir, rel), "utf8");
 
   const RANKING_TABLE_HEADER =
-    "Candidate | Value | Complexity | Rationale | Pull into this pipeline?";
+    "Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline?";
 
   it("discovery-instructions.md mandates the ranking-table columns and the plain-Yes/No pull rule", () => {
     const di = read(
@@ -5173,6 +5173,32 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
       tpl.includes(RANKING_TABLE_HEADER),
       "prd-template.md must carry the candidate ranking-table sketch with the " +
         "exact column header — kept in lockstep with discovery-instructions.md.",
+    ).toBe(true);
+  });
+
+  it("discovery-instructions.md mandates objective-item triage bundling", () => {
+    const di = read(
+      "flow-product-planning/references/discovery-instructions.md",
+    );
+    expect(
+      di.includes("Objective-item triage"),
+      "discovery-instructions.md must carry the 'Objective-item triage' rule " +
+        "folding objective bug fixes / hardening into the task breakdown.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline/SKILL.md carries the pull-#N offer at both candidate sub-step sites plus the --details echo instruction", () => {
+    const fp = read("flow-pipeline/SKILL.md");
+    const pullMatches = fp.match(/pull #N into the plan/g) ?? [];
+    expect(
+      pullMatches.length,
+      "flow-pipeline/SKILL.md must name the 'pull #N into the plan' offer at " +
+        "both candidate follow-up issues sub-step sites (>=2 occurrences).",
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      fp.includes("--details") && /echo its output\s+VERBATIM/.test(fp),
+      "flow-pipeline/SKILL.md must instruct running `--details` and echoing " +
+        "its output verbatim before firing the candidate-issues form.",
     ).toBe(true);
   });
 
