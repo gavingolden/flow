@@ -88,6 +88,26 @@ marker as the PRIMARY epic-membership detection signal (the description
 pointer and manifest scan are fallbacks for manually launched
 pipelines). Absent or empty `.epic` ≡ not epic-launched — append nothing.
 
+## Prompt-sanity threading
+
+Fires only on a `suspect` verdict from Step 1's prompt sanity gate
+([prompt-sanity.md](prompt-sanity.md)) — `sound` and `contradicted` append
+nothing here (`sound` needs no note; `contradicted` either resolves before
+Step 3 or escalates `NEEDS HUMAN: prompt-contradiction` and never reaches
+this point). When `suspect`, append a `PROMPT-SANITY: <note>` marker line
+to the `/flow-product-planning` invocation through the same append channel
+as `MODEL_PLANNING:` / `RESEARCH:` / `REVISION:` / `EPIC:` — a marker on
+the existing Discovery exemption, **no** new fan-out site.
+
+`<note>` is the short, unverifiable-claim description carried over from
+Step 1's gate — the prompt's claim plus what couldn't be confirmed (no
+test/grep hit either way), e.g. `PROMPT-SANITY: prompt claims
+bin/flow-foo.ts already validates X; no matching grep hit, unconfirmed`.
+Keep it to one line; the full evidence trail stays in the Step 1
+scrollback, not in this marker. Discovery's own premise check (see
+`discovery-instructions.md`) treats this as additional context for its own
+verification pass, not as a directive to change scope.
+
 ## Deterministic forced research (mandatory on the forced path)
 
 The discovery subagent's own Step 1.5 was observed to skip the fan-out

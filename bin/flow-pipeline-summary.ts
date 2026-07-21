@@ -13,11 +13,12 @@
  * writes and renders ONLY sourced facts; every empty category prints an
  * explicit `none`, never a fabricated "looks like it passed."
  *
- * Six sections: CHANGES (commits/diff size), PHASES (state.json phaseLog),
- * FINDINGS (review verdict + fix-applier + consolidator + CI/Copilot),
- * FORECLOSED PATHS (fix-applier + consolidator foreclosed-path prose —
- * rejected alternatives + anti-patterns), FOLLOW-UP ISSUES (filed sweep URLs
- * + pr-review deferrals), MANUAL STEPS (the captured followups block).
+ * Seven sections: CHANGES (commits/diff size), PHASES (state.json phaseLog),
+ * INTENT (the Step 3.6 intent-mismatch resolution verdict), FINDINGS (review
+ * verdict + fix-applier + consolidator + CI/Copilot), FORECLOSED PATHS
+ * (fix-applier + consolidator foreclosed-path prose — rejected alternatives
+ * + anti-patterns), FOLLOW-UP ISSUES (filed sweep URLs + pr-review
+ * deferrals), MANUAL STEPS (the captured followups block).
  *
  * CRITICAL: this helper NEVER emits a flow-stop-guard sentinel
  * (`MERGED` / `GATED:` / `NEEDS HUMAN:` / `cancelled`). flow-gate-summary

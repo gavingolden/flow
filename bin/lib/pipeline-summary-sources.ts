@@ -288,9 +288,12 @@ function rejectedDecisionLines(
  * `PIPELINE SNAPSHOT` title line (no `##`) over three 2-space-indented
  * labeled sections: CHANGES (the one-line diff summary, reusing
  * renderChanges), REVIEW (the review/findings disposition, reusing
- * renderFindings), and DECISIONS (deferred + rejected). PHASES and MANUAL
- * STEPS are intentionally dropped. Pure over already-read inputs — mirrors
- * render(); never reads files.
+ * renderFindings), and DECISIONS (deferred + rejected), plus a conditional
+ * INTENT section emitted only when the intent-resolution artifact is
+ * present AND its verdict is non-`match` (an unparseable artifact drops the
+ * section entirely rather than rendering `(unreadable)`, unlike `render()`).
+ * PHASES and MANUAL STEPS are intentionally dropped. Pure over already-read
+ * inputs — mirrors render(); never reads files.
  */
 export function renderComment(inputs: {
   prChangesRaw: string;

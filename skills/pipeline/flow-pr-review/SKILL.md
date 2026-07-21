@@ -336,7 +336,7 @@ summary:          string
 
 **Canonical step labels.** `completed_steps[]` and `missed_steps[]`
 use this skill's own step numbering: the top-level numbers `"1"`,
-`"1.5"`, `"2"`, `"3"`, `"3.5"`, `"4"`, `"5"`, `"6"`, `"7"`, `"7.5"`,
+`"1.5"`, `"2"`, `"3"`, `"3.5"`, `"3.6"`, `"4"`, `"5"`, `"6"`, `"7"`, `"7.5"`,
 `"8"`, `"8c"`, `"9"`, `"10"`, `"11"`, `"12"`, `"13"` (the sub-step
 labels actually present in the # Instructions section above).
 Sub-steps like `"8c"` appear only when the wrapper bails out mid-step
@@ -347,7 +347,11 @@ Sub-steps like `"8c"` appear only when the wrapper bails out mid-step
 label lands in `missed_steps`. Step `"3.5"` is the
 Consolidator-Validator step: on a schema-failure or missing-artifact
 escalation `completed_steps` is exactly `["1", "1.5", "2", "3"]` and
-`"3.5"` onward lands in `missed_steps`.
+`"3.5"` onward lands in `missed_steps`. Step `"3.6"` is the
+Intent-mismatch resolution sub-step: on an `intent-drift` escalation
+(the ladder's `fundamental` rung) `completed_steps` is exactly
+`["1", "1.5", "2", "3", "3.5", "3.6"]` and `"4"` onward lands in
+`missed_steps`.
 
 **When each `status` fires** (see the Exit-path wiring table below for the
 per-tag `completed_steps` / `missed_steps` mapping): `"clean"` — every step
@@ -391,6 +395,7 @@ artifact's list.
 | `"escalated"` | `consolidator-schema-failure` | `["1", "1.5", "2", "3"]` | `["3.5", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `consolidator-missing-artifact` | `["1", "1.5", "2", "3"]` | `["3.5", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `fix-applier-missing-artifact` | `["1", "2", "3", "4", "5", "8"]` | `["8c", "9", "10", "11", "12", "13"]` |
+| `"escalated"` | `intent-drift` | `["1", "1.5", "2", "3", "3.5", "3.6"]` | `["4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"partial"` | `null` | Steps that ran | Steps that didn't |
 
 **`--resume-from <step-number>` flag.** When `$ARGUMENTS` contains
@@ -565,23 +570,26 @@ none pins `effort:`/`model:` (judgment role — the per-spawn
 `model: "$REVIEW_MODEL"` always wins). Resolve the type per lens:
 
 ```bash
-for LENS in bug-detection security pattern-consistency performance supply-chain test-coverage; do
+for LENS in bug-detection security pattern-consistency performance supply-chain test-coverage intent-guess; do
   LENS_AGENT="flow-review-$LENS"
   [ -f ~/.claude/agents/flow-review-$LENS.md ] || { LENS_AGENT=general-purpose; echo "NOTICE — agent-fallback: flow-review-$LENS → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
   echo "lens $LENS → subagent_type: $LENS_AGENT"
 done
 ```
 
-`LENS_AGENT` is a scalar reassigned each iteration, not a six-way holder — the
-loop's only purpose is to print the six `lens $LENS → subagent_type: $LENS_AGENT`
-lines above; use that printed per-lens value when spawning, never the loop
-variable's final value.
+`LENS_AGENT` is a scalar reassigned each iteration, not a seven-way holder — the
+loop's only purpose is to print the seven `lens $LENS → subagent_type: $LENS_AGENT`
+lines above (the six review lenses plus `intent-guess`, resolved via the same
+`flow-review-<name>.md` / general-purpose fallback); use that printed per-lens
+value when spawning, never the loop variable's final value.
 
-**Spawn 6 agents in parallel**, each as a subagent with
+**Spawn 7 agents in parallel** — the six lenses below plus
+`flow-review-intent-guess` (see "Diff-only intent-guess agent" below for its
+diff-only context and artifact) — each as a subagent with
 `subagent_type:` set to that lens's printed value from the mapping above
-(NOT a shared `$LENS_AGENT` variable — each of the six spawns has its own
+(NOT a shared `$LENS_AGENT` variable — each of the seven spawns has its own
 resolved type) and the resolved
-`model: "$REVIEW_MODEL"` when non-empty. For each agent:
+`model: "$REVIEW_MODEL"` when non-empty. For each of the six lens agents:
 
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
@@ -626,7 +634,9 @@ Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `l
 `$WORKTREE/.flow-tmp/agent-output-<lens>.json` wraps that array in
 `{findings: [...]}` per the per-agent schema validated at Step 3.5.
 
-Wait for all 6 agents to complete before proceeding.
+Wait for all 7 spawned agents to complete before proceeding — the six
+lenses plus the diff-only intent-guess agent (§ Diff-only intent-guess
+agent below), which rides the same fan-out message.
 
 ### Cross-model (Gemini) lens (optional, config-gated)
 
@@ -780,7 +790,7 @@ Read the intent-guess artifact(s) and resolve the actual-intent source
 (pipeline-launched: verbatim request + triage's ultimate goal;
 standalone: PR body `## Why`), applying a three-rung ladder — benign
 divergence (note, proceed), scope drift (idempotently upsert one
-unchecked `- [ ] MANUAL: confirm scope drift is intentional` Test Steps
+unchecked `- [ ] SUBJECTIVE: confirm scope drift is intentional` Test Steps
 item, holding the PR at `flow-gate-decide`), fundamental (escalate
 `NEEDS HUMAN: intent-drift` per
 [references/escalation-recipes.md](references/escalation-recipes.md)) —

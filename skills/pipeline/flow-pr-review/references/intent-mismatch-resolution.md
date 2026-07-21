@@ -42,7 +42,12 @@ as `consolidator-missing-artifact`.
 `flow-gemini-intent-guess` is a `flow-delegate` (agy) Bash fan-out, NOT a
 Task — same "additive, not a tenth exemption" contract as the
 Cross-model (Gemini) lens, same `review.gemini`-gate (`jq -e '(.review |
-type == "object") and (.review.gemini == true)' ~/.flow/config.json`):
+type == "object") and (.review.gemini == true)' ~/.flow/config.json`).
+It is independent of the Cross-model (Gemini) lens call (different
+prompt, different `--out` path, no data dependency between them) —
+when both are gated on, issue both Bash calls in a single message so
+they run concurrently rather than doubling Step 3's cross-model wall
+clock:
 
 ```bash
 flow-gemini-intent-guess --worktree "$WORKTREE" \
@@ -94,7 +99,12 @@ record `cross_model.ran = false` and `cross_model.agreement = null`.
    or narrower than, or adjacent to but distinct from, the actual
    intent. Append one unchecked Test Steps item to the PR body
    (idempotent upsert — do not duplicate on re-run):
-   `- [ ] MANUAL: confirm scope drift is intentional - <guess vs request>`.
+   `- [ ] SUBJECTIVE: confirm scope drift is intentional - <guess vs request>`
+   — reusing the repo's existing never-automatable prefix (see
+   `references/manual-test-rubric.md`'s "The `SUBJECTIVE: ` marker
+   contract") rather than introducing a new one, so the item can't be
+   pruned by Step 12's automatable-bullet path or flagged for automation
+   by a later Test Coverage review pass.
    This holds the PR at `flow-gate-decide` (an unchecked Test Steps item
    ⇒ gated) — it is never handed to the fix-applier, since "is this
    drift intentional" is a human call, not a mechanical fix.

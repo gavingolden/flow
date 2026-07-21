@@ -159,7 +159,7 @@ export function validateIntentGuess(
 }
 
 function buildPrompt(diff: string, fileList: string): string {
-  return `You are guessing the purpose of a pull request from its diff alone. You have NOT been given the PR title, description, plan, or commit messages — guess blind, the same way a second independent reviewer would before reading any of that context.
+  return `You are guessing the purpose of a pull request from its diff alone. You have NOT been given the PR title, description, plan, or commit messages — guess blind, the same way a second independent reviewer would before reading any of that context. You have read access to the working directory for surrounding source context, but you must NOT open \`.flow-tmp/fetch.md\`, \`.flow-tmp/pr-body.md\`, \`.flow-tmp/pr-body-current.md\`, \`.flow-tmp/pr-metadata.json\`, \`.flow-tmp/pr-description-draft.md\`, \`.flow-tmp/commits.txt\`, \`.flow-tmp/plan.md\`, \`.flow-tmp/checkpoint.md\`, \`.flow-tmp/scout.md\`, any other \`.flow-tmp/\` PR-metadata artifact, or the git log — doing so unblinds you and defeats this check.
 
 Changed files:
 ${fileList}
@@ -255,14 +255,20 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return skip("gemini-intent-guess-diff-unreadable");
   }
 
-  // Derive a bounded changed-file list from the diff's `+++ b/` markers
-  // rather than requiring a separate flag — keeps the CLI surface minimal.
+  // Derive a bounded changed-file list from the diff's `--- a/` / `+++ b/`
+  // markers rather than requiring a separate flag — keeps the CLI surface
+  // minimal. `+++ b/` alone misses deletions (whose destination header is
+  // `+++ /dev/null`), so pull the source path too.
+  const changedFiles = new Set<string>();
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("--- a/"))
+      changedFiles.add(line.slice("--- a/".length));
+    if (line.startsWith("+++ b/"))
+      changedFiles.add(line.slice("+++ b/".length));
+  }
   const fileList =
-    diff
-      .split("\n")
-      .filter((l) => l.startsWith("+++ b/"))
-      .map((l) => l.slice("+++ b/".length))
-      .join("\n") || "(unable to derive file list from diff)";
+    Array.from(changedFiles).join("\n") ||
+    "(unable to derive file list from diff)";
 
   try {
     deps.mkdirp(dirname(parsed.out));

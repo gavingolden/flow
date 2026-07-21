@@ -87,6 +87,16 @@ describe("parseArgs", () => {
     });
   });
 
+  it("parses --intent-resolution", () => {
+    const r = parseArgs([
+      "--status",
+      "merged",
+      "--intent-resolution",
+      "/i.json",
+    ]);
+    expect(r).toMatchObject({ intentResolutionFile: "/i.json" });
+  });
+
   it("parses the five echo-prose flags", () => {
     expect(
       parseArgs([
@@ -548,6 +558,24 @@ describe("run — end-to-end", () => {
       run(["--status", "merged", "--followups-block-file", blockFile]);
     });
     expect(out).toContain("RAN     flow install --upgrade  (exit 0)");
+  });
+
+  it("reads --intent-resolution and renders the INTENT section end-to-end", () => {
+    const intentFile = write(
+      "intent-resolution.json",
+      JSON.stringify({
+        verdict: "scope-drift",
+        guessed_purpose: "x",
+        resolution: "guess is narrower than the request",
+        cross_model: { ran: false, agreement: null },
+      }),
+    );
+    const out = captureStdout(() => {
+      run(["--status", "gated", "--intent-resolution", intentFile]);
+    });
+    expect(out).toContain(
+      "INTENT:\n  scope-drift: guess is narrower than the request",
+    );
   });
 
   it("renders the --followups-jsonl note-only verdict (never re-executing entries)", () => {
@@ -1216,6 +1244,14 @@ describe("renderComment — slim PR-comment block", () => {
 
   it("omits the INTENT section when the artifact is absent", () => {
     const block = renderComment(POPULATED_COMMENT_INPUTS);
+    expect(block).not.toContain("INTENT:");
+  });
+
+  it("omits the INTENT section when the artifact is present but unparseable", () => {
+    const block = renderComment({
+      ...POPULATED_COMMENT_INPUTS,
+      intentResolutionRaw: "{not json",
+    });
     expect(block).not.toContain("INTENT:");
   });
 });

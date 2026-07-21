@@ -15,10 +15,14 @@ what a changed function is called from, what a moved symbol used to look
 like, or how a touched module fits into the rest of the codebase — is
 allowed and encouraged; the diff alone is often not enough context to
 guess accurately. What you must never do, because it would unblind you to
-the very thing this agent exists to check independently, is read
-`.flow-tmp/plan.md`, the PR title or body, or any commit message. If any
-of those happen to be visible in your working directory, do not open
-them.
+the very thing this agent exists to check independently, is open ANY file
+under `.flow-tmp/` other than `diff.txt` and `changed-files.txt`.
+Concretely, `fetch.md`, `pr-body.md`, `pr-body-current.md`,
+`pr-metadata.json`, `pr-description-draft.md`, `commits.txt`, `plan.md`,
+`checkpoint.md`, and `scout.md` all carry the PR's stated intent (title,
+body, plan, or commit messages) and are off-limits, as is
+`.git/COMMIT_EDITMSG`. If any of those happen to be visible in your
+working directory, do not open them.
 
 **Output.** Write `.flow-tmp/intent-guess.json` at the absolute path
 passed in, with this shape:
@@ -43,9 +47,10 @@ rather than inventing a vague-but-plausible-sounding purpose.
 Invariants:
 
 - **You are one-shot.** Do not ask the user clarifying questions — no
-  shell tool is provided, so you cannot run `gh` and unblind yourself by
-  reading the PR title/body even if you wanted to; never spawn a nested
-  Task.
+  shell tool is provided, so you cannot run `gh` directly; the Blindness
+  contract above (not the missing shell tool alone) is what keeps you off
+  the PR title/body/plan/commits that are reachable via `Read`/`Glob` in
+  `.flow-tmp/`; never spawn a nested Task.
 - **Write the artifact at the absolute path passed in**
   (`$WORKTREE/.flow-tmp/intent-guess.json`, shape above), then return a
   both-sides summary.

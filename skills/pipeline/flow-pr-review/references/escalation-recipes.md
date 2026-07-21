@@ -1,11 +1,11 @@
 # Escalation Recipes
 
-This file carries the eight worked heredoc + validate + `mv` recipes
+This file carries the nine worked heredoc + validate + `mv` recipes
 for the bail-out paths in `/flow-pr-review`'s wrapper. Each recipe writes
 `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
 and the per-tag `completed_steps[]` / `missed_steps[]` arrays the
 supervisor's branch-on-status logic reads at `/flow-pipeline` step 8.
-The eight blocks are kept distinct (not templated) because the
+The nine blocks are kept distinct (not templated) because the
 per-tag arrays differ in load-bearing ways — see each recipe's intro
 for what fires it.
 
@@ -207,6 +207,22 @@ DOES apply: if a prior `status: "escalated"` is already on disk
 `consolidator-schema-failure`), skip the write rather than overwrite
 the specific tag with this generic one.
 
+```bash
+RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
+cat > "$RESULT_PATH.tmp" <<'EOF'
+{
+  "status": "escalated",
+  "completed_steps": ["1", "1.5", "2", "3"],
+  "missed_steps": ["3.5", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+  "escalation_tag": "consolidator-missing-artifact",
+  "summary": "Consolidator-Validator subagent returned but the artifact at .flow-tmp/consolidator-result.json is missing or empty. Wrapper bailed at Step 3.5's existence check; supervisor must restart."
+}
+EOF
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
+  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+```
+
 ## `intent-drift`
 
 Raised by Step 3.6's "Intent-mismatch resolution" sub-step when the
@@ -223,34 +239,27 @@ This is an escalation write — same read-before-overwrite guard as
 `consolidator-schema-failure` above: skip the write if a prior
 `status: "escalated"` with a more specific tag is already on disk.
 
-```bash
-RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
-[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
-cat > "$RESULT_PATH.tmp" <<EOF
-{
-  "status": "escalated",
-  "completed_steps": ["1", "1.5", "2", "3", "3.5", "3.6"],
-  "missed_steps": ["4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
-  "escalation_tag": "intent-drift",
-  "summary": "Step 3.6's intent-mismatch resolution reached the fundamental rung: guessed purpose '$GUESSED_PURPOSE' (justification: '$JUSTIFICATION') contradicts the actual request '$ACTUAL_REQUEST'. Human judgment needed before review can proceed."
-}
-EOF
-flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
-  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
-```
+`GUESSED_PURPOSE`, `JUSTIFICATION`, and `ACTUAL_REQUEST` are set by Step
+3.6 immediately before this recipe runs: the first two from
+`intent-guess.json`'s `guessed_purpose` / `justification` fields, the
+third from the resolved actual-intent source described above. All three
+are free-form prose (LLM output or a verbatim user request), so this is
+the one recipe in the file that interpolates untrusted text — build the
+JSON with `jq -n --arg` rather than a heredoc so quotes, newlines, and
+`$(...)` sequences in that text can't break the write or execute:
 
 ```bash
 RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
 [ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
-cat > "$RESULT_PATH.tmp" <<'EOF'
-{
-  "status": "escalated",
-  "completed_steps": ["1", "1.5", "2", "3"],
-  "missed_steps": ["3.5", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
-  "escalation_tag": "consolidator-missing-artifact",
-  "summary": "Consolidator-Validator subagent returned but the artifact at .flow-tmp/consolidator-result.json is missing or empty. Wrapper bailed at Step 3.5's existence check; supervisor must restart."
-}
-EOF
+jq -n \
+  --arg summary "Step 3.6's intent-mismatch resolution reached the fundamental rung: guessed purpose '$GUESSED_PURPOSE' (justification: '$JUSTIFICATION') contradicts the actual request '$ACTUAL_REQUEST'. Human judgment needed before review can proceed." \
+  '{
+    status: "escalated",
+    completed_steps: ["1", "1.5", "2", "3", "3.5", "3.6"],
+    missed_steps: ["4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+    escalation_tag: "intent-drift",
+    summary: $summary
+  }' > "$RESULT_PATH.tmp"
 flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
   && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
 ```

@@ -80,7 +80,7 @@ etc.) live there with `.ts` extensions, Bun shebangs, and tests next door
 
 Static agent-type definitions live in **`agents/`** (`*.md` frontmatter),
 discovered by `discoverAgents` and symlinked to `~/.claude/agents/`:
-13/14 carry `tools:` allowlists (flow-discovery: none); 2 mechanical
+14/15 carry `tools:` allowlists (flow-discovery: none); 2 mechanical
 roles (`flow-fix-applier`, `flow-verify`) pin `effort: low`, the
 gatekeeper (`flow-gatekeeper`) pins `model: haiku`; per-spawn `model:`
 still wins.

@@ -309,6 +309,36 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
     expect(deps.calls.delegate).toHaveLength(0);
   });
 
+  it("gemini-intent-guess-prep-failed when writing the prompt scratch file throws", () => {
+    const deps = makeDeps({
+      writeFile: (p) => {
+        throw new Error(`EACCES: ${p}`);
+      },
+    });
+    expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "gemini-intent-guess-prep-failed",
+    });
+    expect(deps.calls.delegate).toHaveLength(0);
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
+  it("gemini-intent-guess-output-unreadable when the raw agy artifact readFile throws", () => {
+    const deps = makeDeps({
+      readFile: (p) => {
+        if (p === "/d.txt") return deps.files.get(p)!;
+        throw new Error(`EIO: ${p}`);
+      },
+    });
+    expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "gemini-intent-guess-output-unreadable",
+    });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
   it("gemini-intent-guess-finalize-failed when the --out write throws, leaving no file", () => {
     const deps = makeDeps({
       writeFile: (p, c) => {

@@ -5545,6 +5545,9 @@ describe("prompt-intent-sanity-check structural anchors", () => {
 
   it("flow-pipeline/SKILL.md Prompt sanity gate names all three verdicts and the escalation tag", () => {
     expect(content).toContain("prompt-contradiction");
+    for (const verdict of ["sound", "suspect", "contradicted"]) {
+      expect(content).toContain(verdict);
+    }
   });
 
   it("references/prompt-sanity.md exists and carries the three-verdict enum", () => {
@@ -5607,6 +5610,39 @@ describe("prompt-intent-sanity-check structural anchors", () => {
       "utf8",
     );
     expect(escalationRecipesContent).toContain("## `intent-drift`");
+  });
+
+  it("references/intent-mismatch-resolution.md carries the ladder's verdict enum and the gate item", () => {
+    const p = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "intent-mismatch-resolution.md",
+    );
+    expect(fs.existsSync(p)).toBe(true);
+    const c = fs.readFileSync(p, "utf8");
+    for (const v of [
+      "match",
+      "benign-divergence",
+      "scope-drift",
+      "fundamental",
+    ]) {
+      expect(c).toContain(v);
+    }
+    expect(c).toContain("- [ ] SUBJECTIVE: confirm scope drift is intentional");
+    expect(c).toContain("NEEDS HUMAN: intent-drift");
+  });
+
+  it("wires --intent-resolution at the post-review terminal snapshot sites", () => {
+    const matches =
+      content.match(/flow-pipeline-summary[^\n]*--intent-resolution/g) ?? [];
+    expect(
+      matches.length,
+      "flow-pipeline SKILL.md must pass '--intent-resolution' at every terminal flow-pipeline-summary site so the INTENT section is sourced.",
+    ).toBeGreaterThanOrEqual(5);
   });
 
   it("flow-pipeline/SKILL.md agent table Multi-Agent Review exemption still counts nine total", () => {
