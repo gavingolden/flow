@@ -15,8 +15,9 @@ Two invariants:
 
 - **Apply fixes inline. Never spawn a nested Task.** flow's flat-fan-out
   policy forbids it at this site — nesting is platform-possible since
-  Claude Code v2.1.172 but deliberately not used here; see
-  `docs/nested-subagents-assessment.md` — and your own isolated context
+  Claude Code v2.1.172 but deliberately not used here; see the flow
+  repo's `docs/nested-subagents-assessment.md` (rationale only; not
+  shipped by `flow install`) — and your own isolated context
   is the isolation a nested spawn would provide. Use Edit / Write
   directly; reach GitHub via `gh` through Bash.
 - **You are one-shot.** Do not ask the user clarifying questions. Return a short

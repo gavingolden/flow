@@ -26,10 +26,10 @@ You are the single LLM container for this pipeline. Every sub-skill
 in-process when you invoke it; every helper script
 (`flow-new-worktree`, `flow-remove-worktree`, `gh`, etc.) is a Bash
 tool call. **You never spawn a Task-tool sub-agent.** flow's flat-fan-out
-policy (deliberate, not a platform limit — `docs/nested-subagents-assessment.md`)
-allows one exception, verify-loop → edit-applier; a long-running supervisor
-with sub-agents would also blow the context window. Stay in-process for
-skills; shell out for scripts; never delegate.
+policy (deliberate, not a platform limit — `docs/nested-subagents-assessment.md`,
+repo-only, not shipped) allows one exception, verify-loop → edit-applier;
+a long-running supervisor with sub-agents would also blow the context
+window. Stay in-process for skills; shell out for scripts; never delegate.
 
 # When to Use
 
@@ -65,40 +65,40 @@ skills; shell out for scripts; never delegate.
 > follow.
 >
 > The two constraints behind the rule above are (1) flow's deliberate
-> flat-fan-out policy (`docs/nested-subagents-assessment.md`), relaxed
-> only at the one sanctioned verify-loop → edit-applier site, and (2) a
-> long-running supervisor with sub-agents would bloat past the context
-> window. The supervisor is itself a top-level Claude Code session
-> (started by `flow feature create` opening tmux + `claude`), so constraint
-> (1) governs its *sub-agents*, not its own Task calls. All nine exemptions
-> below are also one-shot, not long-running, so constraint (2) doesn't
-> apply either. They are the **only nine** authorised Task-tool
-> fan-out sites from this supervisor; no other skill or step may call
-> Task. Each is anchored on its step heading name rather than its
-> number so it survives future renumbering. Same narrow-and-named
-> contract as the `/flow-pr-review` auto-push and `/flow-pipeline`
-> auto-merge exemptions in `AGENTS.md`. If a future skill needs the
-> same license, add it here by name rather than generalising the rule.
-> Each exemption spawns its named `agents/flow-*.md` definition via a file-exists
-> guard falling back to `general-purpose` with a loud `NOTICE — agent-fallback:` line.
+> flat-fan-out policy (rationale: `docs/nested-subagents-assessment.md`,
+> not shipped by `flow install`), relaxed only at the one sanctioned
+> verify-loop → edit-applier site, and (2) a long-running supervisor with
+> sub-agents would bloat past the context window. The supervisor is a
+> top-level Claude Code session (started by `flow feature create` opening
+> tmux + `claude`), so constraint (1) is not a platform limit on its Task
+> calls — it is flow's own policy, and it is why exactly nine top-level
+> sites are enumerated below and only one nests. All nine exemptions
+> below are one-shot, not long-running, so constraint (2) doesn't apply
+> either. They are the **only nine** authorised Task-tool fan-out sites
+> from this supervisor; no other skill or step may call Task. Each is
+> anchored on its step heading name rather than its number so it survives
+> future renumbering. Same narrow-and-named contract as the
+> `/flow-pr-review` auto-push and `/flow-pipeline` auto-merge exemptions
+> in `AGENTS.md`. If a future skill needs the same license, add it here
+> by name rather than generalising the rule. Each exemption spawns its
+> named `agents/flow-*.md` definition via a file-exists guard falling
+> back to `general-purpose` with a loud `NOTICE — agent-fallback:` line.
 >
 > **Load the Task tool at each spawn site.** Each of the nine spawn
-> procedures below must instruct the supervisor to load the Task
-> tool schema via `ToolSearch query="select:Task"` *before* invoking
-> Task (or its alias `Agent`). In Claude Code sessions where neither `Task` nor its alias `Agent` is
-> surfaced top-level by the harness (both are aliases of the same
-> one-shot subagent-spawn primitive: identical `subagent_type` /
-> `prompt` / `description` schema), an unguarded invocation silently
-> falls through to in-line execution — exactly the regression PR #124
-> introduced and which this preamble prevents recurring. On missing
-> schema, escalate `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`
-> rather than falling back to in-line execution; the fan-out's value
-> is its context isolation, and an in-line fallback breaks the
-> contract that each exemption is justified by. See each exemption's
-> spawn procedure for the canonical "Load the Task tool before
-> spawning" paragraph and `# Failure paths` below for the escalation
-> script. This is a sibling note to the nine exemption blocks below,
-> not a tenth exemption.
+> procedures below must instruct the supervisor to load the Task tool
+> schema via `ToolSearch query="select:Task"` *before* invoking Task (or
+> its alias `Agent`). Where neither is surfaced top-level by the harness
+> (aliases of the same one-shot subagent-spawn primitive), an unguarded
+> invocation silently falls through to in-line execution — the regression
+> PR #124 introduced and this preamble prevents. On missing schema,
+> escalate `NEEDS HUMAN: task-tool-unavailable: <exemption-name>` rather
+> than falling back to in-line execution — **except** the nested
+> verify-loop → edit-applier site, which records `coder_spawn:
+> task-tool-unavailable` and degrades inline instead (its known-good
+> fallback; the other nine have none). See each exemption's spawn
+> procedure for the canonical "Load the Task tool before spawning"
+> paragraph and `# Failure paths` below for the escalation script — a
+> sibling note to the nine exemption blocks, not a tenth exemption.
 >
 > **Task-tool exemption #1: `/flow-pr-review` Independent Multi-Agent
 > Review.** Step 8's six review agents + one diff-only intent-guess agent,
@@ -1340,9 +1340,9 @@ Write the artifact to (absolute path):
   {{ARTIFACT_PATH}}
 
 Follow the verify-loop-instructions.md steps in order. You are one-shot
-— do not ask the user clarifying questions, and do NOT spawn /flow-coder or
-any nested Task (apply fixes inline; your context is the isolation
-/flow-coder would provide). Stay within 3 outer /flow-verify attempts.
+— do not ask the user clarifying questions. Apply narrow fixes inline;
+wider-scope fixes may spawn ONE flow-edit-applier subagent per its spawn
+procedure, never any other Task. Stay within 3 outer /flow-verify attempts.
 
 Return a 3–5-sentence summary surfacing both sides — at least one
 positive (verdict + attempts used + any Layer-3/UI-smoke action) AND at
@@ -1367,7 +1367,7 @@ returns:
 ```bash
 VERIFY_STATUS=$(jq -r '.verify_status' "$ARTIFACT_PATH")
 CODER_SPAWN=$(jq -r '.coder_spawn // empty' "$ARTIFACT_PATH")
-[ -n "$CODER_SPAWN" ] && [ "$CODER_SPAWN" != "ok" ] && [ "$CODER_SPAWN" != "not-attempted" ] && echo "NOTICE — verify-loop coder spawn degraded: $CODER_SPAWN"
+case "$CODER_SPAWN" in ""|ok|not-attempted) ;; *) echo "NOTICE — verify-loop coder spawn degraded: $CODER_SPAWN" ;; esac
 ```
 
 - **`pass`** → the loop exited clean (an outer attempt 1, 2, or 3

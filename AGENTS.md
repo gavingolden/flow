@@ -274,14 +274,15 @@ three-layer resolution table, and the manifest/foundation fields — is at
     resolution + force-push (per-pipeline branch only), writing
     `.flow-tmp/merge-resolver-result.json`.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-coder` Independent
-    Edit-Applier Subagent.** The one edit-applier agent `/flow-coder` spawns
+    Edit-Applier Subagent.** The edit-applier agent `/flow-coder` spawns
     when `/flow-new-feature` step 5, `/flow-verify` step 3, or `/flow-refactoring`
     step 3 takes its wider-scope path — or the `/flow-pipeline`
     supervisor's interactive code-change redirect path fires — writing
     `.flow-tmp/coder-result.json`; full contract in
-    `skills/pipeline/flow-coder/SKILL.md`. These are the **only nine**
-    authorised Task-tool fan-out sites from `/flow-pipeline`; no other
-    skill or step may call Task.
+    `skills/pipeline/flow-coder/SKILL.md`. (A second, nested spawn site
+    exists — see the Verify-Retry-Loop bullet below.) These are the
+    **only nine** authorised Task-tool fan-out sites from `/flow-pipeline`;
+    no other skill or step may call Task.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
     Gatekeeper Subagent.** `/flow-pr-review` Step 1.5's one gatekeeper agent
     with a `model: "haiku"` cost-routing override, writing
@@ -297,17 +298,21 @@ three-layer resolution table, and the manifest/foundation fields — is at
     writing `.flow-tmp/verify-loop-result.json`. The verify-loop subagent
     may itself spawn one flow-edit-applier subagent (depth 3) on its
     wider-scope path, writing `.flow-tmp/verify-coder-result.json`, with
-    an artifact-miss inline fallback — a sanctioned nested site inside
-    this exemption, not a tenth exemption; see
-    `docs/nested-subagents-assessment.md`.
+    an artifact-miss inline fallback and NO `general-purpose` fallback —
+    a sanctioned nested site inside this exemption, not a tenth
+    exemption; see the flow repo's `docs/nested-subagents-assessment.md`
+    (rationale only; not shipped by `flow install`).
   - **Task-tool spawn sites must load Task first.** Each of the nine
     sites above must load the Task schema via
     `ToolSearch query="select:Task"` before invoking Task (or its alias
     `Agent`); on a missing schema, escalate
     `NEEDS HUMAN: task-tool-unavailable: <exemption-name>` rather than
     falling back inline. Enforced by `bin/skill-md-lint.test.ts`'s "Load
-    the Task tool before spawning" check at all nine sites — a sibling
-    guard, not a tenth exemption.
+    the Task tool before spawning" check at all nine sites, plus the
+    nested verify-loop → edit-applier site, which records `coder_spawn:
+    task-tool-unavailable` and degrades inline instead of escalating
+    because inline application is a known-good fallback there — a
+    sibling guard, not a tenth exemption.
   - The `/flow-pr-review` Gemini lens, the cross-model intent guess
     (`flow-gemini-intent-guess`), and the `/flow-pipeline` Step-3
     **cross-model plan review** are all a

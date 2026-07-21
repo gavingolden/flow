@@ -376,8 +376,9 @@ the heading anchor.
   when an edit landed and what each entry was meant to achieve.
 - NEVER spawn a nested Task call from inside the subagent. flow's
   flat-fan-out policy — nesting is platform-possible since Claude Code
-  v2.1.172 but deliberately not used at this site; see
-  `docs/nested-subagents-assessment.md` — forbids it. If the subagent
+  v2.1.172 but deliberately not used at this site; see the flow repo's
+  `docs/nested-subagents-assessment.md` (rationale only; not shipped by
+  `flow install`) — forbids it. If the subagent
   needs context the edit-set doesn't carry, it records an
   `anti_patterns_found` entry and the parent caller decides how to
   proceed.
