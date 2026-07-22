@@ -545,8 +545,7 @@ twice. Never ask mid-run and never interrogate with a chain of "why".
 
 Bounded pass verifying the prompt's concrete claims against the worktree/attached files (bounded excerpt reads only), reaching **sound** (proceed) / **suspect** (proceed, thread note to step 3) / **contradicted** (ask one question quoting both sides; unresolved ⇒ `NEEDS HUMAN: prompt-contradiction`). Checklist: `references/prompt-sanity.md`.
 
-Then classify. Apply the heuristics from `flow-add` /
-`docs/phases/triage.md`:
+Then classify:
 
 | Pattern | Class |
 |---|---|

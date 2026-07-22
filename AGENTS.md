@@ -24,7 +24,7 @@ Read it once at the start of a session.
 | The supervisor's behaviour and contracts | `skills/pipeline/flow-pipeline/SKILL.md` |
 | The skill library structure | `skills/` (categorized: `pipeline/`, `universal/`, `stacks/`) |
 | Generic engineering rules to copy into a new repo | `templates/AGENTS.md.template` |
-| Historical context on the old Node orchestrator (deleted) | `docs/architecture.md`, `docs/phases/*.md` (kept as historical artefacts) |
+| Where flow is heading (modular redesign) | `docs/target-architecture.md` |
 
 ## Current state
 

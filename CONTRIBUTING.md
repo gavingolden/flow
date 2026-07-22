@@ -1,6 +1,6 @@
 # Contributing to flow
 
-This is the developer/maintainer guide for working **on** flow itself. If you only want to _use_ flow, the [README](README.md) is the front door. The canonical rules every agent (human or AI) must follow live in [`AGENTS.md`](AGENTS.md) — read that first; this file covers the mechanical how-to.
+This is the developer/maintainer guide for working **on** flow itself. If you only want to _use_ flow, the [README](README.md) is the front door, and [docs/getting-started.md](docs/getting-started.md) walks you through your first pipeline. The canonical rules every agent (human or AI) must follow live in [`AGENTS.md`](AGENTS.md) — read that first; this file covers the mechanical how-to.
 
 ## Dev setup
 
@@ -20,7 +20,7 @@ Everything under `bin/` runs on Bun (`#!/usr/bin/env bun`, gated by `import.meta
 
 ## Architecture
 
-A flow pipeline is one Claude Code chat session. Sub-skills (`/flow-product-planning`, `/flow-new-feature`, `/flow-verify`, `/flow-pr-review`) load **in-process** as skill instructions rather than as nested sub-agents, and helper scripts under `bin/` are plain Bash tool calls. The supervisor never spawns nested LLM sessions except at a small set of named `Task`-tool exemptions. This sidesteps two limits at once: Claude Code's one-level sub-agent cap, and the context-window bloat a long-running parent would accrue if it fanned out into deep agent trees. The full rationale lives in [`docs/architecture.md`](docs/architecture.md).
+A flow pipeline is one Claude Code chat session. Sub-skills (`/flow-product-planning`, `/flow-new-feature`, `/flow-verify`, `/flow-pr-review`) load **in-process** as skill instructions rather than as nested sub-agents, and helper scripts under `bin/` are plain Bash tool calls. The supervisor never spawns nested LLM sessions except at a small set of named `Task`-tool exemptions. This sidesteps two limits at once: Claude Code's one-level sub-agent cap, and the context-window bloat a long-running parent would accrue if it fanned out into deep agent trees.
 
 ## Setup internals
 

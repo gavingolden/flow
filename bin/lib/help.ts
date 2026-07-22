@@ -98,7 +98,7 @@ Usage:
 Subcommands:
   create <description>  start a new pipeline. Default launcher is PLAIN (claude runs
                         in your current terminal); opt into tmux with --tmux, the
-                        flow install question, or 'flow config launcher tmux'
+                        flow install question, or 'flow config launcher set tmux'
   resume <name> [<name> ...]
                         resume one or more crashed pipelines in their existing windows;
                         resumes sequentially, and with >=2 names previews the list and
@@ -148,7 +148,7 @@ Usage:
 Subcommands:
   create "<prompt>"     design an epic — open a tmux window running /flow-epic-create.
                         Epic orchestration requires the tmux launcher: opt in with
-                        --tmux, the flow install question, or 'flow config launcher tmux'
+                        --tmux, the flow install question, or 'flow config launcher set tmux'
                         (clarify → design → validate → open the design PR)
   run <slug>            open the /flow-epic-run playbook window: an LLM reconciles the
                         committed manifest against GitHub/git truth and takes one
@@ -297,7 +297,7 @@ Options:
 
 Interactive installs also ask ONE launcher question (default no): use tmux as
 the pipeline launcher? The answer persists to ~/.flow/config.json (launcher);
-change it later with 'flow config launcher <plain|tmux>'. Non-interactive
+change it later with 'flow config launcher set <plain|tmux>'. Non-interactive
 installs and --upgrade never ask.`,
 
   completion: `flow completion — print a shell completion script to stdout
