@@ -546,8 +546,7 @@ the reply, and if still ambiguous, escalate `NEEDS HUMAN: triage-ambiguous`
 rather than asking twice. Never ask mid-run and never interrogate with a
 chain of "why".
 
-Then classify. Apply the heuristics from `flow-add` /
-`docs/phases/triage.md`:
+Then classify:
 
 | Pattern | Class |
 |---|---|

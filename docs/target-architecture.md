@@ -1,6 +1,3 @@
-> [!WARNING]
-> **Historical document.** This describes the deleted Node-orchestrator era of flow and is kept as a historical artefact. For the current state, see the [README](../README.md) and [AGENTS.md](../AGENTS.md).
-
 # Target architecture — flow as a modular, plugin-_style_ product
 
 > **"Plugin" is conceptual, not Claude-plugin.** Throughout this document,
