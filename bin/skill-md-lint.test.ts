@@ -1159,6 +1159,10 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       file: "flow-review-bug-detection.md",
       wantTools: "Read, Grep, Glob, Write",
     },
+    {
+      file: "flow-review-intent-guess.md",
+      wantTools: "Read, Grep, Glob, Write",
+    },
     { file: "flow-review-security.md", wantTools: "Read, Grep, Glob, Write" },
     {
       file: "flow-review-pattern-consistency.md",
@@ -5531,5 +5535,118 @@ describe("module-status conditional-degradation guards (flow-pipeline/SKILL.md, 
 
   it("AGENTS.md ## Don'ts names the check-skill convention for optional-module skill deferrals", () => {
     expect(agentsContent).toContain("check-skill");
+  });
+});
+
+describe("prompt-intent-sanity-check structural anchors", () => {
+  it("flow-pipeline/SKILL.md Step 1 carries the Prompt sanity gate sub-step", () => {
+    expect(content).toContain("Prompt sanity gate");
+  });
+
+  it("flow-pipeline/SKILL.md Prompt sanity gate names all three verdicts and the escalation tag", () => {
+    expect(content).toContain("prompt-contradiction");
+    for (const verdict of ["sound", "suspect", "contradicted"]) {
+      expect(content).toContain(verdict);
+    }
+  });
+
+  it("references/prompt-sanity.md exists and carries the three-verdict enum", () => {
+    const promptSanityPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pipeline",
+      "references",
+      "prompt-sanity.md",
+    );
+    expect(fs.existsSync(promptSanityPath)).toBe(true);
+    const promptSanityContent = fs.readFileSync(promptSanityPath, "utf8");
+    expect(promptSanityContent).toContain("prompt-contradiction");
+    for (const verdict of ["sound", "suspect", "contradicted"]) {
+      expect(promptSanityContent).toContain(verdict);
+    }
+  });
+
+  it("flow-pr-review/SKILL.md Step 3 carries the diff-only intent-guess sub-step and blindness prose", () => {
+    expect(prReviewContent).toContain("intent-guess");
+    expect(prReviewContent).toContain("flow-review-intent-guess");
+    expect(prReviewContent).toContain("Diff-only context");
+  });
+
+  it("agents/flow-review-intent-guess.md carries the blindness contract and never names Bash", () => {
+    const intentGuessAgentPath = path.resolve(
+      HERE,
+      "..",
+      "agents",
+      "flow-review-intent-guess.md",
+    );
+    expect(fs.existsSync(intentGuessAgentPath)).toBe(true);
+    const intentGuessAgentContent = fs.readFileSync(
+      intentGuessAgentPath,
+      "utf8",
+    );
+    expect(intentGuessAgentContent).toContain("Blindness contract");
+    expect(intentGuessAgentContent).not.toContain("Bash");
+  });
+
+  it("flow-pr-review/SKILL.md carries the ## 3.6 Intent-mismatch resolution heading", () => {
+    expect(prReviewContent).toContain("## 3.6");
+    expect(prReviewContent).toContain("Intent-mismatch resolution");
+  });
+
+  it("references/escalation-recipes.md registers the intent-drift recipe", () => {
+    const escalationRecipesPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "escalation-recipes.md",
+    );
+    const escalationRecipesContent = fs.readFileSync(
+      escalationRecipesPath,
+      "utf8",
+    );
+    expect(escalationRecipesContent).toContain("## `intent-drift`");
+  });
+
+  it("references/intent-mismatch-resolution.md carries the ladder's verdict enum and the gate item", () => {
+    const p = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "intent-mismatch-resolution.md",
+    );
+    expect(fs.existsSync(p)).toBe(true);
+    const c = fs.readFileSync(p, "utf8");
+    for (const v of [
+      "match",
+      "benign-divergence",
+      "scope-drift",
+      "fundamental",
+    ]) {
+      expect(c).toContain(v);
+    }
+    expect(c).toContain("- [ ] SUBJECTIVE: confirm scope drift is intentional");
+    expect(c).toContain("NEEDS HUMAN: intent-drift");
+  });
+
+  it("wires --intent-resolution at the post-review terminal snapshot sites", () => {
+    const matches =
+      content.match(/flow-pipeline-summary[^\n]*--intent-resolution/g) ?? [];
+    expect(
+      matches.length,
+      "flow-pipeline SKILL.md must pass '--intent-resolution' at every terminal flow-pipeline-summary site so the INTENT section is sourced.",
+    ).toBeGreaterThanOrEqual(5);
+  });
+
+  it("flow-pipeline/SKILL.md agent table Multi-Agent Review exemption still counts nine total", () => {
+    const matches = content.match(/Task-tool exemption #\d+:/g) ?? [];
+    expect(matches.length).toBe(9);
   });
 });

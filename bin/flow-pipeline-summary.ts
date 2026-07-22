@@ -13,11 +13,12 @@
  * writes and renders ONLY sourced facts; every empty category prints an
  * explicit `none`, never a fabricated "looks like it passed."
  *
- * Six sections: CHANGES (commits/diff size), PHASES (state.json phaseLog),
- * FINDINGS (review verdict + fix-applier + consolidator + CI/Copilot),
- * FORECLOSED PATHS (fix-applier + consolidator foreclosed-path prose —
- * rejected alternatives + anti-patterns), FOLLOW-UP ISSUES (filed sweep URLs
- * + pr-review deferrals), MANUAL STEPS (the captured followups block).
+ * Seven sections: CHANGES (commits/diff size), PHASES (state.json phaseLog),
+ * INTENT (the Step 3.6 intent-mismatch resolution verdict), FINDINGS (review
+ * verdict + fix-applier + consolidator + CI/Copilot), FORECLOSED PATHS
+ * (fix-applier + consolidator foreclosed-path prose — rejected alternatives
+ * + anti-patterns), FOLLOW-UP ISSUES (filed sweep URLs + pr-review
+ * deferrals), MANUAL STEPS (the captured followups block).
  *
  * CRITICAL: this helper NEVER emits a flow-stop-guard sentinel
  * (`MERGED` / `GATED:` / `NEEDS HUMAN:` / `cancelled`). flow-gate-summary
@@ -46,7 +47,8 @@
  *                         [--pr-review-result <path>] [--fix-applier-result <path>]
  *                         [--consolidator-result <path>] [--ci-wait-result <path>]
  *                         [--followups-block-file <path>] [--followups-jsonl <path>]
- *                         [--filed-issues-file <path>] [--post-comment <PR>]
+ *                         [--filed-issues-file <path>] [--intent-resolution <path>]
+ *                         [--post-comment <PR>]
  *
  * Exit codes: 0 — block rendered to stdout. 2 — bad CLI args.
  */
@@ -63,6 +65,7 @@ import {
   renderFollowupIssues,
   renderManualSteps,
   renderComment,
+  renderIntent,
 } from "./lib/pipeline-summary-sources";
 import { renderEchoRecap } from "./lib/echo-recap";
 import { collectFixApplierTolerant } from "./lib/fix-applier-tolerant";
@@ -101,6 +104,7 @@ export type SummaryInputs = {
   followupsBlockFile?: string;
   followupsJsonl?: string;
   filedIssuesFile?: string;
+  intentResolutionFile?: string;
   postComment?: string;
   echoProse?: boolean;
   prUrl?: string;
@@ -167,6 +171,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--filed-issues-file":
         out.filedIssuesFile = value;
         break;
+      case "--intent-resolution":
+        out.intentResolutionFile = value;
+        break;
       case "--post-comment":
         out.postComment = value;
         break;
@@ -206,12 +213,17 @@ export function render(inputs: {
   filedIssuesRaw: string;
   fixApplierForIssues: string;
   manualStepsBlock: string;
+  intentResolutionRaw?: string;
 }): string {
   const lines: string[] = ["## PIPELINE SNAPSHOT"];
   lines.push("CHANGES:");
   for (const ln of renderChanges(inputs.prChangesRaw)) lines.push(`  ${ln}`);
   lines.push("PHASES:");
   for (const ln of renderPhases(inputs.phaseLog)) lines.push(`  ${ln}`);
+  lines.push("INTENT:");
+  for (const ln of renderIntent(inputs.intentResolutionRaw ?? "")) {
+    lines.push(`  ${ln}`);
+  }
   lines.push("FINDINGS:");
   for (const ln of renderFindings({
     prReviewRaw: inputs.prReviewRaw,
@@ -443,7 +455,8 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
         "                             [--pr-review-result <path>] [--fix-applier-result <path>]\n" +
         "                             [--consolidator-result <path>] [--ci-wait-result <path>]\n" +
         "                             [--followups-block-file <path>] [--followups-jsonl <path>]\n" +
-        "                             [--filed-issues-file <path>] [--post-comment <PR>]\n" +
+        "                             [--filed-issues-file <path>] [--intent-resolution <path>]\n" +
+        "                             [--post-comment <PR>]\n" +
         "                             [--echo-prose] [--pr-url <url>] [--plan-file <path>]\n" +
         "                             [--pr-title <title>] [--branch <name>]\n",
     );
@@ -461,6 +474,7 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
   const consolidatorRaw = readFileOrEmpty(parsed.consolidatorResult);
   const ciWaitRaw = readFileOrEmpty(parsed.ciWaitResult);
   const filedIssuesRaw = readFileOrEmpty(parsed.filedIssuesFile);
+  const intentResolutionRaw = readFileOrEmpty(parsed.intentResolutionFile);
   // MANUAL STEPS prefers the already-rendered block (preserves ran/failed
   // results captured by `flow-followups run` on the MERGED path). A
   // note-only JSONL re-read would lose them, so the block-file wins.
@@ -479,6 +493,7 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
     filedIssuesRaw,
     fixApplierForIssues: fixApplierRaw,
     manualStepsBlock,
+    intentResolutionRaw,
   });
   // With --echo-prose, PREPEND the delimited recap block (a new top section of
   // this SAME stdout write — never a separate invocation, so the
@@ -524,6 +539,7 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
         consolidatorRaw,
         ciWaitRaw,
         filedIssuesRaw,
+        intentResolutionRaw,
       });
       const result = postSnapshotComment(prNumber, commentBlock, gh);
       if (result.action === "failed") {

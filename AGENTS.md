@@ -80,7 +80,7 @@ etc.) live there with `.ts` extensions, Bun shebangs, and tests next door
 
 Static agent-type definitions live in **`agents/`** (`*.md` frontmatter),
 discovered by `discoverAgents` and symlinked to `~/.claude/agents/`:
-13/14 carry `tools:` allowlists (flow-discovery: none); 2 mechanical
+14/15 carry `tools:` allowlists (flow-discovery: none); 2 mechanical
 roles (`flow-fix-applier`, `flow-verify`) pin `effort: low`, the
 gatekeeper (`flow-gatekeeper`) pins `model: haiku`; per-spawn `model:`
 still wins.
@@ -251,8 +251,10 @@ three-layer resolution table, and the manifest/foundation fields — is at
     [references/exemption-contracts.md](references/exemption-contracts.md);
     only the byte-exact opener and a one-line summary remain below.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
-    Multi-Agent Review.** Step 8's six parallel review agents, each
-    writing its own `agent-output-<lens>.json`.
+    Multi-Agent Review.** Step 8's six parallel review agents plus one
+    diff-only intent-guess agent, spawned in the same fan-out message;
+    each of the six writes its own `agent-output-<lens>.json`, the
+    intent-guess agent writes `.flow-tmp/intent-guess.json`.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-product-planning`
     Independent Discovery Subagent.** Step 3's one discovery agent,
     writing `.flow-tmp/plan.md` + `.flow-tmp/pr-description-draft.md`.
@@ -296,8 +298,9 @@ three-layer resolution table, and the manifest/foundation fields — is at
     falling back inline. Enforced by `bin/skill-md-lint.test.ts`'s "Load
     the Task tool before spawning" check at all nine sites — a sibling
     guard, not a tenth exemption.
-  - The `/flow-pr-review` Gemini lens and the `/flow-pipeline` Step-3
-    **cross-model plan review** are both a
+  - The `/flow-pr-review` Gemini lens, the cross-model intent guess
+    (`flow-gemini-intent-guess`), and the `/flow-pipeline` Step-3
+    **cross-model plan review** are all a
     **Bash fan-out, not a tenth exemption** —
     `flow-delegate`/`flow-plan-review` calls, no Task, graceful skip
     sans agy.

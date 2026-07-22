@@ -213,6 +213,40 @@ export function renderManualSteps(block: string): string[] {
 }
 
 /**
+ * INTENT: the Step 3.6 intent-mismatch resolution verdict + guessed-purpose-
+ * vs-request note, plus an optional cross-model agreement line. `none` on an
+ * absent artifact (most pipelines never reach a mismatch worth recording —
+ * this is a graceful-skip category, not a failure), `(unreadable)` on a
+ * shape-invalid one. Never emits a stop-guard sentinel.
+ */
+export function renderIntent(raw: string): string[] {
+  if (!raw.trim()) return NONE;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return ["(unreadable)"];
+  }
+  if (typeof parsed !== "object" || parsed === null) return ["(unreadable)"];
+  const o = parsed as Record<string, unknown>;
+  if (typeof o.verdict !== "string" || typeof o.resolution !== "string") {
+    return ["(unreadable)"];
+  }
+  const lines = [`${o.verdict}: ${o.resolution}`];
+  const crossModel = o.cross_model;
+  if (
+    typeof crossModel === "object" &&
+    crossModel !== null &&
+    typeof (crossModel as Record<string, unknown>).agreement === "string"
+  ) {
+    lines.push(
+      `cross-model: ${(crossModel as Record<string, unknown>).agreement}`,
+    );
+  }
+  return lines;
+}
+
+/**
  * Rejected decisions for the slim PR comment's DECISIONS section: the
  * `rejected_alternatives[]` from BOTH the fix-applier artifact (objects with
  * `finding_id` / `considered_approach` / `why_rejected`) AND the consolidator
@@ -254,9 +288,12 @@ function rejectedDecisionLines(
  * `PIPELINE SNAPSHOT` title line (no `##`) over three 2-space-indented
  * labeled sections: CHANGES (the one-line diff summary, reusing
  * renderChanges), REVIEW (the review/findings disposition, reusing
- * renderFindings), and DECISIONS (deferred + rejected). PHASES and MANUAL
- * STEPS are intentionally dropped. Pure over already-read inputs — mirrors
- * render(); never reads files.
+ * renderFindings), and DECISIONS (deferred + rejected), plus a conditional
+ * INTENT section emitted only when the intent-resolution artifact is
+ * present AND its verdict is non-`match` (an unparseable artifact drops the
+ * section entirely rather than rendering `(unreadable)`, unlike `render()`).
+ * PHASES and MANUAL STEPS are intentionally dropped. Pure over already-read
+ * inputs — mirrors render(); never reads files.
  */
 export function renderComment(inputs: {
   prChangesRaw: string;
@@ -265,6 +302,7 @@ export function renderComment(inputs: {
   consolidatorRaw: string;
   ciWaitRaw: string;
   filedIssuesRaw: string;
+  intentResolutionRaw?: string;
 }): string {
   const lines: string[] = ["PIPELINE SNAPSHOT"];
   lines.push("CHANGES:");
@@ -277,6 +315,27 @@ export function renderComment(inputs: {
     ciWaitRaw: inputs.ciWaitRaw,
   })) {
     lines.push(`  ${ln}`);
+  }
+  // INTENT only appears in the comment variant when the artifact is present
+  // AND its verdict is non-match — a clean match adds nothing worth
+  // persisting to the PR comment.
+  if (inputs.intentResolutionRaw && inputs.intentResolutionRaw.trim()) {
+    let verdict: string | undefined;
+    try {
+      const o = JSON.parse(inputs.intentResolutionRaw) as Record<
+        string,
+        unknown
+      >;
+      if (typeof o.verdict === "string") verdict = o.verdict;
+    } catch {
+      /* leave undefined — degrades to no INTENT section, not (unreadable) */
+    }
+    if (verdict && verdict !== "match") {
+      lines.push("INTENT:");
+      for (const ln of renderIntent(inputs.intentResolutionRaw)) {
+        lines.push(`  ${ln}`);
+      }
+    }
   }
   lines.push("DECISIONS:");
   lines.push("  deferred:");
