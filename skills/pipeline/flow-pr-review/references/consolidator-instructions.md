@@ -162,7 +162,11 @@ window, issue-class)`. Keep the highest-confidence entry per cluster;
 
 For each >=80-confidence **non-praise** finding that survives dedup,
 apply this in-context rubric (an embedded prompt you self-apply — do
-NOT spawn a sub-sub-agent; the one-level sub-agent cap forbids it):
+NOT spawn a sub-sub-agent; flow's flat-fan-out policy forbids it at this
+site — nesting is platform-possible since Claude Code v2.1.172 but
+deliberately not used here; see the flow repo's
+`docs/nested-subagents-assessment.md` (rationale only; not shipped by
+`flow install`)):
 
 - Is the cited line actually in scope of the diff? (PR-touched lines
   only.)

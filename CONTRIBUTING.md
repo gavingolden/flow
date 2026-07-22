@@ -20,7 +20,7 @@ Everything under `bin/` runs on Bun (`#!/usr/bin/env bun`, gated by `import.meta
 
 ## Architecture
 
-A flow pipeline is one Claude Code chat session. Sub-skills (`/flow-product-planning`, `/flow-new-feature`, `/flow-verify`, `/flow-pr-review`) load **in-process** as skill instructions rather than as nested sub-agents, and helper scripts under `bin/` are plain Bash tool calls. The supervisor never spawns nested LLM sessions except at a small set of named `Task`-tool exemptions. This sidesteps two limits at once: Claude Code's one-level sub-agent cap, and the context-window bloat a long-running parent would accrue if it fanned out into deep agent trees.
+A flow pipeline is one Claude Code chat session. Sub-skills (`/flow-product-planning`, `/flow-new-feature`, `/flow-verify`, `/flow-pr-review`) load **in-process** as skill instructions rather than as nested sub-agents, and helper scripts under `bin/` are plain Bash tool calls. The supervisor never spawns nested LLM sessions except at a small set of named `Task`-tool exemptions — one of which, the Verify-Retry-Loop → edit-applier site, itself nests one level deeper (depth 3), the one place flow deliberately nests. This is flow's own deliberate flat-fan-out policy, not a platform limit: nesting has been platform-possible since Claude Code v2.1.172, but is ruinously token-expensive and hard to observe (see `docs/nested-subagents-assessment.md`). The policy sidesteps deep sub-agent fan-out and the context-window bloat a long-running parent would accrue if it fanned out into deep agent trees. The full rationale lives in [`docs/architecture.md`](docs/architecture.md).
 
 ## Setup internals
 

@@ -39,7 +39,11 @@ Before running anything:
 
 Invoke `/flow-verify` in-process inside the worktree. `/flow-verify` self-loops
 internally; the **outer cap is 3 attempts** and fires only when
-`/flow-verify` exits without a clean pass.
+`/flow-verify` exits without a clean pass. `/flow-verify` step 3 carries
+its own wider-scope `/flow-coder` delegation, but that delegation stays
+unavailable to this in-process invocation — the verify-loop is the one
+layer that owns the wider-scope spawn decision below, so a single failure
+can never produce two edit-applier spawns writing two artifacts.
 
 Each retry re-invokes `/flow-verify` and pastes the prior attempt's
 `flow-pre-commit --json` `failure` object verbatim. The cap on
@@ -68,13 +72,99 @@ PRIOR ATTEMPT FAILED — failure JSON (one entry per failed check):
 `firstErrorText` is the first line matching the error/fail regex;
 `headExcerpt` + `tailExcerpt` are bounded slices of the un-ANSI'd output.
 
-**Apply fixes INLINE — never spawn `/flow-coder`.** You are already a
-one-shot Task subagent, so the one-level sub-agent cap forbids you from
-spawning a nested Task call; `/flow-verify`'s wider-scope `/flow-coder` delegation
-is therefore unavailable to you. Apply every fix inline with `Edit` /
-`Write` regardless of scope — your own isolated context _is_ the
-isolation `/flow-coder` would otherwise provide, so nothing is lost. Record
-this as the design invariant it is, not a degradation.
+**Hybrid: narrow fixes inline, wider-scope fixes spawn one
+flow-edit-applier subagent.** Use the same trivial bar `/flow-verify`
+step 3 uses: a single-line fix in one named file stays inline via
+`Edit` / `Write`. Anything wider — multi-file failures, a fix needing
+≥3 LOC in a single file, or any failure whose fix requires reading
+multiple files for context — spawns exactly ONE flow-edit-applier
+subagent per outer attempt (depth 3: supervisor → verify-loop →
+edit-applier), rather than applying it inline. This is a sanctioned
+nested Task call — the one place flow deliberately nests, documented in
+`docs/nested-subagents-assessment.md` and bookkept inside the
+Verify-Retry-Loop exemption, not a tenth top-level exemption.
+
+**Load the Task tool before spawning.** Mirror
+`skills/pipeline/flow-coder/SKILL.md`'s "Spawn procedure" Task-load
+guard, with an **inverted failure action**: before the Task call below,
+run `ToolSearch query="select:Task"` and confirm the response contains
+either a `<function>{"name": "Task", ...}</function>` or a
+`<function>{"name": "Agent", ...}</function>` line. If it does not,
+**do not escalate** — record `coder_spawn: "task-tool-unavailable"`
+(tag: `task-tool-unavailable: verify-loop-edit-applier`, recorded in
+the artifact purely for the supervisor's step-6 NOTICE, never
+escalated), apply that fix inline instead, and stay inline for the
+remainder of the run. This site records-and-degrades rather than
+escalating because inline application is already this loop's
+known-good fallback — unlike the nine top-level exemptions, which have
+none.
+
+**Spawn procedure (wider-scope path only).**
+
+1. Resolve `agents/flow-edit-applier.md`: `[ -f
+~/.claude/agents/flow-edit-applier.md ]`. Unlike the nine top-level
+   exemptions, this site does **not** fall back to `general-purpose` on a
+   miss — a `general-purpose` child would inherit the full session
+   toolset (including `Task`) with none of `flow-edit-applier.md`'s
+   lint-pinned containment invariants, and this site already has a
+   known-good inline fallback. On a miss, record `coder_spawn:
+"agent-unavailable"`, apply the fix inline instead, and stay inline
+   for the remainder of the run — do not spawn `general-purpose` here.
+2. Compose the JSON edit-set the same way `/flow-verify` step 3 does
+   (one entry per failed `results[]` check, each `{file, intent,
+expected_outcome}`), per
+   `skills/pipeline/flow-coder/references/coder-instructions.md`
+   (`INSTRUCTIONS_PATH`; thread its absolute path plus the sibling
+   `SKILL_DIR = skills/pipeline/flow-coder/` into the spawn prompt the
+   same way `flow-coder/SKILL.md`'s own spawn procedure does, so the
+   child resolves references the same way its `/flow-coder`-routed
+   sibling would).
+3. Before spawning, clear any stale artifact:
+   `rm -f ".flow-tmp/verify-coder-result.json"` (you already `cd`'d into
+   the worktree in step 1 above — do not reference `$WORKTREE`, which is
+   a supervisor-side variable never exported into this subagent's shell).
+4. Spawn the one flow-edit-applier Task, passing the edit-set and — in
+   the spawn prompt, explicitly — the absolute artifact path
+   `<worktree>/.flow-tmp/verify-coder-result.json`. This filename
+   diverges from the flow-edit-applier agent description's default
+   `coder-result.json` on purpose: passing the path explicitly avoids
+   confusing the child, and keeps this nested artifact from ever being
+   confused with (or masked by) the supervisor-path
+   `.flow-tmp/coder-result.json`.
+5. After the Task returns: `test -s` the artifact, then JSON-parse it.
+   - On a clean read, record `coder_spawn: "ok"`. A child `verify_status:
+"pass"` means this outer attempt passed — do not re-run
+     `/flow-verify` again this attempt. Any other child `verify_status`
+     value means this outer attempt failed; consume the attempt and
+     continue the outer loop as usual. Never copy the child's excerpt
+     into this artifact's own `verify_status` field — the two fields
+     have different domains (`"pass" | "<excerpt>"` on the child vs.
+     `"pass" | "exhausted"` here); carry a failing child's excerpt into
+     `final_failure_excerpt` only if the run later exhausts.
+   - On a missing or unparseable artifact, record `coder_spawn:
+"artifact-missing"` (or `"invalid"`). Before applying the fix inline,
+     re-read the target files (or re-run `flow-pre-commit --json`) to
+     check whether the child already landed the edits — the child
+     applies its edit-set, then runs `flow-pre-commit --json`, then
+     writes the artifact last, so the most likely miss shape is "the
+     child edited and then died before writing," not "the child did
+     nothing." Apply inline only whatever portion is still missing, then
+     continue the outer-attempt loop — do not re-spawn after any miss.
+     One wasted spawn is the bound on this failure mode, never a hang or
+     a retry loop.
+6. Record `coder_spawn: "not-attempted"` **only** when no spawn was
+   attempted because every fix stayed inline by scope (the trivial bar
+   never crossed). A degraded value recorded above (`"agent-unavailable"`,
+   `"task-tool-unavailable"`, `"artifact-missing"`, `"invalid"`) is never
+   overwritten with `"not-attempted"` — overwriting it is exactly what
+   would silence the supervisor's step-6 NOTICE, the loud-failure signal
+   this whole design depends on. When more than one outer attempt spawns
+   (up to 3 per run), the first non-`"ok"`/non-`"not-attempted"` value
+   wins across attempts and is the one recorded in the final artifact.
+
+No path in this procedure waits, retries the spawn, or hangs — a
+degraded `coder_spawn` value always falls through to an inline fix and
+the loop keeps moving.
 
 **Retries are prompt-side only.** The Skill tool has no per-invocation
 model/effort override today, so the only escalation between attempts is
@@ -179,6 +269,7 @@ The artifact MUST conform to this JSON schema:
   "ui_smoke_reason": "<present only when ui_smoke is 'skipped' AND the diff touched UI: a one-line reason (mcp-absent / no-creds / launch-failed / not-meaningful / screenshots-unwritable) the supervisor renders into the user-visible 'UI changed; browser validation did not run — <reason>' line>",
   "ui_screenshots": ["<optional array of absolute screenshot paths captured by the browser pass and confirmed to exist on disk, sourced from flow-ui-validate --captures' evidence_paths[]>"],
   "final_failure_excerpt": "<present only when verify_status is 'exhausted': the head/tail-capped final failure log the supervisor renders into the PR-body `> [!CAUTION]` block>",
+  "coder_spawn": "ok" | "not-attempted" | "task-tool-unavailable" | "agent-unavailable" | "artifact-missing" | "invalid",
   "rejected_alternatives": [
     "<each fix-shape or strategy you considered and rolled back, one line each>"
   ],
@@ -195,6 +286,20 @@ The artifact MUST conform to this JSON schema:
   config-authoring re-run does NOT increment it.
 - `final_failure_excerpt` is present **only** when `verify_status` is
   `"exhausted"`. Omit it (or leave it empty) on `"pass"`.
+- `coder_spawn` is optional; when present it is exactly one of `"ok"`
+  (the wider-scope nested spawn ran and its artifact was read cleanly),
+  `"not-attempted"` (every fix stayed inline because scope never crossed
+  the wider-scope bar — a degraded spawn is recorded under its own value
+  below, never here), `"task-tool-unavailable"` (the Task-load guard
+  found neither `Task` nor `Agent` before spawning),
+  `"agent-unavailable"` (`agents/flow-edit-applier.md` was not installed
+  — this site does not fall back to `general-purpose`), `"artifact-missing"`
+  (the child's `verify-coder-result.json` was empty/absent), or `"invalid"`
+  (the artifact existed but failed to JSON-parse). Any non-`"ok"`/
+  `"not-attempted"` value is informational for the supervisor's step-6
+  NOTICE line, never a failure signal on its own. When multiple outer
+  attempts spawn, the first non-`"ok"`/non-`"not-attempted"` value wins
+  and is never overwritten by a later attempt's `"ok"` or `"not-attempted"`.
 
 **Negative-findings slots are required.** `rejected_alternatives` and
 `anti_patterns_found` are not optional decorations — populate them
@@ -233,8 +338,10 @@ Before writing the artifact and returning, self-check:
 - `attempts` is 1–3 and reflects outer attempts only (Layer-3 re-runs
   excluded).
 - `final_failure_excerpt` is present iff `verify_status` is `exhausted`.
-- No nested Task call was made (no `/flow-coder` spawn) — fixes were applied
-  inline.
+- Either every fix stayed inline (narrow scope), or at most one
+  flow-edit-applier Task was spawned per outer attempt on the
+  wider-scope path, with `coder_spawn` recorded accordingly. No spawn
+  was retried after a miss.
 - `ui_smoke` is one of `passed` / `skipped` / `not-applicable`; when it is
   `skipped` on a UI-touching diff, `ui_smoke_reason` carries the one-line
   reason for the user-visible unverified-UI line.
@@ -255,9 +362,10 @@ Before writing the artifact and returning, self-check:
 - ALWAYS run `/flow-verify` — running it is your entire purpose. (This is the
   deliberate inversion of the Merge-Conflict Resolver's "never run
   `/flow-verify`" constraint; do not copy that rule here.)
-- NEVER spawn `/flow-coder` or any other Task subagent. The one-level
-  sub-agent cap forbids a nested Task call; apply all fixes inline. Your
-  isolated context is the isolation `/flow-coder` would otherwise provide.
+- NEVER spawn any Task other than the one sanctioned flow-edit-applier
+  nested spawn described above; never nest deeper than depth 3; never
+  let a spawn failure block the loop — record `coder_spawn` and continue
+  inline instead.
 - NEVER exceed 3 outer `/flow-verify` attempts. After the third failed
   attempt, write `verify_status: "exhausted"` and return — do not loop
   forever.

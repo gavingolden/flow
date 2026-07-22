@@ -134,7 +134,11 @@ bar). The full contract is in `skills/pipeline/flow-coder/SKILL.md`'s
 `agents/flow-edit-applier.md` definition (judgment role: no frontmatter
 `effort`/`model`; per-spawn `model:` threading unchanged), with the
 `[ -f ~/.claude/agents/flow-edit-applier.md ] || general-purpose`
-fallback guard emitting the `NOTICE — agent-fallback:` line.
+fallback guard emitting the `NOTICE — agent-fallback:` line. A second,
+nested spawn site exists — the Verify-Retry-Loop's wider-scope path
+spawns the same definition directly at depth 3, writing
+`verify-coder-result.json` with no `general-purpose` fallback; see the
+Verify-Retry-Loop section below.
 
 ## `/flow-pr-review` Independent Gatekeeper Subagent
 
@@ -191,9 +195,28 @@ surfacing — `final_failure_excerpt?`, `rejected_alternatives`, `anti_patterns_
 7; `exhausted` escalates `verify-exhausted` and writes the `> [!CAUTION]` PR-body
 block from `final_failure_excerpt`. A committing subagent is consistent with the
 Fix-Applier (#4) and Merge-Conflict Resolver (#5) precedents. Spawned as
-the named `agents/flow-verify.md` definition (judgment role: no
-frontmatter `effort`/`model`; per-spawn `model:` threading unchanged),
+the named `agents/flow-verify.md` definition (mechanical role: pins
+`effort: low`, no `model:` pin; per-spawn `model:` threading unchanged),
 with the `[ -f ~/.claude/agents/flow-verify.md ] || general-purpose`
 fallback guard emitting the `NOTICE — agent-fallback:` line. The
 subagent's full instructions are at
 `skills/pipeline/flow-pipeline/references/verify-loop-instructions.md`.
+
+**Nested site.** On the wider-scope path, the verify-loop subagent
+spawns ONE flow-edit-applier subagent at depth 3, with NO
+`general-purpose` fallback (unlike the nine top-level exemptions, this
+site has a known-good inline fallback and does not hand a Task-capable
+toolset to a definition that isn't lint-pinned to exclude `Task`),
+passing a JSON edit-set per
+`skills/pipeline/flow-coder/references/coder-instructions.md` (its
+`INSTRUCTIONS_PATH`, threaded alongside `SKILL_DIR =
+skills/pipeline/flow-coder/`) and the absolute artifact path
+`<worktree>/.flow-tmp/verify-coder-result.json` (distinct from the
+supervisor-path `coder-result.json` so a stale parent artifact can never
+mask a child miss); failure enum recorded in `verify-loop-result.json`'s
+`coder_spawn`: `ok`|`not-attempted`|`task-tool-unavailable`|
+`agent-unavailable`|`artifact-missing`|`invalid`. On any miss the loop
+applies that fix inline once and stays inline for the remainder of the
+run. This is a sanctioned nested site inside this exemption, not a
+tenth top-level exemption; its failure action is inverted from the nine
+top-level sites — record and degrade inline, never escalate.

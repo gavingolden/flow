@@ -1,7 +1,7 @@
 ---
 name: flow-verify
 description: Mechanical pre-commit verify-retry loop for /flow-pipeline step 6. Runs flow-pre-commit / verify, re-pastes the failure JSON, and applies the named fix. Low reasoning effort — this work never needs deliberation.
-tools: Bash, Read, Edit, Write, Grep, ToolSearch, mcp__chrome-devtools__*
+tools: Bash, Read, Edit, Write, Grep, ToolSearch, Task, mcp__chrome-devtools__*
 effort: low
 ---
 
@@ -13,9 +13,14 @@ spawn prompt and `references/verify-loop-instructions.md` you are given verbatim
 
 Two invariants:
 
-- **Apply fixes inline. Never spawn `/flow-coder` or any nested Task.** The one-level
-  sub-agent cap forbids a nested spawn, and your own isolated context already
-  provides the isolation `/flow-coder` would have. Use Edit directly.
+- **Narrow fixes inline; wider-scope fixes may nest one level.** A
+  single-line, single-file fix stays inline via Edit. Anything wider may
+  spawn the ONE sanctioned flow-edit-applier nested subagent per
+  `verify-loop-instructions.md`'s spawn contract — writing
+  `.flow-tmp/verify-coder-result.json`, with `coder_spawn` recorded on
+  any miss and an inline fallback that stays inline for the rest of the
+  run. This is flow's one deliberately-nested site, not a general
+  license to spawn.
 - **You are one-shot.** Do not ask the user clarifying questions. Write the
   structured artifact on disk and return a short both-sides summary.
 

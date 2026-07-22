@@ -1151,7 +1151,12 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     wantTools?: string;
     inheritsAllTools?: boolean;
   }> = [
-    { file: "flow-verify.md", wantEffort: "low" },
+    {
+      file: "flow-verify.md",
+      wantEffort: "low",
+      wantTools:
+        "Bash, Read, Edit, Write, Grep, ToolSearch, Task, mcp__chrome-devtools__\\*",
+    },
     { file: "flow-fix-applier.md", wantEffort: "low" },
     { file: "flow-gatekeeper.md", wantModel: "haiku" },
     { file: "flow-consolidator.md" },
@@ -1560,12 +1565,65 @@ describe("Compact Instructions + verify-loop-instructions structural anchors", (
       "verify-loop-instructions.md must document the `verify_status` artifact field.",
     ).toBe(true);
     expect(
-      /never spawn[^.]*`\/flow-coder`/i.test(content) ||
-        content.includes("never spawn `/flow-coder`"),
-      "verify-loop-instructions.md must document the load-bearing inline-fix " +
-        "invariant (the subagent applies /flow-verify fixes inline and never spawns " +
-        "/flow-coder — the one-level Task cap forbids a nested Task).",
+      content.includes("verify-coder-result.json"),
+      "verify-loop-instructions.md must document the load-bearing hybrid " +
+        "inline/nested-spawn invariant: narrow fixes apply inline; wider-scope " +
+        "fixes spawn one flow-edit-applier subagent writing " +
+        "verify-coder-result.json, recording coder_spawn and falling back " +
+        "inline on any miss — never hanging or retrying the spawn.",
     ).toBe(true);
+    expect(
+      content.includes("select:Task") ||
+        content.includes("Load the Task tool before spawning"),
+      "verify-loop-instructions.md must document the Task-load guard " +
+        "('Load the Task tool before spawning' / ToolSearch query=\"select:Task\") " +
+        "for its one sanctioned nested spawn.",
+    ).toBe(true);
+  });
+
+  const CODER_SPAWN_VALUES = [
+    "ok",
+    "not-attempted",
+    "task-tool-unavailable",
+    "agent-unavailable",
+    "artifact-missing",
+    "invalid",
+  ] as const;
+
+  it.each(CODER_SPAWN_VALUES)(
+    "verify-loop-instructions.md documents the coder_spawn value %s",
+    (value) => {
+      const verifyLoopPath = path.resolve(
+        HERE,
+        "..",
+        "skills",
+        "pipeline",
+        "flow-pipeline",
+        "references",
+        "verify-loop-instructions.md",
+      );
+      const content = fs.readFileSync(verifyLoopPath, "utf8");
+      expect(
+        content.includes(`"${value}"`),
+        `verify-loop-instructions.md must document the coder_spawn value '"${value}"' — the ` +
+          "supervisor's step-6 NOTICE branch keys off exactly this enum; dropping a value " +
+          "breaks the record-and-degrade contract without failing any test.",
+      ).toBe(true);
+    },
+  );
+
+  it("flow-pipeline/SKILL.md's step-6 artifact read keeps the CODER_SPAWN NOTICE anchors", () => {
+    for (const literal of [
+      "CODER_SPAWN=$(jq -r '.coder_spawn // empty' \"$ARTIFACT_PATH\")",
+      "NOTICE — verify-loop coder spawn degraded:",
+    ]) {
+      expect(
+        content.includes(literal),
+        `flow-pipeline SKILL.md step-6 artifact read must keep '${literal}' — the recorded ` +
+          "coder_spawn degradation is never escalated, so this NOTICE is the only signal a " +
+          "depth-3 spawn or artifact miss ever reaches a human.",
+      ).toBe(true);
+    }
   });
 });
 
@@ -3075,7 +3133,7 @@ describe("pr-review result-artifact contract lint", () => {
   );
 });
 
-describe("Task-tool ToolSearch-load preamble at all nine spawn sites", () => {
+describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites plus the nested verify-loop site", () => {
   const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
     {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
@@ -3115,7 +3173,14 @@ describe("Task-tool ToolSearch-load preamble at all nine spawn sites", () => {
     },
   ];
 
-  it.each(SITES)(
+  const NESTED_SITE_NAME = "verify-loop-edit-applier";
+  const NESTED_SITE_FILE =
+    "skills/pipeline/flow-pipeline/references/verify-loop-instructions.md";
+  const TOP_LEVEL_SITES = SITES.filter(
+    (s) => s.exemption_name !== NESTED_SITE_NAME,
+  );
+
+  it.each(TOP_LEVEL_SITES)(
     "$file carries the 'Load the Task tool before spawning' preamble and escalation tag for $exemption_name",
     ({ file, exemption_name }) => {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
@@ -3139,6 +3204,34 @@ describe("Task-tool ToolSearch-load preamble at all nine spawn sites", () => {
       ).toBe(true);
     },
   );
+
+  it("the nested verify-loop → edit-applier site loads Task then records-and-degrades instead of escalating", () => {
+    const absPath = path.resolve(HERE, "..", ...NESTED_SITE_FILE.split("/"));
+    const fileContent = fs.readFileSync(absPath, "utf8");
+    expect(
+      fileContent.includes("Load the Task tool before spawning"),
+      `${NESTED_SITE_FILE} must include the literal 'Load the Task tool before spawning' ` +
+        `anchor for '${NESTED_SITE_NAME}', same as the nine top-level sites.`,
+    ).toBe(true);
+    expect(
+      fileContent.includes('coder_spawn: "task-tool-unavailable"'),
+      `${NESTED_SITE_FILE} must record coder_spawn: "task-tool-unavailable" on a missing ` +
+        `Task schema at the '${NESTED_SITE_NAME}' site.`,
+    ).toBe(true);
+    expect(
+      /do not escalate/i.test(fileContent),
+      `${NESTED_SITE_FILE} must state its failure action is inverted from the nine ` +
+        `top-level sites: do not escalate on a missing Task schema.`,
+    ).toBe(true);
+    expect(
+      fileContent.includes(
+        `NEEDS HUMAN: task-tool-unavailable: ${NESTED_SITE_NAME}`,
+      ),
+      `${NESTED_SITE_FILE} must NOT escalate 'NEEDS HUMAN: task-tool-unavailable: ` +
+        `${NESTED_SITE_NAME}' — inline application is this site's known-good fallback, ` +
+        `unlike the nine top-level exemptions that have none.`,
+    ).toBe(false);
+  });
 
   // Sites refactored to include-by-reference: the alias-tolerance literals
   // live in skills/pipeline/flow-pr-review/references/task-tool-exemption-preamble.md
