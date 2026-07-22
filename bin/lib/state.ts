@@ -430,6 +430,14 @@ function isPipelineState(x: unknown): x is PipelineState {
     o.launcher !== "tmux"
   )
     return false;
+  if (o.launchAttempts !== undefined && typeof o.launchAttempts !== "number")
+    return false;
+  if (
+    o.launchOutcome !== undefined &&
+    o.launchOutcome !== "started" &&
+    o.launchOutcome !== "launched-not-confirmed"
+  )
+    return false;
   return true;
 }
 

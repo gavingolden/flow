@@ -41,8 +41,14 @@ export function checkClaudeRunnable(
   let result: ReturnType<ClaudeProbeRunner>;
   try {
     result = runner(["claude", "--version"]);
-  } catch {
-    return { ok: false, reason: "not-on-path" };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    if (code === "ENOENT") {
+      return { ok: false, reason: "not-on-path" };
+    }
+    const detail =
+      err instanceof Error ? err.message : String(err ?? "spawn failed");
+    return { ok: false, reason: `probe-failed: ${detail}` };
   }
   if (result.ok) return { ok: true };
   const detail = (result.stderr || result.stdout || "").trim();

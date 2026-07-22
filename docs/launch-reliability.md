@@ -6,9 +6,12 @@ were deliberately not pursued.
 
 ## Ongoing measurement
 
-Every successful tmux-backed launch appends one JSON line to
-`~/.flow/logs/launch.jsonl` (`bin/lib/launch-log.ts`): `{slug, at,
-attempts, outcome, launcher}`. The running first-attempt rate:
+Every successful tmux-backed launch through `flow feature create` /
+`flow feature resume` appends one JSON line to `~/.flow/logs/launch.jsonl`
+(`bin/lib/launch-log.ts`): `{slug, at, attempts, outcome, launcher}`.
+`flow epic run`'s own retry path and the plain (non-tmux) launcher are not
+instrumented yet (deliberate scope cut, tracked as follow-up work — see
+issue #394). The running first-attempt rate:
 
 ```sh
 jq -s 'if length == 0 then "no data yet" else {launches: length, first_attempt: (map(select(.attempts == 1)) | length), rate: ((map(select(.attempts == 1)) | length) / length)} end' ~/.flow/logs/launch.jsonl 2>/dev/null || echo "no data yet (log missing)"
