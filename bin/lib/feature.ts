@@ -49,6 +49,7 @@ import {
   type ReadConfigFile,
 } from "./models-config";
 import { sleepSync } from "./sleep";
+import { appendLaunchRecord } from "./launch-log";
 import { dim } from "./color";
 import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
 import {
@@ -102,17 +103,19 @@ function launchWithRetry(
   launch: () => VerifiedLaunchResult,
   retrySleepMs?: number,
   sleep: (ms: number) => void = sleepSync,
-): VerifiedLaunchResult {
+): VerifiedLaunchResult & { attempts: number } {
   let last: VerifiedLaunchResult = { status: "failed", stderr: "" };
+  let attempts = 0;
   for (let attempt = 0; attempt < WINDOW_CREATE_MAX_ATTEMPTS; attempt++) {
     if (attempt > 0) {
       const ms = retrySleepMs ?? backoffMsForAttempt(attempt);
       if (ms > 0) sleep(ms);
     }
+    attempts = attempt + 1;
     last = launch();
-    if (last.status !== "failed") return last;
+    if (last.status !== "failed") return { ...last, attempts };
   }
-  return last;
+  return { ...last, attempts };
 }
 
 export type FeatureOptions = {
@@ -221,6 +224,11 @@ export type FeatureOptions = {
    * fail-open test passes a short value so an over-subscribed cap proceeds fast.
    */
   launchSemTimeoutMs?: number;
+  /**
+   * Launch-breadcrumb log path override (test seam only). Production
+   * defaults to ~/.flow/logs/launch.jsonl inside `appendLaunchRecord`.
+   */
+  launchLogPath?: string;
   /**
    * Path to the flow-scoped `claude --settings` file the launch argv references
    * and `ensureLaunchSettings` writes. Test seam only — production uses
@@ -912,6 +920,43 @@ function runFresh(
     return 1;
   }
 
+  // Launch breadcrumb: fold attempts/outcome into the CURRENT on-disk state
+  // (re-read after withLaunchSlot returned — never baseState; the final
+  // attempt count doesn't exist inside the per-attempt closure, and a
+  // supervisor write that already landed must not be clobbered), then append
+  // the durable log line. appendLaunchRecord is fail-open — it never fails
+  // the launch.
+  {
+    const current = readState(slug, options.stateDir);
+    if (current != null) {
+      writeState(
+        {
+          ...current,
+          launchAttempts: result.attempts,
+          launchOutcome: result.status,
+        },
+        options.stateDir,
+      );
+    }
+    appendLaunchRecord(
+      {
+        slug,
+        at: nowIso(),
+        attempts: result.attempts,
+        outcome: result.status,
+        launcher: "tmux",
+      },
+      options.launchLogPath,
+    );
+    if (result.attempts > 1) {
+      process.stderr.write(
+        dim(
+          `flow feature create: launch succeeded on attempt ${result.attempts}\n`,
+        ),
+      );
+    }
+  }
+
   // State was written up front and survived verification; the supervisor (PR 2)
   // overwrites worktree + phase + pr at each transition from here.
   // First line is the machine-read contract token — raw, never colorized.
@@ -1126,6 +1171,43 @@ function runResume(
     );
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 1;
+  }
+
+  // Launch breadcrumb, mirroring runFresh: fold attempts/outcome into the
+  // CURRENT on-disk state after withLaunchSlot returned (the final attempt
+  // count doesn't exist inside the per-attempt closure), append the durable
+  // log line (fail-open), and emit one dim retry notice on attempts > 1.
+  // Safe re updatedAt: writeState never stamps it, so the resume closure's
+  // consumed() baseline comparison is untouched.
+  {
+    const current = readState(slug, options.stateDir);
+    if (current != null) {
+      writeState(
+        {
+          ...current,
+          launchAttempts: result.attempts,
+          launchOutcome: result.status,
+        },
+        options.stateDir,
+      );
+    }
+    appendLaunchRecord(
+      {
+        slug,
+        at: nowIso(),
+        attempts: result.attempts,
+        outcome: result.status,
+        launcher: "tmux",
+      },
+      options.launchLogPath,
+    );
+    if (result.attempts > 1) {
+      process.stderr.write(
+        dim(
+          `flow feature resume: launch succeeded on attempt ${result.attempts}\n`,
+        ),
+      );
+    }
   }
 
   // Phase + worktree + pr stay as the crash left them. The supervisor's
@@ -1385,10 +1467,10 @@ function makeLaunchProgressWriter(): (elapsedMs: number) => void {
  * override (tests redirect it off the real ~/.flow); the cap is
  * `resolveLaunchConcurrency`.
  */
-function withLaunchSlot(
-  launch: () => VerifiedLaunchResult,
+function withLaunchSlot<T extends VerifiedLaunchResult>(
+  launch: () => T,
   options: FeatureOptions,
-): VerifiedLaunchResult {
+): T {
   const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? FLOW_LAUNCH_SEM_DIR;
   const slots = resolveLaunchConcurrency(process.env);
   const semOpts =
