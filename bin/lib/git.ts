@@ -88,7 +88,8 @@ export type FastForwardSkippedReason =
   | "fetch-failed"
   | "no-default-branch"
   | "merge-failed"
-  | "not-a-git-repo";
+  | "not-a-git-repo"
+  | "repointed-source";
 
 export type FastForwardResult = {
   status: FastForwardStatus;

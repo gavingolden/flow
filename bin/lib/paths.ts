@@ -36,6 +36,32 @@ export const FLOW_MANIFEST = path.join(FLOW_DIR, "installed.json");
 export function flowConfigPath(): string {
   return path.join(os.homedir(), ".flow", "config.json");
 }
+
+/**
+ * Resolves `~/.local/bin/<name>` at call time, same rationale as
+ * `flowConfigPath()` above: `HOME` is captured at import time, before
+ * vitest's setup file swaps `$HOME` for a sandbox, so an eager
+ * `path.join(LOCAL_BIN_DIR, name)` would resolve against the developer's
+ * real home directory under tests.
+ */
+export function installedHelperPath(name: string): string {
+  return path.join(os.homedir(), ".local", "bin", name);
+}
+
+/**
+ * Resolves the `source` field from `~/.flow/config.json` at call time, for
+ * the same reason as `flowConfigPath()` and `installedHelperPath()` above:
+ * defaulting `homeDir` to the eager `HOME` constant would read the
+ * developer's real config under vitest's sandbox HOME. Returns `null` when
+ * the field is absent or the config is malformed/unreadable.
+ */
+export function configuredFlowSource(
+  homeDir: string = os.homedir(),
+): string | null {
+  const config = readConfig(homeDir);
+  return config.source ?? null;
+}
+
 export const FLOW_UPDATE_CACHE = path.join(FLOW_DIR, "update-check.json");
 export const SETUP_LOCK_PATH = path.join(FLOW_DIR, "setup.lock");
 export const FLOW_TEST_SEM_DIR = path.join(FLOW_DIR, "test-sem");

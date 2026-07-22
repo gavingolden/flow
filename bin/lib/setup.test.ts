@@ -13,6 +13,7 @@ import { spawnSync } from "node:child_process";
 import { runSetup, validateJsonFiles } from "./setup";
 import { runSetupCli } from "./setup-args";
 import { readManifest, writeManifest } from "./manifest";
+import type { FlowRootInfo } from "./worktree-source";
 import { LockTimeoutError } from "./lock";
 import { removeIfManagedSymlink } from "./symlink";
 import { countStopHook } from "./settings-merge";
@@ -2687,6 +2688,265 @@ describe("gh#435 registry-unknown pass-through in discoverSelected (Story 4)", (
       );
       expect(names).toContain("real-skill"); // valid unknown → passed through
       expect(names).not.toContain("stray-scratch"); // no SKILL.md → never discovered
+    }
+  });
+});
+
+describe("worktree install root", () => {
+  function addWorktree(canonicalRoot: string, worktreeDir: string): void {
+    const env = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "test",
+      GIT_AUTHOR_EMAIL: "test@example.com",
+      GIT_COMMITTER_NAME: "test",
+      GIT_COMMITTER_EMAIL: "test@example.com",
+    };
+    const r = spawnSync(
+      "git",
+      ["-C", canonicalRoot, "worktree", "add", "-b", "sibling", worktreeDir],
+      { env, encoding: "utf8" },
+    );
+    if (r.status !== 0) {
+      throw new Error(`git worktree add failed: ${r.stderr}`);
+    }
+  }
+
+  it("repoints a worktree-rooted install to the canonical sibling checkout", async () => {
+    const canonicalRoot = path.join(scratch, "flow-canonical");
+    buildFakeFlowSourceWithGit(canonicalRoot, ["alpha", "beta"]);
+    const worktreeDir = path.join(scratch, "flow-worktree");
+    addWorktree(canonicalRoot, worktreeDir);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await runSetup({
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        flowSource: worktreeDir,
+        installRoot: worktreeDir,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+      });
+      const manifest = readManifest(manifestPath);
+      expect(manifest.symlinks.length).toBeGreaterThan(0);
+      // Recorded sources are realpath'd (inspectFlowRoot resolves symlinks,
+      // e.g. macOS's /var -> /private/var), so compare against the
+      // canonical root's realpath rather than the raw fixture path.
+      const realCanonicalRoot = fs.realpathSync(canonicalRoot);
+      const realWorktreeDir = fs.realpathSync(worktreeDir);
+      for (const record of manifest.symlinks) {
+        expect(record.source.startsWith(realCanonicalRoot)).toBe(true);
+        expect(record.source.startsWith(realWorktreeDir)).toBe(false);
+      }
+      const wrapper = path.join(targets().binDir, "flow");
+      expect(fs.realpathSync(wrapper)).toBe(
+        fs.realpathSync(path.join(canonicalRoot, "bin", "flow")),
+      );
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).toMatch(
+        /is a git worktree — recording and linking against canonical/,
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("warn-only when the guard can't derive a canonical root: install still completes", async () => {
+    const inspectRoot = (): FlowRootInfo => ({
+      isWorktree: true,
+      canonicalRoot: null,
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const summary = await runSetup({
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        inspectRoot,
+      });
+      expect(summary.blocked).toBe(0);
+      expect(summary.created).toBeGreaterThan(0);
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).toMatch(
+        /is a git worktree and no canonical checkout was derived/,
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("skips the repoint (warn-only) when an explicit source is already configured", async () => {
+    fs.mkdirSync(path.join(homeDir, ".flow"), { recursive: true });
+    fs.writeFileSync(
+      path.join(homeDir, ".flow", "config.json"),
+      JSON.stringify({ source: flowSource }),
+    );
+    const canonicalRoot = path.join(scratch, "flow-canonical-unused");
+    buildFakeFlowSource(canonicalRoot);
+    const inspectRoot = (): FlowRootInfo => ({
+      isWorktree: true,
+      canonicalRoot,
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await runSetup({
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        inspectRoot,
+      });
+      const manifest = readManifest(manifestPath);
+      // No repoint: every recorded source stays under the configured
+      // (worktree) flowSource, never the injected canonicalRoot.
+      for (const record of manifest.symlinks) {
+        expect(record.source.startsWith(flowSource)).toBe(true);
+        expect(record.source.startsWith(canonicalRoot)).toBe(false);
+      }
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).toMatch(
+        /is a git worktree and no canonical checkout was derived/,
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("names a worktree-only artifact exactly once in the install summary", async () => {
+    // Calls runSetup directly (not the `setup()` helper, which hardcodes
+    // `quiet: true`) so the summary line is actually observable via
+    // console.log — same reason the sibling `--no-pull-canonical` spec above
+    // bypasses the helper.
+    const worktree = path.join(scratch, "worktree-with-extra-skill");
+    buildFakeFlowSource(worktree);
+    fs.mkdirSync(path.join(worktree, "skills", "pipeline", "epsilon"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(worktree, "skills", "pipeline", "epsilon", "SKILL.md"),
+      "# epsilon\n",
+    );
+
+    const runSetupArgs = (flowSourceOverride: string) => ({
+      cachePath: path.join(homeDir, ".flow", "update-check.json"),
+      all: true,
+      isTTY: false,
+      configPath: path.join(homeDir, ".flow", "config.json"),
+      flowSource: flowSourceOverride,
+      installRoot: flowSource,
+      targets: targets(),
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+    });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await runSetup(runSetupArgs(worktree));
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      const matches = allLogs.match(
+        /artifact\(s\) linked from the worktree source \(no canonical counterpart yet\)/g,
+      );
+      expect(matches?.length ?? 0).toBe(1);
+      expect(allLogs).toMatch(/epsilon/);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    // Companion: no worktree-only artifact -> no such line.
+    const logSpy2 = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined);
+    try {
+      await runSetup(runSetupArgs(flowSource));
+      const allLogs2 = logSpy2.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs2).not.toMatch(/linked from the worktree source/);
+    } finally {
+      logSpy2.mockRestore();
+    }
+  });
+
+  it("suppresses the canonical fast-forward when the repoint happened, but not otherwise", async () => {
+    // Repointed --upgrade run: fastForwardCanonical must not run against the
+    // worktree, and the generic skipped-reason line names repointed-source.
+    const canonicalRoot = path.join(scratch, "flow-canonical-ff");
+    buildFakeFlowSourceWithGit(canonicalRoot, ["alpha", "beta"]);
+    const worktreeDir = path.join(scratch, "flow-worktree-ff");
+    addWorktree(canonicalRoot, worktreeDir);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await runSetup({
+        upgrade: true,
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        flowSource: worktreeDir,
+        installRoot: worktreeDir,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+      });
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).toMatch(/content not refreshed \(repointed-source\)/);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    // Non-repointed canonical --upgrade run: the suppression must be scoped
+    // to the repoint — a normal canonical upgrade never emits that reason.
+    const logSpy2 = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined);
+    try {
+      await runSetup({
+        upgrade: true,
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        flowSource: canonicalRoot,
+        installRoot: canonicalRoot,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+      });
+      const allLogs2 = logSpy2.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs2).not.toMatch(/repointed-source/);
+    } finally {
+      logSpy2.mockRestore();
     }
   });
 });

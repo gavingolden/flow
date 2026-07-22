@@ -99,11 +99,13 @@ vi.mock("./liveness", async () => {
   };
 });
 
-import { FLOW_CLAUDE_HOME } from "./paths";
+import { FLOW_CLAUDE_HOME, installedHelperPath } from "./paths";
 import {
   runNew as runNewReal,
   runFeatureCli as runFeatureCliReal,
   deriveWorktreePath,
+  ensureLaunchSettings,
+  resolveSeedHookCommand,
   type FeatureOptions,
 } from "./feature";
 
@@ -2941,5 +2943,162 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
     });
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ensureLaunchSettings hook-command resolution", () => {
+  // These fixtures live under the REAL (sandboxed, per vitest.setup.ts) home
+  // directory — os.homedir() is read lazily by resolveSeedHookCommand(), so
+  // the sandbox HOME swap covers it. `fs` here is the module import, which
+  // vi.mock at the top of this file only overrides `readSync` on — every
+  // other member (mkdirSync/writeFileSync/existsSync/symlinkSync/statSync)
+  // passes through to the real implementation.
+  let installedHookPath!: string;
+  let settingsPath!: string;
+  let moduleRelativeHookPath!: string;
+
+  beforeEach(() => {
+    installedHookPath = installedHelperPath("flow-seed-ingested-hook");
+    settingsPath = path.join(stateDir, "hook-launch-settings.json");
+    // Derive the module-relative fallback the same way hookScriptPath() does
+    // (bin/lib/feature.ts -> ../flow-seed-ingested-hook.ts), without
+    // re-exporting the private resolver.
+    moduleRelativeHookPath = path.join(
+      __dirname,
+      "..",
+      "flow-seed-ingested-hook.ts",
+    );
+    delete process.env.FLOW_SEED_HOOK_COMMAND;
+    // Default-silence the divergence warning's stderr write across this
+    // block's fixtures that happen to diverge (installHook()'s default
+    // content differs from the real checked-out script); the two divergence
+    // cases below install their own spy and assert on it directly.
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    fs.rmSync(installedHookPath, { force: true });
+    delete process.env.FLOW_SEED_HOOK_COMMAND;
+  });
+
+  function readRecordedCommand(): string {
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      hooks: { UserPromptSubmit: Array<{ hooks: Array<{ command: string }> }> };
+    };
+    return settings.hooks.UserPromptSubmit[0]!.hooks[0]!.command;
+  }
+
+  function installHook(content = "installed-hook-content\n"): void {
+    fs.mkdirSync(path.dirname(installedHookPath), { recursive: true });
+    fs.writeFileSync(installedHookPath, content);
+    fs.chmodSync(installedHookPath, 0o755);
+  }
+
+  it("records the installed helper path when it exists on disk", () => {
+    installHook();
+    ensureLaunchSettings(settingsPath);
+    const recorded = readRecordedCommand();
+    expect(recorded).toBe(installedHookPath);
+    expect(recorded.endsWith(".ts")).toBe(false);
+  });
+
+  it("self-heals a pre-seeded settings file recording a removed-worktree path", () => {
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        hooks: {
+          UserPromptSubmit: [
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command:
+                    "/nonexistent/removed-worktree/bin/flow-seed-ingested-hook.ts",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    ensureLaunchSettings(settingsPath);
+    expect(fs.existsSync(readRecordedCommand())).toBe(true);
+  });
+
+  it("rewrites when the recorded command matches the resolver's output but its target was deleted", () => {
+    installHook();
+    ensureLaunchSettings(settingsPath);
+    expect(readRecordedCommand()).toBe(installedHookPath);
+    // Delete the installed target out from under an already-correct settings
+    // file — the byte-identical `desired` string would otherwise short-circuit.
+    fs.rmSync(installedHookPath, { force: true });
+    ensureLaunchSettings(settingsPath);
+    expect(fs.existsSync(readRecordedCommand())).toBe(true);
+    expect(readRecordedCommand()).toBe(moduleRelativeHookPath);
+  });
+
+  it("falls back to the module-relative script when no installed helper exists", () => {
+    ensureLaunchSettings(settingsPath);
+    const recorded = readRecordedCommand();
+    expect(recorded).toBe(moduleRelativeHookPath);
+    expect(fs.existsSync(recorded)).toBe(true);
+  });
+
+  it("falls back to the module-relative script when the installed path is a dangling symlink", () => {
+    fs.mkdirSync(path.dirname(installedHookPath), { recursive: true });
+    fs.symlinkSync("/nonexistent/gone", installedHookPath);
+    ensureLaunchSettings(settingsPath);
+    expect(readRecordedCommand()).toBe(moduleRelativeHookPath);
+  });
+
+  it("is idempotent: two consecutive calls in a healthy state don't touch mtime", () => {
+    ensureLaunchSettings(settingsPath);
+    const firstMtime = fs.statSync(settingsPath).mtimeMs;
+    ensureLaunchSettings(settingsPath);
+    expect(fs.statSync(settingsPath).mtimeMs).toBe(firstMtime);
+  });
+
+  it("warns to stderr when the installed helper diverges from the module-relative script", () => {
+    installHook("this differs from the checked-out script\n");
+    const writeSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    resolveSeedHookCommand();
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(writeSpy.mock.calls[0]![0]).toContain(
+      "your local edits to bin/flow-seed-ingested-hook.ts will not be exercised",
+    );
+    writeSpy.mockRestore();
+  });
+
+  it("stays silent when the installed helper's content matches the module-relative script", () => {
+    const scriptContent = fs.readFileSync(moduleRelativeHookPath, "utf8");
+    installHook(scriptContent);
+    const writeSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    resolveSeedHookCommand();
+    expect(writeSpy).not.toHaveBeenCalled();
+    writeSpy.mockRestore();
+  });
+
+  it("honors FLOW_SEED_HOOK_COMMAND even when the installed helper exists, with no warning", () => {
+    installHook("this differs from the checked-out script\n");
+    process.env.FLOW_SEED_HOOK_COMMAND = "/custom/override/hook.sh";
+    const writeSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    ensureLaunchSettings(settingsPath);
+    expect(readRecordedCommand()).toBe("/custom/override/hook.sh");
+    expect(writeSpy).not.toHaveBeenCalled();
+    writeSpy.mockRestore();
+  });
+
+  it("ignores an empty-string FLOW_SEED_HOOK_COMMAND override", () => {
+    installHook();
+    process.env.FLOW_SEED_HOOK_COMMAND = "";
+    ensureLaunchSettings(settingsPath);
+    expect(readRecordedCommand()).toBe(installedHookPath);
   });
 });

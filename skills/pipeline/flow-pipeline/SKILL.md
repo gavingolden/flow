@@ -2209,18 +2209,19 @@ merge on a peripheral failure, which inverts the priority.
 **Canonical fast-forward.** `flow install --upgrade` opportunistically
 fast-forwards the canonical install root before discovery — this fixes
 the PR #115 race where freshly-merged skills got orphan-reaped because
-the canonical checkout still had the pre-merge tree. The line
-`canonical: fast-forwarded N commits` (or `canonical: skipped (<reason>)`
-when the fast-forward can't run — `dirty`, `non-default-branch`,
-`fetch-failed`, `merge-failed`, `no-default-branch`, or
-`not-a-git-repo`) appears in the LOCAL FOLLOW-UPS block before the
-symlink summary. As a defense-in-depth layer for the
-dirty-canonical case, `removeIfManagedSymlink` (in `bin/lib/symlink.ts`)
-now defers reaping a dangling pointer when the recorded source still
-exists in `origin/<default>`'s tree but not in the canonical working
-tree. Opt out per-run with `flow install --upgrade --no-pull-canonical`;
-the followup itself does NOT pass this flag — the allowlist exact-match
-is load-bearing.
+the canonical checkout still had the pre-merge tree. On an advance the line
+reads `flow updated: v<ver>, N commit`/`commits`, optionally suffixed
+`, <beforeSha> → <afterSha>`; on a skip it reads `flow: content not
+refreshed (<reason>)` — `dirty`, `non-default-branch`, `fetch-failed`,
+`merge-failed`, `no-default-branch`, `not-a-git-repo`, or `repointed-source`
+(the install-root guard already repointed `installRoot`, so the fast-forward
+is skipped) — appearing in LOCAL FOLLOW-UPS before the symlink summary.
+As a defense-in-depth layer for the dirty-canonical case,
+`removeIfManagedSymlink` (in `bin/lib/symlink.ts`) now defers reaping a
+dangling pointer when the recorded source still exists in
+`origin/<default>`'s tree but not in the canonical working tree. Opt out
+per-run with `flow install --upgrade --no-pull-canonical`; the followup
+itself does NOT pass this flag — the allowlist exact-match is load-bearing.
 
 **No new phase value.** Step 11 is bookkeeping inside `merging` (MERGED
 path) or a final read just before the terminal print (GATED / NEEDS HUMAN).
