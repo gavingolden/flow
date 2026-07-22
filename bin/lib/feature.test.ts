@@ -119,7 +119,7 @@ const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
     tmuxOnPath: () => true,
     ...options,
   });
-import { writeState, PHASE_MODEL_FLAGS } from "./state";
+import { writeState, readState, PHASE_MODEL_FLAGS } from "./state";
 
 let stateDir!: string;
 let repoDir!: string;
@@ -400,6 +400,9 @@ describe("runNew --resume", () => {
       procStartedAt: FAKE_PROC_STARTED_AT,
       // Additive: a tmux resume now also stamps the backend it ran under.
       launcher: "tmux",
+      // Additive: launch breadcrumb (attempts + outcome) folded post-launch.
+      launchAttempts: 1,
+      launchOutcome: "started",
     });
   });
 
@@ -2166,6 +2169,75 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
       .readdirSync(stateDir)
       .filter((f) => f.endsWith(".json"));
     expect(stateFiles).toEqual(["csv-export.json"]);
+  });
+
+  it("launch breadcrumb: the MODE-3 self-heal persists launchAttempts: 2 and appends one log line with attempts: 2", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    tmuxMock.createWindowVerified
+      .mockReturnValueOnce({
+        status: "failed",
+        stderr: "the seed prompt was never consumed (supervisor did not start)",
+      })
+      .mockReturnValueOnce({ status: "started", stderr: "" });
+    const logPath = path.join(stateDir, "launch.jsonl");
+    const stderrWrites: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderrWrites.push(String(chunk));
+      return true;
+    });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleepMs: 0,
+      launchLogPath: logPath,
+    });
+    expect(code).toBe(0);
+    const state = readState("csv-export", stateDir);
+    expect(state?.launchAttempts).toBe(2);
+    expect(state?.launchOutcome).toBe("started");
+    const lines = fs
+      .readFileSync(logPath, "utf8")
+      .split("\n")
+      .filter((l) => l !== "");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0])).toMatchObject({
+      slug: "csv-export",
+      attempts: 2,
+      outcome: "started",
+      launcher: "tmux",
+    });
+    expect(stderrWrites.join("")).toMatch(/succeeded on attempt 2/);
+  });
+
+  it("launch breadcrumb: a clean launch records attempts: 1 and emits no retry notice", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const logPath = path.join(stateDir, "launch.jsonl");
+    const stderrWrites: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderrWrites.push(String(chunk));
+      return true;
+    });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleepMs: 0,
+      launchLogPath: logPath,
+    });
+    expect(code).toBe(0);
+    const state = readState("csv-export", stateDir);
+    expect(state?.launchAttempts).toBe(1);
+    expect(state?.launchOutcome).toBe("started");
+    const lines = fs
+      .readFileSync(logPath, "utf8")
+      .split("\n")
+      .filter((l) => l !== "");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]).attempts).toBe(1);
+    expect(stderrWrites.join("")).not.toMatch(/succeeded on attempt/);
   });
 
   it("BLOCKING regression: an attempt that advances the phase then dies must not poison the next retry's consumed()", () => {

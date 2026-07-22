@@ -51,6 +51,11 @@ import {
   type FastForwardResult,
 } from "./git";
 import { findMissingRuntimeDeps, formatMissingDepsError } from "./setup-deps";
+import {
+  checkClaudeRunnable,
+  formatClaudeCheckWarning,
+  type ClaudeProbeRunner,
+} from "./setup-claude-check";
 import { readFlowVersion } from "./pkg-version";
 import { invalidateUpdateCheckCache } from "./update-check";
 import { dim, green, red } from "./color";
@@ -218,6 +223,11 @@ export type SetupOptions = {
    * `command -v` shell-out.
    */
   commandOnPath?: (cmd: string) => boolean;
+  /**
+   * `claude --version` probe seam for preflight's claude-runnable check.
+   * Test-only override; defaults to the real spawn in setup-claude-check.ts.
+   */
+  claudeProbe?: ClaudeProbeRunner;
 };
 
 export type SetupSummary = {
@@ -670,6 +680,13 @@ function preflight(targets: InstallTargets, options: SetupOptions): void {
         "  Add it to your shell rc and restart the shell:\n" +
         `    export PATH="${targets.binDir}:$PATH"`,
     );
+  }
+  // Claude Code is what every pipeline launch runs; warn (never fail) at
+  // install time when `claude --version` won't run, same warn-only pattern
+  // as the two checks above.
+  const claude = checkClaudeRunnable(options.claudeProbe);
+  if (!claude.ok) {
+    console.error(formatClaudeCheckWarning(claude.reason ?? "probe-failed"));
   }
 }
 

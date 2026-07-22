@@ -106,7 +106,9 @@ Subcommands:
 
 Options (create):
   --tmux / --no-tmux    per-run launcher override (mutually exclusive). Precedence:
-                        flag > recorded state (resume) > config launcher > plain
+                        flag > recorded state (resume) > config launcher > plain.
+                        Without a TTY the plain launcher refuses; non-interactive/scripted
+                        launches require --tmux
   --no-auto-merge       stop at gated regardless of the auto-merge rubric
   --wait-for-copilot    force the full 10-min Copilot wait even when auto-detect would skip
   --research            force web-grounded discovery research on, bypassing the relevance gate

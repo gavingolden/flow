@@ -1596,6 +1596,7 @@ describe("preflight tmux-on-PATH warning (hard-fail-to-warning flip)", () => {
         // when the recorded launcher is "tmux" — the exact regression this
         // spec pins is a hard exit(1) firing regardless of that recording.
         commandOnPath: () => false,
+        claudeProbe: () => ({ ok: true }),
         quiet: true,
       });
       expect(summary.blocked).toBe(0);
@@ -1627,6 +1628,7 @@ describe("preflight tmux-on-PATH warning (hard-fail-to-warning flip)", () => {
         isTTY: false,
         configPath,
         commandOnPath: () => false,
+        claudeProbe: () => ({ ok: true }),
         quiet: true,
       });
       expect(summary.blocked).toBe(0);

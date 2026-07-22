@@ -199,6 +199,14 @@ export type PipelineState = {
    * AGENTS.md forbids back-compat shims).
    */
   launcher?: "plain" | "tmux";
+  /**
+   * Launch-breadcrumb pair (tmux-backed launches only): how many verified
+   * launch attempts the create/resume took (1-based) and the outcome of the
+   * attempt that succeeded. Optional-additive like `pid`/`procStartedAt`/
+   * `launcher` above; absent ≡ unknown (no migration).
+   */
+  launchAttempts?: number;
+  launchOutcome?: "started" | "launched-not-confirmed";
   updatedAt: string;
 };
 
