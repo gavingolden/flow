@@ -13,10 +13,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   CLAUDE_SETTINGS_PATH,
+  configuredFlowSource,
   FLOW_MANIFEST,
   resolveFlowSource,
   SETUP_LOCK_PATH,
 } from "./paths";
+import { inspectFlowRoot, type FlowRootInfo } from "./worktree-source";
 import {
   readManifest,
   writeManifest,
@@ -170,6 +172,13 @@ export type SetupOptions = {
    */
   installRunner?: (root: string) => { ok: boolean; stderr?: string };
   /**
+   * Injectable worktree/canonical-root inspector, used by the install-root
+   * worktree guard. Defaults to `inspectFlowRoot` (`./worktree-source.ts`);
+   * tests stub it to exercise the guard's branches without a real git
+   * worktree fixture.
+   */
+  inspectRoot?: (dir: string) => FlowRootInfo;
+  /**
    * Explicit module selection from `--modules <csv>` / `--core-only`
    * (already resolved to an id list, core folded in, by `setup-args.ts`).
    * Wins over any recorded `~/.flow/config.json` selection — see
@@ -245,13 +254,38 @@ export async function runSetup(
   options: SetupOptions = {},
 ): Promise<SetupSummary> {
   const flowSource = options.flowSource ?? resolveFlowSource();
-  const installRoot = options.installRoot ?? resolveFlowSource();
+  let installRoot = options.installRoot ?? resolveFlowSource();
   const targets = options.targets ?? DEFAULT_TARGETS;
   const log = options.quiet
     ? () => undefined
     : (msg: string) => console.log(msg);
 
   if (!options.skipPreflight) preflight(targets, options);
+
+  // Install-root worktree guard: an install rooted in a git worktree (rather
+  // than the canonical checkout) records manifest entries and symlink
+  // targets that dangle the moment that worktree is removed (e.g. on PR
+  // merge). Repoint to the derived canonical root when one is available and
+  // no explicit `source` is already configured; otherwise warn-only — never
+  // throws, never changes the exit code (inspectFlowRoot itself fails open).
+  let repointedInstallRoot = false;
+  const rootInfo = (options.inspectRoot ?? inspectFlowRoot)(installRoot);
+  if (rootInfo.isWorktree) {
+    if (
+      rootInfo.canonicalRoot &&
+      configuredFlowSource(options.homeDir) === null
+    ) {
+      log(
+        `! install root ${installRoot} is a git worktree — recording and linking against canonical ${rootInfo.canonicalRoot} instead (a worktree-rooted install dangles every global symlink when the worktree is removed)`,
+      );
+      installRoot = rootInfo.canonicalRoot;
+      repointedInstallRoot = true;
+    } else {
+      log(
+        `! install root ${installRoot} is a git worktree and no canonical checkout was derived — every symlink written now will dangle when this worktree is removed; re-run 'flow install --upgrade' from the canonical checkout afterwards`,
+      );
+    }
+  }
 
   // Preflight-like timing so a broken node_modules surfaces fast — but
   // reported through the summary (set inside runUnderLock), never via
@@ -275,9 +309,14 @@ export async function runSetup(
 
   // Outside the lock so two parallel pipelines don't serialize on a network
   // round-trip. Best-effort — captured and reported in the outcome headline
-  // (printOutcome) rather than logged inline.
+  // (printOutcome) rather than logged inline. Suppressed when the guard
+  // above already repointed installRoot this run: the freshly repointed
+  // canonical tree doesn't need (and shouldn't race) a fetch/merge in the
+  // same breath as the repoint.
   let ff: FastForwardResult | undefined;
-  if (options.upgrade && options.pullCanonicalFirst !== false) {
+  if (repointedInstallRoot) {
+    ff = { status: "skipped", reason: "repointed-source" };
+  } else if (options.upgrade && options.pullCanonicalFirst !== false) {
     ff = fastForwardCanonical({ canonicalRoot: installRoot });
   }
 
@@ -359,6 +398,7 @@ async function runUnderLock(
   log(`flow: setup`);
   log(`      source ${flowSource}`);
 
+  const worktreeOnlyNames: string[] = [];
   for (const entry of entries) {
     // Point the live symlink at the canonical (installRoot) path for any
     // content that exists there, so a `--source <worktree>` install doesn't
@@ -372,6 +412,13 @@ async function runUnderLock(
       flowSource,
       installRoot,
     );
+    if (
+      flowSource !== installRoot &&
+      liveSource.startsWith(flowSource) &&
+      liveSource === entry.source
+    ) {
+      worktreeOnlyNames.push(entry.displayName);
+    }
     const result = ensureSymlink(
       entry.target,
       liveSource,
@@ -379,6 +426,11 @@ async function runUnderLock(
     );
     logResult(entry, result, log);
     summary[bucketFor(result)]++;
+  }
+  if (worktreeOnlyNames.length > 0) {
+    log(
+      `! ${worktreeOnlyNames.length} artifact(s) linked from the worktree source (no canonical counterpart yet): ${worktreeOnlyNames.join(", ")} — re-run 'flow install --upgrade' after merge`,
+    );
   }
 
   // Reap on EVERY run, not just --upgrade: a module-selection narrowing
