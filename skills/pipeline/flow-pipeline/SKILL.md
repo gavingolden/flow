@@ -2209,13 +2209,13 @@ merge on a peripheral failure, which inverts the priority.
 **Canonical fast-forward.** `flow install --upgrade` opportunistically
 fast-forwards the canonical install root before discovery — this fixes
 the PR #115 race where freshly-merged skills got orphan-reaped because
-the canonical checkout still had the pre-merge tree. On an advance, the
-line reads `flow updated: v<ver>, N commit(s)`; on a skip, it reads
-`flow: content not refreshed (<reason>)` — `dirty`, `non-default-branch`,
-`fetch-failed`, `merge-failed`, `no-default-branch`, `not-a-git-repo`, or
-`repointed-source` (the install-root worktree guard already repointed
-`installRoot`, so the fast-forward is skipped rather than raced against
-it) — appearing in the LOCAL FOLLOW-UPS block before the symlink summary.
+the canonical checkout still had the pre-merge tree. On an advance the line
+reads `flow updated: v<ver>, N commit`/`commits`, optionally suffixed
+`, <beforeSha> → <afterSha>`; on a skip it reads `flow: content not
+refreshed (<reason>)` — `dirty`, `non-default-branch`, `fetch-failed`,
+`merge-failed`, `no-default-branch`, `not-a-git-repo`, or `repointed-source`
+(the install-root guard already repointed `installRoot`, so the fast-forward
+is skipped) — appearing in LOCAL FOLLOW-UPS before the symlink summary.
 As a defense-in-depth layer for the dirty-canonical case,
 `removeIfManagedSymlink` (in `bin/lib/symlink.ts`) now defers reaping a
 dangling pointer when the recorded source still exists in
