@@ -342,7 +342,7 @@ async function runUnderLock(
   if (launcher.source === "default" && !options.upgrade) {
     log(
       dim(
-        "  i launcher: defaulting to plain — opt into tmux with `flow config launcher tmux`",
+        "  i launcher: defaulting to plain — opt into tmux with `flow config launcher set tmux`",
       ),
     );
   }

@@ -450,7 +450,7 @@ PR → review checkpoint), and writes initial epic state under
     console.error(
       backend.notice
         ? "flow epic: epic orchestration requires the tmux launcher — tmux is not installed or not on PATH"
-        : "flow epic: epic orchestration requires the tmux launcher — opt in with --tmux, the flow install Q&A, or 'flow config launcher tmux'",
+        : "flow epic: epic orchestration requires the tmux launcher — opt in with --tmux, the flow install Q&A, or 'flow config launcher set tmux'",
     );
     return 1;
   }
