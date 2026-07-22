@@ -297,7 +297,7 @@ Options:
 
 Interactive installs also ask ONE launcher question (default no): use tmux as
 the pipeline launcher? The answer persists to ~/.flow/config.json (launcher);
-change it later with 'flow config launcher <plain|tmux>'. Non-interactive
+change it later with 'flow config launcher set <plain|tmux>'. Non-interactive
 installs and --upgrade never ask.`,
 
   completion: `flow completion — print a shell completion script to stdout
