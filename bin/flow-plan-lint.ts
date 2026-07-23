@@ -176,10 +176,10 @@ function checkTaskContracts(planText: string, misses: string[]): void {
     const end = i + 1 < headers.length ? headers[i + 1].index : planText.length;
     const body = planText.slice(start, end);
     const taskName = headers[i].text.trim();
-    if (!body.includes("- **Contract:**")) {
+    const contractBody = sliceContractBlock(body);
+    if (contractBody === null) {
       misses.push(`'${taskName}' is missing its '- **Contract:**' block`);
     } else {
-      const contractBody = sliceContractBlock(body) ?? "";
       const subBulletRe = /^\s+- \*\*(.+?):\*\*/gm;
       const subBullets: string[] = [];
       let sm: RegExpExecArray | null;
@@ -199,7 +199,10 @@ function checkTaskContracts(planText: string, misses: string[]): void {
     }
 
     const acceptanceMatch = body.match(/^- \*\*Acceptance criteria:\*\*.*$/m);
-    if (acceptanceMatch && !acceptanceMatch[0].includes("`")) {
+    if (
+      acceptanceMatch &&
+      !body.slice(acceptanceMatch.index ?? 0).includes("`")
+    ) {
       misses.push(
         `warn: '${taskName}' acceptance criteria has no backtick-quoted runnable command`,
       );

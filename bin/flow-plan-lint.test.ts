@@ -249,6 +249,58 @@ describe("lintPlan — Contract sub-structure advisory", () => {
       misses.some((m) => m.includes("acceptance criteria has no backtick")),
     ).toBe(false);
   });
+
+  it("does not warn when the acceptance command is on a continuation line", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Acceptance criteria:** `npm run test -- ExportButton`",
+      "- **Acceptance criteria:**\n  - `npm run test -- ExportButton` passes",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => m.includes("acceptance criteria has no backtick")),
+    ).toBe(false);
+  });
+
+  it("does not fire a Contract-sub-bullet miss when the Contract block runs to end-of-body", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Acceptance criteria:** `npm run test -- ExportButton`\n",
+      "",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("Contract block"))).toBe(false);
+  });
+
+  it("does not warn on missing acceptance criteria when the bullet is absent entirely", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Acceptance criteria:** `npm run test -- ExportButton`\n",
+      "",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("acceptance criteria"))).toBe(false);
+  });
+
+  it("attributes Contract sub-structure misses to the right task in a multi-task plan", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "# PR description draft",
+      `### Task 2: Wire up the export endpoint
+
+- **Skill:** \`node\`
+- **Description:** Add the endpoint.
+- **Inputs:** none
+- **Outputs:** an endpoint
+- **Contract:** see description
+- **Acceptance criteria:** looks right
+
+# PR description draft`,
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => m.includes("Task 2") && m.includes("'- **Files:**'")),
+    ).toBe(true);
+    expect(
+      misses.some((m) => m.includes("Task 1") && m.includes("Contract block")),
+    ).toBe(false);
+  });
 });
 
 describe("lintPlan — Candidate follow-up issues ranking table", () => {

@@ -894,10 +894,11 @@ designing interfaces".
 **required whenever ≥2 tasks have dependencies** (advisory for smaller or fully
 linear breakdowns). The single sequential implementer executes tasks in this
 order; the table is the cheap 80% of a task DAG at zero new format cost.
-Sequential-by-design: parallel implementer fan-out was assessed and rejected
-(feedback-loop breakdown, shared-worktree verify gate, the nine-exemption
-Task-tool policy) — see the flow repo's `docs/nested-subagents-assessment.md`.
-Do not re-propose fan-out in a plan.
+
+**Sequential-by-design.** Parallel implementer fan-out was assessed and
+rejected (feedback-loop breakdown, shared-worktree verify gate, the
+nine-exemption Task-tool policy) — see the flow repo's
+`docs/nested-subagents-assessment.md`. Do not re-propose fan-out in a plan.
 
 List the skill directory before recommending — do not hardcode a static list.
 
