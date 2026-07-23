@@ -183,6 +183,74 @@ describe("lintPlan — always-present sections", () => {
   });
 });
 
+describe("lintPlan — Contract sub-structure advisory", () => {
+  it("names both sub-structure misses for a hollow Contract block", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Contract:**\n  - **Files:** create src/ExportButton.svelte\n  - **Interfaces:** none\n  - **Call-site edits:** none\n",
+      "- **Contract:** see description\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => m.includes("Task 1") && m.includes("'- **Files:**'")),
+    ).toBe(true);
+    expect(
+      misses.some(
+        (m) => m.includes("Task 1") && m.includes("no surgical sub-bullet"),
+      ),
+    ).toBe(true);
+  });
+
+  it("names only the second-sub-bullet miss for a Files-only Contract block", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Contract:**\n  - **Files:** create src/ExportButton.svelte\n  - **Interfaces:** none\n  - **Call-site edits:** none\n",
+      "- **Contract:**\n  - **Files:** create src/ExportButton.svelte\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => m.includes("Task 1") && m.includes("'- **Files:**'")),
+    ).toBe(false);
+    expect(
+      misses.some(
+        (m) => m.includes("Task 1") && m.includes("no surgical sub-bullet"),
+      ),
+    ).toBe(true);
+  });
+
+  it("names no contract misses for a conforming Files+Interfaces+Call-site block", () => {
+    const { misses } = lintPlan(CONFORMING_PLAN);
+    expect(misses.some((m) => m.includes("Contract block"))).toBe(false);
+  });
+
+  it("names no contract misses for a conforming config-form block with a non-Interfaces label", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Contract:**\n  - **Files:** create src/ExportButton.svelte\n  - **Interfaces:** none\n  - **Call-site edits:** none\n",
+      "- **Contract:**\n  - **Files:** update config.yaml\n  - **Keys:** add `export.enabled`\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("Contract block"))).toBe(false);
+  });
+
+  it("warns (advisory) when acceptance criteria has no backtick-quoted command", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Acceptance criteria:** `npm run test -- ExportButton`",
+      "- **Acceptance criteria:** looks right",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) => m.startsWith("warn:") && m.includes("acceptance criteria"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn when acceptance criteria has a backtick-quoted command", () => {
+    const { misses } = lintPlan(CONFORMING_PLAN);
+    expect(
+      misses.some((m) => m.includes("acceptance criteria has no backtick")),
+    ).toBe(false);
+  });
+});
+
 describe("lintPlan — Candidate follow-up issues ranking table", () => {
   it("never fires when the section is absent", () => {
     const { misses } = lintPlan(CONFORMING_PLAN);

@@ -816,12 +816,20 @@ mode PR #170 demonstrates; do not inline the enum or anti-pattern list in
 Break the PRD into logical, atomic tasks. Each task tagged with the recommended skill.
 
 **Task sizing:** A task is the right size if it touches 1–3 files in one domain area
-and can be verified with a single check. Split a task if:
+and can be verified with a single check. A task is also bounded to a single logical commit
+— as a strong default, ~≤400 changed LOC across 1–3 files — because
+Sonnet-class implementer models degrade non-linearly beyond that
+(per-generation output caps trigger truncation). Split a task if:
 
 - It spans multiple languages or runtimes (e.g., backend service + frontend client).
 - It creates a new DB table AND uses it in domain logic — migration is one task,
   domain model is another.
 - It involves both creating a component and writing its tests.
+- Its Contract implies more than ~400 changed LOC — split along the Contract's
+  file or interface seams.
+
+Never split an atomic change to satisfy the LOC number — every task must leave
+the repo verify-green on its own, so cohesion wins over the numeric target.
 
 **Dependency ordering** — follow the layer order:
 
@@ -886,6 +894,10 @@ designing interfaces".
 **required whenever ≥2 tasks have dependencies** (advisory for smaller or fully
 linear breakdowns). The single sequential implementer executes tasks in this
 order; the table is the cheap 80% of a task DAG at zero new format cost.
+Sequential-by-design: parallel implementer fan-out was assessed and rejected
+(feedback-loop breakdown, shared-worktree verify gate, the nine-exemption
+Task-tool policy) — see the flow repo's `docs/nested-subagents-assessment.md`.
+Do not re-propose fan-out in a plan.
 
 List the skill directory before recommending — do not hardcode a static list.
 
