@@ -143,6 +143,21 @@ function checkRedundancyLine(planText: string, misses: string[]): void {
   }
 }
 
+/**
+ * Slice a task body's `- **Contract:**` block — from the label line up to
+ * (but not including) the next top-level (unindented) `- **` bullet, or
+ * end of body when none follows. Returns null when the body has no
+ * `- **Contract:**` line.
+ */
+function sliceContractBlock(body: string): string | null {
+  const contractMatch = body.match(/^- \*\*Contract:\*\*.*$/m);
+  if (!contractMatch) return null;
+  const start = (contractMatch.index ?? 0) + contractMatch[0].length;
+  const rest = body.slice(start);
+  const nextTopLevel = rest.search(/^- \*\*/m);
+  return nextTopLevel === -1 ? rest : rest.slice(0, nextTopLevel);
+}
+
 function checkTaskContracts(planText: string, misses: string[]): void {
   if (!/^# Task breakdown\s*$/m.test(planText)) {
     misses.push(
@@ -160,9 +175,36 @@ function checkTaskContracts(planText: string, misses: string[]): void {
     const start = headers[i].index + headers[i].text.length;
     const end = i + 1 < headers.length ? headers[i + 1].index : planText.length;
     const body = planText.slice(start, end);
-    if (!body.includes("- **Contract:**")) {
+    const taskName = headers[i].text.trim();
+    const contractBody = sliceContractBlock(body);
+    if (contractBody === null) {
+      misses.push(`'${taskName}' is missing its '- **Contract:**' block`);
+    } else {
+      const subBulletRe = /^\s+- \*\*(.+?):\*\*/gm;
+      const subBullets: string[] = [];
+      let sm: RegExpExecArray | null;
+      while ((sm = subBulletRe.exec(contractBody)) !== null) {
+        subBullets.push(sm[1].trim());
+      }
+      if (!subBullets.includes("Files")) {
+        misses.push(
+          `'${taskName}' Contract block is missing its '- **Files:**' sub-bullet`,
+        );
+      }
+      if (subBullets.length < 2) {
+        misses.push(
+          `'${taskName}' Contract block has no surgical sub-bullet beyond Files (Interfaces / Call-site edits or a change-type surgical form; see discovery-instructions.md step 6)`,
+        );
+      }
+    }
+
+    const acceptanceMatch = body.match(/^- \*\*Acceptance criteria:\*\*.*$/m);
+    if (
+      acceptanceMatch &&
+      !body.slice(acceptanceMatch.index ?? 0).includes("`")
+    ) {
       misses.push(
-        `'${headers[i].text.trim()}' is missing its '- **Contract:**' block`,
+        `warn: '${taskName}' acceptance criteria has no backtick-quoted runnable command`,
       );
     }
   }
