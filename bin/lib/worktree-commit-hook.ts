@@ -37,6 +37,16 @@ const FLOW_HOOKS_DIRNAME = "flow-hooks";
  * `--git-common-dir`. `--git-common-dir` would resolve to the shared
  * primary `.git/`, leaking the hook into the user's primary repo and
  * every other worktree.
+ *
+ * This is DELIBERATELY the opposite polarity of `bin/lib/hooks-target.ts`'s
+ * `resolveHooksTarget`, which resolves the MAIN worktree for the
+ * base-branch guard: the session-id trailer here must apply only inside
+ * one worktree (each worktree gets its own hook), while the base-branch
+ * guard must protect the base branch's own checkout regardless of which
+ * worktree `flow feature create` happens to run from. The two installers
+ * look symmetric — do not "unify" them. `worktree-commit-hook.test.ts`
+ * pins this worktree-scoped behaviour; it must NOT start resolving the
+ * main worktree.
  */
 export function installCommitHook(worktreeDir: string): void {
   const gitDir = git(["rev-parse", "--git-dir"], worktreeDir);
