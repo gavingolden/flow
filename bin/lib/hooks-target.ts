@@ -7,7 +7,6 @@ export type HooksTarget = {
   mainWorktree: string;
   hooksDir: string;
   manager: "none" | "husky";
-  sidecarDir: string;
 };
 
 /** Resolves symlinks when possible, falling back to the unresolved path. */
@@ -114,7 +113,6 @@ export function resolveHooksTarget(repoDir: string): HooksTarget {
   }
 
   const manager = detectManager(hooksDir);
-  const sidecarDir = manager === "husky" ? path.dirname(hooksDir) : hooksDir;
 
-  return { mainWorktree, hooksDir, manager, sidecarDir };
+  return { mainWorktree, hooksDir, manager };
 }

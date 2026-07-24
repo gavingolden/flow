@@ -12,6 +12,7 @@ import {
   baseBranchGuardDecision,
   baseBranchGuardSidecarPath,
   classifyPreCommitHook,
+  ensureGuardSidecar,
   foreignHookNotice,
   installBaseBranchGuard,
 } from "./base-branch-guard";
@@ -382,6 +383,93 @@ describe("classifyPreCommitHook", () => {
 
   it("classifies the current hook body as own-current", () => {
     expect(classifyPreCommitHook(BASE_BRANCH_GUARD_HOOK)).toBe("own-current");
+  });
+
+  // The substring-contains marker match is the whole reason byte-exact compare
+  // was abandoned (see the classifyPreCommitHook doc comment): whitespace/CRLF
+  // churn in a marker-bearing hook must NOT re-trigger a `foreign`
+  // misclassification. This is that guarantee under test, not just asserted.
+  it("stays own-current when the current body has CRLF line endings", () => {
+    const crlf = BASE_BRANCH_GUARD_HOOK.replace(/\n/g, "\r\n");
+    expect(crlf).not.toBe(BASE_BRANCH_GUARD_HOOK); // genuinely byte-different
+    expect(classifyPreCommitHook(crlf)).toBe("own-current");
+  });
+
+  it("stays own-current when the marker line has trailing whitespace", () => {
+    const padded = BASE_BRANCH_GUARD_HOOK.replace(
+      `v${BASE_BRANCH_GUARD_VERSION}`,
+      `v${BASE_BRANCH_GUARD_VERSION}   `,
+    );
+    expect(classifyPreCommitHook(padded)).toBe("own-current");
+  });
+
+  it("classifies an older marker version as own-outdated regardless of surrounding churn", () => {
+    const older = BASE_BRANCH_GUARD_HOOK.replace(
+      `v${BASE_BRANCH_GUARD_VERSION}`,
+      `v${BASE_BRANCH_GUARD_VERSION - 1}`,
+    ).replace(/\n/g, "\r\n");
+    expect(classifyPreCommitHook(older)).toBe("own-outdated");
+  });
+
+  // A malformed marker integer must fall through to the legacy/foreign path
+  // rather than producing a NaN comparison that silently classifies wrong.
+  it("treats a non-numeric marker version as foreign, not a NaN class", () => {
+    const bad = "#!/bin/sh\n# flow:base-branch-guard vABC\nexit 0\n";
+    expect(classifyPreCommitHook(bad)).toBe("foreign");
+  });
+
+  it("treats a marker with no trailing integer as foreign", () => {
+    const bare = "#!/bin/sh\n# flow:base-branch-guard v\nexit 0\n";
+    expect(classifyPreCommitHook(bare)).toBe("foreign");
+  });
+});
+
+// The sidecar is the linchpin of the "stale hooks self-upgrade in every
+// foreign repo" claim: every foreign repo sources this ONE machine-global
+// file, so a future BASE_BRANCH_GUARD_VERSION bump must propagate to it. The
+// path resolves under the vitest sandbox $HOME (see the call-time-path test
+// above), so these writes never touch the developer's real ~/.flow/hooks.
+describe("ensureGuardSidecar", () => {
+  const sidecarPath = () => baseBranchGuardSidecarPath();
+
+  afterEach(() => {
+    fs.rmSync(sidecarPath(), { force: true });
+  });
+
+  it("writes the current guard body (mode 0644) when absent", () => {
+    const p = ensureGuardSidecar();
+    expect(fs.existsSync(p)).toBe(true);
+    expect(fs.readFileSync(p, "utf8")).toBe(BASE_BRANCH_GUARD_HOOK);
+    // Sourced, not executed — must NOT carry the executable bit.
+    expect(fs.statSync(p).mode & 0o111).toBe(0);
+  });
+
+  it("is idempotent: a second call does not rewrite a current sidecar", () => {
+    const p = ensureGuardSidecar();
+    // Sentinel: a rewrite would replace the whole body and erase this line,
+    // so its survival proves the current-version sidecar was left untouched.
+    fs.appendFileSync(p, "# sentinel\n");
+    ensureGuardSidecar();
+    expect(fs.readFileSync(p, "utf8")).toContain("# sentinel");
+  });
+
+  it("upgrades an older-version sidecar in place", () => {
+    const p = sidecarPath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, readFixture(BASE_BRANCH_GUARD_VERSION - 1), "utf8");
+    ensureGuardSidecar();
+    expect(fs.readFileSync(p, "utf8")).toBe(BASE_BRANCH_GUARD_HOOK);
+    expect(classifyPreCommitHook(fs.readFileSync(p, "utf8"))).toBe(
+      "own-current",
+    );
+  });
+
+  it("overwrites an unversioned (legacy) sidecar", () => {
+    const p = sidecarPath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, readFixture(1), "utf8"); // v1: no marker
+    ensureGuardSidecar();
+    expect(fs.readFileSync(p, "utf8")).toBe(BASE_BRANCH_GUARD_HOOK);
   });
 });
 

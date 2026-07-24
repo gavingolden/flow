@@ -34,7 +34,6 @@ describe("resolveHooksTarget", () => {
       path.join(fs.realpathSync(repoDir), ".git", "hooks"),
     );
     expect(target.manager).toBe("none");
-    expect(target.sidecarDir).toBe(target.hooksDir);
   });
 
   it("resolves hooksDir to the configured dir when core.hooksPath is ABSOLUTE", () => {
@@ -128,26 +127,10 @@ describe("resolveHooksTarget", () => {
     expect(target.manager).toBe("none");
   });
 
-  it("sets sidecarDir to the parent dir under husky and to hooksDir otherwise", () => {
-    const huskyDir = path.join(repoDir, ".husky", "_");
-    fs.mkdirSync(huskyDir, { recursive: true });
-    fs.writeFileSync(path.join(huskyDir, "husky.sh"), "# husky\n", "utf8");
-    mustGit(["config", "core.hooksPath", huskyDir], repoDir);
-
-    const huskyTarget = resolveHooksTarget(repoDir);
-    expect(huskyTarget.sidecarDir).toBe(path.dirname(huskyTarget.hooksDir));
-
-    const plainDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "flow-hooks-target-plain-"),
-    );
-    try {
-      mustGit(["init", "-b", "main"], plainDir);
-      const plainTarget = resolveHooksTarget(plainDir);
-      expect(plainTarget.sidecarDir).toBe(plainTarget.hooksDir);
-    } finally {
-      fs.rmSync(plainDir, { recursive: true, force: true });
-    }
-  });
+  // No sidecarDir spec: the base-branch guard writes ONE machine-global
+  // sidecar (`baseBranchGuardSidecarPath()`), never a per-repo one, and the
+  // husky remediation text derives its path from `mainWorktree`. A
+  // repo-local sidecar directory would have no reader.
 
   it("falls back to <repoDir>/.git/hooks for a non-git directory without throwing", () => {
     const nonGitDir = fs.mkdtempSync(
