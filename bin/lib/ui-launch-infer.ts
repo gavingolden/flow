@@ -178,9 +178,9 @@ export function allocFreePorts(count: number): Promise<number[]> {
 
     for (let i = 0; i < count; i++) {
       const server = net.createServer();
+      servers.push(server);
       server.on("error", fail);
       server.listen(0, "127.0.0.1", () => {
-        servers.push(server);
         remaining--;
         if (remaining === 0 && !settled) {
           settled = true;
