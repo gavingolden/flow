@@ -2436,24 +2436,24 @@ leaves a spawned resource running on the user's machine. The covered
 resource classes are:
 
 - **Dev servers / launch subprocesses** — already torn down by the
-  UI-smoke and UI-validation passes ("tear the launched server(s) down
-  on completion").
+  UI-smoke and UI-validation passes ("tear the launched server(s) down on completion").
 - **chrome-devtools MCP pages/contexts** — the per-pipeline isolated
   page each browser pass opens (`new_page` + `isolatedContext`) is
   closed with `close_page` (disposing the `isolatedContext`) on
   completion **and on every error / early-exit path**, symmetric with
-  the server teardown. The teardown is scoped strictly to the
-  page/context THIS pipeline opened (keyed on the pipeline slug) — never
-  a sibling pipeline's page, never the user's own Chrome. The contract
-  lives in [references/ui-smoke-pass.md](references/ui-smoke-pass.md)
-  "Teardown" and `/flow-pr-review`'s
-  `references/ui-validation-evidence.md` "Teardown".
+  the server teardown. Scoped strictly to the page/context THIS
+  pipeline opened (keyed on the pipeline slug) — never a sibling
+  pipeline's page, never the user's own Chrome. Contract lives in
+  [references/ui-smoke-pass.md](references/ui-smoke-pass.md)
+  "Teardown" and `/flow-pr-review`'s `references/ui-validation-evidence.md` "Teardown".
 - **Playwright / headless browsers** — any repo headless browser an
-  agent stood up (the Step 8c.iii fallback) exits when its Bash
-  invocation returns; nothing persists past the call.
+  agent stood up (the Step 8c.iii fallback) exits when its Bash invocation returns; nothing persists past the call.
 - **Background processes** — anything launched `run_in_background` (the
-  `flow-ci-wait` poll loop is the canonical case) reaches a terminal
-  exit or is reaped before the pipeline ends.
+  `flow-ci-wait` poll loop is the canonical case) reaches a terminal exit or is reaped before the pipeline ends.
+- **Agent-written env/config files** — any env/config file a browser/UI
+  pass created is deleted on completion and on every error/early-exit
+  path, scoped strictly to files that pass created (see "Teardown" in
+  [references/ui-smoke-pass.md](references/ui-smoke-pass.md)).
 
 This is a contract, not a swept safety net: cleanup happens at the
 point of use (where the handle is held), not via a supervisor-level

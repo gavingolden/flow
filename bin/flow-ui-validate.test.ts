@@ -352,7 +352,7 @@ describe("SKIP-DECISION — ready-path {{PORT}} resolution", () => {
       [],
       { [MANIFEST_PATH]: manifest },
       {
-        allocPort: () => FIXED_PORT,
+        allocPorts: (n) => Array.from({ length: n }, () => FIXED_PORT),
       },
     );
     expect(c.code).toBe(0);
@@ -363,15 +363,15 @@ describe("SKIP-DECISION — ready-path {{PORT}} resolution", () => {
     expect(meta.port).toBe(FIXED_PORT);
   });
 
-  it("an all-literal manifest never calls allocPort and emits meta byte-identical", () => {
+  it("an all-literal manifest never calls allocPorts and emits meta byte-identical", () => {
     let calls = 0;
     const c = drive(
       [],
       { [MANIFEST_PATH]: VALID_MANIFEST },
       {
-        allocPort: () => {
+        allocPorts: (n) => {
           calls++;
-          return FIXED_PORT;
+          return Array.from({ length: n }, () => FIXED_PORT);
         },
       },
     );
@@ -381,6 +381,7 @@ describe("SKIP-DECISION — ready-path {{PORT}} resolution", () => {
     expect(meta.launch).toBe("npm run dev");
     expect(meta.baseUrl).toBe("http://localhost:5173");
     expect(meta.port).toBeUndefined();
+    expect(meta.ports).toBeUndefined();
     expect(calls).toBe(0);
   });
 
@@ -395,7 +396,7 @@ describe("SKIP-DECISION — ready-path {{PORT}} resolution", () => {
       [],
       { [MANIFEST_PATH]: manifest },
       {
-        allocPort: () => FIXED_PORT,
+        allocPorts: (n) => Array.from({ length: n }, () => FIXED_PORT),
       },
     );
     const e = envelope(c);
@@ -418,7 +419,7 @@ describe("SKIP-DECISION — ready-path {{PORT}} resolution", () => {
       [],
       { [MANIFEST_PATH]: manifest },
       {
-        allocPort: () => FIXED_PORT,
+        allocPorts: (n) => Array.from({ length: n }, () => FIXED_PORT),
       },
     );
     expect(c.code).toBe(0);
@@ -429,7 +430,7 @@ describe("SKIP-DECISION — ready-path {{PORT}} resolution", () => {
     expect(meta.port).toBe(FIXED_PORT);
   });
 
-  it("needsPort true but no allocPort dep degrades: {{PORT}} left unresolved, meta.port undefined", () => {
+  it("needsPort true but no allocPorts dep degrades: {{PORT}} left unresolved, meta.port undefined", () => {
     const manifest = JSON.stringify({
       launch: "PORT={{PORT}} npm run dev",
       baseUrl: "http://localhost:{{PORT}}",
@@ -442,6 +443,39 @@ describe("SKIP-DECISION — ready-path {{PORT}} resolution", () => {
     expect(meta.launch).toBe("PORT={{PORT}} npm run dev");
     expect(meta.baseUrl).toBe("http://localhost:{{PORT}}");
     expect(meta.port).toBeUndefined();
+  });
+
+  it("two distinct {{PORT_<NAME>}} sentinels resolve to two distinct ports, meta.ports set", () => {
+    const PORT_A = 40001;
+    const PORT_B = 40002;
+    const manifest = JSON.stringify({
+      launch:
+        "PORT={{PORT_BACKEND}} npm run dev:backend & PORT={{PORT_FRONTEND}} npm run dev:frontend",
+      baseUrl: "http://localhost:{{PORT_FRONTEND}}",
+      env: { VITE_API_URL: "http://localhost:{{PORT_BACKEND}}" },
+      routes: [{ path: "/" }],
+    });
+    const c = drive(
+      [],
+      { [MANIFEST_PATH]: manifest },
+      {
+        allocPorts: (n) => [PORT_A, PORT_B].slice(0, n),
+      },
+    );
+    expect(c.code).toBe(0);
+    const e = envelope(c);
+    const meta = e.meta as Record<string, unknown>;
+    const ports = meta.ports as Record<string, number>;
+    expect(ports.BACKEND).toBeDefined();
+    expect(ports.FRONTEND).toBeDefined();
+    expect(ports.BACKEND).not.toBe(ports.FRONTEND);
+    expect(meta.launch).toBe(
+      `PORT=${ports.BACKEND} npm run dev:backend & PORT=${ports.FRONTEND} npm run dev:frontend`,
+    );
+    expect(meta.baseUrl).toBe(`http://localhost:${ports.FRONTEND}`);
+    expect((meta.env as Record<string, string>).VITE_API_URL).toBe(
+      `http://localhost:${ports.BACKEND}`,
+    );
   });
 });
 

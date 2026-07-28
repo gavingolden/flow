@@ -30,13 +30,23 @@
  * of env vars (`TEST_USER_EMAIL`), resolved to VALUES from the local `.env`
  * or shell env at run time and never persisted here.
  *
- * `launch`/`baseUrl`/`env` values may carry the literal `{{PORT}}` sentinel
- * in place of a concrete port; `bin/flow-ui-validate.ts`'s ready path resolves
- * it to a freshly-allocated free port once per run, while a manifest with a
- * literal port everywhere is used verbatim.
+ * `launch`/`baseUrl`/`loginUrl`/`env` values may carry the literal `{{PORT}}`
+ * sentinel, or one or more `{{PORT_<NAME>}}` named sentinels (UPPER_SNAKE
+ * name), in place of a concrete port; `bin/flow-ui-validate.ts`'s ready path
+ * resolves each distinct sentinel to its own freshly-allocated free port
+ * once per run, while a manifest with a literal port everywhere is used
+ * verbatim. A named sentinel must occur at least twice across the manifest
+ * (bound by the process that listens on it, consumed by whatever connects
+ * to it) — a single occurrence leaves one side pointing at an unallocated
+ * port. A malformed `{{PORT...}}`-shaped token (wrong case, punctuation)
+ * fails validation rather than launching with a literal, unresolved token.
  */
 
-import { PORT_PLACEHOLDER } from "./ui-launch-infer";
+import {
+  collectPortSentinels,
+  findMalformedPortSentinels,
+  PORT_PLACEHOLDER,
+} from "./ui-launch-infer";
 
 export type UiValidationRoute = {
   path: string;
@@ -258,6 +268,43 @@ export function validateUiValidationManifest(
         clientHasPort ? "contains" : "does not contain"
       } it — use {{PORT}} on both sides for a dynamic per-run port, or a literal port on both sides`,
     );
+  }
+
+  const loginUrlStr =
+    typeof parsed.loginUrl === "string" ? parsed.loginUrl : "";
+  const fieldValues: Array<{ field: string; value: string }> = [
+    { field: "launch", value: launchStr },
+    { field: "baseUrl", value: baseUrlStr },
+    { field: "loginUrl", value: loginUrlStr },
+    ...Object.entries(envRecord).map(([key, value]) => ({
+      field: `env.${key}`,
+      value,
+    })),
+  ];
+  const allValues = fieldValues.map((f) => f.value);
+
+  const malformed = findMalformedPortSentinels(allValues);
+  if (malformed.length > 0) {
+    return err(
+      `'${malformed[0]}' is not a valid port placeholder — use '{{PORT}}' or '{{PORT_<NAME>}}' with an UPPER_SNAKE name`,
+    );
+  }
+
+  const { named } = collectPortSentinels(allValues);
+  for (const name of named) {
+    const token = `{{PORT_${name}}}`;
+    let total = 0;
+    let firstField = "";
+    for (const { field, value } of fieldValues) {
+      const occurrences = value.split(token).length - 1;
+      if (occurrences > 0 && firstField === "") firstField = field;
+      total += occurrences;
+    }
+    if (total < 2) {
+      return err(
+        `'${token}' occurs only once (in '${firstField}') — a named port must be bound for the process that listens on it AND consumed by whatever connects to it; a single occurrence leaves one side pointing at an unallocated port`,
+      );
+    }
   }
 
   return { ok: true, value: parsed as UiValidationManifest };

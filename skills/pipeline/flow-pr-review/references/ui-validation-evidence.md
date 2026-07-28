@@ -56,11 +56,16 @@ with VALUES resolved from the local `.env`/shell env at run time via the Login
 step in step 1 below), and write the
 verified NAMES/config back into `.flow/ui-validation.json` — storing names and
 non-secret config only — never a secret value — committing it into the reviewable
-PR diff before driving the bucket. The same `{{PORT}}` sentinel is now honored on
+PR diff before driving the bucket. The same sentinel grammar is now honored on
 the committed ready path too, not just bootstrap: a manifest that still carries
-`{{PORT}}` in `launch`/`baseUrl`/`env` gets it resolved to a fresh per-run free
-port by `flow-ui-validate` itself (`meta.port` records it), so Step 8c never
-re-resolves the placeholder by hand on that path. Then, per visual item:
+`{{PORT}}` — or one or more `{{PORT_<NAME>}}` named sentinels — in
+`launch`/`baseUrl`/`env` gets each distinct sentinel resolved to its own fresh
+per-run free port by `flow-ui-validate` itself (`meta.port` records the bare
+sentinel's port, `meta.ports` — keyed by name, e.g. `meta.ports.BACKEND` —
+records every named sentinel's port), so Step 8c never re-resolves any
+sentinel by hand on that path. Then, per visual item:
+
+**Port and URL overrides are passed INLINE to the launch subprocess (env vars / CLI flags) and are NEVER written to `.env.local`, `.env`, or any other file.** A file-based override is gitignored, outlives this run, and silently re-points a later manual `npm run dev` at a stale port. If the manifest can't express a need, extend the manifest itself (an `env` entry, a new `{{PORT_<NAME>}}` sentinel) — never write a config file to work around a gap.
 
 0. Before driving any route, read `meta.env` from the `flow-ui-validate` ready
    envelope and inject it into the launch subprocess's environment, then bring
@@ -69,11 +74,11 @@ re-resolves the placeholder by hand on that path. Then, per visual item:
    `concurrently`). `meta.env` is injected **once** into the parent launch
    environment, so it carries only overrides that are the same across processes
    (`VITE_*_URL`, CORS origins); per-process-differing vars — most commonly each
-   process's own `PORT` — go **inline** in the `launch` command per sub-command
-   (e.g. `PORT=5273 … dev:frontend` and `PORT=8090 … dev:backend`), since one
-   flat `env` value can't express two different ports. flow does not orchestrate
-   a separate backend lifecycle. Tear the launched server(s) down on
-   completion.
+   process's own port — go **inline** in the `launch` command per sub-command
+   (e.g. `PORT={{PORT}} … dev:frontend` and `PORT={{PORT_BACKEND}} … dev:backend`),
+   since one flat `env` value can't express two different ports. flow does not
+   orchestrate a separate backend lifecycle. Tear the launched server(s) down
+   on completion.
 1. Drive the browser via the manifest: open a per-pipeline isolated page first
    — `new_page` with `isolatedContext` set to the pipeline slug (read from
    `@flow-slug` / `~/.flow/state/<slug>.json` / the worktree basename) so
@@ -169,6 +174,13 @@ the page via `list_pages` at teardown, since the `isolatedContext` name is not a
 closeable handle and a `list_pages` scan under a shared MCP server can land on a
 sibling pipeline's page or the user's own tab. The MCP-absent and browser-busy
 paths opened nothing, so teardown is a no-op there, never a failure.
+
+**Agent-written env/config files.** Per the inline-only rule above, this walk
+never writes a `.env.local`/`.env`/config file as part of normal operation —
+but if any pass-created env/config file exists on disk at completion (e.g. a
+recovery/debug artifact), delete it on completion **and on every error/
+early-exit path**, scoped strictly to files this pass created — never a
+pre-existing developer file.
 
 ## Captures contract
 

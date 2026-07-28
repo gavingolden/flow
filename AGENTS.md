@@ -220,6 +220,13 @@ three-layer resolution table, and the manifest/foundation fields — is at
   bespoke storage.
 - Don't leave spawned resources running. See
   `skills/pipeline/flow-pipeline/SKILL.md` "Resource cleanup".
+- **Don't write test-time port or URL overrides to a file.** Pass them
+  inline to the launch subprocess (env vars / CLI flags); never write
+  `.env.local`, `.env`, or any other config file. A gitignored override
+  outlives the run and silently re-points a later manual `npm run dev`.
+  Extend `.flow/ui-validation.json` (env, a `{{PORT_<NAME>}}` sentinel)
+  instead. See
+  `skills/pipeline/flow-pipeline/references/ui-smoke-pass.md`.
 - Don't auto-commit or auto-push outside an explicit user instruction —
   this default always holds on `main` (or any base branch). **On a
   feature/PR branch, a user invoking a code-editing skill

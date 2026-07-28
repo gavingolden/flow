@@ -66,7 +66,10 @@ Every scope resolves through one shared table in `bin/lib/stack-table.ts`:
 A consumer may declare `.flow/ui-validation.json` (a single OBJECT, not
 an array) to opt into browser-driven UI validation; `flow-ui-validate`
 parses it tolerantly and skips gracefully (exit 0, loud only on a broken
-precondition). Fields + onboarding in `templates/AGENTS.md.template`.
+precondition). Port config uses the `{{PORT}}` bare sentinel or one or
+more `{{PORT_<NAME>}}` named sentinels, resolved inline to the launch
+subprocess (env vars / CLI flags) — never written to a file. Fields +
+onboarding in `templates/AGENTS.md.template`.
 
 ## Design foundation
 

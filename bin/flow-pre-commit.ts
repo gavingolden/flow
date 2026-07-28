@@ -15,11 +15,12 @@
  *   flow-pre-commit --pre-push         # read refs from stdin (git hook)
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as os from "node:os";
 import { resolveChecks, npmRunCheck, type CheckDef } from "./lib/stack-table";
 import { withTestSemaphore } from "./lib/lock";
 import { FLOW_TEST_SEM_DIR } from "./lib/paths";
+import { detectStrayEnvFiles, strayEnvWarning } from "./lib/stray-env-file";
 import {
   detectWorkspaceScopes,
   readMonorepoConfig,
@@ -1224,6 +1225,13 @@ async function main(): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
     process.exit(0);
+  }
+
+  const strayEnvPaths = detectStrayEnvFiles(process.cwd(), {
+    exists: existsSync,
+  });
+  if (strayEnvPaths.length > 0) {
+    console.warn(strayEnvWarning(strayEnvPaths));
   }
 
   const json = args.includes("--json");

@@ -187,28 +187,38 @@ The three-ingredient new-repo onboarding:
      origins). Secrets stay as NAMES in `credentialEnvVars`, resolved from the
      shell env; never inline a credential value here.
 
-   **Dedicated agent-test ports.** Agents launch the app on a fixed,
-   documented port offset (e.g. frontend `:5273` / backend `:8090`, a `+100`
-   offset from the conventional `:5173`/`:8080`) so an agent run never collides
-   with the developer's own running dev server. Keep the offset fixed and
-   documented so the launch is deterministic. A custom-port launch must handle
-   three gotchas: (1) the backend CORS allow-list must admit the custom
-   frontend origin — set `CORS_ALLOWED_ORIGINS` in `env` to the custom
-   `baseUrl`; (2) per-endpoint frontend URL vars (e.g. `VITE_*_URL`, like
-   `VITE_API_URL`) must point at the custom backend port; (3) prefer seeded
-   `TEST_USER_*` password login over OAuth — OAuth/Supabase redirect URIs are
-   origin-specific and break on a custom origin (the fallback is manually
-   registering the custom origin's redirect URL with the OAuth provider). If
-   the app needs a separate backend, the single `launch` command can start both
-   processes (e.g. via `concurrently`). The flat `env` map is injected **once**
-   into the parent launch process, so it carries only overrides that are the
-   same across processes (e.g. `CORS_ALLOWED_ORIGINS`, and the public backend
-   URL the frontend reads via `VITE_*_URL`). Per-process-differing vars — most
-   commonly each process's own `PORT` — go **inline** in the `launch` command
-   per sub-command (e.g. `PORT=5273 … dev:frontend` and `PORT=8090 …
-   dev:backend`), not in `env`, since a single flat `env` value can't express
+   **Dedicated agent-test ports.** Agents launch the app on a freshly-allocated
+   free port **per process**, never a fixed offset: one `{{PORT}}` sentinel for
+   a single-process app, or one `{{PORT_<NAME>}}` named sentinel (UPPER_SNAKE,
+   e.g. `{{PORT_BACKEND}}`) per additional process, each resolved to its own
+   distinct free port every run — so an agent run never collides with the
+   developer's own running dev server, nor with another concurrent agent run.
+   A custom-port launch must handle three gotchas (rewritten against
+   sentinels, same three failure modes as a fixed offset): (1) the backend CORS
+   allow-list must admit the frontend's per-run origin — set
+   `CORS_ALLOWED_ORIGINS` in `env` to the per-run `baseUrl`; (2) per-endpoint
+   frontend URL vars (e.g. `VITE_*_URL`, like `VITE_API_URL`) must point at the
+   backend's per-run `{{PORT_<NAME>}}`; (3) prefer seeded `TEST_USER_*`
+   password login over OAuth — OAuth/Supabase redirect URIs are origin-specific
+   and break on a per-run origin (the fallback is manually registering the
+   origin's redirect URL with the OAuth provider). If the app needs a separate
+   backend, the single `launch` command can start both processes (e.g. via
+   `concurrently`). The flat `env` map is injected **once** into the parent
+   launch process, so it carries only overrides that are the same across
+   processes (e.g. `CORS_ALLOWED_ORIGINS`, and the public backend URL the
+   frontend reads via `VITE_*_URL`). Per-process-differing vars — most commonly
+   each process's own port — go **inline** in the `launch` command per
+   sub-command (e.g. `PORT={{PORT}} … dev:frontend` and `PORT={{PORT_BACKEND}}
+   … dev:backend`), not in `env`, since a single flat `env` value can't express
    two different ports. flow does **not** orchestrate a separate backend
    lifecycle.
+
+   **Don't write test-time port or URL overrides to a file.** Pass them
+   inline to the launch subprocess (env vars / CLI flags); never write
+   `.env.local`, `.env`, or any other config file. A gitignored override
+   outlives the run and silently re-points a later manual `npm run dev`.
+   Extend `.flow/ui-validation.json` (env, a new `{{PORT_<NAME>}}` sentinel)
+   instead.
 
    **Self-completing + self-maintaining manifest (CRITICAL).** The agent
    completes and maintains EVERYTHING the smoketest needs, not just the

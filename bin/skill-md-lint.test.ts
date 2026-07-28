@@ -5743,3 +5743,56 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     expect(matches.length).toBe(9);
   });
 });
+
+describe("N-port sentinel doc wiring (AGENTS.md ↔ UI references ↔ SKILL.md resource cleanup)", () => {
+  const REPO_ROOT = path.resolve(HERE, "..");
+  const AGENTS_MD_PATH = path.join(REPO_ROOT, "AGENTS.md");
+  const UI_SMOKE_PASS_PATH = path.join(
+    REPO_ROOT,
+    "skills",
+    "pipeline",
+    "flow-pipeline",
+    "references",
+    "ui-smoke-pass.md",
+  );
+  const UI_VALIDATION_EVIDENCE_PATH = path.join(
+    REPO_ROOT,
+    "skills",
+    "pipeline",
+    "flow-pr-review",
+    "references",
+    "ui-validation-evidence.md",
+  );
+  const INLINE_ONLY_RULE =
+    "**Port and URL overrides are passed INLINE to the launch subprocess (env vars / CLI flags) and are NEVER written to `.env.local`, `.env`, or any other file.**";
+
+  it("AGENTS.md carries the 'Don't write test-time port or URL overrides to a file.' bullet", () => {
+    const content = fs.readFileSync(AGENTS_MD_PATH, "utf8");
+    expect(content).toContain(
+      "Don't write test-time port or URL overrides to a file.",
+    );
+  });
+
+  it("both UI references carry the verbatim inline-only rule naming .env.local", () => {
+    for (const p of [UI_SMOKE_PASS_PATH, UI_VALIDATION_EVIDENCE_PATH]) {
+      const content = fs.readFileSync(p, "utf8");
+      expect(
+        content,
+        `${p} must carry the verbatim inline-only rule`,
+      ).toContain(INLINE_ONLY_RULE);
+      expect(content).toContain(".env.local");
+    }
+  });
+
+  it("flow-pipeline/SKILL.md resource-cleanup list carries the agent-written-file class", () => {
+    const skillMdPath = path.join(
+      REPO_ROOT,
+      "skills",
+      "pipeline",
+      "flow-pipeline",
+      "SKILL.md",
+    );
+    const content = fs.readFileSync(skillMdPath, "utf8");
+    expect(content).toContain("**Agent-written env/config files**");
+  });
+});
