@@ -33,6 +33,55 @@ optional `sessionId` field in `~/.flow/state/<slug>.json` is still
 written by `flow-open-pr` for the HTML-comment marker path, but step 10
 no longer reads it.
 
+## Base-branch guard
+
+`flow feature create` best-effort-installs a `pre-commit` hook
+(`installBaseBranchGuard` in `bin/lib/base-branch-guard.ts`) that refuses
+a commit landing directly on the repo's default branch. It is narrowed by
+**two session gates**, both required: `CLAUDE_CODE_SESSION_ID` (set by
+Claude Code) AND a flow slug, resolved env-first from `FLOW_SLUG` and
+falling back to the tmux `@flow-slug` pane option. Without both, the
+user's own hand-driven commits — including a manual commit on `main` — are
+never blocked; the guard only ever fires inside a flow-supervisor session.
+
+**Ownership and versioning.** The hook body opens with a self-identifying
+marker, `# flow:base-branch-guard v<N>` (`BASE_BRANCH_GUARD_MARKER` +
+`BASE_BRANCH_GUARD_VERSION`), matched by substring-contains rather than a
+byte-exact compare — a byte-exact compare misclassified a still-installed
+older hook body as a foreign hook forever instead of upgrading it in
+place. Two pre-marker bodies (v1: tmux-only; v2: env-first `FLOW_SLUG`,
+pre-marker) are registered in `LEGACY_HOOK_BODIES` and still classify as
+flow-owned. **Any edit to the hook body requires bumping
+`BASE_BRANCH_GUARD_VERSION` AND registering the prior body** in
+`LEGACY_HOOK_BODIES` plus a matching `bin/fixtures/<role>-guard-v<N>.sh`
+fixture — `base-branch-guard.test.ts`'s `version-drift lock` enforces this
+mechanically and never downgrades a hook carrying a newer marker version
+than the running flow build.
+
+**Target resolution.** `bin/lib/hooks-target.ts`'s `resolveHooksTarget`
+installs into the repo's **main worktree** — never the ephemeral
+per-worktree checkout a pipeline runs from — honouring an absolute or
+relative `core.hooksPath`. A husky-managed hooks dir (its generated `_`
+subdirectory) is always treated as foreign: husky regenerates `_` on every
+run, so anything flow wrote there would be silently destroyed.
+
+**Foreign-hook path.** When the repo's `pre-commit` is not flow's (a
+genuine user hook, or husky), nothing is written into the repo. The guard
+is instead ensured at a machine-global sidecar,
+`~/.flow/hooks/base-branch-guard.sh`, and a one-line, source-safe opt-in
+snippet is printed to stderr so it can be pasted into any pre-commit hook
+— including a tracked, team-shared one — without breaking a teammate who
+doesn't have flow installed.
+
+**Contrast with the session-trailer hook.** This is the deliberate
+opposite polarity of the `prepare-commit-msg` hook described just above:
+that hook resolves the WORKTREE-scoped `core.hooksPath` because the
+session-id trailer must apply only inside one worktree, while the
+base-branch guard resolves the MAIN worktree because it must protect the
+base branch's own checkout regardless of which worktree
+`flow feature create` runs from. The two installers look symmetric on
+purpose — they are not meant to be unified.
+
 ## Inline intent annotations
 
 Review-time-scoped per-hunk rationale from `/flow-new-feature` Step 5b as

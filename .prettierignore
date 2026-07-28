@@ -22,3 +22,10 @@ AGENTS.md
 # Prettier re-pads a markdown table whose exact header skill-md-lint
 # anchors on ('| Status | Escalation tag |').
 skills/pipeline/flow-pr-review/SKILL.md
+
+# Shell-script fixtures pinning byte-exact rendered hook bodies
+# (base-branch-guard.test.ts's version-drift lock byte-compares these
+# against BASE_BRANCH_GUARD_HOOK / LEGACY_HOOK_BODIES). Prettier ships no
+# shell parser, so `prettier --check .` errors on any *.sh file rather than
+# just leaving it unformatted — ignore the extension, not just these files.
+bin/fixtures/*.sh
