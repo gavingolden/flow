@@ -210,6 +210,72 @@ describe("validateUiValidationManifest — {{PORT}} bidirectional invariant", ()
   });
 });
 
+describe("validateUiValidationManifest — {{PORT_<NAME>}} named sentinels", () => {
+  it("accepts a named sentinel bound in launch and consumed in env", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.launch = "PORT={{PORT_BACKEND}} npm run dev:backend";
+    fixture.env = { VITE_API_URL: "http://localhost:{{PORT_BACKEND}}" };
+    expect(validateUiValidationManifest(fixture).ok).toBe(true);
+  });
+
+  it("accepts a CLI-flag-only manifest with zero env (two occurrences in launch)", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.launch =
+      "server --port={{PORT_BACKEND}} & client --api=http://localhost:{{PORT_BACKEND}}";
+    expect(fixture.env).toBeUndefined();
+    expect(validateUiValidationManifest(fixture).ok).toBe(true);
+  });
+
+  it("rejects a named sentinel bound but never consumed", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.launch = "PORT={{PORT_BACKEND}} npm run dev:backend";
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("{{PORT_BACKEND}}");
+      expect(result.reason).toContain("occurs only once");
+    }
+  });
+
+  it("rejects a named sentinel consumed but never bound", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.env = { VITE_API_URL: "http://localhost:{{PORT_BACKEND}}" };
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("{{PORT_BACKEND}}");
+      expect(result.reason).toContain("occurs only once");
+    }
+  });
+
+  it("rejects a malformed lowercase named sentinel", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.launch = "PORT={{PORT_backend}} npm run dev:backend";
+    fixture.env = { VITE_API_URL: "http://localhost:{{PORT_backend}}" };
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("{{PORT_backend}}");
+      expect(result.reason).toContain("not a valid port placeholder");
+    }
+  });
+});
+
 describe("validateUiValidationManifest — wrong-shape rejections", () => {
   it("rejects a non-object input", () => {
     expect(validateUiValidationManifest(null).ok).toBe(false);

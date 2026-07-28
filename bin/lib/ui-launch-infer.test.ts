@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   allocFreePort,
+  allocFreePorts,
+  collectPortSentinels,
+  findMalformedPortSentinels,
   inferLaunch,
   PORT_PLACEHOLDER,
   resolvePortPlaceholder,
+  resolvePorts,
 } from "./ui-launch-infer";
 import * as net from "node:net";
 
@@ -72,5 +76,80 @@ describe("allocFreePort", () => {
       server.on("error", reject);
       server.listen(port, "127.0.0.1", () => server.close(() => resolve()));
     });
+  });
+});
+
+describe("allocFreePorts", () => {
+  it("returns N distinct ports held simultaneously", async () => {
+    const ports = await allocFreePorts(4);
+    expect(ports).toHaveLength(4);
+    expect(new Set(ports).size).toBe(4);
+    for (const port of ports) {
+      expect(port).toBeGreaterThan(0);
+      expect(port).toBeLessThan(65536);
+    }
+  });
+
+  it("returns an empty array for count 0", async () => {
+    expect(await allocFreePorts(0)).toEqual([]);
+  });
+});
+
+describe("collectPortSentinels", () => {
+  it("detects the bare {{PORT}} sentinel", () => {
+    expect(collectPortSentinels(["PORT={{PORT}}"]).bare).toBe(true);
+    expect(collectPortSentinels(["npm run dev"]).bare).toBe(false);
+  });
+
+  it("dedupes and sorts named sentinels, summing counts across inputs", () => {
+    const result = collectPortSentinels([
+      "PORT={{PORT_BACKEND}} url=http://x:{{PORT_BACKEND}}",
+      "http://localhost:{{PORT_FRONTEND}}",
+      "http://localhost:{{PORT_BACKEND}}",
+    ]);
+    expect(result.named).toEqual(["BACKEND", "FRONTEND"]);
+    expect(result.counts).toEqual({ BACKEND: 3, FRONTEND: 1 });
+  });
+});
+
+describe("findMalformedPortSentinels", () => {
+  it("flags a lowercase named sentinel", () => {
+    expect(findMalformedPortSentinels(["{{PORT_backend}}"])).toEqual([
+      "{{PORT_backend}}",
+    ]);
+  });
+
+  it("flags a missing-underscore named-looking sentinel", () => {
+    expect(findMalformedPortSentinels(["{{PORTX}}"])).toEqual(["{{PORTX}}"]);
+  });
+
+  it("flags a hyphenated sentinel", () => {
+    expect(findMalformedPortSentinels(["{{PORT-1}}"])).toEqual(["{{PORT-1}}"]);
+  });
+
+  it("does not flag well-formed bare or named sentinels", () => {
+    expect(
+      findMalformedPortSentinels(["{{PORT}}", "{{PORT_BACKEND}}"]),
+    ).toEqual([]);
+  });
+
+  it("dedupes repeated offending tokens", () => {
+    expect(
+      findMalformedPortSentinels(["{{PORT_backend}} and {{PORT_backend}}"]),
+    ).toEqual(["{{PORT_backend}}"]);
+  });
+});
+
+describe("resolvePorts", () => {
+  it("resolves named tokens then the bare token, literal-replace", () => {
+    const result = resolvePorts(
+      "PORT={{PORT_BACKEND}} url=http://x:{{PORT}} api={{PORT_BACKEND}}",
+      { bare: 1111, named: { BACKEND: 2222 } },
+    );
+    expect(result).toBe("PORT=2222 url=http://x:1111 api=2222");
+  });
+
+  it("is a no-op when no sentinel is present", () => {
+    expect(resolvePorts("npm run dev", { bare: 1111 })).toBe("npm run dev");
   });
 });
