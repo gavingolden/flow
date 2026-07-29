@@ -278,6 +278,14 @@ export function gatherInputs(
   const branch =
     worktree.kind === "present" ? probeBranch(worktree.path, git) : null;
   const pr = branch ? probePr(branch, gh) : { kind: "none" as const };
+  // Deliberately gates on the raw `state.worktree` path rather than
+  // `worktree.kind === "present"` like `branch` above. The two disagree on a
+  // directory that exists but is not a valid git checkout (`probeWorktree`
+  // calls that `missing-on-disk`) — and there, the raw-path form is the right
+  // one: `checkpoint.md` is conversational state, still readable and still
+  // worth re-injecting even when the git metadata is broken. `probeCheckpoint`
+  // stats the file, so a genuinely absent directory already collapses to
+  // `false`.
   const checkpointExists = state.worktree
     ? probeCheckpoint(state.worktree)
     : false;

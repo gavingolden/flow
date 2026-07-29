@@ -79,7 +79,7 @@ RESUMING AT: review (PR #142, 2 findings open)
 `flow feature resume` refuses if the pipeline is actually still running. Under the tmux launcher you rarely need it at all: detach with `Ctrl-b d` and come back with `flow attach <name>` — the run never stopped.
 
 > [!TIP]
-> **Long run filling up the context?** Say "checkpoint this" (the `/flow-checkpoint` skill) and the supervisor flushes conversational state to disk and tells you it's safe to `/clear`. After you clear, a `SessionStart` hook auto-resumes the pipeline in the fresh session and re-injects the checkpoint. A `/clear` without a prior checkpoint clears normally. This also works inside an epic-design window (`flow epic create`) and an epic-run window (`flow epic run`) — except `epic-approved`, which is terminal for the design supervisor, so `/clear` there will not auto-resume.
+> **Long run filling up the context?** Say "checkpoint this" (the `/flow-checkpoint` skill) and the supervisor flushes conversational state to disk and tells you it's safe to `/clear`. After you clear, a `SessionStart` hook auto-resumes the pipeline in the fresh session and re-injects the checkpoint. A `/clear` without a prior checkpoint clears normally. This also works inside an epic-design window (`flow epic create`) and an epic-run window (`flow epic run`). One exception, and it is design-side only: an epic-design window sitting at `epic-approved` is terminal, so `/clear` there will not auto-resume. An epic-run window resumes from any phase — it shares the epic's `state.json`, which tracks the _design_ lifecycle, so it normally sits at `epic-approved` while the run itself is perfectly live.
 
 ## Cleaning up
 

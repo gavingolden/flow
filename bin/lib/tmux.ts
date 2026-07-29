@@ -13,7 +13,7 @@
  */
 
 import * as path from "node:path";
-import { shortPhase, type PipelineKind } from "./state";
+import { isPipelineKind, shortPhase, type PipelineKind } from "./state";
 import { sleepSync } from "./sleep";
 import { deliverSeed } from "./seed-delivery";
 
@@ -912,10 +912,7 @@ export function resolveKindFromPane(
   if (r.exitCode !== 0) return null;
   const value = r.stdout.trim();
   if (value.length === 0) return null;
-  if (value === "feature" || value === "epic-design" || value === "epic-run") {
-    return value;
-  }
-  return null;
+  return isPipelineKind(value) ? value : null;
 }
 
 export function buildNewWindowArgs(

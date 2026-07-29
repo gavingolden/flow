@@ -9,11 +9,13 @@ import {
   isEpicPhase,
   isLegitimateEndPhase,
   isMainStateFile,
+  isPipelineKind,
   isPipelinePhase,
   listStates,
   PENDING_PHASES,
   PHASE_MODEL_FIELDS,
   PHASE_SHORT,
+  PIPELINE_KINDS,
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
   readState,
@@ -881,6 +883,25 @@ describe("phase constants", () => {
       "epic-design-pending-review",
       "epic-approved",
     ]);
+  });
+
+  it("PIPELINE_KINDS is exactly the three supervisor kinds, and isPipelineKind agrees (drift-guard)", () => {
+    // The literals live in state.ts once; `resolveKindFromPane` (tmux.ts) and
+    // `parseResumeKind` (flow-session-start-hook.ts) both derive from
+    // isPipelineKind rather than re-listing them. Exact equality here is what
+    // makes adding a fourth kind a deliberate, test-breaking act instead of a
+    // silent downgrade to "feature" at whichever validator was missed.
+    expect(PIPELINE_KINDS).toEqual(["feature", "epic-design", "epic-run"]);
+    for (const k of PIPELINE_KINDS) expect(isPipelineKind(k)).toBe(true);
+    for (const notAKind of [
+      "",
+      "epic",
+      "EPIC-RUN",
+      "bogus",
+      "epic-designing",
+    ]) {
+      expect(isPipelineKind(notAKind)).toBe(false);
+    }
   });
 
   it("isEpicPhase narrows epic phases only", () => {

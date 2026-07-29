@@ -44,8 +44,12 @@ const tmuxMock = vi.hoisted(() => ({
     }
   >(() => ({ status: "started", stderr: "" })),
   // The pane-kind publisher: best-effort, called after every launch/reclaim
-  // site returns non-failed. Tests assert both call presence/kind AND that a
-  // failing/throwing setter never changes a command's exit code.
+  // site returns non-failed. Tests assert both call presence/kind AND that an
+  // `{ok: false}` setter never changes a command's exit code. A *throwing*
+  // setter is deliberately not exercised here: `setPaneKind` catches
+  // internally (see `tmux()` in ./tmux), so throwing is not a shape the real
+  // implementation can produce and a test for it would pin mock behaviour
+  // rather than production behaviour.
   setPaneKind: vi.fn<
     (slug: string, kind: string) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),

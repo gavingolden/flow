@@ -6,7 +6,9 @@ description: >-
   "ignore flake X") — to a durable on-disk artifact before a context clear, so
   it survives `/clear` and is re-injected on resume. Use when the user says
   "/flow-checkpoint", "flow-checkpoint this", or "save state before I clear"
-  inside a flow pipeline window.
+  inside any flow supervisor window — a feature pipeline (`flow feature
+  create`), an epic-design window (`flow epic create`), or an epic-run
+  window (`flow epic run`).
 ---
 
 # Goal

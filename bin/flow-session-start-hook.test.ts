@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deliverResumeSeed,
+  parseResumeKind,
   resumeSeedFor,
   run,
   sessionStartOutput,
@@ -309,8 +310,43 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     });
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual([]);
-    expect(emitted).toEqual([terminalAdvisory("demo", "epic-approved")]);
+    expect(emitted).toEqual([
+      terminalAdvisory("demo", "epic-approved", "epic-design"),
+    ]);
     expect(emitted[0]).toContain("epic-approved");
+    expect(emitted[0]).toContain("flow epic create --resume demo");
+  });
+
+  it("(f2) cancelled (a SHARED terminal phase, not in EPIC_PHASES) + marker + resolveKind() === 'epic-design': advisory names the epic-design recovery command, not flow feature resume", async () => {
+    const { deps, dispatched, emitted } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("cancelled"),
+      markerExists: true,
+      resolveKind: () => "epic-design",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(emitted).toEqual([
+      terminalAdvisory("demo", "cancelled", "epic-design"),
+    ]);
+    expect(emitted[0]).toContain("flow epic create --resume demo");
+    expect(emitted[0]).not.toContain("flow feature resume");
+  });
+
+  it("(f3) needs-human (a SHARED terminal phase) + marker + resolveKind() === 'epic-design': isEpicPhase('needs-human') would wrongly say false — the fix must use the resolved kind, not re-derive from phase", async () => {
+    const { deps, dispatched, emitted } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("needs-human"),
+      markerExists: true,
+      resolveKind: () => "epic-design",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(emitted).toEqual([
+      terminalAdvisory("demo", "needs-human", "epic-design"),
+    ]);
     expect(emitted[0]).toContain("flow epic create --resume demo");
   });
 
@@ -393,7 +429,7 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     });
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual([]);
-    expect(emitted).toEqual([terminalAdvisory("demo", "merged")]);
+    expect(emitted).toEqual([terminalAdvisory("demo", "merged", "feature")]);
     expect(emitted[0]).toContain("flow feature resume demo");
   });
 });
@@ -468,7 +504,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
       "fresh",
     ]);
     const { seams, sends } = makeSeams(capture);
-    expect(deliverResumeSeed("demo", seams)).toBe(true);
+    expect(deliverResumeSeed("demo", seams, "feature")).toBe(true);
     // Chunked delivery: leading line, then remainder, then a SEPARATE Enter.
     expect(sends).toEqual([
       { text: RESUME_LEAD, literal: true },
@@ -490,7 +526,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     const { seams, sends } = makeSeams(capture, /* attempts */ 3);
     // With 3 attempts and no transition, the fast path (needs a change) never
     // fires and the fallback (STABLE_PROBES + EXTRA = 6) is not reached → no send.
-    expect(deliverResumeSeed("demo", seams)).toBe(false);
+    expect(deliverResumeSeed("demo", seams, "feature")).toBe(false);
     expect(sends).toEqual([]);
   });
 
@@ -498,7 +534,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     // Alternating content never stabilises → never ready within budget.
     const capture = frames(["a", "b", "a", "b", "a", "b"]);
     const { seams, sends } = makeSeams(capture, 6);
-    expect(deliverResumeSeed("demo", seams)).toBe(false);
+    expect(deliverResumeSeed("demo", seams, "feature")).toBe(false);
     expect(sends).toEqual([]);
   });
 
@@ -514,7 +550,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
       sleep: () => {},
       attempts: 20,
     };
-    expect(deliverResumeSeed("demo", seams)).toBe(false);
+    expect(deliverResumeSeed("demo", seams, "feature")).toBe(false);
     // The leading-line literal send failed, so delivery stops and the separate
     // Enter is guarded off — only the one (failed) send, never a partial submit.
     expect(sends).toEqual([{ text: RESUME_LEAD, literal: true }]);
@@ -529,7 +565,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     // must still return true and the seed must still be sent.
     const capture = () => "already-settled prompt";
     const { seams, sends } = makeSeams(capture, /* attempts */ 10);
-    expect(deliverResumeSeed("demo", seams)).toBe(true);
+    expect(deliverResumeSeed("demo", seams, "feature")).toBe(true);
     expect(sends).toEqual([
       { text: RESUME_LEAD, literal: true },
       { text: RESUME_REMAINDER, literal: true },
@@ -559,7 +595,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
       "fresh",
     ]);
     const { seams, sends } = makeSeams(capture, /* attempts */ 6);
-    expect(deliverResumeSeed("demo", seams)).toBe(true);
+    expect(deliverResumeSeed("demo", seams, "feature")).toBe(true);
     expect(sends).toEqual([
       { text: RESUME_LEAD, literal: true },
       { text: RESUME_REMAINDER, literal: true },
@@ -575,7 +611,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     const { seams, sends } = makeSeams(capture, /* attempts */ 20, {
       dropLeadingEchoes: 1,
     });
-    expect(deliverResumeSeed("demo", seams)).toBe(true);
+    expect(deliverResumeSeed("demo", seams, "feature")).toBe(true);
     expect(sends).toEqual([
       { text: RESUME_LEAD, literal: true },
       { text: "C-u", literal: false },
@@ -656,5 +692,43 @@ describe("plain-mode additionalContext fallback (FLOW_SLUG, no pane)", () => {
         additionalContext: "ctx",
       },
     });
+  });
+});
+
+// The argv hop between `defaultDispatchResume` (parent) and the
+// `import.meta.main` deliver branch (detached child) is the one link in the
+// kind's journey the compiler cannot check: the parent writes the kind into
+// `[import.meta.path, "deliver", slug, kind]` and the child re-reads
+// `argv[2]`. Every `run()` test above stubs `dispatchResume`, so none of them
+// crosses that boundary — a positional slip would degrade every epic window to
+// the feature seed (the exact bug this hook exists to fix) with CI green.
+describe("flow-session-start-hook — parseResumeKind argv round-trip", () => {
+  const KINDS: ResumeKind[] = ["feature", "epic-design", "epic-run"];
+
+  for (const kind of KINDS) {
+    it(`survives the argv hop for '${kind}'`, () => {
+      // Mirrors defaultDispatchResume's argv exactly, then reads back the slot
+      // the import.meta.main branch reads (argv[2] after the leading two).
+      const argv = ["deliver", "demo", kind];
+      expect(parseResumeKind(argv[2])).toBe(kind);
+    });
+  }
+
+  it("positions the kind at the slot the deliver branch actually reads", () => {
+    // Pins the coupling itself: kind is the 3rd token, after "deliver" and the
+    // slug. If either side ever reorders, this fails instead of silently
+    // degrading to "feature".
+    const argv = ["deliver", "demo", "epic-run"];
+    expect(argv[0]).toBe("deliver");
+    expect(argv[1]).toBe("demo");
+    expect(parseResumeKind(argv[2])).toBe("epic-run");
+  });
+
+  it("falls back to 'feature' for undefined, empty, and unknown values", () => {
+    expect(parseResumeKind(undefined)).toBe("feature");
+    expect(parseResumeKind("")).toBe("feature");
+    expect(parseResumeKind("bogus")).toBe("feature");
+    expect(parseResumeKind("epic")).toBe("feature");
+    expect(parseResumeKind("EPIC-RUN")).toBe("feature");
   });
 });

@@ -320,10 +320,25 @@ export function isEpicPhase(phase: string): boolean {
 }
 
 /**
- * Which supervisor kind a window's pane is running. Mirrors `@flow-kind`
- * (`bin/lib/tmux.ts`) and `ResumeKind` (`bin/flow-session-start-hook.ts`).
+ * Which supervisor kind a window's pane is running. Published as `@flow-kind`
+ * (`bin/lib/tmux.ts`) and re-exported as `ResumeKind`
+ * (`bin/flow-session-start-hook.ts`).
+ *
+ * The literals live here ONCE and every runtime validator derives from
+ * `isPipelineKind` — the same derive-don't-hand-list discipline `EPIC_PHASES`
+ * uses above. Hand-listing them per validator is how a fourth kind would get
+ * silently rejected at one site and accepted at another, and the only
+ * compiler-enforced part is the type, not the runtime checks.
  */
-export type PipelineKind = "feature" | "epic-design" | "epic-run";
+export const PIPELINE_KINDS = ["feature", "epic-design", "epic-run"] as const;
+
+export type PipelineKind = (typeof PIPELINE_KINDS)[number];
+
+export const PIPELINE_KIND_SET: ReadonlySet<string> = new Set(PIPELINE_KINDS);
+
+export function isPipelineKind(value: string): value is PipelineKind {
+  return PIPELINE_KIND_SET.has(value);
+}
 
 /**
  * Whether the `SessionStart:clear` hook auto-resumes a window at `phase`

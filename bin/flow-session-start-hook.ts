@@ -56,11 +56,13 @@ import { spawn, spawnSync } from "node:child_process";
 import {
   autoResumesAfterClear,
   isEpicPhase,
+  isPipelineKind,
   readState,
   type PipelineKind,
   type PipelineState,
 } from "./lib/state";
 import { resolveKindAmbient, resolveSlugFromEnv } from "./lib/session-identity";
+import { isValidSlug } from "./lib/slug";
 import { flowPipelineResumeSeed } from "./lib/feature";
 import {
   epicResumeSeed,
@@ -102,11 +104,25 @@ export function resumeSeedFor(slug: string, kind: ResumeKind): string {
  * DID carry an armed marker — so a user who checkpointed and cleared at a
  * phase this hook will not resume learns why the pane stayed blank, instead
  * of the marker + `checkpoint.md` addenda silently going nowhere.
+ *
+ * Takes the caller's already-resolved `kind` rather than re-deriving it from
+ * `phase` via `isEpicPhase` — at a SHARED terminal phase (`cancelled` /
+ * `needs-human`, both reachable for the epic designer) re-deriving would
+ * mislabel an epic-run window's advisory as a feature recovery command,
+ * pointing the user at `flow feature resume` for a window that has no
+ * feature pipeline at all.
  */
-export function terminalAdvisory(slug: string, phase: string): string {
-  const recovery = isEpicPhase(phase)
-    ? `flow epic create --resume ${slug}`
-    : `flow feature resume ${slug}`;
+export function terminalAdvisory(
+  slug: string,
+  phase: string,
+  kind: ResumeKind,
+): string {
+  const recovery =
+    kind === "epic-design"
+      ? `flow epic create --resume ${slug}`
+      : kind === "epic-run"
+        ? `flow epic run ${slug}`
+        : `flow feature resume ${slug}`;
   return `flow: phase '${phase}' is terminal for '${slug}' — checkpoint.md was not re-injected and the checkpoint marker is still armed. Recover manually with \`${recovery}\`.`;
 }
 
@@ -160,10 +176,26 @@ export async function run(deps: Deps): Promise<number> {
     if (!pane) return 0;
     slug = deps.showFlowSlug(pane).trim();
   }
-  if (slug.length === 0) return 0;
+  // Shape-validate BOTH resolution paths, not just the env one. The pane
+  // option is the hook's last unguarded ambient input, and it now reaches a
+  // new sink: `terminalAdvisory` interpolates the slug into stdout, which is
+  // the SessionStart JSON contract. Every slug flow writes comes from
+  // `slugify()`, so this rejects nothing legitimate.
+  if (slug.length === 0 || !isValidSlug(slug)) return 0;
 
   const state = deps.loadState(slug);
   if (!state) return 0;
+
+  // The one-shot marker is the deliberate opt-in: no /flow-checkpoint → no
+  // marker → no auto-resume, so the user keeps the choice to /clear without a
+  // checkpoint. Probed BEFORE the kind resolution below because both remaining
+  // branches require it — the terminal branch's advisory is marker-gated and
+  // the emit path returns early without one — so hoisting it keeps the common
+  // case (a /clear in a flow window that was never checkpointed) from paying a
+  // `tmux show-options` subprocess in a hook that blocks session start on
+  // EVERY /clear on the machine.
+  const worktree = state.worktree;
+  if (!worktree || !deps.markerExists(worktree)) return 0;
 
   // Resolve the window's kind BEFORE the terminal guard — the guard now
   // depends on it. `@flow-kind` (the pane option) wins; the phase predicate
@@ -192,16 +224,9 @@ export async function run(deps: Deps): Promise<number> {
     // step. additionalContext is PASSIVE — it triggers no autonomous turn
     // (exactly why it is wrong for a resume seed and right for a note), so
     // this fires on BOTH launcher paths.
-    if (state.worktree && deps.markerExists(state.worktree)) {
-      deps.emitContext(terminalAdvisory(slug, state.phase));
-    }
+    deps.emitContext(terminalAdvisory(slug, state.phase, kind));
     return 0;
   }
-
-  // The one-shot marker is the deliberate opt-in: no /flow-checkpoint → no marker →
-  // no auto-resume, so the user keeps the choice to /clear without a checkpoint.
-  const worktree = state.worktree;
-  if (!worktree || !deps.markerExists(worktree)) return 0;
 
   // Emit path. TMUX: deliver the resume seed as a real user turn (send-keys),
   // fire-and-forget — dispatchResume returns at once (detached child), so the
@@ -287,13 +312,14 @@ function paneClearedAndSettled(seams: DeliverSeams, attempts: number): boolean {
  * preserving this path's discipline of never submitting after a failed literal
  * send (which could submit stale/partial pane content on a live pane). Returns
  * false (never fires blind) when the pane never becomes ready or delivery fails.
- * `kind` defaults to `"feature"` so existing call sites keep compiling.
- * Exported for unit testing.
+ * `kind` is required — a defaulted `"feature"` would let a caller that forgot
+ * to thread the kind silently deliver the wrong seed, which is the bug this
+ * hook exists to fix. Exported for unit testing.
  */
 export function deliverResumeSeed(
   slug: string,
   seams: DeliverSeams,
-  kind: ResumeKind = "feature",
+  kind: ResumeKind,
 ): boolean {
   const attempts = seams.attempts ?? DELIVER_POLL_ATTEMPTS;
   // paneClearedAndSettled owns the CLEAR-aware gate (its transitioned-away-from-
@@ -373,12 +399,19 @@ async function defaultReadStdin(): Promise<string> {
   });
 }
 
-/** Only these three literals are a valid dispatched kind; anything else falls back to "feature". */
-function parseResumeKind(value: string | undefined): ResumeKind {
-  if (value === "epic-design" || value === "epic-run" || value === "feature") {
-    return value;
-  }
-  return "feature";
+/**
+ * Only these three literals are a valid dispatched kind; anything else falls
+ * back to "feature".
+ *
+ * Exported for its own test, not for reuse. This is the ONE hop the compiler
+ * cannot check: `defaultDispatchResume` writes the kind into an argv token and
+ * this re-reads it in a fresh process, so a positional-coupling slip between
+ * the two would silently degrade every epic window to the feature seed — the
+ * exact failure this hook exists to prevent, and it would be CI-green because
+ * the in-process tests stub `dispatchResume` and never cross the boundary.
+ */
+export function parseResumeKind(value: string | undefined): ResumeKind {
+  return value !== undefined && isPipelineKind(value) ? value : "feature";
 }
 
 if (import.meta.main) {
