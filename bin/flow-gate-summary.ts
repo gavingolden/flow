@@ -141,7 +141,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "merge-resolver-missing-artifact":
     "Inspect <worktree>/.flow-tmp/ for partial resolver state; resolve conflicts manually; then (cd <repo> && gh pr merge --squash <pr>)",
   "merge-resolver-spawn-denied":
-    "The permission system refused the merge-resolver subagent spawn. Recover manually: cd <worktree> && git fetch origin <base> && git merge origin/<base> -- then STOP and resolve every conflict marker in your editor before committing. Once resolved: git commit, git push (if rejected non-fast-forward, the base moved again -- re-run the fetch + merge, do NOT force). Then (cd <repo> && gh pr merge --squash <pr>)",
+    "The permission system refused the merge-resolver subagent spawn. Recover manually: cd <worktree> && git fetch origin <base> && git merge origin/<base>; then STOP and resolve every conflict marker in your editor before committing. Once resolved: git add <resolved-files>, git commit, git push. If the push is rejected non-fast-forward, that means origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force. Then (cd <repo> && gh pr merge --squash <pr>)",
   "branch-mismatch":
     "Inspect git reflog and git worktree list before any further git commands; do NOT auto-recover",
   "terminal-regression":

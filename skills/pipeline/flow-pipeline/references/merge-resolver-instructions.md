@@ -66,22 +66,21 @@ test -f "$(git rev-parse --git-path MERGE_HEAD)" && echo "merge in progress"
 ```
 
 The `MERGE_HEAD` probe (not a `.git/rebase-*` directory check) is
-required because in a flow worktree `.git` is a FILE, not a directory —
-verified: `.git` is an 89-byte regular file pointing at
-`.git/worktrees/<name>/`. `git rev-parse --git-path MERGE_HEAD` resolves
-into that per-worktree gitdir correctly; a hardcoded `test -d
-.git/rebase-merge` would never fire in a worktree.
+required because in a flow worktree `.git` is a FILE pointing at
+`.git/worktrees/<name>/`, not a directory. `git rev-parse --git-path
+MERGE_HEAD` resolves into that per-worktree gitdir correctly; a
+hardcoded `test -d .git/rebase-merge` would never fire in a worktree.
 
 Two cases:
 
 - **Merge in progress** (`MERGE_HEAD` exists): keep going from the
   current state. Do not run `git merge --abort` unless explicitly
-  recovering from a broken state in step 7.
+  recovering from a broken state — see the Troubleshooting table below.
 - **No merge in progress**: run
 
   ```bash
   git fetch origin "$BASE_BRANCH"
-  git merge "origin/$BASE_BRANCH"
+  git merge --no-edit "origin/$BASE_BRANCH"
   ```
 
   Capture stderr. If the merge completes without conflicts, the
@@ -204,10 +203,20 @@ After every conflicted file is either `git add`'d or recorded as
 unresolvable, run:
 
 ```bash
-git commit -m "chore: merge origin/<base> into <branch> to resolve conflicts"
+git commit --no-verify -m "chore: merge origin/<base> into <branch> to resolve conflicts"
 ```
 
-using the actual base and branch names in place of the placeholders. A
+using the actual base and branch names in place of the placeholders.
+`--no-verify` matters here: unlike `git rebase --continue` (which
+bypasses `pre-commit`/`commit-msg` hooks entirely), a plain `git commit`
+runs them, so a consumer repo's husky/lefthook `pre-commit` hook could
+abort this resolution commit for a reason wholly unrelated to the
+conflict and route the resolver into `git merge --abort`, discarding
+all resolution work. The session-id `prepare-commit-msg` hook still
+fires under `--no-verify` (only `pre-commit` and `commit-msg` are
+skipped). This is consistent with the Constraints section's ban on
+running `flow-pre-commit` from inside the resolver — verification of
+the merged branch is the supervisor's job, not this commit's. A
 conventional-commit subject here matters downstream: GitHub's default
 squash body concatenates commit subjects, so keeping this subject
 conventional-commit shaped keeps the shipped squash body

@@ -1473,15 +1473,31 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   });
 
   it("the merge-resolver contract never mandates a force-push", () => {
-    const forcePushPattern = /force-with-lease|push --force/;
-    // A line naming `--force-with-lease` / `push --force` as something to
-    // AVOID (a NEVER-prohibition, or "never"-qualified prose) is not a
-    // mandate — only flag lines that reference the pattern without such
-    // a negation nearby.
+    // Broadened to catch every force-push spelling, not just the
+    // `push --force` flag-immediately-after-push shape: `git push -f`,
+    // a flag placed after the refspec (`git push origin <ref> --force`),
+    // the `+HEAD:<branch>` force-refspec syntax, and `--force-if-includes`.
+    const forcePushPattern =
+      /force-with-lease|force-if-includes|push\b[^\n]*?(?:-f\b|--force\b)|\+[\w./-]+:[\w./-]+/;
+    // A mention naming the pattern as something to AVOID (a NEVER-
+    // prohibition, or "never"-qualified prose) is not a mandate — only
+    // flag a mention without such a negation ADJACENT to it (within a
+    // fixed character window of the match), not merely anywhere on the
+    // line — a Troubleshooting-table row keeps its whole entry on one
+    // physical line, so "anywhere on the line" let a real mandate hide
+    // behind an unrelated NEVER clause elsewhere in the same row.
+    const NEGATION_WINDOW = 40;
     const mandatesForcePush = (text: string): boolean =>
-      text
-        .split("\n")
-        .some((line) => forcePushPattern.test(line) && !/never/i.test(line));
+      text.split("\n").some((line) => {
+        const match = forcePushPattern.exec(line);
+        if (!match) return false;
+        const windowStart = Math.max(0, match.index - NEGATION_WINDOW);
+        const windowEnd = Math.min(
+          line.length,
+          match.index + match[0].length + NEGATION_WINDOW,
+        );
+        return !/never/i.test(line.slice(windowStart, windowEnd));
+      });
     const step10Section = content.slice(
       content.indexOf("## Step 10 — Merge"),
       content.indexOf("## Step 11"),
@@ -1510,20 +1526,72 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   });
 
   it("the merge-resolver instructions document the merge conflict-marker orientation", () => {
+    const sectionStart = mergeResolverInstructionsContent.indexOf(
+      "### Conflict-marker orientation",
+    );
+    const sectionEnd = mergeResolverInstructionsContent.indexOf(
+      "\n## ",
+      sectionStart,
+    );
+    expect(sectionStart, "orientation section must exist").toBeGreaterThan(-1);
+    const orientationSection = mergeResolverInstructionsContent.slice(
+      sectionStart,
+      sectionEnd === -1 ? undefined : sectionEnd,
+    );
+
     expect(
-      mergeResolverInstructionsContent.includes("<<<<<<< HEAD"),
+      orientationSection.includes("<<<<<<< HEAD"),
       "merge-resolver-instructions.md must name the `<<<<<<< HEAD` marker in its " +
         "orientation section.",
     ).toBe(true);
+    // Scoped to the section, not file-wide — `origin/` appears ~20x
+    // across the file, so a bare file-wide substring check is vacuous
+    // and would pass on inverted prose too.
     expect(
-      mergeResolverInstructionsContent.includes("origin/"),
+      orientationSection.includes("origin/"),
       "merge-resolver-instructions.md must name the `origin/<base>` side in its " +
         "orientation section.",
     ).toBe(true);
     expect(
-      /inverse of a rebase/i.test(mergeResolverInstructionsContent),
+      /inverse of a rebase/i.test(orientationSection),
       "merge-resolver-instructions.md must state the rebase-orientation inversion.",
     ).toBe(true);
+
+    // Ordered-pair assertions: bind each marker to the CORRECT side so
+    // inverted prose (e.g. "`<<<<<<< HEAD` / `ours` is THE BASE's
+    // version") fails instead of silently passing a substring check —
+    // exactly the regression that would make the resolver discard the
+    // PR's own changes.
+    const headIdx = orientationSection.indexOf("<<<<<<< HEAD");
+    const headSideIdx = orientationSection.indexOf(
+      "THIS PR's version",
+      headIdx,
+    );
+    expect(
+      headIdx,
+      "`<<<<<<< HEAD` marker must appear in the orientation section.",
+    ).toBeGreaterThan(-1);
+    expect(
+      headSideIdx,
+      "`<<<<<<< HEAD` / `ours` must be bound to THIS PR's version, not the base's.",
+    ).toBeGreaterThan(headIdx);
+
+    const baseMarkerIdx = orientationSection.indexOf(
+      ">>>>>>> origin/<base>",
+      headSideIdx,
+    );
+    expect(
+      baseMarkerIdx,
+      "`>>>>>>> origin/<base>` marker must follow the HEAD-side binding.",
+    ).toBeGreaterThan(headSideIdx);
+    const baseSideIdx = orientationSection.indexOf(
+      "THE BASE's version",
+      baseMarkerIdx,
+    );
+    expect(
+      baseSideIdx,
+      "`>>>>>>> origin/<base>` / `theirs` must be bound to THE BASE's version, not the PR's.",
+    ).toBeGreaterThan(baseMarkerIdx);
   });
 
   it("the merge-resolver artifact field is push_status everywhere", () => {
@@ -3620,12 +3688,19 @@ describe("pr-review include-by-reference structure", () => {
     // few lines naming the new NEEDS HUMAN reason and its no-re-spawn /
     // no-inline-resolution invariants. Kept deliberately tight rather than
     // offloaded, since the branch is a handful of lines, not a new section.
+    // Tightened the spawn-denied branch (pr-review #485): removed a
+    // restated no-re-spawn clause (already stated three lines below) and
+    // moved the trailing context-isolation rationale to
+    // references/exemption-contracts.md. File now lands at 2758 lines —
+    // raised the ceiling to 2765 (7 lines of genuine headroom) rather than
+    // pinning it back at zero headroom, which is the exact tension this
+    // ceiling exists to prevent.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2760 lines. Material regrowth past this ceiling would ` +
+        `budget of 2765 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2760);
+    ).toBeLessThan(2765);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {

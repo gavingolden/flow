@@ -1976,6 +1976,7 @@ ARTIFACT_PATH="$WORKTREE/.flow-tmp/merge-resolver-result.json"
 INSTRUCTIONS_PATH="$SKILL_DIR/references/merge-resolver-instructions.md"
 BASE_BRANCH=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
 mkdir -p "$WORKTREE/.flow-tmp"
+rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior re-entry (step 10 is re-enterable via the step-7 pr-conflicted row)
 # Per-phase model (mergeResolver) — resolution field: state.modelMergeResolver.
 # Precedence: --model-merge-resolver > config.models.mergeResolver > inherited.
 # Empty ⇒ omit model: from the Task call (inherit). See references/model-routing.md.
@@ -2009,11 +2010,9 @@ and the filled prompt. After it returns:
    written, escalate `NEEDS HUMAN: merge-resolver-spawn-denied` via
    `flow-gate-summary --status needs-human --reason
    merge-resolver-spawn-denied --pr-url "$PR_URL"`, leave the worktree
-   intact, and end. Do **not** re-spawn (one Task call per run,
-   exemption #5) and do **not** resolve inline in the supervisor — that
-   would invert the context-isolation rationale the exemption exists
-   for and re-run a denied operation under the supervisor's broader
-   permission umbrella.
+   intact, and end — do **not** resolve inline in the supervisor
+   (see [references/exemption-contracts.md](references/exemption-contracts.md)
+   for why).
 2. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
    `NEEDS HUMAN: merge-resolver-missing-artifact` and end. (Do not
    re-spawn the resolver — exactly one Task call per run, per the

@@ -118,6 +118,13 @@ unchanged), with the
 `[ -f ~/.claude/agents/flow-merge-resolver.md ] || general-purpose`
 fallback guard emitting the `NOTICE — agent-fallback:` line.
 
+On a spawn-denial (the Task call itself refused, no artifact written),
+the supervisor escalates `NEEDS HUMAN: merge-resolver-spawn-denied` and
+does **not** resolve the conflict inline: doing so would re-run a denied
+operation under the supervisor's broader permission umbrella, inverting
+the context-isolation this exemption exists to provide, and would also
+re-spawn beyond the one-Task-call-per-run limit exemption #5 grants.
+
 ## `/flow-coder` Independent Edit-Applier Subagent
 
 When a pipeline skill reaches its hybrid-threshold wider-scope path —
