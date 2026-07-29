@@ -239,6 +239,15 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect("smoketest-needs-creds".includes(":")).toBe(false);
   });
 
+  it("maps merge-resolver-spawn-denied to a manual git-merge recovery recipe", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "merge-resolver-spawn-denied",
+    });
+    expect(out).toContain("git merge origin/");
+    expect(finalLine(out)).toBe("NEEDS HUMAN: merge-resolver-spawn-denied");
+  });
+
   it("falls back to DEFAULT_NEXT_ACTION for an unmapped reason", () => {
     const out = render({ status: "needs-human", reason: "made-up-tag" });
     expect(out).toContain(`NEXT ACTION: ${DEFAULT_NEXT_ACTION}`);
@@ -310,7 +319,7 @@ describe("render — needs-human (per-reason mapping)", () => {
     const out = render({
       status: "needs-human",
       reason: "merge-failed",
-      why: "rebase conflict in src/foo.ts",
+      why: "merge conflict in src/foo.ts",
       deferredBlock:
         "LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed",
     });

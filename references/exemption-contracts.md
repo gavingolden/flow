@@ -99,15 +99,19 @@ When `/flow-pipeline` step 10's `gh pr merge --squash` returns a
 conflict-class failure (stderr matching the detection patterns in
 `skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md`),
 the supervisor spawns one resolver subagent via the Task tool for the
-rebase + per-file resolution + force-push. Artifact:
+base-branch merge + per-file resolution + push. Artifact:
 `.flow-tmp/merge-resolver-result.json` (typed fields `resolved_files`,
 `ambiguous_resolutions`, `rejected_strategies`, `commits`,
-`force_push_status`, `summary`). After it returns the supervisor retries
+`push_status`, `summary`). After it returns the supervisor retries
 `gh pr merge --squash` exactly once; on second failure it escalates
 `NEEDS HUMAN: merge-failed` with the resolver's summary first sentence
-appended. **Force-push is permitted** here because the resolver runs
-inside `/flow-pipeline`'s auto-merge umbrella and is scoped to the
-per-pipeline branch only — never `main`, `master`, or the base branch.
+appended. **No force-push.** The resolver merges the base branch into
+the pipeline branch and pushes normally, so nothing irreversible is
+delegated to a subagent spawn (an autonomous force-push is gated by the
+permission classifier under auto permission mode, and `AGENTS.md`
+forbids force-push without an explicit user request). Pushes are still
+scoped to the per-pipeline branch only — never `main`, `master`, or the
+base branch.
 Spawned as the named `agents/flow-merge-resolver.md` definition (judgment
 role: no frontmatter `effort`/`model`; per-spawn `model:` threading
 unchanged), with the

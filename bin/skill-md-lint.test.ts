@@ -147,6 +147,15 @@ const MERGE_RESOLVER_SPAWN_PROMPT_PATH = path.resolve(
   "references",
   "merge-resolver-spawn-prompt.md",
 );
+const MERGE_RESOLVER_INSTRUCTIONS_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-pipeline",
+  "references",
+  "merge-resolver-instructions.md",
+);
 const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   HERE,
   "..",
@@ -314,6 +323,10 @@ const fixApplierSpawnPromptContent = fs.readFileSync(
 );
 const mergeResolverSpawnPromptContent = fs.readFileSync(
   MERGE_RESOLVER_SPAWN_PROMPT_PATH,
+  "utf8",
+);
+const mergeResolverInstructionsContent = fs.readFileSync(
+  MERGE_RESOLVER_INSTRUCTIONS_PATH,
   "utf8",
 );
 const discoveryPlaybookContent = fs.readFileSync(
@@ -1457,6 +1470,76 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       coderContent.includes("subagent_type: $CODER_SUBAGENT"),
       "flow-coder SKILL.md edit-applier spawn must pass `subagent_type: $CODER_SUBAGENT`.",
     ).toBe(true);
+  });
+
+  it("the merge-resolver contract never mandates a force-push", () => {
+    const forcePushPattern = /force-with-lease|push --force/;
+    // A line naming `--force-with-lease` / `push --force` as something to
+    // AVOID (a NEVER-prohibition, or "never"-qualified prose) is not a
+    // mandate — only flag lines that reference the pattern without such
+    // a negation nearby.
+    const mandatesForcePush = (text: string): boolean =>
+      text
+        .split("\n")
+        .some((line) => forcePushPattern.test(line) && !/never/i.test(line));
+    const step10Section = content.slice(
+      content.indexOf("## Step 10 — Merge"),
+      content.indexOf("## Step 11"),
+    );
+    expect(
+      mandatesForcePush(mergeResolverInstructionsContent),
+      "merge-resolver-instructions.md must never mandate a force-push.",
+    ).toBe(false);
+    expect(
+      mandatesForcePush(mergeResolverSpawnPromptContent),
+      "merge-resolver-spawn-prompt.md must never mandate a force-push.",
+    ).toBe(false);
+    expect(
+      mandatesForcePush(
+        fs.readFileSync(
+          path.resolve(HERE, "..", "agents", "flow-merge-resolver.md"),
+          "utf8",
+        ),
+      ),
+      "agents/flow-merge-resolver.md must never mandate a force-push.",
+    ).toBe(false);
+    expect(
+      mandatesForcePush(step10Section),
+      "flow-pipeline SKILL.md's step-10 section must never mandate a force-push.",
+    ).toBe(false);
+  });
+
+  it("the merge-resolver instructions document the merge conflict-marker orientation", () => {
+    expect(
+      mergeResolverInstructionsContent.includes("<<<<<<< HEAD"),
+      "merge-resolver-instructions.md must name the `<<<<<<< HEAD` marker in its " +
+        "orientation section.",
+    ).toBe(true);
+    expect(
+      mergeResolverInstructionsContent.includes("origin/"),
+      "merge-resolver-instructions.md must name the `origin/<base>` side in its " +
+        "orientation section.",
+    ).toBe(true);
+    expect(
+      /inverse of a rebase/i.test(mergeResolverInstructionsContent),
+      "merge-resolver-instructions.md must state the rebase-orientation inversion.",
+    ).toBe(true);
+  });
+
+  it("the merge-resolver artifact field is push_status everywhere", () => {
+    for (const [name, text] of [
+      ["merge-resolver-instructions.md", mergeResolverInstructionsContent],
+      ["flow-pipeline SKILL.md", content],
+      ["references/exemption-contracts.md", exemptionContractsContent],
+    ] as const) {
+      expect(text.includes("push_status"), `${name} must use push_status`).toBe(
+        true,
+      );
+      expect(
+        text.includes("force_push_status"),
+        `${name} must not use force_push_status`,
+      ).toBe(false);
+    }
   });
 
   it("the gatekeeper haiku pin agrees between frontmatter and the per-spawn param", () => {
@@ -3531,13 +3614,18 @@ describe("pr-review include-by-reference structure", () => {
     // 2,700-line post-diet floor without reopening the zero-headroom gate
     // tension this same PR's Test Steps hit at exactly 2,700 — regrowth
     // past 2750 should be treated as bloat creeping back in, the failure
-    // mode this diet exists to prevent.
+    // mode this diet exists to prevent. Raised from 2750 to 2760 to fund the
+    // rebase-to-merge conversion's `merge-resolver-spawn-denied` escalation
+    // branch in the Independent Merge-Conflict Resolver Subagent section — a
+    // few lines naming the new NEEDS HUMAN reason and its no-re-spawn /
+    // no-inline-resolution invariants. Kept deliberately tight rather than
+    // offloaded, since the branch is a handful of lines, not a new section.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2750 lines. Material regrowth past this ceiling would ` +
+        `budget of 2760 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2750);
+    ).toBeLessThan(2760);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
