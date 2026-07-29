@@ -186,4 +186,33 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
         `${offending.join("\n")}`,
     ).toEqual([]);
   });
+
+  it("structurally pins the merge-resolver-spawn-denied escalation branch", () => {
+    // Deleting this branch (and its reason tag) leaves the suite green
+    // plus an orphan `merge-resolver-spawn-denied` key in
+    // NEXT_ACTION_BY_REASON and an orphan failure-recovery row in
+    // auto-merge-rubric.md — nothing else in this repo pins its presence.
+    expect(
+      STEP_10.includes("merge-resolver-spawn-denied"),
+      "step 10 must escalate `NEEDS HUMAN: merge-resolver-spawn-denied` on a Task spawn denial.",
+    ).toBe(true);
+    expect(
+      /do \*\*not\*\* resolve inline/i.test(STEP_10),
+      "step 10's spawn-denial branch must forbid inline resolution in the supervisor.",
+    ).toBe(true);
+    expect(
+      STEP_10.includes("flow-gate-summary --status needs-human --reason"),
+      "step 10's spawn-denial branch must call flow-gate-summary to render the escalation.",
+    ).toBe(true);
+    // The `merge-resolver-spawn-denied` key itself must exist so the
+    // rendered NEXT ACTION line is non-empty.
+    const gateSummarySrc = fs.readFileSync(
+      path.resolve(HERE, "flow-gate-summary.ts"),
+      "utf8",
+    );
+    expect(
+      gateSummarySrc.includes('"merge-resolver-spawn-denied":'),
+      "bin/flow-gate-summary.ts must define a NEXT_ACTION_BY_REASON entry for `merge-resolver-spawn-denied`.",
+    ).toBe(true);
+  });
 });

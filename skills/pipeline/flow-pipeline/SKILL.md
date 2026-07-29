@@ -117,8 +117,8 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #5: Merge-Conflict Resolver Subagent.** Step
-> 10's one resolver agent (`flow-merge-resolver`) for the rebase +
-> per-file resolution + force-push (per-pipeline branch only), writing
+> 10's one resolver agent (`flow-merge-resolver`) for the base-branch
+> merge + per-file resolution + push (per-pipeline branch only), writing
 > `.flow-tmp/merge-resolver-result.json`; full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
 > `references/merge-resolver-instructions.md`.
@@ -1572,7 +1572,7 @@ Branch on `.decision`:
 | `ci-failed` | Continue to step 5 mode=fix. Pass `$CI_FAILED_CHECKS` (extracted above) as the failure log. Subject to the 3-loop ci-fix cap below. |
 | `merged-externally` | PR was merged externally mid-flight. Capture follow-ups output to a file: `flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (still executes auto-allowlisted entries; `>` captures the rendered block). Resolve the slug inline (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)`), in ONE `gh pr view` round-trip guarded by `[ -n "$PR" ]`, capture the diff-size source AND the echo-recap fields (`[ -n "$PR" ] && gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json" && IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] \| @tsv' "$WORKTREE/.flow-tmp/pr-view.json") && jq '{additions,deletions,changedFiles,commits:(.commits\|length)}' "$WORKTREE/.flow-tmp/pr-view.json" > "$WORKTREE/.flow-tmp/pr-changes.json"`), then render the snapshot ABOVE the gate block via `flow-pipeline-summary --status merged --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --post-comment "$PR" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH"` (`--post-comment` durably persists the snapshot as an idempotent PR comment on the MERGED path; it no-ops when `$PR` is empty) — then **extract the block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as markdown bullets in your assistant message (prose, not tool output)**; see the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection. Then render the epic-membership block via `flow-epic-membership --slug "$SLUG" --terminal-state merged-externally` (no-op for non-epic features). Render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally mid-flight; supervisor cleaned up the worktree" --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"` **BEFORE** the terminal state transition, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry (the helper silently suppresses the FOLLOW-UPS slot when the file is empty; its final stdout line is the byte-exact sentinel `MERGED`). Then `flow-remove-worktree --delete-branch`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`. End. The roadmap row was self-marked in the PR's diff by `/flow-pr-review` step 7.5; no post-merge sweep required. |
 | `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
-| `pr-conflicted` | Branch conflicts with base; CI can never run. Advance to the step-10 merge path — `gh pr merge --squash` surfaces the conflict-class failure and the existing Merge-Conflict Resolver Subagent rebases onto base, resolves, and force-pushes, after which CI re-runs on the clean head and the pipeline re-enters step 7. Does NOT consume a ci-fix-loop budget slot (conflict remediation is a rebase, not a code fix). |
+| `pr-conflicted` | Branch conflicts with base; CI can never run. Advance to the step-10 merge path — `gh pr merge --squash` surfaces the conflict-class failure and the existing Merge-Conflict Resolver Subagent merges base into the branch, resolves, and pushes, after which CI re-runs on the clean head and the pipeline re-enters step 7. Does NOT consume a ci-fix-loop budget slot (conflict remediation is a merge, not a code fix). |
 | `pr-blocked` | Branch protection blocks the merge — `mergeStateStatus` is still `BLOCKED` (a failing required check, a missing required review, CODEOWNERS, or a linear-history rule outside the `gh pr checks` surface) **after** CI reached terminal and passed. Unlike `pr-conflicted`, this fires only post-CI-terminal (a PR is legitimately `BLOCKED` while required checks are still pending, so `flow-ci-wait` waits CI out first), and unlike a conflict it has no universal mechanical fix the pipeline owns. Escalate `NEEDS HUMAN: pr-blocked` via the standard `# Failure paths` block. Does NOT route to the step-10 merge path and does NOT consume a ci-fix-loop budget slot. |
 | `ci-hang` | Escalate `NEEDS HUMAN: ci-hang`. |
 
@@ -1601,7 +1601,7 @@ After the third red CI, escalate `NEEDS HUMAN: ci-fix-exhausted`.
 above. On `proceed-to-review` / `proceed-to-review-no-bot`, continue
 to step 8. On `ci-failed`, continue to step 5 mode=fix. On
 `pr-conflicted`, advance to the step-10 merge path (the existing
-Merge-Conflict Resolver Subagent rebases + resolves + force-pushes; no
+Merge-Conflict Resolver Subagent merges base in + resolves + pushes; no
 ci-fix-loop budget consumed) and re-enter step 7 once CI re-runs on the
 clean head. On `merged-externally`, run cleanup and end. On `pr-blocked`
 / `pr-closed` / `ci-hang`, escalate and end.
@@ -1959,11 +1959,11 @@ On non-zero exit, branch on the failure class:
 
 ### Independent Merge-Conflict Resolver Subagent
 
-Fires only on the conflict-class branch above. The subagent rebases
-the branch onto `origin/<base>`, resolves each conflicted file,
+Fires only on the conflict-class branch above. The subagent merges
+`origin/<base>` into the branch, resolves each conflicted file,
 records actions taken + ambiguous calls in a structured artifact,
-force-pushes, and returns a brief summary. The supervisor never sees
-the rebase output, the per-file resolution prose, or the force-push
+pushes, and returns a brief summary. The supervisor never sees
+the merge output, the per-file resolution prose, or the push
 transcript — only the artifact and the summary.
 
 **Load the Task tool before spawning** — i.e. before the Task call below. See [../flow-pr-review/references/task-tool-exemption-preamble.md](../flow-pr-review/references/task-tool-exemption-preamble.md) for the full rationale. On missing schema: escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-merge-resolver` and exit (do not fall back to in-line execution).
@@ -1976,6 +1976,7 @@ ARTIFACT_PATH="$WORKTREE/.flow-tmp/merge-resolver-result.json"
 INSTRUCTIONS_PATH="$SKILL_DIR/references/merge-resolver-instructions.md"
 BASE_BRANCH=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
 mkdir -p "$WORKTREE/.flow-tmp"
+rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior re-entry (step 10 is re-enterable via the step-7 pr-conflicted row)
 # Per-phase model (mergeResolver) — resolution field: state.modelMergeResolver.
 # Precedence: --model-merge-resolver > config.models.mergeResolver > inherited.
 # Empty ⇒ omit model: from the Task call (inherit). See references/model-routing.md.
@@ -1983,8 +1984,8 @@ SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
 MERGE_RESOLVER_MODEL=$(jq -r '.modelMergeResolver // empty' ~/.flow/state/"$SLUG".json)
 [ -z "$MERGE_RESOLVER_MODEL" ] && MERGE_RESOLVER_MODEL=$(jq -r '.models.mergeResolver // empty' ~/.flow/config.json 2>/dev/null)
 # Best-effort conflicting-file list — only non-empty when an outer
-# process already left the worktree mid-rebase (the resolver runs the
-# rebase itself in Step 2). `git diff --name-only --diff-filter=U`
+# process already left the worktree mid-merge (the resolver runs the
+# merge itself in Step 2). `git diff --name-only --diff-filter=U`
 # catches every U-class status (UU/AU/UA/DU/UD), unlike a porcelain
 # prefix grep which misses the AU/DU pair where U is in column 2.
 (cd "$WORKTREE" && git fetch origin "$BASE_BRANCH") || echo "warn: git fetch origin $BASE_BRANCH failed; resolver will retry the fetch in Step 2" >&2
@@ -2004,11 +2005,19 @@ Make the Task call with `subagent_type: $MERGE_RESOLVER_SUBAGENT`, the per-spawn
 session model — see [references/model-routing.md](references/model-routing.md)),
 and the filled prompt. After it returns:
 
-1. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
+1. Spawn-denial check: if the Task call itself returns a permission
+   denial / refusal (not a subagent result) AND no artifact was
+   written, escalate `NEEDS HUMAN: merge-resolver-spawn-denied` via
+   `flow-gate-summary --status needs-human --reason
+   merge-resolver-spawn-denied --pr-url "$PR_URL"`, leave the worktree
+   intact, and end — do **not** resolve inline in the supervisor
+   (see [references/exemption-contracts.md](references/exemption-contracts.md)
+   for why).
+2. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
    `NEEDS HUMAN: merge-resolver-missing-artifact` and end. (Do not
    re-spawn the resolver — exactly one Task call per run, per the
    exemption contract.)
-2. Read the artifact's `force_push_status`. If `succeeded`, retry the
+3. Read the artifact's `push_status`. If `succeeded`, retry the
    merge **exactly once** with `$PRIMARY` re-derived in the same Bash
    call (the supervisor runs this as a fresh shell — `$PRIMARY` from
    the Step 10 block above is not in scope):
@@ -2022,8 +2031,8 @@ and the filled prompt. After it returns:
    block via `flow-gate-summary --status needs-human --reason
    merge-failed --pr-url "$PR_URL" --why "$(jq -r .summary
    "$ARTIFACT_PATH" | head -1)"`. End.
-3. On retry success, continue to the post-merge sweep below.
-4. On retry failure, render the NEEDS HUMAN block via
+4. On retry success, continue to the post-merge sweep below.
+5. On retry failure, render the NEEDS HUMAN block via
    `flow-gate-summary --status needs-human --reason merge-failed
    --pr-url "$PR_URL" --why "$(jq -r .summary "$ARTIFACT_PATH" |
    head -1)"`. End. The artifact stays on disk in the worktree for

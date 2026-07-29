@@ -511,7 +511,7 @@ polling) and OPEN-state precedence (MERGED/CLOSED route to
 `merged-externally` / `pr-closed`).
 
 The routing also differs: a conflict has a mechanical fix the pipeline
-owns (rebase + resolve + force-push), so `pr-conflicted` routes to the
+owns (merge base in + resolve + push), so `pr-conflicted` routes to the
 step-10 merge path. `BLOCKED` has no universal mechanical fix — a missing
 required human review or a failing external status check is outside the
 pipeline's control — so `pr-blocked` escalates `NEEDS HUMAN: pr-blocked`

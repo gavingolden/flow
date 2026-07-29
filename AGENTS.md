@@ -278,9 +278,9 @@ three-layer resolution table, and the manifest/foundation fields — is at
     Subagent.** Step 8's one fix-applier agent for the per-finding
     address loop + commit/push, writing `.flow-tmp/fix-applier-result.json`.
   - **Task-tool exemption: `/flow-pipeline` → Merge-Conflict Resolver
-    Subagent.** Step 10's one resolver agent for the rebase + per-file
-    resolution + force-push (per-pipeline branch only), writing
-    `.flow-tmp/merge-resolver-result.json`.
+    Subagent.** Step 10's one resolver agent for the base-branch merge +
+    per-file resolution + push (per-pipeline branch only, never a
+    force-push), writing `.flow-tmp/merge-resolver-result.json`.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-coder` Independent
     Edit-Applier Subagent.** The edit-applier agent `/flow-coder` spawns
     when `/flow-new-feature` step 5, `/flow-verify` step 3, or `/flow-refactoring`

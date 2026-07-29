@@ -4,10 +4,10 @@ These instructions are read by the merge-conflict resolver subagent that
 `/flow-pipeline`'s SKILL.md spawns via the Task tool when step 10's
 `gh pr merge --squash` returns a conflict-class failure. The subagent runs
 in an isolated context — its file reads, per-file resolution rationale,
-rebase output, and force-push prose stay inside its own session and are
+merge output, and the push prose stay inside its own session and are
 never returned to the supervisor. The only outputs it produces are the
-side effects on the worktree (file edits, the rebased branch, the
-force-push) and the structured artifact it writes to disk
+side effects on the worktree (file edits, the merged branch, the
+push) and the structured artifact it writes to disk
 (`.flow-tmp/merge-resolver-result.json`), plus a brief one-paragraph
 summary it returns on completion.
 
@@ -19,8 +19,8 @@ The wrapper passes you these inputs in its spawn prompt:
 - The base branch name (typically `main`, but read from the wrapper's
   prompt — the supervisor resolved it from `gh pr view`).
 - The list of conflicting file paths (from `git status --porcelain` on
-  the worktree, post-rebase-attempt — the supervisor may have already
-  initiated `git rebase`).
+  the worktree, post-merge-attempt — the supervisor may have already
+  initiated `git merge`).
 - The absolute worktree path (your working directory).
 - The absolute path to `.flow-tmp/plan.md` (so you understand the PR's
   intent when judging conflict semantics).
@@ -38,12 +38,12 @@ Before touching any conflict, load the inputs:
 - Read the wrapper's spawn prompt for the `gh` stderr, PR number, base
   branch, conflicting file list. The stderr fingerprint matters: the
   wrapper detected one of the conflict-class patterns (see step 2's
-  Detection patterns table); your own `git rebase` output should match.
+  Detection patterns table); your own `git merge` output should match.
   If it does not — e.g. the wrapper saw "Pull Request is not mergeable"
-  but your local `git rebase origin/<base>` completes cleanly — the
+  but your local `git merge origin/<base>` completes cleanly — the
   divergence is itself a signal (likely required-checks rather than
   textual conflict). Record this in `rejected_strategies` and proceed
-  to Step 8 with `force_push_status: skipped`.
+  to Step 8 with `push_status: skipped`.
 - Read `.flow-tmp/plan.md` and the PR description. Skim for the PR's
   intent — what the change is meant to accomplish — so semantic
   conflicts can be resolved against intent rather than textual proximity.
@@ -54,52 +54,71 @@ Before touching any conflict, load the inputs:
 
 This is read-only background — these reads stay in your context.
 
-## 2. Verify the rebase state and re-attempt if needed
+## 2. Verify the merge state and re-attempt if needed
 
-The wrapper may have initiated `git rebase origin/<base>` before
-spawning you, leaving the worktree in mid-rebase state. Run:
+The wrapper may have initiated `git merge origin/<base>` before
+spawning you, leaving the worktree in mid-merge state. Run:
 
 ```bash
 git status --porcelain
 git rev-parse --show-toplevel  # confirm you're in the worktree
-test -d .git/rebase-merge -o -d .git/rebase-apply && echo "rebase in progress"
+test -f "$(git rev-parse --git-path MERGE_HEAD)" && echo "merge in progress"
 ```
+
+The `MERGE_HEAD` probe (not a `.git/rebase-*` directory check) is
+required because in a flow worktree `.git` is a FILE pointing at
+`.git/worktrees/<name>/`, not a directory. `git rev-parse --git-path
+MERGE_HEAD` resolves into that per-worktree gitdir correctly; a
+hardcoded `test -d .git/rebase-merge` would never fire in a worktree.
 
 Two cases:
 
-- **Rebase in progress** (the `.git/rebase-*` dir exists): keep going
-  from the current state. Do not run `git rebase --abort` unless
-  explicitly recovering from a broken state in step 7.
-- **No rebase in progress**: run
+- **Merge in progress** (`MERGE_HEAD` exists): keep going from the
+  current state. Do not run `git merge --abort` unless explicitly
+  recovering from a broken state — see the Troubleshooting table below.
+- **No merge in progress**: run
 
   ```bash
   git fetch origin "$BASE_BRANCH"
-  git rebase "origin/$BASE_BRANCH"
+  git merge --no-edit "origin/$BASE_BRANCH"
   ```
 
-  Capture stderr. If the rebase completes without conflicts, the
+  Capture stderr. If the merge completes without conflicts, the
   wrapper's conflict-detection was a false positive — write
-  `force_push_status: skipped`, populate `rejected_strategies` with
+  `push_status: skipped`, populate `rejected_strategies` with
   the divergence, and skip to Step 8.
 
 ### Detection patterns
 
 The wrapper triggers the resolver when `gh pr merge --squash` stderr
-matches any of these fingerprints. If your local rebase output also
+matches any of these fingerprints. If your local merge output also
 matches, you're aligned with what the wrapper saw:
 
 - `Pull Request is not mergeable`
 - `not mergeable: the merge commit cannot be cleanly created`
 - `merge conflict between`
-- `CONFLICT (` (from `git rebase` output — multiple variants:
+- `CONFLICT (` (from `git merge` output — multiple variants:
   `CONFLICT (content)`, `CONFLICT (modify/delete)`, `CONFLICT (rename/rename)`)
 
-If your local rebase produces a stderr that matches NONE of these AND
+If your local merge produces a stderr that matches NONE of these AND
 no `<<<<<<<` markers exist in the worktree, the wrapper's classification
 was wrong. Document this in `rejected_strategies` and exit per the
 no-conflict path above.
 
 ## 3. Resolve each conflicted file
+
+### Conflict-marker orientation (merge, not rebase)
+
+Under `git merge origin/<base>` run FROM the pipeline branch,
+`<<<<<<< HEAD` / `ours` is **THIS PR's version** and
+`>>>>>>> origin/<base>` / `theirs` is **THE BASE's version** — the exact
+INVERSE of a rebase, where the replayed commit is `theirs`. So
+`prefer-current` takes the `HEAD` side and `prefer-incoming` takes the
+`origin/<base>` side; `git checkout --ours` / `--theirs` mean the
+OPPOSITE of what rebase habits suggest. The five strategy names below
+are intent-named and unchanged by this — and under a merge,
+`prefer-incoming` becomes literally accurate, since the base really is
+the incoming branch.
 
 For each path in `git diff --name-only --diff-filter=U`:
 
@@ -172,30 +191,40 @@ schemas), do **not** invent a fix:
 - Record it in `ambiguous_resolutions` with `judgment_call: "no
 defensible default — escalation required"` and the strategies you
   considered + why each was rejected in `alternatives_considered`.
-- Skip the rebase-continue in step 4. Set `force_push_status: skipped`
+- Skip the merge-commit step in step 4. Set `push_status: skipped`
   in step 6. Write the artifact in step 7.
 - Return a summary that names the blocker. The supervisor will retry
   `gh pr merge`, it will fail again, and `NEEDS HUMAN: merge-failed`
   fires with your blocker text.
 
-## 4. Continue the rebase
+## 4. Complete the merge
 
 After every conflicted file is either `git add`'d or recorded as
 unresolvable, run:
 
 ```bash
-git rebase --continue
+git commit --no-verify -m "chore: merge origin/<base> into <branch> to resolve conflicts"
 ```
 
-If `git rebase` advances to another commit with conflicts, return to
-Step 3 and resolve those. Loop until either `git rebase --continue`
-completes (rebase done) or `git status` shows further conflicts to
-address.
+using the actual base and branch names in place of the placeholders.
+`--no-verify` matters here: unlike `git rebase --continue` (which
+bypasses `pre-commit`/`commit-msg` hooks entirely), a plain `git commit`
+runs them, so a consumer repo's husky/lefthook `pre-commit` hook could
+abort this resolution commit for a reason wholly unrelated to the
+conflict and route the resolver into `git merge --abort`, discarding
+all resolution work. The session-id `prepare-commit-msg` hook still
+fires under `--no-verify` (only `pre-commit` and `commit-msg` are
+skipped). This is consistent with the Constraints section's ban on
+running `flow-pre-commit` from inside the resolver — verification of
+the merged branch is the supervisor's job, not this commit's. A
+conventional-commit subject here matters downstream: GitHub's default
+squash body concatenates commit subjects, so keeping this subject
+conventional-commit shaped keeps the shipped squash body
+conventional-commit shaped too.
 
-If the rebase produces a commit-message editor prompt, you are running
-a non-`-i` rebase that hit a `git commit --amend`-equivalent pause —
-keep the commit message unchanged (close the editor without edits).
-Standard `--continue` flow.
+A merge is a single conflict pass — there is no "advances to another
+commit with conflicts" loop and no `-i`-rebase commit-message editor to
+navigate. Once `git commit` succeeds, move on to Step 5.
 
 ## 5. Verify the resolution
 
@@ -203,19 +232,19 @@ Before pushing, confirm the resolution is structurally sound:
 
 ```bash
 git status --porcelain                       # expect empty
-git log origin/$BASE_BRANCH..HEAD --oneline  # expect this PR's commits, rebased
+git log origin/$BASE_BRANCH..HEAD --oneline  # expect this PR's commits plus the merge commit
 test -z "$(git diff --check)"                # no leftover conflict markers anywhere
 ```
 
 If `git status` shows uncommitted changes or `git diff --check` flags
 leftover markers, you missed something. Return to Step 3 for the
-flagged file. Do not force-push with leftover markers.
+flagged file. Do not push with leftover markers.
 
-## 6. Force-push
+## 6. Push
 
-The resolver is authorised to force-push the per-pipeline branch via
+The resolver is authorised to push the per-pipeline branch via
 the `Auto-push exemption` umbrella that `/flow-pipeline` invocation
-already establishes. **Force-push is scoped to the per-pipeline branch
+already establishes. **The push is scoped to the per-pipeline branch
 only — never to `main`, `master`, or the base branch.** The
 per-pipeline branch was set when `flow-new-worktree` ran in step 2
 and is the current branch in your worktree.
@@ -226,19 +255,20 @@ test "$CURRENT_BRANCH" != "$BASE_BRANCH" || {
   echo "REFUSING: current branch is the base branch"
   exit 1
 }
-git push --force-with-lease origin "$CURRENT_BRANCH"
+git push origin "$CURRENT_BRANCH"
 ```
 
-`--force-with-lease` (not `--force`) is required: it refuses the push
-if the remote has advanced beyond your local view, preventing the
-"another supervisor pushed in parallel" race.
+A plain push is refused non-fast-forward if the remote advanced,
+giving the same parallel-supervisor race protection as a leased,
+forced push would, without delegating an irreversible operation to a
+subagent spawn.
 
-Record the outcome in `force_push_status`:
+Record the outcome in `push_status`:
 
 - `succeeded` — push exited 0.
 - `failed` — push returned non-zero. Capture the verbatim stderr in
   `summary`. Do not retry; the wrapper decides escalation.
-- `skipped` — you did not force-push (no-conflict false positive,
+- `skipped` — you did not push (no-conflict false positive,
   unresolvable conflict, etc.).
 
 ## 7. Write the structured artifact
@@ -280,11 +310,11 @@ The artifact MUST conform to this JSON schema:
   ],
   "commits": [
     {
-      "sha": "<7-char hex of the rebased commit>",
+      "sha": "<7-char hex of the merge commit (and any commit created during resolution)>",
       "message": "<the commit's subject line>"
     }
   ],
-  "force_push_status": "succeeded" | "failed" | "skipped",
+  "push_status": "succeeded" | "failed" | "skipped",
   "summary": "<3–5 sentence both-sides return summary; see step 8>"
 }
 ```
@@ -312,28 +342,28 @@ Your final message back to the wrapper should be one short paragraph
 (3–5 sentences max) that surfaces **both sides** of what you resolved:
 
 - At least one positive: how many files were resolved, the dominant
-  strategy, the force-push outcome.
+  strategy, the push outcome.
 - At least one negative: the top entry from `ambiguous_resolutions` or
   `rejected_strategies` — what call required judgment, what strategy
   was tried and rolled back. A summary that names only successes fails
   the contract.
 
-Do not paste the artifact JSON, file diffs, or rebase output back —
+Do not paste the artifact JSON, file diffs, or merge output back —
 the wrapper only forwards your summary, and the artifact on disk is
 the durable record. Keeping the return value short is the whole point
 of the subagent fan-out.
 
 # Troubleshooting
 
-| Problem                           | Symptom                                                                                             | Fix                                                                                                                                                                                                                                                                |
-| --------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Rebase produces no conflicts      | `git rebase origin/<base>` exits 0 with no conflicts; wrapper's classification was a false positive | Skip to Step 8. Record the divergence in `rejected_strategies` (one entry: `path: "(none)"`, `strategy: "(no-op)"`, `why_rejected: "wrapper saw <X> stderr but local rebase clean"`). Set `force_push_status: skipped`.                                            |
-| Rebase aborts mid-flight          | `git rebase --continue` errors out for non-conflict reason (e.g. invalid commit)                    | Run `git rebase --abort` to return to pre-rebase state. Record the failure in `summary`; set `force_push_status: skipped`. The supervisor's retry will fail and escalate.                                                                                          |
-| Conflict marker survives the Edit | `git diff --check` flags `<<<<<<<` after your edit                                                  | Re-open the file, expand the `Edit` `old_string` to include the full marker triple, retry. The Edit tool requires unique `old_string`; conflict markers within similar files can collide.                                                                          |
-| Force-push refused (lease)        | `git push --force-with-lease` exits non-zero with "stale info"                                      | The remote advanced — another process pushed. Do not retry blindly. Record the verbatim error in `summary`; set `force_push_status: failed`. Let the wrapper decide.                                                                                               |
-| `modify/delete` conflict          | One side deleted the file, the other modified it                                                    | Choose `delete` (accept the deletion) or `prefer-current` (keep the modified file, undo the deletion). Record the call in `ambiguous_resolutions` if the PR's intent doesn't clearly favour one.                                                                   |
-| Both sides rename the same file   | `rename/rename` conflict                                                                            | Choose one of the two new names by reading both sides' usages. Record in `ambiguous_resolutions` with the alternative name in `alternatives_considered`.                                                                                                           |
-| Lockfile conflict                 | `package-lock.json` / `bun.lock` / `yarn.lock` conflicts                                            | Use `prefer-incoming` (take `main`'s lockfile), then re-run the dependency installer (`npm install` / `bun install`) and `git add` the regenerated lockfile. Record `strategy: prefer-incoming` and note "regenerated via package manager" in `semantic_decision`. |
+| Problem                           | Symptom                                                                                            | Fix                                                                                                                                                                                                                                                                |
+| --------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Merge produces no conflicts       | `git merge origin/<base>` exits 0 with no conflicts; wrapper's classification was a false positive | Skip to Step 8. Record the divergence in `rejected_strategies` (one entry: `path: "(none)"`, `strategy: "(no-op)"`, `why_rejected: "wrapper saw <X> stderr but local merge clean"`). Set `push_status: skipped`.                                                   |
+| Merge aborts mid-flight           | Committing the resolution errors out for a non-conflict reason (e.g. invalid commit)               | Run `git merge --abort` to return to pre-merge state. Record the failure in `summary`; set `push_status: skipped`. The supervisor's retry will fail and escalate.                                                                                                  |
+| Conflict marker survives the Edit | `git diff --check` flags `<<<<<<<` after your edit                                                 | Re-open the file, expand the `Edit` `old_string` to include the full marker triple, retry. The Edit tool requires unique `old_string`; conflict markers within similar files can collide.                                                                          |
+| Push rejected (non-fast-forward)  | `git push` exits non-zero with `! [rejected] ... (fetch first)`                                    | The remote advanced — another process pushed. Record `push_status: failed` with the verbatim stderr in `summary`. Do not retry blindly. NEVER escalate to `--force`; let the wrapper decide.                                                                       |
+| `modify/delete` conflict          | One side deleted the file, the other modified it                                                   | Choose `delete` (accept the deletion) or `prefer-current` (keep the modified file, undo the deletion). Record the call in `ambiguous_resolutions` if the PR's intent doesn't clearly favour one.                                                                   |
+| Both sides rename the same file   | `rename/rename` conflict                                                                           | Choose one of the two new names by reading both sides' usages. Record in `ambiguous_resolutions` with the alternative name in `alternatives_considered`.                                                                                                           |
+| Lockfile conflict                 | `package-lock.json` / `bun.lock` / `yarn.lock` conflicts                                           | Use `prefer-incoming` (take `main`'s lockfile), then re-run the dependency installer (`npm install` / `bun install`) and `git add` the regenerated lockfile. Record `strategy: prefer-incoming` and note "regenerated via package manager" in `semantic_decision`. |
 
 # Verification
 
@@ -346,7 +376,7 @@ Before writing the artifact and returning, self-check:
 - Every `resolved_files` entry has a non-empty `path`, `strategy`
   (one of the five enum values), and `semantic_decision`.
 - Every `commits` entry has a 7-character SHA and a message.
-- `force_push_status` is exactly one of `succeeded` / `failed` /
+- `push_status` is exactly one of `succeeded` / `failed` /
   `skipped`.
 - `ambiguous_resolutions` and `rejected_strategies` reflect what you
   actually weighed; empty arrays only when you genuinely had no
@@ -359,8 +389,10 @@ Before writing the artifact and returning, self-check:
 
 # Constraints
 
-- NEVER force-push the base branch (`main`, `master`, or whatever the
-  PR targets). The branch-name guard in Step 6 is mandatory.
+- NEVER push to the base branch (`main`, `master`, or whatever the
+  PR targets); the branch-name guard in Step 6 is mandatory.
+- NEVER use `git push --force` or `--force-with-lease` — a rejected
+  push is recorded as `push_status: failed`, never forced.
 - NEVER call `gh pr merge` yourself. The wrapper retries the merge
   after you return.
 - NEVER spawn another resolver via the Task tool. Exactly one resolver
@@ -371,19 +403,19 @@ Before writing the artifact and returning, self-check:
 - NEVER write to `/tmp/` or to the worktree root for scratch — every
   transient file lives under `<worktree>/.flow-tmp/<name>`. Same
   isolation rule as the other subagent contracts.
-- NEVER `git rebase --abort` once you've started resolving — partial
+- NEVER `git merge --abort` once you've started resolving — partial
   resolutions are still useful state. Abort only on the explicit
   troubleshooting case above.
 - NEVER run `/flow-verify` or `flow-pre-commit` from inside the resolver.
-  Verification of the rebased branch is the supervisor's job — the
+  Verification of the merged branch is the supervisor's job — the
   retried `gh pr merge --squash` is the verification, and CI re-runs
-  on the force-pushed head. Re-running `/flow-verify` here would defeat
+  on the pushed head. Re-running `/flow-verify` here would defeat
   the context-cost win the fan-out exists for.
-- NEVER amend a commit on the rebased branch. The rebase produces new
-  commits (different SHAs from the original); that's the expected
-  behavior. Don't try to preserve original SHAs.
+- NEVER rewrite history on the branch — the merge preserves every
+  original commit SHA and appends one merge commit; do not rebase,
+  amend, or squash.
 - NEVER leave the artifact unwritten. On any failure path — including
-  unresolvable conflicts, a refused force-push, or an unrecoverable
-  rebase state — write the artifact with whatever partial state you
+  unresolvable conflicts, a rejected push, or an unrecoverable
+  merge state — write the artifact with whatever partial state you
   have. The wrapper's missing-artifact escalation is reserved for
   catastrophic crashes; controlled failures must record themselves.
