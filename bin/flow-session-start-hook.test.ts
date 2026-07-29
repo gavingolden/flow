@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   deliverResumeSeed,
+  resumeSeedFor,
   run,
   sessionStartOutput,
+  terminalAdvisory,
   type DeliverSeams,
   type Deps,
+  type ResumeKind,
 } from "./flow-session-start-hook";
 import { flowPipelineResumeSeed } from "./lib/feature";
 import { TERMINAL_PHASES, type PipelineState } from "./lib/state";
@@ -12,6 +15,7 @@ import { TERMINAL_PHASES, type PipelineState } from "./lib/state";
 type Stub = {
   deps: Deps;
   dispatched: string[];
+  dispatchedKinds: ResumeKind[];
   emitted: string[];
   loadCalls: string[];
 };
@@ -23,8 +27,16 @@ function makeDeps(opts: {
   flowSlugEnv?: string;
   state?: PipelineState | null;
   markerExists?: boolean;
+  /**
+   * Stubs the `@flow-kind` seam. Defaults to `() => null` — NOT omitted —
+   * so tests never fall through to the real `resolveKindAmbient()` (which
+   * would read the live tmux pane this suite happens to run inside) unless
+   * a test explicitly wants that fallback exercised.
+   */
+  resolveKind?: () => ResumeKind | null;
 }): Stub {
   const dispatched: string[] = [];
+  const dispatchedKinds: ResumeKind[] = [];
   const emitted: string[] = [];
   const loadCalls: string[] = [];
   const deps: Deps = {
@@ -37,14 +49,16 @@ function makeDeps(opts: {
       return opts.state ?? null;
     },
     markerExists: () => opts.markerExists ?? false,
-    dispatchResume: (slug) => {
+    resolveKind: opts.resolveKind ?? (() => null),
+    dispatchResume: (slug, kind) => {
       dispatched.push(slug);
+      dispatchedKinds.push(kind);
     },
     emitContext: (context) => {
       emitted.push(context);
     },
   };
-  return { deps, dispatched, emitted, loadCalls };
+  return { deps, dispatched, dispatchedKinds, emitted, loadCalls };
 }
 
 function fakeState(
@@ -95,6 +109,7 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
       showFlowSlug: () => "demo",
       loadState: () => fakeState("checkpoint-pending-clear"),
       markerExists: () => true,
+      resolveKind: () => null,
       dispatchResume: (slug) => {
         // Simulate the real detached-child dispatch: returns immediately,
         // delivery happens out-of-band and is NOT awaited by run().
@@ -195,6 +210,191 @@ describe("flow-session-start-hook — silent no-op paths", () => {
     });
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual([]);
+  });
+});
+
+describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => {
+  it("(a) epic-design-pending-review + marker + no @flow-kind dispatches with kind epic-design", async () => {
+    const { deps, dispatched, dispatchedKinds } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("epic-design-pending-review"),
+      markerExists: true,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual(["demo"]);
+    expect(dispatchedKinds).toEqual(["epic-design"]);
+  });
+
+  it("(b) every epic-design STEP phase + marker dispatches with kind epic-design", async () => {
+    for (const phase of ["epic-designing", "epic-validating", "epic-pr-open"]) {
+      const { deps, dispatched, dispatchedKinds } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState(phase),
+        markerExists: true,
+      });
+      expect(await run(deps), phase).toBe(0);
+      expect(dispatched, phase).toEqual(["demo"]);
+      expect(dispatchedKinds, phase).toEqual(["epic-design"]);
+    }
+  });
+
+  it("(c) a feature phase dispatches with kind feature and a byte-identical seed (regression)", async () => {
+    const { deps, dispatched, dispatchedKinds } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("implementing"),
+      markerExists: true,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual(["demo"]);
+    expect(dispatchedKinds).toEqual(["feature"]);
+    expect(resumeSeedFor("demo", "feature")).toBe(
+      flowPipelineResumeSeed("demo"),
+    );
+  });
+
+  it("(d) deliverResumeSeed(slug, seams, 'epic-design') sends the epic-create resume seed then a separate Enter", () => {
+    const capture = frames(["old pre-clear prompt", "fresh", "fresh", "fresh"]);
+    const seed = resumeSeedFor("demo", "epic-design");
+    const lead = seed.split("\n")[0]!;
+    const remainder = seed.slice(lead.length);
+    const sends: SendCall[] = [];
+    let leadingSent = false;
+    const seams: DeliverSeams = {
+      capturePane: () => {
+        if (!leadingSent) return capture();
+        return `❯ ${lead}`;
+      },
+      sendKeys: (text, literal) => {
+        sends.push({ text, literal });
+        if (literal) leadingSent = true;
+        return { ok: true, stderr: "" };
+      },
+      sleep: () => {},
+      attempts: 20,
+    };
+    expect(deliverResumeSeed("demo", seams, "epic-design")).toBe(true);
+    expect(sends).toEqual([
+      { text: lead, literal: true },
+      { text: remainder, literal: true },
+      { text: "Enter", literal: false },
+    ]);
+    expect(lead).toBe(
+      "Use the /flow-epic-create skill in --resume mode for: demo",
+    );
+    expect(seed).toContain("EPIC_DIR: .flow/epics/demo");
+    expect(seed).toContain("SKILL_DIR: ");
+  });
+
+  it("(e) plain path (FLOW_SLUG, no pane) at an epic phase emits the epic-design seed as additionalContext", async () => {
+    const { deps, dispatched, emitted } = makeDeps({
+      pane: undefined,
+      flowSlugEnv: "demo",
+      state: fakeState("epic-design-pending-review"),
+      markerExists: true,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(emitted).toEqual([resumeSeedFor("demo", "epic-design")]);
+  });
+
+  it("(f)/(j) epic-approved + marker + no @flow-kind: no dispatch, but an advisory is emitted naming the phase + epic recovery command", async () => {
+    const { deps, dispatched, emitted } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("epic-approved"),
+      markerExists: true,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(emitted).toEqual([terminalAdvisory("demo", "epic-approved")]);
+    expect(emitted[0]).toContain("epic-approved");
+    expect(emitted[0]).toContain("flow epic create --resume demo");
+  });
+
+  it("(g) epic-approved + marker + resolveKind() === 'epic-run' dispatches with kind epic-run (D3 bypasses the terminal guard)", async () => {
+    const { deps, dispatched, dispatchedKinds, emitted } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("epic-approved"),
+      markerExists: true,
+      resolveKind: () => "epic-run",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual(["demo"]);
+    expect(dispatchedKinds).toEqual(["epic-run"]);
+    expect(emitted).toEqual([]); // resumed, not declined — no advisory
+  });
+
+  it("(h) deliverResumeSeed(slug, seams, 'epic-run') sends the epic-run seed with NO SKILL_DIR line", () => {
+    const capture = frames(["old pre-clear prompt", "fresh", "fresh", "fresh"]);
+    const seed = resumeSeedFor("demo", "epic-run");
+    const lead = seed.split("\n")[0]!;
+    const remainder = seed.slice(lead.length);
+    const sends: SendCall[] = [];
+    let leadingSent = false;
+    const seams: DeliverSeams = {
+      capturePane: () => {
+        if (!leadingSent) return capture();
+        return `❯ ${lead}`;
+      },
+      sendKeys: (text, literal) => {
+        sends.push({ text, literal });
+        if (literal) leadingSent = true;
+        return { ok: true, stderr: "" };
+      },
+      sleep: () => {},
+      attempts: 20,
+    };
+    expect(deliverResumeSeed("demo", seams, "epic-run")).toBe(true);
+    expect(sends).toEqual([
+      { text: lead, literal: true },
+      { text: remainder, literal: true },
+      { text: "Enter", literal: false },
+    ]);
+    expect(lead).toBe("Use the /flow-epic-run skill for: demo");
+    expect(seed).toContain("EPIC_DIR: .flow/epics/demo");
+    expect(seed).not.toContain("SKILL_DIR:");
+  });
+
+  it("(i) resolveKind() === 'feature' on a feature pipeline does not change today's behavior", async () => {
+    const { deps, dispatched, dispatchedKinds } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("implementing"),
+      markerExists: true,
+      resolveKind: () => "feature",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual(["demo"]);
+    expect(dispatchedKinds).toEqual(["feature"]);
+  });
+
+  it("(k) epic-approved with NO marker: no dispatch and no emit (an ordinary /clear with no checkpoint stays silent)", async () => {
+    const { deps, dispatched, emitted } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("epic-approved"),
+      markerExists: false,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(emitted).toEqual([]);
+  });
+
+  it("(l) merged + marker on a feature pipeline: advisory names the flow feature resume recovery command", async () => {
+    const { deps, dispatched, emitted } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("merged"),
+      markerExists: true,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(emitted).toEqual([terminalAdvisory("demo", "merged")]);
+    expect(emitted[0]).toContain("flow feature resume demo");
   });
 });
 

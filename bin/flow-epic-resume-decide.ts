@@ -32,7 +32,8 @@
  *     "context": {
  *       "slug": string, "phase": string,
  *       "worktree"?: string, "pr"?: number,
- *       "prState"?: "OPEN"|"MERGED"|"CLOSED"
+ *       "prState"?: "OPEN"|"MERGED"|"CLOSED",
+ *       "checkpointExists"?: boolean
  *     }
  *   }
  *
@@ -58,6 +59,7 @@ import {
   type GhRunner,
   type GitRunner,
 } from "./lib/resume-probes";
+import { probeCheckpoint } from "./flow-checkpoint";
 
 // --- Types -----------------------------------------------------------------
 
@@ -78,6 +80,13 @@ export type DecisionContext = {
   worktree?: string;
   pr?: number;
   prState?: "OPEN" | "MERGED" | "CLOSED";
+  /**
+   * Additive/optional (parity with `bin/flow-resume-decide.ts:117`): whether
+   * `<worktree>/.flow-tmp/checkpoint.md` is present and non-empty, so
+   * `/flow-epic-create` Resume mode can branch on it without a bespoke shell
+   * probe. Absent worktree ⇒ `false`, never omitted.
+   */
+  checkpointExists?: boolean;
 };
 
 export type DecisionResult = {
@@ -91,6 +100,7 @@ export type Inputs = {
   state: PipelineState;
   worktree: WorktreeInfo;
   pr: PrInfo;
+  checkpointExists: boolean;
 };
 
 // --- Phase sets ------------------------------------------------------------
@@ -112,6 +122,7 @@ export function decide(inputs: Inputs): DecisionResult {
   const ctx: DecisionContext = {
     slug: inputs.slug,
     phase: inputs.state.phase,
+    checkpointExists: inputs.checkpointExists,
   };
   if (inputs.worktree.kind !== "absent-from-state") {
     ctx.worktree = inputs.worktree.path;
@@ -259,6 +270,7 @@ export function gatherInputs(
       state,
       worktree: { kind: "absent-from-state" },
       pr: { kind: "none" },
+      checkpointExists: false,
     };
   }
 
@@ -266,8 +278,11 @@ export function gatherInputs(
   const branch =
     worktree.kind === "present" ? probeBranch(worktree.path, git) : null;
   const pr = branch ? probePr(branch, gh) : { kind: "none" as const };
+  const checkpointExists = state.worktree
+    ? probeCheckpoint(state.worktree)
+    : false;
 
-  return { slug, state, worktree, pr };
+  return { slug, state, worktree, pr, checkpointExists };
 }
 
 export function run(argv: string[], deps: Deps = {}): number {

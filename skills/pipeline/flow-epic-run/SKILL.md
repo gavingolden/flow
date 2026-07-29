@@ -180,6 +180,22 @@ re-reads the board and continues. Print `RESUMING AT: playbook` on its own line
 before re-entering so the user reading scrollback can confirm, then reconcile
 and proceed.
 
+**Checkpoint re-injection (persisted conversational state).** A fresh
+process reconstructs the board from disk but drops any instruction held
+only in chat. Resolve the worktree (`flow-checkpoint <slug>` reports it in
+its JSON, or `flow ls`), then probe `<worktree>/.flow-tmp/checkpoint.md`.
+When it exists, read it and fold its addenda into the reconcile step —
+honor the persisted decision as if just given — **before** taking the one
+deliberate step. Then run:
+
+```bash
+flow-checkpoint --consume
+```
+
+which deletes the one-shot `checkpoint.pending` marker so a later
+unrelated `/clear` in this window does not re-fire the auto-resume hook.
+Skipping the consume leaves the marker armed.
+
 # What this playbook does NOT do
 
 - It does **not merge** a feature PR — ever.
@@ -189,6 +205,9 @@ and proceed.
 launch`.
 - It does **not author feature code**, run a tick loop, poll, or spawn a
   judgment sub-agent.
+- It does **not replay a checkpoint twice** — the `checkpoint.pending`
+  marker is one-shot, consumed (`flow-checkpoint --consume`) on the same
+  re-entry that re-injects `checkpoint.md`.
 
 # Resource cleanup
 

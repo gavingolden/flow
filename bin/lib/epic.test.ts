@@ -43,6 +43,12 @@ const tmuxMock = vi.hoisted(() => ({
       stderr: string;
     }
   >(() => ({ status: "started", stderr: "" })),
+  // The pane-kind publisher: best-effort, called after every launch/reclaim
+  // site returns non-failed. Tests assert both call presence/kind AND that a
+  // failing/throwing setter never changes a command's exit code.
+  setPaneKind: vi.fn<
+    (slug: string, kind: string) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
   FLOW_SESSION: "flow",
 }));
 vi.mock("./tmux", () => tmuxMock);
@@ -128,6 +134,7 @@ beforeEach(() => {
   tmuxMock.respawnWindowVerified
     .mockReset()
     .mockReturnValue({ status: "started", stderr: "" });
+  tmuxMock.setPaneKind.mockReset().mockReturnValue({ ok: true, stderr: "" });
 });
 
 // runCreate probes windowExists twice now: the up-front "already exists" guard
@@ -224,14 +231,18 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     // to the live checkout under vitest.
     expect(seed).toContain("SKILL_DIR:");
     expect(seed).toContain("skills/pipeline/flow-product-planning");
-    // The argv carries --add-dir <worktree> + --add-dir <claude-home> +
-    // trailing --settings, NO positional seed (length 7).
-    expect(command).toHaveLength(7);
-    expect(command[0]).toBe("claude");
-    expect(command[1]).toBe("--add-dir");
-    expect(command[3]).toBe("--add-dir");
-    expect(command[4]).toBe(FLOW_CLAUDE_HOME);
-    expect(command[5]).toBe("--settings");
+    // The argv carries a leading `env FLOW_PIPELINE=1 FLOW_SLUG=<slug>`
+    // prefix, then --add-dir <worktree> + --add-dir <claude-home> + trailing
+    // --settings, NO positional seed (length 10).
+    expect(command).toHaveLength(10);
+    expect(command[0]).toBe("env");
+    expect(command[1]).toBe("FLOW_PIPELINE=1");
+    expect(command[2]).toBe("FLOW_SLUG=add-watchlist-feature");
+    expect(command[3]).toBe("claude");
+    expect(command[4]).toBe("--add-dir");
+    expect(command[6]).toBe("--add-dir");
+    expect(command[7]).toBe(FLOW_CLAUDE_HOME);
+    expect(command[8]).toBe("--settings");
     expect(
       command.some((a) => a.includes("Use the /flow-epic-create skill")),
     ).toBe(false);
@@ -394,7 +405,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(sleeps).toEqual([1000, 2000]);
   });
 
-  it("launches claude with --add-dir <derived-worktree> and trailing --settings (bare env, hook written)", () => {
+  it("launches claude with --add-dir <derived-worktree> and trailing --settings (env FLOW_PIPELINE/FLOW_SLUG prefix, hook written)", () => {
     // LOAD-BEARING: omit `command` so buildLaunchCommand runs the real argv.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
@@ -410,6 +421,9 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
+      "FLOW_SLUG=design-thing",
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
@@ -418,9 +432,13 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       "--settings",
       settingsPath,
     ]);
-    // Epic's launch env stays deliberately bare — NO env FLOW_PIPELINE=1 prefix.
-    expect(command).not.toContain("FLOW_PIPELINE=1");
-    expect(command).not.toContain("env");
+    // The epic launch env now carries the supervisor markers (Task 9):
+    // FLOW_PIPELINE=1 lets /flow-research's Tier-2 claude -p leaf guard fire
+    // inside an epic supervisor exactly as it does in a feature supervisor
+    // (skills/universal/flow-research/SKILL.md:306); FLOW_SLUG makes every
+    // hook/helper resolve the ambient slug env-first over a tmux read.
+    expect(command).toContain("FLOW_PIPELINE=1");
+    expect(command).toContain("env");
     // The flow-scoped settings file was written, registering the seed-ingested hook.
     expect(fs.existsSync(settingsPath)).toBe(true);
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
@@ -453,6 +471,9 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
+      "FLOW_SLUG=design-thing",
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
@@ -500,6 +521,41 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       stateDir,
     );
     expect(consumedFn!()).toBe(true);
+  });
+
+  it("publishes @flow-kind=epic-design on the launched window after the launch confirms", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.setPaneKind).toHaveBeenCalledWith(
+      "design-thing",
+      "epic-design",
+    );
+    // Published strictly AFTER the launch: the launch mock must already have
+    // recorded its call by the time setPaneKind fires.
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalled();
+  });
+
+  it("a failing setPaneKind never changes the create command's exit code (best-effort; return value ignored)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    tmuxMock.setPaneKind.mockReturnValue({
+      ok: false,
+      stderr: "no such window",
+    });
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.setPaneKind).toHaveBeenCalledWith(
+      "design-thing",
+      "epic-design",
+    );
   });
 });
 
@@ -589,6 +645,9 @@ describe("runEpicCli create — --effort / --model flags", () => {
     // NO positional seed (delivered via send-keys); --effort sits after --add-dir,
     // then the trailing --settings (real argv uses process.env.FLOW_LAUNCH_SETTINGS_PATH).
     expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
+      "FLOW_SLUG=design-thing",
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
@@ -622,6 +681,9 @@ describe("runEpicCli create — --effort / --model flags", () => {
       // NO positional seed (delivered via send-keys); --model sits after --add-dir,
       // then the trailing --settings.
       expect(command).toEqual([
+        "env",
+        "FLOW_PIPELINE=1",
+        "FLOW_SLUG=design-thing",
         "claude",
         "--add-dir",
         deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
@@ -651,6 +713,9 @@ describe("runEpicCli create — --effort / --model flags", () => {
     // Deterministic order: --model before --effort, both after --add-dir, then
     // the trailing --settings; NO positional seed (delivered via send-keys).
     expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
+      "FLOW_SLUG=design-thing",
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
@@ -895,6 +960,9 @@ describe("runEpicCli create — --effort / --model flags", () => {
     // NO positional seed (delivered via send-keys); saved --model/--effort
     // re-applied after --add-dir in deterministic order, then trailing --settings.
     expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
+      "FLOW_SLUG=saved-flags-epic",
       "claude",
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-flags-epic"),
@@ -944,16 +1012,58 @@ describe("runEpicCli create --resume", () => {
     // The resume seed carries the same resolved SKILL_DIR as the create seed.
     expect(seed).toContain("SKILL_DIR:");
     expect(seed).toContain("skills/pipeline/flow-product-planning");
-    // The argv carries NO positional seed (claude + --add-dir <worktree> +
-    // --add-dir <claude-home> + trailing --settings, length 7).
-    expect(command).toHaveLength(7);
-    expect(command[3]).toBe("--add-dir");
-    expect(command[4]).toBe(FLOW_CLAUDE_HOME);
-    expect(command[5]).toBe("--settings");
+    // The argv carries a leading env FLOW_PIPELINE=1 FLOW_SLUG=<slug> prefix,
+    // then NO positional seed (claude + --add-dir <worktree> + --add-dir
+    // <claude-home> + trailing --settings, length 10).
+    expect(command).toHaveLength(10);
+    expect(command[0]).toBe("env");
+    expect(command[1]).toBe("FLOW_PIPELINE=1");
+    expect(command[2]).toBe("FLOW_SLUG=crashed-epic");
+    expect(command[6]).toBe("--add-dir");
+    expect(command[7]).toBe(FLOW_CLAUDE_HOME);
+    expect(command[8]).toBe("--settings");
     expect(
       command.some((a) => a.includes("Use the /flow-epic-create skill")),
     ).toBe(false);
     expect(logs[0]).toBe("flow:crashed-epic");
+  });
+
+  it("publishes @flow-kind=epic-design AFTER the respawn — this is the site that overwrites a stale epic-run left by respawn-window -k", () => {
+    seedEpicState("crashed-epic");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const order: string[] = [];
+    tmuxMock.respawnWindowVerified.mockImplementation(() => {
+      order.push("respawn");
+      return { status: "started", stderr: "" };
+    });
+    tmuxMock.setPaneKind.mockImplementation(() => {
+      order.push("setPaneKind");
+      return { ok: true, stderr: "" };
+    });
+    const code = runEpicCli(["create", "--resume", "crashed-epic"], {
+      stateDir,
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.setPaneKind).toHaveBeenCalledWith(
+      "crashed-epic",
+      "epic-design",
+    );
+    expect(order).toEqual(["respawn", "setPaneKind"]);
+  });
+
+  it("a failing setPaneKind never changes the --resume command's exit code (best-effort; return value ignored)", () => {
+    seedEpicState("crashed-epic");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    tmuxMock.setPaneKind.mockReturnValue({
+      ok: false,
+      stderr: "no such window",
+    });
+    const code = runEpicCli(["create", "--resume", "crashed-epic"], {
+      stateDir,
+    });
+    expect(code).toBe(0);
   });
 
   it("recreates the window when tmux has lost it (no window, dead pane)", () => {
@@ -1215,6 +1325,28 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(deps).toBeUndefined();
     // No run.json is pre-seeded by the launcher (the playbook writes it via bind/launch).
     expect(readEpicRunState("spawn-epic", epicsDir)).toBeNull();
+  });
+
+  it("publishes @flow-kind=epic-run on the launched window after the launch confirms — the signal that lets the SessionStart:clear hook bypass the terminal guard", () => {
+    gitInit();
+    writeManifest("spawn-epic", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "spawn-epic"], { cwd: repoDir, epicsDir });
+    expect(code).toBe(0);
+    expect(tmuxMock.setPaneKind).toHaveBeenCalledWith("spawn-epic", "epic-run");
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalled();
+  });
+
+  it("a failing setPaneKind never changes the run command's exit code (best-effort; return value ignored)", () => {
+    gitInit();
+    writeManifest("spawn-epic", [{ id: "a" }]);
+    freshWindowOk();
+    tmuxMock.setPaneKind.mockReturnValue({
+      ok: false,
+      stderr: "no such window",
+    });
+    const code = runEpicCli(["run", "spawn-epic"], { cwd: repoDir, epicsDir });
+    expect(code).toBe(0);
   });
 
   it("run: refuses (exit 2) when a window already exists for the slug", () => {

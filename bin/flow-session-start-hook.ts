@@ -1,12 +1,20 @@
 #!/usr/bin/env bun
 /**
- * Claude Code SessionStart hook (matcher `clear`) for the /flow-pipeline
- * supervisor's checkpoint → /clear → auto-resume flow.
+ * Claude Code SessionStart hook (matcher `clear`) for flow's supervisor
+ * checkpoint → /clear → auto-resume flow — feature (`/flow-pipeline`),
+ * epic-design (`/flow-epic-create`), and epic-run (`/flow-epic-run`) alike.
  *
- * After the user types `/clear` inside a flow pipeline window in which they
- * ran `/flow-checkpoint` (or hit the step-4 auto-checkpoint), this hook makes the
- * freshly-cleared session auto-enter resume mode — the pipeline continues
- * instead of leaving a blank session.
+ * After the user types `/clear` inside a flow window in which they ran
+ * `/flow-checkpoint` (or hit an auto-checkpoint), this hook makes the
+ * freshly-cleared session auto-enter resume mode — the supervisor continues
+ * instead of leaving a blank session. Which of the three resume seeds it
+ * sends is picked by the window's **kind**: the `@flow-kind` tmux pane
+ * option wins (published by every epic launch/reclaim site; absent for a
+ * feature window), and `isEpicPhase(state.phase)` is the fallback when the
+ * option is unreadable. An `epic-run` window resumes REGARDLESS of phase —
+ * its shared `state.json` describes the *design* lifecycle, not run
+ * progress, and `flow epic run` refuses to start before the design PR
+ * merges, so a run window always sits at the terminal `epic-approved`.
  *
  * Delivery mechanism, per launcher backend. TMUX: an earlier version emitted
  * the resume seed as SessionStart `additionalContext`, but that is injected
@@ -19,8 +27,8 @@
  * hook DELIBERATELY falls back to emitting the seed as `additionalContext` —
  * passive delivery is ACCEPTED here because the user is present at a
  * foreground terminal and their next message carries the resume context in.
- * The seed text is the SAME string `flow feature resume` sends, reused (not
- * re-authored) from `flowPipelineResumeSeed`.
+ * Each seed text is the SAME string its own launcher sends, reused (not
+ * re-authored) via `resumeSeedFor`.
  *
  * The hook is synchronous and BLOCKS session start, so it must return promptly:
  * `run()` fires the delivery as a DETACHED, unref'd child (`dispatchResume`)
@@ -31,23 +39,76 @@
  *
  * Correctness constraint: the hook is global (`~/.claude/settings.json`) and
  * fires on EVERY `/clear` on the machine, so it MUST do nothing — no delivery,
- * exit 0 — unless ALL of: the tmux window resolves to a non-terminal flow
- * pipeline AND a `<worktree>/.flow-tmp/checkpoint.pending` marker is present
+ * exit 0 — unless ALL of: the window resolves to a pipeline `autoResumesAfterClear`
+ * for its kind AND a `<worktree>/.flow-tmp/checkpoint.pending` marker is present
  * (written by `flow-checkpoint` on a ready verdict). A plain `/clear` with no
  * prior checkpoint leaves no marker → the hook no-ops and the session clears
  * normally. Modeled on `flow-stop-guard`'s "no-op when state.json
- * missing/terminal" discipline.
+ * missing/terminal" discipline. When the guard declines a `/clear` that DID
+ * carry an armed marker, it now emits a passive advisory (`terminalAdvisory`)
+ * naming the phase and the manual recovery command — `additionalContext` is
+ * the right surface for a note precisely because it triggers no autonomous
+ * turn (the same passivity that disqualifies it for a resume seed).
  */
 
 import * as fs from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
-import { readState, TERMINAL_PHASE_SET, type PipelineState } from "./lib/state";
-import { resolveSlugFromEnv } from "./lib/session-identity";
+import {
+  autoResumesAfterClear,
+  isEpicPhase,
+  readState,
+  type PipelineKind,
+  type PipelineState,
+} from "./lib/state";
+import { resolveKindAmbient, resolveSlugFromEnv } from "./lib/session-identity";
 import { flowPipelineResumeSeed } from "./lib/feature";
+import {
+  epicResumeSeed,
+  epicRunSeed,
+  productPlanningSkillDir,
+} from "./lib/epic-seed";
+import { epicDirRelative } from "./lib/epic-manifest-schema";
 import { capturePaneBySlug, sendKeysBySlug } from "./lib/tmux";
 import { deliverSeed } from "./lib/seed-delivery";
 import { sleepSync } from "./lib/sleep";
 import { markerPath } from "./flow-checkpoint";
+
+/** Which resume seed a window gets — re-exports Task 1's `PipelineKind`. */
+export type ResumeKind = PipelineKind;
+
+/**
+ * Picks the byte-exact resume seed for `kind`, reusing (never re-authoring)
+ * each launcher's own seed builder. Exhaustive `switch`, no `default`
+ * fallthrough — a future kind fails typecheck here rather than silently
+ * sending the feature seed.
+ */
+export function resumeSeedFor(slug: string, kind: ResumeKind): string {
+  switch (kind) {
+    case "epic-design":
+      return epicResumeSeed(
+        slug,
+        epicDirRelative(slug),
+        productPlanningSkillDir(),
+      );
+    case "epic-run":
+      return epicRunSeed(slug, epicDirRelative(slug));
+    case "feature":
+      return flowPipelineResumeSeed(slug);
+  }
+}
+
+/**
+ * The passive note emitted when the terminal guard declines a `/clear` that
+ * DID carry an armed marker — so a user who checkpointed and cleared at a
+ * phase this hook will not resume learns why the pane stayed blank, instead
+ * of the marker + `checkpoint.md` addenda silently going nowhere.
+ */
+export function terminalAdvisory(slug: string, phase: string): string {
+  const recovery = isEpicPhase(phase)
+    ? `flow epic create --resume ${slug}`
+    : `flow feature resume ${slug}`;
+  return `flow: phase '${phase}' is terminal for '${slug}' — checkpoint.md was not re-injected and the checkpoint marker is still armed. Recover manually with \`${recovery}\`.`;
+}
 
 export type Deps = {
   readStdin: () => Promise<string>;
@@ -64,12 +125,19 @@ export type Deps = {
   loadState: (slug: string) => PipelineState | null;
   markerExists: (worktree: string) => boolean;
   /**
+   * Resolves the window's kind from the `@flow-kind` pane option. Optional,
+   * defaulting to `resolveKindAmbient()` — matches `bin/flow-checkpoint.ts`'s
+   * `resolveKind?` seam style. `null` (option absent/unreadable) falls back
+   * to `isEpicPhase(state.phase)` in `run()`, per D3.
+   */
+  resolveKind?: () => ResumeKind | null;
+  /**
    * Fire-and-forget resume-seed delivery. On the emit path `run()` calls this
    * and returns immediately — it MUST NOT block session start, so the default
    * implementation spawns a detached child and returns synchronously. Injected
    * in tests to record the dispatch without spawning anything.
    */
-  dispatchResume: (slug: string) => void;
+  dispatchResume: (slug: string, kind: ResumeKind) => void;
 };
 
 export async function run(deps: Deps): Promise<number> {
@@ -97,12 +165,38 @@ export async function run(deps: Deps): Promise<number> {
   const state = deps.loadState(slug);
   if (!state) return 0;
 
-  // A terminal pipeline has nothing to resume — never deliver a stray seed.
-  // EXCEPT `gated`: a gated pipeline carrying a checkpoint marker is a
-  // feedback-mode resume point (flow-resume-decide resolves it to
-  // `gated-feedback`), so it falls through to the marker check below —
-  // marker present → deliver the seed, marker absent → no-op like any terminal.
-  if (TERMINAL_PHASE_SET.has(state.phase) && state.phase !== "gated") return 0;
+  // Resolve the window's kind BEFORE the terminal guard — the guard now
+  // depends on it. `@flow-kind` (the pane option) wins; the phase predicate
+  // is the fallback, per D3. Same seam discipline as `resolveSlug` in
+  // `bin/flow-checkpoint.ts`: select the resolver function ONCE (real
+  // `resolveKindAmbient` only when the caller supplied no seam at all), then
+  // call it once — so an injected `resolveKind` returning `null` (a test
+  // simulating "no @flow-kind option") lands on the phase fallback below
+  // without ever touching the live tmux pane, and the default hook wiring
+  // still resolves for real.
+  const resolveKind = deps.resolveKind ?? resolveKindAmbient;
+  const kind: ResumeKind =
+    resolveKind() ?? (isEpicPhase(state.phase) ? "epic-design" : "feature");
+
+  // A pipeline that will not auto-resume for this kind has nothing to
+  // resume — never deliver a stray seed. This is behavior-identical to the
+  // old bare `TERMINAL_PHASE_SET` check for `feature` / `epic-design` (the
+  // `gated` carve-out lives inside `autoResumesAfterClear`); the `kind` arm
+  // is the only thing that lets an `epic-run` window through at the
+  // terminal `epic-approved` (its shared state.json describes the *design*
+  // lifecycle, not run progress).
+  if (!autoResumesAfterClear(state.phase, kind)) {
+    // The user checkpointed (marker armed) and then cleared at a phase this
+    // hook will not resume from. Task 7's checkpoint-time warning may be
+    // many minutes stale by now, so re-state it HERE, at the destructive
+    // step. additionalContext is PASSIVE — it triggers no autonomous turn
+    // (exactly why it is wrong for a resume seed and right for a note), so
+    // this fires on BOTH launcher paths.
+    if (state.worktree && deps.markerExists(state.worktree)) {
+      deps.emitContext(terminalAdvisory(slug, state.phase));
+    }
+    return 0;
+  }
 
   // The one-shot marker is the deliberate opt-in: no /flow-checkpoint → no marker →
   // no auto-resume, so the user keeps the choice to /clear without a checkpoint.
@@ -115,10 +209,10 @@ export async function run(deps: Deps): Promise<number> {
   // no send-keys surface exists, so degrade to passive additionalContext —
   // the deliberate plain-mode fallback (see the header comment).
   if (!pane || state.launcher === "plain") {
-    deps.emitContext(flowPipelineResumeSeed(slug));
+    deps.emitContext(resumeSeedFor(slug, kind));
     return 0;
   }
-  deps.dispatchResume(slug);
+  deps.dispatchResume(slug, kind);
   return 0;
 }
 
@@ -193,9 +287,14 @@ function paneClearedAndSettled(seams: DeliverSeams, attempts: number): boolean {
  * preserving this path's discipline of never submitting after a failed literal
  * send (which could submit stale/partial pane content on a live pane). Returns
  * false (never fires blind) when the pane never becomes ready or delivery fails.
+ * `kind` defaults to `"feature"` so existing call sites keep compiling.
  * Exported for unit testing.
  */
-export function deliverResumeSeed(slug: string, seams: DeliverSeams): boolean {
+export function deliverResumeSeed(
+  slug: string,
+  seams: DeliverSeams,
+  kind: ResumeKind = "feature",
+): boolean {
   const attempts = seams.attempts ?? DELIVER_POLL_ATTEMPTS;
   // paneClearedAndSettled owns the CLEAR-aware gate (its transitioned-away-from-
   // the-pre-clear-snapshot semantics are distinct from deliverSeed's generic
@@ -207,7 +306,7 @@ export function deliverResumeSeed(slug: string, seams: DeliverSeams): boolean {
   // above already waited for the pane to clear and stabilise, so the redundant
   // gate would only cost one wasted sleep interval.
   const result = deliverSeed(
-    flowPipelineResumeSeed(slug),
+    resumeSeedFor(slug, kind),
     {
       capture: seams.capturePane,
       send: seams.sendKeys,
@@ -238,12 +337,16 @@ export function defaultShowFlowSlug(pane: string): string {
  * session finishes clearing). Best-effort: a spawn failure must never break
  * session start.
  */
-function defaultDispatchResume(slug: string): void {
+function defaultDispatchResume(slug: string, kind: ResumeKind): void {
   try {
-    const child = spawn(process.execPath, [import.meta.path, "deliver", slug], {
-      detached: true,
-      stdio: "ignore",
-    });
+    const child = spawn(
+      process.execPath,
+      [import.meta.path, "deliver", slug, kind],
+      {
+        detached: true,
+        stdio: "ignore",
+      },
+    );
     child.unref();
   } catch {
     // Never let a spawn hiccup break session start.
@@ -270,18 +373,31 @@ async function defaultReadStdin(): Promise<string> {
   });
 }
 
+/** Only these three literals are a valid dispatched kind; anything else falls back to "feature". */
+function parseResumeKind(value: string | undefined): ResumeKind {
+  if (value === "epic-design" || value === "epic-run" || value === "feature") {
+    return value;
+  }
+  return "feature";
+}
+
 if (import.meta.main) {
   const argv = process.argv.slice(2);
   if (argv[0] === "deliver" && argv[1]) {
     // Detached-child entry: run the clear-aware send-keys delivery against the
     // live tmux window resolved by slug, then exit.
     const slug = argv[1];
-    const ok = deliverResumeSeed(slug, {
-      capturePane: () => capturePaneBySlug(slug),
-      sendKeys: (keysOrText, literal) =>
-        sendKeysBySlug(slug, keysOrText, literal),
-      sleep: (ms) => sleepSync(ms),
-    });
+    const kind = parseResumeKind(argv[2]);
+    const ok = deliverResumeSeed(
+      slug,
+      {
+        capturePane: () => capturePaneBySlug(slug),
+        sendKeys: (keysOrText, literal) =>
+          sendKeysBySlug(slug, keysOrText, literal),
+        sleep: (ms) => sleepSync(ms),
+      },
+      kind,
+    );
     process.exit(ok ? 0 : 1);
   }
   run({
@@ -300,6 +416,7 @@ if (import.meta.main) {
         return false;
       }
     },
+    resolveKind: resolveKindAmbient,
     dispatchResume: defaultDispatchResume,
   }).then((code) => process.exit(code));
 }

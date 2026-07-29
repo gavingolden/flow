@@ -20,7 +20,10 @@ holding only in chat: an "approved with condition X" addendum, a
 mid-flight redirect ("ignore the flake on test Y", "skip the review,
 ship it"), an explicit in-chat decision. This skill writes that
 conversational residue to `<worktree>/.flow-tmp/checkpoint.md` so it is
-re-injected after a `/clear`.
+re-injected after a `/clear`. Depending on the pipeline kind, the resumed
+session may be `/flow-pipeline`, `/flow-epic-create`, or the
+`/flow-epic-run` playbook — the resumed skill is picked by the window's
+kind, not always `/flow-pipeline`.
 
 # When to use
 
@@ -28,10 +31,23 @@ re-injected after a `/clear`.
 this` / `checkpoint` inside a flow pipeline window.
 - The user wants to reset the supervisor's context mid-pipeline (drop a
   bloated transcript) without losing an in-chat instruction.
+- Epic-design windows (`flow epic create`) are a supported context too —
+  phases `epic-designing`, `epic-validating`, `epic-pr-open`, and
+  `epic-design-pending-review` all checkpoint and auto-resume like a
+  feature pipeline. `epic-approved` is terminal for the design supervisor,
+  so `/clear` there will not auto-resume (an `epic-run` window at the same
+  phase is a separate case — see the gate note below).
 
-Do **not** use it outside a flow pipeline window, or on a terminal
-pipeline — there is no in-flight work to resume, so `flow-checkpoint`
-returns a `needs`/`noop` verdict and no marker is written.
+The helper (`bin/flow-checkpoint.ts`) gates **only** on (`state.json`
+present, `state.worktree` set, a non-empty `checkpoint.md`) and is
+**phase-independent** — it writes the marker at any phase, including a
+terminal one. It is the `SessionStart:clear` **hook** that declines to
+auto-resume at a terminal phase (except `gated`, and except an
+`epic-run` window, which resumes regardless of phase). Checkpointing a
+terminal pipeline therefore still succeeds and still arms the marker, but
+`/clear` there will not auto-resume — step 2 below surfaces a warning
+when that is the case, so you can decide not to `/clear` instead of
+finding out from a blank pane.
 
 # How it runs
 
@@ -87,7 +103,11 @@ non-empty, then emits one JSON object on stdout. Branch on `.status`:
 
 - **`ready`** — the helper wrote the one-shot marker
   `<worktree>/.flow-tmp/checkpoint.pending` (the flag the
-  `SessionStart:clear` auto-resume hook gates on). Proceed to step 3.
+  `SessionStart:clear` auto-resume hook gates on). When the JSON also
+  carries a non-empty `.warning` (a terminal phase that will not
+  auto-resume — the `gated` and `epic-run` carve-outs never carry one),
+  hold onto it for step 3: it does **not** change the branch, `ready` +
+  `warning` is still `ready`. Proceed to step 3.
 - **`needs`** — a precondition is unmet (`.reason` is `state-missing`,
   `no-worktree`, or `checkpoint-missing`). No marker was written. When
   the reason is `checkpoint-missing`, step 1 did not leave a non-empty
@@ -101,6 +121,13 @@ On a `ready` verdict, surface a one-line nudge and end the turn:
 
 ```
 ✅ checkpointed — type /clear now to reset context (the pipeline auto-resumes and re-injects your notes), or keep going in this session.
+```
+
+When step 2's JSON carried a non-empty `.warning`, echo it verbatim
+alongside that line, so the user can decide **not** to `/clear`:
+
+```
+⚠️ <warning text from step 2>
 ```
 
 Then stop. The marker is one-shot: on the next resume, Resume mode reads

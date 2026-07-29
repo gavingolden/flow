@@ -7,8 +7,13 @@
  * pane option only exists under the tmux launcher.
  */
 
-import { resolveSlugFromPane, type ResolveSlugDeps } from "./tmux";
+import {
+  resolveKindFromPane,
+  resolveSlugFromPane,
+  type ResolveSlugDeps,
+} from "./tmux";
 import { isValidSlug } from "./slug";
+import type { PipelineKind } from "./state";
 
 /**
  * The slug from `FLOW_SLUG`, or null unless the value passes `isValidSlug`
@@ -32,4 +37,19 @@ export function resolveSlugAmbient(
   const fromEnv = resolveSlugFromEnv(deps.env ?? process.env);
   if (fromEnv !== null) return fromEnv;
   return resolveSlugFromPane(deps);
+}
+
+/**
+ * Ambient window-kind resolution: a thin pass-through to
+ * `resolveKindFromPane`, deliberately WITHOUT an env-var arm. Unlike the
+ * slug, the kind must stay per-pane: once the epic launch argv exports
+ * `FLOW_SLUG` (Task 9), any shell the user `cd`s into from that pane
+ * inherits it — a parallel `FLOW_KIND` env var would combine with that
+ * inherited slug to make an arbitrary descendant shell look like a live
+ * epic supervisor to the `SessionStart:clear` hook.
+ */
+export function resolveKindAmbient(
+  deps: ResolveSlugDeps = {},
+): PipelineKind | null {
+  return resolveKindFromPane(deps);
 }

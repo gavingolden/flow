@@ -13,7 +13,7 @@
  */
 
 import * as path from "node:path";
-import { shortPhase } from "./state";
+import { shortPhase, type PipelineKind } from "./state";
 import { sleepSync } from "./sleep";
 import { deliverSeed } from "./seed-delivery";
 
@@ -45,6 +45,21 @@ export const FLOW_REPO_OPTION = "@flow-repo";
  * unchanged; `@flow-phase-short` is strictly additive.
  */
 export const FLOW_PHASE_SHORT_OPTION = "@flow-phase-short";
+/**
+ * PANE option (not window) recording which supervisor kind is currently
+ * running in this pane — `"feature"` | `"epic-design"` | `"epic-run"`. Same
+ * additive/opt-in/publish-only/best-effort contract as `@flow-phase` /
+ * `@flow-repo` / `@flow-phase-short` above, with one deliberate divergence:
+ * those three are window-scoped (`set-option -w`) because they answer a
+ * per-*window* question, but "which supervisor is running right now" is a
+ * per-*pane* question — a window-scoped value would bleed into a pane the
+ * user splits off (`Ctrl-b %`) and let the `SessionStart:clear` hook hijack
+ * a supervisor started there. Republished at every epic launch/reclaim
+ * (not just window creation) so it tracks what is *running*, not how the
+ * window was first created — `respawn-window -k` preserves the pane id, so
+ * a stale value from a prior supervisor would otherwise survive a reclaim.
+ */
+export const FLOW_KIND_OPTION = "@flow-kind";
 /**
  * The phase seeded at window creation, before the first
  * `flow-state-update --phase` lands. Must match the initial phase `flow feature create`
@@ -829,6 +844,78 @@ export function setWindowPhase(
     buildSetOptionArgs(window.id, FLOW_PHASE_SHORT_OPTION, shortPhase(phase)),
   );
   return { ok: r.exitCode === 0, stderr: r.stderr };
+}
+
+/**
+ * Publishes `kind` onto the CURRENT pane's `@flow-kind` option, resolving the
+ * target window by `@flow-slug` (not display name), mirroring
+ * `setWindowPhase`'s resolve-then-soft-fail shape. Deliberately PANE-scoped
+ * (`-p`, not `-w`) — see `FLOW_KIND_OPTION`'s doc comment — so the argv is
+ * built inline rather than through `buildSetOptionArgs`, which hard-codes
+ * `-w` and is pinned byte-exactly by its own tests. Best-effort: never
+ * throws, `{ ok: false }` on a missing window or a non-zero `set-option`
+ * exit; callers ignore the result so a tmux hiccup can never change a
+ * launch's exit code.
+ */
+export function setPaneKind(
+  slug: string,
+  kind: PipelineKind,
+  deps: SetWindowPhaseDeps = {},
+): { ok: boolean; stderr: string } {
+  const spawn = deps.spawnTmux ?? tmux;
+  const list = deps.listWindowsFn ?? listWindows;
+  const window = findWindowBySlug(list(deps.session), slug);
+  if (!window) {
+    return {
+      ok: false,
+      stderr: `setPaneKind: no window for slug '${slug}'`,
+    };
+  }
+  const r = spawn([
+    "set-option",
+    "-p",
+    "-t",
+    window.id,
+    FLOW_KIND_OPTION,
+    kind,
+  ]);
+  return { ok: r.exitCode === 0, stderr: r.stderr };
+}
+
+/**
+ * Resolves the current pane's `@flow-kind` option, modeled on
+ * `resolveSlugFromPane` MINUS its window cross-check — a pane option cannot
+ * be stale-inherited across panes (verified against a live tmux 3.6a: a pane
+ * split off the same window reads a hard non-zero exit, no bleed), so the
+ * extra `display-message` round-trip that guards `resolveSlugFromPane`
+ * against a reused-window race has nothing to protect here.
+ *
+ * Returns `null` when:
+ *   - `$TMUX_PANE` is unset (helper invoked outside tmux),
+ *   - `tmux show-options` fails (option unset on the pane — this is also
+ *     tmux's reported outcome for a missing user option: exit 1 with
+ *     `invalid option:` on stderr, which the piped `tmux()` spawn captures
+ *     rather than printing — load-bearing, since the hook's stdout is the
+ *     SessionStart JSON contract),
+ *   - the resolved value is empty, or
+ *   - the resolved value is outside the `PipelineKind` union (shape-checked,
+ *     same discipline as `resolveSlugFromEnv`'s `isValidSlug` guard).
+ */
+export function resolveKindFromPane(
+  deps: ResolveSlugDeps = {},
+): PipelineKind | null {
+  const env = deps.env ?? process.env;
+  const spawn = deps.spawnTmux ?? tmux;
+  const pane = env.TMUX_PANE;
+  if (!pane) return null;
+  const r = spawn(["show-options", "-t", pane, "-v", "-p", FLOW_KIND_OPTION]);
+  if (r.exitCode !== 0) return null;
+  const value = r.stdout.trim();
+  if (value.length === 0) return null;
+  if (value === "feature" || value === "epic-design" || value === "epic-run") {
+    return value;
+  }
+  return null;
 }
 
 export function buildNewWindowArgs(

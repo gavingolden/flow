@@ -2011,7 +2011,7 @@ and the filled prompt. After it returns:
    `flow-gate-summary --status needs-human --reason
    merge-resolver-spawn-denied --pr-url "$PR_URL"`, leave the worktree
    intact, and end — do **not** resolve inline in the supervisor
-   (see [references/exemption-contracts.md](references/exemption-contracts.md)
+   (see [references/exemption-contracts.md](../../../references/exemption-contracts.md)
    for why).
 2. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
    `NEEDS HUMAN: merge-resolver-missing-artifact` and end. (Do not
