@@ -1480,24 +1480,26 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     const forcePushPattern =
       /force-with-lease|force-if-includes|push\b[^\n]*?(?:-f\b|--force\b)|\+[\w./-]+:[\w./-]+/;
     // A mention naming the pattern as something to AVOID (a NEVER-
-    // prohibition, or "never"-qualified prose) is not a mandate — only
-    // flag a mention without such a negation ADJACENT to it (within a
-    // fixed character window of the match), not merely anywhere on the
-    // line — a Troubleshooting-table row keeps its whole entry on one
-    // physical line, so "anywhere on the line" let a real mandate hide
-    // behind an unrelated NEVER clause elsewhere in the same row.
-    const NEGATION_WINDOW = 40;
+    // prohibition, or otherwise negated prose) is not a mandate. Scope the
+    // negation to the CLAUSE holding the match rather than to a character
+    // window around it: a Troubleshooting-table row keeps its whole entry on
+    // one physical line, so both "anywhere on the line" and a fixed ±N-char
+    // window let a real mandate hide behind an unrelated NEVER clause in the
+    // same row (e.g. "NEVER leave the branch dirty. Then run `git push
+    // --force-with-lease ...`"). Splitting on sentence/table-cell boundaries
+    // makes the prohibition have to govern the mention itself.
+    const NEGATION = /\b(never|not|don't|do not|avoid)\b/i;
     const mandatesForcePush = (text: string): boolean =>
-      text.split("\n").some((line) => {
-        const match = forcePushPattern.exec(line);
-        if (!match) return false;
-        const windowStart = Math.max(0, match.index - NEGATION_WINDOW);
-        const windowEnd = Math.min(
-          line.length,
-          match.index + match[0].length + NEGATION_WINDOW,
+      text
+        .split("\n")
+        .some((line) =>
+          line
+            .split(/[.;|]/)
+            .some(
+              (clause) =>
+                forcePushPattern.test(clause) && !NEGATION.test(clause),
+            ),
         );
-        return !/never/i.test(line.slice(windowStart, windowEnd));
-      });
     const step10Section = content.slice(
       content.indexOf("## Step 10 — Merge"),
       content.indexOf("## Step 11"),
