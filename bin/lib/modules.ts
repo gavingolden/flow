@@ -138,6 +138,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-agent-finding-schema",
       "flow-fix-applier-schema",
       "flow-epic-manifest-schema",
+      "flow-intent-resolution-schema",
     ],
   },
   {

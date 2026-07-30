@@ -216,8 +216,12 @@ export function renderManualSteps(block: string): string[] {
  * INTENT: the Step 3.6 intent-mismatch resolution verdict + guessed-purpose-
  * vs-request note, plus an optional cross-model agreement line. `none` on an
  * absent artifact (most pipelines never reach a mismatch worth recording —
- * this is a graceful-skip category, not a failure), `(unreadable)` on a
- * shape-invalid one. Never emits a stop-guard sentinel.
+ * this is a graceful-skip category, not a failure). Degrades PER-FIELD
+ * (matching `collectFixApplierTolerant` / `renderFindings`'s discipline)
+ * rather than collapsing the whole section: a readable `verdict` with an
+ * unreadable `resolution` still renders the verdict (and vice versa);
+ * `(unreadable)` is reserved for non-JSON input, a non-object/null parse,
+ * or BOTH primary fields unreadable. Never emits a stop-guard sentinel.
  */
 export function renderIntent(raw: string): string[] {
   if (!raw.trim()) return NONE;
@@ -229,10 +233,19 @@ export function renderIntent(raw: string): string[] {
   }
   if (typeof parsed !== "object" || parsed === null) return ["(unreadable)"];
   const o = parsed as Record<string, unknown>;
-  if (typeof o.verdict !== "string" || typeof o.resolution !== "string") {
+  const verdictOk = typeof o.verdict === "string";
+  const resolutionOk = typeof o.resolution === "string";
+  let primary: string;
+  if (verdictOk && resolutionOk) {
+    primary = `${o.verdict}: ${o.resolution}`;
+  } else if (verdictOk) {
+    primary = `${o.verdict}: (resolution unreadable)`;
+  } else if (resolutionOk) {
+    primary = `(verdict unreadable): ${o.resolution}`;
+  } else {
     return ["(unreadable)"];
   }
-  const lines = [`${o.verdict}: ${o.resolution}`];
+  const lines = [primary];
   const crossModel = o.cross_model;
   if (
     typeof crossModel === "object" &&
@@ -319,6 +332,13 @@ export function renderComment(inputs: {
   // INTENT only appears in the comment variant when the artifact is present
   // AND its verdict is non-match — a clean match adds nothing worth
   // persisting to the PR comment.
+  // NOTE: renderIntent's per-field degradation above is snapshot-only. The
+  // PR-comment variant deliberately still requires a readable STRING
+  // `verdict` here — a resolution-only artifact (unreadable verdict) still
+  // yields NO INTENT section in the comment, even though render() (the
+  // snapshot) would now show "(verdict unreadable): <resolution>". This
+  // asymmetry is intentional, not latent: the comment gate exists to avoid
+  // persisting a section whose headline field couldn't be read.
   if (inputs.intentResolutionRaw && inputs.intentResolutionRaw.trim()) {
     let verdict: string | undefined;
     try {

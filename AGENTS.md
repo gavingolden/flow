@@ -71,9 +71,10 @@ helpers (`flow-new-worktree`, `flow-pre-commit`, `flow-state-update`,
 `flow-notify`, `flow-ui-validate`, `flow-delegate`, `flow-research-cache`,
 etc.) live there with `.ts` extensions, Bun shebangs, and tests next door
 (`<name>.test.ts`, skipped when `flow install` symlinks into
-`~/.local/bin/<name>`). The three schema validators
+`~/.local/bin/<name>`). The five schema validators
 (`flow-pr-review-result-schema`, `flow-agent-finding-schema`,
-`flow-fix-applier-schema`) are also symlinked, sourced from
+`flow-fix-applier-schema`, `flow-epic-manifest-schema`,
+`flow-intent-resolution-schema`) are also symlinked, sourced from
 `bin/lib/*-schema.ts` via an explicit-allowlist `discoverValidators`
 (distinct from `discoverHelpers`'s auto-pickup of every `bin/*.ts`).
 `bin/flow` itself is Bun and dispatches every verb natively.
