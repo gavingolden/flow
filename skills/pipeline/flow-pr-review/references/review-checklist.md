@@ -136,6 +136,19 @@ Verify that error paths are not just caught but produce meaningful outcomes.
 
 ---
 
+## Bundled-work disclosure
+
+For each `Bundled during implementation:` line in the PR body's `## Key decisions`, verify:
+(a) the bundled work actually passes the three-exclusion triage in
+`skills/pipeline/flow-product-planning/references/discovery-instructions.md`
+("Objective-item triage") — including its cumulative bundle-size test — and (b) a matching
+`- **Bundled:**` bullet was appended to the relevant task in `.flow-tmp/plan.md`. A violation
+is an ordinary review finding (issue or suggestion, per severity) like any other check in this
+file — this check adds no new prompt, no new `AskUserQuestion` form, and no new Task-tool
+spawn site.
+
+---
+
 # Part 2: Project-Specific Checks
 
 These are patterns specific to this project's stack (SvelteKit, bits-ui, Vitest). They were
