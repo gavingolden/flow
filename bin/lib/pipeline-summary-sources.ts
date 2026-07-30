@@ -332,13 +332,19 @@ export function renderComment(inputs: {
   // INTENT only appears in the comment variant when the artifact is present
   // AND its verdict is non-match — a clean match adds nothing worth
   // persisting to the PR comment.
-  // NOTE: renderIntent's per-field degradation above is snapshot-only. The
+  // NOTE: only the GATE below is snapshot-only, not the rendered body. The
   // PR-comment variant deliberately still requires a readable STRING
-  // `verdict` here — a resolution-only artifact (unreadable verdict) still
-  // yields NO INTENT section in the comment, even though render() (the
-  // snapshot) would now show "(verdict unreadable): <resolution>". This
-  // asymmetry is intentional, not latent: the comment gate exists to avoid
-  // persisting a section whose headline field couldn't be read.
+  // `verdict` to even open an INTENT section — a resolution-only artifact
+  // (unreadable verdict) still yields NO INTENT section in the comment,
+  // even though render() (the snapshot) would now show "(verdict
+  // unreadable): <resolution>". That half of the asymmetry is intentional:
+  // the gate exists to avoid persisting a section whose headline field
+  // couldn't be read. But once the gate opens, the BODY is delegated
+  // verbatim to renderIntent's per-field degradation, so a verdict-present /
+  // resolution-missing artifact (e.g. `{"verdict":"scope-drift"}`) now
+  // persists "scope-drift: (resolution unreadable)" to the PR comment where
+  // it previously persisted "(unreadable)" — that half of the comment
+  // surface DID change with this PR.
   if (inputs.intentResolutionRaw && inputs.intentResolutionRaw.trim()) {
     let verdict: string | undefined;
     try {

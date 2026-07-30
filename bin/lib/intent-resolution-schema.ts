@@ -64,12 +64,7 @@ const KEY_ALIASES: Record<string, string> = {
   action_taken: "resolution",
   note: "resolution",
   rationale: "resolution",
-  summary: "resolution",
 };
-
-function isString(v: unknown): v is string {
-  return typeof v === "string";
-}
 
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.length > 0;

@@ -130,8 +130,22 @@ describe("validateIntentResolution", () => {
     const result = validateIntentResolution(drifted);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.reason).toContain('"benign"');
-      expect(result.reason).toContain('"benign-divergence"');
+      expect(result.reason).toContain('did you mean "benign-divergence"');
+    }
+  });
+
+  it("falls back to listing every valid verdict when nothing is near", () => {
+    const result = validateIntentResolution({
+      verdict: "zzz",
+      guessed_purpose: "g",
+      resolution: "r",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).not.toContain("did you mean");
+      expect(result.reason).toContain(
+        'must be one of "match", "benign-divergence", "scope-drift", "fundamental"',
+      );
     }
   });
 
@@ -165,6 +179,38 @@ describe("validateIntentResolution", () => {
       resolution: "diff-only guess matched the actual request",
     };
     expect(validateIntentResolution(both).ok).toBe(true);
+  });
+
+  it("rejects a missing guessed_purpose", () => {
+    const result = validateIntentResolution({
+      verdict: "match",
+      resolution: "r",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain('"guessed_purpose"');
+  });
+
+  it.each([
+    [
+      { verdict: 1, guessed_purpose: "g", resolution: "r" },
+      "'verdict' must be a string",
+    ],
+    [
+      { verdict: "match", guessed_purpose: "", resolution: "r" },
+      "'guessed_purpose' must be a non-empty string",
+    ],
+    [
+      { verdict: "match", guessed_purpose: "g", resolution: "" },
+      "'resolution' must be a non-empty string",
+    ],
+    [
+      { ...VALID_FULL, cross_model: "agree" },
+      "'cross_model' must be an object when present",
+    ],
+  ])("rejects %j", (input, reason) => {
+    const result = validateIntentResolution(input);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain(reason);
   });
 
   it("rejects cross_model missing `ran`", () => {

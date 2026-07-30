@@ -460,4 +460,20 @@ describe(renderIntent, () => {
     });
     expect(block).not.toContain("INTENT:");
   });
+
+  it("renders the degraded INTENT body in the comment when the verdict is readable but the resolution is not", () => {
+    const commentInputs = {
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: "",
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    };
+    const block = renderComment({
+      ...commentInputs,
+      intentResolutionRaw: JSON.stringify({ verdict: "scope-drift" }),
+    });
+    expect(block).toContain("INTENT:\n  scope-drift: (resolution unreadable)");
+  });
 });
