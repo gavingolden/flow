@@ -219,7 +219,12 @@ three-layer resolution table, and the manifest/foundation fields — is at
   outgrows that, swap in Beads via an adapter rather than building
   bespoke storage.
 - Don't leave spawned resources running. See
-  `skills/pipeline/flow-pipeline/SKILL.md` "Resource cleanup".
+  `skills/pipeline/flow-pipeline/SKILL.md` "Resource cleanup". The browser
+  PROCESS itself is reaped by `flow-browser-teardown` at terminal state —
+  `close_page` alone never closes Chrome, because chrome-devtools-mcp
+  exposes no browser-close tool and its `closeBrowser()` runs only inside
+  the MCP server's own `shutdown()` handler (SIGTERM to that server, never
+  a harder signal, is the mechanism).
 - **Don't write test-time port or URL overrides to a file.** Pass them
   inline to the launch subprocess (env vars / CLI flags); never write
   `.env.local`, `.env`, or any other config file. A gitignored override

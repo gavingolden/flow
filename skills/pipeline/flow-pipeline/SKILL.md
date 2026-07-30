@@ -2011,7 +2011,7 @@ and the filled prompt. After it returns:
    `flow-gate-summary --status needs-human --reason
    merge-resolver-spawn-denied --pr-url "$PR_URL"`, leave the worktree
    intact, and end — do **not** resolve inline in the supervisor
-   (see [references/exemption-contracts.md](references/exemption-contracts.md)
+   (see [references/exemption-contracts.md](../../../references/exemption-contracts.md)
    for why).
 2. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
    `NEEDS HUMAN: merge-resolver-missing-artifact` and end. (Do not
@@ -2455,6 +2455,7 @@ resource classes are:
   pipeline's page, never the user's own Chrome. Contract lives in
   [references/ui-smoke-pass.md](references/ui-smoke-pass.md)
   "Teardown" and `/flow-pr-review`'s `references/ui-validation-evidence.md` "Teardown".
+  Closing the page is only half the cleanup: chrome-devtools-mcp exposes no browser-close tool, so `close_page` never closes the Chrome process itself. The pipeline therefore also runs `flow-browser-teardown --json` once, before any terminal state, which SIGTERMs only THIS session's own chrome-devtools-mcp server (scoped by process ancestry) so the server's `shutdown()` reaps its Chrome subprocess. A post-teardown MCP call in the same session is expected to fail and MUST degrade exactly as `flow-ui-validate --mcp-absent` (a quiet `ran:false`), never a failure.
 - **Playwright / headless browsers** — any repo headless browser an
   agent stood up (the Step 8c.iii fallback) exits when its Bash invocation returns; nothing persists past the call.
 - **Background processes** — anything launched `run_in_background` (the
@@ -2464,17 +2465,7 @@ resource classes are:
   path, scoped strictly to files that pass created (see "Teardown" in
   [references/ui-smoke-pass.md](references/ui-smoke-pass.md)).
 
-This is a contract, not a swept safety net: cleanup happens at the
-point of use (where the handle is held), not via a supervisor-level
-sweep at terminal time. A terminal-state sweep of chrome-devtools pages
-was evaluated and **deliberately not built** — parallel pipelines may
-share one un-isolated MCP server, so a `list_pages`-and-close sweep
-cannot reliably distinguish this pipeline's page from a sibling's or
-the user's own Chrome, and would risk the exact harm it set out to
-prevent. The operator-side `--isolated` MCP registration plus
-point-of-use teardown is the scope-safe fix. The same discipline is a
-standing rule for every agent in this repo — see `AGENTS.md` `## Don'ts`
-"Don't leave spawned resources running".
+This is a contract for page/context cleanup, not for the browser process itself: page-level cleanup happens at the point of use (where the handle is held), while the browser process is reaped by the one named supervisor-level sweep above (`flow-browser-teardown` at terminal state) — the two are different resources with different safe mechanisms, not a contradiction. A **page-enumeration** sweep (`list_pages`-and-close) was evaluated and **deliberately not built**: parallel pipelines may share one un-isolated MCP server, so a `list_pages`-and-close sweep cannot reliably distinguish this pipeline's page from a sibling's or the user's own Chrome, and would risk the exact harm it set out to prevent. A **process-ancestry** sweep does not share that failure mode — ancestry CAN distinguish them, because a sibling pipeline's server is a different session PID and the user's own Chrome is never a descendant of this session's `claude` process — which is why `flow-browser-teardown` is the sanctioned supervisor-level mechanism for the browser process. The operator-side `--isolated` MCP registration is complementary, not sufficient on its own: its temp profile is documented as cleaned up only *after* the browser is closed, so it is gated on the very close that `close_page` alone never performs. The same discipline is a standing rule for every agent in this repo — see `AGENTS.md` `## Don'ts` "Don't leave spawned resources running".
 
 # End conditions
 

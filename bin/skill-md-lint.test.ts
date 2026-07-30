@@ -4943,6 +4943,25 @@ describe("browser-driven UI-validation structural anchors", () => {
         "terminal state)' checkpoint tying the per-pass teardown sections to " +
         "the terminal-state contract.",
     ).toBe(true);
+
+    // The process-level teardown (SIGTERMing the session's own
+    // chrome-devtools-mcp server so its shutdown() reaps the Chrome
+    // subprocess) is a distinct mechanism from the page/context cleanup
+    // above — pin the literal helper name at all three wired prose
+    // surfaces so a future prose edit can't silently drop it.
+    expect(
+      content.includes("flow-browser-teardown"),
+      "flow-pipeline SKILL.md must name 'flow-browser-teardown' in the " +
+        "supervisor cleanup checkpoint.",
+    ).toBe(true);
+    expect(
+      uiSmokePassContent.includes("flow-browser-teardown"),
+      "ui-smoke-pass.md must name 'flow-browser-teardown' in its Teardown section.",
+    ).toBe(true);
+    expect(
+      uiValidationEvidenceContent.includes("flow-browser-teardown"),
+      "ui-validation-evidence.md must name 'flow-browser-teardown' in its Teardown section.",
+    ).toBe(true);
   });
 
   it("svelte + tailwind-shadcn SKILLs direct authoring enumerated visual assertions", () => {

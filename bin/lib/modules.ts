@@ -110,6 +110,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-followups",
       "flow-foreclosed-paths",
       "flow-notify",
+      "flow-browser-teardown",
       "flow-checkpoint",
       "flow-ci-wait",
       "flow-fetch-pr-review",

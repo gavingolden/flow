@@ -6,6 +6,7 @@ Everything you can tune after `flow install`: which modules are linked, which Cl
 - [The standalone skills home](#the-standalone-skills-home)
 - [Staying up to date](#staying-up-to-date)
 - [Per-phase models](#per-phase-models)
+- [chrome-devtools MCP registration](#chrome-devtools-mcp-registration)
 - [config.json reference](#configjson-reference)
 
 ## Install flags and module selection
@@ -76,6 +77,22 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
 - **The gatekeeper is pinned** to `haiku` — its whole job is cheap cost-routing. There is no `--model-gatekeeper` flag; a `config.models.gatekeeper` key is reachable but strongly discouraged (overriding it defeats the cost-routing).
 
 Aliases are `opus`, `haiku`, `sonnet`, `fable`; flow forwards the alias verbatim to `claude --model`. An invalid alias in a flag exits non-zero writing no state; an invalid value in `config.models.*` emits a best-effort warning at create time and falls back.
+
+## chrome-devtools MCP registration
+
+flow's browser-driven UI-validation passes need the `chrome-devtools-mcp` MCP server registered once per machine (outside flow's control — this is a `~/.claude.json` MCP registration, not a `~/.flow/config.json` key). The recommended registration:
+
+```sh
+npx -y chrome-devtools-mcp@latest --isolated
+```
+
+`--isolated` gives each session its own auto-cleaned throwaway Chrome profile instead of the single shared default one — this is what fixes the cross-process profile LOCK between parallel pipelines (`The browser is already running for ~/.cache/chrome-devtools-mcp/chrome-profile`). It does **not**, by itself, prevent a leaked browser process: the throwaway profile is documented as cleaned up only _after_ the browser is closed, so a browser that's never closed leaves its temp profile in place indefinitely too.
+
+Add `--headless=new` (not the legacy `--headless`) if you never want a Dock icon for the automation browser. Caveat: headless rendering isn't guaranteed pixel-identical to headful (font rasterisation, animation timing, viewport bounds can all differ), so `/flow-pr-review`'s visual-appearance pass may shift under `--headless=new`.
+
+**Cleaning up an existing backlog.** `flow-browser-teardown --orphans` sweeps sessionless browser processes and sessionless chrome-devtools-mcp server processes left behind by crashed/killed sessions — the browser rows it recognizes are a positive allowlist of profile shapes (the chrome-devtools-mcp cache profile, its `--isolated` temp profile, and the go-rod temp-profile shape); a row whose profile doesn't match one of those shapes is emitted report-only and is **never** signalled, even with `--yes`. Run it without `--yes` first to preview, then `--yes` to act. It uses SIGTERM only — never a harder signal, which would orphan Chrome instead of closing it.
+
+`flow-browser-teardown --orphans` is **not** the same sweep as `flow done --orphans`: the former sweeps browser **processes**, the latter sweeps stale pipeline **state files**. They happen to share a flag name but sweep unrelated things.
 
 ## config.json reference
 

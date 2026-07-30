@@ -134,6 +134,7 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
     expect(typeof e.nudge).toBe("string");
     expect((e.nudge as string).length).toBeGreaterThan(0);
     expect(e.nudge).toContain("--isolated");
+    expect(e.nudge).toContain("flow-browser-teardown");
   });
 
   it("--mcp-absent wins over --browser-busy (gated first → quiet skip)", () => {
