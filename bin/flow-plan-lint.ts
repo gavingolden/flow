@@ -370,6 +370,12 @@ export function lintPlan(
       misses,
       "every plan must name its single weakest assumption",
     );
+    checkHeadingPresent(
+      planText,
+      "## Cut list",
+      misses,
+      "every plan must name its unnecessary complexity (or affirm none)",
+    );
     checkTaskContracts(planText, misses);
     checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);

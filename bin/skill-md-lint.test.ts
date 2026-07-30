@@ -2929,6 +2929,7 @@ describe("Plan-artifact section anchors (discovery-instructions.md ↔ prd-templ
     "## Behavioral contrast",
     "**Lost:**",
     "## Alternatives considered",
+    "## Cut list",
   ];
   const MIRROR_SITES: Array<[string, string]> = [
     ["discovery-instructions.md", discoveryInstructionsContent],
