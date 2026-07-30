@@ -968,7 +968,8 @@ typed something into the tmux chat. Classify the input using
 - **Cancel** ("cancel", "abort") → run `flow-remove-worktree
   <slug>`, write `phase: cancelled`, then render the CANCELLED
   block via `flow-gate-summary --status cancelled --why "user
-  cancelled at plan-pending-review"`. End.
+  cancelled at plan-pending-review"`. Then
+  `flow-browser-teardown --json || true` (best-effort, never blocks). End.
 - **Ambiguous** → write `flow-state-update --phase
   approval-pending-clarification`, then ask the single clarifying
   question and end the turn. The next turn re-enters step 4 with
@@ -2456,7 +2457,7 @@ resource classes are:
   pipeline's page, never the user's own Chrome. Contract lives in
   [references/ui-smoke-pass.md](references/ui-smoke-pass.md)
   "Teardown" and `/flow-pr-review`'s `references/ui-validation-evidence.md` "Teardown".
-- **The session's own chrome-devtools-mcp browser SERVER process** — closing the page above is only half the cleanup: chrome-devtools-mcp exposes no browser-close tool, so `close_page` never closes the Chrome process itself. The pipeline therefore runs `flow-browser-teardown --json` once, before EVERY terminal state (`MERGED`, `gated`, `NEEDS HUMAN`, `cancelled`, and `merged-externally`), which SIGTERMs only THIS session's own chrome-devtools-mcp server (scoped by process ancestry) so the server's `shutdown()` reaps its Chrome subprocess. This is a distinct, best-effort, never-blocking call (`|| true`; exit code ignored) wired into each terminal-state runbook block alongside `flow-notify` — the step-11 MERGED block, the step-9 `gated` branch, both `merged-externally` renders, and the canonical `# Failure paths` NEEDS HUMAN block. A post-teardown MCP call in the same session is expected to fail and MUST degrade exactly as `flow-ui-validate --mcp-absent` (a quiet `ran:false`), never a failure.
+- **The session's own chrome-devtools-mcp browser SERVER process** — closing the page above is only half the cleanup: chrome-devtools-mcp exposes no browser-close tool, so `close_page` never closes the Chrome process itself. The pipeline therefore runs `flow-browser-teardown --json` once, before EVERY terminal state (`MERGED`, `gated`, `NEEDS HUMAN`, `cancelled`, and `merged-externally`), which SIGTERMs only THIS session's own chrome-devtools-mcp server (scoped by process ancestry) so the server's `shutdown()` reaps its Chrome subprocess. This is a distinct, best-effort, never-blocking call (`|| true`; exit code ignored) wired into each terminal-state runbook block alongside `flow-notify` — the step-11 MERGED block, the step-9 `gated` branch, both `merged-externally` renders, the `closed-no-merge` branch, the canonical `# Failure paths` NEEDS HUMAN block, and both `cancelled` renders (step 4's approval-handling Cancel branch and the mid-flight-redirect Cancel branch). A post-teardown MCP call in the same session is expected to fail and MUST degrade exactly as `flow-ui-validate --mcp-absent` (a quiet `ran:false`), never a failure.
 - **Playwright / headless browsers** — any repo headless browser an
   agent stood up (the Step 8c.iii fallback) exits when its Bash invocation returns; nothing persists past the call.
 - **Background processes** — anything launched `run_in_background` (the
@@ -2645,7 +2646,8 @@ mid-phase. Apply `references/redirect-handling.md`:
   `flow-remove-worktree`, write `phase: cancelled`, then render the
   CANCELLED block via `flow-gate-summary --status cancelled --why
   "user cancelled mid-flight at $(jq -r .phase ~/.flow/state/$SLUG.json)"`,
-  end.
+  then `flow-browser-teardown --json || true` (best-effort, never
+  blocks), end.
 - Ambiguous → one clarifying question; if still unclear, escalate.
 
 ## Mid-flight code-change redirects

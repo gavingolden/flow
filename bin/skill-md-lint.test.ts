@@ -4984,10 +4984,11 @@ describe("browser-driven UI-validation structural anchors", () => {
       wiredCallCount,
       "flow-browser-teardown --json || true must be wired into every " +
         "named terminal-state runbook block (MERGED, gated, both " +
-        "merged-externally renders, closed-no-merge, and the canonical " +
-        "NEEDS HUMAN Failure-paths block) — a count below 5 means a site " +
-        "silently lost its call.",
-    ).toBeGreaterThanOrEqual(5);
+        "merged-externally renders, closed-no-merge, the canonical " +
+        "NEEDS HUMAN Failure-paths block, and both cancelled renders — " +
+        "step 4's approval-handling Cancel branch and the mid-flight-redirect " +
+        "Cancel branch) — a count below 8 means a site silently lost its call.",
+    ).toBeGreaterThanOrEqual(8);
     expect(
       uiSmokePassContent.includes("flow-browser-teardown"),
       "ui-smoke-pass.md must name 'flow-browser-teardown' in its Teardown section.",
