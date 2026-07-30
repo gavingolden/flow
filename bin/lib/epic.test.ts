@@ -2327,6 +2327,10 @@ describe("runEpicCli done", () => {
 });
 
 describe("epic create launcher guard (tmux-only)", () => {
+  // Also guards the pane-scoped `@flow-kind` signal the `SessionStart:clear`
+  // auto-resume depends on (see `resolveKindAmbient` in
+  // `bin/lib/session-identity.ts`) — deleting this refusal silently breaks
+  // that precondition too, not just parallel-window orchestration.
   it("refuses a plain-resolved backend with the named opt-in notice", () => {
     const errors: string[] = [];
     const errSpy = vi

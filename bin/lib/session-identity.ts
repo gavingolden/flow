@@ -47,6 +47,26 @@ export function resolveSlugAmbient(
  * inherits it — a parallel `FLOW_KIND` env var would combine with that
  * inherited slug to make an arbitrary descendant shell look like a live
  * epic supervisor to the `SessionStart:clear` hook.
+ *
+ * This pane-only signal is safe TODAY only because epic orchestration is
+ * itself tmux-only: `runCreate` explicitly refuses a non-tmux launcher
+ * backend (the `backend.id !== "tmux"` guard in `bin/lib/epic.ts`), and
+ * `spawnEpicRunSupervisor` carries no separate check because it launches
+ * through the same tmux-only `createWindowVerified` unconditionally — so a
+ * live epic window always has the `@flow-kind` pane option set. A `null`
+ * return degrades to the `"feature"` default at the call site
+ * (`resolveKind() ?? "feature"` in `bin/flow-checkpoint.ts`), so a bare
+ * plain-shell feature pipeline — which never sets the option at all —
+ * resolves correctly by construction, not by luck.
+ *
+ * Forward-compat warning: if epic orchestration ever supports the plain
+ * launcher, this function becomes SILENTLY wrong (a live epic pipeline
+ * would read `null` and misresolve to `"feature"`), and the kind signal
+ * must move to a backend-agnostic carrier BEFORE that happens. The carrier
+ * choice is deliberately left open here — an env var is ruled out for the
+ * leak reason above, and a `PipelineState.kind` field was considered and
+ * rejected once already (pre-existing epic state files would read
+ * `undefined` and silently take the feature branch).
  */
 export function resolveKindAmbient(
   deps: ResolveSlugDeps = {},

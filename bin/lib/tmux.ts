@@ -58,6 +58,10 @@ export const FLOW_PHASE_SHORT_OPTION = "@flow-phase-short";
  * (not just window creation) so it tracks what is *running*, not how the
  * window was first created — `respawn-window -k` preserves the pane id, so
  * a stale value from a prior supervisor would otherwise survive a reclaim.
+ * This is a tmux-ONLY signal with no plain-launcher equivalent, so every
+ * consumer must treat absence as a correct default and never as an error —
+ * it is only safe as a load-bearing input because epic orchestration is
+ * itself tmux-only.
  */
 export const FLOW_KIND_OPTION = "@flow-kind";
 /**

@@ -440,7 +440,15 @@ PR → review checkpoint), and writes initial epic state under
   // Epic orchestration is tmux-only (parallel feature windows are the whole
   // point): resolve the backend BEFORE any state/window side-effect and
   // refuse a plain resolution with the named opt-in notice. `--tmux` is the
-  // per-run override.
+  // per-run override. This refusal is now load-bearing for a SECOND reason
+  // too: it is the precondition that makes the pane-scoped `@flow-kind`
+  // signal safe for the `SessionStart:clear` auto-resume path — see
+  // `resolveKindAmbient` in `bin/lib/session-identity.ts`. If this refusal
+  // is ever relaxed, the kind signal must move off the pane first.
+  // `flow epic run` (`spawnEpicRunSupervisor`) carries no separate refusal
+  // check of its own — it always launches through this same tmux-only
+  // `createWindowVerified`, so a live epic window of EITHER kind always has
+  // the option set.
   const backend = resolveLauncherBackend({
     flag: wantTmux ? "tmux" : undefined,
     read: options.readConfig,
