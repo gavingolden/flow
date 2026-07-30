@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   computeDecisionHash,
+  computeDepth,
   extractDecisionAnalysisBody,
+  extractGoalLine,
   hasDecisionAnalysis,
   isPlanReviewEnabled,
   normalizeDecisionBody,
@@ -10,7 +12,11 @@ import {
   run,
   type DelegateEnvelope,
   type Deps,
+  type FanoutAggregate,
 } from "./flow-plan-review";
+
+const MODEL_1 = "Gemini 3.1 Pro (High)";
+const MODEL_2 = "Claude Opus 4.6 (Thinking)";
 
 const AGY_PROSE =
   "Decision A — supervisor vs subagent: the supervisor branch dominates because it owns the gate. Pre-mortem: if agy is flaky the review silently skips, which is acceptable.";
@@ -123,6 +129,11 @@ const BASE_ARGV = ["--plan-file", PLAN_FILE, "--out", OUT];
 function makeDeps(overrides: Partial<Deps> = {}): Deps & {
   calls: {
     delegate: string[][];
+    fanout: Array<{
+      manifestPath: string;
+      outPath: string;
+      concurrency: number;
+    }>;
     writes: Array<{ path: string; contents: string }>;
     removed: string[];
     out: string[];
@@ -132,6 +143,11 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
   const files = new Map<string, string>();
   const calls = {
     delegate: [] as string[][],
+    fanout: [] as Array<{
+      manifestPath: string;
+      outPath: string;
+      concurrency: number;
+    }>,
     writes: [] as Array<{ path: string; contents: string }>,
     removed: [] as string[],
     out: [] as string[],
@@ -144,6 +160,31 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
       const rawPath = argv[argv.indexOf("--out") + 1]!;
       files.set(rawPath, AGY_PROSE);
       return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+    },
+    runFanout: (input) => {
+      calls.fanout.push(input);
+      // Default: both manifest entries "ran", each writing its own artifact —
+      // a conformant deep-tier two-reviewer success. Honors each manifest
+      // entry's own `out` (the real `flow-delegate-fanout` binary's
+      // `entryOutPath` behavior — bin/flow-delegate-fanout.ts:187 "if
+      // (entry.out) return entry.out") so this stub's artifact path matches
+      // production and the scratch-lifecycle tests can actually see a leak.
+      let manifest: Array<{ task: string; model: string; out?: string }> = [];
+      try {
+        manifest = JSON.parse(files.get(input.manifestPath) ?? "[]");
+      } catch {
+        manifest = [];
+      }
+      const entries = manifest.map((m, i) => {
+        const artifactPath = m.out ?? `${input.outPath}.artifact.${i}.md`;
+        files.set(artifactPath, `${AGY_PROSE} (reviewer ${i + 1})`);
+        return { task: m.task, model: m.model, ran: true, artifactPath };
+      });
+      return {
+        entries,
+        anyRan: entries.length > 0,
+        allSkipped: entries.length === 0,
+      } as FanoutAggregate;
     },
     readFile: (p) => {
       if (!files.has(p)) throw new Error(`ENOENT: ${p}`);
@@ -167,6 +208,13 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
 
 const envelope = (deps: { calls: { out: string[] } }) =>
   JSON.parse(deps.calls.out[0] as string);
+
+// Finds the battery prompt this run wrote to `${OUT}.prompt`, so prompt
+// CONTENT can be asserted as substring checks without exporting the builder
+// from flow-plan-review.ts itself (it lives in bin/lib/plan-review-prompt.ts).
+const promptFor = (deps: {
+  calls: { writes: Array<{ path: string; contents: string }> };
+}) => deps.calls.writes.find((w) => w.path === `${OUT}.prompt`)?.contents ?? "";
 
 describe("run — gate (config)", () => {
   it("skips with plan-review-disabled when the config gate is off", () => {
@@ -305,10 +353,16 @@ describe("run — happy path", () => {
     expect(run(BASE_ARGV, deps)).toBe(0);
     // The pre-revision hash is deliberately NOT emitted — the supervisor sources
     // the marker from `--print-hash` on the final revised plan instead.
+    // `depth`/`reviewers` ride along on every ran:true envelope so step 3 can
+    // report the resolved tier; a standard run names its single reviewer.
     expect(envelope(deps)).toEqual({
       ran: true,
       feedbackPath: OUT,
       skipReason: null,
+      depth: "standard",
+      reviewers: [
+        { model: "Gemini 3.1 Pro (High)", ran: true, skipReason: null },
+      ],
     });
     // The finalized feedback file holds AGY's raw prose verbatim.
     expect(deps.files.get(OUT)).toBe(AGY_PROSE);
@@ -571,5 +625,431 @@ describe("round-trip: --print-hash marker makes the next run skip", () => {
       skipReason: "decision-analysis-unchanged",
     });
     expect(reviewDeps.calls.delegate).toHaveLength(0);
+  });
+});
+
+// --- Battery prompt content (goal-anchored, adversarial) --------------------
+
+const PLAN_WITH_GOAL = [
+  "# PRD",
+  "**Goal:** Let users export a widget to CSV in one click.",
+  "## Open Questions",
+  "- [ ] something",
+  "## Decision analysis",
+  "**Decision A — X vs Y?** Verdict: X.",
+  "## Recommendation",
+  "**Proceed**",
+].join("\n");
+
+describe("extractGoalLine (re-exported for the test suite)", () => {
+  it("is re-exported from bin/lib/plan-review-prompt.ts", () => {
+    expect(extractGoalLine(PLAN_WITH_GOAL)).toBe(
+      "**Goal:** Let users export a widget to CSV in one click.",
+    );
+    expect(extractGoalLine(PLAN_NO_SECTION)).toBeNull();
+  });
+});
+
+describe("run — battery prompt content", () => {
+  it("quotes the plan's **Goal:** line as the anchor", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    expect(promptFor(deps)).toContain(
+      "**Goal:** Let users export a widget to CSV in one click.",
+    );
+  });
+
+  it("contains all six battery lenses", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    const prompt = promptFor(deps);
+    expect(prompt).toContain("Goal-anchored verdicts");
+    expect(prompt).toContain("Preference challenge");
+    expect(prompt).toContain("user-flow walkthrough");
+    expect(prompt).toContain("interruptions-per-run");
+    expect(prompt).toContain("Structurally-different alternatives");
+    expect(prompt).toContain("Failure-modes battery");
+    expect(prompt).toContain("prompt-free mitigation");
+    expect(prompt).toContain("Independent cut list");
+  });
+
+  it("instructs the reviewer to form its own cut-list BEFORE reading the plan's Cut list", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    expect(promptFor(deps)).toContain(
+      "Before reading the plan's own `## Cut list` section, form your OWN list",
+    );
+  });
+
+  it("falls back to '## Problem Statement' without throwing when no Goal line exists", () => {
+    const plan = [
+      "# PRD",
+      "## Problem Statement",
+      "Users cannot export widgets today.",
+      "## Decision analysis",
+      "**Decision A** verdict X.",
+      "## Recommendation",
+      "go",
+    ].join("\n");
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, plan);
+    expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    expect(promptFor(deps)).toContain("Users cannot export widgets today.");
+  });
+});
+
+// --- computeDepth (auto|standard|deep boundary) ------------------------------
+
+describe("computeDepth", () => {
+  function planWithTasks(n: number): string {
+    const tasks = Array.from(
+      { length: n },
+      (_, i) => `### Task ${i + 1}: do a thing`,
+    ).join("\n\n");
+    return `# Task breakdown\n\n${tasks}\n`;
+  }
+
+  it("3 tasks stays standard, 4 tasks goes deep", () => {
+    expect(computeDepth(planWithTasks(3))).toBe("standard");
+    expect(computeDepth(planWithTasks(4))).toBe("deep");
+  });
+
+  it("1 '### D' subsection stays standard, 2 goes deep", () => {
+    const one = [
+      "## Decision analysis",
+      "### D1 — X vs Y",
+      "body",
+      "## Recommendation",
+    ].join("\n");
+    const two = [
+      "## Decision analysis",
+      "### D1 — X vs Y",
+      "body",
+      "### D2 — A vs B",
+      "body",
+      "## Recommendation",
+    ].join("\n");
+    expect(computeDepth(one)).toBe("standard");
+    expect(computeDepth(two)).toBe("deep");
+  });
+
+  it("a '### Task breakdown'-style heading does not count as a task", () => {
+    const plan = [
+      "### Task breakdown",
+      "### Task breakdown continued",
+      "### Task breakdown again",
+      "### Task breakdown yet again",
+    ].join("\n");
+    expect(computeDepth(plan)).toBe("standard");
+  });
+});
+
+describe("run — --depth override", () => {
+  const DEEP_SHAPED_PLAN = [
+    "# PRD",
+    "## Decision analysis",
+    "### D1 — X vs Y",
+    "body",
+    "### D2 — A vs B",
+    "body",
+    "## Recommendation",
+    "go",
+  ].join("\n");
+
+  it("--depth standard forces standard on a deep-shaped plan", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, DEEP_SHAPED_PLAN);
+    expect(run([...BASE_ARGV, "--depth", "standard"], deps)).toBe(0);
+    expect(deps.calls.delegate).toHaveLength(1);
+    expect(deps.calls.fanout).toHaveLength(0);
+    // The override is reported back, so the supervisor's chat summary names
+    // the tier that actually ran rather than the one `auto` would have picked.
+    expect(envelope(deps).depth).toBe("standard");
+    expect(envelope(deps).reviewers).toHaveLength(1);
+  });
+
+  it("--depth deep forces deep on a trivial (single-reviewer-shaped) plan", () => {
+    const deps = makeDeps();
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    expect(deps.calls.delegate).toHaveLength(0);
+    expect(deps.calls.fanout).toHaveLength(1);
+    expect(envelope(deps).depth).toBe("deep");
+  });
+
+  it("--depth bogus is a parseArgs error", () => {
+    expect(parseArgs([...BASE_ARGV, "--depth", "bogus"])).toEqual({
+      error: '--depth must be one of auto, standard, deep (got "bogus")',
+    });
+  });
+});
+
+// --- Deep tier: two-reviewer fanout ------------------------------------------
+
+describe("run — deep tier happy path", () => {
+  it("reports depth:deep with two reviewers[] and a combined --out file", () => {
+    const deps = makeDeps();
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.ran).toBe(true);
+    expect(env.depth).toBe("deep");
+    expect(env.skipReason).toBeNull();
+    expect(env.reviewers).toEqual([
+      { model: MODEL_1, ran: true },
+      { model: MODEL_2, ran: true },
+    ]);
+    const out = deps.files.get(OUT);
+    expect(out).toContain("## Reviewer 1 — " + MODEL_1);
+    expect(out).toContain("## Reviewer 2 — " + MODEL_2);
+    expect(out).toContain("Convergence rule");
+  });
+
+  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's", () => {
+    // Reviewer 2 (SECOND_MODEL) is the same model family as the PRD's
+    // author, so it must not receive the byte-identical "different model
+    // family" prompt handed to reviewer 1.
+    const deps = makeDeps();
+    run([...BASE_ARGV, "--depth", "deep"], deps);
+    const manifestRaw = deps.calls.writes.find(
+      (w) => w.path === `${OUT}.fanout-manifest.json`,
+    )?.contents;
+    const manifest = JSON.parse(manifestRaw ?? "[]");
+    expect(manifest).toHaveLength(2);
+    expect(manifest[0].promptFile).toBe(`${OUT}.prompt`);
+    expect(manifest[1].promptFile).toBe(`${OUT}.prompt.r2`);
+    expect(manifest[0].promptFile).not.toBe(manifest[1].promptFile);
+    expect(manifest[0].model).toBe(MODEL_1);
+    expect(manifest[1].model).toBe(MODEL_2);
+    expect(manifest[0].out).toBe(`${OUT}.r1.md`);
+    expect(manifest[1].out).toBe(`${OUT}.r2.md`);
+
+    const r1Prompt = deps.calls.writes.find(
+      (w) => w.path === `${OUT}.prompt`,
+    )?.contents;
+    const r2Prompt = deps.calls.writes.find(
+      (w) => w.path === `${OUT}.prompt.r2`,
+    )?.contents;
+    expect(r1Prompt).toContain("A PRD drafted by a different model family");
+    expect(r2Prompt).toContain(
+      "A PRD drafted by another instance of your own model family",
+    );
+  });
+
+  it("pins --concurrency 2 on the fanout call so both reviewers dispatch in one wave", () => {
+    const deps = makeDeps();
+    run([...BASE_ARGV, "--depth", "deep"], deps);
+    expect(deps.calls.fanout[0]?.concurrency).toBe(2);
+  });
+});
+
+describe("run — deep tier partial failure", () => {
+  it("degrades to the surviving reviewer's prose, recording the failed reviewer's skipReason", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        const artifactPath = `${input.outPath}.artifact.0.md`;
+        deps.files.set(artifactPath, "reviewer one prose, verbatim");
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath,
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ran: false,
+              skipReason: "agy-not-authenticated",
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.ran).toBe(true);
+    expect(env.depth).toBe("deep");
+    expect(env.reviewers).toEqual([
+      { model: MODEL_1, ran: true },
+      { model: MODEL_2, ran: false, skipReason: "agy-not-authenticated" },
+    ]);
+    expect(deps.files.get(OUT)).toBe("reviewer one prose, verbatim");
+  });
+});
+
+describe("run — deep tier both-skip", () => {
+  it("propagates the FIRST reviewer's skip reason exactly like a standard-tier skip, --out absent", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        return {
+          entries: manifest.map((m: { task: string; model: string }) => ({
+            task: m.task,
+            model: m.model,
+            ran: false,
+            skipReason: "agy-not-found",
+          })),
+          anyRan: false,
+          allSkipped: true,
+        } as FanoutAggregate;
+      },
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    expect(envelope(deps)).toEqual({ ran: false, skipReason: "agy-not-found" });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+});
+
+describe("run — deep tier scratch lifecycle", () => {
+  it("removes the manifest + fanout aggregate + per-reviewer artifacts on the ran path", () => {
+    const deps = makeDeps();
+    run([...BASE_ARGV, "--depth", "deep"], deps);
+    expect(deps.files.has(`${OUT}.fanout-manifest.json`)).toBe(false);
+    expect(deps.files.has(`${OUT}.fanout.json`)).toBe(false);
+    expect(deps.files.has(`${OUT}.prompt`)).toBe(false);
+    expect(deps.files.has(`${OUT}.prompt.r2`)).toBe(false);
+    // The two reviewer-artifact scratch siblings must not leak either.
+    expect(deps.files.has(`${OUT}.r1.md`)).toBe(false);
+    expect(deps.files.has(`${OUT}.r2.md`)).toBe(false);
+  });
+
+  it("removes the manifest + fanout aggregate scratch files on a both-skip", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        return {
+          entries: manifest.map((m: { task: string; model: string }) => ({
+            task: m.task,
+            model: m.model,
+            ran: false,
+            skipReason: "agy-not-found",
+          })),
+          anyRan: false,
+          allSkipped: true,
+        } as FanoutAggregate;
+      },
+    });
+    run([...BASE_ARGV, "--depth", "deep"], deps);
+    expect(deps.files.has(`${OUT}.fanout-manifest.json`)).toBe(false);
+    expect(deps.files.has(`${OUT}.fanout.json`)).toBe(false);
+  });
+
+  it("removes scratch on a throw path (manifest write fails)", () => {
+    const deps = makeDeps({
+      writeFile: (p, c) => {
+        if (p === `${OUT}.fanout-manifest.json`) throw new Error("ENOSPC");
+        deps.calls.writes.push({ path: p, contents: c });
+        deps.files.set(p, c);
+      },
+    });
+    expect(() => run([...BASE_ARGV, "--depth", "deep"], deps)).not.toThrow();
+    expect(envelope(deps).skipReason).toBe("plan-prep-failed");
+    expect(deps.files.has(`${OUT}.fanout-manifest.json`)).toBe(false);
+    expect(deps.files.has(`${OUT}.prompt`)).toBe(false);
+  });
+});
+
+describe("run — deep tier degrade branches (untested seams)", () => {
+  it("degrades a ran:true reviewer whose artifact is unreadable to plan-output-unreadable", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        // Reviewer 1's artifact is seeded and readable; reviewer 2's
+        // reported artifactPath is never written, so readFile throws.
+        const artifactPath0 = `${input.outPath}.artifact.0.md`;
+        deps.files.set(artifactPath0, "reviewer one prose, verbatim");
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath: artifactPath0,
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ran: true,
+              artifactPath: "/nope.md",
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.ran).toBe(true);
+    expect(env.reviewers).toEqual([
+      { model: MODEL_1, ran: true },
+      { model: MODEL_2, ran: false, skipReason: "plan-output-unreadable" },
+    ]);
+    expect(deps.files.get(OUT)).toBe("reviewer one prose, verbatim");
+  });
+
+  it("treats an entry-less/malformed fanout aggregate as a both-skip (agy-not-found)", () => {
+    const deps = makeDeps({
+      runFanout: () => ({ allSkipped: true }) as FanoutAggregate,
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    expect(envelope(deps)).toEqual({ ran: false, skipReason: "agy-not-found" });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+});
+
+// --- Hash widening: **Goal:** line + Decision analysis + Cut list -----------
+
+describe("computeDecisionHash — widened content key", () => {
+  // Ordered per the shipped contract (templates/prd-template.md /
+  // discovery-instructions.md §8): Decision analysis -> Recommendation ->
+  // Plan risks -> Cut list -> the h1 `# Task breakdown`. `## Cut list`
+  // BEFORE `## Recommendation` (the prior fixture's ordering) never occurs
+  // in a real plan.md and hid the extractCutListBody h1-termination bug.
+  const BASE_HASH_PLAN = [
+    "# PRD",
+    "**Goal:** Ship CSV export quickly.",
+    "## Decision analysis",
+    "**Decision A** verdict X.",
+    "## Recommendation",
+    "go",
+    "## Plan risks",
+    "the format may not match expectations.",
+    "## Cut list",
+    "nothing — plan is minimal.",
+  ].join("\n");
+
+  it("editing only the Goal line changes the hash (re-fires)", () => {
+    const changed = BASE_HASH_PLAN.replace(
+      "Ship CSV export quickly.",
+      "Ship CSV export FAST.",
+    );
+    expect(computeDecisionHash(changed)).not.toBe(
+      computeDecisionHash(BASE_HASH_PLAN),
+    );
+  });
+
+  it("editing only the Cut list changes the hash (re-fires)", () => {
+    const changed = BASE_HASH_PLAN.replace(
+      "nothing — plan is minimal.",
+      "drop the legacy exporter.",
+    );
+    expect(computeDecisionHash(changed)).not.toBe(
+      computeDecisionHash(BASE_HASH_PLAN),
+    );
+  });
+
+  it("a Task-breakdown-only edit does NOT change the hash", () => {
+    const changed =
+      BASE_HASH_PLAN + "\n\n# Task breakdown\n\n### Task 1: do a thing\n";
+    expect(computeDecisionHash(changed)).toBe(
+      computeDecisionHash(BASE_HASH_PLAN),
+    );
   });
 });

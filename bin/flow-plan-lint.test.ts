@@ -61,6 +61,10 @@ Users cannot export widgets today.
 
 The export format might not match user expectations.
 
+## Cut list
+
+nothing — plan is minimal.
+
 # Task breakdown
 
 ### Task 1: Add export button
@@ -158,6 +162,28 @@ describe("lintPlan — always-present sections", () => {
     const plan = withoutSection(CONFORMING_PLAN, "## Plan risks");
     const { misses } = lintPlan(plan);
     expect(misses.some((m) => m.includes("Plan risks"))).toBe(true);
+  });
+
+  it("names a miss when '## Cut list' is absent", () => {
+    const plan = withoutSection(CONFORMING_PLAN, "## Cut list");
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("Cut list"))).toBe(true);
+  });
+
+  it("names a miss when '## Cut list' asserts a bare 'nothing' with no justification", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "nothing — plan is minimal.",
+      "nothing",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => m.includes("Cut list") && m.includes("nothing")),
+    ).toBe(true);
+  });
+
+  it("does not miss a justified 'nothing' Cut list", () => {
+    const { misses } = lintPlan(CONFORMING_PLAN);
+    expect(misses.some((m) => m.includes("no justification"))).toBe(false);
   });
 
   it("names a miss when '# Task breakdown' is absent", () => {
