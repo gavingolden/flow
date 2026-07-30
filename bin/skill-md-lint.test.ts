@@ -6185,6 +6185,25 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     expect(c).toContain("NEEDS HUMAN: intent-drift");
   });
 
+  it("references/intent-mismatch-resolution.md invokes the flow-intent-resolution-schema validator", () => {
+    const p = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "intent-mismatch-resolution.md",
+    );
+    const c = fs.readFileSync(p, "utf8");
+    expect(
+      c.includes("flow-intent-resolution-schema --validate"),
+      "references/intent-mismatch-resolution.md must invoke " +
+        "'flow-intent-resolution-schema --validate' so Step 3.6 self-validates " +
+        "its artifact before proceeding.",
+    ).toBe(true);
+  });
+
   it("wires --intent-resolution at the post-review terminal snapshot sites", () => {
     const matches =
       content.match(/flow-pipeline-summary[^\n]*--intent-resolution/g) ?? [];
