@@ -217,6 +217,7 @@ describe("runTeardown", () => {
     expect(result.dryRun).toBe(true);
     expect(kill).not.toHaveBeenCalled();
     expect(result.stillAlive).toEqual([]);
+    expect(result.signalled).toEqual([]);
   });
 
   it("FLOW_PIPELINE unset yields not-a-pipeline-session", () => {
@@ -239,6 +240,40 @@ describe("runTeardown", () => {
     });
     expect(result.ran).toBe(true);
     expect(result.skipReason).toBeUndefined();
+  });
+
+  it("SCOPE-ESCAPE GUARD: an explicit sessionPid that does not resolve to a real claude process yields no-session-pid, never a whole-table sweep", () => {
+    const deps = fakeDeps({
+      env: {},
+      listProcs: serverProcs,
+      alive: () => false,
+    });
+    // pid 0 is the synthetic parent of pid 1 — descendantsOf(procs, 0) would
+    // enumerate the entire process table if this guard were absent.
+    for (const badPid of [0, 1, -5]) {
+      const result = runTeardown(deps, {
+        dryRun: false,
+        sessionPid: badPid,
+        timeoutMs: 1000,
+      });
+      expect(result.ran).toBe(false);
+      expect(result.skipReason).toBe("no-session-pid");
+    }
+  });
+
+  it("SCOPE-ESCAPE GUARD: an explicit sessionPid pointing at a real but non-claude process yields no-session-pid", () => {
+    const deps = fakeDeps({
+      env: {},
+      listProcs: serverProcs,
+      alive: () => false,
+    });
+    const result = runTeardown(deps, {
+      dryRun: false,
+      sessionPid: 201, // the chrome-devtools-mcp server row, not the claude row
+      timeoutMs: 1000,
+    });
+    expect(result.ran).toBe(false);
+    expect(result.skipReason).toBe("no-session-pid");
   });
 
   it("listProcs returning undefined yields ps-unavailable", () => {
@@ -378,12 +413,15 @@ describe("selectOrphanBrowsers", () => {
 });
 
 describe("selectOrphanMcpServers", () => {
+  const serverCommand =
+    "/usr/local/bin/node .../node_modules/chrome-devtools-mcp/build/src/main.js";
+
   it("selects a ppid-1 server and a parent-gone server; excludes a live-claude-parented server and the wrapper/watchdog", () => {
     const procs = [
-      proc(10, 1, "chrome-devtools-mcp"), // ppid 1 -> selected
-      proc(20, 9999, "chrome-devtools-mcp"), // parent gone -> selected
+      proc(10, 1, serverCommand), // ppid 1 -> selected
+      proc(20, 9999, serverCommand), // parent gone -> selected
       proc(30, 1, "claude --add-dir /w"), // a live claude in the table
-      proc(40, 30, "chrome-devtools-mcp"), // parented by a live claude -> not selected
+      proc(40, 30, serverCommand), // parented by a live claude -> not selected
       proc(50, 1, "npm exec chrome-devtools-mcp@latest --isolated"), // wrapper
       proc(
         60,
@@ -393,6 +431,24 @@ describe("selectOrphanMcpServers", () => {
     ];
     const out = selectOrphanMcpServers(procs).map((p) => p.pid);
     expect(out.sort()).toEqual([10, 20]);
+  });
+
+  it("ENTRYPOINT-ANCHOR GUARD: a bare argv substring match at ppid 1 (not the real server entrypoint) is never selected", () => {
+    const procs = [
+      // A user's own process, or another user's nohup'd tail, that happens
+      // to mention "chrome-devtools-mcp" in a log-path argument, but is not
+      // the server binary itself.
+      proc(70, 1, "tail -f /home/otheruser/.cache/chrome-devtools-mcp/out.log"),
+      proc(71, 1, "nohup sh -c 'echo chrome-devtools-mcp watcher started' &"),
+    ];
+    expect(selectOrphanMcpServers(procs)).toEqual([]);
+  });
+
+  it("recognizes the node_modules/.bin/chrome-devtools-mcp entrypoint shape", () => {
+    const procs = [
+      proc(80, 1, "/path/to/node_modules/.bin/chrome-devtools-mcp --isolated"),
+    ];
+    expect(selectOrphanMcpServers(procs).map((p) => p.pid)).toEqual([80]);
   });
 });
 
@@ -404,7 +460,11 @@ describe("runOrphanSweep", () => {
     1,
     `chrome --enable-automation --disable-background-networking --user-data-dir=${rodUserDataDir}`,
   );
-  const server = proc(700, 9999, "chrome-devtools-mcp");
+  const server = proc(
+    700,
+    9999,
+    "/usr/local/bin/node .../node_modules/chrome-devtools-mcp/build/src/main.js",
+  );
 
   it("without yes, signalled is empty and found/foundServers are still populated", () => {
     const kill = vi.fn();
@@ -445,5 +505,66 @@ describe("runOrphanSweep", () => {
     const result = runOrphanSweep(deps, { yes: false, ...opts });
     expect(result.ran).toBe(true);
     expect(result.found).toHaveLength(1);
+  });
+
+  it("dryRun true finds rows but never signals, even with yes:true", () => {
+    const devChrome = proc(
+      600,
+      1,
+      "chrome --enable-automation --disable-background-networking --user-data-dir=/Users/dev/.config/chrome-testing",
+    );
+    const kill = vi.fn();
+    const deps = fakeDeps({
+      listProcs: () => [rodRoot, devChrome, server],
+      kill,
+    });
+    const result = runOrphanSweep(deps, { yes: true, dryRun: true, ...opts });
+    expect(result.signalled).toEqual([]);
+    expect(result.found.length + result.foundServers.length).toBeGreaterThan(0);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("listProcs returning undefined yields ran:false with skipReason ps-unavailable", () => {
+    const deps = fakeDeps({ listProcs: () => undefined });
+    const result = runOrphanSweep(deps, { yes: false, ...opts });
+    expect(result.ran).toBe(false);
+    expect(result.skipReason).toBe("ps-unavailable");
+    expect(result.found).toEqual([]);
+    expect(result.foundServers).toEqual([]);
+  });
+});
+
+describe("classifyProfileShape — verified live shapes that can result in a SIGTERM", () => {
+  it("classifies puppeteer's isolated temp-profile shape (chrome-devtools-mcp-isolated), the shape marked UNCONFIRMED BY OBSERVATION but still allowlisted", () => {
+    const opts = { homeDir: "/Users/dev", tmpDir: "/private/tmp/xyz" };
+    expect(
+      classifyProfileShape(
+        "/private/tmp/xyz/puppeteer_dev_chrome_profile-AbC123",
+        opts,
+      ),
+    ).toBe("chrome-devtools-mcp-isolated");
+
+    // And feeding it through selectOrphanBrowsers end-to-end: matched:true,
+    // eligible for --yes signalling.
+    const command = `/path/to/chrome --enable-automation --disable-background-networking --user-data-dir=/private/tmp/xyz/puppeteer_dev_chrome_profile-AbC123`;
+    const out = selectOrphanBrowsers([proc(900, 1, command)], opts);
+    expect(out[0]).toMatchObject({
+      profileShape: "chrome-devtools-mcp-isolated",
+      matched: true,
+    });
+  });
+
+  it("classifies the verified-live /var/folders/ temp root (macOS TMPDIR), matched:true and eligible for --yes", () => {
+    const opts = { homeDir: "/Users/dev", tmpDir: "/private/tmp/xyz" };
+    const userDataDir =
+      "/var/folders/8z/abc123/T/rod/user-data/99b0c95236a886aa";
+    expect(classifyProfileShape(userDataDir, opts)).toBe("go-rod-temp");
+
+    const command = `/path/to/chrome --enable-automation --disable-background-networking --user-data-dir=${userDataDir}`;
+    const out = selectOrphanBrowsers([proc(901, 1, command)], opts);
+    expect(out[0]).toMatchObject({
+      profileShape: "go-rod-temp",
+      matched: true,
+    });
   });
 });

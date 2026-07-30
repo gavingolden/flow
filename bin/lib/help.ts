@@ -271,7 +271,16 @@ Options:
 Pass two or more <name>s to close several pipelines in one confirm-once sweep
 (an unknown name warns and forces a non-zero exit while the rest still close).
 When both --merged and --orphans are passed, the sweep unions the two filters
-and tags each preview row 'merged', 'orphan', or 'merged+orphan'.`,
+and tags each preview row 'merged', 'orphan', or 'merged+orphan'.
+
+Best-effort side effect: closing a pipeline whose session is still alive also
+SIGTERMs that session's own chrome-devtools-mcp browser server (via
+'flow-browser-teardown --session-pid <pid>') so its shutdown() handler reaps
+the leaked Chrome subprocess. A failed/missing teardown never blocks the
+close. NOTE: 'flow done --orphans' sweeps stale pipeline STATE FILES, not
+browser processes — for sessionless browser/server processes, see
+'flow-browser-teardown --orphans', a different command that happens to
+share the --orphans flag name.`,
 
   install: `flow install — install skills, agents, helpers globally
 

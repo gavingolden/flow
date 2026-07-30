@@ -4954,6 +4954,40 @@ describe("browser-driven UI-validation structural anchors", () => {
       "flow-pipeline SKILL.md must name 'flow-browser-teardown' in the " +
         "supervisor cleanup checkpoint.",
     ).toBe(true);
+
+    // Section-scoped: a bare mention in the "# Resource cleanup" prose is
+    // not sufficient — the helper must actually be WIRED into each
+    // terminal-state runbook block, not just described. Slice from the
+    // heading to the next top-level heading and require the literal call
+    // to appear at least once per named terminal-state site (MERGED,
+    // gated, both merged-externally renders, and the canonical NEEDS
+    // HUMAN Failure-paths block) so a future prose-only edit can't
+    // silently regress back to narrative-only.
+    const resourceCleanupStart = content.indexOf(
+      "# Resource cleanup (before any terminal state)",
+    );
+    const nextHeadingIdx = content.indexOf("\n# ", resourceCleanupStart + 1);
+    const resourceCleanupSection = content.slice(
+      resourceCleanupStart,
+      nextHeadingIdx === -1 ? undefined : nextHeadingIdx,
+    );
+    expect(
+      resourceCleanupSection.includes("flow-browser-teardown --json"),
+      "the '# Resource cleanup' section must name the exact wired call " +
+        "'flow-browser-teardown --json', not just the bare helper name.",
+    ).toBe(true);
+
+    const wiredCallCount = (
+      content.match(/flow-browser-teardown --json \|\| true/g) ?? []
+    ).length;
+    expect(
+      wiredCallCount,
+      "flow-browser-teardown --json || true must be wired into every " +
+        "named terminal-state runbook block (MERGED, gated, both " +
+        "merged-externally renders, closed-no-merge, and the canonical " +
+        "NEEDS HUMAN Failure-paths block) — a count below 5 means a site " +
+        "silently lost its call.",
+    ).toBeGreaterThanOrEqual(5);
     expect(
       uiSmokePassContent.includes("flow-browser-teardown"),
       "ui-smoke-pass.md must name 'flow-browser-teardown' in its Teardown section.",

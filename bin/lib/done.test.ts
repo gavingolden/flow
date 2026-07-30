@@ -909,3 +909,52 @@ describe("browserTeardown seam", () => {
     expect(browserTeardown).toHaveBeenCalledWith("sweep-b");
   });
 });
+
+describe("defaultBrowserTeardown (real path — no browserTeardown seam injected)", () => {
+  it("state.pid == null: readState succeeds but the row has no recorded pid — no spawnSync call", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "no-pid", phase: "implementing", pid: undefined }),
+    );
+    const code = runDone("no-pid", { yes: true });
+    expect(code).toBe(0);
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("livenessOf !== 'alive' (recycled-pid guard): a pid is recorded but liveness resolves 'dead' — no spawnSync call", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({
+        slug: "recycled-pid",
+        phase: "implementing",
+        pid: 4242,
+        procStartedAt: 100,
+      }),
+    );
+    livenessMock.livenessOf.mockReturnValue("dead");
+    const code = runDone("recycled-pid", { yes: true });
+    expect(code).toBe(0);
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("alive pid: spawns flow-browser-teardown with the exact argv shape, pid as its own array element", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({
+        slug: "alive-pid",
+        phase: "implementing",
+        pid: 9999,
+        procStartedAt: 100,
+      }),
+    );
+    livenessMock.livenessOf.mockReturnValue("alive");
+    const code = runDone("alive-pid", { yes: true });
+    expect(code).toBe(0);
+    expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+    expect(spawnSyncMock).toHaveBeenCalledWith(
+      "flow-browser-teardown",
+      ["--session-pid", "9999", "--json"],
+      { stdio: "ignore" },
+    );
+  });
+});

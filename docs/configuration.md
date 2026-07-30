@@ -80,7 +80,26 @@ Aliases are `opus`, `haiku`, `sonnet`, `fable`; flow forwards the alias verbatim
 
 ## chrome-devtools MCP registration
 
-flow's browser-driven UI-validation passes need the `chrome-devtools-mcp` MCP server registered once per machine (outside flow's control — this is a `~/.claude.json` MCP registration, not a `~/.flow/config.json` key). The recommended registration:
+flow's browser-driven UI-validation passes need the `chrome-devtools-mcp` MCP server registered once per machine (outside flow's control — this is a `~/.claude.json` MCP registration, not a `~/.flow/config.json` key). The line below is the server's own **foreground launch command** — running it directly hangs a terminal and registers nothing. To actually register it, either add an `mcpServers` entry to `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest", "--isolated"]
+    }
+  }
+}
+```
+
+or use the `claude mcp add` user-scope form:
+
+```sh
+claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest --isolated
+```
+
+The server command itself (what either registration path above ultimately runs):
 
 ```sh
 npx -y chrome-devtools-mcp@latest --isolated

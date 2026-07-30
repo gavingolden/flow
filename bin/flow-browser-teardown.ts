@@ -167,7 +167,20 @@ export function runTeardown(
     };
   }
 
-  const sessionPid = opts.sessionPid ?? resolveSessionPid(procs, deps.selfPid);
+  let sessionPid = opts.sessionPid ?? resolveSessionPid(procs, deps.selfPid);
+  if (explicitSessionPid) {
+    // An explicit `--session-pid` bypasses the FLOW_PIPELINE gate AND
+    // resolveSessionPid, so it must be independently verified: it has to
+    // resolve to a real, currently-alive `claude` process in the table.
+    // Without this, a caller-supplied 0/1/negative pid (or anything not in
+    // `procs`) would fall through to `descendantsOf` and enumerate — or
+    // even SIGTERM — an unrelated slice of the process table.
+    const byPid = new Map(procs.map((p) => [p.pid, p] as const));
+    const proc = sessionPid === undefined ? undefined : byPid.get(sessionPid);
+    if (!proc || !CLAUDE_COMMAND_RE.test(proc.command)) {
+      sessionPid = undefined;
+    }
+  }
   if (sessionPid === undefined) {
     return {
       ran: false,
@@ -190,11 +203,12 @@ export function runTeardown(
     };
   }
 
-  const signalled = servers.map((p) => ({ pid: p.pid, command: p.command }));
+  const signalled: Array<{ pid: number; command: string }> = [];
   if (!opts.dryRun) {
     for (const p of servers) {
       try {
         deps.kill(p.pid, "SIGTERM");
+        signalled.push({ pid: p.pid, command: p.command });
       } catch {
         // A race where the process exited between selection and signalling
         // is not a failure — the poll below will simply not find it alive.
@@ -342,11 +356,15 @@ export function selectOrphanBrowsers(
  * `shutdown()` handler, so reaping it is the same mechanism as
  * `runTeardown`, not a new one.
  */
+const MCP_SERVER_ENTRYPOINT_RE =
+  /node_modules\/\.bin\/chrome-devtools-mcp|chrome-devtools-mcp\/build\/.*\.js/;
+
 export function selectOrphanMcpServers(procs: ProcRow[]): ProcRow[] {
   const knownPids = new Set(procs.map((p) => p.pid));
   return procs.filter(
     (p) =>
       p.command.includes("chrome-devtools-mcp") &&
+      MCP_SERVER_ENTRYPOINT_RE.test(p.command) &&
       !p.command.includes("npm exec ") &&
       !p.command.includes("telemetry/watchdog/main.js") &&
       (p.ppid === 1 || !knownPids.has(p.ppid)),
@@ -361,18 +379,27 @@ function ageMsFor(deps: Deps, pid: number): number {
   return Math.max(0, deps.nowMs() - startMs);
 }
 
-export function runOrphanSweep(
-  deps: Deps,
-  opts: { yes: boolean; homeDir: string; tmpDir: string },
-): {
+export type OrphanSweepResult = {
   ran: boolean;
+  skipReason?: "ps-unavailable";
   found: OrphanRow[];
   foundServers: Array<{ pid: number; command: string }>;
   signalled: number[];
-} {
+};
+
+export function runOrphanSweep(
+  deps: Deps,
+  opts: { yes: boolean; dryRun?: boolean; homeDir: string; tmpDir: string },
+): OrphanSweepResult {
   const procs = deps.listProcs();
   if (!procs) {
-    return { ran: false, found: [], foundServers: [], signalled: [] };
+    return {
+      ran: false,
+      skipReason: "ps-unavailable",
+      found: [],
+      foundServers: [],
+      signalled: [],
+    };
   }
 
   const found = selectOrphanBrowsers(procs, opts).map((row) => ({
@@ -385,7 +412,7 @@ export function runOrphanSweep(
   }));
 
   const signalled: number[] = [];
-  if (opts.yes) {
+  if (opts.yes && !opts.dryRun) {
     for (const row of found) {
       if (!row.matched) continue;
       try {
@@ -507,17 +534,17 @@ function parseCliArgs(argv: string[]): ParsedCli {
       out.yes = true;
     } else if (a === "--session-pid") {
       const v = argv[++i];
-      const n = v === undefined ? Number.NaN : Number(v);
-      if (v === undefined || !Number.isFinite(n)) {
-        out.usageError = "--session-pid requires a numeric value";
+      const n = v === undefined || v === "" ? Number.NaN : Number(v);
+      if (v === undefined || v === "" || !Number.isInteger(n) || n <= 1) {
+        out.usageError = "--session-pid requires an integer value > 1";
       } else {
         out.sessionPid = n;
       }
     } else if (a === "--timeout-ms") {
       const v = argv[++i];
-      const n = v === undefined ? Number.NaN : Number(v);
-      if (v === undefined || !Number.isFinite(n)) {
-        out.usageError = "--timeout-ms requires a numeric value";
+      const n = v === undefined || v === "" ? Number.NaN : Number(v);
+      if (v === undefined || v === "" || !Number.isFinite(n) || n < 0) {
+        out.usageError = "--timeout-ms requires a non-negative numeric value";
       } else {
         out.timeoutMs = n;
       }
@@ -531,7 +558,7 @@ function parseCliArgs(argv: string[]): ParsedCli {
 function usage(): string {
   return [
     "usage: flow-browser-teardown [--json] [--dry-run] [--session-pid <pid>] [--timeout-ms <n>]",
-    "       flow-browser-teardown --orphans [--yes] [--json]",
+    "       flow-browser-teardown --orphans [--yes] [--dry-run] [--json]",
     "",
     "Default mode: session-scoped teardown — SIGTERMs THIS flow-pipeline",
     "session's own chrome-devtools-mcp SERVER (found by process ancestry) so",
@@ -560,6 +587,7 @@ export function main(argv: string[]): number {
   if (parsed.orphans) {
     const result = runOrphanSweep(deps, {
       yes: parsed.yes,
+      dryRun: parsed.dryRun,
       homeDir: deps.homeDir,
       tmpDir: deps.tmpDir,
     });
