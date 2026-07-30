@@ -239,6 +239,25 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect("smoketest-needs-creds".includes(":")).toBe(false);
   });
 
+  it("maps merge-resolver-spawn-denied to a manual git-merge recovery recipe", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "merge-resolver-spawn-denied",
+    });
+    expect(out).toContain("git merge origin/");
+    expect(finalLine(out)).toBe("NEEDS HUMAN: merge-resolver-spawn-denied");
+    // Pin the recipe's load-bearing negatives — the generic
+    // Object.keys(NEXT_ACTION_BY_REASON) loop above only checks the
+    // reason renders at all, not that its content stays correct.
+    const recipe = NEXT_ACTION_BY_REASON["merge-resolver-spawn-denied"];
+    expect(recipe).toContain("do NOT force");
+    // The resolve step must visibly interrupt any `&&` chain rather
+    // than being buried inside one — a bare `&&`-chained "resolve
+    // conflicts" step is easy to blow past without human judgment.
+    expect(recipe).not.toMatch(/&&\s*then STOP/i);
+    expect(recipe).toMatch(/;\s*then STOP and resolve/);
+  });
+
   it("falls back to DEFAULT_NEXT_ACTION for an unmapped reason", () => {
     const out = render({ status: "needs-human", reason: "made-up-tag" });
     expect(out).toContain(`NEXT ACTION: ${DEFAULT_NEXT_ACTION}`);
@@ -310,7 +329,7 @@ describe("render — needs-human (per-reason mapping)", () => {
     const out = render({
       status: "needs-human",
       reason: "merge-failed",
-      why: "rebase conflict in src/foo.ts",
+      why: "merge conflict in src/foo.ts",
       deferredBlock:
         "LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed",
     });

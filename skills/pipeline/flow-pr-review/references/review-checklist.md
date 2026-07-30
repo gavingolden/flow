@@ -1668,3 +1668,27 @@ When a UI renders `label — detail` (or similar separator-joined pairs) from de
 ### Exact-count assertion against an additive contract (PR #453)
 
 When a test asserts an exact count of rendered items/sections (`expect(x).toHaveLength(6)`) over a surface whose contract is explicitly additive ("later producers may add sections"), flag it as brittle — prefer asserting presence of each required item or a minimum count. Look for: hard-coded totals in tests adjacent to superset-stable/additive contract doc comments.
+
+### SECURITY DEFINER RPC revoked from PUBLIC without an explicit service-role EXECUTE grant (PR #464)
+
+When a migration creates a function (especially SECURITY DEFINER) and hardens it with `REVOKE EXECUTE ... FROM PUBLIC, authenticated, anon`, check that every backend caller's DB role still holds EXECUTE — Postgres roles do not bypass EXECUTE grants, and Supabase's `service_role` reaches RPCs only via a default-privileges grant that a prior hardening migration may have narrowed. A local stack can green-light the call while prod denies it if the two diverge on default privileges. Look for: `REVOKE ... ON FUNCTION` with no paired `GRANT EXECUTE ... TO service_role` (or equivalent explicit grant) in the same migration.
+
+### Doc claims overstating instrumentation coverage (PR #477)
+
+When a PR adds instrumentation/telemetry on one code path and ships prose claiming universal coverage ("every launch", "all requests"), cross-check each claim against the actual call sites — sibling paths (a duplicated private helper, an alternate backend) may be uninstrumented by design. Flag the wording, not the missing instrumentation, when the scope was deliberate. Look for: absolute quantifiers in new docs/PR bodies adjacent to instrumentation added at fewer call sites than the quantifier implies.
+
+### `??` fallback that trivially satisfies a loop's termination condition (PR #447)
+
+When a pagination/accumulation loop derives its bound from an API field with a null-coalescing fallback onto the accumulator itself (`const total = body.total_count ?? all.length`), the fallback makes the termination condition vacuously true on the first iteration — silently truncating the walk when the field is absent. Agents verified the happy-path pagination (terminates on `total_count`, per the documented quirk) but missed that the _fallback_ value defeats it. Look for: `?? <accumulator>.length` (or `?? 0`, `?? count`) feeding a `while (acc.length < total)`-style bound; require either a hard failure on the missing field or an explicit short-page heuristic, and check the doc comment matches the implemented termination rule.
+
+### Timestamp parse with `time.RFC3339` against PostgREST/Supabase values (PR #478)
+
+When Go code parses timestamps returned by PostgREST/Supabase with `time.Parse(time.RFC3339, ...)`, check for fractional seconds — Supabase timestamptz values serialize with microseconds (RFC3339Nano shape), so a strict RFC3339 parse fails. Especially dangerous when the parse error is swallowed into a boolean/default (`return false on error`), silently defeating the gate the timestamp feeds (e.g. a once-per-month check re-firing every tick). Look for: `time.Parse(time.RFC3339, row["created_at"])` (or any DB-sourced timestamp) whose error path collapses to a permissive default; require `time.RFC3339Nano` (parses both) or explicit error propagation.
+
+### Doc comment asserting a stricter contract than the matcher implements (PR #505)
+
+When a comment or constant doc claims a cross-layer string contract must stay "byte-identical" (or "exact match") but the paired matcher uses a substring/`includes`/prefix check, flag the contradiction — either the matcher should be strict or the comment should state the real (looser) contract, since the divergence misleads future editors about what changes are safe on either side. Look for: doc comments containing "exact"/"byte-identical"/"must match" adjacent to `.includes(`, `strings.Contains`, or regex partial matches on the same value.
+
+### Predicate doc comment naming a narrower trigger than the predicate matches (PR #461)
+
+When a new boolean helper is documented in terms of the _scenario that motivated it_ ("a delete parked in backoff") but its predicate actually matches a broader set (any non-dead-lettered op of that kind outside the current batch — including one enqueued mid-flight), flag the gap. The narrow wording invites a future reader to reason about only the motivating case and miss the other states that reach the branch, which is how an over-broad guard survives review. Distinct from the exact/byte-identical-vs-`includes` pattern above: there the comment is _stricter_ than the code, here it is _narrower in trigger_ while the code is broader. Look for: a helper doc comment naming a specific timing/lifecycle state ("parked", "in backoff", "already flushed") where the implementation tests only a general flag (`!op.deadLettered`, `!ids.has(op.id)`) that admits more states than the comment lists.

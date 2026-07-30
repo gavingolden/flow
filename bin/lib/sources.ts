@@ -31,6 +31,7 @@ const VALIDATOR_MODULES = [
   "agent-finding-schema.ts",
   "fix-applier-schema.ts",
   "epic-manifest-schema.ts",
+  "intent-resolution-schema.ts",
 ] as const;
 
 /**

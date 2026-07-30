@@ -3,6 +3,7 @@ import {
   renderComment,
   renderFindings,
   renderForeclosedPaths,
+  renderIntent,
   renderPhases,
 } from "./pipeline-summary-sources";
 
@@ -382,5 +383,97 @@ describe("renderFindings — fix-applier resilience", () => {
       fixApplierRaw: missingKey,
     }).join("\n");
     expect(findings).toContain("fixes: (unreadable)");
+  });
+});
+
+describe(renderIntent, () => {
+  it("returns none for empty/whitespace input", () => {
+    expect(renderIntent("")).toEqual(["none"]);
+    expect(renderIntent("   ")).toEqual(["none"]);
+  });
+
+  it("returns (unreadable) for non-JSON input", () => {
+    expect(renderIntent("{not json")).toEqual(["(unreadable)"]);
+  });
+
+  it("returns (unreadable) for JSON non-object/null", () => {
+    expect(renderIntent("null")).toEqual(["(unreadable)"]);
+    expect(renderIntent("42")).toEqual(["(unreadable)"]);
+    expect(renderIntent("[1,2]")).toEqual(["(unreadable)"]);
+  });
+
+  it("renders '<verdict>: <resolution>' when both fields are strings", () => {
+    expect(
+      renderIntent(
+        JSON.stringify({ verdict: "match", resolution: "matches request" }),
+      ),
+    ).toEqual(["match: matches request"]);
+  });
+
+  it("degrades to '<verdict>: (resolution unreadable)' when only verdict is a string", () => {
+    expect(
+      renderIntent(JSON.stringify({ verdict: "scope-drift", resolution: 42 })),
+    ).toEqual(["scope-drift: (resolution unreadable)"]);
+    expect(renderIntent(JSON.stringify({ verdict: "scope-drift" }))).toEqual([
+      "scope-drift: (resolution unreadable)",
+    ]);
+  });
+
+  it("degrades to '(verdict unreadable): <resolution>' when only resolution is a string", () => {
+    expect(
+      renderIntent(JSON.stringify({ verdict: 1, resolution: "note only" })),
+    ).toEqual(["(verdict unreadable): note only"]);
+    expect(renderIntent(JSON.stringify({ resolution: "note only" }))).toEqual([
+      "(verdict unreadable): note only",
+    ]);
+  });
+
+  it("returns (unreadable) when neither field is readable", () => {
+    expect(renderIntent(JSON.stringify({ foo: 1 }))).toEqual(["(unreadable)"]);
+  });
+
+  it("appends cross-model agreement when at least one primary field rendered", () => {
+    expect(
+      renderIntent(
+        JSON.stringify({
+          verdict: "fundamental",
+          cross_model: { ran: true, agreement: "agree" },
+        }),
+      ),
+    ).toEqual(["fundamental: (resolution unreadable)", "cross-model: agree"]);
+  });
+
+  it("pins the documented snapshot-only asymmetry: renderComment omits INTENT for a resolution-only artifact", () => {
+    const commentInputs = {
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: "",
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    };
+    const block = renderComment({
+      ...commentInputs,
+      intentResolutionRaw: JSON.stringify({
+        resolution: "resolution-only, no verdict",
+      }),
+    });
+    expect(block).not.toContain("INTENT:");
+  });
+
+  it("renders the degraded INTENT body in the comment when the verdict is readable but the resolution is not", () => {
+    const commentInputs = {
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: "",
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    };
+    const block = renderComment({
+      ...commentInputs,
+      intentResolutionRaw: JSON.stringify({ verdict: "scope-drift" }),
+    });
+    expect(block).toContain("INTENT:\n  scope-drift: (resolution unreadable)");
   });
 });

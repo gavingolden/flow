@@ -149,10 +149,11 @@ describe("modules registry completeness (live discovery, not doc prose)", () => 
     expect(moduleForArtifactName("flow.bash")).toBeUndefined();
   });
 
-  it("decided refinement: epic-manifest-schema is a 4th core validator row", () => {
+  it("decided refinement: epic-manifest-schema and intent-resolution-schema are core validator rows", () => {
     const core = MODULES.find((m) => m.id === "core")!;
     expect(core.validators).toContain("flow-epic-manifest-schema");
-    expect(core.validators.length).toBe(4);
+    expect(core.validators).toContain("flow-intent-resolution-schema");
+    expect(core.validators.length).toBe(5);
   });
 
   it("materialized testing split: generic flow-testing is a core skill, Svelte flow-testing-svelte is a stack-svelte skill", () => {

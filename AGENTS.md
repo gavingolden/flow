@@ -71,9 +71,10 @@ helpers (`flow-new-worktree`, `flow-pre-commit`, `flow-state-update`,
 `flow-notify`, `flow-ui-validate`, `flow-delegate`, `flow-research-cache`,
 etc.) live there with `.ts` extensions, Bun shebangs, and tests next door
 (`<name>.test.ts`, skipped when `flow install` symlinks into
-`~/.local/bin/<name>`). The three schema validators
+`~/.local/bin/<name>`). The five schema validators
 (`flow-pr-review-result-schema`, `flow-agent-finding-schema`,
-`flow-fix-applier-schema`) are also symlinked, sourced from
+`flow-fix-applier-schema`, `flow-epic-manifest-schema`,
+`flow-intent-resolution-schema`) are also symlinked, sourced from
 `bin/lib/*-schema.ts` via an explicit-allowlist `discoverValidators`
 (distinct from `discoverHelpers`'s auto-pickup of every `bin/*.ts`).
 `bin/flow` itself is Bun and dispatches every verb natively.
@@ -278,9 +279,9 @@ three-layer resolution table, and the manifest/foundation fields — is at
     Subagent.** Step 8's one fix-applier agent for the per-finding
     address loop + commit/push, writing `.flow-tmp/fix-applier-result.json`.
   - **Task-tool exemption: `/flow-pipeline` → Merge-Conflict Resolver
-    Subagent.** Step 10's one resolver agent for the rebase + per-file
-    resolution + force-push (per-pipeline branch only), writing
-    `.flow-tmp/merge-resolver-result.json`.
+    Subagent.** Step 10's one resolver agent for the base-branch merge +
+    per-file resolution + push (per-pipeline branch only, never a
+    force-push), writing `.flow-tmp/merge-resolver-result.json`.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-coder` Independent
     Edit-Applier Subagent.** The edit-applier agent `/flow-coder` spawns
     when `/flow-new-feature` step 5, `/flow-verify` step 3, or `/flow-refactoring`

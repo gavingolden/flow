@@ -33,8 +33,8 @@ Base branch:
 `gh pr merge --squash` stderr that triggered this resolver:
   {{MERGE_STDERR}}
 
-Conflicting file paths (may be empty if rebase has not yet been
-initiated; resolver runs the rebase itself in that case):
+Conflicting file paths (may be empty if the merge has not yet been
+initiated; resolver runs the merge itself in that case):
   {{CONFLICTING_FILES}}
 
 Working directory (cd here before running any git command):
@@ -56,9 +56,9 @@ record it in `ambiguous_resolutions` with the alternatives you
 considered and let the supervisor escalate.
 
 Return a 3–5-sentence summary surfacing both sides — at least one
-positive (resolved file count + dominant strategy + force-push
+positive (resolved file count + dominant strategy + push
 outcome) AND at least one negative (top entry from
 `ambiguous_resolutions` or `rejected_strategies`). Do not paste the
-artifact, the diff, or the rebase output back; the artifact on disk
+artifact, the diff, or the merge output back; the artifact on disk
 is the durable record.
 ```

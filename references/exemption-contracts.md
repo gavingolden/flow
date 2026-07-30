@@ -87,7 +87,13 @@ absolute screenshot paths captured by the browser pass, for supervisor
 session surfacing; typically populated by `/flow-pr-review` Step 8c's
 post-spawn merge-back rather than by the subagent itself). The subagent invokes `/flow-verify`
 against the post-fix worktree _before returning_, so a fix's CI breakage
-surfaces in-context while the fix rationale is still live. Spawned as
+surfaces in-context while the fix rationale is still live. **Pushes are
+scoped to the PR's own branch only — never `main`, `master`, or the base
+branch.** A PR that merges mid-review routes its unaddressed findings
+through the deferral path (one consolidated `flow-create-issue` per PR)
+instead of committing anywhere, per `AGENTS.md`'s no-auto-push-on-base
+default and the `bin/lib/base-branch-guard.ts` pre-commit hook that
+enforces the same invariant mechanically. Spawned as
 the named `agents/flow-fix-applier.md` definition (judgment role: no
 frontmatter `effort`/`model`; per-spawn `model:` threading unchanged),
 with the `[ -f ~/.claude/agents/flow-fix-applier.md ] || general-purpose`
@@ -99,20 +105,31 @@ When `/flow-pipeline` step 10's `gh pr merge --squash` returns a
 conflict-class failure (stderr matching the detection patterns in
 `skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md`),
 the supervisor spawns one resolver subagent via the Task tool for the
-rebase + per-file resolution + force-push. Artifact:
+base-branch merge + per-file resolution + push. Artifact:
 `.flow-tmp/merge-resolver-result.json` (typed fields `resolved_files`,
 `ambiguous_resolutions`, `rejected_strategies`, `commits`,
-`force_push_status`, `summary`). After it returns the supervisor retries
+`push_status`, `summary`). After it returns the supervisor retries
 `gh pr merge --squash` exactly once; on second failure it escalates
 `NEEDS HUMAN: merge-failed` with the resolver's summary first sentence
-appended. **Force-push is permitted** here because the resolver runs
-inside `/flow-pipeline`'s auto-merge umbrella and is scoped to the
-per-pipeline branch only — never `main`, `master`, or the base branch.
+appended. **No force-push.** The resolver merges the base branch into
+the pipeline branch and pushes normally, so nothing irreversible is
+delegated to a subagent spawn (an autonomous force-push is gated by the
+permission classifier under auto permission mode, and `AGENTS.md`
+forbids force-push without an explicit user request). Pushes are still
+scoped to the per-pipeline branch only — never `main`, `master`, or the
+base branch.
 Spawned as the named `agents/flow-merge-resolver.md` definition (judgment
 role: no frontmatter `effort`/`model`; per-spawn `model:` threading
 unchanged), with the
 `[ -f ~/.claude/agents/flow-merge-resolver.md ] || general-purpose`
 fallback guard emitting the `NOTICE — agent-fallback:` line.
+
+On a spawn-denial (the Task call itself refused, no artifact written),
+the supervisor escalates `NEEDS HUMAN: merge-resolver-spawn-denied` and
+does **not** resolve the conflict inline: doing so would re-run a denied
+operation under the supervisor's broader permission umbrella, inverting
+the context-isolation this exemption exists to provide, and would also
+re-spawn beyond the one-Task-call-per-run limit exemption #5 grants.
 
 ## `/flow-coder` Independent Edit-Applier Subagent
 

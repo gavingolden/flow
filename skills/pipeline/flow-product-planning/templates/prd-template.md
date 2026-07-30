@@ -275,6 +275,19 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 
 [one line naming the single weakest assumption / biggest risk whose failure would most likely sink the plan]
 
+## Cut list
+
+<!-- Always present (like ## Plan risks, unlike the omit-when-empty sections).
+     1-3 bullets naming unnecessary complexity in the plan that slows shipping,
+     OR an explicit "nothing — plan is minimal" affirmation with a one-line
+     justification. Never omit the heading, even when the honest answer is
+     "nothing." Full contract lives in
+     skills/pipeline/flow-product-planning/references/discovery-instructions.md
+     "Cut list" — the single source of truth. Do NOT inline the contract here;
+     this is a thin sketch. -->
+
+- [unnecessary complexity item] — or: nothing — plan is minimal: [one-line justification]
+
 ## Prompt interpretation
 
 <!-- Conditional: include this section ONLY when the user's prompt names BOTH
