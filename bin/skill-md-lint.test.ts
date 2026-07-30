@@ -2138,6 +2138,23 @@ describe("cross-model design review doc symmetry (AGENTS.md ↔ flow-epic-create
       `flow-epic-create/SKILL.md must carry the shared '${FANOUT_PHRASE}' phrase for the design-review note.`,
     ).toBe(true);
   });
+
+  // Durable guard for the "epic decompositions always get two reviewers"
+  // contract (SKILL.md prose: `auto` cannot reach `deep` on a design.md
+  // artifact shape, so this call site must pin `--depth deep` explicitly).
+  // Was a one-shot PR-body Test Steps grep; moved here per Durable-test
+  // precedence so a future edit dropping the flag fails CI, not just review.
+  it("flow-epic-create/SKILL.md invokes flow-plan-review with --depth deep", () => {
+    expect(
+      /flow-plan-review\b[\s\S]{0,200}?--depth deep/.test(
+        epicCreateSkillContent,
+      ),
+      "flow-epic-create/SKILL.md's cross-model design review call site must pin " +
+        "'--depth deep' — `auto` cannot resolve deep on a design.md artifact shape " +
+        "(no `### Task N:` headings, no `### D` subsections), so an epic decomposition " +
+        "only gets two reviewers if this flag stays explicit.",
+    ).toBe(true);
+  });
 });
 
 describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ references/fix-applier-instructions.md)", () => {
@@ -2957,6 +2974,19 @@ describe("Plan-artifact section anchors (discovery-instructions.md ↔ prd-templ
       discoveryInstructionsContent.includes("## Epic context"),
       "discovery-instructions.md must carry the '## Epic context' section contract — " +
         "the omit-when-empty section populated by the step 1.7 epic-membership detection.",
+    ).toBe(true);
+  });
+
+  // Not mirrored into prd-template.md/example-prd.md (it's an authoring
+  // instruction for the reviewer battery, not a plan-artifact section
+  // anchor), so it belongs here rather than in MIRRORED_PHRASES above. Was a
+  // one-shot PR-body Test Steps grep; moved here per Durable-test precedence.
+  it("discovery-instructions.md's cross-model review contract requires interruptions-per-run", () => {
+    expect(
+      discoveryInstructionsContent.includes("interruptions-per-run"),
+      "discovery-instructions.md must require every user-flow walkthrough to state " +
+        "interruptions-per-run as a number — the adversarial battery's lens 3 contract " +
+        "in bin/lib/plan-review-prompt.ts.",
     ).toBe(true);
   });
 

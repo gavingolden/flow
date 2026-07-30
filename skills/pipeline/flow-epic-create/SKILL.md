@@ -232,11 +232,18 @@ required-headings contract) — the deep tier here is forced by this
   logged out). No revision, no reconciliation subsection.
 - `ran:true` → read `design-review.md` and weigh EACH material AGY point against
   the codebase context you hold. AGY is a different model with less context —
-  its output is **INPUT you weigh, NOT a verdict**. **Convergence rule:** a
-  material point raised **independently by BOTH reviewers is presumptively
-  accepted**; overriding it requires a named rationale in the appended
-  subsection below, same as `/flow-pipeline` Step 3's deep-tier convergence
-  rule. A single-reviewer point remains INPUT weighed exactly as before.
+  its output is **INPUT you weigh, NOT a verdict**. Also record each
+  reviewer's `ran`/`skipReason` from the envelope's `reviewers[]` in
+  scrollback. **Convergence rule:** a material point raised **independently
+  by BOTH reviewers is presumptively accepted**; overriding it requires a
+  named rationale in the appended subsection below, same as `/flow-pipeline`
+  Step 3's deep-tier convergence rule. Because this site always forces
+  `--depth deep`, a partial deep failure (one reviewer ran, one skipped) is a
+  routine outcome here, not an edge case — on that outcome `design-review.md`
+  holds a single reviewer's prose with no convergence preamble, so the
+  convergence rule does not apply; weigh every point as ordinary INPUT
+  instead. A single-reviewer point (from a partial failure or otherwise
+  unconverged) remains INPUT weighed exactly as before.
   Revise `design.md` **once** where a point is warranted, then append a
   `### Cross-model review (AGY)` subsection under `## Decision analysis`
   recording each material point as **accepted** (naming the revision made) or

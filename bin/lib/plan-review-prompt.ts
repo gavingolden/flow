@@ -2,8 +2,7 @@
  * Prompt builder for `bin/flow-plan-review.ts`'s cross-model (AGY) plan
  * review. Extracted out of that file's former private `buildPrompt` so the
  * prompt content is directly testable without exporting the CLI's
- * internals, and so `flow-plan-review.ts` stays near the AGENTS.md
- * <200-line target.
+ * internals.
  *
  * The battery replaces the prior 6-point decision-local rubric (branch
  * walk-through / system flow / ripple / exclusivity / missing branch /
@@ -57,6 +56,14 @@ function extractHeadingBody(planText: string, heading: string): string {
 export type BatteryPromptInput = {
   planText: string;
   goalLine: string | null;
+  // True when the reviewer receiving this prompt is the SAME model family as
+  // the PRD's author (flow's PRDs are drafted by the Claude discovery
+  // subagent, so the deep tier's second reviewer — also Claude — sets this).
+  // Swaps the opener's premise so a same-family reviewer isn't told it has
+  // independence it doesn't have; defaults to false (the original
+  // different-family framing) for the standard tier and the deep tier's
+  // first (genuinely different-family) reviewer.
+  sameFamilyAsAuthor?: boolean;
 };
 
 /**
@@ -75,7 +82,11 @@ export function buildBatteryPrompt(input: BatteryPromptInput): string {
         : "(no **Goal:** line or '## Problem Statement' section found in this plan)";
     })();
 
-  return `You are a cross-model plan reviewer. A PRD drafted by a different model family (Claude) is below. Its author both wrote the plan and named its own risks in one context, so it shares that model's blind spots. Your job is to independently pressure-test the PRD against its OWN stated goal — not just the internal consistency of its decisions.
+  const opener = input.sameFamilyAsAuthor
+    ? "You are a cross-model plan reviewer. A PRD drafted by another instance of your own model family (Claude) is below — you share its blind spots by construction, so weight the structurally-independent lenses (3-6 below) over agreement with its stated risks. Your job is to independently pressure-test the PRD against its OWN stated goal — not just the internal consistency of its decisions."
+    : "You are a cross-model plan reviewer. A PRD drafted by a different model family (Claude) is below. Its author both wrote the plan and named its own risks in one context, so it shares that model's blind spots. Your job is to independently pressure-test the PRD against its OWN stated goal — not just the internal consistency of its decisions.";
+
+  return `${opener}
 
 Your output is INPUT the supervisor weighs against codebase context it can see and you cannot — it is NOT a verdict. Reason at the end-user and PRD level (named skills, pipeline steps, consumer repos). Do NOT trace code paths you cannot see: when you are uncertain whether a flow holds, flag the uncertainty explicitly — never fabricate a concrete flow to sound authoritative.
 

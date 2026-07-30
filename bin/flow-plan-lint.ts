@@ -125,6 +125,26 @@ function checkBehavioralContrast(planText: string, misses: string[]): void {
   }
 }
 
+/**
+ * Per discovery-instructions.md's `## Cut list` contract, a bare "nothing"
+ * with no justification fails this check — the author must say WHY nothing
+ * was cut, not just assert it. Absent heading is already reported by the
+ * sibling `checkHeadingPresent` call in `lintPlan`; don't double-report.
+ */
+function checkCutListJustification(planText: string, misses: string[]): void {
+  const match = planText.match(/^## Cut list\s*$/m);
+  if (!match) return;
+  const body = sliceToNextHeading(
+    planText,
+    (match.index ?? 0) + match[0].length,
+  ).trim();
+  if (/^nothing\W*$/im.test(body)) {
+    misses.push(
+      "'## Cut list' asserts 'nothing' with no justification — say WHY nothing was cut (e.g. 'nothing — plan is already minimal')",
+    );
+  }
+}
+
 function checkRedundancyLine(planText: string, misses: string[]): void {
   const match = planText.match(/^## Recommendation\s*$/m);
   if (!match) {
@@ -376,6 +396,7 @@ export function lintPlan(
       misses,
       "every plan must name its unnecessary complexity (or affirm none)",
     );
+    checkCutListJustification(planText, misses);
     checkTaskContracts(planText, misses);
     checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);

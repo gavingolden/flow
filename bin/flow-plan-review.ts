@@ -251,7 +251,7 @@ function extractCutListBody(planText: string): string {
   if (startIdx === -1) return "";
   let endIdx = lines.length;
   for (let i = startIdx + 1; i < lines.length; i++) {
-    if (/^## /.test(lines[i])) {
+    if (/^#{1,2} /.test(lines[i])) {
       endIdx = i;
       break;
     }
@@ -349,6 +349,10 @@ type DeepManifestEntry = {
   model: string;
   promptFile: string;
   addDirs: string[];
+  // Pins each reviewer's artifact to a scratch sibling of --out (rather than
+  // flow-delegate-fanout's default `artifacts/<index>-<task>.md`) so
+  // cleanScratch can name and remove it deterministically.
+  out: string;
 };
 
 export type Deps = {
@@ -361,6 +365,7 @@ export type Deps = {
   runFanout: (input: {
     manifestPath: string;
     outPath: string;
+    concurrency: number;
   }) => FanoutAggregate;
   readFile: (path: string) => string;
   writeFile: (path: string, contents: string) => void;
@@ -452,14 +457,20 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // stale feedback file.
   const rawPath = `${parsed.out}.agy-raw`;
   const promptPath = `${parsed.out}.prompt`;
+  const promptPathR2 = `${parsed.out}.prompt.r2`;
   const manifestPath = `${parsed.out}.fanout-manifest.json`;
   const fanoutOutPath = `${parsed.out}.fanout.json`;
+  const deepArtifactR1 = `${parsed.out}.r1.md`;
+  const deepArtifactR2 = `${parsed.out}.r2.md`;
   deps.removeFile(parsed.out);
   const cleanScratch = () => {
     deps.removeFile(promptPath);
+    deps.removeFile(promptPathR2);
     deps.removeFile(rawPath);
     deps.removeFile(manifestPath);
     deps.removeFile(fanoutOutPath);
+    deps.removeFile(deepArtifactR1);
+    deps.removeFile(deepArtifactR2);
   };
   const skip = (skipReason: string): number => {
     cleanScratch();
@@ -559,18 +570,37 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // per-entry indexed artifact paths avoid both direct spawns writing to the
   // SAME `${rawPath}` and silently clobbering the first reviewer's output.
   const addDirs = [dirname(parsed.planFile)];
+  try {
+    // Reviewer 2 is the SAME model family as the PRD's author (flow's PRDs
+    // are drafted by the Claude discovery subagent, and SECOND_MODEL is
+    // Claude too), so it gets its own prompt file with the opener's premise
+    // swapped rather than the byte-identical prompt handed to reviewer 1.
+    deps.writeFile(
+      promptPathR2,
+      buildBatteryPrompt({
+        planText: plan,
+        goalLine: extractGoalLine(plan),
+        sameFamilyAsAuthor: true,
+      }),
+    );
+  } catch {
+    return skip("plan-prep-failed");
+  }
+
   const manifest: DeepManifestEntry[] = [
     {
       task: `${parsed.task}-r1`,
       model: MODEL,
       promptFile: promptPath,
       addDirs,
+      out: deepArtifactR1,
     },
     {
       task: `${parsed.task}-r2`,
       model: SECOND_MODEL,
-      promptFile: promptPath,
+      promptFile: promptPathR2,
       addDirs,
+      out: deepArtifactR2,
     },
   ];
 
@@ -583,6 +613,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   const aggregate = deps.runFanout({
     manifestPath,
     outPath: fanoutOutPath,
+    concurrency: 2,
   });
   const entries = aggregate.entries ?? [];
   const r1 = resolveReviewer(
@@ -644,14 +675,14 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     runDelegate:
       o?.runDelegate ??
       ((argv) => {
-        const r = Bun.spawnSync(["flow-delegate", ...argv], {
-          stdin: "ignore",
-          stdout: "pipe",
-          stderr: "ignore",
-        });
-        const stdout = r.stdout ? new TextDecoder().decode(r.stdout) : "";
-        const line = stdout.trim().split("\n").filter(Boolean).pop() ?? "{}";
         try {
+          const r = Bun.spawnSync(["flow-delegate", ...argv], {
+            stdin: "ignore",
+            stdout: "pipe",
+            stderr: "ignore",
+          });
+          const stdout = r.stdout ? new TextDecoder().decode(r.stdout) : "";
+          const line = stdout.trim().split("\n").filter(Boolean).pop() ?? "{}";
           return JSON.parse(line) as DelegateEnvelope;
         } catch {
           return { ran: false, skipReason: "agy-error" };
@@ -660,19 +691,21 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     runFanout:
       o?.runFanout ??
       ((input) => {
-        const r = Bun.spawnSync(
-          [
-            "flow-delegate-fanout",
-            "--manifest",
-            input.manifestPath,
-            "--out",
-            input.outPath,
-          ],
-          { stdin: "ignore", stdout: "pipe", stderr: "ignore" },
-        );
-        const stdout = r.stdout ? new TextDecoder().decode(r.stdout) : "";
-        const line = stdout.trim().split("\n").filter(Boolean).pop() ?? "{}";
         try {
+          const r = Bun.spawnSync(
+            [
+              "flow-delegate-fanout",
+              "--manifest",
+              input.manifestPath,
+              "--concurrency",
+              String(input.concurrency),
+              "--out",
+              input.outPath,
+            ],
+            { stdin: "ignore", stdout: "pipe", stderr: "ignore" },
+          );
+          const stdout = r.stdout ? new TextDecoder().decode(r.stdout) : "";
+          const line = stdout.trim().split("\n").filter(Boolean).pop() ?? "{}";
           return JSON.parse(line) as FanoutAggregate;
         } catch {
           return { allSkipped: true, entries: [] };

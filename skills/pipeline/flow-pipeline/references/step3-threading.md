@@ -295,10 +295,11 @@ end-condition is unchanged; this sub-step only enriches plan.md before
 that gate fires.
 
 **Depth tier and the `reviewers[]` envelope field.** The envelope
-additionally carries `depth` (`"standard"` or `"deep"`) and, on a deep
-run, `reviewers: [{model, ran, skipReason?}, ...]` for the two reviewers
-dispatched. These fields are ADDITIVE — a standard-tier envelope's shape
-is unchanged from the single-reviewer era. On a deep run, a material
+additionally carries `depth` (`"standard"` or `"deep"`) and
+`reviewers: [{model, ran, skipReason?}, ...]` on EVERY `ran:true`
+result — one entry on the standard tier, two on the deep tier. These
+fields are ADDITIVE — only a `ran:false` SKIP envelope carries neither
+field and stays byte-identical to the single-reviewer era. On a deep
 point raised **independently by both reviewers is presumptively
 accepted** (the convergence rule SKILL.md Step 3 records); a
 single-reviewer point remains input to weigh exactly as a standard-tier

@@ -129,7 +129,11 @@ const BASE_ARGV = ["--plan-file", PLAN_FILE, "--out", OUT];
 function makeDeps(overrides: Partial<Deps> = {}): Deps & {
   calls: {
     delegate: string[][];
-    fanout: Array<{ manifestPath: string; outPath: string }>;
+    fanout: Array<{
+      manifestPath: string;
+      outPath: string;
+      concurrency: number;
+    }>;
     writes: Array<{ path: string; contents: string }>;
     removed: string[];
     out: string[];
@@ -139,7 +143,11 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
   const files = new Map<string, string>();
   const calls = {
     delegate: [] as string[][],
-    fanout: [] as Array<{ manifestPath: string; outPath: string }>,
+    fanout: [] as Array<{
+      manifestPath: string;
+      outPath: string;
+      concurrency: number;
+    }>,
     writes: [] as Array<{ path: string; contents: string }>,
     removed: [] as string[],
     out: [] as string[],
@@ -156,15 +164,19 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     runFanout: (input) => {
       calls.fanout.push(input);
       // Default: both manifest entries "ran", each writing its own artifact —
-      // a conformant deep-tier two-reviewer success.
-      let manifest: Array<{ task: string; model: string }> = [];
+      // a conformant deep-tier two-reviewer success. Honors each manifest
+      // entry's own `out` (the real `flow-delegate-fanout` binary's
+      // `entryOutPath` behavior — bin/flow-delegate-fanout.ts:187 "if
+      // (entry.out) return entry.out") so this stub's artifact path matches
+      // production and the scratch-lifecycle tests can actually see a leak.
+      let manifest: Array<{ task: string; model: string; out?: string }> = [];
       try {
         manifest = JSON.parse(files.get(input.manifestPath) ?? "[]");
       } catch {
         manifest = [];
       }
       const entries = manifest.map((m, i) => {
-        const artifactPath = `${input.outPath}.artifact.${i}.md`;
+        const artifactPath = m.out ?? `${input.outPath}.artifact.${i}.md`;
         files.set(artifactPath, `${AGY_PROSE} (reviewer ${i + 1})`);
         return { task: m.task, model: m.model, ran: true, artifactPath };
       });
@@ -794,7 +806,10 @@ describe("run — deep tier happy path", () => {
     expect(out).toContain("Convergence rule");
   });
 
-  it("hands both reviewers the SAME battery prompt file", () => {
+  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's", () => {
+    // Reviewer 2 (SECOND_MODEL) is the same model family as the PRD's
+    // author, so it must not receive the byte-identical "different model
+    // family" prompt handed to reviewer 1.
     const deps = makeDeps();
     run([...BASE_ARGV, "--depth", "deep"], deps);
     const manifestRaw = deps.calls.writes.find(
@@ -802,10 +817,30 @@ describe("run — deep tier happy path", () => {
     )?.contents;
     const manifest = JSON.parse(manifestRaw ?? "[]");
     expect(manifest).toHaveLength(2);
-    expect(manifest[0].promptFile).toBe(manifest[1].promptFile);
     expect(manifest[0].promptFile).toBe(`${OUT}.prompt`);
+    expect(manifest[1].promptFile).toBe(`${OUT}.prompt.r2`);
+    expect(manifest[0].promptFile).not.toBe(manifest[1].promptFile);
     expect(manifest[0].model).toBe(MODEL_1);
     expect(manifest[1].model).toBe(MODEL_2);
+    expect(manifest[0].out).toBe(`${OUT}.r1.md`);
+    expect(manifest[1].out).toBe(`${OUT}.r2.md`);
+
+    const r1Prompt = deps.calls.writes.find(
+      (w) => w.path === `${OUT}.prompt`,
+    )?.contents;
+    const r2Prompt = deps.calls.writes.find(
+      (w) => w.path === `${OUT}.prompt.r2`,
+    )?.contents;
+    expect(r1Prompt).toContain("A PRD drafted by a different model family");
+    expect(r2Prompt).toContain(
+      "A PRD drafted by another instance of your own model family",
+    );
+  });
+
+  it("pins --concurrency 2 on the fanout call so both reviewers dispatch in one wave", () => {
+    const deps = makeDeps();
+    run([...BASE_ARGV, "--depth", "deep"], deps);
+    expect(deps.calls.fanout[0]?.concurrency).toBe(2);
   });
 });
 
@@ -872,11 +907,16 @@ describe("run — deep tier both-skip", () => {
 });
 
 describe("run — deep tier scratch lifecycle", () => {
-  it("removes the manifest + fanout aggregate scratch files on the ran path", () => {
+  it("removes the manifest + fanout aggregate + per-reviewer artifacts on the ran path", () => {
     const deps = makeDeps();
     run([...BASE_ARGV, "--depth", "deep"], deps);
     expect(deps.files.has(`${OUT}.fanout-manifest.json`)).toBe(false);
     expect(deps.files.has(`${OUT}.fanout.json`)).toBe(false);
+    expect(deps.files.has(`${OUT}.prompt`)).toBe(false);
+    expect(deps.files.has(`${OUT}.prompt.r2`)).toBe(false);
+    // The two reviewer-artifact scratch siblings must not leak either.
+    expect(deps.files.has(`${OUT}.r1.md`)).toBe(false);
+    expect(deps.files.has(`${OUT}.r2.md`)).toBe(false);
   });
 
   it("removes the manifest + fanout aggregate scratch files on a both-skip", () => {
@@ -915,18 +955,74 @@ describe("run — deep tier scratch lifecycle", () => {
   });
 });
 
+describe("run — deep tier degrade branches (untested seams)", () => {
+  it("degrades a ran:true reviewer whose artifact is unreadable to plan-output-unreadable", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        // Reviewer 1's artifact is seeded and readable; reviewer 2's
+        // reported artifactPath is never written, so readFile throws.
+        const artifactPath0 = `${input.outPath}.artifact.0.md`;
+        deps.files.set(artifactPath0, "reviewer one prose, verbatim");
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath: artifactPath0,
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ran: true,
+              artifactPath: "/nope.md",
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.ran).toBe(true);
+    expect(env.reviewers).toEqual([
+      { model: MODEL_1, ran: true },
+      { model: MODEL_2, ran: false, skipReason: "plan-output-unreadable" },
+    ]);
+    expect(deps.files.get(OUT)).toBe("reviewer one prose, verbatim");
+  });
+
+  it("treats an entry-less/malformed fanout aggregate as a both-skip (agy-not-found)", () => {
+    const deps = makeDeps({
+      runFanout: () => ({ allSkipped: true }) as FanoutAggregate,
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    expect(envelope(deps)).toEqual({ ran: false, skipReason: "agy-not-found" });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+});
+
 // --- Hash widening: **Goal:** line + Decision analysis + Cut list -----------
 
 describe("computeDecisionHash — widened content key", () => {
+  // Ordered per the shipped contract (templates/prd-template.md /
+  // discovery-instructions.md §8): Decision analysis -> Recommendation ->
+  // Plan risks -> Cut list -> the h1 `# Task breakdown`. `## Cut list`
+  // BEFORE `## Recommendation` (the prior fixture's ordering) never occurs
+  // in a real plan.md and hid the extractCutListBody h1-termination bug.
   const BASE_HASH_PLAN = [
     "# PRD",
     "**Goal:** Ship CSV export quickly.",
     "## Decision analysis",
     "**Decision A** verdict X.",
-    "## Cut list",
-    "nothing — plan is minimal.",
     "## Recommendation",
     "go",
+    "## Plan risks",
+    "the format may not match expectations.",
+    "## Cut list",
+    "nothing — plan is minimal.",
   ].join("\n");
 
   it("editing only the Goal line changes the hash (re-fires)", () => {
