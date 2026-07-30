@@ -749,6 +749,18 @@ describe("pr-review deferral-tracker lint", () => {
     ).toBe(false);
   });
 
+  it("the Fix-Applier Subagent's instructions mandate no commit on the merged-mid-review path", () => {
+    expect(
+      fixApplierContent.includes(
+        "do NOT commit anywhere and do NOT switch branches",
+      ),
+      "fix-applier-instructions.md's already-merged branch of step 7 must " +
+        "carry the explicit no-commit prohibition — this pins the prose's " +
+        "presence, not just its absence elsewhere, so a future edit can't " +
+        "silently drop the mandate while the surrounding structure survives.",
+    ).toBe(true);
+  });
+
   it("the report template names no ROADMAP.md deferral-tracker fallback", () => {
     expect(
       reportTemplateContent.includes("ROADMAP.md"),
@@ -1612,10 +1624,14 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   // spawn-prompt file, enumerated by glob rather than a literal path array
   // so a newly-added subagent file is picked up automatically. Filenames,
   // not a fixed list, are the source of truth.
+  // Matches `discoverAgents`'s `.endsWith(".md")` filter (bin/lib/sources.ts)
+  // rather than a narrower `/^flow-.*\.md$/` — every file `flow install`
+  // actually ships as an agent belongs in this corpus, not just the ones
+  // that happen to be `flow-`-prefixed today.
   const AGENTS_DIR = path.resolve(HERE, "..", "agents");
   const agentDefinitionFiles = fs
     .readdirSync(AGENTS_DIR)
-    .filter((name) => /^flow-.*\.md$/.test(name))
+    .filter((name) => name.endsWith(".md"))
     .map((name) => path.join(AGENTS_DIR, name));
 
   const PIPELINE_SKILLS_DIR = path.resolve(HERE, "..", "skills", "pipeline");
@@ -1691,16 +1707,82 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ),
       "the pre-fix fix-applier-instructions.md:342 phrasing must be caught by the detector.",
     ).toBe(true);
+    expect(
+      mandatesBaseBranchWrite(
+        "Just `git commit` directly to main and move on.",
+      ),
+      "the detector must catch the `git commit` verb alternative, not only `switch`/`commit there`.",
+    ).toBe(true);
+    expect(
+      mandatesBaseBranchWrite(
+        "Then `git push` straight to master without a PR.",
+      ),
+      "the detector must catch the `git push` verb alternative.",
+    ).toBe(true);
 
-    const verifiedNegativeFixtures = [
-      "- NEVER touch the base branch (`main`, `master`, or whatever the PR",
-      "never `main`, `master`, or the base branch), and write a structured",
-      "- NEVER use `git push --force` or `--force-with-lease` — a rejected",
-    ];
-    for (const fixture of verifiedNegativeFixtures) {
+    // Fixtures are anchored to their live source lines (readFileSync, not
+    // frozen string copies) so a rewording rots this test loudly instead of
+    // leaving it silently green. The merge-resolver push line below is the
+    // ONLY fixture that actually reaches the `!NEGATION.test(clause)`
+    // branch — it matches both BASE_BRANCH_TOKEN and BASE_BRANCH_WRITE_VERB
+    // and is spared only because it is negated. The other three fail the
+    // verb/token gate before negation is ever evaluated; they still pin a
+    // different (real) guarantee — ordinary prohibition prose about the
+    // base branch that never even reaches the write-verb pattern — but
+    // none of them alone would catch a regression in the NEGATION check
+    // itself.
+    const readAnchoredLine = (
+      relPath: string,
+      lineNo: number,
+      expectedSubstring: string,
+    ): string => {
+      const absPath = path.resolve(HERE, "..", relPath);
+      const line = fs.readFileSync(absPath, "utf8").split("\n")[lineNo - 1];
       expect(
-        mandatesBaseBranchWrite(fixture),
-        `verified in-tree negative fixture must not be flagged: ${JSON.stringify(fixture)}`,
+        line,
+        `${relPath}:${lineNo} drifted — update the anchor line number/fixture ` +
+          `(expected to contain ${JSON.stringify(expectedSubstring)}, got ${JSON.stringify(line)}).`,
+      ).toContain(expectedSubstring);
+      return line;
+    };
+
+    const negatedButMatchesTokenAndVerb = readAnchoredLine(
+      "skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md",
+      392,
+      "NEVER push to the base branch",
+    );
+    expect(
+      mandatesBaseBranchWrite(negatedButMatchesTokenAndVerb),
+      "a negated clause that DOES match both the token and write-verb gates " +
+        `must still be spared by NEGATION: ${JSON.stringify(negatedButMatchesTokenAndVerb)}`,
+    ).toBe(false);
+
+    const verifiedNegativeFixtures: Array<[string, number, string]> = [
+      [
+        "skills/pipeline/flow-pipeline/references/verify-loop-instructions.md",
+        378,
+        "NEVER touch the base branch",
+      ],
+      [
+        "agents/flow-merge-resolver.md",
+        11,
+        "never `main`, `master`, or the base branch",
+      ],
+      [
+        "skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md",
+        394,
+        "NEVER use `git push --force`",
+      ],
+    ];
+    for (const [
+      relPath,
+      lineNo,
+      expectedSubstring,
+    ] of verifiedNegativeFixtures) {
+      const line = readAnchoredLine(relPath, lineNo, expectedSubstring);
+      expect(
+        mandatesBaseBranchWrite(line),
+        `verified in-tree negative fixture must not be flagged: ${JSON.stringify(line)}`,
       ).toBe(false);
     }
   });

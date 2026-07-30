@@ -23,10 +23,12 @@
  * 1. `verify_status` is a string — the literal `"pass"` or a bounded
  *    failure excerpt. We don't enumerate failure shapes here; the wrapper
  *    treats any non-`"pass"` value as a verify failure to surface.
- * 2. `tracker_entry_url` may be the empty string when the worktree has
- *    no in-repo tracker. Per the user clarification at PR #100 approval,
- *    flow has no `gh issue create` pathway today, so empty is the
- *    expected default.
+ * 2. `tracker_entry_url` may be the empty string when no GitHub issue was
+ *    filed for a deferral — either because the repo has no GitHub Issues
+ *    surface, or because `flow-create-issue` itself failed (e.g. `gh`
+ *    unavailable). `flow-create-issue` is the canonical issue-creation
+ *    pathway (see fix-applier-instructions.md's deferral section); this
+ *    validator does not assume its absence.
  *
  * Negative-findings slots (`rejected_alternatives`, `anti_patterns_found`)
  * are required keys with array values; empty arrays are permitted only
@@ -141,7 +143,7 @@ export function validateDeferredEntry(
   }
   if (!isString(o.tracker_entry_url)) {
     return err(
-      `'tracker_entry_url' must be a string (empty string permitted when no in-repo tracker exists)`,
+      `'tracker_entry_url' must be a string (empty string permitted when no GitHub issue was filed)`,
       path,
     );
   }

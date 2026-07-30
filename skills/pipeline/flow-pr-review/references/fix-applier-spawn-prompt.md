@@ -54,8 +54,10 @@ pattern in surrounding code. Do not call `gh issue create`, `linear`, or
 any third-party tracker integration directly — `flow-create-issue` is the
 canonical durable tracker for a deferral (see fix-applier-instructions.md's
 deferral section). `tracker_entry_url` is normally a real `flow-create-issue`
-URL; it defaults to an empty string only when the repo has no GitHub Issues
-surface.
+URL; it defaults to an empty string when no GitHub issue was filed — either
+because the repo has no GitHub Issues surface, or because `flow-create-issue`
+itself failed for another reason (e.g. `gh` unavailable) — per
+fix-applier-instructions.md's fallback path.
 
 Before exiting, self-validate the artifact with
 `flow-fix-applier-schema --validate` against a `.tmp` candidate and
