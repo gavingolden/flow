@@ -273,17 +273,39 @@ so embedding it after computing the hash does not invalidate it.
 
 **Re-fire across passes (revision/redirect).** On a step-3 re-entry the
 supervisor re-runs `flow-plan-review` unconditionally, but the helper
-re-fires the (agy-spending) review ONLY when `## Decision analysis`
-**materially changed** since the last reviewed revision: it hashes a
-normalized `## Decision analysis` body (excluding the `### Cross-model
-review (AGY)` subsection) and compares it to the marker embedded on the
-prior pass, emitting `{ran:false,
-skipReason:"decision-analysis-unchanged"}` when they match (normalized,
-so incidental whitespace / bullet churn from an unrelated revision edit
-does not needlessly re-fire). On that skip, the supervisor records a
-one-line rationale in the chat summary (e.g. "cross-model plan review
-skipped — `## Decision analysis` unchanged since the last reviewed
-revision") and proceeds; it never hand-forces a re-review. A
-missing/malformed marker re-fires (safe) and self-heals as the run
-re-embeds the hash. The plan-pending-review / advance end-condition is
-unchanged; this sub-step only enriches plan.md before that gate fires.
+re-fires the (agy-spending) review ONLY when one of THREE hashed inputs
+**materially changed** since the last reviewed revision — the `**Goal:**`
+line, the `## Decision analysis` body, or the `## Cut list` body (widened
+from the original Decision-analysis-only scope so a goal-conflicting edit
+or a cut-list-only edit also re-fires the review): it hashes each input
+independently (each normalized; `## Decision analysis` also excludes the
+`### Cross-model review (AGY)` subsection, a Decision-analysis-specific
+exclusion that is NOT generalized to `## Cut list`) and compares the
+combined key to the marker embedded on the prior pass, emitting
+`{ran:false, skipReason:"decision-analysis-unchanged"}` when they match
+(normalized, so incidental whitespace / bullet churn from an unrelated
+revision edit does not needlessly re-fire — a Task-breakdown-only edit
+also does not re-fire, since none of the three hashed inputs changed). On
+that skip, the supervisor records a one-line rationale in the chat
+summary (e.g. "cross-model plan review skipped — hashed inputs unchanged
+since the last reviewed revision") and proceeds; it never hand-forces a
+re-review. A missing/malformed marker re-fires (safe) and self-heals as
+the run re-embeds the hash. The plan-pending-review / advance
+end-condition is unchanged; this sub-step only enriches plan.md before
+that gate fires.
+
+**Depth tier and the `reviewers[]` envelope field.** The envelope
+additionally carries `depth` (`"standard"` or `"deep"`) and
+`reviewers: [{model, ran, skipReason?}, ...]` on EVERY `ran:true`
+result — one entry on the standard tier, two on the deep tier. These
+fields are ADDITIVE — only a `ran:false` SKIP envelope carries neither
+field and stays byte-identical to the single-reviewer era. On a deep
+point raised **independently by both reviewers is presumptively
+accepted** (the convergence rule SKILL.md Step 3 records); a
+single-reviewer point remains input to weigh exactly as a standard-tier
+point does today. A partial deep failure (one reviewer ran, one skipped)
+still reports `ran:true`, degraded to the surviving reviewer's prose,
+with the failed reviewer's `skipReason` recorded in its `reviewers[]`
+entry; a full deep both-skip propagates the FIRST reviewer's `skipReason`
+exactly as a standard-tier skip would (no `depth`/`reviewers` fields on
+any skip envelope, deep or standard).

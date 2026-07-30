@@ -210,3 +210,12 @@ The single weakest assumption is that the `SECURITY DEFINER` RPC's token check i
 only gate standing between an anonymous visitor and the full dashboard payload — a bug in
 `get_shared_dashboard`'s active-token validation (Task 1) would leak dashboards wholesale,
 and RLS provides no backstop for a function that runs with elevated privileges by design.
+
+## Cut list
+
+- A `dashboard_shares.max_views` counter for view-limited links — no story asks for it,
+  and adding it now means designing revocation-vs-expiry-vs-view-cap precedence for a
+  case nobody requested.
+- A dedicated `/api/shares` REST surface alongside the RPC — the RPC already serves the
+  one consumer (the public viewer route); a second surface would just be an unused
+  parallel path to keep in sync.
