@@ -805,13 +805,16 @@ normalized-diff re-fire detection) in
   Gate-stage echo-verbatim recap, never compose the ranked block from
   the `.json` fields by hand. Document the reply verbs available at
   `plan-pending-review` in that same message: `pull #N into the plan`
-  (fold a not-yet-ticked candidate's text into the plan — an Imperative
-  scope/plan redirect back to step 3), `drop candidate #N` (mechanical:
-  `flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md"
-  --untick <N>`, confirm in one line, stay at `plan-pending-review`),
-  `drop all candidates` (same mechanical untick, bulk form — unticks
-  every currently-ticked candidate in one `--untick` call), and `defer
-  task #N` (one or many task numbers in one reply — batches ALL of them
+  (fold candidate #N's text into the plan, ticked or not — an
+  Imperative scope/plan redirect back to step 3), `drop candidate #N`
+  (mechanical: `flow-candidate-issues --plan-md-file
+  "$WORKTREE/.flow-tmp/plan.md" --untick <N>`, confirm in one line,
+  stay at `plan-pending-review`), `drop all candidates` (same
+  mechanical untick, bulk form — read `flow-candidate-issues
+  --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --json` and pass every
+  1-based index whose `.candidates[].ticked` is `true` to a single
+  `--untick <indices>` call), and `defer task #N` (one or many task
+  numbers in one reply — batches ALL of them
   into ONE bounded revision pass back to step 3; see step 4's redirect
   classification below and `references/redirect-handling.md`).
 
@@ -974,8 +977,9 @@ typed something into the tmux chat. Classify the input using
   extra handling:
   - `pull #N into the plan` → fold candidate #N's text into the plan
     body as the redirect payload; on re-entry the `--details` echo
-    (step 3's End condition above) RE-FIRES for the remaining
-    still-unticked candidates, so pulling one never silently drops the
+    (step 3's End condition above) RE-FIRES over the full candidate
+    list (`renderDetails` prints every candidate, grouped by state, not
+    only unticked ones), so pulling one never silently drops the
     others.
   - `defer task #N` (one or many task numbers in a single reply, e.g.
     `defer tasks #2 and #4`) → batch ALL deferred targets into ONE
@@ -1092,6 +1096,14 @@ The skill writes code + tests, runs verify internally as a
 pre-commit gate, commits, and pushes. **Opening the PR is the
 supervisor's job, not the implement skill's** — the supervisor calls
 `flow-open-pr` so the PR number lands in state.json atomically.
+
+**Discharging the `advance-to-step-5` disclosure obligation:** if step 3
+took the `advance-to-step-5` route (see "Step 3 — Product planning" End
+condition above), the PR body's Key decisions section MUST include a
+`Bundled:` bullet naming any task-breakdown items and pre-ticked
+`# Candidate follow-up issues` items discovery authored without a
+plan-review checkpoint — this is where that obligation gets discharged,
+not just asserted.
 
 Write the PR body to the worktree's scratch dir, then call
 `flow-open-pr` once and capture both the URL (from stdout) and the
@@ -2138,7 +2150,13 @@ flow-remove-worktree --delete-branch
 ```
 
 Then echo the recap per [Gate-stage echo-verbatim
-recap](#gate-stage-echo-verbatim-recap---echo-prose).
+recap](#gate-stage-echo-verbatim-recap---echo-prose). **Discharging the
+`advance-to-step-5` disclosure obligation, part 2:** `flow-pipeline-summary`
+reads `--pr-title`/`--pr-url` and `--plan-file`, so a PR body carrying the
+`Bundled:` Key decisions bullet (written in step 5 above) surfaces in this
+recap automatically — no separate step is needed, but do not drop the
+`--plan-file` flag from the call above, since that is what makes the
+recap see it.
 
 The helper silently suppresses the FOLLOW-UPS slot when the follow-ups
 file is empty, so call sites do not stat the path first. End.

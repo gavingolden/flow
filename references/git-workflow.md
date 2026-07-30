@@ -172,10 +172,16 @@ stops at the gated state regardless of the gate verdict).
 (`--label flow-agent,deferred-review`), and (b) `/flow-pipeline` step
 10's post-merge sweep (`--label flow-agent,out-of-scope-discovery`, once
 per `- [x]` candidate in plan.md). Indiscriminate auto-creation pollutes
-backlogs and races on `gh` rate limits; both sites operate under
-explicit user curation at plan review (bundle-by-default candidates are
-pre-ticked, and the user drops or defers any it doesn't want before
-approval). Documented bidirectionally in
+backlogs and races on `gh` rate limits. Feature and `route-to-step-4`
+pipelines curate the ticked set at plan review (bundle-by-default
+candidates are pre-ticked, and the `--details` echo plus the `drop
+candidate #N` / `pull #N into the plan` reply verbs let the user drop or
+defer any it doesn't want before approval); step 3's `advance-to-step-5`
+route has no plan-review checkpoint, so its pre-ticked candidates and
+bundled tasks proceed as discovery authored them, disclosed post-hoc in
+the PR body and the terminal recap, with post-merge off-ramps (revert a
+bundled line, close an unwanted issue) as the correction path. Documented
+bidirectionally in
 `skills/pipeline/flow-pipeline/SKILL.md`,
 `skills/pipeline/flow-pr-review/SKILL.md` Step 6, and
 `bin/flow-create-issue.ts`.

@@ -23,7 +23,7 @@ different scope`; `stop and rebuild against the new schema`;
   which route through `/flow-coder` — see "Code-change redirects route
   through /flow-coder" below. At `plan-pending-review` specifically,
   two named scope/plan-redirect shapes exist: `pull #N into the plan`
-  (fold one not-yet-ticked candidate's text into the plan body) and
+  (fold one candidate's text into the plan body, ticked or not) and
   `defer task #N` (one or many task numbers in one reply, e.g. `defer
   tasks #2 and #4` — batch ALL of them into ONE `USER REDIRECT: defer
   task(s) <N[, M...]> (<titles>) to follow-up issues` re-entry of

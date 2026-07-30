@@ -511,8 +511,8 @@ should be ordered by Value (High → Low). Columns are exactly
 Each Rationale cell must state why the item matters (the underlying reason it is worth
 tracking), never merely restating the candidate's title. The `Relation to current
 request` column names how the candidate connects to (or diverges from) the work this
-plan is about — the supervisor's pre-form details block and the `pull #N into the plan`
-redirect offer read this column to help the user decide. The `Pull into this pipeline?`
+plan is about — the supervisor's `--details` disclosure block and the `pull #N into the
+plan` redirect offer read this column to help the user decide. The `Pull into this pipeline?`
 column carries **plain `Yes` / `No` text — never a `- [ ]`
 checkbox**: the checkbox list BELOW the table is the sole machine-readable candidate
 contract (`flow-candidate-issues` parses only `- [ ]` / `- [x]` lines, so a checkbox in a
@@ -546,8 +546,8 @@ Whatever stays ticked when the PR merges is what the step-10 post-merge sweep fi
 via `flow-create-issue`.
 
 If discovery surfaces no orthogonal ideas, **omit the section entirely** — do not write an
-empty heading. An empty heading is a no-op for the supervisor (count is `0` → no form,
-no fallback), but it implies candidates exist when none do, adds noise to plan review,
+empty heading. An empty heading is a no-op for the supervisor (count is `0` → empty
+`--details` output, nothing to disclose), but it implies candidates exist when none do, adds noise to plan review,
 and risks accumulating stale `- [ ]` entries on later edits. The supervisor's
 "section absent" and "count is 0" branches behave identically; the value of omitting
 the heading is signal-to-noise, not control flow.

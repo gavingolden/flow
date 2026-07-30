@@ -796,6 +796,36 @@ describe("run() integration", () => {
     expect(fs.readFileSync(planFile, "utf8")).toBe(before);
   });
 
+  it("--untick 1,2 flips both selected items", () => {
+    writePlan(`${HEADING}\n\n- [x] one\n- [x] two\n- [ ] three\n`);
+    const { exit, out } = captureStdout(() =>
+      run(["--plan-md-file", planFile, "--untick", "1,2"]),
+    );
+    expect(exit).toBe(0);
+    expect(JSON.parse(out)).toEqual({
+      untickedIndices: [1, 2],
+      untickedCount: 2,
+    });
+    const after = fs.readFileSync(planFile, "utf8");
+    expect(after).toContain("- [ ] one");
+    expect(after).toContain("- [ ] two");
+    expect(after).toContain("- [ ] three");
+  });
+
+  it("--untick validates the whole batch before writing (no partial mutation)", () => {
+    writePlan(`${HEADING}\n\n- [x] one\n- [x] two\n- [ ] three\n`);
+    const before = fs.readFileSync(planFile, "utf8");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // index 1 is valid, index 9 is out of range: whole batch must be rejected,
+    // so item 1 must NOT have been flipped before the invalid index was hit.
+    expect(run(["--plan-md-file", planFile, "--untick", "1,9"])).toBe(2);
+    // index 1 is valid, index 3 is already unticked (same-state flip): also
+    // rejected wholesale, not partially applied.
+    expect(run(["--plan-md-file", planFile, "--untick", "1,3"])).toBe(2);
+    errSpy.mockRestore();
+    expect(fs.readFileSync(planFile, "utf8")).toBe(before);
+  });
+
   it("--ticked emits the now-ticked pairs after a --tick, unchanged by the rewrite (guards the step-10 contract)", () => {
     writePlan(`${HEADING}\n\n- [ ] alpha — first\n- [ ] beta — second\n`);
     captureStdout(() => run(["--plan-md-file", planFile, "--tick", "2"]));
@@ -938,5 +968,38 @@ describe("details label ↔ tick/untick argument index space", () => {
     expect(() => untickCandidates(MIXED, [2])).toThrow(/already unticked/);
     const tickOut = tickCandidates(MIXED, [2]);
     expect(tickOut.text.split("\n")).toContain("- [x] beta — open one");
+  });
+
+  // Every fixture above has print order == enumeration order (<=2
+  // candidates), so it can't distinguish labelling by enumeration index
+  // (correct) from labelling by print position (a regression). This
+  // fixture's ranking + ticked/unticked grouping reorders the print
+  // sequence relative to doc/enumeration order, closing that hole.
+  const MIXED3 =
+    `${HEADING}\n\n` +
+    `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+    `| --- | --- | --- | --- | --- | --- |\n` +
+    `| a | Low | Small | x | y | No |\n` +
+    `| b | Low | Small | x | y | No |\n` +
+    `| c | High | Small | x | y | No |\n\n` +
+    `- [ ] a — open\n- [x] b — done\n- [ ] c — open too\n`;
+
+  it("labels by enumeration index, not print position, when ranking + grouping reorders the block", () => {
+    const rendered = renderDetails(enumerateCandidates(MIXED3));
+    const labels = rendered.split("\n").filter((l) => l.startsWith("#"));
+    // rankedOrder is [3, 1, 2] (c is High-ranked first, a/b tie at Low in
+    // doc order); ticked group (b, #2) prints before the unticked group
+    // (c, #3 then a, #1) — a non-monotonic print sequence.
+    expect(labels[0]).toContain("#2 [x] b");
+    expect(labels[1]).toContain("#3 [ ] c");
+    expect(labels[2]).toContain("#1 [ ] a");
+    // And each printed label is the exact argument tick/untick accept for
+    // that item — the correspondence this describe block exists to protect.
+    expect(untickCandidates(MIXED3, [2]).text.split("\n")).toContain(
+      "- [ ] b — done",
+    );
+    expect(tickCandidates(MIXED3, [3]).text.split("\n")).toContain(
+      "- [x] c — open too",
+    );
   });
 });

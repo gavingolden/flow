@@ -335,8 +335,14 @@ three-layer resolution table, and the manifest/foundation fields — is at
     named form is the **only** authorised `AskUserQuestion` site.
   - **Auto-issue-create exemption: `/flow-pr-review` Step 6 deferral path
     and `/flow-pipeline` Step 10 post-merge sweep.** `flow-create-issue`
-    fires only from these two named sites, both under explicit user
-    curation at plan review. Full detail at
+    fires only from these two named sites. Feature and `route-to-step-4`
+    pipelines curate the ticked set at plan review (the `--details` echo
+    plus the `drop candidate #N` / `pull #N into the plan` reply verbs
+    precede the action); step 3's `advance-to-step-5` route has no
+    checkpoint, so its pre-ticked candidates and bundled tasks proceed as
+    discovery authored them, disclosed post-hoc in the PR body and the
+    terminal recap, with post-merge off-ramps (revert a bundled line,
+    close an unwanted issue) as the correction path. Full detail at
     [references/git-workflow.md](references/git-workflow.md).
   - **`/flow-epic-create` is a separate sanctioned supervisor session.**
     `flow epic create` spawns a fresh top-level `/flow-epic-create` session, so

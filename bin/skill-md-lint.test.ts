@@ -1101,7 +1101,7 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * references/output-style.md, `## Consumer-repo notes`' full surface area
    * moved to references/consumer-repo-contract.md, and the session-marker /
    * trailer + inline-intent-annotation mechanics plus several `## Don'ts`
-   * bullet bodies (Shared rationale, the two AskUserQuestion forms, the
+   * bullet bodies (Shared rationale, the one AskUserQuestion form, the
    * auto-merge and auto-issue-create exemptions, the epic-create/epic-run
    * detail) moved to references/git-workflow.md — each replaced in AGENTS.md
    * by its anchored opener/binding-bar plus a relative link. Measured
@@ -5368,7 +5368,7 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
   // paragraph, flow-open-pr, approve/redirect/cancel, the no-merge HALT, the R1
   // no-bin/lib constraint, OR the resume-mode literals — is dropped from the
   // skill. STANDALONE block so it does NOT disturb the "exactly 9 Task-tool
-  // exemptions" / two-AskUserQuestion-forms assertions (which are
+  // exemptions" / one-AskUserQuestion-form assertions (which are
   // /flow-pipeline-anchored and must stay green).
   const EPIC_CREATE_SKILL_MD_PATH = path.resolve(
     HERE,
@@ -5470,7 +5470,7 @@ describe("/flow-epic-run playbook SKILL.md literal anchors", () => {
   // duplicate-check commands — is dropped; and if any loop-era literal (the tick
   // primitive, AUTO_REDIRECT, --relaunch-slug, the judgment Task opener)
   // reappears. STANDALONE block so it does NOT disturb the "exactly 9 Task-tool
-  // exemptions" / two-AskUserQuestion-forms assertions: /flow-epic-run is a SEPARATE
+  // exemptions" / one-AskUserQuestion-form assertions: /flow-epic-run is a SEPARATE
   // sanctioned session that spawns NO Task fan-out and fires NO AskUserQuestion.
   const EPIC_RUN_SKILL_MD_PATH = path.resolve(
     HERE,
