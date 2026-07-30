@@ -87,7 +87,13 @@ absolute screenshot paths captured by the browser pass, for supervisor
 session surfacing; typically populated by `/flow-pr-review` Step 8c's
 post-spawn merge-back rather than by the subagent itself). The subagent invokes `/flow-verify`
 against the post-fix worktree _before returning_, so a fix's CI breakage
-surfaces in-context while the fix rationale is still live. Spawned as
+surfaces in-context while the fix rationale is still live. **Pushes are
+scoped to the PR's own branch only — never `main`, `master`, or the base
+branch.** A PR that merges mid-review routes its unaddressed findings
+through the deferral path (one consolidated `flow-create-issue` per PR)
+instead of committing anywhere, per `AGENTS.md`'s no-auto-push-on-base
+default and the `bin/lib/base-branch-guard.ts` pre-commit hook that
+enforces the same invariant mechanically. Spawned as
 the named `agents/flow-fix-applier.md` definition (judgment role: no
 frontmatter `effort`/`model`; per-spawn `model:` threading unchanged),
 with the `[ -f ~/.claude/agents/flow-fix-applier.md ] || general-purpose`

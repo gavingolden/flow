@@ -339,8 +339,23 @@ Don't ask for confirmation; the exemption removes the ambiguity.
   explains the _why_ (what the finding was) and references the agent's
   category (e.g. "Bug-Detection", "Pattern-Consistency", "Performance", "Supply-Chain").
 - If the PR is **still open**: commit on the PR's branch and `git push`.
-- If the PR is **already merged**: switch to `main`, pull, commit there,
-  and `git push`. Do not leave fixes stranded on a merged branch.
+- If the PR is **already merged** (reaching this point means it slipped
+  past both the Gatekeeper's `closed-or-merged` skip and Step 2's
+  `Closed/merged` pre-flight, so this is a PR that merged mid-review):
+  do NOT commit anywhere and do NOT switch branches.
+  NEVER commit to or push the base branch (`main`, `master`, or whatever the PR targets).
+  Instead, route every unaddressed finding through the deferral path
+  documented above (this file's step 2) as EXACTLY ONE consolidated
+  `flow-create-issue` call for the whole PR — not one per finding, since
+  this path bypasses the per-finding deferral bar below (the trigger is
+  the merge, not any finding's complexity, so a per-finding fan-out would
+  be unbounded). Title it naming the PR (e.g. `Unlanded /flow-pr-review
+fixes for PR #<n> (merged mid-review)`), with a body enumerating each
+  finding's diagnosis and intended fix. Give every finding its own
+  `deferred[]` entry, all sharing that one `tracker_entry_url` and a
+  `reason` of `PR merged mid-review — fixes must land on a fresh branch
+behind a PR`. Fixes are not left stranded — they are tracked, and land
+  once a human opens a fresh branch/PR from the filed issue.
 - The only acceptable reason to stop short of pushing is a failed push
   (CI, branch protection, network) — record the verbatim error in the
   artifact's summary so the wrapper can escalate.
@@ -558,6 +573,12 @@ Before writing the artifact and returning, self-check:
   fails, make a new commit on the same branch.
 - NEVER force-push. Branch protection or CI failures get surfaced to the
   wrapper via the artifact's `summary`; the wrapper decides escalation.
+- NEVER commit to or push the base branch (`main`, `master`, or whatever the PR targets).
+  All commits land on the PR's own branch. `AGENTS.md`'s no-auto-push-on-base
+  default already forbids this outside explicit user instruction, and this
+  file's own one-shot rule above forecloses "pause and ask" as a fallback —
+  so never touching the base branch is the only compliant resolution when a
+  PR merges mid-review.
 - NEVER leave the artifact unwritten. On any failure path — including
   early exit, ambiguous input, or unresolvable verify failure — write the
   artifact with whatever partial state you have. The wrapper's

@@ -980,6 +980,58 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
         "step 6 verify-retry-loop refactor; this list must enumerate all nine.",
     ).toBe(true);
   });
+
+  // Pins references/task-tool-exemption-preamble.md's "all <N> Task-tool"
+  // numeral to the count derived from extractAgentsExemptions() (the same
+  // helper the exactly-9 assertions above use) rather than a hardcoded
+  // literal, so a tenth exemption landing without updating the preamble's
+  // prose goes red here instead of silently drifting (the six → nine drift
+  // this case guards against recurring).
+  const NUMBER_WORDS = [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+  ];
+  const numberToEnglish = (n: number): string => NUMBER_WORDS[n] ?? String(n);
+
+  it("references/task-tool-exemption-preamble.md's exemption-count numeral matches AGENTS.md's derived count", () => {
+    const expectedCount = extractAgentsExemptions().length;
+    const expectedNumeral = numberToEnglish(expectedCount);
+    const preambleContent = fs.readFileSync(
+      path.resolve(
+        HERE,
+        "..",
+        "skills",
+        "pipeline",
+        "flow-pr-review",
+        "references",
+        "task-tool-exemption-preamble.md",
+      ),
+      "utf8",
+    );
+    expect(
+      preambleContent.includes(`all ${expectedNumeral} Task-tool`),
+      "references/task-tool-exemption-preamble.md must say " +
+        `'all ${expectedNumeral} Task-tool' — derived from AGENTS.md's ` +
+        `${expectedCount} exemption bullets (extractAgentsExemptions()), not ` +
+        "a hardcoded numeral. This is the count-drift guard for the six → " +
+        "nine correction: if a tenth exemption lands, this numeral must " +
+        "move to 'ten' in the same PR.",
+    ).toBe(true);
+  });
 });
 
 describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warning)", () => {
@@ -1060,6 +1112,35 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   // per-spawn model: override so the per-phase model flags keep working. A
   // future edit that reverts either site to a bare `subagent_type:
   // general-purpose` (dropping the effort: low pinning) goes red here.
+
+  // Shared negation vocabulary + clause-splitting helper for the two
+  // "never mandates an X" prose-detector lints below (force-push,
+  // base-branch-write). A mention naming the pattern as something to AVOID
+  // (a NEVER-prohibition, or otherwise negated prose) is not a mandate.
+  // Scope the negation to the CLAUSE holding the match rather than to a
+  // character window around it: a Troubleshooting-table row keeps its whole
+  // entry on one physical line, so both "anywhere on the line" and a fixed
+  // ±N-char window let a real mandate hide behind an unrelated NEVER clause
+  // in the same row. Splitting on sentence/table-cell boundaries makes the
+  // prohibition have to govern the mention itself.
+  const NEGATION = /\b(never|not|don't|do not|avoid)\b/i;
+  const mandatesClause = (
+    pattern: RegExp,
+    text: string,
+    extra?: (clause: string) => boolean,
+  ): boolean =>
+    text
+      .split("\n")
+      .some((line) =>
+        line
+          .split(/[.;|]/)
+          .some(
+            (clause) =>
+              pattern.test(clause) &&
+              (extra ? extra(clause) : true) &&
+              !NEGATION.test(clause),
+          ),
+      );
 
   it("the flow-pipeline verify-loop spawn site names flow-verify with a general-purpose fallback", () => {
     expect(
@@ -1479,27 +1560,11 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     // the `+HEAD:<branch>` force-refspec syntax, and `--force-if-includes`.
     const forcePushPattern =
       /force-with-lease|force-if-includes|push\b[^\n]*?(?:-f\b|--force\b)|\+[\w./-]+:[\w./-]+/;
-    // A mention naming the pattern as something to AVOID (a NEVER-
-    // prohibition, or otherwise negated prose) is not a mandate. Scope the
-    // negation to the CLAUSE holding the match rather than to a character
-    // window around it: a Troubleshooting-table row keeps its whole entry on
-    // one physical line, so both "anywhere on the line" and a fixed ±N-char
-    // window let a real mandate hide behind an unrelated NEVER clause in the
-    // same row (e.g. "NEVER leave the branch dirty. Then run `git push
-    // --force-with-lease ...`"). Splitting on sentence/table-cell boundaries
-    // makes the prohibition have to govern the mention itself.
-    const NEGATION = /\b(never|not|don't|do not|avoid)\b/i;
+    // NEGATION + the clause-splitting helper are hoisted to the enclosing
+    // describe body (shared with the base-branch-write lint below); see the
+    // comment there for the rationale.
     const mandatesForcePush = (text: string): boolean =>
-      text
-        .split("\n")
-        .some((line) =>
-          line
-            .split(/[.;|]/)
-            .some(
-              (clause) =>
-                forcePushPattern.test(clause) && !NEGATION.test(clause),
-            ),
-        );
+      mandatesClause(forcePushPattern, text);
     const step10Section = content.slice(
       content.indexOf("## Step 10 — Merge"),
       content.indexOf("## Step 11"),
@@ -1525,6 +1590,119 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       mandatesForcePush(step10Section),
       "flow-pipeline SKILL.md's step-10 section must never mandate a force-push.",
     ).toBe(false);
+  });
+
+  // REGRESSION TRIPWIRE for the current phrasing, not a semantic guard:
+  // verified rephrasings such as "check out `main` and land the fix there"
+  // are NOT flagged by BASE_BRANCH_WRITE_VERB below (it only matches `git
+  // (push|commit|switch|checkout)`, `commit (there|on|to)`, and `push
+  // (to|the)`) — the prose prohibition in fix-applier-instructions.md is
+  // the primary contract; this lint is the backstop that catches a literal
+  // regression of the fixed phrasing, not every possible rewording of a
+  // base-branch-write mandate.
+  const BASE_BRANCH_TOKEN = /\b(main|master|base branch|default branch)\b/i;
+  const BASE_BRANCH_WRITE_VERB =
+    /\bgit (push|commit|switch|checkout)\b|\bcommit (there|on|to)\b|\bpush (to|the)\b/i;
+  const mandatesBaseBranchWrite = (text: string): boolean =>
+    mandatesClause(BASE_BRANCH_TOKEN, text, (clause) =>
+      BASE_BRANCH_WRITE_VERB.test(clause),
+    );
+
+  // Corpus: every agent definition plus every subagent instructions/
+  // spawn-prompt file, enumerated by glob rather than a literal path array
+  // so a newly-added subagent file is picked up automatically. Filenames,
+  // not a fixed list, are the source of truth.
+  const AGENTS_DIR = path.resolve(HERE, "..", "agents");
+  const agentDefinitionFiles = fs
+    .readdirSync(AGENTS_DIR)
+    .filter((name) => /^flow-.*\.md$/.test(name))
+    .map((name) => path.join(AGENTS_DIR, name));
+
+  const PIPELINE_SKILLS_DIR = path.resolve(HERE, "..", "skills", "pipeline");
+  const instructionsAndSpawnPromptFiles: string[] = [];
+  for (const entry of fs.readdirSync(PIPELINE_SKILLS_DIR, {
+    withFileTypes: true,
+  })) {
+    if (!entry.isDirectory()) continue;
+    const refsDir = path.join(PIPELINE_SKILLS_DIR, entry.name, "references");
+    if (!fs.existsSync(refsDir)) continue;
+    for (const fileName of fs.readdirSync(refsDir)) {
+      if (
+        /instructions\.md$/.test(fileName) ||
+        /spawn-prompt\.md$/.test(fileName)
+      ) {
+        instructionsAndSpawnPromptFiles.push(path.join(refsDir, fileName));
+      }
+    }
+  }
+
+  const baseBranchWriteCorpus = [
+    ...agentDefinitionFiles,
+    ...instructionsAndSpawnPromptFiles,
+    AGENT_PROMPTS_PATH,
+  ];
+
+  // Per-bucket floors, not a bare `> 0` and not an exact pin. A bare `> 0`
+  // stays green even if one glob collapses and the corpus shrinks from 27
+  // files to 1 — the per-file assertions below would then pass vacuously for
+  // the 26 files no longer being read. An exact pin would churn on every
+  // added agent/instructions file. Floors sit below today's counts (15 agent
+  // definitions, 11 instructions/spawn-prompt files) so adding files is free
+  // while a collapsing glob goes red.
+  it("the base-branch-write corpus buckets each resolve to a plausible file count (not a vacuously-green lint)", () => {
+    expect(
+      agentDefinitionFiles.length,
+      "the agents/flow-*.md bucket resolved to too few files. A collapsed glob " +
+        "makes the per-file assertions below pass vacuously for every file it " +
+        "stopped reading — check the glob logic before trusting a green run.",
+    ).toBeGreaterThanOrEqual(10);
+    expect(
+      instructionsAndSpawnPromptFiles.length,
+      "the skills/pipeline/*/references/*instructions.md|*spawn-prompt.md bucket " +
+        "resolved to too few files. See the comment above: a collapsed glob is a " +
+        "vacuously-green lint, not a clean corpus.",
+    ).toBeGreaterThanOrEqual(8);
+    expect(
+      fs.existsSync(AGENT_PROMPTS_PATH),
+      `${AGENT_PROMPTS_PATH} must exist — it is added to the corpus explicitly ` +
+        "because its filename matches neither glob pattern.",
+    ).toBe(true);
+  });
+
+  it.each(
+    baseBranchWriteCorpus.map((p) => [
+      path.relative(path.resolve(HERE, ".."), p),
+      p,
+    ]),
+  )("%s never mandates a write to the base branch", (_rel, absPath) => {
+    const text = fs.readFileSync(absPath, "utf8");
+    expect(
+      mandatesBaseBranchWrite(text),
+      `${absPath} must never mandate a commit/push/switch/checkout to the base ` +
+        "branch (`main`, `master`, or whatever the PR/branch targets). Unaddressed " +
+        "work routes through a deferral path instead of writing to the base branch.",
+    ).toBe(false);
+  });
+
+  it("the base-branch-write detector catches the pre-fix phrasing and spares verified rephrasings", () => {
+    expect(
+      mandatesBaseBranchWrite(
+        "- If the PR is **already merged**: switch to `main`, pull, commit there,",
+      ),
+      "the pre-fix fix-applier-instructions.md:342 phrasing must be caught by the detector.",
+    ).toBe(true);
+
+    const verifiedNegativeFixtures = [
+      "- NEVER touch the base branch (`main`, `master`, or whatever the PR",
+      "never `main`, `master`, or the base branch), and write a structured",
+      "- NEVER use `git push --force` or `--force-with-lease` — a rejected",
+    ];
+    for (const fixture of verifiedNegativeFixtures) {
+      expect(
+        mandatesBaseBranchWrite(fixture),
+        `verified in-tree negative fixture must not be flagged: ${JSON.stringify(fixture)}`,
+      ).toBe(false);
+    }
   });
 
   it("the merge-resolver instructions document the merge conflict-marker orientation", () => {
