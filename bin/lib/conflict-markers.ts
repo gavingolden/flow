@@ -26,7 +26,7 @@
 export const MARKER_PATTERN = "^(<{7}|>{7})( |$)";
 
 /** JS-regex equivalent of {@link MARKER_PATTERN}, for parsing already-fetched text. */
-export const MARKER_LINE_REGEX = /^(<{7}|>{7})( |$)/;
+export const MARKER_LINE_REGEX = new RegExp(MARKER_PATTERN);
 
 export type MarkerHit = {
   path: string;
