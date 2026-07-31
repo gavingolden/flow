@@ -142,15 +142,16 @@ For each path in `git diff --name-only --diff-filter=U`:
    - `delete` — file removed (only valid for `modify/delete` conflicts).
 4. Make the `Edit` tool calls to remove conflict markers and apply the
    resolution.
-5. **LAYER 1.** Before `git add`, run `git diff --check -- <path>` and
-   read its OUTPUT, not its exit code — a whitespace-only edit (common
-   after an `interleave` resolution) also exits non-zero via a
-   `trailing whitespace.` line, which is not a marker and does not
-   block. Act only on lines containing `leftover conflict marker`; a
-   `leftover conflict marker` line means re-open the file and repeat
-   step 4. This is the only layer that catches a partial edit (e.g. a
-   lone `=======` left mid-file) — it runs before the resolution is
-   committed, unlike Step 5's Layer 2 below.
+5. **LAYER 1.** Before `git add`, run
+   `git diff --check -- <path> | grep -q 'leftover conflict marker'` and
+   branch on THAT pipeline's exit status — never the raw exit code
+   directly, since a whitespace-only edit (common after an `interleave`
+   resolution) also exits non-zero via a `trailing whitespace.` line and
+   would spuriously loop step 4. Exit 0 means a leftover marker was
+   found: re-open the file and repeat step 4. Exit 1 means no marker:
+   proceed to `git add`. This is the only layer that catches a partial
+   edit (e.g. a lone `=======` left mid-file) — it runs before the
+   resolution is committed, unlike Step 5's Layer 2 below.
 6. Run `git add <path>`.
 7. Record an entry in `resolved_files`:
    - `path` — repo-relative.
