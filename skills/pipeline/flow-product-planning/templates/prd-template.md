@@ -211,9 +211,13 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 
 <!-- Mark resolved with a decision note so context is preserved. Earns-its-place
      rule: each entry must name what changes on redirect — a question whose every
-     answer leaves the plan unchanged is deleted, not written. -->
+     answer leaves the plan unchanged is deleted, not written. Resolution-first:
+     every unchecked entry carries a **Recommended:** answer or, when the decisive
+     input is user-held/unverifiable (closed list), a **Needs user input:** escape —
+     full contract in discovery-instructions.md "Open Questions (resolution-first)". -->
 
 - [ ] [Anything still unresolved before implementation — name what changes on redirect]
+  - **Recommended:** [answer] — [one-line rationale naming the decisive rubric factor(s)]
 
 ## Decision analysis
 

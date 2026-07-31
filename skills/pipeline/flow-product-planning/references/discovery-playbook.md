@@ -84,6 +84,11 @@ the request's framing is genuinely in doubt — skip them on expert-specified or
   solves X — ask what X then triggers or breaks downstream (other skills, pipeline steps,
   consumer repos). Internal reasoning that feeds **Architecture / Edge cases**; never an emitted
   section.
+- **Resolution rubric** — _when an Open Question has candidate answers to weigh:_ score each
+  candidate by user/system value, value added vs lost, long-term design risk (future
+  refactoring, lock-in, reversibility), and perceived effort. **Internal-only** — emit only
+  the `**Recommended:**` verdict plus a one-line rationale naming the decisive factor(s);
+  never an emitted rubric-analysis section.
 
 **Inversion vs. pre-mortem** are distinct, not redundant: inversion flips the _objective_ (what
 would make this goal actively bad to pursue), while a pre-mortem assumes the _chosen plan_
