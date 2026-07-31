@@ -1,43 +1,49 @@
 #!/usr/bin/env bun
 /**
- * Owns the candidate-follow-up-issues matrix DECISION for /flow-pipeline.
+ * Parses and enumerates the `# Candidate follow-up issues` section in
+ * plan.md for /flow-pipeline's candidate-issues workflow.
  *
- * Why: the `# Candidate follow-up issues` section in plan.md drives a
- * five-branch decision (no-op / prompt / skip-already-ticked / overflow)
- * that fires from TWO supervisor sub-steps — step 4's affirmative branch
- * AND step 3's non-feature `advance-to-step-5` branch. Duplicating that
- * matrix as prose across both sites left exact-prose lints as the only
- * regression signal; lifting it here makes the decision mechanical and
- * unit-tested. The supervisor stays the only `AskUserQuestion` caller:
- * this helper is LLM-free, never prompts, and never decides whether to
- * prompt — it returns the `action` and the supervisor branches.
+ * Why: the `# Candidate follow-up issues` section drives a plan-review
+ * step where the supervisor lists candidates on a chat surface and the
+ * user replies inline (`pull #N into the plan`, `drop candidate #N`)
+ * rather than being interrupted with a synchronous form. This helper is
+ * LLM-free: it parses, enumerates, and flips checkbox state — it never
+ * decides anything and never prompts. The supervisor renders `--details`
+ * output, relays it in chat, and applies the user's reply via
+ * `--tick`/`--untick`.
  *
- * The `--tick` mode performs the deterministic `- [ ]` → `- [x]` flip the
- * supervisor used to hand-match with `Edit` `old_string`/`new_string`, so
- * parse + flip live in one tested place. The `--ticked` mode emits the
- * already-`- [x]` items as `{ title, body }` pairs — the extractor step
- * 10's post-merge sweep consumes instead of hand-rolling its own awk +
- * em-dash split.
+ * The `--tick`/`--untick` modes perform the deterministic `- [ ]` ⇄
+ * `- [x]` flip the supervisor used to hand-match with `Edit`
+ * `old_string`/`new_string`, so parse + flip live in one tested place.
+ * The `--ticked` mode emits the already-`- [x]` items as `{ title, body }`
+ * pairs — the extractor step 10's post-merge sweep consumes instead of
+ * hand-rolling its own awk + em-dash split.
  *
  * Usage:
  *   flow-candidate-issues --plan-md-file <path> [--json]
  *   flow-candidate-issues --plan-md-file <path> --tick <1-based,comma,indices>
+ *   flow-candidate-issues --plan-md-file <path> --untick <1-based,comma,indices>
  *   flow-candidate-issues --plan-md-file <path> --ticked
  *   flow-candidate-issues --plan-md-file <path> --lint
  *   flow-candidate-issues --plan-md-file <path> --details
  *
- * `--json` (the default) emits the decision object on stdout:
- *   { action, candidates, untickedCount, tickedCount, rankedOrder }
- *   action ∈ "no-op" | "prompt" | "skip-already-ticked" | "overflow"
- *   candidates: [{ title, body } & CandidateMeta]  (the unticked items, in
- *     document order; CandidateMeta fields are null when the ranking table
- *     is absent or has no matching row)
+ * `--json` (the default) emits the full enumeration on stdout:
+ *   { candidates, untickedCount, tickedCount, rankedOrder }
+ *   candidates: ALL section items, in document order, each { title, body,
+ *     ticked } & CandidateMeta (CandidateMeta fields are null when the
+ *     ranking table is absent or has no matching row)
  *   rankedOrder: 1-based indices into `candidates`, sorted High > Medium >
- *     Low > unknown value, tie-broken by document order
+ *     Low > unknown value, tie-broken by document order — ticked and
+ *     unticked items interleave here; `--details` is what groups by state
  *
- * `--tick <indices>` flips the selected UNTICKED items (1-based into the
- * `candidates` enumeration order) from `- [ ]` to `- [x]` in place and
- * emits { tickedIndices, tickedCount }.
+ * `--tick <indices>` / `--untick <indices>` flip the item at each given
+ * 1-based index — into the SAME full `candidates` enumeration order
+ * `--json` and `--details` use — from `- [ ]` to `- [x]` (tick) or back
+ * (untick), in place. Both throw on an out-of-range index and on an
+ * index whose current checkbox state already matches the requested flip.
+ * `--tick` emits { tickedIndices, tickedCount }; `--untick` emits a
+ * distinct { untickedIndices, untickedCount } shape — reusing the tick
+ * fields on an untick would misreport the direction.
  *
  * `--ticked` emits { ticked: [{ title, body } & CandidateMeta] } — the
  * already-`- [x]` items (empty array when the section is absent or has
@@ -52,20 +58,21 @@
  * Advisory-only: the supervisor surfaces drift in chat, never blocks
  * planning. Tolerant — never throws on malformed input.
  *
- * `--details` prints a human-legible ranked table of the unticked
- * candidates (rank, title, value, complexity, pull, recommended marker) to
- * stdout for the supervisor to paste into chat. Always exits 0; empty
- * stdout when there are zero unticked candidates.
+ * `--details` prints a human-legible block of ALL candidates, grouped by
+ * checkbox state, for the supervisor to paste into chat: rank, checkbox
+ * state, title, value, complexity, and a recommended marker for open
+ * candidates. Closes with a note that pre-ticked items file as issues
+ * post-merge unless dropped, and the two reply offers (`pull #N into the
+ * plan`, `drop candidate #N`). Always exits 0; empty stdout when the
+ * section has zero items.
  *
  * Exit codes:
- *   0 — read / decision / tick / ticked / lint(no-drift) / details succeeded
+ *   0 — read / enumerate / tick / untick / ticked / lint(no-drift) / details succeeded
  *   1 — --lint detected follow-up-reference drift
- *   2 — bad CLI args (file read failure, out-of-range tick index, etc.)
+ *   2 — bad CLI args (file read failure, out-of-range tick/untick index, etc.)
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
-
-export type Action = "no-op" | "prompt" | "skip-already-ticked" | "overflow";
 
 export type CandidateMeta = {
   value: string | null;
@@ -75,10 +82,13 @@ export type CandidateMeta = {
   pull: string | null;
 };
 
-export type Candidate = { title: string; body: string } & CandidateMeta;
+export type Candidate = {
+  title: string;
+  body: string;
+  ticked: boolean;
+} & CandidateMeta;
 
 export type Decision = {
-  action: Action;
   candidates: Candidate[];
   untickedCount: number;
   tickedCount: number;
@@ -170,7 +180,7 @@ type SectionItem = { lineIdx: number; ticked: boolean; text: string };
  * bounded from the heading to the next top-level `^# ` heading or EOF
  * (matches the step-10 sweep's awk bounds). Returns null when the
  * heading is absent. `lines` is the file split on "\n" (returned so the
- * tick path can rewrite by index without re-splitting).
+ * tick/untick paths can rewrite by index without re-splitting).
  */
 export function extractCandidateSection(
   planMd: string,
@@ -203,21 +213,23 @@ export function extractCandidateSection(
 }
 
 /**
- * Pure decision over the section state. Tests hit this directly.
+ * Pure enumeration over the section state — no decision, no matrix.
+ * Returns EVERY item in the `# Candidate follow-up issues` section, in
+ * document order, each carrying its checkbox state via `Candidate.ticked`.
+ * Callers (the supervisor, via `--details`) decide what to do with the
+ * state; this helper only parses, joins ranking-table metadata, and
+ * counts.
  *
- *   - heading absent                  → "no-op"
- *   - any item already `- [x]`        → "skip-already-ticked" (user
- *                                        pre-ticked; their choice wins
- *                                        regardless of unticked count)
- *   - zero unticked items             → "no-op" (count-0 / empty section)
- *   - 1–4 unticked items              → "prompt"
- *   - 5+ unticked items               → "overflow"
+ *   - heading absent       → empty enumeration (candidates: [])
+ *   - present, zero items  → empty enumeration
+ *   - present, N items     → N candidates, ticked flag per item,
+ *     `rankedOrder` computed over the FULL set (ticked and unticked
+ *     interleave by rank; `renderDetails` is what groups by state)
  */
-export function decideCandidateIssues(planMd: string): Decision {
+export function enumerateCandidates(planMd: string): Decision {
   const section = extractCandidateSection(planMd);
   if (!section) {
     return {
-      action: "no-op",
       candidates: [],
       untickedCount: 0,
       tickedCount: 0,
@@ -226,34 +238,26 @@ export function decideCandidateIssues(planMd: string): Decision {
   }
 
   const meta = parseRankingTable(planMd);
-  const untickedItems = section.items.filter((it) => !it.ticked);
-  const tickedCount = section.items.length - untickedItems.length;
-  const untickedCount = untickedItems.length;
-  const candidates: Candidate[] = untickedItems.map((it) => {
+  const candidates: Candidate[] = section.items.map((it) => {
     const c = splitCandidate(it.text);
-    return { ...c, ...(meta.get(c.title.trim()) ?? EMPTY_META) };
+    return {
+      ...c,
+      ticked: it.ticked,
+      ...(meta.get(c.title.trim()) ?? EMPTY_META),
+    };
   });
-
-  let action: Action;
-  if (tickedCount >= 1) {
-    action = "skip-already-ticked";
-  } else if (untickedCount === 0) {
-    action = "no-op";
-  } else if (untickedCount <= 4) {
-    action = "prompt";
-  } else {
-    action = "overflow";
-  }
-
+  const tickedCount = candidates.filter((c) => c.ticked).length;
+  const untickedCount = candidates.length - tickedCount;
   const rankedOrder = rankCandidates(candidates);
 
-  return { action, candidates, untickedCount, tickedCount, rankedOrder };
+  return { candidates, untickedCount, tickedCount, rankedOrder };
 }
 
 /**
  * Returns 1-based indices into `candidates` sorted High > Medium > Low >
  * unknown, tie-broken by document order (stable sort preserves original
- * relative order for equal ranks).
+ * relative order for equal ranks). Operates on whatever `candidates` it is
+ * given — it does not itself filter by ticked state.
  */
 function rankCandidates(candidates: CandidateMeta[]): number[] {
   return candidates
@@ -268,9 +272,14 @@ function rankCandidates(candidates: CandidateMeta[]): number[] {
 /**
  * Pure extraction of the already-`- [x]` items as { title, body } & CandidateMeta
  * entries, reusing the same section parse + first-` — `-split + ranking-table
- * join. Empty when the section is absent or has zero ticked items.
+ * join. Empty when the section is absent or has zero ticked items. Return
+ * type is deliberately NOT `Candidate[]` — this is the step-10 post-merge
+ * issue-filing contract's own `{ title, body } & CandidateMeta` shape and
+ * must not gain a `ticked` field just because `Candidate` did.
  */
-export function extractTicked(planMd: string): Candidate[] {
+export function extractTicked(
+  planMd: string,
+): ({ title: string; body: string } & CandidateMeta)[] {
   const section = extractCandidateSection(planMd);
   if (!section) return [];
   const meta = parseRankingTable(planMd);
@@ -315,7 +324,7 @@ export type LintReport = {
  * Pure follow-up-reference consistency check. Scans plan.md line-by-line
  * for any `FOLLOWUP_REFERENCE_RES` phrase (one reference recorded per
  * matching line, 1-based), counts candidate items via the same
- * `extractCandidateSection` parser the decision path uses, and reports
+ * `extractCandidateSection` parser the enumeration path uses, and reports
  * DRIFT when a reference exists but no candidate items do. Presence-check
  * only (not a semantic match of each reference to a specific candidate);
  * `drift` fires ONLY when `candidateCount === 0`, so a reference phrase
@@ -337,33 +346,38 @@ export function lintFollowUpReferences(planMd: string): LintReport {
 }
 
 export type TickResult = { tickedIndices: number[]; tickedCount: number };
+export type UntickResult = { untickedIndices: number[]; untickedCount: number };
 
 /**
- * Flips the UNTICKED items at the given 1-based indices (into the
- * `candidates` enumeration order) from `- [ ]` to `- [x]`. Pure: returns
- * the rewritten file text. Idempotent — re-running with the same indices
- * (now `- [x]`) is a no-op because those lines no longer count as
- * unticked. Throws on a non-integer or out-of-range index.
+ * Flips the item at each given 1-based index — into the FULL `candidates`
+ * enumeration order (the same index space `--details`/`enumerateCandidates`
+ * use, NOT a ticked/unticked sub-enumeration) — from `- [ ]` to `- [x]`.
+ * Pure: returns the rewritten file text. Throws on a non-integer or
+ * out-of-range index, and on an index that is already ticked (never
+ * double-writes).
  */
 export function tickCandidates(
   planMd: string,
   indices: number[],
 ): { text: string; result: TickResult } {
   const section = extractCandidateSection(planMd);
-  const untickedItems = section ? section.items.filter((it) => !it.ticked) : [];
+  const items = section ? section.items : [];
 
   for (const idx of indices) {
-    if (!Number.isInteger(idx) || idx < 1 || idx > untickedItems.length) {
+    if (!Number.isInteger(idx) || idx < 1 || idx > items.length) {
       throw new Error(
-        `tick index out of range: ${idx} (have ${untickedItems.length} unticked candidate(s))`,
+        `tick index out of range: ${idx} (have ${items.length} candidate(s))`,
       );
+    }
+    if (items[idx - 1].ticked) {
+      throw new Error(`tick index ${idx} is already ticked`);
     }
   }
 
   const lines = section ? section.lines : planMd.split("\n");
   const sorted = [...new Set(indices)].sort((a, b) => a - b);
   for (const idx of sorted) {
-    const item = untickedItems[idx - 1];
+    const item = items[idx - 1];
     lines[item.lineIdx] = lines[item.lineIdx].replace("- [ ] ", "- [x] ");
   }
 
@@ -373,54 +387,141 @@ export function tickCandidates(
   };
 }
 
+/**
+ * Flips the item at each given 1-based index — same full `candidates`
+ * index space as `tickCandidates` — from `- [x]`/`- [X]` back to `- [ ]`.
+ * Pure: returns the rewritten file text. Throws on a non-integer or
+ * out-of-range index, and on an index that is already unticked (never
+ * double-writes).
+ */
+export function untickCandidates(
+  planMd: string,
+  indices: number[],
+): { text: string; result: UntickResult } {
+  const section = extractCandidateSection(planMd);
+  const items = section ? section.items : [];
+
+  for (const idx of indices) {
+    if (!Number.isInteger(idx) || idx < 1 || idx > items.length) {
+      throw new Error(
+        `untick index out of range: ${idx} (have ${items.length} candidate(s))`,
+      );
+    }
+    if (!items[idx - 1].ticked) {
+      throw new Error(`untick index ${idx} is already unticked`);
+    }
+  }
+
+  const lines = section ? section.lines : planMd.split("\n");
+  const sorted = [...new Set(indices)].sort((a, b) => a - b);
+  for (const idx of sorted) {
+    const item = items[idx - 1];
+    lines[item.lineIdx] = lines[item.lineIdx].replace(/^- \[[xX]\] /, "- [ ] ");
+  }
+
+  return {
+    text: lines.join("\n"),
+    result: { untickedIndices: sorted, untickedCount: sorted.length },
+  };
+}
+
 const OFFER_LINE =
   "To fold a candidate into the current work instead of filing it, reply `pull #N into the plan`.";
+const DROP_OFFER_LINE =
+  "To drop a candidate instead of filing it as an issue, reply `drop candidate #N`.";
+const FILE_BY_DEFAULT_NOTE =
+  "Pre-ticked items file as issues post-merge unless dropped.";
 
 /**
- * Renders the `--details` plain-text ranked block: one entry per candidate
- * in `rankedOrder` order, followed by the verbatim redirect-offer line.
- * Quiet no-op (empty string) when there are zero unticked candidates — the
- * caller should skip printing/echoing entirely in that case.
+ * Renders the `--details` plain-text block: every candidate in
+ * `rankedOrder` order, GROUPED BY STATE — ticked group, then unticked
+ * group — rather than printed in raw rank order. `rankedOrder` ranks
+ * across BOTH states, so printing it flat would interleave items the
+ * user already decided on with open ones; the grouping here is
+ * deliberate, not inherited from `rankCandidates`. Closes with the
+ * file-by-default note and both reply offers. Quiet no-op (empty string)
+ * when the section has zero items at all.
  */
 export function renderDetails(decision: Decision): string {
   if (decision.candidates.length === 0) return "";
 
+  const tickedIdx = decision.rankedOrder.filter(
+    (i) => decision.candidates[i - 1].ticked,
+  );
+  const untickedIdx = decision.rankedOrder.filter(
+    (i) => !decision.candidates[i - 1].ticked,
+  );
+
   const lines: string[] = [];
-  for (const idx of decision.rankedOrder) {
-    const c = decision.candidates[idx - 1];
-    const value = c.value ?? "unknown";
-    const complexity = c.complexity ?? "unknown";
-    lines.push(`#${idx} ${c.title} — ${value}/${complexity}`);
-    lines.push(`  rationale: ${c.rationale ?? "(none)"}`);
-    lines.push(`  relation: ${c.relation ?? "(none)"}`);
-    const pull = (c.pull ?? "").toLowerCase();
-    const recommended =
-      pull === "yes" ||
-      ((c.value ?? "").toLowerCase() === "high" &&
-        ["trivial", "small"].includes((c.complexity ?? "").toLowerCase()));
-    if (recommended) {
-      lines.push("  recommended: pull into this plan");
+
+  const renderGroup = (indices: number[]) => {
+    for (const idx of indices) {
+      const c = decision.candidates[idx - 1];
+      const value = c.value ?? "unknown";
+      const complexity = c.complexity ?? "unknown";
+      const box = c.ticked ? "[x]" : "[ ]";
+      lines.push(`#${idx} ${box} ${c.title} — ${value}/${complexity}`);
+      lines.push(`  rationale: ${c.rationale ?? "(none)"}`);
+      lines.push(`  relation: ${c.relation ?? "(none)"}`);
+      if (!c.ticked) {
+        const pull = (c.pull ?? "").toLowerCase();
+        const recommended =
+          pull === "yes" ||
+          ((c.value ?? "").toLowerCase() === "high" &&
+            ["trivial", "small"].includes((c.complexity ?? "").toLowerCase()));
+        if (recommended) {
+          lines.push("  recommended: pull into this plan");
+        }
+      }
     }
+  };
+
+  if (tickedIdx.length > 0) {
+    lines.push("Already ticked (will file post-merge unless dropped):");
+    renderGroup(tickedIdx);
   }
+  if (untickedIdx.length > 0) {
+    if (lines.length > 0) lines.push("");
+    lines.push("Open candidates:");
+    renderGroup(untickedIdx);
+  }
+
   lines.push("");
+  lines.push(FILE_BY_DEFAULT_NOTE);
   lines.push(OFFER_LINE);
+  lines.push(DROP_OFFER_LINE);
   return lines.join("\n");
 }
 
 // --- CLI -------------------------------------------------------------------
 
-type Mode = "json" | "tick" | "ticked" | "lint" | "details";
+type Mode = "json" | "tick" | "untick" | "ticked" | "lint" | "details";
 
 type Args = {
   planMdFile: string;
   mode: Mode;
   tickIndices?: number[];
+  untickIndices?: number[];
 };
+
+function parseIndices(v: string): number[] | { error: string } {
+  const parts = v.split(",").map((s) => s.trim());
+  const parsed: number[] = [];
+  for (const p of parts) {
+    const n = Number.parseInt(p, 10);
+    if (!Number.isInteger(n) || String(n) !== p) {
+      return { error: `index must be an integer, got '${p}'` };
+    }
+    parsed.push(n);
+  }
+  return parsed;
+}
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   let planMdFile: string | undefined;
   let mode: Mode = "json";
   let tickIndices: number[] | undefined;
+  let untickIndices: number[] | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -442,17 +543,23 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       const v = argv[i + 1];
       if (!v || v.startsWith("--"))
         return { error: "--tick requires comma-separated 1-based indices" };
-      const parts = v.split(",").map((s) => s.trim());
-      const parsed: number[] = [];
-      for (const p of parts) {
-        const n = Number.parseInt(p, 10);
-        if (!Number.isInteger(n) || String(n) !== p) {
-          return { error: `--tick index must be an integer, got '${p}'` };
-        }
-        parsed.push(n);
+      const parsed = parseIndices(v);
+      if ("error" in parsed) {
+        return { error: `--tick ${parsed.error}` };
       }
       mode = "tick";
       tickIndices = parsed;
+      i++;
+    } else if (flag === "--untick") {
+      const v = argv[i + 1];
+      if (!v || v.startsWith("--"))
+        return { error: "--untick requires comma-separated 1-based indices" };
+      const parsed = parseIndices(v);
+      if ("error" in parsed) {
+        return { error: `--untick ${parsed.error}` };
+      }
+      mode = "untick";
+      untickIndices = parsed;
       i++;
     } else {
       return { error: `unknown flag: ${flag}` };
@@ -460,7 +567,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   }
 
   if (!planMdFile) return { error: "--plan-md-file is required" };
-  return { planMdFile, mode, tickIndices };
+  return { planMdFile, mode, tickIndices, untickIndices };
 }
 
 export function run(argv: string[]): number {
@@ -468,7 +575,7 @@ export function run(argv: string[]): number {
   if ("error" in parsed) {
     console.error(`flow-candidate-issues: ${parsed.error}`);
     console.error(
-      "usage: flow-candidate-issues --plan-md-file <path> [--json | --tick <indices> | --ticked | --lint | --details]",
+      "usage: flow-candidate-issues --plan-md-file <path> [--json | --tick <indices> | --untick <indices> | --ticked | --lint | --details]",
     );
     return 2;
   }
@@ -497,7 +604,7 @@ export function run(argv: string[]): number {
   }
 
   if (parsed.mode === "details") {
-    const decision = decideCandidateIssues(planMd);
+    const decision = enumerateCandidates(planMd);
     const rendered = renderDetails(decision);
     if (rendered) process.stdout.write(rendered + "\n");
     return 0;
@@ -516,7 +623,20 @@ export function run(argv: string[]): number {
     return 0;
   }
 
-  process.stdout.write(JSON.stringify(decideCandidateIssues(planMd)) + "\n");
+  if (parsed.mode === "untick") {
+    let out: { text: string; result: UntickResult };
+    try {
+      out = untickCandidates(planMd, parsed.untickIndices ?? []);
+    } catch (e) {
+      console.error(`flow-candidate-issues: ${(e as Error).message}`);
+      return 2;
+    }
+    writeFileSync(parsed.planMdFile, out.text);
+    process.stdout.write(JSON.stringify(out.result) + "\n");
+    return 0;
+  }
+
+  process.stdout.write(JSON.stringify(enumerateCandidates(planMd)) + "\n");
   return 0;
 }
 

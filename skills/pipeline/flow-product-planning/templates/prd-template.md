@@ -188,6 +188,8 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 ### Task 2: [Short Title]
 
 - **Skill:** `skill-name`
+- **Bundled:** [one-line origin — only when this task folded in an adjacent item under
+  the Objective-item triage bundle-by-default rule; omit entirely otherwise]
 - **Description:** What to implement
 - **Inputs:** What must exist first
 - **Outputs:** What this produces
@@ -209,9 +211,13 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 
 <!-- Mark resolved with a decision note so context is preserved. Earns-its-place
      rule: each entry must name what changes on redirect — a question whose every
-     answer leaves the plan unchanged is deleted, not written. -->
+     answer leaves the plan unchanged is deleted, not written. Resolution-first:
+     every unchecked entry carries a **Recommended:** answer or, when the decisive
+     input is user-held/unverifiable (closed list), a **Needs user input:** escape —
+     full contract in discovery-instructions.md "Open Questions (resolution-first)". -->
 
 - [ ] [Anything still unresolved before implementation — name what changes on redirect]
+  - **Recommended:** [answer] — [one-line rationale naming the decisive rubric factor(s)]
 
 ## Decision analysis
 
@@ -273,6 +279,19 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 
 [one line naming the single weakest assumption / biggest risk whose failure would most likely sink the plan]
 
+## Cut list
+
+<!-- Always present (like ## Plan risks, unlike the omit-when-empty sections).
+     1-3 bullets naming unnecessary complexity in the plan that slows shipping,
+     OR an explicit "nothing — plan is minimal" affirmation with a one-line
+     justification. Never omit the heading, even when the honest answer is
+     "nothing." Full contract lives in
+     skills/pipeline/flow-product-planning/references/discovery-instructions.md
+     "Cut list" — the single source of truth. Do NOT inline the contract here;
+     this is a thin sketch. -->
+
+- [unnecessary complexity item] — or: nothing — plan is minimal: [one-line justification]
+
 ## Prompt interpretation
 
 <!-- Conditional: include this section ONLY when the user's prompt names BOTH
@@ -296,16 +315,17 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 ## Candidate follow-up issues
 
 <!-- Omit-when-empty: include ONLY when discovery surfaced ≥1 orthogonal idea worth
-     tracking as a separate follow-up (its own user goal/surface, shippable alone);
-     otherwise omit the heading entirely (never an empty heading). When step 8 assembles
-     the consolidated plan.md this becomes a TOP-LEVEL `# Candidate follow-up issues`
-     sibling of `# PRD` / `# Task breakdown` (h1) — the h2 here matches the template's
-     rhythm. Two parts in order: a MANDATORY value-vs-complexity ranking table, then the
-     machine-readable `- [ ]` list (flow-candidate-issues parses ONLY the `- [ ]` lines).
-     The `Pull into this pipeline?` column is plain Yes/No text, NEVER a checkbox. Full
-     contract — ranking-table mandate, the Recommendation verdict-line rule for a
-     high-value + trivial-complexity candidate, and the follow-up-reference consistency
-     rubric — lives in
+     tracking as a separate follow-up under the Objective-item triage exclusions
+     (bundle-by-default; not opt-in); otherwise omit the heading entirely (never an
+     empty heading). When step 8 assembles the consolidated plan.md this becomes a
+     TOP-LEVEL `# Candidate follow-up issues` sibling of `# PRD` / `# Task breakdown`
+     (h1) — the h2 here matches the template's rhythm. Two parts in order: a
+     MANDATORY value-vs-complexity ranking table, then the machine-readable checkbox
+     list, authored pre-ticked (`- [x]`) — file-by-default, not opt-in
+     (flow-candidate-issues parses both `- [ ]` and `- [x]` lines). The `Pull into
+     this pipeline?` column is plain Yes/No text, NEVER a checkbox. Full contract —
+     ranking-table mandate, the exclusion-naming rule each Rationale cell must
+     satisfy, and the follow-up-reference consistency rubric — lives in
      skills/pipeline/flow-product-planning/references/discovery-instructions.md
      "Candidate follow-up issues (optional)" — the single source of truth. Do NOT inline
      the contract here; this is a thin sketch.
@@ -315,4 +335,4 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 | ----------------- | ----------------- | ---------------------------- | -------------- | --------------------------- | ------------------------ |
 | [orthogonal idea] | [High/Medium/Low] | [Trivial/Small/Medium/Large] | [one-line why] | [how it relates]            | [Yes/No]                 |
 
-- [ ] [orthogonal idea] — [one-line body; the machine-readable candidate the post-merge sweep files]
+- [x] [orthogonal idea] — [one-line body; the machine-readable candidate the post-merge sweep files]

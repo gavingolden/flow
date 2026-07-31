@@ -126,14 +126,34 @@ divergence.
 
 ```json
 {
-  "verdict": "match" | "benign-divergence" | "scope-drift" | "fundamental",
+  "verdict": "benign-divergence",
   "guessed_purpose": "<from intent-guess.json>",
   "resolution": "<one or two sentences — what you decided and why>",
-  "cross_model": { "ran": true, "agreement": "agree" | "disagree" | null }
+  "cross_model": { "ran": true, "agreement": "agree" }
 }
 ```
 
-`"verdict": "match"` covers the sound case where the guess and actual
-intent align exactly with nothing worth even a benign-divergence note.
-Absent/malformed `intent-guess.json` means this artifact is never
-written — the graceful skip above governs.
+`verdict` must be one of exactly four literals: `"match"`,
+`"benign-divergence"`, `"scope-drift"`, `"fundamental"` (the sample above
+uses `"benign-divergence"`). `"match"` covers the sound case where the
+guess and actual intent align exactly with nothing worth even a
+benign-divergence note. `cross_model.agreement` is `"agree"`,
+`"disagree"`, or `null`. Absent/malformed `intent-guess.json` means this
+artifact is never written — the graceful skip above governs.
+
+**Required keys (enforced).** `verdict`, `guessed_purpose`, and
+`resolution` are REQUIRED. `verdict` must be one of the four literals
+above VERBATIM — `"benign"` is NOT `"benign-divergence"`. Extra keys are
+permitted; commonly-useful ones observed in practice include `ran`,
+`actual_intent_source`, `blind_guess`, `drift_candidates`, `escalated`,
+`test_steps_item_added`, and `summary`. Before returning, self-validate:
+
+```bash
+flow-intent-resolution-schema --validate "$WORKTREE/.flow-tmp/intent-resolution.json"
+```
+
+On exit 1, READ THE REASON STRING — it names the exact offending key and
+any alias you used in its place — re-emit the artifact ONCE in the
+documented shape above, and proceed. NEVER escalate `NEEDS HUMAN` over a
+validation failure here: the intent artifact is reporting-only, and a
+shape typo must not gate a merge.

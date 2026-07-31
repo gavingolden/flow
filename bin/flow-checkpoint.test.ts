@@ -3,12 +3,20 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  archiveCheckpoint,
+  consumedPath,
   parseArgs,
   probeCheckpoint,
   run,
   type CheckpointResult,
 } from "./flow-checkpoint";
-import { writeState, type PipelineKind, type PipelineState } from "./lib/state";
+import { isCheckpointUsable, probeFreshness } from "./lib/checkpoint-freshness";
+import {
+  readState,
+  writeState,
+  type PipelineKind,
+  type PipelineState,
+} from "./lib/state";
 
 let stateDir!: string;
 let worktreeRoot!: string;
@@ -88,27 +96,62 @@ describe("probeCheckpoint", () => {
 });
 
 describe("parseArgs", () => {
-  it("treats empty argv as slug-omitted, consume off", () => {
-    expect(parseArgs([])).toEqual({ slug: undefined, consume: false });
+  it("treats empty argv as slug-omitted, consume off, probe off, site manual", () => {
+    expect(parseArgs([])).toEqual({
+      slug: undefined,
+      consume: false,
+      probe: false,
+      site: "manual",
+    });
   });
 
   it("accepts a positional slug", () => {
-    expect(parseArgs(["my-slug"])).toEqual({ slug: "my-slug", consume: false });
+    expect(parseArgs(["my-slug"])).toEqual({
+      slug: "my-slug",
+      consume: false,
+      probe: false,
+      site: "manual",
+    });
   });
 
   it("accepts --consume in either order", () => {
     expect(parseArgs(["--consume"])).toEqual({
       slug: undefined,
       consume: true,
+      probe: false,
+      site: "manual",
     });
     expect(parseArgs(["my-slug", "--consume"])).toEqual({
       slug: "my-slug",
       consume: true,
+      probe: false,
+      site: "manual",
     });
   });
 
   it("rejects an unknown flag", () => {
     expect(parseArgs(["--bogus"])).toEqual({ error: "unknown flag: --bogus" });
+  });
+
+  it("accepts --probe with an explicit --site", () => {
+    expect(parseArgs(["my-slug", "--probe", "--site", "gate"])).toEqual({
+      slug: "my-slug",
+      consume: false,
+      probe: true,
+      site: "gate",
+    });
+  });
+
+  it("rejects an unknown --site value", () => {
+    expect(parseArgs(["--site", "bogus"])).toEqual({
+      error: "unknown --site value: bogus",
+    });
+  });
+
+  it("rejects --probe combined with --consume", () => {
+    expect(parseArgs(["--probe", "--consume"])).toEqual({
+      error: "--probe and --consume are mutually exclusive",
+    });
   });
 });
 
@@ -222,6 +265,214 @@ describe("run() — --consume", () => {
   });
 });
 
+describe("run() — --consume archives the body", () => {
+  it("archives checkpoint.md, clears the freshness record, and a later --probe --site gate returns write (the reported scenario)", () => {
+    seedState("zeta");
+    writeCheckpoint("plan-approval body\n");
+    runCapture(["zeta", "--site", "plan-approval"]); // arm
+    const consumeResult = runCapture(["zeta", "--consume"]);
+    expect(consumeResult.exit).toBe(0);
+    expect(
+      fs.existsSync(path.join(worktreeRoot, ".flow-tmp", "checkpoint.md")),
+    ).toBe(false);
+    expect(fs.existsSync(consumedPath(worktreeRoot))).toBe(true);
+    expect(fs.readFileSync(consumedPath(worktreeRoot), "utf8")).toBe(
+      "plan-approval body\n",
+    );
+    expect(readState("zeta", stateDir)?.checkpoint).toBeUndefined();
+
+    const probeResult = runCapture(["zeta", "--probe", "--site", "gate"]);
+    expect(probeResult.verdict).toBe("write");
+  });
+
+  it("is a no-op with no marker and no body, and a rename failure still exits 0 (degrades to unlink)", () => {
+    seedState("eta");
+    const r = runCapture(["eta", "--consume"]);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("noop");
+    expect(r.archived).toBeUndefined();
+
+    // Force the rename inside archiveCheckpoint to fail by pre-occupying the
+    // destination with a non-empty directory (ENOTEMPTY on rename).
+    fs.mkdirSync(consumedPath(worktreeRoot));
+    fs.writeFileSync(path.join(consumedPath(worktreeRoot), "keep"), "x");
+    fs.writeFileSync(
+      path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
+      "body\n",
+    );
+    const archived = archiveCheckpoint(worktreeRoot);
+    expect(archived).toBeNull();
+    expect(
+      fs.existsSync(path.join(worktreeRoot, ".flow-tmp", "checkpoint.md")),
+    ).toBe(false); // unlinked despite the failed rename
+    fs.rmSync(consumedPath(worktreeRoot), { recursive: true, force: true });
+  });
+
+  it("archives a present body even with no marker (marker-independent archiving), and reports the archived path", () => {
+    seedState("theta-noop");
+    writeCheckpoint("orphaned body\n");
+    // No arm this run, so no marker exists — --consume must still archive
+    // the body unconditionally rather than skipping because there is
+    // "nothing to consume" from the marker's point of view.
+    const r = runCapture(["theta-noop", "--consume"]);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("noop");
+    expect(r.reason).toBe("no-marker");
+    expect(r.archived).toBe(consumedPath(worktreeRoot));
+    expect(
+      fs.existsSync(path.join(worktreeRoot, ".flow-tmp", "checkpoint.md")),
+    ).toBe(false);
+    expect(fs.existsSync(consumedPath(worktreeRoot))).toBe(true);
+    expect(fs.readFileSync(consumedPath(worktreeRoot), "utf8")).toBe(
+      "orphaned body\n",
+    );
+  });
+});
+
+describe("probeFreshness / --probe", () => {
+  function phaseLog(...entries: Array<{ phase: string; at: string }>) {
+    return entries;
+  }
+
+  it("returns write (auto-refresh) when the never-cleared auto-site leaks past a later phase advance", () => {
+    seedState("theta");
+    writeCheckpoint("auto body\n");
+    runCapture(["theta", "--site", "plan-approval"]); // arm, no consume
+    writeState(
+      {
+        ...(readState("theta", stateDir) as PipelineState),
+        phaseLog: phaseLog({
+          phase: "implementing",
+          at: "2099-01-01T00:00:00.000Z",
+        }),
+      },
+      stateDir,
+    );
+    const r = runCapture(["theta", "--probe", "--site", "gate"]);
+    expect(r.verdict).toBe("write");
+    expect(r.reason).toContain("auto-refresh:plan-approval");
+  });
+
+  it("preserves a fresh manual note with no later phase advance", () => {
+    seedState("iota");
+    writeCheckpoint("manual note\n");
+    runCapture(["iota", "--site", "manual"]);
+    const r = runCapture(["iota", "--probe", "--site", "gate"]);
+    expect(r.verdict).toBe("preserve");
+    expect(r.reason).toBe("fresh-manual");
+  });
+
+  it("writes over a manual note once the phase has advanced since it was armed", () => {
+    seedState("kappa");
+    writeCheckpoint("manual note\n");
+    runCapture(["kappa", "--site", "manual"]);
+    writeState(
+      {
+        ...(readState("kappa", stateDir) as PipelineState),
+        phaseLog: phaseLog({
+          phase: "implementing",
+          at: "2099-01-01T00:00:00.000Z",
+        }),
+      },
+      stateDir,
+    );
+    const r = runCapture(["kappa", "--probe", "--site", "gate"]);
+    expect(r.verdict).toBe("write");
+    expect(r.reason).toBe(
+      `stale-manual:${(r.record as { phase: string }).phase}`,
+    );
+    expect(r.record).toMatchObject({ site: "manual" });
+  });
+
+  it("record-less body: mtime after the newest phaseLog entry preserves, before it writes", () => {
+    seedState("lambda", {
+      phaseLog: phaseLog({
+        phase: "implementing",
+        at: "2020-01-01T00:00:00.000Z",
+      }),
+    });
+    writeCheckpoint("unrecorded body\n");
+    const fresh = runCapture(["lambda", "--probe", "--site", "gate"]);
+    expect(fresh.verdict).toBe("preserve");
+    expect(fresh.reason).toBe("fresh-unrecorded");
+
+    seedState("mu", {
+      phaseLog: phaseLog({
+        phase: "implementing",
+        at: "2099-01-01T00:00:00.000Z",
+      }),
+    });
+    fs.writeFileSync(
+      path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
+      "unrecorded body\n",
+    );
+    const stale = runCapture(["mu", "--probe", "--site", "gate"]);
+    expect(stale.verdict).toBe("write");
+    expect(stale.reason).toBe("stale-unrecorded");
+  });
+
+  it("fails open to write on missing state, missing worktree, or absent checkpoint.md", () => {
+    const missingState = runCapture([
+      "ghost-probe",
+      "--probe",
+      "--site",
+      "gate",
+    ]);
+    expect(missingState.exit).toBe(0);
+    expect(missingState.verdict).toBe("write");
+
+    seedState("nu", { worktree: undefined });
+    const missingWorktree = runCapture(["nu", "--probe", "--site", "gate"]);
+    expect(missingWorktree.verdict).toBe("write");
+
+    seedState("xi");
+    const absentBody = runCapture(["xi", "--probe", "--site", "gate"]);
+    expect(absentBody.verdict).toBe("write");
+    expect(absentBody.reason).toBe("absent");
+  });
+
+  it("a manual body reads fresh-manual when phaseLog is absent entirely", () => {
+    seedState("omicron", { phaseLog: undefined });
+    writeCheckpoint("manual note\n");
+    runCapture(["omicron", "--site", "manual"]);
+    const r = runCapture(["omicron", "--probe", "--site", "gate"]);
+    expect(r.verdict).toBe("preserve");
+    expect(r.reason).toBe("fresh-manual");
+  });
+
+  it("re-arming with an auto site never relabels a fresh manual record's provenance (no phase change)", () => {
+    // A fresh manual note (preserve verdict) outranks a later auto-site arm
+    // with no intervening phase change — the auto arm must not stomp the
+    // `site: "manual"` provenance the preserve decision rests on, or the
+    // note would silently stop outranking auto sites on the NEXT probe.
+    seedState("pi");
+    const body = "byte-identical body\n";
+    writeCheckpoint(body);
+    runCapture(["pi", "--site", "manual"]);
+    const beforeUpdatedAt = readState("pi", stateDir)?.updatedAt;
+    runCapture(["pi", "--site", "plan-review"]);
+    expect(
+      fs.readFileSync(
+        path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
+        "utf8",
+      ),
+    ).toBe(body);
+    const state = readState("pi", stateDir);
+    expect(state?.checkpoint?.site).toBe("manual");
+    expect(state?.updatedAt).toBe(beforeUpdatedAt); // arming never bumps updatedAt
+  });
+
+  it("re-arming with a second auto site DOES relabel the record (rule 5: auto may overwrite auto)", () => {
+    seedState("rho");
+    const body = "auto body\n";
+    writeCheckpoint(body);
+    runCapture(["rho", "--site", "plan-approval"]);
+    runCapture(["rho", "--site", "gate"]);
+    const state = readState("rho", stateDir);
+    expect(state?.checkpoint?.site).toBe("gate");
+  });
+});
+
 describe("run() — CLI errors", () => {
   it("exits 2 when no slug resolves", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -235,5 +486,64 @@ describe("run() — CLI errors", () => {
     const exit = run(["--bogus"], { stateDir, resolveSlug: () => "x" });
     errSpy.mockRestore();
     expect(exit).toBe(2);
+  });
+});
+
+// The two freshness predicates answer deliberately different questions, and
+// nothing else pins that apart: probeFreshness answers "may this site clobber
+// the body?" (an auto record is always clobberable by a later auto site), while
+// isCheckpointUsable answers "is there anything here worth re-injecting?" (an
+// auto record is usable until a phase transition supersedes it). Conflating the
+// two is the regression fixed in 0ad949c — step-4 approval addenda were dropped
+// on resume because the arm-time verdict was reused as the usability signal.
+describe("probeFreshness vs isCheckpointUsable — intentional divergence", () => {
+  it("diverges on a fresh auto record: not preserved, but still usable", () => {
+    seedState("drift", {
+      checkpoint: {
+        site: "plan-approval",
+        phase: "checkpoint-pending-clear",
+        armedAt: "2026-06-30T12:00:00.000Z",
+      },
+      phaseLog: [{ phase: "planning", at: "2026-06-30T11:00:00.000Z" }],
+    });
+    writeCheckpoint();
+    const state = readState("drift", stateDir)!;
+
+    expect(probeFreshness(state, worktreeRoot, "gate").verdict).toBe("write");
+    expect(isCheckpointUsable(state, worktreeRoot)).toBe(true);
+  });
+
+  it("agrees once a later phase transition supersedes the auto record", () => {
+    seedState("drift", {
+      checkpoint: {
+        site: "plan-approval",
+        phase: "checkpoint-pending-clear",
+        armedAt: "2026-06-30T12:00:00.000Z",
+      },
+      phaseLog: [{ phase: "implementing", at: "2026-06-30T13:00:00.000Z" }],
+    });
+    writeCheckpoint();
+    const state = readState("drift", stateDir)!;
+
+    expect(probeFreshness(state, worktreeRoot, "gate").verdict).toBe("write");
+    expect(isCheckpointUsable(state, worktreeRoot)).toBe(false);
+  });
+
+  it("agrees a fresh manual record is both preserved and usable", () => {
+    seedState("drift", {
+      checkpoint: {
+        site: "manual",
+        phase: "gated",
+        armedAt: "2026-06-30T12:00:00.000Z",
+      },
+      phaseLog: [{ phase: "gating", at: "2026-06-30T11:00:00.000Z" }],
+    });
+    writeCheckpoint();
+    const state = readState("drift", stateDir)!;
+
+    expect(probeFreshness(state, worktreeRoot, "gate").verdict).toBe(
+      "preserve",
+    );
+    expect(isCheckpointUsable(state, worktreeRoot)).toBe(true);
   });
 });

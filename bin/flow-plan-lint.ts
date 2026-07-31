@@ -125,6 +125,26 @@ function checkBehavioralContrast(planText: string, misses: string[]): void {
   }
 }
 
+/**
+ * Per discovery-instructions.md's `## Cut list` contract, a bare "nothing"
+ * with no justification fails this check — the author must say WHY nothing
+ * was cut, not just assert it. Absent heading is already reported by the
+ * sibling `checkHeadingPresent` call in `lintPlan`; don't double-report.
+ */
+function checkCutListJustification(planText: string, misses: string[]): void {
+  const match = planText.match(/^## Cut list\s*$/m);
+  if (!match) return;
+  const body = sliceToNextHeading(
+    planText,
+    (match.index ?? 0) + match[0].length,
+  ).trim();
+  if (/^nothing\W*$/im.test(body)) {
+    misses.push(
+      "'## Cut list' asserts 'nothing' with no justification — say WHY nothing was cut (e.g. 'nothing — plan is already minimal')",
+    );
+  }
+}
+
 function checkRedundancyLine(planText: string, misses: string[]): void {
   const match = planText.match(/^## Recommendation\s*$/m);
   if (!match) {
@@ -251,6 +271,46 @@ function checkPromptInterpretation(planText: string, misses: string[]): void {
   }
 }
 
+/**
+ * Advisory resolution-first check for `## Open Questions`: every unchecked
+ * `- [ ]` entry block must carry a `**Recommended:**` answer or a
+ * `**Needs user input:**` escape (markers may sit on nested sub-bullets).
+ * Checked `- [x]` entries and an absent heading are exempt.
+ */
+function checkOpenQuestions(planText: string, misses: string[]): void {
+  const headingMatch = planText.match(/^## Open Questions\s*$/m);
+  if (!headingMatch) return;
+  const body = sliceToNextHeading(
+    planText,
+    (headingMatch.index ?? 0) + headingMatch[0].length,
+  );
+
+  const entryRe = /^- \[[ xX]\]/gm;
+  const entries: Array<{ index: number; text: string }> = [];
+  let em: RegExpExecArray | null;
+  while ((em = entryRe.exec(body)) !== null) {
+    entries.push({ index: em.index, text: em[0] });
+  }
+  for (let i = 0; i < entries.length; i++) {
+    if (!/^- \[ \]/.test(entries[i].text)) continue; // checked entry — exempt
+    const start = entries[i].index;
+    const rest = body.slice(start + entries[i].text.length);
+    const nextTopLevel = rest.search(/^- /m);
+    const block =
+      body.slice(start, start + entries[i].text.length) +
+      (nextTopLevel === -1 ? rest : rest.slice(0, nextTopLevel));
+    if (
+      !/\*\*Recommended:\*\*/.test(block) &&
+      !/\*\*Needs user input:\*\*/.test(block)
+    ) {
+      const entryLine = block.split("\n", 1)[0].slice(0, 60);
+      misses.push(
+        `'## Open Questions' entry '${entryLine}' has neither a '**Recommended:**' answer nor a '**Needs user input:**' escape (resolution-first contract; see discovery-instructions.md)`,
+      );
+    }
+  }
+}
+
 /** Extract the `- **<alternative>** — rejected: <why>` bullet names from
  * `## Alternatives considered`. Returns null when the heading is absent. */
 function extractAlternativesNames(planText: string): string[] | null {
@@ -370,9 +430,17 @@ export function lintPlan(
       misses,
       "every plan must name its single weakest assumption",
     );
+    checkHeadingPresent(
+      planText,
+      "## Cut list",
+      misses,
+      "every plan must name its unnecessary complexity (or affirm none)",
+    );
+    checkCutListJustification(planText, misses);
     checkTaskContracts(planText, misses);
     checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);
+    checkOpenQuestions(planText, misses);
     checkExcludedPathsMirror(planText, opts.excludedPathsJson, misses);
   } catch (e) {
     misses.push(

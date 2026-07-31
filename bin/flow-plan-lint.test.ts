@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -49,7 +49,8 @@ Users cannot export widgets today.
 
 ## Open Questions
 
-- [ ] none
+- [ ] [Is CSV the only export format needed? — a second format adds a task]
+  - **Recommended:** CSV only — the request names CSV and no other consumer exists.
 
 ## Recommendation
 
@@ -60,6 +61,10 @@ Users cannot export widgets today.
 ## Plan risks
 
 The export format might not match user expectations.
+
+## Cut list
+
+nothing — plan is minimal.
 
 # Task breakdown
 
@@ -158,6 +163,28 @@ describe("lintPlan — always-present sections", () => {
     const plan = withoutSection(CONFORMING_PLAN, "## Plan risks");
     const { misses } = lintPlan(plan);
     expect(misses.some((m) => m.includes("Plan risks"))).toBe(true);
+  });
+
+  it("names a miss when '## Cut list' is absent", () => {
+    const plan = withoutSection(CONFORMING_PLAN, "## Cut list");
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("Cut list"))).toBe(true);
+  });
+
+  it("names a miss when '## Cut list' asserts a bare 'nothing' with no justification", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "nothing — plan is minimal.",
+      "nothing",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => m.includes("Cut list") && m.includes("nothing")),
+    ).toBe(true);
+  });
+
+  it("does not miss a justified 'nothing' Cut list", () => {
+    const { misses } = lintPlan(CONFORMING_PLAN);
+    expect(misses.some((m) => m.includes("no justification"))).toBe(false);
   });
 
   it("names a miss when '# Task breakdown' is absent", () => {
@@ -398,6 +425,125 @@ describe("lintPlan — Goal-line length advisory", () => {
   it("does not warn when the Goal line is <=30 words", () => {
     const { misses } = lintPlan(CONFORMING_PLAN);
     expect(misses.some((m) => m.includes("advisory bound"))).toBe(false);
+  });
+});
+
+describe("lintPlan — Open Questions resolution", () => {
+  it("passes when an unchecked entry carries a Recommended marker on a nested sub-bullet", () => {
+    const { misses } = lintPlan(CONFORMING_PLAN);
+    expect(misses.some((m) => m.includes("resolution-first"))).toBe(false);
+  });
+
+  it("names a miss when an unchecked entry lacks both markers", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+      "- [ ] Should exports be paginated?",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) =>
+          m.includes("resolution-first") &&
+          m.includes("Should exports be paginated?"),
+      ),
+    ).toBe(true);
+  });
+
+  it("exits 1 via the CLI when an entry lacks both markers", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "flow-plan-lint-oq-"));
+    try {
+      const planPath = path.join(dir, "plan.md");
+      writeFileSync(
+        planPath,
+        CONFORMING_PLAN.replace(
+          "  - **Recommended:** CSV only — the request names CSV and no other consumer exists.\n",
+          "",
+        ),
+      );
+      expect(run(["--plan-md-file", planPath])).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("exempts checked '- [x]' entries", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "## Open Questions\n",
+      "## Open Questions\n\n- [x] Resolved: format is CSV (decision note).\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("resolution-first"))).toBe(false);
+  });
+
+  it("exempts uppercase checked '- [X]' entries", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "## Open Questions\n",
+      "## Open Questions\n\n- [X] Resolved: format is CSV (decision note).\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("resolution-first"))).toBe(false);
+  });
+
+  it("flags an unchecked entry followed by a resolved top-level entry (block-boundary slicing)", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+      "- [ ] Should exports be paginated?\n" +
+        "- [ ] [Is CSV the only export format needed? — a second format adds a task]\n" +
+        "  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) =>
+          m.includes("resolution-first") &&
+          m.includes("Should exports be paginated?"),
+      ),
+    ).toBe(true);
+    expect(
+      misses.some(
+        (m) =>
+          m.includes("resolution-first") &&
+          m.includes("Is CSV the only export format needed?"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not fire when the '## Open Questions' heading is absent", () => {
+    const plan = withoutSection(CONFORMING_PLAN, "## Open Questions");
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("resolution-first"))).toBe(false);
+  });
+
+  it("passes when the '**Recommended:**' marker sits on the entry's own line", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+      "- [ ] Should exports be paginated? **Recommended:** no — out of scope.",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("resolution-first"))).toBe(false);
+  });
+
+  it("truncates a long entry line to 60 characters in the miss message", () => {
+    const longLine =
+      "Should this extremely long open question line get truncated in the miss message for readability purposes?";
+    const plan = CONFORMING_PLAN.replace(
+      "- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+      `- [ ] ${longLine}`,
+    );
+    const { misses } = lintPlan(plan);
+    const miss = misses.find((m) => m.includes("resolution-first"));
+    expect(miss).toBeDefined();
+    expect(miss).toContain(`'${`- [ ] ${longLine}`.slice(0, 60)}'`);
+    expect(miss).not.toContain(longLine.slice(60));
+  });
+
+  it("accepts a '**Needs user input:**' escape in place of a recommendation", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+      "  - **Needs user input:** user-held preference on export format.",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("resolution-first"))).toBe(false);
   });
 });
 

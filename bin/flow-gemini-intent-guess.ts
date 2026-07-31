@@ -159,7 +159,7 @@ export function validateIntentGuess(
 }
 
 function buildPrompt(diff: string, fileList: string): string {
-  return `You are guessing the purpose of a pull request from its diff alone. You have NOT been given the PR title, description, plan, or commit messages — guess blind, the same way a second independent reviewer would before reading any of that context. You have read access to the working directory for surrounding source context, but you must NOT open \`.flow-tmp/fetch.md\`, \`.flow-tmp/pr-body.md\`, \`.flow-tmp/pr-body-current.md\`, \`.flow-tmp/pr-metadata.json\`, \`.flow-tmp/pr-description-draft.md\`, \`.flow-tmp/commits.txt\`, \`.flow-tmp/plan.md\`, \`.flow-tmp/checkpoint.md\`, \`.flow-tmp/scout.md\`, any other \`.flow-tmp/\` PR-metadata artifact, or the git log — doing so unblinds you and defeats this check.
+  return `You are guessing the purpose of a pull request from its diff alone. You have NOT been given the PR title, description, plan, or commit messages — guess blind, the same way a second independent reviewer would before reading any of that context. You have read access to the working directory for surrounding source context, but you must NOT open \`.flow-tmp/fetch.md\`, \`.flow-tmp/pr-body.md\`, \`.flow-tmp/pr-body-current.md\`, \`.flow-tmp/pr-metadata.json\`, \`.flow-tmp/pr-description-draft.md\`, \`.flow-tmp/commits.txt\`, \`.flow-tmp/plan.md\`, \`.flow-tmp/checkpoint.md\`, \`.flow-tmp/checkpoint.consumed.md\`, \`.flow-tmp/scout.md\`, any other \`.flow-tmp/\` PR-metadata artifact, or the git log — doing so unblinds you and defeats this check.
 
 Changed files:
 ${fileList}

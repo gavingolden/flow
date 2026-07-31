@@ -182,25 +182,23 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > worktrees, branch collisions, review-comment ID mapping,
 > allowlist enforcement on auto-run) that are easy to get wrong.
 
-> **You only call `AskUserQuestion` from the two named forms.** The
-> supervisor's only authorised `AskUserQuestion` calls are (a) the
-> **candidate-issues form** (the multi-select for picking which
-> orthogonal candidates to file post-merge) and (b) step 9's "Gate
+> **You only call `AskUserQuestion` from the one named form.** The
+> supervisor's only authorised `AskUserQuestion` call is step 9's "Gate
 > override (post-verdict, opt-in)" form (the single confirmation fired
 > when the user instructs the supervisor to merge a `gated` PR anyway —
 > the form is what makes a gate override a *fresh* confirmation,
 > putting the gate verdict in front of the user rather than letting the
-> supervisor infer authorisation from an earlier instruction). The
-> candidate-issues form fires from **two locations** — step 4's
-> "Candidate follow-up issues sub-step" (the Affirmative branch) AND
-> step 3's "Candidate follow-up issues sub-step (non-feature intents)"
-> on the `advance-to-step-5` branch — but it is **one** named form, not
-> two: the distinct named forms stay at two (candidate-issues +
-> gate-override), no third site. Same narrow-and-named contract as the
-> Task-tool exemptions above: `AskUserQuestion` is a different primitive
-> (synchronous user prompt, not a sub-agent fan-out), but a small named
-> set keeps the supervisor's user-prompt surface auditable. These two
-> forms are the **only** authorised user-prompt surface — no other
+> supervisor infer authorisation from an earlier instruction). There is
+> no candidate-issues form: discovery bundles follow-up candidates into
+> the plan by default (pre-ticked `- [x]` items in `# Candidate
+> follow-up issues`), and the plan-review checkpoint (step 3's `--details`
+> disclosure, step 4's `drop candidate #N` / `drop all candidates` /
+> `defer task #N` replies) is the single curation surface — a mechanical
+> reply-and-helper loop, never a form. Same narrow-and-named contract as
+> the Task-tool exemptions above: `AskUserQuestion` is a different
+> primitive (synchronous user prompt, not a sub-agent fan-out), but a
+> small named set keeps the supervisor's user-prompt surface auditable.
+> This form is the **only** authorised user-prompt surface — no other
 > skill or step may call `AskUserQuestion`. If a future skill needs the
 > same license, add it here by name rather than generalising the rule.
 
@@ -750,9 +748,9 @@ Full bash + worked example in
 
 **Cross-model plan review (Layer 2, optional, config-gated).** After the
 note backstop above and BEFORE the End conditions branch below, run one
-independent cross-model review of the plan's consequential decisions —
-fires for **ANY** intent, before the feature/non-feature end-condition
-split. Bash `flow-delegate` (AGY) fan-out, same mechanism as
+bounded cross-model review pass (one or two reviewers by depth) of the
+plan's consequential decisions — fires for **ANY** intent, before the
+feature/non-feature end-condition split. Bash `flow-delegate` (AGY) fan-out, same mechanism as
 `/flow-pr-review`'s Gemini lens, spawns **no Task** (Hard rules' "Bash
 fan-out, not a tenth exemption"). Three-part gate: `review.gemini == true`
 in `~/.flow/config.json` (same key the Gemini lens uses), AND a non-empty
@@ -763,21 +761,27 @@ fails, record the reason in the chat summary and skip this sub-step unchanged.
 
 When all three fire, run `flow-plan-review --plan-file
 "$WORKTREE/.flow-tmp/plan.md" --out "$WORKTREE/.flow-tmp/plan-review.md"`
-and branch on the `{ran}` envelope (never the exit code): `ran:false`
-records `skipReason` and proceeds unchanged (graceful no-op, e.g. agy
-unavailable); `ran:true` weighs each material AGY point as INPUT (never
-a verdict), revises plan.md **once** where warranted, and appends a
-`### Cross-model review (AGY)` subsection recording each point
-**accepted** or **overridden**. Then embed the marker hash — run
-`flow-plan-review --print-hash --plan-file "$WORKTREE/.flow-tmp/plan.md"`
-on the FINAL revised plan (never the pre-revision envelope hash, which
-would falsely re-fire the next pass) and embed its stdout as
+(no `--depth` flag — relies on `auto`) and branch on the `{ran}` envelope
+(never the exit code): `ran:false` records `skipReason` and proceeds
+unchanged (graceful no-op, e.g. agy unavailable); `ran:true` weighs each
+material AGY point as INPUT (never a verdict), revises plan.md **once**
+where warranted, and appends a `### Cross-model review (AGY)` subsection
+recording each point **accepted** or **overridden** — also record the
+run's `depth` and any per-reviewer `skipReason` in the chat summary.
+**Convergence rule (deep tier):** a point BOTH reviewers raised
+independently is **presumptively accepted**; overriding it needs a named
+rationale in that subsection — a single-reviewer point stays INPUT, same
+as today. Then embed the marker hash — run `flow-plan-review --print-hash
+--plan-file "$WORKTREE/.flow-tmp/plan.md"` on the FINAL revised plan
+(never the pre-revision envelope hash, which would falsely re-fire the
+next pass) and embed its stdout as
 `<!-- flow-plan-review-hash: <sha> -->` inside the appended subsection.
 
 This is a **bounded single-pass per step-3 pass** — at most one review
 and one revision, not an unbounded loop. On re-entry the helper re-fires
-ONLY when `## Decision analysis` materially changed since the last
-reviewed revision, emitting `{ran:false,
+ONLY when one of the THREE hashed inputs — the `**Goal:**` line,
+`## Decision analysis`, or `## Cut list` — materially changed since the
+last reviewed revision, emitting `{ran:false,
 skipReason:"decision-analysis-unchanged"}` on a hash match; record that
 skip as a one-line chat-summary rationale and never hand-force a
 re-review. Full mechanics (the hash-embedding footgun, the
@@ -787,9 +791,35 @@ normalized-diff re-fire detection) in
 **End conditions:**
 
 - Intent is `feature` → write `phase: plan-pending-review`. Then,
-  immediately before ending the turn, render the AWAITING APPROVAL
-  block via `flow-gate-summary` so the header rows precede the two
-  markdown bullets the user clicks:
+  immediately before ending the turn:
+
+  **Candidate follow-up issues disclosure.** Discovery bundles
+  follow-up candidates into the plan by default (pre-ticked `- [x]`
+  items in `# Candidate follow-up issues` — see
+  `skills/pipeline/flow-product-planning/references/discovery-instructions.md`),
+  so there is no separate curation form here; the plan-review checkpoint
+  below IS the curation checkpoint. Run `flow-candidate-issues
+  --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --details` and, when its
+  output is non-empty, echo its output VERBATIM as assistant prose
+  before the AWAITING APPROVAL block — same discipline as the
+  Gate-stage echo-verbatim recap, never compose the ranked block from
+  the `.json` fields by hand. Document the reply verbs available at
+  `plan-pending-review` in that same message: `pull #N into the plan`
+  (fold candidate #N's text into the plan, ticked or not — an
+  Imperative scope/plan redirect back to step 3), `drop candidate #N`
+  (mechanical: `flow-candidate-issues --plan-md-file
+  "$WORKTREE/.flow-tmp/plan.md" --untick <N>`, confirm in one line,
+  stay at `plan-pending-review`), `drop all candidates` (same
+  mechanical untick, bulk form — read `flow-candidate-issues
+  --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --json` and pass every
+  1-based index whose `.candidates[].ticked` is `true` to a single
+  `--untick <indices>` call), and `defer task #N` (one or many task
+  numbers in one reply — batches ALL of them
+  into ONE bounded revision pass back to step 3; see step 4's redirect
+  classification below and `references/redirect-handling.md`).
+
+  Then render the AWAITING APPROVAL block via `flow-gate-summary` so
+  the header rows precede the two markdown bullets the user clicks:
 
   ```bash
   WHY="plan ready for review (intent=feature)"
@@ -825,17 +855,18 @@ normalized-diff re-fire detection) in
   **Plan-review clear point (auto-checkpoint arm).** After writing
   `phase: plan-pending-review` and before ending the turn, arm a
   lightweight checkpoint so the user can `/clear` at `plan-pending-review`
-  and approve on a fresh session. **Non-clobbering:** only when
-  `<worktree>/.flow-tmp/checkpoint.md` is absent or empty, write a minimal
-  one-line pointer; a manual `/flow-checkpoint` wins. Then run `flow-checkpoint`
-  to arm the marker, and add a one-line nudge: **safe to `/clear` —
-  approve on a fresh session; the plan re-renders on resume.** No helper
-  change is needed: `plan-pending-review` is non-terminal, so
-  `flow-resume-decide` already resolves it to step-4 (re-prints the plan +
-  waits for approval) and the `SessionStart:clear` hook already fires on
-  it when the marker is present. The re-injected `checkpoint.md` is
-  consumed via `flow-checkpoint --consume` in Resume mode exactly like
-  every other checkpoint resume.
+  and approve on a fresh session. Run `flow-checkpoint --probe --site plan-review`,
+  branch on `jq -r '.verdict'`, and only on `write` write a minimal
+  one-line pointer to `<worktree>/.flow-tmp/checkpoint.md` (a still-fresh
+  manual `/flow-checkpoint` note — `verdict: preserve` — wins and is left
+  untouched). Then `flow-checkpoint --site plan-review` to arm the marker and record the freshness receipt, and add a one-line nudge: **safe to `/clear` — approve on a fresh session; the plan re-renders on resume.**
+  No helper change is needed: `plan-pending-review` is non-terminal, so
+  `flow-resume-decide` already resolves it to step-4 and the
+  `SessionStart:clear` hook already fires on it when the marker is
+  present. `flow-checkpoint --consume` in Resume mode re-injects and
+  retires `checkpoint.md` exactly like every other checkpoint resume —
+  archiving it to `.flow-tmp/checkpoint.consumed.md` and clearing the
+  freshness record.
 
   Then end the turn. Wait for the user to attach and respond.
   The next turn re-enters at step 4.
@@ -865,61 +896,29 @@ normalized-diff re-fire detection) in
   - **`advance-to-step-5`** → no `## Prompt interpretation` section
     OR the section's Recommended path is `methods plausibly reach
     target`. The plan still exists on disk for traceability, but the
-    user wasn't asked to ratify it. Run the **non-feature
-    candidate-issues sub-step** immediately below before falling
-    through to step 5.
-
-    #### Candidate follow-up issues sub-step (non-feature intents)
-
-    Fires ONLY on this `advance-to-step-5` branch (NOT on
-    `route-to-step-4`, which already reaches step 4's affirmative-
-    branch sub-step — firing here too would double-prompt). This is
-    the SAME named candidate-issues form as step 4, fired from a
-    second location. It NEVER fires a plan-ratification gate: a
-    non-feature intent does not acquire an "approved to proceed"
-    checkpoint — only the candidate-issues prompt, and only when
-    discovery found candidates. Same thin shape as step 4's sub-step:
-
-    ```bash
-    CI=$(flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --json)
-    ACTION=$(printf '%s' "$CI" | jq -r '.action')
-    ```
-
-    Branch on `.action`:
-
-    - **`no-op`** / **`skip-already-ticked`** → NO prompt, NO
-      turn-end; continue straight to step 5 in the same turn. This is
-      the common autonomous case — it preserves the "non-feature
-      runs to terminal in one uninterrupted turn" principle.
-    - **`prompt`** (1–4 unticked candidates) → run `flow-candidate-issues
-      --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --details`, echo its output
-      VERBATIM (offer line `pull #N into the plan` — see the step-4 sub-step
-      below for the redirect/re-fire discipline, identical here), then absent
-      that reply fire the SAME named candidate-issues `AskUserQuestion`
-      multi-select built from `.candidates`, map selections to 1-based positions,
-      `flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --tick <indices>`
-      to flip them, and continue to step 5 in the SAME turn.
-    - **`overflow`** (5+ unticked candidates) → run the same `--details`
-      echo (as above) then render the AWAITING APPROVAL manual-edit
-      guidance via `flow-gate-summary --status awaiting-approval --why
-      "5+ candidate follow-up issues — option cap exceeded; tick desired
-      items manually in plan.md" --worktree "$WORKTREE" --plan-file
-      "$WORKTREE/.flow-tmp/plan.md"`, touch the worktree-local marker
-      `"$WORKTREE/.flow-tmp/candidate-issues-overflow.pending"` (so a
-      crash-resume can tell this apart from a feature plan-approval
-      clarification — see Resume mode), write `flow-state-update
-      --phase approval-pending-clarification`, and end the turn.
-
-    The `AskUserQuestion` primitive and the decision to fire it stay
-    here in the supervisor; `flow-candidate-issues` is LLM-free.
+    user wasn't asked to ratify it — fall through to step 5 directly in
+    the same turn, no candidate-issues checkpoint fires here (there is
+    no turn-ending message to attach one to on this fully-autonomous
+    path). **Disclosure obligation:** any bundled tasks and pre-ticked
+    `# Candidate follow-up issues` items proceed exactly as discovery
+    authored them; disclose them in the PR body's `Bundled:` Key
+    decisions bullets and in the terminal recap, so the user still sees
+    what shipped even though nothing paused for their review.
 
   - **`route-to-step-4`** → the section is present and the
     Recommended path is one of `extend scope with named additional
     safe steps` / `relax target` / `split into multiple pipelines`.
-    Write `phase: plan-pending-review` and render the AWAITING
-    APPROVAL block via `flow-gate-summary` — same call shape as the
-    feature-intent branch above, but with a Why string that names
-    the tension flag:
+    Write `phase: plan-pending-review`. Then, same as the feature-intent
+    End condition above, run `flow-candidate-issues --plan-md-file
+    "$WORKTREE/.flow-tmp/plan.md" --details` and, when its output is
+    non-empty, echo its output VERBATIM as assistant prose immediately
+    before the AWAITING APPROVAL block, with the same reply-verb
+    documentation (`pull #N into the plan`, `drop candidate #N`, `drop
+    all candidates`, `defer task #N`) — this branch also lands in step
+    4, so the user needs the same curation surface. Then render the
+    AWAITING APPROVAL block via `flow-gate-summary` — same call shape
+    as the feature-intent branch above, but with a Why string that
+    names the tension flag:
 
     ```bash
     WHY="plan ready for review (intent=$INTENT, prompt-interpretation tension)"
@@ -939,10 +938,10 @@ normalized-diff re-fire detection) in
     reused (no new phase string is introduced); `flow-stop-guard`
     and `flow-resume-decide` both already handle this phase
     unchanged for non-feature intents. Arm the same **plan-review clear
-    point** here (non-clobbering `checkpoint.md` pointer + `flow-checkpoint`
-    to arm the marker) as the feature-intent End condition above, so a
-    `/clear` at `plan-pending-review` on a route-to-step-4 non-feature
-    pipeline also auto-resumes to the plan render.
+    point** here (probe + arm `--site plan-review`) as the feature-intent
+    End condition above, so a `/clear` at `plan-pending-review` on a
+    route-to-step-4 non-feature pipeline also auto-resumes to the plan
+    render.
 
 If `/flow-product-planning` doesn't write `.flow-tmp/plan.md`, re-invoke
 once with an explicit instruction to write the consolidated artifact.
@@ -957,14 +956,48 @@ typed something into the tmux chat. Classify the input using
 `references/redirect-handling.md`:
 
 - **Affirmative** ("approved", "looks good", "go ahead", etc.) →
-  run the candidate-issues sub-step below, then the auto-checkpoint
-  sub-step, which ends the turn at `checkpoint-pending-clear`; the
-  user resumes into step 5 by typing `continue` (same session) or
-  `/clear` (fresh, auto-resumed session).
+  proceed straight to the auto-checkpoint sub-step below, which ends
+  the turn at `checkpoint-pending-clear`; the user resumes into step 5
+  by typing `continue` (same session) or `/clear` (fresh, auto-resumed
+  session). Bundled tasks and pre-ticked candidates proceed exactly as
+  authored — the user had the full `--details` disclosure (step 3's End
+  condition above) in front of them before replying Affirmative.
+- **Candidate curation reply** (`drop candidate #N`, `drop all
+  candidates`) → **mechanical, not a redirect and not a revision
+  pass.** Run `flow-candidate-issues --plan-md-file
+  "$WORKTREE/.flow-tmp/plan.md" --untick <N>` (single index) or
+  `--untick <every currently-ticked index>` (bulk `drop all candidates`
+  form), confirm the change in one line, and stay at
+  `plan-pending-review` awaiting the user's next reply (approve /
+  redirect / cancel). Full classifier detail in
+  `references/redirect-handling.md`.
 - **Imperative redirect** ("actually, also handle TSV"; "redo with
   X") → loop back to step 3, appending the redirect to the
   `/flow-product-planning` prompt as `USER REDIRECT (received during
-  plan-pending-review): <verbatim>`.
+  plan-pending-review): <verbatim>`. Two named redirect shapes carry
+  extra handling:
+  - `pull #N into the plan` → fold candidate #N's text into the plan
+    body as the redirect payload; on re-entry the `--details` echo
+    (step 3's End condition above) RE-FIRES over the full candidate
+    list (`renderDetails` prints every candidate, grouped by state, not
+    only unticked ones), so pulling one never silently drops the
+    others.
+  - `defer task #N` (one or many task numbers in a single reply, e.g.
+    `defer tasks #2 and #4`) → batch ALL deferred targets into ONE
+    `USER REDIRECT: defer task(s) <N[, M...]> (<titles>) to follow-up
+    issues` loop back to step 3 with the `REVISION: <n>` marker (same
+    re-entry mechanics as any other Imperative redirect). **Defer-
+    revision drift guard:** the redirect text MUST scope the resulting
+    revision pass to exactly four surgical edits — remove the deferred
+    task(s), renumber/repair the dependency table, update the Skills
+    Summary if a removed task was its only user of a named skill, and
+    append the item as a pre-ticked (`- [x]`) candidate with a matching
+    ranking-table row — every other section of plan.md is preserved
+    byte-for-byte. **Batched-defer corruption guard:** step 3's
+    existing deterministic backstops (`flow-plan-lint`,
+    `flow-candidate-issues --lint`) already re-validate the revised
+    plan's structure on re-entry, so this drift guard adds zero new
+    machinery.
 - **Cancel** ("cancel", "abort") → run `flow-remove-worktree
   <slug>`, write `phase: cancelled`, then render the CANCELLED
   block via `flow-gate-summary --status cancelled --why "user
@@ -976,84 +1009,27 @@ typed something into the tmux chat. Classify the input using
   `NEEDS HUMAN: approval-ambiguous` (which writes `phase:
   needs-human`).
 
-### Candidate follow-up issues sub-step
-
-Runs only on the **Affirmative** branch above, before stepping to
-step 5. The five-branch decision over plan.md's optional
-`# Candidate follow-up issues` section is owned by the
-`flow-candidate-issues` helper — this sub-step is a thin call site
-around it, never re-deriving the matrix in prose:
-
-```bash
-CI=$(flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --json)
-ACTION=$(printf '%s' "$CI" | jq -r '.action')
-```
-
-Branch on `.action`:
-
-- **`no-op`** (section absent, or present with zero items) or
-  **`skip-already-ticked`** (the user pre-ticked during plan review —
-  their explicit choice wins) → no prompt; continue to the
-  auto-checkpoint sub-step below.
-- **`prompt`** (1–4 unticked candidates) → run `flow-candidate-issues
-  --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --details` and echo its output
-  VERBATIM as assistant prose before firing the form — same discipline as
-  the Gate-stage echo-verbatim recap; never compose the ranked block from
-  the `.json` fields by hand. The block ends with the offer line
-  `pull #N into the plan`; a matching reply loops to step 3 (Imperative
-  redirect branch above) with the candidate text as the redirect — on
-  re-entry here the sub-step RE-FIRES for the remaining (still-unticked)
-  candidates, so pulling one never silently drops the others. Absent
-  that reply, fire one `AskUserQuestion` (multi-select)
-  built from `.candidates` — each `{ title, body }` becomes an option.
-  Map selections to 1-based positions, then flip via the helper:
-
-  ```bash
-  flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --tick <comma,separated,indices>
-  ```
-
-  Then continue to the auto-checkpoint sub-step below.
-- **`overflow`** (5+ unticked candidates) → run the same `--details`
-  echo (as above), then render the AWAITING APPROVAL block via
-  `flow-gate-summary --status awaiting-approval --why "5+ candidate
-  follow-up issues — option cap exceeded; tick desired items manually
-  in plan.md" --worktree "$WORKTREE" --plan-file "$WORKTREE/.flow-tmp/plan.md"`
-  so the user can scroll-tap-edit, write `flow-state-update --phase
-  approval-pending-clarification`, end the turn. The next turn re-enters step 4.
-
-`AskUserQuestion` is the **only** Claude Code user-prompt primitive the
-supervisor calls (see "Hard rules" for the exemption; the same named
-candidate-issues form also fires from step 3's non-feature
-`advance-to-step-5` sub-step) — `flow-candidate-issues` itself is
-LLM-free parse/decide/flip only and never calls it.
-
 ### Auto-checkpoint sub-step
 
-Runs on the **Affirmative** branch, immediately after the
-candidate-issues sub-step above, as the last thing step 4 does before
-ending the turn. This is the sub-step the three forward-references above
-("then the auto-checkpoint sub-step", "continue to the auto-checkpoint
-sub-step below") resolve to. It is the approval → implement clear point:
-it flushes the load-bearing approval state so the user can `/clear` here
-and resume into step 5 on a fresh, low-context session.
+Runs on the **Affirmative** branch, as the last thing step 4 does before
+ending the turn. This is the sub-step the forward-reference above
+("proceed straight to the auto-checkpoint sub-step below") resolves to.
+It is the approval → implement clear point: it flushes the load-bearing
+approval state so the user can `/clear` here and resume into step 5 on
+a fresh, low-context session.
 
-1. **Flush approval state to `checkpoint.md` (non-clobbering).** Unless
-   `<worktree>/.flow-tmp/checkpoint.md` already exists non-empty (the
-   user ran `/flow-checkpoint` explicitly — their file wins, leave it
-   untouched), write the load-bearing conversational state the fresh
+1. **Flush approval state to `checkpoint.md` (non-clobbering).** Probe
+   with `flow-checkpoint --probe --site plan-approval`; only on a
+   `write` verdict (a still-fresh manual note reads `preserve` and wins,
+   left untouched) write the load-bearing conversational state the fresh
    process would otherwise drop: the approval verdict plus any addenda or
    conditions the user attached (e.g. an "approved with A1" note, a
    folded-in scope change, an "ignore flake X" decision). Unlike the gate
    auto-checkpoint (near-zero residue), this one genuinely flushes
    approval state, so it uses the fuller `/flow-checkpoint`-style flush.
-2. **Arm the one-shot marker:**
-
-   ```bash
-   flow-checkpoint
-   ```
-
-   (no flag — validates `checkpoint.md` and writes the
-   `checkpoint.pending` marker on a ready verdict).
+2. **Arm the one-shot marker:** `flow-checkpoint --site plan-approval`
+   (validates `checkpoint.md`, writes the `checkpoint.pending` marker on
+   a ready verdict, and records the freshness receipt for this site).
 3. **Advance the phase:** `flow-state-update --phase checkpoint-pending-clear`.
 4. **Nudge and end.** Tell the user: safe to `/clear` — the pipeline
    resumes into step 5 on a fresh session, or type `continue` to proceed
@@ -1116,6 +1092,14 @@ The skill writes code + tests, runs verify internally as a
 pre-commit gate, commits, and pushes. **Opening the PR is the
 supervisor's job, not the implement skill's** — the supervisor calls
 `flow-open-pr` so the PR number lands in state.json atomically.
+
+**Discharging the `advance-to-step-5` disclosure obligation:** if step 3
+took the `advance-to-step-5` route (see "Step 3 — Product planning" End
+condition above), the PR body's Key decisions section MUST include a
+`Bundled:` bullet naming any task-breakdown items and pre-ticked
+`# Candidate follow-up issues` items discovery authored without a
+plan-review checkpoint — this is where that obligation gets discharged,
+not just asserted.
 
 Write the PR body to the worktree's scratch dir, then call
 `flow-open-pr` once and capture both the URL (from stdout) and the
@@ -1791,15 +1775,11 @@ lightweight checkpoint so the user can `/clear` during manual validation
 without typing `/flow-checkpoint` first — `gated` is the highest-value
 context-clear point in the pipeline (it routinely sits through several
 rounds of feedback while the supervisor carries a huge `/flow-pr-review`
-context the next fix does not need). **Non-clobbering:** only when
-`<worktree>/.flow-tmp/checkpoint.md` is absent or empty, write a minimal
-one-line pointer (e.g. `gated on PR #<pr> — feedback-mode checkpoint`); a
-manual `/flow-checkpoint` at the gate wins and is left untouched. Then
-arm the one-shot marker:
-
-```bash
-flow-checkpoint
-```
+context the next fix does not need). **Non-clobbering:** probe with
+`flow-checkpoint --probe --site gate`; only on a `write` verdict write a
+minimal one-line pointer (e.g. `gated on PR #<pr> — feedback-mode
+checkpoint`) — a still-fresh manual `/flow-checkpoint` note (`verdict:
+preserve`) wins, left untouched. Then arm: `flow-checkpoint --site gate`.
 
 This is a **near-zero-residue** arm — it flushes no approval state, only
 the pointer that lets `SessionStart:clear` fire at `gated`. Add a
@@ -1934,6 +1914,7 @@ On non-zero exit, branch on the failure class:
   failure, render the NEEDS HUMAN block via `flow-gate-summary
   --status needs-human --reason merge-failed --pr-url "$PR_URL"
   --why "$(jq -r .summary "$ARTIFACT_PATH" | head -1)"`. End.
+  Then the standard `# Failure paths` chain.
 - **Non-conflict** (auth, network, branch-protection denied, required
   check failed, PR closed externally, any unrecognised stderr) —
   retry the merge once with `$PRIMARY` re-derived in the same Bash
@@ -2012,11 +1993,11 @@ and the filled prompt. After it returns:
    merge-resolver-spawn-denied --pr-url "$PR_URL"`, leave the worktree
    intact, and end — do **not** resolve inline in the supervisor
    (see [references/exemption-contracts.md](../../../references/exemption-contracts.md)
-   for why).
+   for why). Then the standard `# Failure paths` chain.
 2. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
    `NEEDS HUMAN: merge-resolver-missing-artifact` and end. (Do not
    re-spawn the resolver — exactly one Task call per run, per the
-   exemption contract.)
+   exemption contract.) Then the standard `# Failure paths` chain.
 3. Read the artifact's `push_status`. If `succeeded`, retry the
    merge **exactly once** with `$PRIMARY` re-derived in the same Bash
    call (the supervisor runs this as a fresh shell — `$PRIMARY` from
@@ -2031,12 +2012,13 @@ and the filled prompt. After it returns:
    block via `flow-gate-summary --status needs-human --reason
    merge-failed --pr-url "$PR_URL" --why "$(jq -r .summary
    "$ARTIFACT_PATH" | head -1)"`. End.
+   Then the standard `# Failure paths` chain.
 4. On retry success, continue to the post-merge sweep below.
 5. On retry failure, render the NEEDS HUMAN block via
    `flow-gate-summary --status needs-human --reason merge-failed
    --pr-url "$PR_URL" --why "$(jq -r .summary "$ARTIFACT_PATH" |
-   head -1)"`. End. The artifact stays on disk in the worktree for
-   human inspection.
+   head -1)"`. End. Then the standard `# Failure paths` chain. The
+   artifact stays on disk in the worktree for human inspection.
 
 On success, the roadmap row for this PR was already flipped to
 `✅ shipped (#$PR)` in the PR's own diff by `/flow-pr-review` step 7.5
@@ -2119,8 +2101,10 @@ during the run via `flow-followups add`; step 11 reports them and, on the
 MERGED path, executes the safe subset.
 
 **Two-layer safety boundary:** an entry's `auto: true` flag declares
-*intent*; the helper's hardcoded ALLOWLIST gates *permission* (exact-match,
-v1: `flow install` and `flow install --upgrade`). Both must be true to execute.
+*intent*; the helper's hardcoded ALLOWLIST gates *permission* (exact-match:
+`flow install`, `flow install --upgrade`, and `brew install shellcheck`). Both
+must be true to execute. `bin/flow-followups.test.ts` pins the exact set, so
+this enumeration and the code cannot drift silently.
 Same narrow-and-named exemption pattern as the `/flow-pr-review` auto-push and
 `/flow-pipeline` auto-merge clauses in `AGENTS.md` "Don'ts". Auto-run is
 gated by the same `autoMerge` flag as step 10 — `flow feature create --no-auto-merge`
@@ -2162,7 +2146,13 @@ flow-remove-worktree --delete-branch
 ```
 
 Then echo the recap per [Gate-stage echo-verbatim
-recap](#gate-stage-echo-verbatim-recap---echo-prose).
+recap](#gate-stage-echo-verbatim-recap---echo-prose). **Discharging the
+`advance-to-step-5` disclosure obligation, part 2:** `flow-pipeline-summary`
+reads `--pr-title`/`--pr-url` and `--plan-file`, so a PR body carrying the
+`Bundled:` Key decisions bullet (written in step 5 above) surfaces in this
+recap automatically — no separate step is needed, but do not drop the
+`--plan-file` flag from the call above, since that is what makes the
+recap see it.
 
 The helper silently suppresses the FOLLOW-UPS slot when the follow-ups
 file is empty, so call sites do not stat the path first. End.
@@ -2330,19 +2320,24 @@ caps.
 **Checkpoint re-injection (persisted conversational state).** A fresh
 process reconstructs the pipeline *step* from disk but drops any
 instruction held only in chat. Before re-entering the resolved step,
-check `$CHECKPOINT_EXISTS`: when `true` (a
-`<worktree>/.flow-tmp/checkpoint.md` written by `/flow-checkpoint` or step 4's
-auto-checkpoint), **read `$WORKTREE/.flow-tmp/checkpoint.md`** and fold its
-addenda into the re-entered step — honor the persisted approval condition,
-redirect, or in-chat decision as if just given. Then run:
+check `$CHECKPOINT_EXISTS`: when `true` (a **usable**
+`<worktree>/.flow-tmp/checkpoint.md` — present, non-empty, and still
+fresh per `flow-checkpoint`'s freshness rules — written by
+`/flow-checkpoint` or one of the four auto-checkpoint sub-steps), **read
+`$WORKTREE/.flow-tmp/checkpoint.md` BEFORE running `--consume`** and fold
+its addenda into the re-entered step — honor the persisted approval
+condition, redirect, or in-chat decision as if just given. Then run:
 
 ```bash
 flow-checkpoint --consume
 ```
 
-which deletes the one-shot `checkpoint.pending` marker so a later
-unrelated `/clear` does not re-fire the auto-resume hook. Skip this and an
-"approved with condition X" addendum silently vanishes on the clear.
+which retires the body — archiving it to
+`.flow-tmp/checkpoint.consumed.md` (recoverable, never silently deleted)
+and clearing the freshness record — and deletes the one-shot
+`checkpoint.pending` marker so a later unrelated `/clear` does not
+re-fire the auto-resume hook. Skip the read-before-consume ordering and
+an "approved with condition X" addendum silently vanishes on the clear.
 
 Branch on `.resumeAt`:
 
@@ -2350,38 +2345,25 @@ Branch on `.resumeAt`:
 |---|---|
 | `step-2` | Re-enter step 2 (worktree). Recreate via `flow-new-worktree`. |
 | `step-3` | Re-enter step 3 (plan). Re-invoke `/flow-product-planning`. |
-| `step-4` | Re-enter step 4 (approval) — **but first check for the non-feature candidate-issues overflow marker** (see the note below the table). Absent the marker: re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
+| `step-4` | Re-enter step 4 (approval). Re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
 | `step-5` | Re-enter step 5 (implement). Re-invoke `/flow-new-feature`. |
 | `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow install --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
 | `step-6` | Re-enter step 6 (verify). Re-spawn the Verify-Retry-Loop subagent (phase stays `verifying`; the subagent re-runs the `/flow-verify` loop observing the worktree fresh, so a re-spawn is idempotent). |
 | `step-7` | Re-enter step 7 (ci-wait). A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-backgrounded pending phase) both resolve here. **Read `$WORKTREE/.flow-tmp/ci-wait-result.json` first**: if it exists and parses, the backgrounded `flow-ci-wait` already reached a terminal decision — read the persisted verdict and branch on `.decision` without re-running the loop. Only when the file is absent or unparseable does the supervisor re-launch the backgrounded `flow-ci-wait` (the poll loop restarts, observing CI state fresh from GitHub). |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/flow-pr-review <PR>`. |
 | `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — which re-runs `flow-pipeline-summary ... --echo-prose ...` and re-echoes the recap verbatim per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection — then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition) and run `flow-remove-worktree --delete-branch`, write `phase: merged`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
-| `gated-feedback` | Re-enter feedback mode for a `gated` PR carrying a checkpoint marker. Print `RESUMING AT: gated-feedback (gated-with-checkpoint-marker)`, re-inject `$WORKTREE/.flow-tmp/checkpoint.md` (the generic checkpoint re-injection above), then position to take a bug callout → route it through the `/flow-coder` interactive redirect → re-verify (step 6) → re-gate (step 9). **This loop introduces no new merge path and never merges on its own authority:** its re-gate re-enters the normal step 9 gate, which routes every merge through the existing `flow-merge-guard` backstop (Decision A1) — a still-`gated` PR ends terminally at `gated`; the only merge routes are the user ticking all Test Steps boxes (gate re-reads `auto-merge`, `flow-merge-guard` confirms zero-unchecked) or the existing gate-override token. Then `flow-checkpoint --consume` to drop the one-shot marker. |
+| `gated-feedback` | Re-enter feedback mode for a `gated` PR carrying a checkpoint marker. Print `RESUMING AT: gated-feedback (gated-with-checkpoint-marker)`, re-inject `$WORKTREE/.flow-tmp/checkpoint.md` (the generic checkpoint re-injection above), then position to take a bug callout → route it through the `/flow-coder` interactive redirect → re-verify (step 6) → re-gate (step 9). **This loop introduces no new merge path and never merges on its own authority:** its re-gate re-enters the normal step 9 gate, which routes every merge through the existing `flow-merge-guard` backstop (Decision A1) — a still-`gated` PR ends terminally at `gated`; the only merge routes are the user ticking all Test Steps boxes (gate re-reads `auto-merge`, `flow-merge-guard` confirms zero-unchecked) or the existing gate-override token. Then `flow-checkpoint --consume` to retire the body (archive to `.flow-tmp/checkpoint.consumed.md`, clear the freshness record) and drop the one-shot marker. |
 | `terminal` | Already in a terminal state. Re-run the corresponding gate render (the same helpers every gate-emission site uses) and end without re-running anything else. On `merged`/`gated` the render re-runs `flow-pipeline-summary ... --echo-prose ...` above `flow-gate-summary --status <merged\|gated> ...`, so the echo recap re-surfaces on resume re-entry — extract the `<!-- flow-echo-recap:start -->`…`<!-- flow-echo-recap:end -->` block and echo it VERBATIM per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection (re-orientation is exactly the resume use case). `cancelled` has no PR, so `--echo-prose` is a no-op there. `needs-human` re-renders the escalation via `flow-gate-summary --status needs-human ...`. The two no-in-flight-work pending phases short-circuit here pre-tree (reasons `no-change-investigation-complete` for `triaged-no-change`, `awaiting-triage-clarification` for `triage-pending-clarification`): they carry no PR/worktree and have no gate-summary status, so print a one-line note that the pipeline already completed (a no-change investigation, or one awaiting a clarification a resume can't re-ask) and end — do NOT build a worktree. On the `triaged-no-change` path, when `$ANSWER` is non-empty, re-print the saved `$ANSWER` (as markdown) so the user re-reads the original answer instead of the generic terminal note; fall back to the generic note when `$ANSWER` is empty. |
 | `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
 | `abort` | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end. |
 
-**Non-feature candidate-issues overflow re-route.**
 `flow-resume-decide` resolves `approval-pending-clarification` to
 `step-4` (`bin/flow-resume-decide.ts` Row 4 — the phase is not in
-`POST_APPROVAL_PHASES`). For a *feature* pipeline that is correct: it
-takes the normal step-4 plan-approval clarification path above. But a
-**non-feature** pipeline never solicited a plan-ratification gate, so
-the only way it can be parked at `approval-pending-clarification` is
-the candidate-issues 5+ **overflow** case from step 3's non-feature
-sub-step. The supervisor disambiguates by the presence of the
-worktree-local marker `"$WORKTREE/.flow-tmp/candidate-issues-overflow.pending"`
-(written by that overflow branch). When `.resumeAt` is `step-4` AND
-that marker exists, do NOT re-run step-4 plan ratification (the user
-never gave a plan to ratify). Instead re-enter the candidate-issues
-sub-step: re-run `flow-candidate-issues --plan-md-file
-"$WORKTREE/.flow-tmp/plan.md" --json` and branch on `.action` — on
-`prompt`, fire the candidate-issues `AskUserQuestion` + `--tick`; on
-`no-op`/`skip-already-ticked` (the user manually ticked items in
-plan.md while away), continue to step 5 — then remove the marker once
-resolved. A feature pipeline at the same phase (no marker) is
-unaffected.
+`POST_APPROVAL_PHASES`) for both feature and `route-to-step-4`
+non-feature pipelines alike: it is the phase step 4's Ambiguous branch
+writes while awaiting the user's clarifying-question reply, so the
+plain step-4 row above already covers it — no disambiguation marker is
+needed.
 
 ## Edge cases (condensed from `references/failure-recovery.md` section (b))
 
@@ -2541,103 +2523,22 @@ the final line of stdout is the byte-exact sentinel
 escalation — leave the worktree + PR (and the JSONL log) intact so
 the user can inspect and resume.
 
-## Branch-mismatch escalation (no retries)
+## No-retry escalation variants
 
-When `flow-state-update` exits with status 3, the worktree's branch
-no longer matches the `.flow-branch` marker written by
-`flow-new-worktree`. This means a peer pipeline (or a stray manual
-git command) renamed this branch out from under us — the same family
-of failure as the 2026-05-01 incident. The mechanical guard refused
-to write the phase transition; the supervisor must NOT retry.
-Escalate immediately:
+Three escalations take a no-retry path with their own procedure. Each is
+deterministically triggered and each has a full block in
+`references/failure-recovery.md` § (c) No-retry escalation variants — read it
+and execute its block rather than acting from memory.
 
-```bash
-flow-gate-summary --status needs-human --reason branch-mismatch \
-  --why "<expected vs actual from stderr>"                  # render BEFORE the terminal state transition
-flow-state-update --phase needs-human  # may itself fail; that's ok, scrollback shows the cause
-flow-notify --status needs-human --reason "branch-mismatch"
-```
+| Trigger | Reason tag | Action |
+|---|---|---|
+| `flow-state-update` exits 3 | `branch-mismatch` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
+| `flow-state-update` exits 4 | `terminal-regression` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
+| `ToolSearch query="select:Task"` surfaces neither a `Task` nor an `Agent` schema at a spawn site | `task-tool-unavailable: <exemption-name>` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
 
-There is no auto-recovery — branch state is load-bearing and the
-user must inspect (`git reflog`, `git worktree list`) to decide
-whether the rename was malicious, accidental, or expected. Leave the
-worktree + PR intact.
-
-## Terminal-regression escalation (no retries)
-
-When `flow-state-update` exits with status 4, a terminal→non-terminal
-phase regression was detected — the existing phase in state.json is one
-of `merged`, `gated`, `needs-human`, `cancelled`, or `epic-approved`,
-but the requested transition would move to a non-terminal phase. This
-signals an ambient-pane race that wrote to the wrong pipeline's state:
-`resolveSlugFromPane()` resolved a stale or mismatched slug and the
-write was blocked by the mechanical guard. The supervisor must NOT retry.
-Escalate immediately:
-
-```bash
-flow-gate-summary --status needs-human --reason terminal-regression \
-  --why "<expected→actual from stderr>"   # render BEFORE the terminal state transition
-flow-state-update --phase needs-human     # may itself fail; that's ok, scrollback shows the cause
-flow-notify --status needs-human --reason "terminal-regression"
-```
-
-There is no auto-recovery — the guard blocked the write precisely to
-avoid corrupting a finished pipeline's terminal state. Leave the worktree
-+ PR intact for the user to inspect.
-
-If you suspect the victim pipeline's state was already corrupted by a
-prior race, the operational recovery for an already-corrupted pipeline is:
-
-```bash
-flow-state-update --phase <merged|gated|needs-human|...> --force --slug <victim-slug>
-```
-
-`--force` bypasses the regression guard; `--slug` targets the specific
-pipeline rather than relying on pane resolution. Use only after confirming
-which pipeline's state needs correction.
-
-## Task-tool unavailable (no retries)
-
-Fires when any of the nine spawn procedures' load step
-(`ToolSearch query="select:Task"`) returns a response that does not
-contain *either* a `<function>{"name": "Task", ...}</function>` *or* a
-`<function>{"name": "Agent", ...}</function>` line — i.e. the harness
-has surfaced neither alias of the one-shot subagent-spawn primitive
-top-level in the current session. The supervisor must NOT fall back
-to in-line execution; in-line fallback breaks the context-isolation
-contract each Task-tool exemption is justified by (PR #124 was the
-inaugural silent-fallback regression). Escalate immediately:
-
-```bash
-flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"
-flow-gate-summary --status needs-human \
-  --reason "task-tool-unavailable: <exemption-name>" \
-  --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"   # render BEFORE the terminal state transition
-flow-state-update --phase needs-human
-flow-notify --status needs-human --reason "task-tool-unavailable: <exemption-name>"
-```
-
-The helper parses the `:`-suffix and appends ` (spawn site:
-<exemption-name>)` to `NEXT_ACTION_BY_REASON["task-tool-unavailable"]` so
-the NEXT ACTION line names the exact spawn site; the sentinel line is
-byte-exact `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
-`<exemption-name>` is one of `pr-review-gatekeeper`,
-`pr-review-multi-agent-review`, `pr-review-fix-applier`,
-`pr-review-consolidator-validator`, `product-planning-discovery`,
-`new-feature-scout`, `coder-edit-applier`, `flow-pipeline-merge-resolver`,
-`flow-pipeline-verify-loop`.
-
-No retry is appropriate — the deferred-tool surfacing is environmental;
-remediation is to re-run in a session where `Task` or `Agent` is surfaced
-top-level (restart `claude` or upgrade the CLI). Leave the worktree + PR
-intact. For the `pr-review-*` sites (now reachable from the in-process
-Skill load, `context: fork` removed), the escalation tag is written into
-`<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
-and step 8's artifact-read propagates it into `NEEDS HUMAN:
-<escalation_tag>`.
-
-The full per-step cap table and the resume-from-disk decision tree live
-in `references/failure-recovery.md`.
+The full per-step cap table, the resume-from-disk decision tree, and the
+three no-retry escalation variants' full procedures live in
+`references/failure-recovery.md`.
 
 # Mid-flight redirects
 

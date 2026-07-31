@@ -71,9 +71,10 @@ helpers (`flow-new-worktree`, `flow-pre-commit`, `flow-state-update`,
 `flow-notify`, `flow-ui-validate`, `flow-delegate`, `flow-research-cache`,
 etc.) live there with `.ts` extensions, Bun shebangs, and tests next door
 (`<name>.test.ts`, skipped when `flow install` symlinks into
-`~/.local/bin/<name>`). The three schema validators
+`~/.local/bin/<name>`). The five schema validators
 (`flow-pr-review-result-schema`, `flow-agent-finding-schema`,
-`flow-fix-applier-schema`) are also symlinked, sourced from
+`flow-fix-applier-schema`, `flow-epic-manifest-schema`,
+`flow-intent-resolution-schema`) are also symlinked, sourced from
 `bin/lib/*-schema.ts` via an explicit-allowlist `discoverValidators`
 (distinct from `discoverHelpers`'s auto-pickup of every `bin/*.ts`).
 `bin/flow` itself is Bun and dispatches every verb natively.
@@ -343,26 +344,25 @@ three-layer resolution table, and the manifest/foundation fields — is at
     **Bash fan-out, not a tenth exemption** —
     `flow-delegate`/`flow-plan-review` calls, no Task, graceful skip
     sans agy.
-  - **AskUserQuestion exemption: `/flow-pipeline` candidate-issues
-    form (two firing locations).** The multi-select form that picks
-    which orthogonal candidates to file post-merge, fired from step 4's
-    Affirmative branch and step 3's `advance-to-step-5` non-feature
-    branch (so non-feature pipelines still get offered discovered
-    follow-ups). Full detail at
-    [references/git-workflow.md](references/git-workflow.md).
   - **AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override
     sub-step.** The single confirmation form fired when the user
     instructs the supervisor to merge a `gated` PR anyway — a *fresh*
-    confirmation, not an inference from an earlier instruction. These
-    two named forms are the **only** authorised `AskUserQuestion` sites.
+    confirmation, not an inference from an earlier instruction. This
+    named form is the **only** authorised `AskUserQuestion` site.
   - **Auto-issue-create exemption: `/flow-pr-review` Step 6 deferral path
     and `/flow-pipeline` Step 10 post-merge sweep.** `flow-create-issue`
-    fires only from these two named sites, both with explicit user
-    opt-in. Full detail at
+    fires only from these two named sites. Feature and `route-to-step-4`
+    pipelines curate the ticked set at plan review (the `--details` echo
+    plus the `drop candidate #N` / `pull #N into the plan` reply verbs
+    precede the action); step 3's `advance-to-step-5` route has no
+    checkpoint, so its pre-ticked candidates and bundled tasks proceed as
+    discovery authored them, disclosed post-hoc in the PR body and the
+    terminal recap, with post-merge off-ramps (revert a bundled line,
+    close an unwanted issue) as the correction path. Full detail at
     [references/git-workflow.md](references/git-workflow.md).
   - **`/flow-epic-create` is a separate sanctioned supervisor session.**
     `flow epic create` spawns a fresh top-level `/flow-epic-create` session, so
-    `/flow-pipeline`'s exactly-9 and two-form rules are unaffected by its
+    `/flow-pipeline`'s exactly-9 and one-form rule are unaffected by its
     two named surfaces: **Task-tool fan-out: `/flow-epic-create` →
     /flow-product-planning MODE: epic designer.** and **AskUserQuestion
     form: `/flow-epic-create` clarification round.** Its

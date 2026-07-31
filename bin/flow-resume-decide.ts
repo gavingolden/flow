@@ -52,6 +52,7 @@ import { readState, type PipelineState, TERMINAL_PHASES } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { markerPath } from "./flow-checkpoint";
+import { isCheckpointUsable } from "./lib/checkpoint-freshness";
 import {
   probeWorktree,
   probePr,
@@ -109,9 +110,14 @@ export type DecisionContext = {
   hasSkillAdditions?: boolean;
   answer?: string;
   /**
-   * True when `<worktree>/.flow-tmp/checkpoint.md` is present — the signal
-   * Resume mode reads to re-inject persisted conversational addenda (an
-   * "approved with condition X" note the fresh process would otherwise drop).
+   * True when `<worktree>/.flow-tmp/checkpoint.md` holds a body worth
+   * re-injecting — the signal Resume mode reads to surface persisted
+   * conversational addenda (an "approved with condition X" note the fresh
+   * process would otherwise drop). Computed via `isCheckpointUsable`, NOT
+   * `probeFreshness`'s non-clobbering verdict: an auto-armed record that no
+   * later phase transition has superseded is usable even though
+   * `probeFreshness` would say a later auto site is free to overwrite it —
+   * those are different questions (see `bin/lib/checkpoint-freshness.ts`).
    * Additive/optional; absent on pipelines that never checkpointed.
    */
   checkpointExists?: boolean;
@@ -523,26 +529,13 @@ export function probePlan(worktreePath: string): boolean {
 }
 
 /**
- * Reads <worktree>/.flow-tmp/checkpoint.md and returns true iff present +
- * non-empty — the presence signal Resume mode reads to re-inject persisted
- * conversational addenda. Mirrors probePlan.
- */
-export function probeCheckpoint(worktreePath: string): boolean {
-  const checkpointPath = path.join(worktreePath, ".flow-tmp", "checkpoint.md");
-  try {
-    const stat = fs.statSync(checkpointPath);
-    if (!stat.isFile()) return false;
-    return stat.size > 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * True iff the one-shot `<worktree>/.flow-tmp/checkpoint.pending` marker exists.
- * DISTINCT from `probeCheckpoint` (which probes the persistent `checkpoint.md`):
- * this reads the marker `flow-checkpoint` arms on a ready verdict — the same
- * signal the SessionStart hook gates on, so the marker path is imported from
+ * DISTINCT from `checkpointExists` in `gatherInputs` (which asks whether the
+ * persistent `checkpoint.md` is USABLE — present, non-empty, AND not
+ * superseded by a later phase transition, via `isCheckpointUsable` imported
+ * from `./lib/checkpoint-freshness`): this reads the marker
+ * `flow-checkpoint` arms on a ready verdict — the same signal the
+ * SessionStart hook gates on, so the marker path is imported from
  * `./flow-checkpoint` (single source of truth, one-way import) rather than
  * re-derived here.
  */
@@ -666,7 +659,9 @@ export function gatherInputs(
   const planExists =
     worktree.kind === "present" ? probePlan(worktree.path) : false;
   const checkpointExists =
-    worktree.kind === "present" ? probeCheckpoint(worktree.path) : false;
+    worktree.kind === "present"
+      ? isCheckpointUsable(state, worktree.path)
+      : false;
   const checkpointMarkerExists =
     worktree.kind === "present" ? probeCheckpointMarker(worktree.path) : false;
   const hasSkillAdditions =
