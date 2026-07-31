@@ -71,14 +71,27 @@ export function flowVerbs(): string[] {
  * Single permissive substitution pass. A restrictive `/<[^>|]+>/g` first pass
  * (tried and rejected) SKIPS `<merged|gated|...>`, leaving a bare `|` that
  * makes `bash -n` read a pipe-to-redirect and go red — so every `<...>` span
- * is replaced in one pass, regardless of internal characters.
+ * is replaced in one pass. The character class excludes `<`, `>`, AND `\n`
+ * (not just `>`): allowing `[^>]` to match newlines let a `<` that is NOT a
+ * placeholder opener (a `<` redirect or `< <(...)` process substitution)
+ * start a match that ran forward across line boundaries to the next `>`
+ * ANYWHERE later in the fragment, silently swallowing real shell syntax
+ * between them into one PLACEHOLDER token instead of leaving it for
+ * `bash -n` to check.
  */
 export function substitutePlaceholders(fragment: string): string {
-  return fragment.replace(/<[^>]+>/g, "PLACEHOLDER");
+  return fragment.replace(/<[^<>\n]+>/g, "PLACEHOLDER");
 }
 
 export function bashParses(fragment: string): boolean {
   const result = spawnSync("bash", ["-n"], { input: fragment });
+  if (result.error) {
+    throw new Error(
+      `bashParses: failed to spawn 'bash' — ${result.error.message}. This is ` +
+        `an environment failure, not a syntax verdict; a false return here ` +
+        `would misreport every recipe as broken.`,
+    );
+  }
   return result.status === 0;
 }
 
@@ -110,5 +123,12 @@ export function shellcheckOk(fragment: string): boolean {
     ["--severity=error", "--shell=bash", "-"],
     { input: fragment, encoding: "utf8" },
   );
+  if (result.error) {
+    throw new Error(
+      `shellcheckOk: failed to spawn 'shellcheck' — ${result.error.message}. ` +
+        `Callers must gate on hasShellcheck() first; this is an environment ` +
+        `failure, not a lint verdict.`,
+    );
+  }
   return result.status === 0;
 }

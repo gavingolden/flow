@@ -4000,10 +4000,12 @@ describe("pr-review include-by-reference structure", () => {
     // out of the `# Failure paths` block into references/failure-recovery.md
     // § (c), replacing them with a compact trigger table, then appended a
     // short "standard `# Failure paths` chain" pointer clause to each of the
-    // four terse step-10 escalation sites. File lands at 2659 lines —
-    // RATCHETED the ceiling DOWN to 2685 (measured + ~25, rounded to the
-    // nearest 5), not raised, so the headroom this extraction freed is not
-    // silently refilled by unrelated regrowth.
+    // five terse step-10 escalation sites (the fifth,
+    // merge-resolver-missing-artifact, was initially missed in this PR and
+    // added in a pr-review #506 follow-up fix commit). File lands at 2660
+    // lines — RATCHETED the ceiling DOWN to 2685 (measured + ~25, rounded to
+    // the nearest 5), not raised, so the headroom this extraction freed is
+    // not silently refilled by unrelated regrowth.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +

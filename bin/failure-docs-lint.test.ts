@@ -16,8 +16,8 @@ import {
  * `references/failure-recovery.md`'s cap table and `NEXT_ACTION_BY_REASON`,
  * plus command validity over the cap table's command cells and every
  * ```bash fence (failure-recovery.md's + SKILL.md's retained `# Failure
- * paths` canonical chain). Run LAST — it reads failure-recovery.md after
- * Task 5 moved the four no-retry-escalation fences into it.
+ * paths` canonical chain). Reads failure-recovery.md, which holds the
+ * three no-retry-escalation fences moved out of SKILL.md.
  */
 
 const FAILURE_RECOVERY_PATH = path.resolve(
@@ -74,6 +74,38 @@ function extractCapTableBacktickSpans(md: string): string[] {
   return spans;
 }
 
+/**
+ * Select command-SHAPED backtick cells WITHOUT presupposing the answer
+ * (i.e. without filtering on `COMMAND_WORDS`, the same vocabulary
+ * `firstTokenOk` asserts against below — filtering on it here made the
+ * selector and the assertion share a predicate, so a cell led by an
+ * unknown/dangerous token, e.g. `rm -rf` or `curl ... | sh`, was DROPPED
+ * from the corpus instead of FAILED). A span is command-shaped when either:
+ * (a) its first token is a recognised command word (`flow`, `gh`, `git`, a
+ * `bin/*.ts` helper name, ...) — covers the normal recipe cells, or
+ * (b) it has 2+ tokens and looks like an invocation regardless of whether
+ * the leading token is recognised — a flag-bearing second token (`-rf`,
+ * `--force`) or a pipe/`&&` chain. This still excludes bare status/phase
+ * literals (`ci-wait`, `phase: cancelled`) and prose fragments (`kill
+ * this`) that have neither a recognised leading word nor flag/pipe syntax.
+ */
+function looksCommandShaped(span: string): boolean {
+  const trimmed = span.trim();
+  if (!trimmed) return false;
+  const tokens = trimmed.split(/\s+/);
+  const first = tokens[0];
+  if (COMMAND_WORDS.includes(first)) return true;
+  if (
+    tokens.length >= 2 &&
+    (tokens[1].startsWith("-") ||
+      trimmed.includes("|") ||
+      trimmed.includes("&&"))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function extractBashFences(md: string): string[] {
   const re = /```bash\n([\s\S]*?)\n```/g;
   const fences: string[] = [];
@@ -112,12 +144,12 @@ describe("failure docs lint — cap-table tag parity (subset rule)", () => {
 });
 
 describe("failure docs lint — cap-table command cells", () => {
-  it("every command-word-led backtick cell shell-parses and passes firstTokenOk", () => {
+  it("every command-shaped backtick cell shell-parses and passes firstTokenOk", () => {
     const spans = extractCapTableBacktickSpans(failureRecoveryMd);
-    const cells = spans.filter((s) =>
-      COMMAND_WORDS.includes(s.trim().split(/\s+/)[0]),
-    );
-    expect(cells.length).toBeGreaterThanOrEqual(5);
+    const cells = spans.filter(looksCommandShaped);
+    // Measured at 12 cells on this corpus; floor left with a little slack
+    // rather than pinned exactly, per fix C's guidance in pr-review #506.
+    expect(cells.length).toBeGreaterThanOrEqual(10);
     for (const cell of cells) {
       expect(bashParses(substitutePlaceholders(cell)), cell).toBe(true);
       expect(firstTokenOk(cell), cell).toBe(true);
@@ -126,6 +158,16 @@ describe("failure docs lint — cap-table command cells", () => {
 
   it("[negative] flow new fails firstTokenOk even inside a cap-table-shaped cell", () => {
     expect(firstTokenOk("flow new <slug>")).toBe(false);
+  });
+
+  it("[negative] an unknown-token command cell with flag syntax is selected as command-shaped, not silently dropped", () => {
+    expect(looksCommandShaped("rm -rf <path>")).toBe(true);
+    expect(firstTokenOk("rm -rf <path>")).toBe(false);
+  });
+
+  it("[negative] bare status/phase literals and prose are not swept in as command-shaped", () => {
+    expect(looksCommandShaped("ci-wait")).toBe(false);
+    expect(looksCommandShaped("kill this")).toBe(false);
   });
 });
 

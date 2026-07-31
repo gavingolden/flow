@@ -230,8 +230,7 @@ flow-notify --status needs-human --reason "terminal-regression"
 
 There is no auto-recovery — the guard blocked the write precisely to
 avoid corrupting a finished pipeline's terminal state. Leave the worktree
-
-- PR intact for the user to inspect.
+and PR intact for the user to inspect.
 
 If you suspect the victim pipeline's state was already corrupted by a
 prior race, the operational recovery for an already-corrupted pipeline is:

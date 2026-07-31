@@ -41,8 +41,12 @@ describe("gate-summary recipe lint — key parity", () => {
   });
 
   it("[negative] a missing key would fail parity", () => {
-    const naKeys = new Set(["a", "b"]);
-    const rcKeys = new Set(["a"]);
+    // Built from the real key sets (not synthetic "a"/"b" literals) with
+    // one real RECIPE_COMMANDS key dropped, so this exercises the actual
+    // parity check drifting against real repo state, not an invented shape.
+    const naKeys = new Set(Object.keys(NEXT_ACTION_BY_REASON));
+    const rcKeys = new Set(Object.keys(RECIPE_COMMANDS));
+    rcKeys.delete([...rcKeys][0]);
     expect(rcKeys).not.toEqual(naKeys);
   });
 });
@@ -170,7 +174,12 @@ describe("gate-summary recipe lint — structure", () => {
   });
 
   it("[negative] a bare -- token would fail the structure guard", () => {
-    expect(/(^|\s)--(\s|$)/.test("do the thing -- then stop")).toBe(true);
+    // Built from a real declared command (not a fully synthetic prose
+    // literal) with a bare `--` appended, so this exercises the guard
+    // against real repo state drifting rather than an invented string.
+    const [firstTag] = Object.keys(RECIPE_COMMANDS);
+    const realCmd = RECIPE_COMMANDS[firstTag][0];
+    expect(/(^|\s)--(\s|$)/.test(`${realCmd} -- oops`)).toBe(true);
   });
 });
 

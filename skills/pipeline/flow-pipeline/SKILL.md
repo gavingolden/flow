@@ -2005,7 +2005,7 @@ and the filled prompt. After it returns:
 2. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
    `NEEDS HUMAN: merge-resolver-missing-artifact` and end. (Do not
    re-spawn the resolver — exactly one Task call per run, per the
-   exemption contract.)
+   exemption contract.) Then the standard `# Failure paths` chain.
 3. Read the artifact's `push_status`. If `succeeded`, retry the
    merge **exactly once** with `$PRIMARY` re-derived in the same Bash
    call (the supervisor runs this as a fresh shell — `$PRIMARY` from
