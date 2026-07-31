@@ -1496,10 +1496,12 @@ defect the move itself introduces, even if the enumeration already existed befor
 ```markdown
 <!-- BAD: three escalation variants moved into failure-recovery.md § (c),
      but the cross-reference still enumerates only two -->
+
 ... plus the branch-mismatch escalation and the task-tool-unavailable
 escalation now living in .../failure-recovery.md § (c) ...
 
 <!-- GOOD: name all three moved variants -->
+
 ... plus the branch-mismatch escalation, the terminal-regression escalation,
 and the task-tool-unavailable escalation now living in
 .../failure-recovery.md § (c) ...
@@ -1739,8 +1741,8 @@ When a new boolean helper is documented in terms of the _scenario that motivated
 
 A comment (or PR body) justifying an opt-in/default-off flag as avoiding a
 dependency's cost, when the dependency is pulled in by an **unconditional
-static import** at the top of the same file. Gating the *render* does not gate
-the *module graph* — the import cost is paid by every consumer regardless.
+static import** at the top of the same file. Gating the _render_ does not gate
+the _module graph_ — the import cost is paid by every consumer regardless.
 Either make the import lazy/dynamic, or narrow the claim to behavioural /
 rendering equivalence only.
 
