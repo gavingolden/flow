@@ -50,6 +50,7 @@ function makeInputs(overrides: Partial<Inputs> = {}): Inputs {
     state: baseState(),
     worktree: PRESENT_WORKTREE,
     pr: OPEN_PR,
+    checkpointExists: false,
     ...overrides,
   };
 }
@@ -176,6 +177,30 @@ describe("decide() — design / validate / checkpoint", () => {
     const r = decide(makeInputs());
     expect(r.epicResumeAt).toBe("checkpoint");
     expect(r.epicResumeAt).not.toBe("design");
+  });
+});
+
+describe("decide() — checkpointExists (Task 5 parity with flow-resume-decide)", () => {
+  it("surfaces checkpointExists: true on a checkpoint decision", () => {
+    const r = decide(makeInputs({ checkpointExists: true }));
+    expect(r.epicResumeAt).toBe("checkpoint");
+    expect(r.context.checkpointExists).toBe(true);
+  });
+
+  it("surfaces checkpointExists: false when absent", () => {
+    const r = decide(makeInputs({ checkpointExists: false }));
+    expect(r.context.checkpointExists).toBe(false);
+  });
+
+  it("surfaces checkpointExists: false on a terminal-phase decision (no gh/git probe needed)", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "epic-approved" }),
+        checkpointExists: false,
+      }),
+    );
+    expect(r.epicResumeAt).toBe("terminal");
+    expect(r.context.checkpointExists).toBe(false);
   });
 });
 

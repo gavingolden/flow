@@ -6,7 +6,7 @@ SKILLs links here rather than restating the whole chain.
 
 Adding a per-spawn `model:` argument to an **existing** named fan-out creates
 **no new Task-tool exemption** and **no tenth spawn site** — the nine exemption
-openers, the two `AskUserQuestion` forms, and every "Load the Task tool before
+openers, the one `AskUserQuestion` form, and every "Load the Task tool before
 spawning" preamble stay byte-exact (guarded by `bin/skill-md-lint.test.ts`).
 
 ## How the supervisor reads a model (jq, never a `bin/lib` import)

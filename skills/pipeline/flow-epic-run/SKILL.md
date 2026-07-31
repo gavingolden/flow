@@ -88,7 +88,7 @@ bind`; record an out-of-band completion with `flow epic bind --external`;
 
 You spawn **no Task/Agent sub-agent** and fire **no AskUserQuestion form** — the
 playbook is plain in-session judgment plus bare-name PATH helpers. This keeps
-`/flow-pipeline`'s exactly-nine-Task-exemption and two-AskUserQuestion-forms
+`/flow-pipeline`'s exactly-nine-Task-exemption and one-AskUserQuestion-form
 invariants untouched: a different supervisor in a different window is a different
 session, and this one has zero named fan-out surfaces.
 
@@ -180,6 +180,26 @@ re-reads the board and continues. Print `RESUMING AT: playbook` on its own line
 before re-entering so the user reading scrollback can confirm, then reconcile
 and proceed.
 
+**Checkpoint re-injection (persisted conversational state).** A fresh
+process reconstructs the board from disk but drops any instruction held
+only in chat. Resolve the worktree **read-only** — `jq -r '.worktree'
+~/.flow/state/<slug>.json`, or `flow ls`. Do **not** resolve it by running
+bare `flow-checkpoint <slug>`: that form re-arms the one-shot
+`checkpoint.pending` marker on every resume, which is exactly what the
+`--consume` below exists to retire. Then probe
+`<worktree>/.flow-tmp/checkpoint.md`.
+When it exists, read it and fold its addenda into the reconcile step —
+honor the persisted decision as if just given — **before** taking the one
+deliberate step. Then run:
+
+```bash
+flow-checkpoint --consume
+```
+
+which deletes the one-shot `checkpoint.pending` marker so a later
+unrelated `/clear` in this window does not re-fire the auto-resume hook.
+Skipping the consume leaves the marker armed.
+
 # What this playbook does NOT do
 
 - It does **not merge** a feature PR — ever.
@@ -189,6 +209,9 @@ and proceed.
 launch`.
 - It does **not author feature code**, run a tick loop, poll, or spawn a
   judgment sub-agent.
+- It does **not replay a checkpoint twice** — the `checkpoint.pending`
+  marker is one-shot, consumed (`flow-checkpoint --consume`) on the same
+  re-entry that re-injects `checkpoint.md`.
 
 # Resource cleanup
 

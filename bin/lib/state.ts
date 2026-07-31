@@ -11,6 +11,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { FLOW_STATE_DIR } from "./paths";
+import { CHECKPOINT_SITES } from "./checkpoint-freshness";
 
 /**
  * Reasoning-effort levels accepted by `claude --effort`. Single source of
@@ -207,8 +208,33 @@ export type PipelineState = {
    */
   launchAttempts?: number;
   launchOutcome?: "started" | "launched-not-confirmed";
+  /**
+   * Freshness record for the `/flow-checkpoint` non-clobbering guard.
+   * Written by `flow-checkpoint`'s arm path (a plain state write, never
+   * `flow-state-update`, so `updatedAt` is deliberately NOT bumped — an
+   * arm is not a pipeline phase transition). `site` names who armed it
+   * (`"manual"` for the user-facing `/flow-checkpoint` skill's default, or
+   * one of the auto sites); `phase` is the pipeline phase at arm time;
+   * `armedAt` is the arm timestamp `probeFreshness` compares against
+   * `phaseLog` to decide whether the body is still fresh. Absent ≡ no
+   * recorded arm (a legacy body, or one written before this field existed;
+   * `probeFreshness` falls back to mtime-vs-`phaseLog` in that case — no
+   * migration, AGENTS.md forbids back-compat shims).
+   */
+  checkpoint?: { site: CheckpointSiteValue; phase: string; armedAt: string };
   updatedAt: string;
 };
+
+/**
+ * The `/flow-checkpoint` arm sites. Derived from `CHECKPOINT_SITES` in
+ * `./checkpoint-freshness` — that module has no import of `state.ts`, so
+ * importing it here is not circular (only `flow-checkpoint.ts` imports both
+ * `state.ts` and `./checkpoint-freshness`). One source of truth for the
+ * literal set: `isCheckpointRecord` below reads `CHECKPOINT_SITES` directly
+ * rather than restating it, so a new site added to `CHECKPOINT_SITES` can't
+ * silently make `readState` reject every state file that records it.
+ */
+export type CheckpointSiteValue = (typeof CHECKPOINT_SITES)[number];
 
 /**
  * Phases at which the supervisor is permitted to end its turn.
@@ -292,6 +318,75 @@ export function isLegitimateEndPhase(value: string): boolean {
 }
 
 /**
+ * Phases that belong to the epic-designer (`/flow-epic-create`) lifecycle,
+ * derived from `PIPELINE_PHASES` rather than hand-listed so a future
+ * `epic-*` phase joins automatically. Two ambiguities this predicate does
+ * NOT resolve, both left to callers:
+ *
+ * - `starting` is shared with feature pipelines and is unreachable via
+ *   `bin/flow-session-start-hook.ts` regardless (no worktree, no
+ *   `checkpoint.md` yet, so the marker check never passes).
+ * - The shared terminals `cancelled` / `needs-human` are feature-or-epic
+ *   ambiguous; callers must apply the terminal guard (`TERMINAL_PHASE_SET`)
+ *   before consulting `isEpicPhase` for anything.
+ *
+ * `isEpicPhase` also cannot tell an epic-**design** window from an
+ * epic-**run** window sharing the same slug/state — that disambiguation is
+ * `@flow-kind`'s job (`bin/lib/tmux.ts`); this predicate is only its
+ * phase-derived fallback when the pane option is absent.
+ */
+export const EPIC_PHASES: readonly PipelinePhase[] = PIPELINE_PHASES.filter(
+  (phase) => phase.startsWith("epic-"),
+);
+
+export const EPIC_PHASE_SET: ReadonlySet<string> = new Set(EPIC_PHASES);
+
+export function isEpicPhase(phase: string): boolean {
+  return EPIC_PHASE_SET.has(phase);
+}
+
+/**
+ * Which supervisor kind a window's pane is running. Published as `@flow-kind`
+ * (`bin/lib/tmux.ts`) and re-exported as `ResumeKind`
+ * (`bin/flow-session-start-hook.ts`).
+ *
+ * The literals live here ONCE and every runtime validator derives from
+ * `isPipelineKind` — the same derive-don't-hand-list discipline `EPIC_PHASES`
+ * uses above. Hand-listing them per validator is how a fourth kind would get
+ * silently rejected at one site and accepted at another, and the only
+ * compiler-enforced part is the type, not the runtime checks.
+ */
+export const PIPELINE_KINDS = ["feature", "epic-design", "epic-run"] as const;
+
+export type PipelineKind = (typeof PIPELINE_KINDS)[number];
+
+export const PIPELINE_KIND_SET: ReadonlySet<string> = new Set(PIPELINE_KINDS);
+
+export function isPipelineKind(value: string): value is PipelineKind {
+  return PIPELINE_KIND_SET.has(value);
+}
+
+/**
+ * Whether the `SessionStart:clear` hook auto-resumes a window at `phase`
+ * for a supervisor of the given `kind`. Encodes
+ * `bin/flow-session-start-hook.ts`'s terminal guard: an `epic-run` window
+ * resumes regardless of phase (its shared `state.json` describes the
+ * *design* lifecycle, not run progress — see `bin/lib/epic.ts`'s "no
+ * per-machine phase machine" comment on the run path); every other kind
+ * resumes unless `phase` is terminal, with the `gated` carve-out
+ * (feedback-resume stays live even though `gated` is terminal).
+ */
+export function autoResumesAfterClear(
+  phase: string,
+  kind: PipelineKind = "feature",
+): boolean {
+  if (kind === "epic-run") {
+    return true;
+  }
+  return !TERMINAL_PHASE_SET.has(phase) || phase === "gated";
+}
+
+/**
  * Compact, single-source-of-truth abbreviations for each pipeline phase,
  * published onto flow's own windows as the `@flow-phase-short` tmux option
  * (see `bin/lib/tmux.ts`) so a user's status-bar format can render a compact
@@ -358,6 +453,21 @@ function isEpicMembership(
   return typeof o.slug === "string" && typeof o.featureId === "string";
 }
 
+function isCheckpointRecord(
+  x: unknown,
+): x is { site: CheckpointSiteValue; phase: string; armedAt: string } {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  if (
+    typeof o.site !== "string" ||
+    !(CHECKPOINT_SITES as readonly string[]).includes(o.site)
+  )
+    return false;
+  if (typeof o.phase !== "string") return false;
+  if (typeof o.armedAt !== "string") return false;
+  return true;
+}
+
 function isPhaseLog(
   x: unknown,
 ): x is Array<{ phase: string; outcome?: string; at: string }> {
@@ -419,6 +529,8 @@ function isPipelineState(x: unknown): x is PipelineState {
     return false;
   if (o.epic !== undefined && !isEpicMembership(o.epic)) return false;
   if (o.phaseLog !== undefined && !isPhaseLog(o.phaseLog)) return false;
+  if (o.checkpoint !== undefined && !isCheckpointRecord(o.checkpoint))
+    return false;
   if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
     return false;
   if (o.pid !== undefined && typeof o.pid !== "number") return false;

@@ -17,8 +17,9 @@
  *      in any module here.
  *   2. `epic-manifest-schema.ts` IS in `sources.ts`'s `VALIDATOR_MODULES`
  *      allowlist (PATH-bound as `flow-epic-manifest-schema`), so it is a
- *      4th `core` validator row — omitting it would break `--all`
- *      byte-parity against live discovery.
+ *      4th `core` validator row, and `intent-resolution-schema.ts`
+ *      (PATH-bound as `flow-intent-resolution-schema`) a 5th — omitting
+ *      either would break `--all` byte-parity against live discovery.
  *   3. `p2-flow-prefix-rename` materialized the testing split: the generic
  *      `skills/universal/flow-testing` dir is a `core` skill row, and the
  *      Svelte-specific `skills/stacks/flow-testing-svelte` dir is a
@@ -133,12 +134,14 @@ export const MODULES: ModuleDefinition[] = [
       "flow-epic-membership",
       "flow-module-status",
       "flow-transcript-audit",
+      "flow-conflict-marker-check",
     ],
     validators: [
       "flow-pr-review-result-schema",
       "flow-agent-finding-schema",
       "flow-fix-applier-schema",
       "flow-epic-manifest-schema",
+      "flow-intent-resolution-schema",
     ],
   },
   {

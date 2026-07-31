@@ -26,7 +26,7 @@ checkpoint and wait for the user to **approve**, **redirect**, or **cancel**.
 This is a different supervisor session from `/flow-pipeline`. You fire your own
 named `AskUserQuestion` clarification form and your own single named Task-tool
 fan-out (the `MODE: epic` designer). Those are NOT among `/flow-pipeline`'s
-two `AskUserQuestion` forms / nine Task-tool exemptions — a different supervisor
+one `AskUserQuestion` form / nine Task-tool exemptions — a different supervisor
 in a different window is a different session.
 
 The Step 4.5 **cross-model design review** is a
@@ -111,7 +111,7 @@ When there IS a material ambiguity, fire **exactly one** bounded
 `AskUserQuestion` round before decomposing. This is **the `/flow-epic-create`
 clarification round** — this skill's OWN narrow, named, authorized
 `AskUserQuestion` form, registered in AGENTS.md. It is NOT one of
-`/flow-pipeline`'s two forms. Keep it to the smallest set of questions that
+`/flow-pipeline`'s one form. Keep it to the smallest set of questions that
 resolves the feature-set/DAG-shape fork; never use it for cosmetic detail.
 
 ## Step 3 — Run the F4 designer (the `/flow-epic-create` MODE: epic designer fan-out)
@@ -350,11 +350,31 @@ RESUME_AT=$(printf '%s' "$RESULT" | jq -r '.epicResumeAt')
 REASON=$(printf '%s' "$RESULT" | jq -r '.reason')
 WORKTREE=$(printf '%s' "$RESULT" | jq -r '.context.worktree // empty')
 PR=$(printf '%s' "$RESULT" | jq -r '.context.pr // empty')
+CHECKPOINT_EXISTS=$(printf '%s' "$RESULT" | jq -r '.context.checkpointExists // empty')
 ```
 
 Print `RESUMING AT: <epicResumeAt> (<reason>)` on its own line before
-re-entering, so the user reading scrollback can confirm. Re-attach the worktree
-first (`flow-new-worktree` is idempotent), then branch on `.epicResumeAt`:
+re-entering, so the user reading scrollback can confirm.
+
+**Checkpoint re-injection (persisted conversational state).** A fresh
+process reconstructs the epic _step_ from disk but drops any instruction
+held only in chat. Before re-entering the resolved step, check
+`$CHECKPOINT_EXISTS`: when `true` (a `<worktree>/.flow-tmp/checkpoint.md`
+written by `/flow-checkpoint`), **read `$WORKTREE/.flow-tmp/checkpoint.md`**
+and fold its addenda into the re-entered step — honor the persisted
+approval condition, redirect, or in-chat decision as if just given. Then
+run:
+
+```bash
+flow-checkpoint --consume
+```
+
+which deletes the one-shot `checkpoint.pending` marker so a later
+unrelated `/clear` does not re-fire the auto-resume hook. Skip this and an
+"approved with condition X" addendum silently vanishes on the clear.
+
+Re-attach the worktree first (`flow-new-worktree` is idempotent), then
+branch on `.epicResumeAt`:
 
 | `.epicResumeAt` | Action                                                                                                                                                                                                                                                                                                    |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -377,6 +397,9 @@ first (`flow-new-worktree` is idempotent), then branch on `.epicResumeAt`:
 - It does **not merge** the design PR — F5 never merges, on the fresh path or
   the resume path.
 - It does not launch a feature `flow feature create` or compute a DAG frontier.
+- It does **not replay a checkpoint twice** — the `checkpoint.pending` marker
+  is one-shot, consumed (`flow-checkpoint --consume`) on the same re-entry
+  that re-injects `checkpoint.md`.
 
 # Resource cleanup
 

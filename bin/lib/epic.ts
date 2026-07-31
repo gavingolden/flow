@@ -36,7 +36,6 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
 import {
-  resolveFlowSource,
   FLOW_CLAUDE_HOME,
   FLOW_LAUNCH_SEM_DIR,
   FLOW_LAUNCH_SETTINGS_PATH,
@@ -60,6 +59,7 @@ import {
 import {
   createWindowVerified,
   respawnWindowVerified,
+  setPaneKind,
   windowExists,
   isPaneAlive,
   FLOW_SESSION,
@@ -104,6 +104,12 @@ import {
 import { readEpicMaxParallel } from "./epic-config";
 import { resolveLauncherBackend } from "./launcher-config";
 import { renderBoard, renderEpicList, type EpicListRow } from "./epic-render";
+import {
+  epicCreateSeed,
+  epicResumeSeed,
+  epicRunSeed,
+  productPlanningSkillDir,
+} from "./epic-seed";
 
 /**
  * Bounded retry budget for the verified window create — mirrors feature.ts. A
@@ -121,14 +127,12 @@ const WINDOW_CREATE_MAX_ATTEMPTS = 3;
  * `SKILL_DIR` into its Task-spawned `MODE: epic` designer. The supervisor runs
  * cwd'd in a consumer worktree without `bin/lib`, so it cannot resolve this
  * itself — the CLI (flow's own installed code) resolves it symlink-aware via
- * `resolveFlowSource()` and threads it through.
+ * `resolveFlowSource()` and threads it through. The builders themselves live
+ * in `./epic-seed` (a dependency-light leaf the `SessionStart:clear` hook
+ * also imports without pulling in this module's whole graph); evaluated once
+ * at import time here, same as before extraction.
  */
-const PRODUCT_PLANNING_SKILL_DIR = path.join(
-  resolveFlowSource(),
-  "skills",
-  "pipeline",
-  "flow-product-planning",
-);
+const PRODUCT_PLANNING_SKILL_DIR = productPlanningSkillDir();
 
 function launchWithRetry(
   launch: () => VerifiedLaunchResult,
@@ -436,7 +440,15 @@ PR → review checkpoint), and writes initial epic state under
   // Epic orchestration is tmux-only (parallel feature windows are the whole
   // point): resolve the backend BEFORE any state/window side-effect and
   // refuse a plain resolution with the named opt-in notice. `--tmux` is the
-  // per-run override.
+  // per-run override. This refusal is now load-bearing for a SECOND reason
+  // too: it is the precondition that makes the pane-scoped `@flow-kind`
+  // signal safe for the `SessionStart:clear` auto-resume path — see
+  // `resolveKindAmbient` in `bin/lib/session-identity.ts`. If this refusal
+  // is ever relaxed, the kind signal must move off the pane first.
+  // `flow epic run` (`spawnEpicRunSupervisor`) carries no separate refusal
+  // check of its own — it always launches through this same tmux-only
+  // `createWindowVerified`, so a live epic window of EITHER kind always has
+  // the option set.
   const backend = resolveLauncherBackend({
     flag: wantTmux ? "tmux" : undefined,
     read: options.readConfig,
@@ -484,7 +496,7 @@ PR → review checkpoint), and writes initial epic state under
 
   const command =
     options.command ??
-    createCommand(worktree, effort, settingsPath, sessionModel);
+    createCommand(slug, worktree, effort, settingsPath, sessionModel);
 
   // Persist-then-verify-then-delete-on-failure (mirrors feature.ts runFresh): write
   // epic state(phase=starting) BEFORE the verified launch so the /flow-epic-create
@@ -566,6 +578,13 @@ PR → review checkpoint), and writes initial epic state under
     return 2;
   }
 
+  // Publish the pane kind AFTER the launch is confirmed live (best-effort;
+  // never changes this command's exit code) — a pre-launch write would be
+  // destroyed by a failed createWindowVerified or, worse, survive on a reused
+  // pane id. Read by the SessionStart:clear hook to pick the right resume
+  // seed and to bypass the terminal guard for a real epic-run window.
+  setPaneKind(slug, "epic-design");
+
   // State was written up front and survived verification; the /flow-epic-create
   // supervisor overwrites worktree + phase + pr at each transition from here.
   // First line is the machine-read contract token — raw, never colorized.
@@ -629,7 +648,7 @@ function runEpicResume(name: string, options: EpicOptions): number {
   const settingsPath = launchSettingsPathFor(options);
   const command =
     options.command ??
-    resumeCommand(worktree, state.effort, settingsPath, state.model);
+    resumeCommand(slug, worktree, state.effort, settingsPath, state.model);
   // Resume consumption baseline (mirrors feature.ts runResume): on resume the phase
   // is already past `starting` (`epic-designing`), so consumption is "the
   // resumed session RE-STAMPED the seed-ingested marker OR the resumed
@@ -673,6 +692,14 @@ function runEpicResume(name: string, options: EpicOptions): number {
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 2;
   }
+
+  // LOAD-BEARING: this site has no Mode-2 windowExists backstop (the pane may
+  // have pre-existed the resume), so this is the ONLY publish that overwrites
+  // a stale @flow-kind a prior `flow epic run` left on this pane — respawn-window
+  // -k preserves the pane id, so a reclaimed pane's option would otherwise
+  // survive from the wrong supervisor kind. Best-effort; never changes the
+  // exit code.
+  setPaneKind(slug, "epic-design");
 
   // Phase + worktree + pr stay as the crash left them. The supervisor's first
   // real transition is what updates state.json.
@@ -890,7 +917,7 @@ function spawnEpicRunSupervisor(
   const runSessionModel = runModel ?? readDefaultModel(options.readConfig);
   const command =
     options.command ??
-    createCommand(worktree, runEffort, settingsPath, runSessionModel);
+    createCommand(slug, worktree, runEffort, settingsPath, runSessionModel);
 
   // No run.json pre-seed and no `runnerPhase` reset — the default never-consumed
   // predicate (`createWindowVerified` with no `consumed`) verifies pane survival
@@ -920,6 +947,13 @@ function spawnEpicRunSupervisor(
     );
     return 2;
   }
+
+  // Publish AFTER the launch is confirmed live (best-effort; never changes
+  // this command's exit code) — see runCreate's setPaneKind comment. This is
+  // what lets the SessionStart:clear hook bypass the terminal guard for this
+  // window even though `state.phase` (shared with the design supervisor)
+  // sits at the terminal `epic-approved`.
+  setPaneKind(slug, "epic-run");
 
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
@@ -1575,20 +1609,27 @@ Options:
  * seed-ingested hook and is ADDITIVE (the user's global settings still apply).
  * NO positional seed — the seed is delivered ONLY via send-keys by the verified
  * launcher (claude does not auto-run a positional prompt), mirroring feature.ts's
- * launchArgv.
+ * launchArgv. Leading `env FLOW_PIPELINE=1 FLOW_SLUG=<slug>` prefix — see
+ * `bin/lib/feature.ts:1290-1295` for the argv-prefix rationale (`tmux
+ * new-window` offers no env object): `FLOW_PIPELINE` is a supervisor-scoped
+ * marker (not feature-scoped, despite living in feature.ts first) whose sole
+ * runtime consumer, `/flow-research`'s Tier-2 `claude -p` leaf guard
+ * (`skills/universal/flow-research/SKILL.md:306`), an epic supervisor should
+ * also trip; `FLOW_SLUG` makes every hook/helper in the window resolve the
+ * ambient slug env-first instead of depending on a tmux `@flow-slug` read.
  */
 function launchArgv(
+  slug: string,
   worktree: string,
   effort: EffortLevel | undefined,
   settingsPath: string,
   model?: ModelAlias,
 ): string[] {
-  // Bare `claude` base (NO `env FLOW_PIPELINE=1` prefix — that marker is a
-  // feature.ts-only concern; epic's launch env stays deliberately bare). NO
-  // positional seed — the seed is delivered ONLY via send-keys by the verified
-  // launcher (claude does not auto-run a positional prompt), mirroring feature.ts.
-  // `--model` precedes `--effort` (both before `--settings`), in a deterministic
-  // order so the argv assertions stay stable. Each is omitted when unset.
+  // NO positional seed — the seed is delivered ONLY via send-keys by the
+  // verified launcher (claude does not auto-run a positional prompt),
+  // mirroring feature.ts. `--model` precedes `--effort` (both before
+  // `--settings`), in a deterministic order so the argv assertions stay
+  // stable. Each is omitted when unset.
   //
   // Two `--add-dir` entries (worktree first, skills home second): flow's skills
   // now live at `~/.flow/claude-home` rather than the global `~/.claude/skills/`,
@@ -1596,31 +1637,14 @@ function launchArgv(
   const base = ["claude", "--add-dir", worktree, "--add-dir", FLOW_CLAUDE_HOME];
   const withModel = model ? [...base, "--model", model] : base;
   const withEffort = effort ? [...withModel, "--effort", effort] : withModel;
-  return [...withEffort, "--settings", settingsPath];
-}
-
-// The seed text is defined ONCE in these helpers and delivered ONLY via
-// send-keys by the verified launcher (no positional argv copy), so there is no
-// second definition to drift from. The literal EPIC_DIR is embedded (R1) so the
-// /flow-epic-create supervisor + the MODE: epic designer consume it directly rather
-// than re-deriving the path via a bin/lib import they can't reach in a consumer
-// worktree.
-function epicCreateSeed(
-  prompt: string,
-  epicDir: string,
-  skillDir: string,
-): string {
-  return `Use the /flow-epic-create skill for: ${prompt}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
-}
-
-function epicResumeSeed(
-  slug: string,
-  epicDir: string,
-  skillDir: string,
-): string {
-  // The supervisor parses this prefix to detect resume mode and walk its
-  // `# Resume mode` decision via flow-epic-resume-decide.
-  return `Use the /flow-epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
+  return [
+    "env",
+    "FLOW_PIPELINE=1",
+    `FLOW_SLUG=${slug}`,
+    ...withEffort,
+    "--settings",
+    settingsPath,
+  ];
 }
 
 /**
@@ -1642,6 +1666,7 @@ function launchSettingsPathFor(options: EpicOptions): string {
  * hook, and the lazy reaper still backstops orphan cleanup).
  */
 function buildLaunchCommand(
+  slug: string,
   worktree: string,
   effort: EffortLevel | undefined,
   settingsPath: string,
@@ -1656,35 +1681,27 @@ function buildLaunchCommand(
       ),
     );
   }
-  return launchArgv(worktree, effort, settingsPath, model);
-}
-
-// The /flow-epic-run supervisor's seed. Mirrors epicCreateSeed: the slug after
-// `for:` + the literal EPIC_DIR (R1) on its own line, so the spawned window
-// (cwd'd in a consumer worktree without bin/lib) consumes them directly. The
-// SKILL parses this prefix to enter the playbook. No AUTO_REDIRECT / MODEL_JUDGE
-// lines — the playbook has no tick loop, no judgment sub-agent, and no
-// autonomous redirect to gate.
-function epicRunSeed(slug: string, epicDir: string): string {
-  return `Use the /flow-epic-run skill for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
+  return launchArgv(slug, worktree, effort, settingsPath, model);
 }
 
 function createCommand(
+  slug: string,
   worktree: string,
   effort: EffortLevel | undefined,
   settingsPath: string,
   model?: ModelAlias,
 ): string[] {
-  return buildLaunchCommand(worktree, effort, settingsPath, model);
+  return buildLaunchCommand(slug, worktree, effort, settingsPath, model);
 }
 
 function resumeCommand(
+  slug: string,
   worktree: string,
   effort: EffortLevel | undefined,
   settingsPath: string,
   model?: ModelAlias,
 ): string[] {
-  return buildLaunchCommand(worktree, effort, settingsPath, model);
+  return buildLaunchCommand(slug, worktree, effort, settingsPath, model);
 }
 
 /**

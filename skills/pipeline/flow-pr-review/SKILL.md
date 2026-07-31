@@ -794,8 +794,10 @@ unchecked `- [ ] SUBJECTIVE: confirm scope drift is intentional` Test Steps
 item, holding the PR at `flow-gate-decide`), fundamental (escalate
 `NEEDS HUMAN: intent-drift` per
 [references/escalation-recipes.md](references/escalation-recipes.md)) —
-then write `$WORKTREE/.flow-tmp/intent-resolution.json`. Missing/invalid
-`intent-guess.json` is a graceful skip, never
+then write `$WORKTREE/.flow-tmp/intent-resolution.json`, self-validated
+via `flow-intent-resolution-schema --validate` with an advisory
+re-emit-once-then-proceed posture on failure (never `NEEDS HUMAN`).
+Missing/invalid `intent-guess.json` is a graceful skip, never
 `consolidator-missing-artifact`. Full ladder detail, cross-model
 weighing, vagueness-as-signal rule, and the artifact shape are in
 [references/intent-mismatch-resolution.md](references/intent-mismatch-resolution.md).

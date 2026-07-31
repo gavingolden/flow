@@ -141,10 +141,19 @@ For each path in `git diff --name-only --diff-filter=U`:
    - `rewrite` — neither side preserved; new code reconciles intent.
    - `delete` — file removed (only valid for `modify/delete` conflicts).
 4. Make the `Edit` tool calls to remove conflict markers and apply the
-   resolution. Verify no `<<<<<<<`, `=======`, or `>>>>>>>` markers
-   remain in the file.
-5. Run `git add <path>`.
-6. Record an entry in `resolved_files`:
+   resolution.
+5. **LAYER 1.** Before `git add`, run
+   `git diff --check -- <path> | grep -q 'leftover conflict marker'` and
+   branch on THAT pipeline's exit status — never the raw exit code
+   directly, since a whitespace-only edit (common after an `interleave`
+   resolution) also exits non-zero via a `trailing whitespace.` line and
+   would spuriously loop step 4. Exit 0 means a leftover marker was
+   found: re-open the file and repeat step 4. Exit 1 means no marker:
+   proceed to `git add`. This is the only layer that catches a partial
+   edit (e.g. a lone `=======` left mid-file) — it runs before the
+   resolution is committed, unlike Step 5's Layer 2 below.
+6. Run `git add <path>`.
+7. Record an entry in `resolved_files`:
    - `path` — repo-relative.
    - `strategy` — one of the values above.
    - `semantic_decision` — one line: what the conflict was, what
@@ -220,7 +229,11 @@ the merged branch is the supervisor's job, not this commit's. A
 conventional-commit subject here matters downstream: GitHub's default
 squash body concatenates commit subjects, so keeping this subject
 conventional-commit shaped keeps the shipped squash body
-conventional-commit shaped too.
+conventional-commit shaped too. Whether this specific `chore: merge
+...` subject actually surfaces as a bullet in a LATER PR's squash body
+is UNDETERMINED — see `references/git-workflow.md`'s "Why no authored
+squash body (issue #486)" for the recorded decision and its re-open
+trigger.
 
 A merge is a single conflict pass — there is no "advances to another
 commit with conflicts" loop and no `-i`-rebase commit-message editor to
@@ -233,12 +246,58 @@ Before pushing, confirm the resolution is structurally sound:
 ```bash
 git status --porcelain                       # expect empty
 git log origin/$BASE_BRANCH..HEAD --oneline  # expect this PR's commits plus the merge commit
-test -z "$(git diff --check)"                # no leftover conflict markers anywhere
+MARKER_RC=0
+$MARKER_CHECK_CMD --committed || MARKER_RC=$?  # LAYER 2 — see below. Wrapper-supplied; see next paragraph.
 ```
 
-If `git status` shows uncommitted changes or `git diff --check` flags
-leftover markers, you missed something. Return to Step 3 for the
-flagged file. Do not push with leftover markers.
+**Why this reads the committed tree.** After Step 4's `git commit`, the
+worktree, the index, and `HEAD` are identical — a worktree-vs-index
+check (`git status --porcelain`, or the same per-file check Step 3 ran,
+with no `HEAD` argument) is INERT here: it has nothing left to diff and
+reports clean regardless of what the committed content actually
+contains (see AGENTS.md "Don't gate a post-commit verification on a
+worktree-vs-index diff"). `$MARKER_CHECK_CMD --committed` instead
+inspects the committed tree directly (`HEAD`, plus the merge's touched
+files), so it actually reflects what was just committed. This is
+**LAYER 2** — Step 3's per-file check is Layer 1, the only layer that
+catches a partial edit (a lone `=======` left mid-file) before it's
+committed. Layer 2 deliberately narrows to `<<<<<<<`/`>>>>>>>` only —
+`=======` is legitimate content elsewhere (e.g. markdown setext
+headings), and Layer 1 already covers the leftover-`=======` case
+pre-commit.
+
+**Act on `$MARKER_RC`.**
+
+| `$MARKER_RC`  | Meaning                                                           | Action                                                                                                                                                    |
+| ------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`           | clean — no blocking markers in the committed tree                 | Proceed to Step 6. Record any `PRE-EXISTING` lines from the command's output in `rejected_strategies` — they predate this merge and are not yours to fix. |
+| `1`           | a leftover marker in a file this merge touched                    | Return to Step 3 for the flagged file(s).                                                                                                                 |
+| `2`           | the helper itself errored (missing flow checkout, bad invocation) | Set `push_status: skipped`; record the verbatim error in `summary`.                                                                                       |
+| anything else | never read as clean                                               | Treat identically to `2` — set `push_status: skipped` and escalate.                                                                                       |
+
+**Why the wrapper passes the command, and why there is no PATH
+fallback.** `$MARKER_CHECK_CMD` is resolved once in the wrapper's
+spawn prompt as `bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts` —
+against flow's own SOURCE TREE, not a `~/.local/bin` PATH symlink. A
+PATH symlink can lag behind source by an entire `flow install` cycle, and
+flow's directory-vs-per-file install modes make that skew
+unpredictable — invoking from source removes the window entirely. If
+`$MARKER_CHECK_CMD` fails to resolve at all (an ENOENT, or the derived
+`$FLOW_ROOT` doesn't contain a flow checkout), that is BROKEN, not
+stale: do not retry, do not hand-roll an inline reimplementation of the
+scan, and do not substitute a bare PATH name or add a PATH-existence
+probe — treat it as the `2` row above and escalate. The helper also
+strips the `HEAD:` rev-prefix from its own scan output internally
+before matching paths against the touched-file list; a prose
+reimplementation of that parse was tried and rejected during planning
+(`HEAD:<path>:<line>:<text>` does not string-match bare `<path>`
+output, so a prose intersection dismisses every real hit as
+pre-existing) — the partition must stay code, inside the helper.
+
+If `git status` shows uncommitted changes, or `$MARKER_RC` is anything
+other than `0` (see the table above — no value other than `0` is ever
+read as clean), you missed something. Return to Step 3 for the flagged
+file. Do not push with leftover markers.
 
 ## 6. Push
 
@@ -355,15 +414,16 @@ of the subagent fan-out.
 
 # Troubleshooting
 
-| Problem                           | Symptom                                                                                            | Fix                                                                                                                                                                                                                                                                |
-| --------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Merge produces no conflicts       | `git merge origin/<base>` exits 0 with no conflicts; wrapper's classification was a false positive | Skip to Step 8. Record the divergence in `rejected_strategies` (one entry: `path: "(none)"`, `strategy: "(no-op)"`, `why_rejected: "wrapper saw <X> stderr but local merge clean"`). Set `push_status: skipped`.                                                   |
-| Merge aborts mid-flight           | Committing the resolution errors out for a non-conflict reason (e.g. invalid commit)               | Run `git merge --abort` to return to pre-merge state. Record the failure in `summary`; set `push_status: skipped`. The supervisor's retry will fail and escalate.                                                                                                  |
-| Conflict marker survives the Edit | `git diff --check` flags `<<<<<<<` after your edit                                                 | Re-open the file, expand the `Edit` `old_string` to include the full marker triple, retry. The Edit tool requires unique `old_string`; conflict markers within similar files can collide.                                                                          |
-| Push rejected (non-fast-forward)  | `git push` exits non-zero with `! [rejected] ... (fetch first)`                                    | The remote advanced — another process pushed. Record `push_status: failed` with the verbatim stderr in `summary`. Do not retry blindly. NEVER escalate to `--force`; let the wrapper decide.                                                                       |
-| `modify/delete` conflict          | One side deleted the file, the other modified it                                                   | Choose `delete` (accept the deletion) or `prefer-current` (keep the modified file, undo the deletion). Record the call in `ambiguous_resolutions` if the PR's intent doesn't clearly favour one.                                                                   |
-| Both sides rename the same file   | `rename/rename` conflict                                                                           | Choose one of the two new names by reading both sides' usages. Record in `ambiguous_resolutions` with the alternative name in `alternatives_considered`.                                                                                                           |
-| Lockfile conflict                 | `package-lock.json` / `bun.lock` / `yarn.lock` conflicts                                           | Use `prefer-incoming` (take `main`'s lockfile), then re-run the dependency installer (`npm install` / `bun install`) and `git add` the regenerated lockfile. Record `strategy: prefer-incoming` and note "regenerated via package manager" in `semantic_decision`. |
+| Problem                           | Symptom                                                                                                              | Fix                                                                                                                                                                                                                                                                |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Merge produces no conflicts       | `git merge origin/<base>` exits 0 with no conflicts; wrapper's classification was a false positive                   | Skip to Step 8. Record the divergence in `rejected_strategies` (one entry: `path: "(none)"`, `strategy: "(no-op)"`, `why_rejected: "wrapper saw <X> stderr but local merge clean"`). Set `push_status: skipped`.                                                   |
+| Merge aborts mid-flight           | Committing the resolution errors out for a non-conflict reason (e.g. invalid commit)                                 | Run `git merge --abort` to return to pre-merge state. Record the failure in `summary`; set `push_status: skipped`. The supervisor's retry will fail and escalate.                                                                                                  |
+| Conflict marker survives the Edit | `git diff --check` flags `<<<<<<<` after your edit (valid here — this fires during Step 3, BEFORE the Step 4 commit) | Re-open the file, expand the `Edit` `old_string` to include the full marker triple, retry. The Edit tool requires unique `old_string`; conflict markers within similar files can collide.                                                                          |
+| Push rejected (non-fast-forward)  | `git push` exits non-zero with `! [rejected] ... (fetch first)`                                                      | The remote advanced — another process pushed. Record `push_status: failed` with the verbatim stderr in `summary`. Do not retry blindly. NEVER escalate to `--force`; let the wrapper decide.                                                                       |
+| `modify/delete` conflict          | One side deleted the file, the other modified it                                                                     | Choose `delete` (accept the deletion) or `prefer-current` (keep the modified file, undo the deletion). Record the call in `ambiguous_resolutions` if the PR's intent doesn't clearly favour one.                                                                   |
+| Both sides rename the same file   | `rename/rename` conflict                                                                                             | Choose one of the two new names by reading both sides' usages. Record in `ambiguous_resolutions` with the alternative name in `alternatives_considered`.                                                                                                           |
+| Lockfile conflict                 | `package-lock.json` / `bun.lock` / `yarn.lock` conflicts                                                             | Use `prefer-incoming` (take `main`'s lockfile), then re-run the dependency installer (`npm install` / `bun install`) and `git add` the regenerated lockfile. Record `strategy: prefer-incoming` and note "regenerated via package manager" in `semantic_decision`. |
+| Marker check will not run         | `$MARKER_CHECK_CMD --committed` exits 2, or the command itself is missing/ENOENT                                     | Treat as the `2` row in the Act-on-`$MARKER_RC` table above — set `push_status: skipped`, record the verbatim error in `summary`. Do NOT substitute a bare PATH name, add a `command -v` probe, or hand-roll an inline `git grep` fallback.                        |
 
 # Verification
 
@@ -385,7 +445,7 @@ Before writing the artifact and returning, self-check:
 - The return summary is 3–5 sentences and surfaces both positive and
   negative findings.
 - No `<<<<<<<`, `=======`, or `>>>>>>>` markers remain in any tracked
-  file (`git diff --check` exits 0).
+  file (`$MARKER_CHECK_CMD --committed` exited 0).
 
 # Constraints
 
@@ -410,7 +470,13 @@ Before writing the artifact and returning, self-check:
   Verification of the merged branch is the supervisor's job — the
   retried `gh pr merge --squash` is the verification, and CI re-runs
   on the pushed head. Re-running `/flow-verify` here would defeat
-  the context-cost win the fan-out exists for.
+  the context-cost win the fan-out exists for. This is also why Step
+  4's resolution commit uses `--no-verify` — see the rationale there.
+  A narrow, named exception carves out `$MARKER_CHECK_CMD --committed`
+  (Step 5's Layer 2 check) from this ban: it is not `flow-pre-commit`
+  and not `/flow-verify`, so running it is permitted — and Step 5 in
+  fact REQUIRES it, gating the push on its result, not merely allowing
+  it.
 - NEVER rewrite history on the branch — the merge preserves every
   original commit SHA and appends one merge commit; do not rebase,
   amend, or squash.

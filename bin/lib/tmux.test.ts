@@ -14,9 +14,11 @@ import {
   parsePaneNonEmpty,
   parsePanePid,
   parseWindowList,
+  resolveKindFromPane,
   resolveSlugFromPane,
   respawnWindowVerified,
   seedWindowOptions,
+  setPaneKind,
   setWindowPhase,
   type SpawnResult,
   type TmuxWindow,
@@ -1551,6 +1553,103 @@ describe(resolveSlugFromPane, () => {
     });
     // display-message failure → safe degradation, no cross-check, slug returned
     expect(result).toBe("csv-export");
+  });
+});
+
+describe(setPaneKind, () => {
+  const windows: TmuxWindow[] = [
+    { id: "@2", name: "renamed by user", slug: "an-epic", activity: 0 },
+  ];
+
+  it("emits the -p (pane) form EXPLICITLY, not -w, so a scope regression fails CI", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    const result = setPaneKind("an-epic", "epic-run", {
+      spawnTmux,
+      listWindowsFn: () => windows,
+    });
+    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(calls).toEqual([
+      ["set-option", "-p", "-t", "@2", "@flow-kind", "epic-run"],
+    ]);
+  });
+
+  it("soft-fails without throwing or spawning when no window owns the slug", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    const result = setPaneKind("missing", "epic-design", {
+      spawnTmux,
+      listWindowsFn: () => windows,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.stderr).toContain("missing");
+    expect(calls).toEqual([]); // never shelled out
+  });
+
+  it("returns ok:false when set-option exits non-zero (tmux hiccup)", () => {
+    const { spawnTmux } = fakeSpawn({
+      stdout: "",
+      stderr: "nope",
+      exitCode: 1,
+    });
+    const result = setPaneKind("an-epic", "feature", {
+      spawnTmux,
+      listWindowsFn: () => windows,
+    });
+    expect(result).toEqual({ ok: false, stderr: "nope" });
+  });
+});
+
+describe(resolveKindFromPane, () => {
+  it("returns null when $TMUX_PANE is unset (helper invoked outside tmux)", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    expect(resolveKindFromPane({ env: {}, spawnTmux })).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it("returns null when tmux exits non-zero (option unset on the pane)", () => {
+    const { spawnTmux } = fakeSpawn({
+      stdout: "",
+      stderr: "invalid option: @flow-kind",
+      exitCode: 1,
+    });
+    expect(
+      resolveKindFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux }),
+    ).toBeNull();
+  });
+
+  it("returns null when the option resolves to an empty string", () => {
+    const { spawnTmux } = fakeSpawn({
+      stdout: "  \n",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(
+      resolveKindFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux }),
+    ).toBeNull();
+  });
+
+  it("returns null for a value outside the PipelineKind union (shape guard)", () => {
+    const { spawnTmux } = fakeSpawn({
+      stdout: "bogus\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(
+      resolveKindFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux }),
+    ).toBeNull();
+  });
+
+  it("returns the trimmed kind when the option is set on the pane, reading with -p", () => {
+    const { calls, spawnTmux } = fakeSpawn({
+      stdout: "epic-run\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(resolveKindFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux })).toBe(
+      "epic-run",
+    );
+    expect(calls).toEqual([
+      ["show-options", "-t", "%42", "-v", "-p", "@flow-kind"],
+    ]);
   });
 });
 

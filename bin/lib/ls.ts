@@ -32,12 +32,17 @@ import { livenessOf } from "./liveness";
 import { reapStartingOrphans } from "./reap-orphans";
 import { relativeTime } from "./time";
 import { findWindowBySlug, listWindows, type TmuxWindow } from "./tmux";
-import { dim } from "./color";
+import { dim, dimStderr } from "./color";
 import {
   checkForUpdate,
   formatUpdateNotice,
   type UpdateCheckResult,
 } from "./update-check";
+import {
+  checkInstallDrift,
+  formatDriftNotice,
+  type InstallDriftResult,
+} from "./install-drift";
 
 export type LsOptions = {
   cost?: boolean;
@@ -46,6 +51,8 @@ export type LsOptions = {
   projectsRoot?: string;
   /** Injectable for tests; defaults to the real read-only update check. */
   checkUpdate?: () => UpdateCheckResult;
+  /** Required (no default): the real read-only install-drift check. */
+  checkDrift: () => InstallDriftResult;
 };
 
 export type Row = {
@@ -83,7 +90,7 @@ export async function runLsCli(args: string[]): Promise<number> {
     console.error("flow ls: --detail requires --cost");
     return 2;
   }
-  return await runLs({ cost, detail });
+  return await runLs({ cost, detail, checkDrift: checkInstallDrift });
 }
 
 /**
@@ -93,7 +100,7 @@ export async function runLsCli(args: string[]): Promise<number> {
  */
 const REAP_GRACE_MS = 60_000;
 
-export async function runLs(opts: LsOptions = {}): Promise<number> {
+export async function runLs(opts: LsOptions): Promise<number> {
   const now = Date.now();
   const windows = listWindows();
   // Lazy orphan sweep BEFORE buildRows: reap never-started orphans (phase
@@ -145,17 +152,19 @@ function printOrphanRecovery(rows: Row[]): void {
   }
 }
 
-/** Print the staleness notice to STDERR so stdout stays a clean table. */
+/** Print the staleness + drift notices to STDERR so stdout stays a clean table. */
 function emitUpdateNotice(opts: LsOptions): void {
   const notice = formatUpdateNotice((opts.checkUpdate ?? checkForUpdate)());
   if (notice) console.error(notice);
+  const driftNotice = formatDriftNotice(opts.checkDrift());
+  if (driftNotice) console.error(dimStderr(driftNotice));
 }
 
 export async function buildRows(
   states: PipelineState[],
   windows: TmuxWindow[],
   nowMs: number,
-  opts: LsOptions = {},
+  opts: LsOptions,
 ): Promise<Row[]> {
   const projectsRoot = opts.projectsRoot ?? defaultProjectsRoot();
 

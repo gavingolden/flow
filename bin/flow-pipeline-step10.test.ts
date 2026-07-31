@@ -112,6 +112,10 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
     // post-merge sweep never appears on a `gh pr merge ... "$PR"` line, so it
     // does not trip a false positive. `MERGE_FLAGS` and `flow-merge-body` were
     // unique to the removed machinery and must not reappear anywhere.
+    //
+    // Issue #486 re-litigated this exact negative pin (reopening the
+    // no-`--body` question) and it was re-affirmed wontfix — see
+    // references/git-workflow.md's "Why no authored squash body (issue #486)".
     const mergeInvocations = STEP_10.split("\n").filter(
       (line) => line.includes("gh pr merge") && line.includes('"$PR"'),
     );
@@ -213,6 +217,18 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
     expect(
       gateSummarySrc.includes('"merge-resolver-spawn-denied":'),
       "bin/flow-gate-summary.ts must define a NEXT_ACTION_BY_REASON entry for `merge-resolver-spawn-denied`.",
+    ).toBe(true);
+  });
+
+  it("defines $MARKER_CHECK_CMD via `bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts`", () => {
+    // Both consumers (step 5's per-file check and the resolver instructions)
+    // are pinned elsewhere; this pins the PRODUCER line that defines the
+    // variable, so a refold can't drop it with every other lint green.
+    expect(
+      STEP_10.includes(
+        'MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"',
+      ),
+      "step 10 must define MARKER_CHECK_CMD as `bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts`.",
     ).toBe(true);
   });
 });

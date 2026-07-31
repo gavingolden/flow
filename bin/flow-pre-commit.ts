@@ -28,6 +28,13 @@ import {
   type DynamicScope,
 } from "./lib/monorepo-scopes";
 import { isPathBoundHelper } from "./lib/sources";
+import {
+  classifyGrepExit,
+  conflictGrepArgv,
+  parseGitGrepOutput,
+  partitionHits,
+  formatHits,
+} from "./lib/conflict-markers";
 
 // --- Types ---
 
@@ -472,6 +479,72 @@ export function checkHelperExecutableModes(
 }
 
 /**
+ * Diff-scoped conflict-marker gate: greps the WORKING TREE (no `HEAD`
+ * argument — the diff being verified hasn't been committed yet, unlike the
+ * merge-resolver's post-commit `flow-conflict-marker-check --committed`
+ * check) for a leftover `<<<<<<<`/`>>>>>>>` marker and fails only when the
+ * hit is inside `changedFiles`. In-process reuse of `bin/lib/conflict-
+ * markers.ts` — no PATH dependency, no duplicated scan logic. Modelled on
+ * `checkHelperExecutableModes` above: returns null (inert) when
+ * `changedFiles` is undefined/empty.
+ */
+export function checkConflictMarkers(
+  changedFiles: string[] | undefined,
+  runner: Runner = run,
+): CheckResult | null {
+  if (!changedFiles || changedFiles.length === 0) return null;
+
+  // argv (the `--full-name`/`':/'` pathspec mandate) lives in
+  // `bin/lib/conflict-markers.ts` so the two consumers cannot drift.
+  const { stdout, exitCode } = runner(conflictGrepArgv());
+
+  const grepClass = classifyGrepExit(exitCode);
+  if (grepClass === "none") {
+    return {
+      name: "conflict markers",
+      scope: "root-fallback",
+      passed: true,
+      durationMs: 0,
+      output: "No conflict markers found in the working tree.",
+    };
+  }
+  // The exit-code ladder (the fail-closed `!== 0` rationale) lives in
+  // `bin/lib/conflict-markers.ts`'s `classifyGrepExit` so the two consumers
+  // cannot drift.
+  if (grepClass === "error") {
+    return {
+      name: "conflict markers",
+      scope: "root-fallback",
+      passed: false,
+      durationMs: 0,
+      output: `git grep failed (exit ${exitCode}) while scanning for conflict markers.`,
+    };
+  }
+
+  const hits = parseGitGrepOutput(stdout);
+  const { blocking, preExisting } = partitionHits(hits, new Set(changedFiles));
+  const lines = formatHits(blocking, "conflict marker");
+  if (preExisting.length > 0) {
+    lines.push(
+      "advisory (does not affect this verdict — predates this diff):",
+      ...formatHits(preExisting, "conflict marker"),
+    );
+  }
+  return {
+    name: "conflict markers",
+    scope: "root-fallback",
+    passed: blocking.length === 0,
+    durationMs: 0,
+    output:
+      blocking.length === 0
+        ? lines.length > 0
+          ? lines.join("\n")
+          : "No conflict markers found in the working tree."
+        : `Leftover conflict marker(s) in the current diff:\n${lines.join("\n")}`,
+  };
+}
+
+/**
  * Computes the `allPassed` verdict + optional `reason` discriminator for a
  * run. Closes the silent-pass hole: `results.every(true)` on an empty array
  * yields `true`, so a non-empty diff that produced zero matching npm
@@ -481,14 +554,25 @@ export function checkHelperExecutableModes(
  * `changedFiles=undefined` is the `--scope` path (user named scopes
  * explicitly, no diff to inspect) — there's no "non-empty diff" to gate
  * against, so an empty results set is treated as a normal pass.
+ *
+ * `scopeResultCount` — defaults to `results.length` (byte-identical to the
+ * pre-existing behaviour every current caller relies on) — lets `main()`
+ * pass the result count from BEFORE the candidate-gated supplementary
+ * checks (`checkHelperExecutableModes`, `checkConflictMarkers`) are
+ * appended to `results`. Those two run unconditionally on any non-empty
+ * diff regardless of scope, so counting them here would silently defeat
+ * the no-checks-defined guard for every diff that happens to carry no
+ * marker/mode offender — the exact silent-pass hole this function exists
+ * to close.
  */
 export function computeAllPassedAndReason(
   results: CheckResult[],
   changedFiles: string[] | undefined,
   scopes: ScopeName[],
   unmatchedFiles: string[] | undefined,
+  scopeResultCount: number = results.length,
 ): { allPassed: boolean; reason?: "no-checks-defined" | "unmatched-files" } {
-  if (results.length === 0 && (changedFiles?.length ?? 0) > 0) {
+  if (scopeResultCount === 0 && (changedFiles?.length ?? 0) > 0) {
     return { allPassed: false, reason: "no-checks-defined" };
   }
   // Genuine-orphan guard: a scope ran but left files matching NO scope at all.
@@ -1346,8 +1430,19 @@ async function main(): Promise<void> {
     }
   }
 
+  // Captured BEFORE the two candidate-gated supplementary checks below are
+  // appended: they must never themselves satisfy the no-checks-defined
+  // guard (see computeAllPassedAndReason's scopeResultCount parameter) — a
+  // diff-wide check that runs on every non-empty diff would otherwise
+  // silently defeat that guard for every diff, not just the rare bin/*.ts
+  // edge case checkHelperExecutableModes alone posed.
+  const scopeResultCount = results.length;
+
   const helperModeCheck = checkHelperExecutableModes(changedFiles);
   if (helperModeCheck) results.push(helperModeCheck);
+
+  const conflictMarkerCheck = checkConflictMarkers(changedFiles);
+  if (conflictMarkerCheck) results.push(conflictMarkerCheck);
 
   const unmatchedFiles =
     changedFiles !== undefined
@@ -1359,6 +1454,7 @@ async function main(): Promise<void> {
     changedFiles,
     scopes,
     unmatchedFiles,
+    scopeResultCount,
   );
 
   const report: CheckReport = {

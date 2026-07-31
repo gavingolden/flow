@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
 import { STEP_PHASES } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
+import { CHECKPOINT_SITES } from "./flow-checkpoint";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -243,6 +244,14 @@ const UI_UX_SKILL_MD_PATH = path.resolve(
   "flow-ui-ux",
   "SKILL.md",
 );
+const CHECKPOINT_SKILL_MD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "universal",
+  "flow-checkpoint",
+  "SKILL.md",
+);
 const SVELTE_SKILL_MD_PATH = path.resolve(
   HERE,
   "..",
@@ -313,6 +322,10 @@ const manualTestRubricContent = fs.readFileSync(
 );
 const autoMergeRubricContent = fs.readFileSync(AUTO_MERGE_RUBRIC_PATH, "utf8");
 const redirectHandlingContent = fs.readFileSync(REDIRECT_HANDLING_PATH, "utf8");
+const checkpointSkillContent = fs.readFileSync(
+  CHECKPOINT_SKILL_MD_PATH,
+  "utf8",
+);
 const gatekeeperSpawnPromptContent = fs.readFileSync(
   GATEKEEPER_SPAWN_PROMPT_PATH,
   "utf8",
@@ -447,38 +460,45 @@ describe("flow-pipeline SKILL.md structural lint", () => {
     ).toBe(true);
   });
 
-  it("step 4 references AskUserQuestion + the candidate-issues section", () => {
+  it("references AskUserQuestion + the candidate-issues section", () => {
     expect(
       content.includes("AskUserQuestion"),
       "flow-pipeline SKILL.md must reference 'AskUserQuestion' — the " +
-        "primitive the supervisor calls for its two authorised forms: the " +
-        "candidate-issues form (fired from step 4's affirmative-branch " +
-        "sub-step AND step 3's non-feature advance-to-step-5 sub-step) and " +
-        "step 9's gate-override sub-step.",
+        "primitive the supervisor calls for its one authorised form: " +
+        "step 9's gate-override sub-step. There is no candidate-issues " +
+        "form; the plan-review checkpoint's --details disclosure and " +
+        "mechanical reply verbs (pull/drop/defer) are the curation " +
+        "surface instead.",
     ).toBe(true);
     expect(
       content.includes("# Candidate follow-up issues"),
       "flow-pipeline SKILL.md must reference '# Candidate follow-up issues' " +
-        "so step 4 and step 10 stay anchored on the plan.md section name.",
+        "so step 3/4's --details disclosure and step 10's post-merge sweep " +
+        "stay anchored on the plan.md section name.",
     ).toBe(true);
   });
 
-  it("documents the non-feature candidate-issues firing point on advance-to-step-5", () => {
-    // The candidate-issues form now fires from a second location — step 3's
-    // non-feature `advance-to-step-5` branch. Anchor on the co-occurrence of
-    // the route value and the helper so the firing point can't be silently
-    // dropped without tripping this lint.
+  it("documents the step-3 non-feature advance-to-step-5 route and its disclosure obligation", () => {
+    // advance-to-step-5 fires NO candidate-issues checkpoint (the plan
+    // still exists on disk but the user is never asked to ratify it on
+    // this fully-autonomous path) — disclosure instead happens later, via
+    // the PR body's `Bundled:` bullets and the terminal recap. Anchor on
+    // the co-occurrence of the route value and the helper name so this
+    // no-checkpoint branch, and the disclosure obligation it substitutes,
+    // can't be silently dropped without tripping this lint.
     expect(
       content.includes("advance-to-step-5"),
       "flow-pipeline SKILL.md must reference 'advance-to-step-5' — the " +
-        "non-feature route on which the candidate-issues sub-step now fires.",
+        "non-feature route on which no candidate-issues checkpoint fires; " +
+        "disclosure instead happens via the PR body and terminal recap.",
     ).toBe(true);
     expect(
       content.includes("flow-candidate-issues"),
       "flow-pipeline SKILL.md must reference 'flow-candidate-issues' — the " +
-        "LLM-free helper that owns the candidate-issues matrix decision, " +
-        "called from both the step-4 sub-step and the non-feature " +
-        "advance-to-step-5 sub-step.",
+        "LLM-free helper that owns the candidate-issues decision, called " +
+        "from the feature-intent End condition and the non-feature " +
+        "route-to-step-4 branch (never from advance-to-step-5, which has " +
+        "no checkpoint to call it from).",
     ).toBe(true);
   });
 
@@ -1094,7 +1114,7 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * references/output-style.md, `## Consumer-repo notes`' full surface area
    * moved to references/consumer-repo-contract.md, and the session-marker /
    * trailer + inline-intent-annotation mechanics plus several `## Don'ts`
-   * bullet bodies (Shared rationale, the two AskUserQuestion forms, the
+   * bullet bodies (Shared rationale, the one AskUserQuestion form, the
    * auto-merge and auto-issue-create exemptions, the epic-create/epic-run
    * detail) moved to references/git-workflow.md — each replaced in AGENTS.md
    * by its anchored opener/binding-bar plus a relative link. Measured
@@ -1748,7 +1768,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
     const negatedButMatchesTokenAndVerb = readAnchoredLine(
       "skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md",
-      392,
+      452,
       "NEVER push to the base branch",
     );
     expect(
@@ -1770,7 +1790,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ],
       [
         "skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md",
-        394,
+        454,
         "NEVER use `git push --force`",
       ],
     ];
@@ -1854,6 +1874,108 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       baseSideIdx,
       "`>>>>>>> origin/<base>` / `theirs` must be bound to THE BASE's version, not the PR's.",
     ).toBeGreaterThan(baseMarkerIdx);
+  });
+
+  it("the merge-resolver's post-commit verification reads the committed tree, not the worktree", () => {
+    const sec5Start = mergeResolverInstructionsContent.indexOf(
+      "## 5. Verify the resolution",
+    );
+    const sec5End = mergeResolverInstructionsContent.indexOf(
+      "## 6. Push",
+      sec5Start,
+    );
+    expect(sec5Start, "Step 5 section must exist").toBeGreaterThan(-1);
+    expect(sec5End, "Step 6 section must exist").toBeGreaterThan(sec5Start);
+    const step5 = mergeResolverInstructionsContent.slice(sec5Start, sec5End);
+
+    expect(
+      step5.includes("$MARKER_CHECK_CMD --committed"),
+      "Step 5 must invoke $MARKER_CHECK_CMD --committed.",
+    ).toBe(true);
+    expect(
+      step5.includes("command -v"),
+      "Step 5 must not reintroduce a command -v PATH probe — the " +
+        "path-name-probe-with-inline-fallback alternative was rejected " +
+        "for deadlocking on a legitimate line-start marker.",
+    ).toBe(false);
+    expect(
+      /\bgit grep\b/.test(step5),
+      "Step 5 must not hand-roll a bare git grep — the partition must " +
+        "stay inside the flow-conflict-marker-check helper.",
+    ).toBe(false);
+    expect(
+      step5.includes("git diff --check"),
+      "Step 5 must not reuse git diff --check post-commit — worktree == " +
+        "index == HEAD after Step 4's commit, so it is inert there.",
+    ).toBe(false);
+    expect(
+      /inert/i.test(step5),
+      "Step 5 must explain why a worktree-vs-index diff is inert post-commit.",
+    ).toBe(true);
+    expect(step5.includes("worktree"), "Step 5 must mention worktree").toBe(
+      true,
+    );
+    expect(step5.includes("index"), "Step 5 must mention index").toBe(true);
+    expect(step5.includes("`0`"), "Step 5 must name exit value 0").toBe(true);
+    expect(step5.includes("`1`"), "Step 5 must name exit value 1").toBe(true);
+    expect(step5.includes("`2`"), "Step 5 must name exit value 2").toBe(true);
+    expect(
+      step5.includes("HEAD:"),
+      "Step 5 must name the HEAD: rev-prefix the helper strips (structural " +
+        "pin — not a match on the explanation's wording).",
+    ).toBe(true);
+    expect(
+      /spawn prompt/i.test(step5),
+      "Step 5 must attribute $MARKER_CHECK_CMD's resolution to the spawn prompt.",
+    ).toBe(true);
+
+    // Outside Step 5: Step 3's per-file Layer-1 check and the
+    // Troubleshooting table both still legitimately use git diff --check
+    // (Layer 1 runs BEFORE the Step 4 commit); the Verification section
+    // must not, since it was rewired onto the same helper as Step 5.
+    const step3Start = mergeResolverInstructionsContent.indexOf(
+      "## 3. Resolve each conflicted file",
+    );
+    const step3End = mergeResolverInstructionsContent.indexOf(
+      "## 4. Complete the merge",
+      step3Start,
+    );
+    const step3 = mergeResolverInstructionsContent.slice(step3Start, step3End);
+    expect(
+      step3.includes("git diff --check"),
+      "Step 3 (Layer 1, pre-commit) must still use git diff --check.",
+    ).toBe(true);
+
+    const troubleshootingStart =
+      mergeResolverInstructionsContent.indexOf("# Troubleshooting");
+    const troubleshootingEnd = mergeResolverInstructionsContent.indexOf(
+      "# Verification",
+      troubleshootingStart,
+    );
+    const troubleshooting = mergeResolverInstructionsContent.slice(
+      troubleshootingStart,
+      troubleshootingEnd,
+    );
+    expect(
+      troubleshooting.includes("git diff --check"),
+      "Troubleshooting must still reference git diff --check (Step 3's Layer 1).",
+    ).toBe(true);
+
+    const verificationStart =
+      mergeResolverInstructionsContent.indexOf("# Verification");
+    const verificationEnd = mergeResolverInstructionsContent.indexOf(
+      "# Constraints",
+      verificationStart,
+    );
+    const verification = mergeResolverInstructionsContent.slice(
+      verificationStart,
+      verificationEnd,
+    );
+    expect(
+      verification.includes("git diff --check"),
+      "# Verification must not reference git diff --check — it was rewired " +
+        "onto $MARKER_CHECK_CMD --committed alongside Step 5.",
+    ).toBe(false);
   });
 
   it("the merge-resolver artifact field is push_status everywhere", () => {
@@ -2472,7 +2594,7 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ re
     ).toBe(true);
   });
 
-  it("flow-pipeline/references/merge-resolver-spawn-prompt.md carries all eight spawn-prompt placeholders", () => {
+  it("flow-pipeline/references/merge-resolver-spawn-prompt.md carries all nine spawn-prompt placeholders", () => {
     const placeholders = [
       "{{INSTRUCTIONS_PATH}}",
       "{{PR}}",
@@ -2482,6 +2604,7 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ re
       "{{WORKTREE}}",
       "{{PR_DESCRIPTION}}",
       "{{ARTIFACT_PATH}}",
+      "{{MARKER_CHECK_CMD}}",
     ];
     const missing = placeholders.filter(
       (p) => !mergeResolverSpawnPromptContent.includes(p),
@@ -3988,12 +4111,23 @@ describe("pr-review include-by-reference structure", () => {
     // raised the ceiling to 2765 (7 lines of genuine headroom) rather than
     // pinning it back at zero headroom, which is the exact tension this
     // ceiling exists to prevent.
+    // Resolver-contract-hygiene PR: extracted the three no-retry escalation
+    // variants (branch-mismatch, terminal-regression, task-tool-unavailable)
+    // out of the `# Failure paths` block into references/failure-recovery.md
+    // § (c), replacing them with a compact trigger table, then appended a
+    // short "standard `# Failure paths` chain" pointer clause to each of the
+    // five terse step-10 escalation sites (the fifth,
+    // merge-resolver-missing-artifact, was initially missed in this PR and
+    // added in a pr-review #506 follow-up fix commit). File lands at 2660
+    // lines — RATCHETED the ceiling DOWN to 2685 (measured + ~25, rounded to
+    // the nearest 5), not raised, so the headroom this extraction freed is
+    // not silently refilled by unrelated regrowth.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2765 lines. Material regrowth past this ceiling would ` +
+        `budget of 2685 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2765);
+    ).toBeLessThan(2685);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -4419,11 +4553,17 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "checkpoint.md non-clobberingly (the fuller /checkpoint-style flush).",
     ).toBe(true);
     expect(
-      /### Auto-checkpoint sub-step[\s\S]*?flow-checkpoint[\s\S]*?flow-state-update --phase checkpoint-pending-clear/.test(
+      // Matches the ARM specifically (`flow-checkpoint --site plan-approval`),
+      // not a bare `flow-checkpoint` substring — a `--probe` call inserted
+      // before the arm would otherwise satisfy a looser regex and silently
+      // stop proving the arm-before-phase-write ordering this test exists
+      // for.
+      /### Auto-checkpoint sub-step[\s\S]*?flow-checkpoint --site plan-approval[\s\S]*?flow-state-update --phase checkpoint-pending-clear/.test(
         content,
       ),
-      "the step 4 auto-checkpoint sub-step must arm `flow-checkpoint` and " +
-        "write `flow-state-update --phase checkpoint-pending-clear`.",
+      "the step 4 auto-checkpoint sub-step must arm `flow-checkpoint --site " +
+        "plan-approval` BEFORE writing `flow-state-update --phase " +
+        "checkpoint-pending-clear`.",
     ).toBe(true);
   });
 
@@ -4443,6 +4583,31 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         ),
       "the step 3 plan-review clear point must carry the 'safe to /clear — " +
         "approve on a fresh session; the plan re-renders on resume' nudge.",
+    ).toBe(true);
+  });
+
+  it.each(CHECKPOINT_SITES.filter((site) => site !== "manual"))(
+    "flow-pipeline SKILL.md probes and arms --site %s at its auto-checkpoint sub-step",
+    (site) => {
+      expect(
+        content.includes(`--probe --site ${site}`),
+        `flow-pipeline SKILL.md must probe freshness with ` +
+          `\`--probe --site ${site}\` before its ${site} auto-checkpoint arm.`,
+      ).toBe(true);
+      expect(
+        content.includes(`flow-checkpoint --site ${site}`),
+        `flow-pipeline SKILL.md must arm the ${site} auto-checkpoint site ` +
+          `with an explicit \`flow-checkpoint --site ${site}\` call.`,
+      ).toBe(true);
+    },
+  );
+
+  it("the /flow-checkpoint skill documents the checkpoint.consumed.md archive", () => {
+    expect(
+      checkpointSkillContent.includes("checkpoint.consumed.md"),
+      "skills/universal/flow-checkpoint/SKILL.md must document that " +
+        "--consume now archives the body to checkpoint.consumed.md, not " +
+        "just deletes the one-shot marker.",
     ).toBe(true);
   });
 
@@ -5415,7 +5580,7 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
   // paragraph, flow-open-pr, approve/redirect/cancel, the no-merge HALT, the R1
   // no-bin/lib constraint, OR the resume-mode literals — is dropped from the
   // skill. STANDALONE block so it does NOT disturb the "exactly 9 Task-tool
-  // exemptions" / two-AskUserQuestion-forms assertions (which are
+  // exemptions" / one-AskUserQuestion-form assertions (which are
   // /flow-pipeline-anchored and must stay green).
   const EPIC_CREATE_SKILL_MD_PATH = path.resolve(
     HERE,
@@ -5517,7 +5682,7 @@ describe("/flow-epic-run playbook SKILL.md literal anchors", () => {
   // duplicate-check commands — is dropped; and if any loop-era literal (the tick
   // primitive, AUTO_REDIRECT, --relaunch-slug, the judgment Task opener)
   // reappears. STANDALONE block so it does NOT disturb the "exactly 9 Task-tool
-  // exemptions" / two-AskUserQuestion-forms assertions: /flow-epic-run is a SEPARATE
+  // exemptions" / one-AskUserQuestion-form assertions: /flow-epic-run is a SEPARATE
   // sanctioned session that spawns NO Task fan-out and fires NO AskUserQuestion.
   const EPIC_RUN_SKILL_MD_PATH = path.resolve(
     HERE,
@@ -5794,19 +5959,153 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
     ).toBe(true);
   });
 
-  it("flow-pipeline/SKILL.md carries the pull-#N offer at both candidate sub-step sites plus the --details echo instruction", () => {
+  it("flow-pipeline/SKILL.md carries the pull-#N offer plus the --details echo instruction", () => {
     const fp = read("flow-pipeline/SKILL.md");
     const pullMatches = fp.match(/pull #N into the plan/g) ?? [];
     expect(
       pullMatches.length,
-      "flow-pipeline/SKILL.md must name the 'pull #N into the plan' offer at " +
-        "both candidate follow-up issues sub-step sites (>=2 occurrences).",
+      "flow-pipeline/SKILL.md must name the 'pull #N into the plan' reply " +
+        "verb (>=2 occurrences) — the mechanical curation surface that " +
+        "replaced the retired candidate-issues form.",
     ).toBeGreaterThanOrEqual(2);
     expect(
       fp.includes("--details") && /echo its output\s+VERBATIM/.test(fp),
       "flow-pipeline/SKILL.md must instruct running `--details` and echoing " +
-        "its output verbatim before firing the candidate-issues form.",
+        "its output verbatim as part of the plan-review checkpoint disclosure " +
+        "(there is no candidate-issues form to fire — the disclosure precedes " +
+        "the AWAITING APPROVAL block instead).",
     ).toBe(true);
+  });
+
+  it("flow-pipeline/SKILL.md names --untick, defer task #N, and drop candidate #N", () => {
+    const fp = read("flow-pipeline/SKILL.md");
+    for (const marker of ["--untick", "defer task #N", "drop candidate #N"]) {
+      expect(
+        fp.includes(marker),
+        `flow-pipeline/SKILL.md must name '${marker}' — one of the ` +
+          "mechanical reply verbs the plan-review checkpoint documents in " +
+          "place of the retired candidate-issues AskUserQuestion form.",
+      ).toBe(true);
+    }
+  });
+
+  it("flow-pipeline/SKILL.md's Hard rules blockquote names gate-override as the only authorised AskUserQuestion form", () => {
+    const fp = read("flow-pipeline/SKILL.md");
+    expect(
+      fp.includes("You only call `AskUserQuestion` from the one named form"),
+      "flow-pipeline/SKILL.md's Hard rules blockquote must state the " +
+        "one-named-form contract verbatim — the candidate-issues form is " +
+        "retired, so gate-override is the supervisor's sole AskUserQuestion site.",
+    ).toBe(true);
+    expect(
+      fp.includes("### Gate override (post-verdict, opt-in)"),
+      "flow-pipeline/SKILL.md must carry the '### Gate override " +
+        "(post-verdict, opt-in)' step-9 heading the Hard rules blockquote " +
+        "names as the sole authorised AskUserQuestion form.",
+    ).toBe(true);
+    expect(
+      fp.includes("no candidate-issues form"),
+      "flow-pipeline/SKILL.md's Hard rules blockquote must state " +
+        "'no candidate-issues form' so a reintroduction attempt trips this lint.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline/SKILL.md drops the retired skip-already-ticked and candidate-issues-overflow markers", () => {
+    const fp = read("flow-pipeline/SKILL.md");
+    expect(
+      fp.includes("skip-already-ticked"),
+      "flow-pipeline/SKILL.md must NOT reference 'skip-already-ticked' — " +
+        "that reply-classification marker belonged to the retired " +
+        "candidate-issues AskUserQuestion form.",
+    ).toBe(false);
+    expect(
+      fp.includes("candidate-issues-overflow"),
+      "flow-pipeline/SKILL.md must NOT reference 'candidate-issues-overflow' " +
+        "— the overflow-marker mechanic belonged to the retired " +
+        "candidate-issues AskUserQuestion form.",
+    ).toBe(false);
+  });
+
+  it("discovery-instructions.md names the three bundle exclusions and the cumulative size rule", () => {
+    const di = read(
+      "flow-product-planning/references/discovery-instructions.md",
+    );
+    expect(
+      di.includes("genuinely novel non-trivial feature"),
+      "discovery-instructions.md must name the verbatim exclusion phrase " +
+        "'genuinely novel non-trivial feature' — one of the three named " +
+        "exclusions from bundle-by-default triage.",
+    ).toBe(true);
+    expect(
+      di.includes("cumulatively"),
+      "discovery-instructions.md must state the bundle-size test " +
+        "cumulatively (several individually-fine bundles can together " +
+        "clear the exclusion bar) — a per-candidate-only reading would " +
+        "under-exclude.",
+    ).toBe(true);
+    expect(
+      di.includes("- **Bundled:**"),
+      "discovery-instructions.md must require the `- **Bundled:**` marker " +
+        "bullet on every task that originated as a folded-in candidate.",
+    ).toBe(true);
+  });
+
+  it("prd-template.md carries the pre-ticked candidate sketch", () => {
+    const tpl = read("flow-product-planning/templates/prd-template.md");
+    expect(
+      tpl.includes("- [x]"),
+      "prd-template.md must sketch a pre-ticked `- [x]` candidate line — " +
+        "bundle-by-default triage means candidates ship ticked, not opt-in.",
+    ).toBe(true);
+  });
+
+  it("flow-new-feature/SKILL.md and flow-pr-review/references/review-checklist.md both name the 'Bundled during implementation:' marker", () => {
+    const nf = read("flow-new-feature/SKILL.md");
+    const rc = read("flow-pr-review/references/review-checklist.md");
+    expect(
+      nf.includes("Bundled during implementation:"),
+      "flow-new-feature/SKILL.md must name the verbatim " +
+        "'Bundled during implementation:' PR-body marker for late-discovery bundling.",
+    ).toBe(true);
+    expect(
+      rc.includes("Bundled during implementation:"),
+      "flow-pr-review/references/review-checklist.md must name the same " +
+        "verbatim marker so the review-side check stays anchored to the " +
+        "implementation-side contract.",
+    ).toBe(true);
+  });
+
+  it("the candidate-issues AskUserQuestion exemption is gone from AGENTS.md", () => {
+    // Proven non-vacuous: this phrase matched exactly once in AGENTS.md at
+    // the commit immediately before the candidate-issues form's retirement
+    // (`git show HEAD~2:AGENTS.md` from the commit that retired it) and
+    // matches zero times post-retirement. A phrase that already matched
+    // zero pre-change (e.g. a line-wrapped substring) would be a vacuous
+    // anchor — this one is not.
+    expect(
+      agentsContent.includes(
+        "AskUserQuestion exemption: `/flow-pipeline` candidate-issues",
+      ),
+      "AGENTS.md must NOT reference the retired 'AskUserQuestion exemption: " +
+        "`/flow-pipeline` candidate-issues' bullet — full retirement (option " +
+        "(e)) means only the gate-override form remains authorised.",
+    ).toBe(false);
+  });
+
+  it("the candidate-issues form's 'picks which orthogonal candidates' description is gone from references/git-workflow.md", () => {
+    // Proven non-vacuous the same way as the AGENTS.md check above: this
+    // exact phrase (on one line, unlike its line-wrapped AGENTS.md
+    // counterpart) matched once pre-retirement and zero times now.
+    const gw = fs.readFileSync(
+      path.resolve(HERE, "..", "references", "git-workflow.md"),
+      "utf8",
+    );
+    expect(
+      gw.includes("picks which orthogonal candidates"),
+      "references/git-workflow.md must NOT describe a form that " +
+        "'picks which orthogonal candidates' — the candidate-issues " +
+        "AskUserQuestion form is fully retired.",
+    ).toBe(false);
   });
 
   it("flow-product-planning/SKILL.md defines the {{REVISION_OVERRIDE}} spawn block", () => {
@@ -6237,6 +6536,25 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     }
     expect(c).toContain("- [ ] SUBJECTIVE: confirm scope drift is intentional");
     expect(c).toContain("NEEDS HUMAN: intent-drift");
+  });
+
+  it("references/intent-mismatch-resolution.md invokes the flow-intent-resolution-schema validator", () => {
+    const p = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "intent-mismatch-resolution.md",
+    );
+    const c = fs.readFileSync(p, "utf8");
+    expect(
+      c.includes("flow-intent-resolution-schema --validate"),
+      "references/intent-mismatch-resolution.md must invoke " +
+        "'flow-intent-resolution-schema --validate' so Step 3.6 self-validates " +
+        "its artifact before proceeding.",
+    ).toBe(true);
   });
 
   it("wires --intent-resolution at the post-review terminal snapshot sites", () => {

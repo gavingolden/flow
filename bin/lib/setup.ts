@@ -54,6 +54,11 @@ import {
 } from "./git";
 import { findMissingRuntimeDeps, formatMissingDepsError } from "./setup-deps";
 import {
+  checkInstallDrift,
+  formatDriftNotice,
+  type InstallDriftResult,
+} from "./install-drift";
+import {
   checkClaudeRunnable,
   formatClaudeCheckWarning,
   type ClaudeProbeRunner,
@@ -237,6 +242,14 @@ export type SetupOptions = {
    * Test-only override; defaults to the real spawn in setup-claude-check.ts.
    */
   claudeProbe?: ClaudeProbeRunner;
+  /**
+   * Post-repair residual-drift check, printed as a warn-only notice beside
+   * `printInactiveModules`. Defaults to the real `checkInstallDrift`
+   * (`./install-drift.ts`). Test-only override — `flow install` already
+   * repairs drift before this point, so exercising a "drifted" result here
+   * always means stubbing the check, not organically breaking a symlink.
+   */
+  checkDrift?: () => InstallDriftResult;
 };
 
 export type SetupSummary = {
@@ -583,10 +596,12 @@ async function runUnderLock(
     summary,
     log,
     options,
+    flowSource,
     installRoot,
     ff,
     entries,
     manifestTargetPath,
+    targets,
   );
   return summary;
 }
@@ -917,10 +932,12 @@ function printOutcome(
   s: SetupSummary,
   log: (msg: string) => void,
   options: SetupOptions,
+  flowSource: string,
   installRoot: string,
   ff: FastForwardResult | undefined,
   entries: SourceEntry[],
   manifestPath: string,
+  targets: InstallTargets,
 ): void {
   const version = (() => {
     try {
@@ -984,6 +1001,16 @@ function printOutcome(
     }),
     log,
   );
+  // Post-repair residual-drift check: `flow install` already REPAIRS drift
+  // above (the ensureSymlink loop), so a drifted result here means the
+  // repair itself missed something — a bug signal, not routine staleness.
+  // Warn-only: no exit-code change, no further auto-repair.
+  const checkDrift =
+    options.checkDrift ??
+    (() =>
+      checkInstallDrift({ flowSource, installRoot, manifestPath, targets }));
+  const driftNotice = formatDriftNotice(checkDrift());
+  if (driftNotice) log(dim(`      ${driftNotice}`));
 }
 
 function printSummaryLine(s: SetupSummary, log: (msg: string) => void): void {

@@ -391,6 +391,7 @@ describe("F5 e2e — resume at the checkpoint re-renders WITHOUT re-designing", 
       state: readState(slug, stateDir) as PipelineState,
       worktree: present,
       pr: openPr,
+      checkpointExists: false,
     });
     expect(verdict.epicResumeAt).toBe("checkpoint");
 

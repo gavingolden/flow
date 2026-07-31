@@ -210,11 +210,32 @@ export function computeDepth(planText: string): "standard" | "deep" {
 
 /**
  * Extracts the `## Decision analysis` section BODY — from the heading to the
- * next `## ` heading (Recommendation follows it) or EOF — EXCLUDING any
- * `### Cross-model review (AGY)` subsection this helper appends on a prior
- * run. Excluding the subsection is load-bearing: it is what lets a revision
- * that only appends/edits the review output hash equal, so the review does
- * not re-fire on its own footprint. Returns "" when the section is absent.
+ * next `## ` OR `# ` heading (Recommendation follows it on a lint-clean
+ * plan) or EOF — EXCLUDING any `### Cross-model review (AGY)` subsection
+ * this helper appends on a prior run. Excluding the subsection is
+ * load-bearing: it is what lets a revision that only appends/edits the
+ * review output hash equal, so the review does not re-fire on its own
+ * footprint. Returns "" when the section is absent.
+ *
+ * Terminator regex bounds, both load-bearing:
+ * (a) LOWER bound (why `/^## /` alone isn't enough): flow-plan-lint.ts's
+ *     checkTaskContracts requires `## Recommendation` / `## Plan risks` /
+ *     `## Cut list`, all ordered after `## Decision analysis` in the PRD
+ *     template, so a `## ` heading always precedes the next `# ` heading on
+ *     a lint-clean plan — BUT a malformed plan (lint violation) can have
+ *     `## Decision analysis` immediately followed by the h1
+ *     `# Task breakdown` with no intervening `## ` heading; widening to
+ *     `/^#{1,2} /` closes that gap so the scan still terminates instead of
+ *     running to EOF and swallowing the whole task breakdown.
+ * (b) UPPER bound (why NOT `/^#{1,3} /` or wider): `### Cross-model review
+ *     (AGY)` and `### D1`/`### D2` decision subsections legitimately live
+ *     INSIDE the Decision analysis body. An h3 terminator would truncate
+ *     the body early AND silently downgrade `computeDepth` from `"deep"` to
+ *     `"standard"` (`DECISION_SUBSECTION_RE = /^### D\d/gm` above counts
+ *     those subsections for the depth tier). Excluding the one h3 that
+ *     *must* be excluded (the AGY subsection) is the separate exclusion
+ *     loop's job below, not the terminator's — same discipline
+ *     `extractCutListBody`'s docstring warns against generalizing.
  */
 export function extractDecisionAnalysisBody(planText: string): string {
   const lines = planText.split("\n");
@@ -222,7 +243,7 @@ export function extractDecisionAnalysisBody(planText: string): string {
   if (startIdx === -1) return "";
   let endIdx = lines.length;
   for (let i = startIdx + 1; i < lines.length; i++) {
-    if (/^## /.test(lines[i])) {
+    if (/^#{1,2} /.test(lines[i])) {
       endIdx = i;
       break;
     }

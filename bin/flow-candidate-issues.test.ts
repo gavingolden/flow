@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type CandidateMeta,
-  decideCandidateIssues,
+  enumerateCandidates,
   extractTicked,
   FOLLOWUP_REFERENCE_RES,
   lintFollowUpReferences,
@@ -14,6 +14,7 @@ import {
   run,
   splitCandidate,
   tickCandidates,
+  untickCandidates,
 } from "./flow-candidate-issues";
 
 const HEADING = "# Candidate follow-up issues";
@@ -33,13 +34,20 @@ function withMeta(
   return { ...c, ...NO_META, ...meta };
 }
 
-// --- decideCandidateIssues -------------------------------------------------
+function withCandidate(
+  c: { title: string; body: string },
+  ticked: boolean,
+  meta: Partial<CandidateMeta> = {},
+) {
+  return { ...c, ticked, ...NO_META, ...meta };
+}
 
-describe(decideCandidateIssues, () => {
-  it("returns no-op when the heading is absent", () => {
-    const r = decideCandidateIssues("# PRD\n\nsome text\n");
+// --- enumerateCandidates ----------------------------------------------------
+
+describe(enumerateCandidates, () => {
+  it("returns an empty enumeration when the heading is absent", () => {
+    const r = enumerateCandidates("# PRD\n\nsome text\n");
     expect(r).toEqual({
-      action: "no-op",
       candidates: [],
       untickedCount: 0,
       tickedCount: 0,
@@ -47,89 +55,61 @@ describe(decideCandidateIssues, () => {
     });
   });
 
-  it("returns no-op when the heading is present but has zero item lines", () => {
-    const r = decideCandidateIssues(
+  it("returns an empty enumeration when the heading is present but has zero item lines", () => {
+    const r = enumerateCandidates(
       `## Why\n\nbecause.\n\n${HEADING}\n\nprose only, no checkboxes.\n`,
     );
-    expect(r.action).toBe("no-op");
     expect(r.untickedCount).toBe(0);
     expect(r.tickedCount).toBe(0);
     expect(r.candidates).toEqual([]);
   });
 
-  it("returns prompt with one candidate, splitting on the first ` — `", () => {
-    const r = decideCandidateIssues(
+  it("returns one unticked candidate, splitting on the first ` — `", () => {
+    const r = enumerateCandidates(
       `${HEADING}\n\n- [ ] OAuth refresh path leaks tokens — separate concern; needs a session.\n`,
     );
-    expect(r.action).toBe("prompt");
     expect(r.untickedCount).toBe(1);
     expect(r.tickedCount).toBe(0);
     expect(r.candidates).toEqual([
-      withMeta({
-        title: "OAuth refresh path leaks tokens",
-        body: "separate concern; needs a session.",
-      }),
+      withCandidate(
+        {
+          title: "OAuth refresh path leaks tokens",
+          body: "separate concern; needs a session.",
+        },
+        false,
+      ),
     ]);
   });
 
   it("splits only on the FIRST ` — ` (body may contain another em-dash)", () => {
-    const r = decideCandidateIssues(
+    const r = enumerateCandidates(
       `${HEADING}\n\n- [ ] Title here — body part one — body part two\n`,
     );
     expect(r.candidates).toEqual([
-      withMeta({ title: "Title here", body: "body part one — body part two" }),
+      withCandidate(
+        { title: "Title here", body: "body part one — body part two" },
+        false,
+      ),
     ]);
   });
 
-  it("returns prompt for 4 unticked items", () => {
-    const r = decideCandidateIssues(
-      `${HEADING}\n\n- [ ] a\n- [ ] b\n- [ ] c\n- [ ] d\n`,
-    );
-    expect(r.action).toBe("prompt");
-    expect(r.untickedCount).toBe(4);
-    expect(r.candidates).toHaveLength(4);
-  });
-
-  it("returns skip-already-ticked when 1 ticked + 2 unticked", () => {
-    const r = decideCandidateIssues(
-      `${HEADING}\n\n- [x] already filed — done\n- [ ] a\n- [ ] b\n`,
-    );
-    expect(r.action).toBe("skip-already-ticked");
-    expect(r.untickedCount).toBe(2);
-    expect(r.tickedCount).toBe(1);
-  });
-
-  it("returns skip-already-ticked when every item is already ticked", () => {
-    const r = decideCandidateIssues(`${HEADING}\n\n- [x] one\n- [X] two\n`);
-    expect(r.action).toBe("skip-already-ticked");
-    expect(r.untickedCount).toBe(0);
+  it("enumerates ALL section items, ticked and unticked, in document order", () => {
+    const body = `${HEADING}\n\n- [x] first — done\n- [ ] second — open\n- [X] third — also done\n- [ ] fourth — open too\n`;
+    const r = enumerateCandidates(body);
+    expect(r.candidates).toEqual([
+      withCandidate({ title: "first", body: "done" }, true),
+      withCandidate({ title: "second", body: "open" }, false),
+      withCandidate({ title: "third", body: "also done" }, true),
+      withCandidate({ title: "fourth", body: "open too" }, false),
+    ]);
     expect(r.tickedCount).toBe(2);
-  });
-
-  it("returns overflow for 5 unticked items", () => {
-    const body =
-      `${HEADING}\n\n` +
-      ["a", "b", "c", "d", "e"].map((t) => `- [ ] ${t}`).join("\n") +
-      "\n";
-    const r = decideCandidateIssues(body);
-    expect(r.action).toBe("overflow");
-    expect(r.untickedCount).toBe(5);
-  });
-
-  it("returns overflow for 6 unticked items", () => {
-    const body =
-      `${HEADING}\n\n` +
-      ["a", "b", "c", "d", "e", "f"].map((t) => `- [ ] ${t}`).join("\n") +
-      "\n";
-    const r = decideCandidateIssues(body);
-    expect(r.action).toBe("overflow");
-    expect(r.untickedCount).toBe(6);
+    expect(r.untickedCount).toBe(2);
   });
 
   it("yields body === '' when a candidate line has no ` — `", () => {
-    const r = decideCandidateIssues(`${HEADING}\n\n- [ ] Just a title\n`);
+    const r = enumerateCandidates(`${HEADING}\n\n- [ ] Just a title\n`);
     expect(r.candidates).toEqual([
-      withMeta({ title: "Just a title", body: "" }),
+      withCandidate({ title: "Just a title", body: "" }, false),
     ]);
   });
 
@@ -137,31 +117,41 @@ describe(decideCandidateIssues, () => {
     // An item-looking line under a following `# Task breakdown` heading is
     // NOT counted — the section is bounded by the next H1.
     const body = `${HEADING}\n\n- [ ] real candidate\n\n# Task breakdown\n\n- [ ] not a candidate\n- [ ] also not\n`;
-    const r = decideCandidateIssues(body);
-    expect(r.action).toBe("prompt");
+    const r = enumerateCandidates(body);
     expect(r.untickedCount).toBe(1);
     expect(r.candidates).toEqual([
-      withMeta({ title: "real candidate", body: "" }),
+      withCandidate({ title: "real candidate", body: "" }, false),
     ]);
   });
 
-  it("joins ranking-table metadata by exact-trim title match", () => {
-    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| alpha | High | Trivial | matters a lot | tightly coupled | Yes |\n\n- [ ] alpha — body\n`;
-    const r = decideCandidateIssues(body);
+  it("joins ranking-table metadata by exact-trim title match, on both ticked and unticked items", () => {
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| alpha | High | Trivial | matters a lot | tightly coupled | Yes |\n| beta | Low | Large | matters less | loosely coupled | No |\n\n- [ ] alpha — body\n- [x] beta — other body\n`;
+    const r = enumerateCandidates(body);
     expect(r.candidates).toEqual([
       {
         title: "alpha",
         body: "body",
+        ticked: false,
         value: "High",
         complexity: "Trivial",
         rationale: "matters a lot",
         relation: "tightly coupled",
         pull: "Yes",
       },
+      {
+        title: "beta",
+        body: "other body",
+        ticked: true,
+        value: "Low",
+        complexity: "Large",
+        rationale: "matters less",
+        relation: "loosely coupled",
+        pull: "No",
+      },
     ]);
   });
 
-  it("computes rankedOrder High > Medium > Low > unknown with document-order tie-break", () => {
+  it("computes rankedOrder High > Medium > Low > unknown with document-order tie-break, across BOTH ticked states", () => {
     const body =
       `${HEADING}\n\n` +
       `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
@@ -171,29 +161,37 @@ describe(decideCandidateIssues, () => {
       `| medium-one | Medium | Small | x | y | No |\n` +
       `| unknown-one |  |  |  |  |  |\n` +
       `| high-two | High | Small | x | y | No |\n\n` +
-      `- [ ] low-one\n- [ ] high-one\n- [ ] medium-one\n- [ ] unknown-one\n- [ ] high-two\n`;
-    const r = decideCandidateIssues(body);
-    // document order: [low-one, high-one, medium-one, unknown-one, high-two]
+      `- [ ] low-one\n- [x] high-one\n- [ ] medium-one\n- [ ] unknown-one\n- [ ] high-two\n`;
+    const r = enumerateCandidates(body);
+    // document order: [low-one, high-one(ticked), medium-one, unknown-one, high-two]
     // ranked: high-one(2), high-two(5), medium-one(3), low-one(1), unknown-one(4)
+    // — high-one's ticked state does not exclude it from the ranked order;
+    // grouping by state is `renderDetails`'s job, not `rankCandidates`'s.
     expect(r.rankedOrder).toEqual([2, 5, 3, 1, 4]);
   });
 
   it("leaves metadata null when the ranking table is absent", () => {
-    const r = decideCandidateIssues(`${HEADING}\n\n- [ ] a\n`);
-    expect(r.candidates).toEqual([withMeta({ title: "a", body: "" })]);
+    const r = enumerateCandidates(`${HEADING}\n\n- [ ] a\n`);
+    expect(r.candidates).toEqual([
+      withCandidate({ title: "a", body: "" }, false),
+    ]);
     expect(r.rankedOrder).toEqual([1]);
   });
 
   it("leaves metadata null on a malformed row (too few columns)", () => {
     const body = `${HEADING}\n\n| Candidate | Value |\n| --- | --- |\n| a | High |\n\n- [ ] a\n`;
-    const r = decideCandidateIssues(body);
-    expect(r.candidates).toEqual([withMeta({ title: "a", body: "" })]);
+    const r = enumerateCandidates(body);
+    expect(r.candidates).toEqual([
+      withCandidate({ title: "a", body: "" }, false),
+    ]);
   });
 
   it("leaves metadata null on a title mismatch", () => {
     const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| something else | High | Small | x | y | No |\n\n- [ ] a\n`;
-    const r = decideCandidateIssues(body);
-    expect(r.candidates).toEqual([withMeta({ title: "a", body: "" })]);
+    const r = enumerateCandidates(body);
+    expect(r.candidates).toEqual([
+      withCandidate({ title: "a", body: "" }, false),
+    ]);
   });
 
   it("ranks a lowercase 'high' value the same as canonical 'High'", () => {
@@ -204,7 +202,7 @@ describe(decideCandidateIssues, () => {
       `| low-one | Low | Small | x | y | No |\n` +
       `| high-one | high | Small | x | y | No |\n\n` +
       `- [ ] low-one\n- [ ] high-one\n`;
-    const r = decideCandidateIssues(body);
+    const r = enumerateCandidates(body);
     // document order: [low-one, high-one]; high-one must rank first.
     expect(r.rankedOrder).toEqual([2, 1]);
   });
@@ -263,32 +261,38 @@ describe(parseRankingTable, () => {
 // --- renderDetails -----------------------------------------------------
 
 describe(renderDetails, () => {
-  it("is a quiet no-op with zero unticked candidates", () => {
-    const decision = decideCandidateIssues(
-      `${HEADING}\n\n- [x] already done\n`,
+  it("is a quiet no-op with zero total candidates", () => {
+    const decision = enumerateCandidates(
+      `${HEADING}\n\nprose only, no checkboxes.\n`,
     );
     expect(renderDetails(decision)).toBe("");
   });
 
-  it("renders ranked entries, a recommended marker, and the verbatim offer line", () => {
+  it("renders unticked entries with the [ ] marker, a recommended marker, and the verbatim offer line", () => {
     const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| alpha | High | Trivial | matters | close | Yes |\n| beta | Low | Large | later | far | No |\n\n- [ ] alpha — a body\n- [ ] beta — b body\n`;
-    const decision = decideCandidateIssues(body);
+    const decision = enumerateCandidates(body);
     const rendered = renderDetails(decision);
-    expect(rendered).toContain("#1 alpha — High/Trivial");
+    expect(rendered).toContain("#1 [ ] alpha — High/Trivial");
     expect(rendered).toContain("recommended: pull into this plan");
-    expect(rendered).toContain("#2 beta — Low/Large");
+    expect(rendered).toContain("#2 [ ] beta — Low/Large");
     expect(rendered).toContain(
       "To fold a candidate into the current work instead of filing it, reply `pull #N into the plan`.",
     );
+    expect(rendered).toContain(
+      "To drop a candidate instead of filing it as an issue, reply `drop candidate #N`.",
+    );
+    expect(rendered).toContain(
+      "Pre-ticked items file as issues post-merge unless dropped.",
+    );
     // alpha ranks before beta (High before Low).
-    expect(rendered.indexOf("#1 alpha")).toBeLessThan(
-      rendered.indexOf("#2 beta"),
+    expect(rendered.indexOf("#1 [ ] alpha")).toBeLessThan(
+      rendered.indexOf("#2 [ ] beta"),
     );
   });
 
   it("recognizes a lowercase 'yes' pull cell case-insensitively", () => {
     const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| alpha | Medium | Large | matters | close | YES |\n\n- [ ] alpha — a body\n`;
-    const decision = decideCandidateIssues(body);
+    const decision = enumerateCandidates(body);
     expect(renderDetails(decision)).toContain(
       "recommended: pull into this plan",
     );
@@ -296,12 +300,34 @@ describe(renderDetails, () => {
 
   it("recommends on High + Small value/complexity alone, without pull=Yes", () => {
     const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| alpha | High | Small | matters | close | No |\n| beta | Medium | Trivial | later | far | No |\n\n- [ ] alpha — a body\n- [ ] beta — b body\n`;
-    const decision = decideCandidateIssues(body);
+    const decision = enumerateCandidates(body);
     const rendered = renderDetails(decision);
     expect(rendered).toContain("recommended: pull into this plan");
     // beta is Medium/Trivial/No — neither clause fires, so no marker for it.
-    const betaLine = rendered.split("\n").find((l) => l.includes("#2 beta"));
+    const betaLine = rendered
+      .split("\n")
+      .find((l) => l.includes("#2 [ ] beta"));
     expect(betaLine).not.toContain("recommended");
+  });
+
+  it("groups ticked candidates ahead of unticked ones, under distinct state labels, with the [x] marker and no recommended marker", () => {
+    const body = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n| --- | --- | --- | --- | --- | --- |\n| alpha | High | Trivial | matters | close | Yes |\n| beta | Low | Large | later | far | No |\n\n- [x] alpha — a body\n- [ ] beta — b body\n`;
+    const decision = enumerateCandidates(body);
+    const rendered = renderDetails(decision);
+    expect(rendered).toContain("Already ticked");
+    expect(rendered).toContain("Open candidates");
+    expect(rendered).toContain("#1 [x] alpha — High/Trivial");
+    expect(rendered).toContain("#2 [ ] beta — Low/Large");
+    // The already-decided (ticked) group renders before the open group.
+    expect(rendered.indexOf("#1 [x] alpha")).toBeLessThan(
+      rendered.indexOf("#2 [ ] beta"),
+    );
+    // A ticked, already-decided item never carries the "recommended" nudge —
+    // that marker is only meaningful for still-open candidates.
+    const alphaLine = rendered
+      .split("\n")
+      .find((l) => l.includes("#1 [x] alpha"));
+    expect(alphaLine).not.toContain("recommended");
   });
 });
 
@@ -321,7 +347,7 @@ describe(splitCandidate, () => {
 describe(tickCandidates, () => {
   const SECTION = `${HEADING}\n\n- [ ] first\n- [ ] second\n- [ ] third\n`;
 
-  it("flips only the selected 1-based unticked indices, leaving others byte-identical", () => {
+  it("flips only the selected 1-based indices, leaving others byte-identical", () => {
     const { text, result } = tickCandidates(SECTION, [1, 3]);
     expect(text).toContain("- [x] first");
     expect(text).toContain("- [ ] second");
@@ -337,10 +363,9 @@ describe(tickCandidates, () => {
     expect(() => tickCandidates(SECTION, [0])).toThrow(/out of range/);
   });
 
-  it("is idempotent: re-deciding after a flip reflects the new ticked state", () => {
+  it("re-enumerating after a flip reflects the new ticked state", () => {
     const { text } = tickCandidates(SECTION, [1]);
-    const r = decideCandidateIssues(text);
-    expect(r.action).toBe("skip-already-ticked");
+    const r = enumerateCandidates(text);
     expect(r.tickedCount).toBe(1);
     expect(r.untickedCount).toBe(2);
   });
@@ -354,17 +379,87 @@ describe(tickCandidates, () => {
     expect(text).toBe(tickCandidates(SECTION, [1]).text);
   });
 
-  it("rebases the 1-based index into the UNTICKED enumeration on an interleaved section", () => {
-    // `- [x] done` is skipped: --tick 1 targets the first *unticked* item (a),
-    // leaving the pre-ticked line and the unselected unticked line byte-identical.
+  it("indexes into the FULL enumeration on an interleaved section, NOT an unticked-only sub-enumeration", () => {
+    // Index 1 is `- [x] done` — the FIRST item in document order, ticked or
+    // not. tickCandidates(1) must therefore throw (already ticked); it must
+    // NOT silently rebase to the first *unticked* item, which is the
+    // corrected single-index-space contract this rewrite establishes.
     const interleaved = `${HEADING}\n\n- [x] done\n- [ ] a\n- [ ] b\n`;
-    const { text, result } = tickCandidates(interleaved, [1]);
+    expect(() => tickCandidates(interleaved, [1])).toThrow(/already ticked/);
+
+    // Index 2 (the full-enumeration position of `a`) is the correct way to
+    // address it — not index 1.
+    const { text, result } = tickCandidates(interleaved, [2]);
     const lines = text.split("\n");
     expect(lines).toContain("- [x] done");
     expect(lines).toContain("- [x] a");
     expect(lines).toContain("- [ ] b");
-    expect(result.tickedIndices).toEqual([1]);
+    expect(result.tickedIndices).toEqual([2]);
     expect(result.tickedCount).toBe(1);
+  });
+
+  it("throws when the index is already ticked (no double-write)", () => {
+    const interleaved = `${HEADING}\n\n- [x] done\n- [ ] a\n`;
+    expect(() => tickCandidates(interleaved, [1])).toThrow(/already ticked/);
+  });
+});
+
+// --- untickCandidates (pure) ------------------------------------------------
+
+describe(untickCandidates, () => {
+  const SECTION = `${HEADING}\n\n- [x] first\n- [x] second\n- [ ] third\n`;
+
+  it("flips only the selected 1-based ticked indices back to unticked, leaving others byte-identical", () => {
+    const { text, result } = untickCandidates(SECTION, [1]);
+    expect(text).toContain("- [ ] first");
+    expect(text).toContain("- [x] second");
+    expect(text).toContain("- [ ] third");
+    expect(result.untickedIndices).toEqual([1]);
+    expect(result.untickedCount).toBe(1);
+    expect(text.split("\n")[0]).toBe(HEADING);
+  });
+
+  it("uppercases [X] fold to [ ] too", () => {
+    const upper = `${HEADING}\n\n- [X] first\n`;
+    const { text } = untickCandidates(upper, [1]);
+    expect(text).toContain("- [ ] first");
+  });
+
+  it("throws on an out-of-range index", () => {
+    expect(() => untickCandidates(SECTION, [4])).toThrow(/out of range/);
+    expect(() => untickCandidates(SECTION, [0])).toThrow(/out of range/);
+  });
+
+  it("throws when the index is already unticked (no double-write)", () => {
+    expect(() => untickCandidates(SECTION, [3])).toThrow(/already unticked/);
+  });
+
+  it("dedups a repeated index: --untick 1,1 flips item 1 once", () => {
+    const { text, result } = untickCandidates(SECTION, [1, 1]);
+    expect(result.untickedIndices).toEqual([1]);
+    expect(result.untickedCount).toBe(1);
+    expect(text).toBe(untickCandidates(SECTION, [1]).text);
+  });
+
+  it("indexes into the FULL enumeration, matching tickCandidates' index space exactly", () => {
+    const interleaved = `${HEADING}\n\n- [ ] a\n- [x] done\n`;
+    // Index 1 is `a` (unticked) — untickCandidates(1) must throw.
+    expect(() => untickCandidates(interleaved, [1])).toThrow(
+      /already unticked/,
+    );
+    // Index 2 is `done` (ticked) — this is the correct address.
+    const { text, result } = untickCandidates(interleaved, [2]);
+    const lines = text.split("\n");
+    expect(lines).toContain("- [ ] a");
+    expect(lines).toContain("- [ ] done");
+    expect(result.untickedIndices).toEqual([2]);
+  });
+
+  it("re-enumerating after an untick reflects the reverted state", () => {
+    const { text } = untickCandidates(SECTION, [1]);
+    const r = enumerateCandidates(text);
+    expect(r.tickedCount).toBe(1);
+    expect(r.untickedCount).toBe(2);
   });
 });
 
@@ -463,8 +558,8 @@ describe(lintFollowUpReferences, () => {
     // because the checkbox item keeps candidateCount > 0.
     expect(r.candidateCount).toBe(1);
     expect(r.drift).toBe(false);
-    // Cross-check the decision path agrees on the same count.
-    expect(decideCandidateIssues(withTable).untickedCount).toBe(1);
+    // Cross-check the enumeration path agrees on the same count.
+    expect(enumerateCandidates(withTable).untickedCount).toBe(1);
   });
 });
 
@@ -509,6 +604,7 @@ describe(parseArgs, () => {
       planMdFile: "p.md",
       mode: "json",
       tickIndices: undefined,
+      untickIndices: undefined,
     });
   });
 
@@ -517,6 +613,7 @@ describe(parseArgs, () => {
       planMdFile: "p.md",
       mode: "lint",
       tickIndices: undefined,
+      untickIndices: undefined,
     });
   });
 
@@ -525,12 +622,34 @@ describe(parseArgs, () => {
       planMdFile: "p.md",
       mode: "tick",
       tickIndices: [1, 3],
+      untickIndices: undefined,
     });
   });
 
   it("rejects a non-integer --tick index", () => {
     expect(parseArgs(["--plan-md-file", "p.md", "--tick", "1,x"])).toEqual({
       error: "--tick index must be an integer, got 'x'",
+    });
+  });
+
+  it("parses --untick into integer indices", () => {
+    expect(parseArgs(["--plan-md-file", "p.md", "--untick", "2,4"])).toEqual({
+      planMdFile: "p.md",
+      mode: "untick",
+      tickIndices: undefined,
+      untickIndices: [2, 4],
+    });
+  });
+
+  it("rejects a non-integer --untick index", () => {
+    expect(parseArgs(["--plan-md-file", "p.md", "--untick", "2,y"])).toEqual({
+      error: "--untick index must be an integer, got 'y'",
+    });
+  });
+
+  it("errors when --untick is given no value", () => {
+    expect(parseArgs(["--plan-md-file", "p.md", "--untick"])).toEqual({
+      error: "--untick requires comma-separated 1-based indices",
     });
   });
 
@@ -589,21 +708,21 @@ describe("run() integration", () => {
     return { exit, out: writes.join("") };
   }
 
-  it("emits the decision shape { action, candidates, untickedCount, tickedCount }", () => {
-    writePlan(`${HEADING}\n\n- [ ] alpha — first\n- [ ] beta\n`);
+  it("emits the enumeration shape { candidates, untickedCount, tickedCount, rankedOrder } with no action key", () => {
+    writePlan(`${HEADING}\n\n- [ ] alpha — first\n- [x] beta\n`);
     const { exit, out } = captureStdout(() =>
       run(["--plan-md-file", planFile, "--json"]),
     );
     expect(exit).toBe(0);
     const parsed = JSON.parse(out);
+    expect(parsed).not.toHaveProperty("action");
     expect(parsed).toEqual({
-      action: "prompt",
       candidates: [
-        withMeta({ title: "alpha", body: "first" }),
-        withMeta({ title: "beta", body: "" }),
+        withCandidate({ title: "alpha", body: "first" }, false),
+        withCandidate({ title: "beta", body: "" }, true),
       ],
-      untickedCount: 2,
-      tickedCount: 0,
+      untickedCount: 1,
+      tickedCount: 1,
       rankedOrder: [1, 2],
     });
   });
@@ -631,16 +750,97 @@ describe("run() integration", () => {
     expect(fs.readFileSync(planFile, "utf8")).toBe(before);
   });
 
-  it("--ticked emits the now-ticked pairs after a --tick", () => {
+  it("--tick rejects an already-ticked index with exit 2 and no file mutation", () => {
+    writePlan(`${HEADING}\n\n- [x] one\n`);
+    const before = fs.readFileSync(planFile, "utf8");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = run(["--plan-md-file", planFile, "--tick", "1"]);
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    expect(fs.readFileSync(planFile, "utf8")).toBe(before);
+  });
+
+  it("--untick flips the selected items in the file and leaves others unchanged", () => {
+    writePlan(`${HEADING}\n\n- [x] one\n- [x] two\n- [ ] three\n`);
+    const { exit, out } = captureStdout(() =>
+      run(["--plan-md-file", planFile, "--untick", "1"]),
+    );
+    expect(exit).toBe(0);
+    expect(JSON.parse(out)).toEqual({
+      untickedIndices: [1],
+      untickedCount: 1,
+    });
+    const after = fs.readFileSync(planFile, "utf8");
+    expect(after).toContain("- [ ] one");
+    expect(after).toContain("- [x] two");
+    expect(after).toContain("- [ ] three");
+  });
+
+  it("--untick rejects an out-of-range index with exit 2 and no file mutation", () => {
+    writePlan(`${HEADING}\n\n- [x] one\n`);
+    const before = fs.readFileSync(planFile, "utf8");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = run(["--plan-md-file", planFile, "--untick", "5"]);
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    expect(fs.readFileSync(planFile, "utf8")).toBe(before);
+  });
+
+  it("--untick rejects an already-unticked index with exit 2 and no file mutation", () => {
+    writePlan(`${HEADING}\n\n- [ ] one\n`);
+    const before = fs.readFileSync(planFile, "utf8");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = run(["--plan-md-file", planFile, "--untick", "1"]);
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    expect(fs.readFileSync(planFile, "utf8")).toBe(before);
+  });
+
+  it("--untick 1,2 flips both selected items", () => {
+    writePlan(`${HEADING}\n\n- [x] one\n- [x] two\n- [ ] three\n`);
+    const { exit, out } = captureStdout(() =>
+      run(["--plan-md-file", planFile, "--untick", "1,2"]),
+    );
+    expect(exit).toBe(0);
+    expect(JSON.parse(out)).toEqual({
+      untickedIndices: [1, 2],
+      untickedCount: 2,
+    });
+    const after = fs.readFileSync(planFile, "utf8");
+    expect(after).toContain("- [ ] one");
+    expect(after).toContain("- [ ] two");
+    expect(after).toContain("- [ ] three");
+  });
+
+  it("--untick validates the whole batch before writing (no partial mutation)", () => {
+    writePlan(`${HEADING}\n\n- [x] one\n- [x] two\n- [ ] three\n`);
+    const before = fs.readFileSync(planFile, "utf8");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // index 1 is valid, index 9 is out of range: whole batch must be rejected,
+    // so item 1 must NOT have been flipped before the invalid index was hit.
+    expect(run(["--plan-md-file", planFile, "--untick", "1,9"])).toBe(2);
+    // index 1 is valid, index 3 is already unticked (same-state flip): also
+    // rejected wholesale, not partially applied.
+    expect(run(["--plan-md-file", planFile, "--untick", "1,3"])).toBe(2);
+    errSpy.mockRestore();
+    expect(fs.readFileSync(planFile, "utf8")).toBe(before);
+  });
+
+  it("--ticked emits the now-ticked pairs after a --tick, unchanged by the rewrite (guards the step-10 contract)", () => {
     writePlan(`${HEADING}\n\n- [ ] alpha — first\n- [ ] beta — second\n`);
     captureStdout(() => run(["--plan-md-file", planFile, "--tick", "2"]));
     const { exit, out } = captureStdout(() =>
       run(["--plan-md-file", planFile, "--ticked"]),
     );
     expect(exit).toBe(0);
-    expect(JSON.parse(out)).toEqual({
+    const parsed = JSON.parse(out);
+    expect(parsed).toEqual({
       ticked: [withMeta({ title: "beta", body: "second" })],
     });
+    // The `--ticked` items must NOT gain the new `ticked` boolean field that
+    // `Candidate` gained — that field belongs to the enumeration surface,
+    // not the step-10 post-merge issue-filing shape `--ticked` guards.
+    expect(parsed.ticked[0]).not.toHaveProperty("ticked");
   });
 
   it("--ticked returns an empty array on an all-unticked section", () => {
@@ -683,18 +883,32 @@ describe("run() integration", () => {
     expect(JSON.parse(out).references).toEqual([]);
   });
 
-  it("--details renders the ranked block for unticked candidates", () => {
+  it("--details renders the ranked block for open candidates", () => {
     writePlan(`${HEADING}\n\n- [ ] alpha — first\n`);
     const { exit, out } = captureStdout(() =>
       run(["--plan-md-file", planFile, "--details"]),
     );
     expect(exit).toBe(0);
-    expect(out).toContain("#1 alpha");
+    expect(out).toContain("#1 [ ] alpha");
     expect(out).toContain("pull #N into the plan");
+    expect(out).toContain("drop candidate #N");
   });
 
-  it("--details is a quiet no-op with zero unticked candidates", () => {
+  it("--details shows a pre-ticked item in the ticked group with the [x] marker", () => {
     writePlan(`${HEADING}\n\n- [x] already done\n`);
+    const { exit, out } = captureStdout(() =>
+      run(["--plan-md-file", planFile, "--details"]),
+    );
+    expect(exit).toBe(0);
+    expect(out).toContain("#1 [x] already done");
+    expect(out).toContain("Already ticked");
+    expect(out).toContain(
+      "Pre-ticked items file as issues post-merge unless dropped.",
+    );
+  });
+
+  it("--details is a quiet no-op with zero total candidates", () => {
+    writePlan(`${HEADING}\n\nprose only, no checkboxes.\n`);
     const { exit, out } = captureStdout(() =>
       run(["--plan-md-file", planFile, "--details"]),
     );
@@ -714,5 +928,78 @@ describe("run() integration", () => {
     const exit = run(["--json"]);
     errSpy.mockRestore();
     expect(exit).toBe(2);
+  });
+});
+
+// --- index-space regression: --details labels vs --tick/--untick args ------
+//
+// THE LOAD-BEARING REGRESSION TEST. Today's `#N` label a user reads via
+// `--details` must be the exact `N` they pass to `--tick`/`--untick` —
+// that single-index-space property is what the contract adjustment in this
+// rewrite exists to preserve (tickCandidates/untickCandidates now index into
+// the FULL `candidates` enumeration, matching what `renderDetails` labels).
+describe("details label ↔ tick/untick argument index space", () => {
+  const MIXED =
+    `${HEADING}\n\n` +
+    `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+    `| --- | --- | --- | --- | --- | --- |\n` +
+    `| alpha | Low | Small | x | y | No |\n` +
+    `| beta | High | Trivial | x | y | Yes |\n\n` +
+    `- [x] alpha — done already\n` +
+    `- [ ] beta — open one\n`;
+
+  it("pins the #N label renderDetails prints for a candidate to the same N tickCandidates/untickCandidates accept for it", () => {
+    const decision = enumerateCandidates(MIXED);
+    const rendered = renderDetails(decision);
+
+    // alpha is candidates[0] (ticked, Low) -> labelled #1.
+    // beta is candidates[1] (unticked, High) -> labelled #2.
+    expect(rendered).toContain("#1 [x] alpha");
+    expect(rendered).toContain("#2 [ ] beta");
+
+    // #1 (alpha) is already ticked: untickCandidates(1) succeeds and
+    // addresses alpha; tickCandidates(1) throws (same-state flip rejected).
+    expect(() => tickCandidates(MIXED, [1])).toThrow(/already ticked/);
+    const untickOut = untickCandidates(MIXED, [1]);
+    expect(untickOut.text.split("\n")).toContain("- [ ] alpha — done already");
+
+    // #2 (beta) is unticked: tickCandidates(2) succeeds and addresses beta;
+    // untickCandidates(2) throws.
+    expect(() => untickCandidates(MIXED, [2])).toThrow(/already unticked/);
+    const tickOut = tickCandidates(MIXED, [2]);
+    expect(tickOut.text.split("\n")).toContain("- [x] beta — open one");
+  });
+
+  // Every fixture above has print order == enumeration order (<=2
+  // candidates), so it can't distinguish labelling by enumeration index
+  // (correct) from labelling by print position (a regression). This
+  // fixture's ranking + ticked/unticked grouping reorders the print
+  // sequence relative to doc/enumeration order, closing that hole.
+  const MIXED3 =
+    `${HEADING}\n\n` +
+    `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+    `| --- | --- | --- | --- | --- | --- |\n` +
+    `| a | Low | Small | x | y | No |\n` +
+    `| b | Low | Small | x | y | No |\n` +
+    `| c | High | Small | x | y | No |\n\n` +
+    `- [ ] a — open\n- [x] b — done\n- [ ] c — open too\n`;
+
+  it("labels by enumeration index, not print position, when ranking + grouping reorders the block", () => {
+    const rendered = renderDetails(enumerateCandidates(MIXED3));
+    const labels = rendered.split("\n").filter((l) => l.startsWith("#"));
+    // rankedOrder is [3, 1, 2] (c is High-ranked first, a/b tie at Low in
+    // doc order); ticked group (b, #2) prints before the unticked group
+    // (c, #3 then a, #1) — a non-monotonic print sequence.
+    expect(labels[0]).toContain("#2 [x] b");
+    expect(labels[1]).toContain("#3 [ ] c");
+    expect(labels[2]).toContain("#1 [ ] a");
+    // And each printed label is the exact argument tick/untick accept for
+    // that item — the correspondence this describe block exists to protect.
+    expect(untickCandidates(MIXED3, [2]).text.split("\n")).toContain(
+      "- [ ] b — done",
+    );
+    expect(tickCandidates(MIXED3, [3]).text.split("\n")).toContain(
+      "- [x] c — open too",
+    );
   });
 });

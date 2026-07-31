@@ -33,6 +33,51 @@ optional `sessionId` field in `~/.flow/state/<slug>.json` is still
 written by `flow-open-pr` for the HTML-comment marker path, but step 10
 no longer reads it.
 
+### Why no authored squash body (issue #486)
+
+PR #213 removed an earlier `--body` composed FROM THE PR DESCRIPTION
+because it landed the description's `## Why` / `## What` markdown
+headings verbatim in `git log` — its stated goal was for the squash
+body to read as concatenated conventional commits instead, which the
+bare `gh pr merge --squash` above delivers by construction (gh's
+default concatenation of the branch's own commit subjects).
+
+Issue #486 re-raised this: the merge-resolver's `chore: merge
+origin/<base> into <branch> to resolve conflicts` commit is itself a
+conventional commit, so it already satisfies that goal — but #486's
+underlying premise, that this line actually leaks into a later PR's
+default squash body as noise, is UNDETERMINED. No authoritative GitHub
+documentation confirms or denies it either way for this repo's history.
+
+Weighing against implementing it: GitHub composes the squash body
+server-side when no `--body` is passed (`setCommitBody: false`),
+appending a `---------` separator and a collected `Co-authored-by:`
+footer that a client-side `--body` would have to replicate by hand.
+Passing `--body` flips `setCommitBody: true` and replaces that whole
+server-side composition, suppressing any forge-appended trailer for
+every consumer repo — observably the `Co-authored-by:` collection, and
+plausibly (on GitHub Enterprise) a DCO `Signed-off-by:` or other policy
+trailer. That GHE consequence is recorded here to weigh, not verified
+against a real GHE instance.
+
+Decision: wontfix, with a deliberately LOW-BAR re-open trigger — a
+single observed `* chore: merge origin/...` line inside a squash body
+on `main` is sufficient to re-open; no one needs to first argue it is
+noise.
+
+Observed: this PR's own branch carries a merge commit — a real,
+two-parent merge of `origin/main` into the feature branch, created
+during the step-7 CI-merge-ref-divergence retrofit — so this PR's own
+squash-merge settles #486's contested GENERAL premise (whether a merge
+commit's subject enters GitHub's default squash body at all) the moment
+it lands. Caveat: that merge commit's subject is git's DEFAULT `Merge
+remote-tracking branch 'origin/main' into <branch>`, not the resolver's
+conventional-commit subject (`chore: merge origin/<base> into <branch>
+to resolve conflicts`) — so it tests the general premise but NOT the
+resolver's exact subject line. Fill in the actual result post-merge from
+`git log -1 --format=%B <squash-sha>` run against the squashed commit on
+`main`.
+
 ## Base-branch guard
 
 `flow feature create` best-effort-installs a `pre-commit` hook
@@ -122,17 +167,6 @@ edge-case prose — lives in
 
 ## AskUserQuestion exemption bodies
 
-**Candidate-issues form (two firing locations).** The multi-select form
-that picks which orthogonal candidates to file post-merge. It is ONE
-named form fired from TWO locations: (a) step 4's "Candidate follow-up
-issues sub-step" on the Affirmative branch, and (b) step 3's "Candidate
-follow-up issues sub-step (non-feature intents)" on the
-`advance-to-step-5` branch (so bug/refactor/docs/infra/chore pipelines,
-which skip step 4, still get offered their discovered follow-ups). The
-five-branch decision is owned by the LLM-free `flow-candidate-issues`
-helper; the `AskUserQuestion` primitive and the decision to fire it stay
-in the supervisor sub-steps.
-
 **Step 9 gate-override sub-step.** The single confirmation form fired
 during step 9's "Gate override (post-verdict, opt-in)" sub-step, when the
 user instructs the supervisor to merge a `gated` PR anyway — a _fresh_
@@ -141,9 +175,14 @@ inferring authorisation from an earlier instruction. An affirmative
 answer is recorded by `flow-merge-guard --record-override` and enforced
 by the step-10 backstop.
 
-These two named forms are the **only** authorised `AskUserQuestion`
-sites, documented bidirectionally with
-`skills/pipeline/flow-pipeline/SKILL.md`.
+This named form is the **only** authorised `AskUserQuestion`
+site, documented bidirectionally with
+`skills/pipeline/flow-pipeline/SKILL.md`. Candidate follow-up issues are
+no longer curated via a form: discovery bundles them into the plan by
+default (pre-ticked `- [x]` items in `# Candidate follow-up issues`),
+and the user curates by replying `drop candidate #N` / `drop all
+candidates` / `defer task #N` at plan review (step 4) rather than
+answering a multi-select.
 
 ## Auto-merge exemption detail (`/flow-pipeline` step 10)
 
@@ -178,8 +217,16 @@ stops at the gated state regardless of the gate verdict).
 (`--label flow-agent,deferred-review`), and (b) `/flow-pipeline` step
 10's post-merge sweep (`--label flow-agent,out-of-scope-discovery`, once
 per `- [x]` candidate in plan.md). Indiscriminate auto-creation pollutes
-backlogs and races on `gh` rate limits; both sites have explicit user
-opt-in. Documented bidirectionally in
+backlogs and races on `gh` rate limits. Feature and `route-to-step-4`
+pipelines curate the ticked set at plan review (bundle-by-default
+candidates are pre-ticked, and the `--details` echo plus the `drop
+candidate #N` / `pull #N into the plan` reply verbs let the user drop or
+defer any it doesn't want before approval); step 3's `advance-to-step-5`
+route has no plan-review checkpoint, so its pre-ticked candidates and
+bundled tasks proceed as discovery authored them, disclosed post-hoc in
+the PR body and the terminal recap, with post-merge off-ramps (revert a
+bundled line, close an unwanted issue) as the correction path. Documented
+bidirectionally in
 `skills/pipeline/flow-pipeline/SKILL.md`,
 `skills/pipeline/flow-pr-review/SKILL.md` Step 6, and
 `bin/flow-create-issue.ts`.
@@ -187,7 +234,7 @@ opt-in. Documented bidirectionally in
 ## `/flow-epic-create` and `/flow-epic-run` detail
 
 `flow epic create` spawns a fresh top-level `/flow-epic-create` session,
-so `/flow-pipeline`'s exactly-9 and two-form rules are unaffected by its
+so `/flow-pipeline`'s exactly-9 and one-form rule are unaffected by its
 two named surfaces (distinct openers, in
 `skills/pipeline/flow-epic-create/SKILL.md`): **Task-tool fan-out:
 `/flow-epic-create` → /flow-product-planning MODE: epic designer.** and

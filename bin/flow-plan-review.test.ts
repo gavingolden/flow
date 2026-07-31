@@ -1052,4 +1052,51 @@ describe("computeDecisionHash — widened content key", () => {
       computeDecisionHash(BASE_HASH_PLAN),
     );
   });
+
+  // Deliberately lint-violating fixture: `## Decision analysis` is
+  // IMMEDIATELY followed by the h1 `# Task breakdown` with no intervening
+  // `## ` heading. BASE_HASH_PLAN can't exercise the widened `/^#{1,2} /`
+  // terminator because its own `## Recommendation` heading terminates the
+  // scan first — this fixture is the one the widening actually fixes.
+  const MALFORMED_PLAN = [
+    "# PRD",
+    "**Goal:** Ship CSV export quickly.",
+    "## Decision analysis",
+    "**Decision A** verdict X.",
+    "# Task breakdown",
+    "### Task 1: do a thing",
+  ].join("\n");
+
+  it("on a malformed plan (no '## ' between Decision analysis and the next h1), a Task-breakdown-only edit does NOT change the hash", () => {
+    const changed = MALFORMED_PLAN + "\n\n### Task 2: do another thing\n";
+    expect(computeDecisionHash(changed)).toBe(
+      computeDecisionHash(MALFORMED_PLAN),
+    );
+  });
+
+  it("extractDecisionAnalysisBody(BASE_HASH_PLAN) is unchanged by the terminator widening", () => {
+    expect(extractDecisionAnalysisBody(BASE_HASH_PLAN)).toBe(
+      "**Decision A** verdict X.",
+    );
+  });
+
+  it("keeps '### D1'/'### D2' subsections in the extracted body while excluding '### Cross-model review (AGY)'", () => {
+    const plan = [
+      "# PRD",
+      "**Goal:** Ship CSV export quickly.",
+      "## Decision analysis",
+      "### D1 — format",
+      "CSV chosen over JSON.",
+      "### D2 — pagination",
+      "Cursor-based.",
+      "### Cross-model review (AGY)",
+      "Gemini agrees.",
+      "## Recommendation",
+      "go",
+    ].join("\n");
+    const body = extractDecisionAnalysisBody(plan);
+    expect(body).toContain("### D1 — format");
+    expect(body).toContain("### D2 — pagination");
+    expect(body).not.toContain("### Cross-model review (AGY)");
+  });
 });

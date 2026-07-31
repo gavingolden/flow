@@ -6,7 +6,9 @@ description: >-
   "ignore flake X") — to a durable on-disk artifact before a context clear, so
   it survives `/clear` and is re-injected on resume. Use when the user says
   "/flow-checkpoint", "flow-checkpoint this", or "save state before I clear"
-  inside a flow pipeline window.
+  inside any flow supervisor window — a feature pipeline (`flow feature
+  create`), an epic-design window (`flow epic create`), or an epic-run
+  window (`flow epic run`).
 ---
 
 # Goal
@@ -20,7 +22,10 @@ holding only in chat: an "approved with condition X" addendum, a
 mid-flight redirect ("ignore the flake on test Y", "skip the review,
 ship it"), an explicit in-chat decision. This skill writes that
 conversational residue to `<worktree>/.flow-tmp/checkpoint.md` so it is
-re-injected after a `/clear`.
+re-injected after a `/clear`. Depending on the pipeline kind, the resumed
+session may be `/flow-pipeline`, `/flow-epic-create`, or the
+`/flow-epic-run` playbook — the resumed skill is picked by the window's
+kind, not always `/flow-pipeline`.
 
 # When to use
 
@@ -28,10 +33,23 @@ re-injected after a `/clear`.
 this` / `checkpoint` inside a flow pipeline window.
 - The user wants to reset the supervisor's context mid-pipeline (drop a
   bloated transcript) without losing an in-chat instruction.
+- Epic-design windows (`flow epic create`) are a supported context too —
+  phases `epic-designing`, `epic-validating`, `epic-pr-open`, and
+  `epic-design-pending-review` all checkpoint and auto-resume like a
+  feature pipeline. `epic-approved` is terminal for the design supervisor,
+  so `/clear` there will not auto-resume (an `epic-run` window at the same
+  phase is a separate case — see the gate note below).
 
-Do **not** use it outside a flow pipeline window, or on a terminal
-pipeline — there is no in-flight work to resume, so `flow-checkpoint`
-returns a `needs`/`noop` verdict and no marker is written.
+The helper (`bin/flow-checkpoint.ts`) gates **only** on (`state.json`
+present, `state.worktree` set, a non-empty `checkpoint.md`) and is
+**phase-independent** — it writes the marker at any phase, including a
+terminal one. It is the `SessionStart:clear` **hook** that declines to
+auto-resume at a terminal phase (except `gated`, and except an
+`epic-run` window, which resumes regardless of phase). Checkpointing a
+terminal pipeline therefore still succeeds and still arms the marker, but
+`/clear` there will not auto-resume — step 2 below surfaces a warning
+when that is the case, so you can decide not to `/clear` instead of
+finding out from a blank pane.
 
 # How it runs
 
@@ -82,18 +100,38 @@ Run the LLM-free helper (the slug auto-resolves from the pane):
 flow-checkpoint
 ```
 
+The bare call above keeps no `--site` flag, so it defaults to
+`--site manual` — this is what makes the note you just wrote outrank
+every pipeline auto-checkpoint (plan-review, plan-approval, gate) until
+the pipeline itself changes phase: a manual note's freshness is judged
+against `state.phaseLog`, and it reads as fresh for as long as no phase
+transition has happened since you armed it. Once the pipeline advances,
+the current phase's own auto-checkpoint takes back over — your
+superseded note is never silently lost, it stays recoverable at
+`.flow-tmp/checkpoint.consumed.md` after the next `--consume` (see step 3).
+
 It confirms `state.json` is current and `checkpoint.md` is present +
 non-empty, then emits one JSON object on stdout. Branch on `.status`:
 
 - **`ready`** — the helper wrote the one-shot marker
   `<worktree>/.flow-tmp/checkpoint.pending` (the flag the
-  `SessionStart:clear` auto-resume hook gates on). Proceed to step 3.
+  `SessionStart:clear` auto-resume hook gates on) and recorded the
+  freshness receipt (`site: manual`) that gives your note precedence
+  over auto-checkpoints while it stays fresh. When the JSON also
+  carries a non-empty `.warning` (a terminal phase that will not
+  auto-resume — the `gated` and `epic-run` carve-outs never carry one),
+  hold onto it for step 3: it does **not** change the branch, `ready` +
+  `warning` is still `ready`. Proceed to step 3.
 - **`needs`** — a precondition is unmet (`.reason` is `state-missing`,
   `no-worktree`, or `checkpoint-missing`). No marker was written. When
   the reason is `checkpoint-missing`, step 1 did not leave a non-empty
   `checkpoint.md` — re-do step 1, then re-run the helper. Otherwise the
   window is not a resumable flow pipeline; tell the user checkpointing
   is not available here and end.
+
+This skill never probes (`--probe`) — that branch exists only for the
+four pipeline auto-checkpoint sites deciding whether to overwrite an
+existing note, so `.status` here only ever takes `ready` or `needs`.
 
 ## 3. Tell the user it is safe to `/clear`, then end the turn
 
@@ -103,7 +141,18 @@ On a `ready` verdict, surface a one-line nudge and end the turn:
 ✅ checkpointed — type /clear now to reset context (the pipeline auto-resumes and re-injects your notes), or keep going in this session.
 ```
 
+When step 2's JSON carried a non-empty `.warning`, echo it verbatim
+alongside that line, so the user can decide **not** to `/clear`:
+
+```
+⚠️ <warning text from step 2>
+```
+
 Then stop. The marker is one-shot: on the next resume, Resume mode reads
 `checkpoint.md`, folds its addenda into the re-entered step, and calls
-`flow-checkpoint --consume` to delete the marker so a later unrelated
-`/clear` in the same window does not re-fire the auto-resume.
+`flow-checkpoint --consume`. `--consume` now retires the body outright,
+not just the marker: it archives `checkpoint.md` to
+`.flow-tmp/checkpoint.consumed.md` (recoverable, never silently deleted)
+and clears the freshness record, then deletes the `checkpoint.pending`
+marker so a later unrelated `/clear` in the same window does not re-fire
+the auto-resume.
