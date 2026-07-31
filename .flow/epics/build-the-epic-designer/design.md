@@ -193,16 +193,24 @@ graph TD
   `flow epic create` caller, because a one-shot discovery subagent cannot
   fire `AskUserQuestion`. `02` §3's HYBRID prose is annotated, not rewritten;
   confirm you are content with that relocation.
+  **Recommended:** keep the relocation — a one-shot subagent structurally
+  cannot fire `AskUserQuestion`, so the caller is the only viable host.
 - **Manifest id form.** Assumed the descriptive ids `03` §B encodes
   (`f1-manifest-schema` … `f5-end-to-end`) rather than the bare `f1..f5`
   shorthand, so this worked example matches the doc it dogfoods. Confirm, or
   prefer the short form.
+  **Recommended:** descriptive ids — the worked example's job is to match the
+  doc it dogfoods, and readable ids cost nothing downstream.
 - **Worked-example slug.** Assumed the deliberate, readable
   `build-the-epic-designer` (matching `epicId`), not `slugify`'s truncated
   output. Confirm the slug.
+  **Recommended:** keep `build-the-epic-designer` — matching `epicId` keeps the
+  example internally consistent; a truncated slug adds no value.
 - **`design.md` requirements granularity.** Assumed epic-level EARS here in
   §2 and per-feature acceptance in each manifest feature's
   `acceptanceCriteria[]`. Confirm the split.
+  **Recommended:** keep the split — epic-level EARS states the invariants once,
+  while per-feature criteria stay testable at feature grain (low rework risk).
 
 ## Recommendation
 

@@ -416,7 +416,8 @@ effect on model comprehension either way) — never required.
   is emitted only when the change plausibly moves one.
 - **Open Questions** — every assumption you made plus anything still unresolved. Each
   entry must name what changes on redirect — a question whose every answer leaves the
-  plan unchanged is deleted, not written (earns-its-place rule).
+  plan unchanged is deleted, not written (earns-its-place rule). Every entry also carries
+  a resolution marker — see the "Open Questions (resolution-first)" sub-section below.
 - **Decision analysis** (omit-when-empty) — for each _consequential_ open decision whose
   branches genuinely diverge, illustrate each branch's downstream end-user/system flow, mark
   exclusive vs complementary, enumerate + rank the viable combinations, and give a verdict that
@@ -676,6 +677,29 @@ produced/consumed artifact for each), and its downstream dependents whose consum
 interfaces must stay stable. **Source-traceability rule:** every claim here MUST be
 traceable to `design.md` and `manifest.json` — read both on detection (step 1.7); never
 infer epic context from the slug or the pointer sentence alone.
+
+### Open Questions (resolution-first)
+
+Every unchecked `- [ ]` entry in `## Open Questions` must carry exactly one of two
+markers, so the reviewer reads a resolved recommendation, not a bare question:
+
+- `**Recommended:** <answer> — <one-line rationale naming the decisive rubric
+factor(s)>` (per the Resolution rubric in discovery-playbook.md), OR
+- `**Needs user input:** <named reason>` — the reason MUST come from this closed
+  list: a user-held preference or subjective taste; an external fact the agent
+  cannot verify; credentials or production access.
+
+**Relation to Decision analysis:** consequential questions whose branches genuinely
+diverge route to `### Decision analysis` (whose verdict feeds the Recommendation);
+everything else resolves here with a `**Recommended:**` marker or takes the
+`**Needs user input:**` escape.
+
+**Anti-hallucination guard.** A `**Recommended:**` rationale must ground itself in
+evidence the agent actually holds — codebase reading, a project convention, or the
+rubric's value/effort/risk weighing. When the decisive input is an external fact the
+agent cannot verify, taking the `**Needs user input:**` escape is MANDATORY, not a
+stylistic choice: a confident wrong answer that looks right is worse than a bare
+question.
 
 ### Decision analysis
 
@@ -1264,6 +1288,9 @@ redirect did not touch and destroys embedded markers. Follow this contract:
    mark any prior question the redirect resolves with a short decision note (the same
    "mark resolved with a decision note" convention the section already uses) rather than
    deleting it, so the Q&A record of the plan's evolution stays intact across revisions.
+   Redirect-added questions also carry the resolution markers where answerable — a
+   `**Recommended:**` answer or a `**Needs user input:**` escape per the "Open
+   Questions (resolution-first)" contract.
 
 The `<n>` is a simple pass counter the supervisor tracks in-context (pass 2, 3, …); it
 carries no payload beyond "this is a revision" — the redirect text itself arrives through
@@ -1291,6 +1318,8 @@ Common failure modes during planning:
 - Architecture Decisions section names specific layers, domain modules, and data
   flow pattern.
 - Every assumption you made under ambiguity appears as an Open Question.
+- Every unchecked Open Questions entry carries a `**Recommended:**` answer or a
+  `**Needs user input:**` escape (see "Open Questions (resolution-first)").
 - Task breakdown covers all PRD requirements with no gaps.
 - Each task has a recommended skill, inputs, outputs, and acceptance criteria.
 - Each task carries a `- **Contract:**` block (Files / Interfaces / Call-site

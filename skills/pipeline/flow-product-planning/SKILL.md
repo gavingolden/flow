@@ -204,7 +204,8 @@ one-shot — do not ask the user clarifying questions. When the user
 description leaves something unspecified, make a defensible assumption based
 on the codebase and project conventions, and surface every assumption you
 made in the PRD's "Open Questions" section (or, under `MODE: epic`, the
-`design.md` "Open Questions" section).
+`design.md` "Open Questions" section), each resolved per the resolution-first
+contract (a **Recommended:** answer or a named **Needs user input:** escape).
 
 Return a one-paragraph summary (3–5 sentences) — the problem statement in
 one line, the number of tasks, and the top one or two assumptions the user

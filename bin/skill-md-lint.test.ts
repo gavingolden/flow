@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
 import { STEP_PHASES } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
+import { CHECKPOINT_SITES } from "./flow-checkpoint";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -243,6 +244,14 @@ const UI_UX_SKILL_MD_PATH = path.resolve(
   "flow-ui-ux",
   "SKILL.md",
 );
+const CHECKPOINT_SKILL_MD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "universal",
+  "flow-checkpoint",
+  "SKILL.md",
+);
 const SVELTE_SKILL_MD_PATH = path.resolve(
   HERE,
   "..",
@@ -313,6 +322,10 @@ const manualTestRubricContent = fs.readFileSync(
 );
 const autoMergeRubricContent = fs.readFileSync(AUTO_MERGE_RUBRIC_PATH, "utf8");
 const redirectHandlingContent = fs.readFileSync(REDIRECT_HANDLING_PATH, "utf8");
+const checkpointSkillContent = fs.readFileSync(
+  CHECKPOINT_SKILL_MD_PATH,
+  "utf8",
+);
 const gatekeeperSpawnPromptContent = fs.readFileSync(
   GATEKEEPER_SPAWN_PROMPT_PATH,
   "utf8",
@@ -4437,11 +4450,17 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "checkpoint.md non-clobberingly (the fuller /checkpoint-style flush).",
     ).toBe(true);
     expect(
-      /### Auto-checkpoint sub-step[\s\S]*?flow-checkpoint[\s\S]*?flow-state-update --phase checkpoint-pending-clear/.test(
+      // Matches the ARM specifically (`flow-checkpoint --site plan-approval`),
+      // not a bare `flow-checkpoint` substring — a `--probe` call inserted
+      // before the arm would otherwise satisfy a looser regex and silently
+      // stop proving the arm-before-phase-write ordering this test exists
+      // for.
+      /### Auto-checkpoint sub-step[\s\S]*?flow-checkpoint --site plan-approval[\s\S]*?flow-state-update --phase checkpoint-pending-clear/.test(
         content,
       ),
-      "the step 4 auto-checkpoint sub-step must arm `flow-checkpoint` and " +
-        "write `flow-state-update --phase checkpoint-pending-clear`.",
+      "the step 4 auto-checkpoint sub-step must arm `flow-checkpoint --site " +
+        "plan-approval` BEFORE writing `flow-state-update --phase " +
+        "checkpoint-pending-clear`.",
     ).toBe(true);
   });
 
@@ -4461,6 +4480,31 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         ),
       "the step 3 plan-review clear point must carry the 'safe to /clear — " +
         "approve on a fresh session; the plan re-renders on resume' nudge.",
+    ).toBe(true);
+  });
+
+  it.each(CHECKPOINT_SITES.filter((site) => site !== "manual"))(
+    "flow-pipeline SKILL.md probes and arms --site %s at its auto-checkpoint sub-step",
+    (site) => {
+      expect(
+        content.includes(`--probe --site ${site}`),
+        `flow-pipeline SKILL.md must probe freshness with ` +
+          `\`--probe --site ${site}\` before its ${site} auto-checkpoint arm.`,
+      ).toBe(true);
+      expect(
+        content.includes(`flow-checkpoint --site ${site}`),
+        `flow-pipeline SKILL.md must arm the ${site} auto-checkpoint site ` +
+          `with an explicit \`flow-checkpoint --site ${site}\` call.`,
+      ).toBe(true);
+    },
+  );
+
+  it("the /flow-checkpoint skill documents the checkpoint.consumed.md archive", () => {
+    expect(
+      checkpointSkillContent.includes("checkpoint.consumed.md"),
+      "skills/universal/flow-checkpoint/SKILL.md must document that " +
+        "--consume now archives the body to checkpoint.consumed.md, not " +
+        "just deletes the one-shot marker.",
     ).toBe(true);
   });
 
