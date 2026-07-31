@@ -449,5 +449,45 @@ describe.skipIf(!bunOnPath)(
       expect(runCli(cleanDir).status).toBe(0);
       expect(runCli(markerDir).status).toBe(1);
     });
+
+    it("(9) SUBDIRECTORY CWD — --full-name + ':/' pathspec are load-bearing: a marker in a sibling dir is found and reported root-relative when invoked from a different nested cwd", () => {
+      const dir = makeRepo();
+      fs.mkdirSync(path.join(dir, "a"));
+      fs.mkdirSync(path.join(dir, "b"));
+      fs.writeFileSync(path.join(dir, "a", "f.txt"), "base\n");
+      fs.writeFileSync(path.join(dir, "b", "g.txt"), "base\n");
+      gitc(dir, ["add", "a/f.txt", "b/g.txt"]);
+      gitc(dir, ["commit", "-q", "-m", "base"]);
+      fs.writeFileSync(
+        path.join(dir, "a", "f.txt"),
+        `${HEAD_MARKER} HEAD\na\n`,
+      );
+      gitc(dir, ["add", "a/f.txt"]);
+      gitc(dir, [
+        "commit",
+        "--no-verify",
+        "-q",
+        "-m",
+        "chore: leaves a marker in a/",
+      ]);
+
+      // Invoke with cwd inside b/, a DIFFERENT nested dir than the marker's
+      // a/f.txt — without --full-name + ':/' `git grep` relativises to cwd
+      // and silently misses everything outside it.
+      const result = runCli(path.join(dir, "b"));
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain("BLOCKING a/f.txt:");
+    });
+
+    it("(10) EXIT CODE 2 — a non-git cwd makes `git grep` error, and the CLI surfaces verdict: error via exit 2", () => {
+      const dir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "flow-conflict-marker-check-nogit-"),
+      );
+      scratchDirs.push(dir);
+
+      const result = runCli(dir);
+      expect(result.status).toBe(2);
+      expect(result.stdout).toContain("verdict: error");
+    });
   },
 );
