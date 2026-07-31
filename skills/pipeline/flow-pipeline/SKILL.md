@@ -1918,9 +1918,7 @@ branch's commit messages. The `Claude-Code-Session-Id:` trailer reaches
 commit for free); the step 9 gate is unaffected — it inspects only the live
 PR body. The merge runs from `$PRIMARY` (which has the base branch checked
 out) because gh's post-merge `git checkout <base>` would collide with the
-primary worktree if run from the feature-branch `$WORKTREE`. Issue #486
-re-litigated this choice and it stayed decided-not-open — see
-[references/git-workflow.md](../../../references/git-workflow.md) issue #486.
+primary worktree if run from the feature-branch `$WORKTREE`. Issue #486 re-litigated the bare-squash choice and lost; see [references/git-workflow.md](../../../references/git-workflow.md).
 
 On `MERGE_RC == 0`: continue to the post-merge sweep below.
 
@@ -1981,10 +1979,7 @@ Task call:
 
 ```bash
 ARTIFACT_PATH="$WORKTREE/.flow-tmp/merge-resolver-result.json"
-INSTRUCTIONS_PATH="$SKILL_DIR/references/merge-resolver-instructions.md"
-# PHYSICAL resolution is load-bearing (a logical cd ../../.. lands in ~/.flow/claude-home, verified).
-FLOW_ROOT=$(cd "$(realpath "$SKILL_DIR")/../../.." && pwd -P)
-MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"
+INSTRUCTIONS_PATH="$SKILL_DIR/references/merge-resolver-instructions.md"; FLOW_ROOT=$(cd "$(realpath "$SKILL_DIR")/../../.." && pwd -P); MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"  # realpath+pwd -P load-bearing: a logical cd lands in ~/.flow/claude-home
 BASE_BRANCH=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
 mkdir -p "$WORKTREE/.flow-tmp"
 rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior re-entry (step 10 is re-enterable via the step-7 pr-conflicted row)

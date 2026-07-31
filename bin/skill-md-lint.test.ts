@@ -1748,7 +1748,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
     const negatedButMatchesTokenAndVerb = readAnchoredLine(
       "skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md",
-      392,
+      451,
       "NEVER push to the base branch",
     );
     expect(
@@ -1770,7 +1770,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ],
       [
         "skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md",
-        394,
+        453,
         "NEVER use `git push --force`",
       ],
     ];
