@@ -239,6 +239,91 @@ describe(checkInstallDrift, () => {
     expect(result).toEqual({ status: "clean" });
   });
 
+  it("`--source <worktree>`: links pointing at installRoot are NOT stale (the 94-stale false positive)", () => {
+    // Regression pin: comparing the live symlink against the raw
+    // `entry.source` (still worktree-pointed) instead of `effectiveLinkSource`
+    // reported every artifact as "stale" on a healthy `--source <worktree>`
+    // install — 94 false positives observed live in this repo. If this test
+    // goes red after reverting to raw `entry.source`, that is the bug back.
+    const dir = makeScratch();
+    const flowSourceDir = path.join(dir, "worktree");
+    const installRootDir = path.join(dir, "canonical");
+    fs.mkdirSync(flowSourceDir);
+    fs.mkdirSync(installRootDir);
+    // Same relative path under both roots — the artifact exists in BOTH the
+    // worktree and canonical trees, as it would post-merge.
+    const worktreeSource = path.join(flowSourceDir, "artifact.ts");
+    const canonicalSource = path.join(installRootDir, "artifact.ts");
+    fs.writeFileSync(worktreeSource, "content");
+    fs.writeFileSync(canonicalSource, "content");
+    const target = path.join(dir, "target-link");
+    // The installer links the live symlink at the canonical copy (per
+    // `effectiveLinkSource`'s preference), even though discovery's raw
+    // `source` still names the worktree copy.
+    fs.symlinkSync(canonicalSource, target);
+
+    const result = run({
+      flowSource: flowSourceDir,
+      installRoot: installRootDir,
+      readManifest: () => manifest([record({ target })]),
+      discover: () => [entry({ source: worktreeSource, target })],
+    });
+    expect(result).toEqual({ status: "clean" });
+  });
+
+  it("`--source <worktree>`: a worktree-only artifact with no canonical counterpart is clean when linked to the worktree", () => {
+    const dir = makeScratch();
+    const flowSourceDir = path.join(dir, "worktree");
+    const installRootDir = path.join(dir, "canonical");
+    fs.mkdirSync(flowSourceDir);
+    fs.mkdirSync(installRootDir);
+    const worktreeOnlySource = path.join(flowSourceDir, "new-skill.ts");
+    fs.writeFileSync(worktreeOnlySource, "content");
+    // No canonical counterpart exists (`installRootDir/new-skill.ts` is never
+    // created) — `effectiveLinkSource`'s `existsSync` check fails, so it
+    // falls back to the worktree path, and the installer links there.
+    const target = path.join(dir, "target-link");
+    fs.symlinkSync(worktreeOnlySource, target);
+
+    const result = run({
+      flowSource: flowSourceDir,
+      installRoot: installRootDir,
+      readManifest: () => manifest([record({ target })]),
+      discover: () => [entry({ source: worktreeOnlySource, target })],
+    });
+    expect(result).toEqual({ status: "clean" });
+  });
+
+  it("a genuinely stale link is still reported under `--source`", () => {
+    const dir = makeScratch();
+    const flowSourceDir = path.join(dir, "worktree");
+    const installRootDir = path.join(dir, "canonical");
+    fs.mkdirSync(flowSourceDir);
+    fs.mkdirSync(installRootDir);
+    const worktreeSource = path.join(flowSourceDir, "artifact.ts");
+    const canonicalSource = path.join(installRootDir, "artifact.ts");
+    const unrelatedTarget = path.join(dir, "some-other-unrelated-file.ts");
+    fs.writeFileSync(worktreeSource, "content");
+    fs.writeFileSync(canonicalSource, "content");
+    fs.writeFileSync(unrelatedTarget, "unrelated content");
+    const target = path.join(dir, "target-link");
+    // The live symlink points somewhere unrelated to either the worktree or
+    // canonical copy — this must still be flagged, proving the fix narrowed
+    // the false positive without blinding the check to real drift.
+    fs.symlinkSync(unrelatedTarget, target);
+
+    const result = run({
+      flowSource: flowSourceDir,
+      installRoot: installRootDir,
+      readManifest: () => manifest([record({ target })]),
+      discover: () => [entry({ source: worktreeSource, target })],
+    });
+    expect(result).toEqual({
+      status: "drifted",
+      entries: [{ kind: "stale", displayName: "flow-new-feature", target }],
+    });
+  });
+
   it("reports multiple drift entries across kinds in one result", () => {
     const dir = makeScratch();
     const missingTarget = path.join(dir, "missing-target");

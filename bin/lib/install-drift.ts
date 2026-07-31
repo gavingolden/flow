@@ -23,6 +23,14 @@
  * `resolveModuleActivity`'s strict-all verdict, which would report phantom
  * drift for every optional-module artifact a core-only install never
  * linked in the first place.
+ *
+ * The drift check must measure against the installer's own link target
+ * (`effectiveLinkSource`), never the raw discovery source: on a `flow
+ * install --source <worktree>` run, `flowSource` (the worktree) and
+ * `installRoot` (canonical) diverge BY DESIGN — the installer deliberately
+ * links against canonical when a canonical copy already exists — so
+ * comparing the live symlink against raw `entry.source` (still
+ * worktree-pointed) reports every artifact stale.
  */
 
 import * as fs from "node:fs";
@@ -31,6 +39,7 @@ import { FLOW_MANIFEST, resolveFlowSource } from "./paths";
 import { readManifest as readManifestFile, type Manifest } from "./manifest";
 import {
   discoverAll,
+  effectiveLinkSource,
   DEFAULT_TARGETS,
   type InstallTargets,
   type SourceEntry,
@@ -124,6 +133,17 @@ export function checkInstallDrift(
       // so comparing an un-realpath'd link text against a realpath'd source
       // produces a false "stale" positive purely from OS path
       // canonicalization, independent of any real drift.
+      //
+      // Compare against `effectiveLinkSource`, not the raw `entry.source`:
+      // the installer itself links the live symlink at the canonical path
+      // when one exists (see `setup.ts`), so under `--source <worktree>`
+      // the raw discovery source is not what a healthy install actually
+      // points at.
+      const expectedSource = effectiveLinkSource(
+        entry.source,
+        flowSource,
+        installRoot,
+      );
       const resolvedLink = path.resolve(path.dirname(entry.target), link);
       let resolvedLinkReal: string | null = null;
       try {
@@ -133,7 +153,7 @@ export function checkInstallDrift(
       }
       let sourceReal: string | null = null;
       try {
-        sourceReal = fs.realpathSync(entry.source);
+        sourceReal = fs.realpathSync(expectedSource);
       } catch {
         sourceReal = null;
       }
