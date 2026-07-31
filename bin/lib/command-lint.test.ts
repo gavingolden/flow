@@ -111,10 +111,17 @@ describeShellcheck("shellcheckOk", () => {
   });
 
   it("fails a fragment with a real shellcheck error", () => {
-    // SC2086: unquoted variable expansion — a genuine shellcheck finding,
-    // not a bash syntax error, so this exercises shellcheckOk specifically
-    // rather than duplicating bashParses coverage.
-    expect(shellcheckOk('VAR="a b"\necho $VAR')).toBe(false);
+    // SC2242 is one of the few shellcheck codes at *error* severity, which is
+    // what shellcheckOk gates on. The obvious pick — SC2086, unquoted variable
+    // expansion — is only info-severity, so it passes --severity=error and the
+    // assertion inverts: green on a host without shellcheck (block skipped),
+    // red on CI where it runs. Verified against shellcheck 0.11.0:
+    // `exit 300` exits 1; `VAR="a b"\necho $VAR` exits 0.
+    const fragment = "exit 300";
+    // Also pins the isolation this test claims: valid bash syntax, so a
+    // failure here can never be a parse error duplicating bashParses coverage.
+    expect(bashParses(fragment)).toBe(true);
+    expect(shellcheckOk(fragment)).toBe(false);
   });
 });
 
