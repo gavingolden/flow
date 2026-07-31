@@ -133,6 +133,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-epic-membership",
       "flow-module-status",
       "flow-transcript-audit",
+      "flow-conflict-marker-check",
     ],
     validators: [
       "flow-pr-review-result-schema",

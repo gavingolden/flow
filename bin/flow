@@ -70,6 +70,8 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
     case "done":
       return runDoneCli(args);
     case "ls":
+      // runLsCli/runVersionCli supply the real checkInstallDrift themselves
+      // (no options object here) — see ls.ts / version.ts.
       return await runLsCli(args);
     case "completion":
       return runCompletion(args[0], {}, args.slice(1));

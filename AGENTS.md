@@ -244,6 +244,12 @@ three-layer resolution table, and the manifest/foundation fields — is at
   Extend `.flow/ui-validation.json` (env, a `{{PORT_<NAME>}}` sentinel)
   instead. See
   `skills/pipeline/flow-pipeline/references/ui-smoke-pass.md`.
+- **Don't gate a post-commit verification on a worktree-vs-index diff.**
+  Post-commit, worktree == index == HEAD, so `git diff --check` /
+  `git status --porcelain` report clean regardless of content — read the
+  committed tree instead (`git grep ... HEAD`). See
+  `skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md`
+  Step 5 and `flow-conflict-marker-check`.
 - Don't auto-commit or auto-push outside an explicit user instruction —
   this default always holds on `main` (or any base branch). **On a
   feature/PR branch, a user invoking a code-editing skill

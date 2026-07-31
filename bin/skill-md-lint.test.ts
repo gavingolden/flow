@@ -1768,7 +1768,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
     const negatedButMatchesTokenAndVerb = readAnchoredLine(
       "skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md",
-      392,
+      452,
       "NEVER push to the base branch",
     );
     expect(
@@ -1790,7 +1790,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ],
       [
         "skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md",
-        394,
+        454,
         "NEVER use `git push --force`",
       ],
     ];
@@ -1874,6 +1874,108 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       baseSideIdx,
       "`>>>>>>> origin/<base>` / `theirs` must be bound to THE BASE's version, not the PR's.",
     ).toBeGreaterThan(baseMarkerIdx);
+  });
+
+  it("the merge-resolver's post-commit verification reads the committed tree, not the worktree", () => {
+    const sec5Start = mergeResolverInstructionsContent.indexOf(
+      "## 5. Verify the resolution",
+    );
+    const sec5End = mergeResolverInstructionsContent.indexOf(
+      "## 6. Push",
+      sec5Start,
+    );
+    expect(sec5Start, "Step 5 section must exist").toBeGreaterThan(-1);
+    expect(sec5End, "Step 6 section must exist").toBeGreaterThan(sec5Start);
+    const step5 = mergeResolverInstructionsContent.slice(sec5Start, sec5End);
+
+    expect(
+      step5.includes("$MARKER_CHECK_CMD --committed"),
+      "Step 5 must invoke $MARKER_CHECK_CMD --committed.",
+    ).toBe(true);
+    expect(
+      step5.includes("command -v"),
+      "Step 5 must not reintroduce a command -v PATH probe — the " +
+        "path-name-probe-with-inline-fallback alternative was rejected " +
+        "for deadlocking on a legitimate line-start marker.",
+    ).toBe(false);
+    expect(
+      /\bgit grep\b/.test(step5),
+      "Step 5 must not hand-roll a bare git grep — the partition must " +
+        "stay inside the flow-conflict-marker-check helper.",
+    ).toBe(false);
+    expect(
+      step5.includes("git diff --check"),
+      "Step 5 must not reuse git diff --check post-commit — worktree == " +
+        "index == HEAD after Step 4's commit, so it is inert there.",
+    ).toBe(false);
+    expect(
+      /inert/i.test(step5),
+      "Step 5 must explain why a worktree-vs-index diff is inert post-commit.",
+    ).toBe(true);
+    expect(step5.includes("worktree"), "Step 5 must mention worktree").toBe(
+      true,
+    );
+    expect(step5.includes("index"), "Step 5 must mention index").toBe(true);
+    expect(step5.includes("`0`"), "Step 5 must name exit value 0").toBe(true);
+    expect(step5.includes("`1`"), "Step 5 must name exit value 1").toBe(true);
+    expect(step5.includes("`2`"), "Step 5 must name exit value 2").toBe(true);
+    expect(
+      step5.includes("HEAD:"),
+      "Step 5 must name the HEAD: rev-prefix the helper strips (structural " +
+        "pin — not a match on the explanation's wording).",
+    ).toBe(true);
+    expect(
+      /spawn prompt/i.test(step5),
+      "Step 5 must attribute $MARKER_CHECK_CMD's resolution to the spawn prompt.",
+    ).toBe(true);
+
+    // Outside Step 5: Step 3's per-file Layer-1 check and the
+    // Troubleshooting table both still legitimately use git diff --check
+    // (Layer 1 runs BEFORE the Step 4 commit); the Verification section
+    // must not, since it was rewired onto the same helper as Step 5.
+    const step3Start = mergeResolverInstructionsContent.indexOf(
+      "## 3. Resolve each conflicted file",
+    );
+    const step3End = mergeResolverInstructionsContent.indexOf(
+      "## 4. Complete the merge",
+      step3Start,
+    );
+    const step3 = mergeResolverInstructionsContent.slice(step3Start, step3End);
+    expect(
+      step3.includes("git diff --check"),
+      "Step 3 (Layer 1, pre-commit) must still use git diff --check.",
+    ).toBe(true);
+
+    const troubleshootingStart =
+      mergeResolverInstructionsContent.indexOf("# Troubleshooting");
+    const troubleshootingEnd = mergeResolverInstructionsContent.indexOf(
+      "# Verification",
+      troubleshootingStart,
+    );
+    const troubleshooting = mergeResolverInstructionsContent.slice(
+      troubleshootingStart,
+      troubleshootingEnd,
+    );
+    expect(
+      troubleshooting.includes("git diff --check"),
+      "Troubleshooting must still reference git diff --check (Step 3's Layer 1).",
+    ).toBe(true);
+
+    const verificationStart =
+      mergeResolverInstructionsContent.indexOf("# Verification");
+    const verificationEnd = mergeResolverInstructionsContent.indexOf(
+      "# Constraints",
+      verificationStart,
+    );
+    const verification = mergeResolverInstructionsContent.slice(
+      verificationStart,
+      verificationEnd,
+    );
+    expect(
+      verification.includes("git diff --check"),
+      "# Verification must not reference git diff --check — it was rewired " +
+        "onto $MARKER_CHECK_CMD --committed alongside Step 5.",
+    ).toBe(false);
   });
 
   it("the merge-resolver artifact field is push_status everywhere", () => {
@@ -2492,7 +2594,7 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ re
     ).toBe(true);
   });
 
-  it("flow-pipeline/references/merge-resolver-spawn-prompt.md carries all eight spawn-prompt placeholders", () => {
+  it("flow-pipeline/references/merge-resolver-spawn-prompt.md carries all nine spawn-prompt placeholders", () => {
     const placeholders = [
       "{{INSTRUCTIONS_PATH}}",
       "{{PR}}",
@@ -2502,6 +2604,7 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ re
       "{{WORKTREE}}",
       "{{PR_DESCRIPTION}}",
       "{{ARTIFACT_PATH}}",
+      "{{MARKER_CHECK_CMD}}",
     ];
     const missing = placeholders.filter(
       (p) => !mergeResolverSpawnPromptContent.includes(p),

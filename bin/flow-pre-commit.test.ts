@@ -18,6 +18,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   buildFailureExcerpt,
+  checkConflictMarkers,
   checkHelperExecutableModes,
   checksForScope,
   computeAllPassedAndReason,
@@ -1104,6 +1105,79 @@ describe(checkHelperExecutableModes, () => {
     expect(result!.output).toContain("chmod +x bin/lib/foo-schema.ts");
     // Pure lib (git.ts) was never a candidate, so it gets no hint.
     expect(result!.output).not.toContain("chmod +x bin/lib/git.ts");
+  });
+});
+
+describe(checkConflictMarkers, () => {
+  const HEAD_MARKER = ["<", "<", "<", "<", "<", "<", "<"].join("");
+  const cleanRunner: Runner = () => ({ stdout: "", stderr: "", exitCode: 1 });
+
+  it("returns null (inert) for undefined or empty changedFiles", () => {
+    expect(checkConflictMarkers(undefined, cleanRunner)).toBeNull();
+    expect(checkConflictMarkers([], cleanRunner)).toBeNull();
+  });
+
+  it("passes when git grep exits 1 (no marker anywhere)", () => {
+    const result = checkConflictMarkers(["src/app.ts"], cleanRunner);
+    expect(result!.passed).toBe(true);
+    expect(result!.name).toBe("conflict markers");
+  });
+
+  it("fails naming path:line when the marker is inside a changed file", () => {
+    const runner: Runner = () => ({
+      stdout: `f.txt:2:${HEAD_MARKER} HEAD`,
+      stderr: "",
+      exitCode: 0,
+    });
+    const result = checkConflictMarkers(["f.txt"], runner);
+    expect(result!.passed).toBe(false);
+    expect(result!.output).toContain("f.txt:2:");
+    expect(result!.output).toContain(HEAD_MARKER);
+  });
+
+  it("passes with an advisory note when the marker is outside the diff", () => {
+    const runner: Runner = () => ({
+      stdout: `legacy.txt:1:${HEAD_MARKER} orphan`,
+      stderr: "",
+      exitCode: 0,
+    });
+    const result = checkConflictMarkers(["other.txt"], runner);
+    expect(result!.passed).toBe(true);
+    expect(result!.output).toContain("legacy.txt:1:");
+    expect(result!.output.toLowerCase()).toContain("advisory");
+  });
+
+  it("fails naming the git error when git grep exits > 1 — never a silent pass", () => {
+    const runner: Runner = () => ({
+      stdout: "",
+      stderr: "fatal: not a git repository",
+      exitCode: 128,
+    });
+    const result = checkConflictMarkers(["f.txt"], runner);
+    expect(result!.passed).toBe(false);
+    expect(result!.output).toContain("128");
+  });
+
+  it("fails closed on a signal-killed grep (null exitCode) — never a silent pass", () => {
+    const runner: Runner = () =>
+      ({
+        stdout: "",
+        stderr: "",
+        exitCode: null as unknown as number,
+      }) as ReturnType<Runner>;
+    const result = checkConflictMarkers(["f.txt"], runner);
+    expect(result!.passed).toBe(false);
+  });
+
+  it("invokes git grep with --full-name and the ':/' pathspec (pins the fail-open fix)", () => {
+    let capturedArgv: string[] = [];
+    const runner: Runner = (argv) => {
+      capturedArgv = argv;
+      return { stdout: "", stderr: "", exitCode: 1 };
+    };
+    checkConflictMarkers(["f.txt"], runner);
+    expect(capturedArgv).toContain("--full-name");
+    expect(capturedArgv).toContain(":/");
   });
 });
 
@@ -2591,6 +2665,102 @@ describe("integration: bin/*.ts executable-mode gate against a git fixture", () 
       );
       expect(modeResult).toBeDefined();
       expect(modeResult!.passed).toBe(true);
+    },
+  );
+});
+
+describe("integration: conflict-marker gate against a git fixture", () => {
+  // End-to-end coverage for checkConflictMarkers wired into main(): a marker
+  // in a currently-changed file (staged, not yet committed — mirroring what
+  // `flow-pre-commit` verifies before a commit) fails the gate; the same
+  // repo with no marker passes. Same cross-runtime spawn pattern as the
+  // executable-mode block above.
+  const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
+  let markerDir: string;
+  let cleanDir: string;
+  const HEAD_MARKER = ["<", "<", "<", "<", "<", "<", "<"].join("");
+
+  function seedRepo(prefix: string): string {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "fixture", version: "0.0.1" }, null, 2),
+    );
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+    spawnSync(
+      "git",
+      [
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "--allow-empty",
+        "-q",
+        "-m",
+        "init",
+      ],
+      { cwd: dir },
+    );
+    return dir;
+  }
+
+  beforeAll(() => {
+    if (!bunOnPath) return;
+
+    // Case 1: a currently-changed file carries a leftover marker → fails.
+    markerDir = seedRepo("flow-pre-commit-marker-bad-");
+    writeFileSync(join(markerDir, "f.txt"), `${HEAD_MARKER} HEAD\na\n`);
+    spawnSync("git", ["add", "f.txt"], { cwd: markerDir });
+
+    // Case 2: same shape, no marker → passes.
+    cleanDir = seedRepo("flow-pre-commit-marker-ok-");
+    writeFileSync(join(cleanDir, "f.txt"), "a\n");
+    spawnSync("git", ["add", "f.txt"], { cwd: cleanDir });
+  });
+
+  afterAll(() => {
+    if (markerDir) rmSync(markerDir, { recursive: true, force: true });
+    if (cleanDir) rmSync(cleanDir, { recursive: true, force: true });
+  });
+
+  it.skipIf(!bunOnPath)(
+    "fails when a currently-changed file carries a leftover conflict marker",
+    () => {
+      const here =
+        import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const scriptPath = resolve(here, "flow-pre-commit.ts");
+      const result = spawnSync("bun", [scriptPath, "--json"], {
+        cwd: markerDir,
+        encoding: "utf8",
+      });
+      const report = JSON.parse(result.stdout) as JsonReport;
+      expect(report.allPassed).toBe(false);
+      const markerResult = report.results.find(
+        (r) => r.name === "conflict markers",
+      );
+      expect(markerResult).toBeDefined();
+      expect(markerResult!.passed).toBe(false);
+      expect(markerResult!.failure?.headExcerpt).toContain("f.txt");
+    },
+  );
+
+  it.skipIf(!bunOnPath)(
+    "passes when the changed file carries no conflict marker",
+    () => {
+      const here =
+        import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const scriptPath = resolve(here, "flow-pre-commit.ts");
+      const result = spawnSync("bun", [scriptPath, "--json"], {
+        cwd: cleanDir,
+        encoding: "utf8",
+      });
+      const report = JSON.parse(result.stdout) as JsonReport;
+      const markerResult = report.results.find(
+        (r) => r.name === "conflict markers",
+      );
+      expect(markerResult).toBeDefined();
+      expect(markerResult!.passed).toBe(true);
     },
   );
 });
