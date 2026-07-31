@@ -51,7 +51,7 @@ import * as path from "node:path";
 import { readState, type PipelineState, TERMINAL_PHASES } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
-import { markerPath } from "./flow-checkpoint";
+import { markerPath, probeFreshness } from "./flow-checkpoint";
 import {
   probeWorktree,
   probePr,
@@ -523,26 +523,12 @@ export function probePlan(worktreePath: string): boolean {
 }
 
 /**
- * Reads <worktree>/.flow-tmp/checkpoint.md and returns true iff present +
- * non-empty — the presence signal Resume mode reads to re-inject persisted
- * conversational addenda. Mirrors probePlan.
- */
-export function probeCheckpoint(worktreePath: string): boolean {
-  const checkpointPath = path.join(worktreePath, ".flow-tmp", "checkpoint.md");
-  try {
-    const stat = fs.statSync(checkpointPath);
-    if (!stat.isFile()) return false;
-    return stat.size > 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * True iff the one-shot `<worktree>/.flow-tmp/checkpoint.pending` marker exists.
- * DISTINCT from `probeCheckpoint` (which probes the persistent `checkpoint.md`):
- * this reads the marker `flow-checkpoint` arms on a ready verdict — the same
- * signal the SessionStart hook gates on, so the marker path is imported from
+ * DISTINCT from `checkpointExists` in `gatherInputs` (which asks whether the
+ * persistent `checkpoint.md` is USABLE — present, non-empty, AND fresh, via
+ * `probeFreshness` imported from `./flow-checkpoint`): this reads the marker
+ * `flow-checkpoint` arms on a ready verdict — the same signal the
+ * SessionStart hook gates on, so the marker path is imported from
  * `./flow-checkpoint` (single source of truth, one-way import) rather than
  * re-derived here.
  */
@@ -666,7 +652,9 @@ export function gatherInputs(
   const planExists =
     worktree.kind === "present" ? probePlan(worktree.path) : false;
   const checkpointExists =
-    worktree.kind === "present" ? probeCheckpoint(worktree.path) : false;
+    worktree.kind === "present"
+      ? probeFreshness(state, worktree.path, "manual").verdict === "preserve"
+      : false;
   const checkpointMarkerExists =
     worktree.kind === "present" ? probeCheckpointMarker(worktree.path) : false;
   const hasSkillAdditions =

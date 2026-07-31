@@ -207,8 +207,35 @@ export type PipelineState = {
    */
   launchAttempts?: number;
   launchOutcome?: "started" | "launched-not-confirmed";
+  /**
+   * Freshness record for the `/flow-checkpoint` non-clobbering guard.
+   * Written by `flow-checkpoint`'s arm path (a plain state write, never
+   * `flow-state-update`, so `updatedAt` is deliberately NOT bumped — an
+   * arm is not a pipeline phase transition). `site` names who armed it
+   * (`"manual"` for the user-facing `/flow-checkpoint` skill's default, or
+   * one of the auto sites); `phase` is the pipeline phase at arm time;
+   * `armedAt` is the arm timestamp `probeFreshness` compares against
+   * `phaseLog` to decide whether the body is still fresh. Absent ≡ no
+   * recorded arm (a legacy body, or one written before this field existed;
+   * `probeFreshness` falls back to mtime-vs-`phaseLog` in that case — no
+   * migration, AGENTS.md forbids back-compat shims).
+   */
+  checkpoint?: { site: CheckpointSiteValue; phase: string; armedAt: string };
   updatedAt: string;
 };
+
+/**
+ * The `/flow-checkpoint` arm sites. Declared locally (rather than imported)
+ * to avoid a circular import between `state.ts` and `flow-checkpoint.ts`;
+ * `flow-checkpoint.ts`'s own `CheckpointSite` union uses the identical
+ * literal set (enforced by `CHECKPOINT_SITES` there), so the two types are
+ * structurally assignable without a runtime import.
+ */
+export type CheckpointSiteValue =
+  | "manual"
+  | "plan-review"
+  | "plan-approval"
+  | "gate";
 
 /**
  * Phases at which the supervisor is permitted to end its turn.
@@ -358,6 +385,23 @@ function isEpicMembership(
   return typeof o.slug === "string" && typeof o.featureId === "string";
 }
 
+function isCheckpointRecord(
+  x: unknown,
+): x is { site: CheckpointSiteValue; phase: string; armedAt: string } {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  const sites: readonly string[] = [
+    "manual",
+    "plan-review",
+    "plan-approval",
+    "gate",
+  ];
+  if (typeof o.site !== "string" || !sites.includes(o.site)) return false;
+  if (typeof o.phase !== "string") return false;
+  if (typeof o.armedAt !== "string") return false;
+  return true;
+}
+
 function isPhaseLog(
   x: unknown,
 ): x is Array<{ phase: string; outcome?: string; at: string }> {
@@ -419,6 +463,8 @@ function isPipelineState(x: unknown): x is PipelineState {
     return false;
   if (o.epic !== undefined && !isEpicMembership(o.epic)) return false;
   if (o.phaseLog !== undefined && !isPhaseLog(o.phaseLog)) return false;
+  if (o.checkpoint !== undefined && !isCheckpointRecord(o.checkpoint))
+    return false;
   if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
     return false;
   if (o.pid !== undefined && typeof o.pid !== "number") return false;

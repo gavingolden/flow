@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decide,
+  gatherInputs,
   hasPrReviewCommit,
   parseArgs,
   run,
@@ -17,7 +18,9 @@ import {
   type Inputs,
   type WorktreeInfo,
 } from "./flow-resume-decide";
+import { run as checkpointRun } from "./flow-checkpoint";
 import {
+  readState,
   writeState,
   type PipelineState,
   PENDING_PHASES,
@@ -688,6 +691,70 @@ function captureStdout(): { writes: string[]; restore: () => void } {
   });
   return { writes, restore: () => spy.mockRestore() };
 }
+
+describe("gatherInputs — checkpointExists reflects freshness, not bare presence", () => {
+  const git: GitRunner = (argv) => {
+    if (argv[0] === "rev-parse")
+      return { stdout: "true\n", stderr: "", exitCode: 0 };
+    if (argv[0] === "branch")
+      return { stdout: "main\n", stderr: "", exitCode: 0 };
+    if (argv[0] === "symbolic-ref")
+      return { stdout: "", stderr: "no upstream", exitCode: 1 };
+    if (argv[0] === "diff") return { stdout: "", stderr: "", exitCode: 0 };
+    if (argv[0] === "log")
+      return { stdout: "feat: initial\n", stderr: "", exitCode: 0 };
+    return { stdout: "", stderr: "", exitCode: 1 };
+  };
+  const gh: GhRunner = () => ({
+    stdout: "",
+    stderr: "no pull requests found",
+    exitCode: 1,
+  });
+
+  it("a consumed checkpoint body is not reported as an existing checkpoint", () => {
+    initWorktree();
+    seedState("consumed-slug", { phase: "implementing" });
+    fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"), { recursive: true });
+    fs.writeFileSync(
+      path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
+      "note\n",
+    );
+
+    // Drive the real flow-checkpoint CLI (arm, then consume) so state.checkpoint
+    // and checkpoint.md end up in the exact post-consume shape production code
+    // produces, rather than hand-constructing an approximation.
+    checkpointRun(["consumed-slug", "--site", "manual"], {
+      stateDir,
+      resolveSlug: () => null,
+    });
+    checkpointRun(["consumed-slug", "--consume"], {
+      stateDir,
+      resolveSlug: () => null,
+    });
+
+    const state = readState("consumed-slug", stateDir)!;
+    const inputs = gatherInputs("consumed-slug", state, gh, git);
+    expect(inputs.checkpointExists).toBe(false);
+  });
+
+  it("a freshly-armed manual checkpoint IS reported as existing", () => {
+    initWorktree();
+    seedState("fresh-slug", { phase: "implementing" });
+    fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"), { recursive: true });
+    fs.writeFileSync(
+      path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
+      "note\n",
+    );
+    checkpointRun(["fresh-slug", "--site", "manual"], {
+      stateDir,
+      resolveSlug: () => null,
+    });
+
+    const state = readState("fresh-slug", stateDir)!;
+    const inputs = gatherInputs("fresh-slug", state, gh, git);
+    expect(inputs.checkpointExists).toBe(true);
+  });
+});
 
 describe("run() integration", () => {
   it("exits 0 with abort JSON when state.json is missing", () => {

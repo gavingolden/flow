@@ -82,18 +82,34 @@ Run the LLM-free helper (the slug auto-resolves from the pane):
 flow-checkpoint
 ```
 
+The bare call above keeps no `--site` flag, so it defaults to
+`--site manual` — this is what makes the note you just wrote outrank
+every pipeline auto-checkpoint (plan-review, plan-approval, gate) until
+the pipeline itself changes phase: a manual note's freshness is judged
+against `state.phaseLog`, and it reads as fresh for as long as no phase
+transition has happened since you armed it. Once the pipeline advances,
+the current phase's own auto-checkpoint takes back over — your
+superseded note is never silently lost, it stays recoverable at
+`.flow-tmp/checkpoint.consumed.md` after the next `--consume` (see step 3).
+
 It confirms `state.json` is current and `checkpoint.md` is present +
 non-empty, then emits one JSON object on stdout. Branch on `.status`:
 
 - **`ready`** — the helper wrote the one-shot marker
   `<worktree>/.flow-tmp/checkpoint.pending` (the flag the
-  `SessionStart:clear` auto-resume hook gates on). Proceed to step 3.
+  `SessionStart:clear` auto-resume hook gates on) and recorded the
+  freshness receipt (`site: manual`) that gives your note precedence
+  over auto-checkpoints while it stays fresh. Proceed to step 3.
 - **`needs`** — a precondition is unmet (`.reason` is `state-missing`,
   `no-worktree`, or `checkpoint-missing`). No marker was written. When
   the reason is `checkpoint-missing`, step 1 did not leave a non-empty
   `checkpoint.md` — re-do step 1, then re-run the helper. Otherwise the
   window is not a resumable flow pipeline; tell the user checkpointing
   is not available here and end.
+
+This skill never probes (`--probe`) — that branch exists only for the
+four pipeline auto-checkpoint sites deciding whether to overwrite an
+existing note, so `.status` here only ever takes `ready` or `needs`.
 
 ## 3. Tell the user it is safe to `/clear`, then end the turn
 
@@ -105,5 +121,9 @@ On a `ready` verdict, surface a one-line nudge and end the turn:
 
 Then stop. The marker is one-shot: on the next resume, Resume mode reads
 `checkpoint.md`, folds its addenda into the re-entered step, and calls
-`flow-checkpoint --consume` to delete the marker so a later unrelated
-`/clear` in the same window does not re-fire the auto-resume.
+`flow-checkpoint --consume`. `--consume` now retires the body outright,
+not just the marker: it archives `checkpoint.md` to
+`.flow-tmp/checkpoint.consumed.md` (recoverable, never silently deleted)
+and clears the freshness record, then deletes the `checkpoint.pending`
+marker so a later unrelated `/clear` in the same window does not re-fire
+the auto-resume.
