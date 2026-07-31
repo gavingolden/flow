@@ -2101,8 +2101,10 @@ during the run via `flow-followups add`; step 11 reports them and, on the
 MERGED path, executes the safe subset.
 
 **Two-layer safety boundary:** an entry's `auto: true` flag declares
-*intent*; the helper's hardcoded ALLOWLIST gates *permission* (exact-match,
-v1: `flow install` and `flow install --upgrade`). Both must be true to execute.
+*intent*; the helper's hardcoded ALLOWLIST gates *permission* (exact-match:
+`flow install`, `flow install --upgrade`, and `brew install shellcheck`). Both
+must be true to execute. `bin/flow-followups.test.ts` pins the exact set, so
+this enumeration and the code cannot drift silently.
 Same narrow-and-named exemption pattern as the `/flow-pr-review` auto-push and
 `/flow-pipeline` auto-merge clauses in `AGENTS.md` "Don'ts". Auto-run is
 gated by the same `autoMerge` flag as step 10 — `flow feature create --no-auto-merge`
