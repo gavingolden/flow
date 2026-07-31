@@ -54,11 +54,14 @@ import {
   probeFreshness,
 } from "./lib/checkpoint-freshness";
 
-// Re-exported so the CLI file stays the single public import surface for
-// tests and the two external consumers (flow-resume-decide.ts,
-// flow-session-start-hook.ts) — the freshness predicates themselves live in
-// ./lib/checkpoint-freshness to keep this file inside the AGENTS.md
-// ~200-line target.
+// Re-exported for external convenience, not because every symbol has a
+// current importer: only `CHECKPOINT_SITES` is actually imported from here
+// (by `skill-md-lint.test.ts`) — `flow-resume-decide.ts` and
+// `flow-session-start-hook.ts` import just `markerPath` from this file and
+// pull `probeFreshness`/`isCheckpointUsable` from `./lib/checkpoint-freshness`
+// directly. The freshness predicates live in `./lib/checkpoint-freshness`
+// because this file is itself past the AGENTS.md ~200-line/file target
+// (383 lines as of this comment), not to stay under it.
 export {
   CHECKPOINT_SITES,
   checkpointPath,
@@ -338,22 +341,33 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 0;
   }
 
-  try {
-    writeState(
-      {
-        ...state,
-        checkpoint: {
-          site: parsed.site,
-          phase: state.phase,
-          armedAt: nowIso(),
+  // Only relabel the freshness record when THIS site's own probe verdict was
+  // "write" — i.e. this site was the one that (would have) produced the
+  // current body. On "preserve" (e.g. a fresh manual note outranking a
+  // no-phase-change auto site), the arm must leave the existing record
+  // alone: relabelling it to `parsed.site` would destroy the provenance
+  // (`site: "manual"`) the preserve decision itself rested on, silently
+  // demoting a note that should keep outranking auto sites with no phase
+  // change since it was left.
+  const verdict = probeFreshness(state, state.worktree, parsed.site).verdict;
+  if (verdict === "write" || !state.checkpoint) {
+    try {
+      writeState(
+        {
+          ...state,
+          checkpoint: {
+            site: parsed.site,
+            phase: state.phase,
+            armedAt: nowIso(),
+          },
         },
-      },
-      stateDir,
-    );
-  } catch {
-    // best-effort: the marker (the load-bearing resume signal) is already
-    // written; a failed record write only degrades a future --probe to the
-    // mtime fallback, it doesn't block this ready verdict.
+        stateDir,
+      );
+    } catch {
+      // best-effort: the marker (the load-bearing resume signal) is already
+      // written; a failed record write only degrades a future --probe to the
+      // mtime fallback, it doesn't block this ready verdict.
+    }
   }
 
   emit({

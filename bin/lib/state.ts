@@ -11,6 +11,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { FLOW_STATE_DIR } from "./paths";
+import { CHECKPOINT_SITES } from "./checkpoint-freshness";
 
 /**
  * Reasoning-effort levels accepted by `claude --effort`. Single source of
@@ -225,17 +226,15 @@ export type PipelineState = {
 };
 
 /**
- * The `/flow-checkpoint` arm sites. Declared locally (rather than imported)
- * to avoid a circular import between `state.ts` and `flow-checkpoint.ts`;
- * `flow-checkpoint.ts`'s own `CheckpointSite` union uses the identical
- * literal set (enforced by `CHECKPOINT_SITES` there), so the two types are
- * structurally assignable without a runtime import.
+ * The `/flow-checkpoint` arm sites. Derived from `CHECKPOINT_SITES` in
+ * `./checkpoint-freshness` — that module has no import of `state.ts`, so
+ * importing it here is not circular (only `flow-checkpoint.ts` imports both
+ * `state.ts` and `./checkpoint-freshness`). One source of truth for the
+ * literal set: `isCheckpointRecord` below reads `CHECKPOINT_SITES` directly
+ * rather than restating it, so a new site added to `CHECKPOINT_SITES` can't
+ * silently make `readState` reject every state file that records it.
  */
-export type CheckpointSiteValue =
-  | "manual"
-  | "plan-review"
-  | "plan-approval"
-  | "gate";
+export type CheckpointSiteValue = (typeof CHECKPOINT_SITES)[number];
 
 /**
  * Phases at which the supervisor is permitted to end its turn.
@@ -390,13 +389,11 @@ function isCheckpointRecord(
 ): x is { site: CheckpointSiteValue; phase: string; armedAt: string } {
   if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
   const o = x as Record<string, unknown>;
-  const sites: readonly string[] = [
-    "manual",
-    "plan-review",
-    "plan-approval",
-    "gate",
-  ];
-  if (typeof o.site !== "string" || !sites.includes(o.site)) return false;
+  if (
+    typeof o.site !== "string" ||
+    !(CHECKPOINT_SITES as readonly string[]).includes(o.site)
+  )
+    return false;
   if (typeof o.phase !== "string") return false;
   if (typeof o.armedAt !== "string") return false;
   return true;

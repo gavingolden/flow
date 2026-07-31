@@ -664,9 +664,11 @@ describe("state", () => {
 
   it("readState returns null when the checkpoint record is malformed", () => {
     // checkpoint must be { site, phase, armedAt }. A record with an
-    // unrecognised site (or a missing armedAt) is rejected so a corrupt
-    // record can never silently degrade a whole pipeline to state-missing —
-    // it fails loudly at readState instead.
+    // unrecognised site (or a missing armedAt) makes readState reject the
+    // WHOLE state file (returns null), degrading this pipeline to
+    // state-missing on resume — callers must treat a null readState as
+    // exactly that, not assume a corrupt checkpoint sub-record is isolated
+    // from the rest of state.json.
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, "checkpoint-malformed.json"),

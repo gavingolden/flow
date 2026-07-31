@@ -247,6 +247,26 @@ describe("run() — --consume archives the body", () => {
     ).toBe(false); // unlinked despite the failed rename
     fs.rmSync(consumedPath(worktreeRoot), { recursive: true, force: true });
   });
+
+  it("archives a present body even with no marker (marker-independent archiving), and reports the archived path", () => {
+    seedState("theta-noop");
+    writeCheckpoint("orphaned body\n");
+    // No arm this run, so no marker exists — --consume must still archive
+    // the body unconditionally rather than skipping because there is
+    // "nothing to consume" from the marker's point of view.
+    const r = runCapture(["theta-noop", "--consume"]);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("noop");
+    expect(r.reason).toBe("no-marker");
+    expect(r.archived).toBe(consumedPath(worktreeRoot));
+    expect(
+      fs.existsSync(path.join(worktreeRoot, ".flow-tmp", "checkpoint.md")),
+    ).toBe(false);
+    expect(fs.existsSync(consumedPath(worktreeRoot))).toBe(true);
+    expect(fs.readFileSync(consumedPath(worktreeRoot), "utf8")).toBe(
+      "orphaned body\n",
+    );
+  });
 });
 
 describe("probeFreshness / --probe", () => {
@@ -298,7 +318,10 @@ describe("probeFreshness / --probe", () => {
     );
     const r = runCapture(["kappa", "--probe", "--site", "gate"]);
     expect(r.verdict).toBe("write");
-    expect(r.reason).toContain("stale-manual:");
+    expect(r.reason).toBe(
+      `stale-manual:${(r.record as { phase: string }).phase}`,
+    );
+    expect(r.record).toMatchObject({ site: "manual" });
   });
 
   it("record-less body: mtime after the newest phaseLog entry preserves, before it writes", () => {
@@ -357,7 +380,11 @@ describe("probeFreshness / --probe", () => {
     expect(r.reason).toBe("fresh-manual");
   });
 
-  it("arming twice leaves checkpoint.md byte-identical and overwrites (not appends) the record", () => {
+  it("re-arming with an auto site never relabels a fresh manual record's provenance (no phase change)", () => {
+    // A fresh manual note (preserve verdict) outranks a later auto-site arm
+    // with no intervening phase change — the auto arm must not stomp the
+    // `site: "manual"` provenance the preserve decision rests on, or the
+    // note would silently stop outranking auto sites on the NEXT probe.
     seedState("pi");
     const body = "byte-identical body\n";
     writeCheckpoint(body);
@@ -371,8 +398,18 @@ describe("probeFreshness / --probe", () => {
       ),
     ).toBe(body);
     const state = readState("pi", stateDir);
-    expect(state?.checkpoint?.site).toBe("plan-review");
+    expect(state?.checkpoint?.site).toBe("manual");
     expect(state?.updatedAt).toBe(beforeUpdatedAt); // arming never bumps updatedAt
+  });
+
+  it("re-arming with a second auto site DOES relabel the record (rule 5: auto may overwrite auto)", () => {
+    seedState("rho");
+    const body = "auto body\n";
+    writeCheckpoint(body);
+    runCapture(["rho", "--site", "plan-approval"]);
+    runCapture(["rho", "--site", "gate"]);
+    const state = readState("rho", stateDir);
+    expect(state?.checkpoint?.site).toBe("gate");
   });
 });
 
