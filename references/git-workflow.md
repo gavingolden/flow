@@ -65,9 +65,18 @@ single observed `* chore: merge origin/...` line inside a squash body
 on `main` is sufficient to re-open; no one needs to first argue it is
 noise.
 
-Observed: not yet — no merge commit on this PR. Fill this line
-post-merge from `git log -1 --format=%B <squash-sha>` if a merge
-commit landed.
+Observed: this PR's own branch carries a merge commit — a real,
+two-parent merge of `origin/main` into the feature branch, created
+during the step-7 CI-merge-ref-divergence retrofit — so this PR's own
+squash-merge settles #486's contested GENERAL premise (whether a merge
+commit's subject enters GitHub's default squash body at all) the moment
+it lands. Caveat: that merge commit's subject is git's DEFAULT `Merge
+remote-tracking branch 'origin/main' into <branch>`, not the resolver's
+conventional-commit subject (`chore: merge origin/<base> into <branch>
+to resolve conflicts`) — so it tests the general premise but NOT the
+resolver's exact subject line. Fill in the actual result post-merge from
+`git log -1 --format=%B <squash-sha>` run against the squashed commit on
+`main`.
 
 ## Base-branch guard
 
