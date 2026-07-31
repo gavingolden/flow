@@ -49,7 +49,8 @@ Users cannot export widgets today.
 
 ## Open Questions
 
-- [ ] none
+- [ ] [Is CSV the only export format needed? — a second format adds a task]
+  - **Recommended:** CSV only — the request names CSV and no other consumer exists.
 
 ## Recommendation
 
@@ -398,6 +399,65 @@ describe("lintPlan — Goal-line length advisory", () => {
   it("does not warn when the Goal line is <=30 words", () => {
     const { misses } = lintPlan(CONFORMING_PLAN);
     expect(misses.some((m) => m.includes("advisory bound"))).toBe(false);
+  });
+});
+
+describe("lintPlan — Open Questions resolution", () => {
+  it("passes when an unchecked entry carries a Recommended marker on a nested sub-bullet", () => {
+    const { misses } = lintPlan(CONFORMING_PLAN);
+    expect(misses.some((m) => m.includes("resolution-first"))).toBe(false);
+  });
+
+  it("names a miss when an unchecked entry lacks both markers", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+      "- [ ] Should exports be paginated?",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) =>
+          m.includes("resolution-first") &&
+          m.includes("Should exports be paginated?"),
+      ),
+    ).toBe(true);
+  });
+
+  it("exits 1 via the CLI when an entry lacks both markers", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "flow-plan-lint-oq-"));
+    const planPath = path.join(dir, "plan.md");
+    writeFileSync(
+      planPath,
+      CONFORMING_PLAN.replace(
+        "  - **Recommended:** CSV only — the request names CSV and no other consumer exists.\n",
+        "",
+      ),
+    );
+    expect(run(["--plan-md-file", planPath])).toBe(1);
+  });
+
+  it("exempts checked '- [x]' entries", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "## Open Questions\n",
+      "## Open Questions\n\n- [x] Resolved: format is CSV (decision note).\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("resolution-first"))).toBe(false);
+  });
+
+  it("does not fire when the '## Open Questions' heading is absent", () => {
+    const plan = withoutSection(CONFORMING_PLAN, "## Open Questions");
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("resolution-first"))).toBe(false);
+  });
+
+  it("accepts a '**Needs user input:**' escape in place of a recommendation", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+      "  - **Needs user input:** user-held preference on export format.",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("resolution-first"))).toBe(false);
   });
 });
 
