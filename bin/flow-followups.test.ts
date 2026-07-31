@@ -82,11 +82,20 @@ describe("resolveJsonlPath", () => {
 // --- ALLOWLIST shape ---
 
 describe("ALLOWLIST", () => {
-  it("seeds with flow install variants only", () => {
+  it("holds exactly the flow install variants plus brew install shellcheck", () => {
     expect([...ALLOWLIST].sort()).toEqual([
+      "brew install shellcheck",
       "flow install",
       "flow install --upgrade",
     ]);
+  });
+
+  it("matches exactly, so a near-miss or argument-bearing variant is not permitted", () => {
+    // The safety story is exact-match, not prefix-match: anything that merely
+    // starts with an allowlisted string must still be noted rather than run.
+    expect(ALLOWLIST.has("brew install shellcheck --HEAD")).toBe(false);
+    expect(ALLOWLIST.has("brew install")).toBe(false);
+    expect(ALLOWLIST.has("brew uninstall shellcheck")).toBe(false);
   });
 });
 

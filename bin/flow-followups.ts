@@ -40,11 +40,21 @@ import { resolveSlugAmbient } from "./lib/session-identity";
 import { upsertPrBodySection } from "./lib/pr-body-upsert";
 
 // Exact-match command strings the helper is permitted to execute when
-// `auto: true` is also set. Expanding this list is a future PR — the narrow
-// seed (post-merge skill/agent re-symlink) is the entire safety story for v1.
+// `auto: true` is also set. Keep this list narrow — the exact-match rule plus a
+// short list is the entire safety story, so every entry must be idempotent and
+// safe to run unattended on a developer machine.
+//
+// `brew install shellcheck` is the one entry that mutates state outside the
+// repo. It earns its place because the command lints added in #506 gate on
+// `shellcheck --severity=error` and silently `describe.skip` when the binary is
+// absent — so a missing shellcheck turns a real check into a no-op that stays
+// green locally and only fails on CI (which is exactly how #506 burned a
+// fix loop). It is idempotent, and a no-brew host fails loudly as a reported
+// FAIL rather than escalating.
 export const ALLOWLIST: ReadonlySet<string> = new Set([
   "flow install",
   "flow install --upgrade",
+  "brew install shellcheck",
 ]);
 
 const HEAD_LINES = 50;

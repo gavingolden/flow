@@ -1,12 +1,16 @@
 # Failure recovery
 
-Two decision trees:
+Three sections:
 
 - **(a) Per-step failure recovery** — what the supervisor does when
   a step fails mid-pipeline. Used live in PR 2.
 - **(b) Resume-from-disk** — what the supervisor does when invoked
   with `--resume` after a Claude Code crash. Pinned here for PR 9;
   the `--resume` entry-point is not yet wired in PR 2.
+- **(c) No-retry escalation variants** — the full procedures for the
+  three no-retry escalations (`branch-mismatch`, `terminal-regression`,
+  `task-tool-unavailable`), read on demand from the trigger table in
+  SKILL.md's `# Failure paths` section rather than kept inline there.
 
 ## (a) Per-step failure recovery
 
@@ -16,26 +20,26 @@ print `NEEDS HUMAN: <reason>`, leave the worktree + PR intact, and
 end the turn. The user attaches to the tmux window and types a
 redirect to recover.
 
-| Step          | Failure                                                                                      | Budget                            | Action when budget exhausts                                                                                                                                                                                                         |
-| ------------- | -------------------------------------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 — triage    | classification ambiguous after 1 clarifying question                                         | 1 question                        | Escalate: `NEEDS HUMAN: triage-ambiguous`. End.                                                                                                                                                                                     |
-| 1 — triage    | first `flow-state-update` returns no-state-file inside a flow window (`@flow-slug` resolves) | ~3 retries                        | Escalate: `NEEDS HUMAN: state-file-missing-on-start`. End — never work inline on the base branch.                                                                                                                                   |
-| 2 — worktree  | `flow-new-worktree` non-zero exit                                                            | 1 attempt                         | Escalate: `NEEDS HUMAN: worktree-create-failed <stderr>`. End.                                                                                                                                                                      |
-| 3 — plan      | `/flow-product-planning` exits without writing `<worktree>/.flow-tmp/plan.md`                | 1 retry                           | Escalate: `NEEDS HUMAN: plan-missing`. End.                                                                                                                                                                                         |
-| 4 — approval  | user input ambiguous                                                                         | 1 clarifying question             | Ask the question; if still unclear, escalate: `NEEDS HUMAN: approval-ambiguous`. End.                                                                                                                                               |
-| 5 — implement | `/flow-new-feature` exits without committing + pushing + opening PR                          | 1 retry                           | Escalate: `NEEDS HUMAN: implement-failed`. End.                                                                                                                                                                                     |
-| 6 — verify    | `/flow-verify` exits without a clean pass                                                    | **3 outer attempts**              | Escalate: `NEEDS HUMAN: verify-exhausted`. Surface the last failure log on the PR body's `## Test Steps` as a `> [!CAUTION]` block (idempotent). End.                                                                               |
-| 6 — verify    | UI-smoke bootstrap needs a test-user credential it can't infer or resolve from the local env | 0 attempts                        | Write everything else verified into `.flow/ui-validation.json` + commit, then escalate: `NEEDS HUMAN: smoketest-needs-creds`. Provide the credential env var(s) named in `credentialEnvVars`, then `flow new --resume <slug>`. End. |
-| 7 — ci-wait   | hard cap reached, CI still pending                                                           | 20 min cap                        | Escalate: `NEEDS HUMAN: ci-hang`. End.                                                                                                                                                                                              |
-| 7 — ci-wait   | CI red                                                                                       | **3 fix-loops total**             | Escalate: `NEEDS HUMAN: ci-fix-exhausted`. End.                                                                                                                                                                                     |
-| 8 — review    | `/flow-pr-review` finds critical issues                                                      | **2 fix-loops total**             | Escalate: `NEEDS HUMAN: review-fix-exhausted`. End.                                                                                                                                                                                 |
-| 8 — review    | `/flow-pr-review` exits non-zero                                                             | 1 retry                           | Escalate: `NEEDS HUMAN: review-failed`. End.                                                                                                                                                                                        |
-| 9 — gate      | `gh pr view` fails or returns unparseable JSON                                               | 1 retry                           | Escalate: `NEEDS HUMAN: gh-error <stderr>`. End.                                                                                                                                                                                    |
-| 9 — gate      | PR `CLOSED` without merge                                                                    | 0 attempts                        | Escalate: `NEEDS HUMAN: pr-closed-without-merge`. End.                                                                                                                                                                              |
-| 10 — merge    | `gh pr merge --squash` fails                                                                 | 1 retry                           | Escalate: `NEEDS HUMAN: merge-failed`. End.                                                                                                                                                                                         |
-| 10 — merge    | merge-resolver subagent returns without writing `.flow-tmp/merge-resolver-result.json`       | 0 retries (one Task call per run) | Escalate: `NEEDS HUMAN: merge-resolver-missing-artifact`. End.                                                                                                                                                                      |
-| 10 — merge    | merge-resolver Task spawn is denied by the permission system                                 | 0 retries (one Task call per run) | Escalate: `NEEDS HUMAN: merge-resolver-spawn-denied`. End.                                                                                                                                                                          |
-| (any)         | user types `cancel` / `abort` / `kill this`                                                  | 0 attempts                        | Run `flow-remove-worktree`, render the CANCELLED block via `flow-gate-summary --status cancelled --why "<context>"` (BEFORE the terminal state transition), write `phase: cancelled`. End.                                          |
+| Step          | Failure                                                                                      | Budget                            | Action when budget exhausts                                                                                                                                                                                                           |
+| ------------- | -------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — triage    | classification ambiguous after 1 clarifying question                                         | 1 question                        | Escalate: `NEEDS HUMAN: triage-ambiguous`. End.                                                                                                                                                                                       |
+| 1 — triage    | first `flow-state-update` returns no-state-file inside a flow window (`@flow-slug` resolves) | ~3 retries                        | Escalate: `NEEDS HUMAN: state-file-missing-on-start`. End — never work inline on the base branch.                                                                                                                                     |
+| 2 — worktree  | `flow-new-worktree` non-zero exit                                                            | 1 attempt                         | Escalate: `NEEDS HUMAN: worktree-create-failed <stderr>`. End.                                                                                                                                                                        |
+| 3 — plan      | `/flow-product-planning` exits without writing `<worktree>/.flow-tmp/plan.md`                | 1 retry                           | Escalate: `NEEDS HUMAN: plan-missing`. End.                                                                                                                                                                                           |
+| 4 — approval  | user input ambiguous                                                                         | 1 clarifying question             | Ask the question; if still unclear, escalate: `NEEDS HUMAN: approval-ambiguous`. End.                                                                                                                                                 |
+| 5 — implement | `/flow-new-feature` exits without committing + pushing + opening PR                          | 1 retry                           | Escalate: `NEEDS HUMAN: implement-failed`. End.                                                                                                                                                                                       |
+| 6 — verify    | `/flow-verify` exits without a clean pass                                                    | **3 outer attempts**              | Escalate: `NEEDS HUMAN: verify-exhausted`. Surface the last failure log on the PR body's `## Test Steps` as a `> [!CAUTION]` block (idempotent). End.                                                                                 |
+| 6 — verify    | UI-smoke bootstrap needs a test-user credential it can't infer or resolve from the local env | 0 attempts                        | Write everything else verified into `.flow/ui-validation.json` + commit, then escalate: `NEEDS HUMAN: smoketest-needs-creds`. Provide the credential env var(s) named in `credentialEnvVars`, then `flow feature resume <slug>`. End. |
+| 7 — ci-wait   | hard cap reached, CI still pending                                                           | 20 min cap                        | Escalate: `NEEDS HUMAN: ci-hang`. End.                                                                                                                                                                                                |
+| 7 — ci-wait   | CI red                                                                                       | **3 fix-loops total**             | Escalate: `NEEDS HUMAN: ci-fix-exhausted`. End.                                                                                                                                                                                       |
+| 8 — review    | `/flow-pr-review` finds critical issues                                                      | **2 fix-loops total**             | Escalate: `NEEDS HUMAN: review-fix-exhausted`. End.                                                                                                                                                                                   |
+| 8 — review    | `/flow-pr-review` exits non-zero                                                             | 1 retry                           | Escalate: `NEEDS HUMAN: review-failed`. End.                                                                                                                                                                                          |
+| 9 — gate      | `gh pr view` fails or returns unparseable JSON                                               | 1 retry                           | Escalate: `NEEDS HUMAN: gh-error <stderr>`. End.                                                                                                                                                                                      |
+| 9 — gate      | PR `CLOSED` without merge                                                                    | 0 attempts                        | Escalate: `NEEDS HUMAN: pr-closed-without-merge`. End.                                                                                                                                                                                |
+| 10 — merge    | `gh pr merge --squash` fails                                                                 | 1 retry                           | Escalate: `NEEDS HUMAN: merge-failed`. End.                                                                                                                                                                                           |
+| 10 — merge    | merge-resolver subagent returns without writing `.flow-tmp/merge-resolver-result.json`       | 0 retries (one Task call per run) | Escalate: `NEEDS HUMAN: merge-resolver-missing-artifact`. End.                                                                                                                                                                        |
+| 10 — merge    | merge-resolver Task spawn is denied by the permission system                                 | 0 retries (one Task call per run) | Escalate: `NEEDS HUMAN: merge-resolver-spawn-denied`. End.                                                                                                                                                                            |
+| (any)         | user types `cancel` / `abort` / `kill this`                                                  | 0 attempts                        | Run `flow-remove-worktree`, render the CANCELLED block via `flow-gate-summary --status cancelled --why "<context>"` (BEFORE the terminal state transition), write `phase: cancelled`. End.                                            |
 
 ### The verify outer-retry loop
 
@@ -176,3 +180,105 @@ the boring 80%, not from heroic recovery on the messy 20%.
 If a particular failure starts hitting the same cap repeatedly in
 practice, raise the cap deliberately — don't paper over it with an
 inner retry layer.
+
+## (c) No-retry escalation variants
+
+Three escalations take a no-retry path with their own procedure, moved
+here from SKILL.md's `# Failure paths` section behind a trigger table.
+Read the relevant block below and execute it rather than acting from
+memory.
+
+### Branch-mismatch escalation (no retries)
+
+When `flow-state-update` exits with status 3, the worktree's branch
+no longer matches the `.flow-branch` marker written by
+`flow-new-worktree`. This means a peer pipeline (or a stray manual
+git command) renamed this branch out from under us — the same family
+of failure as the 2026-05-01 incident. The mechanical guard refused
+to write the phase transition; the supervisor must NOT retry.
+Escalate immediately:
+
+```bash
+flow-gate-summary --status needs-human --reason branch-mismatch \
+  --why "<expected vs actual from stderr>"                  # render BEFORE the terminal state transition
+flow-state-update --phase needs-human  # may itself fail; that's ok, scrollback shows the cause
+flow-notify --status needs-human --reason "branch-mismatch"
+```
+
+There is no auto-recovery — branch state is load-bearing and the
+user must inspect (`git reflog`, `git worktree list`) to decide
+whether the rename was malicious, accidental, or expected. Leave the
+worktree + PR intact.
+
+### Terminal-regression escalation (no retries)
+
+When `flow-state-update` exits with status 4, a terminal→non-terminal
+phase regression was detected — the existing phase in state.json is one
+of `merged`, `gated`, `needs-human`, `cancelled`, or `epic-approved`,
+but the requested transition would move to a non-terminal phase. This
+signals an ambient-pane race that wrote to the wrong pipeline's state:
+`resolveSlugFromPane()` resolved a stale or mismatched slug and the
+write was blocked by the mechanical guard. The supervisor must NOT retry.
+Escalate immediately:
+
+```bash
+flow-gate-summary --status needs-human --reason terminal-regression \
+  --why "<expected→actual from stderr>"   # render BEFORE the terminal state transition
+flow-state-update --phase needs-human     # may itself fail; that's ok, scrollback shows the cause
+flow-notify --status needs-human --reason "terminal-regression"
+```
+
+There is no auto-recovery — the guard blocked the write precisely to
+avoid corrupting a finished pipeline's terminal state. Leave the worktree
+and PR intact for the user to inspect.
+
+If you suspect the victim pipeline's state was already corrupted by a
+prior race, the operational recovery for an already-corrupted pipeline is:
+
+```bash
+flow-state-update --phase <merged|gated|needs-human|...> --force --slug <victim-slug>
+```
+
+`--force` bypasses the regression guard; `--slug` targets the specific
+pipeline rather than relying on pane resolution. Use only after confirming
+which pipeline's state needs correction.
+
+### Task-tool unavailable (no retries)
+
+Fires when any of the nine spawn procedures' load step
+(`ToolSearch query="select:Task"`) returns a response that does not
+contain _either_ a `<function>{"name": "Task", ...}</function>` _or_ a
+`<function>{"name": "Agent", ...}</function>` line — i.e. the harness
+has surfaced neither alias of the one-shot subagent-spawn primitive
+top-level in the current session. The supervisor must NOT fall back
+to in-line execution; in-line fallback breaks the context-isolation
+contract each Task-tool exemption is justified by (PR #124 was the
+inaugural silent-fallback regression). Escalate immediately:
+
+```bash
+flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"
+flow-gate-summary --status needs-human \
+  --reason "task-tool-unavailable: <exemption-name>" \
+  --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"   # render BEFORE the terminal state transition
+flow-state-update --phase needs-human
+flow-notify --status needs-human --reason "task-tool-unavailable: <exemption-name>"
+```
+
+The helper parses the `:`-suffix and appends ` (spawn site:
+<exemption-name>)` to `NEXT_ACTION_BY_REASON["task-tool-unavailable"]` so
+the NEXT ACTION line names the exact spawn site; the sentinel line is
+byte-exact `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
+`<exemption-name>` is one of `pr-review-gatekeeper`,
+`pr-review-multi-agent-review`, `pr-review-fix-applier`,
+`pr-review-consolidator-validator`, `product-planning-discovery`,
+`new-feature-scout`, `coder-edit-applier`, `flow-pipeline-merge-resolver`,
+`flow-pipeline-verify-loop`.
+
+No retry is appropriate — the deferred-tool surfacing is environmental;
+remediation is to re-run in a session where `Task` or `Agent` is surfaced
+top-level (restart `claude` or upgrade the CLI). Leave the worktree + PR
+intact. For the `pr-review-*` sites (now reachable from the in-process
+Skill load, `context: fork` removed), the escalation tag is written into
+`<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
+and step 8's artifact-read propagates it into `NEEDS HUMAN:
+<escalation_tag>`.

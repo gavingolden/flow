@@ -42,14 +42,14 @@ argument that happened to point the same direction.
 
 ## Per-site assessment
 
-| Site                             | Depth if nested | Win                                                                                                                                                         | Cost                                                                                                                                                                                                                         | Verdict            |
-| -------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| supervisor → pr-review wholesale | 2               | Fewer top-level Task calls in the supervisor's own transcript                                                                                               | AskUserQuestion unavailable inside a subagent (pr-review's gate-override and candidate-issues forms would break); auto-push moves two levels from the user's own instruction; resume anchors leave the supervisor transcript | Rejected           |
-| verify-loop → edit-applier       | 3               | Verify-loop's wider-scope fix path gets edit-applier's mechanical pre-check + rejected-alternatives/anti-patterns discipline instead of ad-hoc inline edits | One extra artifact hop (`verify-coder-result.json`), one extra spawn-failure mode to record                                                                                                                                  | **Adopted**        |
-| fix-applier → coder              | 3               | Same edit-applier discipline for pr-review's per-finding fix loop                                                                                           | fix-applier already owns per-finding commit/push sequencing; splitting that into a grandchild spawn muddies which layer commits                                                                                              | Rejected (for now) |
-| discovery → parallel scouts      | 2               | Faster wall-clock for multi-file discovery                                                                                                                  | Discovery is a single one-shot Task already; sub-fanning it multiplies the ~15x token cost for a phase that isn't the audited hot spot                                                                                       | Rejected           |
-| consolidator sub-spawn           | 2               | Could parallelize validation of multiple agent-output files                                                                                                 | Consolidator-validator already runs as one Sonnet pass over pre-computed agent outputs; no measured bottleneck to justify the spend                                                                                          | Rejected           |
-| epic-run fan-out                 | 2               | Could parallelize manifest reconciliation across features                                                                                                   | epic-run is a playbook session, explicitly zero named fan-out by design (no Task, no AskUserQuestion); nesting here would be a new top-level policy change, not a mechanical adoption                                        | Rejected           |
+| Site                             | Depth if nested | Win                                                                                                                                                         | Cost                                                                                                                                                                                                   | Verdict            |
+| -------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| supervisor → pr-review wholesale | 2               | Fewer top-level Task calls in the supervisor's own transcript                                                                                               | AskUserQuestion unavailable inside a subagent (pr-review's gate-override form would break); auto-push moves two levels from the user's own instruction; resume anchors leave the supervisor transcript | Rejected           |
+| verify-loop → edit-applier       | 3               | Verify-loop's wider-scope fix path gets edit-applier's mechanical pre-check + rejected-alternatives/anti-patterns discipline instead of ad-hoc inline edits | One extra artifact hop (`verify-coder-result.json`), one extra spawn-failure mode to record                                                                                                            | **Adopted**        |
+| fix-applier → coder              | 3               | Same edit-applier discipline for pr-review's per-finding fix loop                                                                                           | fix-applier already owns per-finding commit/push sequencing; splitting that into a grandchild spawn muddies which layer commits                                                                        | Rejected (for now) |
+| discovery → parallel scouts      | 2               | Faster wall-clock for multi-file discovery                                                                                                                  | Discovery is a single one-shot Task already; sub-fanning it multiplies the ~15x token cost for a phase that isn't the audited hot spot                                                                 | Rejected           |
+| consolidator sub-spawn           | 2               | Could parallelize validation of multiple agent-output files                                                                                                 | Consolidator-validator already runs as one Sonnet pass over pre-computed agent outputs; no measured bottleneck to justify the spend                                                                    | Rejected           |
+| epic-run fan-out                 | 2               | Could parallelize manifest reconciliation across features                                                                                                   | epic-run is a playbook session, explicitly zero named fan-out by design (no Task, no AskUserQuestion); nesting here would be a new top-level policy change, not a mechanical adoption                  | Rejected           |
 
 ## Cross-cutting costs
 
@@ -67,9 +67,8 @@ Independent of any single site, nesting anywhere carries these costs:
   masking a child miss) and its own failure enum — more surface for the
   loud-failure contract to get wrong.
 - **AskUserQuestion unavailability inside subagents.** Any site whose
-  parent-level behaviour depends on a mid-task form (gate-override,
-  candidate-issues) cannot be nested without redesigning that form's
-  trigger point.
+  parent-level behaviour depends on a mid-task form (gate-override)
+  cannot be nested without redesigning that form's trigger point.
 - **Resume anchors move off the supervisor transcript.** The
   supervisor's own compact-survival anchors (phase, PR number, worktree
   path) live on its own transcript; nesting a site that owns one of
@@ -111,10 +110,9 @@ re-proposed:
 
 - **Wholesale pr-review nesting** (supervisor → pr-review as a single
   nested subagent) — rejected: `AskUserQuestion` unavailable inside a
-  subagent breaks the gate-override and candidate-issues forms; the
-  auto-push exemption would fire two levels away from the user's own
-  instruction; resume anchors would leave the supervisor's own
-  transcript.
+  subagent breaks the gate-override form; the auto-push exemption would
+  fire two levels away from the user's own instruction; resume anchors
+  would leave the supervisor's own transcript.
 - **fix-applier → coder** — rejected for now: fix-applier already owns
   per-finding commit/push sequencing, and splitting edit application
   into a grandchild spawn would blur which layer is responsible for the

@@ -416,7 +416,8 @@ effect on model comprehension either way) — never required.
   is emitted only when the change plausibly moves one.
 - **Open Questions** — every assumption you made plus anything still unresolved. Each
   entry must name what changes on redirect — a question whose every answer leaves the
-  plan unchanged is deleted, not written (earns-its-place rule).
+  plan unchanged is deleted, not written (earns-its-place rule). Every entry also carries
+  a resolution marker — see the "Open Questions (resolution-first)" sub-section below.
 - **Decision analysis** (omit-when-empty) — for each _consequential_ open decision whose
   branches genuinely diverge, illustrate each branch's downstream end-user/system flow, mark
   exclusive vs complementary, enumerate + rank the viable combinations, and give a verdict that
@@ -449,22 +450,40 @@ distinct from "Open Questions": Open Questions are assumptions about _this_ feat
 the user should confirm; candidate follow-up issues are _next-time_ work the user can
 opt into.
 
-**Objective-item triage (bundle by default).** A bug fix or a (nearly) objective
-hardening item — one where any competent engineer would reach the same fix given the
-same evidence, with no meaningful product trade-off to weigh — is folded into `#
-Task breakdown` (or the relevant task's acceptance criteria) at authoring time, and MUST
-NOT be written as a candidate follow-up issue. Only proposals that require subjective
-product judgment (a genuine value/complexity trade-off, a UX direction call, a scope
-decision reasonable engineers could disagree on) remain eligible for this section. For
-example: "the retry loop swallows the underlying error" is an objective bug — fix it in
-the task breakdown. "Add a settings toggle to let users disable retries" is a subjective
-product call — it belongs in the candidate table. Likewise, "off-by-one in the pagination
-cursor" bundles into the current task; "switch pagination from offset- to cursor-based
-site-wide" is a candidate. After authoring both sections, run a **mutual-exclusion
-self-check**: verify no item appears in BOTH `# Task breakdown` and `# Candidate follow-up
-issues` — dedup by intent (the same underlying change described two ways), not by string
-match — and fold any duplicate found back into the task breakdown, removing it from the
-candidate table.
+**Objective-item triage (bundle by default).** Default to bundling adjacent work into
+`# Task breakdown` at authoring time rather than parking it as a candidate follow-up:
+bundle clear UX additions and enhancements, bug fixes plus their tests, code quality
+improvements, testing improvements, and small or prerequisite refactors — include
+anything that should reasonably and ultimately be a part of the feature anyway.
+Borderline ties break toward bundle. An item remains eligible for the candidate
+follow-up section ONLY under one of three named exclusions:
+
+1. a **genuinely novel non-trivial feature** — its own user goal and surface, not a
+   natural extension of this one;
+2. it needs its own design/decision session — the rationale MUST name the specific
+   open decision that needs its own session; a rationale naming no nameable decision
+   is a bundling miss, not a valid exclusion;
+3. a large refactor that is not a prerequisite for this feature — heuristics: it
+   would roughly double the diff, or touches many files the feature otherwise
+   would not.
+
+**Hardening rule.** Exclusion 3's size test applies to the bundle SET
+**cumulatively**, not per-candidate: several individually-fine bundles can together
+roughly double the diff. Apply the test to the bundle set as a whole; on overflow,
+keep the highest-value bundles in the task breakdown and demote the rest to
+pre-ticked candidates.
+
+For example: "the retry loop swallows the underlying error" is an objective bug —
+bundle it into the task breakdown. "Add a settings toggle to let users disable
+retries" is a UX addition adjacent to this feature — bundle it too, unless it needs
+its own design session (name the decision) or the bundle set would double in size.
+"Migrate the entire auth stack to a new provider" is a genuinely novel non-trivial
+feature — that stays a candidate. Likewise, "off-by-one in the pagination cursor"
+bundles into the current task. After authoring both sections, run a
+**mutual-exclusion self-check**: verify no item appears in BOTH `# Task breakdown`
+and `# Candidate follow-up issues` — dedup by intent (the same underlying change
+described two ways), not by string match — and fold any duplicate found back into
+the task breakdown, removing it from the candidate table.
 
 When (and only when) such ideas exist, add a top-level `# Candidate follow-up issues`
 section to `plan.md`, placed between `# PRD` and `# Task breakdown` (see step 8). The
@@ -480,8 +499,8 @@ title and one-line body:
 | OAuth refresh path leaks tokens | High  | Medium     | real security gap but its own session | unrelated to this feature   | No                       |
 | Pin `gh-action-cache` to v4     | Low   | Trivial    | one-line CI bump, unblocks nothing    | unrelated to this feature   | No                       |
 
-- [ ] OAuth refresh path leaks tokens — separate concern; needs a dedicated session.
-- [ ] `gh-action-cache@v3` is deprecated — pin to v4 in CI.
+- [x] OAuth refresh path leaks tokens — separate concern; needs a dedicated session.
+- [x] `gh-action-cache@v3` is deprecated — pin to v4 in CI.
 ```
 
 **The ranking table is mandatory whenever the section is present** (it is not itself
@@ -493,21 +512,21 @@ should be ordered by Value (High → Low). Columns are exactly
 Each Rationale cell must state why the item matters (the underlying reason it is worth
 tracking), never merely restating the candidate's title. The `Relation to current
 request` column names how the candidate connects to (or diverges from) the work this
-plan is about — the supervisor's pre-form details block and the `pull #N into the plan`
-redirect offer read this column to help the user decide. The `Pull into this pipeline?`
+plan is about — the supervisor's `--details` disclosure block and the `pull #N into the
+plan` redirect offer read this column to help the user decide. The `Pull into this pipeline?`
 column carries **plain `Yes` / `No` text — never a `- [ ]`
 checkbox**: the checkbox list BELOW the table is the sole machine-readable candidate
 contract (`flow-candidate-issues` parses only `- [ ]` / `- [x]` lines, so a checkbox in a
 table cell would be a parser-mis-read hazard). Value and Complexity are coarse buckets
 (`High`/`Medium`/`Low` and `Trivial`/`Small`/`Medium`/`Large`).
 
-**Recommendation verdict line.** When any candidate clears the **high-value AND
-trivial-complexity** bar, the `## Recommendation` section MUST carry an explicit
-pull-into-this-pipeline verdict line naming that candidate — the cheap-and-valuable case
-is exactly the one that should not wait for a follow-up, so the recommendation states it
-outright rather than leaving it buried in the table. When no candidate clears the bar,
-state that too (e.g. "Pull-into-this-pipeline candidate: none clears the high-value +
-trivial-complexity bar").
+**Exclusion-naming rule.** Each candidate's Rationale cell in the ranking table MUST
+name which of the three named exclusions applies —
+`genuinely novel non-trivial feature`, needs its own design/decision session, or a
+large refactor that is not a prerequisite — and, for the design/decision exclusion,
+the specific open decision that needs its own session. A Rationale cell that names
+no exclusion is a bundling miss: fold the item into `# Task breakdown` instead of
+leaving it as a candidate.
 
 **Consistency rubric (follow-up references must resolve).** Any item the plan prose refers
 to as "listed as a follow-up" / "tracked as a follow-up" / "deferred to a follow-up" (or a
@@ -517,30 +536,32 @@ in the econ-data run. After the plan lands, the supervisor runs
 `flow-candidate-issues --lint --plan-md-file <plan.md>` as a deterministic advisory
 backstop; author the section so that check passes (every referenced follow-up is listed).
 
-Leave every checkbox **unticked** (`- [ ]`). The supervisor will pop an
-`AskUserQuestion` form to let the user pick which to file (1–4 candidates) or fall back to
-manual editing (5+ candidates) — on step 4's affirmative branch for feature intents, and
-ALSO on the non-feature `advance-to-step-5` path (bug/refactor/docs/infra/chore
-pipelines, which skip step 4), so the prompt fires regardless of intent. The user's
-selections persist back as `- [x]`; the post-merge sweep at step 10 reads `- [x]` items
-and fires `flow-create-issue` for each.
+Author every remaining candidate pre-ticked (`- [x]`) — file-by-default, not opt-in.
+No `AskUserQuestion` form fires anywhere in this flow; instead, the supervisor echoes
+`flow-candidate-issues --details` at plan presentation so the user sees the full
+candidate list inline. The user curates by replying with one of three verbs:
+`pull #N into the plan` (moves a candidate into this pipeline's task breakdown),
+`drop candidate #N` (unticks it, removing it from the file-on-merge set), or
+`defer task #N` (moves a task-breakdown item back out to a ticked candidate).
+Whatever stays ticked when the PR merges is what the step-10 post-merge sweep files
+via `flow-create-issue`.
 
 If discovery surfaces no orthogonal ideas, **omit the section entirely** — do not write an
-empty heading. An empty heading is a no-op for the supervisor (count is `0` → no form,
-no fallback), but it implies candidates exist when none do, adds noise to plan review,
+empty heading. An empty heading is a no-op for the supervisor (count is `0` → empty
+`--details` output, nothing to disclose), but it implies candidates exist when none do, adds noise to plan review,
 and risks accumulating stale `- [ ]` entries on later edits. The supervisor's
 "section absent" and "count is 0" branches behave identically; the value of omitting
 the heading is signal-to-noise, not control flow.
 
-Bar for inclusion: is this a _completely separate feature_ — its own user goal and
-surface, valuable and shippable on its own? Only then does it belong here. A small or
-medium enhancement that serves the requested feature's goal, touches the same surface, or
-whose absence would leave the feature partial or awkward is **not** a candidate — it
-belongs in the `# Task breakdown`, built now. Per the AGENTS.md `## Output style` rule
+Bar for inclusion: the three named exclusions in **Objective-item triage** above are
+the entire bar — a genuinely novel non-trivial feature, an item that needs its own
+design/decision session (naming the specific decision), or a large refactor that is
+not a prerequisite (applied cumulatively across the whole bundle set). Per the
+AGENTS.md `## Output style` rule
 **Treat every request as production-bound, not a hobby project.**, the include-vs-defer
-test is cohesion, not size; do not use this section as a hedge to defer cohesive in-scope
-work. Keep the bar high — backlogs full of low-confidence candidates are noise, and so is
-a feature shipped with its cohesive other half parked in a follow-up.
+test is cohesion, not size; do not use this section as a hedge to defer cohesive
+in-scope work that fails all three exclusions. A backlog full of low-confidence
+candidates is still noise — when in doubt, bundle.
 
 ### Visual Spec
 
@@ -656,6 +677,29 @@ produced/consumed artifact for each), and its downstream dependents whose consum
 interfaces must stay stable. **Source-traceability rule:** every claim here MUST be
 traceable to `design.md` and `manifest.json` — read both on detection (step 1.7); never
 infer epic context from the slug or the pointer sentence alone.
+
+### Open Questions (resolution-first)
+
+Every unchecked `- [ ]` entry in `## Open Questions` must carry exactly one of two
+markers, so the reviewer reads a resolved recommendation, not a bare question:
+
+- `**Recommended:** <answer> — <one-line rationale naming the decisive rubric
+factor(s)>` (per the Resolution rubric in discovery-playbook.md), OR
+- `**Needs user input:** <named reason>` — the reason MUST come from this closed
+  list: a user-held preference or subjective taste; an external fact the agent
+  cannot verify; credentials or production access.
+
+**Relation to Decision analysis:** consequential questions whose branches genuinely
+diverge route to `### Decision analysis` (whose verdict feeds the Recommendation);
+everything else resolves here with a `**Recommended:**` marker or takes the
+`**Needs user input:**` escape.
+
+**Anti-hallucination guard.** A `**Recommended:**` rationale must ground itself in
+evidence the agent actually holds — codebase reading, a project convention, or the
+rubric's value/effort/risk weighing. When the decisive input is an external fact the
+agent cannot verify, taking the `**Needs user input:**` escape is MANDATORY, not a
+stylistic choice: a confident wrong answer that looks right is worse than a bare
+question.
 
 ### Decision analysis
 
@@ -883,6 +927,7 @@ the repo verify-green on its own, so cohesion wins over the numeric target.
 ### Task N: [Short Title]
 
 - **Skill:** `skill-name`
+- **Bundled:** <one-line origin>
 - **Description:** What to implement
 - **Inputs:** What must exist before this task starts
 - **Outputs:** What this task produces
@@ -899,6 +944,14 @@ planner's interface decisions instead of re-deriving them. The
 `- **Acceptance criteria:**` bullet is a **runnable command** (a deterministic
 check that exits 0 when the task is done), not a prose description; reserve
 prose only for a genuinely subjective criterion.
+
+The `- **Bundled:**` bullet is **required on every task that originated as a
+bundled candidate** under the Objective-item triage rule above — a one-line
+origin naming what adjacent item it absorbed (e.g. `- **Bundled:** the
+settings-toggle UX addition surfaced during discovery`). Omit the bullet
+entirely on tasks that were always part of the requested feature. This is a
+**prose contract**, read by humans and by `/flow-pr-review` to understand scope
+provenance — it is NEVER machine-parsed; no helper may grow a parser for it.
 
 **Per-change-type surgical forms.** The `Interfaces:` / `Call-site edits:`
 sub-bullets assume callable boundaries. When a task's change type has none,
@@ -975,7 +1028,9 @@ should be verifiable.>
 
 <Pull from Architecture Decisions and Scope Boundary's "Out of scope". Each bullet:
 the decision + a brief rationale. Include scope exclusions that a reviewer might
-wonder about.>
+wonder about. Also list each bundled task (every task carrying a `- **Bundled:**`
+bullet in the task breakdown) as its own `Bundled: <one-line origin>` bullet, so a
+reviewer can see why the diff is larger than the requested feature alone.>
 
 ## User-facing changes
 
@@ -1233,6 +1288,9 @@ redirect did not touch and destroys embedded markers. Follow this contract:
    mark any prior question the redirect resolves with a short decision note (the same
    "mark resolved with a decision note" convention the section already uses) rather than
    deleting it, so the Q&A record of the plan's evolution stays intact across revisions.
+   Redirect-added questions also carry the resolution markers where answerable — a
+   `**Recommended:**` answer or a `**Needs user input:**` escape per the "Open
+   Questions (resolution-first)" contract.
 
 The `<n>` is a simple pass counter the supervisor tracks in-context (pass 2, 3, …); it
 carries no payload beyond "this is a revision" — the redirect text itself arrives through
@@ -1260,6 +1318,8 @@ Common failure modes during planning:
 - Architecture Decisions section names specific layers, domain modules, and data
   flow pattern.
 - Every assumption you made under ambiguity appears as an Open Question.
+- Every unchecked Open Questions entry carries a `**Recommended:**` answer or a
+  `**Needs user input:**` escape (see "Open Questions (resolution-first)").
 - Task breakdown covers all PRD requirements with no gaps.
 - Each task has a recommended skill, inputs, outputs, and acceptance criteria.
 - Each task carries a `- **Contract:**` block (Files / Interfaces / Call-site
@@ -1278,8 +1338,8 @@ Common failure modes during planning:
   at the absolute paths the wrapper passed you, with parent directory created on
   demand.
 - `# Candidate follow-up issues` section is omitted from `plan.md` when discovery
-  surfaced no orthogonal ideas; populated as one or more `- [ ]` items otherwise
-  (never written as an empty heading).
+  surfaced no orthogonal ideas; populated as one or more pre-ticked `- [x]` items
+  otherwise (never written as an empty heading).
 - The PRD opens with a one-line `**Goal:**` directly under the title (never omitted).
 - `## Behavioral contrast` is present with `### User flow` / `### System flow` and
   closes with a `**Lost:**` line (`none` only on genuinely additive changes).

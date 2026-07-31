@@ -246,6 +246,14 @@ unresolved as Open Questions for the approval checkpoint — including, if it
 applies, a note when you judged the prompt genuinely epic-sized vs a single
 feature.
 
+Each entry is resolution-first: carry a `**Recommended:** <answer> — <one-line
+rationale>` or a `**Needs user input:** <named reason>` per the
+"Open Questions (resolution-first)" contract in discovery-instructions.md (the
+SSoT, including its closed escape list and anti-hallucination guard). Epic
+grain is prose-only — `design.md` entries are `- **Bold.**` bullets, not
+checkboxes, and `flow-plan-lint` never runs against `design.md` — so the
+markers are a drafting contract here, not a linted one.
+
 For a **visual / palette / typography overhaul** epic, you MUST record
 explicitly in Open Questions that concrete palette/color values (exact
 hex/token values, type scales, spacing primitives) are deferred to each
