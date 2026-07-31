@@ -29,7 +29,8 @@ const EQUALS_LINE = "=".repeat(7);
 
 const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
 
-const here = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+const here =
+  import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
 const SCRIPT_PATH = path.join(here, "flow-conflict-marker-check.ts");
 
 function gitc(cwd: string, args: string[]) {
@@ -292,9 +293,14 @@ describe.skipIf(!bunOnPath)(
       gitc(dir, ["commit", "-q", "-m", "base"]);
       fs.writeFileSync(
         path.join(dir, "f.txt"),
-        [`${HEAD_MARKER} HEAD`, "b", EQUALS_LINE, "c", `${TAIL_MARKER} x`, ""].join(
-          "\n",
-        ),
+        [
+          `${HEAD_MARKER} HEAD`,
+          "b",
+          EQUALS_LINE,
+          "c",
+          `${TAIL_MARKER} x`,
+          "",
+        ].join("\n"),
       );
       gitc(dir, ["add", "f.txt"]);
       gitc(dir, ["commit", "--no-verify", "-q", "-m", "chore: botched"]);
@@ -319,10 +325,14 @@ describe.skipIf(!bunOnPath)(
         path.join(dir, "f.txt"),
         ["a", EQUALS_LINE, "c", ""].join("\n"),
       );
-      const preCommitCheck = spawnSync("git", ["diff", "--check", "--", "f.txt"], {
-        cwd: dir,
-        encoding: "utf8",
-      });
+      const preCommitCheck = spawnSync(
+        "git",
+        ["diff", "--check", "--", "f.txt"],
+        {
+          cwd: dir,
+          encoding: "utf8",
+        },
+      );
       expect(preCommitCheck.status).not.toBe(0);
       expect(preCommitCheck.stdout).toContain("leftover conflict marker");
 
@@ -390,15 +400,7 @@ describe.skipIf(!bunOnPath)(
 
       const raw = spawnSync(
         "git",
-        [
-          "grep",
-          "--full-name",
-          "-nE",
-          "^(<{7}|>{7})( |$)",
-          "HEAD",
-          "--",
-          ":/",
-        ],
+        ["grep", "--full-name", "-nE", "^(<{7}|>{7})( |$)", "HEAD", "--", ":/"],
         { cwd: dir, encoding: "utf8" },
       );
       expect(raw.status).toBe(0);
@@ -411,7 +413,10 @@ describe.skipIf(!bunOnPath)(
 
     it("(7) a pre-existing hit outside the merge -> exit 0, labelled PRE-EXISTING", () => {
       const dir = makeRepo();
-      fs.writeFileSync(path.join(dir, "legacy.txt"), `${HEAD_MARKER} HEAD\norphan\n`);
+      fs.writeFileSync(
+        path.join(dir, "legacy.txt"),
+        `${HEAD_MARKER} HEAD\norphan\n`,
+      );
       gitc(dir, ["add", "legacy.txt"]);
       gitc(dir, ["commit", "-q", "-m", "legacy: leftover marker, never fixed"]);
       fs.writeFileSync(path.join(dir, "other.txt"), "x\n");
@@ -434,7 +439,10 @@ describe.skipIf(!bunOnPath)(
       fs.writeFileSync(path.join(markerDir, "f.txt"), "a\n");
       gitc(markerDir, ["add", "f.txt"]);
       gitc(markerDir, ["commit", "-q", "-m", "base"]);
-      fs.writeFileSync(path.join(markerDir, "f.txt"), `${HEAD_MARKER} HEAD\na\n`);
+      fs.writeFileSync(
+        path.join(markerDir, "f.txt"),
+        `${HEAD_MARKER} HEAD\na\n`,
+      );
       gitc(markerDir, ["add", "f.txt"]);
       gitc(markerDir, ["commit", "-q", "-m", "chore: leaves a marker"]);
 

@@ -60,10 +60,7 @@ const GIT_GREP_LINE_REGEX = /^(.+?):(\d+):([\s\S]*)$/;
  * with the `"(unparsed)"` sentinel path so `partitionHits` always treats it
  * as blocking rather than silently dropping it.
  */
-export function parseGitGrepOutput(
-  stdout: string,
-  rev?: string,
-): MarkerHit[] {
+export function parseGitGrepOutput(stdout: string, rev?: string): MarkerHit[] {
   return stdout
     .split("\n")
     .filter((line) => line.length > 0)

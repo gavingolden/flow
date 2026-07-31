@@ -1666,9 +1666,8 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "Step 3 (Layer 1, pre-commit) must still use git diff --check.",
     ).toBe(true);
 
-    const troubleshootingStart = mergeResolverInstructionsContent.indexOf(
-      "# Troubleshooting",
-    );
+    const troubleshootingStart =
+      mergeResolverInstructionsContent.indexOf("# Troubleshooting");
     const troubleshootingEnd = mergeResolverInstructionsContent.indexOf(
       "# Verification",
       troubleshootingStart,
@@ -1682,9 +1681,8 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "Troubleshooting must still reference git diff --check (Step 3's Layer 1).",
     ).toBe(true);
 
-    const verificationStart = mergeResolverInstructionsContent.indexOf(
-      "# Verification",
-    );
+    const verificationStart =
+      mergeResolverInstructionsContent.indexOf("# Verification");
     const verificationEnd = mergeResolverInstructionsContent.indexOf(
       "# Constraints",
       verificationStart,

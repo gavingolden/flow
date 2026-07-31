@@ -112,8 +112,7 @@ export function decide(
       verdict: "error",
       blocking: [],
       preExisting: [],
-      message:
-        touched.stderr.trim() || `git show exited ${touched.exitCode}`,
+      message: touched.stderr.trim() || `git show exited ${touched.exitCode}`,
     };
   }
   const hits = parseGitGrepOutput(grep.stdout, "HEAD");
@@ -162,7 +161,14 @@ function main(): void {
     "--",
     ":/",
   ]);
-  const touched = run(["git", "show", "--name-only", "--format=", "-m", "HEAD"]);
+  const touched = run([
+    "git",
+    "show",
+    "--name-only",
+    "--format=",
+    "-m",
+    "HEAD",
+  ]);
   const result = decide(grep, touched);
 
   const lines = [

@@ -526,10 +526,7 @@ export function checkConflictMarkers(
   }
 
   const hits = parseGitGrepOutput(stdout);
-  const { blocking, preExisting } = partitionHits(
-    hits,
-    new Set(changedFiles),
-  );
+  const { blocking, preExisting } = partitionHits(hits, new Set(changedFiles));
   const lines = formatHits(blocking, "conflict marker");
   if (preExisting.length > 0) {
     lines.push(
@@ -544,9 +541,9 @@ export function checkConflictMarkers(
     durationMs: 0,
     output:
       blocking.length === 0
-        ? (lines.length > 0
-            ? lines.join("\n")
-            : "No conflict markers found in the working tree.")
+        ? lines.length > 0
+          ? lines.join("\n")
+          : "No conflict markers found in the working tree."
         : `Leftover conflict marker(s) in the current diff:\n${lines.join("\n")}`,
   };
 }

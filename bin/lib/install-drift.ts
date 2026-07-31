@@ -98,7 +98,8 @@ export function checkInstallDrift(
     const discovered = discover(flowSource, installRoot, targets);
     const inScope = discovered.filter(
       (e) =>
-        manifestTargets.has(e.target) || !isRegistryKnownArtifact(e.displayName),
+        manifestTargets.has(e.target) ||
+        !isRegistryKnownArtifact(e.displayName),
     );
 
     const entries: DriftEntry[] = [];
@@ -155,7 +156,9 @@ export function checkInstallDrift(
       }
     }
 
-    return entries.length > 0 ? { status: "drifted", entries } : { status: "clean" };
+    return entries.length > 0
+      ? { status: "drifted", entries }
+      : { status: "clean" };
   } catch {
     // Never throw — a failed check is a non-blocking notice, not a crash.
     return { status: "clean" };
@@ -168,9 +171,7 @@ export function formatDriftNotice(result: InstallDriftResult): string | null {
   if (result.status !== "drifted") return null;
   const byKind = { missing: 0, dangling: 0, stale: 0 };
   for (const e of result.entries) byKind[e.kind]++;
-  const parts = (
-    ["missing", "dangling", "stale"] as const
-  )
+  const parts = (["missing", "dangling", "stale"] as const)
     .filter((k) => byKind[k] > 0)
     .map((k) => `${byKind[k]} ${k}`);
   return `flow: ${result.entries.length} symlink drift issue${

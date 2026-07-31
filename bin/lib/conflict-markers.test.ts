@@ -58,7 +58,9 @@ describe(parseGitGrepOutput, () => {
   it("strips the leading `HEAD:` rev prefix before splitting path/line/text", () => {
     const stdout = ["HEAD:g.txt:1:" + HEAD_MARKER + " HEAD"].join("\n");
     const hits = parseGitGrepOutput(stdout, "HEAD");
-    expect(hits).toEqual([{ path: "g.txt", line: 1, text: `${HEAD_MARKER} HEAD` }]);
+    expect(hits).toEqual([
+      { path: "g.txt", line: 1, text: `${HEAD_MARKER} HEAD` },
+    ]);
   });
 
   it("does not strip a rev prefix when none was supplied", () => {
