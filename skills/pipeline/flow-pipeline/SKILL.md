@@ -750,9 +750,9 @@ Full bash + worked example in
 
 **Cross-model plan review (Layer 2, optional, config-gated).** After the
 note backstop above and BEFORE the End conditions branch below, run one
-independent cross-model review of the plan's consequential decisions —
-fires for **ANY** intent, before the feature/non-feature end-condition
-split. Bash `flow-delegate` (AGY) fan-out, same mechanism as
+bounded cross-model review pass (one or two reviewers by depth) of the
+plan's consequential decisions — fires for **ANY** intent, before the
+feature/non-feature end-condition split. Bash `flow-delegate` (AGY) fan-out, same mechanism as
 `/flow-pr-review`'s Gemini lens, spawns **no Task** (Hard rules' "Bash
 fan-out, not a tenth exemption"). Three-part gate: `review.gemini == true`
 in `~/.flow/config.json` (same key the Gemini lens uses), AND a non-empty
@@ -763,21 +763,27 @@ fails, record the reason in the chat summary and skip this sub-step unchanged.
 
 When all three fire, run `flow-plan-review --plan-file
 "$WORKTREE/.flow-tmp/plan.md" --out "$WORKTREE/.flow-tmp/plan-review.md"`
-and branch on the `{ran}` envelope (never the exit code): `ran:false`
-records `skipReason` and proceeds unchanged (graceful no-op, e.g. agy
-unavailable); `ran:true` weighs each material AGY point as INPUT (never
-a verdict), revises plan.md **once** where warranted, and appends a
-`### Cross-model review (AGY)` subsection recording each point
-**accepted** or **overridden**. Then embed the marker hash — run
-`flow-plan-review --print-hash --plan-file "$WORKTREE/.flow-tmp/plan.md"`
-on the FINAL revised plan (never the pre-revision envelope hash, which
-would falsely re-fire the next pass) and embed its stdout as
+(no `--depth` flag — relies on `auto`) and branch on the `{ran}` envelope
+(never the exit code): `ran:false` records `skipReason` and proceeds
+unchanged (graceful no-op, e.g. agy unavailable); `ran:true` weighs each
+material AGY point as INPUT (never a verdict), revises plan.md **once**
+where warranted, and appends a `### Cross-model review (AGY)` subsection
+recording each point **accepted** or **overridden** — also record the
+run's `depth` and any per-reviewer `skipReason` in the chat summary.
+**Convergence rule (deep tier):** a point BOTH reviewers raised
+independently is **presumptively accepted**; overriding it needs a named
+rationale in that subsection — a single-reviewer point stays INPUT, same
+as today. Then embed the marker hash — run `flow-plan-review --print-hash
+--plan-file "$WORKTREE/.flow-tmp/plan.md"` on the FINAL revised plan
+(never the pre-revision envelope hash, which would falsely re-fire the
+next pass) and embed its stdout as
 `<!-- flow-plan-review-hash: <sha> -->` inside the appended subsection.
 
 This is a **bounded single-pass per step-3 pass** — at most one review
 and one revision, not an unbounded loop. On re-entry the helper re-fires
-ONLY when `## Decision analysis` materially changed since the last
-reviewed revision, emitting `{ran:false,
+ONLY when one of the THREE hashed inputs — the `**Goal:**` line,
+`## Decision analysis`, or `## Cut list` — materially changed since the
+last reviewed revision, emitting `{ran:false,
 skipReason:"decision-analysis-unchanged"}` on a hash match; record that
 skip as a one-line chat-summary rationale and never hand-force a
 re-review. Full mechanics (the hash-embedding footgun, the

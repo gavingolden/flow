@@ -247,6 +247,39 @@ describe("render — INTENT", () => {
     const out = render({ ...EMPTY_RENDER, intentResolutionRaw: "{not json" });
     expect(out).toContain("INTENT:\n  (unreadable)");
   });
+
+  it("renders '<verdict>: (resolution unreadable)' when only verdict is readable", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      intentResolutionRaw: JSON.stringify({ verdict: "scope-drift" }),
+    });
+    expect(out).toContain("INTENT:\n  scope-drift: (resolution unreadable)");
+  });
+
+  it("renders '(verdict unreadable): <resolution>' when only resolution is readable", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      intentResolutionRaw: JSON.stringify({
+        resolution: "guess is narrower than the request",
+      }),
+    });
+    expect(out).toContain(
+      "INTENT:\n  (verdict unreadable): guess is narrower than the request",
+    );
+  });
+
+  it("still appends cross-model when only one primary field rendered", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      intentResolutionRaw: JSON.stringify({
+        verdict: "fundamental",
+        cross_model: { ran: true, agreement: "agree" },
+      }),
+    });
+    expect(out).toContain(
+      "INTENT:\n  fundamental: (resolution unreadable)\n  cross-model: agree",
+    );
+  });
 });
 
 describe("render — FINDINGS", () => {
@@ -575,6 +608,19 @@ describe("run — end-to-end", () => {
     });
     expect(out).toContain(
       "INTENT:\n  scope-drift: guess is narrower than the request",
+    );
+  });
+
+  it("reads a verdict-only --intent-resolution artifact and renders the partial line end-to-end", () => {
+    const intentFile = write(
+      "intent-resolution-partial.json",
+      JSON.stringify({ verdict: "benign-divergence" }),
+    );
+    const out = captureStdout(() => {
+      run(["--status", "gated", "--intent-resolution", intentFile]);
+    });
+    expect(out).toContain(
+      "INTENT:\n  benign-divergence: (resolution unreadable)",
     );
   });
 
