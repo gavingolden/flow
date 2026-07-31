@@ -1471,6 +1471,48 @@ in the repo, not the file the author happened to copy — dropping a candidate f
 
 ---
 
+## Partial Cross-Reference Update After a Multi-Item Move
+
+When a PR moves N related items (escalation variants, config entries, section headings, ...)
+from one location to another, every prose cross-reference elsewhere in the docs that names
+those items by enumeration must be updated to name all N — not just the ones the author
+happened to touch first. A cross-reference that names only SOME of the moved items is a
+defect the move itself introduces, even if the enumeration already existed before the PR.
+
+### What to look for
+
+- A PR whose diff moves or renames >=2 sibling items (list entries, functions, sections)
+- A prose sentence elsewhere ("the X escalation and the Y escalation now living in ...")
+  that enumerates a subset of a group of items, where the PR's diff touches that group
+
+### How to check
+
+1. Find every location in the repo that names the moved/renamed group by enumeration
+2. Count how many of the group's members each enumeration actually names
+3. If any enumeration names fewer than the full moved set, it needs the missing item(s) added
+
+### Example — auto-merge-rubric.md named 2 of 3 moved escalations (PR #506)
+
+```markdown
+<!-- BAD: three escalation variants moved into failure-recovery.md § (c),
+     but the cross-reference still enumerates only two -->
+... plus the branch-mismatch escalation and the task-tool-unavailable
+escalation now living in .../failure-recovery.md § (c) ...
+
+<!-- GOOD: name all three moved variants -->
+... plus the branch-mismatch escalation, the terminal-regression escalation,
+and the task-tool-unavailable escalation now living in
+.../failure-recovery.md § (c) ...
+```
+
+**General rule:** "The omission is pre-existing" is an invalid dismissal for a cross-reference
+gap once the PR changes what the reference points at — the omission was harmless while all
+members lived together and became a real gap the moment the PR moved the group. Our own
+pattern-consistency lens made exactly this invalid dismissal on PR #506; Copilot caught what
+the independent review missed.
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue
@@ -1692,3 +1734,17 @@ When a comment or constant doc claims a cross-layer string contract must stay "b
 ### Predicate doc comment naming a narrower trigger than the predicate matches (PR #461)
 
 When a new boolean helper is documented in terms of the _scenario that motivated it_ ("a delete parked in backoff") but its predicate actually matches a broader set (any non-dead-lettered op of that kind outside the current batch — including one enqueued mid-flight), flag the gap. The narrow wording invites a future reader to reason about only the motivating case and miss the other states that reach the branch, which is how an over-broad guard survives review. Distinct from the exact/byte-identical-vs-`includes` pattern above: there the comment is _stricter_ than the code, here it is _narrower in trigger_ while the code is broader. Look for: a helper doc comment naming a specific timing/lifecycle state ("parked", "in backoff", "already flushed") where the implementation tests only a general flag (`!op.deadLettered`, `!ids.has(op.id)`) that admits more states than the comment lists.
+
+### Comment claims a render-time saving that an import-time cost defeats
+
+A comment (or PR body) justifying an opt-in/default-off flag as avoiding a
+dependency's cost, when the dependency is pulled in by an **unconditional
+static import** at the top of the same file. Gating the *render* does not gate
+the *module graph* — the import cost is paid by every consumer regardless.
+Either make the import lazy/dynamic, or narrow the claim to behavioural /
+rendering equivalence only.
+
+Check any comment that says a default-off flag "keeps X out of" consumers:
+confirm whether X is statically imported. Caught by a human/bot reviewer on
+PR #473 (`SearchPageHarness.svelte`); the agent lenses flagged a different
+inaccuracy in the same comment but missed this one.
