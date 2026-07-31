@@ -112,6 +112,10 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
     // post-merge sweep never appears on a `gh pr merge ... "$PR"` line, so it
     // does not trip a false positive. `MERGE_FLAGS` and `flow-merge-body` were
     // unique to the removed machinery and must not reappear anywhere.
+    //
+    // Issue #486 re-litigated this exact negative pin (reopening the
+    // no-`--body` question) and it was re-affirmed wontfix — see
+    // references/git-workflow.md's "Why no authored squash body (issue #486)".
     const mergeInvocations = STEP_10.split("\n").filter(
       (line) => line.includes("gh pr merge") && line.includes('"$PR"'),
     );

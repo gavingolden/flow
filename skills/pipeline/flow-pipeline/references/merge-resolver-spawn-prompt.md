@@ -12,9 +12,10 @@ spawn invocation. The subagent's typed artifact shape
 [merge-resolver-instructions.md](merge-resolver-instructions.md), not
 here.
 
-Fill in the eight `{{...}}` placeholders (`INSTRUCTIONS_PATH`, `PR`,
+Fill in the nine `{{...}}` placeholders (`INSTRUCTIONS_PATH`, `PR`,
 `BASE_BRANCH`, `MERGE_STDERR`, `CONFLICTING_FILES`, `WORKTREE`,
-`PR_DESCRIPTION`, `ARTIFACT_PATH`) before passing to the Task tool:
+`PR_DESCRIPTION`, `ARTIFACT_PATH`, `MARKER_CHECK_CMD`) before passing to
+the Task tool:
 
 ```
 You are the Independent Merge-Conflict Resolver Subagent for /flow-pipeline
@@ -48,6 +49,9 @@ PR description (verbatim):
 
 Write the artifact to (absolute path):
   {{ARTIFACT_PATH}}
+
+Step 5's post-commit marker check (`$MARKER_CHECK_CMD --committed`):
+  MARKER_CHECK_CMD="{{MARKER_CHECK_CMD}}"
 
 Follow the merge-resolver-instructions.md steps in order. You are
 one-shot — do not ask the user clarifying questions. When a

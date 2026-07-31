@@ -1912,7 +1912,9 @@ branch's commit messages. The `Claude-Code-Session-Id:` trailer reaches
 commit for free); the step 9 gate is unaffected — it inspects only the live
 PR body. The merge runs from `$PRIMARY` (which has the base branch checked
 out) because gh's post-merge `git checkout <base>` would collide with the
-primary worktree if run from the feature-branch `$WORKTREE`.
+primary worktree if run from the feature-branch `$WORKTREE`. Issue #486
+re-litigated this choice and it stayed decided-not-open — see
+[references/git-workflow.md](references/git-workflow.md) issue #486.
 
 On `MERGE_RC == 0`: continue to the post-merge sweep below.
 
@@ -1974,6 +1976,9 @@ Task call:
 ```bash
 ARTIFACT_PATH="$WORKTREE/.flow-tmp/merge-resolver-result.json"
 INSTRUCTIONS_PATH="$SKILL_DIR/references/merge-resolver-instructions.md"
+# PHYSICAL resolution is load-bearing (a logical cd ../../.. lands in ~/.flow/claude-home, verified).
+FLOW_ROOT=$(cd "$(realpath "$SKILL_DIR")/../../.." && pwd -P)
+MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"
 BASE_BRANCH=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
 mkdir -p "$WORKTREE/.flow-tmp"
 rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior re-entry (step 10 is re-enterable via the step-7 pr-conflicted row)
@@ -1996,7 +2001,7 @@ MERGE_RESOLVER_SUBAGENT=flow-merge-resolver
 [ -f ~/.claude/agents/flow-merge-resolver.md ] || { MERGE_RESOLVER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-merge-resolver → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
 ```
 
-See [references/merge-resolver-spawn-prompt.md](references/merge-resolver-spawn-prompt.md) for the verbatim spawn-prompt template (eight `{{...}}` placeholders). Fill the placeholders from the resolve-inputs block above before passing it to the Task tool.
+See [references/merge-resolver-spawn-prompt.md](references/merge-resolver-spawn-prompt.md) for the verbatim spawn-prompt template (nine `{{...}}` placeholders). Fill the placeholders from the resolve-inputs block above before passing it to the Task tool.
 
 Make the Task call with `subagent_type: $MERGE_RESOLVER_SUBAGENT`, the per-spawn
 `model: "$MERGE_RESOLVER_MODEL"` argument resolved above (precedence

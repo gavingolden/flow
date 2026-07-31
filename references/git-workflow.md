@@ -33,6 +33,42 @@ optional `sessionId` field in `~/.flow/state/<slug>.json` is still
 written by `flow-open-pr` for the HTML-comment marker path, but step 10
 no longer reads it.
 
+### Why no authored squash body (issue #486)
+
+PR #213 removed an earlier `--body` composed FROM THE PR DESCRIPTION
+because it landed the description's `## Why` / `## What` markdown
+headings verbatim in `git log` — its stated goal was for the squash
+body to read as concatenated conventional commits instead, which the
+bare `gh pr merge --squash` above delivers by construction (gh's
+default concatenation of the branch's own commit subjects).
+
+Issue #486 re-raised this: the merge-resolver's `chore: merge
+origin/<base> into <branch> to resolve conflicts` commit is itself a
+conventional commit, so it already satisfies that goal — but #486's
+underlying premise, that this line actually leaks into a later PR's
+default squash body as noise, is UNDETERMINED. No authoritative GitHub
+documentation confirms or denies it either way for this repo's history.
+
+Weighing against implementing it: GitHub composes the squash body
+server-side when no `--body` is passed (`setCommitBody: false`),
+appending a `---------` separator and a collected `Co-authored-by:`
+footer that a client-side `--body` would have to replicate by hand.
+Passing `--body` flips `setCommitBody: true` and replaces that whole
+server-side composition, suppressing any forge-appended trailer for
+every consumer repo — observably the `Co-authored-by:` collection, and
+plausibly (on GitHub Enterprise) a DCO `Signed-off-by:` or other policy
+trailer. That GHE consequence is recorded here to weigh, not verified
+against a real GHE instance.
+
+Decision: wontfix, with a deliberately LOW-BAR re-open trigger — a
+single observed `* chore: merge origin/...` line inside a squash body
+on `main` is sufficient to re-open; no one needs to first argue it is
+noise.
+
+Observed: not yet — no merge commit on this PR. Fill this line
+post-merge from `git log -1 --format=%B <squash-sha>` if a merge
+commit landed.
+
 ## Base-branch guard
 
 `flow feature create` best-effort-installs a `pre-commit` hook
