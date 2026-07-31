@@ -630,6 +630,59 @@ describe("state", () => {
     expect(readState("phaselog-bad-element", dir)).toBeNull();
   });
 
+  it("readState round-trips a valid checkpoint record through writeState", () => {
+    const withCheckpoint: PipelineState = {
+      slug: "with-checkpoint",
+      phase: "gating",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      checkpoint: {
+        site: "gate",
+        phase: "gating",
+        armedAt: "2026-05-17T00:01:00Z",
+      },
+    };
+    writeState(withCheckpoint, dir);
+    expect(readState("with-checkpoint", dir)).toEqual(withCheckpoint);
+  });
+
+  it("readState accepts an absent checkpoint field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "checkpoint-absent.json"),
+      JSON.stringify({
+        slug: "checkpoint-absent",
+        phase: "gating",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    const got = readState("checkpoint-absent", dir);
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("checkpoint");
+  });
+
+  it("readState returns null when the checkpoint record is malformed", () => {
+    // checkpoint must be { site, phase, armedAt }. A record with an
+    // unrecognised site (or a missing armedAt) makes readState reject the
+    // WHOLE state file (returns null), degrading this pipeline to
+    // state-missing on resume — callers must treat a null readState as
+    // exactly that, not assume a corrupt checkpoint sub-record is isolated
+    // from the rest of state.json.
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "checkpoint-malformed.json"),
+      JSON.stringify({
+        slug: "checkpoint-malformed",
+        phase: "gating",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        checkpoint: { site: "not-a-real-site", phase: "gating" },
+      }),
+    );
+    expect(readState("checkpoint-malformed", dir)).toBeNull();
+  });
+
   it("readState round-trips valid pid and procStartedAt through writeState", () => {
     const withLiveness: PipelineState = {
       slug: "with-liveness",
