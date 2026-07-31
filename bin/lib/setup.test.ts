@@ -19,6 +19,7 @@ import { removeIfManagedSymlink } from "./symlink";
 import { countStopHook } from "./settings-merge";
 import { resolveFlowSource } from "./paths";
 import { moduleIds } from "./modules";
+import type { InstallDriftResult } from "./install-drift";
 import {
   discoverAgents,
   discoverAll,
@@ -79,6 +80,7 @@ function setup(
     confirm?: (prompt: string) => boolean;
     isTTY?: boolean;
     configPath?: string;
+    checkDrift?: () => InstallDriftResult;
   } = {},
 ) {
   const { flowSourceOverride, installRootOverride, ...rest } = opts;
@@ -1571,6 +1573,33 @@ describe("flow install", () => {
       expect(nonWarning.join("\n")).toMatch(/by module: core \d+/);
       expect(nonWarning.join("\n")).toMatch(/inactive modules:/);
       void warnings;
+    });
+
+    it("post-install-clean: a normal install reports no residual-drift notice", async () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      const { logs } = await setupLogged({});
+      const joined = logs.join("\n");
+      expect(joined).not.toMatch(/symlink drift issue/);
+    });
+
+    it("under-delivery: a stubbed drifted checkDrift result surfaces its notice on the same dimmed channel as printInactiveModules", async () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      const { logs } = await setupLogged({
+        checkDrift: () => ({
+          status: "drifted",
+          entries: [
+            {
+              kind: "dangling",
+              displayName: "flow-alpha",
+              target: path.join(targets().skillsDir, "flow-alpha"),
+            },
+          ],
+        }),
+      });
+      const joined = logs.join("\n");
+      expect(joined).toMatch(/symlink drift issue/);
+      expect(joined).toMatch(/1 dangling/);
+      expect(joined).toMatch(/flow install --upgrade/);
     });
   });
 });
