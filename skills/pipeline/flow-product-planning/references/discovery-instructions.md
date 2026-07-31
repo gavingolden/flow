@@ -651,8 +651,7 @@ Every unchecked `- [ ]` entry in `## Open Questions` must carry exactly one of t
 markers, so the reviewer reads a resolved recommendation, not a bare question:
 
 - `**Recommended:** <answer> — <one-line rationale naming the decisive rubric
-factor(s)>` (the Resolution rubric in discovery-playbook.md: user/system value,
-  value added vs lost, long-term design risk, perceived effort), OR
+factor(s)>` (per the Resolution rubric in discovery-playbook.md), OR
 - `**Needs user input:** <named reason>` — the reason MUST come from this closed
   list: a user-held preference or subjective taste; an external fact the agent
   cannot verify; credentials or production access.
