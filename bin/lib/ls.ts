@@ -32,7 +32,7 @@ import { livenessOf } from "./liveness";
 import { reapStartingOrphans } from "./reap-orphans";
 import { relativeTime } from "./time";
 import { findWindowBySlug, listWindows, type TmuxWindow } from "./tmux";
-import { dim } from "./color";
+import { dim, dimStderr } from "./color";
 import {
   checkForUpdate,
   formatUpdateNotice,
@@ -157,7 +157,7 @@ function emitUpdateNotice(opts: LsOptions): void {
   const notice = formatUpdateNotice((opts.checkUpdate ?? checkForUpdate)());
   if (notice) console.error(notice);
   const driftNotice = formatDriftNotice(opts.checkDrift());
-  if (driftNotice) console.error(driftNotice);
+  if (driftNotice) console.error(dimStderr(driftNotice));
 }
 
 export async function buildRows(

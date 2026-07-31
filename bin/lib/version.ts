@@ -4,6 +4,7 @@
  * up with the install on PATH (matching the passthrough's source resolution).
  */
 
+import { dimStderr } from "./color";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { resolveFlowSource } from "./paths";
 import { readFlowVersion } from "./pkg-version";
@@ -63,6 +64,6 @@ export function runVersion(opts: VersionOptions): number {
   const notice = formatUpdateNotice((opts.checkUpdate ?? checkForUpdate)());
   if (notice) console.error(notice);
   const driftNotice = formatDriftNotice(opts.checkDrift());
-  if (driftNotice) console.error(driftNotice);
+  if (driftNotice) console.error(dimStderr(driftNotice));
   return 0;
 }
