@@ -29,11 +29,16 @@
  * `flow-pipeline/SKILL.md` pass their own `--site` explicitly.
  *
  * Output: a single JSON object on stdout.
- *   { "status": "ready",    "slug", "phase", "worktree", "checkpoint", "marker" }
+ *   { "status": "ready",    "slug", "phase", "worktree", "checkpoint", "marker", "warning"? }
  *   { "status": "needs",    "slug", "reason", ... }
  *   { "status": "consumed", "slug", "marker", "archived"? }
  *   { "status": "noop",     "slug", "reason", "archived"? }
  *   { "status": "probe",    "slug", "site", "verdict", "reason", "record"? }
+ *
+ * `warning` (ready path only) fires when `/clear` will NOT auto-resume this
+ * window — a terminal phase, EXCEPT `gated` (the feedback-resume carve-out)
+ * and EXCEPT an `epic-run` window (which resumes regardless of phase). It
+ * never blocks: `status` stays `ready` and the marker is still written.
  *
  * Exit codes (same exit-0-for-every-decision contract as flow-resume-decide /
  * flow-gate-decide — the skill captures stdout and branches on `.status`):
@@ -43,9 +48,15 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { nowIso, readState, writeState } from "./lib/state";
+import {
+  autoResumesAfterClear,
+  nowIso,
+  readState,
+  writeState,
+  type PipelineKind,
+} from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
-import { resolveSlugAmbient } from "./lib/session-identity";
+import { resolveKindAmbient, resolveSlugAmbient } from "./lib/session-identity";
 import {
   CHECKPOINT_SITES,
   type CheckpointSite,
@@ -85,6 +96,8 @@ export type CheckpointResult = {
   checkpoint?: string;
   marker?: string;
   reason?: string;
+  /** Ready path only: set when this phase/kind will not auto-resume after /clear. */
+  warning?: string;
   archived?: string;
   site?: CheckpointSite;
   verdict?: "write" | "preserve";
@@ -94,6 +107,8 @@ export type CheckpointResult = {
 export type Deps = {
   stateDir?: string;
   resolveSlug?: () => string | null;
+  /** Same seam discipline as `resolveSlug`: defaults to `resolveKindAmbient()`. */
+  resolveKind?: () => PipelineKind | null;
 };
 
 /** Absolute path of the one-shot marker the SessionStart:clear hook gates on. */
@@ -203,6 +218,7 @@ function emit(result: CheckpointResult): void {
 export function run(argv: string[], deps: Deps = {}): number {
   const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
+  const resolveKind = deps.resolveKind ?? resolveKindAmbient;
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -370,6 +386,18 @@ export function run(argv: string[], deps: Deps = {}): number {
     }
   }
 
+  // Non-blocking terminal-phase warning: the marker is already written above
+  // (never gated on this — the `gated`-feedback resume path depends on
+  // flow-checkpoint arming the marker at a terminal phase). Kind-aware
+  // (revision 1): an `epic-run` window resumes regardless of phase, so
+  // warning there would be a false alarm in exactly the window Task 3 fixed.
+  const kind = resolveKind() ?? "feature";
+  let warning: string | undefined;
+  if (!autoResumesAfterClear(state.phase, kind)) {
+    warning = `phase '${state.phase}' is terminal — the SessionStart:clear hook will not auto-resume after /clear; the marker stays armed and checkpoint.md will not be re-injected.`;
+    process.stderr.write(`flow-checkpoint: warning: ${warning}\n`);
+  }
+
   emit({
     status: "ready",
     slug,
@@ -377,6 +405,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     worktree: state.worktree,
     checkpoint: checkpointPath(state.worktree),
     marker,
+    ...(warning ? { warning } : {}),
   });
   return 0;
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveSlugAmbient, resolveSlugFromEnv } from "./session-identity";
+import {
+  resolveKindAmbient,
+  resolveSlugAmbient,
+  resolveSlugFromEnv,
+} from "./session-identity";
 import type { SpawnResult } from "./tmux";
 
 const ok = (stdout: string): SpawnResult => ({
@@ -57,5 +61,27 @@ describe("resolveSlugAmbient", () => {
 
   it("returns null when neither source resolves (parity with today)", () => {
     expect(resolveSlugAmbient({ env: {} })).toBeNull();
+  });
+});
+
+describe("resolveKindAmbient", () => {
+  it("passes through resolveKindFromPane's resolved kind", () => {
+    const kind = resolveKindAmbient({
+      env: { TMUX_PANE: "%1" },
+      spawnTmux: () => ok("epic-run"),
+    });
+    expect(kind).toBe("epic-run");
+  });
+
+  it("returns null when the pane has no @flow-kind option (no env fallback)", () => {
+    const kind = resolveKindAmbient({
+      env: { TMUX_PANE: "%1", FLOW_KIND: "epic-run" },
+      spawnTmux: () => ({ stdout: "", stderr: "invalid option", exitCode: 1 }),
+    });
+    expect(kind).toBeNull();
+  });
+
+  it("returns null when $TMUX_PANE is unset", () => {
+    expect(resolveKindAmbient({ env: {} })).toBeNull();
   });
 });

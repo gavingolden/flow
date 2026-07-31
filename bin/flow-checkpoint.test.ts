@@ -11,7 +11,12 @@ import {
   type CheckpointResult,
 } from "./flow-checkpoint";
 import { isCheckpointUsable, probeFreshness } from "./lib/checkpoint-freshness";
-import { readState, writeState, type PipelineState } from "./lib/state";
+import {
+  readState,
+  writeState,
+  type PipelineKind,
+  type PipelineState,
+} from "./lib/state";
 
 let stateDir!: string;
 let worktreeRoot!: string;
@@ -61,11 +66,13 @@ function captureStdout(): { writes: string[]; restore: () => void } {
 function runCapture(
   argv: string[],
   slug?: string,
+  resolveKind: () => PipelineKind | null = () => null,
 ): CheckpointResult & { exit: number } {
   const { writes, restore } = captureStdout();
   const exit = run(argv, {
     stateDir,
     resolveSlug: () => slug ?? null,
+    resolveKind,
   });
   restore();
   const result = JSON.parse(writes.join("")) as CheckpointResult;
@@ -184,6 +191,58 @@ describe("run() — ready / needs", () => {
     expect(r.exit).toBe(0);
     expect(r.status).toBe("ready");
     expect(r.slug).toBe("gamma");
+  });
+});
+
+describe("run() — ready-path terminal-phase warning (Task 7)", () => {
+  it("(a) epic-approved with no resolvable kind: ready, marker written, warning present and names the phase", () => {
+    seedState("epic-terminal", { phase: "epic-approved" });
+    writeCheckpoint();
+    const r = runCapture(["epic-terminal"], undefined, () => null);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("ready");
+    expect(fs.existsSync(markerFile())).toBe(true);
+    expect(r.warning).toBeDefined();
+    expect(r.warning).toContain("epic-approved");
+  });
+
+  it("(b) gated: ready, marker written, warning ABSENT (the feedback-resume carve-out)", () => {
+    seedState("gated-epic", { phase: "gated" });
+    writeCheckpoint();
+    const r = runCapture(["gated-epic"], undefined, () => null);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("ready");
+    expect(fs.existsSync(markerFile())).toBe(true);
+    expect(r.warning).toBeUndefined();
+  });
+
+  it("(c) a non-terminal epic phase and a non-terminal feature phase: warning absent", () => {
+    for (const phase of ["epic-design-pending-review", "implementing"]) {
+      seedState("non-terminal", { phase });
+      writeCheckpoint();
+      const r = runCapture(["non-terminal"], undefined, () => null);
+      expect(r.status, phase).toBe("ready");
+      expect(r.warning, phase).toBeUndefined();
+      fs.rmSync(markerFile(), { force: true });
+    }
+  });
+
+  it("(d) merged: warning present", () => {
+    seedState("merged-epic", { phase: "merged" });
+    writeCheckpoint();
+    const r = runCapture(["merged-epic"], undefined, () => null);
+    expect(r.status).toBe("ready");
+    expect(r.warning).toBeDefined();
+    expect(r.warning).toContain("merged");
+  });
+
+  it("(e) epic-approved with resolveKind() === 'epic-run': warning ABSENT — the run window WILL auto-resume, so warning there is a false alarm", () => {
+    seedState("run-window", { phase: "epic-approved" });
+    writeCheckpoint();
+    const r = runCapture(["run-window"], undefined, () => "epic-run");
+    expect(r.status).toBe("ready");
+    expect(fs.existsSync(markerFile())).toBe(true);
+    expect(r.warning).toBeUndefined();
   });
 });
 

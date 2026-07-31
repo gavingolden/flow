@@ -318,6 +318,75 @@ export function isLegitimateEndPhase(value: string): boolean {
 }
 
 /**
+ * Phases that belong to the epic-designer (`/flow-epic-create`) lifecycle,
+ * derived from `PIPELINE_PHASES` rather than hand-listed so a future
+ * `epic-*` phase joins automatically. Two ambiguities this predicate does
+ * NOT resolve, both left to callers:
+ *
+ * - `starting` is shared with feature pipelines and is unreachable via
+ *   `bin/flow-session-start-hook.ts` regardless (no worktree, no
+ *   `checkpoint.md` yet, so the marker check never passes).
+ * - The shared terminals `cancelled` / `needs-human` are feature-or-epic
+ *   ambiguous; callers must apply the terminal guard (`TERMINAL_PHASE_SET`)
+ *   before consulting `isEpicPhase` for anything.
+ *
+ * `isEpicPhase` also cannot tell an epic-**design** window from an
+ * epic-**run** window sharing the same slug/state — that disambiguation is
+ * `@flow-kind`'s job (`bin/lib/tmux.ts`); this predicate is only its
+ * phase-derived fallback when the pane option is absent.
+ */
+export const EPIC_PHASES: readonly PipelinePhase[] = PIPELINE_PHASES.filter(
+  (phase) => phase.startsWith("epic-"),
+);
+
+export const EPIC_PHASE_SET: ReadonlySet<string> = new Set(EPIC_PHASES);
+
+export function isEpicPhase(phase: string): boolean {
+  return EPIC_PHASE_SET.has(phase);
+}
+
+/**
+ * Which supervisor kind a window's pane is running. Published as `@flow-kind`
+ * (`bin/lib/tmux.ts`) and re-exported as `ResumeKind`
+ * (`bin/flow-session-start-hook.ts`).
+ *
+ * The literals live here ONCE and every runtime validator derives from
+ * `isPipelineKind` — the same derive-don't-hand-list discipline `EPIC_PHASES`
+ * uses above. Hand-listing them per validator is how a fourth kind would get
+ * silently rejected at one site and accepted at another, and the only
+ * compiler-enforced part is the type, not the runtime checks.
+ */
+export const PIPELINE_KINDS = ["feature", "epic-design", "epic-run"] as const;
+
+export type PipelineKind = (typeof PIPELINE_KINDS)[number];
+
+export const PIPELINE_KIND_SET: ReadonlySet<string> = new Set(PIPELINE_KINDS);
+
+export function isPipelineKind(value: string): value is PipelineKind {
+  return PIPELINE_KIND_SET.has(value);
+}
+
+/**
+ * Whether the `SessionStart:clear` hook auto-resumes a window at `phase`
+ * for a supervisor of the given `kind`. Encodes
+ * `bin/flow-session-start-hook.ts`'s terminal guard: an `epic-run` window
+ * resumes regardless of phase (its shared `state.json` describes the
+ * *design* lifecycle, not run progress — see `bin/lib/epic.ts`'s "no
+ * per-machine phase machine" comment on the run path); every other kind
+ * resumes unless `phase` is terminal, with the `gated` carve-out
+ * (feedback-resume stays live even though `gated` is terminal).
+ */
+export function autoResumesAfterClear(
+  phase: string,
+  kind: PipelineKind = "feature",
+): boolean {
+  if (kind === "epic-run") {
+    return true;
+  }
+  return !TERMINAL_PHASE_SET.has(phase) || phase === "gated";
+}
+
+/**
  * Compact, single-source-of-truth abbreviations for each pipeline phase,
  * published onto flow's own windows as the `@flow-phase-short` tmux option
  * (see `bin/lib/tmux.ts`) so a user's status-bar format can render a compact

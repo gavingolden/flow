@@ -28,6 +28,7 @@ const tmuxMock = vi.hoisted(() => ({
   isPaneAlive: vi.fn(() => false),
   createWindowVerified: vi.fn(() => ({ status: "started", stderr: "" })),
   respawnWindowVerified: vi.fn(() => ({ status: "started", stderr: "" })),
+  setPaneKind: vi.fn(() => ({ ok: true, stderr: "" })),
   FLOW_SESSION: "flow",
 }));
 vi.mock("./tmux", () => tmuxMock);

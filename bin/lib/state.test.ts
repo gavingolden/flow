@@ -3,14 +3,19 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  autoResumesAfterClear,
   deleteState,
+  EPIC_PHASES,
+  isEpicPhase,
   isLegitimateEndPhase,
   isMainStateFile,
+  isPipelineKind,
   isPipelinePhase,
   listStates,
   PENDING_PHASES,
   PHASE_MODEL_FIELDS,
   PHASE_SHORT,
+  PIPELINE_KINDS,
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
   readState,
@@ -919,6 +924,59 @@ describe("phase constants", () => {
     for (const p of TERMINAL_PHASES) expect(isLegitimateEndPhase(p)).toBe(true);
     for (const p of PENDING_PHASES) expect(isLegitimateEndPhase(p)).toBe(true);
     for (const p of STEP_PHASES) expect(isLegitimateEndPhase(p)).toBe(false);
+  });
+
+  it("EPIC_PHASES is exactly the known epic-designer phases, in order (drift-guard)", () => {
+    // Exact equality, not containment — this is what catches a future
+    // FEATURE phase adopting the "epic-" prefix by accident.
+    expect(EPIC_PHASES).toEqual([
+      "epic-designing",
+      "epic-validating",
+      "epic-pr-open",
+      "epic-design-pending-review",
+      "epic-approved",
+    ]);
+  });
+
+  it("PIPELINE_KINDS is exactly the three supervisor kinds, and isPipelineKind agrees (drift-guard)", () => {
+    // The literals live in state.ts once; `resolveKindFromPane` (tmux.ts) and
+    // `parseResumeKind` (flow-session-start-hook.ts) both derive from
+    // isPipelineKind rather than re-listing them. Exact equality here is what
+    // makes adding a fourth kind a deliberate, test-breaking act instead of a
+    // silent downgrade to "feature" at whichever validator was missed.
+    expect(PIPELINE_KINDS).toEqual(["feature", "epic-design", "epic-run"]);
+    for (const k of PIPELINE_KINDS) expect(isPipelineKind(k)).toBe(true);
+    for (const notAKind of [
+      "",
+      "epic",
+      "EPIC-RUN",
+      "bogus",
+      "epic-designing",
+    ]) {
+      expect(isPipelineKind(notAKind)).toBe(false);
+    }
+  });
+
+  it("isEpicPhase narrows epic phases only", () => {
+    expect(isEpicPhase("epic-designing")).toBe(true);
+    expect(isEpicPhase("epic-design-pending-review")).toBe(true);
+    expect(isEpicPhase("epic-approved")).toBe(true);
+    expect(isEpicPhase("implementing")).toBe(false);
+    expect(isEpicPhase("starting")).toBe(false);
+  });
+
+  it("autoResumesAfterClear defaults to the feature terminal/gated rule", () => {
+    expect(autoResumesAfterClear("gated")).toBe(true);
+    expect(autoResumesAfterClear("epic-design-pending-review")).toBe(true);
+    expect(autoResumesAfterClear("implementing")).toBe(true);
+    expect(autoResumesAfterClear("merged")).toBe(false);
+    expect(autoResumesAfterClear("cancelled")).toBe(false);
+    expect(autoResumesAfterClear("needs-human")).toBe(false);
+    expect(autoResumesAfterClear("epic-approved")).toBe(false);
+  });
+
+  it("autoResumesAfterClear('epic-run', ...) resumes regardless of phase", () => {
+    expect(autoResumesAfterClear("epic-approved", "epic-run")).toBe(true);
   });
 });
 
