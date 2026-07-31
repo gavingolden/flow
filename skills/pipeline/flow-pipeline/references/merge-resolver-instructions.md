@@ -144,13 +144,13 @@ For each path in `git diff --name-only --diff-filter=U`:
    resolution.
 5. **LAYER 1.** Before `git add`, run `git diff --check -- <path>` and
    read its OUTPUT, not its exit code — a whitespace-only edit (common
-   after an `interleave` resolution) also exits non-zero via a `trailing
-whitespace.` line, which is not a marker and does not block. Act only
-   on lines containing `leftover conflict marker`; a `leftover conflict
-marker` line means re-open the file and repeat step 4. This is the
-   only layer that catches a partial edit (e.g. a lone `=======` left
-   mid-file) — it runs before the resolution is committed, unlike Step
-   5's Layer 2 below.
+   after an `interleave` resolution) also exits non-zero via a
+   `trailing whitespace.` line, which is not a marker and does not
+   block. Act only on lines containing `leftover conflict marker`; a
+   `leftover conflict marker` line means re-open the file and repeat
+   step 4. This is the only layer that catches a partial edit (e.g. a
+   lone `=======` left mid-file) — it runs before the resolution is
+   committed, unlike Step 5's Layer 2 below.
 6. Run `git add <path>`.
 7. Record an entry in `resolved_files`:
    - `path` — repo-relative.
@@ -470,9 +470,10 @@ Before writing the artifact and returning, self-check:
   retried `gh pr merge --squash` is the verification, and CI re-runs
   on the pushed head. Re-running `/flow-verify` here would defeat
   the context-cost win the fan-out exists for. A narrow, named
-  exception: you MAY run `$MARKER_CHECK_CMD --committed` (Step 5's
-  Layer 2 check) — this is not `flow-pre-commit` and not `/flow-verify`,
-  and running it is required, not optional.
+  exception carves out `$MARKER_CHECK_CMD --committed` (Step 5's
+  Layer 2 check) from this ban: it is not `flow-pre-commit` and not
+  `/flow-verify`, so running it is permitted — and Step 5 in fact
+  REQUIRES it, gating the push on its result, not merely allowing it.
 - NEVER rewrite history on the branch — the merge preserves every
   original commit SHA and appends one merge commit; do not rebase,
   amend, or squash.

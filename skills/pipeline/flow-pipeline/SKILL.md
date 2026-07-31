@@ -1979,7 +1979,7 @@ Task call:
 
 ```bash
 ARTIFACT_PATH="$WORKTREE/.flow-tmp/merge-resolver-result.json"
-INSTRUCTIONS_PATH="$SKILL_DIR/references/merge-resolver-instructions.md"; FLOW_ROOT=$(cd "$(realpath "$SKILL_DIR")/../../.." && pwd -P); MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"  # realpath+pwd -P load-bearing: a logical cd lands in ~/.flow/claude-home
+INSTRUCTIONS_PATH="$SKILL_DIR/references/merge-resolver-instructions.md"; FLOW_ROOT=$(cd -P "$SKILL_DIR/../../.." && pwd -P); MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"  # cd -P+pwd -P load-bearing: a logical cd lands in ~/.flow/claude-home
 BASE_BRANCH=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
 mkdir -p "$WORKTREE/.flow-tmp"
 rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior re-entry (step 10 is re-enterable via the step-7 pr-conflicted row)
