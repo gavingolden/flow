@@ -21,7 +21,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  MARKER_PATTERN,
+  classifyGrepExit,
+  conflictGrepArgv,
   formatHits,
   parseGitGrepOutput,
   parseTouchedFiles,
@@ -87,19 +88,22 @@ export type DecideResult = {
 
 /**
  * Pure core: the exit table is unit-testable without spawning `git`.
- * `grep.exitCode`: 1 → clean (no hits anywhere); 0 → parse + partition;
- * anything else (including negative/signal-killed) → error. `touched`
- * (the `git show -m HEAD` call) must itself have exited 0, or the touched-
- * file scope can't be trusted and the whole check errors closed.
+ * `grep.exitCode` is classified via `classifyGrepExit` (shared with
+ * `flow-pre-commit.ts`'s in-process gate, `bin/lib/conflict-markers.ts`):
+ * "none" → clean (no hits anywhere); "hits" → parse + partition; "error"
+ * (including negative/signal-killed) → error. `touched` (the `git show -m
+ * HEAD` call) must itself have exited 0, or the touched-file scope can't be
+ * trusted and the whole check errors closed.
  */
 export function decide(
   grep: Pick<SpawnResult, "stdout" | "exitCode">,
   touched: Pick<SpawnResult, "stdout" | "stderr" | "exitCode">,
 ): DecideResult {
-  if (grep.exitCode === 1) {
+  const grepClass = classifyGrepExit(grep.exitCode);
+  if (grepClass === "none") {
     return { verdict: "clean", blocking: [], preExisting: [] };
   }
-  if (grep.exitCode !== 0) {
+  if (grepClass === "error") {
     return {
       verdict: "error",
       blocking: [],
@@ -151,16 +155,7 @@ function main(): void {
     return;
   }
 
-  const grep = run([
-    "git",
-    "grep",
-    "--full-name",
-    "-nE",
-    MARKER_PATTERN,
-    "HEAD",
-    "--",
-    ":/",
-  ]);
+  const grep = run(conflictGrepArgv("HEAD"));
   const touched = run([
     "git",
     "show",

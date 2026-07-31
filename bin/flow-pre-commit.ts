@@ -29,7 +29,8 @@ import {
 } from "./lib/monorepo-scopes";
 import { isPathBoundHelper } from "./lib/sources";
 import {
-  MARKER_PATTERN,
+  classifyGrepExit,
+  conflictGrepArgv,
   parseGitGrepOutput,
   partitionHits,
   formatHits,
@@ -493,20 +494,12 @@ export function checkConflictMarkers(
 ): CheckResult | null {
   if (!changedFiles || changedFiles.length === 0) return null;
 
-  // `--full-name` + the `':/'` pathspec are mandatory: without them, `git
-  // grep` relativises paths to cwd and silently skips everything above
-  // cwd, which fails open against `changedFiles`'s root-relative paths.
-  const { stdout, exitCode } = runner([
-    "git",
-    "grep",
-    "--full-name",
-    "-nE",
-    MARKER_PATTERN,
-    "--",
-    ":/",
-  ]);
+  // argv (the `--full-name`/`':/'` pathspec mandate) lives in
+  // `bin/lib/conflict-markers.ts` so the two consumers cannot drift.
+  const { stdout, exitCode } = runner(conflictGrepArgv());
 
-  if (exitCode === 1) {
+  const grepClass = classifyGrepExit(exitCode);
+  if (grepClass === "none") {
     return {
       name: "conflict markers",
       scope: "root-fallback",
@@ -515,12 +508,10 @@ export function checkConflictMarkers(
       output: "No conflict markers found in the working tree.",
     };
   }
-  // `!== 0` (not `> 1`): a signal-killed grep (OOM, timeout) can report a
-  // null/non-numeric exit code at runtime despite the non-nullable `number`
-  // type, which `> 1` would silently let fall through to the parse branch
-  // below and fail OPEN. `!== 0` fails closed, matching the CLI twin
-  // (`bin/flow-conflict-marker-check.ts`) and `checkHelperExecutableModes`.
-  if (exitCode !== 0) {
+  // The exit-code ladder (the fail-closed `!== 0` rationale) lives in
+  // `bin/lib/conflict-markers.ts`'s `classifyGrepExit` so the two consumers
+  // cannot drift.
+  if (grepClass === "error") {
     return {
       name: "conflict markers",
       scope: "root-fallback",

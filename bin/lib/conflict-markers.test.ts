@@ -15,6 +15,8 @@ import { describe, expect, it } from "vitest";
 import {
   MARKER_PATTERN,
   MARKER_LINE_REGEX,
+  classifyGrepExit,
+  conflictGrepArgv,
   formatHits,
   parseGitGrepOutput,
   parseTouchedFiles,
@@ -130,6 +132,58 @@ describe(partitionHits, () => {
     const { blocking, preExisting } = partitionHits(hits, new Set());
     expect(blocking).toEqual(hits);
     expect(preExisting).toEqual([]);
+  });
+});
+
+describe(conflictGrepArgv, () => {
+  it("with no rev, returns the exact argv (anti-drift pin)", () => {
+    expect(conflictGrepArgv()).toEqual([
+      "git",
+      "grep",
+      "--full-name",
+      "-nE",
+      "^(<{7}|>{7})( |$)",
+      "--",
+      ":/",
+    ]);
+  });
+
+  it('with rev "HEAD", inserts it immediately before the "--" separator and nowhere else', () => {
+    expect(conflictGrepArgv("HEAD")).toEqual([
+      "git",
+      "grep",
+      "--full-name",
+      "-nE",
+      "^(<{7}|>{7})( |$)",
+      "HEAD",
+      "--",
+      ":/",
+    ]);
+  });
+
+  it("always includes --full-name and ':/' — the fail-open regression pin (git grep relativises paths to cwd and silently skips everything above it without them)", () => {
+    expect(conflictGrepArgv()).toContain("--full-name");
+    expect(conflictGrepArgv()).toContain(":/");
+    expect(conflictGrepArgv("HEAD")).toContain("--full-name");
+    expect(conflictGrepArgv("HEAD")).toContain(":/");
+  });
+});
+
+describe(classifyGrepExit, () => {
+  it("maps exit codes to none/hits/error", () => {
+    expect(classifyGrepExit(1)).toBe("none");
+    expect(classifyGrepExit(0)).toBe("hits");
+    expect(classifyGrepExit(2)).toBe("error");
+    expect(classifyGrepExit(128)).toBe("error");
+    expect(classifyGrepExit(-1)).toBe("error");
+  });
+
+  it("fails closed on a signal-killed grep's null/NaN exit code — never routes into the parse branch", () => {
+    // A `> 1` ladder would let `null`/`NaN` fall through to the "hits" parse
+    // branch and fail OPEN; equality-testing 1 then 0 (falling to "error"
+    // otherwise) fails closed instead.
+    expect(classifyGrepExit(null as unknown as number)).toBe("error");
+    expect(classifyGrepExit(NaN as unknown as number)).toBe("error");
   });
 });
 

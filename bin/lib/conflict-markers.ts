@@ -1,11 +1,17 @@
 /**
  * Pure conflict-marker scan module: owns the marker pattern, the `git grep`
- * output parse (including the committed-tree rev-prefix strip), the
- * touched-file parse, and the blocking/pre-existing partition. No
- * subprocesses, no I/O — both consumers (`bin/flow-conflict-marker-check.ts`'s
- * CLI, for the merge-resolver's post-commit Layer 2, and
- * `bin/flow-pre-commit.ts`'s in-process diff-scoped gate) supply their own
- * `git` invocations and call these pure functions.
+ * argv, the exit-code ladder, the `git grep` output parse (including the
+ * committed-tree rev-prefix strip), the touched-file parse, and the
+ * blocking/pre-existing partition. No subprocesses, no I/O — both consumers
+ * (`bin/flow-conflict-marker-check.ts`'s CLI, for the merge-resolver's
+ * post-commit Layer 2, and `bin/flow-pre-commit.ts`'s in-process diff-scoped
+ * gate) supply their own `git` invocations and call these pure functions.
+ * The argv and the exit-code ladder used to be hand-rolled independently in
+ * each consumer — the shape that produced both a fail-open (a `> 1` ladder
+ * misrouting a signal-killed exit code into the parse branch) and an
+ * unpinned-argv gap (each consumer free to drop `--full-name`/`':/'`
+ * without a shared regression pin); centralising both here removes that
+ * drift surface.
  *
  * Deliberately NOT registered in `bin/lib/sources.ts`'s `VALIDATOR_MODULES`
  * allowlist, and carries no bun shebang / `import.meta.main` guard:
@@ -27,6 +33,47 @@ export const MARKER_PATTERN = "^(<{7}|>{7})( |$)";
 
 /** JS-regex equivalent of {@link MARKER_PATTERN}, for parsing already-fetched text. */
 export const MARKER_LINE_REGEX = new RegExp(MARKER_PATTERN);
+
+/**
+ * Builds the `git grep` argv both consumers scan with. `--full-name` and the
+ * `':/'` pathspec are MANDATORY: without them, `git grep` relativises paths
+ * to cwd and silently skips everything above cwd, failing OPEN against a
+ * root-relative scope set (`changedFiles` / the touched-file set).
+ *
+ * `rev` (e.g. `"HEAD"`), when supplied, is inserted immediately before the
+ * `"--"` separator — this is what selects committed-tree scanning (the
+ * merge-resolver's post-commit Layer 2) vs working-tree scanning (omit
+ * `rev` entirely, `flow-pre-commit`'s diff-scoped gate).
+ */
+export function conflictGrepArgv(rev?: string): string[] {
+  return [
+    "git",
+    "grep",
+    "--full-name",
+    "-nE",
+    MARKER_PATTERN,
+    ...(rev !== undefined ? [rev] : []),
+    "--",
+    ":/",
+  ];
+}
+
+/**
+ * Classifies a `git grep` exit code: `1` → `"none"` (no match anywhere, no
+ * further parsing needed); `0` → `"hits"` (caller parses stdout and
+ * partitions); EVERYTHING ELSE → `"error"`.
+ *
+ * Fail-closed by construction: a signal-killed grep (OOM, timeout) can
+ * report a null/non-numeric exit code at runtime despite the non-nullable
+ * `number` type, so this ladder tests equality on `1` then `0` and falls to
+ * `"error"` for anything else — NEVER `> 1`, which would let those values
+ * fall through to the parse branch and fail OPEN.
+ */
+export function classifyGrepExit(exitCode: number): "none" | "hits" | "error" {
+  if (exitCode === 1) return "none";
+  if (exitCode === 0) return "hits";
+  return "error";
+}
 
 export type MarkerHit = {
   path: string;
