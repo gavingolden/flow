@@ -1914,7 +1914,7 @@ PR body. The merge runs from `$PRIMARY` (which has the base branch checked
 out) because gh's post-merge `git checkout <base>` would collide with the
 primary worktree if run from the feature-branch `$WORKTREE`. Issue #486
 re-litigated this choice and it stayed decided-not-open — see
-[references/git-workflow.md](references/git-workflow.md) issue #486.
+[references/git-workflow.md](../../../references/git-workflow.md) issue #486.
 
 On `MERGE_RC == 0`: continue to the post-merge sweep below.
 
