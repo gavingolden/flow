@@ -10,6 +10,7 @@ import {
   run,
   type CheckpointResult,
 } from "./flow-checkpoint";
+import { isCheckpointUsable, probeFreshness } from "./lib/checkpoint-freshness";
 import { readState, writeState, type PipelineState } from "./lib/state";
 
 let stateDir!: string;
@@ -426,5 +427,64 @@ describe("run() — CLI errors", () => {
     const exit = run(["--bogus"], { stateDir, resolveSlug: () => "x" });
     errSpy.mockRestore();
     expect(exit).toBe(2);
+  });
+});
+
+// The two freshness predicates answer deliberately different questions, and
+// nothing else pins that apart: probeFreshness answers "may this site clobber
+// the body?" (an auto record is always clobberable by a later auto site), while
+// isCheckpointUsable answers "is there anything here worth re-injecting?" (an
+// auto record is usable until a phase transition supersedes it). Conflating the
+// two is the regression fixed in 0ad949c — step-4 approval addenda were dropped
+// on resume because the arm-time verdict was reused as the usability signal.
+describe("probeFreshness vs isCheckpointUsable — intentional divergence", () => {
+  it("diverges on a fresh auto record: not preserved, but still usable", () => {
+    seedState("drift", {
+      checkpoint: {
+        site: "plan-approval",
+        phase: "checkpoint-pending-clear",
+        armedAt: "2026-06-30T12:00:00.000Z",
+      },
+      phaseLog: [{ phase: "planning", at: "2026-06-30T11:00:00.000Z" }],
+    });
+    writeCheckpoint();
+    const state = readState("drift", stateDir)!;
+
+    expect(probeFreshness(state, worktreeRoot, "gate").verdict).toBe("write");
+    expect(isCheckpointUsable(state, worktreeRoot)).toBe(true);
+  });
+
+  it("agrees once a later phase transition supersedes the auto record", () => {
+    seedState("drift", {
+      checkpoint: {
+        site: "plan-approval",
+        phase: "checkpoint-pending-clear",
+        armedAt: "2026-06-30T12:00:00.000Z",
+      },
+      phaseLog: [{ phase: "implementing", at: "2026-06-30T13:00:00.000Z" }],
+    });
+    writeCheckpoint();
+    const state = readState("drift", stateDir)!;
+
+    expect(probeFreshness(state, worktreeRoot, "gate").verdict).toBe("write");
+    expect(isCheckpointUsable(state, worktreeRoot)).toBe(false);
+  });
+
+  it("agrees a fresh manual record is both preserved and usable", () => {
+    seedState("drift", {
+      checkpoint: {
+        site: "manual",
+        phase: "gated",
+        armedAt: "2026-06-30T12:00:00.000Z",
+      },
+      phaseLog: [{ phase: "gating", at: "2026-06-30T11:00:00.000Z" }],
+    });
+    writeCheckpoint();
+    const state = readState("drift", stateDir)!;
+
+    expect(probeFreshness(state, worktreeRoot, "gate").verdict).toBe(
+      "preserve",
+    );
+    expect(isCheckpointUsable(state, worktreeRoot)).toBe(true);
   });
 });
