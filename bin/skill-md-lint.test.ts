@@ -3995,12 +3995,21 @@ describe("pr-review include-by-reference structure", () => {
     // raised the ceiling to 2765 (7 lines of genuine headroom) rather than
     // pinning it back at zero headroom, which is the exact tension this
     // ceiling exists to prevent.
+    // Resolver-contract-hygiene PR: extracted the three no-retry escalation
+    // variants (branch-mismatch, terminal-regression, task-tool-unavailable)
+    // out of the `# Failure paths` block into references/failure-recovery.md
+    // § (c), replacing them with a compact trigger table, then appended a
+    // short "standard `# Failure paths` chain" pointer clause to each of the
+    // four terse step-10 escalation sites. File lands at 2659 lines —
+    // RATCHETED the ceiling DOWN to 2685 (measured + ~25, rounded to the
+    // nearest 5), not raised, so the headroom this extraction freed is not
+    // silently refilled by unrelated regrowth.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2765 lines. Material regrowth past this ceiling would ` +
+        `budget of 2685 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2765);
+    ).toBeLessThan(2685);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {

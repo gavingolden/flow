@@ -232,7 +232,7 @@ describe("render — needs-human (per-reason mapping)", () => {
       `NEXT ACTION: ${NEXT_ACTION_BY_REASON["smoketest-needs-creds"]}`,
     );
     expect(out).toContain("credentialEnvVars");
-    expect(out).toContain("flow new --resume");
+    expect(out).toContain("flow feature resume");
     expect(finalLine(out)).toBe("NEEDS HUMAN: smoketest-needs-creds");
     // The reason tag must stay colon-free so nextActionForReason (which splits
     // on the first ':') resolves the full mapping.

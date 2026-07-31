@@ -410,7 +410,8 @@ Before writing the artifact and returning, self-check:
   Verification of the merged branch is the supervisor's job — the
   retried `gh pr merge --squash` is the verification, and CI re-runs
   on the pushed head. Re-running `/flow-verify` here would defeat
-  the context-cost win the fan-out exists for.
+  the context-cost win the fan-out exists for. This is also why Step
+  4's resolution commit uses `--no-verify` — see the rationale there.
 - NEVER rewrite history on the branch — the merge preserves every
   original commit SHA and appends one merge commit; do not rebase,
   amend, or squash.

@@ -301,8 +301,10 @@ optional `FOLLOW-UPS:`); it does not replace the sentinel.
 For the full template per status, see the worked example above (for
 GATED) and the inline tables in
 `skills/pipeline/flow-pipeline/SKILL.md` step 9, step 10, step 11,
-the `# Failure paths` block, the branch-mismatch escalation, and
-the task-tool-unavailable escalation (for the other statuses).
+and the `# Failure paths` block, plus the branch-mismatch escalation
+and the task-tool-unavailable escalation now living in
+`skills/pipeline/flow-pipeline/references/failure-recovery.md` § (c)
+No-retry escalation variants (for the other statuses).
 
 ## Why this contract is small on purpose
 

@@ -1922,6 +1922,7 @@ On non-zero exit, branch on the failure class:
   failure, render the NEEDS HUMAN block via `flow-gate-summary
   --status needs-human --reason merge-failed --pr-url "$PR_URL"
   --why "$(jq -r .summary "$ARTIFACT_PATH" | head -1)"`. End.
+  Then the standard `# Failure paths` chain.
 - **Non-conflict** (auth, network, branch-protection denied, required
   check failed, PR closed externally, any unrecognised stderr) —
   retry the merge once with `$PRIMARY` re-derived in the same Bash
@@ -2000,7 +2001,7 @@ and the filled prompt. After it returns:
    merge-resolver-spawn-denied --pr-url "$PR_URL"`, leave the worktree
    intact, and end — do **not** resolve inline in the supervisor
    (see [references/exemption-contracts.md](../../../references/exemption-contracts.md)
-   for why).
+   for why). Then the standard `# Failure paths` chain.
 2. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
    `NEEDS HUMAN: merge-resolver-missing-artifact` and end. (Do not
    re-spawn the resolver — exactly one Task call per run, per the
@@ -2019,12 +2020,13 @@ and the filled prompt. After it returns:
    block via `flow-gate-summary --status needs-human --reason
    merge-failed --pr-url "$PR_URL" --why "$(jq -r .summary
    "$ARTIFACT_PATH" | head -1)"`. End.
+   Then the standard `# Failure paths` chain.
 4. On retry success, continue to the post-merge sweep below.
 5. On retry failure, render the NEEDS HUMAN block via
    `flow-gate-summary --status needs-human --reason merge-failed
    --pr-url "$PR_URL" --why "$(jq -r .summary "$ARTIFACT_PATH" |
-   head -1)"`. End. The artifact stays on disk in the worktree for
-   human inspection.
+   head -1)"`. End. Then the standard `# Failure paths` chain. The
+   artifact stays on disk in the worktree for human inspection.
 
 On success, the roadmap row for this PR was already flipped to
 `✅ shipped (#$PR)` in the PR's own diff by `/flow-pr-review` step 7.5
@@ -2522,103 +2524,22 @@ the final line of stdout is the byte-exact sentinel
 escalation — leave the worktree + PR (and the JSONL log) intact so
 the user can inspect and resume.
 
-## Branch-mismatch escalation (no retries)
+## No-retry escalation variants
 
-When `flow-state-update` exits with status 3, the worktree's branch
-no longer matches the `.flow-branch` marker written by
-`flow-new-worktree`. This means a peer pipeline (or a stray manual
-git command) renamed this branch out from under us — the same family
-of failure as the 2026-05-01 incident. The mechanical guard refused
-to write the phase transition; the supervisor must NOT retry.
-Escalate immediately:
+Three escalations take a no-retry path with their own procedure. Each is
+deterministically triggered and each has a full block in
+`references/failure-recovery.md` § (c) No-retry escalation variants — read it
+and execute its block rather than acting from memory.
 
-```bash
-flow-gate-summary --status needs-human --reason branch-mismatch \
-  --why "<expected vs actual from stderr>"                  # render BEFORE the terminal state transition
-flow-state-update --phase needs-human  # may itself fail; that's ok, scrollback shows the cause
-flow-notify --status needs-human --reason "branch-mismatch"
-```
+| Trigger | Reason tag | Action |
+|---|---|---|
+| `flow-state-update` exits 3 | `branch-mismatch` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
+| `flow-state-update` exits 4 | `terminal-regression` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
+| `ToolSearch query="select:Task"` surfaces neither a `Task` nor an `Agent` schema at a spawn site | `task-tool-unavailable: <exemption-name>` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
 
-There is no auto-recovery — branch state is load-bearing and the
-user must inspect (`git reflog`, `git worktree list`) to decide
-whether the rename was malicious, accidental, or expected. Leave the
-worktree + PR intact.
-
-## Terminal-regression escalation (no retries)
-
-When `flow-state-update` exits with status 4, a terminal→non-terminal
-phase regression was detected — the existing phase in state.json is one
-of `merged`, `gated`, `needs-human`, `cancelled`, or `epic-approved`,
-but the requested transition would move to a non-terminal phase. This
-signals an ambient-pane race that wrote to the wrong pipeline's state:
-`resolveSlugFromPane()` resolved a stale or mismatched slug and the
-write was blocked by the mechanical guard. The supervisor must NOT retry.
-Escalate immediately:
-
-```bash
-flow-gate-summary --status needs-human --reason terminal-regression \
-  --why "<expected→actual from stderr>"   # render BEFORE the terminal state transition
-flow-state-update --phase needs-human     # may itself fail; that's ok, scrollback shows the cause
-flow-notify --status needs-human --reason "terminal-regression"
-```
-
-There is no auto-recovery — the guard blocked the write precisely to
-avoid corrupting a finished pipeline's terminal state. Leave the worktree
-+ PR intact for the user to inspect.
-
-If you suspect the victim pipeline's state was already corrupted by a
-prior race, the operational recovery for an already-corrupted pipeline is:
-
-```bash
-flow-state-update --phase <merged|gated|needs-human|...> --force --slug <victim-slug>
-```
-
-`--force` bypasses the regression guard; `--slug` targets the specific
-pipeline rather than relying on pane resolution. Use only after confirming
-which pipeline's state needs correction.
-
-## Task-tool unavailable (no retries)
-
-Fires when any of the nine spawn procedures' load step
-(`ToolSearch query="select:Task"`) returns a response that does not
-contain *either* a `<function>{"name": "Task", ...}</function>` *or* a
-`<function>{"name": "Agent", ...}</function>` line — i.e. the harness
-has surfaced neither alias of the one-shot subagent-spawn primitive
-top-level in the current session. The supervisor must NOT fall back
-to in-line execution; in-line fallback breaks the context-isolation
-contract each Task-tool exemption is justified by (PR #124 was the
-inaugural silent-fallback regression). Escalate immediately:
-
-```bash
-flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"
-flow-gate-summary --status needs-human \
-  --reason "task-tool-unavailable: <exemption-name>" \
-  --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"   # render BEFORE the terminal state transition
-flow-state-update --phase needs-human
-flow-notify --status needs-human --reason "task-tool-unavailable: <exemption-name>"
-```
-
-The helper parses the `:`-suffix and appends ` (spawn site:
-<exemption-name>)` to `NEXT_ACTION_BY_REASON["task-tool-unavailable"]` so
-the NEXT ACTION line names the exact spawn site; the sentinel line is
-byte-exact `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
-`<exemption-name>` is one of `pr-review-gatekeeper`,
-`pr-review-multi-agent-review`, `pr-review-fix-applier`,
-`pr-review-consolidator-validator`, `product-planning-discovery`,
-`new-feature-scout`, `coder-edit-applier`, `flow-pipeline-merge-resolver`,
-`flow-pipeline-verify-loop`.
-
-No retry is appropriate — the deferred-tool surfacing is environmental;
-remediation is to re-run in a session where `Task` or `Agent` is surfaced
-top-level (restart `claude` or upgrade the CLI). Leave the worktree + PR
-intact. For the `pr-review-*` sites (now reachable from the in-process
-Skill load, `context: fork` removed), the escalation tag is written into
-`<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
-and step 8's artifact-read propagates it into `NEEDS HUMAN:
-<escalation_tag>`.
-
-The full per-step cap table and the resume-from-disk decision tree live
-in `references/failure-recovery.md`.
+The full per-step cap table, the resume-from-disk decision tree, and the
+three no-retry escalation variants' full procedures live in
+`references/failure-recovery.md`.
 
 # Mid-flight redirects
 

@@ -163,8 +163,82 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "coder-failed":
     "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/coder-result.json (if present), then re-invoke the caller skill",
   "smoketest-needs-creds":
-    "The UI-smoke pass needs a test-user credential it could not infer. Provide the test-user credential env var(s) named in .flow/ui-validation.json's credentialEnvVars (in your local .env or shell env), then flow new --resume <slug>",
+    "The UI-smoke pass needs a test-user credential it could not infer. Provide the test-user credential env var(s) named in .flow/ui-validation.json's credentialEnvVars (in your local .env or shell env), then flow feature resume <slug>",
+  "state-file-missing-on-start":
+    'The launch likely died before writing state. Check ~/.flow/state/<slug>.json; if it is missing, re-run flow feature create "<description>". Never work inline on the base branch while state is missing',
 };
+
+// One entry per NEXT_ACTION_BY_REASON key, listing the EXACT
+// copy-pasteable command substrings each recipe's prose contains (or
+// `[]` when the recipe is command-free). `bin/gate-summary-recipe-lint.test.ts`
+// asserts every declared string is a verbatim substring of its recipe
+// and that it shell-parses after placeholder substitution — this is
+// the sibling-export shape rather than widening NEXT_ACTION_BY_REASON
+// itself, so the render loop in flow-gate-summary.test.ts (which
+// iterates Object.keys(NEXT_ACTION_BY_REASON) against a plain string
+// value) stays untouched.
+export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
+  "triage-ambiguous": ["flow attach <slug>"],
+  "worktree-create-failed": ["flow feature resume <slug>"],
+  "plan-missing": ["flow attach <slug>"],
+  "pr-missing": ["gh auth status", "flow feature resume <slug>"],
+  "scout-missing": ["flow attach <slug>"],
+  "approval-ambiguous": ["flow attach <slug>"],
+  "implement-failed": ["flow attach <slug>"],
+  "verify-exhausted": ["flow attach <slug>"],
+  "ci-hang": ["flow attach <slug>", "flow feature resume <slug>"],
+  "pr-blocked": ["flow feature resume <slug>"],
+  "ci-fix-exhausted": ["flow attach <slug>"],
+  "review-fix-exhausted": ["flow attach <slug>"],
+  "review-failed": ["flow attach <slug>"],
+  "review-partial": ["flow attach <slug>"],
+  "gh-error": [
+    "flow attach <slug>",
+    "gh auth status",
+    "flow feature resume <slug>",
+  ],
+  "pr-closed-without-merge": ["gh pr reopen <pr>", "flow done <slug>"],
+  "pr-closed-mid-flight": ["gh pr reopen <pr>", "flow done <slug>"],
+  "test-steps-section-missing": [
+    "flow attach <slug>",
+    "flow feature resume <slug>",
+  ],
+  "gate-override-without-confirmation": [],
+  "merge-failed": ["cd <repo> && gh pr merge --squash <pr>"],
+  "merge-resolver-missing-artifact": ["cd <repo> && gh pr merge --squash <pr>"],
+  "merge-resolver-spawn-denied": [
+    "cd <worktree> && git fetch origin <base> && git merge origin/<base>",
+    "git add <resolved-files>",
+    "git commit",
+    "git push",
+    "git fetch origin <pr-branch> && git merge origin/<pr-branch>",
+    "cd <repo> && gh pr merge --squash <pr>",
+  ],
+  "branch-mismatch": ["git reflog", "git worktree list"],
+  "terminal-regression": [
+    "flow feature create",
+    "flow-state-update --phase <merged|gated|...> --force --slug <victim-slug>",
+  ],
+  "cross-branch-operation-attempted": ["git worktree list"],
+  "task-tool-unavailable": ["flow feature resume <slug>"],
+  "state-missing-on-resume": ["flow feature create <description>"],
+  "worktree-missing-on-resume": ["git worktree add", "flow done <slug>"],
+  "flow-setup-upgrade-failed": ["flow install --upgrade"],
+  "fix-applier-missing-artifact": ["git log"],
+  "pr-review-missing-artifact": ["flow attach <slug>"],
+  "coder-failed": ["flow attach <slug>"],
+  "smoketest-needs-creds": ["flow feature resume <slug>"],
+  "state-file-missing-on-start": ['flow feature create "<description>"'],
+};
+
+// Rule-3 escape hatch: tags whose prose trips the high-recall
+// command-word detector (a COMMAND_WORDS token appears somewhere in
+// the prose) but carry no copy-pasteable command — every entry names
+// the benign token that tripped the detector so the escape hatch stays
+// auditable rather than a silent bypass.
+export const RECIPE_COMMANDS_NONE: readonly string[] = [
+  "gate-override-without-confirmation", // "flow-merge-guard" is narrated ("...and flow-merge-guard refused the merge"), not invoked with args
+];
 
 type Args = {
   status: Status;
