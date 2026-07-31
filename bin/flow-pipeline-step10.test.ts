@@ -219,4 +219,16 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
       "bin/flow-gate-summary.ts must define a NEXT_ACTION_BY_REASON entry for `merge-resolver-spawn-denied`.",
     ).toBe(true);
   });
+
+  it("defines $MARKER_CHECK_CMD via `bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts`", () => {
+    // Both consumers (step 5's per-file check and the resolver instructions)
+    // are pinned elsewhere; this pins the PRODUCER line that defines the
+    // variable, so a refold can't drop it with every other lint green.
+    expect(
+      STEP_10.includes(
+        'MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"',
+      ),
+      "step 10 must define MARKER_CHECK_CMD as `bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts`.",
+    ).toBe(true);
+  });
 });
