@@ -1158,6 +1158,17 @@ describe(checkConflictMarkers, () => {
     expect(result!.output).toContain("128");
   });
 
+  it("fails closed on a signal-killed grep (null exitCode) — never a silent pass", () => {
+    const runner: Runner = () =>
+      ({
+        stdout: "",
+        stderr: "",
+        exitCode: null as unknown as number,
+      }) as ReturnType<Runner>;
+    const result = checkConflictMarkers(["f.txt"], runner);
+    expect(result!.passed).toBe(false);
+  });
+
   it("invokes git grep with --full-name and the ':/' pathspec (pins the fail-open fix)", () => {
     let capturedArgv: string[] = [];
     const runner: Runner = (argv) => {

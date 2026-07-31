@@ -515,7 +515,12 @@ export function checkConflictMarkers(
       output: "No conflict markers found in the working tree.",
     };
   }
-  if (exitCode > 1) {
+  // `!== 0` (not `> 1`): a signal-killed grep (OOM, timeout) can report a
+  // null/non-numeric exit code at runtime despite the non-nullable `number`
+  // type, which `> 1` would silently let fall through to the parse branch
+  // below and fail OPEN. `!== 0` fails closed, matching the CLI twin
+  // (`bin/flow-conflict-marker-check.ts`) and `checkHelperExecutableModes`.
+  if (exitCode !== 0) {
     return {
       name: "conflict markers",
       scope: "root-fallback",
