@@ -103,7 +103,10 @@ describe("hasShellcheck", () => {
   });
 });
 
-// shellcheck is absent on this host; only assert real-binary behavior when present.
+// Only assert real-binary behavior when shellcheck is installed. Do NOT record
+// whether any particular host has it: a checked-in file cannot know, and the
+// stale claim that "this host" lacks shellcheck is what let an unexecuted
+// fixture ship green here and red on CI.
 const describeShellcheck = hasShellcheck() ? describe : describe.skip;
 describeShellcheck("shellcheckOk", () => {
   it("passes a clean fragment", () => {
@@ -115,8 +118,10 @@ describeShellcheck("shellcheckOk", () => {
     // what shellcheckOk gates on. The obvious pick — SC2086, unquoted variable
     // expansion — is only info-severity, so it passes --severity=error and the
     // assertion inverts: green on a host without shellcheck (block skipped),
-    // red on CI where it runs. Verified against shellcheck 0.11.0:
-    // `exit 300` exits 1; `VAR="a b"\necho $VAR` exits 0.
+    // red on CI where it runs. Measured on shellcheck 0.11.0: `exit 300`
+    // exits 1, `VAR="a b"\necho $VAR` exits 0. No version is pinned anywhere,
+    // so if a later release reclassifies SC2242 this goes red rather than
+    // silently passing — the loud direction, and the point of the fixture.
     const fragment = "exit 300";
     // Also pins the isolation this test claims: valid bash syntax, so a
     // failure here can never be a parse error duplicating bashParses coverage.
