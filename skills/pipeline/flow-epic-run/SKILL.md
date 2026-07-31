@@ -88,7 +88,7 @@ bind`; record an out-of-band completion with `flow epic bind --external`;
 
 You spawn **no Task/Agent sub-agent** and fire **no AskUserQuestion form** — the
 playbook is plain in-session judgment plus bare-name PATH helpers. This keeps
-`/flow-pipeline`'s exactly-nine-Task-exemption and two-AskUserQuestion-forms
+`/flow-pipeline`'s exactly-nine-Task-exemption and one-AskUserQuestion-form
 invariants untouched: a different supervisor in a different window is a different
 session, and this one has zero named fan-out surfaces.
 

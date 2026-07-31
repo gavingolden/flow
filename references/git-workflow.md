@@ -122,17 +122,6 @@ edge-case prose — lives in
 
 ## AskUserQuestion exemption bodies
 
-**Candidate-issues form (two firing locations).** The multi-select form
-that picks which orthogonal candidates to file post-merge. It is ONE
-named form fired from TWO locations: (a) step 4's "Candidate follow-up
-issues sub-step" on the Affirmative branch, and (b) step 3's "Candidate
-follow-up issues sub-step (non-feature intents)" on the
-`advance-to-step-5` branch (so bug/refactor/docs/infra/chore pipelines,
-which skip step 4, still get offered their discovered follow-ups). The
-five-branch decision is owned by the LLM-free `flow-candidate-issues`
-helper; the `AskUserQuestion` primitive and the decision to fire it stay
-in the supervisor sub-steps.
-
 **Step 9 gate-override sub-step.** The single confirmation form fired
 during step 9's "Gate override (post-verdict, opt-in)" sub-step, when the
 user instructs the supervisor to merge a `gated` PR anyway — a _fresh_
@@ -141,9 +130,14 @@ inferring authorisation from an earlier instruction. An affirmative
 answer is recorded by `flow-merge-guard --record-override` and enforced
 by the step-10 backstop.
 
-These two named forms are the **only** authorised `AskUserQuestion`
-sites, documented bidirectionally with
-`skills/pipeline/flow-pipeline/SKILL.md`.
+This named form is the **only** authorised `AskUserQuestion`
+site, documented bidirectionally with
+`skills/pipeline/flow-pipeline/SKILL.md`. Candidate follow-up issues are
+no longer curated via a form: discovery bundles them into the plan by
+default (pre-ticked `- [x]` items in `# Candidate follow-up issues`),
+and the user curates by replying `drop candidate #N` / `drop all
+candidates` / `defer task #N` at plan review (step 4) rather than
+answering a multi-select.
 
 ## Auto-merge exemption detail (`/flow-pipeline` step 10)
 
@@ -178,8 +172,16 @@ stops at the gated state regardless of the gate verdict).
 (`--label flow-agent,deferred-review`), and (b) `/flow-pipeline` step
 10's post-merge sweep (`--label flow-agent,out-of-scope-discovery`, once
 per `- [x]` candidate in plan.md). Indiscriminate auto-creation pollutes
-backlogs and races on `gh` rate limits; both sites have explicit user
-opt-in. Documented bidirectionally in
+backlogs and races on `gh` rate limits. Feature and `route-to-step-4`
+pipelines curate the ticked set at plan review (bundle-by-default
+candidates are pre-ticked, and the `--details` echo plus the `drop
+candidate #N` / `pull #N into the plan` reply verbs let the user drop or
+defer any it doesn't want before approval); step 3's `advance-to-step-5`
+route has no plan-review checkpoint, so its pre-ticked candidates and
+bundled tasks proceed as discovery authored them, disclosed post-hoc in
+the PR body and the terminal recap, with post-merge off-ramps (revert a
+bundled line, close an unwanted issue) as the correction path. Documented
+bidirectionally in
 `skills/pipeline/flow-pipeline/SKILL.md`,
 `skills/pipeline/flow-pr-review/SKILL.md` Step 6, and
 `bin/flow-create-issue.ts`.
@@ -187,7 +189,7 @@ opt-in. Documented bidirectionally in
 ## `/flow-epic-create` and `/flow-epic-run` detail
 
 `flow epic create` spawns a fresh top-level `/flow-epic-create` session,
-so `/flow-pipeline`'s exactly-9 and two-form rules are unaffected by its
+so `/flow-pipeline`'s exactly-9 and one-form rule are unaffected by its
 two named surfaces (distinct openers, in
 `skills/pipeline/flow-epic-create/SKILL.md`): **Task-tool fan-out:
 `/flow-epic-create` → /flow-product-planning MODE: epic designer.** and

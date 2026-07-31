@@ -6,8 +6,8 @@
  *
  * Why: the supervisor hands control back at ~12 distinct sites (every
  * terminal end-state, every NEEDS HUMAN escalation, the
- * plan-pending-review checkpoint, candidate-issue overflow,
- * conflict-class merge failure). Each used to emit a differently-shaped
+ * plan-pending-review checkpoint, conflict-class merge failure). Each
+ * used to emit a differently-shaped
  * block of ad-hoc prose. The user had to read the whole tail of
  * scrollback and infer whether any manual action was required and what
  * it was, separately for each shape. This helper renders one canonical

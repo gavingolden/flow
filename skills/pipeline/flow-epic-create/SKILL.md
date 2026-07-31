@@ -26,7 +26,7 @@ checkpoint and wait for the user to **approve**, **redirect**, or **cancel**.
 This is a different supervisor session from `/flow-pipeline`. You fire your own
 named `AskUserQuestion` clarification form and your own single named Task-tool
 fan-out (the `MODE: epic` designer). Those are NOT among `/flow-pipeline`'s
-two `AskUserQuestion` forms / nine Task-tool exemptions — a different supervisor
+one `AskUserQuestion` form / nine Task-tool exemptions — a different supervisor
 in a different window is a different session.
 
 The Step 4.5 **cross-model design review** is a
@@ -111,7 +111,7 @@ When there IS a material ambiguity, fire **exactly one** bounded
 `AskUserQuestion` round before decomposing. This is **the `/flow-epic-create`
 clarification round** — this skill's OWN narrow, named, authorized
 `AskUserQuestion` form, registered in AGENTS.md. It is NOT one of
-`/flow-pipeline`'s two forms. Keep it to the smallest set of questions that
+`/flow-pipeline`'s one form. Keep it to the smallest set of questions that
 resolves the feature-set/DAG-shape fork; never use it for cosmetic detail.
 
 ## Step 3 — Run the F4 designer (the `/flow-epic-create` MODE: epic designer fan-out)
