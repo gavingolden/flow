@@ -12,21 +12,32 @@ import {
   formatUpdateNotice,
   type UpdateCheckResult,
 } from "./update-check";
+import {
+  checkInstallDrift,
+  formatDriftNotice,
+  type InstallDriftResult,
+} from "./install-drift";
 
 export type VersionOptions = {
   /** Override the flow source root (test-only). */
   flowSource?: string;
   /** Injectable for tests; defaults to the real read-only update check. */
   checkUpdate?: () => UpdateCheckResult;
+  /** Required (no default): the real read-only install-drift check. */
+  checkDrift: () => InstallDriftResult;
 };
 
 /**
  * CLI shim for `bin/flow`'s `version` / `--version` / `-v` verb. Intercepts
- * --help / -h before any fs read, then dispatches to `runVersion`.
+ * --help / -h before any fs read, then dispatches to `runVersion`. `opts`
+ * defaults to the real `checkInstallDrift` (not an empty `{}` — `checkDrift`
+ * is required) so `bin/flow`'s bare `runVersionCli(args)` call keeps
+ * compiling with no options object at the call site; tests override by
+ * passing their own `opts`.
  */
 export function runVersionCli(
   args: string[],
-  opts: VersionOptions = {},
+  opts: VersionOptions = { checkDrift: checkInstallDrift },
 ): number {
   if (argsContainHelp(args)) {
     printVerbHelp("version");
@@ -35,7 +46,7 @@ export function runVersionCli(
   return runVersion(opts);
 }
 
-export function runVersion(opts: VersionOptions = {}): number {
+export function runVersion(opts: VersionOptions): number {
   const source = opts.flowSource ?? resolveFlowSource();
 
   let version: string;
@@ -51,5 +62,7 @@ export function runVersion(opts: VersionOptions = {}): number {
   // token that downstream parsers read from stdout.
   const notice = formatUpdateNotice((opts.checkUpdate ?? checkForUpdate)());
   if (notice) console.error(notice);
+  const driftNotice = formatDriftNotice(opts.checkDrift());
+  if (driftNotice) console.error(driftNotice);
   return 0;
 }

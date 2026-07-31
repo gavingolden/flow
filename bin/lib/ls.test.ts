@@ -3,12 +3,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  buildRows,
+  buildRows as buildRowsImpl,
   formatCostCell,
   formatNameCell,
   formatRepoCell,
   runLs,
   runLsCli,
+  type LsOptions,
 } from "./ls";
 import * as stateModule from "./state";
 import * as tmuxModule from "./tmux";
@@ -16,8 +17,30 @@ import * as livenessModule from "./liveness";
 import { encodeProjectSegment } from "./cost";
 import type { PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
+import type { InstallDriftResult } from "./install-drift";
 
 const NOW = Date.UTC(2026, 3, 30, 12, 30, 0); // 2026-04-30T12:30:00Z
+
+/** No-drift stub for `checkDrift` — a required LsOptions field most tests
+ * here don't exercise directly (install-drift.test.ts owns the detector's
+ * own behaviour; the "update notice seam" describe block below covers the
+ * emit/no-emit wiring). */
+const NO_DRIFT: () => InstallDriftResult = () => ({ status: "clean" });
+
+/** `buildRows` with `checkDrift` defaulted, so the ~26 existing call sites
+ * below don't each need to know about a field they never exercise. Any
+ * call site that DOES pass its own `opts` still wins via the spread. */
+function buildRows(
+  states: PipelineState[],
+  windows: TmuxWindow[],
+  nowMs: number,
+  opts: Partial<LsOptions> = {},
+): ReturnType<typeof buildRowsImpl> {
+  return buildRowsImpl(states, windows, nowMs, {
+    checkDrift: NO_DRIFT,
+    ...opts,
+  });
+}
 
 function state(overrides: Partial<PipelineState>): PipelineState {
   return {
@@ -462,7 +485,10 @@ describe("runLs empty state (Story 5 cross-verb voice)", () => {
     vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    const code = await runLs({ checkUpdate: () => ({ status: "current" }) });
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
 
     expect(code).toBe(0);
     expect(log).toHaveBeenCalledTimes(1);
@@ -486,7 +512,10 @@ describe("runLs — orphan recovery footnote", () => {
     vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    const code = await runLs({ checkUpdate: () => ({ status: "current" }) });
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
 
     expect(code).toBe(0);
     const out = log.mock.calls.map((c) => String(c[0])).join("\n");
@@ -507,7 +536,10 @@ describe("runLs — orphan recovery footnote", () => {
     vi.spyOn(livenessModule, "livenessOf").mockReturnValue("dead");
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    const code = await runLs({ checkUpdate: () => ({ status: "current" }) });
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
 
     expect(code).toBe(0);
     const out = log.mock.calls.map((c) => String(c[0])).join("\n");
@@ -525,7 +557,10 @@ describe("runLs — orphan recovery footnote", () => {
     ]);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    const code = await runLs({ checkUpdate: () => ({ status: "current" }) });
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
 
     expect(code).toBe(0);
     const out = log.mock.calls.map((c) => String(c[0])).join("\n");
@@ -552,7 +587,10 @@ describe("runLs — lazy orphan reaper (Task 6)", () => {
     const del = vi.spyOn(stateModule, "deleteState").mockReturnValue(true);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    const code = await runLs({ checkUpdate: () => ({ status: "current" }) });
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
 
     expect(code).toBe(0);
     const out = log.mock.calls.map((c) => String(c[0])).join("\n");
@@ -584,6 +622,7 @@ describe("runLs — update notice seam", () => {
         behind: 2,
         upgradeCmd: "flow install --upgrade",
       }),
+      checkDrift: NO_DRIFT,
     });
     expect(code).toBe(0);
     expect(err).toHaveBeenCalledTimes(1);
@@ -592,7 +631,10 @@ describe("runLs — update notice seam", () => {
 
   it("should not print a notice when checkUpdate reports current", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const code = await runLs({ checkUpdate: () => ({ status: "current" }) });
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
     expect(code).toBe(0);
     expect(err).not.toHaveBeenCalled();
   });
@@ -601,6 +643,33 @@ describe("runLs — update notice seam", () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const code = await runLs({
       checkUpdate: () => ({ status: "skipped", reason: "fetch-failed" }),
+      checkDrift: NO_DRIFT,
+    });
+    expect(code).toBe(0);
+    expect(err).not.toHaveBeenCalled();
+  });
+
+  it("should print a drift notice to stderr when checkDrift reports drift", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: () => ({
+        status: "drifted",
+        entries: [
+          { kind: "missing", displayName: "flow-foo", target: "/x/flow-foo" },
+        ],
+      }),
+    });
+    expect(code).toBe(0);
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(String(err.mock.calls[0][0])).toContain("flow install --upgrade");
+  });
+
+  it("should not print a drift notice when checkDrift reports clean", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
     });
     expect(code).toBe(0);
     expect(err).not.toHaveBeenCalled();

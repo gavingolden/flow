@@ -8,7 +8,25 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFlowVersion } from "./pkg-version";
-import { runVersion, runVersionCli } from "./version";
+import {
+  runVersion as runVersionImpl,
+  runVersionCli,
+  type VersionOptions,
+} from "./version";
+import type { InstallDriftResult } from "./install-drift";
+
+/** No-drift stub — `checkDrift` is a required VersionOptions field most
+ * cases here don't exercise (the "drift notice seam" describe block below
+ * covers the emit/no-emit wiring; install-drift.test.ts owns the
+ * detector's own behaviour). */
+const NO_DRIFT: () => InstallDriftResult = () => ({ status: "clean" });
+
+/** `runVersion` with `checkDrift` defaulted, mirroring ls.test.ts's
+ * `buildRows` wrapper — most cases here only care about `flowSource` /
+ * `checkUpdate`. */
+function runVersion(opts: Partial<VersionOptions>): number {
+  return runVersionImpl({ checkDrift: NO_DRIFT, ...opts });
+}
 
 let scratch!: string;
 
@@ -121,6 +139,44 @@ describe("runVersion — update notice seam", () => {
   });
 });
 
+describe("runVersion — drift notice seam", () => {
+  it("should print a drift notice to stderr when checkDrift reports drift", () => {
+    writePkg({ name: "flow", version: "1.2.3" });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const code = runVersion({
+      flowSource: scratch,
+      checkDrift: () => ({
+        status: "drifted",
+        entries: [
+          { kind: "dangling", displayName: "flow-foo", target: "/x/flow-foo" },
+        ],
+      }),
+    });
+
+    expect(code).toBe(0);
+    expect(log).toHaveBeenCalledWith("1.2.3");
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(String(err.mock.calls[0][0])).toContain("flow install --upgrade");
+    log.mockRestore();
+    err.mockRestore();
+  });
+
+  it("should not emit a notice when checkDrift reports clean", () => {
+    writePkg({ name: "flow", version: "1.2.3" });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const code = runVersion({ flowSource: scratch, checkDrift: NO_DRIFT });
+
+    expect(code).toBe(0);
+    expect(err).not.toHaveBeenCalled();
+    log.mockRestore();
+    err.mockRestore();
+  });
+});
+
 describe("readFlowVersion (extracted, unit-testable)", () => {
   it("round-trips the version field from package.json", () => {
     writePkg({ name: "flow", version: "2.5.0" });
@@ -156,7 +212,10 @@ describe("runVersionCli (--help / -h short-circuit)", () => {
       const err = vi
         .spyOn(console, "error")
         .mockImplementation(() => undefined);
-      const code = runVersionCli([flag], { flowSource: scratch });
+      const code = runVersionCli([flag], {
+        flowSource: scratch,
+        checkDrift: NO_DRIFT,
+      });
       expect(code).toBe(0);
       expect(log).toHaveBeenCalled();
       expect(log.mock.calls[0][0]).toMatch(
