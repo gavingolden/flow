@@ -1,0 +1,27 @@
+{
+  "epicId": "throwaway-test-epic-safe-delete",
+  "prompt": "throwaway test epic (safe to delete): add a --quiet flag to flow ls that suppresses the header row",
+  "createdAt": "2026-07-31T00:00:00Z",
+  "features": [
+    {
+      "id": "F1",
+      "title": "flow ls --quiet suppresses the header row",
+      "description": "Add a --quiet flag to `flow ls` that suppresses the NAME/REPO/PHASE/PR/LAST ACTIVITY (and, when --cost is also passed, $ COST) header row while leaving all data rows and the existing 'no active pipelines' message unchanged. Implementation: extend the allowlisted option set in `runLsCli` (bin/lib/ls.ts) with `--quiet`, add `quiet?: boolean` to `LsOptions`, guard the single header-emitting `console.log` in `printTable` with `if (!opts.quiet)`, update the `flow ls` verb help text in bin/lib/help.ts to document `--quiet`, and add test coverage in bin/lib/ls.test.ts for: `--quiet` alone (rows print, header does not), `--quiet --cost` (header omitted, $ COST data column still present), and the zero-rows path (unaffected by --quiet). Part of epic `throwaway-test-epic-safe-delete` (feature `F1`) — design at `.flow/epics/throwaway-test-epic-safe-delete/design.md`.",
+      "dependsOn": [],
+      "rationale": "Hides the single volatile decision in this epic (where the header line is read/suppressed) behind the existing LsOptions interface.",
+      "acceptanceCriteria": [
+        "WHEN a user runs `flow ls --quiet` with at least one row to print THE SYSTEM SHALL print the data rows only, omitting the header line",
+        "WHEN a user runs `flow ls --quiet` with zero active pipelines THE SYSTEM SHALL still print the existing `flow ls: no active pipelines` message",
+        "WHEN a user runs `flow ls --quiet --cost` THE SYSTEM SHALL omit the header row while still printing the $ COST data column",
+        "WHEN a user runs `flow ls --quiet --detail` (without --cost) THE SYSTEM SHALL still exit 2 with the existing usage error",
+        "WHEN a user runs `flow ls --help` THE SYSTEM SHALL list `--quiet` in the verb help text"
+      ],
+      "flowNewHints": {
+        "autoMerge": true,
+        "copilotReview": "auto",
+        "effort": "low"
+      },
+      "mvp": true
+    }
+  ]
+}
