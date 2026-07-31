@@ -100,21 +100,64 @@ export function descendantsOf(procs: ProcRow[], rootPid: number): ProcRow[] {
 }
 
 /**
- * The session's own chrome-devtools-mcp SERVER descendants — excluding the
- * `npm exec` wrapper and the telemetry watchdog, which both contain the
- * substring `chrome-devtools-mcp` but never run the server's own
- * `shutdown()` handler, so signalling either reproduces the orphan failure
- * mode this helper exists to prevent.
+ * The MCP server's own entrypoint script, as it appears in the argv of the
+ * `node`/`bun` process that runs it. Never matched against a whole command
+ * line — see `isMcpServerCommand`.
+ */
+const MCP_SERVER_ENTRYPOINT_RE =
+  /node_modules\/\.bin\/chrome-devtools-mcp|chrome-devtools-mcp\/build\/.*\.js/;
+
+const RUNTIME_ARGV0_RE = /(^|\/)(node|bun)$/;
+const SERVER_ARGV0_RE = /(^|\/)chrome-devtools-mcp$/;
+
+/**
+ * Is this process row an actual chrome-devtools-mcp SERVER — the one process
+ * whose SIGTERM runs `shutdown()` and reaps Chrome?
+ *
+ * Anchored on argv POSITION, never a bare substring over the whole command
+ * line. A substring test is unsafe here because this helper SIGTERMs what it
+ * selects, and a pipeline session routinely has descendants whose command
+ * line merely MENTIONS the string — `grep -rn chrome-devtools-mcp skills/`,
+ * an editor invocation on this very file, or the `zsh -c` wrapper of the
+ * Bash call running the teardown itself. Verified live: the substring form
+ * SIGTERMed an unrelated in-session `sleep` AND its own invoking shell
+ * (which exited 144 = 128+SIGTERM) while no real server was even running.
+ *
+ * Two accepted shapes, both observed live:
+ *   - argv[0] IS the server binary (`chrome-devtools-mcp`, argv[0] rewritten
+ *     by the npx shim) — the common case;
+ *   - a `node`/`bun` runtime whose script argument is the server entrypoint
+ *     (`.../node_modules/.bin/chrome-devtools-mcp`, `.../build/*.js`).
+ *
+ * The `npm exec` wrapper and the telemetry watchdog are excluded explicitly:
+ * both legitimately carry the entrypoint shape but neither runs the server's
+ * `shutdown()` handler, so signalling either reproduces the very orphan
+ * failure mode this helper exists to prevent.
+ */
+export function isMcpServerCommand(command: string): boolean {
+  if (command.includes("npm exec ")) return false;
+  if (command.includes("telemetry/watchdog/main.js")) return false;
+
+  const tokens = command.trim().split(/\s+/);
+  const argv0 = tokens[0] ?? "";
+  if (SERVER_ARGV0_RE.test(argv0)) return true;
+
+  // A runtime process: the entrypoint must appear as a SCRIPT ARGUMENT, not
+  // anywhere in the line — `grep node_modules/.bin/chrome-devtools-mcp .`
+  // would otherwise match on its search pattern.
+  if (!RUNTIME_ARGV0_RE.test(argv0)) return false;
+  return tokens.slice(1).some((t) => MCP_SERVER_ENTRYPOINT_RE.test(t));
+}
+
+/**
+ * The session's own chrome-devtools-mcp SERVER descendants.
  */
 export function selectMcpServers(
   procs: ProcRow[],
   sessionPid: number,
 ): ProcRow[] {
-  return descendantsOf(procs, sessionPid).filter(
-    (p) =>
-      p.command.includes("chrome-devtools-mcp") &&
-      !p.command.includes("npm exec ") &&
-      !p.command.includes("telemetry/watchdog/main.js"),
+  return descendantsOf(procs, sessionPid).filter((p) =>
+    isMcpServerCommand(p.command),
   );
 }
 
@@ -350,24 +393,22 @@ export function selectOrphanBrowsers(
 
 /**
  * Sessionless chrome-devtools-mcp SERVER rows — ppid 1, or ppid absent from
- * the table (parent gone) — excluding the npm wrapper and telemetry
- * watchdog, same as `selectMcpServers`. A stale server is exactly what
- * keeps a leaked Chrome alive, and SIGTERM is the only signal that runs its
- * `shutdown()` handler, so reaping it is the same mechanism as
- * `runTeardown`, not a new one.
+ * the table (parent gone). Shares the single `isMcpServerCommand` predicate
+ * with `selectMcpServers` so the two selectors cannot drift. A stale server
+ * is exactly what keeps a leaked Chrome alive, and SIGTERM is the only
+ * signal that runs its `shutdown()` handler, so reaping it is the same
+ * mechanism as `runTeardown`, not a new one.
+ *
+ * Sharing the predicate also closes a latent FALSE NEGATIVE this selector
+ * had on its own: the common server shape has argv[0] rewritten to the bare
+ * `chrome-devtools-mcp`, which the entrypoint regex alone never matched, so
+ * an orphaned server in that shape was previously swept right past.
  */
-const MCP_SERVER_ENTRYPOINT_RE =
-  /node_modules\/\.bin\/chrome-devtools-mcp|chrome-devtools-mcp\/build\/.*\.js/;
-
 export function selectOrphanMcpServers(procs: ProcRow[]): ProcRow[] {
   const knownPids = new Set(procs.map((p) => p.pid));
   return procs.filter(
     (p) =>
-      p.command.includes("chrome-devtools-mcp") &&
-      MCP_SERVER_ENTRYPOINT_RE.test(p.command) &&
-      !p.command.includes("npm exec ") &&
-      !p.command.includes("telemetry/watchdog/main.js") &&
-      (p.ppid === 1 || !knownPids.has(p.ppid)),
+      isMcpServerCommand(p.command) && (p.ppid === 1 || !knownPids.has(p.ppid)),
   );
 }
 

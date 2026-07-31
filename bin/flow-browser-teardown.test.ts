@@ -175,6 +175,53 @@ describe("selectMcpServers", () => {
     const out = selectMcpServers(procs, sessionPid).map((p) => p.pid);
     expect(out).toEqual([201]);
   });
+
+  // Regression: the selector used a bare `command.includes(...)` substring
+  // test, so ANY in-session descendant whose command line merely MENTIONED
+  // the string was a SIGTERM target. Verified live on 2026-07-31: it killed
+  // an unrelated in-session `sleep` and the `zsh -c` wrapper of the Bash
+  // call running the teardown itself (exit 144 = 128+SIGTERM), while no
+  // real server was running at all.
+  it("never selects a process that merely mentions the string in its argv", () => {
+    const sessionPid = 100;
+    const procs = [
+      proc(sessionPid, 1, "claude --add-dir /w"),
+      proc(201, sessionPid, "chrome-devtools-mcp"),
+      proc(202, sessionPid, "grep -rn chrome-devtools-mcp skills/pipeline/"),
+      proc(
+        203,
+        sessionPid,
+        "/bin/zsh -c source /h/.claude/shell-snapshots/s.sh && flow-browser-teardown --json # chrome-devtools-mcp",
+      ),
+      proc(204, sessionPid, "vim bin/flow-browser-teardown.ts"),
+      // A runtime process whose ENTRYPOINT-shaped string is only a search
+      // pattern, not the script it runs.
+      proc(205, sessionPid, "grep -rn node_modules/.bin/chrome-devtools-mcp ."),
+    ];
+    expect(selectMcpServers(procs, sessionPid).map((p) => p.pid)).toEqual([
+      201,
+    ]);
+  });
+
+  it("selects a runtime process whose script argument is the server entrypoint", () => {
+    const sessionPid = 100;
+    const procs = [
+      proc(sessionPid, 1, "claude --add-dir /w"),
+      proc(
+        201,
+        sessionPid,
+        "/h/.fnm/node-versions/v24/installation/bin/node /h/.npm/_npx/abc/node_modules/.bin/chrome-devtools-mcp --isolated",
+      ),
+      proc(
+        202,
+        sessionPid,
+        "/usr/local/bin/node /h/node_modules/chrome-devtools-mcp/build/src/index.js",
+      ),
+    ];
+    expect(selectMcpServers(procs, sessionPid).map((p) => p.pid)).toEqual([
+      201, 202,
+    ]);
+  });
 });
 
 describe("runTeardown", () => {
@@ -449,6 +496,22 @@ describe("selectOrphanMcpServers", () => {
       proc(80, 1, "/path/to/node_modules/.bin/chrome-devtools-mcp --isolated"),
     ];
     expect(selectOrphanMcpServers(procs).map((p) => p.pid)).toEqual([80]);
+  });
+
+  // Regression (false NEGATIVE): the entrypoint regex alone never matched
+  // the MOST COMMON live shape — argv[0] rewritten by the npx shim to the
+  // bare `chrome-devtools-mcp`. Observed live: 12 of 12 server rows on the
+  // host carried exactly that shape, so an orphan in that shape was swept
+  // straight past and its Chrome left running.
+  it("selects an orphaned server whose argv[0] is the bare rewritten name", () => {
+    const procs = [
+      proc(90, 1, "chrome-devtools-mcp"),
+      proc(91, 1, "chrome-devtools-mcp  "), // trailing argv padding, as ps renders it
+      proc(92, 7777, "chrome-devtools-mcp"), // parent gone -> also selected
+    ];
+    expect(selectOrphanMcpServers(procs).map((p) => p.pid)).toEqual([
+      90, 91, 92,
+    ]);
   });
 });
 
