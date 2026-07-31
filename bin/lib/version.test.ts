@@ -147,6 +147,7 @@ describe("runVersion — drift notice seam", () => {
 
     const code = runVersion({
       flowSource: scratch,
+      checkUpdate: () => ({ status: "current" }),
       checkDrift: () => ({
         status: "drifted",
         entries: [
@@ -168,7 +169,11 @@ describe("runVersion — drift notice seam", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const code = runVersion({ flowSource: scratch, checkDrift: NO_DRIFT });
+    const code = runVersion({
+      flowSource: scratch,
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
 
     expect(code).toBe(0);
     expect(err).not.toHaveBeenCalled();
