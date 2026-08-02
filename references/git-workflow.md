@@ -65,18 +65,31 @@ single observed `* chore: merge origin/...` line inside a squash body
 on `main` is sufficient to re-open; no one needs to first argue it is
 noise.
 
-Observed: this PR's own branch carries a merge commit — a real,
-two-parent merge of `origin/main` into the feature branch, created
-during the step-7 CI-merge-ref-divergence retrofit — so this PR's own
-squash-merge settles #486's contested GENERAL premise (whether a merge
-commit's subject enters GitHub's default squash body at all) the moment
-it lands. Caveat: that merge commit's subject is git's DEFAULT `Merge
-remote-tracking branch 'origin/main' into <branch>`, not the resolver's
-conventional-commit subject (`chore: merge origin/<base> into <branch>
-to resolve conflicts`) — so it tests the general premise but NOT the
-resolver's exact subject line. Fill in the actual result post-merge from
-`git log -1 --format=%B <squash-sha>` run against the squashed commit on
-`main`.
+**Settled (2026-08-02), issue #486 closed as not-reproducible.** PR #500's
+branch carried 26 commits including two merge commits, one matching the
+resolver's exact predicted subject:
+
+```
+177a06c4c Merge remote-tracking branch 'origin/main' into merge-resolver-marker…
+507bb52a5 chore: merge origin/main into merge-resolver-marker-and-squash-body
+```
+
+Its squash-merge commit on `main` (`6fb1ce0`) contains exactly 24 `* `
+lines — 26 minus the two merge commits, both excluded from the squash
+body by construction. A sweep of every squash commit on `main`
+(`git log --format=%H main`, grepping each commit's full body for a
+leading `* chore: merge origin/` or `* Merge remote-tracking branch` /
+`* Merge branch` line) found zero matches across the repo's history.
+
+This settles both the general premise (do merge-commit subjects enter
+GitHub's default squash body at all) AND the resolver's exact subject
+line — the caveat in the prior "Observed" paragraph, that only the
+general case had been tested, no longer applies. The low-bar re-open
+trigger has not fired and the evidence available says it structurally
+cannot: GitHub's squash-body composition already excludes merge commits'
+own subjects from the concatenated list. Re-open only on a genuine
+future observation of `* chore: merge origin/...` noise in a squash body
+on `main`, per the original low-bar trigger.
 
 ## Base-branch guard
 
