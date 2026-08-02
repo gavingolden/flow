@@ -162,7 +162,7 @@ flow-research-note ensure --plan-file "$WORKTREE/.flow-tmp/plan.md" \
 
 This is idempotent and self-no-ops when research ran, when the path was
 dormant, and when the subagent already wrote a note. When its stdout is
-non-empty, include that line **verbatim** in the 3-5 line chat summary so
+non-empty, include that line **verbatim** in the plan-summary block so
 the user always sees the research skip note.
 
 ## Follow-up-reference consistency backstop (advisory, deterministic)
@@ -181,7 +181,7 @@ flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md" || LIN
 Exit 1 signals drift (the stdout JSON's `references[]` names each
 unresolved reference line); exit 0 is clean; exit 2 is a read error. This
 is **advisory and non-blocking** — on a non-zero exit, surface a one-line
-note in the 3-5 line chat summary (e.g. "follow-up-reference drift: plan
+note in the plan-summary block (e.g. "follow-up-reference drift: plan
 prose references a follow-up missing from `# Candidate follow-up
 issues`") so the user can redirect at `plan-pending-review`; never block
 planning on it (the same "research/plan-review never block planning"
@@ -202,7 +202,7 @@ fi   # helper not on PATH — skip silently (tolerant), per the contract below
 ```
 
 Exit 0 is clean; exit 1 prints one named miss per line on stdout —
-surface a one-line note naming the misses in the 3-5 line chat summary;
+surface a one-line note naming the misses in the plan-summary block;
 exit 2 is a read error — note-and-continue. **Advisory and
 non-blocking** — never block planning on it, and tolerant when the
 helper is missing from `PATH` (skip silently, mirroring discovery's own
@@ -235,8 +235,8 @@ value from an earlier pipeline run in the same tmux window can never
 bleed into a later non-UI render, and the validate call is `set -e`-safe
 (`|| SPEC_RC=$?` captures the exit code instead of exiting the shell on
 failure). Exit 0 is a silent pass. On exit 1 (schema-invalid spec), quote
-the stderr JSON's `reason` verbatim as a one-line note in the 3-5 line
-chat summary (worked example: "design spec invalid:
+the stderr JSON's `reason` verbatim as a one-line note in the
+plan-summary block (worked example: "design spec invalid:
 `surfaces[0].assertions[1].properties` must be an object of string
 values — the mechanical tier is inert until fixed; redirect at
 plan-pending-review"). On exit 2 (or any other non-zero exit — an

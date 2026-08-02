@@ -587,6 +587,8 @@ Then assign an **intent**: `feature` / `bug` / `refactor` / `docs` /
   next turn re-enters step 1 with the user's reply. If the answer
   is still ambiguous, escalate `NEEDS HUMAN: triage-ambiguous`
   (which writes `phase: needs-human`) instead of asking again.
+  Format this reply per `references/pause-output-contract.md` — labeled slots, no open prose (template: `### ❓ Clarification needed` / `**Needs your review:** <the ambiguity>` / `**Next action:** reply with your intent`).
+  <!-- any new pause site below must reference pause-output-contract.md -->
 
 ## Step 2 — Worktree
 
@@ -702,7 +704,8 @@ in [references/exemption-contracts.md](../../../references/exemption-contracts.m
 `skills/pipeline/flow-product-planning/references/discovery-instructions.md`.
 
 After the wrapper returns, **read `<worktree>/.flow-tmp/plan.md`** once
-and print a 3-5 line summary to chat (problem statement + task titles).
+and print a labeled-bullet plan-summary block to chat per `references/pause-output-contract.md` — labeled slots, no open prose (template: `### ⏸ Plan ready for review` / `**Notes:** <problem statement>; tasks: <task titles>` / `**Next action:** approve / redirect: … / cancel`).
+<!-- any new pause site below must reference pause-output-contract.md -->
 This is the supervisor's single read of the plan file — the wrapper does
 not pre-read it. While plan.md is open, surface any discovery research
 skip-note it carries: a `> [!NOTE]` line about **Web-grounded research
@@ -716,7 +719,7 @@ after the plan.md read ALWAYS run `flow-research-note ensure --plan-file
 "$WORKTREE/.flow-tmp/plan.md" --forced "$(jq -r '.forceResearch // false'
 ~/.flow/state/<slug>.json)"` (idempotent; self-no-ops when research ran, the
 path was dormant, or a note already exists). When its stdout is non-empty,
-include that line **verbatim** in the 3-5 line chat summary. Full contract in
+include that line **verbatim** in the plan-summary block. Full contract in
 [references/step3-threading.md](references/step3-threading.md#deterministic-note-backstop-mandatory-non-skippable).
 
 **Follow-up-reference consistency backstop (advisory, deterministic).** After
@@ -868,6 +871,9 @@ normalized-diff re-fire detection) in
   archiving it to `.flow-tmp/checkpoint.consumed.md` and clearing the
   freshness record.
 
+  Format the checkpoint-nudge tail per `references/pause-output-contract.md` — labeled slots, no open prose, appended under the plan-summary block's heading (template: `**Notes:** safe to /clear — the plan re-renders on resume` / `**Next action:** approve / redirect: … / cancel`).
+  <!-- any new pause site below must reference pause-output-contract.md -->
+
   Then end the turn. Wait for the user to attach and respond.
   The next turn re-enters at step 4.
 - Non-feature intent (`bug`/`refactor`/`docs`/`infra`/`chore`) →
@@ -1008,7 +1014,8 @@ typed something into the tmux chat. Classify the input using
   question and end the turn. The next turn re-enters step 4 with
   the user's reply. If the answer is still unclear, escalate
   `NEEDS HUMAN: approval-ambiguous` (which writes `phase:
-  needs-human`).
+  needs-human`). Format this reply per `references/pause-output-contract.md` — labeled slots, no open prose (template: `### ❓ Clarification needed` / `**Needs your review:** <the ambiguous reply, quoted>` / `**Next action:** approve / redirect: … / cancel`).
+  <!-- any new pause site below must reference pause-output-contract.md -->
 
 ### Auto-checkpoint sub-step
 
@@ -1751,6 +1758,9 @@ Branch on `.decision`:
 | `escalate-heading-missing` | Render the NEEDS HUMAN block via `flow-gate-summary --status needs-human --reason test-steps-section-missing --pr-url "$PR_URL" --why "PR body has no ## Test Steps heading — gate cannot evaluate"`. End. |
 | `escalate-gh-error` | Render the NEEDS HUMAN block via `flow-gate-summary --status needs-human --reason gh-error --pr-url "$PR_URL" --why "$(printf '%s' "$REASON" | tr '\n' ' ' | head -c 200)"` (one-line, length-bounded from the `gh` stderr). End. |
 
+**Post-render QA prose.** Any prose the supervisor adds around these terminal renders — a follow-up answer, a post-merge QA reply — is formatted per `references/pause-output-contract.md` (labeled slots, no open prose; template: `### ✅ <terminal state> — question answered` / `**Notes:** <the answer>` / `**Next action:** <what remains>`), but NEVER as a second block over the helper render: the `flow-gate-summary` / `flow-pipeline-summary` output already satisfies the contract via its own `STATUS:`/`WHY:`/`NEXT ACTION:` grammar and is never duplicated or re-wrapped.
+<!-- any new pause site below must reference pause-output-contract.md -->
+
 **A `gated` verdict is terminal, not advisory.** When `flow-gate-decide`
 returns `gated`, the supervisor renders the GATED block, writes
 `phase: gated`, and ends — full stop. The `gated` verdict is **not** an
@@ -1789,6 +1799,9 @@ validation — the pipeline auto-resumes** into feedback mode
 (`flow-resume-decide` resolves `gated` + a checkpoint marker →
 `gated-feedback`, see Resume mode). It grants no new merge authority —
 the gated verdict stays terminal.
+
+**Feedback-mode turn-ending replies.** While a `gated` PR sits through feedback rounds (including `gated-feedback` resume re-entries), every turn-ending reply — a fix confirmation, a re-verify report, a validation answer — is formatted per `references/pause-output-contract.md` — labeled slots, no open prose (template: `### ⏸ GATED — <what this round did>` / `**Remaining:** <unchecked Test Steps>` / `**Needs your review:** <the item touched>` / `**Next action:** tick the boxes and say merge, or report another issue`).
+<!-- any new pause site below must reference pause-output-contract.md -->
 
 ### Gate override (post-verdict, opt-in)
 
@@ -2358,6 +2371,9 @@ Branch on `.resumeAt`:
 | `terminal` | Already in a terminal state. Re-run the corresponding gate render (the same helpers every gate-emission site uses) and end without re-running anything else. On `merged`/`gated` the render re-runs `flow-pipeline-summary ... --echo-prose ...` above `flow-gate-summary --status <merged\|gated> ...`, so the echo recap re-surfaces on resume re-entry — extract the `<!-- flow-echo-recap:start -->`…`<!-- flow-echo-recap:end -->` block and echo it VERBATIM per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection (re-orientation is exactly the resume use case). `cancelled` has no PR, so `--echo-prose` is a no-op there. `needs-human` re-renders the escalation via `flow-gate-summary --status needs-human ...`. The two no-in-flight-work pending phases short-circuit here pre-tree (reasons `no-change-investigation-complete` for `triaged-no-change`, `awaiting-triage-clarification` for `triage-pending-clarification`): they carry no PR/worktree and have no gate-summary status, so print a one-line note that the pipeline already completed (a no-change investigation, or one awaiting a clarification a resume can't re-ask) and end — do NOT build a worktree. On the `triaged-no-change` path, when `$ANSWER` is non-empty, re-print the saved `$ANSWER` (as markdown) so the user re-reads the original answer instead of the generic terminal note; fall back to the generic note when `$ANSWER` is empty. |
 | `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
 | `abort` | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end. |
+
+On the `terminal` row, any post-render QA prose the resume turn adds (answering a user question after re-rendering the gate block) is formatted per `references/pause-output-contract.md` — labeled slots, no open prose, never a second block over the helper render (the re-rendered gate block already satisfies the contract).
+<!-- any new pause site below must reference pause-output-contract.md -->
 
 `flow-resume-decide` resolves `approval-pending-clarification` to
 `step-4` (`bin/flow-resume-decide.ts` Row 4 — the phase is not in

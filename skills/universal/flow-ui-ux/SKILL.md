@@ -105,6 +105,9 @@ Beyond those: one radius / one shadow / one spacing value repeated everywhere; h
 - Component-state completeness holds: every interactive control expresses loading, disabled, and focus where its situation demands; submit actions disable in flight to prevent double-submission rather than disabling until valid; and response-time expectations are met (`references/component-interaction.md`).
 - Accessibility holds to the WCAG AA spot-check: keyboard-operable, visible focus, AA contrast, semantic structure, meaning not carried by color alone. Interactive targets meet the 24px AA floor (WCAG 2.5.8); standalone controls reach the 44px comfort target or the trade-off is named.
 - Responsive layout holds across widths, not just one: constrained columns stay centered and capped (no full-bleed on wide monitors), and the narrowest width reflows with no horizontal scroll or lost content (WCAG 1.4.10). A "review with /flow-ui-ux" inherently spans viewports — judge the layout at narrow and wide, not at a single default width.
+- On a standalone (user-invoked) review, format the turn-ending review report per
+  the cross-skill `flow-pipeline/references/pause-output-contract.md` (labeled
+  slots, no open prose; the per-surface judgments ride above the block).
 
 # Constraints
 

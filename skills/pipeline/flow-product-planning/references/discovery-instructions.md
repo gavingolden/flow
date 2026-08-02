@@ -1244,15 +1244,16 @@ the artifact `pr-review` consumes. Both files should land.
 
 ## 9. Return a brief summary
 
-Your final message back to the wrapper should be one short paragraph (3–5
-sentences max): the problem statement in one line, the number of tasks, the
-candidate follow-up issue count if non-zero (e.g. "3 candidate follow-up
-issues for the user to pick from"), and the top one or two open questions
-or assumptions the user should pay attention to. **When Step 1.5's research
-path was active but no research ran, also append the one-line skip-note from
-(e)** (e.g. "Web-grounded research skipped — agy unavailable; force with
-`flow feature create --research`.") so it reaches chat; stay silent when the path was
-fully dormant. Do not paste the PRD or task list back — the wrapper only forwards your summary to the caller, and
+Your final message back to the wrapper should be 3–5 labeled bullets:
+`Problem:` — the problem statement in one line; `Tasks:` — the number of
+tasks; `Candidates:` — the candidate follow-up issue count if non-zero
+(e.g. "3 candidate follow-up issues for the user to pick from"; omit the
+bullet when zero); `Top assumptions:` — the top one or two open questions
+or assumptions the user should pay attention to; `Research:` — **when
+Step 1.5's research path was active but no research ran, the one-line
+skip-note from (e)** (e.g. "Web-grounded research skipped — agy
+unavailable; force with `flow feature create --research`.") so it reaches
+chat; omit the bullet when research ran or the path was fully dormant. Do not paste the PRD or task list back — the wrapper only forwards your summary to the caller, and
 the artifacts on disk are the durable record. Keeping the return value
 short is the whole point of the subagent fan-out.
 
