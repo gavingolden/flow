@@ -49,10 +49,11 @@ _pause point_, not every message.
 Slot omission is **unconditional**: an empty slot is dropped, never
 rendered as `**Went wrong:** none`. There is **no discretionary
 "trivial answer" escape hatch** — a trivial answer collapses naturally
-to the STATUS heading + the answer + `**Next action:**`, which is
-already the minimal legal block. If you find yourself wanting to skip
-the block because the message is short, the short block _is_ the
-compliant form.
+to the STATUS heading + a `**Notes:**` slot carrying the answer +
+`**Next action:**`, which is already the minimal legal block: the
+answer still lands in a labeled slot, never as unlabeled prose inside
+the block. If you find yourself wanting to skip the block because the
+message is short, the short block _is_ the compliant form.
 
 ## Closing-summary and Notes catch-all
 
@@ -79,25 +80,25 @@ prose).
 
 **Clarifying question (triage):**
 
-### ❓ Clarification needed
-
-**Needs your review:** "make the dashboard faster" — is the target the initial page load or the live-refresh interval?
-**Next action:** Reply with one of the two; I re-enter triage with your answer.
+> ### ❓ Clarification needed
+>
+> **Needs your review:** "make the dashboard faster" — is the target the initial page load or the live-refresh interval?
+> **Next action:** Reply with one of the two; I re-enter triage with your answer.
 
 **Gated feedback reply (after a bug callout was fixed):**
 
-### ⏸ GATED — fix applied, re-verified
-
-**Remaining:** Test Steps items 2 and 4 are still unchecked on PR #212.
-**Needs your review:** re-check the popover positioning at narrow widths (the reported bug).
-**Next action:** Tick the remaining boxes and say `merge`, or report another issue.
+> ### ⏸ GATED — fix applied, re-verified
+>
+> **Remaining:** Test Steps items 2 and 4 are still unchecked on PR #212.
+> **Needs your review:** re-check the popover positioning at narrow widths (the reported bug).
+> **Next action:** Tick the remaining boxes and say `merge`, or report another issue.
 
 **Post-merge QA answer:**
 
-### ✅ Merged — question answered
-
-**Notes:** the retry cap lives in `bin/flow-ci-wait.ts` (`MAX_POLLS`); the squash commit is `abc1234`.
-**Next action:** Nothing pending — this pipeline is complete.
+> ### ✅ Merged — question answered
+>
+> **Notes:** the wall-clock retry cap lives in `bin/flow-ci-wait.ts` (`maxElapsed`, default 1200s); the squash commit is `abc1234`.
+> **Next action:** Nothing pending — this pipeline is complete.
 
 **Don't (negative example — open prose, no block):**
 

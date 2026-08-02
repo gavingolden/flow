@@ -146,7 +146,7 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
    single discovery Task call — **no** new fan-out site, **no** new exemption.
 
 4. When the subagent returns, treat its labeled-bullet summary
-   (3–6 bullets: `Problem:`, `Tasks:`, `Candidates:`,
+   (3–5 bullets: `Problem:`, `Tasks:`, `Candidates:`,
    `Top assumptions:`, `Research:`) as the
    chat output. Do **not** read `.flow-tmp/plan.md` from disk in the
    wrapper — the supervisor (or downstream caller) reads that file
@@ -209,7 +209,7 @@ made in the PRD's "Open Questions" section (or, under `MODE: epic`, the
 `design.md` "Open Questions" section), each resolved per the resolution-first
 contract (a **Recommended:** answer or a named **Needs user input:** escape).
 
-Return a summary of 3–6 labeled bullets — `Problem:` (the problem
+Return a summary of 3–5 labeled bullets — `Problem:` (the problem
 statement in one line), `Tasks:` (the task count), `Candidates:` (the
 candidate follow-up issue count, omit when zero), `Top assumptions:` (the
 top one or two assumptions the user should pay attention to), and

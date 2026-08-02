@@ -1244,7 +1244,7 @@ the artifact `pr-review` consumes. Both files should land.
 
 ## 9. Return a brief summary
 
-Your final message back to the wrapper should be 3–6 labeled bullets:
+Your final message back to the wrapper should be 3–5 labeled bullets:
 `Problem:` — the problem statement in one line; `Tasks:` — the number of
 tasks; `Candidates:` — the candidate follow-up issue count if non-zero
 (e.g. "3 candidate follow-up issues for the user to pick from"; omit the

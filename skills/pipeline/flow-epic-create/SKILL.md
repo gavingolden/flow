@@ -298,10 +298,12 @@ F1 planning (the designer records this in `design.md` Open Questions), so the
 reviewer reads the deferral as a conscious choice rather than an omission.
 
 Any prose added around the checkpoint render (the palette-deferral note
-above, a design highlight) is formatted per the cross-skill
-`flow-pipeline/references/pause-output-contract.md` — labeled slots, no
-open prose; the STATUS block itself already complies via its own grammar
-and is never re-wrapped. Compact template for the extra prose:
+above, a design highlight) is supplemental text, not a second pause
+block — the STATUS block itself already satisfies
+`flow-pipeline/references/pause-output-contract.md` via its own
+grammar and is never re-wrapped or duplicated. Add this compact
+`**Notes:**` line ABOVE the helper-rendered STATUS block, per the
+contract's `**Notes:**` catch-all slot:
 
 > **Notes:** <deferral note / design highlight>
 

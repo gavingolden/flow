@@ -6674,14 +6674,25 @@ describe("pause-output contract wiring lint", () => {
     }
   });
 
-  it("flow-pipeline/SKILL.md references pause-output-contract.md at ≥6 pause sites", () => {
-    const matches = content.match(/pause-output-contract\.md/g) ?? [];
+  it("flow-pipeline/SKILL.md references pause-output-contract.md at ≥7 pause sites", () => {
+    const c = fs.readFileSync(
+      path.join(REPO_ROOT, "skills", "pipeline", "flow-pipeline", "SKILL.md"),
+      "utf8",
+    );
+    // Strip HTML comments first so the extend-on-add sentinel comments
+    // (`<!-- any new pause site below must reference
+    // pause-output-contract.md -->`) don't inflate the count — only the
+    // backticked in-prose reference form counts as a real wired site.
+    const stripped = c.replace(/<!--[\s\S]*?-->/g, "");
+    const matches =
+      stripped.match(/`references\/pause-output-contract\.md`/g) ?? [];
     expect(
       matches.length,
-      "flow-pipeline SKILL.md must reference pause-output-contract.md at each " +
-        "of its six informal pause sites (triage clarification, plan summary, " +
-        "checkpoint nudge, approval clarification, gated feedback, post-render QA).",
-    ).toBeGreaterThanOrEqual(6);
+      "flow-pipeline SKILL.md must reference `references/pause-output-contract.md` " +
+        "at each of its seven informal pause sites (triage clarification, plan " +
+        "summary, checkpoint nudge, approval clarification, gated feedback, " +
+        "post-render QA, resume-mode terminal QA).",
+    ).toBeGreaterThanOrEqual(7);
   });
 
   it("each wired sibling SKILL.md references the contract via a resolvable cross-skill path", () => {
@@ -6730,12 +6741,15 @@ describe("pause-output contract wiring lint", () => {
   });
 
   it("the three discovery-return sites agree on the same label vocabulary (lockstep-drift guard)", () => {
+    // Match the backticked/bolded rendered form, not a bare substring —
+    // a bare "Research:" match is also satisfied by unrelated tokens like
+    // `forceResearch: true`, which would let a drifted label pass.
     const DISCOVERY_LABELS = [
-      "Problem:",
-      "Tasks:",
-      "Candidates:",
-      "Top assumptions:",
-      "Research:",
+      "`Problem:`",
+      "`Tasks:`",
+      "`Candidates:`",
+      "`Top assumptions:`",
+      "`Research:`",
     ];
     const sites = [
       "skills/pipeline/flow-product-planning/SKILL.md",
@@ -6747,7 +6761,7 @@ describe("pause-output contract wiring lint", () => {
       for (const label of DISCOVERY_LABELS) {
         expect(
           c.includes(label),
-          `${rel} must carry the discovery-return label \`${label}\` — the ` +
+          `${rel} must carry the discovery-return label ${label} — the ` +
             "three return-contract sites must agree verbatim on the bullet set",
         ).toBe(true);
       }

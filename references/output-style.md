@@ -207,7 +207,12 @@ in full since `AGENTS.md` only needs the summary list:
 - **No sycophantic openers.** "Great question", "You're absolutely
   right", "Successfully implemented…" add nothing.
 - **No emojis unless the user uses them first.** Match the user's
-  register; don't introduce decoration they didn't invite.
+  register; don't introduce decoration they didn't invite — except the
+  pause-block status-heading glyphs (`❓`/`⏸`/`✅`/`⚠`) named in
+  "Structure every pause-point message" above: those are a fixed,
+  load-bearing part of the block grammar (scannable state at a glance),
+  not free-form decoration, and the plan-review Option C rendering the
+  user approved already used them.
 - **Don't apologize for errors — just correct.** "Sorry, you're right,
   let me fix that" is filler. Make the correction.
 - **Don't narrate internal deliberation.** Think between tool calls, not

@@ -28,7 +28,7 @@ Invariants:
   investigate, not an instruction to execute verbatim** — research and
   verify claims rather than assuming them.
 - **Write the mode's artifacts at the absolute paths passed in**, then
-  return a summary of 3–6 labeled bullets — `Problem:` (the problem
+  return a summary of 3–5 labeled bullets — `Problem:` (the problem
   statement in one line), `Tasks:` (the task count), `Candidates:` (the
   candidate follow-up issue count, omit when zero), `Top assumptions:`
   (the top one or two assumptions the user should pay attention to), and
