@@ -149,9 +149,16 @@ function defaultSpawn(
 export function resolveSlug(
   args: SpawnCliArgs,
   deps: SpawnDeps = {},
-): { slug: string; synthetic: boolean } {
-  if (args.slug !== undefined && isValidSlug(args.slug)) {
-    return { slug: args.slug, synthetic: false };
+): { slug: string; synthetic: boolean; rejectedSlug?: string } {
+  if (args.slug !== undefined) {
+    if (isValidSlug(args.slug)) return { slug: args.slug, synthetic: false };
+    // Fall through rather than refusing to launch, but name the rejected
+    // value: without this the caller sees only "no slug resolved", which
+    // reads as "you passed nothing" when they in fact passed something
+    // invalid. Rejecting (not sanitizing) is deliberate — the slug becomes
+    // a filesystem path component, so coercing it is the weaker posture.
+    const fallback = resolveSlug({ ...args, slug: undefined }, deps);
+    return { ...fallback, rejectedSlug: args.slug };
   }
   const env = deps.env ?? process.env;
   const fromEnv = resolveSlugFromEnv(env);
@@ -225,7 +232,12 @@ export async function runLaunch(
   const spawn = deps.spawn ?? defaultSpawn;
   const doAppendRow = deps.appendRow ?? appendRow;
 
-  const { slug, synthetic } = resolveSlug(args, deps);
+  const { slug, synthetic, rejectedSlug } = resolveSlug(args, deps);
+  if (rejectedSlug !== undefined) {
+    process.stderr.write(
+      `flow-spawn: --slug "${rejectedSlug}" is not a valid slug (lowercase alphanumeric and hyphens, max 60 chars) — ignoring it\n`,
+    );
+  }
   if (synthetic) {
     process.stderr.write(
       `flow-spawn: no slug resolved — recording this launch under the synthetic slug "${slug}"\n`,

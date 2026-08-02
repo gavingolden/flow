@@ -171,6 +171,21 @@ describe("resolveSlug", () => {
     });
     expect(fallback.synthetic).toBe(true);
   });
+
+  it("reports an invalid --slug as rejected instead of discarding it silently", () => {
+    const rejected = resolveSlug(baseArgs({ slug: "Bad_Slug" }), {
+      env: { FLOW_SLUG: "env-slug" },
+    });
+    // Falls through to the next resolution source rather than refusing to
+    // launch, but names what it threw away so the caller isn't told "no
+    // slug resolved" when they in fact passed one.
+    expect(rejected.slug).toBe("env-slug");
+    expect(rejected.synthetic).toBe(false);
+    expect(rejected.rejectedSlug).toBe("Bad_Slug");
+
+    const validSlug = resolveSlug(baseArgs({ slug: "good-slug" }), { env: {} });
+    expect(validSlug.rejectedSlug).toBeUndefined();
+  });
 });
 
 describe("stdin passthrough", () => {
