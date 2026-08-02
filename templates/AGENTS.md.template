@@ -156,7 +156,13 @@ The three-ingredient new-repo onboarding:
    is already running for ~/.cache/chrome-devtools-mcp/chrome-profile`; flow
    degrades that to a clean skip (you lose browser coverage but the run stays
    green). A per-repo `--user-data-dir` is an alternative if you want a
-   persistent logged-in profile per repo.
+   persistent logged-in profile per repo. `--isolated` only swaps the
+   on-disk profile for a throwaway one — that throwaway profile is
+   documented as cleaned up *after the browser is closed*, so `--isolated`
+   alone does not stop a leaked browser process; see "Clean up spawned
+   resources" below for how the browser process itself is reaped. Add
+   `--headless=new` (not the legacy `--headless`) if you never want a Dock
+   icon for the automation browser.
 2. **Manifest, auto-completed (hand-authoring optional).** flow now
    bootstraps `.flow/ui-validation.json` for you: on a meaningful UI diff it
    infers `launch`/`baseUrl`/`routes`/`loginUrl` and credential env-var
@@ -327,8 +333,16 @@ dev server and opens a per-pipeline isolated browser page (`new_page` +
 opened, disposing the `isolatedContext`, in the same breath as stopping the
 server — on the completion path **and on every error / early-exit path**.
 Registering the `chrome-devtools` MCP with `--isolated` (above) gives each
-session its own auto-cleaned throwaway Chrome profile, but the agent still
-explicitly closes the page/context it opened; the two are complementary.
+session its own auto-cleaned throwaway Chrome profile, and the agent still
+explicitly closes the page/context it opened — but closing the page never
+closes the browser process itself: chrome-devtools-mcp exposes no
+browser-close tool, so `close_page` disposes only the `isolatedContext`.
+The browser process must be reaped separately, by SIGTERMing the session's
+own chrome-devtools-mcp server so its `shutdown()` handler runs (never a
+harder signal — that would skip `shutdown()` and orphan the browser
+instead of closing it). flow ships `flow-browser-teardown` for this, fired
+once at the pipeline's terminal state, scoped to this session's own server
+by process ancestry.
 Scope the teardown strictly to what you spawned — never close a page or
 profile belonging to a concurrent agent run or to the user's own browser.
 The motivating incident: an automated visual pass left the chrome-devtools
