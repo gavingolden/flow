@@ -115,11 +115,11 @@ Add `--headless=new` (not the legacy `--headless`) if you never want a Dock icon
 
 ## Process registry
 
-`~/.flow/state/procs/<slug>.jsonl` is an append-only JSONL log of processes launched under a given pipeline slug — one JSON row per launch, each carrying `pgid`, `pid`, `startEpoch`, `slug`, `class` (`default` or `mcp-server`), `argv`, `recordedAt`, `sessionPid`, and `sessionStartEpoch`.
+`~/.flow/state/procs/<slug>.jsonl` is an append-only JSONL log of processes launched under a given pipeline slug — one JSON row per launch, each carrying `pgid`, `pid`, `startEpoch`, `slug`, `class` (`default` or `mcp-server`), `argv`, `argvTruncated` (present and `true` only when `argv` was cut to stay under the per-row byte cap — absent otherwise), `recordedAt`, `sessionPid`, and `sessionStartEpoch`. `startEpoch` is nullable: `null` means the pid's start time could not be read at record time, which the design treats as "never signal" — a row that can't prove which process it is describes is never eligible for the liveness match a future reap would require.
 
 Launch a command through the registry with `flow-spawn --slug <slug> -- <cmd> [args...]`; it runs the command in its own process group, records one row, and passes through its stdio and exit code. Inspect a slug's recorded rows with `flow-spawn --list <slug> [--json]`.
 
-Nothing in flow reads this registry yet — it exists as a durable record for later features (bulk teardown of a pipeline's whole process tree, orphan reaping) to consume.
+Only `flow-spawn --list` reads this registry so far — no automated teardown or reap consumes it yet. It exists as a durable record for later features (bulk teardown of a pipeline's whole process tree, orphan reaping) to consume.
 
 ## config.json reference
 
