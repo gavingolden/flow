@@ -15,7 +15,11 @@
         "WHEN the registry file or procs directory is absent THE SYSTEM SHALL create it on first append"
       ],
       "mvp": true,
-      "flowNewHints": { "autoMerge": true, "copilotReview": "auto", "effort": "medium" }
+      "flowNewHints": {
+        "autoMerge": true,
+        "copilotReview": "auto",
+        "effort": "medium"
+      }
     },
     {
       "id": "reaper-kill-policies",
@@ -29,7 +33,11 @@
         "WHEN a row's pid is dead or its startEpoch mismatches THE SYSTEM SHALL skip it with a per-row outcome and send no signal",
         "WHEN the registry has no row covering an in-session chrome-devtools-mcp server THE SYSTEM SHALL fall back to the existing ancestry-scoped teardown path"
       ],
-      "flowNewHints": { "autoMerge": false, "copilotReview": "auto", "effort": "high" }
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "auto",
+        "effort": "high"
+      }
     },
     {
       "id": "spawn-site-adoption",
@@ -42,7 +50,11 @@
         "WHEN flow-ci-wait is launched in the background THE SYSTEM SHALL record a registry row for it",
         "WHEN a spawn site is harness-owned (chrome-devtools-mcp server) THE SYSTEM SHALL leave it unwrapped and documented as ancestry-fallback territory"
       ],
-      "flowNewHints": { "autoMerge": true, "copilotReview": "auto", "effort": "medium" }
+      "flowNewHints": {
+        "autoMerge": true,
+        "copilotReview": "auto",
+        "effort": "medium"
+      }
     },
     {
       "id": "terminal-state-wiring",
@@ -56,7 +68,11 @@
         "WHEN skill-md-lint runs THE SYSTEM SHALL fail on any terminal-state reap site regressed to a bare '|| true'",
         "WHEN AGENTS.md and SKILL.md are read after merge THE SYSTEM SHALL describe the layered cleanup contract instead of the point-of-use-only rule"
       ],
-      "flowNewHints": { "autoMerge": false, "copilotReview": "auto", "effort": "medium" }
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "auto",
+        "effort": "medium"
+      }
     },
     {
       "id": "orphan-sweep-convergence",
@@ -69,7 +85,11 @@
         "WHEN a registry row's recording session is alive THE SYSTEM SHALL never signal it",
         "WHEN a user consults help/docs THE SYSTEM SHALL present state-file sweeping and process sweeping under distinct, non-colliding names"
       ],
-      "flowNewHints": { "autoMerge": false, "copilotReview": "auto", "effort": "medium" }
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "auto",
+        "effort": "medium"
+      }
     }
   ]
 }

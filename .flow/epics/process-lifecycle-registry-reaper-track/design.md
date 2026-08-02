@@ -8,12 +8,12 @@ Pipelines leak processes. Two measured shapes: chrome-devtools-mcp servers plus 
 
 The current contract — point-of-use teardown plus PR #491's ancestry-based `flow-browser-teardown` (`bin/flow-browser-teardown.ts`) — has two structural blind spots:
 
-- **Ancestry cannot see a reparented process.** A PPID walk stops working the moment the parent dies and the child reparents to PPID 1 — the *common* leak shape.
+- **Ancestry cannot see a reparented process.** A PPID walk stops working the moment the parent dies and the child reparents to PPID 1 — the _common_ leak shape.
 - **Identity-by-name is dangerous for generic argv0s.** `node`/`npm`/`bun` command lines are indistinguishable by name; a substring match in `flow-browser-teardown` was caught live SIGTERMing an unrelated in-session `sleep` and its own invoking shell (fixed in `ab80be2` by argv-position anchoring — see the `isMcpServerCommand` doc comment).
 
 A third failure was observed live: the `|| true` on the terminal-state `flow-browser-teardown` call sites hid a real leak (helper missing from PATH → Chrome and its MCP server survived a gated terminal state with zero signal). The reaper must never silently no-op.
 
-The job to be done is not "kill orphans harder" — it is *identity at launch*: record who was spawned, in a channel that survives reparenting (a process group + a registry row), so teardown becomes a lookup instead of a forensic reconstruction. This epic **extends** `flow-browser-teardown`, `bin/lib/liveness.ts` (`pidStartEpoch`), and the 8 terminal-state wiring sites in `skills/pipeline/flow-pipeline/SKILL.md` — it builds no parallel teardown helper.
+The job to be done is not "kill orphans harder" — it is _identity at launch_: record who was spawned, in a channel that survives reparenting (a process group + a registry row), so teardown becomes a lookup instead of a forensic reconstruction. This epic **extends** `flow-browser-teardown`, `bin/lib/liveness.ts` (`pidStartEpoch`), and the 8 terminal-state wiring sites in `skills/pipeline/flow-pipeline/SKILL.md` — it builds no parallel teardown helper.
 
 ## 2. Clarified requirements
 
@@ -29,15 +29,15 @@ Epic-level EARS acceptance criteria:
 
 Before → after behavioral contrast:
 
-| Surface | Before | After |
-|---|---|---|
-| Subprocess launch | Ad-hoc `Bash`/`Bun.spawn`, shares the caller's process group, no record | `flow-spawn` wrapper: own pgid, JSONL registry row |
-| Terminal-state teardown | `flow-browser-teardown --json \|\| true` (MCP server only; silent on failure) | Registry-driven reap of all classes; browser-teardown demoted to registry-miss fallback; failure surfaced and recorded |
-| Reparented (PPID 1) leak | Invisible to ancestry walk | Reaped via `kill(-pgid)` from the registry row, which survives reparenting |
-| Crash-path orphans | `--orphans` heuristic sweep by command-line shape only | Registry rows with dead recording sessions swept deterministically; shape heuristics remain for unregistered strays |
-| Sweep flag names | `flow done --orphans` vs `flow-browser-teardown --orphans` collide | Converged/renamed, one documented surface |
+| Surface                  | Before                                                                        | After                                                                                                                  |
+| ------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Subprocess launch        | Ad-hoc `Bash`/`Bun.spawn`, shares the caller's process group, no record       | `flow-spawn` wrapper: own pgid, JSONL registry row                                                                     |
+| Terminal-state teardown  | `flow-browser-teardown --json \|\| true` (MCP server only; silent on failure) | Registry-driven reap of all classes; browser-teardown demoted to registry-miss fallback; failure surfaced and recorded |
+| Reparented (PPID 1) leak | Invisible to ancestry walk                                                    | Reaped via `kill(-pgid)` from the registry row, which survives reparenting                                             |
+| Crash-path orphans       | `--orphans` heuristic sweep by command-line shape only                        | Registry rows with dead recording sessions swept deterministically; shape heuristics remain for unregistered strays    |
+| Sweep flag names         | `flow done --orphans` vs `flow-browser-teardown --orphans` collide            | Converged/renamed, one documented surface                                                                              |
 
-**Lost:** the `|| true` never-blocks guarantee at terminal-state call sites is narrowed — the reaper still never *blocks* a terminal state, but its failure is now loud and recorded rather than invisible; and the AGENTS.md standing rule "cleanup happens at point-of-use, not via a swept safety net" is revised (user-authorized) to admit the registry+sweep layer.
+**Lost:** the `|| true` never-blocks guarantee at terminal-state call sites is narrowed — the reaper still never _blocks_ a terminal state, but its failure is now loud and recorded rather than invisible; and the AGENTS.md standing rule "cleanup happens at point-of-use, not via a swept safety net" is revised (user-authorized) to admit the registry+sweep layer.
 
 ## 3. High-level design
 
@@ -77,13 +77,13 @@ Consequences: future agents stop treating the sweep as forbidden; the rule text 
 
 Walking-skeleton root: **F1** — the registry and wrapper are the seam every other feature hangs off; it is mergeable alone (pure additive helper + lib, no behavior change to existing pipelines).
 
-| id | Feature | Hides (volatile decision) | Consumes → produces |
-|---|---|---|---|
-| `proc-registry-spawn` (F1, mvp) | `flow-spawn` wrapper + `bin/lib/proc-registry.ts` (row schema, JSONL append/read, own-pgid launch, `startEpoch` capture) | D1 (identity channel & row schema) | produces: registry file format, `flow-spawn` CLI, `proc-registry` lib API |
-| `reaper-kill-policies` (F2) | reap engine: per-class policy dispatch, startEpoch verification, TERM→wait→KILL on `-pgid`, mcp-server pid-only rule, `--dry-run`/`--json`; extends `flow-browser-teardown.ts`/shared lib, ancestry demoted to registry-miss fallback | D2 + D3 (kill policy encoding; fallback layering) | consumes: F1's registry lib + row schema. produces: `flow-reap` reap API/CLI with typed JSON result |
-| `spawn-site-adoption` (F3) | routing pipeline spawn sites through the wrapper: ui-smoke/ui-validation dev-server launches, backgrounded `flow-ci-wait`, verify/test-runner launches where the skill (not the harness) owns the spawn; class assignment per site | D1's *adoption* surface (which sites can be wrapped; harness-owned spawns cannot) | consumes: F1's `flow-spawn` CLI contract. produces: registry rows during real pipelines |
-| `terminal-state-wiring` (F4) | replacing the 8 `flow-browser-teardown --json \|\| true` SKILL.md sites with the failure-surfacing reap invocation; durable failure record; `skill-md-lint` guard against bare `\|\| true` regression; AGENTS.md/SKILL.md standing-rule revision (D6) | D4 (failure-surfacing shape) + D6 (rule text) | consumes: F2's reap CLI + JSON result shape. produces: revised standing-rule text, lint rule |
-| `orphan-sweep-convergence` (F5) | crash-path sweep of dead-session registry rows; convergence/rename of the colliding `--orphans` surfaces; docs for the layered cleanup contract's sweep tier | D5 (sweep selection criterion & command naming) | consumes: F1's registry format + F2's kill-policy engine. produces: one documented sweep surface |
+| id                              | Feature                                                                                                                                                                                                                                               | Hides (volatile decision)                                                         | Consumes → produces                                                                                 |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `proc-registry-spawn` (F1, mvp) | `flow-spawn` wrapper + `bin/lib/proc-registry.ts` (row schema, JSONL append/read, own-pgid launch, `startEpoch` capture)                                                                                                                              | D1 (identity channel & row schema)                                                | produces: registry file format, `flow-spawn` CLI, `proc-registry` lib API                           |
+| `reaper-kill-policies` (F2)     | reap engine: per-class policy dispatch, startEpoch verification, TERM→wait→KILL on `-pgid`, mcp-server pid-only rule, `--dry-run`/`--json`; extends `flow-browser-teardown.ts`/shared lib, ancestry demoted to registry-miss fallback                 | D2 + D3 (kill policy encoding; fallback layering)                                 | consumes: F1's registry lib + row schema. produces: `flow-reap` reap API/CLI with typed JSON result |
+| `spawn-site-adoption` (F3)      | routing pipeline spawn sites through the wrapper: ui-smoke/ui-validation dev-server launches, backgrounded `flow-ci-wait`, verify/test-runner launches where the skill (not the harness) owns the spawn; class assignment per site                    | D1's _adoption_ surface (which sites can be wrapped; harness-owned spawns cannot) | consumes: F1's `flow-spawn` CLI contract. produces: registry rows during real pipelines             |
+| `terminal-state-wiring` (F4)    | replacing the 8 `flow-browser-teardown --json \|\| true` SKILL.md sites with the failure-surfacing reap invocation; durable failure record; `skill-md-lint` guard against bare `\|\| true` regression; AGENTS.md/SKILL.md standing-rule revision (D6) | D4 (failure-surfacing shape) + D6 (rule text)                                     | consumes: F2's reap CLI + JSON result shape. produces: revised standing-rule text, lint rule        |
+| `orphan-sweep-convergence` (F5) | crash-path sweep of dead-session registry rows; convergence/rename of the colliding `--orphans` surfaces; docs for the layered cleanup contract's sweep tier                                                                                          | D5 (sweep selection criterion & command naming)                                   | consumes: F1's registry format + F2's kill-policy engine. produces: one documented sweep surface    |
 
 Rationale notes:
 
