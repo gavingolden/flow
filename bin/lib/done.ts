@@ -16,6 +16,7 @@
  * before confirming.
  */
 
+import { spawnSync } from "node:child_process";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { confirmStdin as confirm } from "./confirm";
 import { livenessOf } from "./liveness";
@@ -45,7 +46,48 @@ export type DoneOptions = {
   yes?: boolean;
   /** plainTerminate seam (test only) — defaults to the real SIGTERM path. */
   terminate?: typeof plainTerminate;
+  /**
+   * Session-scoped browser-teardown seam (test only) — defaults to
+   * `defaultBrowserTeardown`, which shells out to `flow-browser-teardown
+   * --session-pid <pid> --json` for the pipeline's recorded pid. Fires
+   * best-effort, before the pipeline itself is terminated — a thrown or
+   * missing-binary failure is always swallowed, never fails `flow done`.
+   */
+  browserTeardown?: (slug: string) => void;
 };
+
+/**
+ * Default `browserTeardown`: reads the pipeline's recorded pid from state
+ * and, only on an `alive` liveness verdict (recycled-PID-safe, mirroring
+ * `plainTerminate`), shells out to `flow-browser-teardown --session-pid
+ * <pid> --json` so THIS pipeline's own chrome-devtools-mcp server (never a
+ * sibling's) is SIGTERMed and its shutdown() handler reaps its Chrome
+ * subprocess. Silently no-ops when no pid is recorded (e.g. the
+ * `runDoneMulti` window-only synthesized row) or the pid isn't `alive`.
+ */
+function defaultBrowserTeardown(slug: string): void {
+  const state = readState(slug);
+  if (!state || state.pid == null) return;
+  if (livenessOf(state) !== "alive") return;
+  spawnSync(
+    "flow-browser-teardown",
+    ["--session-pid", String(state.pid), "--json"],
+    { stdio: "ignore" },
+  );
+}
+
+/**
+ * Fires `browserTeardown` best-effort. `flow done` must never fail because
+ * a browser would not close — a thrown error (including a missing
+ * `flow-browser-teardown` on PATH) is swallowed here, never propagated.
+ */
+function safeBrowserTeardown(slug: string, options: DoneOptions): void {
+  try {
+    (options.browserTeardown ?? defaultBrowserTeardown)(slug);
+  } catch {
+    // Best-effort — see the doc comment above.
+  }
+}
 
 /**
  * CLI shim for `bin/flow`'s `done` verb. Intercepts --help / -h before any
@@ -170,6 +212,8 @@ export function runDone(
     }
   }
 
+  safeBrowserTeardown(name, options);
+
   let warned = false;
   if (hasWindow) {
     killWindow(name);
@@ -287,6 +331,7 @@ function sweep(
 
   const windows = listWindows();
   for (const s of states) {
+    safeBrowserTeardown(s.slug, options);
     if (findWindowBySlug(windows, s.slug)) {
       killWindow(s.slug);
     } else {

@@ -59,6 +59,17 @@ teardown, since the `isolatedContext` name is not a closeable handle and a
 page or the user's own tab. The MCP-absent and headless paths opened nothing,
 so teardown is a no-op there, never a failure.
 
+`close_page` is per-pass and stays as described above; it disposes the
+`isolatedContext` but does NOT close the Chrome process — chrome-devtools-mcp
+exposes no browser-close tool, and its own `closeBrowser()` runs only inside
+the server's `shutdown()` handler. The browser process is reaped separately
+by `flow-browser-teardown`, fired ONCE at the pipeline's terminal state and
+NEVER per pass (a per-pass teardown would leave the later `/flow-pr-review`
+visual-appearance pass without a browser — a regression, not a fix). After
+teardown has fired, a further chrome-devtools MCP call in the same session is
+expected to fail and MUST be treated exactly as `flow-ui-validate
+--mcp-absent`: a quiet `ran:false` skip, never a failure.
+
 **Agent-written env/config files.** Per the inline-only rule above, this pass
 never writes a `.env.local`/`.env`/config file as part of normal operation —
 but if any pass-created env/config file exists on disk at completion (e.g. a

@@ -13,6 +13,19 @@ vi.mock("node:fs", async () => {
   return { ...actual, readSync: readSyncMock };
 });
 
+// Mock node:child_process's spawnSync so the default browserTeardown's
+// real subprocess call (`flow-browser-teardown --session-pid ...`) never
+// actually spawns anything from these tests — asserted directly by the
+// "no recorded pid" test below.
+const spawnSyncMock = vi.hoisted(() => vi.fn());
+vi.mock("node:child_process", async () => {
+  const actual =
+    await vi.importActual<typeof import("node:child_process")>(
+      "node:child_process",
+    );
+  return { ...actual, spawnSync: spawnSyncMock };
+});
+
 // Mock tmux primitives so the help short-circuit test cannot accidentally
 // run a kill or list against the user's real tmux session if the check
 // regresses. The mocks are read-only spies; calls would surface as test
@@ -809,5 +822,139 @@ describe("plain-launcher termination (no tmux window matched)", () => {
     expect(terminate).toHaveBeenCalledTimes(1);
     expect(terminate).toHaveBeenCalledWith(live);
     expect(tmuxMock.killWindow).toHaveBeenCalledWith("windowed");
+  });
+
+  it("runDone fires browserTeardown on the plain-launcher path too — the branch the original 'before killWindow' wiring would have skipped", () => {
+    tmuxMock.windowExists.mockReturnValue(false);
+    const s = state({
+      slug: "plain-bt",
+      phase: "implementing",
+      pid: 555,
+      procStartedAt: 1,
+    });
+    stateMock.readState.mockReturnValue(s);
+    const terminate = vi.fn(() => ({ terminated: true }));
+    const browserTeardown = vi.fn();
+    const code = runDone("plain-bt", { yes: true, terminate, browserTeardown });
+    expect(code).toBe(0);
+    expect(browserTeardown).toHaveBeenCalledTimes(1);
+    expect(browserTeardown).toHaveBeenCalledWith("plain-bt");
+    expect(tmuxMock.killWindow).not.toHaveBeenCalled();
+  });
+});
+
+describe("browserTeardown seam", () => {
+  it("runDone fires browserTeardown exactly once with the slug on the TMUX path, before killWindow", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "windowed-bt", phase: "implementing" }),
+    );
+    const browserTeardown = vi.fn();
+    const code = runDone("windowed-bt", { yes: true, browserTeardown });
+    expect(code).toBe(0);
+    expect(browserTeardown).toHaveBeenCalledTimes(1);
+    expect(browserTeardown).toHaveBeenCalledWith("windowed-bt");
+    expect(tmuxMock.killWindow).toHaveBeenCalledWith("windowed-bt");
+    const teardownOrder = browserTeardown.mock.invocationCallOrder[0]!;
+    const killOrder = tmuxMock.killWindow.mock.invocationCallOrder[0]!;
+    expect(teardownOrder).toBeLessThan(killOrder);
+  });
+
+  it("a browserTeardown that throws does not fail runDone — the terminate/killWindow path still runs and the command still succeeds", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "windowed-throw", phase: "implementing" }),
+    );
+    const browserTeardown = vi.fn(() => {
+      throw new Error("boom");
+    });
+    const code = runDone("windowed-throw", { yes: true, browserTeardown });
+    expect(code).toBe(0);
+    expect(browserTeardown).toHaveBeenCalledWith("windowed-throw");
+    expect(tmuxMock.killWindow).toHaveBeenCalledWith("windowed-throw");
+    expect(stateMock.deleteState).toHaveBeenCalledWith("windowed-throw");
+  });
+
+  it("a state row with no recorded pid (the runDoneMulti window-only shape) results in no teardown subprocess call", () => {
+    // No slug has a state file, but their windows exist — runDoneMulti
+    // synthesizes a pid-less row for each.
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(null);
+    readSyncMock.mockImplementation((_fd, buf) => {
+      const bytes = Buffer.from("y\n");
+      bytes.copy(buf as Buffer);
+      return bytes.length;
+    });
+    const code = runDoneCli(["win-only-a", "win-only-b"]);
+    expect(code).toBe(0);
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("the sweep path fires browserTeardown once per swept slug", () => {
+    const a = state({ slug: "sweep-a", phase: "merged" });
+    const b = state({ slug: "sweep-b", phase: "merged" });
+    stateMock.listStates.mockReturnValue([a, b]);
+    tmuxMock.listWindows.mockReturnValue([]);
+    const terminate = vi.fn(() => ({ terminated: true }));
+    const browserTeardown = vi.fn();
+    const code = runDone(undefined, {
+      merged: true,
+      yes: true,
+      terminate,
+      browserTeardown,
+    });
+    expect(code).toBe(0);
+    expect(browserTeardown).toHaveBeenCalledTimes(2);
+    expect(browserTeardown).toHaveBeenCalledWith("sweep-a");
+    expect(browserTeardown).toHaveBeenCalledWith("sweep-b");
+  });
+});
+
+describe("defaultBrowserTeardown (real path — no browserTeardown seam injected)", () => {
+  it("state.pid == null: readState succeeds but the row has no recorded pid — no spawnSync call", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "no-pid", phase: "implementing", pid: undefined }),
+    );
+    const code = runDone("no-pid", { yes: true });
+    expect(code).toBe(0);
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("livenessOf !== 'alive' (recycled-pid guard): a pid is recorded but liveness resolves 'dead' — no spawnSync call", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({
+        slug: "recycled-pid",
+        phase: "implementing",
+        pid: 4242,
+        procStartedAt: 100,
+      }),
+    );
+    livenessMock.livenessOf.mockReturnValue("dead");
+    const code = runDone("recycled-pid", { yes: true });
+    expect(code).toBe(0);
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("alive pid: spawns flow-browser-teardown with the exact argv shape, pid as its own array element", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({
+        slug: "alive-pid",
+        phase: "implementing",
+        pid: 9999,
+        procStartedAt: 100,
+      }),
+    );
+    livenessMock.livenessOf.mockReturnValue("alive");
+    const code = runDone("alive-pid", { yes: true });
+    expect(code).toBe(0);
+    expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+    expect(spawnSyncMock).toHaveBeenCalledWith(
+      "flow-browser-teardown",
+      ["--session-pid", "9999", "--json"],
+      { stdio: "ignore" },
+    );
   });
 });
