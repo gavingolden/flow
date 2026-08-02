@@ -47,7 +47,7 @@ The supervisor session that loads this skill (typically `/flow-pipeline` step
 
 1. The prose of this SKILL.md (the wrapper).
 2. The Task-tool call's prompt and brief result envelope.
-3. The one-paragraph summary the subagent returns.
+3. The labeled-bullet summary the subagent returns.
 
 It never sees the discovery transcript — the file reads, the codebase scans,
 the PRD drafting prose. Those stay inside the subagent's context. This is the
@@ -145,7 +145,9 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
    Discovery Subagent inherits the session model. This rides the existing
    single discovery Task call — **no** new fan-out site, **no** new exemption.
 
-4. When the subagent returns, treat its 3–5 sentence summary as the
+4. When the subagent returns, treat its labeled-bullet summary
+   (3–5 bullets: `Problem:`, `Tasks:`, `Candidates:`,
+   `Top assumptions:`, `Research:`) as the
    chat output. Do **not** read `.flow-tmp/plan.md` from disk in the
    wrapper — the supervisor (or downstream caller) reads that file
    directly when it needs the full plan, and reading it twice in the
@@ -207,9 +209,12 @@ made in the PRD's "Open Questions" section (or, under `MODE: epic`, the
 `design.md` "Open Questions" section), each resolved per the resolution-first
 contract (a **Recommended:** answer or a named **Needs user input:** escape).
 
-Return a one-paragraph summary (3–5 sentences) — the problem statement in
-one line, the number of tasks, and the top one or two assumptions the user
-should pay attention to. Do not paste the PRD or task list back; the
+Return a summary of 3–5 labeled bullets — `Problem:` (the problem
+statement in one line), `Tasks:` (the task count), `Candidates:` (the
+candidate follow-up issue count, omit when zero), `Top assumptions:` (the
+top one or two assumptions the user should pay attention to), and
+`Research:` (the one-line research skip note, omit when research ran or
+the path was dormant). Do not paste the PRD or task list back; the
 artifacts on disk are the record.
 ```
 
@@ -365,9 +370,14 @@ exemption.
 - **Epic mode (`MODE: epic`):** `design.md` and `manifest.json` exist under
   the resolved epic-output directory (no `plan.md` / `pr-description-draft.md`
   is produced); the existence check targets those two files instead.
-- The wrapper's chat output is the subagent's 3–5 sentence summary plus a
-  next-handoff suggestion — never the full PRD and never the result of a
-  fresh `Read` on `.flow-tmp/plan.md`.
+- The wrapper's chat output is the subagent's labeled-bullet summary
+  (`Problem:`, `Tasks:`, `Candidates:`, `Top assumptions:`, `Research:`)
+  plus a next-handoff suggestion — never the full PRD and never the
+  result of a fresh `Read` on `.flow-tmp/plan.md`. On a standalone run,
+  format this relay message per the cross-skill
+  `flow-pipeline/references/pause-output-contract.md` — the bullets ride
+  under the status heading, the next-handoff suggestion is the
+  `**Next action:**` slot.
 - The supervisor session's transcript contains no file-read tool calls or
   PRD-drafting prose attributable to this skill — those stayed inside the
   subagent.

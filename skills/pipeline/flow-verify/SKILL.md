@@ -212,6 +212,11 @@ flow-followups add \
 itself never runs the follow-up — it just registers it. Skip when no local-machine
 side-effect is produced.
 
+On a standalone (user-invoked) run, the final pass/fail report ends the turn —
+format it per the cross-skill
+`flow-pipeline/references/pause-output-contract.md` (labeled slots, no open
+prose); subagent return contracts are out of scope for that contract.
+
 # Verification
 
 - The pre-commit checks command exits 0

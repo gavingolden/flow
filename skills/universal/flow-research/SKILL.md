@@ -396,6 +396,10 @@ produced it (tier-2 `claude -p` vs tier-3 sequential).
 - Any cap-truncation, budget-exhaustion, or agy-absent fallback is FLAGGED in
   the report (degraded/partial-run section), never silent — and the flag names
   WHICH tier produced a fallback report (tier-2 `claude -p` vs tier-3 sequential).
+- On a standalone (user-invoked) run, the turn-ending chat rendering of the
+  report is formatted per the cross-skill
+  `flow-pipeline/references/pause-output-contract.md` (labeled slots, no open
+  prose; the report body rides above the block).
 - No nested Claude sub-agent was spawned; the fan-out ran via
   `flow-delegate-fanout`.
 - Any `claude -p` mention is **guard-co-located** — it appears in the same

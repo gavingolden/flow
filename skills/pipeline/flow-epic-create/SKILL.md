@@ -297,6 +297,16 @@ that concrete palette/color values were deliberately deferred to each feature's
 F1 planning (the designer records this in `design.md` Open Questions), so the
 reviewer reads the deferral as a conscious choice rather than an omission.
 
+Any prose added around the checkpoint render (the palette-deferral note
+above, a design highlight) is supplemental text, not a second pause
+block — the STATUS block itself already satisfies
+`flow-pipeline/references/pause-output-contract.md` via its own
+grammar and is never re-wrapped or duplicated. Add this compact
+`**Notes:**` line ABOVE the helper-rendered STATUS block, per the
+contract's `**Notes:**` catch-all slot:
+
+> **Notes:** <deferral note / design highlight>
+
 Then **END the turn**. The `epic-design-pending-review` phase is a pending
 phase, so `flow-stop-guard` permits ending here. Wait for the user to attach
 and respond. The next turn re-enters at Step 7.
@@ -329,6 +339,17 @@ question when ambiguous):
 - **cancel** (`cancel`, `abort`, `kill this`) → `gh pr close <pr>`, then
   `flow-remove-worktree` (call it bare — auto-resolves the slug), run
   `flow-state-update --phase cancelled`, and stop.
+
+Every turn-ending Step 7 reply — the ambiguous clarifying question, the
+post-redirect re-checkpoint prose, the approve/cancel confirmation — is
+formatted per the cross-skill
+`flow-pipeline/references/pause-output-contract.md` — labeled slots, no
+open prose. Compact template:
+
+> ### ❓ Clarification needed
+>
+> **Needs your review:** <the ambiguous reply, quoted>
+> **Next action:** `approve` / `redirect: <new direction>` / `cancel`.
 
 # Resume mode
 

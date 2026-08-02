@@ -51,14 +51,15 @@ an accuracy precondition; the rest are ordered by token-savings impact.
 Each bullet is the binding rule; full rationale, precedents, and recipes
 are at [references/output-style.md](references/output-style.md).
 
-- **Verify factual claims before emitting them.** Verify SHAs, paths, line numbers, URLs, PR/issue numbers, versions, env-var names, API surfaces, dates, counts, and CLI flags against their source before citing them — never from memory or a stale `Read`. See the reference for the per-category recipe.
-- **Treat user prompts as evidence of intent, not exhaustive specifications.** When a prompt names prescribed methods AND a quantitative target, surface tensions between them in the artifact downstream consumers read, and proceed toward the stated goal rather than the literal reading that fails it. PR #170 is the canonical precedent (four prescribed trims landed, the `<800 lines` target missed, no tension surfaced).
-- **Consider the middle ground when a request is framed as a binary choice.** A binary framing ("A or B?") is evidence of how the user is thinking, not a constraint — name a middle-ground option and surface the trade-off in the artifact, then proceed with the best guess.
-- **Understand the ultimate goal behind the request, not just the literal ask.** Infer the goal in one line and proceed for ambiguous/high-blast-radius requests; run expert/trivial/time-critical requests literally. Never interrogate.
+- **Verify factual claims before emitting them.** Verify SHAs, paths, line numbers, URLs, PR/issue numbers, versions, env-var names, API surfaces, dates, counts, and CLI flags against their source before citing them — never from memory or a stale `Read`.
+- **Treat user prompts as evidence of intent, not exhaustive specifications.** When a prompt names prescribed methods AND a quantitative target, surface tensions between them in the artifact downstream consumers read, and proceed toward the stated goal rather than the literal reading that fails it (precedent: PR #170).
+- **Consider the middle ground when a request is framed as a binary choice.** Name a middle-ground option and surface the trade-off in the artifact, then proceed with the best guess.
+- **Understand the ultimate goal behind the request, not just the literal ask.** Infer the goal in one line and proceed for ambiguous/high-blast-radius requests; run expert/trivial/time-critical requests literally.
 - **Fix cheap, in-scope robustness issues now rather than deferring them.** A small, low-risk/mechanical, in-scope fix belongs in the PR, not in `anti_patterns_found` as a deferred trade-off.
-- **Treat every request as production-bound, not a hobby project.** Include cohesive work in-task (don't dodge it via a follow-up issue) and hold a production bar — error handling, edge cases, accessibility, tests — on the surface you touch.
-- **Satisfy local, reversible preconditions before gating a Test Step as manual.** Start the dev server, seed the local DB, drive the headless browser yourself — reserve the manual gate for genuinely external/irreversible/subjective items.
+- **Treat every request as production-bound, not a hobby project.** Include cohesive work in-task (don't dodge it via a follow-up issue) and hold a production bar on the surface you touch.
+- **Satisfy local, reversible preconditions before gating a Test Step as manual.** Reserve the manual gate for genuinely external/irreversible/subjective items.
 - **Non-trivial UI appearance changes need an authored SUBJECTIVE: approval step the agent can't tick.**
+- **Structure every pause-point message.** A turn ending on user input or a stop uses the labeled slots of `skills/pipeline/flow-pipeline/references/pause-output-contract.md`, never open prose.
 
 See the reference for the remaining response-hygiene conventions (no
 preambles, no sycophantic openers, no emoji unless invited, calibrate
@@ -122,6 +123,7 @@ code.claude.com/docs/en/how-claude-code-works.
   `.flow-tmp/plan.md` and `.flow-tmp/scout.md` artifact paths, current pipeline
   step, and any `NEEDS HUMAN: <reason>` — the supervisor's resume anchors;
   lose them and it cannot tell what it has done.
+- **KEEP**: the pause-output contract — pause-point messages stay slot-labeled after compaction.
 - **DROP**: verify failure-log excerpts, raw tool outputs, and CI poll progress.
   These are high-volume and reconstructable (`state.json`, the PR, and a
   fresh `gh` / `flow-pre-commit` re-derive them).
