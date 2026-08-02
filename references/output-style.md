@@ -165,6 +165,25 @@ external/destructive/irreversible actions. Full contract
 The agent can't tick this itself. Full contract
 `skills/pipeline/flow-pr-review/references/manual-test-rubric.md`.
 
+## Structure every pause-point message
+
+A pause point is any turn-ending assistant message that awaits user
+input or reports a stop — a gate, a clarifying question, a gated
+feedback reply, post-merge QA, an escalation, a terminal completion.
+Users read those messages under scan pressure (deciding what to do
+next), so open prose there costs real time: the ask and the remaining
+work get buried. Every pause-point message therefore ends in the pause
+block defined at
+`skills/pipeline/flow-pipeline/references/pause-output-contract.md`: one
+`###` status heading plus the labeled slots (`**Went wrong:**`,
+`**Remaining:**`, `**Needs your review:**`, `**Notes:**`,
+`**Next action:**`). Slot omission is omit-when-empty and unconditional
+— a trivial answer collapses to heading + answer + Next action, which is
+already the minimal compliant block; there is no "too trivial for the
+block" escape. Formal helper renders (`flow-gate-summary`,
+`flow-pipeline-summary`) satisfy the contract via their own
+`STATUS:`/`WHY:`/`NEXT ACTION:` grammar and are never re-wrapped.
+
 ## Remaining response-hygiene rules
 
 These are shorter conventions without a dedicated lint anchor — kept here
@@ -177,11 +196,14 @@ in full since `AGENTS.md` only needs the summary list:
   going to…". State the action in one sentence and call the tool.
 - **No end-of-turn summary unless asked.** The diff and the tool calls
   are the record. A trailing recap of what the user just watched you do
-  is noise.
+  is noise — except when the turn ends at a pause point (awaiting user
+  input or reporting a stop): that turn MUST end in a pause block (see
+  "Structure every pause-point message" above).
 - **Calibrate length to task.** Prose paragraphs over bullets for
   analyses and explanations — bullets fragment reasoning that flows
   better as connected sentences. One-line answers for one-line
-  questions. Don't expand a yes/no into a structured response.
+  questions. Don't expand a yes/no into a structured response — except
+  pause-point messages, which always use the labeled pause-block slots.
 - **No sycophantic openers.** "Great question", "You're absolutely
   right", "Successfully implemented…" add nothing.
 - **No emojis unless the user uses them first.** Match the user's

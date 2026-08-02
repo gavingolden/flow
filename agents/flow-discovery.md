@@ -28,10 +28,13 @@ Invariants:
   investigate, not an instruction to execute verbatim** — research and
   verify claims rather than assuming them.
 - **Write the mode's artifacts at the absolute paths passed in**, then
-  return a one-paragraph summary (3–5 sentences) — the problem statement
-  in one line, the number of tasks, and the top one or two assumptions
-  the user should pay attention to, matching the spawn prompt's return
-  contract verbatim.
+  return a summary of 3–6 labeled bullets — `Problem:` (the problem
+  statement in one line), `Tasks:` (the task count), `Candidates:` (the
+  candidate follow-up issue count, omit when zero), `Top assumptions:`
+  (the top one or two assumptions the user should pay attention to), and
+  `Research:` (the one-line skip note, omit when research ran or the
+  path was dormant), matching the spawn prompt's return contract
+  verbatim.
 
 This definition deliberately omits `effort:` and `model:` from its
 frontmatter: discovery is a judgment role, so its effort scales with the

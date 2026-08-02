@@ -1489,6 +1489,10 @@ prunes the bullets, so it does not require re-entry.
 
 Read `references/report-template.md` and produce the full report. This is the most
 important output — the user needs a clear, at-a-glance summary of everything that happened.
+On a standalone run, the report itself is the turn-ending structure; any post-report
+QA prose the tail adds is formatted per the cross-skill
+`flow-pipeline/references/pause-output-contract.md` — labeled slots, no open prose,
+never a second block re-wrapping the report.
 
 Always produce this report, even when there are no findings or comments. The report
 covers: summary, findings (each annotated as **Addressed** or **Deferred with reason**),

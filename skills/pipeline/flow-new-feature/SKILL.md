@@ -700,6 +700,13 @@ Include all skills from `.claude/skills/` that were relevant candidates. Only li
 that were plausible for this feature — no need to explain why an obviously irrelevant skill
 wasn't used for a UI-only change.
 
+On a standalone run, every user-facing turn-ending message this skill emits — the
+critical-analysis / test-spec review pause awaiting the user's approval, and this
+final skills-used report — is formatted per the cross-skill
+`flow-pipeline/references/pause-output-contract.md` — labeled slots, no open
+prose (the table rides above the block; the block distills the ask). Subagent
+return contracts are out of scope for that contract.
+
 # Verification
 
 - All `it.todo()` entries have been implemented as full `it()` tests

@@ -90,6 +90,10 @@ skill.
 - Run the project's test command scoped to the file (`npm run test -- <file>`,
   `go test ./...`, etc.) to verify the test passes.
 - Confirm no unintended test failures in adjacent files.
+- On a standalone (user-invoked) run, format the final test report — the
+  turn-ending message — per the cross-skill
+  `flow-pipeline/references/pause-output-contract.md` (labeled slots, no open
+  prose).
 
 # Verification
 

@@ -6570,3 +6570,139 @@ describe("N-port sentinel doc wiring (AGENTS.md ↔ UI references ↔ SKILL.md r
     expect(content).toContain("**Agent-written env/config files**");
   });
 });
+
+describe("pause-output contract wiring lint", () => {
+  // Mirrors the `pipeline-snapshot wiring lint` idiom: pins the
+  // pause-output contract file, its slot vocabulary, and every wired
+  // pause site so a future edit cannot silently drop the structure.
+  // Extend-on-add rule: any NEW pause site (a turn-ending user-facing
+  // reply or report in any SKILL.md) must reference
+  // pause-output-contract.md AND be added to WIRED_SKILLS below.
+  const REPO_ROOT = path.resolve(HERE, "..");
+  const CONTRACT_PATH = path.join(
+    REPO_ROOT,
+    "skills",
+    "pipeline",
+    "flow-pipeline",
+    "references",
+    "pause-output-contract.md",
+  );
+  const SLOT_LABELS = [
+    "**Went wrong:**",
+    "**Remaining:**",
+    "**Needs your review:**",
+    "**Notes:**",
+    "**Next action:**",
+  ];
+  // Enumerated by NAME, not a directory glob (scout PLAN-DEVIATION:
+  // flow-new-feature / flow-verify live under skills/pipeline/, not
+  // skills/universal/).
+  const WIRED_SKILLS = [
+    "skills/pipeline/flow-epic-create/SKILL.md",
+    "skills/pipeline/flow-epic-run/SKILL.md",
+    "skills/pipeline/flow-pr-review/SKILL.md",
+    "skills/pipeline/flow-product-planning/SKILL.md",
+    "skills/pipeline/flow-new-feature/SKILL.md",
+    "skills/pipeline/flow-verify/SKILL.md",
+    "skills/universal/flow-refactoring/SKILL.md",
+    "skills/universal/flow-testing/SKILL.md",
+    "skills/universal/flow-research/SKILL.md",
+    "skills/universal/flow-ui-ux/SKILL.md",
+  ];
+
+  it("the contract file exists and carries the five literal slot labels", () => {
+    const c = fs.readFileSync(CONTRACT_PATH, "utf8");
+    for (const label of SLOT_LABELS) {
+      expect(
+        c.includes(label),
+        `pause-output-contract.md must define the literal slot label ${label}`,
+      ).toBe(true);
+    }
+  });
+
+  it("flow-pipeline/SKILL.md references pause-output-contract.md at ≥6 pause sites", () => {
+    const matches = content.match(/pause-output-contract\.md/g) ?? [];
+    expect(
+      matches.length,
+      "flow-pipeline SKILL.md must reference pause-output-contract.md at each " +
+        "of its six informal pause sites (triage clarification, plan summary, " +
+        "checkpoint nudge, approval clarification, gated feedback, post-render QA).",
+    ).toBeGreaterThanOrEqual(6);
+  });
+
+  it("each wired sibling SKILL.md references the contract via a resolvable cross-skill path", () => {
+    expect(
+      fs.existsSync(CONTRACT_PATH),
+      "the cross-skill path flow-pipeline/references/pause-output-contract.md " +
+        "must resolve to an existing file from the repo tree",
+    ).toBe(true);
+    for (const rel of WIRED_SKILLS) {
+      const c = fs.readFileSync(path.join(REPO_ROOT, rel), "utf8");
+      expect(
+        c.includes("flow-pipeline/references/pause-output-contract.md"),
+        `${rel} must reference the cross-skill path ` +
+          "flow-pipeline/references/pause-output-contract.md at its " +
+          "turn-ending pause site",
+      ).toBe(true);
+    }
+  });
+
+  it("AGENTS.md carries the binding pause-point bullet", () => {
+    const c = fs.readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf8");
+    expect(c).toContain("**Structure every pause-point message.**");
+  });
+
+  it("references/output-style.md carries the section and both carve-outs", () => {
+    // Normalize hard-wrapped prose so the carve-out phrases match
+    // regardless of where the 72-col wrap falls.
+    const c = fs
+      .readFileSync(
+        path.join(REPO_ROOT, "references", "output-style.md"),
+        "utf8",
+      )
+      .replace(/\s+/g, " ");
+    expect(c).toContain("## Structure every pause-point message");
+    expect(
+      c.includes(
+        "except pause-point messages, which always use the labeled pause-block slots",
+      ),
+      "the 'Calibrate length to task.' bullet must carry the pause-point carve-out",
+    ).toBe(true);
+    expect(
+      c.includes("that turn MUST end in a pause block"),
+      "the 'No end-of-turn summary unless asked.' bullet must carry the " +
+        "pause-point carve-out",
+    ).toBe(true);
+  });
+
+  it("the three discovery-return sites agree on the same label vocabulary (lockstep-drift guard)", () => {
+    const DISCOVERY_LABELS = [
+      "Problem:",
+      "Tasks:",
+      "Candidates:",
+      "Top assumptions:",
+      "Research:",
+    ];
+    const sites = [
+      "skills/pipeline/flow-product-planning/SKILL.md",
+      "skills/pipeline/flow-product-planning/references/discovery-instructions.md",
+      "agents/flow-discovery.md",
+    ];
+    for (const rel of sites) {
+      const c = fs.readFileSync(path.join(REPO_ROOT, rel), "utf8");
+      for (const label of DISCOVERY_LABELS) {
+        expect(
+          c.includes(label),
+          `${rel} must carry the discovery-return label \`${label}\` — the ` +
+            "three return-contract sites must agree verbatim on the bullet set",
+        ).toBe(true);
+      }
+      expect(
+        /one short paragraph \(3|one-paragraph summary \(3–5 sentences\) — the problem statement/.test(
+          c,
+        ),
+        `${rel} must not retain the old paragraph-grained discovery return contract`,
+      ).toBe(false);
+    }
+  });
+});

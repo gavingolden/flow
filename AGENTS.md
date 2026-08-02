@@ -59,6 +59,7 @@ are at [references/output-style.md](references/output-style.md).
 - **Treat every request as production-bound, not a hobby project.** Include cohesive work in-task (don't dodge it via a follow-up issue) and hold a production bar — error handling, edge cases, accessibility, tests — on the surface you touch.
 - **Satisfy local, reversible preconditions before gating a Test Step as manual.** Start the dev server, seed the local DB, drive the headless browser yourself — reserve the manual gate for genuinely external/irreversible/subjective items.
 - **Non-trivial UI appearance changes need an authored SUBJECTIVE: approval step the agent can't tick.**
+- **Structure every pause-point message.** A turn ending on user input or a stop uses the labeled slots of `skills/pipeline/flow-pipeline/references/pause-output-contract.md`, never open prose; body in the reference.
 
 See the reference for the remaining response-hygiene conventions (no
 preambles, no sycophantic openers, no emoji unless invited, calibrate
@@ -122,6 +123,7 @@ code.claude.com/docs/en/how-claude-code-works.
   `.flow-tmp/plan.md` and `.flow-tmp/scout.md` artifact paths, current pipeline
   step, and any `NEEDS HUMAN: <reason>` — the supervisor's resume anchors;
   lose them and it cannot tell what it has done.
+- **KEEP**: the pause-output contract — pause-point messages stay slot-labeled after compaction.
 - **DROP**: verify failure-log excerpts, raw tool outputs, and CI poll progress.
   These are high-volume and reconstructable (`state.json`, the PR, and a
   fresh `gh` / `flow-pre-commit` re-derive them).

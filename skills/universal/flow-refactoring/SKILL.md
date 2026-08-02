@@ -176,6 +176,10 @@ when the extraction makes the parent function significantly more readable.
 When moving code into a new function, preserve the intent through the function name and a brief
 JSDoc comment. The reader should understand the "why" without reading the implementation.
 
+On a standalone (user-invoked) run, format the final refactor report — the
+turn-ending message — per the cross-skill
+`flow-pipeline/references/pause-output-contract.md` (labeled slots, no open prose).
+
 # Verification
 
 - All existing tests pass after refactoring.

@@ -85,6 +85,16 @@ bind`; record an out-of-band completion with `flow epic bind --external`;
   construction: after a reasonable attempt to reconcile or relaunch, if a
   feature still will not progress, **escalate to the human** rather than
   churning windows. There is no autonomous retry/redirect budget to burn.
+- **Escalation pause block.** Every escalation message — a `gated ⇒
+escalate-only` surface or an `escalate-on-exhaustion` stop — ends in a
+  pause block per the cross-skill
+  `flow-pipeline/references/pause-output-contract.md` (labeled slots, no
+  open prose). Compact template:
+
+  > ### ⚠ Escalation — <feature id> will not progress
+  >
+  > **Went wrong:** <why it is gated / exhausted, with evidence>
+  > **Next action:** <the single most useful human action>.
 
 You spawn **no Task/Agent sub-agent** and fire **no AskUserQuestion form** — the
 playbook is plain in-session judgment plus bare-name PATH helpers. This keeps
