@@ -24,6 +24,7 @@ import {
   appendRow,
   procsDir,
   readRows,
+  registryPath,
   type ProcClass,
   type ProcRegistryRow,
 } from "./lib/proc-registry";
@@ -71,6 +72,10 @@ export function parseCliArgs(argv: string[]): SpawnCliArgs {
       out.slug = v;
     } else if (a === "--class") {
       const v = argv[++i];
+      if (v === undefined) {
+        out.usageError = "--class requires a value";
+        return out;
+      }
       if (v !== "default" && v !== "mcp-server") {
         out.usageError = '--class must be "default" or "mcp-server"';
         return out;
@@ -78,6 +83,10 @@ export function parseCliArgs(argv: string[]): SpawnCliArgs {
       out.procClass = v;
     } else if (a === "--stdin") {
       const v = argv[++i];
+      if (v === undefined) {
+        out.usageError = "--stdin requires a value";
+        return out;
+      }
       if (v !== "inherit" && v !== "ignore") {
         out.usageError = '--stdin must be "inherit" or "ignore"';
         return out;
@@ -170,7 +179,17 @@ export function resolveSlug(
 }
 
 export function buildRow(
-  args: { pid: number; slug: string; procClass: ProcClass; argv: string[] },
+  args: {
+    pid: number;
+    slug: string;
+    procClass: ProcClass;
+    argv: string[];
+    // Pre-resolved self start-epoch, so callers that already probed it
+    // (see `runLaunch`, which hoists this above the spawn to avoid a
+    // second `ps` fork sitting inside the unrecorded-process window) don't
+    // pay for a second `pidStartEpoch` call here.
+    selfStartEpoch?: number | null;
+  },
   deps: SpawnDeps = {},
 ): ProcRegistryRow {
   const getStartEpoch = deps.pidStartEpoch ?? pidStartEpoch;
@@ -187,7 +206,10 @@ export function buildRow(
     argv: args.argv,
     recordedAt: nowMs(),
     sessionPid: selfPid,
-    sessionStartEpoch: getStartEpoch(selfPid),
+    sessionStartEpoch:
+      args.selfStartEpoch !== undefined
+        ? args.selfStartEpoch
+        : getStartEpoch(selfPid),
   };
 }
 
@@ -222,8 +244,14 @@ export function forwardSignal(
 /**
  * ORDER IS LOAD-BEARING: the procs dir is created BEFORE spawning (so the
  * post-spawn append is a bare write(2) with no path resolution in the
- * critical window), the row is appended IMMEDIATELY after spawn (before
- * awaiting the child), and signal forwarders are installed only after that.
+ * critical window — `precomputedTarget` below is what makes that claim
+ * actually true; `appendRow` skips its own path-resolution + mkdir when it
+ * is given one), the row is appended IMMEDIATELY after spawn (before
+ * awaiting the child), and signal forwarders are installed only after
+ * that. The self-pid start-epoch probe has no dependency on the child, so
+ * it is hoisted above the spawn too — that keeps the unrecorded-process
+ * window (spawn → append) to the single `ps` fork the plan budgeted,
+ * rather than two.
  */
 export async function runLaunch(
   args: SpawnCliArgs,
@@ -231,6 +259,8 @@ export async function runLaunch(
 ): Promise<number> {
   const spawn = deps.spawn ?? defaultSpawn;
   const doAppendRow = deps.appendRow ?? appendRow;
+  const getStartEpoch = deps.pidStartEpoch ?? pidStartEpoch;
+  const selfPid = deps.selfPid ?? process.pid;
 
   const { slug, synthetic, rejectedSlug } = resolveSlug(args, deps);
   if (rejectedSlug !== undefined) {
@@ -244,19 +274,40 @@ export async function runLaunch(
     );
   }
 
+  const selfStartEpoch = getStartEpoch(selfPid);
+
+  let precomputedTarget: string | undefined;
   try {
-    fs.mkdirSync(procsDir(deps.baseDir), { recursive: true });
+    fs.mkdirSync(procsDir(deps.baseDir), { recursive: true, mode: 0o700 });
+    precomputedTarget = registryPath(slug, deps.baseDir);
   } catch {
-    // best-effort — appendRow below still fails open and reports its own error.
+    // best-effort — appendRow below still fails open and reports its own
+    // error, and recomputes the target itself when precomputedTarget is
+    // unset.
   }
 
-  const child = spawn(args.command, { stdin: args.stdin });
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(args.command, { stdin: args.stdin });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    process.stderr.write(
+      `flow-spawn: failed to launch ${JSON.stringify(args.command)}: ${msg}\n`,
+    );
+    return 127;
+  }
 
   const row = buildRow(
-    { pid: child.pid, slug, procClass: args.procClass, argv: args.command },
+    {
+      pid: child.pid,
+      slug,
+      procClass: args.procClass,
+      argv: args.command,
+      selfStartEpoch,
+    },
     deps,
   );
-  const written = doAppendRow(row, deps.baseDir);
+  const written = doAppendRow(row, deps.baseDir, precomputedTarget);
   if (!written.written) {
     process.stderr.write(
       `flow-spawn: registry write skipped: ${written.error}\n`,

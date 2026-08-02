@@ -1,11 +1,14 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
+import { spawnSync } from "node:child_process";
 import {
   buildRow,
   forwardSignal,
+  main,
   parseCliArgs,
   resolveSlug,
   runLaunch,
   runList,
+  usage,
   type SpawnCliArgs,
   type SpawnDeps,
 } from "./flow-spawn";
@@ -270,6 +273,23 @@ describe("runList", () => {
   });
 });
 
+describe("runLaunch — appendRow receives a precomputed target (D3 regression)", () => {
+  it("passes a resolved target path as the third appendRow argument so the append skips its own path resolution + mkdir", async () => {
+    const spawn = vi.fn().mockReturnValue(fakeChild());
+    const appendRow = vi.fn().mockReturnValue({ written: true });
+    await runLaunch(baseArgs(), {
+      spawn,
+      appendRow,
+      env: { FLOW_SLUG: "csv-export" },
+      pidStartEpoch: () => 1,
+    });
+    expect(appendRow).toHaveBeenCalledTimes(1);
+    const target = appendRow.mock.calls[0][2];
+    expect(typeof target).toBe("string");
+    expect(target).toContain("csv-export.jsonl");
+  });
+});
+
 describe("registry-write fail-open", () => {
   it("still launches and returns the child's exit code when appendRow fails", async () => {
     const spawn = vi.fn().mockReturnValue(fakeChild({ exitCode: 9 }));
@@ -309,5 +329,192 @@ describe("buildRow", () => {
       sessionPid: 9,
       sessionStartEpoch: 700,
     });
+  });
+
+  it("uses a pre-resolved selfStartEpoch instead of re-probing when given one (D2 regression)", () => {
+    const pidStartEpoch = vi.fn((pid: number) => (pid === 100 ? 500 : 999));
+    const row = buildRow(
+      {
+        pid: 100,
+        slug: "csv-export",
+        procClass: "default",
+        argv: ["a"],
+        selfStartEpoch: 42,
+      },
+      { pidStartEpoch, selfPid: 9, nowMs: () => 12 },
+    );
+    expect(row.sessionStartEpoch).toBe(42);
+    // Only the child pid gets probed — the self-pid probe was skipped
+    // because a resolved value was supplied.
+    expect(pidStartEpoch).toHaveBeenCalledTimes(1);
+    expect(pidStartEpoch).toHaveBeenCalledWith(100);
+  });
+});
+
+describe("runLaunch — launch failure maps to exit 127 (D1 regression)", () => {
+  it("catches a synchronous spawn throw (missing/unexecutable command) and reports 127", async () => {
+    const spawn = vi.fn().mockImplementation(() => {
+      throw new Error("ENOENT: spawn nope");
+    });
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = await runLaunch(baseArgs({ command: ["nope"] }), {
+      spawn,
+      appendRow: vi.fn(),
+      env: { FLOW_SLUG: "csv-export" },
+      pidStartEpoch: () => 1,
+    });
+    expect(code).toBe(127);
+    expect(
+      stderrSpy.mock.calls.some((c) =>
+        String(c[0]).includes("failed to launch"),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("runLaunch — call-order (mkdir -> spawn -> append -> await exited) (G regression)", () => {
+  it("appends the row before awaiting the child's exit, not after", async () => {
+    const order: string[] = [];
+    let resolveExited!: (code: number) => void;
+    const exited = new Promise<number>((resolve) => {
+      resolveExited = resolve;
+    });
+    const spawn = vi.fn().mockImplementation(() => {
+      order.push("spawn");
+      return { pid: 1, exited, signalCode: null };
+    });
+    const appendRow = vi.fn().mockImplementation(() => {
+      order.push("append");
+      return { written: true };
+    });
+
+    const launchPromise = runLaunch(baseArgs(), {
+      spawn,
+      appendRow,
+      env: { FLOW_SLUG: "csv-export" },
+      pidStartEpoch: () => 1,
+    });
+
+    // Give the microtask queue a turn so everything synchronous up to the
+    // `await child.exited` has run.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(order).toEqual(["spawn", "append"]);
+    order.push("child-exit-observed-would-be-here");
+    resolveExited(0);
+    await launchPromise;
+  });
+});
+
+describe("SIGINT/SIGTERM forwarder registration and de-registration", () => {
+  it("registers a listener for each signal during the launch and removes both after exit", async () => {
+    const onSpy = vi.spyOn(process, "on");
+    const offSpy = vi.spyOn(process, "off");
+    const spawn = vi.fn().mockReturnValue(fakeChild({ exitCode: 0 }));
+    await runLaunch(baseArgs(), {
+      spawn,
+      appendRow: vi.fn().mockReturnValue({ written: true }),
+      env: { FLOW_SLUG: "csv-export" },
+      pidStartEpoch: () => 1,
+    });
+
+    const registeredSignals = onSpy.mock.calls
+      .filter((c) => c[0] === "SIGINT" || c[0] === "SIGTERM")
+      .map((c) => c[0]);
+    expect(registeredSignals.sort()).toEqual(["SIGINT", "SIGTERM"]);
+
+    const deregisteredSignals = offSpy.mock.calls
+      .filter((c) => c[0] === "SIGINT" || c[0] === "SIGTERM")
+      .map((c) => c[0]);
+    expect(deregisteredSignals.sort()).toEqual(["SIGINT", "SIGTERM"]);
+
+    onSpy.mockRestore();
+    offSpy.mockRestore();
+  });
+});
+
+describe("parseCliArgs — missing-value messages (D4 regression)", () => {
+  it("reports '--class requires a value' (not the enum-mismatch message) when the value is missing", () => {
+    expect(parseCliArgs(["--class"]).usageError).toBe(
+      "--class requires a value",
+    );
+  });
+
+  it("reports '--stdin requires a value' (not the enum-mismatch message) when the value is missing", () => {
+    expect(parseCliArgs(["--stdin"]).usageError).toBe(
+      "--stdin requires a value",
+    );
+  });
+
+  it("still reports the enum-mismatch message when a value IS given but invalid", () => {
+    expect(parseCliArgs(["--class", "bogus"]).usageError).toBe(
+      '--class must be "default" or "mcp-server"',
+    );
+    expect(parseCliArgs(["--stdin", "bogus"]).usageError).toBe(
+      '--stdin must be "inherit" or "ignore"',
+    );
+  });
+});
+
+describe("main()", () => {
+  it("returns exit code 2 and prints usage on a malformed invocation", async () => {
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = await main([]);
+    expect(code).toBe(2);
+    expect(
+      stderrSpy.mock.calls.some((c) => String(c[0]).includes(usage())),
+    ).toBe(true);
+  });
+
+  it("dispatches to --list", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const code = await main(["--list", "never-seen-slug", "--json"]);
+    expect(code).toBe(0);
+    expect(logSpy).toHaveBeenCalledWith(
+      JSON.stringify({ slug: "never-seen-slug", rows: [], malformed: 0 }),
+    );
+  });
+});
+
+describe("bin/flow-spawn.ts exec bit", () => {
+  it("is tracked executable (100755) in the committed tree — a 100644 helper passes `verify` but dies `permission denied` at the bare PATH command", () => {
+    const r = spawnSync("git", ["ls-files", "-s", "bin/flow-spawn.ts"], {
+      encoding: "utf8",
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toMatch(/^100755\b/);
+  });
+});
+
+describe("--list per-row output format (not just the header line)", () => {
+  it("prints each row's pid/pgid/class/argv, not just the summary header", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const rows: ProcRegistryRow[] = [
+      {
+        pgid: 5,
+        pid: 5,
+        startEpoch: 1,
+        slug: "csv-export",
+        class: "mcp-server",
+        argv: ["bun", "server.ts"],
+        recordedAt: 1,
+        sessionPid: 2,
+        sessionStartEpoch: 1,
+      },
+    ];
+    const readRows = vi.fn().mockReturnValue({ rows, malformed: 0 });
+    runList("csv-export", false, { readRows });
+    const rowLine = logSpy.mock.calls
+      .map((c) => String(c[0]))
+      .find((line) => line.includes("pid=5"));
+    expect(rowLine).toBeDefined();
+    expect(rowLine).toContain("pgid=5");
+    expect(rowLine).toContain("class=mcp-server");
+    expect(rowLine).toContain("argv=bun server.ts");
   });
 });
