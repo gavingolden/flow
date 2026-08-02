@@ -27,6 +27,24 @@ function psInfo(
   return { pid: Number(m[1]), pgid: Number(m[2]), ppid: Number(m[3]) };
 }
 
+/** Every pgid among the direct children of `ppid` — used to close the leak
+ * window when `waitForRow` times out before the registry row (and its
+ * pgid) is ever recorded, so the afterEach kill still targets the
+ * launched-but-unrecorded process group instead of only the wrapper. */
+function childPgids(ppid: number): number[] {
+  const r = spawnSync("ps", ["-A", "-o", "pid=,pgid=,ppid="], {
+    encoding: "utf8",
+  });
+  if (r.status !== 0) return [];
+  const pgids = new Set<number>();
+  for (const line of r.stdout.split("\n")) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s*$/.exec(line);
+    if (!m) continue;
+    if (Number(m[3]) === ppid) pgids.add(Number(m[2]));
+  }
+  return [...pgids];
+}
+
 type LiveRow = {
   pid: number;
   pgid: number;
@@ -122,7 +140,18 @@ describeOnPosix("flow-spawn (live end-to-end)", () => {
     );
     if (wrapper.pid !== undefined) cleanupPids.push(wrapper.pid);
 
-    const row = await waitForRow(jsonlPath);
+    let row: LiveRow;
+    try {
+      row = await waitForRow(jsonlPath);
+    } catch (e) {
+      // waitForRow timed out before any row (and its pgid) was recorded —
+      // derive the launched child's pgid from `ps` so afterEach still
+      // reaps it instead of leaking the detached process group.
+      if (wrapper.pid !== undefined) {
+        for (const pgid of childPgids(wrapper.pid)) cleanupPgids.push(pgid);
+      }
+      throw e;
+    }
     cleanupPgids.push(row.pgid);
 
     expect(row.pgid).toBe(row.pid);
