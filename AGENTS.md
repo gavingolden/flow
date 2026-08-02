@@ -70,7 +70,8 @@ length to task, fenced blocks only for runnable code, etc.).
 Source for shipped helper binaries lives in **`bin/`**. User-callable
 helpers (`flow-new-worktree`, `flow-pre-commit`, `flow-state-update`,
 `flow-notify`, `flow-ui-validate`, `flow-delegate`, `flow-research-cache`,
-etc.) live there with `.ts` extensions, Bun shebangs, and tests next door
+`flow-spawn`, etc.) live there with `.ts` extensions, Bun shebangs, and
+tests next door
 (`<name>.test.ts`, skipped when `flow install` symlinks into
 `~/.local/bin/<name>`). The five schema validators
 (`flow-pr-review-result-schema`, `flow-agent-finding-schema`,

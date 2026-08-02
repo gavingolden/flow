@@ -113,6 +113,14 @@ Add `--headless=new` (not the legacy `--headless`) if you never want a Dock icon
 
 `flow-browser-teardown --orphans` is **not** the same sweep as `flow done --orphans`: the former sweeps browser **processes**, the latter sweeps stale pipeline **state files**. They happen to share a flag name but sweep unrelated things.
 
+## Process registry
+
+`~/.flow/state/procs/<slug>.jsonl` is an append-only JSONL log of processes launched under a given pipeline slug — one JSON row per launch, each carrying `pgid`, `pid`, `startEpoch`, `slug`, `class` (`default` or `mcp-server`), `argv`, `recordedAt`, `sessionPid`, and `sessionStartEpoch`.
+
+Launch a command through the registry with `flow-spawn --slug <slug> -- <cmd> [args...]`; it runs the command in its own process group, records one row, and passes through its stdio and exit code. Inspect a slug's recorded rows with `flow-spawn --list <slug> [--json]`.
+
+Nothing in flow reads this registry yet — it exists as a durable record for later features (bulk teardown of a pipeline's whole process tree, orphan reaping) to consume.
+
 ## config.json reference
 
 `~/.flow/config.json` is created by `flow install` and read at launch. The keys in use today:
