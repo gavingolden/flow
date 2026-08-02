@@ -559,6 +559,19 @@ fully off npm is a deliberate change, not something to do incidentally.
   source can confirm against that source rather than a secondary
   write-up. The rule is 'always *try*' with
   judgment, not blanket pessimisation — when in doubt, verify.
+- **Explain problems impact-first in plain language.** Lead with the
+  user-visible impact rather than the internal mechanism, and translate
+  internal identifiers (tool names, step numbers, error codes) into
+  their effect — an identifier may trail in a parenthetical, never
+  stand as the statement itself. When a decision is needed, present
+  options as a structured list, recommendation first, with each
+  option's consequence — good and bad — named on one line; when no
+  clear recommendation exists, say so plainly instead of manufacturing
+  a confident answer. Keep logs, diffs, and deep analysis out of the
+  message body — reference them as an artifact path instead. For
+  example:
+  Before: "The CI poller exited with `status=timeout` after 20 minutes."
+  After: "CI hasn't finished in 20 minutes — longer than normal, and it may be stuck."
 - **Consider the middle ground when a request is framed as a binary choice.**
   When a prompt poses an either/or — "should it work like A or B?",
   "store it in the URL or the database?", "fast or simple?" — the two

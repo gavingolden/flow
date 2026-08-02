@@ -1122,9 +1122,22 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * (`bin/flow-transcript-audit.ts --static AGENTS.md`); 24_000 keeps
    * headroom for incremental additions without inviting the regrowth back
    * toward 40k the offload-then-trim discipline exists to prevent.
+   * Raised once more from 24_000 to 24_300 to fund one deliberate
+   * addition: the `## Output style` rule **Explain problems
+   * impact-first in plain language.**, whose full rule body is
+   * offloaded to references/output-style.md and whose applied contract
+   * lives in
+   * skills/pipeline/flow-pipeline/references/pause-output-contract.md,
+   * so only the lean anchored one-line summary costs bytes here, per
+   * the offload-then-trim playbook. Pre-raise headroom was 128 chars
+   * against a ~226-char lean opener; trimming lint-anchored
+   * `## Output style` prose to make room was rejected on the same
+   * grounds as the 39_700 → 39_950 precedent above (a small documented
+   * raise over trimming load-bearing prose). The file remains far below
+   * Claude Code's 40k per-session warning.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 24_000;
+    const CHAR_BUDGET = 24_300;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -3050,6 +3063,30 @@ describe("AGENTS.md Output style anchors", () => {
       matches?.length ?? 0,
       "AGENTS.md must contain the rule anchor phrase " +
         "'- **Understand the ultimate goal behind the request, not just the literal ask.**' " +
+        "exactly once at the start of a list item in `## Output style`. " +
+        "Found " +
+        (matches?.length ?? 0) +
+        " match(es).",
+    ).toBe(1);
+  });
+
+  it("AGENTS.md contains the impact-first-language rule anchor phrase exactly once", () => {
+    // The bolded anchor phrase **Explain problems impact-first in plain
+    // language.** is the stable lint hook for the rule documented at
+    // AGENTS.md `## Output style`. Its rationale lives at
+    // references/output-style.md `## Explain problems impact-first in
+    // plain language`, and its applied contract — the six language
+    // rules plus five worked before/after pairs — lives at
+    // skills/pipeline/flow-pipeline/references/pause-output-contract.md
+    // `## Language contract`. Renaming the rule's anchor phrase requires
+    // updating this assertion in the same commit.
+    const matches = agentsContent.match(
+      /^- \*\*Explain problems impact-first in plain language\.\*\*/gm,
+    );
+    expect(
+      matches?.length ?? 0,
+      "AGENTS.md must contain the rule anchor phrase " +
+        "'- **Explain problems impact-first in plain language.**' " +
         "exactly once at the start of a list item in `## Output style`. " +
         "Found " +
         (matches?.length ?? 0) +
@@ -6772,5 +6809,26 @@ describe("pause-output contract wiring lint", () => {
         `${rel} must not retain the old paragraph-grained discovery return contract`,
       ).toBe(false);
     }
+  });
+
+  it("pause-output-contract.md carries the Language contract section", () => {
+    const c = fs.readFileSync(CONTRACT_PATH, "utf8");
+    expect(c).toContain("## Language contract");
+  });
+
+  it("references/output-style.md carries the impact-first-language section", () => {
+    const c = fs.readFileSync(
+      path.join(REPO_ROOT, "references", "output-style.md"),
+      "utf8",
+    );
+    expect(c).toContain("## Explain problems impact-first in plain language");
+  });
+
+  it("templates/AGENTS.md.template carries the impact-first-language bullet", () => {
+    const c = fs.readFileSync(
+      path.join(REPO_ROOT, "templates", "AGENTS.md.template"),
+      "utf8",
+    );
+    expect(c).toContain("**Explain problems impact-first in plain language.**");
   });
 });

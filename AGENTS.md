@@ -60,6 +60,7 @@ are at [references/output-style.md](references/output-style.md).
 - **Satisfy local, reversible preconditions before gating a Test Step as manual.** Reserve the manual gate for genuinely external/irreversible/subjective items.
 - **Non-trivial UI appearance changes need an authored SUBJECTIVE: approval step the agent can't tick.**
 - **Structure every pause-point message.** A turn ending on user input or a stop uses the labeled slots of `skills/pipeline/flow-pipeline/references/pause-output-contract.md`, never open prose.
+- **Explain problems impact-first in plain language.** Problem reports lead with the user-visible impact, translate internal identifiers into their effect, and present options with each one's consequences, recommendation first.
 
 See the reference for the remaining response-hygiene conventions (no
 preambles, no sycophantic openers, no emoji unless invited, calibrate

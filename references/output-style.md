@@ -184,6 +184,79 @@ block" escape. Formal helper renders (`flow-gate-summary`,
 `flow-pipeline-summary`) satisfy the contract via their own
 `STATUS:`/`WHY:`/`NEXT ACTION:` grammar and are never re-wrapped.
 
+## Explain problems impact-first in plain language
+
+The reader of a problem report has decision authority but zero project
+context — sharper than "a manager", who could still be assumed to
+share your team's vocabulary. This reader has been away from the
+thread, doesn't recognize the tool names, the step numbers, or the
+internal error strings, and has to decide from the message alone.
+
+Adapted from structured-communication practice — BLUF, SBAR, Minto,
+incident communication, plainlanguage.gov, progressive disclosure —
+with no framework transplanted wholesale: none is empirically validated
+for written, asynchronous, technical-to-layperson reports.
+
+The applied contract lives at
+`skills/pipeline/flow-pipeline/references/pause-output-contract.md`
+`## Language contract`: the same six rules below at binding depth, plus
+five worked before/after pairs (CI failure, test failure, merge
+conflict, a gate decision needing a choice, honest uncertainty). This
+section carries the rationale; that file is the enforceable form
+agents follow at every pause point.
+
+**1. Impact first.** A reader under decision pressure reads the first
+line and decides whether to keep reading. If that line names the
+mechanism ("flow-ci-wait returned ci-hang") instead of the consequence
+("CI hasn't finished in 20 minutes and may be stuck"), the reader has
+to reconstruct the impact themselves before they can act — the exact
+work the report exists to save them.
+
+**2. Zero internal jargon.** Tool names, step numbers, and internal
+error strings are load-bearing for the agent's own bookkeeping, not for
+the reader's decision. Translating them into effect keeps the message
+readable without discarding traceability — the identifier can still
+trail in a parenthetical for anyone who wants to dig in.
+
+**3. Honest uncertainty.** A confident-sounding recommendation the
+agent doesn't actually hold is worse than an honest "I don't know which
+you mean" — it either gets rubber-stamped on false authority or gets
+second-guessed and re-litigated, both worse outcomes than a symmetrical
+presentation the reader can resolve in one reply. This rule sits before
+"options with consequences" deliberately: manufacture no recommendation
+just to satisfy the "recommendation first" ordering in rule 4.
+
+**4. Options with consequences.** A bare option list ("A or B?") pushes
+the cost/benefit analysis onto the reader, who has less context than
+the agent writing the report. Naming each option's good and bad
+consequence up front, recommendation first, lets the reader make the
+same call the agent would in seconds instead of round-tripping for
+more detail.
+
+**5. Progressive disclosure.** Logs, diffs, and raw tool output answer
+"how did we get here", not "what do I do now" — the two questions have
+different readers and different urgency. Keeping the first out of the
+message body (above the block, or in a named artifact path) keeps the
+decision-relevant text short enough to scan; a ~150-word impact summary
+and a screenful block are advisory targets, not a hard cap that would
+force false simplicity onto a genuinely complex report.
+
+**6. Formal renders carry the language rules too.** The `--why` text
+passed to `flow-gate-summary` follows rules 1–3 and 5 (impact-first,
+jargon-free, honest, disclosure-friendly) even though its grammar is
+untouched: `flow-gate-summary`'s `oneLine()` collapses the string to a
+single line by construction, so a numbered options list can't render
+inside it — structured options stay a markdown-pause-block concern,
+never a formal-render one.
+
+**Structured over prose.** Structured lists win for problem reports and
+trade-off presentations, both read under scan pressure where the reader
+is comparing options or extracting the one fact they need. Connected
+prose stays for analytical reasoning and plan rationales, where the
+argument depends on one sentence following causally from the last —
+bullets fragment that chain into disconnected assertions the reader has
+to re-thread themselves.
+
 ## Remaining response-hygiene rules
 
 These are shorter conventions without a dedicated lint anchor — kept here
@@ -199,11 +272,15 @@ in full since `AGENTS.md` only needs the summary list:
   is noise — except when the turn ends at a pause point (awaiting user
   input or reporting a stop): that turn MUST end in a pause block (see
   "Structure every pause-point message" above).
-- **Calibrate length to task.** Prose paragraphs over bullets for
-  analyses and explanations — bullets fragment reasoning that flows
-  better as connected sentences. One-line answers for one-line
-  questions. Don't expand a yes/no into a structured response — except
-  pause-point messages, which always use the labeled pause-block slots.
+- **Calibrate length to task.** Match the form to the task, not a
+  single default: structured lists for problem reports and trade-off
+  presentations (read under scan pressure, options need to be
+  comparable at a glance — see "Explain problems impact-first in plain
+  language" above); connected prose for analytical reasoning and plan
+  rationales, where bullets would fragment an argument that flows
+  better as sentences; one-line answers for one-line questions. Don't
+  expand a yes/no into a structured response — except pause-point
+  messages, which always use the labeled pause-block slots.
 - **No sycophantic openers.** "Great question", "You're absolutely
   right", "Successfully implemented…" add nothing.
 - **No emojis unless the user uses them first.** Match the user's

@@ -28,6 +28,82 @@ markdown instead of a helper block.
    / `redirect: …` / `cancel`, or "tick the Test Steps boxes and say
    `merge`").
 
+## Language contract
+
+`## The block` fixes the slot set; this section governs what goes
+**inside** those slots. Write for a reader who has decision authority
+but zero project context — they have been away from this thread and
+share none of your vocabulary: not the tool names, not the step
+numbers, not the internal error strings. Problem reports — pipeline
+pauses, escalations, `NEEDS HUMAN` blocks, gate decisions, verify/CI
+failures, and merge-conflict reports — follow the six rules below;
+everything else follows "Calibrate length to task" in
+`references/output-style.md`.
+
+1. **Impact first.** The status heading and the first slot line state
+   the user-visible consequence, never the mechanism; a caveat that
+   changes the user's decision rides with the impact line or the
+   option line it affects, never only in the detail above the block.
+2. **Zero internal jargon.** Translate internal tool, step, and error
+   names into their effect; an internal identifier may trail in a
+   parenthetical, never stand as the statement itself.
+3. **Honest uncertainty.** When no clear recommendation exists, say so
+   plainly and present the options symmetrically — never manufacture a
+   confident bottom line. (This rule is deliberately ordered before the
+   options rule.)
+4. **Options with consequences.** When a decision is needed,
+   `**Needs your review:**` / `**Next action:**` carry a short list,
+   recommendation first, each option naming its good AND bad
+   consequence on one line.
+5. **Progressive disclosure.** Logs, diffs, and analysis live above the
+   block or in a named artifact referenced by path. Advisory, never
+   enforced: the impact summary runs about 150 words (the options list
+   is additional and not counted) and the whole block fits a
+   screenful.
+6. **Formal renders carry the language rules too.** The `--why` text
+   passed to `flow-gate-summary` follows rules 1-3 and 5; its slot and
+   sentinel syntax is untouched, and it is single-line by construction,
+   so structured options in the formal grammar are out of scope here.
+
+**CI failure:**
+
+> Before: `flow-ci-wait` returned `ci-hang` after polling PR #212 for
+> 20 minutes.
+> After: CI hasn't finished in 20 minutes — longer than normal, and it
+> may be stuck (`flow-ci-wait` timeout).
+
+**Test failure:**
+
+> Before: `flow-pre-commit --json` came back with `allPassed: false` on
+> the `scripts` scope.
+> After: One of the automated checks is failing, so this change isn't
+> safe to merge yet.
+
+**Merge conflict:**
+
+> Before: the merge-conflict resolver hit a conflicted base merge in
+> `bin/flow-state-update.ts`.
+> After: Your branch and `main` both changed the same file in
+> different ways; I need to pick which change wins before I can
+> continue.
+
+**Gate decision needing a choice:**
+
+> Before: `flow-gate-decide` returned `gated` with two unchecked Test
+> Steps on PR #212.
+> After: Two checks only you can do are still open, so this won't
+> merge on its own. Ticking them and saying `merge` ships it now;
+> asking me to merge anyway skips those checks — I'll confirm once
+> before doing it.
+
+**Honest uncertainty:**
+
+> Before: intent-guess confidence came back `low` on whether "faster"
+> means load time or refresh interval.
+> After: I'm not sure which kind of "faster" you mean — page load or
+> the live-refresh interval — and either reading is equally plausible
+> from what you wrote.
+
 ## Applicability
 
 The contract binds **any turn-ending assistant message that awaits user
@@ -77,6 +153,10 @@ not cover (clarifying questions, feedback replies, post-render QA
 prose).
 
 ## Worked examples
+
+The language-side before/after pairs for these same pause points live
+in `## Language contract` above; the examples below show the full slot
+grammar in context.
 
 **Clarifying question (triage):**
 
