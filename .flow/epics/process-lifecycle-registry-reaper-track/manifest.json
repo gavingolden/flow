@@ -1,0 +1,75 @@
+{
+  "epicId": "process-lifecycle-registry-reaper-track",
+  "prompt": "Process-lifecycle registry and reaper: track and close every process a flow pipeline spawns. Pipelines leak processes (chrome-devtools-mcp servers + Chrome, vitest/node/npm/dev-server toolchain processes that reparent to PPID 1 when their session dies). Point-of-use teardown plus PR #491's ancestry-based flow-browser-teardown has two structural blind spots: ancestry cannot see reparented processes, and identity-by-name is dangerous for generic argv0s. Build a flow-spawn launch wrapper + per-slug registry at ~/.flow/state/procs/<slug>.jsonl (own process group per launch; kill(-pgid) survives reparenting; startEpoch closes pid reuse), a per-class kill-policy reaper (default TERM->wait->KILL on pgid; mcp-server SIGTERM to pid only, never escalated), failure-surfacing terminal-state wiring replacing the silent '|| true' sites, a crash-path orphan sweep over dead-session registry rows, and resolution of the flow done --orphans / flow-browser-teardown --orphans flag collision. Extend the merged PR #491 code, never duplicate it; the AGENTS.md point-of-use standing rule may be revised.",
+  "createdAt": "2026-08-01T00:00:00Z",
+  "features": [
+    {
+      "id": "proc-registry-spawn",
+      "title": "flow-spawn launch wrapper + per-slug process registry",
+      "description": "Build the process-lifecycle registry seam: a new `bin/lib/proc-registry.ts` owning the row schema {pgid, pid, startEpoch, slug, class, argv} and append/read/compact operations over append-only JSONL at ~/.flow/state/procs/<slug>.jsonl, plus a `bin/flow-spawn.ts` launch wrapper that starts the given command in its OWN fresh process group (Bun.spawn detached:true — verified on this host that child pgid == child pid), captures startEpoch via bin/lib/liveness.ts pidStartEpoch, records the row, and passes through stdio/exit code. Include a list/report mode (`flow-spawn --list <slug>` or equivalent) and full unit tests plus one live sleeper-tree test asserting pgid isolation and row shape. Purely additive: no kill paths, no pipeline wiring changes in this feature. Bun runtime, import.meta.main gate, chmod +x, tests next door. Part of epic `process-lifecycle-registry-reaper-track` (feature `proc-registry-spawn`) — design at `.flow/epics/process-lifecycle-registry-reaper-track/design.md`.",
+      "dependsOn": [],
+      "rationale": "Hides D1 (the identity channel and row schema) behind a stable lib API — the walking-skeleton root every other feature consumes.",
+      "acceptanceCriteria": [
+        "WHEN a command is launched via flow-spawn THE SYSTEM SHALL start it in its own fresh process group (ps -o pgid= shows pgid == pid) and append a parseable JSONL row {pgid, pid, startEpoch, slug, class, argv} to ~/.flow/state/procs/<slug>.jsonl",
+        "WHEN the wrapped command exits THE SYSTEM SHALL propagate its exit code unchanged",
+        "WHEN the registry file or procs directory is absent THE SYSTEM SHALL create it on first append"
+      ],
+      "mvp": true,
+      "flowNewHints": { "autoMerge": true, "copilotReview": "auto", "effort": "medium" }
+    },
+    {
+      "id": "reaper-kill-policies",
+      "title": "Registry-driven reaper with per-class kill policies",
+      "description": "Extend the teardown surface (bin/flow-browser-teardown.ts and/or a shared bin/lib module — extend, NEVER a parallel duplicate helper) with a registry-driven reap engine: for each row in ~/.flow/state/procs/<slug>.jsonl, verify liveness AND startEpoch match (bin/lib/liveness.ts pidStartEpoch; a mismatch means pid reuse — skip, never signal), then dispatch by class: default class = SIGTERM -> bounded wait -> SIGKILL on kill(-pgid); mcp-server class = SIGTERM to the server pid only, never the group, never escalated (only the server's shutdown() closes Chrome cleanly). The existing ancestry walk (resolveSessionPid/selectMcpServers with the argv-position-anchored isMcpServerCommand predicate) demotes to a FALLBACK for registry-miss cases, unchanged in mechanism. Ship --dry-run and --json first-class; typed JSON result including per-row outcome (reaped/skipped-epoch-mismatch/already-dead/failed). This is destructive-action kill-path code: strictest review lens, dry-run-first live verification, never signal a sibling session's processes; any contrived validation pipeline runs in ~/code/me/pokemon with --no-auto-merge and must not merge. Part of epic `process-lifecycle-registry-reaper-track` (feature `reaper-kill-policies`) — design at `.flow/epics/process-lifecycle-registry-reaper-track/design.md`.",
+      "dependsOn": ["proc-registry-spawn"],
+      "rationale": "Hides D2+D3 (kill-policy encoding and the registry-first/ancestry-fallback layering) behind one reap CLI with a typed JSON result.",
+      "acceptanceCriteria": [
+        "WHEN a registered default-class row is live with matching startEpoch THE SYSTEM SHALL SIGTERM its process group, wait a bounded interval, and SIGKILL the group only if still alive",
+        "WHEN a registered mcp-server-class row is live THE SYSTEM SHALL send SIGTERM to that pid only — never the group, never a harsher signal",
+        "WHEN a row's pid is dead or its startEpoch mismatches THE SYSTEM SHALL skip it with a per-row outcome and send no signal",
+        "WHEN the registry has no row covering an in-session chrome-devtools-mcp server THE SYSTEM SHALL fall back to the existing ancestry-scoped teardown path"
+      ],
+      "flowNewHints": { "autoMerge": false, "copilotReview": "auto", "effort": "high" }
+    },
+    {
+      "id": "spawn-site-adoption",
+      "title": "Route pipeline spawn sites through flow-spawn",
+      "description": "Adopt the flow-spawn wrapper (or the proc-registry lib directly) at the spawn sites flow itself owns, assigning a class per site: ui-smoke/ui-validation dev-server launches (skills/pipeline/flow-pipeline/references/ui-smoke-pass.md and flow-ui-validate), backgrounded flow-ci-wait invocations, and test-runner/script launches made by flow helpers (e.g. flow-pre-commit's child processes) — NOT harness-owned spawns (the chrome-devtools-mcp server is launched by Claude Code and cannot be wrapped; it stays on the ancestry path). Update the relevant skill prose/runbook blocks and helper code together so real pipelines produce registry rows. Keep inline-env port discipline intact (never write config files). Include tests asserting each adopted helper records a row with the intended class. Part of epic `process-lifecycle-registry-reaper-track` (feature `spawn-site-adoption`) — design at `.flow/epics/process-lifecycle-registry-reaper-track/design.md`.",
+      "dependsOn": ["proc-registry-spawn"],
+      "rationale": "Hides D1's adoption surface — which launch sites flow owns and how each maps to a class — producer-side only, no kill-path changes.",
+      "acceptanceCriteria": [
+        "WHEN a ui-smoke dev server is launched by the pipeline THE SYSTEM SHALL record a registry row with a dev-server-appropriate class",
+        "WHEN flow-ci-wait is launched in the background THE SYSTEM SHALL record a registry row for it",
+        "WHEN a spawn site is harness-owned (chrome-devtools-mcp server) THE SYSTEM SHALL leave it unwrapped and documented as ancestry-fallback territory"
+      ],
+      "flowNewHints": { "autoMerge": true, "copilotReview": "auto", "effort": "medium" }
+    },
+    {
+      "id": "terminal-state-wiring",
+      "title": "Failure-surfacing terminal-state reap wiring + standing-rule revision",
+      "description": "Replace the 8 terminal-state `flow-browser-teardown --json || true` call sites in skills/pipeline/flow-pipeline/SKILL.md with the registry-driven reap invocation in a shape that never blocks the terminal transition but NEVER silently no-ops: when the reap fails to run or exits unclean (helper missing from PATH, non-zero exit, malformed JSON), the failure is surfaced in the gate/terminal summary output the user reads and recorded durably (state.json or a .flow-tmp artifact). Add a bin/skill-md-lint.test.ts check forbidding a bare `|| true` regression at these sites. In the same PR, apply the user-authorized standing-rule revision: rewrite AGENTS.md 'Don't leave spawned resources running' and SKILL.md's 'Resource cleanup' section into the three-layer contract (point-of-use first, registry reap as guaranteed backstop, orphan sweep as crash-path net) so docs and behavior change together. Reap correctness over an empty registry (ancestry fallback) means this does not depend on spawn-site adoption. Part of epic `process-lifecycle-registry-reaper-track` (feature `terminal-state-wiring`) — design at `.flow/epics/process-lifecycle-registry-reaper-track/design.md`.",
+      "dependsOn": ["reaper-kill-policies"],
+      "rationale": "Hides D4 (the never-block-but-never-silent invocation shape) and D6 (the revised rule text) behind the terminal-state runbook contract.",
+      "acceptanceCriteria": [
+        "WHEN the reap helper is missing from PATH or exits non-zero at a terminal state THE SYSTEM SHALL surface a visible failure marker in the terminal-state output and record the failure durably",
+        "WHEN the reap fails THE SYSTEM SHALL still complete the terminal state transition (never blocks)",
+        "WHEN skill-md-lint runs THE SYSTEM SHALL fail on any terminal-state reap site regressed to a bare '|| true'",
+        "WHEN AGENTS.md and SKILL.md are read after merge THE SYSTEM SHALL describe the layered cleanup contract instead of the point-of-use-only rule"
+      ],
+      "flowNewHints": { "autoMerge": false, "copilotReview": "auto", "effort": "medium" }
+    },
+    {
+      "id": "orphan-sweep-convergence",
+      "title": "Crash-path registry orphan sweep + --orphans flag convergence",
+      "description": "Add the crash-path sweep: select registry rows whose RECORDING SESSION is dead (session pid + startEpoch liveness via bin/lib/session-identity.ts and bin/lib/liveness.ts), report them, and reap them through the per-class kill engine only with explicit --yes (report-only default); never touch a row whose recording session is alive (never signal a sibling session's processes). Keep the existing shape-heuristic sweeps (selectOrphanBrowsers/selectOrphanMcpServers) for unregistered strays. Resolve the --orphans flag-name collision: `flow done --orphans` sweeps state FILES while `flow-browser-teardown --orphans` sweeps PROCESSES — converge process sweeps under one documented surface (recommended: a `flow reap` verb with flow-browser-teardown --orphans delegating/deprecating; flow done --orphans unchanged), and update help.ts/docs accordingly. Destructive-action code: dry-run-first live verification; contrived validation pipelines run in ~/code/me/pokemon with --no-auto-merge and must not merge. Part of epic `process-lifecycle-registry-reaper-track` (feature `orphan-sweep-convergence`) — design at `.flow/epics/process-lifecycle-registry-reaper-track/design.md`.",
+      "dependsOn": ["proc-registry-spawn", "reaper-kill-policies"],
+      "rationale": "Hides D5 (the dead-session sweep criterion and the converged command naming) behind one documented sweep surface.",
+      "acceptanceCriteria": [
+        "WHEN a registry row's recording session is dead THE SYSTEM SHALL report the row, and signal it only under --yes using its class kill policy",
+        "WHEN a registry row's recording session is alive THE SYSTEM SHALL never signal it",
+        "WHEN a user consults help/docs THE SYSTEM SHALL present state-file sweeping and process sweeping under distinct, non-colliding names"
+      ],
+      "flowNewHints": { "autoMerge": false, "copilotReview": "auto", "effort": "medium" }
+    }
+  ]
+}
