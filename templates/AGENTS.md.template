@@ -568,8 +568,8 @@ fully off npm is a deliberate change, not something to do incidentally.
   option's consequence — good and bad — named on one line; when no
   clear recommendation exists, say so plainly instead of manufacturing
   a confident answer. Keep logs, diffs, and deep analysis out of the
-  message body — reference them as an artifact path instead. For
-  example:
+  summary itself — put them below it, or reference them as an artifact
+  path. For example:
   Before: "The CI poller exited with `status=timeout` after 20 minutes."
   After: "CI hasn't finished in 20 minutes — longer than normal, and it may be stuck."
 - **Consider the middle ground when a request is framed as a binary choice.**

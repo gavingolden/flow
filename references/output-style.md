@@ -236,8 +236,8 @@ more detail.
 **5. Progressive disclosure.** Logs, diffs, and raw tool output answer
 "how did we get here", not "what do I do now" — the two questions have
 different readers and different urgency. Keeping the first out of the
-message body (above the block, or in a named artifact path) keeps the
-decision-relevant text short enough to scan; a ~150-word impact summary
+pause block itself — above the block, or in a named artifact path —
+keeps the decision-relevant text short enough to scan; a ~150-word impact summary
 and a screenful block are advisory targets, not a hard cap that would
 force false simplicity onto a genuinely complex report.
 

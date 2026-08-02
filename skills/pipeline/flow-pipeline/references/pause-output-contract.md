@@ -52,9 +52,11 @@ everything else follows "Calibrate length to task" in
    confident bottom line. (This rule is deliberately ordered before the
    options rule.)
 4. **Options with consequences.** When a decision is needed,
-   `**Needs your review:**` / `**Next action:**` carry a short list,
+   `**Needs your review:**` carries the short option list —
    recommendation first, each option naming its good AND bad
-   consequence on one line.
+   consequence on one line. `**Next action:**` keeps the single-line
+   form the slot set above defines: the recommended reply verb, or
+   `choose one of the options above` when no recommendation exists.
 5. **Progressive disclosure.** Logs, diffs, and analysis live above the
    block or in a named artifact referenced by path. Advisory, never
    enforced: the impact summary runs about 150 words (the options list
