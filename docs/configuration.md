@@ -111,6 +111,8 @@ Add `--headless=new` (not the legacy `--headless`) if you never want a Dock icon
 
 **Cleaning up an existing backlog.** `flow-browser-teardown --orphans` sweeps sessionless browser processes and sessionless chrome-devtools-mcp server processes left behind by crashed/killed sessions — the browser rows it recognizes are a positive allowlist of profile shapes (the chrome-devtools-mcp cache profile, its `--isolated` temp profile, and the go-rod temp-profile shape); a row whose profile doesn't match one of those shapes is emitted report-only and is **never** signalled, even with `--yes`. Run it without `--yes` first to preview, then `--yes` to act. It uses SIGTERM only — never a harder signal, which would orphan Chrome instead of closing it.
 
+**Registry-driven reap.** `flow-browser-teardown --reap [--slug <s>] [--dry-run] [--json]` verifies and signals every row recorded in the [process registry](#process-registry) below (`~/.flow/state/procs/<slug>.jsonl`) — a different surface from `--orphans` above, which selects by process-table shape heuristics rather than by a recorded row. Two class policies apply: a `default`-class row gets SIGTERM to its whole process group, a bounded grace wait, then a force-kill of the group if it's still alive; an `mcp-server`-class row gets SIGTERM to its pid only — never the group, and never escalated (that class's SIGTERM-only rule is the same one the paragraph above states, scoped here explicitly to the `mcp-server` class since `--reap`'s `default` class does escalate). A row whose recorded start time no longer matches the live process is skipped without any signal at all. Run with `--dry-run` first — it sends no signal and is the recommended first invocation. `--reap` is opt-in: terminal-state pipelines don't call it yet, and wiring it in is a later feature.
+
 `flow-browser-teardown --orphans` is **not** the same sweep as `flow done --orphans`: the former sweeps browser **processes**, the latter sweeps stale pipeline **state files**. They happen to share a flag name but sweep unrelated things.
 
 ## Process registry
@@ -119,7 +121,7 @@ Add `--headless=new` (not the legacy `--headless`) if you never want a Dock icon
 
 Launch a command through the registry with `flow-spawn --slug <slug> -- <cmd> [args...]`; it runs the command in its own process group, records one row, and passes through its stdio and exit code. Inspect a slug's recorded rows with `flow-spawn --list <slug> [--json]`.
 
-Only `flow-spawn --list` reads this registry so far — no automated teardown or reap consumes it yet. It exists as a durable record for later features (bulk teardown of a pipeline's whole process tree, orphan reaping) to consume.
+`flow-spawn --list` reads this registry for inspection, and `flow-browser-teardown --reap` (see above) now consumes it for a real, opt-in reap — but no terminal-state pipeline calls `--reap` yet, so it's exercised only when someone runs it by hand. It exists as a durable record for later features (bulk teardown of a pipeline's whole process tree, orphan reaping) to consume.
 
 ## config.json reference
 

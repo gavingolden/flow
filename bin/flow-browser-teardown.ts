@@ -28,6 +28,14 @@
 
 import * as os from "node:os";
 import { pidStartEpoch } from "./lib/liveness";
+import { appendRow } from "./lib/proc-registry";
+import {
+  runRegistryReap,
+  type ReapDeps,
+  type RegistryReapResult,
+} from "./lib/reap";
+import { resolveSlugFromEnv } from "./lib/session-identity";
+import { isValidSlug } from "./lib/slug";
 
 // --- Core types --------------------------------------------------------
 
@@ -172,6 +180,17 @@ export type Deps = {
   tmpDir: string;
   startEpochOf?: (pid: number) => number | undefined;
   nowMs: () => number;
+  /** This process's own pgid, or null when it could not be determined — see
+   * `--reap`'s A2 pgid snapshot in the Default Deps section below. Only
+   * consumed by the reap path; the flagless default/`--orphans` modes never
+   * read it. */
+  selfPgid: number | null;
+  /** Members of process group `pgid`, or null when the group table could
+   * not be read/parsed. Only consumed by the reap path. */
+  groupMembers: (pgid: number) => number[] | null;
+  /** The pgid of THIS flow-pipeline session's own `claude` ancestor (see
+   * `resolveSessionPid`), when resolvable. Only consumed by the reap path. */
+  sessionPgid?: number;
 };
 
 function pollForExit(deps: Deps, pids: number[], timeoutMs: number): number[] {
@@ -186,7 +205,21 @@ function pollForExit(deps: Deps, pids: number[], timeoutMs: number): number[] {
 
 export function runTeardown(
   deps: Deps,
-  opts: { dryRun: boolean; sessionPid?: number; timeoutMs: number },
+  opts: {
+    dryRun: boolean;
+    sessionPid?: number;
+    timeoutMs: number;
+    /**
+     * Fired after `selectMcpServers` resolves its list and BEFORE any
+     * signal is sent — additive, optional, and never invoked when
+     * selection itself never runs (the gate/session/ps-unavailable early
+     * returns above). The flagless default mode never passes this; the
+     * `--reap` fallback path (`runReapMode` below) uses it to post-hoc
+     * register any server this ancestry walk found but the registry
+     * didn't already know about.
+     */
+    onSelect?: (servers: ProcRow[]) => void;
+  },
 ): TeardownResult {
   const explicitSessionPid = opts.sessionPid !== undefined;
   if (!explicitSessionPid && deps.env.FLOW_PIPELINE !== "1") {
@@ -235,6 +268,7 @@ export function runTeardown(
   }
 
   const servers = selectMcpServers(procs, sessionPid);
+  opts.onSelect?.(servers);
   if (servers.length === 0) {
     return {
       ran: false,
@@ -268,6 +302,179 @@ export function runTeardown(
       );
 
   return { ran: true, sessionPid, dryRun: opts.dryRun, signalled, stillAlive };
+}
+
+// --- Registry-driven reap (--reap) --------------------------------------
+
+export type ReapEnvelope = {
+  mode: "reap";
+  registry: RegistryReapResult;
+  fallback: TeardownResult | null;
+  fallbackSkipReason: "registry-covered" | "not-gated" | "no-servers" | null;
+  postRegistered: number;
+};
+
+/**
+ * Bridges this file's `Deps` to `bin/lib/reap.ts`'s `ReapDeps`. Deliberately
+ * NOT `deps.startEpochOf` — that field is millisecond-scaled for the
+ * `--orphans` `ageMs` display (see `buildDefaultDeps` below), while
+ * `ProcRegistryRow.startEpoch` (and every comparison the reap engine makes
+ * against it) is SECONDS, matching `pidStartEpoch`'s own return unit and
+ * `flow-spawn.ts`'s `buildRow`. Reusing the millisecond function here would
+ * silently epoch-mismatch every live row (a ~1000x scale error) and turn
+ * every reap into a permanent no-op.
+ */
+function toReapDeps(deps: Deps): ReapDeps {
+  return {
+    kill: deps.kill,
+    alive: deps.alive,
+    sleepMs: deps.sleepMs,
+    nowMs: deps.nowMs,
+    selfPid: deps.selfPid,
+    selfPgid: deps.selfPgid,
+    sessionPgid: deps.sessionPgid,
+    groupMembers: deps.groupMembers,
+    startEpochOf: (pid) => pidStartEpoch(pid),
+  };
+}
+
+/**
+ * Registry-first reap: runs `runRegistryReap` against
+ * `~/.flow/state/procs/<slug>.jsonl` first, then falls back to the
+ * mechanically-unchanged ancestry-walk `runTeardown` only when the registry
+ * did not already cover the session's chrome-devtools-mcp server. The
+ * fallback is provably skipped (never invisibly skipped): `fallback` is
+ * `null` with a named `fallbackSkipReason` whenever it did not run.
+ */
+export function runReapMode(
+  deps: Deps,
+  opts: {
+    dryRun: boolean;
+    slug?: string;
+    timeoutMs: number;
+    sessionPid?: number;
+    baseDir?: string;
+  },
+): ReapEnvelope {
+  // `resolveSlugFromEnv` returns `null`, not `undefined` — `runRegistryReap`
+  // keys its `skipReason: "no-slug"` branch on `undefined`, so this must be
+  // normalised before the call.
+  const slug = opts.slug ?? resolveSlugFromEnv(deps.env) ?? undefined;
+
+  const registry = runRegistryReap(slug, toReapDeps(deps), {
+    dryRun: opts.dryRun,
+    baseDir: opts.baseDir,
+  });
+
+  const registryCoveredMcp = registry.rows.some(
+    (r) =>
+      r.class === "mcp-server" &&
+      (r.outcome === "reaped" ||
+        r.outcome === "would-reap" ||
+        r.outcome === "still-alive"),
+  );
+
+  if (registryCoveredMcp) {
+    return {
+      mode: "reap",
+      registry,
+      fallback: null,
+      fallbackSkipReason: "registry-covered",
+      postRegistered: 0,
+    };
+  }
+
+  // Independently mirrors runTeardown's own ancestry-walk resolution, purely
+  // to stamp the reaper's own session identity onto any post-hoc registered
+  // row below (D3) — informational metadata only, never a kill-scope
+  // decision. That verification (an explicit --session-pid must resolve to
+  // a REAL claude process) stays inside runTeardown itself, unchanged.
+  const procsForSession = deps.listProcs();
+  const resolvedSessionPid =
+    opts.sessionPid ??
+    (procsForSession
+      ? resolveSessionPid(procsForSession, deps.selfPid)
+      : undefined);
+  const resolvedSessionStartEpoch =
+    resolvedSessionPid !== undefined ? pidStartEpoch(resolvedSessionPid) : null;
+
+  let postRegistered = 0;
+  const onSelect = (servers: ProcRow[]): void => {
+    // Post-hoc registration is NON-DRY-RUN ONLY, and requires a resolved
+    // slug — with no slug at all there is no registry to append to.
+    if (opts.dryRun || slug === undefined) return;
+    for (const server of servers) {
+      const result = appendRow(
+        {
+          // The server is harness-owned, so its real pgid belongs to the
+          // harness, not this row — recording that would put a foreign
+          // group into the registry a future default-class bug could
+          // group-kill. pgid = pid is harmless: mcp-server rows never take
+          // the group path.
+          pgid: server.pid,
+          pid: server.pid,
+          startEpoch: pidStartEpoch(server.pid),
+          slug,
+          class: "mcp-server",
+          argv: [server.command],
+          recordedAt: deps.nowMs(),
+          sessionPid: resolvedSessionPid ?? null,
+          sessionStartEpoch: resolvedSessionStartEpoch,
+        },
+        opts.baseDir,
+      );
+      if (result.written) postRegistered++;
+    }
+  };
+
+  const fallbackResult = runTeardown(deps, {
+    dryRun: opts.dryRun,
+    sessionPid: opts.sessionPid,
+    timeoutMs: opts.timeoutMs,
+    onSelect,
+  });
+
+  let fallback: TeardownResult | null;
+  let fallbackSkipReason:
+    | "registry-covered"
+    | "not-gated"
+    | "no-servers"
+    | null;
+  if (fallbackResult.ran) {
+    fallback = fallbackResult;
+    fallbackSkipReason = null;
+  } else if (fallbackResult.skipReason === "no-mcp-server") {
+    fallback = null;
+    fallbackSkipReason = "no-servers";
+  } else {
+    // "not-a-pipeline-session", "no-session-pid", or "ps-unavailable" — in
+    // every case the fallback could not identify a live pipeline session
+    // (or its process table) to act on at all. This IS the asymmetric-gate
+    // hole named in the plan: reaping from an ordinary, non-pipeline shell
+    // leaves an unregistered server neither signalled nor reported by the
+    // fallback — named here rather than silently swallowed.
+    fallback = null;
+    fallbackSkipReason = "not-gated";
+  }
+
+  return {
+    mode: "reap",
+    registry,
+    fallback,
+    fallbackSkipReason,
+    postRegistered,
+  };
+}
+
+export function summarizeReapEnvelope(envelope: ReapEnvelope): string {
+  const c = envelope.registry.counts;
+  const registryLine = envelope.registry.ran
+    ? `registry: reaped=${c.reaped} would-reap=${c["would-reap"]} still-alive=${c["still-alive"]} failed=${c.failed} already-dead=${c["already-dead"]} skipped-unsafe-pgid=${c["skipped-unsafe-pgid"]} skipped-epoch-mismatch=${c["skipped-epoch-mismatch"]} skipped-foreign-member=${c["skipped-foreign-member"]} malformed=${envelope.registry.malformed}`
+    : `registry: ran=false skipReason=${envelope.registry.skipReason ?? "none"} malformed=${envelope.registry.malformed}`;
+  const fallbackLine = envelope.fallback
+    ? `fallback: ran=true signalled=${envelope.fallback.signalled.length} stillAlive=${envelope.fallback.stillAlive.length}`
+    : `fallback: ran=false fallbackSkipReason=${envelope.fallbackSkipReason ?? "none"}`;
+  return `flow-browser-teardown --reap: ${registryLine} | ${fallbackLine} | postRegistered=${envelope.postRegistered}`;
 }
 
 // --- Orphan sweep (--orphans) -------------------------------------------
@@ -525,14 +732,102 @@ function defaultAlive(pid: number): boolean {
   }
 }
 
-function buildDefaultDeps(): Deps {
+/**
+ * ONE `ps -Ao pid=,pgid=` snapshot, parsed into a pid->pgid map. Serves both
+ * `selfPgid` and `groupMembers` from the SAME snapshot (see A2 in the
+ * plan): GNU procps' `ps -g <pgid>` selects by session-or-effective-group
+ * NAME, not membership, so a per-row `-g` invocation would plausibly return
+ * a session superset on Linux (CI runs ubuntu-latest) that always contains
+ * an older process, silently turning every default-class row into
+ * `skipped-foreign-member`. Parsing one bulk snapshot in TypeScript avoids
+ * that platform hazard entirely, and collapses what would otherwise be a
+ * per-row fork into a single one.
+ */
+function takePgidSnapshot(): Map<number, number> | null {
+  try {
+    const r = Bun.spawnSync(["ps", "-Ao", "pid=,pgid="], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, LC_ALL: "C" },
+    });
+    if (r.exitCode !== 0) return null;
+    const byPid = new Map<number, number>();
+    for (const line of r.stdout.toString().split("\n")) {
+      const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
+      if (!m) continue; // blank/malformed line — skip, not fatal
+      byPid.set(Number(m[1]), Number(m[2]));
+    }
+    return byPid;
+  } catch {
+    return null;
+  }
+}
+
+function groupMembersFrom(
+  byPid: Map<number, number> | null,
+): (pgid: number) => number[] | null {
+  return (pgid) => {
+    if (byPid === null) return null;
+    const members: number[] = [];
+    for (const [pid, rowPgid] of byPid) {
+      if (rowPgid === pgid) members.push(pid);
+    }
+    return members;
+  };
+}
+
+/**
+ * Wraps `defaultListProcs` so the underlying `ps -Ao pid,ppid,command` fork
+ * runs at most once per CLI invocation regardless of how many times
+ * `deps.listProcs()` is called (the `--reap` fallback path calls it once to
+ * resolve a session pid for post-hoc registration, then again inside
+ * `runTeardown`) — the process table can't meaningfully change within one
+ * short-lived invocation in a way that matters here.
+ */
+function memoizedListProcs(): () => ProcRow[] | undefined {
+  let cached: ProcRow[] | undefined;
+  let computed = false;
+  return () => {
+    if (!computed) {
+      computed = true;
+      cached = defaultListProcs();
+    }
+    return cached;
+  };
+}
+
+/**
+ * `includeReapExtras` gates the extra `ps -Ao pid=,pgid=` snapshot fork
+ * (plus eagerly resolving `sessionPgid`) behind the `--reap` path only —
+ * the flagless default and `--orphans` modes never read `selfPgid` /
+ * `groupMembers` / `sessionPgid`, so they keep their prior zero-extra-fork
+ * behaviour (in the common case where the pipeline-session gate fails
+ * before `listProcs` is ever called, that stays a true no-op).
+ */
+function buildDefaultDeps(opts: { includeReapExtras?: boolean } = {}): Deps {
+  const listProcs = memoizedListProcs();
+  const selfPid = process.pid;
+
+  let selfPgid: number | null = null;
+  let groupMembers: (pgid: number) => number[] | null = () => null;
+  let sessionPgid: number | undefined;
+
+  if (opts.includeReapExtras) {
+    const byPid = takePgidSnapshot();
+    selfPgid = byPid?.get(selfPid) ?? null;
+    groupMembers = groupMembersFrom(byPid);
+    const procs = listProcs();
+    const sessionPid = procs ? resolveSessionPid(procs, selfPid) : undefined;
+    sessionPgid = sessionPid !== undefined ? byPid?.get(sessionPid) : undefined;
+  }
+
   return {
-    listProcs: defaultListProcs,
+    listProcs,
     kill: (pid, signal) => process.kill(pid, signal),
     alive: defaultAlive,
     sleepMs: (ms) => Bun.sleepSync(ms),
     env: process.env,
-    selfPid: process.pid,
+    selfPid,
     homeDir: os.homedir(),
     tmpDir: os.tmpdir(),
     startEpochOf: (pid) => {
@@ -540,6 +835,9 @@ function buildDefaultDeps(): Deps {
       return epoch === null ? undefined : epoch * 1000;
     },
     nowMs: () => Date.now(),
+    selfPgid,
+    groupMembers,
+    sessionPgid,
   };
 }
 
@@ -552,6 +850,8 @@ type ParsedCli = {
   timeoutMs: number;
   orphans: boolean;
   yes: boolean;
+  reap: boolean;
+  slug?: string;
   usageError?: string;
 };
 
@@ -562,6 +862,7 @@ function parseCliArgs(argv: string[]): ParsedCli {
     timeoutMs: 12000,
     orphans: false,
     yes: false,
+    reap: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -573,6 +874,15 @@ function parseCliArgs(argv: string[]): ParsedCli {
       out.orphans = true;
     } else if (a === "--yes") {
       out.yes = true;
+    } else if (a === "--reap") {
+      out.reap = true;
+    } else if (a === "--slug") {
+      const v = argv[++i];
+      if (v === undefined || v === "" || !isValidSlug(v)) {
+        out.usageError = `--slug requires a valid slug value (got: ${v ?? ""})`;
+      } else {
+        out.slug = v;
+      }
     } else if (a === "--session-pid") {
       const v = argv[++i];
       const n = v === undefined || v === "" ? Number.NaN : Number(v);
@@ -600,6 +910,7 @@ function usage(): string {
   return [
     "usage: flow-browser-teardown [--json] [--dry-run] [--session-pid <pid>] [--timeout-ms <n>]",
     "       flow-browser-teardown --orphans [--yes] [--dry-run] [--json]",
+    "       flow-browser-teardown --reap [--slug <s>] [--dry-run] [--json]",
     "",
     "Default mode: session-scoped teardown — SIGTERMs THIS flow-pipeline",
     "session's own chrome-devtools-mcp SERVER (found by process ancestry) so",
@@ -611,6 +922,14 @@ function usage(): string {
     "This is NOT the same sweep as `flow done --orphans`, which sweeps stale",
     "pipeline STATE FILES, not browser processes — the two commands share a",
     "flag name but sweep unrelated things.",
+    "",
+    "--reap mode (opt-in) verifies and signals every row recorded in",
+    "~/.flow/state/procs/<slug>.jsonl before falling back to the ancestry",
+    "walk above. --slug resolves explicitly, else FLOW_SLUG, else no slug.",
+    "A default-class row escalates to a harder signal against its whole",
+    "process group after a bounded grace wait; an mcp-server row is",
+    "signalled once and never escalated, same policy as the default mode",
+    "above. Run with --dry-run first — it sends no signal at all.",
   ].join("\n");
 }
 
@@ -621,6 +940,22 @@ export function main(argv: string[]): number {
       `flow-browser-teardown: ${parsed.usageError}\n${usage()}\n`,
     );
     return 0; // never break a caller
+  }
+
+  if (parsed.reap) {
+    const deps = buildDefaultDeps({ includeReapExtras: true });
+    const envelope = runReapMode(deps, {
+      dryRun: parsed.dryRun,
+      slug: parsed.slug,
+      timeoutMs: parsed.timeoutMs,
+      sessionPid: parsed.sessionPid,
+    });
+    if (parsed.json) {
+      console.log(JSON.stringify(envelope));
+    } else {
+      console.log(summarizeReapEnvelope(envelope));
+    }
+    return 0;
   }
 
   const deps = buildDefaultDeps();
