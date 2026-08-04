@@ -1516,7 +1516,10 @@ fi
 # foreground budget. --out persists the final verdict JSON to $VERDICT_FILE
 # on every terminal-decision exit path; that file — NOT a stdout capture —
 # is the durable handoff the supervisor reads on completion or resume.
-flow-ci-wait "$PR" $NOT_REQUESTED_FLAG --out "$VERDICT_FILE"
+# flow-spawn records one registry row and passes stdio + exit code through
+# unchanged; the slug resolves from FLOW_SLUG (never a tmux pane option —
+# no --slug is passed).
+flow-spawn --class default -- flow-ci-wait "$PR" $NOT_REQUESTED_FLAG --out "$VERDICT_FILE"
 ```
 
 When the backgrounded call exits (or on resume), read the persisted
@@ -2459,7 +2462,7 @@ resource classes are:
 - **Playwright / headless browsers** — any repo headless browser an
   agent stood up (the Step 8c.iii fallback) exits when its Bash invocation returns; nothing persists past the call.
 - **Background processes** — anything launched `run_in_background` (the
-  `flow-ci-wait` poll loop is the canonical case) reaches a terminal exit or is reaped before the pipeline ends.
+  `flow-ci-wait` poll loop is the canonical case) reaches a terminal exit or is reaped before the pipeline ends. The canonical case now launches through `flow-spawn`, so a reparented poller is recoverable from its registry row. The `flow-spawn` wrapper process itself is not registered and lives for the duration of the poll (it exits when its child does), so it adds one process to the population being counted.
 - **Agent-written env/config files** — any env/config file a browser/UI
   pass created is deleted on completion and on every error/early-exit
   path, scoped strictly to files that pass created (see "Teardown" in

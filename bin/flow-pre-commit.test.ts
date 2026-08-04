@@ -2,7 +2,16 @@
  * Tests for flow-pre-commit.ts
  */
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -35,6 +44,8 @@ import {
   parseLsFilesModes,
   parsePrePushInput,
   parseScopes,
+  registryArgv,
+  resetFlowSpawnProbe,
   resolveDefaultScopeFiles,
   resolveTestConcurrency,
   runCheck,
@@ -780,6 +791,183 @@ describe(runCheck, () => {
     );
     expect(result.passed).toBe(false);
     expect(result.skipReason).toBeUndefined();
+  });
+});
+
+describe("registryArgv", () => {
+  const VALID_SLUG = "flow-spawn-site-adoption";
+
+  beforeEach(() => {
+    resetFlowSpawnProbe();
+  });
+
+  afterEach(() => {
+    resetFlowSpawnProbe();
+  });
+
+  it("wraps argv as [flow-spawn, --class, default, --, ...argv] when env has a valid FLOW_SLUG and hasFlowSpawn returns true", () => {
+    const argv = ["npm", "run", "typecheck"];
+    const result = registryArgv(argv, { FLOW_SLUG: VALID_SLUG }, () => true);
+    expect(result).toEqual([
+      "flow-spawn",
+      "--class",
+      "default",
+      "--",
+      "npm",
+      "run",
+      "typecheck",
+    ]);
+  });
+
+  it("returns argv UNCHANGED (same array) when FLOW_SLUG is absent from env, even if hasFlowSpawn returns true", () => {
+    const argv = ["npm", "run", "typecheck"];
+    const result = registryArgv(argv, {}, () => true);
+    expect(result).toBe(argv);
+  });
+
+  it("returns argv UNCHANGED when FLOW_SLUG resolves but hasFlowSpawn returns false", () => {
+    // This scenario also trips the partial-adoption diagnostic (covered
+    // below) — spy on stderr here too so this test's console output stays
+    // silent like its siblings above.
+    const spy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    try {
+      const argv = ["npm", "run", "typecheck"];
+      const result = registryArgv(argv, { FLOW_SLUG: VALID_SLUG }, () => false);
+      expect(result).toBe(argv);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("emits exactly ONE stderr diagnostic line matching /flow-spawn unavailable/ across repeated calls when slug resolves + probe fails", () => {
+    const writes: string[] = [];
+    const spy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk) => {
+        writes.push(chunk.toString());
+        return true;
+      });
+    try {
+      registryArgv(["a"], { FLOW_SLUG: VALID_SLUG }, () => false);
+      registryArgv(["b"], { FLOW_SLUG: VALID_SLUG }, () => false);
+      registryArgv(["c"], { FLOW_SLUG: VALID_SLUG }, () => false);
+    } finally {
+      spy.mockRestore();
+    }
+    const matches = writes.filter((w) => /flow-spawn unavailable/.test(w));
+    expect(matches).toHaveLength(1);
+  });
+
+  it("emits NO diagnostic when no slug resolves", () => {
+    const writes: string[] = [];
+    const spy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk) => {
+        writes.push(chunk.toString());
+        return true;
+      });
+    try {
+      registryArgv(["a"], {}, () => false);
+      registryArgv(["b"], {}, () => false);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(writes.filter((w) => /flow-spawn unavailable/.test(w))).toHaveLength(
+      0,
+    );
+  });
+
+  describe("runCheck's true default (registry-wrapped) runner", () => {
+    // `run()` calls the `Bun` global directly, which does not exist when
+    // this suite runs under node-vitest (the default `npm run test`) — so,
+    // like the other integration blocks in this file (see the comment on
+    // "integration: root-fallback + no-checks-defined silent-pass hole"
+    // above), the only way to exercise the TRUE default (no injected
+    // runner) is to spawn the real script under `bun` as a subprocess, not
+    // call the imported function in-process. A PATH-prepended shim in the
+    // CHILD's env (rather than relying on the host's actionlint/go being
+    // absent) keeps the assertion host-independent: both shims exit 127,
+    // mirroring flow-spawn's own launch-failure exit code
+    // (bin/flow-spawn.ts:297) — proving the optional-tool skips survive the
+    // wrapping runner without ever needing a real flow-spawn launch.
+    let tmpDir: string;
+    let shimDir: string;
+    const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
+
+    beforeAll(() => {
+      if (!bunOnPath) return;
+      tmpDir = mkdtempSync(join(tmpdir(), "flow-pre-commit-scope-shim-"));
+      writeFileSync(
+        join(tmpDir, "package.json"),
+        JSON.stringify({ name: "fixture", version: "0.0.1" }, null, 2),
+      );
+      spawnSync("git", ["init", "-q", "-b", "main"], { cwd: tmpDir });
+      spawnSync(
+        "git",
+        [
+          "-c",
+          "user.email=t@t",
+          "-c",
+          "user.name=t",
+          "commit",
+          "--allow-empty",
+          "-q",
+          "-m",
+          "init",
+        ],
+        { cwd: tmpDir },
+      );
+
+      shimDir = mkdtempSync(join(tmpdir(), "flow-pre-commit-shim-"));
+      writeFileSync(join(shimDir, "actionlint"), "#!/bin/sh\nexit 127\n");
+      chmodSync(join(shimDir, "actionlint"), 0o755);
+      writeFileSync(join(shimDir, "go"), "#!/bin/sh\nexit 127\n");
+      chmodSync(join(shimDir, "go"), 0o755);
+    });
+
+    afterAll(() => {
+      if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+      if (shimDir) rmSync(shimDir, { recursive: true, force: true });
+    });
+
+    it.skipIf(!bunOnPath)(
+      "reports skipReason actionlint-not-installed / go-not-installed for --scope actions,backend when the underlying command exits 127",
+      () => {
+        const here =
+          import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+        const scriptPath = resolve(here, "flow-pre-commit.ts");
+        const result = spawnSync(
+          "bun",
+          [scriptPath, "--scope", "actions,backend", "--json"],
+          {
+            cwd: tmpDir,
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              // Shim first on PATH so `actionlint`/`go` resolve to the
+              // exit-127 stand-ins above instead of any real host install.
+              PATH: `${shimDir}:${process.env.PATH ?? ""}`,
+              // Unset (not merely absent) so registryArgv's slug guard
+              // short-circuits and the shim — not a real flow-spawn launch
+              // — is what runCheck observes.
+              FLOW_SLUG: undefined,
+            },
+          },
+        );
+        const report = JSON.parse(result.stdout) as JsonReport;
+        const actionlintResult = report.results.find(
+          (r) => r.name === "actionlint .github/workflows/",
+        );
+        expect(actionlintResult?.passed).toBe(true);
+        expect(actionlintResult?.skipReason).toBe("actionlint-not-installed");
+
+        const goResult = report.results.find((r) => r.name.startsWith("go "));
+        expect(goResult?.passed).toBe(true);
+        expect(goResult?.skipReason).toBe("go-not-installed");
+      },
+    );
   });
 });
 

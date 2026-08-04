@@ -49,6 +49,9 @@ import {
   readCopilotLogin as readCopilotLoginFromConfig,
 } from "./lib/copilot-config";
 import { isModuleActive, noticeLine } from "./lib/module-status";
+import { resolveSlugFromEnv } from "./lib/session-identity";
+import { readRows, registryPath } from "./lib/proc-registry";
+import { FLOW_STATE_DIR } from "./lib/paths";
 
 // --- Types -----------------------------------------------------------------
 
@@ -710,6 +713,13 @@ export type Deps = {
    * threaded into the pure `PollState` / `decideOnPoll` decision core.
    */
   isCopilotModuleActive?: () => boolean;
+  /**
+   * Self-registration diagnostic seam. Defaults to `registrySelfCheck()`
+   * (real env/pid/registry). Read once at startup, mirroring
+   * `isCopilotModuleActive`'s call shape; stderr-only, never threaded into
+   * the `--out` verdict JSON or the exit code.
+   */
+  registrySelfCheck?: () => string | null;
 };
 
 /**
@@ -820,6 +830,40 @@ function defaultReadCopilotLogin(): string {
 /** Default claim-deadline reader: the global `bots.copilotClaimDeadlineSec` override, or undefined. */
 function defaultReadClaimDeadline(): number | undefined {
   return readCopilotClaimDeadlineSec();
+}
+
+/**
+ * Self-registration diagnostic: warns (stderr-only, never blocking, never
+ * signal-sending) when this `flow-ci-wait` process is running inside a
+ * pipeline (a `FLOW_SLUG` resolves) but has no row for its own pid in the
+ * process registry — the visible symptom of a runbook site that launched it
+ * directly instead of through the `flow-spawn` wrapper. `baseDir` has no
+ * default other than the real `FLOW_STATE_DIR`, so a caller that forgets to
+ * sandbox it in a test reads the developer's actual `~/.flow/state/procs/`
+ * (see vitest.setup.ts's documented HOME-sandbox gap) — pass an explicit
+ * `baseDir` from every test.
+ *
+ * A registry FILE that doesn't exist at all is deliberately treated as
+ * silent-null, not a warning — that shape is indistinguishable from "no
+ * `flow-spawn`-wrapped process has recorded anything yet under this slug",
+ * which is unremarkable early in a pipeline, and is also what `readRows`
+ * reports on its own internal read failures (it swallows its own errors and
+ * reports zero rows). Only a registry that DOES have rows recorded — proving
+ * the mechanism is live — but none for this pid is positive evidence this
+ * process specifically bypassed the wrapper, which is the one case worth a
+ * warning.
+ */
+export function registrySelfCheck(
+  env: NodeJS.ProcessEnv = process.env,
+  pid: number = process.pid,
+  baseDir: string = FLOW_STATE_DIR,
+): string | null {
+  const slug = resolveSlugFromEnv(env);
+  if (slug === null) return null;
+  if (!fs.existsSync(registryPath(slug, baseDir))) return null;
+  const { rows } = readRows(slug, baseDir);
+  if (rows.some((r) => r.pid === pid)) return null;
+  return `flow-ci-wait: running inside pipeline '${slug}' with no process-registry row for pid ${pid} — likely launched without the flow-spawn wrapper`;
 }
 
 /** Fetches the PR's requested-reviewers list (used at loop entry, per-poll, and for post-POST verification). Returns lowercased logins. */
@@ -1330,6 +1374,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     ((fromSha: string, toSha: string) => isSmallFollowup(fromSha, toSha, gh));
   const isCopilotModuleActive =
     deps.isCopilotModuleActive ?? (() => isModuleActive("copilot"));
+  const registrySelfCheckFn = deps.registrySelfCheck ?? registrySelfCheck;
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -1344,6 +1389,13 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
       "usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>] [--out <path>]",
     );
     return 2;
+  }
+
+  // Fired ONCE at startup, stderr-only: never touches the exit code or the
+  // --out verdict JSON (emitResult below stays the only writer of both).
+  const registryWarning = registrySelfCheckFn();
+  if (registryWarning !== null) {
+    process.stderr.write(`${registryWarning}\n`);
   }
 
   const copilotLogin = parsed.copilotLogin ?? readCopilotLogin();
