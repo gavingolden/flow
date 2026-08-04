@@ -28,6 +28,7 @@ import {
   type DynamicScope,
 } from "./lib/monorepo-scopes";
 import { isPathBoundHelper } from "./lib/sources";
+import { resolveSlugFromEnv } from "./lib/session-identity";
 import {
   classifyGrepExit,
   conflictGrepArgv,
@@ -245,6 +246,88 @@ function gh(args: string[]): string {
     );
   }
   return stdout;
+}
+
+// --- Registry-aware runner (flow-spawn adoption) ---
+
+// Memoized module-level probe cache (null = not yet probed). Cleared by
+// `resetFlowSpawnProbe` so a vitest worker never leaks a probe result (or
+// the one-shot diagnostic flag below) across specs.
+let flowSpawnProbeCache: boolean | null = null;
+let flowSpawnDiagnosticEmitted = false;
+
+/**
+ * Feature-aware probe for `flow-spawn` on PATH. `flow-spawn` has NO `--help`
+ * arm — an unknown flag routes to `parseCliArgs`'s else-branch, and `main`
+ * writes `flow-spawn: unknown flag: --help` plus `usage()` to STDERR and
+ * returns exit 2. So this probe ignores the exit code entirely and matches
+ * on the `--class` token that `usage()` always advertises; a probe gated on
+ * `exitCode === 0` would fail 100% of the time and silently disable the
+ * whole feature.
+ */
+function flowSpawnAvailable(): boolean {
+  if (flowSpawnProbeCache !== null) return flowSpawnProbeCache;
+  // The throw is the common absent-binary path, not an edge case: Bun.spawnSync
+  // raises `Executable not found in $PATH` rather than returning 127 (the same
+  // behaviour runCheck's own catch below already compensates for). Uncaught, it
+  // escapes registryArgv into runCheck's catch, which maps it to exit 127
+  // against the CHECK's argv — so `npm run test` would report a bogus
+  // command-not-found and the gate would red out on checks that never ran.
+  // That inverts this feature's whole contract: a missing wrapper must fail
+  // OPEN. Caching false here also keeps it a one-shot probe per process.
+  try {
+    const result = Bun.spawnSync(["flow-spawn", "--help"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const combined = result.stdout.toString() + result.stderr.toString();
+    flowSpawnProbeCache = /--class/.test(combined);
+  } catch {
+    flowSpawnProbeCache = false;
+  }
+  return flowSpawnProbeCache;
+}
+
+/** Test-only: clears the memoized probe result and the one-shot diagnostic flag. */
+export function resetFlowSpawnProbe(): void {
+  flowSpawnProbeCache = null;
+  flowSpawnDiagnosticEmitted = false;
+}
+
+/**
+ * Wraps `argv` to launch through `flow-spawn --class default` when a
+ * pipeline slug resolves from `FLOW_SLUG` AND `flow-spawn` is on PATH; both
+ * guards fail open to the unwrapped `argv` otherwise. No `--slug` (flow-spawn
+ * resolves `FLOW_SLUG` itself) and no `--stdin` (stays at its `ignore`
+ * default — the child is detached into its own process group, and a
+ * background process group reading the controlling tty takes SIGTTIN and
+ * hangs this synchronous `Bun.spawnSync` forever).
+ */
+export function registryArgv(
+  argv: string[],
+  env: NodeJS.ProcessEnv = process.env,
+  hasFlowSpawn: () => boolean = flowSpawnAvailable,
+): string[] {
+  if (resolveSlugFromEnv(env) === null) return argv;
+  if (!hasFlowSpawn()) {
+    if (!flowSpawnDiagnosticEmitted) {
+      flowSpawnDiagnosticEmitted = true;
+      process.stderr.write(
+        "flow-pre-commit: flow-spawn unavailable — no registry rows will be written for this run\n",
+      );
+    }
+    return argv;
+  }
+  return ["flow-spawn", "--class", "default", "--", ...argv];
+}
+
+/** `runCheck`'s default `Runner` — routes every check command through `registryArgv`. */
+export function runViaRegistry(argv: string[]): {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+} {
+  return run(registryArgv(argv));
 }
 
 // --- Scope Detection ---
@@ -787,7 +870,7 @@ export function runCheck(
   name: string,
   argv: string[],
   scope: ScopeName,
-  runner: Runner = run,
+  runner: Runner = runViaRegistry,
 ): CheckResult {
   const start = performance.now();
   let stdout = "";

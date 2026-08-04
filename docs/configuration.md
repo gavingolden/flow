@@ -119,6 +119,14 @@ Add `--headless=new` (not the legacy `--headless`) if you never want a Dock icon
 
 Launch a command through the registry with `flow-spawn --slug <slug> -- <cmd> [args...]`; it runs the command in its own process group, records one row, and passes through its stdio and exit code. Inspect a slug's recorded rows with `flow-spawn --list <slug> [--json]`.
 
+Three sites launch through the wrapper today, each recorded with `class: "default"`:
+
+- `flow-pre-commit`'s verify-gate check commands (each `npm run <script>` / `actionlint` / `go` invocation)
+- the backgrounded `flow-ci-wait` CI-poll loop (`/flow-pipeline` step 7)
+- the ui-smoke pass's dev-server launch
+
+`flow-pre-commit` only wraps when a pipeline slug resolves (`FLOW_SLUG` is set), so a consumer repo, a git hook, or a CI run is byte-identical to before — no synthetic `untracked-*.jsonl` files accumulate there. The session's chrome-devtools-mcp browser server is harness-owned and cannot be wrapped this way; it stays on the process-ancestry fallback `flow-browser-teardown` already uses.
+
 Only `flow-spawn --list` reads this registry so far — no automated teardown or reap consumes it yet. It exists as a durable record for later features (bulk teardown of a pipeline's whole process tree, orphan reaping) to consume.
 
 ## config.json reference

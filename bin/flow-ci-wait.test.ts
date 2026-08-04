@@ -23,6 +23,7 @@ import {
   observeMergeState,
   observePr,
   parseArgs,
+  registrySelfCheck,
   resolveCopilotConfigured,
   retriggerCopilotReview,
   run,
@@ -33,6 +34,7 @@ import {
   type RunResult,
 } from "./flow-ci-wait";
 import { matchesCopilot } from "./lib/copilot-config";
+import { appendRow, type ProcRegistryRow } from "./lib/proc-registry";
 
 // `resolveCopilotConfigured` consults `bots.copilotAutoReview` via the default
 // (file-backed) ReadConfigFile, which has no injectable seam at the call site.
@@ -56,9 +58,20 @@ afterEach(() => setAutoReview(undefined));
 // tree. Tests that pass an explicit `cwd` dep (the workflow-trigger block)
 // or an explicit `--out` path are unaffected — those win over this default.
 let globalCwd = "";
+// `run()`'s default `registrySelfCheck` dep reads the REAL `FLOW_SLUG` env
+// var. A developer running this suite from inside a live flow pipeline
+// shell (FLOW_SLUG genuinely set) would otherwise have every `run()` call
+// in this file that omits the dep resolve a real slug and read the real
+// `~/.flow/state/procs/` registry — sandbox it away for the whole file, the
+// same isolation discipline as the cwd sandbox above. The `registrySelfCheck`
+// describe block below always passes an explicit `env` object to the pure
+// function directly, so this global unset never interferes with it.
+let originalFlowSlug: string | undefined;
 beforeEach(() => {
   globalCwd = fs.mkdtempSync(path.join(os.tmpdir(), "flow-ci-wait-cwd-"));
   vi.spyOn(process, "cwd").mockReturnValue(globalCwd);
+  originalFlowSlug = process.env.FLOW_SLUG;
+  delete process.env.FLOW_SLUG;
 });
 
 // Restore any spies (e.g. captureStreams' process.stdout/stderr.write mocks)
@@ -71,6 +84,8 @@ afterEach(() => {
     fs.rmSync(globalCwd, { recursive: true, force: true });
     globalCwd = "";
   }
+  if (originalFlowSlug === undefined) delete process.env.FLOW_SLUG;
+  else process.env.FLOW_SLUG = originalFlowSlug;
 });
 
 // ---------------------------------------------------------------------------
@@ -4954,5 +4969,126 @@ describe("run() integration — verdict persistence", () => {
     expect(cap.stderr.join("")).toMatch(/failed to persist verdict/);
     // (d) no verdict file was created.
     expect(fs.existsSync(outPath)).toBe(false);
+  });
+});
+
+describe(registrySelfCheck, () => {
+  const VALID_SLUG = "flow-spawn-site-adoption";
+  let baseDir: string;
+
+  function buildRow(overrides: Partial<ProcRegistryRow> = {}): ProcRegistryRow {
+    return {
+      pgid: 99999,
+      pid: 99999,
+      startEpoch: 1000,
+      slug: VALID_SLUG,
+      class: "default",
+      argv: ["echo", "hi"],
+      recordedAt: Date.now(),
+      sessionPid: null,
+      sessionStartEpoch: null,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-ci-wait-registry-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  it("returns a non-null warning string when FLOW_SLUG resolves and no row in <baseDir>/<slug>.jsonl matches the given pid", () => {
+    // A row exists (proving the registry mechanism is live under this slug)
+    // for a DIFFERENT pid, so the target pid's absence is positive evidence
+    // of a bypassed wrapper, not just an empty/never-written registry.
+    appendRow(buildRow({ pid: 11111, pgid: 11111 }), baseDir);
+    const warning = registrySelfCheck(
+      { FLOW_SLUG: VALID_SLUG },
+      22222,
+      baseDir,
+    );
+    expect(warning).not.toBeNull();
+    expect(warning).toMatch(/flow-spawn/);
+  });
+
+  it("returns null when a row with a matching pid exists", () => {
+    appendRow(buildRow({ pid: 33333, pgid: 33333 }), baseDir);
+    const warning = registrySelfCheck(
+      { FLOW_SLUG: VALID_SLUG },
+      33333,
+      baseDir,
+    );
+    expect(warning).toBeNull();
+  });
+
+  it("returns null when env has no FLOW_SLUG", () => {
+    const warning = registrySelfCheck({}, 44444, baseDir);
+    expect(warning).toBeNull();
+  });
+
+  it("returns null (silently) when the registry file does not exist at all", () => {
+    const warning = registrySelfCheck(
+      { FLOW_SLUG: VALID_SLUG },
+      55555,
+      baseDir,
+    );
+    expect(warning).toBeNull();
+  });
+
+  it("the startup wiring never mutates the --out verdict JSON", async () => {
+    const clock = makeFakeClock();
+    const buildGh = () =>
+      makeGhSequence([
+        { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+        { matches: isPrView, response: prViewResponse("MERGED") },
+      ]);
+    const baseDeps = {
+      isCopilotModuleActive: () => true,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => false,
+      readMergeState: () => ({
+        mergeable: "MERGEABLE" as const,
+        mergeStateStatus: "CLEAN" as const,
+      }),
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    };
+
+    const outPathA = path.join(globalCwd, "no-warning", "result.json");
+    const capA = captureStreams();
+    await run(["100", "--out", outPathA], {
+      ...baseDeps,
+      gh: buildGh(),
+      registrySelfCheck: () => null,
+    });
+    capA.restore();
+    const resultA = JSON.parse(capA.stdout.join("")) as RunResult;
+
+    const outPathB = path.join(globalCwd, "with-warning", "result.json");
+    const capB = captureStreams();
+    await run(["100", "--out", outPathB], {
+      ...baseDeps,
+      gh: buildGh(),
+      registrySelfCheck: () =>
+        "flow-ci-wait: running inside pipeline 'x' with no process-registry row for pid 1 — likely launched without the flow-spawn wrapper",
+    });
+    capB.restore();
+    const resultB = JSON.parse(capB.stdout.join("")) as RunResult;
+
+    // Same key set on both sides — the warning firing adds nothing to the
+    // verdict JSON.
+    expect(Object.keys(resultB).sort()).toEqual(Object.keys(resultA).sort());
+    expect(resultB.decision).toBe(resultA.decision);
+    // The warning is visible on stderr, not folded into the JSON.
+    expect(capB.stderr.join("")).toMatch(
+      /likely launched without the flow-spawn wrapper/,
+    );
+    expect(capA.stderr.join("")).not.toMatch(/flow-spawn wrapper/);
+    // The persisted --out file mirrors stdout exactly, same as any other verdict.
+    const fileB = JSON.parse(fs.readFileSync(outPathB, "utf8")) as RunResult;
+    expect(fileB).toEqual(resultB);
   });
 });

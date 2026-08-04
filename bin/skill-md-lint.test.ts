@@ -5492,6 +5492,48 @@ describe("browser-driven UI-validation structural anchors", () => {
     ).toBe(true);
   });
 
+  it("flow-spawn adoption: step-7 CI-poller launch and ui-smoke dev-server launch both go through the wrapper", () => {
+    // Semantic-token anchors (tolerant of whitespace/reformatting), not a
+    // fixed byte sequence — a later line-wrap or quote-style change must not
+    // red this suite for a non-functional edit, while a genuinely-dropped
+    // wrapper must still fail.
+    expect(
+      /flow-spawn\s+--class\s+default\s+--\s+flow-ci-wait/.test(content),
+      "flow-pipeline SKILL.md step 7 must launch flow-ci-wait through " +
+        "`flow-spawn --class default --`.",
+    ).toBe(true);
+    expect(
+      /^flow-ci-wait "\$PR"/m.test(content),
+      "flow-pipeline SKILL.md must not carry a bare (unwrapped) " +
+        '`flow-ci-wait "$PR"` launch line.',
+    ).toBe(false);
+
+    const uiSmokeLaunchLine = uiSmokePassContent
+      .split("\n")
+      .find(
+        (line) =>
+          line.includes("flow-spawn") &&
+          /--class\s+default/.test(line) &&
+          line.includes("sh -c"),
+      );
+    expect(
+      uiSmokeLaunchLine,
+      "ui-smoke-pass.md's launch line must carry `flow-spawn`, " +
+        "`--class default`, and `sh -c` together on one line.",
+    ).toBeDefined();
+
+    expect(
+      /never written to/i.test(uiSmokePassContent),
+      "ui-smoke-pass.md must still carry the never-write-a-config-file " +
+        "sentence.",
+    ).toBe(true);
+
+    expect(
+      /dedicated ports\s+through\s+`flow-spawn`/.test(verifyContent),
+      "flow-verify SKILL.md's UI-smoke launch pointer must name `flow-spawn`.",
+    ).toBe(true);
+  });
+
   it("svelte + tailwind-shadcn SKILLs direct authoring enumerated visual assertions", () => {
     const phrase =
       "UI-change Test Steps: author enumerated visual-appearance assertions";
