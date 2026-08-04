@@ -805,6 +805,38 @@ describe("registryArgv", () => {
     resetFlowSpawnProbe();
   });
 
+  it("fails OPEN (returns argv unchanged) when flow-spawn is genuinely absent from PATH", () => {
+    // Regression guard for the one input the probe exists to classify. Every
+    // other spec in this block injects the `hasFlowSpawn` seam and the live
+    // test PATH-prepends a working shim, so nothing else exercises the REAL
+    // probe against a missing binary — and Bun.spawnSync THROWS there rather
+    // than returning 127. Unguarded, that throw escapes into runCheck's catch
+    // and reds the gate on checks that never ran. Drive the real default
+    // probe (no seam injected) with a PATH that cannot resolve flow-spawn.
+    const spy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const emptyBin = mkdtempSync(join(tmpdir(), "no-flow-spawn-"));
+    const realPath = process.env.PATH;
+    try {
+      process.env.PATH = emptyBin;
+      resetFlowSpawnProbe();
+      const argv = ["npm", "run", "typecheck"];
+      // No third argument => the real flowSpawnAvailable runs.
+      expect(registryArgv(argv, { FLOW_SLUG: VALID_SLUG })).toBe(argv);
+      // And it must be memoized as false, not re-thrown per check.
+      expect(registryArgv(argv, { FLOW_SLUG: VALID_SLUG })).toBe(argv);
+      const diagnostics = spy.mock.calls.filter((c) =>
+        /flow-spawn unavailable/.test(String(c[0])),
+      );
+      expect(diagnostics).toHaveLength(1);
+    } finally {
+      process.env.PATH = realPath;
+      spy.mockRestore();
+      rmSync(emptyBin, { recursive: true, force: true });
+    }
+  });
+
   it("wraps argv as [flow-spawn, --class, default, --, ...argv] when env has a valid FLOW_SLUG and hasFlowSpawn returns true", () => {
     const argv = ["npm", "run", "typecheck"];
     const result = registryArgv(argv, { FLOW_SLUG: VALID_SLUG }, () => true);

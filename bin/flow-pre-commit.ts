@@ -267,12 +267,24 @@ let flowSpawnDiagnosticEmitted = false;
  */
 function flowSpawnAvailable(): boolean {
   if (flowSpawnProbeCache !== null) return flowSpawnProbeCache;
-  const result = Bun.spawnSync(["flow-spawn", "--help"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const combined = result.stdout.toString() + result.stderr.toString();
-  flowSpawnProbeCache = /--class/.test(combined);
+  // The throw is the common absent-binary path, not an edge case: Bun.spawnSync
+  // raises `Executable not found in $PATH` rather than returning 127 (the same
+  // behaviour runCheck's own catch below already compensates for). Uncaught, it
+  // escapes registryArgv into runCheck's catch, which maps it to exit 127
+  // against the CHECK's argv — so `npm run test` would report a bogus
+  // command-not-found and the gate would red out on checks that never ran.
+  // That inverts this feature's whole contract: a missing wrapper must fail
+  // OPEN. Caching false here also keeps it a one-shot probe per process.
+  try {
+    const result = Bun.spawnSync(["flow-spawn", "--help"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const combined = result.stdout.toString() + result.stderr.toString();
+    flowSpawnProbeCache = /--class/.test(combined);
+  } catch {
+    flowSpawnProbeCache = false;
+  }
   return flowSpawnProbeCache;
 }
 

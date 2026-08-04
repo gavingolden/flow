@@ -10,7 +10,7 @@ When the diff touches a meaningful UI surface AND the `chrome-devtools` MCP is a
 
 Probe for the MCP first with a guarded `ToolSearch query="select:mcp__chrome-devtools__navigate_page"`. On missing schema, fall back to `flow-ui-validate --mcp-absent --manifest .flow/ui-validation.json` — a quiet `ran:false` / `skipped_reason: mcp-not-available` skip that never blocks the run, exactly mirroring `flow-pre-commit`'s optional-tool `skipReason` (the `actionlint` / `go` off-PATH skips). Otherwise run `flow-ui-validate --manifest .flow/ui-validation.json --changed-files <git diff --name-only HEAD>` and **branch on the helper verdict, never on your own prose** — the mechanical fire-decision is the whole point.
 
-- **`action: "bootstrap"`** (no valid manifest yet, meaningful UI diff, MCP present): the helper has deterministically inferred `launch`/`baseUrl` (with the `{{PORT}}` placeholder), `routes`, `loginUrl`, and credential env-var NAMES, plus a `needs[]` of what it couldn't infer. Allocate a free port, resolve the `{{PORT}}` placeholder, and **empirically verify** the inference: bring the launch up, drive the derived routes, and (when a `loginUrl` is present) resolve the credential VALUES from the local `.env`/shell env at run time and log in via the Login step in **Launch and drive** below. On success, write the verified NAMES/config back into `.flow/ui-validation.json` — storing names and non-secret config only — never a secret value — and commit it into the reviewable PR diff, then proceed with the assemble step as if a manifest had always existed. When `needs` includes `credentials` (a login wall exists but no credential NAMES could be mined and none resolve from the local env), write everything else you verified into the manifest, commit it, and escalate `NEEDS HUMAN: smoketest-needs-creds` (autonomous path) rather than guessing a login flow.
+- **`action: "bootstrap"`** (no valid manifest yet, meaningful UI diff, MCP present): the helper has deterministically inferred `launch`/`baseUrl` (with the `{{PORT}}` placeholder), `routes`, `loginUrl`, and credential env-var NAMES, plus a `needs[]` of what it couldn't infer. Allocate a free port, resolve the `{{PORT}}` placeholder, and **empirically verify** the inference: bring the launch up through the wrapper (`flow-spawn --class default -- sh -c '<launch>'`, exactly as in **Launch and drive** below — the bootstrap launch is a real dev server and gets a registry row like any other), drive the derived routes, and (when a `loginUrl` is present) resolve the credential VALUES from the local `.env`/shell env at run time and log in via the Login step in **Launch and drive** below. On success, write the verified NAMES/config back into `.flow/ui-validation.json` — storing names and non-secret config only — never a secret value — and commit it into the reviewable PR diff, then proceed with the assemble step as if a manifest had always existed. When `needs` includes `credentials` (a login wall exists but no credential NAMES could be mined and none resolve from the local env), write everything else you verified into the manifest, commit it, and escalate `NEEDS HUMAN: smoketest-needs-creds` (autonomous path) rather than guessing a login flow.
 - **`ran: true` (ready)**: a valid manifest already exists — drive it directly (below).
 - **`ran: false` skip**: relay the loud `nudge` when `loud:true` (a broken-precondition hint, or the quiet not-meaningful skip for a bare stylesheet with no derivable route) and proceed — the rest of the diff still verifies. Whenever a UI diff went unverified this way, record the reason so the supervisor surfaces the user-visible "UI changed; browser validation did not run — <reason>" line (see the `ui_smoke` reason carrier). The same reason carrier also covers the case where the browser DID render but every screenshot save path was denied — reason `screenshots-unwritable` — which likewise never blocks the run; it is a surfaced gap, not a failure.
 
@@ -60,8 +60,16 @@ page or the user's own tab. The MCP-absent and headless paths opened nothing,
 so teardown is a no-op there, never a failure. The `flow-spawn` process
 registry is a BACKSTOP, not a replacement, for this teardown discipline: the
 pass still tears the launched server(s) down at the point of use on
-completion and on every error/early-exit path, exactly as before — no
-reaper runs here.
+completion and on every error/early-exit path — no reaper runs here.
+
+**One thing the wrapper DOES change about teardown.** `flow-spawn` launches
+the server detached, in its own process group, so it is no longer in the Bash
+tool's group — a group-directed kill aimed at the launching shell no longer
+reaches it. Tear down by targeting what you launched: signal the `flow-spawn`
+pid (it forwards SIGINT/SIGTERM to the child's group), or kill the process
+group recorded as `pgid` in the slug's registry row. A shell-job-style
+teardown that relies on the server sharing the launcher's process group is
+the form that silently stops working.
 
 `close_page` is per-pass and stays as described above; it disposes the
 `isolatedContext` but does NOT close the Chrome process — chrome-devtools-mcp
