@@ -268,7 +268,7 @@ describeOnPosix("flow-browser-teardown --reap (live end-to-end)", () => {
       psInfo(children[0]),
       "expected the child to still be alive",
     ).toBeDefined();
-  });
+  }, 15000);
 
   it("real reap: kill(-pgid) reaches the whole subtree — the parent AND its child are both gone", async () => {
     const slug = `live-reap-real-${process.pid}-${Date.now()}`;

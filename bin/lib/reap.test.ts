@@ -233,6 +233,73 @@ describe("verifyRow — foreign-member check", () => {
   });
 });
 
+// --- verifyRow: dead-leader-live-group -------------------------------------
+
+describe("verifyRow — dead leader with a live group", () => {
+  it("a dead default-class leader whose group is still alive is skipped-dead-leader, NOT already-dead — and zero kill calls are made", () => {
+    const deps = fakeDeps({
+      // row.pid (the leader) is dead; -row.pgid (the group) is alive.
+      alive: (target) => target === -500,
+    });
+    const row = makeRow({ pid: 500, pgid: 500, startEpoch: 1_000 });
+    const result = reapRow(row, deps, { dryRun: false });
+    expect(result.outcome).toBe("skipped-dead-leader");
+    expect(vi.mocked(deps.kill).mock.calls).toHaveLength(0);
+  });
+
+  it("a dead default-class leader whose group is also dead is already-dead as before", () => {
+    const deps = fakeDeps({ alive: () => false });
+    const row = makeRow({ pid: 500, pgid: 500, startEpoch: 1_000 });
+    const result = reapRow(row, deps, { dryRun: false });
+    expect(result.outcome).toBe("already-dead");
+    expect(vi.mocked(deps.kill).mock.calls).toHaveLength(0);
+  });
+
+  it("a dead mcp-server leader is already-dead — mcp-server rows have no group path to fall back to", () => {
+    const deps = fakeDeps({ alive: () => false });
+    const row = makeRow({
+      class: "mcp-server",
+      pid: 500,
+      pgid: 500,
+      startEpoch: 1_000,
+    });
+    const result = reapRow(row, deps, { dryRun: false });
+    expect(result.outcome).toBe("already-dead");
+    expect(vi.mocked(deps.kill).mock.calls).toHaveLength(0);
+  });
+});
+
+// --- verifyRow: group-membership identity binding ---------------------------
+
+describe("verifyRow — verified pid must itself be a member of the signalled group", () => {
+  it("refuses with skipped-foreign-member when the epoch-verified row.pid is NOT in its own group's current membership", () => {
+    const deps = fakeDeps({
+      alive: () => true,
+      startEpochOf: () => 1_000,
+      // A decoy: the group has live, epoch-ordered members, but none of
+      // them is the verified leader pid (500) — e.g. a corrupt/hand-edited
+      // row pairing a verified pid against an unrelated pgid.
+      groupMembers: () => [600, 601],
+    });
+    const result = reapRow(makeRow({ pid: 500, pgid: 500 }), deps, {
+      dryRun: false,
+    });
+    expect(result.outcome).toBe("skipped-foreign-member");
+    expect(vi.mocked(deps.kill).mock.calls).toHaveLength(0);
+  });
+
+  it("a group member that merely EXITED between the ps snapshot and the epoch probe does not refuse the row", () => {
+    const deps = fakeDeps({
+      alive: (target) => target !== 502, // member 502 has exited; everyone else (incl. the leader) is alive
+      startEpochOf: (pid) => (pid === 502 ? null : 1_000),
+      groupMembers: () => [500, 502],
+    });
+    expect(verifyRow(makeRow({ pid: 500, pgid: 500 }), deps)).toEqual({
+      action: "signal",
+    });
+  });
+});
+
 // --- reapRow: mcp-server class dispatch ------------------------------------
 
 describe("reapRow — mcp-server class dispatch", () => {
@@ -296,6 +363,46 @@ describe("reapRow — mcp-server class dispatch", () => {
     expect(kill.mock.calls.some(([, signal]) => signal === "SIGKILL")).toBe(
       false,
     );
+  });
+
+  it("a non-ESRCH throw on the mcp-server pid yields failed with the message surfaced", () => {
+    const deps = fakeDeps({
+      alive: () => true,
+      startEpochOf: () => 1_000,
+      kill: vi.fn(() => {
+        throw new Error("kill EPERM");
+      }),
+    });
+    const row = makeRow({
+      class: "mcp-server",
+      pid: 500,
+      pgid: 500,
+      startEpoch: 1_000,
+    });
+    const result = reapRow(row, deps, { dryRun: false });
+    expect(result.outcome).toBe("failed");
+    expect(result.error).toBe("kill EPERM");
+    expect(result.signals).toEqual([]);
+  });
+
+  it("ESRCH on the mcp-server pid's SIGTERM is a benign race yielding already-dead, not failed", () => {
+    const deps = fakeDeps({
+      alive: () => true,
+      startEpochOf: () => 1_000,
+      kill: vi.fn(() => {
+        throw esrchError();
+      }),
+    });
+    const row = makeRow({
+      class: "mcp-server",
+      pid: 500,
+      pgid: 500,
+      startEpoch: 1_000,
+    });
+    const result = reapRow(row, deps, { dryRun: false });
+    expect(result.outcome).toBe("already-dead");
+    expect(result.error).toBeUndefined();
+    expect(result.signals).toEqual([]);
   });
 });
 
@@ -475,7 +582,7 @@ describe("runRegistryReap", () => {
     expect(result.skipReason).toBe("no-rows");
   });
 
-  it("a multi-row registry yields ran:true with all eight ReapOutcome keys zero-filled, and malformed propagated from readRows", () => {
+  it("a multi-row registry yields ran:true with all ten ReapOutcome keys zero-filled, and malformed propagated from readRows", () => {
     appendRow(
       makeRow({ pid: 500, pgid: 500, startEpoch: 1_000, slug: "multi-row" }),
       baseDir,
@@ -501,15 +608,62 @@ describe("runRegistryReap", () => {
         "reaped",
         "skipped-epoch-mismatch",
         "skipped-foreign-member",
+        "skipped-dead-leader",
         "skipped-unsafe-pgid",
         "still-alive",
         "would-reap",
+        "deadline-exceeded",
       ].sort(),
     );
     const total = Object.values(result.counts).reduce((a, b) => a + b, 0);
     expect(total).toBe(2);
     expect(result.counts["already-dead"]).toBe(1);
     expect(result.counts["skipped-unsafe-pgid"]).toBe(1);
+  });
+
+  it("registryDeadlineMs: rows reached after the aggregate deadline get deadline-exceeded, never signalled or silently dropped", () => {
+    appendRow(
+      makeRow({
+        pid: 500,
+        pgid: 500,
+        startEpoch: 1_000,
+        slug: "deadline-slug",
+      }),
+      baseDir,
+    );
+    appendRow(
+      makeRow({
+        pid: 501,
+        pgid: 501,
+        startEpoch: 1_000,
+        slug: "deadline-slug",
+      }),
+      baseDir,
+    );
+    // Both rows are already-dead (alive always false), so verifyRow itself
+    // never reads nowMs — the only nowMs calls come from the loop's own
+    // per-row deadline check plus the one-time initial deadline calc. The
+    // first two calls (init + row0's check) stay under the deadline; the
+    // third (row1's check) reports past it.
+    let calls = 0;
+    const deps = fakeDeps({
+      alive: () => false,
+      nowMs: () => {
+        calls++;
+        return calls <= 2 ? 0 : 1_000_000;
+      },
+    });
+    const result = runRegistryReap("deadline-slug", deps, {
+      dryRun: false,
+      baseDir,
+      registryDeadlineMs: 100,
+    });
+    expect(result.ran).toBe(true);
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0].outcome).toBe("already-dead");
+    expect(result.rows[1].outcome).toBe("deadline-exceeded");
+    expect(result.rows[1].signals).toEqual([]);
+    expect(result.counts["deadline-exceeded"]).toBe(1);
   });
 
   it("threads an injected readRows override instead of reading the real filesystem", () => {

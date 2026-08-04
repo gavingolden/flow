@@ -33,8 +33,10 @@ export type ReapOutcome =
   | "skipped-epoch-mismatch"
   | "skipped-unsafe-pgid"
   | "skipped-foreign-member"
+  | "skipped-dead-leader"
   | "still-alive"
-  | "failed";
+  | "failed"
+  | "deadline-exceeded";
 
 export type ReapRowResult = {
   pid: number;
@@ -65,7 +67,8 @@ export type RowVerdict =
         | "already-dead"
         | "skipped-epoch-mismatch"
         | "skipped-unsafe-pgid"
-        | "skipped-foreign-member";
+        | "skipped-foreign-member"
+        | "skipped-dead-leader";
     };
 
 /** Bounded grace window between SIGTERM and SIGKILL for the `default` class. */
@@ -109,8 +112,33 @@ export function verifyRow(row: ProcRegistryRow, deps: ReapDeps): RowVerdict {
     return { action: "skip", outcome: "skipped-epoch-mismatch" };
   }
 
-  // 3. Liveness.
-  if (!deps.alive(row.pid)) {
+  // 3. Liveness. A dead LEADER does not by itself prove a dead GROUP: the
+  // `default` class's kill target is `-row.pgid` (reap.ts's reapDefaultRow),
+  // and a `flow-spawn`ed leader that exits (crash, `npm` wrapper exiting
+  // after handing off to its child) leaves surviving descendants in the
+  // same group — precisely the reparented-orphan shape this feature exists
+  // to close. That case is NOT signalled here (see the note below); it is
+  // reported as the distinct, honestly-named `skipped-dead-leader` rather
+  // than silently folded into `already-dead`, so the summary line does not
+  // claim a leaked group was a clean no-op.
+  //
+  // Why this stays a refusal rather than becoming a permissive path: once
+  // the leader is dead, its recorded `startEpoch` can no longer be
+  // re-verified against a live process (step 4 needs a live pid to probe),
+  // so the ONLY identity evidence left for the group is the group's own
+  // current membership — which the membership check below establishes by
+  // start-time ordering against `row.startEpoch`, not by re-proving the
+  // leader. That is strictly weaker evidence than the leader-alive case
+  // (there is no live leader to bind `row.pid` to `row.pgid` via
+  // `members.includes`), so rather than let a weaker verification result in
+  // a stronger action (an unattended kill), this path stops at "provably
+  // worth a human's attention" and defers the actual signal to a future,
+  // deliberately-scoped decision (see PR discussion / deferred[] entry).
+  const leaderAlive = deps.alive(row.pid);
+  if (!leaderAlive) {
+    if (row.class === "default" && deps.alive(-row.pgid)) {
+      return { action: "skip", outcome: "skipped-dead-leader" };
+    }
     return { action: "skip", outcome: "already-dead" };
   }
 
@@ -140,9 +168,34 @@ export function verifyRow(row: ProcRegistryRow, deps: ReapDeps): RowVerdict {
     if (members === null || members.length === 0) {
       return { action: "skip", outcome: "skipped-foreign-member" };
     }
+    // The verified `row.pid` must itself be a current member of the group
+    // being signalled — otherwise the identity check above (alive + epoch
+    // match on the LEADER) and the group actually reached by `-row.pgid`
+    // are never bound together, and a corrupt/hand-edited row pairing a
+    // verified decoy pid against an unrelated pgid would pass every guard.
+    // Free on every legitimate row: every current writer sets `pgid ===
+    // pid`, so the leader is always a member of its own group.
+    if (!members.includes(row.pid)) {
+      return { action: "skip", outcome: "skipped-foreign-member" };
+    }
     for (const memberPid of members) {
+      if (memberPid === row.pid) continue; // already verified above
       const memberEpoch = deps.startEpochOf(memberPid);
-      if (memberEpoch === null || memberEpoch < row.startEpoch) {
+      if (memberEpoch === null) {
+        // The member vanished between the `groupMembers` snapshot and this
+        // probe (the snapshot is taken once at CLI start and closed over,
+        // while `startEpochOf` forks a fresh `ps` per member — a window up
+        // to GRACE_MS + KILL_WAIT_MS per PRECEDING default-class row). A
+        // member that merely exited cannot be signalled and cannot be
+        // foreign, so it only refuses the row when it is verified to still
+        // be ALIVE but unverifiable — an unexplained-but-live member is the
+        // case this guard exists for.
+        if (deps.alive(memberPid)) {
+          return { action: "skip", outcome: "skipped-foreign-member" };
+        }
+        continue;
+      }
+      if (memberEpoch < row.startEpoch) {
         return { action: "skip", outcome: "skipped-foreign-member" };
       }
     }
@@ -285,7 +338,23 @@ export type ReapOptions = {
   dryRun: boolean;
   graceMs?: number;
   killWaitMs?: number;
+  /**
+   * Aggregate wall-clock budget for `runRegistryReap`'s whole per-slug pass
+   * (NOT per-row — `graceMs`/`killWaitMs` above already bound a single
+   * `default`-class row's SIGTERM→SIGKILL window). Without this, N `default`
+   * rows ahead of a slow one in the same registry file can stall the
+   * process's terminal state for up to N × (GRACE_MS + KILL_WAIT_MS) ≈ N ×
+   * 7s. `reapRow` itself is unaware of this budget (it has no loop to
+   * bound); only `runRegistryReap`'s row loop reads it. Injectable here
+   * (rather than hardcoded) so tests can exercise the cap in milliseconds,
+   * not real wall-clock seconds.
+   */
+  registryDeadlineMs?: number;
 };
+
+/** Default aggregate wall-clock budget for one `runRegistryReap` pass. See
+ * `ReapOptions.registryDeadlineMs`. */
+export const DEFAULT_REGISTRY_DEADLINE_MS = 30_000;
 
 /**
  * Verifies then, on a `signal` verdict, dispatches by `row.class`. Under
@@ -332,8 +401,10 @@ function zeroCounts(): Record<ReapOutcome, number> {
     "skipped-epoch-mismatch": 0,
     "skipped-unsafe-pgid": 0,
     "skipped-foreign-member": 0,
+    "skipped-dead-leader": 0,
     "still-alive": 0,
     failed: 0,
+    "deadline-exceeded": 0,
   };
 }
 
@@ -373,9 +444,26 @@ export function runRegistryReap(
     };
   }
 
+  const deadline =
+    deps.nowMs() + (opts.registryDeadlineMs ?? DEFAULT_REGISTRY_DEADLINE_MS);
   const counts = zeroCounts();
   const results: ReapRowResult[] = [];
   for (const row of rows) {
+    // Rows not reached before the aggregate deadline get an honest,
+    // distinct outcome — never silently dropped from `results`/`counts`,
+    // and never signalled without having gone through `verifyRow`.
+    if (deps.nowMs() >= deadline) {
+      const result: ReapRowResult = {
+        pid: row.pid,
+        pgid: row.pgid,
+        class: row.class,
+        outcome: "deadline-exceeded",
+        signals: [],
+      };
+      results.push(result);
+      counts[result.outcome]++;
+      continue;
+    }
     const result = reapRow(row, deps, opts);
     results.push(result);
     counts[result.outcome]++;

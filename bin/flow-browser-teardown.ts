@@ -23,6 +23,15 @@
  * `bin/lib/done.ts` / `bin/lib/help.ts`) — the two commands share a flag
  * name but sweep unrelated things.
  *
+ * `--reap` mode (opt-in): verifies and signals every row recorded in this
+ * slug's process registry (`bin/lib/proc-registry.ts`) via
+ * `bin/lib/reap.ts`'s asymmetric verify-then-signal engine, then falls back
+ * to the ancestry walk above for anything the registry did not cover. Per-
+ * class kill policy (including this file's own escalation, if any, for a
+ * kill-uncooperative process group) lives entirely in `bin/lib/reap.ts` —
+ * see that module for the exact signal sequence a `default`-class row
+ * receives. Run with `--dry-run` first; it sends no signal at all.
+ *
  * Always exits 0. This helper must never break a caller.
  */
 
@@ -178,7 +187,17 @@ export type Deps = {
   selfPid: number;
   homeDir: string;
   tmpDir: string;
-  startEpochOf?: (pid: number) => number | undefined;
+  /**
+   * MILLISECOND-scaled start time, for the `--orphans` `ageMs` display only.
+   * Deliberately NOT named `startEpochOf` — `bin/lib/reap.ts`'s `ReapDeps`
+   * has its own SECONDS-scaled field of that name, and the two are
+   * type-compatible modulo `null`/`undefined` (a `?? null` would silence
+   * even that), so a shared name invites a future edit to `toReapDeps`
+   * forwarding this one straight through and turning every reap epoch
+   * comparison into a permanent ~1000x mismatch (see `toReapDeps`'s own
+   * comment). The unit is now in the name, not just in a comment.
+   */
+  startEpochMsOf?: (pid: number) => number | undefined;
   nowMs: () => number;
   /** This process's own pgid, or null when it could not be determined — see
    * `--reap`'s A2 pgid snapshot in the Default Deps section below. Only
@@ -316,13 +335,16 @@ export type ReapEnvelope = {
 
 /**
  * Bridges this file's `Deps` to `bin/lib/reap.ts`'s `ReapDeps`. Deliberately
- * NOT `deps.startEpochOf` — that field is millisecond-scaled for the
+ * builds its own `startEpochOf` from `pidStartEpoch` rather than forwarding
+ * `deps.startEpochMsOf` — that field is millisecond-scaled for the
  * `--orphans` `ageMs` display (see `buildDefaultDeps` below), while
  * `ProcRegistryRow.startEpoch` (and every comparison the reap engine makes
  * against it) is SECONDS, matching `pidStartEpoch`'s own return unit and
- * `flow-spawn.ts`'s `buildRow`. Reusing the millisecond function here would
- * silently epoch-mismatch every live row (a ~1000x scale error) and turn
- * every reap into a permanent no-op.
+ * `flow-spawn.ts`'s `buildRow`. The two fields now also carry distinct names
+ * (`startEpochMsOf` vs. `startEpochOf`), so a future edit here can no longer
+ * type-check its way into forwarding the millisecond field straight through
+ * and silently epoch-mismatching every live row (a ~1000x scale error) that
+ * would turn every reap into a permanent no-op.
  */
 function toReapDeps(deps: Deps): ReapDeps {
   return {
@@ -469,7 +491,7 @@ export function runReapMode(
 export function summarizeReapEnvelope(envelope: ReapEnvelope): string {
   const c = envelope.registry.counts;
   const registryLine = envelope.registry.ran
-    ? `registry: reaped=${c.reaped} would-reap=${c["would-reap"]} still-alive=${c["still-alive"]} failed=${c.failed} already-dead=${c["already-dead"]} skipped-unsafe-pgid=${c["skipped-unsafe-pgid"]} skipped-epoch-mismatch=${c["skipped-epoch-mismatch"]} skipped-foreign-member=${c["skipped-foreign-member"]} malformed=${envelope.registry.malformed}`
+    ? `registry: reaped=${c.reaped} would-reap=${c["would-reap"]} still-alive=${c["still-alive"]} failed=${c.failed} already-dead=${c["already-dead"]} skipped-unsafe-pgid=${c["skipped-unsafe-pgid"]} skipped-epoch-mismatch=${c["skipped-epoch-mismatch"]} skipped-foreign-member=${c["skipped-foreign-member"]} skipped-dead-leader=${c["skipped-dead-leader"]} deadline-exceeded=${c["deadline-exceeded"]} malformed=${envelope.registry.malformed}`
     : `registry: ran=false skipReason=${envelope.registry.skipReason ?? "none"} malformed=${envelope.registry.malformed}`;
   const fallbackLine = envelope.fallback
     ? `fallback: ran=true signalled=${envelope.fallback.signalled.length} stillAlive=${envelope.fallback.stillAlive.length}`
@@ -588,7 +610,7 @@ export function selectOrphanBrowsers(
       pid: p.pid,
       command: p.command,
       userDataDir,
-      // Filled in by runOrphanSweep via deps.startEpochOf — see the ageMs
+      // Filled in by runOrphanSweep via deps.startEpochMsOf — see the ageMs
       // seam note there. 0 here is a placeholder, not a claim of freshness.
       ageMs: 0,
       profileShape,
@@ -620,9 +642,9 @@ export function selectOrphanMcpServers(procs: ProcRow[]): ProcRow[] {
 }
 
 function ageMsFor(deps: Deps, pid: number): number {
-  const startEpochOf = deps.startEpochOf;
-  if (!startEpochOf) return 0;
-  const startMs = startEpochOf(pid);
+  const startEpochMsOf = deps.startEpochMsOf;
+  if (!startEpochMsOf) return 0;
+  const startMs = startEpochMsOf(pid);
   if (startMs === undefined) return 0;
   return Math.max(0, deps.nowMs() - startMs);
 }
@@ -830,7 +852,7 @@ function buildDefaultDeps(opts: { includeReapExtras?: boolean } = {}): Deps {
     selfPid,
     homeDir: os.homedir(),
     tmpDir: os.tmpdir(),
-    startEpochOf: (pid) => {
+    startEpochMsOf: (pid) => {
       const epoch = pidStartEpoch(pid);
       return epoch === null ? undefined : epoch * 1000;
     },

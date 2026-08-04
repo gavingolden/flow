@@ -5,7 +5,7 @@ import * as path from "node:path";
 
 // runReapMode's toReapDeps bridge calls bin/lib/liveness.ts's pidStartEpoch
 // directly (not via an injectable Deps field — see that function's own
-// comment on why deps.startEpochOf's millisecond scale is wrong here), and
+// comment on why deps.startEpochMsOf's millisecond scale is wrong here), and
 // pidStartEpoch's real path forks `ps` through `Bun.spawnSync` — unavailable
 // under vitest's node runtime, and never hermetic against a fixture pid
 // anyway. Mock just that one export, same technique as
@@ -771,6 +771,43 @@ describe("runReapMode — fallback", () => {
     expect(envelope.fallbackSkipReason).toBe("not-gated");
   });
 
+  it("dryRun:true with a resolved slug performs ZERO registry writes — the post-hoc D3 registration guard's `opts.dryRun` arm", () => {
+    const registryFile = path.join(baseDir, "procs", "dry-run-slug.jsonl");
+    const listProcs = vi.fn(serverProcs);
+    const deps = fakeDeps({
+      listProcs,
+      selfPid: sessionPid,
+      alive: () => false,
+    });
+    const envelope = runReapMode(deps, {
+      dryRun: true,
+      slug: "dry-run-slug",
+      timeoutMs: 1000,
+      baseDir,
+    });
+    // The ancestry fallback still ran and found a server it would otherwise
+    // post-hoc register, but dryRun:true must suppress the write entirely.
+    expect(envelope.fallback?.ran).toBe(true);
+    expect(envelope.postRegistered).toBe(0);
+    expect(fs.existsSync(registryFile)).toBe(false);
+  });
+
+  it("a resolved slug with dryRun:false but no fallback servers found performs ZERO registry writes — the `slug === undefined` arm has no bearing here, but the loop body simply has nothing to append", () => {
+    const registryFile = path.join(baseDir, "procs", "no-servers-slug.jsonl");
+    const deps = fakeDeps({
+      listProcs: () => [proc(sessionPid, 1, "claude --add-dir /w")],
+      selfPid: sessionPid,
+    });
+    const envelope = runReapMode(deps, {
+      dryRun: false,
+      slug: "no-servers-slug",
+      timeoutMs: 1000,
+      baseDir,
+    });
+    expect(envelope.postRegistered).toBe(0);
+    expect(fs.existsSync(registryFile)).toBe(false);
+  });
+
   it("a satisfied gate with no MCP server under the session reports no-servers", () => {
     const deps = fakeDeps({
       listProcs: () => [proc(sessionPid, 1, "claude --add-dir /w")],
@@ -837,8 +874,10 @@ describe("summarizeReapEnvelope — summary", () => {
           "skipped-epoch-mismatch": 0,
           "skipped-unsafe-pgid": 1,
           "skipped-foreign-member": 0,
+          "skipped-dead-leader": 0,
           "still-alive": 1,
           failed: 1,
+          "deadline-exceeded": 0,
         },
         malformed: 0,
       },
@@ -868,8 +907,10 @@ describe("summarizeReapEnvelope — summary", () => {
           "skipped-epoch-mismatch": 0,
           "skipped-unsafe-pgid": 0,
           "skipped-foreign-member": 0,
+          "skipped-dead-leader": 0,
           "still-alive": 0,
           failed: 0,
+          "deadline-exceeded": 0,
         },
         malformed: 0,
       },
