@@ -42,4 +42,23 @@ describe("resolveRepoRoot", () => {
     const missing = path.join(repoDir, "does-not-exist");
     expect(resolveRepoRoot(missing)).toBeNull();
   });
+
+  it("returns null when the resolved toplevel does not exist", () => {
+    // Exercises the `!fs.existsSync(out)` guard specifically — a status-0
+    // git run whose reported toplevel is missing, distinct from the
+    // status-non-zero branch the two cases above already cover.
+    const ghost = path.join(repoDir, "ghost-worktree");
+    spawnSync("git", ["config", "core.worktree", ghost], { cwd: repoDir });
+    const probe = spawnSync(
+      "git",
+      ["-C", repoDir, "rev-parse", "--show-toplevel"],
+      { encoding: "utf8" },
+    );
+    if (probe.status !== 0) {
+      // Local git disagrees on reporting a missing core.worktree verbatim;
+      // skip rather than fail for the wrong reason.
+      return;
+    }
+    expect(resolveRepoRoot(repoDir)).toBeNull();
+  });
 });

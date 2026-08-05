@@ -432,19 +432,38 @@ describe("reconcile — committed-board floor", () => {
     expect(classifyEvent(result).kind).not.toBe("halt");
   });
 
-  it("a running record (not orphan) with a committed merged row keeps its live status, unchanged", () => {
+  it("an overridden orphan falls back to the record's pr when the committed row has none", () => {
     const m = manifest([feat("a")]);
     const result = reconcile({
       manifest: m,
-      runState: runState({ a: {} }),
-      readFeatureState: phases({ a: "verify" }), // live, non-terminal → running
+      runState: runState({ a: { pr: 42 } }),
+      readFeatureState: phases({}), // orphan
       maxParallel: 3,
-      committedStatus: committed({ a: { status: "merged", pr: 9 } }),
+      committedStatus: committed({ a: { status: "merged" } }),
     });
     const row = result.board.find((r) => r.id === "a")!;
-    expect(row.status).toBe("running");
-    expect(row.external).toBeUndefined();
+    expect(row.status).toBe("merged");
+    expect(row.pr).toBe(42);
   });
+
+  it.each(["gated", "needs-human", "cancelled"])(
+    "a %s record still wins over a committed merged row",
+    (phase) => {
+      const m = manifest([feat("a"), feat("b", ["a"])]);
+      const result = reconcile({
+        manifest: m,
+        runState: runState({ a: {} }),
+        readFeatureState: phases({ a: phase }),
+        maxParallel: 3,
+        committedStatus: committed({ a: { status: "merged", pr: 9 } }),
+      });
+      const row = result.board.find((r) => r.id === "a")!;
+      expect(row.status).toBe(phase);
+      expect(row.external).toBeUndefined();
+      expect(result.board.find((r) => r.id === "b")!.status).toBe("blocked");
+      expect(classifyEvent(result)).toEqual({ kind: "halt", haltedIds: ["a"] });
+    },
+  );
 
   it("committedStatus omitted/null reproduces today's behaviour byte-for-byte", () => {
     const m = manifest([feat("a")]);

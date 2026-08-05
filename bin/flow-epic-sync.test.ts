@@ -471,6 +471,35 @@ describe("main — CLI epic resolution + write disposition", () => {
     });
   });
 
+  it("--rederive repairs a wrong committed row by writing the rebuilt board and naming the regression", () => {
+    seedRunState();
+    const epicDirAbs = path.dirname(manifestPath);
+    fs.writeFileSync(
+      path.join(epicDirAbs, "status.json"),
+      JSON.stringify({
+        version: 1,
+        epicId: "watchlist",
+        features: { "feature-a": { status: "merged", pr: 9999 } },
+      }),
+    );
+    const gh = ghForHeads({});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--rederive"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+      });
+      expect(exit).toBe(0);
+      expect(readCommittedStatus(epicDirAbs)?.features["feature-a"]).toEqual({
+        status: "not-started",
+      });
+      expect(errSpy.mock.calls[0][0]).toContain("feature-a");
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
   it("--rederive still writes nothing when derived:false (gh unavailable)", () => {
     seedRunState();
     const epicDirAbs = path.dirname(manifestPath);
@@ -482,17 +511,25 @@ describe("main — CLI epic resolution + write disposition", () => {
         features: { "feature-a": { status: "merged", pr: 9999 } },
       }),
     );
-    const exit = main(["--epic-slug", "watchlist", "--rederive"], {
-      gh: ghFailing,
-      epicsDir,
-      cwd: repoDir,
-    });
-    expect(exit).toBe(0);
-    const status = readCommittedStatus(epicDirAbs);
-    expect(status?.features["feature-a"]).toEqual({
-      status: "merged",
-      pr: 9999,
-    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--rederive"], {
+        gh: ghFailing,
+        epicsDir,
+        cwd: repoDir,
+      });
+      expect(exit).toBe(0);
+      const status = readCommittedStatus(epicDirAbs);
+      expect(status?.features["feature-a"]).toEqual({
+        status: "merged",
+        pr: 9999,
+      });
+      expect(
+        errSpy.mock.calls.some((c) => String(c[0]).includes("NOT rebuilt")),
+      ).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 
   it("an unrecognized flag warns on stderr and exits 0 (no latch-preserving silent no-op)", () => {
@@ -524,6 +561,43 @@ describe("main — CLI epic resolution + write disposition", () => {
         cwd: repoDir,
       });
       expect(errSpy).not.toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("warns when a value-taking flag is followed by another flag instead of a value", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "--check"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+      });
+      expect(exit).toBe(0);
+      expect(
+        errSpy.mock.calls.some((c) => String(c[0]).includes("--epic-slug")),
+      ).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("warns when a value-taking flag is the last argv token", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      main(["--epic-slug"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+      });
+      expect(
+        errSpy.mock.calls.some((c) => String(c[0]).includes("--epic-slug")),
+      ).toBe(true);
     } finally {
       errSpy.mockRestore();
     }

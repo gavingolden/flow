@@ -183,7 +183,7 @@ export function main(argv: string[]): number {
 
   // CONTRACT ADJUSTMENT #1: `runState` is null on exactly this branch, so a
   // committed-board read can only proceed by replicating runEpicStatus's
-  // repo-root fallback (bin/lib/epic.ts's `resolveRepoRoot` +
+  // repo-root fallback (bin/lib/repo-root.ts's `resolveRepoRoot` +
   // `epicDirRelative` + `EPIC_MANIFEST_FILENAME`) to build an ephemeral
   // run-state to feed `reconcile`. When nothing usable is found, degrade
   // exactly as before.

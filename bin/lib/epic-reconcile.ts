@@ -45,7 +45,11 @@ export type BoardRow = {
   pr?: number;
   phase?: string;
   dependsOn: string[];
-  /** True when the row's `merged` status came from an external completion record (no live slug). */
+  /**
+   * True when the row's `merged` status came from outside live pipeline
+   * state: an external completion record (no live slug) or a committed
+   * `merged` row that outranked an `orphan` record (slug still present).
+   */
   external?: boolean;
 };
 
@@ -144,7 +148,14 @@ export function reconcile(input: {
    */
   committedStatus?: EpicStatusFile | null;
 }): ReconcileResult {
-  const { manifest, runState, maxParallel, committedStatus } = input;
+  const { manifest, runState, maxParallel } = input;
+  // Same identity guard as flow-epic-sync.ts's committed-status read: a
+  // PR-authored status.json claiming authority over a different epic than
+  // the one being reconciled must never override a live `orphan` record.
+  const committedStatus =
+    input.committedStatus && input.committedStatus.epicId === manifest.epicId
+      ? input.committedStatus
+      : null;
   const readFeatureState =
     input.readFeatureState ?? ((slug: string) => readState(slug));
 
@@ -185,9 +196,9 @@ export function reconcile(input: {
   }
 
   // Committed-board floor: a feature with NO run.json record but a committed
-  // `merged` row counts as completed too — a PRESENT record always wins
-  // (handled above; committedFloorIds is only consulted for features with no
-  // record at all).
+  // `merged` row counts as completed too — a PRESENT record always wins,
+  // except an `orphan` record (handled above; committedFloorIds is only
+  // consulted for features with no record at all).
   const committedFloorIds = new Set<string>();
   for (const f of features) {
     if (runState.features[f.id]) continue;

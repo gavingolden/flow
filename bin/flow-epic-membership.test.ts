@@ -351,7 +351,7 @@ describe("flow-epic-membership CLI", () => {
         path.join(epicDir, "status.json"),
         JSON.stringify({
           version: 1,
-          epicId: "e",
+          epicId: "watchlist",
           features: { a: { status: "merged", pr: 42 } },
         }),
       );
@@ -429,7 +429,7 @@ describe("flow-epic-membership CLI", () => {
       path.join(epicDir, "status.json"),
       JSON.stringify({
         version: 1,
-        epicId: "e",
+        epicId: "watchlist",
         features: { a: { status: "merged", pr: 99 } },
       }),
     );

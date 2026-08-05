@@ -143,8 +143,9 @@ Reconcile the cache (run.json) against the truth (GitHub/git) BEFORE any launch.
    - **Merged out of band** (a PR merged with no flow pipeline) →
      `flow epic bind <epic> <id> --external "PR #<n>"`.
 4. If the manifest itself drifted from what shipped, run **amend-manifest**.
-5. Check the committed status board: `flow-epic-sync --epic-slug <slug>
---check`. On a non-zero exit, run `flow-epic-sync --epic-slug <slug>`
+5. Check the committed status board:
+   `flow-epic-sync --epic-slug <slug> --check`. On a non-zero exit, run
+   `flow-epic-sync --epic-slug <slug>`
    (writes `.flow/epics/<slug>/status.json`) and commit the correction with
    a small, focused commit — same style as **amend-manifest** step 3.
    `--epic-slug` must be passed explicitly: this session's `$FLOW_SLUG` is
@@ -152,10 +153,10 @@ Reconcile the cache (run.json) against the truth (GitHub/git) BEFORE any launch.
    the epic via `readState(slug).epic.slug`, a field only a
    `flow feature create --epic` FEATURE slug ever writes — a bare
    invocation here silently checks nothing. If a `--check` failure can't be
-   explained by a real merge, run `flow-epic-sync --epic-slug <slug>
-   --rederive --check` to diagnose the drift, then `flow-epic-sync
-   --epic-slug <slug> --rederive` to repair it, and commit the rebuilt
-   `status.json`.
+   explained by a real merge, run
+   `flow-epic-sync --epic-slug <slug> --rederive --check` to diagnose the
+   drift, then `flow-epic-sync --epic-slug <slug> --rederive` to repair it,
+   and commit the rebuilt `status.json`.
 
 A `gated` feature surfaced here is **escalate-only** — tell the human; never
 clear it.

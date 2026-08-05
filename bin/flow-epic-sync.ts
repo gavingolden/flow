@@ -159,10 +159,17 @@ export function deriveBoard(input: {
     // latch itself (`advanceStatus`) is untouched — no downgrade path added.
     const latchBase = rederive ? undefined : existingRow;
     features[f.id] = advanceStatus(latchBase, derivedRow);
+    // Widened beyond a status downgrade: `regressed` is the only channel
+    // telling the operator a --rederive write will cost something, so it
+    // must also catch a still-`merged` row silently losing its committed
+    // `pr` (e.g. the optimistic self-mark re-deriving `pr: undefined`).
+    // Deliberately NOT flagging a `pr` that merely changes value — that is
+    // the repair --rederive exists to perform.
     if (
       rederive &&
       existingRow?.status === "merged" &&
-      features[f.id].status !== "merged"
+      (features[f.id].status !== "merged" ||
+        (existingRow.pr !== undefined && features[f.id].pr === undefined))
     ) {
       regressed.push(f.id);
     }
@@ -197,14 +204,23 @@ function parseArgs(argv: string[]): ParsedArgs {
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    const takeValue = (): string | undefined => {
+      const v = argv[i + 1];
+      if (v === undefined || v.startsWith("--")) {
+        console.error(`flow-epic-sync: warning: ${a} requires a value`);
+        return undefined;
+      }
+      i++;
+      return v;
+    };
     if (a === "--help" || a === "-h") {
       out.help = true;
     } else if (a === "--slug") {
-      out.slug = argv[++i];
+      out.slug = takeValue();
     } else if (a === "--epic-slug") {
-      out.epicSlug = argv[++i];
+      out.epicSlug = takeValue();
     } else if (a === "--epic-feature") {
-      out.epicFeature = argv[++i];
+      out.epicFeature = takeValue();
     } else if (a === "--check") {
       out.check = true;
     } else if (a === "--json") {
@@ -212,6 +228,11 @@ function parseArgs(argv: string[]): ParsedArgs {
     } else if (a === "--rederive") {
       out.rederive = true;
     } else {
+      // Warn-and-continue, not exit-2 (the repo-standard shape elsewhere
+      // under bin/): this helper's never-block-the-caller contract (see
+      // module header) covers an automated pr-review/heal call site with a
+      // stale invocation, not just a human typo — bailing out there would
+      // defeat the tolerant-by-design posture the rest of this file follows.
       console.error(`flow-epic-sync: warning: unrecognized argument '${a}'`);
     }
   }
@@ -248,16 +269,13 @@ function syncEnvelope(
   derived: boolean,
   written: boolean,
   features: Record<string, CommittedFeatureRow>,
-  rederive: boolean = false,
-  regressed: string[] = [],
+  rederive: boolean,
+  regressed: string[],
 ): SyncEnvelope {
   return { epicSlug, derived, written, features, rederive, regressed };
 }
 
-function emptyEnvelope(
-  epicSlug: string,
-  rederive: boolean = false,
-): SyncEnvelope {
+function emptyEnvelope(epicSlug: string, rederive: boolean): SyncEnvelope {
   return syncEnvelope(epicSlug, false, false, {}, rederive, []);
 }
 
@@ -334,9 +352,18 @@ export function main(argv: string[], deps: Deps = {}): number {
   });
 
   if (!derived) {
+    // gh unavailable — never block the ambient pr-review/heal caller. An
+    // operator who explicitly typed --rederive is not that caller, though:
+    // name the skip on stderr so `--rederive --check` doesn't read as "in
+    // sync" and `--rederive` doesn't look like a no-op repair.
+    if (parsed.rederive) {
+      console.error(
+        "warn: --rederive derived nothing (gh unavailable); the committed board was NOT rebuilt",
+      );
+    }
     if (parsed.json)
       console.log(JSON.stringify(emptyEnvelope(epicSlug, parsed.rederive)));
-    return 0; // gh unavailable — never block a PR.
+    return 0;
   }
 
   const serialized = serializeEpicStatus(file);
