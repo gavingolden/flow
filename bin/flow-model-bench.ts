@@ -15,10 +15,11 @@
  * from a flow checkout:
  *   bun bin/flow-model-bench.ts --out .flow-tmp/model-bench
  *
- * FILE MODE (deliberate): tracked 100644, NOT chmod +x — same precedent as
- * bin/flow-release.ts (the sole other maintainer-only helper). It is invoked
- * as `bun bin/flow-model-bench.ts`, never as a bare PATH command, so the
- * exec bit buys nothing.
+ * FILE MODE: tracked 100755. The flow-release precedent (100644) was the
+ * first choice, but a flow-pre-commit binary older than this branch does
+ * not yet have flow-model-bench in MAINTAINER_ONLY and so demands the exec
+ * bit; 100755 satisfies both the stale and the updated gate, and the bit is
+ * harmless on a bun-shebang file invoked as `bun bin/flow-model-bench.ts`.
  *
  * MAX-CALLS (anti-silent-truncation guard): flow-delegate-fanout's own
  * DEFAULT_MAX_CALLS is 40 — far below this harness's ~147-calls-per-model
