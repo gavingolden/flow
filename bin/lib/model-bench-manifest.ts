@@ -163,7 +163,9 @@ export function resolveMaxCalls(
 function entryId(e: ManifestEntry): string {
   const parts = [
     e.caseId,
-    e.arm,
+    // The "n/a" arm literal carries a slash — sanitize every part the same
+    // way so a slot id can never smuggle a path separator into a filename.
+    e.arm.replace(/[^A-Za-z0-9._-]+/g, "-"),
     e.model.replace(/[^A-Za-z0-9._-]+/g, "-"),
     e.warmup ? "warmup" : `r${e.repeat}`,
   ];

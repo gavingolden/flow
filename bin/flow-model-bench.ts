@@ -394,8 +394,33 @@ export async function runBench(
       } catch {
         response = undefined;
       }
+      // Every bench entry runs --output-format json, so the artifact is the
+      // AGY ENVELOPE, not model prose (the documented JSON-mode contract:
+      // callers must go through .response / .structured_output). Unwrap it;
+      // an unparseable artifact falls through with the raw text as response.
+      if (response !== undefined) {
+        try {
+          const envelope = JSON.parse(response) as Record<string, unknown>;
+          if (typeof envelope.response === "string") {
+            response = envelope.response;
+            if (
+              envelope.structured_output !== undefined &&
+              envelope.structured_output !== null
+            ) {
+              structuredOutput = envelope.structured_output;
+            }
+          }
+        } catch {
+          // not an envelope (text mode / partial write) — keep raw text
+        }
+      }
       const c = cases.find((cc) => cc.id === e.caseId);
-      if (response !== undefined && e.arm !== "n/a" && c?.jsonSchemaFile) {
+      if (
+        structuredOutput === undefined &&
+        response !== undefined &&
+        e.arm !== "n/a" &&
+        c?.jsonSchemaFile
+      ) {
         const schemaPath = join(args.fixturesDir, c.id, c.jsonSchemaFile);
         if (!schemaCache.has(schemaPath)) {
           try {

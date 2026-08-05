@@ -403,4 +403,44 @@ describe("runBench max-calls", () => {
       .join("");
     expect(progressCalls).toContain("/stale/path");
   });
+
+  // Regression: in JSON mode the raw artifact is the AGY ENVELOPE, not model
+  // prose. The first live smoke run parsed the envelope AS the model output,
+  // so structuredOutput was null on every arm. Pin the unwrap.
+  it("unwraps the agy envelope from the raw artifact — response is the model text and structured_output is lifted", async () => {
+    const envelope = JSON.stringify({
+      conversation_id: "x",
+      status: "SUCCESS",
+      response: '{"reasoning":"because","verdict":"skip"}',
+      structured_output: { reasoning: "because", verdict: "skip" },
+      duration_seconds: 1.5,
+      usage: { input_tokens: 10 },
+    });
+    const deps = inMemoryDeps();
+    const innerRead = deps.readFile;
+    deps.readFile = (p) => (p.startsWith("out/raw/") ? envelope : innerRead(p));
+    const code = await runBench(
+      [
+        "--fixtures",
+        "fixtures",
+        "--models",
+        "m",
+        "--delegate-bin",
+        "/bin/flow-delegate.ts",
+        "--out",
+        "out",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    const results = JSON.parse(deps.readFile("out/results.json"));
+    expect(results.length).toBeGreaterThan(0);
+    for (const r of results) {
+      expect(r.response).toBe('{"reasoning":"because","verdict":"skip"}');
+      expect(r.structuredOutput).toEqual({
+        reasoning: "because",
+        verdict: "skip",
+      });
+    }
+  });
 });
