@@ -38,14 +38,20 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
+import { resolveDelegateModel } from "./lib/delegate-models";
 
 // Frozen to match discovery Step 1.5's budget defaults and model-variant pins
 // (skills/pipeline/flow-product-planning/references/discovery-instructions.md, the
 // `read_budget` block). Keep these byte-identical to that source of truth.
 const DEFAULT_MAX_CALLS = 12;
 const DEFAULT_TIMEOUT = "3m";
-const DEFAULT_GATHER_MODEL = "Gemini 3.1 Pro (High)";
-const DEFAULT_REFUTE_MODEL = "Claude Opus 4.6 (Thinking)";
+// Non-null: only the "scout" surface's default is null; researchGather /
+// researchRefute's defaults and every well-typed override are strings.
+// Resolved once at module load (delegate.models.<surface> in
+// ~/.flow/config.json, else the seeded default) so a config override
+// re-points these surfaces without a code change.
+const DEFAULT_GATHER_MODEL = resolveDelegateModel("researchGather") as string;
+const DEFAULT_REFUTE_MODEL = resolveDelegateModel("researchRefute") as string;
 const FALLBACK_REFUTE_MODEL = "GPT-OSS 120B (Medium)";
 
 const GATHER_TASK = "research-gather";
@@ -127,6 +133,12 @@ function readResearchObject(config: unknown): Record<string, unknown> {
 // GPT-OSS when gather is Opus, else Opus — so the refute pass never runs on
 // the same model family as gather. Tolerant: a missing/wrong-type override
 // silently takes its default.
+//
+// The `gatherModel === DEFAULT_REFUTE_MODEL` check below compares against
+// DEFAULT_REFUTE_MODEL, which is now the RESOLVED value (delegate.models
+// .researchRefute override, or the seeded default) rather than a bare
+// constant — so a delegate.models config override cannot silently collapse
+// gather and refute onto the same model without the guard noticing.
 export function resolveModels(config: unknown): {
   gatherModel: string;
   refuteModel: string;

@@ -73,11 +73,17 @@ import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { buildBatteryPrompt, extractGoalLine } from "./lib/plan-review-prompt";
+import { resolveDelegateModel } from "./lib/delegate-models";
 
 export { extractGoalLine };
 
-const MODEL = "Gemini 3.1 Pro (High)";
-const SECOND_MODEL = "Claude Opus 4.6 (Thinking)";
+// Non-null: only the "scout" surface's default is null; planReview /
+// planReviewSecond's defaults and every well-typed override are strings.
+// Resolved once at module load (delegate.models.<surface> in
+// ~/.flow/config.json, else the seeded default) so a config override
+// re-points either reviewer without a code change.
+const MODEL = resolveDelegateModel("planReview") as string;
+const SECOND_MODEL = resolveDelegateModel("planReviewSecond") as string;
 const DEFAULT_TASK = "plan-review";
 
 // The DEEP-tier combined --out preamble: names the convergence rule the

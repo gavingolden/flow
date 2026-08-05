@@ -43,8 +43,11 @@ import {
   normalizeParsedFindings,
   validateAgentFindings,
 } from "./lib/agent-finding-schema";
+import { resolveDelegateModel } from "./lib/delegate-models";
 
-const MODEL = "Gemini 3.1 Pro (High)";
+// The model routes through resolveDelegateModel("reviewLens") — the default
+// lives in DELEGATE_MODEL_DEFAULTS; a `delegate.models.reviewLens` config
+// value re-points this surface without a code change.
 const DEFAULT_TASK = "gemini-review";
 
 export type Args = {
@@ -252,7 +255,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     "--prompt-file",
     promptPath,
     "--model",
-    MODEL,
+    // Non-null: only the "scout" surface's default is null; reviewLens's
+    // default and every well-typed override are strings.
+    resolveDelegateModel("reviewLens") as string,
     "--add-dir",
     parsed.worktree,
     "--out",

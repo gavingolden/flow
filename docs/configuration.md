@@ -137,9 +137,42 @@ Only `flow-spawn --list` reads this registry so far — no automated teardown or
 | -------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `modules`            | the persisted module selection from `flow install` (see above)                                                    |
 | `models.*`           | per-phase model routing (see [Per-phase models](#per-phase-models))                                               |
+| `delegate.models.*`  | per-surface agy delegate-model routing (see [Delegate models](#delegate-models))                                  |
 | `update.checkFor`    | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                            |
 | `update.autoUpgrade` | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                         |
 | `research.discovery` | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run) |
 | `launcher`           | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell        |
 
 The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher set tmux`.
+
+## Delegate models
+
+`delegate.models.<surface>` (`bin/lib/delegate-models.ts`) routes the agy
+(Google AI Ultra, via `flow-delegate`) model used by each cross-model
+delegate surface — distinct from `models.*` above, which routes the
+**Claude Code** model for pipeline phases. Value grammar: an agy variant
+**display-name** string, e.g. `"Gemini 3.1 Pro (High)"` (the form
+`flow-delegate` accepts on `--model`, not the slug form `agy models`
+emits). Absent key = today's default for that surface; a present but
+wrong-typed value warns on stderr and falls back to the default; never
+throws.
+
+| surface            | what it drives                                                              | default today                             |
+| ------------------ | --------------------------------------------------------------------------- | ----------------------------------------- |
+| `intentGuess`      | `/flow-pr-review` cross-model intent guess                                  | `Gemini 3.1 Pro (High)`                   |
+| `reviewLens`       | `/flow-pr-review` Gemini review lens                                        | `Gemini 3.1 Pro (High)`                   |
+| `researchGather`   | forced-research gather pass                                                 | `Gemini 3.1 Pro (High)`                   |
+| `researchRefute`   | forced-research adversarial refute pass                                     | `Claude Opus 4.6 (Thinking)`              |
+| `planReview`       | `/flow-pipeline` step 3 plan review, reviewer 1                             | `Gemini 3.1 Pro (High)`                   |
+| `planReviewSecond` | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2                   | `Claude Opus 4.6 (Thinking)`              |
+| `scout`            | delegate implementation scouting to agy instead of the Claude Task subagent | `null` (Task subagent, today's behaviour) |
+
+**Namespace disambiguation — `models.scout` vs `delegate.models.scout`:**
+these two keys share the `scout` suffix but mean opposite things and use
+disjoint value grammars. `models.scout` (see [Per-phase
+models](#per-phase-models)) is a **Claude Code model alias**
+(`opus`/`haiku`/`sonnet`/`fable`) for the Step-1b scout **Task subagent**.
+`delegate.models.scout` is an **agy variant display-name string** that, when
+set, means "delegate scouting to agy instead of spawning the Task subagent
+at all" — `null`/absent preserves today's Task-subagent behaviour. Setting
+one has no effect on the other.
