@@ -1,0 +1,249 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { spawnSync } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { main, deriveBoard } from "./flow-epic-sync";
+import { writeState, type PipelineState } from "./lib/state";
+import { writeEpicRunState, type EpicRunState } from "./lib/epic-run-state";
+import {
+  readCommittedStatus,
+  serializeEpicStatus,
+} from "./lib/epic-status-schema";
+import type { EpicManifest } from "./lib/epic-manifest-schema";
+import type { GhRunner } from "./lib/resume-probes";
+import { slugify } from "./lib/slug";
+
+/**
+ * Coverage for the `flow-epic-sync` PATH helper: `deriveBoard` (pure,
+ * stubbed `GhRunner`, no network) plus the CLI-level epic resolution,
+ * write/no-write disposition, and `--check` drift detection.
+ */
+
+const ISO = "2026-08-01T00:00:00Z";
+
+const MANIFEST: EpicManifest = {
+  epicId: "watchlist",
+  prompt: "build the watchlist",
+  createdAt: ISO,
+  features: [
+    { id: "feature-a", title: "A", description: "a", dependsOn: [] },
+    { id: "feature-b", title: "B", description: "b", dependsOn: [] },
+    { id: "feature-c", title: "C", description: "c", dependsOn: [] },
+  ],
+};
+
+/** gh stub keyed by feature id (matched against the slugified PR head). */
+function ghForHeads(
+  merged: Record<string, number>,
+  open: Record<string, number> = {},
+): GhRunner {
+  const mergedByHead: Record<string, number> = {};
+  for (const [id, num] of Object.entries(merged))
+    mergedByHead[slugify(id)] = num;
+  const openByHead: Record<string, number> = {};
+  for (const [id, num] of Object.entries(open)) openByHead[slugify(id)] = num;
+
+  return (argv) => {
+    const headIdx = argv.indexOf("--head");
+    const head = argv[headIdx + 1];
+    const stateFiltered = argv.includes("--state");
+    const num = stateFiltered
+      ? mergedByHead[head]
+      : (mergedByHead[head] ?? openByHead[head]);
+    return {
+      stdout: JSON.stringify(num !== undefined ? [{ number: num }] : []),
+      stderr: "",
+      exitCode: 0,
+    };
+  };
+}
+
+const ghFailing: GhRunner = () => ({ stdout: "", stderr: "boom", exitCode: 1 });
+
+describe("deriveBoard — pure whole-epic reconcile", () => {
+  it("classifies merged/open/never-launched features from a stubbed gh", () => {
+    const gh = ghForHeads({ "feature-a": 101 }, { "feature-b": 55 });
+    const { file, derived } = deriveBoard({
+      manifest: MANIFEST,
+      existing: null,
+      gh,
+    });
+    expect(derived).toBe(true);
+    expect(file.features).toEqual({
+      "feature-a": { status: "merged", pr: 101 },
+      "feature-b": { status: "not-started" },
+      "feature-c": { status: "not-started" },
+    });
+  });
+
+  it("does not record an open PR — only what landed", () => {
+    const gh = ghForHeads({}, { "feature-b": 55 });
+    const { file } = deriveBoard({ manifest: MANIFEST, existing: null, gh });
+    expect(file.features["feature-b"]).toEqual({ status: "not-started" });
+  });
+
+  it("keeps an existing merged row merged when gh returns nothing for it", () => {
+    const gh = ghForHeads({});
+    const existing = {
+      version: 1 as const,
+      epicId: "watchlist",
+      features: { "feature-a": { status: "merged" as const, pr: 101 } },
+    };
+    const { file } = deriveBoard({ manifest: MANIFEST, existing, gh });
+    expect(file.features["feature-a"]).toEqual({ status: "merged", pr: 101 });
+  });
+
+  it("optimistically marks the self row merged even when GitHub reports it OPEN, without touching siblings", () => {
+    const gh = ghForHeads({}, { "feature-b": 77 });
+    const { file, derived } = deriveBoard({
+      manifest: MANIFEST,
+      existing: null,
+      gh,
+      selfFeatureId: "feature-b",
+    });
+    expect(derived).toBe(true);
+    expect(file.features["feature-b"]).toEqual({ status: "merged", pr: 77 });
+    expect(file.features["feature-a"]).toEqual({ status: "not-started" });
+    expect(file.features["feature-c"]).toEqual({ status: "not-started" });
+  });
+
+  it("quiet-diff: open, closed-unmerged, and no-PR-at-all all derive the same board", () => {
+    const ghOpen = ghForHeads({}, { "feature-b": 55 });
+    const ghClosedUnmerged = ghForHeads({}, {}); // closed-unmerged never shows up either
+    const ghNone = ghForHeads({}, {});
+    const a = deriveBoard({ manifest: MANIFEST, existing: null, gh: ghOpen });
+    const b = deriveBoard({
+      manifest: MANIFEST,
+      existing: null,
+      gh: ghClosedUnmerged,
+    });
+    const c = deriveBoard({ manifest: MANIFEST, existing: null, gh: ghNone });
+    expect(serializeEpicStatus(a.file)).toBe(serializeEpicStatus(b.file));
+    expect(serializeEpicStatus(b.file)).toBe(serializeEpicStatus(c.file));
+  });
+
+  it("marks derived:false when gh fails, without writing", () => {
+    const { derived } = deriveBoard({
+      manifest: MANIFEST,
+      existing: null,
+      gh: ghFailing,
+    });
+    expect(derived).toBe(false);
+  });
+});
+
+describe("main — CLI epic resolution + write disposition", () => {
+  let stateDir: string;
+  let epicsDir: string;
+  let repoDir: string;
+  let manifestPath: string;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-sync-state-"));
+    epicsDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-sync-epics-"));
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-sync-repo-"));
+    spawnSync("git", ["init", "-q"], { cwd: repoDir });
+    const epicDir = path.join(repoDir, ".flow", "epics", "watchlist");
+    fs.mkdirSync(epicDir, { recursive: true });
+    manifestPath = path.join(epicDir, "manifest.json");
+    fs.writeFileSync(manifestPath, JSON.stringify(MANIFEST));
+  });
+
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(epicsDir, { recursive: true, force: true });
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  function seedRunState(overrides: Partial<EpicRunState> = {}): void {
+    const rs: EpicRunState = {
+      epicSlug: "watchlist",
+      repo: repoDir,
+      manifestPath,
+      manifestSha: "deadbeef",
+      createdAt: ISO,
+      updatedAt: ISO,
+      features: {},
+      ...overrides,
+    };
+    writeEpicRunState(rs, epicsDir);
+  }
+
+  it("creates status.json when none exists, and the result validates", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const exit = main(["--epic-slug", "watchlist"], {
+      gh,
+      epicsDir,
+      cwd: repoDir,
+    });
+    expect(exit).toBe(0);
+    const status = readCommittedStatus(path.dirname(manifestPath));
+    expect(status).not.toBeNull();
+    expect(status?.features["feature-a"]).toEqual({
+      status: "merged",
+      pr: 101,
+    });
+  });
+
+  it("a slug whose state has no .epic exits 0, writes nothing, prints nothing", () => {
+    const s: PipelineState = {
+      slug: "plain-feature",
+      phase: "merged",
+      repo: repoDir,
+      updatedAt: ISO,
+    };
+    writeState(s, stateDir);
+    const exit = main(["--slug", "plain-feature"], {
+      gh: ghForHeads({}),
+      epicsDir,
+      cwd: repoDir,
+      stateDir,
+    });
+    expect(exit).toBe(0);
+    expect(
+      fs.existsSync(path.join(path.dirname(manifestPath), "status.json")),
+    ).toBe(false);
+  });
+
+  it("gh failing: derived false, nothing written, exit 0", () => {
+    seedRunState();
+    const exit = main(["--epic-slug", "watchlist"], {
+      gh: ghFailing,
+      epicsDir,
+      cwd: repoDir,
+    });
+    expect(exit).toBe(0);
+    expect(
+      fs.existsSync(path.join(path.dirname(manifestPath), "status.json")),
+    ).toBe(false);
+  });
+
+  it("--check exits 1 on drift and 0 when in sync", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const driftExit = main(["--epic-slug", "watchlist", "--check"], {
+      gh,
+      epicsDir,
+      cwd: repoDir,
+    });
+    expect(driftExit).toBe(1);
+
+    main(["--epic-slug", "watchlist"], { gh, epicsDir, cwd: repoDir });
+    const inSyncExit = main(["--epic-slug", "watchlist", "--check"], {
+      gh,
+      epicsDir,
+      cwd: repoDir,
+    });
+    expect(inSyncExit).toBe(0);
+  });
+});
+
+describe("flow-epic-sync.ts is executable", () => {
+  it("has the exec bit set", () => {
+    const scriptPath = path.resolve(__dirname, "flow-epic-sync.ts");
+    const mode = fs.statSync(scriptPath).mode;
+    expect(mode & 0o111).not.toBe(0);
+  });
+});

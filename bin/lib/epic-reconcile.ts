@@ -21,6 +21,7 @@ import { computeFrontier } from "../flow-epic-dag";
 import type { EpicManifest, Feature } from "./epic-manifest-schema";
 import type { EpicRunState } from "./epic-run-state";
 import { readState, TERMINAL_PHASE_SET, type PipelineState } from "./state";
+import type { EpicStatusFile } from "./epic-status-schema";
 
 export type FeatureStatus =
   | "ready"
@@ -129,8 +130,16 @@ export function reconcile(input: {
   runState: EpicRunState;
   readFeatureState?: ReadFeatureState;
   maxParallel: number;
+  /**
+   * The committed status board — a `completed` FLOOR, never an override. A
+   * feature with NO `run.json` record and a committed `merged` row
+   * classifies `merged` (so the frontier math is right on a fresh machine
+   * with no per-machine cache); a committed `not-started` row leaves the
+   * feature exactly as it is today. A PRESENT `run.json` record always wins.
+   */
+  committedStatus?: EpicStatusFile | null;
 }): ReconcileResult {
-  const { manifest, runState, maxParallel } = input;
+  const { manifest, runState, maxParallel, committedStatus } = input;
   const readFeatureState =
     input.readFeatureState ?? ((slug: string) => readState(slug));
 
@@ -158,9 +167,24 @@ export function reconcile(input: {
     launchedStatus.set(f.id, classifyLaunched(state));
   }
 
+  // Committed-board floor: a feature with NO run.json record but a committed
+  // `merged` row counts as completed too — a PRESENT record always wins
+  // (handled above; committedFloorIds is only consulted for features with no
+  // record at all).
+  const committedFloorIds = new Set<string>();
+  for (const f of features) {
+    if (runState.features[f.id]) continue;
+    if (committedStatus?.features[f.id]?.status === "merged") {
+      committedFloorIds.add(f.id);
+    }
+  }
+
   const completed = new Set(
     features
-      .filter((f) => launchedStatus.get(f.id) === "merged")
+      .filter(
+        (f) =>
+          launchedStatus.get(f.id) === "merged" || committedFloorIds.has(f.id),
+      )
       .map((f) => f.id),
   );
   const runningCount = [...launchedStatus.values()].filter(
@@ -194,6 +218,15 @@ export function reconcile(input: {
         pr: state?.pr ?? record.pr,
         phase: state?.phase,
         dependsOn: f.dependsOn,
+      };
+    }
+    if (committedFloorIds.has(f.id)) {
+      return {
+        id: f.id,
+        status: "merged" as const,
+        pr: committedStatus?.features[f.id]?.pr,
+        dependsOn: f.dependsOn,
+        external: true,
       };
     }
     return {

@@ -116,6 +116,7 @@ session, and this one has zero named fan-out surfaces.
 | `flow epic launch <epic> <id> [--force]`                                   | Atomic manifest-read → `flow feature create` → binding recorded.                                                                             |
 | `flow epic ls` / `flow epic done <slug>`                                   | List epics / remove the per-machine run.json cache.                                                                                          |
 | `flow feature create "<desc>"` / `flow feature resume <slug> --force`      | Launch a fresh pipeline / clean-respawn a stalled one (the sanctioned retry actuator).                                                       |
+| `flow-epic-sync [--check]`                                                 | Derive the whole epic's committed status board from GitHub; `--check` exits non-zero on drift.                                               |
 | `gh`, `git`, `jq`                                                          | The truth probes + JSON extraction.                                                                                                          |
 
 # The four recipes
@@ -142,6 +143,10 @@ Reconcile the cache (run.json) against the truth (GitHub/git) BEFORE any launch.
    - **Merged out of band** (a PR merged with no flow pipeline) →
      `flow epic bind <epic> <id> --external "PR #<n>"`.
 4. If the manifest itself drifted from what shipped, run **amend-manifest**.
+5. Check the committed status board: `flow-epic-sync --check`. On a non-zero
+   exit, run `flow-epic-sync` (writes `.flow/epics/<slug>/status.json`) and
+   commit the correction with a small, focused commit — same style as
+   **amend-manifest** step 3.
 
 A `gated` feature surfaced here is **escalate-only** — tell the human; never
 clear it.

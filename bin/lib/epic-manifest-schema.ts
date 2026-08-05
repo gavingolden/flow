@@ -4,11 +4,13 @@
  * `.flow/epics/<slug>/manifest.json`.
  *
  * Path contract: an epic lives under `.flow/epics/<slug>/` and owns exactly
- * two files — `design.md` (the human-readable design doc) and
- * `manifest.json` (the machine-readable feature DAG this module validates).
- * The filenames and the per-slug directory are exported as constants here so
- * every downstream epic feature (DAG well-formedness in F2, the ready-set
- * scheduler, `flow feature create` fan-out) resolves the same paths.
+ * three files — `design.md` (the human-readable design doc),
+ * `manifest.json` (the machine-readable feature DAG this module validates),
+ * and `status.json` (the machine-owned committed status board; see
+ * `bin/lib/epic-status-schema.ts`). The filenames and the per-slug directory
+ * are exported as constants here so every downstream epic feature (DAG
+ * well-formedness in F2, the ready-set scheduler, `flow feature create`
+ * fan-out) resolves the same paths.
  *
  * This module OWNS the `EpicManifest` shape: all downstream epic features
  * import `EpicManifest` / `Feature` from here rather than restating the type,
@@ -55,6 +57,12 @@ export interface EpicManifest {
 
 export const EPIC_MANIFEST_FILENAME = "manifest.json";
 export const EPIC_DESIGN_FILENAME = "design.md";
+/**
+ * Canonical definition — path-contract locality with the other two epic
+ * filenames. `bin/lib/epic-status-schema.ts` re-exports this constant rather
+ * than redeclaring it, so there is a single source of truth.
+ */
+export const EPIC_STATUS_FILENAME = "status.json";
 
 /** The per-slug epic directory, repo-relative. */
 export function epicDirRelative(slug: string): string {

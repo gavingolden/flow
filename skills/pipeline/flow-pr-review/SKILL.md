@@ -862,14 +862,15 @@ when valid (or pushes back when incorrect), and records the disposition in
 the artifact (`commits[].reasoning` for addressed comments, `deferred[]`
 for skipped ones). Step 9 reads those dispositions to draft inline replies.
 
-## 7.5. Roadmap Mark-Shipped Sweep
+## 7.5. Mark-Shipped Sweep (Roadmap + Epic Board)
 
 Delegated to the Fix-Applier Subagent (see § Fix-Applier Subagent above).
 The subagent self-marks the current PR's row and sweeps drifted prior-PR
-rows in `docs/roadmap.md` (when one exists), bundling the edit into the
-same fix commit as Steps 6/7. The full self-mark + sweep contract lives in
-`references/fix-applier-instructions.md` step 5; the `Auto-push exemption:
-pr-review` clause in `AGENTS.md` covers the resulting commit + push.
+rows in `docs/roadmap.md` (when one exists), and syncs the epic status
+board via `flow-epic-sync` (no-op for a non-epic PR; named skip when
+absent) — bundling either edit into the same fix commit as Steps 6/7. The
+full contract lives in `references/fix-applier-instructions.md` step 5;
+`AGENTS.md`'s `Auto-push exemption: pr-review` clause covers the commit + push.
 
 ## 8. Spawn Fix-Applier Subagent and Run Verification Items
 
@@ -1696,7 +1697,7 @@ site) so this paired-contract regression can't recur silently.
   durable tracker.**
 - When inline review comments existed: every comment is addressed or explicitly skipped with reason, replies are posted, and the retrospective + checklist update appear in the report (or the report records "No reviewer comments to retrospect against" when none existed)
 - Findings posted as individual inline review comments via `gh api` on every invocation, including PRs that already have reviewer comments
-- Roadmap self-mark + sweep performed (Step 7.5): when `docs/roadmap.md` exists, the current PR's row is flipped to `✅ shipped (#$PR)` if a row exists, and any `🚧 in review (#N)` rows whose PR is already MERGED are flipped in the same diff
+- Roadmap self-mark + sweep performed (Step 7.5): when `docs/roadmap.md` exists, the current PR's row is flipped to `✅ shipped (#$PR)` if a row exists, and any `🚧 in review (#N)` rows whose PR is already MERGED are flipped in the same diff; the epic status board is synced via `flow-epic-sync` (no-op for a non-epic PR, named skip when the helper is absent)
 - Pre-commit checks pass (run individually, not chained)
 - PR description quality check completed
 - Structured report produced using the template format
