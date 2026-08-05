@@ -33,8 +33,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
+import { resolveRepoRoot } from "./repo-root";
 import {
   FLOW_CLAUDE_HOME,
   FLOW_LAUNCH_SEM_DIR,
@@ -1829,19 +1829,6 @@ function withLaunchSlot(
       ? { timeoutMs: options.launchSemTimeoutMs, pollMs: 5 }
       : {};
   return withTestSemaphore(semDir, slots, launch, semOpts).result;
-}
-
-function resolveRepoRoot(cwd: string): string | null {
-  // node:child_process spawnSync (not Bun.spawnSync) so the vitest cases run
-  // under node — Bun.spawnSync is undefined in the vitest worker. Production
-  // runs through bin/flow (bun-shebanged), so node-compat here costs nothing.
-  const r = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
-    encoding: "utf8",
-  });
-  if (r.status !== 0) return null;
-  const out = r.stdout.trim();
-  if (!out || !fs.existsSync(out)) return null;
-  return out;
 }
 
 // Re-exported so a future epic-aware resume helper / test can reference the

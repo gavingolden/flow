@@ -15,13 +15,13 @@
  */
 
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
 import { readState } from "./lib/state";
 import { readEpicRunState, type EpicRunState } from "./lib/epic-run-state";
 import { reconcile } from "./lib/epic-reconcile";
 import type { ReconcileResult } from "./lib/epic-reconcile";
 import { renderBoard } from "./lib/epic-render";
 import { loadCommittedManifest } from "./lib/epic";
+import { resolveRepoRoot } from "./lib/repo-root";
 import {
   epicDirRelative,
   EPIC_MANIFEST_FILENAME,
@@ -41,16 +41,6 @@ const TERMINAL_STATES: readonly TerminalState[] = [
 
 function degradationBlock(epicSlug: string): string {
   return [`Part of epic ${epicSlug}`, "(epic status unavailable)"].join("\n");
-}
-
-/** Mirrors `resolveRepoRoot` in `bin/lib/epic.ts` (not exported there). */
-function resolveRepoRoot(cwd: string): string | null {
-  const r = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
-    encoding: "utf8",
-  });
-  if (r.status !== 0) return null;
-  const out = r.stdout.trim();
-  return out.length > 0 ? out : null;
 }
 
 /**

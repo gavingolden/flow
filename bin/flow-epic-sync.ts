@@ -24,6 +24,7 @@ import * as path from "node:path";
 import { readState } from "./lib/state";
 import { FLOW_STATE_DIR, FLOW_EPICS_DIR } from "./lib/paths";
 import { readEpicRunState } from "./lib/epic-run-state";
+import { resolveRepoRoot } from "./lib/repo-root";
 import {
   epicDirRelative,
   EPIC_MANIFEST_FILENAME,
@@ -59,13 +60,6 @@ function loadManifest(manifestPath: string): EpicManifest | null {
   }
   const shape = validateEpicManifest(parsed);
   return shape.ok ? shape.value : null;
-}
-
-function resolveRepoRoot(cwd: string): string | null {
-  const r = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--show-toplevel"]);
-  if (r.exitCode !== 0) return null;
-  const out = r.stdout.toString("utf8").trim();
-  return out.length > 0 ? out : null;
 }
 
 // --- deriveBoard: pure, no disk/network -------------------------------------
