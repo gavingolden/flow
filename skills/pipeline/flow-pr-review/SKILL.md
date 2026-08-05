@@ -864,13 +864,12 @@ for skipped ones). Step 9 reads those dispositions to draft inline replies.
 
 ## 7.5. Mark-Shipped Sweep (Roadmap + Epic Board)
 
-Delegated to the Fix-Applier Subagent (see § Fix-Applier Subagent above).
-The subagent self-marks the current PR's row and sweeps drifted prior-PR
-rows in `docs/roadmap.md` (when one exists), and syncs the epic status
-board via `flow-epic-sync` (no-op for a non-epic PR; named skip when
-absent) — bundling either edit into the same fix commit as Steps 6/7. The
-full contract lives in `references/fix-applier-instructions.md` step 5;
-`AGENTS.md`'s `Auto-push exemption: pr-review` clause covers the commit + push.
+Delegated to the Fix-Applier Subagent (see § Fix-Applier Subagent above). The
+subagent self-marks the current PR's row and sweeps drifted prior-PR rows in
+`docs/roadmap.md` (when one exists), and syncs the epic status board via
+`flow-epic-sync` (no-op for a non-epic PR; named skip when absent) — bundling
+either edit into the same fix commit as Steps 6/7. Full contract:
+`references/fix-applier-instructions.md` step 5; `AGENTS.md`'s `Auto-push exemption: pr-review` clause covers the commit + push.
 
 ## 8. Spawn Fix-Applier Subagent and Run Verification Items
 
