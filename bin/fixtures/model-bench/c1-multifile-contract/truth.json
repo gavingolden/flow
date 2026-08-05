@@ -1,16 +1,63 @@
 {
   "caseId": "c1-multifile-contract",
   "required": [
-    "src/retry-contract.ts: RetryPolicy",
-    "src/retry-contract.ts: isRetryable",
-    "src/retry-runner.ts: DEFAULT_RETRY_POLICY",
-    "src/retry-runner.ts: withRetry",
-    "src/job-queue.ts: AGGRESSIVE_POLICY",
-    "src/job-queue.ts: processJob",
-    "src/api-client.ts: fetchUser",
-    "src/api-client.ts: makeRetrying is the indirection hop — api-client.ts never imports RetryPolicy or retry-contract.ts directly, so fetchUser's dependency on the new signal field is only visible by following retry-runner.ts's makeRetrying<Args, T, P extends RetryPolicy> generic constraint"
+    {
+      "desc": "src/retry-contract.ts: RetryPolicy",
+      "anyOf": [
+        "RetryPolicy"
+      ]
+    },
+    {
+      "desc": "src/retry-contract.ts: isRetryable",
+      "anyOf": [
+        "isRetryable"
+      ]
+    },
+    {
+      "desc": "src/retry-runner.ts: DEFAULT_RETRY_POLICY",
+      "anyOf": [
+        "DEFAULT_RETRY_POLICY"
+      ]
+    },
+    {
+      "desc": "src/retry-runner.ts: withRetry",
+      "anyOf": [
+        "withRetry"
+      ]
+    },
+    {
+      "desc": "src/job-queue.ts: AGGRESSIVE_POLICY",
+      "anyOf": [
+        "AGGRESSIVE_POLICY"
+      ]
+    },
+    {
+      "desc": "src/job-queue.ts: processJob",
+      "anyOf": [
+        "processJob"
+      ]
+    },
+    {
+      "desc": "src/api-client.ts: fetchUser",
+      "anyOf": [
+        "fetchUser"
+      ]
+    },
+    {
+      "desc": "src/api-client.ts: makeRetrying is the indirection hop \u2014 api-client.ts never imports RetryPolicy or retry-contract.ts directly, so fetchUser's dependency on the new signal field is only visible by following retry-runner.ts's makeRetrying<Args, T, P extends RetryPolicy> generic constraint",
+      "anyOf": [
+        "makeRetrying"
+      ]
+    }
   ],
   "forbidden": [
-    "claims src/api-client.ts is unaffected because it does not import RetryPolicy or retry-contract.ts"
+    {
+      "desc": "claims src/api-client.ts is unaffected because it does not import RetryPolicy or retry-contract.ts",
+      "anyOf": [
+        "api-client.ts is unaffected",
+        "api-client.ts is not affected",
+        "not affected because it does not import"
+      ]
+    }
   ]
 }

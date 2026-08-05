@@ -5,9 +5,32 @@
     "bin/lib/setup.ts",
     "rebaseOntoInstallRoot",
     "effectiveLinkSource",
-    "the live filesystem symlink (ensureSymlink's target) is re-pointed at the canonical installRoot path when that path already exists on disk, instead of always pointing at entry.source",
-    "the fix is scoped to `flow install --upgrade --source <worktree>`: a --source install previously left global symlinks pointed into the worktree, which then dangled once the worktree was removed on merge",
-    "a genuinely worktree-only new file (no canonical counterpart yet) still falls back to the worktree source, so it stays usable during the introducing pipeline"
+    {
+      "desc": "the live filesystem symlink (ensureSymlink's target) is re-pointed at the canonical installRoot path when that path already exists on disk, instead of always pointing at entry.source",
+      "anyOf": [
+        "canonical",
+        "installRoot",
+        "re-point",
+        "repoint"
+      ]
+    },
+    {
+      "desc": "the fix is scoped to `flow install --upgrade --source <worktree>`: a --source install previously left global symlinks pointed into the worktree, which then dangled once the worktree was removed on merge",
+      "anyOf": [
+        "--source",
+        "worktree",
+        "dangl"
+      ]
+    },
+    {
+      "desc": "a genuinely worktree-only new file (no canonical counterpart yet) still falls back to the worktree source, so it stays usable during the introducing pipeline",
+      "anyOf": [
+        "fall back",
+        "fallback",
+        "worktree-only",
+        "does not exist in the canonical"
+      ]
+    }
   ],
   "forbidden": [
     "the diff is only a refactor with no behavior change",
@@ -18,6 +41,6 @@
     "key_changes is a non-empty array of non-empty strings",
     "every file basename mentioned in key_changes (setup.ts, sources.ts, setup.test.ts) actually appears in a `diff --git` header inside diff.patch",
     "guessed_purpose does not merely restate the words 'guessed purpose'; justification does not merely restate the words 'justification'; key_changes entries do not merely restate the words 'key change'",
-    "confidence is a number strictly between 0 and 100 (not exactly 0, not exactly 100 — this diff is inferable but not signed with a commit message, so a well-calibrated guess should stop short of certainty)"
+    "confidence is a number strictly between 0 and 100 (not exactly 0, not exactly 100 \u2014 this diff is inferable but not signed with a commit message, so a well-calibrated guess should stop short of certainty)"
   ]
 }

@@ -31,10 +31,10 @@ describe("scoreCase", () => {
       result({ model: "m", response: "", warmup: true, ran: true }), // warmup: excluded
       result({ model: "m", response: "irrelevant", ran: false }), // not ran: excluded
     ];
-    const score = scoreCase(results, truth);
-    expect(score.perModel.m!.recall).toBe(1); // only the scored attempt counted
-    expect(score.perModel.m!.ranAttempts).toBe(1);
-    expect(score.perModel.m!.totalAttempts).toBe(2); // ran + not-ran, warmup excluded entirely
+    const [score] = scoreCase(results, truth);
+    expect(score!.perModel.m!.recall).toBe(1); // only the scored attempt counted
+    expect(score!.perModel.m!.ranAttempts).toBe(1);
+    expect(score!.perModel.m!.totalAttempts).toBe(2); // ran + not-ran, warmup excluded entirely
   });
 
   it("marks a case non-discriminating when the model spread is zero", () => {
@@ -42,9 +42,9 @@ describe("scoreCase", () => {
       result({ model: "a", response: "alpha beta" }),
       result({ model: "b", response: "alpha beta" }),
     ];
-    const score = scoreCase(results, truth);
-    expect(score.spread).toBe(0);
-    expect(score.discriminating).toBe(false);
+    const [score] = scoreCase(results, truth);
+    expect(score!.spread).toBe(0);
+    expect(score!.discriminating).toBe(false);
   });
 
   it("reads latency from durationSeconds and ignores an extraneous durationMs-shaped field", () => {
@@ -57,10 +57,182 @@ describe("scoreCase", () => {
         durationMs: 999999,
       } as BenchResult,
     ];
-    const score = scoreCase(results, truth);
-    expect(score.perModel.m!.latency.median).toBe(3);
-    expect(score.perModel.m!.latency.min).toBe(3);
-    expect(score.perModel.m!.latency.max).toBe(3);
+    const [score] = scoreCase(results, truth);
+    expect(score!.perModel.m!.latency.median).toBe(3);
+    expect(score!.perModel.m!.latency.min).toBe(3);
+    expect(score!.perModel.m!.latency.max).toBe(3);
+  });
+
+  it("returns one CaseScore per distinct arm, with independent perModel per arm", () => {
+    const results: BenchResult[] = [
+      result({ model: "m", arm: "schema", response: "alpha beta" }),
+      result({ model: "m", arm: "free-form", response: "alpha" }), // only 1 of 2 required hits
+    ];
+    const scores = scoreCase(results, truth);
+    expect(scores).toHaveLength(2);
+    const schemaScore = scores.find((s) => s.arm === "schema")!;
+    const freeFormScore = scores.find((s) => s.arm === "free-form")!;
+    expect(schemaScore.perModel.m!.recall).toBe(1);
+    expect(freeFormScore.perModel.m!.recall).toBe(0.5);
+  });
+
+  it("a {desc, anyOf} criterion is met by any single matching key and missed when none match, reporting the miss via its desc", () => {
+    const structuredTruth: BenchTruth = {
+      caseId: "c1",
+      required: [
+        {
+          desc: "src/pagination.ts:7 off-by-one — the loop emits one trailing empty page",
+          anyOf: ["off-by-one", "trailing empty page"],
+        },
+        {
+          desc: "missing await on fetchTaxRate",
+          anyOf: ["missing await", "await fetchTaxRate"],
+        },
+      ],
+    };
+    const results: BenchResult[] = [
+      result({ model: "m", response: "found the off-by-one bug" }), // matches only the first criterion
+    ];
+    const [score] = scoreCase(results, structuredTruth);
+    expect(score!.perModel.m!.recall).toBe(0.5);
+    expect(score!.perModel.m!.requiredMissed).toEqual([
+      "missing await on fetchTaxRate",
+    ]);
+  });
+
+  it("counts a hit that lives only in structuredOutput, even with an empty response", () => {
+    const results: BenchResult[] = [
+      result({
+        model: "m",
+        response: "",
+        structuredOutput: { summary: "alpha and beta both present" },
+      }),
+    ];
+    const [score] = scoreCase(results, truth);
+    expect(score!.perModel.m!.recall).toBe(1);
+  });
+
+  describe("structuredTuples — conjunctions over structured output", () => {
+    const tupleTruth: BenchTruth = {
+      caseId: "c1",
+      required: ["ordering"],
+      structuredTuples: [
+        {
+          desc: "PR 204: decision proceed, rule no-skip-rule-matched",
+          match: { pr: 204, decision: "proceed", rule: "no-skip-rule-matched" },
+        },
+      ],
+    };
+
+    it("is met when some object in structuredOutput carries every key/value pair, unmet when a value differs", () => {
+      const met: BenchResult[] = [
+        result({
+          model: "m",
+          response: "ordering",
+          structuredOutput: {
+            verdicts: [
+              { pr: 204, decision: "proceed", rule: "no-skip-rule-matched" },
+            ],
+          },
+        }),
+      ];
+      const [metScore] = scoreCase(met, tupleTruth);
+      expect(metScore!.perModel.m!.recall).toBe(1);
+      expect(metScore!.perModel.m!.requiredMissed).toEqual([]);
+
+      const unmet: BenchResult[] = [
+        result({
+          model: "m",
+          response: "ordering",
+          structuredOutput: {
+            verdicts: [
+              { pr: 204, decision: "skip", rule: "no-skip-rule-matched" },
+            ],
+          },
+        }),
+      ];
+      const [unmetScore] = scoreCase(unmet, tupleTruth);
+      expect(unmetScore!.perModel.m!.recall).toBe(0.5);
+      expect(unmetScore!.perModel.m!.requiredMissed).toEqual([
+        "PR 204: decision proceed, rule no-skip-rule-matched",
+      ]);
+    });
+
+    it("searches through arbitrary key names and nested arrays, not just a fixed top-level path", () => {
+      const results: BenchResult[] = [
+        result({
+          model: "m",
+          response: "ordering",
+          structuredOutput: {
+            answer: {
+              byRepo: [
+                {
+                  prVerdicts: [
+                    {
+                      pr: 204,
+                      decision: "proceed",
+                      rule: "no-skip-rule-matched",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+      ];
+      const [score] = scoreCase(results, tupleTruth);
+      expect(score!.perModel.m!.recall).toBe(1);
+    });
+
+    it("coerces a numeric match value against a string-typed number in the output", () => {
+      const results: BenchResult[] = [
+        result({
+          model: "m",
+          response: "ordering",
+          structuredOutput: {
+            verdicts: [
+              { pr: "204", decision: "proceed", rule: "no-skip-rule-matched" },
+            ],
+          },
+        }),
+      ];
+      const [score] = scoreCase(results, tupleTruth);
+      expect(score!.perModel.m!.recall).toBe(1);
+    });
+
+    it("recall denominator includes both required criteria and structuredTuples", () => {
+      const bothTruth: BenchTruth = {
+        caseId: "c1",
+        required: ["ordering", "another-required-token"],
+        structuredTuples: [
+          {
+            desc: "PR 204 tuple",
+            match: { pr: 204, decision: "proceed" },
+          },
+          {
+            desc: "PR 206 tuple",
+            match: { pr: 206, decision: "proceed" },
+          },
+        ],
+      };
+      const results: BenchResult[] = [
+        result({
+          model: "m",
+          // 1 of 2 required ("ordering" only), 1 of 2 tuples (only PR 204)
+          response: "ordering",
+          structuredOutput: {
+            verdicts: [{ pr: 204, decision: "proceed" }],
+          },
+        }),
+      ];
+      const [score] = scoreCase(results, bothTruth);
+      // requiredHits=1, tuplesHit=1, denom = 2 required + 2 tuples = 4
+      expect(score!.perModel.m!.recall).toBe(2 / 4);
+      expect(score!.perModel.m!.requiredMissed).toEqual([
+        "another-required-token",
+        "PR 206 tuple",
+      ]);
+    });
   });
 });
 
@@ -87,6 +259,7 @@ describe("verdict — gate order and discrimination", () => {
     return {
       recall: 1,
       precision: 1,
+      requiredMissed: [],
       defectsCaught: [],
       defectsMissed: [],
       falsePositives: [],
@@ -194,6 +367,7 @@ describe("recommend — quality-gated tie-break", () => {
           cheap: {
             recall: 0.9,
             precision: 1,
+            requiredMissed: [],
             defectsCaught: [],
             defectsMissed: [],
             falsePositives: [],
@@ -205,6 +379,7 @@ describe("recommend — quality-gated tie-break", () => {
           pricey: {
             recall: 0.9, // same quality
             precision: 1,
+            requiredMissed: [],
             defectsCaught: [],
             defectsMissed: [],
             falsePositives: [],
@@ -237,6 +412,7 @@ describe("recommend — quality-gated tie-break", () => {
           cheap: {
             recall: 0.8,
             precision: 1,
+            requiredMissed: [],
             defectsCaught: [],
             defectsMissed: [],
             falsePositives: [],
@@ -248,6 +424,7 @@ describe("recommend — quality-gated tie-break", () => {
           pricey: {
             recall: 0.95, // strictly higher quality
             precision: 1,
+            requiredMissed: [],
             defectsCaught: [],
             defectsMissed: [],
             falsePositives: [],
@@ -275,6 +452,7 @@ describe("schemaTax", () => {
         m: {
           recall,
           precision: 1,
+          requiredMissed: [],
           defectsCaught: [],
           defectsMissed: [],
           falsePositives: [],
@@ -301,6 +479,30 @@ describe("schemaTax", () => {
       scoreFor("free-form", 0.91),
     ]);
     expect(tax.m!.recommendedArm).toBe("schema");
+  });
+
+  it("computes a non-zero overall tax when the two arms' real recalls genuinely differ (the scoreCase per-arm split, exercised end to end)", () => {
+    const truth: BenchTruth = {
+      caseId: "c1",
+      required: ["alpha", "beta", "gamma", "delta"],
+    };
+    const results: BenchResult[] = [
+      result({
+        model: "m",
+        arm: "schema",
+        response: "",
+        structuredOutput: { summary: "alpha beta" }, // 2 of 4 -> recall 0.5
+      }),
+      result({
+        model: "m",
+        arm: "free-form",
+        response: "alpha beta gamma delta", // 4 of 4 -> recall 1
+      }),
+    ];
+    const scores = scoreCase(results, truth);
+    const tax = schemaTax(scores);
+    expect(tax.m!.overall).not.toBe(0);
+    expect(tax.m!.overall).toBeCloseTo(0.5, 5);
   });
 });
 

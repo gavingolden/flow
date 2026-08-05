@@ -5,8 +5,14 @@
     "returns source unchanged before computing path.relative"
   ],
   "forbidden": [
-    "an objection claiming `rebaseOntoInstallRoot` still computes `path.relative` even when `flowSource` and `installRoot` are the same path — the early `return source;` on the line above `path.relative` makes this false; do not manufacture this objection",
-    "an objection claiming the identity short-circuit only applies when `source` itself is outside `flowSource` — that is the OTHER guard (the `..`/absolute check), not the same-root check the assessment describes; do not conflate the two guards into an objection"
+    {
+      "desc": "an objection claiming `rebaseOntoInstallRoot` still computes `path.relative` even when `flowSource` and `installRoot` are the same path — the early `return source;` on the line above `path.relative` makes this false; do not manufacture this objection",
+      "anyOf": ["still computes path.relative", "computes path.relative even when", "does not short-circuit before path.relative"]
+    },
+    {
+      "desc": "an objection claiming the identity short-circuit only applies when `source` itself is outside `flowSource` — that is the OTHER guard (the `..`/absolute check), not the same-root check the assessment describes; do not conflate the two guards into an objection",
+      "anyOf": ["only applies when source is outside flowSource", "short-circuit only applies when source itself is outside", "conflates the two guards"]
+    }
   ],
   "pushback": {
     "mustName": [],

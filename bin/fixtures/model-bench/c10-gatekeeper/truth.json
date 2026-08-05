@@ -1,16 +1,49 @@
 {
   "caseId": "c10-gatekeeper",
   "required": [
-    "PR 201: decision skip, rule closed-or-merged — .state == 'MERGED' matches the first rule in order.",
-    "PR 202: decision proceed, rule draft — .isDraft == true and .state == 'OPEN' (not closed/merged), so the draft rule matches before trivial-diff or the fallback are ever considered; its 646-line diff would fail trivial-diff anyway, but the draft rule is checked first regardless of size.",
-    "PR 203: decision skip, rule trivial-diff — additions+deletions == 6 (< 10) and its one commit headline 'chore: regenerate lockfile' matches the `^chore: regenerate` pattern.",
-    "PR 204: decision proceed, rule no-skip-rule-matched — additions+deletions == 7 (< 10), which LOOKS trivial by size, but its commit headline 'fix: correct off-by-one in retry backoff' does not match any of the four trivial-diff patterns (`^chore: regenerate`, `^chore: regen`, `^docs: fix typo`, `^chore: bump`), so the trivial-diff rule's AND condition fails and no earlier rule matches either (state OPEN, isDraft false) — falls through to the 'otherwise' rule.",
-    "PR 205: decision skip, rule closed-or-merged — .state == 'CLOSED' matches the FIRST rule in order, even though this PR also satisfies the surface conditions for the draft rule (isDraft true) and the trivial-diff rule (3 lines, 'chore: bump dependency' matches `^chore: bump`); the first-match-wins ordering means the correct rule is closed-or-merged, not draft or trivial-diff.",
-    "PR 206: decision proceed, rule no-skip-rule-matched — state OPEN, isDraft false, 50 lines changed (not < 10), commit headlines 'feat: add applyBulkDiscount pricing tier' and 'test: cover bulk discount edge cases' match none of the trivial-diff patterns — no rule matches, falls through to 'otherwise'. Its existing APPROVED review from `copilot-pull-request-reviewer` is not a skip signal under the documented rules and must not change the verdict."
+    {
+      "desc": "First-match-wins ordering: when a PR satisfies more than one rule's surface conditions at once (e.g. PR 205 is closed AND a draft AND trivial-sized), the FIRST matching rule in the documented order governs, not a later one that also happens to match.",
+      "anyOf": ["first rule", "matches first", "rule order", "in strict order", "first matching rule"]
+    }
   ],
   "forbidden": [
-    "PR 204 must NOT be given decision skip / rule trivial-diff — its small line count alone is not sufficient; the commit headline does not match the required pattern, so the AND condition in the trivial-diff rule is not satisfied.",
-    "PR 205 must NOT be given decision proceed / rule draft, and must NOT be given decision skip / rule trivial-diff — closed-or-merged is checked first and wins regardless of the other conditions PR 205 also happens to satisfy.",
-    "PR 206 must NOT be given decision skip for any reason tied to its existing APPROVED review — reviews are not one of the fields the documented skip rules examine."
+    {
+      "desc": "PR 204 must NOT be given decision skip / rule trivial-diff — its small line count alone is not sufficient; the commit headline does not match the required pattern, so the AND condition in the trivial-diff rule is not satisfied.",
+      "anyOf": ["204\": {\"decision\": \"skip\", \"rule\": \"trivial-diff", "PR 204: skip, trivial-diff", "PR 204 skip trivial-diff"]
+    },
+    {
+      "desc": "PR 205 must NOT be given decision proceed / rule draft, and must NOT be given decision skip / rule trivial-diff — closed-or-merged is checked first and wins regardless of the other conditions PR 205 also happens to satisfy.",
+      "anyOf": ["205\": {\"decision\": \"proceed\", \"rule\": \"draft", "PR 205: proceed, draft", "205\": {\"decision\": \"skip\", \"rule\": \"trivial-diff", "PR 205: skip, trivial-diff"]
+    },
+    {
+      "desc": "PR 206 must NOT be given decision skip for any reason tied to its existing APPROVED review — reviews are not one of the fields the documented skip rules examine.",
+      "anyOf": ["206\": {\"decision\": \"skip\"", "PR 206: skip", "PR 206 skip"]
+    }
+  ],
+  "structuredTuples": [
+    {
+      "desc": "PR 201: decision skip, rule closed-or-merged — .state == 'MERGED' matches the first rule in order.",
+      "match": { "pr": 201, "decision": "skip", "rule": "closed-or-merged" }
+    },
+    {
+      "desc": "PR 202: decision proceed, rule draft — .isDraft == true and .state == 'OPEN' (not closed/merged), so the draft rule matches before trivial-diff or the fallback are ever considered; its 646-line diff would fail trivial-diff anyway, but the draft rule is checked first regardless of size.",
+      "match": { "pr": 202, "decision": "proceed", "rule": "draft" }
+    },
+    {
+      "desc": "PR 203: decision skip, rule trivial-diff — additions+deletions == 6 (< 10) and its one commit headline 'chore: regenerate lockfile' matches the `^chore: regenerate` pattern.",
+      "match": { "pr": 203, "decision": "skip", "rule": "trivial-diff" }
+    },
+    {
+      "desc": "PR 204: decision proceed, rule no-skip-rule-matched — additions+deletions == 7 (< 10), which LOOKS trivial by size, but its commit headline 'fix: correct off-by-one in retry backoff' does not match any of the four trivial-diff patterns (`^chore: regenerate`, `^chore: regen`, `^docs: fix typo`, `^chore: bump`), so the trivial-diff rule's AND condition fails and no earlier rule matches either (state OPEN, isDraft false) — falls through to the 'otherwise' rule.",
+      "match": { "pr": 204, "decision": "proceed", "rule": "no-skip-rule-matched" }
+    },
+    {
+      "desc": "PR 205: decision skip, rule closed-or-merged — .state == 'CLOSED' matches the FIRST rule in order, even though this PR also satisfies the surface conditions for the draft rule (isDraft true) and the trivial-diff rule (3 lines, 'chore: bump dependency' matches `^chore: bump`); the first-match-wins ordering means the correct rule is closed-or-merged, not draft or trivial-diff.",
+      "match": { "pr": 205, "decision": "skip", "rule": "closed-or-merged" }
+    },
+    {
+      "desc": "PR 206: decision proceed, rule no-skip-rule-matched — state OPEN, isDraft false, 50 lines changed (not < 10), commit headlines 'feat: add applyBulkDiscount pricing tier' and 'test: cover bulk discount edge cases' match none of the trivial-diff patterns — no rule matches, falls through to 'otherwise'. Its existing APPROVED review from `copilot-pull-request-reviewer` is not a skip signal under the documented rules and must not change the verdict.",
+      "match": { "pr": 206, "decision": "proceed", "rule": "no-skip-rule-matched" }
+    }
   ]
 }

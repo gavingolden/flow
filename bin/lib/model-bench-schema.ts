@@ -79,15 +79,52 @@ export type BenchCase = {
   routable: boolean;
 };
 
+// A criterion is either a plain string (the legacy short-key form: the
+// string itself is the case-insensitive substring match key — use this when
+// the ground truth IS already a short, literal-matchable token) or an
+// object carrying a human-readable `desc` (the full prose ground truth, kept
+// for report readability) plus `anyOf` — a set of short, distinctive
+// substrings, any ONE of which appearing in the model output satisfies the
+// criterion. Prose ground truth can never be substring-matched whole (no
+// model output reproduces a full authored sentence verbatim), so `anyOf` is
+// the mechanism for those entries.
+export type TruthCriterion = string | { desc: string; anyOf: string[] };
+
+// A tuple-subset criterion for cases whose ground truth is a CONJUNCTION
+// over structured output (e.g. "PR 204 carries decision=proceed AND
+// rule=no-skip-rule-matched") — substring matching (TruthCriterion) cannot
+// express this: in a multi-item answer every individual token appears
+// somewhere regardless of correctness, so a conjunction needs a real
+// object-shaped match, not string search. `match`'s values are primitives
+// only — this is a leaf equality check, not a nested-pattern matcher.
+export type StructuredTuple = {
+  desc: string;
+  match: Record<string, string | number | boolean>;
+};
+
 export type BenchTruth = {
   caseId: string;
   // Non-empty: a truth file with no ground truth cannot score anything.
-  required: string[];
-  forbidden?: string[];
+  required: TruthCriterion[];
+  forbidden?: TruthCriterion[];
   defects?: Array<{ file: string; line: number; kind: string }>;
   emptinessPredicates?: string[];
   pushback?: { mustName: string[]; mustNotObject?: boolean };
+  // A tuple is met when ANY object anywhere inside the attempt's
+  // structuredOutput (searched recursively through arrays and objects)
+  // carries every key/value pair in `match` — see StructuredTuple above.
+  structuredTuples?: StructuredTuple[];
 };
+
+// Plain string -> itself is the sole match key; object -> its anyOf list.
+export function criterionKeys(c: TruthCriterion): string[] {
+  return typeof c === "string" ? [c] : c.anyOf;
+}
+
+// Plain string -> itself is also the human-readable label; object -> desc.
+export function criterionLabel(c: TruthCriterion): string {
+  return typeof c === "string" ? c : c.desc;
+}
 
 export type BenchResult = {
   caseId: string;
@@ -131,6 +168,20 @@ function isBoolean(v: unknown): v is boolean {
 
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every(isString);
+}
+
+function isNonEmptyStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.length > 0 && v.every(isNonEmptyString);
+}
+
+function isTruthCriterion(v: unknown): boolean {
+  if (isString(v)) return true;
+  if (!isPlainObject(v)) return false;
+  return isNonEmptyString(v.desc) && isNonEmptyStringArray(v.anyOf);
+}
+
+function isTruthCriterionArray(v: unknown): boolean {
+  return Array.isArray(v) && v.every(isTruthCriterion);
 }
 
 function err(reason: string, path?: string): ValidationErr {
@@ -197,11 +248,18 @@ export function validateTruth(o: unknown): ValidationResult<BenchTruth> {
   if (!isNonEmptyString(o.caseId)) {
     return err("'caseId' must be a non-empty string");
   }
-  if (!isStringArray(o.required) || o.required.length === 0) {
-    return err("'required' must be a non-empty array of strings");
+  if (
+    !isTruthCriterionArray(o.required) ||
+    (o.required as unknown[]).length === 0
+  ) {
+    return err(
+      "'required' must be a non-empty array of strings or {desc, anyOf} objects",
+    );
   }
-  if (o.forbidden !== undefined && !isStringArray(o.forbidden)) {
-    return err("'forbidden' must be an array of strings when present");
+  if (o.forbidden !== undefined && !isTruthCriterionArray(o.forbidden)) {
+    return err(
+      "'forbidden' must be an array of strings or {desc, anyOf} objects when present",
+    );
   }
   if (o.defects !== undefined) {
     if (!Array.isArray(o.defects)) {
@@ -241,6 +299,34 @@ export function validateTruth(o: unknown): ValidationResult<BenchTruth> {
       !isBoolean(o.pushback.mustNotObject)
     ) {
       return err("'pushback.mustNotObject' must be a boolean when present");
+    }
+  }
+  if (o.structuredTuples !== undefined) {
+    if (!Array.isArray(o.structuredTuples)) {
+      return err("'structuredTuples' must be an array when present");
+    }
+    for (let i = 0; i < o.structuredTuples.length; i++) {
+      const t = o.structuredTuples[i];
+      if (!isPlainObject(t)) {
+        return err(`structuredTuples[${i}] must be an object`);
+      }
+      if (!isNonEmptyString(t.desc)) {
+        return err(`structuredTuples[${i}].desc must be a non-empty string`);
+      }
+      if (!isPlainObject(t.match) || Object.keys(t.match).length === 0) {
+        return err(`structuredTuples[${i}].match must be a non-empty object`);
+      }
+      for (const [key, value] of Object.entries(t.match)) {
+        if (
+          typeof value !== "string" &&
+          typeof value !== "number" &&
+          typeof value !== "boolean"
+        ) {
+          return err(
+            `structuredTuples[${i}].match.${key} must be a string, number, or boolean`,
+          );
+        }
+      }
     }
   }
   return { ok: true, value: o as unknown as BenchTruth };

@@ -1,0 +1,173 @@
+{
+  "matrix": {
+    "intent-guess": {
+      "gemini-3.6-flash-high": {
+        "status": "inconclusive",
+        "reason": "test too easy — every backing case is non-discriminating"
+      },
+      "gemini-3.1-pro-high": {
+        "status": "inconclusive",
+        "reason": "test too easy — every backing case is non-discriminating"
+      }
+    },
+    "scout": {
+      "gemini-3.6-flash-high": {
+        "status": "reject",
+        "reason": "defect regression on c2b-real-defect: gemini-3.6-flash-high missed \"src/pipeline-summary-sources.ts.txt:237:real-defect\", which claude-sonnet-4-6 caught"
+      },
+      "gemini-3.1-pro-high": {
+        "status": "reject",
+        "reason": "defect regression on c2b-real-defect: gemini-3.1-pro-high missed \"src/pipeline-summary-sources.ts.txt:237:real-defect\", which claude-sonnet-4-6 caught"
+      }
+    },
+    "plan-review": {
+      "gemini-3.6-flash-high": {
+        "status": "inconclusive",
+        "reason": "test too easy — every backing case is non-discriminating"
+      },
+      "gemini-3.1-pro-high": {
+        "status": "inconclusive",
+        "reason": "test too easy — every backing case is non-discriminating"
+      }
+    },
+    "log-triage": {
+      "gemini-3.6-flash-high": {
+        "status": "clear",
+        "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff"
+      },
+      "gemini-3.1-pro-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c3-log-triage: recall 0.00 < incumbent 1.00 - 0.05"
+      }
+    },
+    "commit-msg": {
+      "gemini-3.6-flash-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c5-commit-msg: recall 0.17 < incumbent 0.33 - 0.05"
+      },
+      "gemini-3.1-pro-high": {
+        "status": "reject",
+        "reason": "latency payoff insufficient: gemini-3.1-pro-high median 4.38s is not <= 60% of incumbent's 6.38s"
+      }
+    },
+    "critique": {
+      "gemini-3.6-flash-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c9a-pushback-wrong: recall 0.00 < incumbent 1.00 - 0.05"
+      },
+      "gemini-3.1-pro-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c9a-pushback-wrong: recall 0.00 < incumbent 1.00 - 0.05"
+      }
+    },
+    "gatekeeper": {
+      "gemini-3.6-flash-high": {
+        "status": "inconclusive",
+        "reason": "test too easy — every backing case is non-discriminating"
+      },
+      "gemini-3.1-pro-high": {
+        "status": "inconclusive",
+        "reason": "test too easy — every backing case is non-discriminating"
+      }
+    },
+    "review-lens": {
+      "gemini-3.6-flash-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c7-review-lens: recall 0.75 < incumbent 1.00 - 0.05"
+      },
+      "gemini-3.1-pro-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c7-review-lens: recall 0.75 < incumbent 1.00 - 0.05"
+      }
+    },
+    "research-refute": {
+      "gemini-3.6-flash-high": {
+        "status": "inconclusive",
+        "reason": "test too easy — every backing case is non-discriminating"
+      },
+      "gemini-3.1-pro-high": {
+        "status": "inconclusive",
+        "reason": "test too easy — every backing case is non-discriminating"
+      }
+    }
+  },
+  "recommendation": {
+    "intent-guess": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "scout": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "plan-review": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "log-triage": {
+      "candidate": "gemini-3.6-flash-high",
+      "reason": "cleared every gate; quality-gated tie-break selected gemini-3.6-flash-high"
+    },
+    "commit-msg": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "critique": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "gatekeeper": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "review-lens": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "research-refute": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    }
+  },
+  "tax": {
+    "gemini-3.6-flash-high": {
+      "perCase": {
+        "c4-intent-json": 0,
+        "c6-plan-review": 0,
+        "c9b-pushback-control": 0,
+        "c10-gatekeeper": 0,
+        "c7-review-lens": 0,
+        "c9a-pushback-wrong": 1,
+        "c8-research-refute": 0
+      },
+      "overall": 0.14285714285714285,
+      "recommendedArm": "free-form"
+    },
+    "gemini-3.1-pro-high": {
+      "perCase": {
+        "c4-intent-json": 0,
+        "c6-plan-review": 0,
+        "c9b-pushback-control": 0,
+        "c10-gatekeeper": 0,
+        "c7-review-lens": 0,
+        "c9a-pushback-wrong": 1,
+        "c8-research-refute": 0
+      },
+      "overall": 0.14285714285714285,
+      "recommendedArm": "free-form"
+    },
+    "claude-sonnet-4-6": {
+      "perCase": {
+        "c4-intent-json": 0,
+        "c6-plan-review": 0,
+        "c9b-pushback-control": 0,
+        "c10-gatekeeper": 0,
+        "c7-review-lens": 0,
+        "c9a-pushback-wrong": 0,
+        "c8-research-refute": 0
+      },
+      "overall": 0,
+      "recommendedArm": "schema"
+    }
+  }
+}

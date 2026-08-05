@@ -1,12 +1,27 @@
 {
   "caseId": "c6-plan-review",
   "required": [
-    "dependency-order-violation: Task 1 (Define the webhook payload contract) has its Contract block's Interfaces line call `resolveWebhookUrl()`, which is exported by Task 2's file (`bin/flow-webhook-notify.ts`) — yet the dependency table lists Task 1 as depending on nothing (`—`) and Task 2 as depending on Task 1. The real consumption direction runs the opposite way from the declared dependency order.",
-    "unfalsifiable-criterion: Story 3's acceptance criterion — 'the report reads clearly enough that an on-call engineer understands what happened' — is not something a test, script, or exit code can verify pass/fail, unlike Story 1 and Story 2's `jq`/exit-code checks in the same section.",
-    "constraint-contradiction: Task 4's Call-site edits — 'await flowWebhookNotify(status, slug, prUrl) synchronously ... right before printing the terminal recap' — contradicts the Technical Constraints section's 'Never block the supervisor's terminal path on network I/O ... must be dispatched via a detached, fire-and-forget spawn ... A synchronous await on the POST inside the supervisor's step-10 flow is out of bounds.'"
+    {
+      "desc": "dependency-order-violation: Task 1 (Define the webhook payload contract) has its Contract block's Interfaces line call `resolveWebhookUrl()`, which is exported by Task 2's file (`bin/flow-webhook-notify.ts`) — yet the dependency table lists Task 1 as depending on nothing (`—`) and Task 2 as depending on Task 1. The real consumption direction runs the opposite way from the declared dependency order.",
+      "anyOf": ["dependency-order-violation", "resolveWebhookUrl", "opposite direction", "opposite way", "dependency table"]
+    },
+    {
+      "desc": "unfalsifiable-criterion: Story 3's acceptance criterion — 'the report reads clearly enough that an on-call engineer understands what happened' — is not something a test, script, or exit code can verify pass/fail, unlike Story 1 and Story 2's `jq`/exit-code checks in the same section.",
+      "anyOf": ["unfalsifiable-criterion", "on-call engineer understands", "not verifiable", "cannot be verified by a test"]
+    },
+    {
+      "desc": "constraint-contradiction: Task 4's Call-site edits — 'await flowWebhookNotify(status, slug, prUrl) synchronously ... right before printing the terminal recap' — contradicts the Technical Constraints section's 'Never block the supervisor's terminal path on network I/O ... must be dispatched via a detached, fire-and-forget spawn ... A synchronous await on the POST inside the supervisor's step-10 flow is out of bounds.'",
+      "anyOf": ["constraint-contradiction", "synchronous await", "fire-and-forget", "contradicts the Technical Constraints"]
+    }
   ],
   "forbidden": [
-    "Task 3 (config schema) having no task listed as depending on it in the dependency table is NOT a flaw — Task 3's own Description states the CLI helper reads `webhookUrl` directly from parsed config JSON at runtime instead of importing a shared type, so no compile-time dependency edge is needed between Task 2 and Task 3.",
-    "The env var name `FLOW_WEBHOOK_URL` differing from the config field name `webhookUrl` is NOT an inconsistency — the Architecture Decisions section documents this as the deliberate env-override-first convention already used by `flow-notify`'s `FLOW_NOTIFY`, not an oversight."
+    {
+      "desc": "Task 3 (config schema) having no task listed as depending on it in the dependency table is NOT a flaw — Task 3's own Description states the CLI helper reads `webhookUrl` directly from parsed config JSON at runtime instead of importing a shared type, so no compile-time dependency edge is needed between Task 2 and Task 3.",
+      "anyOf": ["Task 3 has no dependents", "nothing depends on Task 3", "Task 3 is missing a dependency edge", "Task 3 should be listed as a dependency"]
+    },
+    {
+      "desc": "The env var name `FLOW_WEBHOOK_URL` differing from the config field name `webhookUrl` is NOT an inconsistency — the Architecture Decisions section documents this as the deliberate env-override-first convention already used by `flow-notify`'s `FLOW_NOTIFY`, not an oversight.",
+      "anyOf": ["FLOW_WEBHOOK_URL differs from", "naming inconsistency between FLOW_WEBHOOK_URL", "env var name mismatch"]
+    }
   ]
 }

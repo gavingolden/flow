@@ -1,13 +1,31 @@
 {
   "caseId": "c8-research-refute",
   "required": [
-    "Claim 4 must be refuted — Table 1 lists Aurora-3 Pro's p95 latency as 24.3s, not the 28.4s the claim states; this is a misread number.",
-    "Claim 5 must be refuted — inferring that a small easy-to-hard score drop CAUSES a higher mean score is a correlation-to-causation overreach; Table 1's mean score and Table 2's score drop are both downstream measures of the same underlying capability, not an independent cause and effect, and neither table provides any manipulation/intervention evidence for causation.",
-    "Claim 8 must be refuted — the 'Note on the timeout figure' explicitly states Aurora-3 Pro recorded a 2.5% timeout rate (1 of 40 runs), directly contradicting the claim that no model ever timed out."
+    {
+      "desc": "Claim 4 must be refuted — Table 1 lists Aurora-3 Pro's p95 latency as 24.3s, not the 28.4s the claim states; this is a misread number.",
+      "anyOf": ["Claim 4", "24.3", "misread"]
+    },
+    {
+      "desc": "Claim 5 must be refuted — inferring that a small easy-to-hard score drop CAUSES a higher mean score is a correlation-to-causation overreach; Table 1's mean score and Table 2's score drop are both downstream measures of the same underlying capability, not an independent cause and effect, and neither table provides any manipulation/intervention evidence for causation.",
+      "anyOf": ["Claim 5", "correlation", "causation", "cause and effect"]
+    },
+    {
+      "desc": "Claim 8 must be refuted — the 'Note on the timeout figure' explicitly states Aurora-3 Pro recorded a 2.5% timeout rate (1 of 40 runs), directly contradicting the claim that no model ever timed out.",
+      "anyOf": ["Claim 8", "2.5% timeout", "1 of 40 runs", "timeout rate"]
+    }
   ],
   "forbidden": [
-    "Claim 1 (Kestrel-2 Thinking has the highest mean score, 88.9) must NOT be refuted — it is directly and correctly supported by Table 1.",
-    "Claim 6 (Aurora-3 Pro's only timeout happened in the log-triage case's largest size bucket) must NOT be refuted — it is exactly what the timeout note states.",
-    "Claim 9 (every model's hard-bucket mean is lower than its easy-bucket mean) must NOT be refuted — it holds for all four rows in Table 2 (89.1>53.3, 92.0>77.2, 93.5>84.3, 85.0>47.0)."
+    {
+      "desc": "Claim 1 (Kestrel-2 Thinking has the highest mean score, 88.9) must NOT be refuted — it is directly and correctly supported by Table 1.",
+      "anyOf": ["Claim 1 must be refuted", "Claim 1 is false", "refute Claim 1", "Claim 1 is incorrect"]
+    },
+    {
+      "desc": "Claim 6 (Aurora-3 Pro's only timeout happened in the log-triage case's largest size bucket) must NOT be refuted — it is exactly what the timeout note states.",
+      "anyOf": ["Claim 6 must be refuted", "Claim 6 is false", "refute Claim 6", "Claim 6 is incorrect"]
+    },
+    {
+      "desc": "Claim 9 (every model's hard-bucket mean is lower than its easy-bucket mean) must NOT be refuted — it holds for all four rows in Table 2 (89.1>53.3, 92.0>77.2, 93.5>84.3, 85.0>47.0).",
+      "anyOf": ["Claim 9 must be refuted", "Claim 9 is false", "refute Claim 9", "Claim 9 is incorrect"]
+    }
   ]
 }

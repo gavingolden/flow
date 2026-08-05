@@ -27,16 +27,26 @@
  *    data. Left as a named follow-up rather than fabricated.
  */
 
-import type {
-  BenchArm,
-  BenchResult,
-  BenchSurface,
-  BenchTruth,
+import {
+  criterionKeys,
+  criterionLabel,
+  type BenchArm,
+  type BenchResult,
+  type BenchSurface,
+  type BenchTruth,
+  type StructuredTuple,
+  type TruthCriterion,
 } from "./model-bench-schema";
 
 export type ModelCaseScore = {
   recall: number;
   precision: number;
+  // Human-readable desc/label of every unmet `required` criterion — kept
+  // separate from `defectsMissed` (which stays fingerprint-keyed, because
+  // `evaluateCandidate`'s defect-regression gate matches it against
+  // `defectsCaught` by exact fingerprint) so the report can render a
+  // readable miss list without breaking that exact-match gate.
+  requiredMissed: string[];
   defectsCaught: string[];
   defectsMissed: string[];
   falsePositives: string[];
@@ -72,13 +82,87 @@ function defectFingerprint(d: {
   return `${d.file}:${d.line}:${d.kind}`;
 }
 
+// Searches both the free-text response AND structuredOutput (stringified) —
+// a schema-arm attempt's substantive content often lives entirely in typed
+// fields, never in prose, so matching response alone would silently score
+// every schema-arm attempt as a miss regardless of correctness.
 function textsFor(attempts: BenchResult[]): string[] {
-  return attempts.map((a) => (a.response ?? "").toLowerCase());
+  return attempts.map((a) =>
+    `${a.response ?? ""} ${safeStringify(a.structuredOutput)}`.toLowerCase(),
+  );
+}
+
+function safeStringify(v: unknown): string {
+  if (v === undefined) return "";
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return "";
+  }
 }
 
 function includesAny(texts: string[], needle: string): boolean {
   const n = needle.toLowerCase();
   return texts.some((t) => t.includes(n));
+}
+
+// A criterion is met when ANY of its match keys (criterionKeys) appears in
+// any scored attempt's combined text.
+function criterionMet(texts: string[], c: TruthCriterion): boolean {
+  return criterionKeys(c).some((key) => includesAny(texts, key));
+}
+
+// True when `obj` (a plain object) carries every key/value pair in `match`.
+// Numbers are compared with Number() coercion — a model can carry a numeric
+// field as a string (e.g. `"pr": "204"`) even under a JSON schema — so a
+// numeric match value accepts either representation; strings/booleans use
+// strict ===.
+function objectSatisfiesMatch(
+  obj: Record<string, unknown>,
+  match: Record<string, string | number | boolean>,
+): boolean {
+  return Object.entries(match).every(([key, expected]) => {
+    const actual = obj[key];
+    if (typeof expected === "number") {
+      return typeof actual === "number" || typeof actual === "string"
+        ? Number(actual) === expected
+        : false;
+    }
+    return actual === expected;
+  });
+}
+
+// Recursively walks any value (object/array) and returns true when SOME
+// plain object anywhere within it satisfies every key/value pair in
+// `match`. This is the mechanism for a conjunction over structured output
+// that substring matching cannot express — a multi-item answer (e.g. one
+// verdict per PR) buries the object the criterion cares about at an
+// unpredictable key/array nesting that varies by model, so the search has
+// to be structural rather than keyed to a fixed path.
+function findMatchingObject(
+  value: unknown,
+  match: Record<string, string | number | boolean>,
+): boolean {
+  if (Array.isArray(value)) {
+    return value.some((v) => findMatchingObject(v, match));
+  }
+  if (typeof value === "object" && value !== null) {
+    const obj = value as Record<string, unknown>;
+    if (objectSatisfiesMatch(obj, match)) return true;
+    return Object.values(obj).some((v) => findMatchingObject(v, match));
+  }
+  return false;
+}
+
+// A structuredTuple is met when ANY ran attempt's structuredOutput
+// satisfies it. Attempts with no structuredOutput (e.g. a free-form attempt
+// that never parsed) simply cannot satisfy a tuple.
+function tupleMet(attempts: BenchResult[], tuple: StructuredTuple): boolean {
+  return attempts.some(
+    (a) =>
+      a.structuredOutput !== undefined &&
+      findMatchingObject(a.structuredOutput, tuple.match),
+  );
 }
 
 // A field is "vacuous" when structuredOutput carries it but its value is an
@@ -118,16 +202,20 @@ function classifyPushback(
   return "missed";
 }
 
-// Excludes warmup:true and ran:false attempts from every arithmetic field —
-// only `totalAttempts` (the reliability-gate denominator) counts them.
-export function scoreCase(
-  results: BenchResult[],
+// basename-agnostic file matcher for the defects[] matcher below — avoids a
+// full-path mismatch when the model output names only the file's basename.
+function basename(path: string): string {
+  const idx = path.lastIndexOf("/");
+  return idx === -1 ? path : path.slice(idx + 1);
+}
+
+function scoreCaseForArm(
+  attemptsForArm: BenchResult[],
+  arm: BenchArm,
   truth: BenchTruth,
 ): CaseScore {
-  const scored = results.filter((r) => r.caseId === truth.caseId && !r.warmup);
-  const arm = scored[0]?.arm ?? "n/a";
   const byModel = new Map<string, BenchResult[]>();
-  for (const r of scored) {
+  for (const r of attemptsForArm) {
     if (!byModel.has(r.model)) byModel.set(r.model, []);
     byModel.get(r.model)!.push(r);
   }
@@ -138,27 +226,41 @@ export function scoreCase(
     const texts = textsFor(attempts);
 
     const requiredHits = truth.required.filter((req) =>
-      includesAny(texts, req),
+      criterionMet(texts, req),
     );
+    const tuples = truth.structuredTuples ?? [];
+    const tuplesHit = tuples.filter((t) => tupleMet(attempts, t));
+    const requiredMissed = truth.required
+      .filter((req) => !criterionMet(texts, req))
+      .map(criterionLabel)
+      .concat(tuples.filter((t) => !tupleMet(attempts, t)).map((t) => t.desc));
+    const recallDenom = truth.required.length + tuples.length;
     const recall =
-      truth.required.length > 0
-        ? requiredHits.length / truth.required.length
+      recallDenom > 0
+        ? (requiredHits.length + tuplesHit.length) / recallDenom
         : 1;
 
     const forbidden = truth.forbidden ?? [];
-    const falsePositives = forbidden.filter((f) => includesAny(texts, f));
+    const falsePositives = forbidden
+      .filter((f) => criterionMet(texts, f))
+      .map(criterionLabel);
     const denom = requiredHits.length + falsePositives.length;
     const precision = denom > 0 ? requiredHits.length / denom : 1;
 
+    // Mechanical, near-agnostic defect match: the output "catches" a planted
+    // defect when it names the file's basename AND either the defect's kind
+    // string or its line number — either signal alone is too weak (a
+    // basename alone could be incidental context; a kind string alone could
+    // be a different defect of the same class in a different file).
     const defects = truth.defects ?? [];
     const defectsCaught: string[] = [];
     const defectsMissed: string[] = [];
     for (const d of defects) {
       const fp = defectFingerprint(d);
-      (includesAny(texts, d.file) && includesAny(texts, d.kind)
-        ? defectsCaught
-        : defectsMissed
-      ).push(fp);
+      const namesFile = includesAny(texts, basename(d.file));
+      const namesKindOrLine =
+        includesAny(texts, d.kind) || includesAny(texts, String(d.line));
+      (namesFile && namesKindOrLine ? defectsCaught : defectsMissed).push(fp);
     }
 
     const vacuous = countVacuous(attempts, truth.emptinessPredicates ?? []);
@@ -173,6 +275,7 @@ export function scoreCase(
     perModel[model] = {
       recall,
       precision,
+      requiredMissed,
       defectsCaught,
       defectsMissed,
       falsePositives,
@@ -201,6 +304,30 @@ export function scoreCase(
     discriminating: spread > 0,
     perModel,
   };
+}
+
+// Excludes warmup:true and ran:false attempts from every arithmetic field —
+// only `totalAttempts` (the reliability-gate denominator) counts them.
+// Returns one CaseScore PER ARM present among this case's scored attempts —
+// a case run through both the schema and free-form arms (schemaAb) must
+// score each arm independently, never merge them into one averaged score
+// (that merge is exactly what made the schema tax always compute to zero).
+export function scoreCase(
+  results: BenchResult[],
+  truth: BenchTruth,
+): CaseScore[] {
+  const scored = results.filter((r) => r.caseId === truth.caseId && !r.warmup);
+  if (scored.length === 0) {
+    return [scoreCaseForArm([], "n/a", truth)];
+  }
+  const arms = [...new Set(scored.map((r) => r.arm))];
+  return arms.map((arm) =>
+    scoreCaseForArm(
+      scored.filter((r) => r.arm === arm),
+      arm,
+      truth,
+    ),
+  );
 }
 
 export type SchemaTaxResult = {
@@ -556,13 +683,22 @@ function sectionProvenance(meta: {
   ].join("\n");
 }
 
-function sectionLimitations(): string {
+function sectionLimitations(scores: CaseScore[]): string {
+  const nonDisc = scores
+    .filter((s) => !s.discriminating)
+    .map((s) => `${s.caseId} (${s.arm})`);
   return [
     "## Limitations",
     "",
+    "- Repeat tiers (N=10 on decision-bearing surfaces, N=3 elsewhere) are far below the N>=30 that stable latency percentiles call for; medians are reported but underpowered.",
+    "- Planted-defect detection rates are selection-biased toward authorable defects and do not generalise to natural defects; the c2b real-defect control narrows but does not close that gap.",
+    "- The incumbent baseline runs claude-sonnet-4-6 under agy's scaffold, not the Claude Code scaffold production uses — scaffold-matched to the candidates, but not production-matched.",
     "- Tokens/usage are descriptive only and never gate a verdict.",
     "- Latency is read from durationSeconds (agy's own model-time reading), never the fanout's pool wall-clock.",
     "- A non-discriminating case contributes no clear verdict for any candidate on that surface.",
+    nonDisc.length > 0
+      ? `- Non-discriminating this run: ${nonDisc.join(", ")}.`
+      : "- Non-discriminating this run: none.",
   ].join("\n");
 }
 
@@ -586,6 +722,6 @@ export function renderReport(
     sectionDiscrimination(scores),
     sectionSchemaTax(tax),
     sectionProvenance(meta),
-    sectionLimitations(),
+    sectionLimitations(scores),
   ].join("\n\n");
 }

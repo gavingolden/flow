@@ -152,7 +152,7 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
       deps.progress(`flow-model-bench: ${truthPath}: ${truthResult.reason}\n`);
       return 2;
     }
-    scores.push(scoreCase(results, truthResult.value));
+    scores.push(...scoreCase(results, truthResult.value));
   }
 
   const models = [...new Set(results.map((r) => r.model))];

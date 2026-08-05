@@ -1,15 +1,59 @@
 {
   "caseId": "c3-log-triage",
   "required": [
-    "bin/lib/command-lint.test.ts > shellcheckOk > fails a fragment with a real shellcheck error",
-    "expected true to be false",
-    "bin/lib/command-lint.test.ts:117",
-    "shellcheckOk runs shellcheck at --severity=error",
-    "the fragment under test is `VAR=\"a b\"` then `echo $VAR`, an unquoted variable expansion",
-    "that unquoted-expansion defect is SC2086, which shellcheck classifies below error severity, so shellcheckOk('VAR=\"a b\"\\necho $VAR') returns true instead of the expected false"
+    {
+      "desc": "bin/lib/command-lint.test.ts > shellcheckOk > fails a fragment with a real shellcheck error",
+      "anyOf": [
+        "shellcheckOk"
+      ]
+    },
+    {
+      "desc": "expected true to be false",
+      "anyOf": [
+        "expected true to be false"
+      ]
+    },
+    {
+      "desc": "bin/lib/command-lint.test.ts:117",
+      "anyOf": [
+        "command-lint.test.ts:117"
+      ]
+    },
+    {
+      "desc": "shellcheckOk runs shellcheck at --severity=error",
+      "anyOf": [
+        "--severity=error",
+        "severity=error",
+        "error severity"
+      ]
+    },
+    {
+      "desc": "the fragment under test is `VAR=\"a b\"` then `echo $VAR`, an unquoted variable expansion",
+      "anyOf": [
+        "VAR=\"a b\"",
+        "echo $VAR",
+        "unquoted"
+      ]
+    },
+    {
+      "desc": "that unquoted-expansion defect is SC2086, which shellcheck classifies below error severity, so shellcheckOk('VAR=\"a b\"\\necho $VAR') returns true instead of the expected false",
+      "anyOf": [
+        "SC2086",
+        "below error severity",
+        "warning, not an error",
+        "warning severity",
+        "only a warning"
+      ]
+    }
   ],
   "forbidden": [
-    "shellcheck is not installed on the runner",
-    "shellcheck is missing from the CI image"
+    {
+      "desc": "shellcheck is not installed on the runner",
+      "anyOf": [
+        "not installed",
+        "missing from",
+        "unavailable on the runner"
+      ]
+    }
   ]
 }
