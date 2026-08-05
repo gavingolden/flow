@@ -410,6 +410,42 @@ describe("reconcile — committed-board floor", () => {
     expect(row.status).toBe("ready");
   });
 
+  it("an orphan run.json record (no live state) IS outranked by a committed merged row", () => {
+    const m = manifest([feat("a"), feat("b", ["a"])]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({ a: {} }),
+      readFeatureState: phases({}), // "a"'s slug has no state file → orphan
+      maxParallel: 3,
+      committedStatus: committed({ a: { status: "merged", pr: 9 } }),
+    });
+    const row = result.board.find((r) => r.id === "a")!;
+    expect(row.status).toBe("merged");
+    expect(row.external).toBe(true);
+    expect(row.pr).toBe(9);
+    expect(row.slug).toBe("a"); // record's slug is preserved, not dropped
+    expect(result.summary.merged).toBe(1);
+
+    const depRow = result.board.find((r) => r.id === "b")!;
+    expect(depRow.status).toBe("ready");
+    expect(ids(result.toLaunch)).toContain("b");
+    expect(classifyEvent(result).kind).not.toBe("halt");
+  });
+
+  it("a running record (not orphan) with a committed merged row keeps its live status, unchanged", () => {
+    const m = manifest([feat("a")]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({ a: {} }),
+      readFeatureState: phases({ a: "verify" }), // live, non-terminal → running
+      maxParallel: 3,
+      committedStatus: committed({ a: { status: "merged", pr: 9 } }),
+    });
+    const row = result.board.find((r) => r.id === "a")!;
+    expect(row.status).toBe("running");
+    expect(row.external).toBeUndefined();
+  });
+
   it("committedStatus omitted/null reproduces today's behaviour byte-for-byte", () => {
     const m = manifest([feat("a")]);
     const withoutFloor = reconcile({

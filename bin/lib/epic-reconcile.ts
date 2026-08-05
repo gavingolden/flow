@@ -135,7 +135,12 @@ export function reconcile(input: {
    * feature with NO `run.json` record and a committed `merged` row
    * classifies `merged` (so the frontier math is right on a fresh machine
    * with no per-machine cache); a committed `not-started` row leaves the
-   * feature exactly as it is today. A PRESENT `run.json` record always wins.
+   * feature exactly as it is today. A PRESENT `run.json` record always wins
+   * — with a single named exception: a record classified `orphan` (launched
+   * but no live state file) is outranked by a committed `merged` row, since
+   * an orphan carries no live judgment to protect and the committed row is
+   * verified-done truth. Any other live classification (`running`, `gated`,
+   * `needs-human`, `cancelled`, `merged`) still wins over the committed row.
    */
   committedStatus?: EpicStatusFile | null;
 }): ReconcileResult {
@@ -154,6 +159,9 @@ export function reconcile(input: {
   const launchedStatus = new Map<string, FeatureStatus>();
   const liveState = new Map<string, PipelineState | null>();
   const externalIds = new Set<string>();
+  // Features whose `orphan` record is outranked by a committed `merged` row
+  // (the single named exception to "a present record always wins" above).
+  const committedOverrideIds = new Set<string>();
   for (const f of features) {
     const record = runState.features[f.id];
     if (!record) continue;
@@ -164,7 +172,16 @@ export function reconcile(input: {
     }
     const state = record.slug ? readFeatureState(record.slug) : null;
     liveState.set(f.id, state);
-    launchedStatus.set(f.id, classifyLaunched(state));
+    const classified = classifyLaunched(state);
+    if (
+      classified === "orphan" &&
+      committedStatus?.features[f.id]?.status === "merged"
+    ) {
+      committedOverrideIds.add(f.id);
+      launchedStatus.set(f.id, "merged");
+    } else {
+      launchedStatus.set(f.id, classified);
+    }
   }
 
   // Committed-board floor: a feature with NO run.json record but a committed
@@ -211,13 +228,17 @@ export function reconcile(input: {
         };
       }
       const state = liveState.get(f.id) ?? null;
+      const overridden = committedOverrideIds.has(f.id);
       return {
         id: f.id,
         status: launchedStatus.get(f.id)!,
         slug: record.slug,
-        pr: state?.pr ?? record.pr,
+        pr: overridden
+          ? (committedStatus?.features[f.id]?.pr ?? record.pr)
+          : (state?.pr ?? record.pr),
         phase: state?.phase,
         dependsOn: f.dependsOn,
+        ...(overridden ? { external: true } : {}),
       };
     }
     if (committedFloorIds.has(f.id)) {
