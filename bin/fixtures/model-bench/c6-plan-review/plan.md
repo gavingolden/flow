@@ -41,11 +41,13 @@
 
 - **Layers touched:** `bin/lib/webhook-notify.ts` (payload contract), `bin/flow-webhook-notify.ts` (CLI), `bin/lib/config-schema.ts` (config field), `/flow-pipeline` step 10 + gate step (call sites).
 - **Config resolution:** the `FLOW_WEBHOOK_URL` environment variable takes precedence over `webhookUrl` in `~/.flow/config.json` — the same env-override-first convention `flow-notify`'s `FLOW_NOTIFY` opt-in already uses, so an ad-hoc override never has to touch the shared config file.
+- **Dispatch timeout:** the underlying POST uses a 5-second curl timeout (`curl --max-time 5`) — this guards the detached, fire-and-forget child process from hanging indefinitely; it never blocks the supervisor, which has already moved on to printing the terminal recap by the time the child process runs.
 
 ## Technical Constraints
 
 - **Never block the supervisor's terminal path on network I/O.** The webhook POST must be dispatched via a detached, fire-and-forget spawn — exactly the pattern `flow-notify.ts`'s header documents for its own backend calls (spawn errors are swallowed; the helper returns 0 even if the notification never lands). A synchronous `await` on the POST inside the supervisor's step-10 flow is out of bounds: a stalled or unreachable webhook endpoint must never delay the terminal recap the user is waiting on.
 - Payload size stays under 4KB — no full diff or PR body embedded, only identifiers and a URL.
+- The optional `pipelineSnapshot` field (added for NEEDS HUMAN payloads, see Task 5) caps the total webhook POST body at 16KB — the snapshot is truncated to fit if it would otherwise push the body over that cap.
 
 ## Open Questions
 
@@ -76,6 +78,8 @@ Dependency table (task → the task(s) it depends on):
 | Task 2: Implement the `flow-webhook-notify` CLI helper | Task 1 |
 | Task 3: Add `webhookUrl` to the config schema | — |
 | Task 4: Wire call sites in `/flow-pipeline` step 10 + gate step | Task 2 |
+| Task 5: Add a `pipelineSnapshot` field to the NEEDS HUMAN payload | Task 1 |
+| Task 6: Attach a follow-ups summary to the webhook payload at step 11 (post-cleanup) | Task 2 |
 
 ### Task 1: Define the webhook payload contract
 
@@ -123,4 +127,28 @@ Dependency table (task → the task(s) it depends on):
   - **Files:** modify `skills/pipeline/flow-pipeline/SKILL.md`
   - **Interfaces:** none new
   - **Call-site edits:** in `/flow-pipeline` step 10, `await flowWebhookNotify(status, slug, prUrl)` synchronously right before printing the terminal recap, so the recap line can report whether delivery succeeded before the session ends.
+- **Acceptance criteria:** `npm run verify`
+
+### Task 5: Add a `pipelineSnapshot` field to the NEEDS HUMAN payload
+
+- **Skill:** `bun-helper`
+- **Description:** Extend `buildWebhookPayload()` with an optional `pipelineSnapshot` string field, populated only for the NEEDS HUMAN terminal state, so the receiving integration has enough context to act without opening the pipeline's own state file. The builder assembles this PIPELINE SNAPSHOT block from the current step, the last few log lines, and any open follow-up notes — on a large pipeline (many steps, long research notes) this block can run up to 64KB.
+- **Inputs:** the pipeline's in-memory step log and follow-up notes.
+- **Outputs:** a `pipelineSnapshot` string attached to the `WebhookPayload` for NEEDS HUMAN only.
+- **Contract:**
+  - **Files:** modify `bin/lib/webhook-notify.ts`
+  - **Interfaces:** extend `WebhookPayload` with `pipelineSnapshot?: string`; `buildWebhookPayload` accepts an optional `snapshot` argument.
+  - **Call-site edits:** none
+- **Acceptance criteria:** the full PIPELINE SNAPSHOT block is embedded verbatim in the payload's `pipelineSnapshot` field, unmodified and untruncated, so an on-call engineer sees the complete picture — verified via `npm run test -- bin/lib/webhook-notify.test.ts`.
+
+### Task 6: Attach a follow-ups summary to the webhook payload at step 11 (post-cleanup)
+
+- **Skill:** `pipeline-md`
+- **Description:** After the post-merge sweep's worktree cleanup, fire a follow-up-aware webhook so the receiving integration knows which deferred issues, if any, came out of the pipeline.
+- **Inputs:** `.flow-tmp/followups-block.txt`, written earlier in the sweep whenever the pipeline deferred a finding to a tracked issue.
+- **Outputs:** a webhook payload whose body includes the follow-ups summary text.
+- **Contract:**
+  - **Files:** modify `skills/pipeline/flow-pipeline/SKILL.md`
+  - **Interfaces:** none new
+  - **Call-site edits:** in step 11, after the `flow-remove-worktree --delete-branch` call completes, read `.flow-tmp/followups-block.txt` from the worktree and pass its contents into `flowWebhookNotify` as the follow-ups summary.
 - **Acceptance criteria:** `npm run verify`

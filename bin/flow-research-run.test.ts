@@ -87,13 +87,17 @@ describe("buildManifest", () => {
 
 describe("resolveModels (cross-model diversity guard)", () => {
   it("applies the frozen defaults when config is empty/garbage", () => {
+    // 2026-08-05 (PR #543 correction): researchRefute's DELEGATE_MODEL_DEFAULTS
+    // entry is now "Gemini 3.6 Flash (High)" — deliberately different from
+    // researchGather's "Gemini 3.1 Pro (High)" default — so the default
+    // path no longer collides and the diversity guard never fires here.
     expect(resolveModels({})).toEqual({
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
+      refuteModel: "Gemini 3.6 Flash (High)",
     });
     expect(resolveModels(null)).toEqual({
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
+      refuteModel: "Gemini 3.6 Flash (High)",
     });
   });
 
@@ -111,7 +115,13 @@ describe("resolveModels (cross-model diversity guard)", () => {
     });
   });
 
-  it("falls back to GPT-OSS when both resolve to Opus (gather is Opus)", () => {
+  it("falls back to the current defaultRefuteModel when both resolve to Opus", () => {
+    // Pre-flip this fell back to GPT-OSS because defaultRefuteModel was
+    // Opus and the guard special-cased "gather === Opus". defaultRefuteModel
+    // is now "Gemini 3.6 Flash (High)" (see DELEGATE_MODEL_DEFAULTS), so a
+    // gather===Opus collision falls back to that instead — the guard's
+    // collision-avoidance purpose is unchanged, only the concrete fallback
+    // value shifted with the default.
     const r = resolveModels({
       research: {
         model: "Claude Opus 4.6 (Thinking)",
@@ -119,18 +129,18 @@ describe("resolveModels (cross-model diversity guard)", () => {
       },
     });
     expect(r.gatherModel).toBe("Claude Opus 4.6 (Thinking)");
-    expect(r.refuteModel).toBe("GPT-OSS 120B (Medium)");
+    expect(r.refuteModel).toBe("Gemini 3.6 Flash (High)");
     expect(r.refuteModel).not.toBe(r.gatherModel);
   });
 
-  it("falls back to Opus on a collision where gather is not Opus", () => {
+  it("falls back to the current defaultRefuteModel on a collision where gather is GPT-OSS", () => {
     const r = resolveModels({
       research: {
         model: "GPT-OSS 120B (Medium)",
         refuteModel: "GPT-OSS 120B (Medium)",
       },
     });
-    expect(r.refuteModel).toBe("Claude Opus 4.6 (Thinking)");
+    expect(r.refuteModel).toBe("Gemini 3.6 Flash (High)");
     expect(r.refuteModel).not.toBe(r.gatherModel);
   });
 });

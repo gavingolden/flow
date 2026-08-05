@@ -18,6 +18,18 @@
     {
       "desc": "PR 206 must NOT be given decision skip for any reason tied to its existing APPROVED review — reviews are not one of the fields the documented skip rules examine.",
       "anyOf": ["206\": {\"decision\": \"skip\"", "PR 206: skip", "PR 206 skip"]
+    },
+    {
+      "desc": "PR 207 must not be skip/trivial-diff — additions+deletions == 10, which is NOT < 10 (the boundary is strict), so trivial-diff fails on size despite the matching ^chore: bump headline.",
+      "anyOf": ["207\": {\"decision\": \"skip\"", "PR 207: skip", "PR 207 skip"]
+    },
+    {
+      "desc": "PR 209 must not be proceed/draft — MERGED wins by first-match order over the draft and trivial-diff conditions it also satisfies.",
+      "anyOf": ["209\": {\"decision\": \"proceed\"", "PR 209: proceed", "PR 209 proceed"]
+    },
+    {
+      "desc": "PR 210 must not be skip/trivial-diff — 'docs: fixing typo' does not match ^docs: fix typo; the prefix must match literally.",
+      "anyOf": ["210\": {\"decision\": \"skip\"", "PR 210: skip", "PR 210 skip"]
     }
   ],
   "structuredTuples": [
@@ -44,6 +56,22 @@
     {
       "desc": "PR 206: decision proceed, rule no-skip-rule-matched — state OPEN, isDraft false, 50 lines changed (not < 10), commit headlines 'feat: add applyBulkDiscount pricing tier' and 'test: cover bulk discount edge cases' match none of the trivial-diff patterns — no rule matches, falls through to 'otherwise'. Its existing APPROVED review from `copilot-pull-request-reviewer` is not a skip signal under the documented rules and must not change the verdict.",
       "match": { "pr": 206, "decision": "proceed", "rule": "no-skip-rule-matched" }
+    },
+    {
+      "desc": "PR 207: decision proceed, rule no-skip-rule-matched — additions+deletions == 10, which is NOT < 10 — the boundary is strict, so trivial-diff fails on size despite the matching ^chore: bump headline.",
+      "match": { "pr": 207, "decision": "proceed", "rule": "no-skip-rule-matched" }
+    },
+    {
+      "desc": "PR 208: decision proceed, rule no-skip-rule-matched — sum 8 < 10, but trivial-diff requires EVERY commit headline to match; 'fix: correct retry-jitter seed' matches none of the four patterns.",
+      "match": { "pr": 208, "decision": "proceed", "rule": "no-skip-rule-matched" }
+    },
+    {
+      "desc": "PR 209: decision skip, rule closed-or-merged — .state == 'MERGED' wins by first-match order over the draft and trivial-diff conditions it also satisfies.",
+      "match": { "pr": 209, "decision": "skip", "rule": "closed-or-merged" }
+    },
+    {
+      "desc": "PR 210: decision proceed, rule no-skip-rule-matched — 'docs: fixing typo' does not match ^docs: fix typo — prefix must match literally.",
+      "match": { "pr": 210, "decision": "proceed", "rule": "no-skip-rule-matched" }
     }
   ]
 }

@@ -91,5 +91,64 @@
     "reviews": [{ "state": "APPROVED", "author": { "login": "copilot-pull-request-reviewer" } }],
     "author": { "login": "contributor-e" },
     "body": "## Why\n\nSpend-based bulk discount tiers were requested by sales.\n\n## What\n\nAdds `applyBulkDiscount` and tests."
+  },
+  {
+    "number": 207,
+    "title": "chore: bump lockfile",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 6,
+    "deletions": 4,
+    "commits": [{ "messageHeadline": "chore: bump lockfile" }],
+    "files": ["package-lock.json"],
+    "reviews": [],
+    "author": { "login": "dependabot" },
+    "body": "## Why\n\nRoutine lockfile bump.\n\n## What\n\nNo source changes."
+  },
+  {
+    "number": 208,
+    "title": "chore: bump deps and fix retry-jitter seed",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 3,
+    "deletions": 5,
+    "commits": [
+      { "messageHeadline": "chore: bump deps" },
+      { "messageHeadline": "fix: correct retry-jitter seed" }
+    ],
+    "files": ["package.json", "bin/lib/retry.ts"],
+    "reviews": [],
+    "author": { "login": "contributor-f" },
+    "body": "## Why\n\nA routine dependency bump surfaced a bad retry-jitter seed that needed a quick companion fix.\n\n## What\n\nBumps two dependencies and corrects the retry-jitter seed."
+  },
+  {
+    "number": 209,
+    "title": "docs: fix typo in help output",
+    "state": "MERGED",
+    "isDraft": true,
+    "mergedAt": "2026-08-01T09:15:42Z",
+    "additions": 2,
+    "deletions": 1,
+    "commits": [{ "messageHeadline": "docs: fix typo in help output" }],
+    "files": ["bin/flow.ts"],
+    "reviews": [],
+    "author": { "login": "contributor-g" },
+    "body": "## Why\n\nThe `--help` output had a stray duplicated word.\n\n## What\n\nFixes the typo in the help text."
+  },
+  {
+    "number": 210,
+    "title": "docs: fixing typo in README",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 4,
+    "deletions": 3,
+    "commits": [{ "messageHeadline": "docs: fixing typo in README" }],
+    "files": ["README.md"],
+    "reviews": [],
+    "author": { "login": "contributor-h" },
+    "body": "## Why\n\nA few small wording errors in the README's Quickstart section.\n\n## What\n\nFixes the typos."
   }
 ]

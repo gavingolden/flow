@@ -25,6 +25,27 @@
  *    HEAD is >100 commits past `authoredAtCommit`) — neither `CaseScore`
  *    nor `renderReport`'s own signature carries `BenchCase`/commit-distance
  *    data. Left as a named follow-up rather than fabricated.
+ *
+ * RECALL SEMANTICS (per-attempt mean, not union-across-attempts):
+ *  - `recall` is the MEAN, over each ran attempt, of that single attempt's
+ *    own hit rate across required criteria + structuredTuples + planted
+ *    defects. A criterion the model hits in only 1 of N attempts
+ *    contributes 1/N credit to recall, not full credit.
+ *  - This replaced an earlier union-across-attempts recall (a criterion
+ *    counted as "hit" if ANY attempt hit it). Production surfaces call the
+ *    model once per invocation, never N times and pick the best — union
+ *    recall was measuring a capability the bench never exercises in
+ *    production, and it saturates at 1.0 as soon as a model hits every
+ *    criterion at least once across its repeat tier, which is exactly what
+ *    made 12/19 rows non-discriminating in the 2026-08-05 run.
+ *  - Every OTHER field on `ModelCaseScore` stays union-across-attempts on
+ *    purpose: `requiredMissed`, `defectsCaught`/`defectsMissed`,
+ *    `falsePositives`, `precision`, and `vacuous` all answer "is the model
+ *    capable of this at all" (an existence question), not "how reliably
+ *    does it do this" (recall's question) — collapsing them to per-attempt
+ *    mean would make `evaluateCandidate`'s defect-regression gate
+ *    unstable (a defect caught in only 1 of N incumbent attempts would
+ *    intermittently fail to gate a candidate that misses it every time).
  */
 
 import {
@@ -225,6 +246,12 @@ function scoreCaseForArm(
     const attempts = allAttempts.filter((a) => a.ran);
     const texts = textsFor(attempts);
 
+    // Union-across-attempts view: used for every "did the model ever get
+    // this" field (requiredMissed, falsePositives, precision, vacuous, the
+    // defect-regression gate's defectsCaught/defectsMissed). These stay
+    // union because they answer "is this candidate capable of X at all",
+    // not "how reliably does it do X" — see `recall` below for the
+    // reliability-sensitive metric.
     const requiredHits = truth.required.filter((req) =>
       criterionMet(texts, req),
     );
@@ -234,11 +261,6 @@ function scoreCaseForArm(
       .filter((req) => !criterionMet(texts, req))
       .map(criterionLabel)
       .concat(tuples.filter((t) => !tupleMet(attempts, t)).map((t) => t.desc));
-    const recallDenom = truth.required.length + tuples.length;
-    const recall =
-      recallDenom > 0
-        ? (requiredHits.length + tuplesHit.length) / recallDenom
-        : 1;
 
     const forbidden = truth.forbidden ?? [];
     const falsePositives = forbidden
@@ -261,6 +283,36 @@ function scoreCaseForArm(
       const namesKindOrLine =
         includesAny(texts, d.kind) || includesAny(texts, String(d.line));
       (namesFile && namesKindOrLine ? defectsCaught : defectsMissed).push(fp);
+    }
+
+    // recall: PER-ATTEMPT MEAN, not union-across-attempts. A criterion the
+    // model hits in only 1 of N attempts contributes 1/N credit, not full
+    // credit — see the file-top comment for why union recall saturates at
+    // 1.0 and stops discriminating.
+    const recallDenom = truth.required.length + tuples.length + defects.length;
+    let recall: number;
+    if (attempts.length === 0) {
+      recall = 0;
+    } else if (recallDenom === 0) {
+      recall = 1;
+    } else {
+      const attemptScores = attempts.map((a) => {
+        const singleTexts = textsFor([a]);
+        const reqHits = truth.required.filter((req) =>
+          criterionMet(singleTexts, req),
+        ).length;
+        const tHits = tuples.filter((t) => tupleMet([a], t)).length;
+        let dHits = 0;
+        for (const d of defects) {
+          const namesFile = includesAny(singleTexts, basename(d.file));
+          const namesKindOrLine =
+            includesAny(singleTexts, d.kind) ||
+            includesAny(singleTexts, String(d.line));
+          if (namesFile && namesKindOrLine) dHits++;
+        }
+        return (reqHits + tHits + dHits) / recallDenom;
+      });
+      recall = attemptScores.reduce((a, b) => a + b, 0) / attemptScores.length;
     }
 
     const vacuous = countVacuous(attempts, truth.emptinessPredicates ?? []);

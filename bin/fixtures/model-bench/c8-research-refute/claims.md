@@ -39,3 +39,6 @@ For each claim below, the author's stated confidence label and cited source are 
 7. **[High confidence, cites Table 1]** Aurora-3 Flash and Kestrel-2 Instant both have a 0% timeout rate.
 8. **[High confidence, cites the timeout note]** No model in Table 1 ever timed out on any case.
 9. **[Medium confidence, cites Table 2]** Every model's hard-bucket mean is lower than its easy-bucket mean.
+10. **[High confidence, cites Table 2]** Aurora-3 Flash's easy-to-hard score drop (89.1 → 53.3, a 35.8-point gap) is the largest drop of any model in Table 2.
+11. **[Medium confidence, cites Table 2]** Kestrel-2 Instant's hard-bucket mean (47.0) is the lowest hard-bucket mean of the four models, even though its easy-bucket mean (85.0) is only 8.5 points below Kestrel-2 Thinking's (93.5).
+12. **[High confidence, cites Table 1]** Aurora-3 Pro costs less than 8 times as much per run as Kestrel-2 Instant.

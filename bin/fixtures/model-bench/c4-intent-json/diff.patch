@@ -285,3 +285,62 @@ index d56acdb..5adf243 100644
  function existsDir(p: string): boolean {
    try {
      return fs.statSync(p).isDirectory();
+diff --git a/bin/lib/pkg-version.ts b/bin/lib/pkg-version.ts
+index 3f8a1c2..7d0e5b4 100644
+--- a/bin/lib/pkg-version.ts
++++ b/bin/lib/pkg-version.ts
+@@ -1,7 +1,7 @@
+ /**
+- * Leaf module: reads the `version` field from a flow source's package.json.
++ * Leaf helper: reads the `version` field out of a flow source's package.json.
+  * Kept dependency-free (only node:fs + node:path) so both `version.ts`'s CLI
+  * verb and `update-check.ts` can import it without forming a circular import
+  * (version.ts → update-check.ts → version.ts).
+  */
+
+ import * as fs from "node:fs";
+@@ -17,17 +17,17 @@ export function readFlowVersion(source: string): string {
+   const pkgPath = path.join(source, "package.json");
+
+-  let raw: string;
++  let pkgJsonRaw: string;
+   try {
+-    raw = fs.readFileSync(pkgPath, "utf8");
++    pkgJsonRaw = fs.readFileSync(pkgPath, "utf8");
+   } catch (err) {
+     throw new Error(`cannot read ${pkgPath}: ${(err as Error).message}`);
+   }
+
+   let version: unknown;
+   try {
+-    version = (JSON.parse(raw) as { version?: unknown }).version;
++    version = (JSON.parse(pkgJsonRaw) as { version?: unknown }).version;
+   } catch (err) {
+     throw new Error(`cannot parse ${pkgPath}: ${(err as Error).message}`);
+   }
+diff --git a/bin/lib/version.test.ts b/bin/lib/version.test.ts
+index a1b2c3d..e5f6a7b 100644
+--- a/bin/lib/version.test.ts
++++ b/bin/lib/version.test.ts
+@@ -19,7 +19,7 @@ import type { InstallDriftResult } from "./install-drift";
+ /** No-drift stub — `checkDrift` is a required VersionOptions field most
+  * cases here don't exercise (the "drift notice seam" describe block below
+  * covers the emit/no-emit wiring; install-drift.test.ts owns the
+  * detector's own behaviour). */
+-const NO_DRIFT: () => InstallDriftResult = () => ({ status: "clean" });
++const CLEAN_DRIFT_STUB: () => InstallDriftResult = () => ({ status: "clean" });
+
+ /** `runVersion` with `checkDrift` defaulted, mirroring ls.test.ts's
+  * `buildRows` wrapper — most cases here only care about `flowSource` /
+  * `checkUpdate`. */
+ function runVersion(opts: Partial<VersionOptions>): number {
+-  return runVersionImpl({ checkDrift: NO_DRIFT, ...opts });
++  return runVersionImpl({ checkDrift: CLEAN_DRIFT_STUB, ...opts });
+ }
+@@ -170,7 +170,7 @@ describe("something", () => {
+     const code = runVersion({
+       flowSource: scratch,
+       checkUpdate: () => ({ status: "current" }),
+-      checkDrift: NO_DRIFT,
++      checkDrift: CLEAN_DRIFT_STUB,
+     });

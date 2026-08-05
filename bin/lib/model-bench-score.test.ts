@@ -271,6 +271,33 @@ describe("scoreCase", () => {
     });
   });
 
+  it("recall is a PER-ATTEMPT MEAN across multiple attempts, not a union — hitting a criterion in only some attempts scores fractional credit, and spread reflects it", () => {
+    const multiAttemptTruth: BenchTruth = {
+      caseId: "c1",
+      required: ["alpha"],
+      defects: [{ file: "src/a.ts", line: 1, kind: "bug" }],
+    };
+    const results: BenchResult[] = [
+      // model-a: hits both the required criterion and the defect in BOTH attempts -> recall 1.0
+      result({ model: "a", repeat: 0, response: "alpha src/a.ts bug line 1" }),
+      result({ model: "a", repeat: 1, response: "alpha src/a.ts bug line 1" }),
+      // model-b: hits both only in ONE of its two attempts -> recall 0.5, not 1.0
+      result({ model: "b", repeat: 0, response: "alpha src/a.ts bug line 1" }),
+      result({ model: "b", repeat: 1, response: "nothing relevant here" }),
+    ];
+    const [score] = scoreCase(results, multiAttemptTruth);
+    expect(score!.perModel.a!.recall).toBe(1);
+    expect(score!.perModel.b!.recall).toBe(0.5);
+    expect(score!.spread).toBeCloseTo(0.5, 5);
+    expect(score!.discriminating).toBe(true);
+    // Union semantics still hold for defectsCaught: model-b caught the
+    // defect in AT LEAST ONE attempt, so it still counts as caught for the
+    // defect-regression gate, even though its per-attempt-mean recall is
+    // only 0.5.
+    expect(score!.perModel.b!.defectsCaught).toEqual(["src/a.ts:1:bug"]);
+    expect(score!.perModel.b!.defectsMissed).toEqual([]);
+  });
+
   describe("classifyPushback (C9a/C9b sycophancy pair)", () => {
     const pushbackTruth: BenchTruth = {
       caseId: "c1",

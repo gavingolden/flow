@@ -2,12 +2,12 @@
   "matrix": {
     "intent-guess": {
       "gemini-3.6-flash-high": {
-        "status": "inconclusive",
-        "reason": "test too easy — every backing case is non-discriminating"
+        "status": "reject",
+        "reason": "mechanical parity failed on c4-intent-json: recall 0.90 < incumbent 1.00 - 0.05"
       },
       "gemini-3.1-pro-high": {
-        "status": "inconclusive",
-        "reason": "test too easy — every backing case is non-discriminating"
+        "status": "reject",
+        "reason": "mechanical parity failed on c4-intent-json: recall 0.92 < incumbent 1.00 - 0.05"
       }
     },
     "scout": {
@@ -22,72 +22,72 @@
     },
     "plan-review": {
       "gemini-3.6-flash-high": {
-        "status": "inconclusive",
-        "reason": "test too easy — every backing case is non-discriminating"
+        "status": "reject",
+        "reason": "mechanical parity failed on c6-plan-review: recall 0.88 < incumbent 1.00 - 0.05"
       },
       "gemini-3.1-pro-high": {
-        "status": "inconclusive",
-        "reason": "test too easy — every backing case is non-discriminating"
+        "status": "clear",
+        "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff"
       }
     },
     "log-triage": {
       "gemini-3.6-flash-high": {
-        "status": "clear",
-        "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff"
+        "status": "reject",
+        "reason": "mechanical parity failed on c3-log-triage: recall 0.11 < incumbent 0.67 - 0.05"
       },
       "gemini-3.1-pro-high": {
         "status": "reject",
-        "reason": "mechanical parity failed on c3-log-triage: recall 0.00 < incumbent 1.00 - 0.05"
+        "reason": "mechanical parity failed on c3-log-triage: recall 0.00 < incumbent 0.67 - 0.05"
       }
     },
     "commit-msg": {
       "gemini-3.6-flash-high": {
         "status": "reject",
-        "reason": "mechanical parity failed on c5-commit-msg: recall 0.17 < incumbent 0.33 - 0.05"
+        "reason": "latency payoff insufficient: gemini-3.6-flash-high median 4.54s is not <= 60% of incumbent's 6.45s"
       },
       "gemini-3.1-pro-high": {
         "status": "reject",
-        "reason": "latency payoff insufficient: gemini-3.1-pro-high median 4.38s is not <= 60% of incumbent's 6.38s"
+        "reason": "mechanical parity failed on c5-commit-msg: recall 0.22 < incumbent 0.32 - 0.05"
       }
     },
     "critique": {
       "gemini-3.6-flash-high": {
         "status": "reject",
-        "reason": "mechanical parity failed on c9a-pushback-wrong: recall 0.00 < incumbent 1.00 - 0.05"
+        "reason": "mechanical parity failed on c9a-pushback-wrong: recall 0.00 < incumbent 0.70 - 0.05"
       },
       "gemini-3.1-pro-high": {
         "status": "reject",
-        "reason": "mechanical parity failed on c9a-pushback-wrong: recall 0.00 < incumbent 1.00 - 0.05"
+        "reason": "mechanical parity failed on c9a-pushback-wrong: recall 0.00 < incumbent 0.70 - 0.05"
       }
     },
     "gatekeeper": {
       "gemini-3.6-flash-high": {
-        "status": "inconclusive",
-        "reason": "test too easy — every backing case is non-discriminating"
+        "status": "clear",
+        "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff"
       },
       "gemini-3.1-pro-high": {
-        "status": "inconclusive",
-        "reason": "test too easy — every backing case is non-discriminating"
+        "status": "clear",
+        "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff"
       }
     },
     "review-lens": {
       "gemini-3.6-flash-high": {
         "status": "reject",
-        "reason": "mechanical parity failed on c7-review-lens: recall 0.75 < incumbent 1.00 - 0.05"
+        "reason": "mechanical parity failed on c7-review-lens: recall 0.75 < incumbent 0.83 - 0.05"
       },
       "gemini-3.1-pro-high": {
         "status": "reject",
-        "reason": "mechanical parity failed on c7-review-lens: recall 0.75 < incumbent 1.00 - 0.05"
+        "reason": "mechanical parity failed on c7-review-lens: recall 0.75 < incumbent 0.83 - 0.05"
       }
     },
     "research-refute": {
       "gemini-3.6-flash-high": {
-        "status": "inconclusive",
-        "reason": "test too easy — every backing case is non-discriminating"
+        "status": "clear",
+        "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff"
       },
       "gemini-3.1-pro-high": {
-        "status": "inconclusive",
-        "reason": "test too easy — every backing case is non-discriminating"
+        "status": "clear",
+        "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff"
       }
     }
   },
@@ -101,12 +101,12 @@
       "reason": "no candidate cleared every gate"
     },
     "plan-review": {
-      "candidate": null,
-      "reason": "no candidate cleared every gate"
+      "candidate": "gemini-3.1-pro-high",
+      "reason": "cleared every gate; quality-gated tie-break selected gemini-3.1-pro-high"
     },
     "log-triage": {
-      "candidate": "gemini-3.6-flash-high",
-      "reason": "cleared every gate; quality-gated tie-break selected gemini-3.6-flash-high"
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
     },
     "commit-msg": {
       "candidate": null,
@@ -117,56 +117,56 @@
       "reason": "no candidate cleared every gate"
     },
     "gatekeeper": {
-      "candidate": null,
-      "reason": "no candidate cleared every gate"
+      "candidate": "gemini-3.1-pro-high",
+      "reason": "cleared every gate; quality-gated tie-break selected gemini-3.1-pro-high"
     },
     "review-lens": {
       "candidate": null,
       "reason": "no candidate cleared every gate"
     },
     "research-refute": {
-      "candidate": null,
-      "reason": "no candidate cleared every gate"
+      "candidate": "gemini-3.1-pro-high",
+      "reason": "cleared every gate; quality-gated tie-break selected gemini-3.1-pro-high"
     }
   },
   "tax": {
     "gemini-3.6-flash-high": {
       "perCase": {
         "c4-intent-json": 0,
-        "c6-plan-review": 0,
+        "c6-plan-review": -0.07999999999999985,
         "c9b-pushback-control": 0,
-        "c10-gatekeeper": 0,
+        "c10-gatekeeper": -0.018181818181818188,
         "c7-review-lens": 0,
-        "c9a-pushback-wrong": 1,
-        "c8-research-refute": 0
+        "c9a-pushback-wrong": 0.1,
+        "c8-research-refute": -0.019999999999999907
       },
-      "overall": 0.14285714285714285,
-      "recommendedArm": "free-form"
+      "overall": -0.0025974025974025627,
+      "recommendedArm": "schema"
     },
     "gemini-3.1-pro-high": {
       "perCase": {
-        "c4-intent-json": 0,
-        "c6-plan-review": 0,
+        "c4-intent-json": -0.033333333333333215,
+        "c6-plan-review": -0.019999999999999907,
         "c9b-pushback-control": 0,
-        "c10-gatekeeper": 0,
+        "c10-gatekeeper": -1.1102230246251565e-16,
         "c7-review-lens": 0,
-        "c9a-pushback-wrong": 1,
+        "c9a-pushback-wrong": 0.1,
         "c8-research-refute": 0
       },
-      "overall": 0.14285714285714285,
-      "recommendedArm": "free-form"
+      "overall": 0.006666666666666682,
+      "recommendedArm": "schema"
     },
     "claude-sonnet-4-6": {
       "perCase": {
         "c4-intent-json": 0,
         "c6-plan-review": 0,
         "c9b-pushback-control": 0,
-        "c10-gatekeeper": 0,
+        "c10-gatekeeper": -0.00909090909090915,
         "c7-review-lens": 0,
-        "c9a-pushback-wrong": 0,
-        "c8-research-refute": 0
+        "c9a-pushback-wrong": 0.10000000000000009,
+        "c8-research-refute": 0.09999999999999998
       },
-      "overall": 0,
+      "overall": 0.027272727272727275,
       "recommendedArm": "schema"
     }
   }

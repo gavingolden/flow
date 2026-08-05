@@ -17,12 +17,13 @@
  * `MODEL_ALIASES` enum and would silently drop a well-formed agy variant
  * string like "Gemini 3.1 Pro (High)".
  *
- * Every default seeded here is BYTE-IDENTICAL to today's live constant in
- * the surface's own file (verified against source before writing this
- * module; `delegate-models.test.ts` pins the check so a drive-by constant
- * edit that forgets this module fails loudly). This module is the seam for
- * a LATER, separate change that flips individual defaults once a recorded
- * benchmark clears a (surface, candidate) pair — this change flips nothing.
+ * Every default seeded here started BYTE-IDENTICAL to the surface's own
+ * file (verified against source when this module was written;
+ * `delegate-models.test.ts` pins the check so a drive-by constant edit
+ * that forgets this module fails loudly). This module is the seam for
+ * flipping individual defaults once a recorded benchmark clears a
+ * (surface, candidate) pair — see `researchRefute`'s inline comment below
+ * for the first such flip (PR #543, 2026-08-05).
  */
 
 import { defaultReadConfigFile, type ReadConfigFile } from "./models-config";
@@ -43,11 +44,30 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   intentGuess: "Gemini 3.1 Pro (High)",
   reviewLens: "Gemini 3.1 Pro (High)",
   researchGather: "Gemini 3.1 Pro (High)",
-  researchRefute: "Claude Opus 4.6 (Thinking)",
+  // Flipped 2026-08-05 (PR #543): BOTH Gemini candidates cleared
+  // research-refute on the hardened c8 fixture at N=10
+  // (docs/model-bench/report.md — parity held vs claude-sonnet-4-6
+  // including the cross-table-arithmetic and over-refutation traps; the
+  // recommendation tie-break nominally preferred 3.1 Pro). 3.6 Flash is
+  // chosen over 3.1 Pro because researchGather's default is already
+  // "Gemini 3.1 Pro (High)" and a string-identical refute default trips
+  // flow-research-run.ts' resolveModels cross-model diversity guard, which
+  // silently downgrades the runtime refute model to the wholly unbenched
+  // FALLBACK_REFUTE_MODEL ("GPT-OSS 120B (Medium)") — Flash keeps the
+  // deployed refuter a benched, cleared model AND keeps the guard quiet.
+  researchRefute: "Gemini 3.6 Flash (High)",
   planReview: "Gemini 3.1 Pro (High)",
+  // Does NOT flip despite plan-review's gemini-3.1-pro-high clear (same
+  // bench run): the deep-tier second reviewer exists for cross-model
+  // diversity against the Gemini first reviewer (the convergence rule
+  // presumptively accepts points BOTH reviewers raise independently); two
+  // same-family reviewers would hollow that rule out. The clear is
+  // recorded here; the diversity rationale governs the default.
   planReviewSecond: "Claude Opus 4.6 (Thinking)",
   // null means "use the Claude Task subagent" (today's behaviour) rather
-  // than delegating scouting to an agy variant.
+  // than delegating scouting to an agy variant. Both bench candidates were
+  // rejected on a real-defect regression (c2b, docs/model-bench/report.md,
+  // 2026-08-05) — null stays the verdict-consistent default.
   scout: null,
 };
 

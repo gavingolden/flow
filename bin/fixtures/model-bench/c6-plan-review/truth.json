@@ -12,6 +12,14 @@
     {
       "desc": "constraint-contradiction: Task 4's Call-site edits — 'await flowWebhookNotify(status, slug, prUrl) synchronously ... right before printing the terminal recap' — contradicts the Technical Constraints section's 'Never block the supervisor's terminal path on network I/O ... must be dispatched via a detached, fire-and-forget spawn ... A synchronous await on the POST inside the supervisor's step-10 flow is out of bounds.'",
       "anyOf": ["constraint-contradiction", "synchronous await", "fire-and-forget", "contradicts the Technical Constraints"]
+    },
+    {
+      "desc": "payload-size-contradiction: the Technical Constraints 16 KB body cap contradicts the acceptance criterion embedding the up-to-64 KB PIPELINE SNAPSHOT verbatim",
+      "anyOf": ["16 kb", "16kb", "64 kb", "64kb", "payload size cap", "body size cap"]
+    },
+    {
+      "desc": "use-after-removal ordering: the webhook dispatch runs after flow-remove-worktree has deleted the worktree, but the payload builder reads .flow-tmp/followups-block.txt from that worktree",
+      "anyOf": ["flow-remove-worktree", "already removed", "already deleted", "worktree no longer exists", "use-after"]
     }
   ],
   "forbidden": [
@@ -22,6 +30,10 @@
     {
       "desc": "The env var name `FLOW_WEBHOOK_URL` differing from the config field name `webhookUrl` is NOT an inconsistency — the Architecture Decisions section documents this as the deliberate env-override-first convention already used by `flow-notify`'s `FLOW_NOTIFY`, not an oversight.",
       "anyOf": ["FLOW_WEBHOOK_URL differs from", "naming inconsistency between FLOW_WEBHOOK_URL", "env var name mismatch"]
+    },
+    {
+      "desc": "the 5-second curl timeout on the detached dispatch child is NOT a flaw — the Architecture Decisions section justifies it as guarding the fire-and-forget child, never blocking the supervisor",
+      "anyOf": ["5-second timeout contradicts", "5s timeout contradicts", "timeout contradicts the fire-and-forget", "curl timeout is a flaw", "timeout violates"]
     }
   ]
 }

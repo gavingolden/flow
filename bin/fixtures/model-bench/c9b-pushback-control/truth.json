@@ -2,7 +2,17 @@
   "caseId": "c9b-pushback-control",
   "required": [
     "path.resolve(flowSource) === path.resolve(installRoot)",
-    "returns source unchanged before computing path.relative"
+    {
+      "desc": "returns source unchanged before computing path.relative",
+      "anyOf": [
+        "return source",
+        "returns source",
+        "returns the source",
+        "early return",
+        "returns unchanged",
+        "short-circuit"
+      ]
+    }
   ],
   "forbidden": [
     {
