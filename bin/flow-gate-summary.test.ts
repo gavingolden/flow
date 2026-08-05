@@ -251,11 +251,19 @@ describe("render — needs-human (per-reason mapping)", () => {
     // reason renders at all, not that its content stays correct.
     const recipe = NEXT_ACTION_BY_REASON["merge-resolver-spawn-denied"];
     expect(recipe).toContain("do NOT force");
-    // The resolve step must visibly interrupt any `&&` chain rather
-    // than being buried inside one — a bare `&&`-chained "resolve
-    // conflicts" step is easy to blow past without human judgment.
-    expect(recipe).not.toMatch(/&&\s*then STOP/i);
-    expect(recipe).toMatch(/;\s*then STOP and resolve/);
+    // The resolve step must visibly interrupt any `&&` chain rather than
+    // being buried inside one — a bare `&&`-chained "resolve conflicts"
+    // step is easy to blow past without human judgment. The recipe is
+    // now a numbered multi-step recipe (see `## Step contract` in
+    // pause-output-contract.md); re-express the same safety property
+    // against that shape rather than the old ";  then STOP" phrasing:
+    // the STOP instruction is its own numbered step line, and no
+    // single step line mixes `&&` and `STOP`.
+    const stepLines = recipe.split("\n").filter((l) => /^\s*\d+\.\s/.test(l));
+    expect(stepLines.some((l) => /\bSTOP\b/.test(l))).toBe(true);
+    expect(stepLines.some((l) => /&&/.test(l) && /\bSTOP\b/.test(l))).toBe(
+      false,
+    );
   });
 
   it("falls back to DEFAULT_NEXT_ACTION for an unmapped reason", () => {
@@ -278,10 +286,16 @@ describe("render — needs-human (per-reason mapping)", () => {
     // The NEXT ACTION must carry the spawn site as appended context so
     // the rendered block names the exact remediation for each of the
     // six exemption sites; without this, all six collapse to the same
-    // generic line.
+    // generic line. task-tool-unavailable is now a multi-line (header +
+    // numbered steps) recipe, so the suffix must land on the header
+    // line (the `NEXT ACTION:` row) — never on the final step line.
+    const mapped = NEXT_ACTION_BY_REASON["task-tool-unavailable"];
+    const header = mapped.split("\n")[0];
     expect(out).toContain(
-      `NEXT ACTION: ${NEXT_ACTION_BY_REASON["task-tool-unavailable"]} (spawn site: pr-review-fix-applier)`,
+      `NEXT ACTION: ${header} (spawn site: pr-review-fix-applier)`,
     );
+    const lastLine = mapped.split("\n").at(-1)!;
+    expect(out).not.toContain(`${lastLine} (spawn site:`);
     expect(finalLine(out)).toBe(
       "NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier",
     );
@@ -340,6 +354,41 @@ describe("render — needs-human (per-reason mapping)", () => {
     );
     expect(deferredIdx).toBeGreaterThanOrEqual(0);
     expect(sentinelIdx).toBeGreaterThan(deferredIdx);
+  });
+
+  it("renders a multi-action recipe as a numbered step list ending in the sentinel", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "merge-resolver-spawn-denied",
+    });
+    expect(out).toMatch(/^  1\. /m);
+    const lines = out.split("\n").filter((l) => l !== "");
+    expect(lines.at(-1)).toBe("NEEDS HUMAN: merge-resolver-spawn-denied");
+  });
+
+  it("renders a single-action recipe inline, never padded into a one-item list", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "flow-setup-upgrade-failed",
+    });
+    expect(out).toMatch(/^NEXT ACTION: Run flow install/m);
+    expect(out).not.toMatch(/^  1\. /m);
+  });
+
+  it("places the task-tool-unavailable spawn-site suffix on the NEXT ACTION header, not the final step", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "task-tool-unavailable: pr-review-fix-applier",
+    });
+    const nextActionLine = out
+      .split("\n")
+      .find((l) => l.startsWith("NEXT ACTION:"))!;
+    expect(nextActionLine).toContain("(spawn site: pr-review-fix-applier)");
+    const lastLine = out
+      .split("\n")
+      .filter((l) => l !== "")
+      .at(-2)!; // last step, before the sentinel
+    expect(lastLine).not.toContain("(spawn site:");
   });
 });
 

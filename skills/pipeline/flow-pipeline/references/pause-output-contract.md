@@ -106,6 +106,69 @@ everything else follows "Calibrate length to task" in
 > the live-refresh interval — and either reading is equally plausible
 > from what you wrote.
 
+## Step contract
+
+`## Language contract` above governs wording; this section governs
+**shape** — how an instruction or action list is laid out once the words
+are chosen. It is binding, not advisory.
+
+**The rule.** An instruction or action list renders as numbered
+imperative steps, one action per line: `1. <imperative step>`, `2.
+<imperative step>`, … . Detail rides as an indented sub-bullet under the
+step it belongs to (`   - <detail>`), never bundled onto the step line
+itself. When more than one party acts — the supervisor runs a command,
+the user makes a call, a subagent reports back — name the actor at the
+start of the relevant step (`**Supervisor:** …`, `**User:** …`) so the
+reader never has to infer who does what.
+
+**Scope.** This section binds two surfaces: (a) the formal gate-grammar
+`NEXT ACTION:` row `bin/flow-gate-summary.ts` renders for a multi-action
+recipe, and (b) authored procedure docs — the escalation procedures in
+`references/failure-recovery.md`. It does **not** change the informal
+pause-block `**Next action:**` slot defined in `## The block` item 3
+above: that slot is bound by `## Language contract` rule 4 to a single
+most-useful next thing, single-line by construction, and stays that way.
+The two sections are not in tension — `## The block` governs the one
+informal slot; `## Step contract` governs everything else that lists out
+instructions.
+
+**Discrete action.** A separate copy-pasteable command, or a separate
+decision the reader must make. A trailing qualifier on one command (e.g.
+"and inspect its output") is detail, not a second action, and stays on
+the step line. Threshold: two or more discrete actions become a numbered
+list; one discrete action stays inline.
+
+**Carve-outs.**
+
+1. A single discrete action stays inline on its label line — it is
+   never padded into a one-item numbered list just to look consistent
+   with the multi-step cases.
+2. `- [ ]` Test Steps keep their checkbox form and are **never**
+   renumbered to ordinals, because the auto-merge gate counts unchecked
+   boxes (see `references/auto-merge-rubric.md`). They take the
+   one-action-per-box and named-actor rules, not the numbering.
+3. Fact recaps (`## PIPELINE SNAPSHOT`, the echo recap) are already
+   one-fact-per-line and are out of scope: numbering a recap of what
+   already happened would imply an execution order that does not exist.
+
+**Worked pair.**
+
+> Before:
+>
+> ```
+> Recover manually: cd <worktree> && git fetch origin <base> && git merge origin/<base>; then STOP and resolve every conflict marker in your editor before committing. Once resolved: git add <resolved-files>, git commit, git push. If the push is rejected non-fast-forward, that means origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force. Then (cd <repo> && gh pr merge --squash <pr>)
+> ```
+>
+> After:
+>
+> ```
+> 1. Recover manually: run cd <worktree> && git fetch origin <base> && git merge origin/<base>.
+> 2. STOP and resolve every conflict marker in your editor before committing.
+> 3. Once resolved, run git add <resolved-files>, git commit, git push.
+> 4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
+> 5. Then run (cd <repo> && gh pr merge --squash <pr>).
+> ```
+
 ## Applicability
 
 The contract binds **any turn-ending assistant message that awaits user

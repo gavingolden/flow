@@ -257,6 +257,45 @@ argument depends on one sentence following causally from the last —
 bullets fragment that chain into disconnected assertions the reader has
 to re-thread themselves.
 
+## Emit instructions as scannable numbered steps
+
+A returning reader — resuming a paused pipeline, following an escalation
+recipe, working through a Test Steps list — should not have to segment a
+paragraph into actions before they can start acting. Prose that runs
+"attach, then inspect the log, then redirect the skill with a fix hint"
+as one sentence forces the reader to do the parsing work a numbered list
+already did for the author.
+
+The enforceable form lives at
+`skills/pipeline/flow-pipeline/references/pause-output-contract.md`
+`## Step contract`: numbered imperative steps, one action per line,
+optional indented sub-bullets for detail, and the actor named per step
+when more than one party acts. That section also defines `discrete
+action` (a separate copy-pasteable command or a separate decision — a
+trailing qualifier on one command is detail, not a second action) and
+carries the three carve-outs this rule inherits without restating them
+here: a single discrete action stays inline rather than becoming a
+one-item list; `- [ ]` Test Steps keep checkbox form and are never
+renumbered, because the auto-merge gate counts unchecked boxes; and fact
+recaps stay one-fact-per-line, since numbering a recap of what already
+happened would imply an execution order that never existed.
+
+This rule is the shape-side sibling of "Calibrate length to task" below
+— that bullet already prescribes structured lists under scan pressure;
+this one specifies the concrete numbered-step layout an instruction list
+takes when it qualifies.
+
+**Before:** "Attach (flow attach `<slug>`); inspect `<worktree>/.flow-tmp/`
+for skill output, then redirect `/flow-new-feature` with a fix hint."
+
+**After:**
+
+```
+1. Attach (flow attach <slug>).
+2. Inspect <worktree>/.flow-tmp/ for skill output.
+3. Redirect /flow-new-feature with a fix hint.
+```
+
 ## Remaining response-hygiene rules
 
 These are shorter conventions without a dedicated lint anchor — kept here

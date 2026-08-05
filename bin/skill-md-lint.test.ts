@@ -1135,9 +1135,21 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * grounds as the 39_700 → 39_950 precedent above (a small documented
    * raise over trimming load-bearing prose). The file remains far below
    * Claude Code's 40k per-session warning.
+   * Raised once more from 24_300 to 24_600 to fund the `## Output style`
+   * rule **Emit instructions as scannable numbered steps.**, whose full
+   * rule body is offloaded to references/output-style.md and whose
+   * enforceable form lives in
+   * skills/pipeline/flow-pipeline/references/pause-output-contract.md
+   * `## Step contract`, so only the lean anchored one-line summary costs
+   * bytes here, per the offload-then-trim playbook. Pre-raise headroom
+   * was 61 chars against a ~225-char lean opener; trimming lint-anchored
+   * `## Output style` prose to make room was rejected on the same
+   * grounds as the two precedents above (a small documented raise over
+   * trimming load-bearing prose). The file remains far below Claude
+   * Code's 40k per-session warning.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 24_300;
+    const CHAR_BUDGET = 24_600;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -3087,6 +3099,32 @@ describe("AGENTS.md Output style anchors", () => {
       matches?.length ?? 0,
       "AGENTS.md must contain the rule anchor phrase " +
         "'- **Explain problems impact-first in plain language.**' " +
+        "exactly once at the start of a list item in `## Output style`. " +
+        "Found " +
+        (matches?.length ?? 0) +
+        " match(es).",
+    ).toBe(1);
+  });
+
+  it("AGENTS.md contains the scannable-numbered-steps rule anchor phrase exactly once", () => {
+    // The bolded anchor phrase **Emit instructions as scannable numbered
+    // steps.** is the stable lint hook for the rule documented at
+    // AGENTS.md `## Output style`. Its rationale lives at
+    // references/output-style.md `## Emit instructions as scannable
+    // numbered steps`, and its enforceable shape — the numbered-step
+    // rule, the SCOPE reconciliation with the informal pause-block
+    // `**Next action:**` slot, the `discrete action` definition, and the
+    // three carve-outs — lives at
+    // skills/pipeline/flow-pipeline/references/pause-output-contract.md
+    // `## Step contract`. Renaming the rule's anchor phrase requires
+    // updating this assertion in the same commit.
+    const matches = agentsContent.match(
+      /^- \*\*Emit instructions as scannable numbered steps\.\*\*/gm,
+    );
+    expect(
+      matches?.length ?? 0,
+      "AGENTS.md must contain the rule anchor phrase " +
+        "'- **Emit instructions as scannable numbered steps.**' " +
         "exactly once at the start of a list item in `## Output style`. " +
         "Found " +
         (matches?.length ?? 0) +
@@ -6872,5 +6910,32 @@ describe("pause-output contract wiring lint", () => {
       "utf8",
     );
     expect(c).toContain("**Explain problems impact-first in plain language.**");
+  });
+
+  it("pause-output-contract.md carries the Step contract section", () => {
+    const c = fs.readFileSync(CONTRACT_PATH, "utf8");
+    expect(c).toContain("## Step contract");
+  });
+
+  it("references/output-style.md carries the scannable-numbered-steps section", () => {
+    const c = fs.readFileSync(
+      path.join(REPO_ROOT, "references", "output-style.md"),
+      "utf8",
+    );
+    expect(c).toContain("## Emit instructions as scannable numbered steps");
+  });
+
+  it("AGENTS.md and templates/AGENTS.md.template carry the numbered-steps bullet", () => {
+    const agentsC = fs.readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf8");
+    const templateC = fs.readFileSync(
+      path.join(REPO_ROOT, "templates", "AGENTS.md.template"),
+      "utf8",
+    );
+    expect(agentsC).toContain(
+      "**Emit instructions as scannable numbered steps.**",
+    );
+    expect(templateC).toContain(
+      "**Emit instructions as scannable numbered steps.**",
+    );
   });
 });
