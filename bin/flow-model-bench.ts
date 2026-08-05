@@ -43,6 +43,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -67,6 +68,7 @@ import {
   loadCases,
   type ManifestEntry,
 } from "./lib/model-bench-manifest";
+import { runReport, type ReportDeps } from "./lib/model-bench-report";
 
 export {
   buildManifest,
@@ -77,6 +79,7 @@ export {
   resolveMaxCalls,
   toFanoutEntries,
   loadCases,
+  runReport,
 };
 export type { ManifestEntry };
 
@@ -87,6 +90,8 @@ const DEFAULT_MODELS = [
   "claude-sonnet-4-6",
 ];
 const DEFAULT_CONCURRENCY = 4;
+const DEFAULT_INCUMBENT = "claude-sonnet-4-6";
+const DEFAULT_SCHEMA_TAX_THRESHOLD = 0.05;
 const PREFLIGHT_SENTINEL = "__flow_model_bench_preflight__";
 const MAX_TRANSPORT_RETRIES = 2;
 
@@ -100,12 +105,20 @@ export type Args = {
   maxCalls?: number;
   delegateBin?: string;
   out: string;
+  report: boolean;
+  judgedFile?: string;
+  incumbent: string;
+  schemaTaxThreshold: number;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   const out: Partial<Args> = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i]!;
+    if (flag === "--report") {
+      out.report = true;
+      continue;
+    }
     const value = argv[i + 1];
     if (value === undefined || value.startsWith("--")) {
       return { error: `${flag} requires a value` };
@@ -168,6 +181,20 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--out":
         out.out = value;
         break;
+      case "--judged":
+        out.judgedFile = value;
+        break;
+      case "--incumbent":
+        out.incumbent = value;
+        break;
+      case "--schema-tax-threshold": {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+          return { error: "--schema-tax-threshold must be a number" };
+        }
+        out.schemaTaxThreshold = n;
+        break;
+      }
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -186,6 +213,10 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     maxCalls: out.maxCalls,
     delegateBin: out.delegateBin,
     out: out.out,
+    report: out.report ?? false,
+    judgedFile: out.judgedFile,
+    incumbent: out.incumbent ?? DEFAULT_INCUMBENT,
+    schemaTaxThreshold: out.schemaTaxThreshold ?? DEFAULT_SCHEMA_TAX_THRESHOLD,
   };
 }
 
@@ -226,6 +257,12 @@ export type Deps = {
       delegateBin: string;
     },
   ) => Promise<FanoutResult>;
+  // Report-mode-only seams: never invoked on the run-mode path. Each is
+  // individually try/caught by model-bench-report.ts's tolerant fallback
+  // ("unknown" / today's date), so the defaults below are allowed to throw.
+  gitHead: () => string;
+  agyVersion: () => string;
+  fileMtime: (p: string) => Date;
 };
 
 function runPinnedDelegate(
@@ -330,9 +367,37 @@ export async function runBench(
   if ("error" in args) {
     deps.progress(`flow-model-bench: ${args.error}\n`);
     deps.progress(
-      "usage: flow-model-bench [--fixtures <dir>] [--models <csv>] [--repeats <n>] [--concurrency <k>] [--cases <csv>] [--arms <csv>] [--max-calls <n>] [--delegate-bin <path>] --out <dir>\n",
+      "usage: flow-model-bench [--fixtures <dir>] [--models <csv>] [--repeats <n>] [--concurrency <k>] [--cases <csv>] [--arms <csv>] [--max-calls <n>] [--delegate-bin <path>] --out <dir>\n" +
+        "       flow-model-bench --report --out <dir> [--fixtures <dir>] [--judged <file>] [--incumbent <model>] [--schema-tax-threshold <n>]\n",
     );
     return 2;
+  }
+
+  // Report mode joins a completed run against the fixture truths; it never
+  // dispatches a model call, so it skips preflight/loadCases-for-dispatch/
+  // runFanout entirely.
+  if (args.report) {
+    const reportDeps: ReportDeps = {
+      readFile: deps.readFile,
+      writeFile: deps.writeFile,
+      fileExists: deps.fileExists,
+      mkdirp: deps.mkdirp,
+      readdir: deps.readdir,
+      progress: deps.progress,
+      gitHead: deps.gitHead,
+      agyVersion: deps.agyVersion,
+      runDate: (p) => deps.fileMtime(p).toISOString().slice(0, 10),
+    };
+    return runReport(
+      {
+        fixturesDir: args.fixturesDir,
+        out: args.out,
+        judgedFile: args.judgedFile,
+        incumbent: args.incumbent,
+        schemaTaxThreshold: args.schemaTaxThreshold,
+      },
+      reportDeps,
+    );
   }
 
   const delegateBin =
@@ -472,6 +537,24 @@ export async function runBench(
   return 0;
 }
 
+function defaultGitHead(): string {
+  const r = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  if (r.exitCode !== 0) throw new Error("git rev-parse HEAD failed");
+  return new TextDecoder().decode(r.stdout).trim();
+}
+
+function defaultAgyVersion(): string {
+  const r = Bun.spawnSync(["agy", "--version"], {
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  if (r.exitCode !== 0) throw new Error("agy --version failed");
+  return new TextDecoder().decode(r.stdout).trim();
+}
+
 function resolveDeps(o?: Partial<Deps>): Deps {
   return {
     readFile: o?.readFile ?? ((p) => readFileSync(p, "utf8")),
@@ -482,6 +565,9 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     progress: o?.progress ?? ((line) => process.stderr.write(line)),
     preflight: o?.preflight ?? defaultPreflight,
     runFanout: o?.runFanout ?? defaultRunFanout,
+    gitHead: o?.gitHead ?? defaultGitHead,
+    agyVersion: o?.agyVersion ?? defaultAgyVersion,
+    fileMtime: o?.fileMtime ?? ((p) => statSync(p).mtime),
   };
 }
 

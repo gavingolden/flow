@@ -303,6 +303,9 @@ describe("runBench max-calls", () => {
       readdir: () => ["c1"],
       progress: vi.fn(),
       preflight: () => ({ ok: true, message: "" }),
+      gitHead: () => "deadbeef",
+      agyVersion: () => "1.0.0",
+      fileMtime: () => new Date("2026-01-01T00:00:00Z"),
       runFanout: vi.fn(
         async (): Promise<FanoutResult> => ({
           entries: [
@@ -442,5 +445,168 @@ describe("runBench max-calls", () => {
         verdict: "skip",
       });
     }
+  });
+});
+
+describe("runBench --report", () => {
+  const INCUMBENT = "claude-sonnet-4-6";
+  const CANDIDATE = "candidate-model";
+
+  function reportDeps(overrides: Record<string, string> = {}): Deps {
+    const files = new Map<string, string>([
+      [
+        "fixtures/c1/case.json",
+        JSON.stringify({
+          id: "c1",
+          surface: "scout",
+          kind: "multi-file",
+          promptFile: "prompt.md",
+          inputFiles: ["a.ts"],
+          repeats: 1,
+          authoredAtCommit: "abc1234",
+          routable: true,
+        }),
+      ],
+      [
+        "fixtures/c1/truth.json",
+        JSON.stringify({ caseId: "c1", required: ["alpha", "beta"] }),
+      ],
+      [
+        "out/results.json",
+        JSON.stringify([
+          {
+            caseId: "c1",
+            arm: "n/a",
+            model: INCUMBENT,
+            repeat: 0,
+            warmup: false,
+            ran: true,
+            response: "alpha only",
+            durationSeconds: 10,
+          },
+          {
+            caseId: "c1",
+            arm: "n/a",
+            model: CANDIDATE,
+            repeat: 0,
+            warmup: false,
+            ran: true,
+            response: "alpha beta",
+            durationSeconds: 1,
+          },
+        ]),
+      ],
+      ...Object.entries(overrides),
+    ]);
+    return {
+      readFile: (p: string) => {
+        const v = files.get(p);
+        if (v === undefined) throw new Error(`ENOENT: ${p}`);
+        return v;
+      },
+      writeFile: (p: string, data: string) => {
+        files.set(p, data);
+      },
+      fileExists: (p: string) => files.has(p),
+      mkdirp: () => {},
+      readdir: () => ["c1"],
+      progress: vi.fn(),
+      preflight: vi.fn(() => ({ ok: true, message: "" })),
+      gitHead: () => "deadbeef",
+      agyVersion: () => "1.0.0",
+      fileMtime: () => new Date("2026-01-01T00:00:00Z"),
+      runFanout: vi.fn(async (): Promise<FanoutResult> => {
+        throw new Error("report mode must never dispatch a model call");
+      }),
+      __files: files,
+    } as unknown as Deps & { __files: Map<string, string> };
+  }
+
+  it("joins a completed run against the fixture truths and writes report.md + verdicts.json", async () => {
+    const deps = reportDeps();
+    const code = await runBench(
+      ["--report", "--out", "out", "--fixtures", "fixtures"],
+      deps,
+    );
+    expect(code).toBe(0);
+    const report = deps.readFile("out/report.md");
+    for (const heading of [
+      "## Per-surface verdicts",
+      "## Where each candidate was worse",
+      "## Surfaces no candidate should take",
+      "## Case discrimination",
+      "## Schema tax",
+      "## Run provenance",
+      "## Limitations",
+    ]) {
+      expect(report).toContain(heading);
+    }
+    const verdicts = JSON.parse(deps.readFile("out/verdicts.json"));
+    expect(verdicts.matrix.scout[CANDIDATE].status).toBe("clear");
+    expect(verdicts.recommendation.scout.candidate).toBe(CANDIDATE);
+  });
+
+  it("downgrades a clear verdict to inconclusive when the judged file scores the candidate worse", async () => {
+    const deps = reportDeps({
+      "out/judge-key.json": JSON.stringify({ r1: CANDIDATE }),
+      "out/judge-packet.json": JSON.stringify([
+        { id: "r1", caseId: "c1", arm: "n/a", text: "alpha beta" },
+      ]),
+      "judged.json": JSON.stringify({ r1: "worse" }),
+    });
+    const code = await runBench(
+      [
+        "--report",
+        "--out",
+        "out",
+        "--fixtures",
+        "fixtures",
+        "--judged",
+        "judged.json",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    const verdicts = JSON.parse(deps.readFile("out/verdicts.json"));
+    expect(verdicts.matrix.scout[CANDIDATE].status).toBe("inconclusive");
+    expect(verdicts.matrix.scout[CANDIDATE].reason).toMatch(/blind judge/);
+  });
+
+  it("exits 2 and writes nothing when results.json is missing", async () => {
+    const deps = reportDeps();
+    const filesMap = (deps as unknown as { __files: Map<string, string> })
+      .__files;
+    filesMap.delete("out/results.json");
+    const code = await runBench(
+      ["--report", "--out", "out", "--fixtures", "fixtures"],
+      deps,
+    );
+    expect(code).toBe(2);
+    expect(filesMap.has("out/report.md")).toBe(false);
+    expect(filesMap.has("out/verdicts.json")).toBe(false);
+  });
+
+  it("exits 2 and writes nothing when results.json is invalid", async () => {
+    const deps = reportDeps({ "out/results.json": "not json" });
+    const filesMap = (deps as unknown as { __files: Map<string, string> })
+      .__files;
+    const code = await runBench(
+      ["--report", "--out", "out", "--fixtures", "fixtures"],
+      deps,
+    );
+    expect(code).toBe(2);
+    expect(filesMap.has("out/report.md")).toBe(false);
+    expect(filesMap.has("out/verdicts.json")).toBe(false);
+  });
+
+  it("never calls runFanout or preflight in report mode", async () => {
+    const deps = reportDeps();
+    const code = await runBench(
+      ["--report", "--out", "out", "--fixtures", "fixtures"],
+      deps,
+    );
+    expect(code).toBe(0);
+    expect(deps.preflight).not.toHaveBeenCalled();
+    expect(deps.runFanout).not.toHaveBeenCalled();
   });
 });
