@@ -1,17 +1,40 @@
-import { describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+
+// runReapMode's toReapDeps bridge calls bin/lib/liveness.ts's pidStartEpoch
+// directly (not via an injectable Deps field — see that function's own
+// comment on why deps.startEpochMsOf's millisecond scale is wrong here), and
+// pidStartEpoch's real path forks `ps` through `Bun.spawnSync` — unavailable
+// under vitest's node runtime, and never hermetic against a fixture pid
+// anyway. Mock just that one export, same technique as
+// bin/lib/proc-registry.test.ts.
+vi.mock("./lib/liveness", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./lib/liveness")>();
+  return { ...actual, pidStartEpoch: vi.fn() };
+});
+
 import {
   classifyProfileShape,
   descendantsOf,
+  main,
   resolveSessionPid,
   runOrphanSweep,
+  runReapMode,
   runTeardown,
   selectMcpServers,
   selectOrphanBrowsers,
   selectOrphanMcpServers,
+  summarizeReapEnvelope,
   type Deps,
   type ProcRow,
+  type ReapEnvelope,
 } from "./flow-browser-teardown";
+import { appendRow } from "./lib/proc-registry";
+import { pidStartEpoch } from "./lib/liveness";
+
+const mockedPidStartEpoch = vi.mocked(pidStartEpoch);
 
 // --- Fixtures -----------------------------------------------------------
 
@@ -31,6 +54,13 @@ function fakeDeps(overrides: Partial<Deps> = {}): Deps {
     homeDir: "/Users/dev",
     tmpDir: "/tmp",
     nowMs: () => 0,
+    // Distinct from every pgid used across this suite's fixtures (which stay
+    // well under 100000) so the reap engine's self-pgid guard never fires
+    // spuriously against an unrelated test's row.
+    selfPgid: 424_242,
+    // Default: the group contains only its own leader — consistent with
+    // this suite's fixtures, which never construct a multi-member group.
+    groupMembers: (pgid) => [pgid],
     ...overrides,
   };
 }
@@ -233,6 +263,16 @@ describe("runTeardown", () => {
     ];
   }
 
+  // PR #491: a harder signal (or a group kill) skips the MCP server's own
+  // `shutdown()` handler and orphans Chrome to PPID 1. This test's source
+  // guard MUST stay enforceable even after this file's own PR introduces
+  // SIGKILL for the reap engine's `default` class — see the companion
+  // "never escalates" assertions over the recording kill spy in
+  // `bin/lib/reap.test.ts`'s "mcp-server class" describe block, which
+  // proves the same no-escalation invariant for `bin/lib/reap.ts`'s
+  // mcp-server dispatch branch (that file legitimately contains the
+  // SIGKILL literal for the unrelated `default` class, so a source-text
+  // assertion can't be reused there).
   it("SIGTERM is the exact recorded signal, and the source file never contains 'SIGKILL'", () => {
     const killed: Array<{ pid: number; signal: NodeJS.Signals }> = [];
     const deps = fakeDeps({
@@ -246,7 +286,7 @@ describe("runTeardown", () => {
     runTeardown(deps, { dryRun: false, timeoutMs: 1000 });
     expect(killed).toEqual([{ pid: 201, signal: "SIGTERM" }]);
 
-    const source = readFileSync(
+    const source = fs.readFileSync(
       new URL("./flow-browser-teardown.ts", import.meta.url),
       "utf8",
     );
@@ -629,5 +669,263 @@ describe("classifyProfileShape — verified live shapes that can result in a SIG
       profileShape: "go-rod-temp",
       matched: true,
     });
+  });
+});
+
+describe("runReapMode — fallback", () => {
+  const sessionPid = 100;
+  function serverProcs(): ProcRow[] {
+    return [
+      proc(sessionPid, 1, "claude --add-dir /w"),
+      proc(201, sessionPid, "chrome-devtools-mcp"),
+    ];
+  }
+
+  let baseDir: string;
+
+  beforeEach(() => {
+    baseDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-teardown-reap-test-"),
+    );
+    mockedPidStartEpoch.mockReset();
+    mockedPidStartEpoch.mockReturnValue(1_000);
+  });
+
+  afterEach(() => {
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  it("an empty registry still runs the ancestry teardown and reports it under fallback with fallbackSkipReason null", () => {
+    const deps = fakeDeps({
+      listProcs: serverProcs,
+      selfPid: sessionPid,
+      alive: () => false,
+    });
+    const envelope = runReapMode(deps, {
+      dryRun: false,
+      slug: "empty-registry-slug",
+      timeoutMs: 1000,
+      baseDir,
+    });
+    expect(envelope.registry.ran).toBe(false);
+    expect(envelope.registry.skipReason).toBe("no-rows");
+    expect(envelope.fallback).not.toBeNull();
+    expect(envelope.fallback?.ran).toBe(true);
+    expect(envelope.fallbackSkipReason).toBeNull();
+    // D3 post-hoc registration: the ancestry walk found a server the
+    // registry didn't know about, so it gets recorded for a later reap.
+    expect(envelope.postRegistered).toBe(1);
+  });
+
+  it("a registry carrying a LIVE mcp-server row does not run the fallback and reports registry-covered", () => {
+    appendRow(
+      {
+        pgid: 500,
+        pid: 500,
+        startEpoch: 1_000,
+        slug: "covered-slug",
+        class: "mcp-server",
+        argv: ["chrome-devtools-mcp"],
+        recordedAt: 0,
+        sessionPid: null,
+        sessionStartEpoch: null,
+      },
+      baseDir,
+    );
+    const listProcs = vi.fn(serverProcs);
+    const deps = fakeDeps({
+      listProcs,
+      selfPid: sessionPid,
+      alive: () => true,
+    });
+    const envelope = runReapMode(deps, {
+      // would-reap counts as "covered" too — dry-run never sends a signal
+      // but still proves the registry already knows about this server.
+      dryRun: true,
+      slug: "covered-slug",
+      timeoutMs: 1000,
+      baseDir,
+    });
+    expect(envelope.registry.ran).toBe(true);
+    expect(envelope.registry.rows[0]?.outcome).toBe("would-reap");
+    expect(envelope.fallback).toBeNull();
+    expect(envelope.fallbackSkipReason).toBe("registry-covered");
+    // The ancestry walk never even runs when the registry already covers
+    // the MCP surface.
+    expect(listProcs).not.toHaveBeenCalled();
+  });
+
+  it("an unsatisfied FLOW_PIPELINE / --session-pid gate reports not-gated", () => {
+    const deps = fakeDeps({
+      env: {}, // FLOW_PIPELINE unset, no explicit sessionPid passed below
+      listProcs: serverProcs,
+      selfPid: sessionPid,
+    });
+    const envelope = runReapMode(deps, {
+      dryRun: false,
+      slug: "ungated-slug",
+      timeoutMs: 1000,
+      baseDir,
+    });
+    expect(envelope.fallback).toBeNull();
+    expect(envelope.fallbackSkipReason).toBe("not-gated");
+  });
+
+  it("dryRun:true with a resolved slug performs ZERO registry writes — the post-hoc D3 registration guard's `opts.dryRun` arm", () => {
+    const registryFile = path.join(baseDir, "procs", "dry-run-slug.jsonl");
+    const listProcs = vi.fn(serverProcs);
+    const deps = fakeDeps({
+      listProcs,
+      selfPid: sessionPid,
+      alive: () => false,
+    });
+    const envelope = runReapMode(deps, {
+      dryRun: true,
+      slug: "dry-run-slug",
+      timeoutMs: 1000,
+      baseDir,
+    });
+    // The ancestry fallback still ran and found a server it would otherwise
+    // post-hoc register, but dryRun:true must suppress the write entirely.
+    expect(envelope.fallback?.ran).toBe(true);
+    expect(envelope.postRegistered).toBe(0);
+    expect(fs.existsSync(registryFile)).toBe(false);
+  });
+
+  it("a resolved slug with dryRun:false but no fallback servers found performs ZERO registry writes — the `slug === undefined` arm has no bearing here, but the loop body simply has nothing to append", () => {
+    const registryFile = path.join(baseDir, "procs", "no-servers-slug.jsonl");
+    const deps = fakeDeps({
+      listProcs: () => [proc(sessionPid, 1, "claude --add-dir /w")],
+      selfPid: sessionPid,
+    });
+    const envelope = runReapMode(deps, {
+      dryRun: false,
+      slug: "no-servers-slug",
+      timeoutMs: 1000,
+      baseDir,
+    });
+    expect(envelope.postRegistered).toBe(0);
+    expect(fs.existsSync(registryFile)).toBe(false);
+  });
+
+  it("a satisfied gate with no MCP server under the session reports no-servers", () => {
+    const deps = fakeDeps({
+      listProcs: () => [proc(sessionPid, 1, "claude --add-dir /w")],
+      selfPid: sessionPid,
+    });
+    const envelope = runReapMode(deps, {
+      dryRun: false,
+      slug: "no-servers-slug",
+      timeoutMs: 1000,
+      baseDir,
+    });
+    expect(envelope.fallback).toBeNull();
+    expect(envelope.fallbackSkipReason).toBe("no-servers");
+  });
+});
+
+describe("main — --reap --json envelope", () => {
+  it("emits one parseable object carrying mode, registry.rows, registry.counts, fallback, fallbackSkipReason, and postRegistered, and exits 0", () => {
+    // Defensively cleared so the registry phase resolves no slug at all
+    // (a true no-op, never touching ~/.flow/state/procs/) and the ancestry
+    // fallback's own pipeline gate fails before any signal — --dry-run is
+    // an additional belt-and-suspenders guard on top of that, since main()
+    // has no CLI flag to sandbox the registry baseDir the way every other
+    // reap test in this file does via an injected `baseDir`.
+    const originalSlug = process.env.FLOW_SLUG;
+    const originalPipeline = process.env.FLOW_PIPELINE;
+    delete process.env.FLOW_SLUG;
+    delete process.env.FLOW_PIPELINE;
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const code = main(["--reap", "--json", "--dry-run"]);
+      expect(code).toBe(0);
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const parsed = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
+      expect(parsed.mode).toBe("reap");
+      expect(parsed).toHaveProperty("registry.rows");
+      expect(parsed).toHaveProperty("registry.counts");
+      expect(parsed).toHaveProperty("fallback");
+      expect(parsed).toHaveProperty("fallbackSkipReason");
+      expect(parsed).toHaveProperty("postRegistered");
+    } finally {
+      logSpy.mockRestore();
+      if (originalSlug === undefined) delete process.env.FLOW_SLUG;
+      else process.env.FLOW_SLUG = originalSlug;
+      if (originalPipeline === undefined) delete process.env.FLOW_PIPELINE;
+      else process.env.FLOW_PIPELINE = originalPipeline;
+    }
+  });
+});
+
+describe("summarizeReapEnvelope — summary", () => {
+  it("names failed, still-alive, and skipped-* counts explicitly, and a non-null fallbackSkipReason when the fallback did not run", () => {
+    const envelope: ReapEnvelope = {
+      mode: "reap",
+      registry: {
+        ran: true,
+        dryRun: false,
+        slug: "summary-slug",
+        rows: [],
+        counts: {
+          reaped: 0,
+          "would-reap": 0,
+          "already-dead": 0,
+          "skipped-epoch-mismatch": 0,
+          "skipped-unsafe-pgid": 1,
+          "skipped-foreign-member": 0,
+          "skipped-dead-leader": 0,
+          "still-alive": 1,
+          failed: 1,
+          "deadline-exceeded": 0,
+        },
+        malformed: 0,
+      },
+      fallback: null,
+      fallbackSkipReason: "not-gated",
+      postRegistered: 0,
+    };
+    const line = summarizeReapEnvelope(envelope);
+    expect(line).toContain("failed=1");
+    expect(line).toContain("still-alive=1");
+    expect(line).toContain("skipped-unsafe-pgid=1");
+    expect(line).toContain("fallbackSkipReason=not-gated");
+  });
+
+  it("reports ran=true and no fallbackSkipReason when the fallback DID run", () => {
+    const envelope: ReapEnvelope = {
+      mode: "reap",
+      registry: {
+        ran: false,
+        dryRun: false,
+        skipReason: "no-rows",
+        rows: [],
+        counts: {
+          reaped: 0,
+          "would-reap": 0,
+          "already-dead": 0,
+          "skipped-epoch-mismatch": 0,
+          "skipped-unsafe-pgid": 0,
+          "skipped-foreign-member": 0,
+          "skipped-dead-leader": 0,
+          "still-alive": 0,
+          failed: 0,
+          "deadline-exceeded": 0,
+        },
+        malformed: 0,
+      },
+      fallback: {
+        ran: true,
+        sessionPid: 100,
+        dryRun: false,
+        signalled: [{ pid: 201, command: "chrome-devtools-mcp" }],
+        stillAlive: [],
+      },
+      fallbackSkipReason: null,
+      postRegistered: 0,
+    };
+    const line = summarizeReapEnvelope(envelope);
+    expect(line).toContain("fallback: ran=true");
+    expect(line).not.toContain("fallbackSkipReason");
   });
 });

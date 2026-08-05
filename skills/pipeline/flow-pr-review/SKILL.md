@@ -992,8 +992,7 @@ mechanical assertion (`test -f`, `grep -q`, `[ "$(cat X)" = "Y" ]`,
 with the literal `SUBJECTIVE: ` prefix is excluded from promotion — it is a
 human-only aesthetic sign-off with no mechanical assertion to script. The author's `- [ ]`
 wording in the PR body **stays as written** — only the box-tick + evidence
-injection runs. Body wording rewrites are a Step 11e responsibility (gated on
-user confirmation), never 8c's. This split keeps the audit honest: reviewers
+injection runs. Body wording rewrites are a Step 11e responsibility, never 8c's. This split keeps the audit honest: reviewers
 always see what the author *claimed* alongside the evidence block showing what
 the agent *ran*.
 
@@ -1417,11 +1416,12 @@ the Fix-Applier Subagent — already parsed at Step 9) against the description:
 Based on 12a-12d:
 
 **If the description is empty/missing**: Draft a complete description from the diff using
-the standardized format. Show the user and ask for confirmation before applying.
+the standardized format and apply it. Default-on — no upfront confirmation; show it after.
 
 **If 2+ intent clarity criteria fail OR significant accuracy issues exist**: Draft an
-updated description preserving the original author's voice and structure where possible.
-Show a before/after comparison with the failing criteria annotated. Ask for confirmation:
+updated description preserving the original author's voice and structure, and apply it.
+Default-on — no upfront confirmation; show the before/after comparison with the failing
+criteria annotated *after* the edit lands, so the user can redirect via reply:
 
 ```bash
 gh pr edit <number> --body-file /dev/stdin <<'EOF'
@@ -1437,9 +1437,9 @@ on the fail subtype:
   of the description — only the test section changes. Consult
   `references/manual-test-rubric.md`'s scenario menu for the change type: shallow
   appends the missing categories (unhappy paths, edge cases) to the existing "Test
-  Steps" section; missing drafts a minimal section from scratch. Show the user the
-  focused diff — just the test-section change, not the full description — with a
-  one-sentence explanation, then on confirmation edit the PR preserving everything else:
+  Steps" section; missing drafts a minimal section from scratch. Default-on — no upfront
+  confirmation: edit the PR preserving everything else, then show the user the focused
+  diff — just the test-section change, not the full description — so they can redirect:
 
   ```bash
   gh pr edit <number> --body-file /dev/stdin <<'EOF'
@@ -1477,9 +1477,10 @@ on the fail subtype:
 **If 0 criteria fail, or 1 non-Testability criterion fails, and no accuracy issues**: Note
 "PR description is accurate and communicates intent clearly" in the report.
 
-**IMPORTANT**: `Fail (shallow)` / `Fail (missing)` never update the description without
-showing the user a diff and getting confirmation — the description is the author's
-voice, edits should improve clarity, not impose a rigid template.
+**IMPORTANT**: every branch above is default-on — edits apply without upfront confirmation
+and the user redirects via reply. The editorial bar is unchanged: the description is the
+author's voice, so edits improve clarity, not a rigid template, and every applied edit is
+shown as a diff in the same run.
 
 **After any 11e edit that adds `- [ ]` test items** (fail-shallow or fail-missing
 branches), re-run Step 8c against the newly added items to tick the runnable ones
@@ -1738,9 +1739,9 @@ site) so this paired-contract regression can't recur silently.
   or would degrade code quality — explain why.
 - NEVER commit without running pre-commit checks first, each run separately (not chained
   with `&&`) so individual results stay visible.
-- NEVER update the PR description without showing the user the before/after diff and
-  getting confirmation (Step 11e's `Fail (automatable)` branch is the named default-on
-  exception).
+- NEVER update the PR description silently. Description edits are default-on and need no
+  upfront confirmation — but every applied edit is shown to the user as a before/after
+  diff in the same run, and the user redirects via reply after the fact.
 - NEVER end a run by "just reporting" findings, or defer one without a tracker entry in
   the same run — see the "Every surfaced finding..." / "Every deferred finding..." bullets
   in Verification above for the full contract (GitHub issue via `flow-create-issue`,
