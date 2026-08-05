@@ -126,6 +126,19 @@ export function deriveBoard(input: {
 
   for (const f of manifest.features) {
     const isSelf = f.id === selfFeatureId;
+    const existingRow = existingFeatures[f.id];
+    // ONE-WAY LATCH SKIP: a row already committed `merged` with a `pr`
+    // number can never regress through `advanceStatus`, so re-querying gh
+    // for it can only reproduce the same row (or get discarded by the
+    // latch if it somehow didn't). Skip the query — but self and
+    // `not-started` rows are still queried unconditionally: self needs a
+    // fresh PR number every run (the claim isn't committed until this PR
+    // lands), and `not-started` is the whole point of the out-of-band
+    // backstop this sweep exists to provide.
+    if (!isSelf && existingRow?.status === "merged" && existingRow.pr) {
+      features[f.id] = existingRow;
+      continue;
+    }
     const fetched = fetchPrNumber(gh, slugify(f.id), !isSelf);
     let derivedRow: CommittedFeatureRow = { status: "not-started" };
     if (!fetched.ok) {
@@ -138,7 +151,7 @@ export function deriveBoard(input: {
     } else if (fetched.number !== undefined) {
       derivedRow = { status: "merged", pr: fetched.number };
     }
-    features[f.id] = advanceStatus(existingFeatures[f.id], derivedRow);
+    features[f.id] = advanceStatus(existingRow, derivedRow);
   }
 
   const file: EpicStatusFile = {
@@ -182,7 +195,10 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 const USAGE =
-  "usage: flow-epic-sync [--slug <feature-slug>] [--epic-slug <epic>] [--check] [--json]";
+  "usage: flow-epic-sync [--slug <feature-slug>] [--epic-slug <epic>] [--epic-feature <id>] [--check] [--json]\n" +
+  "  --epic-feature <id>  override the self-mark feature id when it can't be\n" +
+  "                       derived from state (paired with --epic-slug; the\n" +
+  "                       ambient --slug path derives it from state.epic.featureId)";
 
 type Deps = {
   gh?: GhRunner;
@@ -192,19 +208,27 @@ type Deps = {
   env?: NodeJS.ProcessEnv;
 };
 
-function emptyEnvelope(epicSlug: string): {
+type SyncEnvelope = {
   epicSlug: string;
   derived: boolean;
   written: boolean;
   features: Record<string, CommittedFeatureRow>;
-} {
-  return { epicSlug, derived: false, written: false, features: {} };
+};
+
+function syncEnvelope(
+  epicSlug: string,
+  derived: boolean,
+  written: boolean,
+  features: Record<string, CommittedFeatureRow>,
+): SyncEnvelope {
+  return { epicSlug, derived, written, features };
 }
 
-export function main(
-  argv: string[],
-  deps: Deps & { stateDir?: string } = {},
-): number {
+function emptyEnvelope(epicSlug: string): SyncEnvelope {
+  return syncEnvelope(epicSlug, false, false, {});
+}
+
+export function main(argv: string[], deps: Deps = {}): number {
   const parsed = parseArgs(argv);
   if (parsed.help) {
     console.log(USAGE);
@@ -244,13 +268,26 @@ export function main(
 
   const manifest = manifestPath ? loadManifest(manifestPath) : null;
   if (!manifest || !manifestPath) {
-    // Manifest unreadable — never block the caller.
+    // Manifest unreadable — never block the caller. `--check` DOES exit 1
+    // here (unlike the gh-failure branch below): an unreadable manifest is
+    // a repo-state problem the caller can fix (bad path, corrupt JSON),
+    // while a gh failure is an environment blip the caller can't act on
+    // mid-PR — so only the former is worth failing a drift check over.
     if (parsed.json) console.log(JSON.stringify(emptyEnvelope(epicSlug)));
     return parsed.check ? 1 : 0;
   }
 
   const epicDirAbs = path.dirname(manifestPath);
   const existing = readCommittedStatus(epicDirAbs);
+  if (existing && existing.epicId !== manifest.epicId) {
+    // A committed status.json whose epicId disagrees with the manifest is
+    // either stale (epic renamed) or, worst case, a PR-authored file
+    // claiming authority over a different epic than the one this run is
+    // reconciling. Refuse to trust it as a base for the latch rather than
+    // silently merging two epics' rows.
+    if (parsed.json) console.log(JSON.stringify(emptyEnvelope(epicSlug)));
+    return parsed.check ? 1 : 0;
+  }
   const { file, derived } = deriveBoard({
     manifest,
     existing,
@@ -270,12 +307,7 @@ export function main(
     const inSync = onDisk === serialized;
     if (parsed.json) {
       console.log(
-        JSON.stringify({
-          epicSlug,
-          derived: true,
-          written: false,
-          features: file.features,
-        }),
+        JSON.stringify(syncEnvelope(epicSlug, true, false, file.features)),
       );
     }
     return inSync ? 0 : 1;
@@ -290,12 +322,7 @@ export function main(
 
   if (parsed.json) {
     console.log(
-      JSON.stringify({
-        epicSlug,
-        derived: true,
-        written,
-        features: file.features,
-      }),
+      JSON.stringify(syncEnvelope(epicSlug, true, written, file.features)),
     );
   }
   return 0;

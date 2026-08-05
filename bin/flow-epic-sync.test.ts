@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { main, deriveBoard } from "./flow-epic-sync";
 import { writeState, type PipelineState } from "./lib/state";
 import { writeEpicRunState, type EpicRunState } from "./lib/epic-run-state";
@@ -109,14 +109,26 @@ describe("deriveBoard — pure whole-epic reconcile", () => {
   });
 
   it("quiet-diff: open, closed-unmerged, and no-PR-at-all all derive the same board", () => {
+    // A closed-unmerged PR: gh returns it for the unfiltered (open) query
+    // shape used to probe the self row, but never for the `--state merged`
+    // filtered query siblings use — model that explicitly rather than
+    // reusing the same stub as the "no PR at all" case, which could never
+    // distinguish a real bug in the merged-state filter.
+    const closedUnmergedGh: GhRunner = (argv) => {
+      const stateFiltered = argv.includes("--state");
+      return {
+        stdout: stateFiltered ? "[]" : JSON.stringify([{ number: 55 }]),
+        stderr: "",
+        exitCode: 0,
+      };
+    };
     const ghOpen = ghForHeads({}, { "feature-b": 55 });
-    const ghClosedUnmerged = ghForHeads({}, {}); // closed-unmerged never shows up either
     const ghNone = ghForHeads({}, {});
     const a = deriveBoard({ manifest: MANIFEST, existing: null, gh: ghOpen });
     const b = deriveBoard({
       manifest: MANIFEST,
       existing: null,
-      gh: ghClosedUnmerged,
+      gh: closedUnmergedGh,
     });
     const c = deriveBoard({ manifest: MANIFEST, existing: null, gh: ghNone });
     expect(serializeEpicStatus(a.file)).toBe(serializeEpicStatus(b.file));
@@ -130,6 +142,31 @@ describe("deriveBoard — pure whole-epic reconcile", () => {
       gh: ghFailing,
     });
     expect(derived).toBe(false);
+  });
+
+  it("skips the gh query for a row already committed merged+pr (latch would discard it anyway), but still queries not-started rows and the self row", () => {
+    let queriedHeads: string[] = [];
+    const gh: GhRunner = (argv) => {
+      const headIdx = argv.indexOf("--head");
+      queriedHeads.push(argv[headIdx + 1]);
+      return { stdout: "[]", stderr: "", exitCode: 0 };
+    };
+    const existing = {
+      version: 1 as const,
+      epicId: "watchlist",
+      features: { "feature-a": { status: "merged" as const, pr: 101 } },
+    };
+    const { file, derived } = deriveBoard({
+      manifest: MANIFEST,
+      existing,
+      gh,
+      selfFeatureId: "feature-c",
+    });
+    expect(derived).toBe(true);
+    expect(queriedHeads).not.toContain(slugify("feature-a"));
+    expect(queriedHeads).toContain(slugify("feature-b"));
+    expect(queriedHeads).toContain(slugify("feature-c"));
+    expect(file.features["feature-a"]).toEqual({ status: "merged", pr: 101 });
   });
 });
 
@@ -187,6 +224,72 @@ describe("main — CLI epic resolution + write disposition", () => {
     });
   });
 
+  it("--epic-feature overrides the self-mark id when paired with --epic-slug (optimistic self-mark even without an open PR)", () => {
+    seedRunState();
+    const gh = ghForHeads({}, {}); // no PR at all for feature-b
+    const exit = main(
+      ["--epic-slug", "watchlist", "--epic-feature", "feature-b"],
+      { gh, epicsDir, cwd: repoDir },
+    );
+    expect(exit).toBe(0);
+    const status = readCommittedStatus(path.dirname(manifestPath));
+    expect(status?.features["feature-b"]).toEqual({
+      status: "merged",
+      pr: undefined,
+    });
+  });
+
+  it("resolves the epic via --slug -> state.epic.slug -> selfFeatureId (the production /flow-pipeline invocation path, no --epic-slug)", () => {
+    const s: PipelineState = {
+      slug: "epic-feature-slug",
+      phase: "review",
+      repo: repoDir,
+      updatedAt: ISO,
+      epic: { slug: "watchlist", featureId: "feature-b" },
+    };
+    writeState(s, stateDir);
+    seedRunState();
+    const gh = ghForHeads({ "feature-b": 77 }, { "feature-b": 77 });
+    const exit = main(["--slug", "epic-feature-slug"], {
+      gh,
+      epicsDir,
+      cwd: repoDir,
+      stateDir,
+    });
+    expect(exit).toBe(0);
+    const status = readCommittedStatus(path.dirname(manifestPath));
+    expect(status?.features["feature-b"]).toEqual({
+      status: "merged",
+      pr: 77,
+    });
+  });
+
+  it("resolves the epic via FLOW_SLUG env -> state.epic.slug (no --slug, no --epic-slug)", () => {
+    const s: PipelineState = {
+      slug: "epic-feature-slug",
+      phase: "review",
+      repo: repoDir,
+      updatedAt: ISO,
+      epic: { slug: "watchlist", featureId: "feature-b" },
+    };
+    writeState(s, stateDir);
+    seedRunState();
+    const gh = ghForHeads({ "feature-b": 77 }, { "feature-b": 77 });
+    const exit = main([], {
+      gh,
+      epicsDir,
+      cwd: repoDir,
+      stateDir,
+      env: { FLOW_SLUG: "epic-feature-slug" } as NodeJS.ProcessEnv,
+    });
+    expect(exit).toBe(0);
+    const status = readCommittedStatus(path.dirname(manifestPath));
+    expect(status?.features["feature-b"]).toEqual({
+      status: "merged",
+      pr: 77,
+    });
+  });
+
   it("a slug whose state has no .epic exits 0, writes nothing, prints nothing", () => {
     const s: PipelineState = {
       slug: "plain-feature",
@@ -237,6 +340,34 @@ describe("main — CLI epic resolution + write disposition", () => {
       cwd: repoDir,
     });
     expect(inSyncExit).toBe(0);
+  });
+
+  it("--json prints the {epicSlug, derived, written, features} envelope shape", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+      });
+      expect(exit).toBe(0);
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed).toEqual({
+        epicSlug: "watchlist",
+        derived: true,
+        written: true,
+        features: {
+          "feature-a": { status: "merged", pr: 101 },
+          "feature-b": { status: "not-started" },
+          "feature-c": { status: "not-started" },
+        },
+      });
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });
 
