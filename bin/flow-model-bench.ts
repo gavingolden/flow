@@ -104,6 +104,7 @@ export type Args = {
   arms?: BenchArm[];
   maxCalls?: number;
   delegateBin?: string;
+  timeout?: string;
   out: string;
   report: boolean;
   judgedFile?: string;
@@ -178,6 +179,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--delegate-bin":
         out.delegateBin = value;
         break;
+      case "--timeout":
+        out.timeout = value;
+        break;
       case "--out":
         out.out = value;
         break;
@@ -212,6 +216,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     arms: out.arms,
     maxCalls: out.maxCalls,
     delegateBin: out.delegateBin,
+    timeout: out.timeout,
     out: out.out,
     report: out.report ?? false,
     judgedFile: out.judgedFile,
@@ -438,6 +443,7 @@ export async function runBench(
     args.fixturesDir,
     args.out,
     deps,
+    args.timeout,
   );
 
   const envelopes = await dispatchWithRetries(deps, fanoutEntries, {

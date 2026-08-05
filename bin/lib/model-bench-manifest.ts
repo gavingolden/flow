@@ -202,6 +202,10 @@ export function toFanoutEntries(
     writeFile: (p: string, data: string) => void;
     mkdirp: (d: string) => void;
   },
+  // Per-call agy timeout (flow-delegate --timeout grammar, e.g. "15m").
+  // The 5m default proved too short for the incumbent's long-thinking
+  // attempts on the large c2b prompt (observed: 7/10 timeouts at ~280s).
+  timeout?: string,
 ): FanoutManifestEntry[] {
   const byId = new Map(cases.map((c) => [c.id, c]));
   const promptsDir = join(outDir, "prompts");
@@ -224,6 +228,7 @@ export function toFanoutEntries(
       outputFormat: "json",
       out: join(outDir, "raw", `${id}.md`),
     };
+    if (timeout) entry.timeout = timeout;
     if (e.arm === "schema" && c.jsonSchemaFile) {
       entry.jsonSchema = join(fixturesDir, c.id, c.jsonSchemaFile);
     } else if (e.arm === "free-form" && c.jsonSchemaFile) {
