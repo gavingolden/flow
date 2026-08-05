@@ -2386,13 +2386,6 @@ describe("runEpicCli done", () => {
     return manifestPath;
   }
 
-  const ghMerged = (pr: number): GhRunner =>
-    vi.fn(() => ({
-      exitCode: 0,
-      stdout: JSON.stringify([{ number: pr }]),
-      stderr: "",
-    }));
-
   const ghFailing: GhRunner = vi.fn(() => ({
     exitCode: 1,
     stdout: "",
