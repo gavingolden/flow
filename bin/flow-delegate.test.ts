@@ -93,6 +93,50 @@ describe("parseArgs", () => {
     expect(args.skipPermissions).toBe(true);
     expect(args.prompt).toBe("x");
   });
+
+  it("parses --output-format, --json-schema, and --structured-fallback", () => {
+    const args = parseArgs([
+      "--prompt",
+      "x",
+      "--output-format",
+      "json",
+      "--json-schema",
+      "/schema.json",
+    ]) as Args;
+    expect(args.outputFormat).toBe("json");
+    expect(args.jsonSchema).toBe("/schema.json");
+    expect(args.structuredFallback).toBeUndefined();
+
+    const fallbackArgs = parseArgs([
+      "--prompt",
+      "x",
+      "--structured-fallback",
+      "/schema.json",
+    ]) as Args;
+    expect(fallbackArgs.structuredFallback).toBe("/schema.json");
+    expect(fallbackArgs.jsonSchema).toBeUndefined();
+  });
+
+  it("rejects an --output-format value outside the text|json enum", () => {
+    expect(parseArgs(["--prompt", "x", "--output-format", "yaml"])).toEqual({
+      error: `--output-format must be "text" or "json"`,
+    });
+  });
+
+  it("rejects --json-schema together with --structured-fallback", () => {
+    expect(
+      parseArgs([
+        "--prompt",
+        "x",
+        "--json-schema",
+        "/a.json",
+        "--structured-fallback",
+        "/b.json",
+      ]),
+    ).toEqual({
+      error: "--json-schema and --structured-fallback are mutually exclusive",
+    });
+  });
 });
 
 describe("buildAgyArgv", () => {
@@ -143,6 +187,55 @@ describe("buildAgyArgv", () => {
     expect(count).toBe(2);
     expect(argv).toContain("/a");
     expect(argv).toContain("/b");
+  });
+
+  it("the agy argv is byte-identical to today's when no new flags are passed", () => {
+    const argv = buildAgyArgv(
+      argsFor(["--model", "Gemini 3.1 Pro (High)", "--timeout", "10m"]),
+      "do research",
+    );
+    expect(argv).toEqual([
+      "--sandbox",
+      "--print-timeout",
+      "10m",
+      "--model",
+      "Gemini 3.1 Pro (High)",
+      "-p",
+      "do research",
+    ]);
+  });
+
+  it("appends --output-format before the trailing -p", () => {
+    const argv = buildAgyArgv(
+      argsFor(["--output-format", "json"]),
+      "do research",
+    );
+    const ofIndex = argv.indexOf("--output-format");
+    expect(ofIndex).toBeGreaterThanOrEqual(0);
+    expect(argv[ofIndex + 1]).toBe("json");
+    expect(argv[argv.length - 2]).toBe("-p");
+    expect(argv[argv.length - 1]).toBe("do research");
+  });
+
+  it("appends --json-schema before the trailing -p", () => {
+    const argv = buildAgyArgv(
+      argsFor(["--json-schema", "/schema.json"]),
+      "do research",
+    );
+    const jsIndex = argv.indexOf("--json-schema");
+    expect(jsIndex).toBeGreaterThanOrEqual(0);
+    expect(argv[jsIndex + 1]).toBe("/schema.json");
+    expect(argv[argv.length - 2]).toBe("-p");
+    expect(argv[argv.length - 1]).toBe("do research");
+  });
+
+  it("--structured-fallback contributes no agy flag", () => {
+    const argv = buildAgyArgv(
+      argsFor(["--structured-fallback", "/schema.json"]),
+      "do research",
+    );
+    expect(argv).not.toContain("--structured-fallback");
+    expect(argv).not.toContain("/schema.json");
   });
 });
 
@@ -343,6 +436,115 @@ describe("run", () => {
     run(["--prompt", "hi", "--out", "/tmp/out.md"], deps);
     expect(envelope(deps).artifactPath).toBe("/tmp/out.md");
     expect(deps.calls.agy[0]!.outPath).toBe("/tmp/out.md");
+  });
+});
+
+describe("run — --output-format json envelope lift", () => {
+  it("lifts durationSeconds and usage from the agy JSON artifact", () => {
+    const deps = makeDeps({
+      readFile: () =>
+        JSON.stringify({
+          duration_seconds: 12.5,
+          usage: { input_tokens: 100, output_tokens: 20 },
+        }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      durationSeconds: 12.5,
+      usage: { input_tokens: 100, output_tokens: 20 },
+    });
+  });
+
+  it("leaves durationSeconds/usage absent and still reports ran:true on an unparseable artifact", () => {
+    const deps = makeDeps({
+      readFile: () => "not json at all",
+    });
+    const code = run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(code).toBe(0);
+    const env = envelope(deps);
+    expect(env.ran).toBe(true);
+    expect(env.durationSeconds).toBeUndefined();
+    expect(env.usage).toBeUndefined();
+  });
+
+  it("does not attempt an envelope lift when --output-format is omitted", () => {
+    const deps = makeDeps();
+    run(["--prompt", "hi"], deps);
+    const env = envelope(deps);
+    expect(env.durationSeconds).toBeUndefined();
+    expect(env.usage).toBeUndefined();
+  });
+});
+
+describe("run — --structured-fallback parse-validate-retry-once", () => {
+  const SCHEMA_PATH = "/schema.json";
+  const schemaText = JSON.stringify({
+    required: ["ok"],
+    properties: { ok: { type: "boolean" } },
+  });
+
+  it("reports structuredParse:'ok' with parseRetries:1 when the retry succeeds", () => {
+    let artifactReads = 0;
+    const deps = makeDeps({
+      readFile: (p) => {
+        if (p === SCHEMA_PATH) return schemaText;
+        artifactReads++;
+        return artifactReads === 1 ? "not json at all" : '{"ok":true}';
+      },
+    });
+    const code = run(
+      ["--prompt", "hi", "--structured-fallback", SCHEMA_PATH],
+      deps,
+    );
+    expect(code).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      structuredParse: "ok",
+      parseRetries: 1,
+    });
+    // Initial call + exactly one retry.
+    expect(deps.calls.agy).toHaveLength(2);
+  });
+
+  it("reports ran:true structuredParse:'failed' with parseRetries:1 when both parses fail", () => {
+    const deps = makeDeps({
+      readFile: (p) => (p === SCHEMA_PATH ? schemaText : "still not json"),
+    });
+    const code = run(
+      ["--prompt", "hi", "--structured-fallback", SCHEMA_PATH],
+      deps,
+    );
+    expect(code).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      structuredParse: "failed",
+      parseRetries: 1,
+    });
+    expect(deps.calls.agy).toHaveLength(2);
+  });
+
+  it("reports structuredParse:'ok' with parseRetries:0 when the first parse succeeds", () => {
+    const deps = makeDeps({
+      readFile: (p) => (p === SCHEMA_PATH ? schemaText : '{"ok":true}'),
+    });
+    run(["--prompt", "hi", "--structured-fallback", SCHEMA_PATH], deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      structuredParse: "ok",
+      parseRetries: 0,
+    });
+    expect(deps.calls.agy).toHaveLength(1);
+  });
+
+  it("inlines the schema into the prompt sent to agy, never as a --json-schema flag", () => {
+    const deps = makeDeps({
+      readFile: (p) => (p === SCHEMA_PATH ? schemaText : '{"ok":true}'),
+    });
+    run(["--prompt", "hi", "--structured-fallback", SCHEMA_PATH], deps);
+    const argv = deps.calls.agy[0]!.argv;
+    expect(argv).not.toContain("--json-schema");
+    expect(argv[argv.length - 1]).toContain(schemaText.trim());
   });
 });
 

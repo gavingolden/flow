@@ -62,6 +62,15 @@ export type ManifestEntry = {
   timeout?: string;
   addDirs?: string[];
   out?: string;
+  // "text" (default, unspecified) or "json" — forwarded to flow-delegate's
+  // own --output-format, which gates its durationSeconds/usage envelope lift.
+  outputFormat?: "text" | "json";
+  // Wire-level schema file (flow-delegate's --json-schema, sent to agy).
+  // Mutually exclusive with structuredFallback at flow-delegate's own arg
+  // parser; the fanout just forwards whichever is present.
+  jsonSchema?: string;
+  // Local parse-and-validate schema file (flow-delegate's --structured-fallback).
+  structuredFallback?: string;
 };
 
 export type FanoutArgs = {
@@ -79,6 +88,13 @@ export type EntryResult = {
   artifactPath?: string;
   skipReason?: string;
   durationMs?: number;
+  // Projected straight from the child envelope — see the LATENCY PROVENANCE
+  // note on runPool for why this is a distinct field from durationMs, never
+  // a replacement for it.
+  durationSeconds?: number;
+  usage?: Record<string, number>;
+  parseRetries?: number;
+  structuredParse?: "ok" | "failed";
 };
 
 export type FanoutResult = {
@@ -98,6 +114,12 @@ export type DelegateEnvelope = {
   skipReason?: string;
   exitCode?: number;
   durationMs?: number;
+  // agy's own model-time reading, lifted by flow-delegate in
+  // --output-format json mode — see the LATENCY PROVENANCE note on runPool.
+  durationSeconds?: number;
+  usage?: Record<string, number>;
+  parseRetries?: number;
+  structuredParse?: "ok" | "failed";
 };
 
 export type FanoutDeps = {
@@ -203,6 +225,11 @@ export function entryToDelegateArgv(
     argv.push("--prompt-file", entry.promptFile);
   if (entry.timeout) argv.push("--timeout", entry.timeout);
   for (const dir of entry.addDirs ?? []) argv.push("--add-dir", dir);
+  if (entry.outputFormat) argv.push("--output-format", entry.outputFormat);
+  if (entry.jsonSchema) argv.push("--json-schema", entry.jsonSchema);
+  if (entry.structuredFallback) {
+    argv.push("--structured-fallback", entry.structuredFallback);
+  }
   return argv;
 }
 
@@ -257,6 +284,14 @@ function emitResult(
 // Bounded-pool executor: at most `concurrency` runDelegate calls in flight at
 // once, draining the queue as each resolves. Budget is enforced at the call
 // site (only dispatched entries reach here).
+//
+// LATENCY PROVENANCE (load-bearing): `durationMs` below is ALWAYS the pool's
+// own wall-clock measurement (covers skips too, which carry no envelope
+// duration at all) — never the child envelope's timing. `durationSeconds` is
+// a SEPARATE field: agy's own model-time reading, projected straight from
+// the child envelope, untouched by pool wall-clock. The two coexist and are
+// never conflated — durationMs answers "how long did the pool wait for this
+// entry", durationSeconds answers "how long did the model itself take".
 async function runPool(
   deps: FanoutDeps,
   jobs: Array<{ entry: ManifestEntry; outPath: string }>,
@@ -283,6 +318,16 @@ async function runPool(
         };
         if (envelope.artifactPath) record.artifactPath = envelope.artifactPath;
         if (envelope.skipReason) record.skipReason = envelope.skipReason;
+        if (envelope.durationSeconds !== undefined) {
+          record.durationSeconds = envelope.durationSeconds;
+        }
+        if (envelope.usage !== undefined) record.usage = envelope.usage;
+        if (envelope.parseRetries !== undefined) {
+          record.parseRetries = envelope.parseRetries;
+        }
+        if (envelope.structuredParse !== undefined) {
+          record.structuredParse = envelope.structuredParse;
+        }
       } catch (err) {
         // A thrown dispatch is a graceful skip for this entry, mirroring
         // flow-delegate's spawn-throw → agy-error contract.

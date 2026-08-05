@@ -62,6 +62,7 @@ import {
   readFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import { parseStructured } from "./lib/structured-response";
 
 const DEFAULT_TIMEOUT = "5m";
 const DEFAULT_TASK = "default";
@@ -75,6 +76,18 @@ export type Args = {
   addDirs: string[];
   out?: string;
   task: string;
+  // "text" (default, unspecified) or "json" — passed straight through to
+  // agy's `--output-format`, and also gates the duration_seconds/usage
+  // envelope-lift in `run()`.
+  outputFormat?: "text" | "json";
+  // Path to a JSON-Schema file passed to agy's own `--json-schema` for
+  // wire-level constrained decoding. Mutually exclusive with
+  // structuredFallback — they are the two arms of the schema A/B.
+  jsonSchema?: string;
+  // Path to a JSON-Schema file used LOCALLY (never sent to agy): the schema
+  // is inlined into the prompt as an instruction, and the response is
+  // parsed/validated with `parseStructured`, retried once on failure.
+  structuredFallback?: string;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
@@ -111,6 +124,18 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--task":
         out.task = value;
         break;
+      case "--output-format":
+        if (value !== "text" && value !== "json") {
+          return { error: `--output-format must be "text" or "json"` };
+        }
+        out.outputFormat = value;
+        break;
+      case "--json-schema":
+        out.jsonSchema = value;
+        break;
+      case "--structured-fallback":
+        out.structuredFallback = value;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -118,6 +143,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   }
   if ((out.prompt !== undefined) === (out.promptFile !== undefined)) {
     return { error: "exactly one of --prompt or --prompt-file is required" };
+  }
+  // --json-schema (wire-level, sent to agy) and --structured-fallback
+  // (local parse-and-validate) are the two arms of the schema A/B and must
+  // never coexist on one call.
+  if (out.jsonSchema !== undefined && out.structuredFallback !== undefined) {
+    return {
+      error: "--json-schema and --structured-fallback are mutually exclusive",
+    };
   }
   return {
     prompt: out.prompt,
@@ -128,6 +161,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     addDirs: out.addDirs,
     out: out.out,
     task: out.task ?? DEFAULT_TASK,
+    outputFormat: out.outputFormat,
+    jsonSchema: out.jsonSchema,
+    structuredFallback: out.structuredFallback,
   };
 }
 
@@ -138,6 +174,12 @@ export function buildAgyArgv(args: Args, prompt: string): string[] {
   if (args.skipPermissions) argv.push("--dangerously-skip-permissions");
   if (args.model) argv.push("--model", args.model);
   for (const dir of args.addDirs) argv.push("--add-dir", dir);
+  // --output-format / --json-schema must land BEFORE the trailing -p — a
+  // flag placed after the positional prompt is swallowed into the prompt
+  // text (see the module header). --structured-fallback contributes no agy
+  // flag: it is a purely local parse-and-validate path.
+  if (args.outputFormat) argv.push("--output-format", args.outputFormat);
+  if (args.jsonSchema) argv.push("--json-schema", args.jsonSchema);
   argv.push("-p", prompt);
   return argv;
 }
@@ -174,13 +216,72 @@ function emit(deps: Deps, envelope: Record<string, unknown>): number {
   return 0;
 }
 
+// Reads outPath as a JSON envelope (the shape agy itself writes when
+// `--output-format json` is set) and lifts its `duration_seconds` / `usage`
+// fields. NEVER throws — an unreadable or unparseable artifact, or one that
+// carries neither field, simply yields an empty projection.
+function liftJsonEnvelope(
+  deps: Deps,
+  outPath: string,
+): { durationSeconds?: number; usage?: Record<string, number> } {
+  let raw: string;
+  try {
+    raw = deps.readFile(outPath);
+  } catch {
+    return {};
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return {};
+  }
+  const obj = parsed as Record<string, unknown>;
+  const lifted: { durationSeconds?: number; usage?: Record<string, number> } =
+    {};
+  if (typeof obj.duration_seconds === "number") {
+    lifted.durationSeconds = obj.duration_seconds;
+  }
+  if (
+    typeof obj.usage === "object" &&
+    obj.usage !== null &&
+    !Array.isArray(obj.usage)
+  ) {
+    lifted.usage = obj.usage as Record<string, number>;
+  }
+  return lifted;
+}
+
+// Re-reads outPath as the model's raw response text and validates it against
+// the structured-fallback schema. NEVER throws — an unreadable artifact is
+// reported as a parse failure, same as an unparseable response.
+function attemptStructuredParse(
+  deps: Deps,
+  outPath: string,
+  schema: unknown,
+): ReturnType<typeof parseStructured> {
+  let text: string;
+  try {
+    text = deps.readFile(outPath);
+  } catch {
+    return {
+      ok: false,
+      reason: "could not read artifact for structured parse",
+    };
+  }
+  return parseStructured(text, schema);
+}
+
 export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   const deps = resolveDeps(depsOverride);
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     console.error(`flow-delegate: ${parsed.error}`);
     console.error(
-      "usage: flow-delegate (--prompt <text> | --prompt-file <path>) [--model <variant>] [--timeout <godur>] [--skip-permissions] [--add-dir <dir>]... [--out <path>] [--task <name>]",
+      "usage: flow-delegate (--prompt <text> | --prompt-file <path>) [--model <variant>] [--timeout <godur>] [--skip-permissions] [--add-dir <dir>]... [--out <path>] [--task <name>] [--output-format text|json] [--json-schema <path>] [--structured-fallback <path>]",
     );
     return 2;
   }
@@ -204,6 +305,38 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       );
       return 2;
     }
+  }
+
+  // --structured-fallback reads its schema file locally (never sent to agy)
+  // and inlines it into the prompt as an instruction. A missing/unreadable/
+  // malformed schema file is a usage/input error → exit 2, mirroring the
+  // --prompt-file precedent above.
+  let structuredSchema: unknown;
+  if (parsed.structuredFallback) {
+    if (!deps.fileExists(parsed.structuredFallback)) {
+      console.error(
+        `flow-delegate: json-schema file not found: ${parsed.structuredFallback}`,
+      );
+      return 2;
+    }
+    let schemaText: string;
+    try {
+      schemaText = deps.readFile(parsed.structuredFallback);
+    } catch {
+      console.error(
+        `flow-delegate: cannot read json-schema file: ${parsed.structuredFallback}`,
+      );
+      return 2;
+    }
+    try {
+      structuredSchema = JSON.parse(schemaText);
+    } catch {
+      console.error(
+        `flow-delegate: json-schema file is not valid JSON: ${parsed.structuredFallback}`,
+      );
+      return 2;
+    }
+    prompt = `${prompt}\n\nRespond with a single JSON object matching this shape (no prose, no markdown fence):\n${schemaText.trim()}`;
   }
 
   // Graceful skip: agy not installed → caller falls back to Claude.
@@ -238,7 +371,6 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       task: parsed.task,
     });
   }
-  const durationMs = deps.now() - start;
 
   if (result.exitCode !== 0) {
     const skipReason = looksUnauthenticated(result.stderr)
@@ -252,14 +384,53 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     });
   }
 
-  return emit(deps, {
+  // Schema-free fallback: parse-validate-retry-once. A retry spawn failure
+  // is swallowed (never thrown) — the re-attempted parse against the stale
+  // artifact simply stays failed, which is the correct twice-failed outcome.
+  let parseRetries: number | undefined;
+  let structuredParse: "ok" | "failed" | undefined;
+  if (parsed.structuredFallback) {
+    let attempt = attemptStructuredParse(deps, outPath, structuredSchema);
+    parseRetries = 0;
+    if (!attempt.ok) {
+      parseRetries = 1;
+      try {
+        deps.runAgy(buildAgyArgv(parsed, prompt), outPath);
+      } catch {
+        // fall through — attempt below re-reads the stale (or absent)
+        // artifact and stays a failed parse, never a throw.
+      }
+      attempt = attemptStructuredParse(deps, outPath, structuredSchema);
+    }
+    structuredParse = attempt.ok ? "ok" : "failed";
+  }
+
+  // Computed AFTER any structured-fallback retry so it covers the full
+  // wall-clock cost of the call, including the retry.
+  const durationMs = deps.now() - start;
+
+  const envelope: Record<string, unknown> = {
     ran: true,
     task: parsed.task,
     model: parsed.model ?? null,
     artifactPath: outPath,
     exitCode: 0,
     durationMs,
-  });
+  };
+  if (parsed.outputFormat === "json") {
+    const lifted = liftJsonEnvelope(deps, outPath);
+    if (lifted.durationSeconds !== undefined) {
+      envelope.durationSeconds = lifted.durationSeconds;
+    }
+    if (lifted.usage !== undefined) {
+      envelope.usage = lifted.usage;
+    }
+  }
+  if (parsed.structuredFallback) {
+    envelope.structuredParse = structuredParse;
+    envelope.parseRetries = parseRetries;
+  }
+  return emit(deps, envelope);
 }
 
 function defaultAgyOnPath(): boolean {
