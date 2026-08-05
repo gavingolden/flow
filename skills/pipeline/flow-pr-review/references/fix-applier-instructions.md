@@ -254,8 +254,13 @@ but the load-bearing record is the artifact field, not the summary.
 
 ## 5. Mark-shipped sweep (roadmap + epic board)
 
-If `docs/roadmap.md` does not exist in the worktree, skip to step 6 — many
-repos don't have one and that's fine.
+Two independent halves: 5a-5c (roadmap) and 5d (epic status board). They
+gate on different preconditions — the roadmap-absent skip below covers only
+5a-5c, never 5d.
+
+If `docs/roadmap.md` does not exist in the worktree, skip 5a-5c (many repos
+don't have one and that's fine) and go straight to 5d, which runs
+regardless of `docs/roadmap.md`'s presence.
 
 Otherwise, edit `docs/roadmap.md` so the merged-state marker for the current
 PR (and any drifted prior PRs) lands in this PR's own diff:
@@ -308,6 +313,9 @@ produces:
 merged on main: #X, #Y`.
 
 ### 5d. Sync the epic status board
+
+Runs unconditionally when step 5 is entered, whether or not `docs/roadmap.md`
+exists — the roadmap-absent skip above applies only to 5a-5c.
 
 Probe `command -v flow-epic-sync` first. If it's absent, take a named skip
 (the AGENTS.md optional-module degrade rule) and move on to step 6 — not
