@@ -31,6 +31,7 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { readState } from "./lib/state";
 import { FLOW_STATE_DIR, FLOW_EPICS_DIR } from "./lib/paths";
@@ -45,6 +46,7 @@ import {
   type BoardRow,
   type FeatureStatus,
 } from "./lib/epic-reconcile";
+import { readCommittedStatus } from "./lib/epic-status-schema";
 import { defaultGh, type GhRunner, type GitRunner } from "./lib/resume-probes";
 
 // --- Budgets ----------------------------------------------------------------
@@ -249,6 +251,7 @@ export function assembleFeatureContext(
       runState,
       readFeatureState: (s) => readState(s, deps.stateDir),
       maxParallel: runState.maxParallel ?? 3,
+      committedStatus: readCommittedStatus(path.dirname(runState.manifestPath)),
     });
     board = result.board;
     status = board.find((r) => r.id === featureId)?.status;

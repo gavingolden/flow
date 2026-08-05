@@ -1518,6 +1518,7 @@ function runEpicLs(options: EpicOptions): number {
       readFeatureState: options.readFeatureState,
       maxParallel:
         rs.maxParallel ?? (options.readMaxParallel ?? readEpicMaxParallel)(),
+      committedStatus: readCommittedStatus(path.dirname(rs.manifestPath)),
     });
     return {
       slug: rs.epicSlug,
@@ -1615,9 +1616,11 @@ Usage:
   flow epic done <slug> [--yes]
 
 Removes the recomputable ~/.flow/epics/<slug>/ runtime state directory (the
-orchestrator's run.json cache). Does NOT close the epic's design window or
-remove its ~/.flow/state/<slug>.json pipeline state — use \`flow done <slug>\`
-for those.
+orchestrator's run.json cache). Before removing it, best-effort heals the
+committed \`.flow/epics/<slug>/status.json\` board in the epic's working tree
+from GitHub (never blocks the archive on failure — see stderr). Does NOT
+close the epic's design window or remove its ~/.flow/state/<slug>.json
+pipeline state — use \`flow done <slug>\` for those.
 
 Options:
   --yes, -y             skip the confirmation prompt`);

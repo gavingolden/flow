@@ -2403,20 +2403,42 @@ describe("runEpicCli done", () => {
     const manifestPath = writeHealManifest("healed");
     seedRunWithManifest("healed", manifestPath);
     const statusPath = path.join(path.dirname(manifestPath), "status.json");
+    const runStateDir = path.join(epicsDir, "healed");
+
+    // Assert ORDERING, not just end state. `gh` is called synchronously
+    // from inside the heal step, strictly before that step's own
+    // `fs.writeFileSync(statusPath, ...)` and strictly before the run-state
+    // dir is deleted afterwards — so observing disk state from inside the
+    // `gh` stub pins down the sequence: if a future refactor swapped the
+    // heal/delete order, `runStateDir` would already be gone here.
+    const seenAtGhCall = { statusExists: true, runStateExists: false };
+    const gh: GhRunner = vi.fn(() => {
+      seenAtGhCall.statusExists = fs.existsSync(statusPath);
+      seenAtGhCall.runStateExists = fs.existsSync(runStateDir);
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify([{ number: 11 }]),
+        stderr: "",
+      };
+    });
 
     const code = runEpicCli(["done", "healed", "--yes"], {
       stateDir,
       epicsDir,
       cwd: repoDir,
-      gh: ghMerged(11),
+      gh,
     });
 
     expect(code).toBe(0);
+    // At the moment gh was queried (before the heal write and before the
+    // delete), status.json did not exist yet and run-state still did.
+    expect(seenAtGhCall.statusExists).toBe(false);
+    expect(seenAtGhCall.runStateExists).toBe(true);
     expect(fs.existsSync(statusPath)).toBe(true);
     const written = JSON.parse(fs.readFileSync(statusPath, "utf8"));
     expect(written.features.a).toEqual({ status: "merged", pr: 11 });
     // run-state is gone by the time the call returns.
-    expect(fs.existsSync(path.join(epicsDir, "healed"))).toBe(false);
+    expect(fs.existsSync(runStateDir)).toBe(false);
     expect(logs.join("\n")).toMatch(/epic status board: wrote/);
   });
 
