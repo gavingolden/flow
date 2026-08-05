@@ -572,6 +572,37 @@ fully off npm is a deliberate change, not something to do incidentally.
   path. For example:
   Before: "The CI poller exited with `status=timeout` after 20 minutes."
   After: "CI hasn't finished in 20 minutes — longer than normal, and it may be stuck."
+- **Emit instructions as scannable numbered steps.** A reader resuming a
+  paused task, following an escalation recipe, or working a checklist
+  should not have to segment a paragraph into actions before they can
+  start acting. When an instruction or action list carries two or more
+  discrete actions — a separate copy-pasteable command, or a separate
+  decision the reader must make — render it as a numbered imperative
+  list, one action per line: `1. <step>`, `2. <step>`, … . Detail rides
+  as an indented sub-bullet under the step it belongs to, never bundled
+  onto the step line itself; name the acting party at the start of a
+  step when more than one party acts (you run a command, the reader
+  decides something, a subagent reports back), so the reader never has
+  to infer who does what. A trailing qualifier on one command (e.g.
+  "and inspect its output") is detail, not a second action, and stays on
+  the step line. Three carve-outs: (1) a single discrete action stays
+  inline — never padded into a one-item numbered list just to look
+  consistent with the multi-step cases; (2) a checklist using `- [ ]`
+  checkbox items (e.g. manual test steps a human ticks off) keeps its
+  checkbox form and is never renumbered to ordinals, since downstream
+  tooling frequently counts unchecked boxes as a gate signal — checklist
+  items take the one-action-per-box rule, not the numbering; (3) a fact
+  recap (a status summary of what already happened) stays
+  one-fact-per-line and is out of scope, because numbering a recap of
+  the past implies an execution order that never existed. For example:
+  Before: "Attach to the session, inspect the log for the failure, then
+  redirect the skill with a fix hint."
+  After:
+  ```
+  1. Attach to the session.
+  2. Inspect the log for the failure.
+  3. Redirect the skill with a fix hint.
+  ```
 - **Consider the middle ground when a request is framed as a binary choice.**
   When a prompt poses an either/or — "should it work like A or B?",
   "store it in the URL or the database?", "fast or simple?" — the two

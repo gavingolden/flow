@@ -97,75 +97,122 @@ export const DEFAULT_NEXT_ACTION =
 // reason tags documented in references/failure-recovery.md's cap table
 // (plus the inline ones across SKILL.md). New escalation tags added to
 // the cap table must also be added here.
+// Multi-action recipes carry an embedded newline: `<header>\n  1. <step>\n  2.
+// <step>` — see `pushNextAction` below and `references/pause-output-contract.md`
+// `## Step contract` for the shape rule. A recipe with only one discrete
+// action (one copy-pasteable command or one decision) stays a plain
+// single-line string; it is never padded into a one-item numbered list.
 export const NEXT_ACTION_BY_REASON: Record<string, string> = {
-  "triage-ambiguous":
-    "Attach (flow attach <slug>); restate the request with a clearer intent (feature / bug / refactor / docs / infra / chore)",
-  "worktree-create-failed":
-    "Inspect the flow-new-worktree stderr in scrollback; check disk space, branch-name collisions, then flow feature resume <slug>",
-  "plan-missing":
-    "Attach (flow attach <slug>); re-run /flow-pipeline with a more specific description, or invoke /flow-product-planning manually in the worktree",
-  "pr-missing":
-    "PR creation failed upstream — check gh auth status, branch protection, and network reachability, then flow feature resume <slug>",
-  "scout-missing":
-    "Attach (flow attach <slug>); re-invoke /flow-new-feature directly so the scout subagent runs again",
-  "approval-ambiguous":
-    "Attach (flow attach <slug>); reply with one of approve / redirect <new direction> / cancel",
-  "implement-failed":
-    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/ for skill output, then redirect /flow-new-feature with a fix hint",
-  "verify-exhausted":
-    "Attach (flow attach <slug>); redirect /flow-verify with the failure hint from <worktree>/.flow-tmp/verify-failure-N.log",
-  "ci-hang":
-    "Attach (flow attach <slug>); inspect GitHub Actions for the stalled check, then flow feature resume <slug>",
-  "pr-blocked":
-    "Branch protection blocks the merge (failing required check, missing required review, CODEOWNERS, or linear-history) and waiting cannot clear it. Satisfy the protection rule on GitHub, then flow feature resume <slug>",
-  "ci-fix-exhausted":
-    "Attach (flow attach <slug>); inspect the last CI failure log, then redirect /flow-new-feature mode=fix with a targeted fix hint",
-  "review-fix-exhausted":
-    "Attach (flow attach <slug>); inspect the unresolved /flow-pr-review findings on the PR, then redirect /flow-new-feature mode=fix",
-  "review-failed":
-    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/pr-review-result.json (if present), then re-invoke /flow-pr-review <PR>",
-  "review-partial":
-    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/pr-review-result.json's .missed_steps, then re-invoke /flow-pr-review <PR> --resume-from <step>",
-  "gh-error":
-    "Attach (flow attach <slug>); check gh auth status and network reachability, then flow feature resume <slug>",
+  "triage-ambiguous": `The request's intent is ambiguous.
+  1. Attach (flow attach <slug>).
+  2. Restate the request with a clearer intent (feature / bug / refactor / docs / infra / chore).`,
+  "worktree-create-failed": `Worktree creation failed.
+  1. Inspect the flow-new-worktree stderr in scrollback for disk space or branch-name collisions.
+  2. Once resolved, run flow feature resume <slug>`,
+  "plan-missing": `The plan file is missing.
+  1. Attach (flow attach <slug>).
+  2. Re-run /flow-pipeline with a more specific description, or invoke /flow-product-planning manually in the worktree.`,
+  "pr-missing": `PR creation failed upstream.
+  1. Check gh auth status, branch protection, and network reachability.
+  2. Then run flow feature resume <slug>`,
+  "scout-missing": `The scout artifact is missing.
+  1. Attach (flow attach <slug>).
+  2. Re-invoke /flow-new-feature directly so the scout subagent runs again.`,
+  "approval-ambiguous": `The approval reply is ambiguous.
+  1. Attach (flow attach <slug>).
+  2. Reply with one of approve / redirect <new direction> / cancel.`,
+  "implement-failed": `Implementation failed.
+  1. Attach (flow attach <slug>).
+  2. Inspect <worktree>/.flow-tmp/ for skill output.
+  3. Redirect /flow-new-feature with a fix hint.`,
+  "verify-exhausted": `Verify retries are exhausted.
+  1. Attach (flow attach <slug>).
+  2. Redirect /flow-verify with the failure hint from <worktree>/.flow-tmp/verify-failure-N.log`,
+  "ci-hang": `CI appears stalled.
+  1. Attach (flow attach <slug>).
+  2. Inspect GitHub Actions for the stalled check.
+  3. Once resolved, run flow feature resume <slug>`,
+  "pr-blocked": `Branch protection blocks the merge (failing required check, missing required review, CODEOWNERS, or linear-history), and waiting cannot clear it.
+  1. Satisfy the protection rule on GitHub.
+  2. Then run flow feature resume <slug>`,
+  "ci-fix-exhausted": `CI-fix retries are exhausted.
+  1. Attach (flow attach <slug>).
+  2. Inspect the last CI failure log.
+  3. Redirect /flow-new-feature mode=fix with a targeted fix hint.`,
+  "review-fix-exhausted": `Review-fix retries are exhausted.
+  1. Attach (flow attach <slug>).
+  2. Inspect the unresolved /flow-pr-review findings on the PR.
+  3. Redirect /flow-new-feature mode=fix`,
+  "review-failed": `The review run failed.
+  1. Attach (flow attach <slug>).
+  2. Inspect <worktree>/.flow-tmp/pr-review-result.json (if present).
+  3. Re-invoke /flow-pr-review <PR>`,
+  "review-partial": `The review run stopped partway through.
+  1. Attach (flow attach <slug>).
+  2. Inspect <worktree>/.flow-tmp/pr-review-result.json's .missed_steps
+  3. Re-invoke /flow-pr-review <PR> --resume-from <step>`,
+  "gh-error": `A GitHub CLI call failed.
+  1. Attach (flow attach <slug>).
+  2. Check gh auth status and network reachability.
+  3. Then run flow feature resume <slug>`,
   "pr-closed-without-merge":
     "Decide: reopen the PR (gh pr reopen <pr>) or run flow done <slug> to clean up",
   "pr-closed-mid-flight":
     "Decide: reopen the PR (gh pr reopen <pr>) or run flow done <slug> to clean up",
-  "test-steps-section-missing":
-    "Attach (flow attach <slug>); edit the PR body to add a ## Test Steps section, then flow feature resume <slug>",
+  "test-steps-section-missing": `The PR body has no Test Steps section.
+  1. Attach (flow attach <slug>).
+  2. Edit the PR body to add a ## Test Steps section.
+  3. Then run flow feature resume <slug>`,
   "gate-override-without-confirmation":
     "The PR is gated (unchecked Test Steps remain) and flow-merge-guard refused the merge. Validate the unchecked steps and merge through GitHub yourself, or reply with a fresh, explicit instruction to merge this gated PR anyway so the supervisor can confirm and record the override",
-  "merge-failed":
-    "Inspect <worktree>/.flow-tmp/merge-resolver-result.json (if present); resolve conflicts manually; then (cd <repo> && gh pr merge --squash <pr>)",
-  "merge-resolver-missing-artifact":
-    "Inspect <worktree>/.flow-tmp/ for partial resolver state; resolve conflicts manually; then (cd <repo> && gh pr merge --squash <pr>)",
-  "merge-resolver-spawn-denied":
-    "The permission system refused the merge-resolver subagent spawn. Recover manually: cd <worktree> && git fetch origin <base> && git merge origin/<base>; then STOP and resolve every conflict marker in your editor before committing. Once resolved: git add <resolved-files>, git commit, git push. If the push is rejected non-fast-forward, that means origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force. Then (cd <repo> && gh pr merge --squash <pr>)",
+  "merge-failed": `The merge-conflict resolver failed.
+  1. Inspect <worktree>/.flow-tmp/merge-resolver-result.json (if present).
+  2. Resolve conflicts manually.
+  3. Then run (cd <repo> && gh pr merge --squash <pr>).`,
+  "merge-resolver-missing-artifact": `The merge-conflict resolver artifact is missing.
+  1. Inspect <worktree>/.flow-tmp/ for partial resolver state.
+  2. Resolve conflicts manually.
+  3. Then run (cd <repo> && gh pr merge --squash <pr>).`,
+  "merge-resolver-spawn-denied": `The permission system refused the merge-resolver subagent spawn.
+  1. Recover manually: run cd <worktree> && git fetch origin <base> && git merge origin/<base>
+  2. STOP and resolve every conflict marker in your editor before committing.
+  3. Once resolved, run git add <resolved-files>, git commit, git push
+  4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
+  5. Then run (cd <repo> && gh pr merge --squash <pr>).`,
   "branch-mismatch":
     "Inspect git reflog and git worktree list before any further git commands; do NOT auto-recover",
-  "terminal-regression":
-    "A terminal-phase state file was about to be regressed to a non-terminal phase (likely an ambient-pane slug race from 'flow feature create' inside a flow window). Inspect ~/.flow/state/<slug>.json; if the victim is genuinely terminal, restore it with flow-state-update --phase <merged|gated|...> --force --slug <victim-slug>; do NOT auto-recover",
-  "cross-branch-operation-attempted":
-    "Inspect git worktree list and the failed command's stderr; the supervisor refused to cross worktrees; resolve manually",
-  "task-tool-unavailable":
-    "Restart claude (or upgrade the CLI) so the Task tool is surfaced top-level, then flow feature resume <slug>",
+  "terminal-regression": `A terminal-phase state file was about to be regressed to a non-terminal phase (likely an ambient-pane slug race from 'flow feature create' inside a flow window).
+  1. Inspect ~/.flow/state/<slug>.json
+  2. If the victim is genuinely terminal, restore it with flow-state-update --phase <merged|gated|...> --force --slug <victim-slug>; do NOT auto-recover.`,
+  "cross-branch-operation-attempted": `The supervisor refused to cross worktrees.
+  1. Inspect git worktree list and the failed command's stderr.
+  2. Resolve manually.`,
+  "task-tool-unavailable": `The Task tool is unavailable.
+  1. Restart claude (or upgrade the CLI) so the Task tool is surfaced top-level.
+  2. Then run flow feature resume <slug>`,
   "state-missing-on-resume":
     "Run flow feature create <description> afresh; ~/.flow/state/<slug>.json is missing so resume cannot proceed",
   "worktree-missing-on-resume":
     "Decide: recreate the worktree manually (git worktree add) or run flow done <slug> to clean up",
   "flow-setup-upgrade-failed":
     "Run flow install --upgrade manually from the canonical install root and inspect its output",
-  "fix-applier-missing-artifact":
-    "Inspect git log on the feature branch and the PR body's Local Follow-ups section before re-invoking /flow-pr-review",
-  "pr-review-missing-artifact":
-    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/ for partial state, then re-invoke /flow-pr-review <PR>",
-  "coder-failed":
-    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/coder-result.json (if present), then re-invoke the caller skill",
-  "smoketest-needs-creds":
-    "The UI-smoke pass needs a test-user credential it could not infer. Provide the test-user credential env var(s) named in .flow/ui-validation.json's credentialEnvVars (in your local .env or shell env), then flow feature resume <slug>",
-  "state-file-missing-on-start":
-    'The launch likely died before writing state. Check ~/.flow/state/<slug>.json; if it is missing, re-run flow feature create "<description>". Never work inline on the base branch while state is missing',
+  "fix-applier-missing-artifact": `Fix-applier's result artifact is missing.
+  1. Inspect git log on the feature branch and the PR body's Local Follow-ups section.
+  2. Then re-invoke /flow-pr-review`,
+  "pr-review-missing-artifact": `The PR-review result artifact is missing.
+  1. Attach (flow attach <slug>).
+  2. Inspect <worktree>/.flow-tmp/ for partial state.
+  3. Re-invoke /flow-pr-review <PR>`,
+  "coder-failed": `The edit-applier subagent failed.
+  1. Attach (flow attach <slug>).
+  2. Inspect <worktree>/.flow-tmp/coder-result.json (if present).
+  3. Re-invoke the caller skill.`,
+  "smoketest-needs-creds": `The UI-smoke pass needs a test-user credential it could not infer.
+  1. Provide the test-user credential env var(s) named in .flow/ui-validation.json's credentialEnvVars (in your local .env or shell env).
+  2. Then run flow feature resume <slug>`,
+  "state-file-missing-on-start": `The launch likely died before writing state.
+  1. Check ~/.flow/state/<slug>.json
+  2. If it is missing, never work inline on the base branch — re-run flow feature create "<description>"`,
 };
 
 // One entry per NEXT_ACTION_BY_REASON key, listing the EXACT
@@ -326,9 +373,35 @@ function nextActionForReason(reason: string | undefined): string {
   const mapped = NEXT_ACTION_BY_REASON[head];
   if (!mapped) return DEFAULT_NEXT_ACTION;
   if (head === "task-tool-unavailable" && suffix.length > 0) {
-    return `${mapped} (spawn site: ${suffix})`;
+    // For a multi-line recipe the suffix belongs on the header (first)
+    // line, never on the last numbered step — it names the spawn site
+    // the escalation is about, not a qualifier on the final action.
+    const newlineIdx = mapped.indexOf("\n");
+    if (newlineIdx === -1) {
+      return `${mapped} (spawn site: ${suffix})`;
+    }
+    const header = mapped.slice(0, newlineIdx);
+    const rest = mapped.slice(newlineIdx);
+    return `${header} (spawn site: ${suffix})${rest}`;
   }
   return mapped;
+}
+
+/**
+ * Pushes the NEXT ACTION row onto `lines`. A single-line recipe renders
+ * exactly as before: `NEXT ACTION: <text>`. A multi-line recipe (an
+ * embedded-newline `<header>\n  1. <step>\n  2. <step>` string — see
+ * `references/pause-output-contract.md` `## Step contract`) renders its
+ * header on the `NEXT ACTION:` row and every subsequent line verbatim,
+ * one per array entry, so the numbered steps land on their own lines
+ * once `lines` is newline-joined.
+ */
+function pushNextAction(lines: string[], text: string): void {
+  const parts = text.split("\n");
+  lines.push(`NEXT ACTION: ${parts[0]}`);
+  for (let i = 1; i < parts.length; i++) {
+    lines.push(parts[i]);
+  }
 }
 
 // Collapse newlines + trim. The renderer accepts free-form `why`
@@ -408,7 +481,7 @@ function renderNeedsHuman(inputs: GateSummaryInputs): string {
   const why =
     oneLine(inputs.why) || (inputs.reason ? oneLine(inputs.reason) : "");
   if (why) lines.push(`WHY: ${why}`);
-  lines.push(`NEXT ACTION: ${nextActionForReason(inputs.reason)}`);
+  pushNextAction(lines, nextActionForReason(inputs.reason));
   appendFollowups(lines, inputs.deferredBlock);
   const reasonText = inputs.reason ? oneLine(inputs.reason) : "<reason>";
   lines.push(`NEEDS HUMAN: ${reasonText}`);

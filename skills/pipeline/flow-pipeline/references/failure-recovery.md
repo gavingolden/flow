@@ -68,18 +68,26 @@ ci-fix loops _and_ 2 review-fix loops before escalating.
 
 ### What "escalate" means
 
-- Render the NEEDS HUMAN block via `flow-gate-summary --status
+The order below is load-bearing: the NEEDS HUMAN block renders BEFORE
+the state file's terminal transition, so a reader watching scrollback
+sees the reason before the phase flips. All four steps are supervisor
+actions with no user step in between, so no actor prefix is needed here
+(compare the per-variant procedures in §(c) below, where the actor
+alternates and each step names it). Shape rule:
+`references/pause-output-contract.md` `## Step contract`.
+
+1. Render the NEEDS HUMAN block via `flow-gate-summary --status
 needs-human --reason <tag>` (carrying any inline context as
-  `--why`). The helper emits `STATUS:` / optional `PR:` / `WHY:` /
-  `NEXT ACTION:` / optional `FOLLOW-UPS:` rows above the sentinel; the
-  sentinel line itself (`NEEDS HUMAN: <reason>`) remains
-  byte-identical as the **final line** of the block.
-- Run `flow-state-update "$SLUG" --phase needs-human` so `flow ls`
-  surfaces the stall.
-- Leave the worktree intact. Leave the PR intact. **Do not** call
-  `flow-remove-worktree`.
-- End the supervisor's conversation turn. The user attaches and
-  types a redirect (or runs `flow done <name>` to abandon).
+   `--why`). The helper emits `STATUS:` / optional `PR:` / `WHY:` /
+   `NEXT ACTION:` / optional `FOLLOW-UPS:` rows above the sentinel; the
+   sentinel line itself (`NEEDS HUMAN: <reason>`) remains byte-identical
+   as the **final line** of the block.
+2. Run `flow-state-update "$SLUG" --phase needs-human` so `flow ls`
+   surfaces the stall.
+3. Leave the worktree intact. Leave the PR intact. **Do not** call
+   `flow-remove-worktree`.
+4. End the supervisor's conversation turn. The user attaches and types
+   a redirect (or runs `flow done <name>` to abandon).
 
 The helper maintains a per-reason `NEXT_ACTION_BY_REASON` mapping;
 new escalation reasons added to the cap table below must also be
@@ -195,8 +203,10 @@ no longer matches the `.flow-branch` marker written by
 `flow-new-worktree`. This means a peer pipeline (or a stray manual
 git command) renamed this branch out from under us — the same family
 of failure as the 2026-05-01 incident. The mechanical guard refused
-to write the phase transition; the supervisor must NOT retry.
-Escalate immediately:
+to write the phase transition; the supervisor must NOT retry. Shape
+rule: `references/pause-output-contract.md` `## Step contract`.
+
+1. **Supervisor:** escalate immediately:
 
 ```bash
 flow-gate-summary --status needs-human --reason branch-mismatch \
@@ -205,10 +215,10 @@ flow-state-update --phase needs-human  # may itself fail; that's ok, scrollback 
 flow-notify --status needs-human --reason "branch-mismatch"
 ```
 
-There is no auto-recovery — branch state is load-bearing and the
-user must inspect (`git reflog`, `git worktree list`) to decide
-whether the rename was malicious, accidental, or expected. Leave the
-worktree + PR intact.
+2. **User:** inspect `git reflog` and `git worktree list` to decide
+   whether the rename was malicious, accidental, or expected. There is
+   no auto-recovery — branch state is load-bearing. The worktree and
+   PR stay intact throughout.
 
 ### Terminal-regression escalation (no retries)
 
@@ -218,8 +228,11 @@ of `merged`, `gated`, `needs-human`, `cancelled`, or `epic-approved`,
 but the requested transition would move to a non-terminal phase. This
 signals an ambient-pane race that wrote to the wrong pipeline's state:
 `resolveSlugFromPane()` resolved a stale or mismatched slug and the
-write was blocked by the mechanical guard. The supervisor must NOT retry.
-Escalate immediately:
+write was blocked by the mechanical guard. The supervisor must NOT
+retry. Shape rule: `references/pause-output-contract.md`
+`## Step contract`.
+
+1. **Supervisor:** escalate immediately:
 
 ```bash
 flow-gate-summary --status needs-human --reason terminal-regression \
@@ -228,20 +241,21 @@ flow-state-update --phase needs-human     # may itself fail; that's ok, scrollba
 flow-notify --status needs-human --reason "terminal-regression"
 ```
 
-There is no auto-recovery — the guard blocked the write precisely to
-avoid corrupting a finished pipeline's terminal state. Leave the worktree
-and PR intact for the user to inspect.
-
-If you suspect the victim pipeline's state was already corrupted by a
-prior race, the operational recovery for an already-corrupted pipeline is:
+2. **User:** inspect the state file and decide whether the victim
+   pipeline is genuinely terminal. There is no auto-recovery — the guard
+   blocked the write precisely to avoid corrupting a finished pipeline's
+   terminal state. The worktree and PR stay intact for inspection.
+3. **User (only if the victim's state was already corrupted by a prior
+   race):** direct the supervisor to run the operational recovery for an
+   already-corrupted pipeline:
 
 ```bash
 flow-state-update --phase <merged|gated|needs-human|...> --force --slug <victim-slug>
 ```
 
-`--force` bypasses the regression guard; `--slug` targets the specific
-pipeline rather than relying on pane resolution. Use only after confirming
-which pipeline's state needs correction.
+`--force` bypasses the regression guard; `--slug` targets the
+specific pipeline rather than relying on pane resolution. Use only
+after confirming which pipeline's state needs correction.
 
 ### Task-tool unavailable (no retries)
 
@@ -253,7 +267,10 @@ has surfaced neither alias of the one-shot subagent-spawn primitive
 top-level in the current session. The supervisor must NOT fall back
 to in-line execution; in-line fallback breaks the context-isolation
 contract each Task-tool exemption is justified by (PR #124 was the
-inaugural silent-fallback regression). Escalate immediately:
+inaugural silent-fallback regression). Shape rule:
+`references/pause-output-contract.md` `## Step contract`.
+
+1. **Supervisor:** escalate immediately:
 
 ```bash
 flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"
@@ -264,15 +281,19 @@ flow-state-update --phase needs-human
 flow-notify --status needs-human --reason "task-tool-unavailable: <exemption-name>"
 ```
 
-The helper parses the `:`-suffix and appends ` (spawn site:
-<exemption-name>)` to `NEXT_ACTION_BY_REASON["task-tool-unavailable"]` so
-the NEXT ACTION line names the exact spawn site; the sentinel line is
-byte-exact `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
-`<exemption-name>` is one of `pr-review-gatekeeper`,
-`pr-review-multi-agent-review`, `pr-review-fix-applier`,
-`pr-review-consolidator-validator`, `product-planning-discovery`,
-`new-feature-scout`, `coder-edit-applier`, `flow-pipeline-merge-resolver`,
-`flow-pipeline-verify-loop`.
+2. **User:** restart `claude` (or upgrade the CLI) so the Task tool is
+   surfaced top-level.
+3. **User:** resume the pipeline (`flow feature resume <slug>`).
+   - The helper parses the `:`-suffix and appends ` (spawn site:
+<exemption-name>)` to the `NEXT ACTION:` **header line** of
+     `NEXT_ACTION_BY_REASON["task-tool-unavailable"]` so the rendered
+     block names the exact spawn site; the sentinel line is byte-exact
+     `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
+   - `<exemption-name>` is one of `pr-review-gatekeeper`,
+     `pr-review-multi-agent-review`, `pr-review-fix-applier`,
+     `pr-review-consolidator-validator`, `product-planning-discovery`,
+     `new-feature-scout`, `coder-edit-applier`, `flow-pipeline-merge-resolver`,
+     `flow-pipeline-verify-loop`.
 
 No retry is appropriate — the deferred-tool surfacing is environmental;
 remediation is to re-run in a session where `Task` or `Agent` is surfaced

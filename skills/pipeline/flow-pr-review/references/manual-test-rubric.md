@@ -468,6 +468,8 @@ A manual step is only runnable by someone with no prior knowledge of the change 
 
 Concretely, every manual or human-verification step must (a) name the exact command, click path, or setting that satisfies each precondition it states; (b) assume no prior knowledge of project-specific toggles, env vars, or jargon — define the term the first time it appears, or replace it with the action; (c) never use bare "turn X on" / "with X enabled" / "once X is configured" phrasing without the concrete steps that get there. This is orthogonal to functional-vs-subjective and to "Automate first" — it governs the prose of the items that legitimately stay manual, so the human running them is never blocked on an undocumented setup step.
 
+The `Comprehensive` worked example below already demonstrates the shape `skills/pipeline/flow-pipeline/references/pause-output-contract.md` `## Step contract` names for a checklist: each `- [ ]` item carries exactly one imperative action, with the precondition detail riding alongside it rather than a second action bolted onto the same line. That section's rules apply here too — one action per box, the actor named when the step is not performed by the reader — with one explicit carve-out: Test Steps keep their `- [ ]` checkbox form and are never renumbered to ordinals, because the auto-merge gate counts unchecked boxes.
+
 ### Before / after: an undocumented precondition
 
 A step asserted a precondition without saying how to reach it. The toggle was gated behind `import.meta.env.DEV`, and the relevant lines only appeared once the browser DevTools console was raised to its Verbose level (the logger routes through `console.debug`) — none of which the step said.

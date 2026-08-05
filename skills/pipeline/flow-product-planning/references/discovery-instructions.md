@@ -1135,7 +1135,14 @@ Always emit the heading. Decide the body based on the PRD:
   project-specific toggles or jargon, and never a bare "turn X on" / "with X enabled" without
   the concrete steps. See
   `skills/pipeline/flow-pr-review/references/manual-test-rubric.md` ("Precondition concreteness")
-  for the rule and a before/after example.
+  for the rule and a before/after example. Bind each `- [ ]` item to exactly one imperative action,
+  matching the rubric's worked example — split an item bundling setup and assertion into two
+  boxes; detail rides as an indented sub-bullet or a parenthetical, never a second action on
+  the same line; and name the actor when the step is not performed by the reader.
+  Test Steps keep the `- [ ]` checkbox form and are NEVER renumbered to ordinals, because the
+  auto-merge gate counts unchecked boxes — see
+  `skills/pipeline/flow-pipeline/references/pause-output-contract.md` ("Step contract") for the
+  shape rule this carve-out belongs to.
 
 Open the `## Test Steps` section with this HTML comment, copied verbatim, between
 the heading and the first `- [ ]` item. The auto-merge gate strips HTML comments
