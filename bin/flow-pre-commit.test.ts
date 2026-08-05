@@ -1025,6 +1025,7 @@ describe(findNonExecutableHelpers, () => {
       entry("bin/flow-pr-static-analysis/cli.ts", "100644"),
       entry("bin/flow.ts", "100644"),
       entry("bin/flow-release.ts", "100644"),
+      entry("bin/flow-model-bench.ts", "100644"),
     ];
     expect(findNonExecutableHelpers(excluded)).toEqual([]);
   });
@@ -1156,6 +1157,10 @@ describe(isPathBoundHelper, () => {
 
   it("excludes the maintainer-only flow-release.ts", () => {
     expect(isPathBoundHelper("flow-release.ts")).toBe(false);
+  });
+
+  it("excludes the maintainer-only flow-model-bench.ts", () => {
+    expect(isPathBoundHelper("flow-model-bench.ts")).toBe(false);
   });
 
   it("excludes a non-.ts name", () => {

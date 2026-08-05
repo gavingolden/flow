@@ -172,9 +172,12 @@ describe("flow install", () => {
     const names = helpers.map((h) => h.displayName);
     expect(names).toContain("flow-annotate-pr");
     expect(names).toContain("flow-fetch-intent-comments");
-    // Maintainer-only: flow-release exists under bin/ but must never ship to a
-    // user's PATH (tree-mutating + tag-creating). Other helpers stay present.
+    // Maintainer-only: flow-release and flow-model-bench exist under bin/ but
+    // must never ship to a user's PATH (flow-release is tree-mutating +
+    // tag-creating; flow-model-bench burns real agy quota against a curated
+    // benchmark). Other helpers stay present.
     expect(names).not.toContain("flow-release");
+    expect(names).not.toContain("flow-model-bench");
     expect(names).toContain("flow-new-worktree");
   });
 
