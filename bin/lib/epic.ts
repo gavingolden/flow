@@ -50,6 +50,13 @@ import {
   validateEpicManifest,
   type EpicManifest,
 } from "./epic-manifest-schema";
+import {
+  EPIC_STATUS_FILENAME,
+  readCommittedStatus,
+  serializeEpicStatus,
+} from "./epic-status-schema";
+import { deriveBoard } from "../flow-epic-sync";
+import { defaultGh, type GhRunner } from "./resume-probes";
 import { validateDag } from "../flow-epic-dag";
 import {
   deriveWorktreePath,
@@ -231,6 +238,11 @@ export type EpicOptions = {
   readConfig?: ReadConfigFile;
   /** tmux-on-PATH probe seam for the launcher-backend guard (test only). */
   tmuxOnPath?: () => boolean;
+  /**
+   * gh seam for `runEpicDone`'s close-out status-board heal (test only;
+   * production uses `resume-probes.ts`'s `defaultGh`).
+   */
+  gh?: GhRunner;
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
@@ -1051,6 +1063,7 @@ function runEpicStatus(rest: string[], options: EpicOptions): number {
     readFeatureState: options.readFeatureState,
     maxParallel:
       rs.maxParallel ?? (options.readMaxParallel ?? readEpicMaxParallel)(),
+    committedStatus: readCommittedStatus(path.dirname(manifestPath!)),
   });
 
   if (json) {
@@ -1505,6 +1518,7 @@ function runEpicLs(options: EpicOptions): number {
       readFeatureState: options.readFeatureState,
       maxParallel:
         rs.maxParallel ?? (options.readMaxParallel ?? readEpicMaxParallel)(),
+      committedStatus: readCommittedStatus(path.dirname(rs.manifestPath)),
     });
     return {
       slug: rs.epicSlug,
@@ -1521,6 +1535,79 @@ function runEpicLs(options: EpicOptions): number {
   return 0;
 }
 
+/**
+ * `flow epic done`'s close-out heal: derive + write the final committed
+ * status board immediately before its run-state cache is deleted. Tolerant
+ * by construction — every failure path (unresolvable manifest, invalid
+ * manifest, gh unavailable, a thrown error) returns `ok: false` with a
+ * reason instead of throwing, so the caller can log-and-continue rather than
+ * block the archive.
+ */
+function healCommittedStatusBeforeArchive(
+  slug: string,
+  epicsDir: string,
+  cwd: string,
+  gh: GhRunner,
+): { ok: boolean; message: string } {
+  try {
+    const runState = readEpicRunState(slug, epicsDir);
+    let manifestPath = runState?.manifestPath ?? null;
+    if (!manifestPath) {
+      const repo = resolveRepoRoot(cwd);
+      if (repo) {
+        manifestPath = path.join(
+          repo,
+          epicDirRelative(slug),
+          EPIC_MANIFEST_FILENAME,
+        );
+      }
+    }
+    if (!manifestPath) {
+      return {
+        ok: false,
+        message: "epic status board: skipped (manifest not found)",
+      };
+    }
+    const loaded = loadCommittedManifest(manifestPath);
+    if (!loaded.ok) {
+      return {
+        ok: false,
+        message: `epic status board: skipped (${loaded.reason})`,
+      };
+    }
+    const epicDirAbs = path.dirname(manifestPath);
+    const existing = readCommittedStatus(epicDirAbs);
+    const { file, derived } = deriveBoard({
+      manifest: loaded.manifest,
+      existing,
+      gh,
+    });
+    if (!derived) {
+      return {
+        ok: false,
+        message: "epic status board: skipped (gh unavailable)",
+      };
+    }
+    const serialized = serializeEpicStatus(file);
+    const statusPath = path.join(epicDirAbs, EPIC_STATUS_FILENAME);
+    const onDisk = existing ? serializeEpicStatus(existing) : null;
+    if (onDisk === serialized) {
+      return {
+        ok: true,
+        message: `epic status board: already in sync (${statusPath})`,
+      };
+    }
+    fs.mkdirSync(epicDirAbs, { recursive: true });
+    fs.writeFileSync(statusPath, serialized);
+    return { ok: true, message: `epic status board: wrote ${statusPath}` };
+  } catch (e) {
+    return {
+      ok: false,
+      message: `epic status board: skipped (${e instanceof Error ? e.message : String(e)})`,
+    };
+  }
+}
+
 function runEpicDone(rest: string[], options: EpicOptions): number {
   if (argsContainHelp(rest)) {
     console.log(`flow epic done — remove an epic's per-machine run-state
@@ -1529,9 +1616,11 @@ Usage:
   flow epic done <slug> [--yes]
 
 Removes the recomputable ~/.flow/epics/<slug>/ runtime state directory (the
-orchestrator's run.json cache). Does NOT close the epic's design window or
-remove its ~/.flow/state/<slug>.json pipeline state — use \`flow done <slug>\`
-for those.
+orchestrator's run.json cache). Before removing it, best-effort heals the
+committed \`.flow/epics/<slug>/status.json\` board in the epic's working tree
+from GitHub (never blocks the archive on failure — see stderr). Does NOT
+close the epic's design window or remove its ~/.flow/state/<slug>.json
+pipeline state — use \`flow done <slug>\` for those.
 
 Options:
   --yes, -y             skip the confirmation prompt`);
@@ -1578,6 +1667,24 @@ Options:
       console.log(dim("flow epic done: aborted — nothing removed"));
       return 0;
     }
+  }
+
+  // Close-out heal: the last moment the epic is provably finished (its
+  // run-state is about to be deleted) and the last chance to catch an
+  // out-of-band merge before the per-machine cache this heal reads from is
+  // gone. NEVER blocks the archive — a gh failure or thrown error is
+  // reported on stderr only; the write is best-effort and committing it
+  // stays the user's call (no auto-commit on a base branch).
+  const heal = healCommittedStatusBeforeArchive(
+    slug,
+    epicsDir,
+    options.cwd ?? process.cwd(),
+    options.gh ?? defaultGh,
+  );
+  if (heal.ok) {
+    console.log(heal.message);
+  } else {
+    console.error(heal.message);
   }
 
   if (!deleteEpicRunState(slug, epicsDir)) {

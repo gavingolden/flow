@@ -362,3 +362,67 @@ describe("reconcile — external completion", () => {
     expect(result.toLaunch.map((f) => f.id)).toContain("b");
   });
 });
+
+describe("reconcile — committed-board floor", () => {
+  const committed = (
+    features: Record<string, { status: "merged" | "not-started"; pr?: number }>,
+  ) => ({ version: 1 as const, epicId: "watchlist", features });
+
+  it("classifies a feature merged from the committed board when it has no run.json record", () => {
+    const m = manifest([feat("a")]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({}),
+      maxParallel: 3,
+      committedStatus: committed({ a: { status: "merged", pr: 9 } }),
+    });
+    const row = result.board.find((r) => r.id === "a")!;
+    expect(row.status).toBe("merged");
+    expect(row.external).toBe(true);
+    expect(row.pr).toBe(9);
+    expect(result.summary.merged).toBe(1);
+    expect(result.epicStatus).toBe("done");
+  });
+
+  it("a present run.json record wins over a committed merged row (floor, not override)", () => {
+    const m = manifest([feat("a")]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({ a: {} }),
+      readFeatureState: phases({ a: "verify" }),
+      maxParallel: 3,
+      committedStatus: committed({ a: { status: "merged", pr: 9 } }),
+    });
+    const row = result.board.find((r) => r.id === "a")!;
+    expect(row.status).toBe("running");
+    expect(row.external).toBeUndefined();
+  });
+
+  it("a committed not-started row leaves the feature exactly as it is today", () => {
+    const m = manifest([feat("a")]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({}),
+      maxParallel: 3,
+      committedStatus: committed({ a: { status: "not-started" } }),
+    });
+    const row = result.board.find((r) => r.id === "a")!;
+    expect(row.status).toBe("ready");
+  });
+
+  it("committedStatus omitted/null reproduces today's behaviour byte-for-byte", () => {
+    const m = manifest([feat("a")]);
+    const withoutFloor = reconcile({
+      manifest: m,
+      runState: runState({}),
+      maxParallel: 3,
+    });
+    const withNull = reconcile({
+      manifest: m,
+      runState: runState({}),
+      maxParallel: 3,
+      committedStatus: null,
+    });
+    expect(withNull).toEqual(withoutFloor);
+  });
+});

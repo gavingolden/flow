@@ -133,6 +133,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-epic-resume-decide",
       "flow-epic-judge-context",
       "flow-epic-membership",
+      "flow-epic-sync",
       "flow-module-status",
       "flow-transcript-audit",
       "flow-conflict-marker-check",

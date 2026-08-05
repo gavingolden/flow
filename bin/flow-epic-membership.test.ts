@@ -155,6 +155,17 @@ describe("flow-epic-membership CLI", () => {
     });
   }
 
+  /** Same CLI invocation, but with an explicit repo-root cwd (a fresh git
+   * checkout) so the `resolveRepoRoot` fallback resolves there instead of
+   * flow's own real `.flow/epics/` directory. */
+  function runInRepo(args: string[], home: string, repoDir: string) {
+    return spawnSync(
+      "bun",
+      [path.join(REPO_ROOT, "bin", "flow-epic-membership.ts"), ...args],
+      { env: { ...process.env, HOME: home }, encoding: "utf8", cwd: repoDir },
+    );
+  }
+
   it("[Story 3] no .epic field on state → silent no-op, exit 0", () => {
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-membership-"));
     const stateDir = path.join(tmpHome, ".flow", "state");
@@ -307,5 +318,148 @@ describe("flow-epic-membership CLI", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("epic e");
     assertNoStopGuardSentinel(result.stdout);
+  });
+
+  it("[Story 6] committed status.json + no run.json renders the committed board instead of degradationBlock", () => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-membership-"));
+    const repoDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-membership-repo-"),
+    );
+    try {
+      spawnSync("git", ["init", "-q"], { cwd: repoDir });
+      const stateDir = path.join(tmpHome, ".flow", "state");
+      fs.mkdirSync(stateDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(stateDir, "my-feature.json"),
+        JSON.stringify({
+          slug: "my-feature",
+          phase: "merged",
+          repo: repoDir,
+          updatedAt: "2026-06-28T00:00:00Z",
+          epic: { slug: "e", featureId: "a" },
+        } satisfies PipelineState),
+      );
+
+      // No ~/.flow/epics/e/run.json anywhere — the fresh-machine case.
+      const epicDir = path.join(repoDir, ".flow", "epics", "e");
+      fs.mkdirSync(epicDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(epicDir, "manifest.json"),
+        JSON.stringify(manifest([feat("a")])),
+      );
+      fs.writeFileSync(
+        path.join(epicDir, "status.json"),
+        JSON.stringify({
+          version: 1,
+          epicId: "e",
+          features: { a: { status: "merged", pr: 42 } },
+        }),
+      );
+
+      const result = runInRepo(
+        ["--slug", "my-feature", "--terminal-state", "merged"],
+        tmpHome,
+        repoDir,
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain("(epic status unavailable)");
+      expect(result.stdout).toMatch(/^a\s+merged/m);
+      assertNoStopGuardSentinel(result.stdout);
+    } finally {
+      fs.rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  it("[Story 6b] neither committed status.json nor run.json → degradationBlock still fires unchanged", () => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-membership-"));
+    const repoDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-membership-repo-"),
+    );
+    try {
+      spawnSync("git", ["init", "-q"], { cwd: repoDir });
+      const stateDir = path.join(tmpHome, ".flow", "state");
+      fs.mkdirSync(stateDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(stateDir, "my-feature.json"),
+        JSON.stringify({
+          slug: "my-feature",
+          phase: "merged",
+          repo: repoDir,
+          updatedAt: "2026-06-28T00:00:00Z",
+          epic: { slug: "e", featureId: "a" },
+        } satisfies PipelineState),
+      );
+      // No run.json AND no status.json anywhere under repoDir.
+
+      const result = runInRepo(
+        ["--slug", "my-feature", "--terminal-state", "merged"],
+        tmpHome,
+        repoDir,
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("(epic status unavailable)");
+      assertNoStopGuardSentinel(result.stdout);
+    } finally {
+      fs.rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  it("[Story 7] MANDATORY REGRESSION: a committed self-mark row is suppressed at a gated terminal state but honored at a merged one", () => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-membership-"));
+    const stateDir = path.join(tmpHome, ".flow", "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, "my-feature.json"),
+      JSON.stringify({
+        slug: "my-feature",
+        phase: "gated",
+        repo: "/tmp/repo",
+        updatedAt: "2026-06-28T00:00:00Z",
+        epic: { slug: "e", featureId: "a" },
+      } satisfies PipelineState),
+    );
+
+    const epicDir = path.join(tmpHome, ".flow", "epics", "e");
+    fs.mkdirSync(epicDir, { recursive: true });
+    const manifestPath = path.join(epicDir, "manifest.json");
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest([feat("a")])));
+    // A committed status.json carrying THIS PR's own optimistic self-mark —
+    // written on the branch, not yet true on the base branch.
+    fs.writeFileSync(
+      path.join(epicDir, "status.json"),
+      JSON.stringify({
+        version: 1,
+        epicId: "e",
+        features: { a: { status: "merged", pr: 99 } },
+      }),
+    );
+    // run.json present but carries NO record for "a" — the sub-case the
+    // committed floor actually reads (a present record always wins and
+    // never consults committedStatus at all).
+    const rs: EpicRunState = {
+      epicSlug: "e",
+      repo: "/tmp/repo",
+      manifestPath,
+      manifestSha: "sha",
+      maxParallel: 1,
+      createdAt: "2026-06-28T00:00:00Z",
+      updatedAt: "2026-06-28T00:00:00Z",
+      features: {},
+    };
+    fs.writeFileSync(path.join(epicDir, "run.json"), JSON.stringify(rs));
+
+    const gatedResult = run(
+      ["--slug", "my-feature", "--terminal-state", "gated"],
+      tmpHome,
+    );
+    expect(gatedResult.status).toBe(0);
+    expect(gatedResult.stdout).not.toMatch(/^a\s+merged/m);
+
+    const mergedResult = run(
+      ["--slug", "my-feature", "--terminal-state", "merged"],
+      tmpHome,
+    );
+    expect(mergedResult.status).toBe(0);
+    expect(mergedResult.stdout).toMatch(/^a\s+merged/m);
   });
 });

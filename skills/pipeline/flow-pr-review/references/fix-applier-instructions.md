@@ -252,10 +252,15 @@ what the reviewer sees on the PR. Surface a one-line digest in your
 return summary so the wrapper's caller can preview the disposition,
 but the load-bearing record is the artifact field, not the summary.
 
-## 5. Roadmap mark-shipped sweep
+## 5. Mark-shipped sweep (roadmap + epic board)
 
-If `docs/roadmap.md` does not exist in the worktree, skip to step 6 — many
-repos don't have one and that's fine.
+Two independent halves: 5a-5c (roadmap) and 5d (epic status board). They
+gate on different preconditions — the roadmap-absent skip below covers only
+5a-5c, never 5d.
+
+If `docs/roadmap.md` does not exist in the worktree, skip 5a-5c (many repos
+don't have one and that's fine) and go straight to 5d, which runs
+regardless of `docs/roadmap.md`'s presence.
 
 Otherwise, edit `docs/roadmap.md` so the merged-state marker for the current
 PR (and any drifted prior PRs) lands in this PR's own diff:
@@ -306,6 +311,30 @@ produces:
 - If the sweep flipped additional rows beyond the self-mark, mention the
   count in the commit body: `Also swept N drifted row(s) for PRs already
 merged on main: #X, #Y`.
+
+### 5d. Sync the epic status board
+
+Runs unconditionally when step 5 is entered, whether or not `docs/roadmap.md`
+exists — the roadmap-absent skip above applies only to 5a-5c.
+
+Probe `command -v flow-epic-sync` first. If it's absent, take a named skip
+(the AGENTS.md optional-module degrade rule) and move on to step 6 — not
+every consumer repo carries the epic-orchestration module.
+
+Otherwise run it with no `--slug` argument:
+
+```bash
+flow-epic-sync
+```
+
+It resolves the epic slug ambiently ($FLOW_SLUG / the launch env) and is a
+no-op for a non-epic PR; it also exits 0 when `gh` is unavailable, so it
+never blocks this step.
+
+When it modifies `.flow/epics/<epic-slug>/status.json`, bundle the edit
+into the fix commit you are already making (steps 3–4 / 5a–5b). If it is
+the only change this run produced, use commit message `chore(epic): sync
+<epic-slug> status board (pr-review #$PR_NUMBER)`.
 
 ## 6. Pre-commit checks
 

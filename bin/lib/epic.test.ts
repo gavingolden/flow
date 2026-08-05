@@ -100,6 +100,7 @@ import {
   readEpicRunState,
   type EpicRunState,
 } from "./epic-run-state";
+import type { GhRunner } from "./resume-probes";
 
 let logs!: string[];
 let errors!: string[];
@@ -1602,6 +1603,30 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(payload.source).toMatch(/GitHub|git/);
   });
 
+  it("status: threads the committed board through so a merged committed row with no run.json record shows merged", () => {
+    gitInit();
+    const manifestPath = writeManifest("committed-floor", [
+      { id: "schema" },
+      { id: "backend", dependsOn: ["schema"] },
+    ]);
+    fs.writeFileSync(
+      path.join(path.dirname(manifestPath), "status.json"),
+      JSON.stringify({
+        version: 1,
+        epicId: "committed-floor",
+        features: { schema: { status: "merged", pr: 55 } },
+      }),
+    );
+    // No run.json seeded — this is the "fresh machine" case.
+    const code = runEpicCli(["status", "committed-floor"], {
+      cwd: repoDir,
+      epicsDir,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toMatch(/1\/2 merged/);
+  });
+
   it("status --json: renders all-unlaunched when a manifest exists but no run.json", () => {
     gitInit();
     writeManifest("ephem-json", [{ id: "a" }, { id: "b", dependsOn: ["a"] }]);
@@ -2323,6 +2348,107 @@ describe("runEpicCli done", () => {
       runEpicCli(["done", "silent", "--yes"], { stateDir, epicsDir }),
     ).toBe(0);
     expect(logs.join("\n")).not.toMatch(/flow done/);
+  });
+
+  // ── close-out status-board heal ────────────────────────────────────────────
+
+  function seedRunWithManifest(slug: string, manifestPath: string): void {
+    writeEpicRunState(
+      {
+        epicSlug: slug,
+        repo: repoDir,
+        manifestPath,
+        manifestSha: "abc",
+        maxParallel: 3,
+        createdAt: "2026-06-28T12:00:00Z",
+        updatedAt: "2026-06-28T12:00:00Z",
+        features: {},
+      },
+      epicsDir,
+    );
+  }
+
+  function writeHealManifest(slug: string): string {
+    const dir = path.join(repoDir, ".flow", "epics", slug);
+    fs.mkdirSync(dir, { recursive: true });
+    const manifestPath = path.join(dir, "manifest.json");
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        epicId: slug,
+        prompt: "p",
+        createdAt: "2026-06-28",
+        features: [
+          { id: "a", title: "A", description: "build a", dependsOn: [] },
+        ],
+      }),
+    );
+    return manifestPath;
+  }
+
+  const ghFailing: GhRunner = vi.fn(() => ({
+    exitCode: 1,
+    stdout: "",
+    stderr: "boom",
+  }));
+
+  it("writes the corrected status.json BEFORE deleting run.json", () => {
+    const manifestPath = writeHealManifest("healed");
+    seedRunWithManifest("healed", manifestPath);
+    const statusPath = path.join(path.dirname(manifestPath), "status.json");
+    const runStateDir = path.join(epicsDir, "healed");
+
+    // Assert ORDERING, not just end state. `gh` is called synchronously
+    // from inside the heal step, strictly before that step's own
+    // `fs.writeFileSync(statusPath, ...)` and strictly before the run-state
+    // dir is deleted afterwards — so observing disk state from inside the
+    // `gh` stub pins down the sequence: if a future refactor swapped the
+    // heal/delete order, `runStateDir` would already be gone here.
+    const seenAtGhCall = { statusExists: true, runStateExists: false };
+    const gh: GhRunner = vi.fn(() => {
+      seenAtGhCall.statusExists = fs.existsSync(statusPath);
+      seenAtGhCall.runStateExists = fs.existsSync(runStateDir);
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify([{ number: 11 }]),
+        stderr: "",
+      };
+    });
+
+    const code = runEpicCli(["done", "healed", "--yes"], {
+      stateDir,
+      epicsDir,
+      cwd: repoDir,
+      gh,
+    });
+
+    expect(code).toBe(0);
+    // At the moment gh was queried (before the heal write and before the
+    // delete), status.json did not exist yet and run-state still did.
+    expect(seenAtGhCall.statusExists).toBe(false);
+    expect(seenAtGhCall.runStateExists).toBe(true);
+    expect(fs.existsSync(statusPath)).toBe(true);
+    const written = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+    expect(written.features.a).toEqual({ status: "merged", pr: 11 });
+    // run-state is gone by the time the call returns.
+    expect(fs.existsSync(runStateDir)).toBe(false);
+    expect(logs.join("\n")).toMatch(/epic status board: wrote/);
+  });
+
+  it("a failing gh still completes the archive and reports the failure on stderr", () => {
+    const manifestPath = writeHealManifest("heal-gh-down");
+    seedRunWithManifest("heal-gh-down", manifestPath);
+
+    const code = runEpicCli(["done", "heal-gh-down", "--yes"], {
+      stateDir,
+      epicsDir,
+      cwd: repoDir,
+      gh: ghFailing,
+    });
+
+    expect(code).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "heal-gh-down"))).toBe(false);
+    expect(errors.join("\n")).toMatch(/epic status board: skipped/);
   });
 });
 
