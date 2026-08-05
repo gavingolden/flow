@@ -27,6 +27,28 @@ describe("parseStructured — extraction", () => {
       expect(result.reason).toMatch(/no JSON object could be extracted/i);
     }
   });
+
+  // findBalancedObjectSpan is sold as string-literal aware — a brace inside
+  // a string value must never desync the depth count. These three cases
+  // exercise the depth counter, `inString`, and `escaped` state transitions
+  // that a naive first-`{`-to-last-`}` slice would get wrong.
+  it("extracts a nested object wrapped in prose", () => {
+    const text = 'before {"a":{"b":1}} after';
+    const result = parseStructured(text, undefined);
+    expect(result).toEqual({ ok: true, value: { a: { b: 1 } } });
+  });
+
+  it("does not desync brace-depth counting on a brace inside a string value", () => {
+    const text = 'answer: {"note":"see {ref} and }"} done';
+    const result = parseStructured(text, undefined);
+    expect(result).toEqual({ ok: true, value: { note: "see {ref} and }" } });
+  });
+
+  it("handles an escaped quote inside a string value without ending the string early", () => {
+    const text = '{"s":"he said \\"hi\\""} trailing';
+    const result = parseStructured(text, undefined);
+    expect(result).toEqual({ ok: true, value: { s: 'he said "hi"' } });
+  });
 });
 
 describe("parseStructured — fail-closed validation", () => {
@@ -75,5 +97,17 @@ describe("parseStructured — fail-closed validation", () => {
   it("validates shape-only when the schema is not an object", () => {
     const result = parseStructured('{"anything":true}', null);
     expect(result).toEqual({ ok: true, value: { anything: true } });
+  });
+
+  it("fails closed when a required key with a declared type is present but null", () => {
+    // The presence check only treats `undefined` as missing, so a `null`
+    // value slips past it — this pins that it is still caught by the
+    // declared-type check right after.
+    const result = parseStructured('{"reasoning":null,"count":3}', schema);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/"reasoning"/);
+      expect(result.reason).toMatch(/string/i);
+    }
   });
 });

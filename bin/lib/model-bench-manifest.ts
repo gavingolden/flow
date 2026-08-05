@@ -143,7 +143,11 @@ export function classifyPreflight(
 // never be retried.
 export function isTransportSkip(skipReason: string | undefined): boolean {
   if (!skipReason) return false;
-  return /timeout|5\d\d|rate.?limit|not authenticated/i.test(skipReason);
+  // "not.?authenticated" (not a literal space) so this also matches the
+  // real skipReason flow-delegate.ts actually emits ("agy-not-
+  // authenticated", hyphenated) — a space-only pattern silently never
+  // matched that value, so the documented auth-blip retry never fired.
+  return /timeout|5\d\d|rate.?limit|not.?authenticated/i.test(skipReason);
 }
 
 export function resolveMaxCalls(
@@ -162,7 +166,11 @@ export function resolveMaxCalls(
 
 function entryId(e: ManifestEntry): string {
   const parts = [
-    e.caseId,
+    // caseId is free text from a committed fixture's case.json (validateCase
+    // only requires a non-empty string) and is also used to join filesystem
+    // paths elsewhere (toFanoutEntries/composePrompt) — sanitize it the same
+    // way as arm/model so it can never smuggle a path separator either.
+    e.caseId.replace(/[^A-Za-z0-9._-]+/g, "-"),
     // The "n/a" arm literal carries a slash — sanitize every part the same
     // way so a slot id can never smuggle a path separator into a filename.
     e.arm.replace(/[^A-Za-z0-9._-]+/g, "-"),
@@ -173,19 +181,30 @@ function entryId(e: ManifestEntry): string {
   return parts.join("--");
 }
 
+// The composed prompt is identical for every manifest slot sharing a
+// (caseId, size) — model/arm/warmup/repeat never change the bytes. Memoized
+// per call to toFanoutEntries (fresh Map per invocation, never a module-
+// level cache) so a case with many repeats/models/arms doesn't re-read and
+// re-concatenate the same (potentially multi-MB) input files once per slot.
 function composePrompt(
   c: BenchCase,
   fixturesDir: string,
   size: number | undefined,
   readFile: (p: string) => string,
+  cache?: Map<string, string>,
 ): string {
+  const cacheKey = `${c.id}::${size ?? "full"}`;
+  const cached = cache?.get(cacheKey);
+  if (cached !== undefined) return cached;
   const caseDir = join(fixturesDir, c.id);
   const promptText = readFile(join(caseDir, c.promptFile));
   const inputText = c.inputFiles
     .map((f) => `\n\n### ${f}\n\n${readFile(join(caseDir, f))}`)
     .join("");
   const truncated = size !== undefined ? inputText.slice(0, size) : inputText;
-  return `${promptText}${truncated}`;
+  const composed = `${promptText}${truncated}`;
+  cache?.set(cacheKey, composed);
+  return composed;
 }
 
 // Materializes each manifest slot's prompt (with size head-truncation
@@ -211,6 +230,7 @@ export function toFanoutEntries(
   const promptsDir = join(outDir, "prompts");
   deps.mkdirp(promptsDir);
   deps.mkdirp(join(outDir, "raw"));
+  const promptCache = new Map<string, string>();
   return manifest.map((e) => {
     const c = byId.get(e.caseId);
     if (!c)
@@ -219,7 +239,7 @@ export function toFanoutEntries(
     const promptFile = join(promptsDir, `${id}.md`);
     deps.writeFile(
       promptFile,
-      composePrompt(c, fixturesDir, e.size, deps.readFile),
+      composePrompt(c, fixturesDir, e.size, deps.readFile, promptCache),
     );
     const entry: FanoutManifestEntry = {
       task: id,

@@ -89,7 +89,15 @@ function translateJudged(
       if (!model || !entry) continue;
       const surface = caseSurfaces[entry.caseId];
       if (!surface) continue;
-      result[`${surface}::${model}`] = verdictValue;
+      const k = `${surface}::${model}`;
+      // Worst-wins aggregation: multiple judged attempts can land on the
+      // same (surface, candidate) pair, and the veto-only design (a blind
+      // "worse" downgrades a clear; "better" never upgrades) must not be
+      // iteration-order-dependent — a later "parity"/"better" must never
+      // erase an earlier "worse".
+      if (result[k] !== "worse") {
+        result[k] = verdictValue;
+      }
     }
     return result;
   } catch (err) {

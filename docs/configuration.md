@@ -157,22 +157,25 @@ emits). Absent key = today's default for that surface; a present but
 wrong-typed value warns on stderr and falls back to the default; never
 throws.
 
-| surface            | what it drives                                                              | default today                             |
-| ------------------ | --------------------------------------------------------------------------- | ----------------------------------------- |
-| `intentGuess`      | `/flow-pr-review` cross-model intent guess                                  | `Gemini 3.1 Pro (High)`                   |
-| `reviewLens`       | `/flow-pr-review` Gemini review lens                                        | `Gemini 3.1 Pro (High)`                   |
-| `researchGather`   | forced-research gather pass                                                 | `Gemini 3.1 Pro (High)`                   |
-| `researchRefute`   | forced-research adversarial refute pass                                     | `Claude Opus 4.6 (Thinking)`              |
-| `planReview`       | `/flow-pipeline` step 3 plan review, reviewer 1                             | `Gemini 3.1 Pro (High)`                   |
-| `planReviewSecond` | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2                   | `Claude Opus 4.6 (Thinking)`              |
-| `scout`            | delegate implementation scouting to agy instead of the Claude Task subagent | `null` (Task subagent, today's behaviour) |
+| surface            | what it drives                                                           | default today                             |
+| ------------------ | ------------------------------------------------------------------------ | ----------------------------------------- |
+| `intentGuess`      | `/flow-pr-review` cross-model intent guess                               | `Gemini 3.1 Pro (High)`                   |
+| `reviewLens`       | `/flow-pr-review` Gemini review lens                                     | `Gemini 3.1 Pro (High)`                   |
+| `researchGather`   | forced-research gather pass                                              | `Gemini 3.1 Pro (High)`                   |
+| `researchRefute`   | forced-research adversarial refute pass                                  | `Claude Opus 4.6 (Thinking)`              |
+| `planReview`       | `/flow-pipeline` step 3 plan review, reviewer 1                          | `Gemini 3.1 Pro (High)`                   |
+| `planReviewSecond` | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2                | `Claude Opus 4.6 (Thinking)`              |
+| `scout`            | reserved — not yet wired; scouting still spawns the Claude Task subagent | `null` (no effect on any code path today) |
 
 **Namespace disambiguation — `models.scout` vs `delegate.models.scout`:**
 these two keys share the `scout` suffix but mean opposite things and use
 disjoint value grammars. `models.scout` (see [Per-phase
 models](#per-phase-models)) is a **Claude Code model alias**
-(`opus`/`haiku`/`sonnet`/`fable`) for the Step-1b scout **Task subagent**.
-`delegate.models.scout` is an **agy variant display-name string** that, when
-set, means "delegate scouting to agy instead of spawning the Task subagent
-at all" — `null`/absent preserves today's Task-subagent behaviour. Setting
+(`opus`/`haiku`/`sonnet`/`fable`) for the Step-1b scout **Task subagent**,
+and it IS wired. `delegate.models.scout` is an **agy variant display-name
+string** that is meant to eventually mean "delegate scouting to agy instead
+of spawning the Task subagent at all" — but no code reads it yet (the
+default flip is gated on a benchmark clear that has not happened yet), so
+**setting it today is a silent no-op**: scouting keeps using the Claude
+Task subagent regardless of this key's value. Setting
 one has no effect on the other.

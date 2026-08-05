@@ -9,6 +9,7 @@ import {
   type Deps,
 } from "./flow-model-bench";
 import type { BenchCase, BenchResult } from "./lib/model-bench-schema";
+import { isTransportSkip } from "./lib/model-bench-manifest";
 import type { EntryResult, FanoutResult } from "./flow-delegate-fanout";
 
 // No test in this file ever spawns a real process or calls the real agy
@@ -153,6 +154,55 @@ describe("toFanoutEntries", () => {
     expect(bigWritten).toBe(`PROMPT-HEADER${combinedInput.slice(0, 500)}`);
     expect(smallWritten.length).toBeLessThan(bigWritten.length);
   });
+
+  it("memoizes the composed prompt per (caseId, size) — repeats/models never re-read the input files", () => {
+    const c = baseCase({ id: "c-repeat", repeats: 3 });
+    const fixturesDir = "fixtures";
+    const fs = fakeFs({
+      "fixtures/c-repeat/prompt.md": "PROMPT",
+      "fixtures/c-repeat/a.ts": "input text",
+    });
+    const readFileSpy = vi.fn(fs.readFile);
+    const manifest = buildManifest([c], ["model-a", "model-b"]).filter(
+      (e) => !e.warmup,
+    );
+    // 3 repeats x 2 models = 6 slots sharing one (caseId, size) key.
+    expect(manifest.length).toBe(6);
+    const entries = toFanoutEntries(manifest, [c], fixturesDir, "out", {
+      ...fs,
+      readFile: readFileSpy,
+    });
+    expect(entries).toHaveLength(6);
+    // Only the FIRST slot actually reads the fixture files (prompt.md +
+    // a.ts); every subsequent slot hits the memoized composed prompt.
+    expect(readFileSpy).toHaveBeenCalledTimes(2);
+  });
+
+  // Regression: entryId sanitizes arm/model but historically passed caseId
+  // through raw. A caseId containing "/" would smuggle a path separator
+  // into the slot id used for the prompt/raw filenames — the same
+  // nonexistent-directory bug commit 46c0eb6 fixed for the "n/a" arm.
+  it("sanitizes a slash in caseId out of the entry's task/prompt-file slot id", () => {
+    const c = baseCase({ id: "c/nested", repeats: 1 });
+    const fixturesDir = "fixtures";
+    const fs = fakeFs({
+      "fixtures/c/nested/prompt.md": "PROMPT",
+      "fixtures/c/nested/a.ts": "input text",
+    });
+    const manifest = buildManifest([c], ["m"]).filter((e) => !e.warmup);
+    const fanoutEntries = toFanoutEntries(
+      manifest,
+      [c],
+      fixturesDir,
+      "out",
+      fs,
+    );
+    for (const e of fanoutEntries) {
+      expect(e.task).not.toContain("/");
+      expect(e.promptFile!.split("/").pop()).not.toContain("nested/");
+      expect(e.out!.split("/").pop()).not.toContain("nested/");
+    }
+  });
 });
 
 describe("blind", () => {
@@ -268,6 +318,52 @@ describe("dispatchWithRetries", () => {
     expect(results.find((r) => r.task === "transport")!.ran).toBe(true);
     expect(results.find((r) => r.task === "refusal")!.ran).toBe(false);
   });
+
+  it("stops retrying a persistently-failing transport entry after the retry cap and records ran:false", async () => {
+    const manifest = [{ task: "transport", model: "m", promptFile: "p" }];
+    const skip = (): FanoutResult => ({
+      entries: [
+        makeEntryResult({
+          task: "transport",
+          ran: false,
+          skipReason: "timeout",
+        }),
+      ],
+      anyRan: false,
+      allSkipped: true,
+      calls: { attempted: 1, ran: 0, skipped: 1, budget: 1 },
+    });
+    const runFanout = vi.fn(async (): Promise<FanoutResult> => skip());
+    const deps = { runFanout, progress: vi.fn() } as unknown as Deps;
+    const results = await dispatchWithRetries(deps, manifest, {
+      concurrency: 1,
+      maxCalls: 1,
+      outDir: "out",
+      delegateBin: "/bin/x",
+    });
+    // One initial dispatch + exactly two retries, then it gives up.
+    expect(runFanout).toHaveBeenCalledTimes(3);
+    expect(results.find((r) => r.task === "transport")!.ran).toBe(false);
+  });
+});
+
+// Table test over isTransportSkip's documented policy boundaries: which
+// skipReason strings are treated as transient (worth retrying) vs permanent
+// (never retry, to avoid double-spending live agy quota on a failure a
+// retry can never fix).
+describe("isTransportSkip", () => {
+  it.each([
+    ["timeout waiting for response", true],
+    ["HTTP 503", true],
+    ["rate limit exceeded", true],
+    ["rate-limit exceeded", true],
+    ["agy-not-authenticated", true],
+    ["agy-error", false],
+    ["agy-not-found", false],
+    [undefined, false],
+  ])("isTransportSkip(%o) === %s", (reason, expected) => {
+    expect(isTransportSkip(reason as string | undefined)).toBe(expected);
+  });
 });
 
 describe("runBench max-calls", () => {
@@ -350,6 +446,84 @@ describe("runBench max-calls", () => {
     const opts = call[1] as { maxCalls: number };
     expect(opts.maxCalls).toBeGreaterThanOrEqual(manifestArg.length);
     expect(opts.maxCalls).toBe(manifestArg.length); // 1 repeat + 1 warm-up = 2
+  });
+
+  it("excludes warmup entries from the blinded judge packet", async () => {
+    const files = new Map<string, string>([
+      [
+        "fixtures/c1/case.json",
+        JSON.stringify({
+          id: "c1",
+          surface: "scout",
+          kind: "multi-file",
+          promptFile: "prompt.md",
+          inputFiles: ["a.ts"],
+          repeats: 1,
+          authoredAtCommit: "abc1234",
+          routable: true,
+        }),
+      ],
+      ["fixtures/c1/prompt.md", "prompt"],
+      ["fixtures/c1/a.ts", "input"],
+    ]);
+    const deps = inMemoryDeps({
+      readFile: (p) => {
+        // The runner reads each entry's raw artifact by its OWN computed
+        // out path (fanoutEntries[i].out), not by the mocked runFanout
+        // response below — match on the slot-id suffix baked into that
+        // path rather than hardcoding it.
+        if (p.includes("warmup")) return "warmup response text";
+        if (p.includes("--r0")) return "real response text";
+        const v = files.get(p);
+        if (v === undefined) throw new Error(`ENOENT: ${p}`);
+        return v;
+      },
+      writeFile: (p, data) => {
+        files.set(p, data);
+      },
+      fileExists: (p) => files.has(p),
+      runFanout: vi.fn(
+        async (m: unknown[]): Promise<FanoutResult> => ({
+          entries: [
+            makeEntryResult({
+              task: (m[0] as { task: string }).task,
+              ran: true,
+              artifactPath: (m[0] as { out: string }).out,
+            }),
+            makeEntryResult({
+              task: (m[1] as { task: string }).task,
+              ran: true,
+              artifactPath: (m[1] as { out: string }).out,
+            }),
+          ],
+          anyRan: true,
+          allSkipped: false,
+          calls: { attempted: 2, ran: 2, skipped: 0, budget: 2 },
+        }),
+      ),
+    });
+    // buildManifest produces one warm-up + one real slot for repeats:1.
+    const code = await runBench(
+      [
+        "--fixtures",
+        "fixtures",
+        "--models",
+        "m",
+        "--delegate-bin",
+        "/bin/flow-delegate.ts",
+        "--out",
+        "out",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    const results = JSON.parse(files.get("out/results.json")!);
+    expect(results.some((r: { warmup: boolean }) => r.warmup)).toBe(true);
+    const packet = JSON.parse(files.get("out/judge-packet.json")!);
+    const packetTexts = packet.map((p: { text: string }) => p.text);
+    expect(packetTexts).not.toContain("warmup response text");
+    expect(packet.length).toBe(1);
+    expect(packetTexts[0]).toBe("real response text");
   });
 
   it("honours an explicit --max-calls below the manifest length, but warns loudly on stderr", async () => {
@@ -553,6 +727,38 @@ describe("runBench --report", () => {
         { id: "r1", caseId: "c1", arm: "n/a", text: "alpha beta" },
       ]),
       "judged.json": JSON.stringify({ r1: "worse" }),
+    });
+    const code = await runBench(
+      [
+        "--report",
+        "--out",
+        "out",
+        "--fixtures",
+        "fixtures",
+        "--judged",
+        "judged.json",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    const verdicts = JSON.parse(deps.readFile("out/verdicts.json"));
+    expect(verdicts.matrix.scout[CANDIDATE].status).toBe("inconclusive");
+    expect(verdicts.matrix.scout[CANDIDATE].reason).toMatch(/blind judge/);
+  });
+
+  it("keeps a 'worse' veto even when a later attempt on the same pair judges 'parity' (worst-wins, not last-wins)", async () => {
+    const deps = reportDeps({
+      "out/judge-key.json": JSON.stringify({
+        r1: CANDIDATE,
+        r2: CANDIDATE,
+      }),
+      "out/judge-packet.json": JSON.stringify([
+        { id: "r1", caseId: "c1", arm: "n/a", text: "alpha beta" },
+        { id: "r2", caseId: "c1", arm: "n/a", text: "gamma delta" },
+      ]),
+      // Object key order pins iteration order: "worse" comes FIRST here, so
+      // a last-wins bug would let the later "parity" silently overwrite it.
+      "judged.json": JSON.stringify({ r1: "worse", r2: "parity" }),
     });
     const code = await runBench(
       [

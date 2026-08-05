@@ -77,13 +77,6 @@ import { resolveDelegateModel } from "./lib/delegate-models";
 
 export { extractGoalLine };
 
-// Non-null: only the "scout" surface's default is null; planReview /
-// planReviewSecond's defaults and every well-typed override are strings.
-// Resolved once at module load (delegate.models.<surface> in
-// ~/.flow/config.json, else the seeded default) so a config override
-// re-points either reviewer without a code change.
-const MODEL = resolveDelegateModel("planReview") as string;
-const SECOND_MODEL = resolveDelegateModel("planReviewSecond") as string;
 const DEFAULT_TASK = "plan-review";
 
 // The DEEP-tier combined --out preamble: names the convergence rule the
@@ -477,6 +470,16 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   if (!isPlanReviewEnabled(rawConfig)) {
     return emit(deps, { ran: false, skipReason: "plan-review-disabled" });
   }
+
+  // Resolved at call time (matching flow-gemini-lens / flow-gemini-intent-
+  // guess), not at module load: a module-load read hits the real
+  // ~/.flow/config.json before any test can inject an override, defeating
+  // the injectable-config-reader seam and breaking `npm run verify` for a
+  // maintainer with `delegate.models.planReview*` set. Non-null: only the
+  // "scout" surface's default is null; planReview / planReviewSecond's
+  // defaults and every well-typed override are strings.
+  const MODEL = resolveDelegateModel("planReview") as string;
+  const SECOND_MODEL = resolveDelegateModel("planReviewSecond") as string;
 
   // Scratch: the raw agy artifact (standard tier) and the deep-tier
   // manifest + fanout aggregate are all scratch siblings of --out; --out is

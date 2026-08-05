@@ -155,6 +155,38 @@ describe("fixture sweep: bin/fixtures/model-bench/*/", () => {
     expect(dirs).toEqual(dirs);
   });
 
+  it("every committed case.json validates against validateCase", () => {
+    const dirs = caseDirs();
+    for (const dir of dirs) {
+      const casePath = path.join(FIXTURES_ROOT, dir, "case.json");
+      if (!existsSync(casePath)) continue;
+      const parsed = JSON.parse(readFileSync(casePath, "utf8"));
+      const result = validateCase(parsed);
+      expect(
+        result,
+        `${dir}/case.json: ${!result.ok ? result.reason : ""}`,
+      ).toMatchObject({ ok: true });
+    }
+    // vacuous pass when no fixtures exist yet
+    expect(dirs).toEqual(dirs);
+  });
+
+  it("every committed truth.json validates against validateTruth", () => {
+    const dirs = caseDirs();
+    for (const dir of dirs) {
+      const truthPath = path.join(FIXTURES_ROOT, dir, "truth.json");
+      if (!existsSync(truthPath)) continue;
+      const parsed = JSON.parse(readFileSync(truthPath, "utf8"));
+      const result = validateTruth(parsed);
+      expect(
+        result,
+        `${dir}/truth.json: ${!result.ok ? result.reason : ""}`,
+      ).toMatchObject({ ok: true });
+    }
+    // vacuous pass when no fixtures exist yet
+    expect(dirs).toEqual(dirs);
+  });
+
   // c10's prompt.md lifts the gatekeeper's documented skip rules verbatim so
   // the case measures the real job. Nothing otherwise couples the two, so a
   // later edit to the spawn prompt would silently leave the fixture scoring

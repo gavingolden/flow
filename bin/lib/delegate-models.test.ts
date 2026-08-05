@@ -141,10 +141,10 @@ describe("resolveDelegateModel", () => {
       "utf8",
     );
     expect(researchRunSrc).toContain(
-      'DEFAULT_GATHER_MODEL = resolveDelegateModel("researchGather")',
+      'defaultGatherModel = resolveDelegateModel("researchGather")',
     );
     expect(researchRunSrc).toContain(
-      'DEFAULT_REFUTE_MODEL = resolveDelegateModel("researchRefute")',
+      'defaultRefuteModel = resolveDelegateModel("researchRefute")',
     );
 
     const planReviewSrc = fs.readFileSync(

@@ -124,3 +124,12 @@ capture it from a plain interactive session on a future re-run.
 - Flash's log-triage clear has no routing consequence today: flow has no
   failure-log triage surface (`flow-ci-wait` returns check names only).
   The clear is recorded evidence for the follow-up that builds one.
+- All 147 free-form-arm entries in `results.json` carry `parseRetries: 1`
+  — an artifact of a `flow-delegate --structured-fallback` bug (fixed
+  post-dispatch, pr-review #543) where json-mode fed the raw agy envelope
+  to the local parser instead of unwrapping `.response` first, so the
+  first parse attempt always failed and every free-form call ran agy
+  twice. `durationSeconds`/`durationMs` on those entries reflect the
+  retry attempt, not the first. Quality scoring is unaffected — the
+  runner (`flow-model-bench.ts`) has always unwrapped the envelope itself
+  before scoring, independent of `flow-delegate`'s local parse path.

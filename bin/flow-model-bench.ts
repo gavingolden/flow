@@ -71,18 +71,14 @@ import {
 } from "./lib/model-bench-manifest";
 import { runReport, type ReportDeps } from "./lib/model-bench-report";
 
-export {
-  buildManifest,
-  filterArms,
-  blind,
-  classifyPreflight,
-  isTransportSkip,
-  resolveMaxCalls,
-  toFanoutEntries,
-  loadCases,
-  runReport,
-};
-export type { ManifestEntry };
+// Only what flow-model-bench.test.ts actually imports (plus the
+// locally-defined dispatchWithRetries/runBench/Deps) is re-exported here;
+// filterArms/isTransportSkip/resolveMaxCalls/loadCases/runReport/
+// ManifestEntry are used internally by this file but have no external
+// importer — trim on AGENTS.md's no-dead-code default, matching how
+// model-bench-score.test.ts / model-bench-schema.test.ts import their lib
+// modules directly instead of through this facade.
+export { buildManifest, blind, classifyPreflight, toFanoutEntries };
 
 const DEFAULT_FIXTURES_DIR = join("bin", "fixtures", "model-bench");
 const DEFAULT_MODELS = [
@@ -529,7 +525,12 @@ export async function runBench(
     join(args.out, "results.json"),
     JSON.stringify(results, null, 2),
   );
-  const { packet, key } = blind(results);
+  // The scorer discards warmups and translateJudged collapses verdicts to
+  // surface::model anyway — warmup and ran:false (empty-text) entries add
+  // dead weight to the one artifact a context-bounded Claude judge session
+  // must read in full. Filter before blinding; ids stay self-consistent
+  // because `key` is derived from this same filtered array.
+  const { packet, key } = blind(results.filter((r) => !r.warmup && r.ran));
   deps.writeFile(
     join(args.out, "judge-packet.json"),
     JSON.stringify(packet, null, 2),

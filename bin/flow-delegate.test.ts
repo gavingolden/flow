@@ -546,6 +546,64 @@ describe("run — --structured-fallback parse-validate-retry-once", () => {
     expect(argv).not.toContain("--json-schema");
     expect(argv[argv.length - 1]).toContain(schemaText.trim());
   });
+
+  // Regression for the envelope-as-output bug: with --output-format json,
+  // outPath holds the agy JSON envelope (`.response` / `.structured_output`),
+  // not model prose. Before the fix, feeding the raw envelope to
+  // parseStructured always failed validation, forcing a retry on every call.
+  it("unwraps the agy envelope from the raw artifact in --output-format json mode", () => {
+    const deps = makeDeps({
+      readFile: (p) =>
+        p === SCHEMA_PATH
+          ? schemaText
+          : JSON.stringify({ response: '{"ok":true}' }),
+    });
+    const code = run(
+      [
+        "--prompt",
+        "hi",
+        "--output-format",
+        "json",
+        "--structured-fallback",
+        SCHEMA_PATH,
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      structuredParse: "ok",
+      parseRetries: 0,
+    });
+    expect(deps.calls.agy).toHaveLength(1);
+  });
+
+  it("prefers the envelope's structured_output over .response in json mode", () => {
+    const deps = makeDeps({
+      readFile: (p) =>
+        p === SCHEMA_PATH
+          ? schemaText
+          : JSON.stringify({
+              response: "not the structured payload",
+              structured_output: { ok: true },
+            }),
+    });
+    run(
+      [
+        "--prompt",
+        "hi",
+        "--output-format",
+        "json",
+        "--structured-fallback",
+        SCHEMA_PATH,
+      ],
+      deps,
+    );
+    expect(envelope(deps)).toMatchObject({
+      structuredParse: "ok",
+      parseRetries: 0,
+    });
+  });
 });
 
 // Real-subprocess spec for the graceful-skip-on-absent-agy path. Unlike the

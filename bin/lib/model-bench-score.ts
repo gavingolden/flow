@@ -556,21 +556,16 @@ export function recommend(
     const caseScores = scores.filter((s) => caseSurfaces[s.caseId] === surface);
     let best = cleared[0]!;
     let bestQuality = averageRecall(caseScores, best);
-    let bestLatency = averageMedianLatency(caseScores, best);
     for (const candidate of cleared.slice(1)) {
       const quality = averageRecall(caseScores, candidate);
-      const latency = averageMedianLatency(caseScores, candidate);
       // Quality-gated tie-break: only switch to the pricier/slower option
       // when its quality is STRICTLY greater. Equal quality always keeps
-      // the cheaper one, however close the latencies are.
+      // the cheaper one (per `cleared`'s cheapest-first ordering), however
+      // close the latencies are — latency never breaks an equal-quality
+      // tie, so it is not consulted here.
       if (quality > bestQuality) {
         best = candidate;
         bestQuality = quality;
-        bestLatency = latency;
-      } else if (quality === bestQuality && latency < bestLatency) {
-        best = candidate;
-        bestQuality = quality;
-        bestLatency = latency;
       }
     }
     result[surface] = {

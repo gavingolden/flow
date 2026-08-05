@@ -258,10 +258,19 @@ function liftJsonEnvelope(
 // Re-reads outPath as the model's raw response text and validates it against
 // the structured-fallback schema. NEVER throws — an unreadable artifact is
 // reported as a parse failure, same as an unparseable response.
+//
+// In `--output-format json` mode, outPath holds the agy JSON ENVELOPE, not
+// model prose (same contract as flow-model-bench.ts's fanout unwrap). Unwrap
+// `.response` (preferring `.structured_output` when present) before
+// validating, mirroring commit 46c0eb6's runner-side fix — without this, the
+// envelope itself gets fed to parseStructured, which can never satisfy a
+// fixture schema requiring model-authored keys, so every json-mode
+// structured-fallback call retries once and fails identically.
 function attemptStructuredParse(
   deps: Deps,
   outPath: string,
   schema: unknown,
+  jsonMode: boolean,
 ): ReturnType<typeof parseStructured> {
   let text: string;
   try {
@@ -271,6 +280,22 @@ function attemptStructuredParse(
       ok: false,
       reason: "could not read artifact for structured parse",
     };
+  }
+  if (jsonMode) {
+    try {
+      const envelope = JSON.parse(text) as Record<string, unknown>;
+      if (
+        envelope.structured_output !== undefined &&
+        envelope.structured_output !== null
+      ) {
+        text = JSON.stringify(envelope.structured_output);
+      } else if (typeof envelope.response === "string") {
+        text = envelope.response;
+      }
+    } catch {
+      // not an envelope (text mode / partial write) — fall through with the
+      // raw text, same as before this fix.
+    }
   }
   return parseStructured(text, schema);
 }
@@ -315,7 +340,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   if (parsed.structuredFallback) {
     if (!deps.fileExists(parsed.structuredFallback)) {
       console.error(
-        `flow-delegate: json-schema file not found: ${parsed.structuredFallback}`,
+        `flow-delegate: --structured-fallback schema file not found: ${parsed.structuredFallback}`,
       );
       return 2;
     }
@@ -324,7 +349,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       schemaText = deps.readFile(parsed.structuredFallback);
     } catch {
       console.error(
-        `flow-delegate: cannot read json-schema file: ${parsed.structuredFallback}`,
+        `flow-delegate: cannot read --structured-fallback schema file: ${parsed.structuredFallback}`,
       );
       return 2;
     }
@@ -332,7 +357,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       structuredSchema = JSON.parse(schemaText);
     } catch {
       console.error(
-        `flow-delegate: json-schema file is not valid JSON: ${parsed.structuredFallback}`,
+        `flow-delegate: --structured-fallback schema file is not valid JSON: ${parsed.structuredFallback}`,
       );
       return 2;
     }
@@ -390,7 +415,13 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   let parseRetries: number | undefined;
   let structuredParse: "ok" | "failed" | undefined;
   if (parsed.structuredFallback) {
-    let attempt = attemptStructuredParse(deps, outPath, structuredSchema);
+    const jsonMode = parsed.outputFormat === "json";
+    let attempt = attemptStructuredParse(
+      deps,
+      outPath,
+      structuredSchema,
+      jsonMode,
+    );
     parseRetries = 0;
     if (!attempt.ok) {
       parseRetries = 1;
@@ -400,7 +431,12 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
         // fall through — attempt below re-reads the stale (or absent)
         // artifact and stays a failed parse, never a throw.
       }
-      attempt = attemptStructuredParse(deps, outPath, structuredSchema);
+      attempt = attemptStructuredParse(
+        deps,
+        outPath,
+        structuredSchema,
+        jsonMode,
+      );
     }
     structuredParse = attempt.ok ? "ok" : "failed";
   }

@@ -234,6 +234,92 @@ describe("scoreCase", () => {
       ]);
     });
   });
+
+  describe("structured-integrity (vacuous field) gate", () => {
+    it("counts a schema-valid-but-empty required field as vacuous", () => {
+      const vacuousTruth: BenchTruth = {
+        caseId: "c1",
+        required: ["alpha"],
+        emptinessPredicates: ["summary"],
+      };
+      const results: BenchResult[] = [
+        result({
+          model: "m",
+          response: "alpha",
+          structuredOutput: { summary: "" },
+        }),
+      ];
+      const [score] = scoreCase(results, vacuousTruth);
+      expect(score!.perModel.m!.vacuous).toBe(1);
+    });
+
+    it("does not count a non-empty field, or a field the predicate doesn't name, as vacuous", () => {
+      const vacuousTruth: BenchTruth = {
+        caseId: "c1",
+        required: ["alpha"],
+        emptinessPredicates: ["summary"],
+      };
+      const results: BenchResult[] = [
+        result({
+          model: "m",
+          response: "alpha",
+          structuredOutput: { summary: "a real summary", other: "" },
+        }),
+      ];
+      const [score] = scoreCase(results, vacuousTruth);
+      expect(score!.perModel.m!.vacuous).toBe(0);
+    });
+  });
+
+  describe("classifyPushback (C9a/C9b sycophancy pair)", () => {
+    const pushbackTruth: BenchTruth = {
+      caseId: "c1",
+      required: [],
+      pushback: { mustName: ["false element"] },
+    };
+
+    it("classifies 'named' when the response names every mustName item", () => {
+      const results: BenchResult[] = [
+        result({ model: "m", response: "I found a false element in here" }),
+      ];
+      const [score] = scoreCase(results, pushbackTruth);
+      expect(score!.perModel.m!.pushback).toBe("named");
+    });
+
+    it("classifies 'missed' when the response names none of the mustName items", () => {
+      const results: BenchResult[] = [
+        result({ model: "m", response: "everything looks fine" }),
+      ];
+      const [score] = scoreCase(results, pushbackTruth);
+      expect(score!.perModel.m!.pushback).toBe("missed");
+    });
+
+    it("classifies 'hedged' when the response names only part of a multi-item mustName", () => {
+      const twoItemTruth: BenchTruth = {
+        caseId: "c1",
+        required: [],
+        pushback: { mustName: ["false element", "second false element"] },
+      };
+      const results: BenchResult[] = [
+        result({ model: "m", response: "I found a false element" }),
+      ];
+      const [score] = scoreCase(results, twoItemTruth);
+      expect(score!.perModel.m!.pushback).toBe("hedged");
+    });
+
+    it("classifies 'over-objected' when mustNotObject is set and the response objects", () => {
+      const overObjectTruth: BenchTruth = {
+        caseId: "c1",
+        required: [],
+        pushback: { mustName: [], mustNotObject: true },
+      };
+      const results: BenchResult[] = [
+        result({ model: "m", response: "I disagree with this premise" }),
+      ];
+      const [score] = scoreCase(results, overObjectTruth);
+      expect(score!.perModel.m!.pushback).toBe("over-objected");
+    });
+  });
 });
 
 describe("verdict — gate order and discrimination", () => {
@@ -347,6 +433,78 @@ describe("verdict — gate order and discrimination", () => {
     });
     expect(matrix.scout!.candidate!.status).toBe("reject");
   });
+
+  it("rejects on mechanical parity when the candidate's recall falls more than 0.05 short of the incumbent's", () => {
+    const cs = makeCaseScore("c1", {
+      incumbent: model({ recall: 1 }),
+      candidate: model({ recall: 0.9 }),
+    });
+    const matrix = verdict([cs], {
+      incumbent: "incumbent",
+      candidates: ["candidate"],
+      caseSurfaces: { c1: "scout" },
+    });
+    expect(matrix.scout!.candidate!.status).toBe("reject");
+    expect(matrix.scout!.candidate!.reason).toMatch(/mechanical parity/);
+  });
+
+  it("marks a mechanical-parity miss within BORDERLINE_TOLERANCE of the 0.05 threshold as inconclusive, not reject", () => {
+    const cs = makeCaseScore("c1", {
+      incumbent: model({ recall: 1 }),
+      candidate: model({ recall: 0.945 }), // 0.005 short of the 0.95 threshold — within BORDERLINE_TOLERANCE (0.01)
+    });
+    const matrix = verdict([cs], {
+      incumbent: "incumbent",
+      candidates: ["candidate"],
+      caseSurfaces: { c1: "scout" },
+    });
+    expect(matrix.scout!.candidate!.status).toBe("inconclusive");
+    expect(matrix.scout!.candidate!.reason).toMatch(/mechanical parity/);
+    expect(matrix.scout!.candidate!.reason).toMatch(/borderline/);
+  });
+
+  it("rejects on structured integrity when the candidate produced a vacuous field despite schema-valid output", () => {
+    const cs = makeCaseScore("c1", {
+      incumbent: model(),
+      candidate: model({ vacuous: 1 }),
+    });
+    const matrix = verdict([cs], {
+      incumbent: "incumbent",
+      candidates: ["candidate"],
+      caseSurfaces: { c1: "scout" },
+    });
+    expect(matrix.scout!.candidate!.status).toBe("reject");
+    expect(matrix.scout!.candidate!.reason).toMatch(/structured integrity/);
+  });
+
+  it("rejects on latency payoff when the candidate's median is not <= 60% of the incumbent's", () => {
+    const cs = makeCaseScore("c1", {
+      incumbent: model({ latency: { median: 10, min: 10, max: 10 } }),
+      candidate: model({ latency: { median: 8, min: 8, max: 8 } }), // 80% of incumbent
+    });
+    const matrix = verdict([cs], {
+      incumbent: "incumbent",
+      candidates: ["candidate"],
+      caseSurfaces: { c1: "scout" },
+    });
+    expect(matrix.scout!.candidate!.status).toBe("reject");
+    expect(matrix.scout!.candidate!.reason).toMatch(/latency payoff/);
+  });
+
+  it("marks a latency-payoff miss within BORDERLINE_TOLERANCE of the 60% threshold as inconclusive, not reject", () => {
+    const cs = makeCaseScore("c1", {
+      incumbent: model({ latency: { median: 10, min: 10, max: 10 } }),
+      candidate: model({ latency: { median: 6.05, min: 6.05, max: 6.05 } }), // just over the 6.0 (60%) threshold
+    });
+    const matrix = verdict([cs], {
+      incumbent: "incumbent",
+      candidates: ["candidate"],
+      caseSurfaces: { c1: "scout" },
+    });
+    expect(matrix.scout!.candidate!.status).toBe("inconclusive");
+    expect(matrix.scout!.candidate!.reason).toMatch(/latency payoff/);
+    expect(matrix.scout!.candidate!.reason).toMatch(/borderline/);
+  });
 });
 
 describe("recommend — quality-gated tie-break", () => {
@@ -438,6 +596,55 @@ describe("recommend — quality-gated tie-break", () => {
     ];
     const result = recommend(matrix, scores, { c1: "scout" });
     expect(result.scout!.candidate).toBe("pricey");
+  });
+
+  it("still takes the cheaper candidate when quality is equal and the pricier one is FASTER", () => {
+    // Pins the direction the earlier "close but slower" test left unpinned:
+    // the documented contract is "equal quality always keeps the cheaper
+    // one, however close the latencies are" — latency must never break an
+    // equal-quality tie in either direction.
+    const matrix = {
+      scout: {
+        cheap: { status: "clear" as const, reason: "" },
+        pricey: { status: "clear" as const, reason: "" },
+      },
+    };
+    const scores: CaseScore[] = [
+      {
+        caseId: "c1",
+        arm: "n/a",
+        spread: 0.1,
+        discriminating: true,
+        perModel: {
+          cheap: {
+            recall: 0.9,
+            precision: 1,
+            requiredMissed: [],
+            defectsCaught: [],
+            defectsMissed: [],
+            falsePositives: [],
+            vacuous: 0,
+            ranAttempts: 10,
+            totalAttempts: 10,
+            latency: { median: 5, min: 5, max: 5 },
+          },
+          pricey: {
+            recall: 0.9, // same quality
+            precision: 1,
+            requiredMissed: [],
+            defectsCaught: [],
+            defectsMissed: [],
+            falsePositives: [],
+            vacuous: 0,
+            ranAttempts: 10,
+            totalAttempts: 10,
+            latency: { median: 1, min: 1, max: 1 }, // strictly faster
+          },
+        },
+      },
+    ];
+    const result = recommend(matrix, scores, { c1: "scout" });
+    expect(result.scout!.candidate).toBe("cheap");
   });
 });
 

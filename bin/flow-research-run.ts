@@ -45,13 +45,6 @@ import { resolveDelegateModel } from "./lib/delegate-models";
 // `read_budget` block). Keep these byte-identical to that source of truth.
 const DEFAULT_MAX_CALLS = 12;
 const DEFAULT_TIMEOUT = "3m";
-// Non-null: only the "scout" surface's default is null; researchGather /
-// researchRefute's defaults and every well-typed override are strings.
-// Resolved once at module load (delegate.models.<surface> in
-// ~/.flow/config.json, else the seeded default) so a config override
-// re-points these surfaces without a code change.
-const DEFAULT_GATHER_MODEL = resolveDelegateModel("researchGather") as string;
-const DEFAULT_REFUTE_MODEL = resolveDelegateModel("researchRefute") as string;
 const FALLBACK_REFUTE_MODEL = "GPT-OSS 120B (Medium)";
 
 const GATHER_TASK = "research-gather";
@@ -134,8 +127,14 @@ function readResearchObject(config: unknown): Record<string, unknown> {
 // the same model family as gather. Tolerant: a missing/wrong-type override
 // silently takes its default.
 //
-// The `gatherModel === DEFAULT_REFUTE_MODEL` check below compares against
-// DEFAULT_REFUTE_MODEL, which is now the RESOLVED value (delegate.models
+// `resolveDelegateModel` is called HERE (call time), not at module load: a
+// module-load read hits the real ~/.flow/config.json before any test can
+// inject an override, defeating the injectable-config-reader seam and
+// breaking `npm run verify` for a maintainer with
+// `delegate.models.researchGather`/`researchRefute` set.
+//
+// The `gatherModel === defaultRefuteModel` check below compares against
+// `defaultRefuteModel`, which is the RESOLVED value (delegate.models
 // .researchRefute override, or the seeded default) rather than a bare
 // constant — so a delegate.models config override cannot silently collapse
 // gather and refute onto the same model without the guard noticing.
@@ -143,20 +142,22 @@ export function resolveModels(config: unknown): {
   gatherModel: string;
   refuteModel: string;
 } {
+  const defaultGatherModel = resolveDelegateModel("researchGather") as string;
+  const defaultRefuteModel = resolveDelegateModel("researchRefute") as string;
   const research = readResearchObject(config);
   const gatherModel =
     typeof research.model === "string" && research.model.trim()
       ? research.model
-      : DEFAULT_GATHER_MODEL;
+      : defaultGatherModel;
   let refuteModel =
     typeof research.refuteModel === "string" && research.refuteModel.trim()
       ? research.refuteModel
-      : DEFAULT_REFUTE_MODEL;
+      : defaultRefuteModel;
   if (refuteModel === gatherModel) {
     refuteModel =
-      gatherModel === DEFAULT_REFUTE_MODEL
+      gatherModel === defaultRefuteModel
         ? FALLBACK_REFUTE_MODEL
-        : DEFAULT_REFUTE_MODEL;
+        : defaultRefuteModel;
   }
   return { gatherModel, refuteModel };
 }
