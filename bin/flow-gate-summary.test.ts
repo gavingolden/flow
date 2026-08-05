@@ -264,6 +264,17 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(stepLines.some((l) => /&&/.test(l) && /\bSTOP\b/.test(l))).toBe(
       false,
     );
+    // Whole-recipe backstop: no single line — including the header or an
+    // indented detail sub-bullet, neither of which `stepLines` above
+    // covers — may mix an `&&` chain with the STOP instruction.
+    expect(recipe).not.toMatch(/&&[^\n]*\bSTOP\b/i);
+    // Ordering is the safety property: STOP must precede the commit step,
+    // otherwise conflict markers get committed before the human resolves
+    // them.
+    const stopIdx = stepLines.findIndex((l) => /\bSTOP\b/.test(l));
+    const commitIdx = stepLines.findIndex((l) => /\bgit commit\b/.test(l));
+    expect(stopIdx).toBeGreaterThanOrEqual(0);
+    expect(commitIdx).toBeGreaterThan(stopIdx);
   });
 
   it("falls back to DEFAULT_NEXT_ACTION for an unmapped reason", () => {
@@ -373,6 +384,33 @@ describe("render — needs-human (per-reason mapping)", () => {
     });
     expect(out).toMatch(/^NEXT ACTION: Run flow install/m);
     expect(out).not.toMatch(/^  1\. /m);
+  });
+
+  it("every multi-line recipe is <non-numbered header> + 2-space-indented, contiguous, >=2-step numbered list", () => {
+    // Guards the shape `pushNextAction` depends on (bin/flow-gate-summary.ts
+    // ~100-104): the first line is a plain header (never itself numbered —
+    // otherwise the header row and the numbered steps below it render with
+    // inconsistent indentation), and every subsequent step is a 2-space
+    // indented, contiguously-numbered line — never a one-item list (that
+    // stays inline per carve-out 1), never a restarted/skipped ordinal.
+    for (const [tag, recipe] of Object.entries(NEXT_ACTION_BY_REASON)) {
+      if (!recipe.includes("\n")) continue;
+      const [header, ...rest] = recipe.split("\n");
+      expect(
+        /^\s*\d+\.\s/.test(header),
+        `${tag}: header must not be numbered`,
+      ).toBe(false);
+      const steps = rest.filter((l) => !/^\s{3,}- /.test(l));
+      expect(
+        steps.length,
+        `${tag}: a numbered recipe needs >= 2 steps`,
+      ).toBeGreaterThanOrEqual(2);
+      steps.forEach((line, i) => {
+        expect(line, `${tag} step ${i + 1}`).toMatch(
+          new RegExp(`^  ${i + 1}\\. \\S`),
+        );
+      });
+    }
   });
 
   it("places the task-tool-unavailable spawn-site suffix on the NEXT ACTION header, not the final step", () => {

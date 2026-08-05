@@ -108,13 +108,13 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   2. Restate the request with a clearer intent (feature / bug / refactor / docs / infra / chore).`,
   "worktree-create-failed": `Worktree creation failed.
   1. Inspect the flow-new-worktree stderr in scrollback for disk space or branch-name collisions.
-  2. Once resolved, run flow feature resume <slug>.`,
+  2. Once resolved, run flow feature resume <slug>`,
   "plan-missing": `The plan file is missing.
   1. Attach (flow attach <slug>).
   2. Re-run /flow-pipeline with a more specific description, or invoke /flow-product-planning manually in the worktree.`,
   "pr-missing": `PR creation failed upstream.
   1. Check gh auth status, branch protection, and network reachability.
-  2. Then run flow feature resume <slug>.`,
+  2. Then run flow feature resume <slug>`,
   "scout-missing": `The scout artifact is missing.
   1. Attach (flow attach <slug>).
   2. Re-invoke /flow-new-feature directly so the scout subagent runs again.`,
@@ -127,14 +127,14 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   3. Redirect /flow-new-feature with a fix hint.`,
   "verify-exhausted": `Verify retries are exhausted.
   1. Attach (flow attach <slug>).
-  2. Redirect /flow-verify with the failure hint from <worktree>/.flow-tmp/verify-failure-N.log.`,
+  2. Redirect /flow-verify with the failure hint from <worktree>/.flow-tmp/verify-failure-N.log`,
   "ci-hang": `CI appears stalled.
   1. Attach (flow attach <slug>).
   2. Inspect GitHub Actions for the stalled check.
-  3. Once resolved, run flow feature resume <slug>.`,
+  3. Once resolved, run flow feature resume <slug>`,
   "pr-blocked": `Branch protection blocks the merge (failing required check, missing required review, CODEOWNERS, or linear-history), and waiting cannot clear it.
   1. Satisfy the protection rule on GitHub.
-  2. Then run flow feature resume <slug>.`,
+  2. Then run flow feature resume <slug>`,
   "ci-fix-exhausted": `CI-fix retries are exhausted.
   1. Attach (flow attach <slug>).
   2. Inspect the last CI failure log.
@@ -142,19 +142,19 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "review-fix-exhausted": `Review-fix retries are exhausted.
   1. Attach (flow attach <slug>).
   2. Inspect the unresolved /flow-pr-review findings on the PR.
-  3. Redirect /flow-new-feature mode=fix.`,
+  3. Redirect /flow-new-feature mode=fix`,
   "review-failed": `The review run failed.
   1. Attach (flow attach <slug>).
   2. Inspect <worktree>/.flow-tmp/pr-review-result.json (if present).
-  3. Re-invoke /flow-pr-review <PR>.`,
+  3. Re-invoke /flow-pr-review <PR>`,
   "review-partial": `The review run stopped partway through.
   1. Attach (flow attach <slug>).
-  2. Inspect <worktree>/.flow-tmp/pr-review-result.json's .missed_steps.
-  3. Re-invoke /flow-pr-review <PR> --resume-from <step>.`,
+  2. Inspect <worktree>/.flow-tmp/pr-review-result.json's .missed_steps
+  3. Re-invoke /flow-pr-review <PR> --resume-from <step>`,
   "gh-error": `A GitHub CLI call failed.
   1. Attach (flow attach <slug>).
   2. Check gh auth status and network reachability.
-  3. Then run flow feature resume <slug>.`,
+  3. Then run flow feature resume <slug>`,
   "pr-closed-without-merge":
     "Decide: reopen the PR (gh pr reopen <pr>) or run flow done <slug> to clean up",
   "pr-closed-mid-flight":
@@ -162,7 +162,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "test-steps-section-missing": `The PR body has no Test Steps section.
   1. Attach (flow attach <slug>).
   2. Edit the PR body to add a ## Test Steps section.
-  3. Then run flow feature resume <slug>.`,
+  3. Then run flow feature resume <slug>`,
   "gate-override-without-confirmation":
     "The PR is gated (unchecked Test Steps remain) and flow-merge-guard refused the merge. Validate the unchecked steps and merge through GitHub yourself, or reply with a fresh, explicit instruction to merge this gated PR anyway so the supervisor can confirm and record the override",
   "merge-failed": `The merge-conflict resolver failed.
@@ -174,7 +174,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   2. Resolve conflicts manually.
   3. Then run (cd <repo> && gh pr merge --squash <pr>).`,
   "merge-resolver-spawn-denied": `The permission system refused the merge-resolver subagent spawn.
-  1. Recover manually: run cd <worktree> && git fetch origin <base> && git merge origin/<base>.
+  1. Recover manually: run cd <worktree> && git fetch origin <base> && git merge origin/<base>
   2. STOP and resolve every conflict marker in your editor before committing.
   3. Once resolved, run git add <resolved-files>, git commit, git push.
   4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
@@ -182,13 +182,14 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "branch-mismatch":
     "Inspect git reflog and git worktree list before any further git commands; do NOT auto-recover",
   "terminal-regression": `A terminal-phase state file was about to be regressed to a non-terminal phase (likely an ambient-pane slug race from 'flow feature create' inside a flow window).
-  1. Inspect ~/.flow/state/<slug>.json.
+  1. Inspect ~/.flow/state/<slug>.json
   2. If the victim is genuinely terminal, restore it with flow-state-update --phase <merged|gated|...> --force --slug <victim-slug>; do NOT auto-recover.`,
-  "cross-branch-operation-attempted":
-    "Inspect git worktree list and the failed command's stderr; the supervisor refused to cross worktrees; resolve manually",
+  "cross-branch-operation-attempted": `The supervisor refused to cross worktrees.
+  1. Inspect git worktree list and the failed command's stderr.
+  2. Resolve manually.`,
   "task-tool-unavailable": `The Task tool is unavailable.
   1. Restart claude (or upgrade the CLI) so the Task tool is surfaced top-level.
-  2. Then run flow feature resume <slug>.`,
+  2. Then run flow feature resume <slug>`,
   "state-missing-on-resume":
     "Run flow feature create <description> afresh; ~/.flow/state/<slug>.json is missing so resume cannot proceed",
   "worktree-missing-on-resume":
@@ -197,20 +198,20 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
     "Run flow install --upgrade manually from the canonical install root and inspect its output",
   "fix-applier-missing-artifact": `Fix-applier's result artifact is missing.
   1. Inspect git log on the feature branch and the PR body's Local Follow-ups section.
-  2. Then re-invoke /flow-pr-review.`,
+  2. Then re-invoke /flow-pr-review`,
   "pr-review-missing-artifact": `The PR-review result artifact is missing.
   1. Attach (flow attach <slug>).
   2. Inspect <worktree>/.flow-tmp/ for partial state.
-  3. Re-invoke /flow-pr-review <PR>.`,
+  3. Re-invoke /flow-pr-review <PR>`,
   "coder-failed": `The edit-applier subagent failed.
   1. Attach (flow attach <slug>).
   2. Inspect <worktree>/.flow-tmp/coder-result.json (if present).
   3. Re-invoke the caller skill.`,
   "smoketest-needs-creds": `The UI-smoke pass needs a test-user credential it could not infer.
   1. Provide the test-user credential env var(s) named in .flow/ui-validation.json's credentialEnvVars (in your local .env or shell env).
-  2. Then run flow feature resume <slug>.`,
+  2. Then run flow feature resume <slug>`,
   "state-file-missing-on-start": `The launch likely died before writing state.
-  1. Check ~/.flow/state/<slug>.json.
+  1. Check ~/.flow/state/<slug>.json
   2. If it is missing, re-run flow feature create "<description>". Never work inline on the base branch while state is missing.`,
 };
 

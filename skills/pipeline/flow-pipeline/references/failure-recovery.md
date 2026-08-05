@@ -281,18 +281,19 @@ flow-state-update --phase needs-human
 flow-notify --status needs-human --reason "task-tool-unavailable: <exemption-name>"
 ```
 
-2. **User:** restart or upgrade the CLI so the Task tool is surfaced
-   top-level, then resume the pipeline. The helper parses the
-   `:`-suffix and appends ` (spawn site: <exemption-name>)` to the
-   `NEXT ACTION:` **header line** of
-   `NEXT_ACTION_BY_REASON["task-tool-unavailable"]` so the rendered
-   block names the exact spawn site; the sentinel line is byte-exact
-   `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
-   `<exemption-name>` is one of `pr-review-gatekeeper`,
-   `pr-review-multi-agent-review`, `pr-review-fix-applier`,
-   `pr-review-consolidator-validator`, `product-planning-discovery`,
-   `new-feature-scout`, `coder-edit-applier`, `flow-pipeline-merge-resolver`,
-   `flow-pipeline-verify-loop`.
+2. **User:** restart `claude` (or upgrade the CLI) so the Task tool is
+   surfaced top-level.
+3. **User:** resume the pipeline (`flow feature resume <slug>`).
+   - The helper parses the `:`-suffix and appends ` (spawn site:
+<exemption-name>)` to the `NEXT ACTION:` **header line** of
+     `NEXT_ACTION_BY_REASON["task-tool-unavailable"]` so the rendered
+     block names the exact spawn site; the sentinel line is byte-exact
+     `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
+   - `<exemption-name>` is one of `pr-review-gatekeeper`,
+     `pr-review-multi-agent-review`, `pr-review-fix-applier`,
+     `pr-review-consolidator-validator`, `product-planning-discovery`,
+     `new-feature-scout`, `coder-edit-applier`, `flow-pipeline-merge-resolver`,
+     `flow-pipeline-verify-loop`.
 
 No retry is appropriate — the deferred-tool surfacing is environmental;
 remediation is to re-run in a session where `Task` or `Agent` is surfaced

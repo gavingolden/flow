@@ -113,13 +113,18 @@ everything else follows "Calibrate length to task" in
 are chosen. It is binding, not advisory.
 
 **The rule.** An instruction or action list renders as numbered
-imperative steps, one action per line: `1. <imperative step>`, `2.
-<imperative step>`, … . Detail rides as an indented sub-bullet under the
-step it belongs to (`   - <detail>`), never bundled onto the step line
-itself. When more than one party acts — the supervisor runs a command,
-the user makes a call, a subagent reports back — name the actor at the
-start of the relevant step (`**Supervisor:** …`, `**User:** …`) so the
-reader never has to infer who does what.
+imperative steps, one action per line: `  1. <imperative step>`, `  2.
+<imperative step>`, … — in a helper-rendered block the step lines carry
+the block's two-space indent, matching the GATED block's validation-item
+rows (`  - <item>`) and the `FOLLOW-UPS:` entries. Multi-sentence or
+reference detail rides as an indented sub-bullet under the step it
+belongs to (`   - <detail>`), never bundled onto the step line itself —
+except a short trailing qualifier on the step's own command (see
+"Discrete action" below), which stays on the step line rather than
+forking into a sub-bullet. When more than one party acts — the
+supervisor runs a command, the user makes a call, a subagent reports
+back — name the actor at the start of the relevant step (`**Supervisor:**
+…`, `**User:** …`) so the reader never has to infer who does what.
 
 **Scope.** This section binds two surfaces: (a) the formal gate-grammar
 `NEXT ACTION:` row `bin/flow-gate-summary.ts` renders for a multi-action
@@ -130,7 +135,18 @@ above: that slot is bound by `## Language contract` rule 4 to a single
 most-useful next thing, single-line by construction, and stays that way.
 The two sections are not in tension — `## The block` governs the one
 informal slot; `## Step contract` governs everything else that lists out
-instructions.
+instructions. `## Language contract` rule 6's "structured options in the
+formal grammar are out of scope" is scoped to the informal
+`**Next action:**` slot's option-list shape (rule 4); it does not carve
+out the `NEXT ACTION:` row's numbered _steps_, which this section governs
+instead.
+
+For a `NEXT_ACTION_BY_REASON` recipe in `bin/flow-gate-summary.ts`
+specifically: a multi-line recipe's first line is always a plain,
+non-numbered header sentence — `pushNextAction` puts it on the `NEXT
+ACTION:` row and every following line verbatim, so a recipe whose first
+line is itself numbered would render with inconsistent indentation
+between the header and the steps below it.
 
 **Discrete action.** A separate copy-pasteable command, or a separate
 decision the reader must make. A trailing qualifier on one command (e.g.
@@ -162,11 +178,11 @@ list; one discrete action stays inline.
 > After:
 >
 > ```
-> 1. Recover manually: run cd <worktree> && git fetch origin <base> && git merge origin/<base>.
-> 2. STOP and resolve every conflict marker in your editor before committing.
-> 3. Once resolved, run git add <resolved-files>, git commit, git push.
-> 4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
-> 5. Then run (cd <repo> && gh pr merge --squash <pr>).
+>   1. Recover manually: run cd <worktree> && git fetch origin <base> && git merge origin/<base>
+>   2. STOP and resolve every conflict marker in your editor before committing.
+>   3. Once resolved, run git add <resolved-files>, git commit, git push.
+>   4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
+>   5. Then run (cd <repo> && gh pr merge --squash <pr>).
 > ```
 
 ## Applicability

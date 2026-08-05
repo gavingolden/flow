@@ -6917,6 +6917,59 @@ describe("pause-output contract wiring lint", () => {
     expect(c).toContain("## Step contract");
   });
 
+  it("pause-output-contract.md's Step contract carries its three carve-outs", () => {
+    // Mirrors the stricter idiom two precedents up in this same file (the
+    // output-style.md carve-out pin at :6837 and the Precondition-
+    // concreteness anchored-phrase pin at :4766-4796): pinning only the
+    // heading lets a future edit delete carve-out 2 (Test Steps are never
+    // renumbered — the one whose loss silently flips every gated PR to
+    // auto-merge) while every other test stays green.
+    const c = fs.readFileSync(CONTRACT_PATH, "utf8").replace(/\s+/g, " ");
+    expect(c).toContain("## Step contract");
+    expect(c).toContain("never padded into a one-item numbered list");
+    expect(c).toContain("never** renumbered to ordinals");
+    expect(c).toContain("numbering a recap of what already happened");
+  });
+
+  it("the two new authoring sites defer to the Step contract by name and carry the never-renumber carve-out", () => {
+    const discovery = fs.readFileSync(
+      path.join(
+        REPO_ROOT,
+        "skills",
+        "pipeline",
+        "flow-product-planning",
+        "references",
+        "discovery-instructions.md",
+      ),
+      "utf8",
+    );
+    const rubric = fs.readFileSync(
+      path.join(
+        REPO_ROOT,
+        "skills",
+        "pipeline",
+        "flow-pr-review",
+        "references",
+        "manual-test-rubric.md",
+      ),
+      "utf8",
+    );
+    for (const [name, c] of [
+      ["discovery-instructions.md", discovery],
+      ["manual-test-rubric.md", rubric],
+    ] as const) {
+      expect(
+        c.includes("Step contract"),
+        `${name} must defer to the Step contract by name — dropping the ` +
+          "reference silently orphans the requirement",
+      ).toBe(true);
+      expect(
+        c.includes("NEVER renumbered") || c.includes("never renumbered"),
+        `${name} must carry the never-renumber carve-out`,
+      ).toBe(true);
+    }
+  });
+
   it("references/output-style.md carries the scannable-numbered-steps section", () => {
     const c = fs.readFileSync(
       path.join(REPO_ROOT, "references", "output-style.md"),
