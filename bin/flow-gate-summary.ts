@@ -176,7 +176,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "merge-resolver-spawn-denied": `The permission system refused the merge-resolver subagent spawn.
   1. Recover manually: run cd <worktree> && git fetch origin <base> && git merge origin/<base>
   2. STOP and resolve every conflict marker in your editor before committing.
-  3. Once resolved, run git add <resolved-files>, git commit, git push.
+  3. Once resolved, run git add <resolved-files>, git commit, git push
   4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
   5. Then run (cd <repo> && gh pr merge --squash <pr>).`,
   "branch-mismatch":
@@ -212,7 +212,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   2. Then run flow feature resume <slug>`,
   "state-file-missing-on-start": `The launch likely died before writing state.
   1. Check ~/.flow/state/<slug>.json
-  2. If it is missing, re-run flow feature create "<description>". Never work inline on the base branch while state is missing.`,
+  2. If it is missing, never work inline on the base branch — re-run flow feature create "<description>"`,
 };
 
 // One entry per NEXT_ACTION_BY_REASON key, listing the EXACT

@@ -154,6 +154,17 @@ decision the reader must make. A trailing qualifier on one command (e.g.
 the step line. Threshold: two or more discrete actions become a numbered
 list; one discrete action stays inline.
 
+**Terminal punctuation.** A step line that ends on a bare copy-pasteable
+command or path takes no trailing period — terminals and drag-select
+extend greedily through adjacent punctuation, so a period stuck to the
+command breaks the copy target, the same hazard the two-bullet AWAITING
+APPROVAL render already avoids. A step that ends in prose, or on a
+closing parenthesis that already terminates the command, keeps its
+normal period. For a `NEXT_ACTION_BY_REASON` recipe this is mechanical
+rather than a matter of judgment: `bin/gate-summary-recipe-lint.test.ts`
+asserts that no declared `RECIPE_COMMANDS` entry is immediately followed
+by a `.` in its recipe.
+
 **Carve-outs.**
 
 1. A single discrete action stays inline on its label line — it is
@@ -180,7 +191,7 @@ list; one discrete action stays inline.
 > ```
 >   1. Recover manually: run cd <worktree> && git fetch origin <base> && git merge origin/<base>
 >   2. STOP and resolve every conflict marker in your editor before committing.
->   3. Once resolved, run git add <resolved-files>, git commit, git push.
+>   3. Once resolved, run git add <resolved-files>, git commit, git push
 >   4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
 >   5. Then run (cd <repo> && gh pr merge --squash <pr>).
 > ```

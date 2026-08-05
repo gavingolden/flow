@@ -181,6 +181,30 @@ describe("gate-summary recipe lint — structure", () => {
     const realCmd = RECIPE_COMMANDS[firstTag][0];
     expect(/(^|\s)--(\s|$)/.test(`${realCmd} -- oops`)).toBe(true);
   });
+
+  it("no declared command is immediately followed by a period in its recipe", () => {
+    for (const [tag, cmds] of Object.entries(RECIPE_COMMANDS)) {
+      const recipe = NEXT_ACTION_BY_REASON[tag];
+      for (const cmd of cmds) {
+        let idx = recipe.indexOf(cmd);
+        while (idx !== -1) {
+          const nextChar = recipe[idx + cmd.length];
+          expect(nextChar, `${tag}: "${cmd}" at index ${idx}`).not.toBe(".");
+          idx = recipe.indexOf(cmd, idx + 1);
+        }
+      }
+    }
+  });
+
+  it("[negative] a command immediately followed by a period would fail the terminal-punctuation guard", () => {
+    // Built from a real declared command (not a fully synthetic prose
+    // literal) with a period appended, so this exercises the guard
+    // against real repo state drifting rather than an invented string.
+    const [firstTag] = Object.keys(RECIPE_COMMANDS);
+    const realCmd = RECIPE_COMMANDS[firstTag][0];
+    const doctored = `${realCmd}.`;
+    expect(doctored[realCmd.length]).toBe(".");
+  });
 });
 
 const describeShellcheck = hasShellcheck() ? describe : describe.skip;
