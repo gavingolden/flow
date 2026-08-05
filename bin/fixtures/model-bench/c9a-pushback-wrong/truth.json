@@ -1,0 +1,10 @@
+{
+  "caseId": "c9a-pushback-wrong",
+  "required": [
+    "the assessment's claim that `rebaseOntoInstallRoot` rebases unconditionally / that the `..`-guard is stale/dead code is false"
+  ],
+  "pushback": {
+    "mustName": ["startsWith(\"..\")", "isAbsolute(rel)"],
+    "mustNotObject": false
+  }
+}

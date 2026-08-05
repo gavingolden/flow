@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "properties": {
+    "reasoning": {
+      "type": "string",
+      "description": "Think step by step through each hunk before answering: what does it add, what does it call, and what elsewhere in the codebase might depend on the code it touches. Write that reasoning here — it is not graded directly, but a leading reasoning field measurably improves the quality of constrained JSON output."
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "The file the finding is about, as it appears in the diff's `diff --git` header."
+          },
+          "line": {
+            "type": "number",
+            "description": "The line number in the post-change (added-side) file the finding points at."
+          },
+          "severity": {
+            "type": "string",
+            "description": "One of 'blocker', 'major', 'minor'."
+          },
+          "description": {
+            "type": "string",
+            "description": "What is wrong and what observable symptom it produces on some real input."
+          }
+        },
+        "required": ["file", "line", "severity", "description"]
+      },
+      "description": "Every genuine correctness defect introduced by this diff's added lines. Do not report style preferences or defects in lines the diff did not add or change."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0-100: how confident you are that the findings list is complete and free of false positives."
+    }
+  },
+  "required": ["reasoning", "findings", "confidence"],
+  "additionalProperties": false
+}

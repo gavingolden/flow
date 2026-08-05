@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "properties": {
+    "reasoning": {
+      "type": "string",
+      "description": "Think step by step through the skip rules IN ORDER for each PR before answering — check closed-or-merged first, then draft, then trivial-diff, then no-new-commits, only falling through to 'no skip rule matched' when none apply. Write that reasoning here — it is not graded directly, but a leading reasoning field measurably improves the quality of constrained JSON output."
+    },
+    "verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "pr": {
+            "type": "number",
+            "description": "The PR number from pr.json."
+          },
+          "decision": {
+            "type": "string",
+            "description": "One of 'skip' or 'proceed'."
+          },
+          "rule": {
+            "type": "string",
+            "description": "The exact rule that produced the decision: one of 'closed-or-merged', 'draft', 'trivial-diff', 'no-new-commits', or 'no-skip-rule-matched'."
+          }
+        },
+        "required": ["pr", "decision", "rule"]
+      },
+      "description": "One entry per PR in pr.json."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0-100: how confident you are that every verdict and rule is correct."
+    }
+  },
+  "required": ["reasoning", "verdicts", "confidence"],
+  "additionalProperties": false
+}

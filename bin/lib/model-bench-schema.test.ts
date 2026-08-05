@@ -108,9 +108,9 @@ describe("validateResults", () => {
   });
 });
 
-// Fixture sweeps over bin/fixtures/model-bench/*/ — the fixture tree does not
-// exist yet in this batch, so both sweeps must iterate whatever dirs are
-// present and pass vacuously on an empty/missing tree.
+// Fixture sweeps over bin/fixtures/model-bench/*/. The sweeps iterate whatever
+// dirs are present and pass vacuously on an empty/missing tree, so the
+// contract module stays testable independently of the fixtures.
 const FIXTURES_ROOT = path.resolve(__dirname, "..", "fixtures", "model-bench");
 
 function caseDirs(): string[] {
@@ -153,5 +153,41 @@ describe("fixture sweep: bin/fixtures/model-bench/*/", () => {
       }
     }
     expect(dirs).toEqual(dirs);
+  });
+
+  // c10's prompt.md lifts the gatekeeper's documented skip rules verbatim so
+  // the case measures the real job. Nothing otherwise couples the two, so a
+  // later edit to the spawn prompt would silently leave the fixture scoring
+  // against retired rules. Pin the enum both sides share.
+  it("keeps c10's skip-rule vocabulary in sync with gatekeeper-spawn-prompt.md", () => {
+    const promptPath = path.join(FIXTURES_ROOT, "c10-gatekeeper", "prompt.md");
+    const sourcePath = path.resolve(
+      __dirname,
+      "..",
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "gatekeeper-spawn-prompt.md",
+    );
+    if (!existsSync(promptPath) || !existsSync(sourcePath)) return;
+    const source = readFileSync(sourcePath, "utf8");
+    const kinds = [
+      ...new Set(
+        [...source.matchAll(/`skip_kind`?:?\s*"([a-z-]+)"/g)].map((m) => m[1]),
+      ),
+    ];
+    expect(
+      kinds.length,
+      "no skip_kind values found in gatekeeper-spawn-prompt.md — the anchor drifted",
+    ).toBeGreaterThan(0);
+    const prompt = readFileSync(promptPath, "utf8");
+    for (const kind of kinds) {
+      expect(
+        prompt.includes(kind),
+        `c10-gatekeeper/prompt.md is missing skip_kind "${kind}" documented in gatekeeper-spawn-prompt.md — re-lift the rules into the fixture`,
+      ).toBe(true);
+    }
   });
 });
