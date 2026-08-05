@@ -15,9 +15,9 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
+import { resolveRepoRoot } from "./repo-root";
 import { slugify, isValidSlug } from "./slug";
 import { confirmStdin } from "./confirm";
 import { toDirSuffix, MAX_SUFFIX_ATTEMPTS } from "./worktree-slot";
@@ -1596,18 +1596,4 @@ function firstAvailableSlug(base: string, stateDir?: string): string | null {
     }
   }
   return null;
-}
-
-function resolveRepoRoot(cwd: string): string | null {
-  // node:child_process spawnSync, not Bun.spawnSync, so the new vitest cases
-  // exercising runFresh's autoMerge persistence run under node — Bun.spawnSync
-  // is undefined in the vitest worker. Production runs through bin/flow which
-  // is bun-shebanged, so node-compat here costs nothing.
-  const r = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
-    encoding: "utf8",
-  });
-  if (r.status !== 0) return null;
-  const out = r.stdout.trim();
-  if (!out || !fs.existsSync(out)) return null;
-  return out;
 }

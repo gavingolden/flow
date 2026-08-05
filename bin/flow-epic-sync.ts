@@ -24,6 +24,7 @@ import * as path from "node:path";
 import { readState } from "./lib/state";
 import { FLOW_STATE_DIR, FLOW_EPICS_DIR } from "./lib/paths";
 import { readEpicRunState } from "./lib/epic-run-state";
+import { resolveRepoRoot } from "./lib/repo-root";
 import {
   epicDirRelative,
   EPIC_MANIFEST_FILENAME,
@@ -59,13 +60,6 @@ function loadManifest(manifestPath: string): EpicManifest | null {
   }
   const shape = validateEpicManifest(parsed);
   return shape.ok ? shape.value : null;
-}
-
-function resolveRepoRoot(cwd: string): string | null {
-  const r = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--show-toplevel"]);
-  if (r.exitCode !== 0) return null;
-  const out = r.stdout.toString("utf8").trim();
-  return out.length > 0 ? out : null;
 }
 
 // --- deriveBoard: pure, no disk/network -------------------------------------
@@ -118,10 +112,12 @@ export function deriveBoard(input: {
   existing: EpicStatusFile | null;
   gh: GhRunner;
   selfFeatureId?: string;
-}): { file: EpicStatusFile; derived: boolean } {
-  const { manifest, existing, gh, selfFeatureId } = input;
+  rederive?: boolean;
+}): { file: EpicStatusFile; derived: boolean; regressed: string[] } {
+  const { manifest, existing, gh, selfFeatureId, rederive = false } = input;
   const existingFeatures = existing?.features ?? {};
   const features: Record<string, CommittedFeatureRow> = {};
+  const regressed: string[] = [];
   let sawFailure = false;
 
   for (const f of manifest.features) {
@@ -134,8 +130,15 @@ export function deriveBoard(input: {
     // `not-started` rows are still queried unconditionally: self needs a
     // fresh PR number every run (the claim isn't committed until this PR
     // lands), and `not-started` is the whole point of the out-of-band
-    // backstop this sweep exists to provide.
-    if (!isSelf && existingRow?.status === "merged" && existingRow.pr) {
+    // backstop this sweep exists to provide. Under `--rederive` this skip
+    // is disabled entirely: the whole point of the escape hatch is to
+    // re-query a row the operator suspects is wrong.
+    if (
+      !rederive &&
+      !isSelf &&
+      existingRow?.status === "merged" &&
+      existingRow.pr
+    ) {
       features[f.id] = existingRow;
       continue;
     }
@@ -151,7 +154,25 @@ export function deriveBoard(input: {
     } else if (fetched.number !== undefined) {
       derivedRow = { status: "merged", pr: fetched.number };
     }
-    features[f.id] = advanceStatus(existingRow, derivedRow);
+    // Under `--rederive` pass an EMPTY base into the latch (never the real
+    // existing row) so a wrong committed row cannot re-latch itself. The
+    // latch itself (`advanceStatus`) is untouched — no downgrade path added.
+    const latchBase = rederive ? undefined : existingRow;
+    features[f.id] = advanceStatus(latchBase, derivedRow);
+    // Widened beyond a status downgrade: `regressed` is the only channel
+    // telling the operator a --rederive write will cost something, so it
+    // must also catch a still-`merged` row silently losing its committed
+    // `pr` (e.g. the optimistic self-mark re-deriving `pr: undefined`).
+    // Deliberately NOT flagging a `pr` that merely changes value — that is
+    // the repair --rederive exists to perform.
+    if (
+      rederive &&
+      existingRow?.status === "merged" &&
+      (features[f.id].status !== "merged" ||
+        (existingRow.pr !== undefined && features[f.id].pr === undefined))
+    ) {
+      regressed.push(f.id);
+    }
   }
 
   const file: EpicStatusFile = {
@@ -159,7 +180,7 @@ export function deriveBoard(input: {
     epicId: manifest.epicId,
     features,
   };
-  return { file, derived: !sawFailure };
+  return { file, derived: !sawFailure, regressed };
 }
 
 // --- CLI ---------------------------------------------------------------------
@@ -171,34 +192,60 @@ type ParsedArgs = {
   check: boolean;
   json: boolean;
   help: boolean;
+  rederive: boolean;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const out: ParsedArgs = { check: false, json: false, help: false };
+  const out: ParsedArgs = {
+    check: false,
+    json: false,
+    help: false,
+    rederive: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    const takeValue = (): string | undefined => {
+      const v = argv[i + 1];
+      if (v === undefined || v.startsWith("--")) {
+        console.error(`flow-epic-sync: warning: ${a} requires a value`);
+        return undefined;
+      }
+      i++;
+      return v;
+    };
     if (a === "--help" || a === "-h") {
       out.help = true;
     } else if (a === "--slug") {
-      out.slug = argv[++i];
+      out.slug = takeValue();
     } else if (a === "--epic-slug") {
-      out.epicSlug = argv[++i];
+      out.epicSlug = takeValue();
     } else if (a === "--epic-feature") {
-      out.epicFeature = argv[++i];
+      out.epicFeature = takeValue();
     } else if (a === "--check") {
       out.check = true;
     } else if (a === "--json") {
       out.json = true;
+    } else if (a === "--rederive") {
+      out.rederive = true;
+    } else {
+      // Warn-and-continue, not exit-2 (the repo-standard shape elsewhere
+      // under bin/): this helper's never-block-the-caller contract (see
+      // module header) covers an automated pr-review/heal call site with a
+      // stale invocation, not just a human typo — bailing out there would
+      // defeat the tolerant-by-design posture the rest of this file follows.
+      console.error(`flow-epic-sync: warning: unrecognized argument '${a}'`);
     }
   }
   return out;
 }
 
 const USAGE =
-  "usage: flow-epic-sync [--slug <feature-slug>] [--epic-slug <epic>] [--epic-feature <id>] [--check] [--json]\n" +
+  "usage: flow-epic-sync [--slug <feature-slug>] [--epic-slug <epic>] [--epic-feature <id>] [--check] [--json] [--rederive]\n" +
   "  --epic-feature <id>  override the self-mark feature id when it can't be\n" +
   "                       derived from state (paired with --epic-slug; the\n" +
-  "                       ambient --slug path derives it from state.epic.featureId)";
+  "                       ambient --slug path derives it from state.epic.featureId)\n" +
+  "  --rederive           rebuild the board from GitHub, ignoring committed rows\n" +
+  "                       (repairs a wrong row instead of hand-editing status.json)";
 
 type Deps = {
   gh?: GhRunner;
@@ -213,6 +260,8 @@ type SyncEnvelope = {
   derived: boolean;
   written: boolean;
   features: Record<string, CommittedFeatureRow>;
+  rederive: boolean;
+  regressed: string[];
 };
 
 function syncEnvelope(
@@ -220,12 +269,14 @@ function syncEnvelope(
   derived: boolean,
   written: boolean,
   features: Record<string, CommittedFeatureRow>,
+  rederive: boolean,
+  regressed: string[],
 ): SyncEnvelope {
-  return { epicSlug, derived, written, features };
+  return { epicSlug, derived, written, features, rederive, regressed };
 }
 
-function emptyEnvelope(epicSlug: string): SyncEnvelope {
-  return syncEnvelope(epicSlug, false, false, {});
+function emptyEnvelope(epicSlug: string, rederive: boolean): SyncEnvelope {
+  return syncEnvelope(epicSlug, false, false, {}, rederive, []);
 }
 
 export function main(argv: string[], deps: Deps = {}): number {
@@ -273,31 +324,46 @@ export function main(argv: string[], deps: Deps = {}): number {
     // a repo-state problem the caller can fix (bad path, corrupt JSON),
     // while a gh failure is an environment blip the caller can't act on
     // mid-PR — so only the former is worth failing a drift check over.
-    if (parsed.json) console.log(JSON.stringify(emptyEnvelope(epicSlug)));
+    if (parsed.json)
+      console.log(JSON.stringify(emptyEnvelope(epicSlug, parsed.rederive)));
     return parsed.check ? 1 : 0;
   }
 
   const epicDirAbs = path.dirname(manifestPath);
   const existing = readCommittedStatus(epicDirAbs);
-  if (existing && existing.epicId !== manifest.epicId) {
+  if (existing && existing.epicId !== manifest.epicId && !parsed.rederive) {
     // A committed status.json whose epicId disagrees with the manifest is
     // either stale (epic renamed) or, worst case, a PR-authored file
     // claiming authority over a different epic than the one this run is
     // reconciling. Refuse to trust it as a base for the latch rather than
-    // silently merging two epics' rows.
-    if (parsed.json) console.log(JSON.stringify(emptyEnvelope(epicSlug)));
+    // silently merging two epics' rows. Under `--rederive` this mismatch is
+    // exactly what the operator is asking to repair, so proceed instead of
+    // bailing out.
+    if (parsed.json)
+      console.log(JSON.stringify(emptyEnvelope(epicSlug, parsed.rederive)));
     return parsed.check ? 1 : 0;
   }
-  const { file, derived } = deriveBoard({
+  const { file, derived, regressed } = deriveBoard({
     manifest,
     existing,
     gh,
     selfFeatureId,
+    rederive: parsed.rederive,
   });
 
   if (!derived) {
-    if (parsed.json) console.log(JSON.stringify(emptyEnvelope(epicSlug)));
-    return 0; // gh unavailable — never block a PR.
+    // gh unavailable — never block the ambient pr-review/heal caller. An
+    // operator who explicitly typed --rederive is not that caller, though:
+    // name the skip on stderr so `--rederive --check` doesn't read as "in
+    // sync" and `--rederive` doesn't look like a no-op repair.
+    if (parsed.rederive) {
+      console.error(
+        "warn: --rederive derived nothing (gh unavailable); the committed board was NOT rebuilt",
+      );
+    }
+    if (parsed.json)
+      console.log(JSON.stringify(emptyEnvelope(epicSlug, parsed.rederive)));
+    return 0;
   }
 
   const serialized = serializeEpicStatus(file);
@@ -307,7 +373,26 @@ export function main(argv: string[], deps: Deps = {}): number {
     const inSync = onDisk === serialized;
     if (parsed.json) {
       console.log(
-        JSON.stringify(syncEnvelope(epicSlug, true, false, file.features)),
+        JSON.stringify(
+          syncEnvelope(
+            epicSlug,
+            true,
+            false,
+            file.features,
+            parsed.rederive,
+            regressed,
+          ),
+        ),
+      );
+    }
+    // Drift under --check exits 1 without writing. Name the reason on stderr
+    // so a shell script reading only `$?` is not left guessing: the JSON
+    // envelope carrying `regressed` is opt-in behind --json.
+    if (!inSync && parsed.rederive) {
+      console.error(
+        regressed.length > 0
+          ? `warn: --rederive --check found drift; a write would regress ${regressed.length} row(s): ${regressed.join(", ")}`
+          : "warn: --rederive --check found drift; the committed board differs from a from-scratch derivation",
       );
     }
     return inSync ? 0 : 1;
@@ -318,11 +403,25 @@ export function main(argv: string[], deps: Deps = {}): number {
   if (written) {
     fs.mkdirSync(epicDirAbs, { recursive: true });
     fs.writeFileSync(path.join(epicDirAbs, EPIC_STATUS_FILENAME), serialized);
+    if (regressed.length > 0) {
+      console.error(
+        `warn: --rederive regressed ${regressed.length} row(s): ${regressed.join(", ")}`,
+      );
+    }
   }
 
   if (parsed.json) {
     console.log(
-      JSON.stringify(syncEnvelope(epicSlug, true, written, file.features)),
+      JSON.stringify(
+        syncEnvelope(
+          epicSlug,
+          true,
+          written,
+          file.features,
+          parsed.rederive,
+          regressed,
+        ),
+      ),
     );
   }
   return 0;

@@ -45,7 +45,11 @@ export type BoardRow = {
   pr?: number;
   phase?: string;
   dependsOn: string[];
-  /** True when the row's `merged` status came from an external completion record (no live slug). */
+  /**
+   * True when the row's `merged` status came from outside live pipeline
+   * state: an external completion record (no live slug) or a committed
+   * `merged` row that outranked an `orphan` record (slug still present).
+   */
   external?: boolean;
 };
 
@@ -135,11 +139,23 @@ export function reconcile(input: {
    * feature with NO `run.json` record and a committed `merged` row
    * classifies `merged` (so the frontier math is right on a fresh machine
    * with no per-machine cache); a committed `not-started` row leaves the
-   * feature exactly as it is today. A PRESENT `run.json` record always wins.
+   * feature exactly as it is today. A PRESENT `run.json` record always wins
+   * — with a single named exception: a record classified `orphan` (launched
+   * but no live state file) is outranked by a committed `merged` row, since
+   * an orphan carries no live judgment to protect and the committed row is
+   * verified-done truth. Any other live classification (`running`, `gated`,
+   * `needs-human`, `cancelled`, `merged`) still wins over the committed row.
    */
   committedStatus?: EpicStatusFile | null;
 }): ReconcileResult {
-  const { manifest, runState, maxParallel, committedStatus } = input;
+  const { manifest, runState, maxParallel } = input;
+  // Same identity guard as flow-epic-sync.ts's committed-status read: a
+  // PR-authored status.json claiming authority over a different epic than
+  // the one being reconciled must never override a live `orphan` record.
+  const committedStatus =
+    input.committedStatus && input.committedStatus.epicId === manifest.epicId
+      ? input.committedStatus
+      : null;
   const readFeatureState =
     input.readFeatureState ?? ((slug: string) => readState(slug));
 
@@ -154,6 +170,9 @@ export function reconcile(input: {
   const launchedStatus = new Map<string, FeatureStatus>();
   const liveState = new Map<string, PipelineState | null>();
   const externalIds = new Set<string>();
+  // Features whose `orphan` record is outranked by a committed `merged` row
+  // (the single named exception to "a present record always wins" above).
+  const committedOverrideIds = new Set<string>();
   for (const f of features) {
     const record = runState.features[f.id];
     if (!record) continue;
@@ -164,13 +183,22 @@ export function reconcile(input: {
     }
     const state = record.slug ? readFeatureState(record.slug) : null;
     liveState.set(f.id, state);
-    launchedStatus.set(f.id, classifyLaunched(state));
+    const classified = classifyLaunched(state);
+    if (
+      classified === "orphan" &&
+      committedStatus?.features[f.id]?.status === "merged"
+    ) {
+      committedOverrideIds.add(f.id);
+      launchedStatus.set(f.id, "merged");
+    } else {
+      launchedStatus.set(f.id, classified);
+    }
   }
 
   // Committed-board floor: a feature with NO run.json record but a committed
-  // `merged` row counts as completed too — a PRESENT record always wins
-  // (handled above; committedFloorIds is only consulted for features with no
-  // record at all).
+  // `merged` row counts as completed too — a PRESENT record always wins,
+  // except an `orphan` record (handled above; committedFloorIds is only
+  // consulted for features with no record at all).
   const committedFloorIds = new Set<string>();
   for (const f of features) {
     if (runState.features[f.id]) continue;
@@ -211,13 +239,17 @@ export function reconcile(input: {
         };
       }
       const state = liveState.get(f.id) ?? null;
+      const overridden = committedOverrideIds.has(f.id);
       return {
         id: f.id,
         status: launchedStatus.get(f.id)!,
         slug: record.slug,
-        pr: state?.pr ?? record.pr,
+        pr: overridden
+          ? (committedStatus?.features[f.id]?.pr ?? record.pr)
+          : (state?.pr ?? record.pr),
         phase: state?.phase,
         dependsOn: f.dependsOn,
+        ...(overridden ? { external: true } : {}),
       };
     }
     if (committedFloorIds.has(f.id)) {
