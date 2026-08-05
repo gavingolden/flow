@@ -1,0 +1,287 @@
+diff --git a/bin/lib/setup.test.ts b/bin/lib/setup.test.ts
+index 766155e..2878014 100644
+--- a/bin/lib/setup.test.ts
++++ b/bin/lib/setup.test.ts
+@@ -16,7 +16,12 @@ import { readManifest } from "./manifest";
+ import { LockTimeoutError } from "./lock";
+ import { removeIfManagedSymlink } from "./symlink";
+ import { countStopHook } from "./settings-merge";
+-import { discoverHelpers, discoverValidators } from "./sources";
++import {
++  discoverHelpers,
++  discoverValidators,
++  effectiveLinkSource,
++  rebaseOntoInstallRoot,
++} from "./sources";
+ 
+ let scratch!: string;
+ let flowSource!: string;
+@@ -925,6 +930,101 @@ describe("flow install", () => {
+         ),
+       ).toBe(false);
+     });
++
++    it("points live symlinks for content present in canonical at the install-root, not the worktree (Story 1)", () => {
++      // A shared helper + skill exist in BOTH the worktree and the
++      // install-root fixture (buildFakeFlowSource builds identical trees).
++      // Their live symlinks must resolve under installRoot so they survive
++      // the worktree's post-merge removal — no re-pointing churn onto the
++      // worktree.
++      const worktree = path.join(scratch, "worktree");
++      buildFakeFlowSource(worktree);
++
++      setup({ flowSourceOverride: worktree, upgrade: true });
++
++      const t = targets();
++      // realpath both sides — /var → /private/var on macOS would otherwise
++      // yield a spurious string mismatch.
++      expect(fs.realpathSync(path.join(t.binDir, "flow-helper"))).toBe(
++        fs.realpathSync(path.join(flowSource, "bin", "flow-helper.ts")),
++      );
++      expect(fs.realpathSync(path.join(t.skillsDir, "alpha"))).toBe(
++        fs.realpathSync(path.join(flowSource, "skills", "pipeline", "alpha")),
++      );
++      // Neither link resolves into the worktree.
++      expect(
++        fs
++          .realpathSync(path.join(t.binDir, "flow-helper"))
++          .startsWith(worktree),
++      ).toBe(false);
++    });
++
++    it("keeps a genuinely worktree-only helper pointed at the worktree so it is usable during the pipeline (Story 2)", () => {
++      const worktree = path.join(scratch, "worktree");
++      buildFakeFlowSource(worktree);
++      fs.writeFileSync(
++        path.join(worktree, "bin", "flow-pipeline-only.ts"),
++        "#!/usr/bin/env bun\n// only in worktree\n",
++      );
++
++      setup({ flowSourceOverride: worktree, upgrade: true });
++
++      const t = targets();
++      const link = path.join(t.binDir, "flow-pipeline-only");
++      expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
++      expect(fs.realpathSync(link)).toBe(
++        fs.realpathSync(path.join(worktree, "bin", "flow-pipeline-only.ts")),
++      );
++    });
++
++    it("keeps the flow wrapper anchored to install-root under a --source install (Story 3)", () => {
++      const worktree = path.join(scratch, "worktree");
++      buildFakeFlowSource(worktree);
++
++      setup({ flowSourceOverride: worktree, upgrade: true });
++
++      const t = targets();
++      expect(fs.realpathSync(path.join(t.binDir, "flow"))).toBe(
++        fs.realpathSync(path.join(flowSource, "bin", "flow")),
++      );
++    });
++
++    it("re-links an existing helper to canonical while reaping a never-merged worktree-only helper after removal (Story 5)", () => {
++      // A worktree that adds a new-only helper on top of the shared tree.
++      const worktree = path.join(scratch, "worktree");
++      buildFakeFlowSource(worktree);
++      fs.writeFileSync(
++        path.join(worktree, "bin", "flow-pipeline-only.ts"),
++        "#!/usr/bin/env bun\n// only in worktree\n",
++      );
++
++      // Step 5.5: --source upgrade. Shared helper points at canonical; the
++      // new-only helper points at the worktree.
++      setup({ flowSourceOverride: worktree, upgrade: true });
++      const t = targets();
++      expect(fs.realpathSync(path.join(t.binDir, "flow-helper"))).toBe(
++        fs.realpathSync(path.join(flowSource, "bin", "flow-helper.ts")),
++      );
++
++      // flow-remove-worktree: the worktree is gone.
++      fs.rmSync(worktree, { recursive: true, force: true });
++
++      // Post-merge canonical upgrade (no --source).
++      const summary = setup({ upgrade: true });
++
++      // The never-merged worktree-only helper is reaped (dangling branch)...
++      expect(summary.removed).toBeGreaterThanOrEqual(1);
++      expect(fs.existsSync(path.join(t.binDir, "flow-pipeline-only"))).toBe(
++        false,
++      );
++      // ...while the shared helper is re-linked to canonical, not reaped.
++      expect(
++        fs.lstatSync(path.join(t.binDir, "flow-helper")).isSymbolicLink(),
++      ).toBe(true);
++      expect(fs.realpathSync(path.join(t.binDir, "flow-helper"))).toBe(
++        fs.realpathSync(path.join(flowSource, "bin", "flow-helper.ts")),
++      );
++    });
+   });
+ 
+   describe("canonical-tree-presence backstop (PR #115 race)", () => {
+@@ -1386,6 +1486,57 @@ describe("flow install", () => {
+   });
+ });
+ 
++describe("rebaseOntoInstallRoot / effectiveLinkSource", () => {
++  const worktree = "/repo/flow-slug";
++  const canonical = "/repo/flow";
++
++  it("is identity when flowSource === installRoot", () => {
++    const p = "/repo/flow/bin/flow-helper.ts";
++    expect(rebaseOntoInstallRoot(p, canonical, canonical)).toBe(p);
++  });
++
++  it("rebases a worktree-rooted path onto installRoot when they diverge", () => {
++    expect(
++      rebaseOntoInstallRoot(
++        "/repo/flow-slug/bin/flow-helper.ts",
++        worktree,
++        canonical,
++      ),
++    ).toBe("/repo/flow/bin/flow-helper.ts");
++  });
++
++  it("is identity when the source escapes flowSource (the ..-guard)", () => {
++    // The wrapper's source is already installRoot-rooted, so relative()
++    // escapes with a leading `..`; rebasing must not double-join.
++    const wrapper = "/repo/flow/bin/flow";
++    expect(rebaseOntoInstallRoot(wrapper, worktree, canonical)).toBe(wrapper);
++  });
++
++  it("effectiveLinkSource falls back to the worktree path when no canonical file exists", () => {
++    // /repo/flow/bin/flow-newonly.ts does not exist on disk, so the live
++    // link stays worktree-pointed.
++    const wtOnly = "/repo/flow-slug/bin/flow-newonly.ts";
++    expect(effectiveLinkSource(wtOnly, worktree, canonical)).toBe(wtOnly);
++  });
++
++  it("effectiveLinkSource prefers the canonical path when it exists on disk", () => {
++    // Build a real canonical file so existsSync returns true.
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), "flow-els-"));
++    try {
++      const canon = path.join(root, "flow");
++      const wt = path.join(root, "flow-slug");
++      fs.mkdirSync(path.join(canon, "bin"), { recursive: true });
++      fs.writeFileSync(path.join(canon, "bin", "flow-helper.ts"), "// x\n");
++      const wtSource = path.join(wt, "bin", "flow-helper.ts");
++      expect(effectiveLinkSource(wtSource, wt, canon)).toBe(
++        path.join(canon, "bin", "flow-helper.ts"),
++      );
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true });
++    }
++  });
++});
++
+ // --- Fixture builders ---
+ 
+ function buildFakeFlowSource(root: string): void {
+diff --git a/bin/lib/setup.ts b/bin/lib/setup.ts
+index abeb069..2a4b46a 100644
+--- a/bin/lib/setup.ts
++++ b/bin/lib/setup.ts
+@@ -25,6 +25,7 @@ import {
+ import {
+   DEFAULT_TARGETS,
+   discoverAll,
++  effectiveLinkSource,
+   entryToRecord,
+   type InstallTargets,
+   type SourceEntry,
+@@ -252,9 +253,21 @@ function runUnderLock(
+   log(`      source ${flowSource}`);
+ 
+   for (const entry of entries) {
++    // Point the live symlink at the canonical (installRoot) path for any
++    // content that exists there, so a `--source <worktree>` install doesn't
++    // leave global links dangling when the worktree is removed on merge.
++    // A genuinely worktree-only new file has no canonical counterpart yet, so
++    // it stays worktree-pointed (usable during the pipeline). The manifest
++    // record (entry.source → entryToRecord) is unchanged: it always records
++    // canonical, even for the not-yet-existing worktree-only case.
++    const liveSource = effectiveLinkSource(
++      entry.source,
++      flowSource,
++      installRoot,
++    );
+     const result = ensureSymlink(
+       entry.target,
+-      entry.source,
++      liveSource,
+       options.force ?? false,
+     );
+     logResult(entry, result, log);
+diff --git a/bin/lib/sources.ts b/bin/lib/sources.ts
+index d56acdb..5adf243 100644
+--- a/bin/lib/sources.ts
++++ b/bin/lib/sources.ts
+@@ -268,16 +268,68 @@ export function entryToRecord(
+   };
+ }
+ 
+-export function canonicalizeRecordedSource(
++/**
++ * Rebase a `flowSource`-rooted path onto `installRoot`. Identity in the two
++ * cases where rebasing is meaningless: when the two roots are the same (the
++ * non-`--source` common case), and when `source` does not live under
++ * `flowSource` (`path.relative` escapes with a leading `..`, or is absolute —
++ * e.g. the `flow` wrapper, which is already `installRoot`-anchored). The
++ * `..`-guard hardens what previously worked only because
++ * `flow-new-worktree` guarantees canonical/worktree are same-depth siblings;
++ * a non-sibling layout would otherwise produce a wrong `path.join` result.
++ */
++export function rebaseOntoInstallRoot(
+   source: string,
+   flowSource: string,
+   installRoot: string,
+ ): string {
+   if (path.resolve(flowSource) === path.resolve(installRoot)) return source;
+   const rel = path.relative(flowSource, source);
++  if (rel.startsWith("..") || path.isAbsolute(rel)) return source;
+   return path.join(installRoot, rel);
+ }
+ 
++export function canonicalizeRecordedSource(
++  source: string,
++  flowSource: string,
++  installRoot: string,
++): string {
++  return rebaseOntoInstallRoot(source, flowSource, installRoot);
++}
++
++/**
++ * The path the *live* symlink should point at, distinct from the *recorded*
++ * source (`canonicalizeRecordedSource`). Prefer the canonical (installRoot)
++ * path so the symlink survives a `--source <worktree>`'s post-merge removal —
++ * but only when that canonical file actually exists on disk. A genuinely
++ * worktree-only new file (no canonical counterpart yet) has no canonical path
++ * to point at, so it falls back to the worktree `source` and stays invocable
++ * on PATH for the introducing pipeline; the post-merge `flow install
++ * --upgrade` follow-up re-links it to canonical once merged. `fs.existsSync`
++ * never throws (returns false on any error), so this can't break the install.
++ *
++ * Additions vs modifications: this is intentionally additions-only for the
++ * live PATH surface. A file that already EXISTS in canonical resolves to
++ * canonical EVEN IF the worktree copy was modified in-flight — the check is
++ * mere existence (`fs.existsSync(rebased)`), not content-equality — so a
++ * bare-name invocation during the introducing pipeline exercises the
++ * unmodified canonical copy, not the in-flight edit. This is the deliberate
++ * cost of the "never dangle on worktree removal" invariant: `--source
++ * <worktree>` picks up brand-new files but pins modified-existing content to
++ * canonical. Practical impact is minimal — step 5.5 only fires on skill/agent
++ * ADDITIONS, and skills load once per session — so no code change is needed
++ * here; if mid-pipeline dogfooding of modifications is ever required, gate the
++ * canonical preference on content-equality instead of bare existence.
++ */
++export function effectiveLinkSource(
++  source: string,
++  flowSource: string,
++  installRoot: string,
++): string {
++  const rebased = rebaseOntoInstallRoot(source, flowSource, installRoot);
++  return rebased !== source && fs.existsSync(rebased) ? rebased : source;
++}
++
+ function existsDir(p: string): boolean {
+   try {
+     return fs.statSync(p).isDirectory();

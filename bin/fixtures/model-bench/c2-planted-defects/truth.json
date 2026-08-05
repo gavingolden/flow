@@ -1,0 +1,15 @@
+{
+  "caseId": "c2-planted-defects",
+  "required": [
+    "src/pagination.ts:7 off-by-one — `for (let i = 0; i <= pageCount; i++)` should be `i < pageCount`; the current loop emits one trailing empty page past the real data",
+    "src/cart.ts:14 swapped argument order — `applyDiscount(item.priceCents, item.discountPct)` calls pricing.ts's `applyDiscount(pct, priceCents)` with the arguments reversed, so a $40.00 item at 15% off is priced as if $40 were the discount percentage",
+    "src/cart.ts:33 missing await — `const taxRate = fetchTaxRate(region);` binds a Promise<number>, not a number; the promise object is then used directly in `1 + taxRate` arithmetic on the next line",
+    "src/report.ts:19 null-deref behind an incomplete guard — `if (order.customer)` does not guarantee `order.customer.address` is set (it's an optional field per the `Customer` type), so `order.customer.address.city` throws for any customer without a saved address"
+  ],
+  "defects": [
+    { "file": "src/pagination.ts", "line": 7, "kind": "off-by-one" },
+    { "file": "src/cart.ts", "line": 14, "kind": "swapped-argument-order" },
+    { "file": "src/cart.ts", "line": 33, "kind": "missing-await" },
+    { "file": "src/report.ts", "line": 19, "kind": "null-deref-incomplete-guard" }
+  ]
+}

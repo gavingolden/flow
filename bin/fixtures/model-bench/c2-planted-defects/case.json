@@ -1,0 +1,15 @@
+{
+  "id": "c2-planted-defects",
+  "surface": "scout",
+  "kind": "planted-defect",
+  "promptFile": "prompt.md",
+  "inputFiles": [
+    "src/pagination.ts",
+    "src/pricing.ts",
+    "src/cart.ts",
+    "src/report.ts"
+  ],
+  "repeats": 10,
+  "authoredAtCommit": "92a1fca9a22137fc77f216453a86dd9a14c79aaa",
+  "routable": true
+}

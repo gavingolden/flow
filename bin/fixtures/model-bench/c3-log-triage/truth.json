@@ -1,0 +1,15 @@
+{
+  "caseId": "c3-log-triage",
+  "required": [
+    "bin/lib/command-lint.test.ts > shellcheckOk > fails a fragment with a real shellcheck error",
+    "expected true to be false",
+    "bin/lib/command-lint.test.ts:117",
+    "shellcheckOk runs shellcheck at --severity=error",
+    "the fragment under test is `VAR=\"a b\"` then `echo $VAR`, an unquoted variable expansion",
+    "that unquoted-expansion defect is SC2086, which shellcheck classifies below error severity, so shellcheckOk('VAR=\"a b\"\\necho $VAR') returns true instead of the expected false"
+  ],
+  "forbidden": [
+    "shellcheck is not installed on the runner",
+    "shellcheck is missing from the CI image"
+  ]
+}

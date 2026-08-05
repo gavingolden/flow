@@ -1,0 +1,12 @@
+{
+  "id": "c4-intent-json",
+  "surface": "intent-guess",
+  "kind": "structured",
+  "promptFile": "prompt.md",
+  "inputFiles": ["diff.patch"],
+  "jsonSchemaFile": "schema.json",
+  "schemaAb": true,
+  "repeats": 10,
+  "authoredAtCommit": "92a1fca9a22137fc77f216453a86dd9a14c79aaa",
+  "routable": true
+}
