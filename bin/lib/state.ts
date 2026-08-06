@@ -306,6 +306,30 @@ export const PIPELINE_PHASE_SET: ReadonlySet<string> = new Set(PIPELINE_PHASES);
 
 export const TERMINAL_PHASE_SET: ReadonlySet<string> = new Set(TERMINAL_PHASES);
 
+/**
+ * Named allowlist of the only terminal -> non-terminal writes
+ * flow-state-update accepts without --force. It exists for two legitimate
+ * paths out of `gated`: the gated-feedback loop's re-verify (step 6) /
+ * re-gate (step 9), and the gate-override merge (step 10). It still blocks
+ * everything else, in particular `<any terminal> -> triaging` — the
+ * ambient-pane slug race from PR #369 / commit 00a67fa. The table has only
+ * one entry because the guard fires only on the FIRST write out of a
+ * terminal phase: once an allowlisted write lands the phase is no longer
+ * terminal, so downstream phases (implementing, ci-wait, reviewing) are
+ * reachable without their own entry.
+ */
+export const TERMINAL_EXIT_TRANSITIONS: Readonly<
+  Record<string, readonly PipelinePhase[]>
+> = {
+  gated: ["verifying", "gating", "merging"],
+};
+
+export function isAllowedTerminalExit(from: string, to: string): boolean {
+  return (
+    (TERMINAL_EXIT_TRANSITIONS[from] ?? []) as readonly string[]
+  ).includes(to);
+}
+
 export function isPipelinePhase(value: string): value is PipelinePhase {
   return PIPELINE_PHASE_SET.has(value);
 }

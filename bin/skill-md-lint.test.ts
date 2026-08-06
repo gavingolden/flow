@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
-import { STEP_PHASES } from "./lib/state";
+import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { CHECKPOINT_SITES } from "./flow-checkpoint";
 
@@ -4291,6 +4291,42 @@ describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-do
       }
     },
   );
+});
+
+describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", () => {
+  // Guards against the allowlist (bin/lib/state.ts) and the SKILL.md prose
+  // silently drifting apart again: a phase dropped from
+  // TERMINAL_EXIT_TRANSITIONS.gated (or the symbol itself going unmentioned)
+  // should fail loudly here rather than leaving the doc describing exits the
+  // guard no longer permits, or vice versa.
+  it.each(TERMINAL_EXIT_TRANSITIONS.gated.map((phase) => [phase]))(
+    "TERMINAL_EXIT_TRANSITIONS.gated phase '%s' is named (backticked) in SKILL.md",
+    (phase) => {
+      expect(
+        content.includes(`\`${phase}\``),
+        `TERMINAL_EXIT_TRANSITIONS.gated includes '${phase}' ` +
+          `(bin/lib/state.ts), but flow-pipeline/SKILL.md never mentions ` +
+          "`" +
+          phase +
+          "` — fix SKILL.md's gated-exit prose to name every allowlisted " +
+          "target.",
+      ).toBe(true);
+    },
+  );
+
+  it("SKILL.md mentions the literal symbol TERMINAL_EXIT_TRANSITIONS", () => {
+    // Load-bearing check: verifying/gating/merging each also appear
+    // elsewhere in SKILL.md as ordinary phase names, so the it.each above
+    // alone can't catch the allowlist going unmentioned entirely — only the
+    // literal symbol name proves SKILL.md's prose is actually describing
+    // this guard, not just naming the phases in another context.
+    expect(
+      content.includes("TERMINAL_EXIT_TRANSITIONS"),
+      "flow-pipeline/SKILL.md no longer mentions the literal symbol " +
+        "TERMINAL_EXIT_TRANSITIONS — fix SKILL.md to name it explicitly so " +
+        "the gated-exit prose stays traceable to bin/lib/state.ts.",
+    ).toBe(true);
+  });
 });
 
 describe("pr-review Step 11e inversion contract", () => {

@@ -35,6 +35,9 @@
  *   instead of papering over it.
  * - `updatedAt` is rewritten to the current ISO-8601 UTC timestamp on
  *   every call.
+ * - `gated` has a named exit allowlist (TERMINAL_EXIT_TRANSITIONS in
+ *   `lib/state.ts`); every other terminal→non-terminal write still needs
+ *   --force.
  */
 
 import * as fs from "node:fs";
@@ -44,6 +47,8 @@ import {
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
   TERMINAL_PHASE_SET,
+  TERMINAL_EXIT_TRANSITIONS,
+  isAllowedTerminalExit,
   readState,
   writeState,
   nowIso,
@@ -312,14 +317,23 @@ export function runUpdate(
   // terminal→non-terminal write is almost always an ambient-pane race that
   // resolved the slug to the wrong pipeline. Exit 4 (distinct from exit 3
   // used by branch-mismatch) so the supervisor can escalate differently.
+  // `gated` carries a named exit allowlist (TERMINAL_EXIT_TRANSITIONS) for
+  // its two legitimate resume paths; --force remains the escape hatch for
+  // every other terminal phase.
   if (
     parsed.phase !== undefined &&
     !parsed.force &&
     TERMINAL_PHASE_SET.has(existing.phase) &&
-    !TERMINAL_PHASE_SET.has(parsed.phase)
+    !TERMINAL_PHASE_SET.has(parsed.phase) &&
+    !isAllowedTerminalExit(existing.phase, parsed.phase)
   ) {
+    const allowedExits = TERMINAL_EXIT_TRANSITIONS[existing.phase];
+    const allowedExitsText =
+      allowedExits && allowedExits.length > 0
+        ? allowedExits.join(", ")
+        : "none";
     console.error(
-      `flow-state-update: refusing to regress terminal phase '${existing.phase}' → '${parsed.phase}' for slug '${slug}'. If intentional, delete the state file first or use --force.`,
+      `flow-state-update: refusing to regress terminal phase '${existing.phase}' → '${parsed.phase}' for slug '${slug}'. If intentional, delete the state file first or use --force. allowed exits from '${existing.phase}': ${allowedExitsText}`,
     );
     return 4;
   }

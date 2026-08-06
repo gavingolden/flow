@@ -6,6 +6,7 @@ import {
   autoResumesAfterClear,
   deleteState,
   EPIC_PHASES,
+  isAllowedTerminalExit,
   isEpicPhase,
   isLegitimateEndPhase,
   isMainStateFile,
@@ -21,6 +22,7 @@ import {
   readState,
   shortPhase,
   STEP_PHASES,
+  TERMINAL_EXIT_TRANSITIONS,
   TERMINAL_PHASES,
   writeState,
   type PipelineState,
@@ -977,6 +979,37 @@ describe("phase constants", () => {
 
   it("autoResumesAfterClear('epic-run', ...) resumes regardless of phase", () => {
     expect(autoResumesAfterClear("epic-approved", "epic-run")).toBe(true);
+  });
+
+  it("isAllowedTerminalExit allows the three documented gated exits", () => {
+    expect(isAllowedTerminalExit("gated", "verifying")).toBe(true);
+    expect(isAllowedTerminalExit("gated", "gating")).toBe(true);
+    expect(isAllowedTerminalExit("gated", "merging")).toBe(true);
+  });
+
+  it("isAllowedTerminalExit rejects everything else, including a non-terminal from-phase", () => {
+    expect(isAllowedTerminalExit("gated", "triaging")).toBe(false);
+    expect(isAllowedTerminalExit("merged", "verifying")).toBe(false);
+    expect(isAllowedTerminalExit("verifying", "gating")).toBe(false);
+  });
+
+  it("TERMINAL_EXIT_TRANSITIONS is exactly {gated: [verifying, gating, merging]} (drift-guard)", () => {
+    // Exact equality, not containment — this is what catches a silent
+    // widening of the allowlist to a phase other than `gated`, or a
+    // silent addition/removal of one of the three documented targets.
+    expect(Object.keys(TERMINAL_EXIT_TRANSITIONS)).toEqual(["gated"]);
+    expect(TERMINAL_EXIT_TRANSITIONS.gated).toEqual([
+      "verifying",
+      "gating",
+      "merging",
+    ]);
+  });
+
+  it("every TERMINAL_EXIT_TRANSITIONS.gated target is a real, non-terminal phase", () => {
+    for (const target of TERMINAL_EXIT_TRANSITIONS.gated) {
+      expect(PIPELINE_PHASES as readonly string[]).toContain(target);
+      expect(TERMINAL_PHASES as readonly string[]).not.toContain(target);
+    }
   });
 });
 
