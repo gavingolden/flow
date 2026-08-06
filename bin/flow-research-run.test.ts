@@ -87,17 +87,20 @@ describe("buildManifest", () => {
 
 describe("resolveModels (cross-model diversity guard)", () => {
   it("applies the frozen defaults when config is empty/garbage", () => {
-    // 2026-08-05 (PR #543 correction): researchRefute's DELEGATE_MODEL_DEFAULTS
-    // entry is now "Gemini 3.6 Flash (High)" — deliberately different from
-    // researchGather's "Gemini 3.1 Pro (High)" default — so the default
-    // path no longer collides and the diversity guard never fires here.
+    // 2026-08-05 (PR #543): researchRefute's DELEGATE_MODEL_DEFAULTS entry
+    // stayed "Claude Opus 4.6 (Thinking)" — the bench run did NOT flip this
+    // default (see delegate-models.ts's inline comment for why) — so the
+    // default path still collides with researchGather's "Gemini 3.1 Pro
+    // (High)" default only when gather itself resolves to Opus; on an
+    // empty/garbage config gather resolves to Gemini 3.1 Pro, so no
+    // collision and the guard never fires here.
     expect(resolveModels({})).toEqual({
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Gemini 3.6 Flash (High)",
+      refuteModel: "Claude Opus 4.6 (Thinking)",
     });
     expect(resolveModels(null)).toEqual({
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Gemini 3.6 Flash (High)",
+      refuteModel: "Claude Opus 4.6 (Thinking)",
     });
   });
 
@@ -115,13 +118,13 @@ describe("resolveModels (cross-model diversity guard)", () => {
     });
   });
 
-  it("falls back to the current defaultRefuteModel when both resolve to Opus", () => {
-    // Pre-flip this fell back to GPT-OSS because defaultRefuteModel was
-    // Opus and the guard special-cased "gather === Opus". defaultRefuteModel
-    // is now "Gemini 3.6 Flash (High)" (see DELEGATE_MODEL_DEFAULTS), so a
-    // gather===Opus collision falls back to that instead — the guard's
-    // collision-avoidance purpose is unchanged, only the concrete fallback
-    // value shifted with the default.
+  it("falls back to FALLBACK_REFUTE_MODEL when both resolve to Opus", () => {
+    // PR #543 (2026-08-05) did NOT flip researchRefute's default — it
+    // remains "Claude Opus 4.6 (Thinking)", identical to defaultRefuteModel
+    // — so a gather===Opus collision still takes the FALLBACK_REFUTE_MODEL
+    // branch, unchanged from pre-PR behaviour. Only the resolution path
+    // changed: defaultRefuteModel now flows through resolveDelegateModel
+    // rather than a module-level constant.
     const r = resolveModels({
       research: {
         model: "Claude Opus 4.6 (Thinking)",
@@ -129,18 +132,18 @@ describe("resolveModels (cross-model diversity guard)", () => {
       },
     });
     expect(r.gatherModel).toBe("Claude Opus 4.6 (Thinking)");
-    expect(r.refuteModel).toBe("Gemini 3.6 Flash (High)");
+    expect(r.refuteModel).toBe("GPT-OSS 120B (Medium)");
     expect(r.refuteModel).not.toBe(r.gatherModel);
   });
 
-  it("falls back to the current defaultRefuteModel on a collision where gather is GPT-OSS", () => {
+  it("does not collide when gather is GPT-OSS (defaultRefuteModel is Opus)", () => {
     const r = resolveModels({
       research: {
         model: "GPT-OSS 120B (Medium)",
         refuteModel: "GPT-OSS 120B (Medium)",
       },
     });
-    expect(r.refuteModel).toBe("Gemini 3.6 Flash (High)");
+    expect(r.refuteModel).toBe("Claude Opus 4.6 (Thinking)");
     expect(r.refuteModel).not.toBe(r.gatherModel);
   });
 });

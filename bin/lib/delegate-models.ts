@@ -23,7 +23,7 @@
  * that forgets this module fails loudly). This module is the seam for
  * flipping individual defaults once a recorded benchmark clears a
  * (surface, candidate) pair — see `researchRefute`'s inline comment below
- * for the first such flip (PR #543, 2026-08-05).
+ * for why the PR #543 bench run (2026-08-05) did NOT flip that default.
  */
 
 import { defaultReadConfigFile, type ReadConfigFile } from "./models-config";
@@ -44,18 +44,23 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   intentGuess: "Gemini 3.1 Pro (High)",
   reviewLens: "Gemini 3.1 Pro (High)",
   researchGather: "Gemini 3.1 Pro (High)",
-  // Flipped 2026-08-05 (PR #543): BOTH Gemini candidates cleared
-  // research-refute on the hardened c8 fixture at N=10
-  // (docs/model-bench/report.md — parity held vs claude-sonnet-4-6
-  // including the cross-table-arithmetic and over-refutation traps; the
-  // recommendation tie-break nominally preferred 3.1 Pro). 3.6 Flash is
-  // chosen over 3.1 Pro because researchGather's default is already
-  // "Gemini 3.1 Pro (High)" and a string-identical refute default trips
-  // flow-research-run.ts' resolveModels cross-model diversity guard, which
-  // silently downgrades the runtime refute model to the wholly unbenched
-  // FALLBACK_REFUTE_MODEL ("GPT-OSS 120B (Medium)") — Flash keeps the
-  // deployed refuter a benched, cleared model AND keeps the guard quiet.
-  researchRefute: "Gemini 3.6 Flash (High)",
+  // NO FLIP (evaluated 2026-08-05, PR #543): both Gemini candidates
+  // cleared research-refute on the hardened c8 fixture at N=10, and the
+  // recommendation tie-break nominally preferred 3.1 Pro — NOT Flash.
+  // 3.1 Pro can't be deployed: researchGather's default is already
+  // "Gemini 3.1 Pro (High)", and a string-identical refute default trips
+  // flow-research-run.ts' resolveModels cross-model diversity guard,
+  // silently downgrading the runtime refuter to the wholly unbenched
+  // FALLBACK_REFUTE_MODEL ("GPT-OSS 120B (Medium)"). Deploying the
+  // non-preferred Flash variant instead was rejected too: c8 is weakly
+  // discriminating (spread 0.100 schema / 0.020 free-form) and
+  // research-refute is a critique-shaped surface — exactly the shape
+  // where both candidates failed hardest (c9a recall 0.00 vs incumbent
+  // 0.70). So the incumbent stands. A maintainer who wants a Gemini
+  // refuter anyway can set delegate.models.researchRefute — no code
+  // change needed — and an agy-delegated refuter keeps the spend on the
+  // Google-AI-Ultra subscription either way.
+  researchRefute: "Claude Opus 4.6 (Thinking)",
   planReview: "Gemini 3.1 Pro (High)",
   // Does NOT flip despite plan-review's gemini-3.1-pro-high clear (same
   // bench run): the deep-tier second reviewer exists for cross-model

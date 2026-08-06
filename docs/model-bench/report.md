@@ -152,19 +152,24 @@ capture it from a plain interactive session on a future re-run.
   incumbent caught the real historical defect
   (`pipeline-summary-sources.ts:237`) that both candidates missed in
   every attempt — the decisive scout reject.
-- **The one routing flip is `researchRefute` → Gemini 3.6 Flash (High).**
-  Both candidates cleared research-refute at N=10; the recommendation
-  tie-break nominally preferred 3.1 Pro, but researchGather's default is
-  already 3.1 Pro and a string-identical refute default trips
-  `flow-research-run.ts`' cross-model diversity guard (silently
-  downgrading the runtime refuter to the unbenched GPT-OSS fallback), so
-  the cleared Flash variant is deployed instead. `planReviewSecond` does
-  NOT flip despite plan-review's 3.1 Pro clear — the deep-tier second
-  reviewer exists for cross-model diversity against the Gemini first
-  reviewer. The gatekeeper clear (both candidates) has no wiring surface:
-  the gatekeeper is a Claude Task subagent (pinned haiku) and the Task
-  tool cannot spawn Gemini — recorded evidence for any future
-  agy-delegated gatekeeper.
+- **No routing default flips.** Both candidates cleared research-refute
+  at N=10, and the recommendation tie-break nominally preferred 3.1 Pro
+  — not Flash. 3.1 Pro can't be deployed: researchGather's default is
+  already 3.1 Pro, and a string-identical refute default trips
+  `flow-research-run.ts`' cross-model diversity guard, silently
+  downgrading the runtime refuter to the unbenched GPT-OSS fallback.
+  Deploying the non-preferred Flash variant instead was rejected too: c8
+  is weakly discriminating (spread 0.100 schema / 0.020 free-form) and
+  research-refute is a critique-shaped surface — exactly the shape where
+  both candidates failed hardest (c9a recall 0.00 vs incumbent 0.70). So
+  `researchRefute` stays on the incumbent; a maintainer who disagrees can
+  set `delegate.models.researchRefute` with no code change.
+  `planReviewSecond` likewise does NOT flip despite plan-review's 3.1 Pro
+  clear — the deep-tier second reviewer exists for cross-model diversity
+  against the Gemini first reviewer. The gatekeeper clear (both
+  candidates) has no wiring surface: the gatekeeper is a Claude Task
+  subagent (pinned haiku) and the Task tool cannot spawn Gemini —
+  recorded evidence for any future agy-delegated gatekeeper.
 - **7 of the incumbent's 10 first-wave c2b attempts timed out at the
   default 5m** and were re-run at `--timeout 15m` (9/10 completed; 1
   residual failure). The candidates needed no re-run — the incumbent is
