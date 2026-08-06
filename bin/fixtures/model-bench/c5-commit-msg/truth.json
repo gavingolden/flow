@@ -1,0 +1,12 @@
+{
+  "caseId": "c5-commit-msg",
+  "required": [
+    "docs:",
+    "AGENTS.md",
+    "README.md",
+    "help.ts",
+    "launcher.ts",
+    "launcher-config.ts"
+  ],
+  "forbidden": ["feat:", "fix:", "chore:", "refactor:", "test:"]
+}

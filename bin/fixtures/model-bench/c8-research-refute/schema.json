@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "properties": {
+    "reasoning": {
+      "type": "string",
+      "description": "Think step by step through each claim against the evidence tables and note before answering. Write that reasoning here — it is not graded directly, but a leading reasoning field measurably improves the quality of constrained JSON output."
+    },
+    "verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "claim_id": {
+            "type": "string",
+            "description": "The claim's number from claims.md, e.g. '1'."
+          },
+          "verdict": {
+            "type": "string",
+            "description": "One of 'upheld' or 'refuted'."
+          },
+          "evidence": {
+            "type": "string",
+            "description": "The specific number, row, or sentence in claims.md that determines the verdict."
+          }
+        },
+        "required": ["claim_id", "verdict", "evidence"]
+      },
+      "description": "One entry per claim in claims.md."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0-100: how confident you are that the verdicts are complete and correct."
+    }
+  },
+  "required": ["reasoning", "verdicts", "confidence"],
+  "additionalProperties": false
+}

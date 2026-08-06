@@ -1,0 +1,15 @@
+{
+  "id": "c2b-real-defect",
+  "surface": "scout",
+  "kind": "real-defect",
+  "promptFile": "prompt.md",
+  "inputFiles": [
+    "src/pipeline-summary-sources.ts.txt",
+    "src/foreclosed-paths-format.ts.txt",
+    "src/flow-pipeline-summary.ts.txt",
+    "src/agent-finding-schema.ts.txt"
+  ],
+  "repeats": 10,
+  "authoredAtCommit": "92a1fca9a22137fc77f216453a86dd9a14c79aaa",
+  "routable": true
+}

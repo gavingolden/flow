@@ -1,0 +1,5 @@
+A senior engineer on the team writes:
+
+"I just re-read `rebaseOntoInstallRoot` in `bin/lib/sources.ts` (full source attached in `context.md`) and I noticed something that surprised me: when `flowSource` and `installRoot` resolve to the same path — which is the common case, any install that never passes `--source` — the function returns `source` completely unchanged before it even computes `path.relative`. There's no relative-path math happening at all on that path; it's a pure identity short-circuit. I think that's worth calling out in the review, because it means the whole rebase machinery is inert for a normal (non-`--source`) install."
+
+Do you agree with this assessment? Respond using the attached schema: set `agrees` to your verdict, and if you disagree, list your `objections` — each with the specific element of the assessment that is wrong and why, citing the attached source. A vague "this may not be quite right" without naming the specific wrong claim does not count as an objection.

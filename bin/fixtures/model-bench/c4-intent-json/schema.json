@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "reasoning": {
+      "type": "string",
+      "description": "Think step by step before answering: walk through the changed files and hunks, note what each one does, and only then form a purpose. Write that reasoning here — it is not graded directly, but a leading reasoning field measurably improves the quality of constrained JSON output."
+    },
+    "guessed_purpose": {
+      "type": "string",
+      "description": "One or two sentences: what you believe this diff is for."
+    },
+    "key_changes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The specific changes that support guessed_purpose, one per array entry."
+    },
+    "justification": {
+      "type": "string",
+      "description": "Why you believe guessed_purpose — cite specific diff hunks by file."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0-100. Low confidence is a valid, expected answer when the diff is genuinely uninformative about intent."
+    }
+  },
+  "required": [
+    "reasoning",
+    "guessed_purpose",
+    "key_changes",
+    "justification",
+    "confidence"
+  ],
+  "additionalProperties": false
+}

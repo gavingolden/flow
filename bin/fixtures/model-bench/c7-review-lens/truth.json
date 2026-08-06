@@ -1,0 +1,31 @@
+{
+  "caseId": "c7-review-lens",
+  "required": [
+    {
+      "desc": "src/pagination.ts:28 off-by-one in the new `paginateFrom` — `for (let i = startPage; i <= pageCount; i++)` should be `i < pageCount`; the added loop emits one trailing empty page past the real data, the same class of bug `paginate` above it does NOT have (that one correctly uses `i < pageCount`).",
+      "anyOf": ["i <= pageCount", "off-by-one", "paginateFrom", "trailing empty page"]
+    },
+    {
+      "desc": "src/pricing.ts:25 swapped argument order in the new `applyBulkDiscount` — it calls `applyDiscount(priceCents, pct)`, but `applyDiscount`'s signature (unchanged, documented above) is `applyDiscount(pct: number, priceCents: number)`; a $40.00 line item at 15% off is priced as if $40 were the discount percentage.",
+      "anyOf": ["applyDiscount(priceCents, pct)", "argument order", "arguments reversed", "applyBulkDiscount"]
+    },
+    {
+      "desc": "src/cart.ts:45 missing await in the new `checkoutTotalWithCoupon` — `const shippingDiscountCents = fetchShippingDiscount(couponCode);` binds a `Promise<number>`, not a number; the promise object is then used directly in `total - shippingDiscountCents` arithmetic on the next line.",
+      "anyOf": ["missing await", "fetchShippingDiscount(couponCode)", "checkoutTotalWithCoupon"]
+    },
+    {
+      "desc": "src/report.ts:24 and src/report.ts:26 — the diff drops the `${order.id}: ` prefix from `formatReceiptLine`'s return value. This is self-consistent inside the diff (the new `exportReceiptsCsv` at line 30-35 correctly re-adds the order id as its own CSV column), but it silently breaks `src/notify-customer.ts` (not shown in this diff), whose `console.log(formatReceiptLine(order))` call expected the returned string to already include the order id — customer emails now go out with the id missing from the receipt line.",
+      "anyOf": ["formatReceiptLine", "notify-customer.ts", "order.id prefix", "id missing from the receipt line"]
+    }
+  ],
+  "forbidden": [
+    {
+      "desc": "src/cart.ts:44 `const total = await checkoutTotal(items, region);` in `checkoutTotalWithCoupon` is correctly awaited — do not flag it as a missing-await defect merely because the very next line calls another pricing function without `await`.",
+      "anyOf": ["checkoutTotal is missing await", "missing await on checkoutTotal", "await checkoutTotal(items, region) is a bug"]
+    },
+    {
+      "desc": "src/pricing.ts:33 `if (!res.ok) return 0;` inside `fetchShippingDiscount` (returning a default instead of throwing, unlike `fetchTaxRate`'s `if (!res.ok) throw ...` two functions above it) is intentional, not an inconsistency — the comment directly above the function states a shipping discount is optional and a failed coupon lookup should not block checkout, whereas an unresolved tax rate must fail loudly.",
+      "anyOf": ["fetchShippingDiscount should throw", "inconsistent with fetchTaxRate", "fetchShippingDiscount is inconsistent"]
+    }
+  ]
+}

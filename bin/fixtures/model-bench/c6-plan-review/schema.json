@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "properties": {
+    "reasoning": {
+      "type": "string",
+      "description": "Think step by step: walk the plan section by section (Problem Statement, Behavioral contrast, Technical Constraints, the dependency table, and each task's Contract block) before naming any flaw. Write that reasoning here — it is not graded directly, but a leading reasoning field measurably improves the quality of constrained JSON output."
+    },
+    "flaws": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "A short stable slug for the flaw, e.g. 'unfalsifiable-criterion'."
+          },
+          "where": {
+            "type": "string",
+            "description": "The section or task heading the flaw lives in."
+          },
+          "why": {
+            "type": "string",
+            "description": "One sentence naming exactly what is wrong, citing the conflicting text by section/task name."
+          }
+        },
+        "required": ["id", "where", "why"]
+      },
+      "description": "Every genuine design flaw you found in the plan. Do not include stylistic nits, missing-but-optional sections, or anything that is merely unusual-looking but turns out to be correct once checked against the rest of the document."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0-100: how confident you are that the flaws list is complete and free of false positives."
+    }
+  },
+  "required": ["reasoning", "flaws", "confidence"],
+  "additionalProperties": false
+}

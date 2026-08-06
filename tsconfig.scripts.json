@@ -9,5 +9,8 @@
     "noEmit": true
   },
   "include": ["bin/**/*.ts", "skills/**/*.ts"],
-  "exclude": ["skills/universal/flow-skill-creator/scripts/**"]
+  "exclude": [
+    "skills/universal/flow-skill-creator/scripts/**",
+    "bin/fixtures/model-bench/**"
+  ]
 }

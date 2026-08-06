@@ -38,14 +38,13 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
+import { resolveDelegateModel } from "./lib/delegate-models";
 
 // Frozen to match discovery Step 1.5's budget defaults and model-variant pins
 // (skills/pipeline/flow-product-planning/references/discovery-instructions.md, the
 // `read_budget` block). Keep these byte-identical to that source of truth.
 const DEFAULT_MAX_CALLS = 12;
 const DEFAULT_TIMEOUT = "3m";
-const DEFAULT_GATHER_MODEL = "Gemini 3.1 Pro (High)";
-const DEFAULT_REFUTE_MODEL = "Claude Opus 4.6 (Thinking)";
 const FALLBACK_REFUTE_MODEL = "GPT-OSS 120B (Medium)";
 
 const GATHER_TASK = "research-gather";
@@ -127,24 +126,38 @@ function readResearchObject(config: unknown): Record<string, unknown> {
 // GPT-OSS when gather is Opus, else Opus — so the refute pass never runs on
 // the same model family as gather. Tolerant: a missing/wrong-type override
 // silently takes its default.
+//
+// `resolveDelegateModel` is called HERE (call time), not at module load: a
+// module-load read hits the real ~/.flow/config.json before any test can
+// inject an override, defeating the injectable-config-reader seam and
+// breaking `npm run verify` for a maintainer with
+// `delegate.models.researchGather`/`researchRefute` set.
+//
+// The `gatherModel === defaultRefuteModel` check below compares against
+// `defaultRefuteModel`, which is the RESOLVED value (delegate.models
+// .researchRefute override, or the seeded default) rather than a bare
+// constant — so a delegate.models config override cannot silently collapse
+// gather and refute onto the same model without the guard noticing.
 export function resolveModels(config: unknown): {
   gatherModel: string;
   refuteModel: string;
 } {
+  const defaultGatherModel = resolveDelegateModel("researchGather") as string;
+  const defaultRefuteModel = resolveDelegateModel("researchRefute") as string;
   const research = readResearchObject(config);
   const gatherModel =
     typeof research.model === "string" && research.model.trim()
       ? research.model
-      : DEFAULT_GATHER_MODEL;
+      : defaultGatherModel;
   let refuteModel =
     typeof research.refuteModel === "string" && research.refuteModel.trim()
       ? research.refuteModel
-      : DEFAULT_REFUTE_MODEL;
+      : defaultRefuteModel;
   if (refuteModel === gatherModel) {
     refuteModel =
-      gatherModel === DEFAULT_REFUTE_MODEL
+      gatherModel === defaultRefuteModel
         ? FALLBACK_REFUTE_MODEL
-        : DEFAULT_REFUTE_MODEL;
+        : defaultRefuteModel;
   }
   return { gatherModel, refuteModel };
 }

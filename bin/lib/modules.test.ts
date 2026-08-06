@@ -83,10 +83,16 @@ describe("modules registry completeness (live discovery, not doc prose)", () => 
   it("partitions every discovered PATH-bound helper into exactly one module's helpers[]", () => {
     const discovered = discoverHelpers(flowSource).map((e) => e.displayName);
     expect(discovered.length).toBeGreaterThan(0);
-    // Decided refinement: flow-release is maintainer-only and must never
-    // surface from discoverHelpers in the first place (sources.ts's job),
-    // and must never appear in the registry either (modules.ts's job).
+    // Decided refinement: flow-release and flow-model-bench are both
+    // maintainer-only and must never surface from discoverHelpers in the
+    // first place (sources.ts's job), and must never appear in the
+    // registry either (modules.ts's job). Named explicitly (not left to
+    // expectExactPartition's generic unpartitioned-helper message) so a
+    // regression fails with the specific helper name, mirroring the
+    // explicit pair already present in flow-pre-commit.test.ts and
+    // setup.test.ts.
     expect(discovered).not.toContain("flow-release");
+    expect(discovered).not.toContain("flow-model-bench");
     expectExactPartition(
       discovered,
       MODULES.map((m) => m.helpers),

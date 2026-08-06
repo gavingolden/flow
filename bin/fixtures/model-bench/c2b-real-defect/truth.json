@@ -1,0 +1,19 @@
+{
+  "caseId": "c2b-real-defect",
+  "required": [
+    {
+      "desc": "normalizeParsedFindings — the fix: the CLI validator at the bottom of agent-finding-schema.ts.txt calls `parsed = normalizeParsedFindings(parsed)` before `validateConsolidatorResult(parsed)`; none of the three sites below do, so a well-formed consolidator artifact whose findings carry a lens-name label (e.g. `consistency`) fails validation there even though it passes the CLI validator",
+      "anyOf": ["normalizeParsedFindings", "parsed = normalizeParsedFindings(parsed)"]
+    },
+    "src/pipeline-summary-sources.ts.txt: renderFindings",
+    "src/pipeline-summary-sources.ts.txt: rejectedDecisionLines",
+    "src/foreclosed-paths-format.ts.txt: collectForeclosedEntries",
+    "src/flow-pipeline-summary.ts.txt: deriveRecapScalars"
+  ],
+  "defects": [
+    { "file": "src/pipeline-summary-sources.ts.txt", "line": 110, "kind": "real-defect" },
+    { "file": "src/pipeline-summary-sources.ts.txt", "line": 237, "kind": "real-defect" },
+    { "file": "src/foreclosed-paths-format.ts.txt", "line": 113, "kind": "real-defect" },
+    { "file": "src/flow-pipeline-summary.ts.txt", "line": 399, "kind": "real-defect" }
+  ]
+}

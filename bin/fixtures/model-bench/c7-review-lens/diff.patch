@@ -1,0 +1,109 @@
+diff --git a/src/cart.ts b/src/cart.ts
+index a0b825d..f3986b6 100644
+--- a/src/cart.ts
++++ b/src/cart.ts
+@@ -1,5 +1,5 @@
+ import { paginate } from "./pagination";
+-import { applyDiscount, fetchTaxRate } from "./pricing";
++import { applyDiscount, fetchShippingDiscount, fetchTaxRate } from "./pricing";
+ 
+ export type CartItem = {
+   sku: string;
+@@ -33,3 +33,15 @@ export async function checkoutTotal(
+   const taxRate = await fetchTaxRate(region);
+   return Math.round(subtotal * (1 + taxRate));
+ }
++
++// Applies the referenced coupon's shipping discount on top of the standard
++// checkout total — the checkout flow's new "apply coupon" step.
++export async function checkoutTotalWithCoupon(
++  items: readonly CartItem[],
++  region: string,
++  couponCode: string,
++): Promise<number> {
++  const total = await checkoutTotal(items, region);
++  const shippingDiscountCents = fetchShippingDiscount(couponCode);
++  return Math.round(total - shippingDiscountCents);
++}
+diff --git a/src/pagination.ts b/src/pagination.ts
+index 3868aa8..ce88aa2 100644
+--- a/src/pagination.ts
++++ b/src/pagination.ts
+@@ -14,3 +14,20 @@ export function paginate<T>(items: readonly T[], pageSize: number): Page<T>[] {
+ export function totalPages(items: readonly unknown[], pageSize: number): number {
+   return Math.ceil(items.length / pageSize);
+ }
++
++// Resumes pagination from a prior run's checkpoint (`startPage`), for the
++// batch export's retry path — a run that crashed mid-export can restart from
++// where it left off instead of reprocessing already-exported pages.
++export function paginateFrom<T>(
++  items: readonly T[],
++  pageSize: number,
++  startPage: number,
++): Page<T>[] {
++  const pages: Page<T>[] = [];
++  const pageCount = Math.ceil(items.length / pageSize);
++  for (let i = startPage; i <= pageCount; i++) {
++    const start = i * pageSize;
++    pages.push({ items: items.slice(start, start + pageSize), index: i });
++  }
++  return pages;
++}
+diff --git a/src/pricing.ts b/src/pricing.ts
+index c2cb452..6a9ddf6 100644
+--- a/src/pricing.ts
++++ b/src/pricing.ts
+@@ -15,3 +15,22 @@ export async function fetchTaxRate(region: string): Promise<number> {
+   const body = (await res.json()) as { rate: number };
+   return body.rate;
+ }
++
++// Applies one flat discount percentage across an entire cart line list — the
++// new bulk-tier pricing path (spend $200+, get an extra 5% off every line).
++export function applyBulkDiscount(
++  priceCentsList: readonly number[],
++  pct: number,
++): number[] {
++  return priceCentsList.map((priceCents) => applyDiscount(priceCents, pct));
++}
++
++// A shipping discount is optional — a failed coupon lookup should not block
++// checkout, unlike a failed tax lookup (which must throw: an incorrect total
++// is worse than a blocked checkout).
++export async function fetchShippingDiscount(couponCode: string): Promise<number> {
++  const res = await fetch(`https://coupons.example.invalid/${couponCode}`);
++  if (!res.ok) return 0;
++  const body = (await res.json()) as { shippingDiscountCents: number };
++  return body.shippingDiscountCents;
++}
+diff --git a/src/report.ts b/src/report.ts
+index f59e432..3aeb953 100644
+--- a/src/report.ts
++++ b/src/report.ts
+@@ -15,10 +15,22 @@ export type Order = {
+ export function formatReceiptLine(order: Order): string {
+   const total = order.items.reduce((sum, i) => sum + i.finalCents, 0);
+   // Registered customers get their city printed alongside the total, when a
+-  // saved address exists.
++  // saved address exists. The order id is left off the line itself — the CSV
++  // export (below) puts it in its own column, and existing plain-text call
++  // sites already prefix each line with the order id from the surrounding
++  // loop.
+   if (order.customer && order.customer.address) {
+     const city = order.customer.address.city;
+-    return `${order.id}: ${formatPrice(total)} — ${order.customer.name} (${city})`;
++    return `${formatPrice(total)} — ${order.customer.name} (${city})`;
+   }
+-  return `${order.id}: ${formatPrice(total)} — guest`;
++  return `${formatPrice(total)} — guest`;
++}
++
++// New CSV export path: one row per order, order id in its own column.
++export function exportReceiptsCsv(orders: readonly Order[]): string {
++  const header = "order_id,line";
++  const rows = orders.map(
++    (order) => `${order.id},"${formatReceiptLine(order)}"`,
++  );
++  return [header, ...rows].join("\n");
+ }

@@ -1,0 +1,74 @@
+{
+  "caseId": "c4-intent-json",
+  "required": [
+    "bin/lib/sources.ts",
+    "bin/lib/setup.ts",
+    "rebaseOntoInstallRoot",
+    "effectiveLinkSource",
+    {
+      "desc": "the live filesystem symlink (ensureSymlink's target) is re-pointed at the canonical installRoot path when that path already exists on disk, instead of always pointing at entry.source",
+      "anyOf": [
+        "canonical",
+        "installRoot",
+        "re-point",
+        "repoint"
+      ]
+    },
+    {
+      "desc": "the fix is scoped to `flow install --upgrade --source <worktree>`: a --source install previously left global symlinks pointed into the worktree, which then dangled once the worktree was removed on merge",
+      "anyOf": [
+        "--source",
+        "worktree",
+        "dangl"
+      ]
+    },
+    {
+      "desc": "a genuinely worktree-only new file (no canonical counterpart yet) still falls back to the worktree source, so it stays usable during the introducing pipeline",
+      "anyOf": [
+        "fall back",
+        "fallback",
+        "worktree-only",
+        "does not exist in the canonical"
+      ]
+    },
+    {
+      "desc": "the re-point is GATED on the canonical path existing on disk (existsSync check) — a conditional, not an unconditional rebase",
+      "anyOf": [
+        "existssync",
+        "exists on disk",
+        "already exists on disk",
+        "only when the canonical",
+        "if the canonical path exists"
+      ]
+    },
+    {
+      "desc": "the recorded manifest source (entryToRecord / canonicalizeRecordedSource) stays canonical-rooted regardless of the live-symlink re-point — only the live target changes via effectiveLinkSource, the manifest continues to always record canonical even for the not-yet-existing worktree-only case",
+      "anyOf": [
+        "entrytorecord",
+        "canonicalizerecordedsource",
+        "manifest record",
+        "always records canonical",
+        "recorded source unchanged"
+      ]
+    }
+  ],
+  "forbidden": [
+    "the diff is only a refactor with no behavior change",
+    "the diff only affects tests",
+    {
+      "desc": "the PR is not primarily the comment/variable-rename cleanup in the decoy file",
+      "anyOf": ["primary purpose is the rename", "primarily a comment cleanup", "mainly a rename", "purpose is to rename"]
+    },
+    {
+      "desc": "the PR is not primarily a test refactor",
+      "anyOf": ["primarily a test refactor", "main change is the test", "purpose is to update tests", "primarily updates tests"]
+    }
+  ],
+  "emptinessPredicates": [
+    "reasoning, guessed_purpose, justification are each non-empty strings",
+    "key_changes is a non-empty array of non-empty strings",
+    "every file basename mentioned in key_changes (setup.ts, sources.ts, setup.test.ts) actually appears in a `diff --git` header inside diff.patch",
+    "guessed_purpose does not merely restate the words 'guessed purpose'; justification does not merely restate the words 'justification'; key_changes entries do not merely restate the words 'key change'",
+    "confidence is a number strictly between 0 and 100 (not exactly 0, not exactly 100 \u2014 this diff is inferable but not signed with a commit message, so a well-calibrated guess should stop short of certainty)"
+  ]
+}

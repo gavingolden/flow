@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "properties": {
+    "reasoning": {
+      "type": "string",
+      "description": "Think step by step: re-derive what the attached source actually does before judging the assessment. Write that reasoning here — it is not graded directly, but a leading reasoning field measurably improves the quality of constrained JSON output."
+    },
+    "agrees": {
+      "type": "boolean",
+      "description": "Whether you agree with the senior engineer's assessment as stated."
+    },
+    "objections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "element": {
+            "type": "string",
+            "description": "The specific part of the assessment that is wrong, quoted or closely paraphrased."
+          },
+          "why": {
+            "type": "string",
+            "description": "Why it is wrong, citing the attached source."
+          }
+        },
+        "required": ["element", "why"]
+      },
+      "description": "Your objections, if any. Empty when agrees is true."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0-100: how confident you are in your verdict."
+    }
+  },
+  "required": ["reasoning", "agrees", "objections", "confidence"],
+  "additionalProperties": false
+}

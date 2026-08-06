@@ -1,0 +1,154 @@
+[
+  {
+    "number": 201,
+    "title": "feat: add webhook payload builder for terminal states",
+    "state": "MERGED",
+    "isDraft": false,
+    "mergedAt": "2026-07-30T14:02:11Z",
+    "additions": 118,
+    "deletions": 22,
+    "commits": [
+      { "messageHeadline": "feat: add WebhookPayload contract" },
+      { "messageHeadline": "feat: wire flow-webhook-notify call sites" }
+    ],
+    "files": ["bin/lib/webhook-notify.ts", "bin/flow-webhook-notify.ts"],
+    "reviews": [{ "state": "APPROVED", "author": { "login": "reviewer-a" } }],
+    "author": { "login": "contributor-a" },
+    "body": "## Why\n\nRemote integrations need a terminal-state signal.\n\n## What\n\nAdds the webhook payload builder and CLI helper."
+  },
+  {
+    "number": 202,
+    "title": "feat: streaming CSV export for large carts",
+    "state": "OPEN",
+    "isDraft": true,
+    "mergedAt": null,
+    "additions": 512,
+    "deletions": 134,
+    "commits": [
+      { "messageHeadline": "feat: stream pages instead of buffering the full export" },
+      { "messageHeadline": "test: cover streaming export against a 50k-item cart" }
+    ],
+    "files": ["src/pagination.ts", "src/cart.ts", "src/cart-export.ts"],
+    "reviews": [],
+    "author": { "login": "contributor-b" },
+    "body": "## Why\n\nLarge carts currently OOM the export step.\n\n## What\n\nWork in progress — still missing a memory benchmark."
+  },
+  {
+    "number": 203,
+    "title": "chore: regenerate lockfile",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 4,
+    "deletions": 2,
+    "commits": [{ "messageHeadline": "chore: regenerate lockfile" }],
+    "files": ["package-lock.json"],
+    "reviews": [],
+    "author": { "login": "dependabot" },
+    "body": "## Why\n\nRoutine lockfile regeneration.\n\n## What\n\nNo source changes."
+  },
+  {
+    "number": 204,
+    "title": "fix: correct off-by-one in retry backoff",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 3,
+    "deletions": 4,
+    "commits": [{ "messageHeadline": "fix: correct off-by-one in retry backoff" }],
+    "files": ["bin/lib/retry.ts"],
+    "reviews": [],
+    "author": { "login": "contributor-c" },
+    "body": "## Why\n\nThe backoff loop retried one extra time on the max-attempts boundary, silently doubling the last wait interval before giving up.\n\n## What\n\nChanges `i <= maxAttempts` to `i < maxAttempts` in the retry loop."
+  },
+  {
+    "number": 205,
+    "title": "chore: bump dependency",
+    "state": "CLOSED",
+    "isDraft": true,
+    "mergedAt": null,
+    "additions": 2,
+    "deletions": 1,
+    "commits": [{ "messageHeadline": "chore: bump dependency" }],
+    "files": ["package.json"],
+    "reviews": [],
+    "author": { "login": "contributor-d" },
+    "body": "## Why\n\nOpened by mistake against the wrong base branch, closed without merging.\n\n## What\n\nBumps a single dependency."
+  },
+  {
+    "number": 206,
+    "title": "feat: bulk discount tiers for cart pricing",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 40,
+    "deletions": 10,
+    "commits": [
+      { "messageHeadline": "feat: add applyBulkDiscount pricing tier" },
+      { "messageHeadline": "test: cover bulk discount edge cases" }
+    ],
+    "files": ["src/pricing.ts", "src/pricing.test.ts"],
+    "reviews": [{ "state": "APPROVED", "author": { "login": "copilot-pull-request-reviewer" } }],
+    "author": { "login": "contributor-e" },
+    "body": "## Why\n\nSpend-based bulk discount tiers were requested by sales.\n\n## What\n\nAdds `applyBulkDiscount` and tests."
+  },
+  {
+    "number": 207,
+    "title": "chore: bump lockfile",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 6,
+    "deletions": 4,
+    "commits": [{ "messageHeadline": "chore: bump lockfile" }],
+    "files": ["package-lock.json"],
+    "reviews": [],
+    "author": { "login": "dependabot" },
+    "body": "## Why\n\nRoutine lockfile bump.\n\n## What\n\nNo source changes."
+  },
+  {
+    "number": 208,
+    "title": "chore: bump deps and fix retry-jitter seed",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 3,
+    "deletions": 5,
+    "commits": [
+      { "messageHeadline": "chore: bump deps" },
+      { "messageHeadline": "fix: correct retry-jitter seed" }
+    ],
+    "files": ["package.json", "bin/lib/retry.ts"],
+    "reviews": [],
+    "author": { "login": "contributor-f" },
+    "body": "## Why\n\nA routine dependency bump surfaced a bad retry-jitter seed that needed a quick companion fix.\n\n## What\n\nBumps two dependencies and corrects the retry-jitter seed."
+  },
+  {
+    "number": 209,
+    "title": "docs: fix typo in help output",
+    "state": "MERGED",
+    "isDraft": true,
+    "mergedAt": "2026-08-01T09:15:42Z",
+    "additions": 2,
+    "deletions": 1,
+    "commits": [{ "messageHeadline": "docs: fix typo in help output" }],
+    "files": ["bin/flow.ts"],
+    "reviews": [],
+    "author": { "login": "contributor-g" },
+    "body": "## Why\n\nThe `--help` output had a stray duplicated word.\n\n## What\n\nFixes the typo in the help text."
+  },
+  {
+    "number": 210,
+    "title": "docs: fixing typo in README",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 4,
+    "deletions": 3,
+    "commits": [{ "messageHeadline": "docs: fixing typo in README" }],
+    "files": ["README.md"],
+    "reviews": [],
+    "author": { "login": "contributor-h" },
+    "body": "## Why\n\nA few small wording errors in the README's Quickstart section.\n\n## What\n\nFixes the typos."
+  }
+]

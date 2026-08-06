@@ -1,0 +1,14 @@
+{
+  "id": "c6-plan-review",
+  "surface": "plan-review",
+  "kind": "structured",
+  "promptFile": "prompt.md",
+  "inputFiles": [
+    "plan.md"
+  ],
+  "jsonSchemaFile": "schema.json",
+  "schemaAb": true,
+  "repeats": 10,
+  "authoredAtCommit": "1872c96793627a3b883975d077dff82377d3b764",
+  "routable": true
+}

@@ -132,6 +132,35 @@ describe("entryToDelegateArgv", () => {
     expect(argv[argv.indexOf("--timeout") + 1]).toBe("10m");
     expect(argv.filter((t) => t === "--add-dir").length).toBe(2);
   });
+
+  it("forwards outputFormat, jsonSchema, and structuredFallback when present", () => {
+    const argv = entryToDelegateArgv(
+      {
+        task: "t",
+        prompt: "go",
+        outputFormat: "json",
+        jsonSchema: "/schema.json",
+      },
+      "/o/t.md",
+    );
+    expect(argv[argv.indexOf("--output-format") + 1]).toBe("json");
+    expect(argv[argv.indexOf("--json-schema") + 1]).toBe("/schema.json");
+
+    const fallbackArgv = entryToDelegateArgv(
+      { task: "t", prompt: "go", structuredFallback: "/schema.json" },
+      "/o/t.md",
+    );
+    expect(
+      fallbackArgv[fallbackArgv.indexOf("--structured-fallback") + 1],
+    ).toBe("/schema.json");
+  });
+
+  it("omits outputFormat/jsonSchema/structuredFallback flags when the entry has none", () => {
+    const argv = entryToDelegateArgv({ task: "t", prompt: "go" }, "/o/t.md");
+    expect(argv).not.toContain("--output-format");
+    expect(argv).not.toContain("--json-schema");
+    expect(argv).not.toContain("--structured-fallback");
+  });
 });
 
 describe("entryOutPath", () => {
@@ -363,6 +392,82 @@ describe("run — aggregation + concurrency", () => {
     await expect(done).resolves.toBe(0);
     expect(runner.maxDepth).toBeLessThanOrEqual(3);
     expect(runner.maxDepth).toBeGreaterThan(1); // proves the pool actually parallelised
+  });
+
+  it("projects durationSeconds, usage, and parseRetries onto the entry result from the child envelope", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+      runDelegate: async (entry) => ({
+        ran: true,
+        task: entry.task,
+        artifactPath: "/x.md",
+        durationSeconds: 4.2,
+        usage: { input_tokens: 50, output_tokens: 10 },
+        parseRetries: 1,
+        structuredParse: "ok",
+      }),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    const agg = aggregate(deps);
+    expect(agg.entries[0]).toMatchObject({
+      durationSeconds: 4.2,
+      usage: { input_tokens: 50, output_tokens: 10 },
+      parseRetries: 1,
+      structuredParse: "ok",
+    });
+  });
+
+  it("keeps durationMs as pool wall-clock while durationSeconds is the child's model time — sourced differently", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+      runDelegate: async (entry) => ({
+        ran: true,
+        task: entry.task,
+        artifactPath: "/x.md",
+        // The child's own "wall clock" is deliberately absurd (10000s) so a
+        // conflated implementation would leak it into durationMs.
+        durationSeconds: 10000,
+      }),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    const entry = aggregate(deps).entries[0];
+    expect(entry.durationSeconds).toBe(10000);
+    // durationMs is pool wall-clock (milliseconds, this run is near-instant)
+    // — nowhere near the 10000-SECOND child reading.
+    expect(entry.durationMs).toBeLessThan(10000);
+  });
+
+  it("still reaches full concurrency depth through the async runDelegate seam with the new envelope fields present", async () => {
+    const runner = deferredRunner((e) => ({
+      ran: true,
+      task: e.task,
+      artifactPath: "/x.md",
+      durationSeconds: 1.1,
+      usage: { input_tokens: 1 },
+      parseRetries: 0,
+      structuredParse: "ok" as const,
+    }));
+    const entries = Array.from({ length: 6 }, (_, i) => ({
+      task: `t${i}`,
+      prompt: "x",
+      structuredFallback: "/schema.json",
+    }));
+    const deps = makeDeps({
+      readFile: () => manifestOf(entries),
+      runDelegate: runner.runDelegate,
+    });
+    const done = run(["--manifest", "m.json", "--concurrency", "4"], deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(runner.inFlight).toBeLessThanOrEqual(4);
+    while (runner.inFlight > 0) {
+      runner.releaseOne();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    await expect(done).resolves.toBe(0);
+    expect(runner.maxDepth).toBeGreaterThan(1);
+    expect(runner.maxDepth).toBeLessThanOrEqual(4);
   });
 });
 

@@ -1,0 +1,5 @@
+You are guessing the purpose of a pull request from its diff alone (attached: `diff.patch`). You have NOT been given the PR title, description, plan, or commit messages — guess blind, the same way a second independent reviewer would before reading any of that context.
+
+Output a single JSON object with these fields: `reasoning` (think step by step through the changed files and hunks before answering), `guessed_purpose` (one or two sentences), `key_changes` (an array of the specific changes that support your guess), `justification` (why you believe it, citing specific diff hunks by file), and `confidence` (0-100).
+
+Every claim in `guessed_purpose` and `justification` must cite a specific diff hunk (file + the change it made). A purpose broad or generic enough to fit any PR ("improves code quality", "adds functionality", "refactors internals") is a contract violation — if the diff is genuinely uninformative about intent, say so explicitly in `justification` and set a low `confidence` rather than inventing a vague-but-plausible-sounding purpose. Every file named in `key_changes` must actually appear in `diff.patch`.

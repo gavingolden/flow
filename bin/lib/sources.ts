@@ -39,7 +39,7 @@ const VALIDATOR_MODULES = [
  * PATH: maintainer-only, tree-mutating + tag-creating tools that should only
  * ever run from a flow checkout.
  */
-const MAINTAINER_ONLY = new Set(["flow-release"]);
+const MAINTAINER_ONLY = new Set(["flow-release", "flow-model-bench"]);
 
 /**
  * Whether a `bin/` basename (e.g. `flow-new-worktree.ts`) is a helper that

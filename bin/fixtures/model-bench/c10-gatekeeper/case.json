@@ -1,0 +1,14 @@
+{
+  "id": "c10-gatekeeper",
+  "surface": "gatekeeper",
+  "kind": "structured",
+  "promptFile": "prompt.md",
+  "inputFiles": [
+    "pr.json"
+  ],
+  "jsonSchemaFile": "schema.json",
+  "schemaAb": true,
+  "repeats": 10,
+  "authoredAtCommit": "1872c96793627a3b883975d077dff82377d3b764",
+  "routable": true
+}

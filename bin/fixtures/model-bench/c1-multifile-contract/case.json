@@ -1,0 +1,15 @@
+{
+  "id": "c1-multifile-contract",
+  "surface": "scout",
+  "kind": "multi-file",
+  "promptFile": "prompt.md",
+  "inputFiles": [
+    "src/retry-contract.ts",
+    "src/retry-runner.ts",
+    "src/job-queue.ts",
+    "src/api-client.ts"
+  ],
+  "repeats": 10,
+  "authoredAtCommit": "92a1fca9a22137fc77f216453a86dd9a14c79aaa",
+  "routable": true
+}

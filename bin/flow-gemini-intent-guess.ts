@@ -36,8 +36,11 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
+import { resolveDelegateModel } from "./lib/delegate-models";
 
-const MODEL = "Gemini 3.1 Pro (High)";
+// The model routes through resolveDelegateModel("intentGuess") — the default
+// lives in DELEGATE_MODEL_DEFAULTS; a `delegate.models.intentGuess` config
+// value re-points this surface without a code change.
 const DEFAULT_TASK = "gemini-intent-guess";
 
 export type Args = {
@@ -281,7 +284,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     "--prompt-file",
     promptPath,
     "--model",
-    MODEL,
+    // Non-null: only the "scout" surface's default is null; intentGuess's
+    // default and every well-typed override are strings.
+    resolveDelegateModel("intentGuess") as string,
     "--add-dir",
     parsed.worktree,
     "--out",
