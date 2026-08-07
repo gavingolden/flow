@@ -15,8 +15,8 @@ import { printTopHelp } from "./help";
 import { dim } from "./color";
 import {
   pluginDirArgs,
-  pluginPathPrefix,
-  prefixedPath,
+  pluginBinPath,
+  withPluginPath,
   scanPluginRoots,
 } from "./plugin-root";
 
@@ -133,9 +133,9 @@ export function runLaunchCli(deps: LaunchDeps = {}): number {
   // LaunchDeps.spawn is typed `(argv: string[]) => number` with no env
   // option (production spawns `Bun.spawnSync`, which inherits the parent
   // env), so this is the only seam that reaches the child's PATH.
-  const prefix = pluginPathPrefix(roots);
+  const pluginPath = pluginBinPath(roots);
   const currentPath = process.env.PATH ?? "";
-  const nextPath = prefixedPath(prefix, currentPath);
+  const nextPath = withPluginPath(pluginPath, currentPath);
   if (nextPath !== undefined) {
     process.env.PATH = nextPath;
   }

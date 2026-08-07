@@ -64,8 +64,8 @@ import { plainLaunch, plainResume, type PlainLaunchDeps } from "./launcher";
 import type { LivenessDeps } from "./liveness";
 import {
   pluginDirArgs,
-  pluginPathPrefix,
-  prefixedPath,
+  pluginBinPath,
+  withPluginPath,
   scanPluginRoots,
 } from "./plugin-root";
 
@@ -1319,7 +1319,7 @@ function launchArgv(
   // Extracted once so the --plugin-dir entries below (via claudeArgv) and
   // the PATH= env-prefix entry cannot disagree about which roots are live.
   const roots = pluginRootsScan();
-  const pathPrefix = pluginPathPrefix(roots);
+  const pluginPath = pluginBinPath(roots);
   // `env FLOW_PIPELINE=1 FLOW_SLUG=<slug> [PATH=...]` prefix: there is no env
   // object on this launch path (the spawned claude inherits the parent env
   // via tmux new-window), so the markers are injected as an argv prefix.
@@ -1330,7 +1330,7 @@ function launchArgv(
   // helpers/hooks (`resolveSlugAmbient`), env-first over the tmux pane's
   // `@flow-slug`. PATH is the tmux-backend half of Decision B0 (the plain
   // backend's half is a SEPARATE implementation via a real env object in
-  // launcher.ts) — omitted entirely when the prefix is empty.
+  // launcher.ts) — omitted entirely when there is nothing left to append.
   //
   // No positional seed: the seed is delivered ONLY via send-keys (the verified
   // launcher owns it), since claude does not auto-run a positional prompt — the
@@ -1340,7 +1340,7 @@ function launchArgv(
   //
   // `--model` precedes `--effort` (both before `--settings`) in a deterministic
   // order so the argv assertions stay stable. Each is omitted when unset.
-  const nextPath = prefixedPath(pathPrefix, process.env.PATH ?? "");
+  const nextPath = withPluginPath(pluginPath, process.env.PATH ?? "");
   return [
     "env",
     "FLOW_PIPELINE=1",
