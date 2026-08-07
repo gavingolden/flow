@@ -8,7 +8,16 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { FLOW_MANIFEST } from "./paths";
 
-export type SymlinkKind = "skill" | "agent" | "bin" | "completion";
+export type SymlinkKind =
+  | "skill"
+  | "agent"
+  | "bin"
+  | "completion"
+  // A "plugin" record's target is a real directory materialized by
+  // `plugin-root.ts`, not a symlink — consumers must branch on `kind`
+  // before calling any symlink primitive (`ensureSymlink`,
+  // `removeIfManagedSymlink`) against it.
+  | "plugin";
 
 export type SymlinkRecord = {
   source: string;

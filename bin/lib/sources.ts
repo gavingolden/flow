@@ -13,8 +13,14 @@ import {
   LOCAL_BIN_DIR,
 } from "./paths";
 import type { SymlinkKind, SymlinkRecord } from "./manifest";
-import { isRegistryKnownArtifact } from "./modules";
+import {
+  isRegistryKnownArtifact,
+  MANDATORY_MODULE,
+  moduleIds,
+  type ModuleId,
+} from "./modules";
 import { resolveArtifactSetForSource } from "./modules-source-resolve";
+import { pluginRootName } from "./plugin-manifest";
 
 const SKILL_TIERS = ["pipeline", "universal", "stacks"] as const;
 const COMPLETION_SHELLS = ["bash", "zsh"] as const;
@@ -37,9 +43,18 @@ const VALIDATOR_MODULES = [
 /**
  * Helpers that exist under `bin/` but must NOT be symlinked onto a user's
  * PATH: maintainer-only, tree-mutating + tag-creating tools that should only
- * ever run from a flow checkout.
+ * ever run from a flow checkout. `flow-plugin-probe` and
+ * `flow-plugin-contract-lint` join this set for the same reason: both are
+ * maintainer/CI tools run from the checkout (`bun bin/<name>.ts`) that
+ * settle packaging assumptions against the locally installed Claude Code —
+ * every user's install must stay deterministic, never probe-driven.
  */
-const MAINTAINER_ONLY = new Set(["flow-release", "flow-model-bench"]);
+const MAINTAINER_ONLY = new Set([
+  "flow-release",
+  "flow-model-bench",
+  "flow-plugin-probe",
+  "flow-plugin-contract-lint",
+]);
 
 /**
  * Whether a `bin/` basename (e.g. `flow-new-worktree.ts`) is a helper that
@@ -229,6 +244,35 @@ export function discoverCompletions(
 }
 
 /**
+ * One `kind: "plugin"` entry per module id in `selectedIds`, targeting
+ * `<skillsDir>/flow-module-<id>/` — the root `plugin-root.ts`'s
+ * `ensurePluginRoot` materializes. `source` is `flowSource` itself (the
+ * whole checkout, not a single file): a plugin root's content is derived
+ * from the module registry + the checkout tree, not copied from one path.
+ * No `installRoot` parameter, matching every other `discover*` function in
+ * this file (`discoverSkills`, `discoverAgents`, `discoverHelpers`,
+ * `discoverValidators`, `discoverCompletions` are all `(flowSource,
+ * targets)`) — `installRoot`-anchored rebasing for a plugin root's `bin/`
+ * symlinks happens one level down, inside `ensurePluginRoot`'s own
+ * `installRoot` argument (`setup.ts`'s plugin branch), not here.
+ */
+export function discoverPluginRoots(
+  flowSource: string,
+  selectedIds: readonly string[],
+  targets: InstallTargets = DEFAULT_TARGETS,
+): SourceEntry[] {
+  return selectedIds.map((id) => {
+    const name = pluginRootName(id as ModuleId);
+    return {
+      source: flowSource,
+      target: path.join(targets.skillsDir, name),
+      kind: "plugin" as const,
+      displayName: name,
+    };
+  });
+}
+
+/**
  * All entries `flow install` should install, in display order.
  *
  * Content discovery (skills/agents/helpers/completions) reads from
@@ -236,6 +280,12 @@ export function discoverCompletions(
  * additions; the wrapper entry reads from `installRoot` so
  * `~/.local/bin/flow` always points at canonical even when discovery is
  * pointed at a worktree.
+ *
+ * The --all SYMLINK set below is still byte-parity-by-construction with
+ * pre-module-registry install — untouched by this function. The plugin
+ * roots appended after it are ADDITIVE and are the ADR's explicitly
+ * sanctioned first break of that Phase 1 byte-parity guarantee
+ * (`docs/target-architecture.md`, "Consequences").
  */
 export function discoverAll(
   flowSource: string,
@@ -251,6 +301,7 @@ export function discoverAll(
   ];
   const wrapper = flowWrapperEntry(installRoot, targets);
   if (wrapper) all.push(wrapper);
+  all.push(...discoverPluginRoots(flowSource, moduleIds(), targets));
   return all;
 }
 
@@ -262,7 +313,9 @@ export function discoverAll(
  * appends unconditionally — shell completions and the `flow` wrapper are
  * never module-gated. Validators are also always `core`-pinned per the
  * registry, so filtering them here is a no-op today; the filter stays for
- * when a future module gains its own validator row.
+ * when a future module gains its own validator row. Plugin roots ARE
+ * module-gated (folding `MANDATORY_MODULE` the same way the artifact-name
+ * sets above do), unlike the wrapper/completions residue.
  *
  * The resolver is source-tree-aware: on a `--source <worktree>` divergence it
  * prefers the worktree's own `bin/lib/modules.ts` (falling back to the
@@ -271,11 +324,13 @@ export function discoverAll(
  * discovered rather than silently dropped. `onWarning`, when supplied,
  * receives that fallback's warning message (if any).
  *
- * `discoverAll` itself is intentionally untouched (same signature, same
- * body) so the `--all` install path can keep calling it directly — that
- * keeps `--all`'s byte-parity with today's unconditional install true by
- * construction, independent of whether this filter (or the registry it
- * reads) has a bug.
+ * `discoverAll`'s own SYMLINK-producing calls (skills/agents/helpers/
+ * validators/completions/wrapper) are intentionally untouched here — that
+ * keeps `--all`'s SYMLINK-set byte-parity with today's unconditional install
+ * true by construction, independent of whether this filter (or the registry
+ * it reads) has a bug. `discoverAll`'s plugin-root append is additive on top
+ * and is the ADR's sanctioned first break of that guarantee — see
+ * `discoverAll`'s own doc comment.
  */
 export async function discoverSelected(
   flowSource: string,
@@ -323,6 +378,12 @@ export async function discoverSelected(
   ];
   const wrapper = flowWrapperEntry(installRoot, targets);
   if (wrapper) all.push(wrapper);
+  // MANDATORY_MODULE folded in the same way resolveArtifactSet folds it for
+  // the artifact-name sets above — a plugin root is module-selection-scoped,
+  // not exempt residue like the wrapper/completions above it.
+  const foldedIds = new Set<string>(selectedIds);
+  foldedIds.add(MANDATORY_MODULE);
+  all.push(...discoverPluginRoots(flowSource, [...foldedIds], targets));
   return all;
 }
 

@@ -8,6 +8,7 @@
  * name.
  */
 
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -39,6 +40,12 @@ import {
   removeIfManagedSymlink,
   type LinkResult,
 } from "./symlink";
+import {
+  ensurePluginRoot,
+  removePluginRoot,
+  scanPluginRoots,
+} from "./plugin-root";
+import { moduleIdFromPluginRootName, pluginRootName } from "./plugin-manifest";
 import { withFileLock } from "./lock";
 import { applyShellRcCompletions } from "./setup-rc";
 import {
@@ -67,7 +74,7 @@ import { readFlowVersion } from "./pkg-version";
 import { invalidateUpdateCheckCache } from "./update-check";
 import { dim, green, red } from "./color";
 import { confirmStdin } from "./confirm";
-import { moduleForArtifactName, moduleIds } from "./modules";
+import { moduleForArtifactName, moduleIds, type ModuleId } from "./modules";
 import {
   collectModuleConfigWarnings,
   deriveSelectionFromManifest,
@@ -98,6 +105,19 @@ function npmInstall(root: string): { ok: boolean; stderr?: string } {
   return result.exitCode === 0
     ? { ok: true }
     : { ok: false, stderr: result.stderr.toString() };
+}
+
+/** Default `reexecAfterFastForward`: re-runs the current process (same
+ * argv) via `spawnSync` — see the call site in `runSetup` for why. */
+function reexecUnderFreshCode(): number | undefined {
+  const result = spawnSync(process.argv[0], process.argv.slice(1), {
+    stdio: "inherit",
+    env: { ...process.env, FLOW_INSTALL_REEXEC: "1" },
+  });
+  if (result.error || result.status === null || result.status === undefined) {
+    return undefined;
+  }
+  return result.status;
 }
 
 export type SetupOptions = {
@@ -162,6 +182,15 @@ export type SetupOptions = {
    * `flow install --upgrade --no-pull-canonical`.
    */
   pullCanonicalFirst?: boolean;
+  /**
+   * Injectable seam that re-runs the installer under freshly fast-forwarded
+   * code (see the call site in `runSetup` for why this exists). Returns the
+   * re-exec'd child's numeric exit status, or `undefined` when the spawn
+   * itself failed (the caller then falls through rather than exiting).
+   * Defaults to a real re-exec via `spawnSync`; tests inject a stub so no
+   * test spawns a real subprocess or calls the real `process.exit`.
+   */
+  reexecAfterFastForward?: (ff: FastForwardResult) => number | undefined;
   /**
    * If true, when the Stop-hook merge encounters malformed JSON at
    * `settingsPath`, back the file up to a timestamped sibling and rewrite
@@ -258,6 +287,8 @@ export type SetupSummary = {
   skipped: number;
   blocked: number;
   removed: number;
+  /** Count of plugin roots (one per selected module) materialized this run. */
+  pluginRoots: number;
   /**
    * End-of-run JSON self-validation failures. Each entry is the path of a
    * file that flow wrote (or attempted to write) during this run but which
@@ -343,6 +374,22 @@ export async function runSetup(
     ff = fastForwardCanonical({ canonicalRoot: installRoot });
   }
 
+  // Bun resolves every `bin/lib/*` import at module load — BEFORE this point
+  // — so an `ahead` fast-forward just rewrote the content on disk out from
+  // under the code already loaded into THIS process. Re-exec (before the
+  // lock, before any symlink/manifest write below) so the run that actually
+  // mutates the filesystem does so under the fresh post-merge code, never
+  // the stale pre-merge code. FLOW_INSTALL_REEXEC=1 in the child's env
+  // bounds this to exactly one hop; a failed spawn falls through unchanged.
+  if (ff?.status === "ahead" && process.env.FLOW_INSTALL_REEXEC !== "1") {
+    const exitStatus = (options.reexecAfterFastForward ?? reexecUnderFreshCode)(
+      ff,
+    );
+    if (exitStatus !== undefined) {
+      process.exit(exitStatus);
+    }
+  }
+
   // Serialize symlink + manifest writes against any concurrent `flow install`
   // invocation. Without the lock, two parallel pipelines that both run
   // `flow install --upgrade` can race on the same skill/agent symlink.
@@ -362,6 +409,17 @@ export async function runSetup(
   );
 }
 
+/** Version string recorded in each materialized plugin.json. Falls back to
+ * "0.0.0" (never throws) on any read failure — a plugin root must still
+ * materialize even when the version can't be determined. */
+function resolveInstallVersion(installRoot: string): string {
+  try {
+    return readFlowVersion(installRoot);
+  } catch {
+    return "0.0.0";
+  }
+}
+
 async function runUnderLock(
   flowSource: string,
   installRoot: string,
@@ -371,13 +429,14 @@ async function runUnderLock(
   missingRuntimeDeps: string[],
   ff: FastForwardResult | undefined,
 ): Promise<SetupSummary> {
-  const { entries, persistIds } = await resolveEntriesForRun(
+  const { entries, persistIds, selectedIds } = await resolveEntriesForRun(
     options,
     flowSource,
     installRoot,
     targets,
     log,
   );
+  const pluginVersion = resolveInstallVersion(installRoot);
   if (persistIds) {
     writeModuleSelection(persistIds, { configPath: options.configPath });
   }
@@ -414,6 +473,7 @@ async function runUnderLock(
     skipped: 0,
     blocked: 0,
     removed: 0,
+    pluginRoots: 0,
     validationFailures: [],
     missingRuntimeDeps,
   };
@@ -423,6 +483,35 @@ async function runUnderLock(
 
   const worktreeOnlyNames: string[] = [];
   for (const entry of entries) {
+    if (entry.kind === "plugin") {
+      // `ensureSymlink` is NOT reusable here: it calls
+      // `fs.realpathSync(source)` and returns "blocked" for ANY existing
+      // directory at the target without --force, so a root flow
+      // re-materializes every run would be permanently "blocked" from the
+      // second install onward. `ensurePluginRoot` re-derives the root's
+      // content (plugin.json fresh from `flowSource`) on every call
+      // instead — but its bin/ symlinks ARE such a "live vs canonical
+      // source" pointer, so `installRoot` is threaded through the same way
+      // the symlink branch below routes `entry.source` via
+      // `effectiveLinkSource`, keeping a `--source <worktree>` install from
+      // leaving plugin-root bin/ links dangling once the worktree is
+      // removed on merge.
+      const moduleId = moduleIdFromPluginRootName(entry.displayName);
+      if (!moduleId) continue; // defensive: discoverPluginRoots only ever emits known ids
+      const result = ensurePluginRoot({
+        root: entry.target,
+        moduleId,
+        flowSource,
+        installRoot,
+        version: pluginVersion,
+        includeSkills: false,
+        force: options.force ?? false,
+      });
+      logResult(entry, result, log);
+      summary[bucketFor(result)]++;
+      summary.pluginRoots++;
+      continue;
+    }
     // Point the live symlink at the canonical (installRoot) path for any
     // content that exists there, so a `--source <worktree>` install doesn't
     // leave global links dangling when the worktree is removed on merge.
@@ -462,13 +551,16 @@ async function runUnderLock(
   // now-deselected symlinks even without --upgrade — "deselecting a module
   // prunes its previously-linked artifacts" per docs/target-architecture.md,
   // not "deselecting AND upgrading". Safe unconditionally: reapOrphans only
-  // ever removes a flow-managed symlink no longer present in `entries`; it
-  // never touches a non-symlink (user-authored) file at the same target.
+  // ever removes a flow-managed symlink (or plugin root) no longer present
+  // in `entries`; it never touches a non-symlink (user-authored) file at the
+  // same target.
   summary.removed = reapOrphans(
     entries,
     options.manifestPath,
     log,
     installRoot,
+    targets.skillsDir,
+    selectedIds,
   );
   // Migration backstop for the ~/.claude/skills → ~/.flow/claude-home retarget:
   // reapOrphans only removes MANIFEST-recorded old-location links. A drifted or
@@ -620,15 +712,24 @@ function configReaderFor(options: SetupOptions): ReadConfigFile | undefined {
 }
 
 /**
- * Resolves which `SourceEntry[]` this run links, and (when the resolution
- * expressed real user intent) which module-id list to persist.
+ * Resolves which `SourceEntry[]` this run links, which module-id list to
+ * persist (when the resolution expressed real user intent), and which
+ * module ids were actually selected (`selectedIds` — always populated,
+ * unlike `persistIds`, which is `undefined` whenever `shouldPersist` is
+ * false: a recorded-config run, a manifest-derived run, and the non-TTY
+ * default all resolve a real selection without persisting it). Callers that
+ * need "what did this run select" (`runUnderLock`'s OQ-7 orphan scan) must
+ * read `selectedIds`, never infer it from `persistIds`.
  *
  * `--all` bypasses module resolution entirely and calls `discoverAll`
- * directly — not `discoverSelected(moduleIds())` — so its byte-parity with
- * today's unconditional install holds by construction, independent of the
- * registry/resolver. It still persists the full id list so a later
- * `--upgrade` run with no flag keeps installing everything (verified
- * set-equal to `discoverAll` by `modules.test.ts`).
+ * directly — not `discoverSelected(moduleIds())` — so its SYMLINK-set
+ * byte-parity with today's unconditional install holds by construction,
+ * independent of the registry/resolver. `discoverAll`'s plugin-root append
+ * is additive on top of that and is the ADR's sanctioned first break of the
+ * guarantee (see `sources.ts`'s `discoverAll` doc comment). `--all` still
+ * persists the full id list so a later `--upgrade` run with no flag keeps
+ * installing everything (verified set-equal to `discoverAll` by
+ * `modules.test.ts`).
  *
  * A non-TTY run with nothing recorded and no flag defaults to core-only and
  * prints a one-line notice naming how to widen the selection — it does NOT
@@ -640,11 +741,16 @@ async function resolveEntriesForRun(
   installRoot: string,
   targets: InstallTargets,
   log: (msg: string) => void,
-): Promise<{ entries: SourceEntry[]; persistIds: string[] | undefined }> {
+): Promise<{
+  entries: SourceEntry[];
+  persistIds: string[] | undefined;
+  selectedIds: string[];
+}> {
   if (options.all) {
     return {
       entries: discoverAll(flowSource, installRoot, targets),
       persistIds: moduleIds(),
+      selectedIds: moduleIds(),
     };
   }
 
@@ -695,6 +801,7 @@ async function resolveEntriesForRun(
       (msg) => log(dim(`  ! module registry: ${msg}`)),
     ),
     persistIds: selection.shouldPersist ? selection.ids : undefined,
+    selectedIds: selection.ids,
   };
 }
 
@@ -762,6 +869,8 @@ function reapOrphans(
   manifestPath: string | undefined,
   log: (msg: string) => void,
   canonicalRoot: string,
+  skillsDir: string,
+  selectedIds: readonly string[],
 ): number {
   const previous = readManifest(manifestPath);
   const currentTargets = new Set(currentEntries.map((e) => e.target));
@@ -773,6 +882,17 @@ function reapOrphans(
   let removed = 0;
   for (const record of previous.symlinks) {
     if (currentTargets.has(record.target)) continue;
+    if (record.kind === "plugin") {
+      if (removePluginRoot(record.target)) {
+        log(
+          dim(
+            `  - ${path.basename(record.target)}  (orphan plugin root removed)`,
+          ),
+        );
+        removed++;
+      }
+      continue;
+    }
     if (
       removeIfManagedSymlink(record.target, record.source, {
         canonicalRoot,
@@ -784,6 +904,28 @@ function reapOrphans(
       removed++;
     }
   }
+
+  // OQ-7 manifest-independent orphan scan: `scanPluginRoots` finds every
+  // flow-owned root ON DISK, independent of what the manifest recorded — a
+  // user who checks out a pre-plugin ref and runs `flow install --upgrade`
+  // gets a manifest with no "plugin" records at all; checking the new ref
+  // back out would otherwise strand those roots unreapable, breaking Story
+  // 6's "roll back predictably" acceptance criterion. Prune any found root
+  // whose module id is not in the CURRENT SELECTION, whether or not the
+  // manifest ever recorded it.
+  const currentPluginTargets = new Set(
+    selectedIds.map((id) =>
+      path.join(skillsDir, pluginRootName(id as ModuleId)),
+    ),
+  );
+  for (const foundRoot of scanPluginRoots(skillsDir)) {
+    if (currentPluginTargets.has(foundRoot)) continue;
+    if (removePluginRoot(foundRoot)) {
+      log(dim(`  - ${path.basename(foundRoot)}  (orphan plugin root removed)`));
+      removed++;
+    }
+  }
+
   return removed;
 }
 
@@ -901,12 +1043,15 @@ function logResult(
   log: (msg: string) => void,
 ): void {
   const label = `${entry.kind}/${entry.displayName}`;
+  // A plugin root is a materialized directory, not a symlink — its
+  // "updated"/"blocked" wording differs slightly from every other kind's.
+  const isPlugin = entry.kind === "plugin";
   switch (result) {
     case "created":
       log(dim(`  + ${label}`));
       break;
     case "updated":
-      log(dim(`  ~ ${label}  (relinked)`));
+      log(dim(`  ~ ${label}  (${isPlugin ? "re-materialized" : "relinked"})`));
       break;
     case "exists":
       // Quiet on idempotent runs — chatty output drowns the real signal.
@@ -914,7 +1059,7 @@ function logResult(
     case "blocked":
       log(
         red(
-          `  ! ${label}  (blocked — non-symlink at target; use --force to replace)`,
+          `  ! ${label}  (blocked — ${isPlugin ? "existing directory has no flow-written plugin.json" : "non-symlink at target"}; use --force to replace)`,
         ),
       );
       break;
@@ -1022,7 +1167,11 @@ function printSummaryLine(s: SetupSummary, log: (msg: string) => void): void {
     s.blocked ? `${s.blocked} blocked` : null,
   ].filter(Boolean);
   // Only emit the symlink accounting when there was real churn — an
-  // idempotent run keeps to the one-line outcome above (Story 6).
+  // idempotent run keeps to the one-line outcome above (Story 6). Plugin
+  // roots have already been folded into these SAME created/updated/skipped/
+  // blocked buckets (bucketFor is shared) — see printModuleBreakdown for
+  // where the plugin-root count itself is surfaced without adding a new
+  // always-on line to Story 6's idempotent-run budget.
   if (parts.length) log(dim(`      ${parts.join(", ")}`));
 }
 
@@ -1049,13 +1198,26 @@ function printInactiveModules(
   log(dim(`      inactive modules: ${parts.join(", ")}`));
 }
 
+/**
+ * A plugin root's `displayName` (`flow-module-<id>`) is never a
+ * `moduleForArtifactName` hit — that registry only knows skill/agent/
+ * helper/validator rows, not synthesized plugin-root names — so it's
+ * resolved back to its owning module via `moduleIdFromPluginRootName`
+ * instead. This is how the plugin-root count (`SetupSummary.pluginRoots`)
+ * surfaces in the printed breakdown without adding a new always-on line to
+ * Story 6's idempotent-run budget: it simply adds one to its module's
+ * existing tally, the same as any other linked artifact.
+ */
 function printModuleBreakdown(
   entries: SourceEntry[],
   log: (msg: string) => void,
 ): void {
   const counts = new Map<string, number>();
   for (const e of entries) {
-    const moduleId = moduleForArtifactName(e.displayName);
+    const moduleId =
+      e.kind === "plugin"
+        ? moduleIdFromPluginRootName(e.displayName)
+        : moduleForArtifactName(e.displayName);
     if (!moduleId) continue;
     counts.set(moduleId, (counts.get(moduleId) ?? 0) + 1);
   }

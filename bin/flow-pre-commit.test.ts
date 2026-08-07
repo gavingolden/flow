@@ -1163,6 +1163,14 @@ describe(isPathBoundHelper, () => {
     expect(isPathBoundHelper("flow-model-bench.ts")).toBe(false);
   });
 
+  it("excludes the maintainer-only flow-plugin-probe.ts", () => {
+    expect(isPathBoundHelper("flow-plugin-probe.ts")).toBe(false);
+  });
+
+  it("excludes the maintainer-only flow-plugin-contract-lint.ts", () => {
+    expect(isPathBoundHelper("flow-plugin-contract-lint.ts")).toBe(false);
+  });
+
   it("excludes a non-.ts name", () => {
     expect(isPathBoundHelper("flow-foo.sh")).toBe(false);
   });

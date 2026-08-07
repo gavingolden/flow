@@ -62,6 +62,12 @@ import { installBaseBranchGuard } from "./base-branch-guard";
 import { resolveLauncherBackend, type LauncherId } from "./launcher-config";
 import { plainLaunch, plainResume, type PlainLaunchDeps } from "./launcher";
 import type { LivenessDeps } from "./liveness";
+import {
+  pluginDirArgs,
+  pluginPathPrefix,
+  prefixedPath,
+  scanPluginRoots,
+} from "./plugin-root";
 
 /**
  * Bounded retry budget for the verified window launch. A single transient
@@ -247,6 +253,14 @@ export type FeatureOptions = {
   tmuxOnPath?: () => boolean;
   /** Plain-backend deps seam (spawn/isTTY/liveness — test only). */
   plainDeps?: PlainLaunchDeps & { liveness?: LivenessDeps };
+  /**
+   * Plugin-root scanner seam threaded into `claudeArgv`/`launchArgv` (both
+   * backends' `--plugin-dir` argv AND the tmux backend's `env` PATH prefix).
+   * Defaults to the real `scanPluginRoots` (`FLOW_CLAUDE_HOME_SKILLS_DIR`) —
+   * tests override so a fixture never scans the developer's real
+   * `~/.flow/claude-home`.
+   */
+  pluginRootsScan?: () => string[];
 };
 
 export function runNew(
@@ -804,15 +818,31 @@ function runFresh(
   });
   if (backend.notice) console.error(dim(backend.notice));
   if (backend.id === "plain") {
+    // Scanned exactly once and reused for both the argv's --plugin-dir
+    // entries (via buildPlainCommand) and this backend's PATH mutation (via
+    // plainLaunch -> launcher.ts) — the tmux path and the epic path both
+    // extract `roots` once for the same reason (argv and PATH must never
+    // disagree about which roots are live); the plain path previously
+    // scanned twice, independently, whenever no seam was injected.
+    const roots = (options.pluginRootsScan ?? scanPluginRoots)();
     const plainCommand =
       options.command ??
-      buildPlainCommand(worktree, options.effort, settingsPath, sessionModel);
+      buildPlainCommand(
+        worktree,
+        options.effort,
+        settingsPath,
+        sessionModel,
+        () => roots,
+      );
     writeState(makeBaseState("plain"), options.stateDir);
     // plainLaunch owns the TTY guard, the flow:<slug> contract line, the
     // pid/procStartedAt capture, and delete-on-fast-fail.
     return plainLaunch(
       { slug, repo, command: plainCommand, seed, stateDir: options.stateDir },
-      options.plainDeps,
+      {
+        ...options.plainDeps,
+        scanPluginRoots: options.plainDeps?.scanPluginRoots ?? (() => roots),
+      },
     ).then((r) => (r.status === "failed" ? 1 : 0));
   }
 
@@ -824,6 +854,7 @@ function runFresh(
       options.effort,
       settingsPath,
       sessionModel,
+      options.pluginRootsScan,
     );
 
   // Persist-then-verify-then-delete-on-failure: write state(phase=starting)
@@ -1036,6 +1067,8 @@ function runResume(
     const plainWorktree =
       state.worktree ?? deriveWorktreePath(state.repo, slug);
     const plainSettings = launchSettingsPathFor(options);
+    // Scanned once, same rationale as the create-path fix above.
+    const roots = (options.pluginRootsScan ?? scanPluginRoots)();
     const plainCommand =
       options.command ??
       buildPlainCommand(
@@ -1043,6 +1076,7 @@ function runResume(
         state.effort,
         plainSettings,
         state.model,
+        () => roots,
       );
     // plainResume owns the alive-refusal (a plain terminal cannot be
     // reclaimed, --force included), the TTY guard, and the contract line.
@@ -1054,7 +1088,11 @@ function runResume(
         seed: flowPipelineResumeSeed(slug),
         stateDir: options.stateDir,
       },
-      { ...options.plainDeps, force: options.force },
+      {
+        ...options.plainDeps,
+        force: options.force,
+        scanPluginRoots: options.plainDeps?.scanPluginRoots ?? (() => roots),
+      },
     ).then((r) => (r.status === "failed" ? 1 : 0));
   }
 
@@ -1090,7 +1128,14 @@ function runResume(
   const seed = flowPipelineResumeSeed(slug);
   const command =
     options.command ??
-    buildLaunchCommand(slug, worktree, state.effort, settingsPath, state.model);
+    buildLaunchCommand(
+      slug,
+      worktree,
+      state.effort,
+      settingsPath,
+      state.model,
+      options.pluginRootsScan,
+    );
   // Verify the relaunched process stays up AND consumes the resume seed, same as
   // the fresh path — a bare respawn/create exit code only proves tmux forked the
   // shell, and a claude idle at an empty input box passes a liveness probe. The
@@ -1269,15 +1314,23 @@ function launchArgv(
   effort: EffortLevel | undefined,
   settingsPath: string,
   model?: ModelAlias,
+  pluginRootsScan: () => string[] = scanPluginRoots,
 ): string[] {
-  // `env FLOW_PIPELINE=1 FLOW_SLUG=<slug>` prefix: there is no env object on
-  // this launch path (the spawned claude inherits the parent env via tmux
-  // new-window), so the markers are injected as an argv prefix. FLOW_PIPELINE
-  // lets leaf skills like `/flow-research` detect they are running inside the
-  // supervisor and suppress their standalone-only `claude -p` fallback tier —
-  // the no-nested-LLM boundary the supervisor must never cross. FLOW_SLUG is
-  // the backend-agnostic ambient slug for helpers/hooks
-  // (`resolveSlugAmbient`), env-first over the tmux pane's `@flow-slug`.
+  // Extracted once so the --plugin-dir entries below (via claudeArgv) and
+  // the PATH= env-prefix entry cannot disagree about which roots are live.
+  const roots = pluginRootsScan();
+  const pathPrefix = pluginPathPrefix(roots);
+  // `env FLOW_PIPELINE=1 FLOW_SLUG=<slug> [PATH=...]` prefix: there is no env
+  // object on this launch path (the spawned claude inherits the parent env
+  // via tmux new-window), so the markers are injected as an argv prefix.
+  // FLOW_PIPELINE lets leaf skills like `/flow-research` detect they are
+  // running inside the supervisor and suppress their standalone-only
+  // `claude -p` fallback tier — the no-nested-LLM boundary the supervisor
+  // must never cross. FLOW_SLUG is the backend-agnostic ambient slug for
+  // helpers/hooks (`resolveSlugAmbient`), env-first over the tmux pane's
+  // `@flow-slug`. PATH is the tmux-backend half of Decision B0 (the plain
+  // backend's half is a SEPARATE implementation via a real env object in
+  // launcher.ts) — omitted entirely when the prefix is empty.
   //
   // No positional seed: the seed is delivered ONLY via send-keys (the verified
   // launcher owns it), since claude does not auto-run a positional prompt — the
@@ -1287,11 +1340,13 @@ function launchArgv(
   //
   // `--model` precedes `--effort` (both before `--settings`) in a deterministic
   // order so the argv assertions stay stable. Each is omitted when unset.
+  const nextPath = prefixedPath(pathPrefix, process.env.PATH ?? "");
   return [
     "env",
     "FLOW_PIPELINE=1",
     `FLOW_SLUG=${slug}`,
-    ...claudeArgv(worktree, effort, settingsPath, model),
+    ...(nextPath !== undefined ? [`PATH=${nextPath}`] : []),
+    ...claudeArgv(worktree, effort, settingsPath, model, roots),
   ];
 }
 
@@ -1305,15 +1360,29 @@ function launchArgv(
  * second): the worktree is the pipeline's working dir; the skills home
  * (`~/.flow/claude-home`) is where flow's skills now live (no longer in the
  * global `~/.claude/skills/`), so every launched session must add it to keep
- * `/flow-pipeline` and the sub-skills it loads.
+ * `/flow-pipeline` and the sub-skills it loads. `--plugin-dir` entries (one
+ * per materialized plugin root) follow the two `--add-dir` entries and
+ * precede `--model`, a deterministic position so the existing argv
+ * assertions stay stable and reviewable — this site is in scope by the
+ * stated goal (pipeline sessions are the actual Bash-tool surface the
+ * feature targets), not scope creep beyond the plan's `launch.ts`-only
+ * naming for Task 5's bare-`flow` launcher.
  */
 function claudeArgv(
   worktree: string,
   effort: EffortLevel | undefined,
   settingsPath: string,
   model?: ModelAlias,
+  roots: readonly string[] = scanPluginRoots(),
 ): string[] {
-  const base = ["claude", "--add-dir", worktree, "--add-dir", FLOW_CLAUDE_HOME];
+  const base = [
+    "claude",
+    "--add-dir",
+    worktree,
+    "--add-dir",
+    FLOW_CLAUDE_HOME,
+    ...pluginDirArgs(roots),
+  ];
   const withModel = model ? [...base, "--model", model] : base;
   const withEffort = effort ? [...withModel, "--effort", effort] : withModel;
   return [...withEffort, "--settings", settingsPath];
@@ -1465,6 +1534,7 @@ function buildLaunchCommand(
   effort: EffortLevel | undefined,
   settingsPath: string,
   model?: ModelAlias,
+  pluginRootsScan?: () => string[],
 ): string[] {
   try {
     ensureLaunchSettings(settingsPath);
@@ -1475,7 +1545,17 @@ function buildLaunchCommand(
       ),
     );
   }
-  return launchArgv(slug, worktree, effort, settingsPath, model);
+  // launchArgv's pluginRootsScan parameter already defaults to
+  // scanPluginRoots on undefined, so passing it through unconditionally is
+  // equivalent to the two-branch ternary this replaced.
+  return launchArgv(
+    slug,
+    worktree,
+    effort,
+    settingsPath,
+    model,
+    pluginRootsScan,
+  );
 }
 
 /**
@@ -1489,6 +1569,7 @@ function buildPlainCommand(
   effort: EffortLevel | undefined,
   settingsPath: string,
   model?: ModelAlias,
+  pluginRootsScan?: () => string[],
 ): string[] {
   try {
     ensureLaunchSettings(settingsPath);
@@ -1499,7 +1580,13 @@ function buildPlainCommand(
       ),
     );
   }
-  return claudeArgv(worktree, effort, settingsPath, model);
+  return claudeArgv(
+    worktree,
+    effort,
+    settingsPath,
+    model,
+    (pluginRootsScan ?? scanPluginRoots)(),
+  );
 }
 
 /**
