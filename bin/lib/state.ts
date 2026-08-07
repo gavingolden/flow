@@ -316,7 +316,13 @@ export const TERMINAL_PHASE_SET: ReadonlySet<string> = new Set(TERMINAL_PHASES);
  * one entry because the guard fires only on the FIRST write out of a
  * terminal phase: once an allowlisted write lands the phase is no longer
  * terminal, so downstream phases (implementing, ci-wait, reviewing) are
- * reachable without their own entry.
+ * reachable without their own entry. Consequence: that same mechanic means
+ * an allowlisted write raced onto the WRONG pipeline's state file (e.g. a
+ * leaked FLOW_SLUG mid-flight) permanently disarms this guard for that
+ * file — every subsequent write lands unguarded, not just the allowlisted
+ * one. `checkWorktreeBranch` still runs on every write but is a no-op in
+ * that race: it reads the victim's own worktree marker, which is
+ * internally consistent regardless of which pipeline is writing.
  */
 export const TERMINAL_EXIT_TRANSITIONS: Readonly<
   Record<string, readonly PipelinePhase[]>
@@ -325,9 +331,9 @@ export const TERMINAL_EXIT_TRANSITIONS: Readonly<
 };
 
 export function isAllowedTerminalExit(from: string, to: string): boolean {
-  return (
-    (TERMINAL_EXIT_TRANSITIONS[from] ?? []) as readonly string[]
-  ).includes(to);
+  return Object.hasOwn(TERMINAL_EXIT_TRANSITIONS, from)
+    ? (TERMINAL_EXIT_TRANSITIONS[from] as readonly string[]).includes(to)
+    : false;
 }
 
 export function isPipelinePhase(value: string): value is PipelinePhase {

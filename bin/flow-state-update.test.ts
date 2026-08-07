@@ -788,6 +788,7 @@ describe("terminal-regression guard", () => {
     const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
     errSpy.mockRestore();
     expect(code).toBe(3);
+    expect(readState("csv-export", dir)?.phase).toBe("gated");
     fx.cleanup();
   });
 
@@ -798,8 +799,18 @@ describe("terminal-regression guard", () => {
     expect(code).toBe(4);
     const output = errSpy.mock.calls.flat().join("\n");
     errSpy.mockRestore();
-    expect(output).toContain("allowed exits");
+    expect(output).toContain("Allowed exits");
     expect(output).toContain("verifying");
+  });
+
+  it("the exit-4 refusal says 'none' when the from-phase has no allowlist entry", () => {
+    seed("csv-export", { phase: "merged" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+    expect(code).toBe(4);
+    const output = errSpy.mock.calls.flat().join("\n");
+    errSpy.mockRestore();
+    expect(output).toContain("Allowed exits from 'merged': none");
   });
 });
 

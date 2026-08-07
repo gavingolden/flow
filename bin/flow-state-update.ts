@@ -318,8 +318,12 @@ export function runUpdate(
   // resolved the slug to the wrong pipeline. Exit 4 (distinct from exit 3
   // used by branch-mismatch) so the supervisor can escalate differently.
   // `gated` carries a named exit allowlist (TERMINAL_EXIT_TRANSITIONS) for
-  // its two legitimate resume paths; --force remains the escape hatch for
-  // every other terminal phase.
+  // its three legitimate exits (re-verify, re-gate, override-merge);
+  // --force remains the escape hatch for every other terminal phase. Once
+  // an allowlisted exit is accepted, `existing.phase` is no longer terminal,
+  // so this guard no longer applies to the rest of that state file's
+  // lifecycle — see the TERMINAL_EXIT_TRANSITIONS docblock in
+  // bin/lib/state.ts for the race this implies.
   if (
     parsed.phase !== undefined &&
     !parsed.force &&
@@ -333,9 +337,19 @@ export function runUpdate(
         ? allowedExits.join(", ")
         : "none";
     console.error(
-      `flow-state-update: refusing to regress terminal phase '${existing.phase}' → '${parsed.phase}' for slug '${slug}'. If intentional, delete the state file first or use --force. allowed exits from '${existing.phase}': ${allowedExitsText}`,
+      `flow-state-update: refusing to regress terminal phase '${existing.phase}' → '${parsed.phase}' for slug '${slug}'. If intentional, delete the state file first or use --force. Allowed exits from '${existing.phase}': ${allowedExitsText}`,
     );
     return 4;
+  }
+  if (
+    parsed.phase !== undefined &&
+    !parsed.force &&
+    TERMINAL_PHASE_SET.has(existing.phase) &&
+    !TERMINAL_PHASE_SET.has(parsed.phase)
+  ) {
+    console.error(
+      `flow-state-update: accepting allowlisted terminal exit '${existing.phase}' → '${parsed.phase}' for slug '${slug}'; the terminal-regression guard no longer applies to this state file.`,
+    );
   }
 
   // The branch guard is the supervisor's mechanical defense against the

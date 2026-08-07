@@ -993,6 +993,11 @@ describe("phase constants", () => {
     expect(isAllowedTerminalExit("verifying", "gating")).toBe(false);
   });
 
+  it("isAllowedTerminalExit returns false (not a throw) for Object.prototype keys", () => {
+    expect(isAllowedTerminalExit("constructor", "verifying")).toBe(false);
+    expect(isAllowedTerminalExit("__proto__", "verifying")).toBe(false);
+  });
+
   it("TERMINAL_EXIT_TRANSITIONS is exactly {gated: [verifying, gating, merging]} (drift-guard)", () => {
     // Exact equality, not containment — this is what catches a silent
     // widening of the allowlist to a phase other than `gated`, or a

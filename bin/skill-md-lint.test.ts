@@ -4299,14 +4299,60 @@ describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", 
   // TERMINAL_EXIT_TRANSITIONS.gated (or the symbol itself going unmentioned)
   // should fail loudly here rather than leaving the doc describing exits the
   // guard no longer permits, or vice versa.
+  //
+  // The per-phase check below is scoped to an ISOLATED PROSE SLICE, not
+  // whole-file `content` — 21 of 26 PIPELINE_PHASES are already backticked
+  // somewhere in SKILL.md as ordinary step headers, so a whole-file
+  // `content.includes` check passes vacuously for almost any allowlist
+  // widening. The slice is the union of the three regions this PR authored
+  // that actually describe the gated-exit mechanic: the `gated-feedback`
+  // Resume-mode row, the "Gate override (post-verdict, opt-in)" section,
+  // and the "Gated is an explicit carve-out" paragraph.
+  const gatedFeedbackRow = content
+    .split("\n")
+    .find((line) => line.includes("| `gated-feedback` |"));
+  const gateOverrideSection = (() => {
+    const start = content.indexOf("### Gate override (post-verdict, opt-in)");
+    const end = content.indexOf("\n### ", start + 1);
+    return content.slice(start, end === -1 ? undefined : end);
+  })();
+  const carveOutParagraph = (() => {
+    const marker =
+      "**Gated is an explicit carve-out, not a sixth in-flight phase.**";
+    const start = content.indexOf(marker);
+    const end = content.indexOf("\n\n", start + 1);
+    return content.slice(start, end === -1 ? undefined : end);
+  })();
+  const gatedExitProse = [
+    gatedFeedbackRow ?? "",
+    gateOverrideSection,
+    carveOutParagraph,
+  ].join("\n\n");
+
+  it("the gated-exit prose slice was found (sanity check for the anchors above)", () => {
+    expect(
+      gatedFeedbackRow,
+      "gated-feedback Resume-mode row not found",
+    ).not.toBe(undefined);
+    expect(
+      gateOverrideSection.length,
+      "Gate override (post-verdict, opt-in) section not found",
+    ).toBeGreaterThan(0);
+    expect(
+      carveOutParagraph.length,
+      "Gated is an explicit carve-out paragraph not found",
+    ).toBeGreaterThan(0);
+  });
+
   it.each(TERMINAL_EXIT_TRANSITIONS.gated.map((phase) => [phase]))(
-    "TERMINAL_EXIT_TRANSITIONS.gated phase '%s' is named (backticked) in SKILL.md",
+    "TERMINAL_EXIT_TRANSITIONS.gated phase '%s' is named (backticked) in SKILL.md's gated-exit prose",
     (phase) => {
       expect(
-        content.includes(`\`${phase}\``),
+        gatedExitProse.includes(`\`${phase}\``),
         `TERMINAL_EXIT_TRANSITIONS.gated includes '${phase}' ` +
-          `(bin/lib/state.ts), but flow-pipeline/SKILL.md never mentions ` +
-          "`" +
+          `(bin/lib/state.ts), but flow-pipeline/SKILL.md's gated-exit ` +
+          "prose (gated-feedback row / Gate override section / carve-out " +
+          "paragraph) never mentions `" +
           phase +
           "` — fix SKILL.md's gated-exit prose to name every allowlisted " +
           "target.",
