@@ -101,6 +101,14 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.feature).toContain("--wait-for-copilot");
   });
 
+  // Pin the annotation legend (added for the (done)/(crashed) split) so a
+  // future editor who drops it from HELP_TEXT.ls sees a red test rather
+  // than shipping an undocumented marker.
+  it("HELP_TEXT.ls documents the (done) and (crashed) annotations", () => {
+    expect(HELP_TEXT.ls).toContain("(done)");
+    expect(HELP_TEXT.ls).toContain("(crashed)");
+  });
+
   it("HELP_TEXT.feature documents --copilot-review with its three values and the auto default", () => {
     expect(HELP_TEXT.feature).toContain("--copilot-review");
     expect(HELP_TEXT.feature).toContain("auto|always|never");

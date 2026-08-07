@@ -4,8 +4,10 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   autoResumesAfterClear,
+  AWAITING_HUMAN_PHASES,
   deleteState,
   EPIC_PHASES,
+  FINISHED_PHASES,
   isAllowedTerminalExit,
   isEpicPhase,
   isLegitimateEndPhase,
@@ -912,6 +914,19 @@ describe("phase constants", () => {
       const overlap = a.filter((v) => b.includes(v));
       expect(overlap, label).toEqual([]);
     }
+  });
+
+  it("FINISHED_PHASES and AWAITING_HUMAN_PHASES together are exactly TERMINAL_PHASES (anti-drift guard: a future terminal phase must be explicitly classified into one of the two buckets)", () => {
+    expect([...FINISHED_PHASES, ...AWAITING_HUMAN_PHASES].sort()).toEqual(
+      [...TERMINAL_PHASES].sort(),
+    );
+  });
+
+  it("FINISHED_PHASES and AWAITING_HUMAN_PHASES are disjoint", () => {
+    const overlap = FINISHED_PHASES.filter((v) =>
+      (AWAITING_HUMAN_PHASES as readonly string[]).includes(v),
+    );
+    expect(overlap).toEqual([]);
   });
 
   it("PIPELINE_PHASES is the union of TERMINAL, PENDING, STEP", () => {

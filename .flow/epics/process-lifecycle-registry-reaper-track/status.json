@@ -3,7 +3,8 @@
   "epicId": "process-lifecycle-registry-reaper-track",
   "features": {
     "orphan-sweep-convergence": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 569
     },
     "proc-registry-spawn": {
       "status": "merged",
@@ -18,7 +19,8 @@
       "pr": 531
     },
     "terminal-state-wiring": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 559
     }
   }
 }

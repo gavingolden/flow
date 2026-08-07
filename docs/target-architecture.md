@@ -256,6 +256,7 @@ the PATH-bound schema validators. Always installed.
 | `skills/universal/flow-checkpoint`              | `flow-checkpoint`       | conversational-state flush                                                 |
 | `skills/universal/flow-ui-ux`                   | `flow-ui-ux`            | stack-agnostic UI/UX judgment                                              |
 | `skills/universal/flow-skill-creator`           | `flow-skill-creator`    | authoring new skills                                                       |
+| `skills/universal/flow-backlog-triage`          | `flow-backlog-triage`   | GitHub issue + notes backlog triage                                        |
 | `skills/universal/flow-testing` (generic split) | `flow-testing`          | framework-agnostic testing skill (the generic half of the `testing` split) |
 
 > **`testing` split is a Phase-2 materialization — the Phase-1 registry
@@ -273,22 +274,24 @@ the PATH-bound schema validators. Always installed.
 
 **Agents**
 
-| Current                                     | Role                             | Frontmatter pin                                |
-| ------------------------------------------- | -------------------------------- | ---------------------------------------------- |
-| `agents/flow-verify.md`                     | verify-retry-loop agent          | `tools:` allowlist; `effort: low` (mechanical) |
-| `agents/flow-fix-applier.md`                | pr-review fix-applier            | `tools:` allowlist; `effort: low` (mechanical) |
-| `agents/flow-review-bug-detection.md`       | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-security.md`            | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-pattern-consistency.md` | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-performance.md`         | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-supply-chain.md`        | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-test-coverage.md`       | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-gatekeeper.md`                 | pr-review gatekeeper             | `tools:` allowlist; `model: haiku`             |
-| `agents/flow-consolidator.md`               | pr-review consolidator-validator | `tools:` allowlist                             |
-| `agents/flow-scout.md`                      | new-feature scout                | `tools:` allowlist                             |
-| `agents/flow-discovery.md`                  | product-planning discovery       | no `tools:` (inherits all)                     |
-| `agents/flow-merge-resolver.md`             | pipeline merge-conflict resolver | `tools:` allowlist                             |
-| `agents/flow-edit-applier.md`               | coder edit-applier               | `tools:` allowlist                             |
+| Current                                     | Role                               | Frontmatter pin                                |
+| ------------------------------------------- | ---------------------------------- | ---------------------------------------------- |
+| `agents/flow-verify.md`                     | verify-retry-loop agent            | `tools:` allowlist; `effort: low` (mechanical) |
+| `agents/flow-fix-applier.md`                | pr-review fix-applier              | `tools:` allowlist; `effort: low` (mechanical) |
+| `agents/flow-review-bug-detection.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-security.md`            | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-pattern-consistency.md` | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-performance.md`         | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-supply-chain.md`        | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-test-coverage.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-gatekeeper.md`                 | pr-review gatekeeper               | `tools:` allowlist; `model: haiku`             |
+| `agents/flow-consolidator.md`               | pr-review consolidator-validator   | `tools:` allowlist                             |
+| `agents/flow-review-intent-guess.md`        | pr-review cross-model intent guess | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-scout.md`                      | new-feature scout                  | `tools:` allowlist                             |
+| `agents/flow-discovery.md`                  | product-planning discovery         | no `tools:` (inherits all)                     |
+| `agents/flow-merge-resolver.md`             | pipeline merge-conflict resolver   | `tools:` allowlist                             |
+| `agents/flow-edit-applier.md`               | coder edit-applier                 | `tools:` allowlist                             |
+| `agents/flow-backlog-verifier.md`           | backlog-triage Phase-1 verifier    | `tools: Bash, Read, Grep, Glob`                |
 
 Phase 4 is complete: the scout, discovery, merge-resolver, and
 edit-applier fan-outs are now promoted `agents/*.md` definitions —
@@ -666,6 +669,72 @@ Contracted scope item 5).
   helpers through it, the scope below includes a cheap drift-detection
   check since a future release could change the mechanism with no CI
   signal.
+- **Probe verdicts (`bin/flow-plugin-probe.ts`, run live against Claude
+  Code 2.1.223):**
+
+  | probe id                  | verdict                              | evidence                                                                                                                                                                                                                                                       | fallback rung (if not confirmed)                                                                                          |
+  | ------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+  | `add-dir-discovery`       | confirmed, with a caveat (see below) | a plugin root materialized under `<HOME>/.claude/skills/` — the global default skills directory for that sandboxed `HOME`, **not** flow's D10 `--add-dir` home — is discovered by `claude plugin list --json` as `flow-module-core@skills-dir`, `enabled:true` | copy the module directory in place under the skills directory                                                             |
+  | `symlink-materialization` | confirmed                            | `ensurePluginRoot`'s actual materialization shape (a real root directory with symlinked `bin/` entries) passes `claude plugin validate --strict`                                                                                                               | route helpers through `~/.local/bin` PATH symlinks only                                                                   |
+  | `bin-path-injection`      | confirmed                            | `claude --plugin-dir <path> --plugin-dir <path> --version` accepts repeated `--plugin-dir` and exits 0; intra-session PATH propagation itself is not observable via a one-shot non-interactive probe                                                           | modules stay symlink-materialized for helper coverage; the packaging layer is revisited without touching the (b) backbone |
+  | `enabled-plugins`         | confirmed                            | `claude plugin disable flow-module-core@skills-dir --scope project` writes `{"enabledPlugins":{"flow-module-core@skills-dir":false}}` to `.claude/settings.json`                                                                                               | per-repo enablement degrades to the existing symlink-selection mechanism                                                  |
+  | `skill-invocation-name`   | confirmed                            | `claude plugin details` reports a skill nested under a plugin root's `skills/` by its BARE directory name, not a plugin-qualified name — settles the naming convention for the deferred skill-move follow-up                                                   | ship the deferred skill move without a verified naming answer; re-probe first                                             |
+
+  **Caveat on `add-dir-discovery`, carried forward from the PR body so this
+  table doesn't overstate the evidence:** the probe confirmed discovery
+  under the _global_ `~/.claude/skills/` of a sandboxed `$HOME` — it never
+  tested discovery under flow's D10 `--add-dir` home, which is the question
+  this ADR originally posed and `claude plugin list` accepts no
+  `--add-dir`/`--plugin-dir` flag to settle from a non-interactive probe.
+  This is exactly why the launcher passes `--plugin-dir <root>` explicitly
+  rather than relying on `--add-dir` discovery: the assumption is
+  **designed out**, not merely probed. `bin-path-injection` carries a
+  narrower caveat of its own: intra-session `PATH` propagation is not
+  observable from a one-shot non-interactive probe, which doesn't gate
+  anything since the launcher's own `PATH` prefix is the load-bearing
+  mechanism.
+
+  All five confirmed on the locally installed build, subject to the two
+  caveats above; none is currently operating on a fallback rung. Re-run
+  `bun bin/flow-plugin-probe.ts --json` after any Claude Code upgrade —
+  `bin/flow-plugin-contract-lint.ts` is the sibling harness for the same
+  drift risk, but it is a LOCAL signal, not a CI one: CI installs no
+  `claude`, so its real-CLI cases skip on every CI run, and the only place
+  it can actually turn red is a maintainer's local `npm run test` /
+  `flow-pre-commit` (`bin/flow-plugin-contract-lint.test.ts`).
+
+- **Sanctioned break, restated precisely:** the `--all` install's SYMLINK
+  set (skills/agents/helpers/validators/completions/wrapper) is still
+  byte-parity-by-construction with the pre-module-registry install; the
+  per-module plugin roots `discoverAll`/`discoverSelected` append on top are
+  strictly ADDITIVE, and are the sanctioned first break named above — not a
+  change to the symlink set itself.
+- **Contract corrections made against the ratified plan, each with its
+  verified evidence:**
+  1. `author: { name: "flow" }` is REQUIRED, not the plan's
+     scaffolder-byte-identical no-`author` field set — verified live on
+     2.1.223: the scaffolder's own output fails a strict validation pass
+     with `author: No author information provided` (strict mode treats
+     warnings as errors), and adding the recognized `author` field passes
+     cleanly without weakening the drift lint the way an unrecognized field
+     would.
+  2. The root prefix is `flow-module-<id>`, not the plan's `flow-<id>` —
+     `flow-research` under that scheme collides with the real
+     `flow-research` skill directory (`skills/universal/flow-research`)
+     already living in the same skills-home namespace; guarded by a
+     regression test in `bin/lib/plugin-manifest.test.ts`.
+  3. `flow-plugin-probe.ts` and `flow-plugin-contract-lint.ts` are both
+     maintainer-only via `sources.ts`'s `MAINTAINER_ONLY` set (never
+     symlinked onto a user's PATH) — omitting them would both red
+     `bin/lib/modules.test.ts`'s exact-partition assertion and ship a
+     user-facing PATH helper both cross-model reviewers objected to.
+  4. Hard timeouts on every `claude` subprocess invocation are implemented
+     IN-PROCESS (`node:child_process.spawn` + a manual timer that kills the
+     child — not `Bun.spawn`, so the harness also runs correctly inside
+     `npm run test`'s Node-hosted vitest process), never by shelling out to
+     `timeout`/`gtimeout` — verified absent on PATH on macOS, the primary
+     dev platform, so a `timeout`-based implementation would be a silent
+     no-op exactly where it's needed.
 
 ##### Contracted scope: p6-distribution-impl
 

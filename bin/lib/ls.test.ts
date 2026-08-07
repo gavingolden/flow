@@ -7,9 +7,11 @@ import {
   formatCostCell,
   formatNameCell,
   formatRepoCell,
+  printOrphanRecovery,
   runLs,
   runLsCli,
   type LsOptions,
+  type Row,
 } from "./ls";
 import * as stateModule from "./state";
 import * as tmuxModule from "./tmux";
@@ -228,10 +230,31 @@ describe("buildRows — liveness annotation ('(crashed)')", () => {
     vi.restoreAllMocks();
   });
 
+  // This whole block is scoped to NON-TERMINAL phases — buildRows checks
+  // phase before liveness (see the phase-x-liveness matrix below), so every
+  // fixture in THIS block pins an explicit "verifying" phase rather than
+  // relying on state()'s default. This assertion instead guards the
+  // fixtures elsewhere that DO rely on state()'s default phase and assume
+  // it stays non-terminal: the top-level describe("buildRows") block, the
+  // waitForCopilot block, and the orphan-recovery footnote block.
+  // If "starting" (state()'s default phase) is ever changed to a terminal
+  // value, those blocks would silently stop exercising the liveness path
+  // they claim to cover.
+  it("state()'s default phase is non-terminal (guards this block's premise)", () => {
+    expect(stateModule.TERMINAL_PHASE_SET.has(state({}).phase)).toBe(false);
+  });
+
   it("annotates a matched window whose recorded process is dead/stale as (crashed)", async () => {
     vi.spyOn(livenessModule, "livenessOf").mockReturnValue("stale");
     const rows = await buildRows(
-      [state({ slug: "csv-export", pid: 4242, procStartedAt: 1_700_000_000 })],
+      [
+        state({
+          slug: "csv-export",
+          phase: "verifying",
+          pid: 4242,
+          procStartedAt: 1_700_000_000,
+        }),
+      ],
       [window({ name: "csv-export" })],
       NOW,
     );
@@ -241,7 +264,14 @@ describe("buildRows — liveness annotation ('(crashed)')", () => {
   it("does not annotate a matched window whose recorded process is alive (regression pin: liveness does not disturb the healthy case)", async () => {
     vi.spyOn(livenessModule, "livenessOf").mockReturnValue("alive");
     const rows = await buildRows(
-      [state({ slug: "csv-export", pid: 4242, procStartedAt: 1_700_000_000 })],
+      [
+        state({
+          slug: "csv-export",
+          phase: "verifying",
+          pid: 4242,
+          procStartedAt: 1_700_000_000,
+        }),
+      ],
       [window({ name: "csv-export" })],
       NOW,
     );
@@ -251,7 +281,7 @@ describe("buildRows — liveness annotation ('(crashed)')", () => {
   it("does not annotate a matched window with no liveness signal (old-format state, unknown verdict — regression pin)", async () => {
     vi.spyOn(livenessModule, "livenessOf").mockReturnValue("unknown");
     const rows = await buildRows(
-      [state({ slug: "csv-export" })], // no pid/procStartedAt — old-format
+      [state({ slug: "csv-export", phase: "verifying" })], // no pid/procStartedAt — old-format
       [window({ name: "csv-export" })],
       NOW,
     );
@@ -263,7 +293,14 @@ describe("buildRows — liveness annotation ('(crashed)')", () => {
   it("windowless + alive ⇒ no annotation (a live plain pipeline is never reaped-looking)", async () => {
     vi.spyOn(livenessModule, "livenessOf").mockReturnValue("alive");
     const rows = await buildRows(
-      [state({ slug: "plain-live", pid: 4242, procStartedAt: 1_700_000_000 })],
+      [
+        state({
+          slug: "plain-live",
+          phase: "verifying",
+          pid: 4242,
+          procStartedAt: 1_700_000_000,
+        }),
+      ],
       [],
       NOW,
     );
@@ -273,7 +310,14 @@ describe("buildRows — liveness annotation ('(crashed)')", () => {
   it("windowless + dead/stale ⇒ (crashed)", async () => {
     vi.spyOn(livenessModule, "livenessOf").mockReturnValue("dead");
     const rows = await buildRows(
-      [state({ slug: "ghost", pid: 4242, procStartedAt: 1_700_000_000 })],
+      [
+        state({
+          slug: "ghost",
+          phase: "verifying",
+          pid: 4242,
+          procStartedAt: 1_700_000_000,
+        }),
+      ],
       [],
       NOW,
     );
@@ -282,8 +326,112 @@ describe("buildRows — liveness annotation ('(crashed)')", () => {
 
   it("windowless + unknown (legacy state, no pid signal) ⇒ (no window)", async () => {
     vi.spyOn(livenessModule, "livenessOf").mockReturnValue("unknown");
-    const rows = await buildRows([state({ slug: "ghost" })], [], NOW);
+    const rows = await buildRows(
+      [state({ slug: "ghost", phase: "verifying" })],
+      [],
+      NOW,
+    );
     expect(rows[0].annotation).toBe("(no window)");
+  });
+});
+
+describe("buildRows — phase-aware annotation (terminal phases outrank liveness)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const LIVENESS_VERDICTS = ["alive", "dead", "stale", "unknown"] as const;
+  const matrix = stateModule.TERMINAL_PHASES.flatMap((phase) =>
+    LIVENESS_VERDICTS.map((verdict) => [phase, verdict] as const),
+  );
+
+  // Literal bucket-membership pin, independent of FINISHED_PHASES: the
+  // matrix test below derives its expected annotation from the SAME
+  // constant the implementation reads, so a bucket misclassification
+  // (e.g. someone moves "cancelled" into AWAITING_HUMAN_PHASES) would flip
+  // both sides in lockstep and the matrix test would still pass. This
+  // table hand-lists every terminal phase's expected annotation so moving
+  // a phase between buckets fails the suite.
+  const EXPECTED_ANNOTATION_BY_PHASE: Record<string, "(done)" | ""> = {
+    merged: "(done)",
+    cancelled: "(done)",
+    "epic-approved": "(done)",
+    gated: "",
+    "needs-human": "",
+  };
+
+  it("pins every terminal phase's expected annotation bucket by literal", () => {
+    expect(Object.keys(EXPECTED_ANNOTATION_BY_PHASE).sort()).toEqual(
+      [...stateModule.TERMINAL_PHASES].sort(),
+    );
+  });
+
+  it.each(matrix)(
+    "phase=%s, liveness=%s ⇒ correct bucket annotation, needsResumeHint false",
+    async (phase, verdict) => {
+      vi.spyOn(livenessModule, "livenessOf").mockReturnValue(verdict);
+      const rows = await buildRows(
+        [
+          state({
+            slug: "terminal-row",
+            phase,
+            pid: 4242,
+            procStartedAt: 1_700_000_000,
+          }),
+        ],
+        [], // no window: proves the phase check pre-empts BOTH the liveness
+        // verdict and the window-existence fallback, not just the verdict.
+        NOW,
+      );
+      expect(rows[0].annotation).toBe(EXPECTED_ANNOTATION_BY_PHASE[phase]);
+      expect(rows[0].needsResumeHint).toBe(false);
+    },
+  );
+
+  // Named regression case: this is the bug report. A merged pipeline with a
+  // dead recorded pid must read (done), never (crashed).
+  it("phase=merged + dead pid ⇒ (done), never (crashed) (regression pin)", async () => {
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("dead");
+    const rows = await buildRows(
+      [
+        state({
+          slug: "merged-row",
+          phase: "merged",
+          pid: 4242,
+          procStartedAt: 1_700_000_000,
+        }),
+      ],
+      [window({ name: "merged-row" })],
+      NOW,
+    );
+    expect(rows[0].annotation).toBe("(done)");
+    expect(rows[0].annotation).not.toBe("(crashed)");
+  });
+
+  // Story 3: a merged pipeline's (done) label must not depend on whether a
+  // pid was ever recorded at all — dead, live, and pid-less all agree.
+  it("merged ⇒ (done) regardless of dead pid, live pid, or no pid recorded", async () => {
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("dead");
+    const deadRows = await buildRows(
+      [state({ slug: "m1", phase: "merged", pid: 1, procStartedAt: 1 })],
+      [],
+      NOW,
+    );
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("alive");
+    const liveRows = await buildRows(
+      [state({ slug: "m2", phase: "merged", pid: 2, procStartedAt: 2 })],
+      [],
+      NOW,
+    );
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("unknown");
+    const noPidRows = await buildRows(
+      [state({ slug: "m3", phase: "merged" })], // no pid/procStartedAt at all
+      [],
+      NOW,
+    );
+    expect(deadRows[0].annotation).toBe("(done)");
+    expect(liveRows[0].annotation).toBe("(done)");
+    expect(noPidRows[0].annotation).toBe("(done)");
   });
 });
 
@@ -545,6 +693,100 @@ describe("runLs — orphan recovery footnote", () => {
     const out = log.mock.calls.map((c) => String(c[0])).join("\n");
     expect(out).toContain("(crashed)");
     expect(out).toContain("flow feature resume zombie");
+  });
+
+  it("preserved behaviour: phase=reviewing + dead pid ⇒ (crashed) and present in the footer", async () => {
+    // Pins a second non-terminal phase (not just 'verifying') through the
+    // same crashed+footer path, so the phase-first branch is proven not to
+    // special-case 'verifying' specifically.
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({
+        slug: "reviewing-zombie",
+        phase: "reviewing",
+        repo: "/repo",
+        pid: 4242,
+        procStartedAt: 1_700_000_000,
+      }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "reviewing-zombie" }),
+    ]);
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("dead");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+
+    expect(code).toBe(0);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("(crashed)");
+    expect(out).toContain("flow feature resume reviewing-zombie");
+  });
+
+  it("does NOT surface a merged pipeline under 'pipelines needing resume', even with a dead recorded pid", async () => {
+    // Sibling to the (crashed) case above, opposite outcome: a finished
+    // pipeline is never a resume candidate, regardless of liveness.
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({
+        slug: "done-pipeline",
+        phase: "merged",
+        repo: "/repo",
+        pid: 4242,
+        procStartedAt: 1_700_000_000,
+      }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("dead");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+
+    expect(code).toBe(0);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("done-pipeline (done)");
+    expect(out).not.toContain("pipelines needing resume");
+    expect(out).not.toContain("flow feature resume done-pipeline");
+  });
+
+  it("footer eligibility follows needsResumeHint, not the annotation string (decoupling guard)", () => {
+    // Real buildRows always sets annotation and needsResumeHint together
+    // (by design — see the phase-first block's comment), so this
+    // deliberately hand-builds a Row[] that decouples them: a row whose
+    // annotation happens to read "(crashed)" but whose needsResumeHint is
+    // false must be ABSENT from the footer, and the converse (annotation
+    // "" but needsResumeHint true) must be PRESENT. This is the only
+    // regression guard against printOrphanRecovery silently reverting to
+    // string-matching the annotation instead of reading needsResumeHint.
+    const falseFlagCrashed: Row = {
+      name: "false-flag",
+      repo: "/repo",
+      phase: "merged",
+      pr: "—",
+      lastActivity: "—",
+      annotation: "(crashed)",
+      needsResumeHint: false,
+      waitForCopilot: false,
+    };
+    const trueFlagHealthyLooking: Row = {
+      name: "true-flag",
+      repo: "/repo",
+      phase: "verifying",
+      pr: "—",
+      lastActivity: "—",
+      annotation: "",
+      needsResumeHint: true,
+      waitForCopilot: false,
+    };
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    printOrphanRecovery([falseFlagCrashed, trueFlagHealthyLooking]);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).not.toContain("flow feature resume false-flag");
+    expect(out).toContain("flow feature resume true-flag");
   });
 
   it("prints no recovery footnote when every pipeline has a live window", async () => {

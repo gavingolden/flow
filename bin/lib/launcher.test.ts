@@ -103,6 +103,56 @@ describe("plainLaunch", () => {
     expect(readState("my-feature", stateDir)).not.toBeNull();
   });
 
+  it("prefixes the spawned child's PATH with materialized plugin-root bin dirs (Decision B0, plain backend)", async () => {
+    seedState();
+    // pluginPathPrefix only counts a root whose bin/ actually exists on
+    // disk, so this fixture needs a real directory, not a bare string.
+    const root = path.join(stateDir, "flow-module-core");
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    const { spawn, calls, release } = fakeSpawn({ pid: 1, exitCode: 0 });
+    await plainLaunch(
+      {
+        slug: "my-feature",
+        repo: "/repo",
+        command: ["claude"],
+        seed: "s",
+        stateDir,
+      },
+      {
+        spawn,
+        isTTY: true,
+        pidStartEpoch: () => 1,
+        scanPluginRoots: () => [root],
+      },
+    );
+    expect(calls[0]!.env.PATH).toBe(
+      `${path.join(root, "bin")}:${process.env.PATH ?? ""}`,
+    );
+    release(0);
+  });
+
+  it("never mutates PATH when no plugin roots are materialized", async () => {
+    seedState();
+    const { spawn, calls, release } = fakeSpawn({ pid: 1, exitCode: 0 });
+    await plainLaunch(
+      {
+        slug: "my-feature",
+        repo: "/repo",
+        command: ["claude"],
+        seed: "s",
+        stateDir,
+      },
+      {
+        spawn,
+        isTTY: true,
+        pidStartEpoch: () => 1,
+        scanPluginRoots: () => [],
+      },
+    );
+    expect(calls[0]!.env.PATH).toBe(process.env.PATH);
+    release(0);
+  });
+
   it("deletes state on fast-fail (exit with phase still starting, no seedIngestedAt)", async () => {
     seedState();
     const { spawn } = fakeSpawn({ exitCode: 1 });

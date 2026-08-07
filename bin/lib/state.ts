@@ -328,6 +328,37 @@ export const PIPELINE_PHASE_SET: ReadonlySet<string> = new Set(PIPELINE_PHASES);
 export const TERMINAL_PHASE_SET: ReadonlySet<string> = new Set(TERMINAL_PHASES);
 
 /**
+ * Terminal phases where the run is over and a dead supervisor is the
+ * EXPECTED end state — nothing further to do, nobody waiting on it.
+ *
+ * Hand-listed, not derived from TERMINAL_PHASES.filter(...): a derived
+ * split would silently auto-enroll a future terminal phase into
+ * whichever bucket the filter defaults to, and no bucket is
+ * safe-by-construction for an unknown phase. See the parity test in
+ * bin/lib/state.test.ts's "phase constants" describe block, which fails
+ * the suite until a new TERMINAL_PHASES entry is explicitly classified
+ * into one of these two buckets.
+ */
+export const FINISHED_PHASES = [
+  "merged",
+  "cancelled",
+  "epic-approved",
+] as const;
+
+/**
+ * Terminal for the supervisor (it has stopped and will not resume on
+ * its own) but a human decision is still outstanding — the pipeline is
+ * not "done" in the sense flow-ls should label it (done).
+ */
+export const AWAITING_HUMAN_PHASES = ["gated", "needs-human"] as const;
+
+export const FINISHED_PHASE_SET: ReadonlySet<string> = new Set(FINISHED_PHASES);
+
+export const AWAITING_HUMAN_PHASE_SET: ReadonlySet<string> = new Set(
+  AWAITING_HUMAN_PHASES,
+);
+
+/**
  * Named allowlist of the only terminal -> non-terminal writes
  * flow-state-update accepts without --force. It exists for two legitimate
  * paths out of `gated`: the gated-feedback loop's re-verify (step 6) /

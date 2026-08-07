@@ -7,14 +7,21 @@
  * after step 2) at every transition via `flow-state-update`. PR 1 wrote
  * the initial state with `phase: "starting"` from `flow feature create`.
  *
- * Drift handling:
- *   - state file but no window → "(no window)" (likely a crashed session)
- *   - window but no state file → "(no state)" (manual creation)
- *   - both, and the recorded process is dead/stale → "(crashed)" (the
- *     file-signal liveness check — see `bin/lib/liveness.ts` — caught a
- *     window whose owning process died without the window itself closing)
- *   - both, and the process is alive (or no liveness signal is recorded)
- *     → no annotation
+ * Annotation rule (phase-first, then liveness):
+ *   - a TERMINAL phase (see `bin/lib/state.ts`) is checked FIRST, ahead of
+ *     any liveness read: a dead/absent supervisor process is the EXPECTED
+ *     end state there, not a crash. A FINISHED phase (merged, cancelled,
+ *     epic-approved) renders "(done)"; an AWAITING_HUMAN phase (gated,
+ *     needs-human) renders no annotation — the PHASE column already says
+ *     what's outstanding.
+ *   - otherwise, drift handling by liveness/window presence:
+ *     - state file but no window → "(no window)" (likely a crashed session)
+ *     - window but no state file → "(no state)" (manual creation)
+ *     - both, and the recorded process is dead/stale → "(crashed)" (the
+ *       file-signal liveness check — see `bin/lib/liveness.ts` — caught a
+ *       window whose owning process died without the window itself closing)
+ *     - both, and the process is alive (or no liveness signal is recorded)
+ *       → no annotation
  */
 
 import * as path from "node:path";
@@ -27,7 +34,13 @@ import {
 } from "./cost";
 import { friendlyName } from "./cost-pricing";
 import { argsContainHelp, printVerbHelp } from "./help";
-import { listStates, type PipelineState } from "./state";
+import {
+  listStates,
+  TERMINAL_PHASE_SET,
+  FINISHED_PHASE_SET,
+  AWAITING_HUMAN_PHASE_SET,
+  type PipelineState,
+} from "./state";
 import { livenessOf } from "./liveness";
 import { reapStartingOrphans } from "./reap-orphans";
 import { relativeTime } from "./time";
@@ -61,7 +74,11 @@ export type Row = {
   phase: string;
   pr: string;
   lastActivity: string;
-  annotation: "" | "(no window)" | "(no state)" | "(crashed)";
+  annotation: "" | "(no window)" | "(no state)" | "(crashed)" | "(done)";
+  /** True only when this row is a genuine crashed/orphaned session the user
+   * should resume — derived once here in buildRows so the footer (below)
+   * never has to re-infer eligibility from the display string. */
+  needsResumeHint: boolean;
   waitForCopilot: boolean;
   cost?: CostBreakdown;
 };
@@ -128,20 +145,26 @@ export async function runLs(opts: LsOptions): Promise<number> {
 }
 
 /**
- * Prints a post-table recovery footnote for orphaned pipelines — state files
- * whose tmux window is gone (`(no window)`), typically a crashed `flow feature create`
- * whose window never stayed up, OR whose window survived but the recorded
- * process is dead/stale (`(crashed)`, from the file-signal liveness check).
- * Each gets its one-command restart line. Kept BELOW the table (not inlined
- * into the NAME cell) because printTable derives column widths from cell
- * lengths, so a long `flow feature resume <slug>` string in the cell would
- * widen the whole table for every row. No-op when no orphan rows exist, so
- * healthy output is unchanged.
+ * Prints a post-table recovery footnote for orphaned pipelines — rows whose
+ * `needsResumeHint` is true (state file with no tmux window, typically a
+ * crashed `flow feature create` whose window never stayed up, OR a window
+ * that survived but the recorded process is dead/stale). Each gets its
+ * one-command restart line. Kept BELOW the table (not inlined into the NAME
+ * cell) because printTable derives column widths from cell lengths, so a
+ * long `flow feature resume <slug>` string in the cell would widen the
+ * whole table for every row. No-op when no orphan rows exist, so healthy
+ * output is unchanged.
+ *
+ * Eligibility is read from `needsResumeHint`, a logical property set once
+ * in `buildRows`, deliberately NOT inferred here from the `(crashed)` /
+ * `(no window)` display strings. Decoupling the two is what makes the
+ * phase-first branch (the fix for the mislabeling bug this PR addresses)
+ * safe to add: footer eligibility stays a logical property computed
+ * alongside the display string rather than re-derived from it, so a future
+ * change to either one can't silently desync the other.
  */
-function printOrphanRecovery(rows: Row[]): void {
-  const orphans = rows.filter(
-    (r) => r.annotation === "(no window)" || r.annotation === "(crashed)",
-  );
+export function printOrphanRecovery(rows: Row[]): void {
+  const orphans = rows.filter((r) => r.needsResumeHint);
   if (orphans.length === 0) return;
   console.log("");
   console.log(
@@ -185,19 +208,45 @@ export async function buildRows(
     const state = states[i];
     const window = findWindowBySlug(windows, state.slug);
     if (window) matchedWindowIds.add(window.id);
-    // Liveness-first annotation: the file-signal verdict outranks window
-    // existence, so a live PLAIN pipeline (no tmux window by design) is
-    // never reaped-looking. `alive` ⇒ healthy "" (window or not);
-    // `dead`/`stale` ⇒ "(crashed)"; only `unknown` (no pid signal — a
-    // legacy tmux-era state) degrades to the window-existence check.
-    const verdict = livenessOf(state);
+    // Phase-first, THEN liveness: a terminal phase means a dead supervisor
+    // process is the EXPECTED end state, so the label is independent of
+    // whether the state file even carries a pid — checking liveness first
+    // would otherwise read a finished pipeline's absent process as a
+    // "crash". Only a non-terminal phase falls through to the liveness
+    // check below (the file-signal verdict outranks window existence there,
+    // so a live PLAIN pipeline — no tmux window by design — is never
+    // reaped-looking: `alive` ⇒ healthy "" (window or not); `dead`/`stale`
+    // ⇒ "(crashed)"; only `unknown` — no pid signal, a legacy tmux-era
+    // state — degrades to the window-existence check).
+    //
+    // needsResumeHint is derived exactly once, right here, alongside
+    // annotation, so the two can never disagree — the footer below merely
+    // reads it rather than re-deriving eligibility from the phase or the
+    // display string.
     let annotation: Row["annotation"];
-    if (verdict === "alive") {
-      annotation = "";
-    } else if (verdict === "dead" || verdict === "stale") {
-      annotation = "(crashed)";
+    let needsResumeHint: boolean;
+    if (TERMINAL_PHASE_SET.has(state.phase)) {
+      // Two buckets, both with a real call site: FINISHED -> "(done)",
+      // AWAITING_HUMAN (gated/needs-human) -> no annotation (the pipeline
+      // isn't "done" in the sense flow-ls should label it).
+      annotation = FINISHED_PHASE_SET.has(state.phase)
+        ? "(done)"
+        : AWAITING_HUMAN_PHASE_SET.has(state.phase)
+          ? ""
+          : "";
+      needsResumeHint = false;
     } else {
-      annotation = window ? "" : "(no window)";
+      const verdict = livenessOf(state);
+      if (verdict === "alive") {
+        annotation = "";
+        needsResumeHint = false;
+      } else if (verdict === "dead" || verdict === "stale") {
+        annotation = "(crashed)";
+        needsResumeHint = true;
+      } else {
+        annotation = window ? "" : "(no window)";
+        needsResumeHint = !window;
+      }
     }
     rows.push({
       name: state.slug,
@@ -206,6 +255,7 @@ export async function buildRows(
       pr: state.pr ? `#${state.pr}` : "—",
       lastActivity: lastActivityFrom(state.updatedAt, nowMs),
       annotation,
+      needsResumeHint,
       waitForCopilot: state.waitForCopilot === true,
       cost: costs ? costs[i] : undefined,
     });
@@ -225,6 +275,7 @@ export async function buildRows(
       lastActivity:
         window.activity > 0 ? relativeTime(window.activity * 1000, nowMs) : "—",
       annotation: "(no state)",
+      needsResumeHint: false,
       waitForCopilot: false,
       cost: opts.cost ? EMPTY_COST : undefined,
     });

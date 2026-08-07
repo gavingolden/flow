@@ -83,6 +83,10 @@ tests next door
 (distinct from `discoverHelpers`'s auto-pickup of every `bin/*.ts`).
 `bin/flow` itself is Bun and dispatches every verb natively.
 
+`flow install` also materializes a skills-dir plugin root per selected
+module (`docs/configuration.md`). `flow-plugin-probe`/`flow-plugin-contract-lint`
+join `flow-release`/`flow-model-bench` in `MAINTAINER_ONLY` — never on PATH.
+
 Static agent-type definitions live in **`agents/`** (`*.md` frontmatter),
 discovered by `discoverAgents` and symlinked to `~/.claude/agents/`:
 14/15 carry `tools:` allowlists (flow-discovery: none); 2 mechanical
@@ -287,13 +291,11 @@ three-layer resolution table, and the manifest/foundation fields — is at
     the `--no-auto-merge` opt-out are at
     [references/git-workflow.md](references/git-workflow.md).
   - **Shared rationale for the nine Task-tool exemptions below**: the
-    supervisor is a top-level session (it is depth 1, so its own Task
-    calls are never themselves nested;
-    flow chooses flat one-shot fan-out even though nesting is now
-    platform-possible — with one sanctioned nested site, verify-loop →
-    edit-applier, inside the Verify-Retry-Loop exemption), each subagent
-    is one-shot, and
-    each exemption is documented bidirectionally with
+    supervisor is depth 1, so its own Task calls are never nested; flow
+    chooses flat one-shot fan-out despite nesting being
+    platform-possible, with one sanctioned nested site (verify-loop →
+    edit-applier, inside the Verify-Retry-Loop exemption); each subagent
+    is one-shot; and each is documented bidirectionally with
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules". Full
     five-point rationale and each exemption's unique contract (spawn
     site, artifact path, typed fields, model override) are at
@@ -371,13 +373,11 @@ three-layer resolution table, and the manifest/foundation fields — is at
   - **Auto-issue-create exemption: `/flow-pr-review` Step 6 deferral path
     and `/flow-pipeline` Step 10 post-merge sweep.** `flow-create-issue`
     fires only from these two named sites. Feature and `route-to-step-4`
-    pipelines curate the ticked set at plan review (the `--details` echo
-    plus the `drop candidate #N` / `pull #N into the plan` reply verbs
-    precede the action); step 3's `advance-to-step-5` route has no
-    checkpoint, so its pre-ticked candidates and bundled tasks proceed as
-    discovery authored them, disclosed post-hoc in the PR body and the
-    terminal recap, with post-merge off-ramps (revert a bundled line,
-    close an unwanted issue) as the correction path. Full detail at
+    pipelines curate the ticked set at plan review; step 3's
+    `advance-to-step-5` route has no checkpoint, so its pre-ticked
+    candidates and bundled tasks proceed as discovery authored them,
+    disclosed post-hoc in the PR body and the terminal recap, with
+    post-merge off-ramps as the correction path. Full detail at
     [references/git-workflow.md](references/git-workflow.md).
   - **`/flow-epic-create` is a separate sanctioned supervisor session.**
     `flow epic create` spawns a fresh top-level `/flow-epic-create` session, so
@@ -395,3 +395,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
     GitHub/git truth. Zero named fan-out: **no** Task/Agent sub-agent,
     **no** `AskUserQuestion` form. `gated ⇒ escalate-only`, never merges
     a feature PR.
+  - **`/flow-backlog-triage` is a separate sanctioned standalone
+    session,** so `/flow-pipeline`'s exactly-9 and one-form rule are
+    unaffected by its one named surface: One Task-tool fan-out (Phase-1
+    verification via `flow-backlog-verifier`), zero `AskUserQuestion`
+    forms; contract in `skills/universal/flow-backlog-triage/SKILL.md`.
