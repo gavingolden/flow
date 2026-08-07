@@ -4,9 +4,12 @@
  * `<skillsDir>/flow-module-<id>/` — plus the shared root-discovery helpers
  * both the launcher (`--plugin-dir` / PATH) and the reap scan consume.
  *
- * Ownership discipline, inherited VERBATIM from `symlink.ts`: flow owns a
- * root ONLY if `<root>/.claude-plugin/plugin.json` exists, parses, and its
- * `name` starts with `PLUGIN_ROOT_PREFIX`. A root that exists but isn't
+ * Ownership discipline, STRICTER than `symlink.ts`'s: flow owns a root ONLY
+ * if `<root>/.claude-plugin/plugin.json` exists, parses, its `name` is a
+ * KNOWN module's plugin-root name (`moduleIdFromPluginRootName`, not a mere
+ * prefix match), AND the directory's own basename matches that same name —
+ * so a directory can't self-declare ownership just by carrying a
+ * `flow-module-`-prefixed `name` field. A root that exists but isn't
  * flow-owned is never mutated without `force`. Never delete a real file
  * flow did not write.
  */
@@ -15,9 +18,16 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { FLOW_CLAUDE_HOME_SKILLS_DIR } from "./paths";
 import { MODULES, type ModuleId } from "./modules";
-import { PLUGIN_ROOT_PREFIX, pluginManifestFor } from "./plugin-manifest";
+import {
+  moduleIdFromPluginRootName,
+  pluginManifestFor,
+} from "./plugin-manifest";
 import { ensureSymlink } from "./symlink";
-import { discoverHelpers, discoverValidators } from "./sources";
+import {
+  discoverHelpers,
+  discoverValidators,
+  effectiveLinkSource,
+} from "./sources";
 
 // Character-identical to symlink.ts's LinkResult on purpose, so setup.ts's
 // existing bucketFor(result: LinkResult) is reused unchanged — do not add a
@@ -40,7 +50,13 @@ export function isFlowOwnedPluginRoot(root: string): boolean {
   }
   if (typeof parsed !== "object" || parsed === null) return false;
   const name = (parsed as Record<string, unknown>).name;
-  return typeof name === "string" && name.startsWith(PLUGIN_ROOT_PREFIX);
+  if (
+    typeof name !== "string" ||
+    moduleIdFromPluginRootName(name) === undefined
+  ) {
+    return false;
+  }
+  return path.basename(root) === name;
 }
 
 export function removePluginRoot(root: string): boolean {
@@ -84,6 +100,26 @@ export function pluginPathPrefix(roots: readonly string[]): string {
 }
 
 /**
+ * Composes a plugin-root PATH prefix with the current PATH, guarding both
+ * hazards that four independent call sites (`launch.ts`, `launcher.ts`,
+ * `feature.ts`, `epic.ts`) used to reimplement by hand and disagreed on:
+ * (1) an empty `currentPath` must never produce a trailing `${prefix}:` —
+ * POSIX reads a trailing/leading empty PATH segment as the current working
+ * directory; (2) a `currentPath` that already starts with `prefix` (a flow
+ * session shelling out to another `flow feature create` / `flow epic
+ * create`) must never double-prepend. Returns `undefined` when `prefix` is
+ * empty (no materialized roots have a `bin/`), so callers can omit the PATH
+ * override entirely rather than reason about an empty string.
+ */
+export function prefixedPath(
+  prefix: string,
+  currentPath: string,
+): string | undefined {
+  if (!prefix || currentPath.startsWith(prefix)) return undefined;
+  return currentPath ? `${prefix}:${currentPath}` : prefix;
+}
+
+/**
  * Resolves a module's `helpers` + `validators` rows to their source paths in
  * `flowSource`, the same way `discoverHelpers`/`discoverValidators` do —
  * reused directly from `./sources` (no cycle: `sources.ts` never imports
@@ -94,6 +130,7 @@ function pluginBinEntries(
   moduleId: ModuleId,
   flowSource: string,
   root: string,
+  installRoot: string,
 ): { source: string; target: string }[] {
   const row = MODULES.find((m) => m.id === moduleId);
   if (!row) return [];
@@ -108,8 +145,13 @@ function pluginBinEntries(
       validatorNames.has(e.displayName),
     ),
   ];
+  // Route each entry's source through effectiveLinkSource, mirroring the
+  // symlink branch in setup.ts — under `flow install --source <worktree>`
+  // this points the live link at the canonical (installRoot) path when one
+  // already exists, so the root doesn't dangle once flow-remove-worktree
+  // deletes the worktree.
   return matched.map((e) => ({
-    source: e.source,
+    source: effectiveLinkSource(e.source, flowSource, installRoot),
     target: path.join(binDir, e.displayName),
   }));
 }
@@ -158,11 +200,24 @@ export function ensurePluginRoot(args: {
   root: string;
   moduleId: ModuleId;
   flowSource: string;
+  /** Canonical checkout root, used to rebase bin/ symlinks off a
+   * `--source <worktree>` install so they don't dangle post-merge. Defaults
+   * to `flowSource` (no rebase) for callers that always run canonical
+   * (probes, the contract lint). */
+  installRoot?: string;
   version: string;
   includeSkills: boolean;
   force: boolean;
 }): PluginRootResult {
-  const { root, moduleId, flowSource, version, includeSkills, force } = args;
+  const {
+    root,
+    moduleId,
+    flowSource,
+    installRoot = flowSource,
+    version,
+    includeSkills,
+    force,
+  } = args;
   const existedBefore = fs.existsSync(root);
   if (existedBefore && !isFlowOwnedPluginRoot(root) && !force) {
     return "blocked";
@@ -183,7 +238,7 @@ export function ensurePluginRoot(args: {
   }
 
   const binDir = path.join(root, "bin");
-  const entries = pluginBinEntries(moduleId, flowSource, root);
+  const entries = pluginBinEntries(moduleId, flowSource, root, installRoot);
   const previousBinLinks = listManagedSymlinks(binDir);
   if (entries.length > 0) {
     fs.mkdirSync(binDir, { recursive: true });

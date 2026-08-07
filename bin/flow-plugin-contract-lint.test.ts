@@ -15,7 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkPluginContract } from "./flow-plugin-contract-lint";
+import { checkPluginContract, exitCodeFor } from "./flow-plugin-contract-lint";
 import { moduleIds } from "./lib/modules";
 import { pluginRootName } from "./lib/plugin-manifest";
 
@@ -83,20 +83,20 @@ describe(checkPluginContract, () => {
 });
 
 describe("CLI exit-code mapping", () => {
-  it("an ok/skipped result maps to exit 0 (by construction: main() exits status==='drifted' ? 1 : 0)", async () => {
+  it("an ok/skipped result maps to exit 0 via the production exitCodeFor mapping", async () => {
     const result = await checkPluginContract({
       claudeOnPath: () => false,
       tmpRoot,
     });
     // "skipped" is not "drifted" -> exit 0, the same branch "ok" takes.
-    expect(result.status === "drifted" ? 1 : 0).toBe(0);
+    expect(exitCodeFor(result)).toBe(0);
   });
 
-  it("a drifted result (injected) maps to exit 1", () => {
+  it("a drifted result (injected) maps to exit 1 via the production exitCodeFor mapping", () => {
     const injectedResult: Awaited<ReturnType<typeof checkPluginContract>> = {
       status: "drifted",
       failures: [{ root: "/fake/root", detail: "injected failure" }],
     };
-    expect(injectedResult.status === "drifted" ? 1 : 0).toBe(1);
+    expect(exitCodeFor(injectedResult)).toBe(1);
   });
 });

@@ -21,7 +21,7 @@ import {
 import { FLOW_SESSION } from "./tmux";
 import { livenessOf, pidStartEpoch, type LivenessDeps } from "./liveness";
 import { dim } from "./color";
-import { pluginPathPrefix, scanPluginRoots } from "./plugin-root";
+import { pluginPathPrefix, prefixedPath, scanPluginRoots } from "./plugin-root";
 
 export const PLAIN_IDLE_HINT =
   "flow: this is the plain launcher (flow's default) — if claude sits idle at the prompt, press Enter to start the pipeline";
@@ -115,8 +115,8 @@ async function runForeground(
   try {
     // Plain-backend half of Decision B0 (the tmux backend's PATH prefix is a
     // SEPARATE implementation in feature.ts's `env` argv prefix — B0 needs
-    // both). Omit the key entirely when the prefix is empty, never a
-    // leading colon, which would put CWD on PATH.
+    // both). `prefixedPath` omits the key entirely when the prefix is
+    // empty, never a leading/trailing colon, which would put CWD on PATH.
     const scan = deps.scanPluginRoots ?? scanPluginRoots;
     const pluginPath = pluginPathPrefix(scan());
     const env: NodeJS.ProcessEnv = {
@@ -124,7 +124,8 @@ async function runForeground(
       FLOW_PIPELINE: "1",
       FLOW_SLUG: req.slug,
     };
-    if (pluginPath) env.PATH = `${pluginPath}:${process.env.PATH ?? ""}`;
+    const nextPath = prefixedPath(pluginPath, process.env.PATH ?? "");
+    if (nextPath !== undefined) env.PATH = nextPath;
     child = spawn([...req.command, req.seed], {
       cwd: req.repo,
       env,

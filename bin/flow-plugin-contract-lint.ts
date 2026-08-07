@@ -8,7 +8,10 @@
  * future Claude Code release changes the skills-dir plugin mechanism —
  * `docs/target-architecture.md`'s Consequences section names this drift
  * risk explicitly (the `bin/` PATH mechanism shipped 2.1.91, under a year
- * old at eval time).
+ * old at eval time). This is a LOCAL signal, not a CI one: `.github/workflows/ci.yml`
+ * installs Node and Bun only, so `claude` is never on PATH there and this
+ * check's real-CLI cases D4-skip on every CI run. The place it can actually
+ * turn red is a maintainer's local `npm run test` / `flow-pre-commit`.
  *
  * Deliberately NOT symlinked onto PATH by `flow install` (the MAINTAINER_ONLY
  * exclusion in bin/lib/sources.ts) — same rationale as flow-plugin-probe.ts.
@@ -101,106 +104,127 @@ export async function checkPluginContract(
     return { status: "skipped", reason: "claude is not on PATH", failures: [] };
   }
 
+  const ownsTmpRoot = opts.tmpRoot === undefined;
   const tmpRoot =
     opts.tmpRoot ??
     fs.mkdtempSync(path.join(os.tmpdir(), "flow-plugin-contract-lint-"));
-  const fixtureHome = path.join(tmpRoot, "home");
-  const skillsDir = path.join(fixtureHome, ".claude", "skills");
-  fs.mkdirSync(skillsDir, { recursive: true });
+  try {
+    const fixtureHome = path.join(tmpRoot, "home");
+    const skillsDir = path.join(fixtureHome, ".claude", "skills");
+    fs.mkdirSync(skillsDir, { recursive: true });
 
-  const flowSource = resolveFlowSource();
-  const failures: { root: string; detail: string }[] = [];
-  const roots: { id: ModuleId; root: string }[] = [];
+    const flowSource = resolveFlowSource();
+    const failures: { root: string; detail: string }[] = [];
+    const roots: { id: ModuleId; root: string }[] = [];
 
-  for (const id of moduleIds()) {
-    const root = path.join(skillsDir, pluginRootName(id));
-    const result = ensurePluginRoot({
-      root,
-      moduleId: id,
-      flowSource,
-      version: "1.0.0",
-      includeSkills: false,
-      force: false,
-    });
-    if (result === "blocked") {
-      failures.push({ root, detail: "ensurePluginRoot returned 'blocked'" });
-      continue;
-    }
-    roots.push({ id, root });
-  }
-
-  // claude plugin validate --strict, one root at a time — a single non-zero
-  // exit or timeout is a drift signal.
-  for (const { root } of roots) {
-    const result = await runClaude(["plugin", "validate", "--strict", root]);
-    if (result.timedOut) {
-      failures.push({
+    for (const id of moduleIds()) {
+      const root = path.join(skillsDir, pluginRootName(id));
+      const result = ensurePluginRoot({
         root,
-        detail: `claude plugin validate --strict timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+        moduleId: id,
+        flowSource,
+        version: "1.0.0",
+        includeSkills: false,
+        force: false,
       });
-      continue;
+      if (result === "blocked") {
+        failures.push({ root, detail: "ensurePluginRoot returned 'blocked'" });
+        continue;
+      }
+      roots.push({ id, root });
     }
-    if (result.exitCode !== 0) {
-      failures.push({
-        root,
-        detail: `claude plugin validate --strict exited ${result.exitCode}`,
-      });
-    }
-  }
 
-  // claude plugin list --json, once, HOME pointed at the fixture — every
-  // materialized root must report enabled:true with no errors[].
-  const listResult = await runClaude(["plugin", "list", "--json"], {
-    home: fixtureHome,
-  });
-  if (listResult.timedOut) {
-    failures.push({
-      root: skillsDir,
-      detail: `claude plugin list --json timed out after ${DEFAULT_TIMEOUT_MS}ms`,
-    });
-  } else {
-    let parsed: Array<{ id: string; enabled: boolean; errors?: unknown[] }> =
-      [];
-    try {
-      parsed = JSON.parse(listResult.stdout) as typeof parsed;
-    } catch (err) {
-      failures.push({
-        root: skillsDir,
-        detail: `could not parse claude plugin list --json output: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-    for (const { id, root } of roots) {
-      const entry = parsed.find(
-        (p) => p.id === `${pluginRootName(id)}@skills-dir`,
-      );
-      if (!entry) {
+    // claude plugin validate --strict, all roots concurrently — they are
+    // read-only, target distinct roots, and share no state, so this is
+    // roughly one wall-clock cold start instead of `roots.length` serial
+    // ones. Each invocation is sandboxed to `fixtureHome` — the real
+    // `~/.claude` must never be touched, same as the `plugin list` call
+    // below.
+    const validateResults = await Promise.all(
+      roots.map(({ root }) =>
+        runClaude(["plugin", "validate", "--strict", root], {
+          home: fixtureHome,
+        }).then((result) => ({ root, result })),
+      ),
+    );
+    for (const { root, result } of validateResults) {
+      if (result.timedOut) {
         failures.push({
           root,
-          detail: "not reported by claude plugin list --json",
+          detail: `claude plugin validate --strict timed out after ${DEFAULT_TIMEOUT_MS}ms`,
         });
-      } else if (entry.enabled !== true) {
+        continue;
+      }
+      if (result.exitCode !== 0) {
         failures.push({
           root,
-          detail: `enabled:${entry.enabled}, expected true`,
-        });
-      } else if (entry.errors && entry.errors.length > 0) {
-        failures.push({
-          root,
-          detail: `errors: ${JSON.stringify(entry.errors)}`,
+          detail: `claude plugin validate --strict exited ${result.exitCode}`,
         });
       }
     }
-  }
 
-  return failures.length > 0
-    ? { status: "drifted", failures }
-    : { status: "ok", failures: [] };
+    // claude plugin list --json, once, HOME pointed at the fixture — every
+    // materialized root must report enabled:true with no errors[].
+    const listResult = await runClaude(["plugin", "list", "--json"], {
+      home: fixtureHome,
+    });
+    if (listResult.timedOut) {
+      failures.push({
+        root: skillsDir,
+        detail: `claude plugin list --json timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+      });
+    } else {
+      let parsed: Array<{ id: string; enabled: boolean; errors?: unknown[] }> =
+        [];
+      try {
+        parsed = JSON.parse(listResult.stdout) as typeof parsed;
+      } catch (err) {
+        failures.push({
+          root: skillsDir,
+          detail: `could not parse claude plugin list --json output: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+      for (const { id, root } of roots) {
+        const entry = parsed.find(
+          (p) => p.id === `${pluginRootName(id)}@skills-dir`,
+        );
+        if (!entry) {
+          failures.push({
+            root,
+            detail: "not reported by claude plugin list --json",
+          });
+        } else if (entry.enabled !== true) {
+          failures.push({
+            root,
+            detail: `enabled:${entry.enabled}, expected true`,
+          });
+        } else if (entry.errors && entry.errors.length > 0) {
+          failures.push({
+            root,
+            detail: `errors: ${JSON.stringify(entry.errors)}`,
+          });
+        }
+      }
+    }
+
+    return failures.length > 0
+      ? { status: "drifted", failures }
+      : { status: "ok", failures: [] };
+  } finally {
+    if (ownsTmpRoot) {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  }
+}
+
+export function exitCodeFor(result: ContractLintResult): number {
+  return result.status === "drifted" ? 1 : 0;
 }
 
 async function main(): Promise<void> {
   const result = await checkPluginContract();
   console.log(JSON.stringify(result, null, 2));
-  process.exit(result.status === "drifted" ? 1 : 0);
+  process.exit(exitCodeFor(result));
 }
 
 if (import.meta.main) {

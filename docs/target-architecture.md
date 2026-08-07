@@ -669,19 +669,36 @@ Contracted scope item 5).
 - **Probe verdicts (`bin/flow-plugin-probe.ts`, run live against Claude
   Code 2.1.223):**
 
-  | probe id                  | verdict   | evidence                                                                                                                                                                                                     | fallback rung (if not confirmed)                                                                                          |
-  | ------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-  | `add-dir-discovery`       | confirmed | a plugin root materialized under `<HOME>/.claude/skills/` (not the global default) is discovered by `claude plugin list --json` as `flow-module-core@skills-dir`, `enabled:true`                             | copy the module directory in place under the skills directory                                                             |
-  | `symlink-materialization` | confirmed | `ensurePluginRoot`'s actual materialization shape (a real root directory with symlinked `bin/` entries) passes `claude plugin validate --strict`                                                             | route helpers through `~/.local/bin` PATH symlinks only                                                                   |
-  | `bin-path-injection`      | confirmed | `claude --plugin-dir <path> --plugin-dir <path> --version` accepts repeated `--plugin-dir` and exits 0; intra-session PATH propagation itself is not observable via a one-shot non-interactive probe         | modules stay symlink-materialized for helper coverage; the packaging layer is revisited without touching the (b) backbone |
-  | `enabled-plugins`         | confirmed | `claude plugin disable flow-module-core@skills-dir --scope project` writes `{"enabledPlugins":{"flow-module-core@skills-dir":false}}` to `.claude/settings.json`                                             | per-repo enablement degrades to the existing symlink-selection mechanism                                                  |
-  | `skill-invocation-name`   | confirmed | `claude plugin details` reports a skill nested under a plugin root's `skills/` by its BARE directory name, not a plugin-qualified name — settles the naming convention for the deferred skill-move follow-up | ship the deferred skill move without a verified naming answer; re-probe first                                             |
+  | probe id                  | verdict                              | evidence                                                                                                                                                                                                                                                       | fallback rung (if not confirmed)                                                                                          |
+  | ------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+  | `add-dir-discovery`       | confirmed, with a caveat (see below) | a plugin root materialized under `<HOME>/.claude/skills/` — the global default skills directory for that sandboxed `HOME`, **not** flow's D10 `--add-dir` home — is discovered by `claude plugin list --json` as `flow-module-core@skills-dir`, `enabled:true` | copy the module directory in place under the skills directory                                                             |
+  | `symlink-materialization` | confirmed                            | `ensurePluginRoot`'s actual materialization shape (a real root directory with symlinked `bin/` entries) passes `claude plugin validate --strict`                                                                                                               | route helpers through `~/.local/bin` PATH symlinks only                                                                   |
+  | `bin-path-injection`      | confirmed                            | `claude --plugin-dir <path> --plugin-dir <path> --version` accepts repeated `--plugin-dir` and exits 0; intra-session PATH propagation itself is not observable via a one-shot non-interactive probe                                                           | modules stay symlink-materialized for helper coverage; the packaging layer is revisited without touching the (b) backbone |
+  | `enabled-plugins`         | confirmed                            | `claude plugin disable flow-module-core@skills-dir --scope project` writes `{"enabledPlugins":{"flow-module-core@skills-dir":false}}` to `.claude/settings.json`                                                                                               | per-repo enablement degrades to the existing symlink-selection mechanism                                                  |
+  | `skill-invocation-name`   | confirmed                            | `claude plugin details` reports a skill nested under a plugin root's `skills/` by its BARE directory name, not a plugin-qualified name — settles the naming convention for the deferred skill-move follow-up                                                   | ship the deferred skill move without a verified naming answer; re-probe first                                             |
 
-  All five confirmed on the locally installed build; none is currently
-  operating on a fallback rung. Re-run `bun bin/flow-plugin-probe.ts --json`
-  after any Claude Code upgrade — `bin/flow-plugin-contract-lint.ts` is the
-  CI-runnable sibling that turns a future drift into a red signal
-  automatically (`bin/flow-plugin-contract-lint.test.ts`).
+  **Caveat on `add-dir-discovery`, carried forward from the PR body so this
+  table doesn't overstate the evidence:** the probe confirmed discovery
+  under the _global_ `~/.claude/skills/` of a sandboxed `$HOME` — it never
+  tested discovery under flow's D10 `--add-dir` home, which is the question
+  this ADR originally posed and `claude plugin list` accepts no
+  `--add-dir`/`--plugin-dir` flag to settle from a non-interactive probe.
+  This is exactly why the launcher passes `--plugin-dir <root>` explicitly
+  rather than relying on `--add-dir` discovery: the assumption is
+  **designed out**, not merely probed. `bin-path-injection` carries a
+  narrower caveat of its own: intra-session `PATH` propagation is not
+  observable from a one-shot non-interactive probe, which doesn't gate
+  anything since the launcher's own `PATH` prefix is the load-bearing
+  mechanism.
+
+  All five confirmed on the locally installed build, subject to the two
+  caveats above; none is currently operating on a fallback rung. Re-run
+  `bun bin/flow-plugin-probe.ts --json` after any Claude Code upgrade —
+  `bin/flow-plugin-contract-lint.ts` is the sibling harness for the same
+  drift risk, but it is a LOCAL signal, not a CI one: CI installs no
+  `claude`, so its real-CLI cases skip on every CI run, and the only place
+  it can actually turn red is a maintainer's local `npm run test` /
+  `flow-pre-commit` (`bin/flow-plugin-contract-lint.test.ts`).
 
 - **Sanctioned break, restated precisely:** the `--all` install's SYMLINK
   set (skills/agents/helpers/validators/completions/wrapper) is still

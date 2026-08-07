@@ -70,6 +70,20 @@ describe(checkInstallDrift, () => {
     expect(result).toEqual({ status: "clean" });
   });
 
+  it("never reports a plugin root as missing, even when it isn't in the manifest and its target doesn't exist on disk", () => {
+    const result = run({
+      readManifest: () => manifest([record({ target: "/recorded" })]),
+      discover: () => [
+        entry({
+          kind: "plugin",
+          displayName: "flow-module-copilot",
+          target: "/nonexistent/flow-module-copilot",
+        }),
+      ],
+    });
+    expect(result).toEqual({ status: "clean" });
+  });
+
   it("reports clean when a manifest-recorded symlink correctly resolves to its source", () => {
     const dir = makeScratch();
     const source = path.join(dir, "source.txt");

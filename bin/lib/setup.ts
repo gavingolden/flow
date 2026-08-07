@@ -450,15 +450,20 @@ async function runUnderLock(
       // directory at the target without --force, so a root flow
       // re-materializes every run would be permanently "blocked" from the
       // second install onward. `ensurePluginRoot` re-derives the root's
-      // content (plugin.json + bin/) fresh from `flowSource` on every call
-      // instead, so there is no separate "live vs canonical source" pointer
-      // to resolve the way a symlink's target needs.
+      // content (plugin.json fresh from `flowSource`) on every call
+      // instead — but its bin/ symlinks ARE such a "live vs canonical
+      // source" pointer, so `installRoot` is threaded through the same way
+      // the symlink branch below routes `entry.source` via
+      // `effectiveLinkSource`, keeping a `--source <worktree>` install from
+      // leaving plugin-root bin/ links dangling once the worktree is
+      // removed on merge.
       const moduleId = moduleIdFromPluginRootName(entry.displayName);
       if (!moduleId) continue; // defensive: discoverPluginRoots only ever emits known ids
       const result = ensurePluginRoot({
         root: entry.target,
         moduleId,
         flowSource,
+        installRoot,
         version: pluginVersion,
         includeSkills: false,
         force: options.force ?? false,

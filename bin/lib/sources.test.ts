@@ -23,10 +23,7 @@ const realFlowSource = resolveFlowSource();
 
 describe(discoverPluginRoots, () => {
   it('returns exactly one entry per selected id, each with kind:"plugin" and target <skillsDir>/flow-module-<id>', () => {
-    const entries = discoverPluginRoots(realFlowSource, realFlowSource, [
-      "core",
-      "research",
-    ]);
+    const entries = discoverPluginRoots(realFlowSource, ["core", "research"]);
     expect(entries).toHaveLength(2);
     for (const id of ["core", "research"] as const) {
       const entry = entries.find((e) => e.displayName === pluginRootName(id));
@@ -39,7 +36,7 @@ describe(discoverPluginRoots, () => {
   });
 
   it("returns [] for []", () => {
-    expect(discoverPluginRoots(realFlowSource, realFlowSource, [])).toEqual([]);
+    expect(discoverPluginRoots(realFlowSource, [])).toEqual([]);
   });
 });
 
@@ -85,9 +82,7 @@ describe(isPathBoundHelper, () => {
 describe("plugin roots never collide with skill targets", () => {
   it("no discoverPluginRoots target collides with any discoverSkills target (the flow-research collision guard)", () => {
     const pluginTargets = new Set(
-      discoverPluginRoots(realFlowSource, realFlowSource, moduleIds()).map(
-        (e) => e.target,
-      ),
+      discoverPluginRoots(realFlowSource, moduleIds()).map((e) => e.target),
     );
     const skillTargets = new Set(
       discoverSkills(realFlowSource).map((e) => e.target),

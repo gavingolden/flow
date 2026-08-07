@@ -249,13 +249,15 @@ export function discoverCompletions(
  * `ensurePluginRoot` materializes. `source` is `flowSource` itself (the
  * whole checkout, not a single file): a plugin root's content is derived
  * from the module registry + the checkout tree, not copied from one path.
- * `installRoot` is accepted for signature symmetry with the other
- * `discover*` functions but unused here — a plugin root has no
- * `installRoot`-anchored residue analogous to the `flow` wrapper.
+ * No `installRoot` parameter, matching every other `discover*` function in
+ * this file (`discoverSkills`, `discoverAgents`, `discoverHelpers`,
+ * `discoverValidators`, `discoverCompletions` are all `(flowSource,
+ * targets)`) — `installRoot`-anchored rebasing for a plugin root's `bin/`
+ * symlinks happens one level down, inside `ensurePluginRoot`'s own
+ * `installRoot` argument (`setup.ts`'s plugin branch), not here.
  */
 export function discoverPluginRoots(
   flowSource: string,
-  _installRoot: string,
   selectedIds: readonly string[],
   targets: InstallTargets = DEFAULT_TARGETS,
 ): SourceEntry[] {
@@ -299,9 +301,7 @@ export function discoverAll(
   ];
   const wrapper = flowWrapperEntry(installRoot, targets);
   if (wrapper) all.push(wrapper);
-  all.push(
-    ...discoverPluginRoots(flowSource, installRoot, moduleIds(), targets),
-  );
+  all.push(...discoverPluginRoots(flowSource, moduleIds(), targets));
   return all;
 }
 
@@ -383,9 +383,7 @@ export async function discoverSelected(
   // not exempt residue like the wrapper/completions above it.
   const foldedIds = new Set<string>(selectedIds);
   foldedIds.add(MANDATORY_MODULE);
-  all.push(
-    ...discoverPluginRoots(flowSource, installRoot, [...foldedIds], targets),
-  );
+  all.push(...discoverPluginRoots(flowSource, [...foldedIds], targets));
   return all;
 }
 

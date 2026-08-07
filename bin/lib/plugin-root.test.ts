@@ -14,6 +14,7 @@ import {
   isFlowOwnedPluginRoot,
   pluginDirArgs,
   pluginPathPrefix,
+  prefixedPath,
   removePluginRoot,
   scanPluginRoots,
 } from "./plugin-root";
@@ -372,5 +373,33 @@ describe(pluginPathPrefix, () => {
     expect(prefix).toBe(path.join(withBin, "bin"));
     expect(prefix.startsWith(":")).toBe(false);
     expect(prefix.endsWith(":")).toBe(false);
+  });
+});
+
+describe(prefixedPath, () => {
+  it("never emits a trailing colon when the current PATH is empty", () => {
+    expect(prefixedPath("/roots/flow-module-core/bin", "")).toBe(
+      "/roots/flow-module-core/bin",
+    );
+  });
+
+  it("returns undefined (no PATH override) when the prefix is empty", () => {
+    expect(prefixedPath("", "/usr/bin:/bin")).toBeUndefined();
+    expect(prefixedPath("", "")).toBeUndefined();
+  });
+
+  it("joins prefix and current PATH with exactly one colon when both are non-empty", () => {
+    expect(prefixedPath("/roots/flow-module-core/bin", "/usr/bin")).toBe(
+      "/roots/flow-module-core/bin:/usr/bin",
+    );
+  });
+
+  it("returns undefined (no double-prepend) when the current PATH already starts with prefix", () => {
+    expect(
+      prefixedPath(
+        "/roots/flow-module-core/bin",
+        "/roots/flow-module-core/bin:/usr/bin",
+      ),
+    ).toBeUndefined();
   });
 });

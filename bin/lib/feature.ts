@@ -65,6 +65,7 @@ import type { LivenessDeps } from "./liveness";
 import {
   pluginDirArgs,
   pluginPathPrefix,
+  prefixedPath,
   scanPluginRoots,
 } from "./plugin-root";
 
@@ -817,6 +818,13 @@ function runFresh(
   });
   if (backend.notice) console.error(dim(backend.notice));
   if (backend.id === "plain") {
+    // Scanned exactly once and reused for both the argv's --plugin-dir
+    // entries (via buildPlainCommand) and this backend's PATH mutation (via
+    // plainLaunch -> launcher.ts) — the tmux path and the epic path both
+    // extract `roots` once for the same reason (argv and PATH must never
+    // disagree about which roots are live); the plain path previously
+    // scanned twice, independently, whenever no seam was injected.
+    const roots = (options.pluginRootsScan ?? scanPluginRoots)();
     const plainCommand =
       options.command ??
       buildPlainCommand(
@@ -824,20 +832,16 @@ function runFresh(
         options.effort,
         settingsPath,
         sessionModel,
-        options.pluginRootsScan,
+        () => roots,
       );
     writeState(makeBaseState("plain"), options.stateDir);
     // plainLaunch owns the TTY guard, the flow:<slug> contract line, the
-    // pid/procStartedAt capture, and delete-on-fast-fail. Thread the same
-    // pluginRootsScan through PlainLaunchDeps.scanPluginRoots so the
-    // argv's --plugin-dir entries above and this backend's PATH mutation
-    // (launcher.ts) agree on the same root set.
+    // pid/procStartedAt capture, and delete-on-fast-fail.
     return plainLaunch(
       { slug, repo, command: plainCommand, seed, stateDir: options.stateDir },
       {
         ...options.plainDeps,
-        scanPluginRoots:
-          options.plainDeps?.scanPluginRoots ?? options.pluginRootsScan,
+        scanPluginRoots: options.plainDeps?.scanPluginRoots ?? (() => roots),
       },
     ).then((r) => (r.status === "failed" ? 1 : 0));
   }
@@ -1063,6 +1067,8 @@ function runResume(
     const plainWorktree =
       state.worktree ?? deriveWorktreePath(state.repo, slug);
     const plainSettings = launchSettingsPathFor(options);
+    // Scanned once, same rationale as the create-path fix above.
+    const roots = (options.pluginRootsScan ?? scanPluginRoots)();
     const plainCommand =
       options.command ??
       buildPlainCommand(
@@ -1070,7 +1076,7 @@ function runResume(
         state.effort,
         plainSettings,
         state.model,
-        options.pluginRootsScan,
+        () => roots,
       );
     // plainResume owns the alive-refusal (a plain terminal cannot be
     // reclaimed, --force included), the TTY guard, and the contract line.
@@ -1085,8 +1091,7 @@ function runResume(
       {
         ...options.plainDeps,
         force: options.force,
-        scanPluginRoots:
-          options.plainDeps?.scanPluginRoots ?? options.pluginRootsScan,
+        scanPluginRoots: options.plainDeps?.scanPluginRoots ?? (() => roots),
       },
     ).then((r) => (r.status === "failed" ? 1 : 0));
   }
@@ -1335,11 +1340,12 @@ function launchArgv(
   //
   // `--model` precedes `--effort` (both before `--settings`) in a deterministic
   // order so the argv assertions stay stable. Each is omitted when unset.
+  const nextPath = prefixedPath(pathPrefix, process.env.PATH ?? "");
   return [
     "env",
     "FLOW_PIPELINE=1",
     `FLOW_SLUG=${slug}`,
-    ...(pathPrefix ? [`PATH=${pathPrefix}:${process.env.PATH ?? ""}`] : []),
+    ...(nextPath !== undefined ? [`PATH=${nextPath}`] : []),
     ...claudeArgv(worktree, effort, settingsPath, model, roots),
   ];
 }
@@ -1539,9 +1545,17 @@ function buildLaunchCommand(
       ),
     );
   }
-  return pluginRootsScan
-    ? launchArgv(slug, worktree, effort, settingsPath, model, pluginRootsScan)
-    : launchArgv(slug, worktree, effort, settingsPath, model);
+  // launchArgv's pluginRootsScan parameter already defaults to
+  // scanPluginRoots on undefined, so passing it through unconditionally is
+  // equivalent to the two-branch ternary this replaced.
+  return launchArgv(
+    slug,
+    worktree,
+    effort,
+    settingsPath,
+    model,
+    pluginRootsScan,
+  );
 }
 
 /**

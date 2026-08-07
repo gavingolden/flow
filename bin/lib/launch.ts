@@ -16,6 +16,7 @@ import { dim } from "./color";
 import {
   pluginDirArgs,
   pluginPathPrefix,
+  prefixedPath,
   scanPluginRoots,
 } from "./plugin-root";
 
@@ -40,12 +41,17 @@ function argvFor(claudeHome: string, roots: readonly string[]): string[] {
  * session has no seed to ingest and must NOT suppress `/flow-research`'s
  * standalone tier (those are pipeline-session concerns). `claudeHome` is an
  * injectable seam (default `FLOW_CLAUDE_HOME`) so tests never touch the
- * developer's real `~/.flow`.
+ * developer's real `~/.flow`. `pluginRootsScan` is the same injectable
+ * scan seam `feature.ts`/`epic.ts` give their launch-argv builders — a
+ * test that calls this with no args must not scan the developer's real
+ * `FLOW_CLAUDE_HOME` skills dir, which `vitest.setup.ts`'s HOME sandbox
+ * does not reach (paths.ts captures HOME at import time).
  */
 export function buildInteractiveLaunchArgv(
   claudeHome: string = FLOW_CLAUDE_HOME,
+  pluginRootsScan: (claudeHome: string) => string[] = pluginRootsFor,
 ): string[] {
-  return argvFor(claudeHome, pluginRootsFor(claudeHome));
+  return argvFor(claudeHome, pluginRootsScan(claudeHome));
 }
 
 export type LaunchDeps = {
@@ -129,8 +135,9 @@ export function runLaunchCli(deps: LaunchDeps = {}): number {
   // env), so this is the only seam that reaches the child's PATH.
   const prefix = pluginPathPrefix(roots);
   const currentPath = process.env.PATH ?? "";
-  if (prefix && !currentPath.startsWith(prefix)) {
-    process.env.PATH = currentPath ? `${prefix}:${currentPath}` : prefix;
+  const nextPath = prefixedPath(prefix, currentPath);
+  if (nextPath !== undefined) {
+    process.env.PATH = nextPath;
   }
 
   return spawn(argvFor(claudeHome, roots));

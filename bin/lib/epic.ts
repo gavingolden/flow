@@ -44,6 +44,7 @@ import {
 import {
   pluginDirArgs,
   pluginPathPrefix,
+  prefixedPath,
   scanPluginRoots,
 } from "./plugin-root";
 import { slugify } from "./slug";
@@ -1794,11 +1795,12 @@ function launchArgv(
   const withModel = model ? [...base, "--model", model] : base;
   const withEffort = effort ? [...withModel, "--effort", effort] : withModel;
   const pathPrefix = pluginPathPrefix(roots);
+  const nextPath = prefixedPath(pathPrefix, process.env.PATH ?? "");
   return [
     "env",
     "FLOW_PIPELINE=1",
     `FLOW_SLUG=${slug}`,
-    ...(pathPrefix ? [`PATH=${pathPrefix}:${process.env.PATH ?? ""}`] : []),
+    ...(nextPath !== undefined ? [`PATH=${nextPath}`] : []),
     ...withEffort,
     "--settings",
     settingsPath,
@@ -1840,9 +1842,17 @@ function buildLaunchCommand(
       ),
     );
   }
-  return pluginRootsScan
-    ? launchArgv(slug, worktree, effort, settingsPath, model, pluginRootsScan)
-    : launchArgv(slug, worktree, effort, settingsPath, model);
+  // launchArgv's pluginRootsScan parameter already defaults to
+  // scanPluginRoots on undefined, so passing it through unconditionally is
+  // equivalent to the two-branch ternary this replaced.
+  return launchArgv(
+    slug,
+    worktree,
+    effort,
+    settingsPath,
+    model,
+    pluginRootsScan,
+  );
 }
 
 function createCommand(

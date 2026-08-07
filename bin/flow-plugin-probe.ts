@@ -16,8 +16,8 @@
  * with a named reason and the process exits 0 — never a hard failure.
  *
  * HANG-PROOFING: every `claude` invocation carries CI=1 in the child env and
- * an IN-PROCESS hard timeout (Bun.spawn + a manual timer that kills the
- * child), never a shelled-out `timeout`/`gtimeout` — verified absent on
+ * an IN-PROCESS hard timeout (node:child_process's spawn + a manual timer
+ * that kills the child), never a shelled-out `timeout`/`gtimeout` — verified absent on
  * PATH on macOS, the primary dev platform, so a `timeout`-based
  * implementation would be a silent no-op exactly where it's needed. A
  * timed-out probe yields "inconclusive" with the timeout named in evidence.
@@ -188,7 +188,9 @@ async function probeSymlinkMaterialization(
       .some((name) =>
         fs.lstatSync(path.join(root, "bin", name)).isSymbolicLink(),
       );
-  const result = await runClaude(["plugin", "validate", "--strict", root]);
+  const result = await runClaude(["plugin", "validate", "--strict", root], {
+    home: fixtureHome,
+  });
   if (result.timedOut) {
     return {
       id,
@@ -217,13 +219,10 @@ async function probeBinPathInjection(
 ): Promise<ProbeVerdict> {
   const id: ProbeId = "bin-path-injection";
   const rootA = materializeRoot(fixtureHome);
-  const result = await runClaude([
-    "--plugin-dir",
-    rootA,
-    "--plugin-dir",
-    rootA,
-    "--version",
-  ]);
+  const result = await runClaude(
+    ["--plugin-dir", rootA, "--plugin-dir", rootA, "--version"],
+    { home: fixtureHome },
+  );
   if (result.timedOut) {
     return {
       id,
@@ -259,7 +258,7 @@ async function probeEnabledPlugins(fixtureHome: string): Promise<ProbeVerdict> {
   materializeRoot(fixtureHome);
   const projectDir = path.join(fixtureHome, "..", "project");
   fs.mkdirSync(projectDir, { recursive: true });
-  Bun.spawnSync(["git", "init", "-q"], { cwd: projectDir });
+  spawnSync("git", ["init", "-q"], { cwd: projectDir });
   const result = await runClaude(
     ["plugin", "disable", "flow-module-core@skills-dir", "--scope", "project"],
     { cwd: projectDir, home: fixtureHome },
@@ -390,21 +389,28 @@ async function runProbesFiltered(
     }));
   }
 
+  const ownsTmpRoot = opts.tmpRoot === undefined;
   const tmpRoot =
     opts.tmpRoot ??
     fs.mkdtempSync(path.join(os.tmpdir(), "flow-plugin-probe-"));
   const verdicts: ProbeVerdict[] = [];
-  for (const id of ids) {
-    const fixtureHome = fs.mkdtempSync(path.join(tmpRoot, `${id}-home-`));
-    try {
-      verdicts.push(await PROBE_FNS[id](fixtureHome));
-    } catch (err) {
-      verdicts.push({
-        id,
-        verdict: "inconclusive",
-        evidence: `probe threw: ${err instanceof Error ? err.message : String(err)}`,
-        fallback: "re-run the probe manually and inspect the fixture",
-      });
+  try {
+    for (const id of ids) {
+      const fixtureHome = fs.mkdtempSync(path.join(tmpRoot, `${id}-home-`));
+      try {
+        verdicts.push(await PROBE_FNS[id](fixtureHome));
+      } catch (err) {
+        verdicts.push({
+          id,
+          verdict: "inconclusive",
+          evidence: `probe threw: ${err instanceof Error ? err.message : String(err)}`,
+          fallback: "re-run the probe manually and inspect the fixture",
+        });
+      }
+    }
+  } finally {
+    if (ownsTmpRoot) {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
     }
   }
   return verdicts;
