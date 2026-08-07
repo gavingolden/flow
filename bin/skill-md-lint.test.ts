@@ -4304,10 +4304,18 @@ describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", 
   // whole-file `content` — 21 of 26 PIPELINE_PHASES are already backticked
   // somewhere in SKILL.md as ordinary step headers, so a whole-file
   // `content.includes` check passes vacuously for almost any allowlist
-  // widening. The slice is the union of the three regions this PR authored
-  // that actually describe the gated-exit mechanic: the `gated-feedback`
-  // Resume-mode row, the "Gate override (post-verdict, opt-in)" section,
-  // and the "Gated is an explicit carve-out" paragraph.
+  // widening.
+  //
+  // The slice deliberately EXCLUDES the "Gated is an explicit carve-out"
+  // paragraph, even though it also discusses the mechanic: that paragraph
+  // enumerates the in-flight phases (`implementing`, `ci-wait`,
+  // `reviewing`, `plan-pending-review`), which are precisely the most
+  // likely allowlist-widening targets — including it would re-open the
+  // vacuity hole for exactly the drift this lint exists to catch. Only the
+  // two regions that name actual EXITS are in scope: the `gated-feedback`
+  // Resume-mode row (step 6 / step 9 writes) and the "Gate override
+  // (post-verdict, opt-in)" section (the step 10 write). The carve-out
+  // paragraph is still anchor-checked below, just not phase-matched.
   const gatedFeedbackRow = content
     .split("\n")
     .find((line) => line.includes("| `gated-feedback` |"));
@@ -4323,11 +4331,9 @@ describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", 
     const end = content.indexOf("\n\n", start + 1);
     return content.slice(start, end === -1 ? undefined : end);
   })();
-  const gatedExitProse = [
-    gatedFeedbackRow ?? "",
-    gateOverrideSection,
-    carveOutParagraph,
-  ].join("\n\n");
+  const gatedExitProse = [gatedFeedbackRow ?? "", gateOverrideSection].join(
+    "\n\n",
+  );
 
   it("the gated-exit prose slice was found (sanity check for the anchors above)", () => {
     expect(
@@ -4351,8 +4357,8 @@ describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", 
         gatedExitProse.includes(`\`${phase}\``),
         `TERMINAL_EXIT_TRANSITIONS.gated includes '${phase}' ` +
           `(bin/lib/state.ts), but flow-pipeline/SKILL.md's gated-exit ` +
-          "prose (gated-feedback row / Gate override section / carve-out " +
-          "paragraph) never mentions `" +
+          "prose (gated-feedback row / Gate override section) never " +
+          "mentions `" +
           phase +
           "` — fix SKILL.md's gated-exit prose to name every allowlisted " +
           "target.",
