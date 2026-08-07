@@ -50,6 +50,12 @@ export type ContractLintResult = {
   status: "ok" | "drifted" | "skipped";
   reason?: string;
   failures: { root: string; detail: string }[];
+  /** The Phase-3 `--plugin-dir` probe roots `claude plugin list --json`
+   * actually confirmed loaded (matching `installPath`, `enabled:true`) —
+   * a positive observable so a deleted/no-op Phase 3 shows up as an
+   * empty array here rather than merely an empty `failures`. Populated
+   * only past the D4 short-circuit. */
+  probedPluginDirRoots: string[];
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -104,11 +110,21 @@ function runClaude(
 }
 
 export async function checkPluginContract(
-  opts: { claudeOnPath?: (cmd: string) => boolean; tmpRoot?: string } = {},
+  opts: {
+    claudeOnPath?: (cmd: string) => boolean;
+    tmpRoot?: string;
+    runClaude?: typeof runClaude;
+  } = {},
 ): Promise<ContractLintResult> {
   const claudeOnPath = opts.claudeOnPath ?? commandOnPath;
+  const runClaudeFn = opts.runClaude ?? runClaude;
   if (!claudeOnPath("claude")) {
-    return { status: "skipped", reason: "claude is not on PATH", failures: [] };
+    return {
+      status: "skipped",
+      reason: "claude is not on PATH",
+      failures: [],
+      probedPluginDirRoots: [],
+    };
   }
 
   const ownsTmpRoot = opts.tmpRoot === undefined;
@@ -149,7 +165,7 @@ export async function checkPluginContract(
     // below.
     const validateResults = await Promise.all(
       roots.map(({ root }) =>
-        runClaude(["plugin", "validate", "--strict", root], {
+        runClaudeFn(["plugin", "validate", "--strict", root], {
           home: fixtureHome,
         }).then((result) => ({ root, result })),
       ),
@@ -172,7 +188,7 @@ export async function checkPluginContract(
 
     // claude plugin list --json, once, HOME pointed at the fixture — every
     // materialized root must report enabled:true with no errors[].
-    const listResult = await runClaude(["plugin", "list", "--json"], {
+    const listResult = await runClaudeFn(["plugin", "list", "--json"], {
       home: fixtureHome,
     });
     if (listResult.timedOut) {
@@ -249,10 +265,6 @@ export async function checkPluginContract(
       }
       probeRoots.push(root);
     }
-    // Every probe fixture blocked — the `failures` entries above already
-    // make this run red, so spending a `claude` cold start on a flagless
-    // `plugin list` that can prove nothing would only add a confusing
-    // second failure.
     const probeArgv = [
       ...pluginDirArgs(probeRoots),
       "plugin",
@@ -260,10 +272,20 @@ export async function checkPluginContract(
       "--json",
     ];
     const probeLabel = `claude ${probeArgv.join(" ")}`;
+    // Deliberately sequential with the Phase-2 `plugin list` call above,
+    // not `Promise.all`-batched with it, unlike Phase 1's read-only
+    // `plugin validate` calls: two concurrent `plugin list` invocations
+    // against the same `fixtureHome` aren't obviously safe together, so
+    // this stays serial rather than risk a flake to save one cold start.
     const probeResult =
       probeRoots.length > 0
-        ? await runClaude(probeArgv, { home: fixtureHome })
+        ? // Every probe fixture blocked — the `failures` entries above
+          // already make this run red, so spending a `claude` cold start
+          // on a flagless `plugin list` that can prove nothing would only
+          // add a confusing second failure.
+          await runClaudeFn(probeArgv, { home: fixtureHome })
         : { stdout: "[]", exitCode: 0, timedOut: false };
+    const probedPluginDirRoots: string[] = [];
     if (probeResult.timedOut) {
       failures.push({
         root: probeLabel,
@@ -279,34 +301,53 @@ export async function checkPluginContract(
         id: string;
         enabled: boolean;
         installPath?: string;
+        errors?: unknown[];
       }> = [];
+      let probeParseOk = false;
       try {
-        probeParsed = JSON.parse(probeResult.stdout) as typeof probeParsed;
+        const parsed = JSON.parse(probeResult.stdout);
+        if (!Array.isArray(parsed)) {
+          throw new Error("output is not an array");
+        }
+        probeParsed = parsed as typeof probeParsed;
+        probeParseOk = true;
       } catch (err) {
         failures.push({
           root: probeLabel,
           detail: `could not parse output: ${err instanceof Error ? err.message : String(err)}, via ${probeLabel}`,
         });
       }
-      for (const root of probeRoots) {
-        const entry = probeParsed.find((p) => p.installPath === root);
-        if (!entry) {
-          failures.push({
-            root,
-            detail: `not reported by claude plugin list --json, via ${probeLabel}`,
-          });
-        } else if (entry.enabled !== true) {
-          failures.push({
-            root,
-            detail: `enabled:${entry.enabled}, expected true, via ${probeLabel}`,
-          });
+      // Only walk probeRoots on a successful array parse — otherwise
+      // probeParsed stays [] and this loop would push one redundant "not
+      // reported" failure per root on top of the parse failure above.
+      if (probeParseOk) {
+        for (const root of probeRoots) {
+          const entry = probeParsed.find((p) => p.installPath === root);
+          if (!entry) {
+            failures.push({
+              root,
+              detail: `not reported by claude plugin list --json, via ${probeLabel}`,
+            });
+          } else if (entry.enabled !== true) {
+            failures.push({
+              root,
+              detail: `enabled:${entry.enabled}, expected true, via ${probeLabel}`,
+            });
+          } else if (entry.errors && entry.errors.length > 0) {
+            failures.push({
+              root,
+              detail: `errors: ${JSON.stringify(entry.errors)}, via ${probeLabel}`,
+            });
+          } else {
+            probedPluginDirRoots.push(root);
+          }
         }
       }
     }
 
     return failures.length > 0
-      ? { status: "drifted", failures }
-      : { status: "ok", failures: [] };
+      ? { status: "drifted", failures, probedPluginDirRoots }
+      : { status: "ok", failures: [], probedPluginDirRoots };
   } finally {
     if (ownsTmpRoot) {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
