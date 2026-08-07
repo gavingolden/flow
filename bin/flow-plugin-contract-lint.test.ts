@@ -80,6 +80,31 @@ describe(checkPluginContract, () => {
     },
     30_000,
   );
+
+  it.skipIf(claudeMissing)(
+    "repeated `--plugin-dir` roots are actually LOADED, not merely accepted (real CLI)",
+    async () => {
+      const result = await checkPluginContract({ tmpRoot });
+      expect(result.status).toBe("ok");
+      // No failure entry names the "plugin-dir-probe" fixture path segment
+      // the --plugin-dir phase uses for its two dedicated roots — the
+      // absence of one IS the "both roots reported loaded" assertion,
+      // same convention as the sibling @skills-dir spec above.
+      expect(
+        result.failures.find((f) => f.root.includes("plugin-dir-probe")),
+      ).toBeUndefined();
+    },
+    30_000,
+  );
+
+  it("with claudeOnPath: () => false, the new --plugin-dir phase never runs before the short-circuit", async () => {
+    const result = await checkPluginContract({
+      claudeOnPath: () => false,
+      tmpRoot,
+    });
+    expect(result.status).toBe("skipped");
+    expect(fs.readdirSync(tmpRoot)).toEqual([]);
+  });
 });
 
 describe("CLI exit-code mapping", () => {
@@ -96,6 +121,20 @@ describe("CLI exit-code mapping", () => {
     const injectedResult: Awaited<ReturnType<typeof checkPluginContract>> = {
       status: "drifted",
       failures: [{ root: "/fake/root", detail: "injected failure" }],
+    };
+    expect(exitCodeFor(injectedResult)).toBe(1);
+  });
+
+  it("a --plugin-dir-phase failure entry (injected) maps to exit 1 via the production exitCodeFor mapping", () => {
+    const injectedResult: Awaited<ReturnType<typeof checkPluginContract>> = {
+      status: "drifted",
+      failures: [
+        {
+          root: "/fake/plugin-dir-probe/flow-module-core",
+          detail:
+            "not reported by claude plugin list --json, via claude --plugin-dir /fake/plugin-dir-probe/flow-module-core plugin list --json",
+        },
+      ],
     };
     expect(exitCodeFor(injectedResult)).toBe(1);
   });

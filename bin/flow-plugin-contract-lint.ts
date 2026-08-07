@@ -4,7 +4,14 @@
  * REAL `ensurePluginRoot` primitive) into a temp fixture and asserts, via
  * the first-party `claude` CLI, that every emitted manifest still passes
  * `claude plugin validate --strict` and that `claude plugin list --json`
- * reports each root enabled with no errors. This is the red signal when a
+ * reports each root enabled with no errors. A third phase then proves
+ * repeated `--plugin-dir <root>` is not merely ACCEPTED but actually
+ * HONOURED: two dedicated fixture roots outside the skills-dir fixture are
+ * passed via `pluginDirArgs` and asserted loaded (`enabled:true`, matching
+ * `installPath`) via `claude <pluginDirArgs> plugin list --json`. Root
+ * loading is now verified semantically; intra-session `bin/` PATH
+ * propagation (the launcher wiring) remains out of reach of a one-shot
+ * `claude` invocation and is NOT covered here. This is the red signal when a
  * future Claude Code release changes the skills-dir plugin mechanism —
  * `docs/target-architecture.md`'s Consequences section names this drift
  * risk explicitly (the `bin/` PATH mechanism shipped 2.1.91, under a year
@@ -35,7 +42,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawn as spawnAsync, spawnSync } from "node:child_process";
 import { resolveFlowSource } from "./lib/paths";
-import { ensurePluginRoot } from "./lib/plugin-root";
+import { ensurePluginRoot, pluginDirArgs } from "./lib/plugin-root";
 import { moduleIds, type ModuleId } from "./lib/modules";
 import { pluginRootName } from "./lib/plugin-manifest";
 
@@ -202,6 +209,96 @@ export async function checkPluginContract(
           failures.push({
             root,
             detail: `errors: ${JSON.stringify(entry.errors)}`,
+          });
+        }
+      }
+    }
+
+    // Phase 3: does `claude` actually LOAD roots passed via repeated
+    // `--plugin-dir`, not merely accept the flag? Two dedicated fixture
+    // roots, materialized OUTSIDE fixtureHome/.claude/skills so the
+    // skills-dir discovery phase above can never also pick them up.
+    // EMPIRICAL ANCHOR (verified at plan time): `--plugin-dir <root>`
+    // ahead of `plugin list` reports one entry per root, id
+    // `<name>@inline`, `installPath === root` — not the `@skills-dir`
+    // suffix the phase above matches on.
+    const probeIds = moduleIds().slice(0, 2);
+    const probeRoots: string[] = [];
+    for (const id of probeIds) {
+      const root = path.join(tmpRoot, "plugin-dir-probe", pluginRootName(id));
+      // A blocked fixture is a LOCAL materialization failure, not Claude
+      // Code drift — record it as such and drop the root, so it can never
+      // resurface below as a misleading "not reported by claude plugin
+      // list --json" (which would read as a mechanism regression).
+      if (
+        ensurePluginRoot({
+          root,
+          moduleId: id,
+          flowSource,
+          version: "1.0.0",
+          includeSkills: false,
+          force: false,
+        }) === "blocked"
+      ) {
+        failures.push({
+          root,
+          detail:
+            "ensurePluginRoot returned 'blocked' materializing the --plugin-dir probe fixture",
+        });
+        continue;
+      }
+      probeRoots.push(root);
+    }
+    // Every probe fixture blocked — the `failures` entries above already
+    // make this run red, so spending a `claude` cold start on a flagless
+    // `plugin list` that can prove nothing would only add a confusing
+    // second failure.
+    const probeArgv = [
+      ...pluginDirArgs(probeRoots),
+      "plugin",
+      "list",
+      "--json",
+    ];
+    const probeLabel = `claude ${probeArgv.join(" ")}`;
+    const probeResult =
+      probeRoots.length > 0
+        ? await runClaude(probeArgv, { home: fixtureHome })
+        : { stdout: "[]", exitCode: 0, timedOut: false };
+    if (probeResult.timedOut) {
+      failures.push({
+        root: probeLabel,
+        detail: `timed out after ${DEFAULT_TIMEOUT_MS}ms, via ${probeLabel}`,
+      });
+    } else if (probeResult.exitCode !== 0) {
+      failures.push({
+        root: probeLabel,
+        detail: `exited ${probeResult.exitCode}, via ${probeLabel}`,
+      });
+    } else {
+      let probeParsed: Array<{
+        id: string;
+        enabled: boolean;
+        installPath?: string;
+      }> = [];
+      try {
+        probeParsed = JSON.parse(probeResult.stdout) as typeof probeParsed;
+      } catch (err) {
+        failures.push({
+          root: probeLabel,
+          detail: `could not parse output: ${err instanceof Error ? err.message : String(err)}, via ${probeLabel}`,
+        });
+      }
+      for (const root of probeRoots) {
+        const entry = probeParsed.find((p) => p.installPath === root);
+        if (!entry) {
+          failures.push({
+            root,
+            detail: `not reported by claude plugin list --json, via ${probeLabel}`,
+          });
+        } else if (entry.enabled !== true) {
+          failures.push({
+            root,
+            detail: `enabled:${entry.enabled}, expected true, via ${probeLabel}`,
           });
         }
       }
