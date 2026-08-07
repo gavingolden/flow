@@ -18,7 +18,8 @@
       "pr": 531
     },
     "terminal-state-wiring": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 559
     }
   }
 }
