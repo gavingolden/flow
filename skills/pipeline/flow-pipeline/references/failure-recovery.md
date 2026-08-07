@@ -239,6 +239,11 @@ write was blocked by the mechanical guard. The supervisor must NOT
 retry. Shape rule: `references/pause-output-contract.md`
 `## Step contract`.
 
+The three documented `gated` exits — to `verifying`, `gating`, or
+`merging` — are allowlisted and never reach this escalation. So a
+surviving exit 4 always signals a genuine cross-pipeline write, never
+one of those three normal resume paths.
+
 1. **Supervisor:** escalate immediately:
 
 ```bash

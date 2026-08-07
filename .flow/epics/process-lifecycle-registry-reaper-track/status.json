@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "epicId": "process-lifecycle-registry-reaper-track",
+  "features": {
+    "orphan-sweep-convergence": {
+      "status": "not-started"
+    },
+    "proc-registry-spawn": {
+      "status": "merged",
+      "pr": 524
+    },
+    "reaper-kill-policies": {
+      "status": "merged",
+      "pr": 530
+    },
+    "spawn-site-adoption": {
+      "status": "merged",
+      "pr": 531
+    },
+    "terminal-state-wiring": {
+      "status": "not-started"
+    }
+  }
+}

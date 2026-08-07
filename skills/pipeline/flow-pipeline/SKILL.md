@@ -1840,7 +1840,10 @@ non-affirmative answer, or when the instruction fails the "fresh" or
 "in-context" test, do **not** fire the confirmation and do **not**
 record a token — re-render the GATED block via `flow-gate-summary
 --status gated ...`, restate that the verdict is terminal, and end. The
-PR stays `gated`.
+PR stays `gated`. Step 10's `merging` write out of `gated` is the third
+allowlisted exit, and the allowlist grants no merge authority — the
+override still requires this fresh `AskUserQuestion` confirmation and
+`flow-merge-guard --record-override`.
 
 **Step 10 needs no helper plumbing change.** `flow-merge-guard` already
 re-fetches the live PR body on every call (see `bin/flow-merge-guard.ts`'s
@@ -2372,7 +2375,7 @@ Branch on `.resumeAt`:
 | `step-7` | Re-enter step 7 (ci-wait). A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-backgrounded pending phase) both resolve here. **Read `$WORKTREE/.flow-tmp/ci-wait-result.json` first**: if it exists and parses, the backgrounded `flow-ci-wait` already reached a terminal decision — read the persisted verdict and branch on `.decision` without re-running the loop. Only when the file is absent or unparseable does the supervisor re-launch the backgrounded `flow-ci-wait` (the poll loop restarts, observing CI state fresh from GitHub). |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/flow-pr-review <PR>`. |
 | `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — which re-runs `flow-pipeline-summary ... --echo-prose ...` and re-echoes the recap verbatim per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection — then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition) and run `flow-remove-worktree --delete-branch`, write `phase: merged`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
-| `gated-feedback` | Re-enter feedback mode for a `gated` PR carrying a checkpoint marker. Print `RESUMING AT: gated-feedback (gated-with-checkpoint-marker)`, re-inject `$WORKTREE/.flow-tmp/checkpoint.md` (the generic checkpoint re-injection above), then position to take a bug callout → route it through the `/flow-coder` interactive redirect → re-verify (step 6) → re-gate (step 9). **This loop introduces no new merge path and never merges on its own authority:** its re-gate re-enters the normal step 9 gate, which routes every merge through the existing `flow-merge-guard` backstop (Decision A1) — a still-`gated` PR ends terminally at `gated`; the only merge routes are the user ticking all Test Steps boxes (gate re-reads `auto-merge`, `flow-merge-guard` confirms zero-unchecked) or the existing gate-override token. Then `flow-checkpoint --consume` to retire the body (archive to `.flow-tmp/checkpoint.consumed.md`, clear the freshness record) and drop the one-shot marker. |
+| `gated-feedback` | Re-enter feedback mode for a `gated` PR carrying a checkpoint marker. Print `RESUMING AT: gated-feedback (gated-with-checkpoint-marker)`, re-inject `$WORKTREE/.flow-tmp/checkpoint.md` (the generic checkpoint re-injection above), then position to take a bug callout → route it through the `/flow-coder` interactive redirect → re-verify (step 6) → re-gate (step 9). **This loop introduces no new merge path and never merges on its own authority:** its re-gate re-enters the normal step 9 gate, which routes every merge through the existing `flow-merge-guard` backstop (Decision A1) — a still-`gated` PR ends terminally at `gated`; the only merge routes are the user ticking all Test Steps boxes (gate re-reads `auto-merge`, `flow-merge-guard` confirms zero-unchecked) or the existing gate-override token. Then `flow-checkpoint --consume` to retire the body (archive to `.flow-tmp/checkpoint.consumed.md`, clear the freshness record) and drop the one-shot marker. The loop's phase writes are exactly `verifying` (step 6) and `gating` (step 9) — the `/flow-coder` step itself writes no phase — and both are allowlisted in `TERMINAL_EXIT_TRANSITIONS` (`bin/lib/state.ts`) so they no longer trip the exit-4 terminal-regression guard. |
 | `terminal` | Already in a terminal state. Re-run the corresponding gate render (the same helpers every gate-emission site uses) and end without re-running anything else. On `merged`/`gated` the render re-runs `flow-pipeline-summary ... --echo-prose ...` above `flow-gate-summary --status <merged\|gated> ...`, so the echo recap re-surfaces on resume re-entry — extract the `<!-- flow-echo-recap:start -->`…`<!-- flow-echo-recap:end -->` block and echo it VERBATIM per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection (re-orientation is exactly the resume use case). `cancelled` has no PR, so `--echo-prose` is a no-op there. `needs-human` re-renders the escalation via `flow-gate-summary --status needs-human ...`. The two no-in-flight-work pending phases short-circuit here pre-tree (reasons `no-change-investigation-complete` for `triaged-no-change`, `awaiting-triage-clarification` for `triage-pending-clarification`): they carry no PR/worktree and have no gate-summary status, so print a one-line note that the pipeline already completed (a no-change investigation, or one awaiting a clarification a resume can't re-ask) and end — do NOT build a worktree. On the `triaged-no-change` path, when `$ANSWER` is non-empty, re-print the saved `$ANSWER` (as markdown) so the user re-reads the original answer instead of the generic terminal note; fall back to the generic note when `$ANSWER` is empty. |
 | `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
 | `abort` | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end. |
@@ -2569,7 +2572,7 @@ and execute its block rather than acting from memory.
 | Trigger | Reason tag | Action |
 |---|---|---|
 | `flow-state-update` exits 3 | `branch-mismatch` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
-| `flow-state-update` exits 4 | `terminal-regression` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
+| `flow-state-update` exits 4 (a terminal→non-terminal write that is NOT an allowlisted `gated` exit) | `terminal-regression` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
 | `ToolSearch query="select:Task"` surfaces neither a `Task` nor an `Agent` schema at a spawn site | `task-tool-unavailable: <exemption-name>` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
 
 The full per-step cap table, the resume-from-disk decision tree, and the
@@ -2622,7 +2625,11 @@ re-enters the normal step 9 gate and merges only through
 `flow-merge-guard`; it is distinct from the post-verdict gate-override
 *merge* path (a "merge this gated PR anyway" instruction), which stays
 governed by "Gate override". The `gated-feedback` Resume-mode row above
-is the auto-resumed entry into exactly this loop after a `/clear`.
+is the auto-resumed entry into exactly this loop after a `/clear`. The
+carve-out is mechanical, not only prose — `gated` is the only terminal
+phase with a `TERMINAL_EXIT_TRANSITIONS` entry, and its three targets
+are the only terminal→non-terminal writes `flow-state-update` accepts
+without `--force`.
 
 # Quick reference: phase values
 
