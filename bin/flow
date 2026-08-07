@@ -10,6 +10,8 @@
  *   flow attach <name>                 tmux attach -t flow:<name>  (alias: a)
  *   flow done <name> | --merged | --orphans
  *                                      kill window + remove state
+ *   flow reap [--slug <s>] [--yes]     report (and clean up) processes left
+ *                                      by dead pipelines
  *
  * Per-verb argument parsing lives in `bin/lib/<verb>.ts` as `run<Verb>Cli`.
  * Each shim short-circuits `--help` / `-h` before producing side-effects so
@@ -22,6 +24,7 @@ import { runCompletion } from "./lib/completion";
 import { runHelpVerb } from "./lib/help";
 import { runLaunchCli } from "./lib/launch";
 import { runDoneCli } from "./lib/done";
+import { runReapCli } from "./lib/reap-cli";
 import { runEpicCli } from "./lib/epic";
 import { runConfigCli } from "./lib/config";
 import { runLsCli } from "./lib/ls";
@@ -69,6 +72,8 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
       return runAttachCli(args);
     case "done":
       return runDoneCli(args);
+    case "reap":
+      return runReapCli(args);
     case "ls":
       // runLsCli/runVersionCli supply the real checkInstallDrift themselves
       // (no options object here) — see ls.ts / version.ts.
