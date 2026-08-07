@@ -222,7 +222,28 @@ export type PipelineState = {
    * migration, AGENTS.md forbids back-compat shims).
    */
   checkpoint?: { site: CheckpointSiteValue; phase: string; armedAt: string };
+  /**
+   * Durable outcome of the terminal-state `flow-browser-teardown --reap
+   * --record` call. A plain state write (like `checkpoint` above), never a
+   * `flow-state-update` phase transition — `updatedAt` is deliberately NOT
+   * bumped by writing this field. `flow-gate-summary --cleanup` reads it to
+   * render the CLEANUP row; absence means the reap never ran (or ran before
+   * this field existed — no migration, AGENTS.md forbids back-compat shims).
+   */
+  reap?: ReapRecord;
   updatedAt: string;
+};
+
+/**
+ * Durable record of a terminal-state reap outcome, written by
+ * `recordReapOutcome` in `bin/flow-browser-teardown.ts`.
+ */
+export type ReapRecord = {
+  at: string;
+  status: "ok" | "unclean";
+  summary: string;
+  ran: boolean;
+  problems?: string[];
 };
 
 /**
@@ -498,6 +519,22 @@ function isCheckpointRecord(
   return true;
 }
 
+function isReapRecord(x: unknown): x is ReapRecord {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  if (typeof o.at !== "string") return false;
+  if (o.status !== "ok" && o.status !== "unclean") return false;
+  if (typeof o.summary !== "string") return false;
+  if (typeof o.ran !== "boolean") return false;
+  if (o.problems !== undefined) {
+    if (!Array.isArray(o.problems)) return false;
+    for (const p of o.problems) {
+      if (typeof p !== "string") return false;
+    }
+  }
+  return true;
+}
+
 function isPhaseLog(
   x: unknown,
 ): x is Array<{ phase: string; outcome?: string; at: string }> {
@@ -561,6 +598,7 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.phaseLog !== undefined && !isPhaseLog(o.phaseLog)) return false;
   if (o.checkpoint !== undefined && !isCheckpointRecord(o.checkpoint))
     return false;
+  if (o.reap !== undefined && !isReapRecord(o.reap)) return false;
   if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
     return false;
   if (o.pid !== undefined && typeof o.pid !== "number") return false;

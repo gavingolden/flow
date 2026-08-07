@@ -239,15 +239,25 @@ export function applyUpdate(
           },
         ]
       : existing.phaseLog;
+  const resolvedPhase = args.phase ?? existing.phase;
+  // A stale reap record (recorded at a PRIOR terminal state) must not
+  // survive a write that moves the pipeline back to a non-terminal phase
+  // (e.g. a resume) — `flow-gate-summary --cleanup` would otherwise render
+  // an old verdict for a run the reap never covered. A terminal phase write
+  // (including a --pr-only write while already terminal) preserves it.
+  const reap = TERMINAL_PHASE_SET.has(resolvedPhase)
+    ? existing.reap
+    : undefined;
   return {
     ...existing,
-    phase: args.phase ?? existing.phase,
+    phase: resolvedPhase,
     pr: args.pr ?? existing.pr,
     worktree: args.worktree ?? existing.worktree,
     autoMerge: args.autoMerge ?? existing.autoMerge,
     sessionId: args.sessionId ?? existing.sessionId,
     answer: args.answer ?? existing.answer,
     phaseLog,
+    reap,
     updatedAt: nowIso(),
   };
 }

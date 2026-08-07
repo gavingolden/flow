@@ -268,6 +268,66 @@ describe("applyUpdate", () => {
     const updated = applyUpdate(existing, { slug: "csv-export", pr: 142 });
     expect(updated.pr).toBe(142);
   });
+
+  it("clears a stale reap record when the phase write moves to a non-terminal phase", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "merged",
+      repo: "/tmp/repo",
+      updatedAt: "2026-04-30T12:00:00Z",
+      reap: {
+        at: "2026-04-30T12:01:00Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      phase: "implementing",
+    });
+    expect(updated.phase).toBe("implementing");
+    expect(updated.reap).toBeUndefined();
+  });
+
+  it("preserves a reap record when the phase write stays terminal", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "gated",
+      repo: "/tmp/repo",
+      updatedAt: "2026-04-30T12:00:00Z",
+      reap: {
+        at: "2026-04-30T12:01:00Z",
+        status: "unclean",
+        summary: "1 still-alive process",
+        ran: true,
+        problems: ["registry: still-alive=1"],
+      },
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      phase: "merged",
+    });
+    expect(updated.phase).toBe("merged");
+    expect(updated.reap).toEqual(existing.reap);
+  });
+
+  it("preserves a reap record on a --pr-only write while already terminal", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "merged",
+      repo: "/tmp/repo",
+      updatedAt: "2026-04-30T12:00:00Z",
+      reap: {
+        at: "2026-04-30T12:01:00Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    };
+    const updated = applyUpdate(existing, { slug: "csv-export", pr: 142 });
+    expect(updated.reap).toEqual(existing.reap);
+  });
 });
 
 describe("runUpdate", () => {
@@ -311,6 +371,27 @@ describe("runUpdate", () => {
     expect(runUpdate(["csv-export", "--phase", "implementing"], dir)).toBe(0);
     const got = readState("csv-export", dir);
     expect(got?.phase).toBe("implementing");
+  });
+
+  it("clears a stale reap record when resumed past a terminal phase", () => {
+    seed("csv-export", {
+      phase: "merged",
+      reap: {
+        at: "2026-04-30T12:01:00Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    });
+    // A terminal->non-terminal write needs --force — the terminal-regression
+    // guard above refuses it otherwise (exit 4). --force is exactly the
+    // resume path this reap-clear exists for.
+    expect(
+      runUpdate(["csv-export", "--phase", "implementing", "--force"], dir),
+    ).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.phase).toBe("implementing");
+    expect(got?.reap).toBeUndefined();
   });
 
   it("persists autoMerge: false when --no-auto-merge is set, then flips back with --auto-merge", () => {

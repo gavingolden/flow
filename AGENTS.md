@@ -224,13 +224,15 @@ three-layer resolution table, and the manifest/foundation fields — is at
   `~/.flow/state/<slug>.json` are the state store; if the queue ever
   outgrows that, swap in Beads via an adapter rather than building
   bespoke storage.
-- Don't leave spawned resources running. See
-  `skills/pipeline/flow-pipeline/SKILL.md` "Resource cleanup". The browser
-  PROCESS itself is reaped by `flow-browser-teardown` at terminal state —
-  `close_page` alone never closes Chrome, because chrome-devtools-mcp
-  exposes no browser-close tool and its `closeBrowser()` runs only inside
-  the MCP server's own `shutdown()` handler (SIGTERM to that server, never
-  a harder signal, is the mechanism).
+- Don't leave spawned resources running. Three layers, in order:
+  (1) point-of-use teardown first — close what you opened, on every
+  exit path; (2) `flow-browser-teardown --reap --record` at every
+  terminal state as the guaranteed registry-driven backstop, never
+  `|| true`-swallowed, its outcome recorded in
+  `~/.flow/state/<slug>.json` and surfaced as the gate summary's
+  CLEANUP row; (3) the orphan sweep as the crash-path net, never the
+  primary. See `skills/pipeline/flow-pipeline/SKILL.md` "Resource
+  cleanup".
 - **Don't make tmux pane/window state a load-bearing input.** Prefer
   backend-agnostic signals, in order: the launch env (`FLOW_SLUG`, set by
   both launcher backends), `~/.flow/state/<slug>.json`, then on-disk
