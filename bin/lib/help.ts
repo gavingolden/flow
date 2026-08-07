@@ -303,11 +303,15 @@ the registry path. This is a SEPARATE gate from --yes: a bare --yes never
 signals a stray on its own; both --yes and --include-strays are required.
 
 Options:
-  --slug <s>            scope the sweep to one pipeline slug (default:
-                        every registered slug on the host)
+  --slug <s>            scope the REGISTRY half of the sweep to one
+                        pipeline slug (default: every registered slug on
+                        the host) — --include-strays stays HOST-WIDE
+                        regardless of --slug; the shape-heuristic stray
+                        sweep has no per-slug identity to scope by
   --yes                 act on registered rows instead of only reporting
   --include-strays      also act on shape-heuristic strays (requires --yes
-                        to actually signal anything; report-only alone)
+                        to actually signal anything; report-only alone;
+                        always host-wide, never scoped by --slug)
   --json                emit machine-readable output ({registry, heuristic})
 
 Never passes --record and never writes to ~/.flow/state/<slug>.json — a

@@ -117,7 +117,19 @@ function classify(
   const liveness = deps?.livenessOf ?? defaultLivenessOf;
   const isAlive = livenessDeps?.isAlive ?? defaultIsAlive;
 
-  const state = readState(row.slug);
+  // SAFETY: `row.slug` is parsed, UNVALIDATED content from a registry
+  // JSONL line (`isValidRow` only type-checks it as a string — see
+  // `bin/lib/proc-registry.ts`). `readState` -> `statePath` joins it
+  // straight into a filesystem path and — unlike `registryPath`, which
+  // throws on an invalid slug — `statePath` "trusts its caller" (that
+  // module's own doc comment). Feeding a corrupted/hand-edited row's slug
+  // through unchecked would let it read an arbitrary file via `../`
+  // traversal. Never call `readState` with a slug that fails the same
+  // `isValidSlug` gate `registryPath` enforces; fall back to `null`
+  // (identical to "no state file"), which correctly classifies the row
+  // `unknown` under the B4 positive-evidence rule rather than throwing or
+  // silently trusting the row.
+  const state = isValidSlug(row.slug) ? readState(row.slug) : null;
   const stateVerdict = liveness(state ?? {}, livenessDeps);
   const wrapperVerdict = liveness(
     {
@@ -147,6 +159,17 @@ function classify(
     verdict = "unknown";
   }
 
+  // This ladder is DIAGNOSTIC granularity for a human reading the report,
+  // not a claim about WHY `verdict` landed on "unknown" — that is always
+  // and only because `stateVerdict === "unknown"` (see the branch above;
+  // `wrapperVerdict` can only ever veto to "alive", never cause "unknown").
+  // "wrapper-unreadable" does not mean the wrapper channel is what made
+  // this row unknown — it means the registry row itself never recorded a
+  // wrapper pid (`row.sessionPid === null`), so the wrapper channel gave a
+  // human investigator no cross-check to fall back on for this particular
+  // row, as distinct from "state-unknown" (a wrapper pid WAS recorded, so
+  // a human has that second signal to look at, even though it didn't
+  // change the verdict here).
   let reason: UnknownReason | undefined;
   if (verdict === "unknown") {
     if (state === null) {
@@ -189,6 +212,14 @@ function classify(
  * `stale` = pid not alive; `dead` = pid alive but start-time mismatch (a
  * recycled pid). The `Liveness` union is
  * `"alive" | "dead" | "stale" | "unknown"`.
+ *
+ * Exported deliberately with no production consumer: `selectDeadSessionRows`
+ * below is the only production caller of the underlying `classify`, but
+ * this one-row entry point is kept public specifically so
+ * `proc-sweep.test.ts` can pin the B4 positive-evidence rule (this PR's
+ * frozen constraint #1: `stateVerdict: "unknown"` must NEVER yield "dead")
+ * against a single row directly, without threading a whole
+ * `selectDeadSessionRows` batch through the test.
  */
 export function sessionVerdictFor(
   row: ProcRegistryRow,

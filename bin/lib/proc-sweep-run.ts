@@ -7,7 +7,7 @@
  * `verifyRow` refusal ladder, never a permissive arm inside it.
  */
 
-import { compact, readRows } from "./proc-registry";
+import { compact, defaultIsLive, readRows } from "./proc-registry";
 import {
   runRegistryReap,
   type ReapDeps,
@@ -119,8 +119,43 @@ export function runProcSweep(
 
     // report-only must not mutate: compact only on --yes, and only for a
     // slug whose registry actually had rows to begin with.
+    //
+    // SAFETY: `compact`'s default `isLive` (`defaultIsLive`) keys ONLY on
+    // the row's leader pid — a dead leader reads as not-live, so compact
+    // would otherwise drop it as a survivor-less "dropped" row. But
+    // `verifyRow` (bin/lib/reap.ts, frozen) deliberately REFUSES to signal
+    // exactly that shape (`outcome: "skipped-dead-leader"`) because a dead
+    // leader with a still-alive process group is a leaked group, reported
+    // so a human can investigate it — never folded into "already-dead".
+    // Compacting it away in the very next line would erase the only
+    // on-disk record of that leak the instant after the engine flagged it.
+    // Protect those specific pids from compaction; every other row still
+    // goes through the real liveness check unchanged.
+    const skippedDeadLeaderPids = new Set(
+      reap.rows
+        .filter((r) => r.outcome === "skipped-dead-leader")
+        .map((r) => r.pid),
+    );
+    // Per-call memoization mirrors `proc-sweep.ts`'s own `batchedLivenessDeps`:
+    // `defaultIsLive` forks a real `ps` (via `pidStartEpoch`) once per ROW,
+    // uncached — a registry with several rows sharing one pid (a launcher
+    // relaunched under the same pid across entries, or duplicate rows) would
+    // otherwise re-fork per duplicate. Caching by pid for the lifetime of
+    // this one `compact()` call is free correctness (a pid's start epoch
+    // cannot change mid-call) and defeats none of `compact`'s own semantics.
+    const isLiveCache = new Map<number, boolean>();
     const compacted =
-      opts.yes && rows.length > 0 ? compact(slug, opts.baseDir) : undefined;
+      opts.yes && rows.length > 0
+        ? compact(slug, opts.baseDir, {
+            isLive: (row) => {
+              if (skippedDeadLeaderPids.has(row.pid)) return true;
+              if (!isLiveCache.has(row.pid)) {
+                isLiveCache.set(row.pid, defaultIsLive(row));
+              }
+              return isLiveCache.get(row.pid)!;
+            },
+          })
+        : undefined;
 
     slugResults.push({
       slug,

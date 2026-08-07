@@ -131,7 +131,7 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 
 `flow-pre-commit` only wraps when a pipeline slug resolves (`FLOW_SLUG` is set), so a consumer repo, a git hook, or a CI run is byte-identical to before — no synthetic `untracked-*.jsonl` files accumulate there. The session's chrome-devtools-mcp browser server is harness-owned and cannot be wrapped this way; it stays on the process-ancestry fallback `flow-browser-teardown` already uses.
 
-`flow-spawn --list` reads this registry for inspection, and `flow-browser-teardown --reap --record` (see above) consumes it at every `/flow-pipeline` terminal state — no longer exercised only by hand. It remains a durable record for later features (bulk teardown of a pipeline's whole process tree, orphan reaping) to consume.
+`flow-spawn --list` reads this registry for inspection, and `flow-browser-teardown --reap --record` (see above) consumes it at every `/flow-pipeline` terminal state — no longer exercised only by hand. `flow reap` (above) is the host-wide orphan-reaping consumer of this registry; a durable record still remains available for a future bulk-teardown-of-a-pipeline's-whole-process-tree feature to consume.
 
 ## config.json reference
 

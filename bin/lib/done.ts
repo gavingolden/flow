@@ -44,10 +44,10 @@ const TERMINAL_PHASES = new Set(["merged", "cancelled"]);
 /**
  * Per-slug `spawnSync` backstop for `defaultRegistryReap`, sized just over
  * `runRegistryReap`'s own 30s `DEFAULT_REGISTRY_DEADLINE_MS`
- * (`bin/lib/reap.ts:357`) so the helper's internal deadline normally fires
+ * (`bin/lib/reap.ts:361`) so the helper's internal deadline normally fires
  * first.
  */
-const REAP_TIMEOUT_MS = 35_000;
+export const REAP_TIMEOUT_MS = 35_000;
 
 /**
  * Cumulative budget across a `--merged`/`--orphans` sweep so `flow done
@@ -123,12 +123,35 @@ function safeBrowserTeardown(slug: string, options: DoneOptions): void {
  * Unlike `defaultBrowserTeardown`, there is no `livenessOf` gate and no
  * state read at all, so this also runs for a slug whose state file is
  * already missing.
+ *
+ * Two-safety-standards reconciliation: `flow reap`'s own CLI (`reap-cli.ts`)
+ * only ever REPORTS on a bare `--yes` and defers to `--include-strays` for
+ * anything host-wide-risky, because a host-wide sweep can't assume the
+ * caller has session-scoped context on every slug it touches. This
+ * `flow done` path is allowed to actually SIGNAL (via `--reap` here, no
+ * `--dry-run`) because it is single-slug and the user has already
+ * confirmed closing THIS pipeline — the confirmation IS the session-scoped
+ * context a host-wide sweep lacks. Same `verifyRow` refusal ladder either
+ * way; only the caller's confidence in scope differs.
  */
 function defaultRegistryReap(slug: string): void {
-  spawnSync("flow-browser-teardown", ["--reap", "--slug", slug, "--json"], {
-    stdio: "ignore",
-    timeout: REAP_TIMEOUT_MS,
-  });
+  const result = spawnSync(
+    "flow-browser-teardown",
+    ["--reap", "--slug", slug, "--json"],
+    { stdio: "ignore", timeout: REAP_TIMEOUT_MS },
+  );
+  // `spawnSync` never THROWS on a missing binary (ENOENT) or a timeout — it
+  // returns `{error}` instead, which `safeRegistryReap`'s try/catch above
+  // can't see (there's nothing to catch). Silently discarding that leaves
+  // the operator with zero signal that this slug's leaked processes were
+  // never actually signalled — the exact stranding this PR exists to close,
+  // now permanent and invisible. Surface it once, best-effort (never
+  // thrown), so it's at least visible in `flow done`'s own output.
+  if (result?.error) {
+    console.warn(
+      `  (registry reap for '${slug}' did not run: ${result.error.message})`,
+    );
+  }
   compact(slug);
 }
 
@@ -172,6 +195,19 @@ export function runDoneCli(args: string[]): number {
   return runDone(positional[0], { merged, orphans, yes });
 }
 
+/** A slug's registry (`~/.flow/state/procs/<slug>.jsonl`) has at least one
+ * row — the plain-launcher crash shape that can outlive both the tmux
+ * window and the state file. Never throws (mirrors `readRows`'s own ENOENT
+ * -> `{rows: [], malformed: 0}` contract); an unreadable/missing registry
+ * reads as "no rows" rather than propagating. */
+function hasRegistryRows(slug: string): boolean {
+  try {
+    return readRows(slug).rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function dedupe(slugs: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -202,6 +238,12 @@ function runDoneMulti(slugs: string[], options: DoneOptions): number {
       // Window exists but no state file (the window-only path the single-slug
       // runDone warns about). Synthesize a minimal row so sweep() kills the
       // window; deleteState/deleteTurnTracking are no-ops without a state file.
+      rows.push({ slug, phase: "unknown", repo: "", updatedAt: "" });
+    } else if (hasRegistryRows(slug)) {
+      // Registry-rows-only (the plain-launcher crash shape `hasRows` guards
+      // in single-slug runDone below) — synthesize the same minimal row so
+      // sweep()'s safeRegistryReap still runs for this slug instead of
+      // bouncing it into `missing`.
       rows.push({ slug, phase: "unknown", repo: "", updatedAt: "" });
     } else {
       missing.push(slug);
@@ -259,13 +301,7 @@ export function runDone(
   // plain-launcher crash shape this feature exists for) — a slug with rows
   // but neither of the other two signals must still be reachable so its
   // registry gets reaped rather than bouncing off this guard.
-  const hasRows = (() => {
-    try {
-      return readRows(name).rows.length > 0;
-    } catch {
-      return false;
-    }
-  })();
+  const hasRows = hasRegistryRows(name);
 
   if (!hasWindow && !hasState && !hasRows) {
     console.error(`flow done: no window or state for '${name}'.`);
@@ -301,9 +337,12 @@ export function runDone(
     } else {
       // No window, no state file, and terminated is always false here (a
       // null state never terminates) — the only way this branch was
-      // reached at all is the relaxed hasRows guard above.
+      // reached at all is the relaxed hasRows guard above. Worded as an
+      // in-progress action, not a completed one: `safeRegistryReap` below
+      // is best-effort and swallows its own failures, so this line cannot
+      // promise the reap actually succeeded.
       console.log(
-        dim(`  reaped registry rows for '${name}' (no window or state file)`),
+        dim(`  reaping registry rows for '${name}' (no window or state file)`),
       );
       warned = true;
     }
@@ -423,9 +462,17 @@ function sweep(
     if (Date.now() < reapDeadline) {
       safeRegistryReap(s.slug, options);
     } else {
+      // `deleteState` below removes this slug's state file a few lines
+      // down, so a `flow reap --slug <s>` follow-up (which reads the
+      // registry through `flow-browser-teardown --reap`, a state-file-free
+      // path — see `defaultRegistryReap` above) still works. But naming
+      // `flow reap` here would be misleading advice for a DIFFERENT reason:
+      // `flow reap` sweeps ALL registered slugs by default and requires an
+      // explicit `--slug` to scope to just this one, so name the narrower,
+      // always-correct form directly.
       console.log(
         dim(
-          `  skipped registry reap for '${s.slug}' (sweep budget exceeded) — run 'flow reap --slug ${s.slug}'`,
+          `  skipped registry reap for '${s.slug}' (sweep budget exceeded) — run 'flow-browser-teardown --reap --slug ${s.slug} --record'`,
         ),
       );
     }

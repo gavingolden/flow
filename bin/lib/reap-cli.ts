@@ -157,7 +157,13 @@ function renderTextReport(result: ReapCliResult): string {
       : `Report-only. To act on registered rows: flow reap${result.slug ? ` --slug ${result.slug}` : ""} --yes` +
           (result.includeStrays
             ? ""
-            : ` (add --include-strays to also act on shape-heuristic strays)`),
+            : // SAFETY: --include-strays is ALWAYS host-wide, even on a
+              // --slug-scoped run — the shape-heuristic stray sweep has no
+              // per-slug identity to scope by. Naming it here without that
+              // caveat would read as "still scoped to --slug", which is
+              // false: following this exact suggestion on a --slug run
+              // SIGTERMs strays across the whole host.
+              ` (add --include-strays to also act on shape-heuristic strays — always host-wide, not scoped by --slug)`),
   );
   return lines.join("\n");
 }
@@ -174,7 +180,7 @@ export function runReapCli(args: string[]): number {
 
   const parsed = parseReapArgs(args);
   if (parsed.usageError) {
-    process.stderr.write(`flow reap: ${parsed.usageError}\n`);
+    console.error(`flow reap: ${parsed.usageError}`);
     return 1;
   }
 
@@ -206,9 +212,42 @@ export function runReapCli(args: string[]): number {
   };
 
   if (parsed.json) {
-    console.log(JSON.stringify(result));
+    console.log(JSON.stringify(redactArgvForJson(result)));
   } else {
     console.log(renderTextReport(result));
   }
   return 0;
+}
+
+/**
+ * SAFETY: `bin/lib/proc-registry.ts` chmods the registry file `0o600`
+ * because a row's `argv` is persisted verbatim and "routinely carries
+ * secrets passed as flags" (see that module's own comment at its
+ * `mkdirSync`/`writeFileSync` call site). `flow reap --json`'s
+ * `registry.slugs[].classified[]` rows carry that same raw `argv` straight
+ * through to stdout, host-wide, with none of that file's access controls —
+ * a caller piping `--json` output to a log, a CI artifact, or a teammate
+ * would leak whatever secrets the ORIGINAL launcher passed as flags. Redact
+ * down to `argv[0]` (the command name — needed to identify the process)
+ * before the one `JSON.stringify` call above; never redact the text report,
+ * which never printed raw argv to begin with.
+ */
+function redactArgvForJson(result: ReapCliResult): ReapCliResult {
+  return {
+    ...result,
+    registry: {
+      ...result.registry,
+      slugs: result.registry.slugs.map((s) => ({
+        ...s,
+        classified: s.classified.map((c) => ({
+          ...c,
+          row: {
+            ...c.row,
+            argv: c.row.argv.slice(0, 1),
+            argvTruncated: true as const,
+          },
+        })),
+      })),
+    },
+  };
 }

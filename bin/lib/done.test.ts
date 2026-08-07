@@ -103,7 +103,7 @@ const livenessMock = vi.hoisted(() => ({
 }));
 vi.mock("./liveness", () => livenessMock);
 
-import { runDone, runDoneCli } from "./done";
+import { runDone, runDoneCli, REAP_TIMEOUT_MS } from "./done";
 
 const state = (overrides: {
   slug: string;
@@ -1057,7 +1057,27 @@ describe("registryReap seam", () => {
       "--json",
     ]);
     expect(reapCall![1]).not.toContain("--record");
+    expect(reapCall![2]).toEqual(
+      expect.objectContaining({ timeout: REAP_TIMEOUT_MS }),
+    );
     expect(procRegistryMock.compact).toHaveBeenCalledWith("reap-default");
+  });
+
+  it("a missing flow-browser-teardown binary (spawnSync returns {error}, never throws) surfaces a warning instead of vanishing silently, and still compacts", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "reap-enoent", phase: "implementing" }),
+    );
+    spawnSyncMock.mockReturnValueOnce({
+      error: Object.assign(new Error("spawnSync ENOENT"), { code: "ENOENT" }),
+      status: null,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const code = runDone("reap-enoent", { yes: true });
+    expect(code).toBe(0);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("reap-enoent"));
+    expect(procRegistryMock.compact).toHaveBeenCalledWith("reap-enoent");
+    warn.mockRestore();
   });
 
   it("the seam still fires for a slug with registry rows but NO state file and NO window (the relaxed hasRows guard)", () => {

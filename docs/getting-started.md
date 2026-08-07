@@ -93,6 +93,16 @@ flow done --orphans        # clean up state left behind by dead runs
 
 `GATED: <url>` and `NEEDS HUMAN: <reason>` runs aren't swept by `--merged` — close those individually with `flow done <slug>` once you've dealt with them.
 
+`flow done` cleans up pipeline **windows and state files**. Leftover **processes** from a crashed/killed session are a separate sweep:
+
+```sh
+flow reap                          # report-only: what would be cleaned up
+flow reap --yes                    # act on verified registry rows
+flow reap --yes --include-strays   # also sweep shape-heuristic browser/mcp-server strays
+```
+
+See [configuration.md](configuration.md#process-registry) for the full registry + `--reap` contract.
+
 ## Next steps
 
 - **Tune models and config** — route expensive models to planning and cheap ones to verify: [configuration.md](configuration.md)

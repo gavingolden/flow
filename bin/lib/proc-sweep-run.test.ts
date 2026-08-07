@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { appendRow, type ProcRegistryRow } from "./proc-registry";
+import { appendRow, registryPath, type ProcRegistryRow } from "./proc-registry";
 import type { ReapDeps } from "./reap";
 import { runProcSweep, DEFAULT_SWEEP_DEADLINE_MS } from "./proc-sweep-run";
 import type { SweepDeps } from "./proc-sweep";
@@ -68,7 +68,7 @@ describe("runProcSweep", () => {
     };
   }
 
-  it("report-only is the default: runRegistryReap receives dryRun: true and compact is NOT called", () => {
+  it("report-only is the default: runRegistryReap receives dryRun: true, compact is NOT called, and NOTHING is signalled end-to-end", () => {
     appendRow(
       makeRow({ pid: 500, pgid: 500, slug: "report-only-slug" }),
       baseDir,
@@ -83,6 +83,13 @@ describe("runProcSweep", () => {
     expect(result.slugs).toHaveLength(1);
     expect(result.slugs[0].reap.dryRun).toBe(true);
     expect(result.slugs[0].compacted).toBeUndefined();
+    // Non-vacuous denominator: a row genuinely reached the reap engine
+    // (this fixture's `deadDeps` + `alive: () => false` classifies it
+    // "dead" and `verifyRow` resolves it "already-dead" — either way it was
+    // handed to the kill engine's row-level decision), so `kill` had an
+    // actual opportunity to fire here and didn't.
+    expect(result.slugs[0].reported.dead).toBeGreaterThan(0);
+    expect(deps.kill).not.toHaveBeenCalled();
   });
 
   it("only dead-bucket rows reach the injected readRows seam (alive and unknown rows never reach runRegistryReap)", () => {
@@ -190,7 +197,29 @@ describe("runProcSweep", () => {
     const deps = { ...fakeReapDeps({ alive: () => false }), ...deadDeps() };
     const result = runProcSweep(deps, { yes: true, slug: "yes-slug", baseDir });
     expect(result.slugs[0].reap.dryRun).toBe(false);
+    // `toBeDefined()` rather than an exact `{kept, dropped}` shape is
+    // deliberate: `compact`'s real `isLive` path forks an actual `ps`
+    // (`defaultIsLive` -> `pidStartEpoch`), which this test does not (and
+    // per the guard below, cannot cheaply) inject a fake for — asserting an
+    // exact shape here would couple to that real subprocess result rather
+    // than to `runProcSweep`'s own contract, which is simply "compact ran
+    // for this slug". See the next test for the `rows.length > 0` guard's
+    // OTHER half — that one needs no real fork since it never calls
+    // `compact` at all.
     expect(result.slugs[0].compacted).toBeDefined();
+  });
+
+  it("--yes does NOT call compact for a slug whose registry had no rows to begin with (the other half of the `rows.length > 0` guard)", () => {
+    // No appendRow call at all for this slug — readRows resolves to an
+    // empty registry, so the guard's `rows.length > 0` half must be false
+    // even though `opts.yes` is true.
+    const deps = { ...fakeReapDeps(), ...deadDeps() };
+    const result = runProcSweep(deps, {
+      yes: true,
+      slug: "no-rows-yes-slug",
+      baseDir,
+    });
+    expect(result.slugs[0].compacted).toBeUndefined();
   });
 
   it("the sweep-level deadline is threaded down as each slug's remaining registryDeadlineMs, and an exhausted budget marks later slugs skipped:'deadline-exceeded' rather than dropping them", () => {
@@ -288,6 +317,29 @@ describe("runProcSweep", () => {
     });
     expect(result.slugs[0].classified).toHaveLength(1);
     expect(result.slugs[0].classified[0].row.pid).toBe(500);
+  });
+
+  it("propagates readRows' malformed count through to each slug's reap.malformed", () => {
+    appendRow(
+      makeRow({ pid: 500, pgid: 500, slug: "malformed-slug" }),
+      baseDir,
+    );
+    // A hand-corrupted line alongside the one valid row above — readRows
+    // (bin/lib/proc-registry.ts) skips it and counts it as `malformed`
+    // rather than throwing; this asserts that count survives the
+    // readRows -> readRows-override -> runRegistryReap round trip inside
+    // runProcSweep, not just at the proc-registry layer.
+    fs.appendFileSync(
+      registryPath("malformed-slug", baseDir),
+      "{ this is not valid json\n",
+    );
+    const deps = { ...fakeReapDeps(), ...deadDeps() };
+    const result = runProcSweep(deps, {
+      yes: false,
+      slug: "malformed-slug",
+      baseDir,
+    });
+    expect(result.slugs[0].reap.malformed).toBe(1);
   });
 
   it("DEFAULT_SWEEP_DEADLINE_MS is 60 seconds", () => {
