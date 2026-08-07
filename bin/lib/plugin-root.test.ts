@@ -13,8 +13,8 @@ import {
   ensurePluginRoot,
   isFlowOwnedPluginRoot,
   pluginDirArgs,
-  pluginPathPrefix,
-  prefixedPath,
+  pluginBinPath,
+  withPluginPath,
   removePluginRoot,
   scanPluginRoots,
 } from "./plugin-root";
@@ -349,7 +349,7 @@ describe(pluginDirArgs, () => {
   });
 });
 
-describe(pluginPathPrefix, () => {
+describe(pluginBinPath, () => {
   it("skips roots whose bin/ does not exist and emits no leading/trailing colon", () => {
     const withBin = root("flow-module-research");
     ensurePluginRoot({
@@ -369,37 +369,77 @@ describe(pluginPathPrefix, () => {
       includeSkills: false,
       force: false,
     });
-    const prefix = pluginPathPrefix([withoutBin, withBin]);
+    const prefix = pluginBinPath([withoutBin, withBin]);
     expect(prefix).toBe(path.join(withBin, "bin"));
     expect(prefix.startsWith(":")).toBe(false);
     expect(prefix.endsWith(":")).toBe(false);
   });
 });
 
-describe(prefixedPath, () => {
-  it("never emits a trailing colon when the current PATH is empty", () => {
-    expect(prefixedPath("/roots/flow-module-core/bin", "")).toBe(
+describe(withPluginPath, () => {
+  it("never emits a leading colon when the current PATH is empty", () => {
+    expect(withPluginPath("/roots/flow-module-core/bin", "")).toBe(
       "/roots/flow-module-core/bin",
     );
   });
 
-  it("returns undefined (no PATH override) when the prefix is empty", () => {
-    expect(prefixedPath("", "/usr/bin:/bin")).toBeUndefined();
-    expect(prefixedPath("", "")).toBeUndefined();
+  it("returns undefined (no PATH override) when the plugin path is empty", () => {
+    expect(withPluginPath("", "/usr/bin:/bin")).toBeUndefined();
+    expect(withPluginPath("", "")).toBeUndefined();
   });
 
-  it("joins prefix and current PATH with exactly one colon when both are non-empty", () => {
-    expect(prefixedPath("/roots/flow-module-core/bin", "/usr/bin")).toBe(
-      "/roots/flow-module-core/bin:/usr/bin",
+  it("appends the plugin path after the current PATH with exactly one colon when both are non-empty", () => {
+    expect(withPluginPath("/roots/flow-module-core/bin", "/usr/bin")).toBe(
+      "/usr/bin:/roots/flow-module-core/bin",
     );
   });
 
-  it("returns undefined (no double-prepend) when the current PATH already starts with prefix", () => {
+  it("returns undefined (no double-append) when the current PATH already ends with the plugin path", () => {
     expect(
-      prefixedPath(
+      withPluginPath(
         "/roots/flow-module-core/bin",
-        "/roots/flow-module-core/bin:/usr/bin",
+        "/usr/bin:/roots/flow-module-core/bin",
       ),
     ).toBeUndefined();
+  });
+
+  it("returns undefined when the plugin path segment is already present in the MIDDLE of the current PATH (per-segment guard, not a whole-string startsWith)", () => {
+    expect(
+      withPluginPath(
+        "/roots/flow-module-core/bin",
+        "/usr/bin:/roots/flow-module-core/bin:/bin",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("appends only the missing segment when one of two plugin-path segments is already present", () => {
+    expect(
+      withPluginPath(
+        "/roots/flow-module-a/bin:/roots/flow-module-b/bin",
+        "/usr/bin:/roots/flow-module-a/bin",
+      ),
+    ).toBe("/usr/bin:/roots/flow-module-a/bin:/roots/flow-module-b/bin");
+  });
+
+  it("returns the plugin path alone with no leading or trailing colon when the current PATH is empty", () => {
+    expect(
+      withPluginPath("/roots/flow-module-a/bin:/roots/flow-module-b/bin", ""),
+    ).toBe("/roots/flow-module-a/bin:/roots/flow-module-b/bin");
+  });
+
+  it("preserves a pre-existing empty segment (trailing colon) in currentPath rather than collapsing it", () => {
+    // currentPath already carries a trailing `:` (an empty PATH segment,
+    // POSIX-legal and meaning "current working directory"). The function
+    // must neither strip it nor treat it as a plugin-path segment to dedupe
+    // against — it just appends after the existing string verbatim.
+    expect(withPluginPath("/roots/flow-module-core/bin", "/usr/bin:")).toBe(
+      "/usr/bin::/roots/flow-module-core/bin",
+    );
+  });
+
+  it("preserves a pre-existing '::' (double-colon / empty-segment pair) in currentPath", () => {
+    expect(
+      withPluginPath("/roots/flow-module-core/bin", "/usr/bin::/bin"),
+    ).toBe("/usr/bin::/bin:/roots/flow-module-core/bin");
   });
 });

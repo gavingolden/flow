@@ -486,7 +486,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
         "env",
         "FLOW_PIPELINE=1",
         "FLOW_SLUG=design-thing",
-        `PATH=${path.join(root, "bin")}:${process.env.PATH ?? ""}`,
+        `PATH=${process.env.PATH ?? ""}:${path.join(root, "bin")}`,
         "claude",
         "--add-dir",
         worktree,

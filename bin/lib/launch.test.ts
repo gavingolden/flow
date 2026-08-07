@@ -140,7 +140,7 @@ describe("runLaunchCli", () => {
     expect(process.env.PATH).toBe("/usr/bin:/bin");
   });
 
-  it("with two materialized roots, the argv carries exactly two --plugin-dir pairs in scan order, and PATH is prefixed with both bin dirs", () => {
+  it("with two materialized roots, the argv carries exactly two --plugin-dir pairs in scan order, and PATH is appended with both bin dirs", () => {
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "flow-launch-"));
     try {
       const claudeHome = path.join(scratch, "claude-home");
@@ -183,14 +183,14 @@ describe("runLaunchCli", () => {
         ],
       ]);
       expect(process.env.PATH).toBe(
-        `${path.join(rootA, "bin")}:${path.join(rootB, "bin")}:/usr/bin:/bin`,
+        `/usr/bin:/bin:${path.join(rootA, "bin")}:${path.join(rootB, "bin")}`,
       );
     } finally {
       fs.rmSync(scratch, { recursive: true, force: true });
     }
   });
 
-  it("does not double-prepend the plugin PATH prefix when it is already leading", () => {
+  it("does not double-append the plugin PATH segment when it is already present (per-segment guard)", () => {
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "flow-launch-"));
     try {
       const claudeHome = path.join(scratch, "claude-home");
@@ -204,15 +204,17 @@ describe("runLaunchCli", () => {
         includeSkills: false,
         force: false,
       });
-      const prefix = path.join(root, "bin");
-      process.env.PATH = `${prefix}:/usr/bin:/bin`;
+      const binDir = path.join(root, "bin");
+      // Segment sits in the MIDDLE of PATH, not at a boundary — exercises the
+      // per-segment guard rather than a whole-string prefix/suffix check.
+      process.env.PATH = `/usr/bin:${binDir}:/bin`;
       runLaunchCli({
         isTTY: true,
         claudeHome,
         existsDir: () => true,
         spawn: () => 0,
       });
-      expect(process.env.PATH).toBe(`${prefix}:/usr/bin:/bin`);
+      expect(process.env.PATH).toBe(`/usr/bin:${binDir}:/bin`);
     } finally {
       fs.rmSync(scratch, { recursive: true, force: true });
     }

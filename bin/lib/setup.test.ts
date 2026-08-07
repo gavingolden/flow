@@ -1719,7 +1719,7 @@ describe("flow install", () => {
       buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
       const { logs } = await setupLogged({});
       const joined = logs.join("\n");
-      expect(joined).not.toMatch(/symlink drift issue/);
+      expect(joined).not.toMatch(/install drift issue/);
     });
 
     it("under-delivery: a stubbed drifted checkDrift result surfaces its notice on the same dimmed channel as printInactiveModules", async () => {
@@ -1737,7 +1737,7 @@ describe("flow install", () => {
         }),
       });
       const joined = logs.join("\n");
-      expect(joined).toMatch(/symlink drift issue/);
+      expect(joined).toMatch(/install drift issue/);
       expect(joined).toMatch(/1 dangling/);
       expect(joined).toMatch(/flow install --upgrade/);
     });

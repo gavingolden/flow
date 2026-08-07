@@ -57,6 +57,14 @@ function run(opts: Partial<InstallDriftOptions>) {
     flowSource: "/flow-source",
     installRoot: "/flow-source",
     manifestPath: "/unused",
+    // Default the plugin-root scan seam to empty: `targets` is never
+    // passed by this helper, so `targets.skillsDir` falls through to
+    // `DEFAULT_TARGETS.skillsDir` — the developer's REAL
+    // `~/.flow/claude-home/.claude/skills` — and this file's header
+    // invariant is that no test here reads or writes the real `~/.flow`.
+    // Placed BEFORE `...opts` so an individual test can still override it
+    // with an explicit scratch seam.
+    scanPluginRoots: () => [],
     ...opts,
   });
 }
@@ -338,6 +346,157 @@ describe(checkInstallDrift, () => {
     });
   });
 
+  it("reports one 'unexpected' entry for a flow-owned root with an extra child", () => {
+    const dir = makeScratch();
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(root, { recursive: true });
+    fs.mkdirSync(path.join(root, "hooks"));
+
+    const result = run({
+      readManifest: () => manifest([]),
+      discover: () => [],
+      scanPluginRoots: () => [root],
+    });
+    expect(result).toEqual({
+      status: "drifted",
+      entries: [
+        {
+          kind: "unexpected",
+          displayName: "flow-module-copilot",
+          target: root,
+          detail: "hooks",
+        },
+      ],
+    });
+  });
+
+  it("reports one 'unexpected' entry for a flow-owned root with an extra child ALONGSIDE a non-empty manifest (accumulation path, not the manifest.symlinks.length===0 early return)", () => {
+    const dir = makeScratch();
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(root, { recursive: true });
+    fs.mkdirSync(path.join(root, "hooks"));
+    const source = path.join(dir, "source.txt");
+    fs.writeFileSync(source, "content");
+    const target = path.join(dir, "target-link");
+    fs.symlinkSync(source, target);
+
+    const result = run({
+      readManifest: () => manifest([record({ target })]),
+      discover: () => [entry({ source, target })],
+      scanPluginRoots: () => [root],
+    });
+    expect(result).toEqual({
+      status: "drifted",
+      entries: [
+        {
+          kind: "unexpected",
+          displayName: "flow-module-copilot",
+          target: root,
+          detail: "hooks",
+        },
+      ],
+    });
+  });
+
+  it("reports one 'dangling' entry (not 'unexpected') for a dangling bin/ symlink inside a flow-owned root", () => {
+    const dir = makeScratch();
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    fs.symlinkSync(
+      path.join(dir, "does-not-exist.ts"),
+      path.join(root, "bin", "flow-dangling"),
+    );
+
+    const result = run({
+      readManifest: () => manifest([]),
+      discover: () => [],
+      scanPluginRoots: () => [root],
+    });
+    expect(result).toEqual({
+      status: "drifted",
+      entries: [
+        {
+          kind: "dangling",
+          displayName: "flow-module-copilot",
+          target: root,
+          detail: path.join("bin", "flow-dangling"),
+        },
+      ],
+    });
+  });
+
+  it("reports clean for a plugin root with no unexpected children", () => {
+    const dir = makeScratch();
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+
+    const result = run({
+      readManifest: () => manifest([]),
+      discover: () => [],
+      scanPluginRoots: () => [root],
+    });
+    expect(result).toEqual({ status: "clean" });
+  });
+
+  it("scanPluginRoots returning [] (a deselected module's absent root) reports no entry of any kind", () => {
+    const dir = makeScratch();
+    const source = path.join(dir, "source.txt");
+    fs.writeFileSync(source, "content");
+    const target = path.join(dir, "target-link");
+    fs.symlinkSync(source, target);
+
+    const result = run({
+      readManifest: () => manifest([record({ target })]),
+      discover: () => [entry({ source, target })],
+      scanPluginRoots: () => [],
+    });
+    expect(result).toEqual({ status: "clean" });
+  });
+
+  it("collapses a throwing scanPluginRoots to a clean (no-drift) result — never throws", () => {
+    expect(() =>
+      run({
+        readManifest: () => manifest([]),
+        discover: () => [],
+        scanPluginRoots: () => {
+          throw new Error("boom");
+        },
+      }),
+    ).not.toThrow();
+    const result = run({
+      readManifest: () => manifest([]),
+      discover: () => [],
+      scanPluginRoots: () => {
+        throw new Error("boom");
+      },
+    });
+    expect(result).toEqual({ status: "clean" });
+  });
+
+  it("PLACEMENT REGRESSION GUARD: an empty manifest plus a junk-filled orphaned plugin root still reports drift", () => {
+    const dir = makeScratch();
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(path.join(root, ".mcp.json"), "{}");
+
+    const result = run({
+      readManifest: () => manifest([]),
+      discover: () => [entry()],
+      scanPluginRoots: () => [root],
+    });
+    expect(result.status).toBe("drifted");
+    if (result.status === "drifted") {
+      expect(result.entries).toEqual([
+        {
+          kind: "unexpected",
+          displayName: "flow-module-copilot",
+          target: root,
+          detail: ".mcp.json",
+        },
+      ]);
+    }
+  });
+
   it("reports multiple drift entries across kinds in one result", () => {
     const dir = makeScratch();
     const missingTarget = path.join(dir, "missing-target");
@@ -393,9 +552,65 @@ describe(formatDriftNotice, () => {
         { kind: "stale", displayName: "c", target: "/t/c" },
       ],
     });
-    expect(notice).toContain("3 symlink drift issues");
+    expect(notice).toContain("3 install drift issues");
     expect(notice).toContain("2 missing");
     expect(notice).toContain("1 stale");
     expect(notice).toContain("flow install --upgrade");
+  });
+
+  it("omits the hand-removal clause when every entry is a symlink kind", () => {
+    const notice = formatDriftNotice({
+      status: "drifted",
+      entries: [{ kind: "stale", displayName: "c", target: "/t/c" }],
+    });
+    expect(notice).toContain("flow install --upgrade");
+    expect(notice).not.toContain("removed by hand");
+  });
+
+  it("includes the hand-removal clause when an 'unexpected' entry is present", () => {
+    const notice = formatDriftNotice({
+      status: "drifted",
+      entries: [
+        {
+          kind: "unexpected",
+          displayName: "flow-module-copilot",
+          target: "/roots/flow-module-copilot",
+          detail: "hooks",
+        },
+      ],
+    });
+    expect(notice).toContain("1 unexpected");
+    expect(notice).toContain("flow install --upgrade");
+    expect(notice).toContain("removed by hand");
+  });
+
+  it("names each unexpected entry as '<displayName> → <detail>'", () => {
+    const notice = formatDriftNotice({
+      status: "drifted",
+      entries: [
+        {
+          kind: "unexpected",
+          displayName: "flow-module-copilot",
+          target: "/roots/flow-module-copilot",
+          detail: "hooks",
+        },
+      ],
+    });
+    expect(notice).toContain("flow-module-copilot → hooks");
+  });
+
+  it("caps the enumeration and appends a '(+N more)' tail beyond the cap", () => {
+    const entries = Array.from({ length: 5 }, (_, i) => ({
+      kind: "unexpected" as const,
+      displayName: `flow-module-${i}`,
+      target: `/roots/flow-module-${i}`,
+      detail: `hooks-${i}`,
+    }));
+    const notice = formatDriftNotice({ status: "drifted", entries });
+    expect(notice).toContain("flow-module-0 → hooks-0");
+    expect(notice).toContain("flow-module-1 → hooks-1");
+    expect(notice).toContain("flow-module-2 → hooks-2");
+    expect(notice).not.toContain("flow-module-3 → hooks-3");
+    expect(notice).toContain("(+2 more)");
   });
 });

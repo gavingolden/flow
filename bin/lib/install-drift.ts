@@ -45,13 +45,21 @@ import {
   type SourceEntry,
 } from "./sources";
 import { isRegistryKnownArtifact } from "./modules";
+import { scanPluginRoots as scanPluginRootsReal } from "./plugin-root";
+import { unexpectedPluginRootEntries } from "./plugin-root-audit";
 
-export type DriftKind = "missing" | "dangling" | "stale";
+export type DriftKind = "missing" | "dangling" | "stale" | "unexpected";
 
 export type DriftEntry = {
   kind: DriftKind;
   displayName: string;
   target: string;
+  /** Set on the plugin-root-audit-derived kinds ("unexpected" and the
+   * dangling-`bin/`-symlink flavor of "dangling") — the offending path
+   * relative to the plugin root. Absent on the manifest-symlink-derived
+   * kinds ("missing"/"stale"/the rest of "dangling"), which have no
+   * plugin-root-relative path to report. */
+  detail?: string;
 };
 
 export type InstallDriftResult =
@@ -73,6 +81,11 @@ export type InstallDriftOptions = {
     installRoot: string,
     targets?: InstallTargets,
   ) => SourceEntry[];
+  /** Plugin-root scanner seam, mirroring `discover`'s injection discipline:
+   * defaults to the real `scanPluginRoots`, tests override so a fixture
+   * never scans the developer's real `~/.flow/claude-home`. MUST stay
+   * synchronous, same as `discover`. */
+  scanPluginRoots?: (skillsDir: string) => string[];
 };
 
 /** `fs.readlinkSync`, returning `null` instead of throwing on any error
@@ -95,17 +108,49 @@ export function checkInstallDrift(
     const discover = opts.discover ?? discoverAll;
     const readManifestFn = opts.readManifest ?? readManifestFile;
     const manifestPath = opts.manifestPath ?? FLOW_MANIFEST;
+    const scanPluginRoots = opts.scanPluginRoots ?? scanPluginRootsReal;
+
+    const entries: DriftEntry[] = [];
+
+    // ADDITIVE plugin pass, run BEFORE the manifest-symlinks early return
+    // below — this scan is manifest-INDEPENDENT by design (mirroring
+    // `scanPluginRoots`'s own OQ-7 manifest-independent discovery), so it
+    // must never be short-circuited by an empty manifest. Placement here is
+    // load-bearing: a machine with an empty manifest and a junk-filled
+    // orphaned plugin root must still report that drift, not report clean.
+    for (const root of scanPluginRoots(targets.skillsDir)) {
+      for (const issue of unexpectedPluginRootEntries(root)) {
+        // A dangling `bin/` symlink is genuinely repaired by
+        // `flow install --upgrade` (see `classifyBinEntry` in
+        // `plugin-root-audit.ts`), so it gets the "dangling" kind and that
+        // kind's self-healing remediation — not "unexpected", which routes
+        // to the hand-removal remediation reserved for real, non-symlink
+        // files the prune loop never touches.
+        entries.push({
+          kind:
+            issue.reason === "dangling-bin-symlink" ? "dangling" : "unexpected",
+          displayName: path.basename(root),
+          target: root,
+          detail: issue.relPath,
+        });
+      }
+    }
 
     const manifest = readManifestFn(manifestPath);
     if (manifest.symlinks.length === 0) {
       // Nothing recorded yet (fresh machine, or a genuinely empty install)
-      // — nothing to compare against, so there is no drift to report.
-      return { status: "clean" };
+      // — nothing to compare the SYMLINK-drift kinds against, but the
+      // plugin-root pass above is independent of the manifest, so its
+      // findings (if any) still count.
+      return entries.length > 0
+        ? { status: "drifted", entries }
+        : { status: "clean" };
     }
     const manifestTargets = new Set(manifest.symlinks.map((r) => r.target));
 
-    // Plugin roots are gated out of THIS discovery-output filter, not just
-    // the manifest — the in-scope filter below is
+    // Plugin roots are STILL gated out of THIS discovery-output filter, not
+    // just the manifest — that discovery-side skip stays correct on its own
+    // terms: the in-scope filter below is
     // `manifestTargets.has(e.target) || !isRegistryKnownArtifact(e.displayName)`,
     // and `moduleForArtifactName('flow-module-core')` (and every other root
     // name) returns undefined, so `isRegistryKnownArtifact` is false and
@@ -116,7 +161,10 @@ export function checkInstallDrift(
     // `readlink` on a real directory throws, `readSymlinkSafe` returns
     // `null`, and `fs.existsSync(entry.target)` is true, so it never reports
     // "missing" either way. The real hazard this filter prevents is the
-    // false-`missing` report for a DESELECTED module's root.)
+    // false-`missing` report for a DESELECTED module's root.) A root's
+    // CONTENTS drift is not left uncovered by this skip — that's the
+    // `unexpectedPluginRootEntries` pass above, which runs independently of
+    // both the manifest and this `discoverAll` output.
     const discovered = discover(flowSource, installRoot, targets).filter(
       (e) => e.kind !== "plugin",
     );
@@ -126,7 +174,6 @@ export function checkInstallDrift(
         !isRegistryKnownArtifact(e.displayName),
     );
 
-    const entries: DriftEntry[] = [];
     for (const entry of inScope) {
       const link = readSymlinkSafe(entry.target);
       if (link === null) {
@@ -200,16 +247,47 @@ export function checkInstallDrift(
   }
 }
 
+/** Cap on how many `unexpected` entries `formatDriftNotice` names inline —
+ * the notice is a one-line dimmed message on an interactive path, so an
+ * unbounded enumeration would blow past that budget on a badly-drifted
+ * root; name the first few and fold the rest into a `(+N more)` tail. */
+const MAX_ENUMERATED_UNEXPECTED = 3;
+
 /** Formats a one-line, dimmed-by-caller drift notice, or `null` when clean.
  * Mirrors `update-check.ts`'s `formatUpdateNotice` shape. */
 export function formatDriftNotice(result: InstallDriftResult): string | null {
   if (result.status !== "drifted") return null;
-  const byKind = { missing: 0, dangling: 0, stale: 0 };
+  const byKind = { missing: 0, dangling: 0, stale: 0, unexpected: 0 };
   for (const e of result.entries) byKind[e.kind]++;
-  const parts = (["missing", "dangling", "stale"] as const)
+  const parts = (["missing", "dangling", "stale", "unexpected"] as const)
     .filter((k) => byKind[k] > 0)
     .map((k) => `${byKind[k]} ${k}`);
-  return `flow: ${result.entries.length} symlink drift issue${
+  // Two remediation branches, not three: `flow install --upgrade` repairs
+  // every symlink kind unconditionally (it's a no-op when there is nothing
+  // to repair), while an `unexpected` entry — a real file or directory
+  // inside a flow-managed plugin root — must be removed by hand (flow never
+  // deletes a real file it did not write). Unlike the other three kinds,
+  // `unexpected` has no automated remedy, so it's the one kind that must
+  // NAME the offending entries rather than report an anonymous count —
+  // otherwise the user is told to hand-remove a file the tool refuses to
+  // name.
+  const repair = "run `flow install --upgrade` to repair";
+  const unexpectedEntries = result.entries.filter(
+    (e) => e.kind === "unexpected" && e.detail,
+  );
+  let handRemoval = "";
+  if (byKind.unexpected > 0) {
+    const named = unexpectedEntries
+      .slice(0, MAX_ENUMERATED_UNEXPECTED)
+      .map((e) => `${e.displayName} → ${e.detail}`);
+    const remaining = unexpectedEntries.length - named.length;
+    const list =
+      named.join(", ") + (remaining > 0 ? ` (+${remaining} more)` : "");
+    handRemoval = list
+      ? `; must be removed by hand: ${list}`
+      : "; unexpected entries inside a flow-managed plugin root must be removed by hand";
+  }
+  return `flow: ${result.entries.length} install drift issue${
     result.entries.length === 1 ? "" : "s"
-  } (${parts.join(", ")}) — run \`flow install --upgrade\` to repair`;
+  } (${parts.join(", ")}) — ${repair}${handRemoval}`;
 }

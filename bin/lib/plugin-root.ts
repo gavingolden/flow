@@ -92,7 +92,7 @@ export function pluginDirArgs(roots: readonly string[]): string[] {
   return roots.flatMap((root) => ["--plugin-dir", root]);
 }
 
-export function pluginPathPrefix(roots: readonly string[]): string {
+export function pluginBinPath(roots: readonly string[]): string {
   return roots
     .map((root) => path.join(root, "bin"))
     .filter(existsDir)
@@ -100,23 +100,36 @@ export function pluginPathPrefix(roots: readonly string[]): string {
 }
 
 /**
- * Composes a plugin-root PATH prefix with the current PATH, guarding both
+ * Composes a plugin-root PATH suffix with the current PATH, guarding both
  * hazards that four independent call sites (`launch.ts`, `launcher.ts`,
  * `feature.ts`, `epic.ts`) used to reimplement by hand and disagreed on:
- * (1) an empty `currentPath` must never produce a trailing `${prefix}:` —
- * POSIX reads a trailing/leading empty PATH segment as the current working
- * directory; (2) a `currentPath` that already starts with `prefix` (a flow
- * session shelling out to another `flow feature create` / `flow epic
- * create`) must never double-prepend. Returns `undefined` when `prefix` is
- * empty (no materialized roots have a `bin/`), so callers can omit the PATH
- * override entirely rather than reason about an empty string.
+ * (1) an empty `currentPath` must never produce a leading/trailing `:` —
+ * POSIX reads a leading/trailing empty PATH segment as the current working
+ * directory; (2) each segment of `pluginPath` already present ANYWHERE in
+ * `currentPath` (a flow session shelling out to another `flow feature
+ * create` / `flow epic create`, or a plugin root's `bin/` already sitting
+ * earlier on PATH) must never be appended a second time — a per-segment
+ * `Set` membership check, not a whole-string `startsWith`/`endsWith`
+ * guard, since either of those is order-dependent and misses a duplicate
+ * that isn't at the exact boundary being checked. `pluginPath`'s entries
+ * are APPENDED to the end of `currentPath` (never prepended), so a
+ * flow-managed plugin `bin/` can never shadow an earlier PATH entry.
+ * Returns `undefined` when there is nothing left to append (either
+ * `pluginPath` is empty, or every one of its segments is already present),
+ * so callers can omit the PATH override entirely rather than reason about
+ * an unchanged string.
  */
-export function prefixedPath(
-  prefix: string,
+export function withPluginPath(
+  pluginPath: string,
   currentPath: string,
 ): string | undefined {
-  if (!prefix || currentPath.startsWith(prefix)) return undefined;
-  return currentPath ? `${prefix}:${currentPath}` : prefix;
+  if (!pluginPath) return undefined;
+  const present = new Set(currentPath.split(":"));
+  const missing = pluginPath.split(":").filter((seg) => !present.has(seg));
+  if (missing.length === 0) return undefined;
+  return currentPath
+    ? `${currentPath}:${missing.join(":")}`
+    : missing.join(":");
 }
 
 /**

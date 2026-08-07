@@ -959,8 +959,8 @@ describe("runNew (fresh)", () => {
       "FLOW_PIPELINE=1",
       "FLOW_SLUG=csv-export",
       // PATH= entry is omitted here — neither fake root's bin/ exists on
-      // disk, so pluginPathPrefix filters both out (see the sibling test
-      // below for the non-empty-prefix case).
+      // disk, so pluginBinPath filters both out (see the sibling test
+      // below for the non-empty-plugin-path case).
       "claude",
       "--add-dir",
       worktree,
@@ -975,7 +975,7 @@ describe("runNew (fresh)", () => {
     ]);
   });
 
-  it("the tmux env prefix carries PATH= only when the plugin PATH prefix is non-empty (a root whose bin/ exists on disk)", () => {
+  it("the tmux env prefix carries PATH= only when the plugin bin path is non-empty (a root whose bin/ exists on disk)", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
     const settingsPath = path.join(stateDir, "launch-settings.json");
@@ -992,7 +992,7 @@ describe("runNew (fresh)", () => {
       expect(code).toBe(0);
       const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
       expect(command).toContain(
-        `PATH=${path.join(root, "bin")}:${process.env.PATH ?? ""}`,
+        `PATH=${process.env.PATH ?? ""}:${path.join(root, "bin")}`,
       );
       expect(command).toContain("--plugin-dir");
       expect(command).toContain(root);

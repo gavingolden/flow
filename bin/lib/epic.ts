@@ -43,8 +43,8 @@ import {
 } from "./paths";
 import {
   pluginDirArgs,
-  pluginPathPrefix,
-  prefixedPath,
+  pluginBinPath,
+  withPluginPath,
   scanPluginRoots,
 } from "./plugin-root";
 import { slugify } from "./slug";
@@ -1794,8 +1794,8 @@ function launchArgv(
   ];
   const withModel = model ? [...base, "--model", model] : base;
   const withEffort = effort ? [...withModel, "--effort", effort] : withModel;
-  const pathPrefix = pluginPathPrefix(roots);
-  const nextPath = prefixedPath(pathPrefix, process.env.PATH ?? "");
+  const pluginPath = pluginBinPath(roots);
+  const nextPath = withPluginPath(pluginPath, process.env.PATH ?? "");
   return [
     "env",
     "FLOW_PIPELINE=1",

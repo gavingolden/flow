@@ -103,9 +103,9 @@ describe("plainLaunch", () => {
     expect(readState("my-feature", stateDir)).not.toBeNull();
   });
 
-  it("prefixes the spawned child's PATH with materialized plugin-root bin dirs (Decision B0, plain backend)", async () => {
+  it("appends materialized plugin-root bin dirs to the spawned child's PATH (Decision B0, plain backend)", async () => {
     seedState();
-    // pluginPathPrefix only counts a root whose bin/ actually exists on
+    // pluginBinPath only counts a root whose bin/ actually exists on
     // disk, so this fixture needs a real directory, not a bare string.
     const root = path.join(stateDir, "flow-module-core");
     fs.mkdirSync(path.join(root, "bin"), { recursive: true });
@@ -126,7 +126,7 @@ describe("plainLaunch", () => {
       },
     );
     expect(calls[0]!.env.PATH).toBe(
-      `${path.join(root, "bin")}:${process.env.PATH ?? ""}`,
+      `${process.env.PATH ?? ""}:${path.join(root, "bin")}`,
     );
     release(0);
   });
