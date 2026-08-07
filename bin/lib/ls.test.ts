@@ -235,8 +235,8 @@ describe("buildRows — liveness annotation ('(crashed)')", () => {
   // fixture in THIS block pins an explicit "verifying" phase rather than
   // relying on state()'s default. This assertion instead guards the
   // fixtures elsewhere that DO rely on state()'s default phase and assume
-  // it stays non-terminal: describe(buildRows) at line ~69, the
-  // waitForCopilot block at line ~419, and the footer test at line ~772.
+  // it stays non-terminal: the top-level describe("buildRows") block, the
+  // waitForCopilot block, and the orphan-recovery footnote block.
   // If "starting" (state()'s default phase) is ever changed to a terminal
   // value, those blocks would silently stop exercising the liveness path
   // they claim to cover.
