@@ -145,7 +145,9 @@ purpose — they are not meant to be unified.
 Review-time-scoped per-hunk rationale from `/flow-new-feature` Step 5b as
 inline PR-diff comments (`**why:** <1-2 sentences>` + `<!--
 flow-intent-v1 -->` suffix, disjoint from `/flow-pr-review`'s Conventional
-Comments vocab). Not in `git log`/`git blame` post-merge — durable
+Comments vocab; a fix-shaped hunk states the causal pair — what was wrong
+and why this edit fixes it — within the same cap). Not in `git
+log`/`git blame` post-merge — durable
 rationale belongs in commit-body Why-sections + PR body's `## Why`, with
 the exception of surplus (capped-out) hunks: those are pointed at the
 commit messages via an `overflowNote` callout appended to the END of the

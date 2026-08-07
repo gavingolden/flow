@@ -1,7 +1,10 @@
 ## Why
 
 <!-- Problem statement: what motivated this change. 1-3 sentences. Avoid solution
-language ("by adding X", "through implementing Y") — focus on the user's pain point. -->
+language ("by adding X", "through implementing Y") — focus on the user's pain point.
+Fix-shaped PR (fixes an observed defect, or the branch's dominant commit type is
+`fix:`): lead with `**Failing:**` naming the observed failure and `**Root cause:**`
+naming why it happened, before the motivating sentences. -->
 
 ## What
 
@@ -10,8 +13,10 @@ Each bullet should be verifiable against the diff. -->
 
 ## Key decisions
 
-<!-- Non-obvious choices and their rationale. Each bullet: the decision + why. Skip
-obvious choices — only include where a reasonable alternative existed. -->
+<!-- Non-obvious choices and their rationale. Fix-shaped PR: the FIRST bullet is
+`**Fix mechanism:** <why the change eliminates the root cause>`. Each bullet: the
+decision + why. Skip obvious choices — only include where a reasonable alternative
+existed. -->
 
 ## User-facing changes
 
@@ -20,6 +25,17 @@ implementation terms ("added X to the renderer"). For renames or removals use
 `Before → After` bullets. If the PR is pure-internal (refactor, infra, no
 user-observable delta), write the literal word `none` here — never delete the
 heading. -->
+
+<!-- System flow changes: only on a cross-component PR where behavior moved at
+the system/consumer level. Unlike User-facing changes above, this heading is
+conditional — omit it entirely (leave this whole comment in place, unedited)
+when nothing moved; there is no `none` affirmation for this section. When
+applicable, replace this comment with the live heading and Before → After
+bullets:
+
+## System flow changes
+
+<Before → After bullets> -->
 
 ## Test Steps
 
@@ -46,6 +62,11 @@ shell command (`npm run verify`, `test -f <path>`, `grep -q <pattern> <file>`,
 skill can run it and tick the box. Manual prose is the fallback, reserved for
 genuinely manual scenarios (subjective UX, production-only integrations,
 cross-browser rendering, performance under realistic load).
+
+On a fix-shaped PR, include at least one item that names a specific runnable
+regression check (a test file, a fixture, or a reproducible command) that
+failed before the fix and passes after it — not just a generic "tests pass"
+bullet.
 
 When you keep this section, paste the authoring-rubric marker between the
 heading and the first `- [ ]` item so the rubric travels with the body:

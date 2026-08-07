@@ -1299,6 +1299,8 @@ have to read commit-by-commit to reconstruct intent. Conversely, if commit bodie
 uniformly one-liners on a non-trivial PR, note it as a `suggestion` that future commits
 should capture rationale inline (per `AGENTS.md` Committing rules).
 
+**Fix-shaped completeness.** On a fix-shaped PR (the pipeline exists to fix an observed defect, or the branch's dominant commit type is `fix:`) missing the `**Failing:**` / `**Root cause:**` pair in `## Why` or the `**Fix mechanism:**` lead bullet in `## Key decisions`, or a cross-component PR missing a `## System flow changes` section where behavior visibly moved at the system/consumer level, flag each gap as a `suggestion`-severity description finding naming the specific missing line(s) — the full contract (the fix-shaped gate, the exact wording, and the section's omit-when-empty rule) is authored at `skills/pipeline/flow-new-feature/references/pr-description-authoring.md` and deliberately replicated verbatim across the sibling prose sites (a docs-sync lint in `bin/skill-md-lint.test.ts` guards drift); do not restate the rule body here, route the finding through the existing Step 11e draft/edit path.
+
 **Proactive verification.** Before drafting or editing any factual claim into the PR body — a cited commit SHA, a line number, a referenced file path, a version string, an exemption count, an `--help` flag, a cross-referenced PR number, a cross-referenced issue number — verify the value live against its source (`Read` the file, `git rev-parse <ref>`, `gh pr view <n> --json title,state,mergedAt` for a PR, `gh issue view <n> --json title,state` for a plain issue, `grep -cE '<anchored>'`, `<verb> --help`). The PR and issue lookups are distinct surfaces: `gh pr view` against an issue number fails or surfaces the wrong record. This is the proactive counterpart to Step 11d's Accuracy Sync — 11d catches drift *after* the description has been written; this catches it at the moment of emission. The canonical rule body, the full trigger-category list, anti-patterns, and per-category verification recipes live in `AGENTS.md` under the 'Verify factual claims before emitting them.' rule (the bolded rule prefix is the stable anchor; section structure can differ between flow's own `AGENTS.md` and a consumer repo initialised from `templates/AGENTS.md.template`). Line numbers themselves are a trigger category, so anchor by rule name rather than by line.
 
 ### 11a. Structure Check
@@ -1308,7 +1310,7 @@ Check whether the PR description follows the standardized format with these sect
 - **Why** — problem statement and motivation
 - **What** — deliverables as capabilities/behaviors
 - **Key decisions** — non-obvious choices with rationale
-- **User-facing changes** — concrete user-observable deltas (or the literal `none` for pure-internal PRs)
+- **User-facing changes** — concrete user-observable deltas (or the literal `none` for pure-internal PRs) — and a conditional `## System flow changes` section may follow it on cross-component PRs (omitted when nothing moved)
 - **Test Steps** — verification steps for reviewers, automated and manual (also the auto-merge gate signal: zero unchecked `- [ ]` items ⇒ auto-merge, one or more ⇒ gated)
 
 **If the description is empty or missing**: Draft one from the diff and PR title using the
