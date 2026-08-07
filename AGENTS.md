@@ -394,3 +394,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
     GitHub/git truth. Zero named fan-out: **no** Task/Agent sub-agent,
     **no** `AskUserQuestion` form. `gated ⇒ escalate-only`, never merges
     a feature PR.
+  - **`/flow-backlog-triage` is a separate sanctioned standalone
+    session,** so `/flow-pipeline`'s exactly-9 and one-form rule are
+    unaffected by its one named surface: One Task-tool fan-out (Phase-1
+    verification via `flow-backlog-verifier`), zero `AskUserQuestion`
+    forms; contract in `skills/universal/flow-backlog-triage/SKILL.md`.

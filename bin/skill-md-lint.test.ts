@@ -1167,9 +1167,31 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * grounds as the two precedents above (a small documented raise over
    * trimming load-bearing prose). The file remains far below Claude
    * Code's 40k per-session warning.
+   * Raised once more from 24_600 to 24_700 to fund the
+   * `/flow-backlog-triage` separate-sanctioned-standalone-session bullet
+   * (one Task-tool fan-out for Phase-1 verification, zero
+   * `AskUserQuestion` forms), whose full contract is offloaded to
+   * `skills/universal/flow-backlog-triage/SKILL.md` so only the lean
+   * pointer bullet costs bytes here. Measured this bullet's chars via
+   * `wc -m AGENTS.md` (code units, NOT `wc -c` bytes — AGENTS.md carries
+   * non-ASCII em-dash/arrow glyphs that make the two counts diverge).
+   * Post-edit size is 24_591 chars against the prior 24_600 budget —
+   * technically still clears, but leaves only 9 chars of headroom, a
+   * red-build trap for the next editor; raised to the next round value
+   * instead of leaving that trap in place.
+   * Raised again from 24_700 to 24_900 after merging `main` in. The
+   * 24_700 figure was measured against this branch alone (24_591), but
+   * CI evaluates the PR merge-ref, where #559's own `## Don'ts`
+   * additions stack on top of this branch's pointer bullet for a
+   * combined 24_760. Neither branch overran the budget in isolation —
+   * the overrun is purely additive across two concurrently-open
+   * branches, which is exactly the case a local-only `wc -m` on one
+   * branch cannot see. Raised to the next round value (140 chars of
+   * headroom) rather than trimming either branch's lint-anchored prose,
+   * on the same grounds as the precedents above.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 24_600;
+    const CHAR_BUDGET = 24_900;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -1366,6 +1388,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       file: "flow-edit-applier.md",
       wantTools: "Bash, Read, Edit, Write, Grep, Glob, NotebookEdit",
     },
+    { file: "flow-backlog-verifier.md", wantTools: "Bash, Read, Grep, Glob" },
   ];
 
   it("AGENT_FRONTMATTER_POLICY covers exactly the agents/ directory, with inheritsAllTools confined to flow-discovery.md", () => {
