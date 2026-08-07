@@ -232,11 +232,14 @@ describe("buildRows — liveness annotation ('(crashed)')", () => {
 
   // This whole block is scoped to NON-TERMINAL phases — buildRows checks
   // phase before liveness (see the phase-x-liveness matrix below), so every
-  // fixture here pins an explicit non-terminal phase rather than relying on
-  // state()'s default. This assertion guards that default itself: if
-  // "starting" (state()'s default phase) is ever changed to a terminal
-  // value, this block would silently stop exercising the liveness path it
-  // claims to cover.
+  // fixture in THIS block pins an explicit "verifying" phase rather than
+  // relying on state()'s default. This assertion instead guards the
+  // fixtures elsewhere that DO rely on state()'s default phase and assume
+  // it stays non-terminal: describe(buildRows) at line ~69, the
+  // waitForCopilot block at line ~419, and the footer test at line ~772.
+  // If "starting" (state()'s default phase) is ever changed to a terminal
+  // value, those blocks would silently stop exercising the liveness path
+  // they claim to cover.
   it("state()'s default phase is non-terminal (guards this block's premise)", () => {
     expect(stateModule.TERMINAL_PHASE_SET.has(state({}).phase)).toBe(false);
   });
@@ -342,6 +345,27 @@ describe("buildRows — phase-aware annotation (terminal phases outrank liveness
     LIVENESS_VERDICTS.map((verdict) => [phase, verdict] as const),
   );
 
+  // Literal bucket-membership pin, independent of FINISHED_PHASES: the
+  // matrix test below derives its expected annotation from the SAME
+  // constant the implementation reads, so a bucket misclassification
+  // (e.g. someone moves "cancelled" into AWAITING_HUMAN_PHASES) would flip
+  // both sides in lockstep and the matrix test would still pass. This
+  // table hand-lists every terminal phase's expected annotation so moving
+  // a phase between buckets fails the suite.
+  const EXPECTED_ANNOTATION_BY_PHASE: Record<string, "(done)" | ""> = {
+    merged: "(done)",
+    cancelled: "(done)",
+    "epic-approved": "(done)",
+    gated: "",
+    "needs-human": "",
+  };
+
+  it("pins every terminal phase's expected annotation bucket by literal", () => {
+    expect(Object.keys(EXPECTED_ANNOTATION_BY_PHASE).sort()).toEqual(
+      [...stateModule.TERMINAL_PHASES].sort(),
+    );
+  });
+
   it.each(matrix)(
     "phase=%s, liveness=%s ⇒ correct bucket annotation, needsResumeHint false",
     async (phase, verdict) => {
@@ -359,12 +383,7 @@ describe("buildRows — phase-aware annotation (terminal phases outrank liveness
         // verdict and the window-existence fallback, not just the verdict.
         NOW,
       );
-      const expected = (
-        stateModule.FINISHED_PHASES as readonly string[]
-      ).includes(phase)
-        ? "(done)"
-        : "";
-      expect(rows[0].annotation).toBe(expected);
+      expect(rows[0].annotation).toBe(EXPECTED_ANNOTATION_BY_PHASE[phase]);
       expect(rows[0].needsResumeHint).toBe(false);
     },
   );
@@ -729,6 +748,7 @@ describe("runLs — orphan recovery footnote", () => {
 
     expect(code).toBe(0);
     const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("done-pipeline (done)");
     expect(out).not.toContain("pipelines needing resume");
     expect(out).not.toContain("flow feature resume done-pipeline");
   });

@@ -38,6 +38,7 @@ import {
   listStates,
   TERMINAL_PHASE_SET,
   FINISHED_PHASE_SET,
+  AWAITING_HUMAN_PHASE_SET,
   type PipelineState,
 } from "./state";
 import { livenessOf } from "./liveness";
@@ -156,10 +157,11 @@ export async function runLs(opts: LsOptions): Promise<number> {
  *
  * Eligibility is read from `needsResumeHint`, a logical property set once
  * in `buildRows`, deliberately NOT inferred here from the `(crashed)` /
- * `(no window)` display strings — a terminal-phase row can carry those same
- * annotations' sibling labels without ever needing resume (see the
- * phase-first branch in `buildRows`), so string-matching the annotation
- * would silently regress the fix this footer exists for.
+ * `(no window)` display strings. Decoupling the two is what makes the
+ * phase-first branch (the fix for the mislabeling bug this PR addresses)
+ * safe to add: footer eligibility stays a logical property computed
+ * alongside the display string rather than re-derived from it, so a future
+ * change to either one can't silently desync the other.
  */
 export function printOrphanRecovery(rows: Row[]): void {
   const orphans = rows.filter((r) => r.needsResumeHint);
@@ -224,7 +226,14 @@ export async function buildRows(
     let annotation: Row["annotation"];
     let needsResumeHint: boolean;
     if (TERMINAL_PHASE_SET.has(state.phase)) {
-      annotation = FINISHED_PHASE_SET.has(state.phase) ? "(done)" : "";
+      // Two buckets, both with a real call site: FINISHED -> "(done)",
+      // AWAITING_HUMAN (gated/needs-human) -> no annotation (the pipeline
+      // isn't "done" in the sense flow-ls should label it).
+      annotation = FINISHED_PHASE_SET.has(state.phase)
+        ? "(done)"
+        : AWAITING_HUMAN_PHASE_SET.has(state.phase)
+          ? ""
+          : "";
       needsResumeHint = false;
     } else {
       const verdict = livenessOf(state);

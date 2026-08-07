@@ -244,10 +244,11 @@ Options:
   --detail              break the cost down by model (requires --cost)
 
 Annotations (shown after the pipeline name):
-  (done)        finished — close it with 'flow done <name>'
-  (crashed)     the recorded supervisor process is gone mid-flight
-  (no window)   state file with no tmux window (likely a crashed launch)
-  (no state)    a tmux window flow does not own
+  (done)          finished — close it with 'flow done <name>'
+  (crashed)       the recorded supervisor process is gone mid-flight
+  (no window)     state file with no tmux window (likely a crashed launch)
+  (no state)      a tmux window flow does not own
+  (wait-copilot)  waiting on a Copilot review pass before it can proceed
 A terminal phase awaiting you ('gated', 'needs-human') carries no
 annotation — the PHASE column is the signal.`,
 
