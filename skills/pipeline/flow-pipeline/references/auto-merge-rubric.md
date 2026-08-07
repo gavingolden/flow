@@ -263,6 +263,7 @@ WHY: 2 unchecked test steps remain
 NEXT ACTION: validate then run: gh pr merge --squash 142
   - Open `/portfolio` with the seeded user — allocation chart renders
   - Switch the time range to 1y — chart updates without a full reload
+CLEANUP: reap ok — no live processes (recorded 2026-01-01T00:00:00.000Z)
 FOLLOW-UPS:
   LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed
   - [ ]   flow install --upgrade  # new helper landed (auto)
@@ -296,6 +297,7 @@ remains the **final line** of every block, preserving the `# End
 conditions` contract and any scrollback regex / `flow-stop-guard`
 heuristics. The new template adds rows ABOVE the sentinel
 (`STATUS:`, optional `PR:`, optional `WHY:`, `NEXT ACTION:`,
+optional `CLEANUP:` (emitted only when the site passes `--cleanup`),
 optional `FOLLOW-UPS:`); it does not replace the sentinel.
 
 For the full template per status, see the worked example above (for

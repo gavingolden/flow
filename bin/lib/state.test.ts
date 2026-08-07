@@ -690,6 +690,60 @@ describe("state", () => {
     expect(readState("checkpoint-malformed", dir)).toBeNull();
   });
 
+  it("readState round-trips a valid reap record through writeState", () => {
+    const withReap: PipelineState = {
+      slug: "with-reap",
+      phase: "merged",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      reap: {
+        at: "2026-05-17T00:01:00Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    };
+    writeState(withReap, dir);
+    expect(readState("with-reap", dir)).toEqual(withReap);
+  });
+
+  it("readState accepts an absent reap field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "reap-absent.json"),
+      JSON.stringify({
+        slug: "reap-absent",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    const got = readState("reap-absent", dir);
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("reap");
+  });
+
+  it("readState returns null when the reap record is malformed", () => {
+    // reap must be { at, status, summary, ran, problems? }. A record with
+    // an unrecognised status (or a missing summary) makes readState reject
+    // the WHOLE state file (returns null), degrading this pipeline to
+    // state-missing on resume — callers must treat a null readState as
+    // exactly that, not assume a corrupt reap sub-record is isolated from
+    // the rest of state.json.
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "reap-malformed.json"),
+      JSON.stringify({
+        slug: "reap-malformed",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        reap: { at: "2026-05-17T00:01:00Z", status: "not-a-real-status" },
+      }),
+    );
+    expect(readState("reap-malformed", dir)).toBeNull();
+  });
+
   it("readState round-trips valid pid and procStartedAt through writeState", () => {
     const withLiveness: PipelineState = {
       slug: "with-liveness",
