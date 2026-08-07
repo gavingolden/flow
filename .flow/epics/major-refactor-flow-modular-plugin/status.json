@@ -59,7 +59,8 @@
       "pr": 469
     },
     "p6-distribution-impl": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 560
     }
   }
 }
