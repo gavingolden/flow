@@ -7,8 +7,11 @@ import {
   NEXT_ACTION_BY_REASON,
   parseArgs,
   render,
+  renderCleanup,
   run,
+  type CleanupInput,
 } from "./flow-gate-summary";
+import { writeState, type PipelineState } from "./lib/state";
 
 let tmpRoot!: string;
 
@@ -587,7 +590,110 @@ describe("universal sentinel invariant", () => {
       expect(withFlag).not.toContain("flow-echo-recap");
       expect(finalLine(withFlag)).toBe(c.expected);
     });
+
+    it(`${c.name} — --cleanup keeps the sentinel byte-exact final line`, () => {
+      const cleanup: CleanupInput = {
+        kind: "record",
+        record: {
+          at: "2026-01-01T00:00:00.000Z",
+          status: "ok",
+          summary: "no live processes",
+          ran: true,
+        },
+      };
+      const withCleanup = render({ ...c.input, cleanup });
+      expect(finalLine(withCleanup)).toBe(c.expected);
+      expect(withCleanup).toContain("CLEANUP: reap ok");
+    });
   }
+
+  it("awaiting-approval — --cleanup is a strict no-op", () => {
+    const base = {
+      status: "awaiting-approval" as const,
+      why: "plan ready for review",
+    };
+    const without = render(base);
+    const cleanup: CleanupInput = {
+      kind: "record",
+      record: {
+        at: "2026-01-01T00:00:00.000Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    };
+    const withCleanup = render({ ...base, cleanup });
+    // renderAwaitingApproval never reads inputs.cleanup — mirrors
+    // --echo-prose's own no-op discipline on the other four statuses.
+    expect(withCleanup).toBe(without);
+    expect(withCleanup).not.toContain("CLEANUP");
+  });
+});
+
+describe("renderCleanup", () => {
+  it("pins the ok-record line", () => {
+    expect(
+      renderCleanup({
+        kind: "record",
+        record: {
+          at: "2026-01-01T00:00:00.000Z",
+          status: "ok",
+          summary: "no live processes",
+          ran: true,
+        },
+      }),
+    ).toEqual([
+      "CLEANUP: reap ok — no live processes (recorded 2026-01-01T00:00:00.000Z)",
+    ]);
+  });
+
+  it("pins the unclean-record line plus its re-run follow-on", () => {
+    expect(
+      renderCleanup({
+        kind: "record",
+        record: {
+          at: "2026-01-01T00:00:00.000Z",
+          status: "unclean",
+          summary: "1 still-alive process",
+          ran: true,
+          problems: ["registry: still-alive=1"],
+        },
+      }),
+    ).toEqual([
+      "CLEANUP: REAP UNCLEAN — 1 still-alive process (recorded 2026-01-01T00:00:00.000Z)",
+      "  - re-run: flow-browser-teardown --reap --dry-run",
+    ]);
+  });
+
+  it("pins the missing-record line plus its re-run follow-on", () => {
+    expect(renderCleanup({ kind: "missing-record" })).toEqual([
+      "CLEANUP: REAP NOT RECORDED — the terminal-state reap did not run; spawned processes may still be alive",
+      "  - re-run: flow-browser-teardown --reap --dry-run",
+    ]);
+  });
+
+  it("pins the stale line plus its re-run follow-on", () => {
+    expect(
+      renderCleanup({
+        kind: "stale",
+        record: {
+          at: "2025-12-31T00:00:00.000Z",
+          status: "ok",
+          summary: "no live processes",
+          ran: true,
+        },
+      }),
+    ).toEqual([
+      "CLEANUP: REAP NOT RECORDED (stale) — this render's reap did not run; the record shown is from an earlier attempt (2025-12-31T00:00:00.000Z)",
+      "  - re-run: flow-browser-teardown --reap --dry-run",
+    ]);
+  });
+
+  it("pins the no-state line with no follow-on", () => {
+    expect(renderCleanup({ kind: "no-state" })).toEqual([
+      "CLEANUP: unknown — no pipeline state file for this run",
+    ]);
+  });
 });
 
 describe("parseArgs", () => {
@@ -650,6 +756,13 @@ describe("parseArgs", () => {
       "/definitely/does/not/exist",
     ]);
     expect("error" in r).toBe(false);
+  });
+
+  it("--cleanup is a boolean flag with no value, same shape as --echo-prose", () => {
+    const r = parseArgs(["--status", "merged", "--cleanup"]);
+    expect("error" in r).toBe(false);
+    if ("error" in r) return;
+    expect(r.cleanup).toBe(true);
   });
 });
 
@@ -806,5 +919,140 @@ describe("run (end-to-end CLI)", () => {
     }
     expect(captured).toContain("flow-gate-summary:");
     expect(captured).toContain("usage:");
+  });
+
+  function captureStdout(fn: () => number): { rc: number; out: string } {
+    const original = process.stdout.write.bind(process.stdout);
+    let captured = "";
+    process.stdout.write = ((chunk: unknown) => {
+      captured += String(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const rc = fn();
+      return { rc, out: captured };
+    } finally {
+      process.stdout.write = original;
+    }
+  }
+
+  function seedState(slug: string, overrides: Partial<PipelineState> = {}) {
+    writeState(
+      {
+        slug,
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        ...overrides,
+      },
+      tmpRoot,
+    );
+  }
+
+  it("omits CLEANUP entirely when --cleanup is not passed, even with a recorded reap", () => {
+    seedState("cleanup-flag-off-slug", {
+      reap: {
+        at: "2026-01-01T00:05:00.000Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    });
+    const { rc, out } = captureStdout(() =>
+      run(["--status", "merged"], {
+        env: { FLOW_SLUG: "cleanup-flag-off-slug" },
+        stateDir: tmpRoot,
+      }),
+    );
+    expect(rc).toBe(0);
+    expect(out).not.toContain("CLEANUP");
+  });
+
+  it("--cleanup renders a fresh record when reap.at is newer than updatedAt", () => {
+    seedState("cleanup-fresh-slug", {
+      reap: {
+        at: "2026-01-01T00:05:00.000Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    });
+    const { rc, out } = captureStdout(() =>
+      run(["--status", "merged", "--cleanup"], {
+        env: { FLOW_SLUG: "cleanup-fresh-slug" },
+        stateDir: tmpRoot,
+      }),
+    );
+    expect(rc).toBe(0);
+    expect(out).toContain("CLEANUP: reap ok — no live processes");
+    expect(out).not.toContain("stale");
+  });
+
+  it("--cleanup renders the stale line when reap.at predates updatedAt", () => {
+    seedState("cleanup-stale-slug", {
+      updatedAt: "2026-01-02T00:00:00.000Z",
+      reap: {
+        at: "2026-01-01T00:00:00.000Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    });
+    const { rc, out } = captureStdout(() =>
+      run(["--status", "merged", "--cleanup"], {
+        env: { FLOW_SLUG: "cleanup-stale-slug" },
+        stateDir: tmpRoot,
+      }),
+    );
+    expect(rc).toBe(0);
+    expect(out).toContain("CLEANUP: REAP NOT RECORDED (stale)");
+  });
+
+  it("degrades to fresh (never a false stale alarm) when either timestamp is unparseable", () => {
+    seedState("cleanup-badtime-slug", {
+      updatedAt: "not-a-real-date",
+      reap: {
+        at: "2026-01-01T00:00:00.000Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    });
+    const { rc, out } = captureStdout(() =>
+      run(["--status", "merged", "--cleanup"], {
+        env: { FLOW_SLUG: "cleanup-badtime-slug" },
+        stateDir: tmpRoot,
+      }),
+    );
+    expect(rc).toBe(0);
+    expect(out).toContain("CLEANUP: reap ok");
+    expect(out).not.toContain("stale");
+  });
+
+  it("--cleanup renders unknown when no state file exists for the resolved slug", () => {
+    const { rc, out } = captureStdout(() =>
+      run(["--status", "merged", "--cleanup"], {
+        env: { FLOW_SLUG: "cleanup-missing-slug" },
+        stateDir: tmpRoot,
+      }),
+    );
+    expect(rc).toBe(0);
+    expect(out).toContain(
+      "CLEANUP: unknown — no pipeline state file for this run",
+    );
+  });
+
+  it("--cleanup renders REAP NOT RECORDED when state exists but carries no reap field", () => {
+    seedState("cleanup-norecord-slug");
+    const { rc, out } = captureStdout(() =>
+      run(["--status", "merged", "--cleanup"], {
+        env: { FLOW_SLUG: "cleanup-norecord-slug" },
+        stateDir: tmpRoot,
+      }),
+    );
+    expect(rc).toBe(0);
+    expect(out).toContain(
+      "CLEANUP: REAP NOT RECORDED — the terminal-state reap did not run",
+    );
   });
 });

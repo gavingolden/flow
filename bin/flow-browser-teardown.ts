@@ -45,6 +45,7 @@ import {
 } from "./lib/reap";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { isValidSlug } from "./lib/slug";
+import { readState, writeState, type ReapRecord } from "./lib/state";
 
 // --- Core types --------------------------------------------------------
 
@@ -499,6 +500,77 @@ export function summarizeReapEnvelope(envelope: ReapEnvelope): string {
   return `flow-browser-teardown --reap: ${registryLine} | ${fallbackLine} | postRegistered=${envelope.postRegistered}`;
 }
 
+/**
+ * Pure classification of a reap envelope into a durable ok/unclean verdict.
+ * Problems are drawn only from genuine LEAK signals — `failed`,
+ * `still-alive`, `deadline-exceeded`, `skipped-dead-leader`,
+ * `registry.malformed`, a non-empty ancestry-walk `fallback.stillAlive`, and
+ * `fallbackSkipReason === "not-gated"` (the asymmetric-gate hole named in
+ * `runReapMode`'s own comment). `already-dead`, `skipped-epoch-mismatch`,
+ * `skipped-unsafe-pgid`, and `skipped-foreign-member` are SAFETY REFUSALS —
+ * the reap engine correctly declining to touch a process it can't safely
+ * verify — and must never mark the verdict unclean.
+ */
+export function classifyReapEnvelope(envelope: ReapEnvelope): {
+  status: "ok" | "unclean";
+  problems: string[];
+} {
+  const problems: string[] = [];
+  const c = envelope.registry.counts;
+  if (c.failed > 0) problems.push(`registry: failed=${c.failed}`);
+  if (c["still-alive"] > 0)
+    problems.push(`registry: still-alive=${c["still-alive"]}`);
+  if (c["deadline-exceeded"] > 0)
+    problems.push(`registry: deadline-exceeded=${c["deadline-exceeded"]}`);
+  if (c["skipped-dead-leader"] > 0)
+    problems.push(`registry: skipped-dead-leader=${c["skipped-dead-leader"]}`);
+  if (envelope.registry.malformed > 0)
+    problems.push(`registry: malformed=${envelope.registry.malformed}`);
+  if (envelope.fallback && envelope.fallback.stillAlive.length > 0) {
+    problems.push(
+      `fallback: stillAlive=${envelope.fallback.stillAlive.length}`,
+    );
+  }
+  if (envelope.fallbackSkipReason === "not-gated") {
+    problems.push("fallback: not-gated");
+  }
+  return { status: problems.length > 0 ? "unclean" : "ok", problems };
+}
+
+/**
+ * Writes the reap outcome to `~/.flow/state/<slug>.json` as a plain state
+ * write (the `flow-checkpoint` arm precedent) — never a `flow-state-update`
+ * phase transition, so `updatedAt` is deliberately NOT bumped. A missing
+ * state file (no slug resolves, or no pipeline state for that slug) returns
+ * `{written: false}` WITHOUT creating one; any other failure (e.g. an
+ * unwritable state dir) is caught and returned as a warning, never thrown —
+ * this helper must never break the caller that invoked --reap.
+ */
+export function recordReapOutcome(
+  envelope: ReapEnvelope,
+  opts?: { stateDir?: string; now?: () => Date },
+): { written: boolean; warning?: string } {
+  try {
+    const slug = envelope.registry.slug;
+    if (slug === undefined) return { written: false };
+    const state = readState(slug, opts?.stateDir);
+    if (state === null) return { written: false };
+    const { status, problems } = classifyReapEnvelope(envelope);
+    const now = opts?.now ? opts.now() : new Date();
+    const record: ReapRecord = {
+      at: now.toISOString(),
+      status,
+      summary: summarizeReapEnvelope(envelope),
+      ran: envelope.registry.ran || envelope.fallback !== null,
+      ...(problems.length > 0 ? { problems } : {}),
+    };
+    writeState({ ...state, reap: record }, opts?.stateDir);
+    return { written: true };
+  } catch (err) {
+    return { written: false, warning: String(err) };
+  }
+}
+
 // --- Orphan sweep (--orphans) -------------------------------------------
 
 export type ProfileShape =
@@ -873,6 +945,7 @@ type ParsedCli = {
   orphans: boolean;
   yes: boolean;
   reap: boolean;
+  record: boolean;
   slug?: string;
   usageError?: string;
 };
@@ -885,6 +958,7 @@ function parseCliArgs(argv: string[]): ParsedCli {
     orphans: false,
     yes: false,
     reap: false,
+    record: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -898,6 +972,8 @@ function parseCliArgs(argv: string[]): ParsedCli {
       out.yes = true;
     } else if (a === "--reap") {
       out.reap = true;
+    } else if (a === "--record") {
+      out.record = true;
     } else if (a === "--slug") {
       const v = argv[++i];
       if (v === undefined || v === "" || !isValidSlug(v)) {
@@ -932,7 +1008,7 @@ function usage(): string {
   return [
     "usage: flow-browser-teardown [--json] [--dry-run] [--session-pid <pid>] [--timeout-ms <n>]",
     "       flow-browser-teardown --orphans [--yes] [--dry-run] [--json]",
-    "       flow-browser-teardown --reap [--slug <s>] [--dry-run] [--json]",
+    "       flow-browser-teardown --reap [--slug <s>] [--dry-run] [--json] [--record]",
     "",
     "Default mode: session-scoped teardown — SIGTERMs THIS flow-pipeline",
     "session's own chrome-devtools-mcp SERVER (found by process ancestry) so",
@@ -952,6 +1028,10 @@ function usage(): string {
     "process group after a bounded grace wait; an mcp-server row is",
     "signalled once and never escalated, same policy as the default mode",
     "above. Run with --dry-run first — it sends no signal at all.",
+    "",
+    "--record (with --reap only) durably writes the reap verdict to",
+    "~/.flow/state/<slug>.json as state.reap, surfaced by",
+    "`flow-gate-summary --cleanup`. Never writes with --dry-run.",
   ].join("\n");
 }
 
@@ -966,12 +1046,26 @@ export function main(argv: string[]): number {
 
   if (parsed.reap) {
     const deps = buildDefaultDeps({ includeReapExtras: true });
+    if (!parsed.json) {
+      const label = parsed.slug ?? resolveSlugFromEnv(deps.env) ?? undefined;
+      process.stderr.write(
+        label
+          ? `flow-browser-teardown: reaping registered processes for ${label}…\n`
+          : "flow-browser-teardown: reaping registered processes for this session…\n",
+      );
+    }
     const envelope = runReapMode(deps, {
       dryRun: parsed.dryRun,
       slug: parsed.slug,
       timeoutMs: parsed.timeoutMs,
       sessionPid: parsed.sessionPid,
     });
+    if (parsed.record && !parsed.dryRun) {
+      const { warning } = recordReapOutcome(envelope);
+      if (warning) {
+        process.stderr.write(`flow-browser-teardown: warning: ${warning}\n`);
+      }
+    }
     if (parsed.json) {
       console.log(JSON.stringify(envelope));
     } else {

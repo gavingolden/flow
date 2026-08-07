@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { randomUUID } from "node:crypto";
 
 // runReapMode's toReapDeps bridge calls bin/lib/liveness.ts's pidStartEpoch
 // directly (not via an injectable Deps field — see that function's own
@@ -17,8 +18,10 @@ vi.mock("./lib/liveness", async (importOriginal) => {
 
 import {
   classifyProfileShape,
+  classifyReapEnvelope,
   descendantsOf,
   main,
+  recordReapOutcome,
   resolveSessionPid,
   runOrphanSweep,
   runReapMode,
@@ -33,6 +36,8 @@ import {
 } from "./flow-browser-teardown";
 import { appendRow } from "./lib/proc-registry";
 import { pidStartEpoch } from "./lib/liveness";
+import { readState, writeState } from "./lib/state";
+import { FLOW_STATE_DIR } from "./lib/paths";
 
 const mockedPidStartEpoch = vi.mocked(pidStartEpoch);
 
@@ -62,6 +67,40 @@ function fakeDeps(overrides: Partial<Deps> = {}): Deps {
     // this suite's fixtures, which never construct a multi-member group.
     groupMembers: (pgid) => [pgid],
     ...overrides,
+  };
+}
+
+/** A registry-covered, fallback-null reap envelope — the "nothing wrong"
+ * baseline `classifyReapEnvelope` / `recordReapOutcome` tests mutate. */
+function zeroReapCounts() {
+  return {
+    reaped: 0,
+    "would-reap": 0,
+    "already-dead": 0,
+    "skipped-epoch-mismatch": 0,
+    "skipped-unsafe-pgid": 0,
+    "skipped-foreign-member": 0,
+    "skipped-dead-leader": 0,
+    "still-alive": 0,
+    failed: 0,
+    "deadline-exceeded": 0,
+  };
+}
+
+function cleanEnvelope(slug: string): ReapEnvelope {
+  return {
+    mode: "reap",
+    registry: {
+      ran: true,
+      dryRun: false,
+      slug,
+      rows: [],
+      counts: zeroReapCounts(),
+      malformed: 0,
+    },
+    fallback: null,
+    fallbackSkipReason: "registry-covered",
+    postRegistered: 0,
   };
 }
 
@@ -821,6 +860,262 @@ describe("runReapMode — fallback", () => {
     });
     expect(envelope.fallback).toBeNull();
     expect(envelope.fallbackSkipReason).toBe("no-servers");
+  });
+});
+
+describe("classifyReapEnvelope", () => {
+  it("classifies a clean envelope as ok with no problems", () => {
+    expect(classifyReapEnvelope(cleanEnvelope("clean-slug"))).toEqual({
+      status: "ok",
+      problems: [],
+    });
+  });
+
+  it.each([
+    "failed",
+    "still-alive",
+    "deadline-exceeded",
+    "skipped-dead-leader",
+  ] as const)("marks unclean when registry.counts.%s > 0", (countKey) => {
+    const envelope = cleanEnvelope("unclean-slug");
+    envelope.registry.counts[countKey] = 1;
+    const result = classifyReapEnvelope(envelope);
+    expect(result.status).toBe("unclean");
+    expect(result.problems.some((p) => p.includes(countKey))).toBe(true);
+  });
+
+  it("marks unclean when registry.malformed > 0", () => {
+    const envelope = cleanEnvelope("malformed-slug");
+    envelope.registry.malformed = 1;
+    const result = classifyReapEnvelope(envelope);
+    expect(result.status).toBe("unclean");
+    expect(result.problems.some((p) => p.includes("malformed"))).toBe(true);
+  });
+
+  it("marks unclean when fallback.stillAlive is non-empty", () => {
+    const envelope = cleanEnvelope("fallback-slug");
+    envelope.fallback = {
+      ran: true,
+      sessionPid: 100,
+      dryRun: false,
+      signalled: [],
+      stillAlive: [201],
+    };
+    envelope.fallbackSkipReason = null;
+    const result = classifyReapEnvelope(envelope);
+    expect(result.status).toBe("unclean");
+    expect(result.problems.some((p) => p.includes("stillAlive"))).toBe(true);
+  });
+
+  it("marks unclean when fallbackSkipReason is not-gated", () => {
+    const envelope = cleanEnvelope("not-gated-slug");
+    envelope.fallbackSkipReason = "not-gated";
+    const result = classifyReapEnvelope(envelope);
+    expect(result.status).toBe("unclean");
+    expect(result.problems.some((p) => p.includes("not-gated"))).toBe(true);
+  });
+
+  it("stays ok for every safety-refusal skip reason (already-dead, skipped-epoch-mismatch, skipped-unsafe-pgid, skipped-foreign-member)", () => {
+    const envelope = cleanEnvelope("safety-slug");
+    envelope.registry.counts["already-dead"] = 1;
+    envelope.registry.counts["skipped-epoch-mismatch"] = 1;
+    envelope.registry.counts["skipped-unsafe-pgid"] = 1;
+    envelope.registry.counts["skipped-foreign-member"] = 1;
+    expect(classifyReapEnvelope(envelope)).toEqual({
+      status: "ok",
+      problems: [],
+    });
+  });
+});
+
+describe("recordReapOutcome", () => {
+  let stateDir: string;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-teardown-record-test-"),
+    );
+  });
+
+  afterEach(() => {
+    // Undo the permission-lockdown test's chmod before rmSync — deleting a
+    // read-only FILE only needs write permission on the containing
+    // directory, but leaving the file locked down is needless mess.
+    for (const entry of fs.readdirSync(stateDir)) {
+      fs.chmodSync(path.join(stateDir, entry), 0o644);
+    }
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  it("writes state.reap for an existing pipeline without bumping updatedAt", () => {
+    writeState(
+      {
+        slug: "record-slug",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      stateDir,
+    );
+    const envelope = cleanEnvelope("record-slug");
+    const result = recordReapOutcome(envelope, {
+      stateDir,
+      now: () => new Date("2026-01-02T00:00:00.000Z"),
+    });
+    expect(result).toEqual({ written: true });
+    const state = readState("record-slug", stateDir);
+    expect(state?.reap).toEqual({
+      at: "2026-01-02T00:00:00.000Z",
+      status: "ok",
+      summary: summarizeReapEnvelope(envelope),
+      ran: true,
+    });
+    // A plain state write, not a phase transition — updatedAt must not move.
+    expect(state?.updatedAt).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  it("records problems and ran:false when the registry never ran and the fallback didn't either", () => {
+    const envelope = cleanEnvelope("unclean-record-slug");
+    envelope.registry.ran = false;
+    envelope.registry.dryRun = false;
+    envelope.registry.counts.failed = 1;
+    envelope.fallback = null;
+    envelope.fallbackSkipReason = "not-gated";
+    writeState(
+      {
+        slug: "unclean-record-slug",
+        phase: "gated",
+        repo: "/tmp/repo",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      stateDir,
+    );
+    const result = recordReapOutcome(envelope, {
+      stateDir,
+      now: () => new Date("2026-01-02T00:00:00.000Z"),
+    });
+    expect(result).toEqual({ written: true });
+    const state = readState("unclean-record-slug", stateDir);
+    expect(state?.reap?.status).toBe("unclean");
+    expect(state?.reap?.ran).toBe(false);
+    expect(state?.reap?.problems).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("failed"),
+        "fallback: not-gated",
+      ]),
+    );
+  });
+
+  it("returns {written:false} without creating a file when no state exists for the slug", () => {
+    const envelope = cleanEnvelope("missing-state-slug");
+    const result = recordReapOutcome(envelope, { stateDir });
+    expect(result).toEqual({ written: false });
+    expect(fs.existsSync(path.join(stateDir, "missing-state-slug.json"))).toBe(
+      false,
+    );
+  });
+
+  it("returns {written:false, warning} without throwing when the state file is unwritable", () => {
+    writeState(
+      {
+        slug: "locked-slug",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      stateDir,
+    );
+    const filePath = path.join(stateDir, "locked-slug.json");
+    fs.chmodSync(filePath, 0o444);
+    const envelope = cleanEnvelope("locked-slug");
+    // A throw here would fail the test on its own — the assertions below
+    // additionally pin the documented no-throw contract's return shape.
+    const result = recordReapOutcome(envelope, { stateDir });
+    expect(result.written).toBe(false);
+    expect(result.warning).toBeTruthy();
+  });
+});
+
+describe("main — --reap --record", () => {
+  const originalSlug = process.env.FLOW_SLUG;
+  const originalPipeline = process.env.FLOW_PIPELINE;
+
+  afterEach(() => {
+    if (originalSlug === undefined) delete process.env.FLOW_SLUG;
+    else process.env.FLOW_SLUG = originalSlug;
+    if (originalPipeline === undefined) delete process.env.FLOW_PIPELINE;
+    else process.env.FLOW_PIPELINE = originalPipeline;
+  });
+
+  it("--dry-run --record never writes a state file, even for a resolvable slug", () => {
+    // A random slug: main() has no state-dir injection seam, so this is the
+    // only safe way to exercise the real FLOW_STATE_DIR without risking a
+    // collision with a real pipeline's state file.
+    const slug = `flow-teardown-test-${randomUUID()}`;
+    delete process.env.FLOW_PIPELINE;
+    const statePath = path.join(FLOW_STATE_DIR, `${slug}.json`);
+    expect(fs.existsSync(statePath)).toBe(false);
+    const errSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const code = main(["--reap", "--dry-run", "--record", "--slug", slug]);
+      expect(code).toBe(0);
+      expect(fs.existsSync(statePath)).toBe(false);
+    } finally {
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+      fs.rmSync(statePath, { force: true });
+    }
+  });
+
+  it("writes the progress line to stderr (not stdout) and names the resolved slug", () => {
+    delete process.env.FLOW_PIPELINE;
+    const errSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const code = main([
+        "--reap",
+        "--dry-run",
+        "--slug",
+        "progress-line-slug",
+      ]);
+      expect(code).toBe(0);
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "flow-browser-teardown: reaping registered processes for progress-line-slug…",
+        ),
+      );
+    } finally {
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
+  it("suppresses the progress line under --json, and --json's stdout stays exactly one parseable envelope", () => {
+    delete process.env.FLOW_SLUG;
+    delete process.env.FLOW_PIPELINE;
+    const errSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const code = main(["--reap", "--json", "--dry-run"]);
+      expect(code).toBe(0);
+      expect(errSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("reaping registered processes"),
+      );
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(() =>
+        JSON.parse(logSpy.mock.calls[0]?.[0] as string),
+      ).not.toThrow();
+    } finally {
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+    }
   });
 });
 

@@ -58,6 +58,8 @@
 
 import * as fs from "node:fs";
 import { renderEchoRecap } from "./lib/echo-recap";
+import { readState, type ReapRecord } from "./lib/state";
+import { resolveSlugFromEnv } from "./lib/session-identity";
 
 export type Status =
   | "merged"
@@ -65,6 +67,21 @@ export type Status =
   | "needs-human"
   | "awaiting-approval"
   | "cancelled";
+
+/**
+ * The four terminal-state reap verdicts `--cleanup` can render, resolved by
+ * `resolveCleanupInput` from `~/.flow/state/<slug>.json`. `record` is the
+ * fresh happy path (ok or unclean, both carry a `ReapRecord`); `stale` is a
+ * record that predates this render's own `updatedAt` (see the KNOWN
+ * STALENESS GAP comment on `renderCleanup`); `missing-record` is a pipeline
+ * state file with no `reap` field at all; `no-state` is no resolvable slug
+ * or no state file for it.
+ */
+export type CleanupInput =
+  | { kind: "record"; record: ReapRecord }
+  | { kind: "stale"; record: ReapRecord }
+  | { kind: "missing-record" }
+  | { kind: "no-state" };
 
 export type GateSummaryInputs = {
   status: Status;
@@ -76,6 +93,7 @@ export type GateSummaryInputs = {
   worktree?: string;
   planFile?: string;
   echoProse?: boolean;
+  cleanup?: CleanupInput;
 };
 
 const VALID_STATUSES: ReadonlySet<string> = new Set([
@@ -297,16 +315,22 @@ type Args = {
   worktree?: string;
   planFile?: string;
   echoProse?: boolean;
+  cleanup?: boolean;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   const out: Partial<Args> = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
-    // --echo-prose is a boolean flag with no value; handle it before the
-    // value-required guard so it doesn't consume the next token.
+    // --echo-prose and --cleanup are boolean flags with no value; handle
+    // them before the value-required guard so neither consumes the next
+    // token.
     if (flag === "--echo-prose") {
       out.echoProse = true;
+      continue;
+    }
+    if (flag === "--cleanup") {
+      out.cleanup = true;
       continue;
     }
     const value = argv[i + 1];
@@ -439,6 +463,7 @@ function renderMerged(inputs: GateSummaryInputs): string {
   const why = oneLine(inputs.why);
   if (why) lines.push(`WHY: ${why}`);
   lines.push("NEXT ACTION: none (post-merge cleanup already ran)");
+  pushCleanup(lines, inputs.cleanup);
   appendFollowups(lines, inputs.deferredBlock);
   lines.push("MERGED");
   return lines.join("\n");
@@ -463,6 +488,7 @@ function renderGated(inputs: GateSummaryInputs): string {
     const stripped = trimmed.replace(/^[-*]\s+/, "");
     lines.push(`  - ${stripped}`);
   }
+  pushCleanup(lines, inputs.cleanup);
   appendFollowups(lines, inputs.deferredBlock);
   const sentinel = inputs.prUrl ? `GATED: ${inputs.prUrl}` : "GATED:";
   lines.push(sentinel);
@@ -482,6 +508,7 @@ function renderNeedsHuman(inputs: GateSummaryInputs): string {
     oneLine(inputs.why) || (inputs.reason ? oneLine(inputs.reason) : "");
   if (why) lines.push(`WHY: ${why}`);
   pushNextAction(lines, nextActionForReason(inputs.reason));
+  pushCleanup(lines, inputs.cleanup);
   appendFollowups(lines, inputs.deferredBlock);
   const reasonText = inputs.reason ? oneLine(inputs.reason) : "<reason>";
   lines.push(`NEEDS HUMAN: ${reasonText}`);
@@ -518,8 +545,55 @@ function renderCancelled(inputs: GateSummaryInputs): string {
   const why = oneLine(inputs.why);
   if (why) lines.push(`WHY: ${why}`);
   lines.push("NEXT ACTION: none");
+  // No appendFollowups call on this path — cleanup sits directly between
+  // NEXT ACTION and the sentinel here, not before a FOLLOW-UPS block.
+  pushCleanup(lines, inputs.cleanup);
   lines.push("cancelled");
   return lines.join("\n");
+}
+
+/**
+ * Renders exactly one `CLEANUP:` line plus at most one indented follow-on
+ * ("re-run: ..."). `renderAwaitingApproval` never calls this — --cleanup is
+ * a strict no-op on that status, same discipline as --echo-prose being a
+ * no-op elsewhere.
+ *
+ * KNOWN STALENESS GAP: the invariant "the phase write follows the render"
+ * is false at three call sites — the Step-4 Cancel bullet and the
+ * mid-flight Cancel bullet in SKILL.md both write `phase: cancelled`
+ * BEFORE the render, and the closed-no-merge row writes no phase at all —
+ * so `stale` can never fire there. Accepted deliberately: moving the phase
+ * write would break the render-before-transition ordering that keeps
+ * state non-terminal on a render failure.
+ */
+export function renderCleanup(cleanup: CleanupInput): string[] {
+  const rerun = "  - re-run: flow-browser-teardown --reap --dry-run";
+  switch (cleanup.kind) {
+    case "record": {
+      const r = cleanup.record;
+      if (r.status === "ok") {
+        return [`CLEANUP: reap ok — ${r.summary} (recorded ${r.at})`];
+      }
+      return [`CLEANUP: REAP UNCLEAN — ${r.summary} (recorded ${r.at})`, rerun];
+    }
+    case "stale":
+      return [
+        `CLEANUP: REAP NOT RECORDED (stale) — this render's reap did not run; the record shown is from an earlier attempt (${cleanup.record.at})`,
+        rerun,
+      ];
+    case "missing-record":
+      return [
+        "CLEANUP: REAP NOT RECORDED — the terminal-state reap did not run; spawned processes may still be alive",
+        rerun,
+      ];
+    case "no-state":
+      return ["CLEANUP: unknown — no pipeline state file for this run"];
+  }
+}
+
+function pushCleanup(lines: string[], cleanup: CleanupInput | undefined): void {
+  if (!cleanup) return;
+  lines.push(...renderCleanup(cleanup));
 }
 
 function appendFollowups(
@@ -579,7 +653,37 @@ function parseValidationItems(raw: string): string[] {
     .filter((ln) => ln.trim().length > 0);
 }
 
-export function run(argv: string[]): number {
+/**
+ * Resolves `--cleanup`'s `CleanupInput` from ambient session identity +
+ * durable state. Both timestamp parses are guarded — an unparseable
+ * timestamp on either side degrades to `record` (fresh), never to a false
+ * stale alarm.
+ */
+function resolveCleanupInput(
+  env: NodeJS.ProcessEnv,
+  stateDir: string | undefined,
+): CleanupInput {
+  const slug = resolveSlugFromEnv(env);
+  if (slug === null) return { kind: "no-state" };
+  const state = readState(slug, stateDir);
+  if (state === null) return { kind: "no-state" };
+  if (!state.reap) return { kind: "missing-record" };
+  const recordAt = Date.parse(state.reap.at);
+  const updatedAt = Date.parse(state.updatedAt);
+  if (
+    !Number.isNaN(recordAt) &&
+    !Number.isNaN(updatedAt) &&
+    recordAt < updatedAt
+  ) {
+    return { kind: "stale", record: state.reap };
+  }
+  return { kind: "record", record: state.reap };
+}
+
+export function run(
+  argv: string[],
+  opts?: { env?: NodeJS.ProcessEnv; stateDir?: string },
+): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     process.stderr.write(`flow-gate-summary: ${parsed.error}\n`);
@@ -587,13 +691,17 @@ export function run(argv: string[]): number {
       "usage: flow-gate-summary --status <merged|gated|needs-human|awaiting-approval|cancelled>\n" +
         "                         [--pr-url <url>] [--why <text>] [--reason <tag>]\n" +
         "                         [--validation-items-file <path>] [--deferred-file <path>]\n" +
-        "                         [--worktree <path>] [--plan-file <path>] [--echo-prose]\n",
+        "                         [--worktree <path>] [--plan-file <path>] [--echo-prose]\n" +
+        "                         [--cleanup]\n",
     );
     return 2;
   }
   const validationRaw = readFileOrEmpty(parsed.validationItemsFile);
   const validationItems = parseValidationItems(validationRaw);
   const deferredBlock = readFileOrEmpty(parsed.deferredFile);
+  const cleanup = parsed.cleanup
+    ? resolveCleanupInput(opts?.env ?? process.env, opts?.stateDir)
+    : undefined;
   const block = render({
     status: parsed.status,
     prUrl: parsed.prUrl,
@@ -604,6 +712,7 @@ export function run(argv: string[]): number {
     worktree: parsed.worktree,
     planFile: parsed.planFile,
     echoProse: parsed.echoProse,
+    cleanup,
   });
   process.stdout.write(block + "\n");
   return 0;
