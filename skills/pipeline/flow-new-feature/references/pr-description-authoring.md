@@ -37,7 +37,9 @@ test specs:
 
 <From the Critical Analysis: combine the Customer Value assessment with the user's original
 feature description to explain what problem this solves and why it matters. 1-3 sentences,
-no solution language.>
+no solution language. On a fix-shaped PR — the pipeline exists to fix an observed defect, or
+the branch's dominant commit type is `fix:` — lead with `**Failing:**` naming the observed
+failure and `**Root cause:**` naming why it happened, before the 1-3 sentence motivation.>
 
 ## What
 
@@ -49,9 +51,10 @@ skeleton while fetching" becomes "Loading states during data fetches".>
 
 <From the Critical Analysis: include the Recommendation rationale, any alternatives that were
 considered and rejected (with **why** they were rejected), and scope boundaries defined in
-Step 1. Each bullet: decision + why. During implementation, if a non-obvious choice is made
-or an approach is tried and abandoned, append it here and also capture it in the commit
-body per `AGENTS.md` — so future reviewers and agents don't retrace dead ends.>
+Step 1. On a fix-shaped PR, the FIRST bullet is `**Fix mechanism:** <why the change eliminates
+the root cause>`. Each bullet: decision + why. During implementation, if a non-obvious choice
+is made or an approach is tried and abandoned, append it here and also capture it in the
+commit body per `AGENTS.md` — so future reviewers and agents don't retrace dead ends.>
 
 ## User-facing changes
 
@@ -73,6 +76,14 @@ If the change is pure-internal (refactor, infra, no user-observable delta), writ
 word `none` under the heading. Never delete the heading — `none` is an explicit author
 affirmation, while a missing heading is ambiguous between "no change" and "author forgot".>
 
+## System flow changes
+
+<Only on a cross-component change where behavior moved at the system/consumer level —
+derive Before → After bullets from plan.md's `### System flow` subsection when the plan
+carries one. OMIT THIS HEADING ENTIRELY when nothing moved at that level; unlike
+User-facing changes above, there is no `none` affirmation for this section — an absent
+heading already means "nothing moved here".>
+
 ## Test Steps
 
 <Verification steps for this PR — both automated and manual smoke. The heading is also
@@ -93,6 +104,10 @@ Always emit the heading. Decide the body based on the change:
   > Can I name (a) a fixture / setup, (b) one or more deterministic assertions, and
   > (c) an exit condition — all without subjective human judgment? If yes, this is
   > a runnable item, not manual prose.
+
+  On a fix-shaped PR, include at least one item that names a specific runnable
+  regression check (a test file, a fixture, or a reproducible command) that failed
+  before the fix and passes after it — not just a generic "tests pass" bullet.
 
   When the answer is yes, write the item as the deterministic shell command itself
   (`npm run test -- <file>`, `bun bin/<helper>.test.ts`, `gh pr view <n> --json …
@@ -207,6 +222,8 @@ confirmation before proceeding to implementation.
 - "User-facing changes" must be phrased in user terms (what someone running the tool will
   see or do differently), not implementation terms. If the PR has no user-observable
   delta, write `none` under the heading — never omit the heading itself.
+- "System flow changes" is conditional — unlike "User-facing changes", omit the heading
+  entirely when nothing moved at the system/consumer level; do not write `none` under it.
 - Always emit the `## Test Steps` heading, even for refactors. The auto-merge gate
   treats a missing heading as an upstream regression and escalates `NEEDS HUMAN`. Zero
   unchecked items under the heading is the auto-merge state; one or more unchecked

@@ -1,7 +1,10 @@
 ## Why
 
 <!-- Problem statement: what motivated this change. 1-3 sentences. Avoid solution
-language ("by adding X", "through implementing Y") — focus on the user's pain point. -->
+language ("by adding X", "through implementing Y") — focus on the user's pain point.
+Fix-shaped PR (fixes an observed defect, or the branch's dominant commit type is
+`fix:`): lead with `**Failing:**` naming the observed failure and `**Root cause:**`
+naming why it happened, before the motivating sentences. -->
 
 ## What
 
@@ -10,8 +13,10 @@ Each bullet should be verifiable against the diff. -->
 
 ## Key decisions
 
-<!-- Non-obvious choices and their rationale. Each bullet: the decision + why. Skip
-obvious choices — only include where a reasonable alternative existed. -->
+<!-- Non-obvious choices and their rationale. Fix-shaped PR: the FIRST bullet is
+`**Fix mechanism:** <why the change eliminates the root cause>`. Each bullet: the
+decision + why. Skip obvious choices — only include where a reasonable alternative
+existed. -->
 
 ## User-facing changes
 
@@ -20,6 +25,13 @@ implementation terms ("added X to the renderer"). For renames or removals use
 `Before → After` bullets. If the PR is pure-internal (refactor, infra, no
 user-observable delta), write the literal word `none` here — never delete the
 heading. -->
+
+<!-- ## System flow changes
+
+Uncomment this heading only on a cross-component PR where behavior moved at the
+system/consumer level. Before → After bullets. Unlike User-facing changes above,
+this heading is conditional — omit it entirely (leave commented out) when nothing
+moved; there is no `none` affirmation for this section. -->
 
 ## Test Steps
 

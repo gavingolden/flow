@@ -237,6 +237,21 @@ const SCOUT_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "scout-instructions.md",
 );
+const PR_DESCRIPTION_AUTHORING_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-new-feature",
+  "references",
+  "pr-description-authoring.md",
+);
+const PULL_REQUEST_TEMPLATE_PATH = path.resolve(
+  HERE,
+  "..",
+  ".github",
+  "PULL_REQUEST_TEMPLATE.md",
+);
 const AGENT_PROMPTS_PATH = path.resolve(
   HERE,
   "..",
@@ -383,6 +398,14 @@ const examplePrdContent = fs.readFileSync(EXAMPLE_PRD_PATH, "utf8");
 const newFeatureContent = fs.readFileSync(NEW_FEATURE_SKILL_MD_PATH, "utf8");
 const scoutInstructionsContent = fs.readFileSync(
   SCOUT_INSTRUCTIONS_PATH,
+  "utf8",
+);
+const prDescriptionAuthoringContent = fs.readFileSync(
+  PR_DESCRIPTION_AUTHORING_PATH,
+  "utf8",
+);
+const pullRequestTemplateContent = fs.readFileSync(
+  PULL_REQUEST_TEMPLATE_PATH,
   "utf8",
 );
 const agentPromptsContent = fs.readFileSync(AGENT_PROMPTS_PATH, "utf8");
@@ -4190,12 +4213,23 @@ describe("pr-review include-by-reference structure", () => {
     // win with modest headroom rather than leaving the old, now-stale 2025
     // budget as ~327 lines of silent regrowth room — the exact failure mode
     // this diet fights.
+    //
+    // Bumped 1750 → 1755 (fix-shaped causal-explanation contract): Step 11
+    // gains one new bold-prefixed paragraph naming Step 11's fix-shaped
+    // completeness criteria — a fix-shaped PR missing `**Failing:**` /
+    // `**Root cause:**` / `**Fix mechanism:**`, or a cross-component PR
+    // missing `## System flow changes` — and 11a's Structure Check gains a
+    // conditional-section mention appended to its existing User-facing-changes
+    // bullet. Both were written as long single lines (matching the file's
+    // existing `**Proactive verification.**`-style long-line convention) to
+    // cost only 2 net lines total, so 1755 is a minimal ratchet reflecting
+    // that exact cost, not round-number headroom for future growth.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1750 lines. Material regrowth past this ceiling would ` +
+        `budget of 1755 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1750);
+    ).toBeLessThan(1755);
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
@@ -4935,6 +4969,100 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "reference silently orphans the requirement. Renaming the section name " +
         "must update all three sites and this lint in the same commit (AGENTS.md " +
         "anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("both authoring sites carry the fix-shaped Failing/Root-cause pair", () => {
+    expect(
+      prDescriptionAuthoringContent.includes("**Failing:**") &&
+        prDescriptionAuthoringContent.includes("**Root cause:**"),
+      "flow-new-feature/references/pr-description-authoring.md's `## Why` " +
+        "guidance must carry both `**Failing:**` and `**Root cause:**` — the " +
+        "fix-shaped causal-explanation contract. Dropping either token silently " +
+        "regresses fix PRs back to intent-only `## Why` prose. Renaming the " +
+        "tokens must update both authoring sites, flow-pr-review/SKILL.md Step " +
+        "11, and this lint in the same commit.",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("**Failing:**") &&
+        discoveryInstructionsContent.includes("**Root cause:**"),
+      "product-planning discovery-instructions.md Step 7's `## Why` guidance " +
+        "must carry both `**Failing:**` and `**Root cause:**` — the same " +
+        "fix-shaped causal-explanation contract mirrored from " +
+        "pr-description-authoring.md. Dropping either token silently regresses " +
+        "fix PRs seeded from a PRD back to intent-only `## Why` prose. Renaming " +
+        "the tokens must update both authoring sites, flow-pr-review/SKILL.md " +
+        "Step 11, and this lint in the same commit.",
+    ).toBe(true);
+  });
+
+  it("both authoring sites carry the fix-shaped Fix-mechanism lead bullet", () => {
+    expect(
+      prDescriptionAuthoringContent.includes("**Fix mechanism:**"),
+      "flow-new-feature/references/pr-description-authoring.md's `## Key " +
+        "decisions` guidance must carry `**Fix mechanism:**` — the rule that a " +
+        "fix-shaped PR's first Key-decisions bullet names why the change " +
+        "eliminates the root cause. Dropping it silently regresses fix PRs back " +
+        "to undifferentiated decision bullets. Renaming the token must update " +
+        "both authoring sites, flow-pr-review/SKILL.md Step 11, and this lint " +
+        "in the same commit.",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("**Fix mechanism:**"),
+      "product-planning discovery-instructions.md Step 7's `## Key decisions` " +
+        "guidance must carry `**Fix mechanism:**` — the same fix-shaped lead- " +
+        "bullet rule mirrored from pr-description-authoring.md. Dropping it " +
+        "silently regresses fix PRs seeded from a PRD back to undifferentiated " +
+        "decision bullets. Renaming the token must update both authoring " +
+        "sites, flow-pr-review/SKILL.md Step 11, and this lint in the same " +
+        "commit.",
+    ).toBe(true);
+  });
+
+  it("all four prose sites name the conditional 'System flow changes' section", () => {
+    expect(
+      prDescriptionAuthoringContent.includes("System flow changes"),
+      "flow-new-feature/references/pr-description-authoring.md must carry a " +
+        "`## System flow changes` guidance block between `## User-facing " +
+        "changes` and `## Test Steps` — the conditional, omit-when-empty " +
+        "section for cross-component PRs. Dropping it silently drops the " +
+        "section from every new-feature-authored PR description.",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("System flow changes"),
+      "product-planning discovery-instructions.md Step 7 must carry the same " +
+        "`## System flow changes` guidance block, mirrored from " +
+        "pr-description-authoring.md. Dropping it silently drops the section " +
+        "from every discovery-seeded PR description.",
+    ).toBe(true);
+    expect(
+      pullRequestTemplateContent.includes("System flow changes"),
+      ".github/PULL_REQUEST_TEMPLATE.md must carry a commented-out `## System " +
+        "flow changes` block after the `## User-facing changes` comment — so a " +
+        "human authoring a PR by hand (no seeding skill involved) sees the same " +
+        "conditional section as the two skill-authored paths. Dropping it " +
+        "silently drops the section from hand-authored PRs.",
+    ).toBe(true);
+    expect(
+      agentsContent.includes("System flow changes"),
+      "AGENTS.md's `- **PRs:**` bullet must name `## System flow changes` as " +
+        "conditional — the repo-wide pointer to the four-prose-site contract. " +
+        "Dropping it silently orphans the pointer from the canonical agent " +
+        "guide. Renaming the section name must update all four sites and this " +
+        "lint in the same commit.",
+    ).toBe(true);
+  });
+
+  it("flow-pr-review/SKILL.md Step 11 carries the 'Fix mechanism' review-time safety net", () => {
+    expect(
+      prReviewContent.includes("Fix mechanism"),
+      "flow-pr-review/SKILL.md Step 11 must reference 'Fix mechanism' — the " +
+        "review-time safety net that flags a fix-shaped PR missing the " +
+        "`**Failing:**` / `**Root cause:**` / `**Fix mechanism:**` causal " +
+        "contract, or a cross-component PR missing `## System flow changes`, " +
+        "as a `suggestion`-severity description finding. Dropping this " +
+        "paragraph silently removes the review-time backstop and lets a " +
+        "non-compliant fix PR through unflagged.",
     ).toBe(true);
   });
 

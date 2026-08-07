@@ -1016,7 +1016,10 @@ the description early means the PR tells a coherent story from the start.
 
 <Distill the Problem Statement into 1–3 sentences. Keep the user's pain point and
 why it matters — strip solution language. This should read as motivation, not a
-feature spec.>
+feature spec. On a fix-shaped PR — the pipeline exists to fix an observed defect, or
+the branch's dominant commit type is `fix:` — lead with `**Failing:**` naming the
+observed failure and `**Root cause:**` naming why it happened, before the 1-3
+sentence motivation.>
 
 ## What
 
@@ -1026,11 +1029,13 @@ should be verifiable.>
 
 ## Key decisions
 
-<Pull from Architecture Decisions and Scope Boundary's "Out of scope". Each bullet:
-the decision + a brief rationale. Include scope exclusions that a reviewer might
-wonder about. Also list each bundled task (every task carrying a `- **Bundled:**`
-bullet in the task breakdown) as its own `Bundled: <one-line origin>` bullet, so a
-reviewer can see why the diff is larger than the requested feature alone.>
+<Pull from Architecture Decisions and Scope Boundary's "Out of scope". On a fix-shaped
+PR, the FIRST bullet is `**Fix mechanism:** <why the change eliminates the root
+cause>`. Each bullet: the decision + a brief rationale. Include scope exclusions
+that a reviewer might wonder about. Also list each bundled task (every task
+carrying a `- **Bundled:**` bullet in the task breakdown) as its own
+`Bundled: <one-line origin>` bullet, so a reviewer can see why the diff is larger
+than the requested feature alone.>
 
 ## User-facing changes
 
@@ -1054,6 +1059,14 @@ delta), write the literal word `none` under the heading. Never delete the headin
 `none` is an explicit author affirmation, while a missing heading is ambiguous
 between "no change" and "author forgot".>
 
+## System flow changes
+
+<Only on a cross-component change where behavior moved at the system/consumer level —
+derive Before → After bullets from plan.md's `### System flow` subsection when the plan
+carries one. OMIT THIS HEADING ENTIRELY when nothing moved at that level; unlike
+User-facing changes above, there is no `none` affirmation for this section — an absent
+heading already means "nothing moved here".>
+
 ## Test Steps
 
 <Verification steps for this PR — both automated and manual smoke. The heading is
@@ -1076,6 +1089,10 @@ Always emit the heading. Decide the body based on the PRD:
   > Can I name (a) a fixture / setup, (b) one or more deterministic assertions, and
   > (c) an exit condition — all without subjective human judgment? If yes, this is
   > a runnable item, not manual prose.
+
+  On a fix-shaped PR, include at least one item that names a specific runnable
+  regression check (a test file, a fixture, or a reproducible command) that failed
+  before the fix and passes after it — not just a generic "tests pass" bullet.
 
   When the answer is yes, write the item as the deterministic shell command itself
   (`npm run test -- <file>`, `bun bin/<helper>.test.ts`, `gh pr view <n> --json …

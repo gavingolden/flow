@@ -139,7 +139,7 @@ code.claude.com/docs/en/how-claude-code-works.
 
 - **Branches:** short, descriptive. The supervisor uses `flow-new-worktree` to create per-pipeline branches from the slug; humans can use `<type>/<topic>` for non-supervisor work.
 - **Commits:** conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`). Imperative summary ≤ 50 chars. Body explains *why*. Trivial changes may omit the body.
-- **PRs:** Why / What / Key decisions / User-facing changes / Test Steps, in that order. The Test Steps section is also the auto-merge gate signal — zero unchecked `- [ ]` items ⇒ auto-merge, one or more unchecked items ⇒ gated. See `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md`.
+- **PRs:** Why / What / Key decisions / User-facing changes / Test Steps, in that order. The Test Steps section is also the auto-merge gate signal — zero unchecked `- [ ]` items ⇒ auto-merge, one or more unchecked items ⇒ gated. See `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md`. Fix PRs add `**Failing:**`/`**Root cause:**` and a `**Fix mechanism:**` lead bullet; `## System flow changes` is conditional.
 - **Never amend pushed commits.** Make a new commit instead.
 - **Never force-push** without explicit user request.
 - **Inline intent annotations** and the **session-marker + trailer** mechanics (how a PR's Claude Code session ID reaches both an HTML-comment marker and a `Claude-Code-Session-Id:` git trailer) are documented in full at [references/git-workflow.md](references/git-workflow.md).
