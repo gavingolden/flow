@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
-import { STEP_PHASES } from "./lib/state";
+import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { CHECKPOINT_SITES } from "./flow-checkpoint";
 
@@ -4291,6 +4291,94 @@ describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-do
       }
     },
   );
+});
+
+describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", () => {
+  // Guards against the allowlist (bin/lib/state.ts) and the SKILL.md prose
+  // silently drifting apart again: a phase dropped from
+  // TERMINAL_EXIT_TRANSITIONS.gated (or the symbol itself going unmentioned)
+  // should fail loudly here rather than leaving the doc describing exits the
+  // guard no longer permits, or vice versa.
+  //
+  // The per-phase check below is scoped to an ISOLATED PROSE SLICE, not
+  // whole-file `content` — 21 of 26 PIPELINE_PHASES are already backticked
+  // somewhere in SKILL.md as ordinary step headers, so a whole-file
+  // `content.includes` check passes vacuously for almost any allowlist
+  // widening.
+  //
+  // The slice deliberately EXCLUDES the "Gated is an explicit carve-out"
+  // paragraph, even though it also discusses the mechanic: that paragraph
+  // enumerates the in-flight phases (`implementing`, `ci-wait`,
+  // `reviewing`, `plan-pending-review`), which are precisely the most
+  // likely allowlist-widening targets — including it would re-open the
+  // vacuity hole for exactly the drift this lint exists to catch. Only the
+  // two regions that name actual EXITS are in scope: the `gated-feedback`
+  // Resume-mode row (step 6 / step 9 writes) and the "Gate override
+  // (post-verdict, opt-in)" section (the step 10 write). The carve-out
+  // paragraph is still anchor-checked below, just not phase-matched.
+  const gatedFeedbackRow = content
+    .split("\n")
+    .find((line) => line.includes("| `gated-feedback` |"));
+  const gateOverrideSection = (() => {
+    const start = content.indexOf("### Gate override (post-verdict, opt-in)");
+    const end = content.indexOf("\n### ", start + 1);
+    return content.slice(start, end === -1 ? undefined : end);
+  })();
+  const carveOutParagraph = (() => {
+    const marker =
+      "**Gated is an explicit carve-out, not a sixth in-flight phase.**";
+    const start = content.indexOf(marker);
+    const end = content.indexOf("\n\n", start + 1);
+    return content.slice(start, end === -1 ? undefined : end);
+  })();
+  const gatedExitProse = [gatedFeedbackRow ?? "", gateOverrideSection].join(
+    "\n\n",
+  );
+
+  it("the gated-exit prose slice was found (sanity check for the anchors above)", () => {
+    expect(
+      gatedFeedbackRow,
+      "gated-feedback Resume-mode row not found",
+    ).not.toBe(undefined);
+    expect(
+      gateOverrideSection.length,
+      "Gate override (post-verdict, opt-in) section not found",
+    ).toBeGreaterThan(0);
+    expect(
+      carveOutParagraph.length,
+      "Gated is an explicit carve-out paragraph not found",
+    ).toBeGreaterThan(0);
+  });
+
+  it.each(TERMINAL_EXIT_TRANSITIONS.gated.map((phase) => [phase]))(
+    "TERMINAL_EXIT_TRANSITIONS.gated phase '%s' is named (backticked) in SKILL.md's gated-exit prose",
+    (phase) => {
+      expect(
+        gatedExitProse.includes(`\`${phase}\``),
+        `TERMINAL_EXIT_TRANSITIONS.gated includes '${phase}' ` +
+          `(bin/lib/state.ts), but flow-pipeline/SKILL.md's gated-exit ` +
+          "prose (gated-feedback row / Gate override section) never " +
+          "mentions `" +
+          phase +
+          "` — fix SKILL.md's gated-exit prose to name every allowlisted " +
+          "target.",
+      ).toBe(true);
+    },
+  );
+
+  it("SKILL.md mentions the literal symbol TERMINAL_EXIT_TRANSITIONS", () => {
+    // Load-bearing check: verifying/gating/merging each also appear
+    // elsewhere in SKILL.md as ordinary phase names, so the it.each above
+    // alone can't catch the allowlist going unmentioned entirely — only the
+    // literal symbol name proves SKILL.md's prose is actually describing
+    // this guard, not just naming the phases in another context.
+    expect(
+      content.includes("TERMINAL_EXIT_TRANSITIONS"),
+      "flow-pipeline/SKILL.md no longer mentions the literal symbol " +
+        "TERMINAL_EXIT_TRANSITIONS — fix SKILL.md to name it explicitly so " +
+        "the gated-exit prose stays traceable to bin/lib/state.ts.",
+    ).toBe(true);
+  });
 });
 
 describe("pr-review Step 11e inversion contract", () => {

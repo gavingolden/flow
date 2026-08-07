@@ -722,6 +722,96 @@ describe("terminal-regression guard", () => {
     expect(readState("csv-export", dir)?.pr).toBe(42);
     expect(readState("csv-export", dir)?.phase).toBe("merged");
   });
+
+  it("allows the allowlisted gated→verifying exit and writes the new phase", () => {
+    seed("csv-export", { phase: "gated" });
+    const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("verifying");
+  });
+
+  it("allows the allowlisted gated→gating exit", () => {
+    seed("csv-export", { phase: "gated" });
+    const code = runUpdate(["csv-export", "--phase", "gating"], dir);
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("gating");
+  });
+
+  it("allows the allowlisted gated→merging exit", () => {
+    seed("csv-export", { phase: "gated" });
+    const code = runUpdate(["csv-export", "--phase", "merging"], dir);
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("merging");
+  });
+
+  it("an allowlisted exit still appends exactly one phaseLog entry", () => {
+    seed("csv-export", { phase: "gated", phaseLog: [] });
+    const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phaseLog).toHaveLength(1);
+  });
+
+  it("still returns 4 for gated→triaging (not in the allowlist) and leaves state unchanged", () => {
+    seed("csv-export", { phase: "gated" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "triaging"], dir);
+    errSpy.mockRestore();
+    expect(code).toBe(4);
+    expect(readState("csv-export", dir)?.phase).toBe("gated");
+  });
+
+  it("returns 4 for merged→verifying — the allowlist is keyed on the from-phase, not the target", () => {
+    seed("csv-export", { phase: "merged" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+    errSpy.mockRestore();
+    expect(code).toBe(4);
+    expect(readState("csv-export", dir)?.phase).toBe("merged");
+  });
+
+  it.each(["needs-human", "cancelled", "epic-approved"])(
+    "returns 4 for %s→verifying — no allowlist entry outside gated",
+    (fromPhase) => {
+      seed("csv-export", { phase: fromPhase });
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+      errSpy.mockRestore();
+      expect(code).toBe(4);
+      expect(readState("csv-export", dir)?.phase).toBe(fromPhase);
+    },
+  );
+
+  it("branch-mismatch (exit 3) still wins over an allowlisted gated exit", () => {
+    const fx = makeWorktreeFixture("expected-branch", "actual-branch");
+    seed("csv-export", { phase: "gated", worktree: fx.worktreeDir });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+    errSpy.mockRestore();
+    expect(code).toBe(3);
+    expect(readState("csv-export", dir)?.phase).toBe("gated");
+    fx.cleanup();
+  });
+
+  it("the exit-4 refusal names the allowed exits for the from-phase", () => {
+    seed("csv-export", { phase: "gated" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "triaging"], dir);
+    expect(code).toBe(4);
+    const output = errSpy.mock.calls.flat().join("\n");
+    errSpy.mockRestore();
+    expect(output).toContain("Allowed exits");
+    expect(output).toContain("verifying");
+  });
+
+  it("the exit-4 refusal says 'none' when the from-phase has no allowlist entry", () => {
+    seed("csv-export", { phase: "merged" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+    expect(code).toBe(4);
+    const output = errSpy.mock.calls.flat().join("\n");
+    errSpy.mockRestore();
+    expect(output).toContain("Allowed exits from 'merged': none");
+  });
 });
 
 describe("parseArgs --slug flag", () => {
