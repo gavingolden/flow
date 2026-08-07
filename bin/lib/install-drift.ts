@@ -54,8 +54,11 @@ export type DriftEntry = {
   kind: DriftKind;
   displayName: string;
   target: string;
-  /** Set only on kind "unexpected" — the offending path relative to the
-   * plugin root. */
+  /** Set on the plugin-root-audit-derived kinds ("unexpected" and the
+   * dangling-`bin/`-symlink flavor of "dangling") — the offending path
+   * relative to the plugin root. Absent on the manifest-symlink-derived
+   * kinds ("missing"/"stale"/the rest of "dangling"), which have no
+   * plugin-root-relative path to report. */
   detail?: string;
 };
 
@@ -117,8 +120,15 @@ export function checkInstallDrift(
     // orphaned plugin root must still report that drift, not report clean.
     for (const root of scanPluginRoots(targets.skillsDir)) {
       for (const issue of unexpectedPluginRootEntries(root)) {
+        // A dangling `bin/` symlink is genuinely repaired by
+        // `flow install --upgrade` (see `classifyBinEntry` in
+        // `plugin-root-audit.ts`), so it gets the "dangling" kind and that
+        // kind's self-healing remediation — not "unexpected", which routes
+        // to the hand-removal remediation reserved for real, non-symlink
+        // files the prune loop never touches.
         entries.push({
-          kind: "unexpected",
+          kind:
+            issue.reason === "dangling-bin-symlink" ? "dangling" : "unexpected",
           displayName: path.basename(root),
           target: root,
           detail: issue.relPath,
@@ -237,6 +247,12 @@ export function checkInstallDrift(
   }
 }
 
+/** Cap on how many `unexpected` entries `formatDriftNotice` names inline —
+ * the notice is a one-line dimmed message on an interactive path, so an
+ * unbounded enumeration would blow past that budget on a badly-drifted
+ * root; name the first few and fold the rest into a `(+N more)` tail. */
+const MAX_ENUMERATED_UNEXPECTED = 3;
+
 /** Formats a one-line, dimmed-by-caller drift notice, or `null` when clean.
  * Mirrors `update-check.ts`'s `formatUpdateNotice` shape. */
 export function formatDriftNotice(result: InstallDriftResult): string | null {
@@ -250,12 +266,27 @@ export function formatDriftNotice(result: InstallDriftResult): string | null {
   // every symlink kind unconditionally (it's a no-op when there is nothing
   // to repair), while an `unexpected` entry — a real file or directory
   // inside a flow-managed plugin root — must be removed by hand (flow never
-  // deletes a real file it did not write).
+  // deletes a real file it did not write). Unlike the other three kinds,
+  // `unexpected` has no automated remedy, so it's the one kind that must
+  // NAME the offending entries rather than report an anonymous count —
+  // otherwise the user is told to hand-remove a file the tool refuses to
+  // name.
   const repair = "run `flow install --upgrade` to repair";
-  const handRemoval =
-    byKind.unexpected > 0
-      ? "; unexpected entries inside a flow-managed plugin root must be removed by hand"
-      : "";
+  const unexpectedEntries = result.entries.filter(
+    (e) => e.kind === "unexpected" && e.detail,
+  );
+  let handRemoval = "";
+  if (byKind.unexpected > 0) {
+    const named = unexpectedEntries
+      .slice(0, MAX_ENUMERATED_UNEXPECTED)
+      .map((e) => `${e.displayName} → ${e.detail}`);
+    const remaining = unexpectedEntries.length - named.length;
+    const list =
+      named.join(", ") + (remaining > 0 ? ` (+${remaining} more)` : "");
+    handRemoval = list
+      ? `; must be removed by hand: ${list}`
+      : "; unexpected entries inside a flow-managed plugin root must be removed by hand";
+  }
   return `flow: ${result.entries.length} install drift issue${
     result.entries.length === 1 ? "" : "s"
   } (${parts.join(", ")}) — ${repair}${handRemoval}`;

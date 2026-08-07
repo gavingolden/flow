@@ -426,4 +426,20 @@ describe(withPluginPath, () => {
       withPluginPath("/roots/flow-module-a/bin:/roots/flow-module-b/bin", ""),
     ).toBe("/roots/flow-module-a/bin:/roots/flow-module-b/bin");
   });
+
+  it("preserves a pre-existing empty segment (trailing colon) in currentPath rather than collapsing it", () => {
+    // currentPath already carries a trailing `:` (an empty PATH segment,
+    // POSIX-legal and meaning "current working directory"). The function
+    // must neither strip it nor treat it as a plugin-path segment to dedupe
+    // against — it just appends after the existing string verbatim.
+    expect(withPluginPath("/roots/flow-module-core/bin", "/usr/bin:")).toBe(
+      "/usr/bin::/roots/flow-module-core/bin",
+    );
+  });
+
+  it("preserves a pre-existing '::' (double-colon / empty-segment pair) in currentPath", () => {
+    expect(
+      withPluginPath("/roots/flow-module-core/bin", "/usr/bin::/bin"),
+    ).toBe("/usr/bin::/bin:/roots/flow-module-core/bin");
+  });
 });

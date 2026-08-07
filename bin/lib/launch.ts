@@ -125,7 +125,7 @@ export function runLaunchCli(deps: LaunchDeps = {}): number {
     );
   }
 
-  // Extracted once so the argv's --plugin-dir entries and the PATH prefix
+  // Extracted once so the argv's --plugin-dir entries and the PATH append
   // below can never disagree about which roots are live.
   const roots = pluginRootsFor(claudeHome);
 

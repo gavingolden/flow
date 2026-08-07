@@ -77,7 +77,7 @@ describe(unexpectedPluginRootEntries, () => {
     ]);
   });
 
-  it("a dangling symlink in bin/ is an unmanaged-bin-entry", () => {
+  it("a dangling symlink in bin/ is a dangling-bin-symlink, not an unmanaged-bin-entry", () => {
     materializeCleanRoot();
     fs.symlinkSync(
       path.join(scratch, "does-not-exist.ts"),
@@ -86,7 +86,7 @@ describe(unexpectedPluginRootEntries, () => {
     const issues = unexpectedPluginRootEntries(root);
     expect(issues).toContainEqual({
       relPath: path.join("bin", "flow-dangling"),
-      reason: "unmanaged-bin-entry",
+      reason: "dangling-bin-symlink",
     });
     expect(issues).toHaveLength(1);
   });
@@ -96,6 +96,25 @@ describe(unexpectedPluginRootEntries, () => {
     const target = path.join(scratch, "another-real-helper.ts");
     fs.writeFileSync(target, "export {};\n");
     fs.symlinkSync(target, path.join(root, "bin", "flow-another-helper"));
+    expect(unexpectedPluginRootEntries(root)).toEqual([]);
+  });
+
+  it("a real directory in bin/ is an unmanaged-bin-entry", () => {
+    materializeCleanRoot();
+    fs.mkdirSync(path.join(root, "bin", "stray-dir"));
+    const issues = unexpectedPluginRootEntries(root);
+    expect(issues).toContainEqual({
+      relPath: path.join("bin", "stray-dir"),
+      reason: "unmanaged-bin-entry",
+    });
+    expect(issues).toHaveLength(1);
+  });
+
+  it("a live symlink to a directory in bin/ is not reported (self-healing case)", () => {
+    materializeCleanRoot();
+    const targetDir = path.join(scratch, "real-dir");
+    fs.mkdirSync(targetDir);
+    fs.symlinkSync(targetDir, path.join(root, "bin", "flow-dir-link"));
     expect(unexpectedPluginRootEntries(root)).toEqual([]);
   });
 
@@ -116,15 +135,37 @@ describe(unexpectedPluginRootEntries, () => {
     expect(unexpectedPluginRootEntries(root)).toEqual([]);
   });
 
-  it("a manifest with skills: null still counts as key-present (no issue for skills/)", () => {
+  it("a manifest with skills: null does NOT declare skills — skills/ is reported (shape check, not key presence)", () => {
     writeManifest({ skills: null });
+    fs.mkdirSync(path.join(root, "skills"), { recursive: true });
+    expect(unexpectedPluginRootEntries(root)).toEqual([
+      { relPath: "skills", reason: "unexpected-child" },
+    ]);
+  });
+
+  it("a manifest with skills: [] declares skills (empty array is still an array of strings) — no issue for skills/", () => {
+    writeManifest({ skills: [] });
     fs.mkdirSync(path.join(root, "skills"), { recursive: true });
     expect(unexpectedPluginRootEntries(root)).toEqual([]);
   });
 
-  it("a manifest with skills: [] still counts as key-present (no issue for skills/)", () => {
-    writeManifest({ skills: [] });
+  it("a manifest with skills: 'yes' (a scalar) does NOT declare skills — skills/ is reported", () => {
+    writeManifest({ skills: "yes" });
     fs.mkdirSync(path.join(root, "skills"), { recursive: true });
+    expect(unexpectedPluginRootEntries(root)).toEqual([
+      { relPath: "skills", reason: "unexpected-child" },
+    ]);
+  });
+
+  it("a plugin.json that parses to a bare string (non-object) never throws and does not flag skills/", () => {
+    const dir = path.join(root, ".claude-plugin");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plugin.json"),
+      JSON.stringify("not-an-object"),
+    );
+    fs.mkdirSync(path.join(root, "skills"), { recursive: true });
+    expect(() => unexpectedPluginRootEntries(root)).not.toThrow();
     expect(unexpectedPluginRootEntries(root)).toEqual([]);
   });
 

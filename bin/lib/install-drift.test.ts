@@ -370,6 +370,61 @@ describe(checkInstallDrift, () => {
     });
   });
 
+  it("reports one 'unexpected' entry for a flow-owned root with an extra child ALONGSIDE a non-empty manifest (accumulation path, not the manifest.symlinks.length===0 early return)", () => {
+    const dir = makeScratch();
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(root, { recursive: true });
+    fs.mkdirSync(path.join(root, "hooks"));
+    const source = path.join(dir, "source.txt");
+    fs.writeFileSync(source, "content");
+    const target = path.join(dir, "target-link");
+    fs.symlinkSync(source, target);
+
+    const result = run({
+      readManifest: () => manifest([record({ target })]),
+      discover: () => [entry({ source, target })],
+      scanPluginRoots: () => [root],
+    });
+    expect(result).toEqual({
+      status: "drifted",
+      entries: [
+        {
+          kind: "unexpected",
+          displayName: "flow-module-copilot",
+          target: root,
+          detail: "hooks",
+        },
+      ],
+    });
+  });
+
+  it("reports one 'dangling' entry (not 'unexpected') for a dangling bin/ symlink inside a flow-owned root", () => {
+    const dir = makeScratch();
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    fs.symlinkSync(
+      path.join(dir, "does-not-exist.ts"),
+      path.join(root, "bin", "flow-dangling"),
+    );
+
+    const result = run({
+      readManifest: () => manifest([]),
+      discover: () => [],
+      scanPluginRoots: () => [root],
+    });
+    expect(result).toEqual({
+      status: "drifted",
+      entries: [
+        {
+          kind: "dangling",
+          displayName: "flow-module-copilot",
+          target: root,
+          detail: path.join("bin", "flow-dangling"),
+        },
+      ],
+    });
+  });
+
   it("reports clean for a plugin root with no unexpected children", () => {
     const dir = makeScratch();
     const root = path.join(dir, "flow-module-copilot");
@@ -527,5 +582,35 @@ describe(formatDriftNotice, () => {
     expect(notice).toContain("1 unexpected");
     expect(notice).toContain("flow install --upgrade");
     expect(notice).toContain("removed by hand");
+  });
+
+  it("names each unexpected entry as '<displayName> → <detail>'", () => {
+    const notice = formatDriftNotice({
+      status: "drifted",
+      entries: [
+        {
+          kind: "unexpected",
+          displayName: "flow-module-copilot",
+          target: "/roots/flow-module-copilot",
+          detail: "hooks",
+        },
+      ],
+    });
+    expect(notice).toContain("flow-module-copilot → hooks");
+  });
+
+  it("caps the enumeration and appends a '(+N more)' tail beyond the cap", () => {
+    const entries = Array.from({ length: 5 }, (_, i) => ({
+      kind: "unexpected" as const,
+      displayName: `flow-module-${i}`,
+      target: `/roots/flow-module-${i}`,
+      detail: `hooks-${i}`,
+    }));
+    const notice = formatDriftNotice({ status: "drifted", entries });
+    expect(notice).toContain("flow-module-0 → hooks-0");
+    expect(notice).toContain("flow-module-1 → hooks-1");
+    expect(notice).toContain("flow-module-2 → hooks-2");
+    expect(notice).not.toContain("flow-module-3 → hooks-3");
+    expect(notice).toContain("(+2 more)");
   });
 });
