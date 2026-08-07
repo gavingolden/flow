@@ -12,9 +12,14 @@ import { fileURLToPath } from "node:url";
  * runs the skill exists to prevent. Prose has no test, so this file pins the
  * load-bearing, easily-softened rules as literal anchors.
  *
- * It is also the ONLY lint covering this skill: the bare-PATH lint
- * (bin/skill-md-lint.test.ts:4518) and the ToolSearch-preamble lint (:3778)
- * both hardcode `skills/pipeline/` and give a universal skill zero coverage.
+ * It is also the ONLY lint covering this skill: in bin/skill-md-lint.test.ts,
+ * the bare-PATH lint (describe block "pipeline skills invoke PATH binaries,
+ * not cwd-relative bun bin/ paths") and the ToolSearch-preamble lint
+ * (describe block "Task-tool ToolSearch-load preamble at all nine top-level
+ * spawn sites plus the nested verify-loop site") both hardcode
+ * `skills/pipeline/` and give a universal skill zero coverage. Cited by
+ * describe-block title, not line number, so this citation cannot rot as
+ * skill-md-lint.test.ts grows.
  *
  * STANDALONE: this file owns its own describe blocks and does not touch the
  * exactly-9 Task-tool-exemption assertions in bin/skill-md-lint.test.ts —
@@ -294,8 +299,24 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
     expect(fanoutContent.includes('ToolSearch query="select:Task"')).toBe(true);
   });
 
-  it("names no write-capable fallback agent when the fan-out reference defines its degrade path", () => {
-    expect(fanoutContent.includes("general-purpose")).toBe(false);
+  it("names inline sequential verification as the degrade path when the fan-out reference defines its degrade path", () => {
+    // Positive anchor on the required behavior, not just an absence — an
+    // absence-only assertion (e.g. asserting "general-purpose" is missing)
+    // makes deleting the whole degrade-path section pass HARDER.
+    expect(
+      fanoutContent.includes("inline sequential"),
+      "references/verification-fanout.md must name inline sequential " +
+        "verification as the degrade path when the read-only verifier " +
+        "agent is unavailable — deleting the section must fail this check.",
+    ).toBe(true);
+  });
+
+  it("never uses general-purpose as the subagent_type value when the fan-out reference defines its degrade path", () => {
+    // Narrower than a file-wide includes()-is-false: this specifically
+    // pins that the write-capable catch-all is never handed to
+    // `subagent_type:`, without forcing the prose to euphemize the name
+    // entirely (SKILL.md names it outright for a reader's benefit).
+    expect(/subagent_type:\s*general-purpose/.test(fanoutContent)).toBe(false);
   });
 
   it("names flow-backlog-verifier as the subagent type when the fan-out reference defines the spawn call", () => {
@@ -304,12 +325,22 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
     );
   });
 
-  it("requires batched work with a bounded pool when the fan-out reference defines the spawn shape", () => {
+  it("requires batched work with a wave-bounded spawn cap when the fan-out reference defines the spawn shape", () => {
     expect(fanoutContent.includes("Batch")).toBe(true);
-    expect(fanoutContent.includes("bounded concurrent pool")).toBe(true);
+    expect(fanoutContent.includes("waves of at most 6")).toBe(true);
+    expect(fanoutContent.includes("ceil(total_items / 6)")).toBe(true);
   });
 
-  it("forbids mutating commands when the verifier agent defines its read-only contract", () => {
+  it("forbids (not merely names) mutating commands when the verifier agent defines its read-only contract", () => {
+    // Anchor on the PROHIBITION shape ("no `<cmd>`"), not bare presence — a
+    // polarity-flipping edit (e.g. rewording to permit these commands while
+    // still naming them) would keep a bare includes() green.
+    // Normalize whitespace (including markdown line-wraps) so a phrase
+    // spanning a wrapped line still matches.
+    const normalizedVerifierAgentContent = verifierAgentContent.replace(
+      /\s+/g,
+      " ",
+    );
     for (const mutatingCommand of [
       "gh issue close",
       "gh issue comment",
@@ -318,12 +349,17 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
       "git push",
     ]) {
       expect(
-        verifierAgentContent.includes(mutatingCommand),
-        `agents/flow-backlog-verifier.md must name '${mutatingCommand}' as a ` +
-          "forbidden mutating command — the read-only contract is prose-" +
-          "enforced (Bash can mutate), so the file must say so explicitly.",
+        normalizedVerifierAgentContent.includes(`no \`${mutatingCommand}\``),
+        `agents/flow-backlog-verifier.md must forbid '${mutatingCommand}' ` +
+          "(the literal 'no `<cmd>`' phrasing) as a mutating command — the " +
+          "read-only contract is prose-enforced (Bash can mutate), so the " +
+          "file must say so explicitly and prohibit it, not merely name it.",
       ).toBe(true);
     }
+  });
+
+  it("forbids gh api as the generic mutation escape hatch when the verifier agent defines its read-only contract", () => {
+    expect(verifierAgentContent.includes("gh api")).toBe(true);
   });
 
   // Portability: this skill runs in arbitrary consumer repos
@@ -374,6 +410,17 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
       ).toBe(true);
     },
   );
+
+  it("SKILL.md's self-reference to this lint file's path is correct", () => {
+    // SKILL.md claims its Constraints section is "anchored by a structural
+    // lint at bin/flow-backlog-triage-skill-lint.test.ts" — pin that claim
+    // so a rename of this file can't silently orphan the reference.
+    expect(
+      skillContent.includes("bin/flow-backlog-triage-skill-lint.test.ts"),
+      "skills/universal/flow-backlog-triage/SKILL.md must reference this " +
+        "lint file by its exact path in the Constraints section.",
+    ).toBe(true);
+  });
 
   it("resolves every references/*.md link when the SKILL.md links to its references", () => {
     const linkRe = /\]\(references\/([^)]+)\)/g;

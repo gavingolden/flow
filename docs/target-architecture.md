@@ -286,11 +286,11 @@ the PATH-bound schema validators. Always installed.
 | `agents/flow-review-test-coverage.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
 | `agents/flow-gatekeeper.md`                 | pr-review gatekeeper               | `tools:` allowlist; `model: haiku`             |
 | `agents/flow-consolidator.md`               | pr-review consolidator-validator   | `tools:` allowlist                             |
+| `agents/flow-review-intent-guess.md`        | pr-review cross-model intent guess | `tools: Read, Grep, Glob, Write`               |
 | `agents/flow-scout.md`                      | new-feature scout                  | `tools:` allowlist                             |
 | `agents/flow-discovery.md`                  | product-planning discovery         | no `tools:` (inherits all)                     |
 | `agents/flow-merge-resolver.md`             | pipeline merge-conflict resolver   | `tools:` allowlist                             |
 | `agents/flow-edit-applier.md`               | coder edit-applier                 | `tools:` allowlist                             |
-| `agents/flow-review-intent-guess.md`        | pr-review cross-model intent guess | `tools: Read, Grep, Glob, Write`               |
 | `agents/flow-backlog-verifier.md`           | backlog-triage Phase-1 verifier    | `tools: Bash, Read, Grep, Glob`                |
 
 Phase 4 is complete: the scout, discovery, merge-resolver, and

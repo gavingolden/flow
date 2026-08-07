@@ -85,7 +85,7 @@ table must carry exactly 6 rows.
   auto-closed**:
 
   ```
-  gh issue close 399 --comment "closing as won't-do — the CSV export in #533 already covers this use case, and a second dedicated export button adds a maintenance surface for no incremental user value."
+  gh issue close 399 --comment 'closing as won'\''t-do — the CSV export in #533 already covers this use case, and a second dedicated export button adds a maintenance surface for no incremental user value.'
   ```
 
   This comment is a ready-to-run command the kill list shows verbatim;
@@ -96,7 +96,7 @@ table must carry exactly 6 rows.
   queued directly:
 
   ```
-  flow feature create --tmux --model opus --effort high --slug restore-deploy-secrets "implement bundle issue #440 — restore rotated deploy secrets (fixes #431, H3)"
+  flow feature create --tmux --model opus --effort high --slug restore-deploy-secrets 'implement bundle issue #440 — restore rotated deploy secrets (fixes #431, H3)'
   ```
 
 - A hypothetical Bundle C — "add a configurable retention window for
@@ -105,7 +105,7 @@ table must carry exactly 6 rows.
   `<value required>` placeholder:
 
   ```
-  flow feature create --tmux --model opus --effort low --slug audit-log-retention "implement bundle issue #441 — configurable audit-log retention window (default retention: <value required>)"
+  flow feature create --tmux --model opus --effort low --slug audit-log-retention 'implement bundle issue #441 — configurable audit-log retention window (default retention: <value required>)'
   ```
 
 ## What this example demonstrates

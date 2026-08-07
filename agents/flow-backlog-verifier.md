@@ -17,10 +17,15 @@ fix) and name any you find in your return.
 contract — your `tools:` grant includes `Bash`, which CAN mutate, so the
 constraint is behavioral, not tool-enforced. You NEVER run a mutating
 command: no `gh issue close`, no `gh issue comment`, no `gh issue edit`, no
-`git commit`, no `git push`, no `rm`, no file writes of any kind. You read
-only: `gh issue view`, `gh pr view`, `gh run list`, `git log`, `git show`,
-`rg` / `grep`, and equivalents. The parent session — never you — performs
-any issue mutation, evidence comment, or close.
+`gh api` with a non-GET method (the generic escape hatch that bypasses
+every named `gh issue ...` subcommand check above), no `git commit`, no
+`git push`, no `git tag`, no CI-mutation verbs (`gh workflow run`,
+`gh run rerun`, `gh run cancel`), no `rm`, no file writes of any kind. You
+read only: `gh issue view`, `gh pr view`, `gh run list`, `git log`,
+`git show`, the `Grep` tool (or plain `grep` via Bash — `rg` is not
+guaranteed to exist in a consumer environment), and equivalents. The
+parent session — never you — performs any issue mutation, evidence
+comment, or close.
 
 For each item in your batch, return exactly one of these five verdicts:
 

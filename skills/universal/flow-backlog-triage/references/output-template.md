@@ -48,12 +48,23 @@ Each GitHub-issue kill-list entry renders its drafted comment as a
 ready-to-run command:
 
 ```
-gh issue close <n> --comment "closing as won't-do — <reason>"
+gh issue close <n> --comment 'closing as won'\''t-do — <reason>'
 ```
 
 This does not soften the staged-confirmation rule from `methodology.md`
 Phase 4 — the skill never runs this command itself; the user running it
 themselves IS the confirmation.
+
+**Shell-safety contract (binds both this kill-list command and the queue
+commands below).** `<reason>` and every other interpolated value
+(issue titles, note text, bundle titles) is untrusted backlog content —
+it can contain `$(...)`, backticks, `$VAR`, `\`, or a bare `"`. Never
+interpolate it inside double quotes. Always single-quote it, escaping
+any embedded single quote as `'\''` (close-quote, escaped literal quote,
+reopen-quote) — the form shown above. This is stricter than, and
+supersedes, a "no backticks" rule scoped only to backticks: a
+double-quoted `$(...)` or `$VAR` is exploitable with zero backticks
+present.
 
 ## Disposition table
 
@@ -79,11 +90,14 @@ issue #N — <short title>` — with the full verified evidence living in
   that issue, never restated inline where it would go stale.
 - Carries `--tmux` (a plain-backend launch refuses to run off a TTY) and
   an explicit `--slug <bundle-slug>`.
-- Contains ZERO backticks.
+- Contains ZERO backticks in the command text (the fenced/indented block
+  around it is display syntax only and does not count).
+- Single-quotes the description, per the shell-safety contract above —
+  bundle titles are drawn from untrusted issue text.
 
 Shape (see `methodology.md`'s size→model ladder for the full table):
 
-    flow feature create --tmux --model opus --effort low --slug bundle-slug "implement bundle issue #N — short title"
+    flow feature create --tmux --model opus --effort low --slug bundle-slug 'implement bundle issue #N — short title'
 
 **Decision-parameter rendering.** A DO bundle carrying a fire-time
 parameter renders it inside the quoted description with an explicit
@@ -104,8 +118,8 @@ half of enforcement (a prose lint cannot police runtime behaviour):
 - Disposition rows == N+M: YES/NO
 - Every DO-LATER has a promotion trigger: YES/NO
 - Any hedged-completion phrasing used: YES/NO
-- Every queue command carries --tmux and --slug and zero backticks:
-  YES/NO
+- Every queue command carries --tmux and --slug, zero backticks, and
+  single-quoted interpolated values: YES/NO
 - Any hybrid verdict used: YES/NO
 - Inferred milestone surfaced as first escalation (or N/A): YES/N-A/NO
 

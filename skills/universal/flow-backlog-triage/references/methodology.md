@@ -142,15 +142,19 @@ alias/effort pair, config resolves the concrete model for that alias.
 
 | Size   | Model | Effort | Launch command                                                                                                              |
 | ------ | ----- | ------ | --------------------------------------------------------------------------------------------------------------------------- |
-| Small  | opus  | low    | `flow feature create --tmux --model opus --effort low --slug <bundle-slug> "implement bundle issue #N — <short title>"`     |
-| Medium | opus  | high   | `flow feature create --tmux --model opus --effort high --slug <bundle-slug> "implement bundle issue #N — <short title>"`    |
-| Large  | fable | medium | `flow feature create --tmux --model fable --effort medium --slug <bundle-slug> "implement bundle issue #N — <short title>"` |
+| Small  | opus  | low    | `flow feature create --tmux --model opus --effort low --slug <bundle-slug> 'implement bundle issue #N — <short title>'`     |
+| Medium | opus  | high   | `flow feature create --tmux --model opus --effort high --slug <bundle-slug> 'implement bundle issue #N — <short title>'`    |
+| Large  | fable | medium | `flow feature create --tmux --model fable --effort medium --slug <bundle-slug> 'implement bundle issue #N — <short title>'` |
 
 `--tmux` is mandatory — a plain-backend launch refuses to run off a TTY.
 `--slug <bundle-slug>` is a real validated flag — always pass an explicit,
 already-lowercase-hyphenated slug; never rely on auto-slugify. Valid
 `--model` values are `opus` / `haiku` / `sonnet` / `fable`. Valid
 `--effort` values are `low` / `medium` / `high` / `xhigh` / `max`.
+`<short title>` is drawn from untrusted issue text — single-quote it as
+shown (see output-template.md's shell-safety contract); the surrounding
+inline-code backticks above are markdown display syntax, not command
+text, and do not violate the zero-backticks rule.
 
 ## Phase 4 — act
 
@@ -178,7 +182,9 @@ distinction: **evidence-based closures are automated, judgment-based closures ar
 
 Every emitted launch command in the queue follows the queue-seed format
 from [output-template.md](output-template.md): `--tmux`, an explicit
-`--slug`, and zero backticks.
+`--slug`, zero backticks in the command text, and every interpolated
+untrusted value (issue/bundle title, close reason) single-quoted per
+that file's shell-safety contract.
 
 **Who acts.** The PARENT SESSION executes the evidence-based `gh issue
 close` and rescope-comment calls in this phase — not a Phase-1 verifier
