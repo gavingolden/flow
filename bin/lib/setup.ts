@@ -8,6 +8,7 @@
  * name.
  */
 
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -106,6 +107,19 @@ function npmInstall(root: string): { ok: boolean; stderr?: string } {
     : { ok: false, stderr: result.stderr.toString() };
 }
 
+/** Default `reexecAfterFastForward`: re-runs the current process (same
+ * argv) via `spawnSync` — see the call site in `runSetup` for why. */
+function reexecUnderFreshCode(): number | undefined {
+  const result = spawnSync(process.argv[0], process.argv.slice(1), {
+    stdio: "inherit",
+    env: { ...process.env, FLOW_INSTALL_REEXEC: "1" },
+  });
+  if (result.error || result.status === null || result.status === undefined) {
+    return undefined;
+  }
+  return result.status;
+}
+
 export type SetupOptions = {
   upgrade?: boolean;
   force?: boolean;
@@ -168,6 +182,15 @@ export type SetupOptions = {
    * `flow install --upgrade --no-pull-canonical`.
    */
   pullCanonicalFirst?: boolean;
+  /**
+   * Injectable seam that re-runs the installer under freshly fast-forwarded
+   * code (see the call site in `runSetup` for why this exists). Returns the
+   * re-exec'd child's numeric exit status, or `undefined` when the spawn
+   * itself failed (the caller then falls through rather than exiting).
+   * Defaults to a real re-exec via `spawnSync`; tests inject a stub so no
+   * test spawns a real subprocess or calls the real `process.exit`.
+   */
+  reexecAfterFastForward?: (ff: FastForwardResult) => number | undefined;
   /**
    * If true, when the Stop-hook merge encounters malformed JSON at
    * `settingsPath`, back the file up to a timestamped sibling and rewrite
@@ -349,6 +372,22 @@ export async function runSetup(
     ff = { status: "skipped", reason: "repointed-source" };
   } else if (options.upgrade && options.pullCanonicalFirst !== false) {
     ff = fastForwardCanonical({ canonicalRoot: installRoot });
+  }
+
+  // Bun resolves every `bin/lib/*` import at module load — BEFORE this point
+  // — so an `ahead` fast-forward just rewrote the content on disk out from
+  // under the code already loaded into THIS process. Re-exec (before the
+  // lock, before any symlink/manifest write below) so the run that actually
+  // mutates the filesystem does so under the fresh post-merge code, never
+  // the stale pre-merge code. FLOW_INSTALL_REEXEC=1 in the child's env
+  // bounds this to exactly one hop; a failed spawn falls through unchanged.
+  if (ff?.status === "ahead" && process.env.FLOW_INSTALL_REEXEC !== "1") {
+    const exitStatus = (options.reexecAfterFastForward ?? reexecUnderFreshCode)(
+      ff,
+    );
+    if (exitStatus !== undefined) {
+      process.exit(exitStatus);
+    }
   }
 
   // Serialize symlink + manifest writes against any concurrent `flow install`

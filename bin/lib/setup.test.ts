@@ -18,6 +18,7 @@ import { LockTimeoutError } from "./lock";
 import { removeIfManagedSymlink } from "./symlink";
 import { countStopHook } from "./settings-merge";
 import { resolveFlowSource } from "./paths";
+import type { FastForwardResult } from "./git";
 import { moduleIds } from "./modules";
 import type { InstallDriftResult } from "./install-drift";
 import {
@@ -81,6 +82,7 @@ function setup(
     isTTY?: boolean;
     configPath?: string;
     checkDrift?: () => InstallDriftResult;
+    reexecAfterFastForward?: (ff: FastForwardResult) => number | undefined;
   } = {},
 ) {
   const { flowSourceOverride, installRootOverride, ...rest } = opts;
@@ -96,6 +98,12 @@ function setup(
     // before ...rest so an explicit opts.cachePath (arriving via ...rest)
     // still overrides it.
     cachePath: path.join(homeDir, ".flow", "update-check.json"),
+    // Default the re-exec seam to a no-op so an organic `ahead` result in
+    // one of this file's ~3 upgrade:true fixtures never spawns a real
+    // subprocess (which would recursively re-invoke the vitest worker
+    // itself). The dedicated seam tests below override this directly via
+    // `runSetup`, not through this wrapper.
+    reexecAfterFastForward: () => undefined,
     // Every test in this file builds `flowSource` from `buildFakeFlowSource`
     // (fictional names like "alpha"/"beta" that don't appear in the real
     // module registry), so `all: true` — bypassing module resolution
@@ -1260,6 +1268,124 @@ describe("flow install", () => {
     });
   });
 
+  describe("--upgrade re-exec seam (reexecAfterFastForward)", () => {
+    // Direct `runSetup` calls throughout (not the `setup()`/`setupLogged()`
+    // wrappers) so each test controls `reexecAfterFastForward` explicitly —
+    // the wrappers default it to a no-op (see setup()'s comment) precisely
+    // so the rest of this file's organic `ahead` fixtures never spawn a
+    // real subprocess. Every seam here is a plain counting stub: no test
+    // spawns a real subprocess or calls the real `process.exit`.
+    function runUpgrade(
+      reexecAfterFastForward: (ff: FastForwardResult) => number | undefined,
+    ) {
+      return runSetup({
+        upgrade: true,
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        reexecAfterFastForward,
+      });
+    }
+
+    it("invokes the seam exactly once on an `ahead` fast-forward result", async () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      addSkillToOriginMain(flowSource, "epsilon");
+
+      let calls = 0;
+      const seenStatuses: string[] = [];
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        await runUpgrade((ff) => {
+          calls++;
+          seenStatuses.push(ff.status);
+          return undefined; // simulate a failed spawn — run continues below
+        });
+      } finally {
+        logSpy.mockRestore();
+      }
+      expect(calls).toBe(1);
+      expect(seenStatuses).toEqual(["ahead"]);
+    });
+
+    it("does NOT invoke the seam on an `up-to-date` result or a `skipped` result", async () => {
+      let calls = 0;
+      const seam = (): number | undefined => {
+        calls++;
+        return undefined;
+      };
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        // up-to-date: canonical already matches origin/main.
+        buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+        await runUpgrade(seam);
+        expect(calls).toBe(0);
+
+        // skipped(dirty): an uncommitted change blocks the fast-forward.
+        fs.writeFileSync(path.join(flowSource, "DIRTY.txt"), "uncommitted\n");
+        await runUpgrade(seam);
+        expect(calls).toBe(0);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("does NOT invoke the seam when FLOW_INSTALL_REEXEC=1 is already set (bounds the re-exec to one hop)", async () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      addSkillToOriginMain(flowSource, "epsilon");
+
+      let calls = 0;
+      const seam = (): number | undefined => {
+        calls++;
+        return undefined;
+      };
+      const prevEnv = process.env.FLOW_INSTALL_REEXEC;
+      process.env.FLOW_INSTALL_REEXEC = "1";
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        await runUpgrade(seam);
+      } finally {
+        if (prevEnv === undefined) delete process.env.FLOW_INSTALL_REEXEC;
+        else process.env.FLOW_INSTALL_REEXEC = prevEnv;
+        logSpy.mockRestore();
+      }
+      expect(calls).toBe(0);
+    });
+
+    it("continues and returns a normal SetupSummary when the seam returns undefined (simulated failed spawn)", async () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      addSkillToOriginMain(flowSource, "epsilon");
+
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      let summary: Awaited<ReturnType<typeof runSetup>>;
+      try {
+        summary = await runUpgrade(() => undefined);
+      } finally {
+        logSpy.mockRestore();
+      }
+      // A real SetupSummary — the run fell through past the seam and
+      // completed the full symlink/manifest pass rather than exiting.
+      expect(summary.created).toBeGreaterThan(0);
+      expect(summary.validationFailures).toEqual([]);
+    });
+  });
+
   describe("runtime-dependency resolution check", () => {
     it("sets summary.missingRuntimeDeps and logs the remediation when a runtime dep is absent", async () => {
       // Drop the resolved node_modules entry for one declared dep.
@@ -1431,6 +1557,10 @@ describe("flow install", () => {
           all: true,
           isTTY: false,
           configPath: path.join(homeDir, ".flow", "config.json"),
+          // Same no-op default as setup() — see its comment. This describe
+          // block's Story 1/4 fixtures are two of the ~3 organic `ahead`
+          // results in this file.
+          reexecAfterFastForward: () => undefined,
           ...rest,
           flowSource: flowSourceOverride ?? flowSource,
           installRoot: installRootOverride ?? flowSource,
