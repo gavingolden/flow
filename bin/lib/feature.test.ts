@@ -3050,6 +3050,53 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
   });
+
+  it("plain create threads materialized plugin roots into both argv --plugin-dir pairs and the spawned child's PATH", async () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    // pluginPathPrefix only counts a root whose bin/ actually exists on
+    // disk (mirrors bin/lib/launcher.test.ts:106-109); created under
+    // stateDir so the existing afterEach teardown removes it.
+    const root = path.join(stateDir, "flow-module-core");
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    const { spawn, calls } = fakePlainSpawn();
+    // plainDeps.scanPluginRoots is DELIBERATELY OMITTED — feature.ts:844's
+    // `?? (() => roots)` fallback (fed by feature.ts:827's single scan) is
+    // the code under test, not launcher.ts's own default.
+    const code = await runFeatureCliReal(["create", "plugged", "in"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({}),
+      pluginRootsScan: () => [root],
+      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+    });
+    expect(code).toBe(0);
+    expect(calls).toHaveLength(1);
+    const { argv, env } = calls[0]!;
+    expect(argv.filter((token) => token === "--plugin-dir")).toHaveLength(1);
+    expect(argv[argv.indexOf("--plugin-dir") + 1]).toBe(root);
+    const pathEntries = (env.PATH ?? "").split(path.delimiter);
+    expect(pathEntries).toContain(path.join(root, "bin"));
+    for (const segment of (process.env.PATH ?? "").split(path.delimiter)) {
+      expect(pathEntries).toContain(segment);
+    }
+  });
+
+  it("plain create with no materialized plugin roots emits no --plugin-dir token and leaves PATH untouched", async () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const { spawn, calls } = fakePlainSpawn();
+    const code = await runFeatureCliReal(["create", "unplugged", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({}),
+      pluginRootsScan: () => [],
+      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+    });
+    expect(code).toBe(0);
+    expect(calls).toHaveLength(1);
+    const { argv, env } = calls[0]!;
+    expect(argv).not.toContain("--plugin-dir");
+    expect(env.PATH).toBe(process.env.PATH);
+  });
 });
 
 describe("ensureLaunchSettings hook-command resolution", () => {
