@@ -47,10 +47,9 @@ describe("runProcSweep", () => {
     fs.rmSync(baseDir, { recursive: true, force: true });
   });
 
-  // Every row here resolves "dead" via the B4 rule: no state file (readState
-  // returns null -> stateVerdict "unknown"... wait — B4 requires the STATE
-  // channel to positively establish death, so a genuinely "dead" row needs a
-  // fake readState returning a dead/stale state. See helper below.
+  // Rows built on these deps classify "dead". Under B4 only the STATE channel
+  // can positively establish death, so readState must return a state whose
+  // liveness reads dead/stale — a null state would yield "unknown", not "dead".
   function deadDeps(overrides: Partial<SweepDeps> = {}): SweepDeps {
     return {
       readState: () => ({
