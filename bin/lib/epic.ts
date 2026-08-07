@@ -41,6 +41,11 @@ import {
   FLOW_LAUNCH_SETTINGS_PATH,
   FLOW_EPICS_DIR,
 } from "./paths";
+import {
+  pluginDirArgs,
+  pluginPathPrefix,
+  scanPluginRoots,
+} from "./plugin-root";
 import { slugify } from "./slug";
 import { confirmStdin } from "./confirm";
 import {
@@ -211,6 +216,14 @@ export type EpicOptions = {
    * the real ~/.flow and to assert the argv path.
    */
   launchSettingsPath?: string;
+  /**
+   * Plugin-root scanner seam threaded into `launchArgv`'s `--plugin-dir`
+   * argv AND its `env` PATH prefix (mirrors `feature.ts`'s same-named
+   * option — the two builders must never drift). Defaults to the real
+   * `scanPluginRoots` (`FLOW_CLAUDE_HOME_SKILLS_DIR`) — tests override so a
+   * fixture never scans the developer's real `~/.flow/claude-home`.
+   */
+  pluginRootsScan?: () => string[];
   /** Override the per-machine epic run-state root `~/.flow/epics` (test seam). */
   epicsDir?: string;
   /** Confirmation prompt seam (default reads stdin synchronously); test seam. */
@@ -508,7 +521,14 @@ PR → review checkpoint), and writes initial epic state under
 
   const command =
     options.command ??
-    createCommand(slug, worktree, effort, settingsPath, sessionModel);
+    createCommand(
+      slug,
+      worktree,
+      effort,
+      settingsPath,
+      sessionModel,
+      options.pluginRootsScan,
+    );
 
   // Persist-then-verify-then-delete-on-failure (mirrors feature.ts runFresh): write
   // epic state(phase=starting) BEFORE the verified launch so the /flow-epic-create
@@ -660,7 +680,14 @@ function runEpicResume(name: string, options: EpicOptions): number {
   const settingsPath = launchSettingsPathFor(options);
   const command =
     options.command ??
-    resumeCommand(slug, worktree, state.effort, settingsPath, state.model);
+    resumeCommand(
+      slug,
+      worktree,
+      state.effort,
+      settingsPath,
+      state.model,
+      options.pluginRootsScan,
+    );
   // Resume consumption baseline (mirrors feature.ts runResume): on resume the phase
   // is already past `starting` (`epic-designing`), so consumption is "the
   // resumed session RE-STAMPED the seed-ingested marker OR the resumed
@@ -929,7 +956,14 @@ function spawnEpicRunSupervisor(
   const runSessionModel = runModel ?? readDefaultModel(options.readConfig);
   const command =
     options.command ??
-    createCommand(slug, worktree, runEffort, settingsPath, runSessionModel);
+    createCommand(
+      slug,
+      worktree,
+      runEffort,
+      settingsPath,
+      runSessionModel,
+      options.pluginRootsScan,
+    );
 
   // No run.json pre-seed and no `runnerPhase` reset — the default never-consumed
   // predicate (`createWindowVerified` with no `consumed`) verifies pane survival
@@ -1731,6 +1765,7 @@ function launchArgv(
   effort: EffortLevel | undefined,
   settingsPath: string,
   model?: ModelAlias,
+  pluginRootsScan: () => string[] = scanPluginRoots,
 ): string[] {
   // NO positional seed — the seed is delivered ONLY via send-keys by the
   // verified launcher (claude does not auto-run a positional prompt),
@@ -1741,13 +1776,29 @@ function launchArgv(
   // Two `--add-dir` entries (worktree first, skills home second): flow's skills
   // now live at `~/.flow/claude-home` rather than the global `~/.claude/skills/`,
   // so the epic supervisor session must add it to keep its skills.
-  const base = ["claude", "--add-dir", worktree, "--add-dir", FLOW_CLAUDE_HOME];
+  //
+  // `--plugin-dir` entries (one per materialized plugin root) follow the two
+  // `--add-dir` entries and precede `--model`, mirroring `feature.ts`'s
+  // `claudeArgv` exactly — the same deterministic position so the two
+  // builders cannot drift. Extracted once so this argv and the `env` PATH=
+  // prefix below cannot disagree about which roots are live.
+  const roots = pluginRootsScan();
+  const base = [
+    "claude",
+    "--add-dir",
+    worktree,
+    "--add-dir",
+    FLOW_CLAUDE_HOME,
+    ...pluginDirArgs(roots),
+  ];
   const withModel = model ? [...base, "--model", model] : base;
   const withEffort = effort ? [...withModel, "--effort", effort] : withModel;
+  const pathPrefix = pluginPathPrefix(roots);
   return [
     "env",
     "FLOW_PIPELINE=1",
     `FLOW_SLUG=${slug}`,
+    ...(pathPrefix ? [`PATH=${pathPrefix}:${process.env.PATH ?? ""}`] : []),
     ...withEffort,
     "--settings",
     settingsPath,
@@ -1778,6 +1829,7 @@ function buildLaunchCommand(
   effort: EffortLevel | undefined,
   settingsPath: string,
   model?: ModelAlias,
+  pluginRootsScan?: () => string[],
 ): string[] {
   try {
     ensureLaunchSettings(settingsPath);
@@ -1788,7 +1840,9 @@ function buildLaunchCommand(
       ),
     );
   }
-  return launchArgv(slug, worktree, effort, settingsPath, model);
+  return pluginRootsScan
+    ? launchArgv(slug, worktree, effort, settingsPath, model, pluginRootsScan)
+    : launchArgv(slug, worktree, effort, settingsPath, model);
 }
 
 function createCommand(
@@ -1797,8 +1851,16 @@ function createCommand(
   effort: EffortLevel | undefined,
   settingsPath: string,
   model?: ModelAlias,
+  pluginRootsScan?: () => string[],
 ): string[] {
-  return buildLaunchCommand(slug, worktree, effort, settingsPath, model);
+  return buildLaunchCommand(
+    slug,
+    worktree,
+    effort,
+    settingsPath,
+    model,
+    pluginRootsScan,
+  );
 }
 
 function resumeCommand(
@@ -1807,8 +1869,16 @@ function resumeCommand(
   effort: EffortLevel | undefined,
   settingsPath: string,
   model?: ModelAlias,
+  pluginRootsScan?: () => string[],
 ): string[] {
-  return buildLaunchCommand(slug, worktree, effort, settingsPath, model);
+  return buildLaunchCommand(
+    slug,
+    worktree,
+    effort,
+    settingsPath,
+    model,
+    pluginRootsScan,
+  );
 }
 
 /**

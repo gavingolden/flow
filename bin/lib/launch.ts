@@ -9,22 +9,43 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { FLOW_CLAUDE_HOME } from "./paths";
 import { printTopHelp } from "./help";
 import { dim } from "./color";
+import {
+  pluginDirArgs,
+  pluginPathPrefix,
+  scanPluginRoots,
+} from "./plugin-root";
 
 /**
- * The argv for the interactive launcher: `claude --add-dir <claude-home>`,
- * nothing more. Deliberately NO `--settings` and NO `FLOW_PIPELINE=1` — an
- * interactive session has no seed to ingest and must NOT suppress
- * `/flow-research`'s standalone tier (those are pipeline-session concerns).
- * `claudeHome` is an injectable seam (default `FLOW_CLAUDE_HOME`) so tests
- * never touch the developer's real `~/.flow`.
+ * The materialized plugin roots visible from `claudeHome` — derived from
+ * `claudeHome` (not the eager `FLOW_CLAUDE_HOME_SKILLS_DIR` default) so the
+ * SAME `claudeHome` test seam that already keeps this launcher off the
+ * developer's real `~/.flow` also keeps plugin-root discovery off it.
+ */
+function pluginRootsFor(claudeHome: string): string[] {
+  return scanPluginRoots(path.join(claudeHome, ".claude", "skills"));
+}
+
+function argvFor(claudeHome: string, roots: readonly string[]): string[] {
+  return ["claude", "--add-dir", claudeHome, ...pluginDirArgs(roots)];
+}
+
+/**
+ * The argv for the interactive launcher: `claude --add-dir <claude-home>`
+ * plus one `--plugin-dir <root>` pair per materialized plugin root.
+ * Deliberately NO `--settings` and NO `FLOW_PIPELINE=1` — an interactive
+ * session has no seed to ingest and must NOT suppress `/flow-research`'s
+ * standalone tier (those are pipeline-session concerns). `claudeHome` is an
+ * injectable seam (default `FLOW_CLAUDE_HOME`) so tests never touch the
+ * developer's real `~/.flow`.
  */
 export function buildInteractiveLaunchArgv(
   claudeHome: string = FLOW_CLAUDE_HOME,
 ): string[] {
-  return ["claude", "--add-dir", claudeHome];
+  return argvFor(claudeHome, pluginRootsFor(claudeHome));
 }
 
 export type LaunchDeps = {
@@ -98,5 +119,19 @@ export function runLaunchCli(deps: LaunchDeps = {}): number {
     );
   }
 
-  return spawn(buildInteractiveLaunchArgv(claudeHome));
+  // Extracted once so the argv's --plugin-dir entries and the PATH prefix
+  // below can never disagree about which roots are live.
+  const roots = pluginRootsFor(claudeHome);
+
+  // Mutate the real process.env.PATH (rather than passing an env object):
+  // LaunchDeps.spawn is typed `(argv: string[]) => number` with no env
+  // option (production spawns `Bun.spawnSync`, which inherits the parent
+  // env), so this is the only seam that reaches the child's PATH.
+  const prefix = pluginPathPrefix(roots);
+  const currentPath = process.env.PATH ?? "";
+  if (prefix && !currentPath.startsWith(prefix)) {
+    process.env.PATH = currentPath ? `${prefix}:${currentPath}` : prefix;
+  }
+
+  return spawn(argvFor(claudeHome, roots));
 }

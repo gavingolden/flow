@@ -1571,10 +1571,16 @@ describe("flow install", () => {
       // so it reports every OTHER (genuinely fictional, thus never-linked)
       // module as inactive via the doctor summary's fourth always-on line
       // (`inactive modules: ...`) — see setup.ts's `printInactiveModules`.
+      // Plugin roots don't raise the budget further — `printModuleBreakdown`
+      // folds the plugin-root count into this SAME always-on line (one more
+      // per module) rather than adding a fifth line — but under this
+      // fixture's `all: true` default every module now contributes its own
+      // `<id> 1` entry (its plugin root), so `core` is no longer necessarily
+      // first in the alphabetically-sorted list.
       expect(nonWarning.length).toBeLessThanOrEqual(4);
       // The outcome line is the up-to-date headline (no symlink churn).
       expect(nonWarning.join("\n")).toMatch(/already up to date/);
-      expect(nonWarning.join("\n")).toMatch(/by module: core \d+/);
+      expect(nonWarning.join("\n")).toMatch(/by module:.*core \d+/);
       expect(nonWarning.join("\n")).toMatch(/inactive modules:/);
       void warnings;
     });
@@ -2225,7 +2231,14 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       );
     });
 
-    it("(g) discoverSelected(every module id) set-equals discoverAll for target + source, byte-for-byte (the --all-equivalence precondition)", async () => {
+    it("(g) discoverSelected(every module id) set-equals discoverAll for target + source, byte-for-byte on the non-plugin (SYMLINK) partition — the sanctioned --all byte-parity precondition, narrowed", async () => {
+      // The ADR sanctions the FIRST break of --all's byte-parity guarantee
+      // for plugin roots specifically (docs/target-architecture.md,
+      // "Consequences") — so this assertion is narrowed to the non-plugin
+      // (skill/agent/bin/completion) partition, which stays byte-for-byte
+      // identical by construction. The sibling assertion below covers the
+      // plugin-root set on its own terms (set-equal, not byte-identical
+      // sourcing, since a plugin root's `source` is the whole checkout).
       const all = discoverAll(realFlowSource, realFlowSource);
       const selected = await discoverSelected(
         realFlowSource,
@@ -2234,8 +2247,17 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       );
       const key = (e: { target: string; source: string }) =>
         `${e.target} ${e.source}`;
-      expect(new Set(selected.map(key))).toEqual(new Set(all.map(key)));
-      expect(selected.length).toBe(all.length);
+      const nonPlugin = (es: typeof all) =>
+        es.filter((e) => e.kind !== "plugin");
+      expect(new Set(nonPlugin(selected).map(key))).toEqual(
+        new Set(nonPlugin(all).map(key)),
+      );
+      expect(nonPlugin(selected).length).toBe(nonPlugin(all).length);
+
+      const pluginNames = (es: typeof all) =>
+        es.filter((e) => e.kind === "plugin").map((e) => e.displayName);
+      expect(new Set(pluginNames(selected))).toEqual(new Set(pluginNames(all)));
+      expect(pluginNames(selected).length).toBe(pluginNames(all).length);
     });
 
     it("(h) --all persists the full module-id list to config.json, and a subsequent bare --upgrade replays it rather than narrowing", async () => {
@@ -2445,6 +2467,248 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
         logSpy.mockRestore();
       }
     });
+  });
+});
+
+describe("plugin-root materialization (Task 4) — extends the never-install-all suite onto the plugin path", () => {
+  // Same real-registry convention as "real-registry name matching" above:
+  // read-only discovery against the real checkout, every WRITE target
+  // (symlinks, plugin roots, manifest, config) inside this file's tmpdir
+  // fixture.
+  const realFlowSource = resolveFlowSource();
+
+  function rootDirNames(t: ReturnType<typeof targets>): string[] {
+    return fs
+      .readdirSync(t.skillsDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && d.name.startsWith("flow-module-"))
+      .map((d) => d.name);
+  }
+
+  function configPath(): string {
+    return path.join(homeDir, ".flow", "config.json");
+  }
+
+  it("a non-TTY run with nothing recorded and an empty manifest emits EXACTLY ONE plugin root, flow-module-core — --all was not inferred", async () => {
+    const t = targets();
+    await runSetup({
+      flowSource: realFlowSource,
+      installRoot: realFlowSource,
+      targets: t,
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      isTTY: false,
+      configPath: configPath(),
+      quiet: true,
+    });
+    expect(rootDirNames(t)).toEqual(["flow-module-core"]);
+  });
+
+  it("--modules stack-svelte emits flow-module-core and flow-module-stack-svelte and no others", async () => {
+    const t = targets();
+    await runSetup({
+      flowSource: realFlowSource,
+      installRoot: realFlowSource,
+      targets: t,
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      modules: ["stack-svelte"],
+      isTTY: false,
+      configPath: configPath(),
+      quiet: true,
+    });
+    expect(new Set(rootDirNames(t))).toEqual(
+      new Set(["flow-module-core", "flow-module-stack-svelte"]),
+    );
+  });
+
+  it("--all emits a root for every id in moduleIds() and for no other name", async () => {
+    const t = targets();
+    await runSetup({
+      flowSource: realFlowSource,
+      installRoot: realFlowSource,
+      targets: t,
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      all: true,
+      isTTY: false,
+      configPath: configPath(),
+      quiet: true,
+    });
+    expect(new Set(rootDirNames(t))).toEqual(
+      new Set(moduleIds().map((id) => `flow-module-${id}`)),
+    );
+  });
+
+  it("--modules stack-svelte followed by --core-only removes the flow-module-stack-svelte root and keeps flow-module-core", async () => {
+    const t = targets();
+    const base = {
+      flowSource: realFlowSource,
+      installRoot: realFlowSource,
+      targets: t,
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      isTTY: false,
+      configPath: configPath(),
+      quiet: true,
+    };
+    await runSetup({ ...base, modules: ["stack-svelte"] });
+    expect(
+      fs.existsSync(path.join(t.skillsDir, "flow-module-stack-svelte")),
+    ).toBe(true);
+    // --core-only resolves to modules:["core"] by the time it reaches
+    // runSetup (setup-args.ts's job) — see (f)/(i) above for the same
+    // convention.
+    await runSetup({ ...base, modules: ["core"] });
+    expect(
+      fs.existsSync(path.join(t.skillsDir, "flow-module-stack-svelte")),
+    ).toBe(false);
+    expect(fs.existsSync(path.join(t.skillsDir, "flow-module-core"))).toBe(
+      true,
+    );
+  });
+
+  it("a second --upgrade run with no flags leaves the roots byte-identical to the first run (idempotent re-materialization)", async () => {
+    const t = targets();
+    const manifestJsonPath = path.join(
+      t.skillsDir,
+      "flow-module-core",
+      ".claude-plugin",
+      "plugin.json",
+    );
+    const base = {
+      flowSource: realFlowSource,
+      installRoot: realFlowSource,
+      targets: t,
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      modules: ["core"],
+      isTTY: false,
+      configPath: configPath(),
+      quiet: true,
+    };
+    await runSetup(base);
+    const before = fs.readFileSync(manifestJsonPath, "utf8");
+    const mtimeBefore = fs.statSync(manifestJsonPath).mtimeMs;
+    await runSetup({
+      ...base,
+      upgrade: true,
+      cachePath: path.join(homeDir, ".flow", "update-check.json"),
+    });
+    expect(fs.readFileSync(manifestJsonPath, "utf8")).toBe(before);
+    expect(fs.statSync(manifestJsonPath).mtimeMs).toBe(mtimeBefore);
+  });
+
+  it("ORPHAN SCAN (OQ-7): a flow-owned root left on disk with NO manifest record is reaped on the next run", async () => {
+    const t = targets();
+    const base = {
+      flowSource: realFlowSource,
+      installRoot: realFlowSource,
+      targets: t,
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      modules: ["core"],
+      isTTY: false,
+      configPath: configPath(),
+      quiet: true,
+    };
+    await runSetup(base);
+    // Simulate a root materialized outside this run's manifest — e.g. a
+    // rollback across the plugin-era boundary — by writing one directly to
+    // disk, never through `ensurePluginRoot` and never recorded anywhere.
+    const strayRoot = path.join(t.skillsDir, "flow-module-copilot");
+    fs.mkdirSync(path.join(strayRoot, ".claude-plugin"), { recursive: true });
+    fs.writeFileSync(
+      path.join(strayRoot, ".claude-plugin", "plugin.json"),
+      JSON.stringify({ name: "flow-module-copilot", version: "0.0.0" }),
+    );
+    await runSetup(base);
+    expect(fs.existsSync(strayRoot)).toBe(false);
+  });
+
+  it("re-materialization is a pure function of checkout content + selection: changing the checkout version and re-running reproduces the new content exactly (Story 6)", async () => {
+    fs.writeFileSync(
+      path.join(flowSource, "package.json"),
+      JSON.stringify({ name: "fake-flow", version: "1.0.0" }),
+    );
+    const t = targets();
+    const manifestJsonPath = path.join(
+      t.skillsDir,
+      "flow-module-core",
+      ".claude-plugin",
+      "plugin.json",
+    );
+    const opts = {
+      flowSource,
+      installRoot: flowSource,
+      targets: t,
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      modules: ["core"],
+      isTTY: false,
+      configPath: configPath(),
+      quiet: true,
+    };
+    await runSetup(opts);
+    expect(
+      (
+        JSON.parse(fs.readFileSync(manifestJsonPath, "utf8")) as {
+          version: string;
+        }
+      ).version,
+    ).toBe("1.0.0");
+
+    fs.writeFileSync(
+      path.join(flowSource, "package.json"),
+      JSON.stringify({ name: "fake-flow", version: "2.0.0" }),
+    );
+    await runSetup(opts);
+    expect(
+      (
+        JSON.parse(fs.readFileSync(manifestJsonPath, "utf8")) as {
+          version: string;
+        }
+      ).version,
+    ).toBe("2.0.0");
+  });
+
+  it("SetupSummary.pluginRoots reports the materialized count", async () => {
+    const t = targets();
+    const summary = await runSetup({
+      flowSource: realFlowSource,
+      installRoot: realFlowSource,
+      targets: t,
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      modules: ["core", "research"],
+      isTTY: false,
+      configPath: configPath(),
+      quiet: true,
+    });
+    expect(summary.pluginRoots).toBe(2);
   });
 });
 

@@ -104,7 +104,22 @@ export function checkInstallDrift(
     }
     const manifestTargets = new Set(manifest.symlinks.map((r) => r.target));
 
-    const discovered = discover(flowSource, installRoot, targets);
+    // Plugin roots are gated out of THIS discovery-output filter, not just
+    // the manifest — the in-scope filter below is
+    // `manifestTargets.has(e.target) || !isRegistryKnownArtifact(e.displayName)`,
+    // and `moduleForArtifactName('flow-module-core')` (and every other root
+    // name) returns undefined, so `isRegistryKnownArtifact` is false and
+    // EVERY root would unconditionally pass the in-scope filter regardless
+    // of selection. Filtering the manifest side alone is not sufficient —
+    // the filter runs on DISCOVERY output — so the skip must happen here.
+    // (An already-materialized root is separately skipped incidentally:
+    // `readlink` on a real directory throws, `readSymlinkSafe` returns
+    // `null`, and `fs.existsSync(entry.target)` is true, so it never reports
+    // "missing" either way. The real hazard this filter prevents is the
+    // false-`missing` report for a DESELECTED module's root.)
+    const discovered = discover(flowSource, installRoot, targets).filter(
+      (e) => e.kind !== "plugin",
+    );
     const inScope = discovered.filter(
       (e) =>
         manifestTargets.has(e.target) ||

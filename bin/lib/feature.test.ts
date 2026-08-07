@@ -113,12 +113,27 @@ import {
 // default); this file's specs exercise the tmux path, so the wrappers pin
 // `launcher: "tmux"` while letting individual specs override (the plain
 // dispatch + flag-parsing specs pass their own `launcher`/flags).
+//
+// `pluginRootsScan: () => []` is pinned the same way: this file's ~26
+// exact-argv assertions predate --plugin-dir and must stay byte-identical
+// regardless of what plugin roots happen to be materialized on the machine
+// running the suite (the real default, `scanPluginRoots()`, reads
+// `FLOW_CLAUDE_HOME_SKILLS_DIR` — captured eagerly from the REAL, unsandboxed
+// HOME per paths.ts's own documented caveat, so it is NOT covered by
+// vitest.setup.ts's sandbox). Individual specs override it to exercise the
+// roots-present cases.
 const runNew = (input: string, options: FeatureOptions = {}) =>
-  runNewReal(input, { launcher: "tmux", tmuxOnPath: () => true, ...options });
+  runNewReal(input, {
+    launcher: "tmux",
+    tmuxOnPath: () => true,
+    pluginRootsScan: () => [],
+    ...options,
+  });
 const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
   runFeatureCliReal(args, {
     launcher: "tmux",
     tmuxOnPath: () => true,
+    pluginRootsScan: () => [],
     ...options,
   });
 import { writeState, readState, PHASE_MODEL_FLAGS } from "./state";
@@ -893,6 +908,97 @@ describe("runNew (fresh)", () => {
     expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toContain(
       "flow-seed-ingested-hook",
     );
+  });
+
+  it("with no materialized plugin roots, the tmux argv is byte-identical to today (no --plugin-dir, no PATH= prefix)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const settingsPath = path.join(stateDir, "launch-settings.json");
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      launchSettingsPath: settingsPath,
+      readConfig: () => ({}),
+      pluginRootsScan: () => [],
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
+      "FLOW_SLUG=csv-export",
+      "claude",
+      "--add-dir",
+      deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
+      "--settings",
+      settingsPath,
+    ]);
+  });
+
+  it("with materialized plugin roots, the tmux argv carries one --plugin-dir pair per root (deterministic position) and the env prefix carries a PATH= entry", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const settingsPath = path.join(stateDir, "launch-settings.json");
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      launchSettingsPath: settingsPath,
+      readConfig: () => ({}),
+      pluginRootsScan: () => [
+        "/roots/flow-module-core",
+        "/roots/flow-module-research",
+      ],
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    const worktree = deriveWorktreePath(fs.realpathSync(repoDir), "csv-export");
+    expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
+      "FLOW_SLUG=csv-export",
+      // PATH= entry is omitted here — neither fake root's bin/ exists on
+      // disk, so pluginPathPrefix filters both out (see the sibling test
+      // below for the non-empty-prefix case).
+      "claude",
+      "--add-dir",
+      worktree,
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
+      "--plugin-dir",
+      "/roots/flow-module-core",
+      "--plugin-dir",
+      "/roots/flow-module-research",
+      "--settings",
+      settingsPath,
+    ]);
+  });
+
+  it("the tmux env prefix carries PATH= only when the plugin PATH prefix is non-empty (a root whose bin/ exists on disk)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const settingsPath = path.join(stateDir, "launch-settings.json");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "flow-plugin-root-"));
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    try {
+      const code = runNew("CSV export", {
+        stateDir,
+        cwd: repoDir,
+        launchSettingsPath: settingsPath,
+        readConfig: () => ({}),
+        pluginRootsScan: () => [root],
+      });
+      expect(code).toBe(0);
+      const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+      expect(command).toContain(
+        `PATH=${path.join(root, "bin")}:${process.env.PATH ?? ""}`,
+      );
+      expect(command).toContain("--plugin-dir");
+      expect(command).toContain(root);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("fresh launched-not-confirmed: exit 0, keeps the up-front state, prints the still-starting message", () => {

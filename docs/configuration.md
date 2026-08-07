@@ -4,6 +4,7 @@ Everything you can tune after `flow install`: which modules are linked, which Cl
 
 - [Install flags and module selection](#install-flags-and-module-selection)
 - [The standalone skills home](#the-standalone-skills-home)
+- [Plugin materialization](#plugin-materialization)
 - [Staying up to date](#staying-up-to-date)
 - [Per-phase models](#per-phase-models)
 - [chrome-devtools MCP registration](#chrome-devtools-mcp-registration)
@@ -27,9 +28,29 @@ The resolved selection persists to `~/.flow/config.json`'s `modules` array, so `
 
 flow links its skills into a **standalone skills home** at `~/.flow/claude-home/.claude/skills/`, not the global `~/.claude/skills/`. A plain `claude` session anywhere on your machine therefore carries **zero** flow skills — only sessions launched with `claude --add-dir ~/.flow/claude-home` see them (bare `flow`, and every pipeline/epic seed session wire this in automatically). If you installed a pre-retarget version, one `flow install --upgrade` migrates your skills to the new home and removes the old `~/.claude/skills/` links; run it **with no active pipelines**, since removing a skill from a location a running session already loaded hot-unloads it mid-session (Claude Code live change detection). Agents stay at `~/.claude/agents/` and hooks in `~/.claude/settings.json` — those are unaffected.
 
+## Plugin materialization
+
+Alongside the symlinks above, `flow install` also materializes one Claude Code **skills-dir plugin root** per SELECTED module, at `~/.flow/claude-home/.claude/skills/flow-module-<id>/`. Each root carries a `.claude-plugin/plugin.json` manifest and, when the module ships helpers or validators, a `bin/` directory symlinking them in — the same module-selection rules as everything else govern it: `core` is mandatory, every other module is opt-in, and `--all` is still strictly opt-in and never inferred at any layer.
+
+The root is named `flow-module-<id>`, not `flow-<id>` — a plugin literally named `flow-research` would collide with the real `flow-research` skill directory already living in the same skills-home namespace.
+
+`claude plugin details flow-module-<id>@skills-dir` is the per-module token-cost inventory this materialization exists to unlock. Today it reports `Skills (0)` and `~0 tok`: this PR delivers the inventory **mechanism** and the plugin-namespacing **headroom**, not populated numbers — the skill move that would populate them is a deferred follow-up. As a bonus property (not a guaranteed feature — verify it still holds on your Claude Code version before relying on it), per-project `enabledPlugins` accepts `<name>@skills-dir` keys, e.g.:
+
+```sh
+claude plugin disable flow-module-core@skills-dir --scope project
+```
+
 ## Staying up to date
 
-To come current, run `flow install --upgrade`: it self-pulls (fast-forwards your canonical checkout to `origin`) and reports what changed, so a non-contributor needs only that one command. flow also surfaces a non-blocking staleness notice at `flow ls` and `flow version` when your checkout is behind origin, naming the exact upgrade command to run. Opt out by setting the nested `checkFor` key under `update` (i.e. `{ "update": { "checkFor": "off" } }`) to `"off"` in `~/.flow/config.json` (or exporting `FLOW_UPDATE_CHECK=off`). A reserved `update.autoUpgrade` flag (default off, not yet executing) is parsed for a future opt-in that upgrades automatically.
+To come current, run `flow install --upgrade`: it self-pulls (fast-forwards your canonical checkout to `origin`), re-materializes both the symlinks and the plugin roots above, and reports what changed, so a non-contributor needs only that one command. `flow install --upgrade` is idempotent — re-running it against unchanged content leaves every symlink and plugin root byte-identical. flow also surfaces a non-blocking staleness notice at `flow ls` and `flow version` when your checkout is behind origin, naming the exact upgrade command to run. Opt out by setting the nested `checkFor` key under `update` (i.e. `{ "update": { "checkFor": "off" } }`) to `"off"` in `~/.flow/config.json` (or exporting `FLOW_UPDATE_CHECK=off`). A reserved `update.autoUpgrade` flag (default off, not yet executing) is parsed for a future opt-in that upgrades automatically.
+
+**Rollback.** The git checkout is flow's single version store for both the session surface and the CLI — there is no marketplace `autoUpdate` skew to worry about. To roll back:
+
+```sh
+cd <flow-checkout> && git checkout <earlier ref> && flow install --upgrade
+```
+
+`flow install --upgrade` re-derives every symlink and plugin root from whatever is checked out, so this is safe to run repeatedly in either direction.
 
 ## Per-phase models
 

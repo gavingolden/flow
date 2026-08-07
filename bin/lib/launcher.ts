@@ -21,6 +21,7 @@ import {
 import { FLOW_SESSION } from "./tmux";
 import { livenessOf, pidStartEpoch, type LivenessDeps } from "./liveness";
 import { dim } from "./color";
+import { pluginPathPrefix, scanPluginRoots } from "./plugin-root";
 
 export const PLAIN_IDLE_HINT =
   "flow: this is the plain launcher (flow's default) — if claude sits idle at the prompt, press Enter to start the pipeline";
@@ -39,6 +40,12 @@ export type PlainLaunchDeps = {
   ) => { pid: number; exited: Promise<number> };
   isTTY?: boolean;
   pidStartEpoch?: typeof pidStartEpoch;
+  /**
+   * Plugin-root scanner seam. Defaults to the real `scanPluginRoots`
+   * (`FLOW_CLAUDE_HOME_SKILLS_DIR`) — tests override so a fixture never
+   * scans the developer's real `~/.flow/claude-home`.
+   */
+  scanPluginRoots?: typeof scanPluginRoots;
 };
 
 export type PlainLaunchRequest = {
@@ -106,9 +113,21 @@ async function runForeground(
   const spawn = deps.spawn ?? defaultSpawn;
   let child: { pid: number; exited: Promise<number> };
   try {
+    // Plain-backend half of Decision B0 (the tmux backend's PATH prefix is a
+    // SEPARATE implementation in feature.ts's `env` argv prefix — B0 needs
+    // both). Omit the key entirely when the prefix is empty, never a
+    // leading colon, which would put CWD on PATH.
+    const scan = deps.scanPluginRoots ?? scanPluginRoots;
+    const pluginPath = pluginPathPrefix(scan());
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      FLOW_PIPELINE: "1",
+      FLOW_SLUG: req.slug,
+    };
+    if (pluginPath) env.PATH = `${pluginPath}:${process.env.PATH ?? ""}`;
     child = spawn([...req.command, req.seed], {
       cwd: req.repo,
-      env: { ...process.env, FLOW_PIPELINE: "1", FLOW_SLUG: req.slug },
+      env,
     });
   } catch (e) {
     console.error(

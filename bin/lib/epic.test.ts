@@ -87,10 +87,18 @@ import {
 // Epic orchestration is tmux-only and the launcher backend now defaults to
 // plain, so this file's create specs opt in via the per-run `--tmux` override
 // (the dedicated launcher-guard specs below call runEpicCliReal directly).
+//
+// `pluginRootsScan: () => []` is pinned the same way `feature.test.ts` pins
+// it: this file's exact-argv assertions predate --plugin-dir and must stay
+// byte-identical regardless of what plugin roots happen to be materialized
+// on the machine running the suite (the real default, `scanPluginRoots()`,
+// reads `FLOW_CLAUDE_HOME_SKILLS_DIR` — captured eagerly from the REAL,
+// unsandboxed HOME, so it is NOT covered by vitest.setup.ts's sandbox).
+// Individual specs override it to exercise the roots-present cases.
 const runEpicCli = (args: string[], options: EpicOptions = {}) =>
   runEpicCliReal(
     args[0] === "create" ? [args[0], "--tmux", ...args.slice(1)] : args,
-    { tmuxOnPath: () => true, ...options },
+    { tmuxOnPath: () => true, pluginRootsScan: () => [], ...options },
   );
 import { deriveWorktreePath } from "./feature";
 import { FLOW_CLAUDE_HOME } from "./paths";
@@ -450,6 +458,71 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toContain(
       "flow-seed-ingested-hook",
     );
+  });
+
+  it("with materialized plugin roots, carries one --plugin-dir pair per root and the env prefix carries PATH= when a root's bin/ exists", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const settingsPath = path.join(stateDir, "launch-settings.json");
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-plugin-root-"),
+    );
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    try {
+      const code = runEpicCli(["create", "design the thing"], {
+        stateDir,
+        cwd: repoDir,
+        launchSettingsPath: settingsPath,
+        readConfig: () => ({}),
+        pluginRootsScan: () => [root],
+      });
+      expect(code).toBe(0);
+      const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+      const worktree = deriveWorktreePath(
+        fs.realpathSync(repoDir),
+        "design-thing",
+      );
+      expect(command).toEqual([
+        "env",
+        "FLOW_PIPELINE=1",
+        "FLOW_SLUG=design-thing",
+        `PATH=${path.join(root, "bin")}:${process.env.PATH ?? ""}`,
+        "claude",
+        "--add-dir",
+        worktree,
+        "--add-dir",
+        FLOW_CLAUDE_HOME,
+        "--plugin-dir",
+        root,
+        "--settings",
+        settingsPath,
+      ]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("agrees with feature.ts's claudeArgv on the --plugin-dir position: after both --add-dir entries, before --model", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const settingsPath = path.join(stateDir, "launch-settings.json");
+    // --model is a CLI flag for the create verb (parsed from `rest`, not
+    // `options.model`) — thread it through the args array, not options.
+    const code = runEpicCli(["create", "--model", "opus", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      launchSettingsPath: settingsPath,
+      readConfig: () => ({}),
+      pluginRootsScan: () => ["/roots/flow-module-core"],
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    const addDirEndIdx = command.lastIndexOf(FLOW_CLAUDE_HOME) + 1;
+    const modelIdx = command.indexOf("--model");
+    expect(command.slice(addDirEndIdx, modelIdx)).toEqual([
+      "--plugin-dir",
+      "/roots/flow-module-core",
+    ]);
   });
 
   it("degrades to a dim warning and still launches when the settings write throws", () => {

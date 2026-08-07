@@ -83,6 +83,10 @@ tests next door
 (distinct from `discoverHelpers`'s auto-pickup of every `bin/*.ts`).
 `bin/flow` itself is Bun and dispatches every verb natively.
 
+`flow install` also materializes a skills-dir plugin root per selected
+module (`docs/configuration.md`). `flow-plugin-probe`/`flow-plugin-contract-lint`
+join `flow-release`/`flow-model-bench` in `MAINTAINER_ONLY` — never on PATH.
+
 Static agent-type definitions live in **`agents/`** (`*.md` frontmatter),
 discovered by `discoverAgents` and symlinked to `~/.claude/agents/`:
 14/15 carry `tools:` allowlists (flow-discovery: none); 2 mechanical

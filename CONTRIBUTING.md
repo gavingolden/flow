@@ -27,8 +27,9 @@ A flow pipeline is one Claude Code chat session. Sub-skills (`/flow-product-plan
 `flow install` is the only install entry point. It:
 
 - Symlinks every selected skill from `skills/{pipeline,universal,stacks}/` into the standalone skills home at `~/.flow/claude-home/.claude/skills/` (not the global `~/.claude/skills/`), so a plain `claude` session carries zero flow skills — only `flow`-launched and pipeline/epic seed sessions (which pass `--add-dir ~/.flow/claude-home`) see them. A pre-retarget install migrates on the next `flow install --upgrade`.
+- Materializes one Claude Code skills-dir plugin root per selected module alongside the symlinks (`~/.flow/claude-home/.claude/skills/flow-module-<id>/`, a `.claude-plugin/plugin.json` plus a `bin/` when the module ships helpers) — see [docs/configuration.md](docs/configuration.md#plugin-materialization).
 - Symlinks each helper under `bin/` (`flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`, `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-state-update`, and the rest) into `~/.local/bin/<name>` (extensionless, `*.test.ts` skipped). The two schema validators `flow-pr-review-result-schema` and `flow-agent-finding-schema` are sourced from `bin/lib/*-schema.ts` via an explicit allowlist and symlinked the same way.
-- Symlinks the `flow` wrapper itself into `~/.local/bin/flow` and records every symlink in `~/.flow/installed.json` so `flow install --upgrade` can reap orphans deterministically.
+- Symlinks the `flow` wrapper itself into `~/.local/bin/flow` and records every symlink (and plugin root) in `~/.flow/installed.json` so `flow install --upgrade` can reap orphans deterministically.
 - Verifies `tmux` is on `PATH` (a hard requirement) and that every declared runtime dependency resolves from the source root, warning if `~/.local/bin/` is missing from `PATH`.
 
 Update with `cd <flow-checkout> && git pull && flow install --upgrade`.
@@ -39,7 +40,7 @@ Update with `cd <flow-checkout> && git pull && flow install --upgrade`.
 
 ## Releasing
 
-flow is a symlink-distributed tool: a "release" tags the canonical `main` checkout, it does **not** publish to any registry. Users update by pulling `main` and re-running `flow install --upgrade`; the tag and bumped version exist so the staleness check in [`bin/lib/update-check.ts`](bin/lib/update-check.ts) can compare versions, not just commits, when surfacing its upgrade notice.
+flow is a symlink-and-plugin-root-distributed tool: a "release" tags the canonical `main` checkout, it does **not** publish to any registry or marketplace. Users update by pulling `main` and re-running `flow install --upgrade`; the tag and bumped version exist so the staleness check in [`bin/lib/update-check.ts`](bin/lib/update-check.ts) can compare versions, not just commits, when surfacing its upgrade notice.
 
 The ritual, from a clean `main` checkout:
 
