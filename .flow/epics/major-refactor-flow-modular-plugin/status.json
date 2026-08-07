@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "epicId": "major-refactor-flow-modular-plugin",
+  "features": {
+    "p1-design-doc": {
+      "status": "merged",
+      "pr": 422
+    },
+    "p1-module-registry-install": {
+      "status": "merged",
+      "pr": 432
+    },
+    "p2-conditional-degradation": {
+      "status": "merged",
+      "pr": 450
+    },
+    "p2-flow-prefix-rename": {
+      "status": "merged",
+      "pr": 446
+    },
+    "p2-per-repo-activation-eval": {
+      "status": "merged",
+      "pr": 470
+    },
+    "p2-standalone-skills-home": {
+      "status": "merged",
+      "pr": 451
+    },
+    "p3-file-liveness": {
+      "status": "merged",
+      "pr": 433
+    },
+    "p3-launcher-backend": {
+      "status": "merged",
+      "pr": 457
+    },
+    "p3-plain-mode-docs": {
+      "status": "merged",
+      "pr": 468
+    },
+    "p4-pipeline-agents": {
+      "status": "merged",
+      "pr": 448
+    },
+    "p4-review-agents": {
+      "status": "merged",
+      "pr": 445
+    },
+    "p5-context-diet": {
+      "status": "merged",
+      "pr": 452
+    },
+    "p5-token-audit": {
+      "status": "merged",
+      "pr": 431
+    },
+    "p6-distribution-eval": {
+      "status": "merged",
+      "pr": 469
+    },
+    "p6-distribution-impl": {
+      "status": "not-started"
+    }
+  }
+}

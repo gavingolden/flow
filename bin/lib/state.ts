@@ -222,7 +222,28 @@ export type PipelineState = {
    * migration, AGENTS.md forbids back-compat shims).
    */
   checkpoint?: { site: CheckpointSiteValue; phase: string; armedAt: string };
+  /**
+   * Durable outcome of the terminal-state `flow-browser-teardown --reap
+   * --record` call. A plain state write (like `checkpoint` above), never a
+   * `flow-state-update` phase transition — `updatedAt` is deliberately NOT
+   * bumped by writing this field. `flow-gate-summary --cleanup` reads it to
+   * render the CLEANUP row; absence means the reap never ran (or ran before
+   * this field existed — no migration, AGENTS.md forbids back-compat shims).
+   */
+  reap?: ReapRecord;
   updatedAt: string;
+};
+
+/**
+ * Durable record of a terminal-state reap outcome, written by
+ * `recordReapOutcome` in `bin/flow-browser-teardown.ts`.
+ */
+export type ReapRecord = {
+  at: string;
+  status: "ok" | "unclean";
+  summary: string;
+  ran: boolean;
+  problems?: string[];
 };
 
 /**
@@ -305,6 +326,36 @@ export type PipelinePhase = (typeof PIPELINE_PHASES)[number];
 export const PIPELINE_PHASE_SET: ReadonlySet<string> = new Set(PIPELINE_PHASES);
 
 export const TERMINAL_PHASE_SET: ReadonlySet<string> = new Set(TERMINAL_PHASES);
+
+/**
+ * Named allowlist of the only terminal -> non-terminal writes
+ * flow-state-update accepts without --force. It exists for two legitimate
+ * paths out of `gated`: the gated-feedback loop's re-verify (step 6) /
+ * re-gate (step 9), and the gate-override merge (step 10). It still blocks
+ * everything else, in particular `<any terminal> -> triaging` — the
+ * ambient-pane slug race from PR #369 / commit 00a67fa. The table has only
+ * one entry because the guard fires only on the FIRST write out of a
+ * terminal phase: once an allowlisted write lands the phase is no longer
+ * terminal, so downstream phases (implementing, ci-wait, reviewing) are
+ * reachable without their own entry. Consequence: that same mechanic means
+ * an allowlisted write raced onto the WRONG pipeline's state file (e.g. a
+ * leaked FLOW_SLUG mid-flight) permanently disarms this guard for that
+ * file — every subsequent write lands unguarded, not just the allowlisted
+ * one. `checkWorktreeBranch` still runs on every write but is a no-op in
+ * that race: it reads the victim's own worktree marker, which is
+ * internally consistent regardless of which pipeline is writing.
+ */
+export const TERMINAL_EXIT_TRANSITIONS: Readonly<
+  Record<string, readonly PipelinePhase[]>
+> = {
+  gated: ["verifying", "gating", "merging"],
+};
+
+export function isAllowedTerminalExit(from: string, to: string): boolean {
+  return Object.hasOwn(TERMINAL_EXIT_TRANSITIONS, from)
+    ? (TERMINAL_EXIT_TRANSITIONS[from] as readonly string[]).includes(to)
+    : false;
+}
 
 export function isPipelinePhase(value: string): value is PipelinePhase {
   return PIPELINE_PHASE_SET.has(value);
@@ -468,6 +519,22 @@ function isCheckpointRecord(
   return true;
 }
 
+function isReapRecord(x: unknown): x is ReapRecord {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  if (typeof o.at !== "string") return false;
+  if (o.status !== "ok" && o.status !== "unclean") return false;
+  if (typeof o.summary !== "string") return false;
+  if (typeof o.ran !== "boolean") return false;
+  if (o.problems !== undefined) {
+    if (!Array.isArray(o.problems)) return false;
+    for (const p of o.problems) {
+      if (typeof p !== "string") return false;
+    }
+  }
+  return true;
+}
+
 function isPhaseLog(
   x: unknown,
 ): x is Array<{ phase: string; outcome?: string; at: string }> {
@@ -531,6 +598,7 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.phaseLog !== undefined && !isPhaseLog(o.phaseLog)) return false;
   if (o.checkpoint !== undefined && !isCheckpointRecord(o.checkpoint))
     return false;
+  if (o.reap !== undefined && !isReapRecord(o.reap)) return false;
   if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
     return false;
   if (o.pid !== undefined && typeof o.pid !== "number") return false;

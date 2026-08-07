@@ -340,9 +340,10 @@ browser-close tool, so `close_page` disposes only the `isolatedContext`.
 The browser process must be reaped separately, by SIGTERMing the session's
 own chrome-devtools-mcp server so its `shutdown()` handler runs (never a
 harder signal — that would skip `shutdown()` and orphan the browser
-instead of closing it). flow ships `flow-browser-teardown` for this, fired
-once at the pipeline's terminal state, scoped to this session's own server
-by process ancestry.
+instead of closing it). flow ships `flow-browser-teardown --reap --record`
+for this, fired once at the pipeline's terminal state — registry-driven
+first, falling back to this session's own server by process ancestry only
+for what the registry didn't cover.
 Scope the teardown strictly to what you spawned — never close a page or
 profile belonging to a concurrent agent run or to the user's own browser.
 The motivating incident: an automated visual pass left the chrome-devtools

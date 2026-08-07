@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
-import { STEP_PHASES } from "./lib/state";
+import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { CHECKPOINT_SITES } from "./flow-checkpoint";
 
@@ -120,6 +120,24 @@ const REDIRECT_HANDLING_PATH = path.resolve(
   "flow-pipeline",
   "references",
   "redirect-handling.md",
+);
+const FAILURE_RECOVERY_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-pipeline",
+  "references",
+  "failure-recovery.md",
+);
+const POLLING_PROTOCOL_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-pipeline",
+  "references",
+  "polling-protocol.md",
 );
 const GATEKEEPER_SPAWN_PROMPT_PATH = path.resolve(
   HERE,
@@ -322,6 +340,8 @@ const manualTestRubricContent = fs.readFileSync(
 );
 const autoMergeRubricContent = fs.readFileSync(AUTO_MERGE_RUBRIC_PATH, "utf8");
 const redirectHandlingContent = fs.readFileSync(REDIRECT_HANDLING_PATH, "utf8");
+const failureRecoveryContent = fs.readFileSync(FAILURE_RECOVERY_PATH, "utf8");
+const pollingProtocolContent = fs.readFileSync(POLLING_PROTOCOL_PATH, "utf8");
 const checkpointSkillContent = fs.readFileSync(
   CHECKPOINT_SKILL_MD_PATH,
   "utf8",
@@ -4197,12 +4217,23 @@ describe("pr-review include-by-reference structure", () => {
     // lines — RATCHETED the ceiling DOWN to 2685 (measured + ~25, rounded to
     // the nearest 5), not raised, so the headroom this extraction freed is
     // not silently refilled by unrelated regrowth.
+    // Terminal-state reap wiring PR: rewrote "# Resource cleanup" as the
+    // three-layer contract (point-of-use / registry-first backstop /
+    // orphan-sweep crash net) and wired `flow-browser-teardown --reap
+    // --record` + `flow-gate-summary --cleanup` into every terminal-state
+    // runbook block. This is genuine load-bearing safety content (the
+    // standalone-call / non-`&&`-chained warning this feature exists to
+    // enforce), already tightened repeatedly rather than offloaded — no
+    // references/ file is a natural home for a supervisor-wide invariant
+    // spanning every terminal exit. File lands at 2696 lines — raised the
+    // ceiling to 2700 (4 lines of genuine headroom), same discipline as the
+    // 2765 precedent above: not pinned back at zero headroom.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2685 lines. Material regrowth past this ceiling would ` +
+        `budget of 2700 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2685);
+    ).toBeLessThan(2700);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -4291,6 +4322,94 @@ describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-do
       }
     },
   );
+});
+
+describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", () => {
+  // Guards against the allowlist (bin/lib/state.ts) and the SKILL.md prose
+  // silently drifting apart again: a phase dropped from
+  // TERMINAL_EXIT_TRANSITIONS.gated (or the symbol itself going unmentioned)
+  // should fail loudly here rather than leaving the doc describing exits the
+  // guard no longer permits, or vice versa.
+  //
+  // The per-phase check below is scoped to an ISOLATED PROSE SLICE, not
+  // whole-file `content` — 21 of 26 PIPELINE_PHASES are already backticked
+  // somewhere in SKILL.md as ordinary step headers, so a whole-file
+  // `content.includes` check passes vacuously for almost any allowlist
+  // widening.
+  //
+  // The slice deliberately EXCLUDES the "Gated is an explicit carve-out"
+  // paragraph, even though it also discusses the mechanic: that paragraph
+  // enumerates the in-flight phases (`implementing`, `ci-wait`,
+  // `reviewing`, `plan-pending-review`), which are precisely the most
+  // likely allowlist-widening targets — including it would re-open the
+  // vacuity hole for exactly the drift this lint exists to catch. Only the
+  // two regions that name actual EXITS are in scope: the `gated-feedback`
+  // Resume-mode row (step 6 / step 9 writes) and the "Gate override
+  // (post-verdict, opt-in)" section (the step 10 write). The carve-out
+  // paragraph is still anchor-checked below, just not phase-matched.
+  const gatedFeedbackRow = content
+    .split("\n")
+    .find((line) => line.includes("| `gated-feedback` |"));
+  const gateOverrideSection = (() => {
+    const start = content.indexOf("### Gate override (post-verdict, opt-in)");
+    const end = content.indexOf("\n### ", start + 1);
+    return content.slice(start, end === -1 ? undefined : end);
+  })();
+  const carveOutParagraph = (() => {
+    const marker =
+      "**Gated is an explicit carve-out, not a sixth in-flight phase.**";
+    const start = content.indexOf(marker);
+    const end = content.indexOf("\n\n", start + 1);
+    return content.slice(start, end === -1 ? undefined : end);
+  })();
+  const gatedExitProse = [gatedFeedbackRow ?? "", gateOverrideSection].join(
+    "\n\n",
+  );
+
+  it("the gated-exit prose slice was found (sanity check for the anchors above)", () => {
+    expect(
+      gatedFeedbackRow,
+      "gated-feedback Resume-mode row not found",
+    ).not.toBe(undefined);
+    expect(
+      gateOverrideSection.length,
+      "Gate override (post-verdict, opt-in) section not found",
+    ).toBeGreaterThan(0);
+    expect(
+      carveOutParagraph.length,
+      "Gated is an explicit carve-out paragraph not found",
+    ).toBeGreaterThan(0);
+  });
+
+  it.each(TERMINAL_EXIT_TRANSITIONS.gated.map((phase) => [phase]))(
+    "TERMINAL_EXIT_TRANSITIONS.gated phase '%s' is named (backticked) in SKILL.md's gated-exit prose",
+    (phase) => {
+      expect(
+        gatedExitProse.includes(`\`${phase}\``),
+        `TERMINAL_EXIT_TRANSITIONS.gated includes '${phase}' ` +
+          `(bin/lib/state.ts), but flow-pipeline/SKILL.md's gated-exit ` +
+          "prose (gated-feedback row / Gate override section) never " +
+          "mentions `" +
+          phase +
+          "` — fix SKILL.md's gated-exit prose to name every allowlisted " +
+          "target.",
+      ).toBe(true);
+    },
+  );
+
+  it("SKILL.md mentions the literal symbol TERMINAL_EXIT_TRANSITIONS", () => {
+    // Load-bearing check: verifying/gating/merging each also appear
+    // elsewhere in SKILL.md as ordinary phase names, so the it.each above
+    // alone can't catch the allowlist going unmentioned entirely — only the
+    // literal symbol name proves SKILL.md's prose is actually describing
+    // this guard, not just naming the phases in another context.
+    expect(
+      content.includes("TERMINAL_EXIT_TRANSITIONS"),
+      "flow-pipeline/SKILL.md no longer mentions the literal symbol " +
+        "TERMINAL_EXIT_TRANSITIONS — fix SKILL.md to name it explicitly so " +
+        "the gated-exit prose stays traceable to bin/lib/state.ts.",
+    ).toBe(true);
+  });
 });
 
 describe("pr-review Step 11e inversion contract", () => {
@@ -5503,17 +5622,17 @@ describe("browser-driven UI-validation structural anchors", () => {
       nextHeadingIdx === -1 ? undefined : nextHeadingIdx,
     );
     expect(
-      resourceCleanupSection.includes("flow-browser-teardown --json"),
+      resourceCleanupSection.includes("flow-browser-teardown --reap --record"),
       "the '# Resource cleanup' section must name the exact wired call " +
-        "'flow-browser-teardown --json', not just the bare helper name.",
+        "'flow-browser-teardown --reap --record', not just the bare helper name.",
     ).toBe(true);
 
     const wiredCallCount = (
-      content.match(/flow-browser-teardown --json \|\| true/g) ?? []
+      content.match(/flow-browser-teardown --reap --record/g) ?? []
     ).length;
     expect(
       wiredCallCount,
-      "flow-browser-teardown --json || true must be wired into every " +
+      "flow-browser-teardown --reap --record must be wired into every " +
         "named terminal-state runbook block (MERGED, gated, both " +
         "merged-externally renders, closed-no-merge, the canonical " +
         "NEEDS HUMAN Failure-paths block, and both cancelled renders — " +
@@ -5609,6 +5728,215 @@ describe("browser-driven UI-validation structural anchors", () => {
       "ui-ux SKILL.md must cite WCAG 1.4.10 Reflow in the responsive-layout " +
         "judgment dimension (the no-horizontal-scroll-at-320px floor).",
     ).toBe(true);
+  });
+});
+
+describe("terminal-state reap wiring lint", () => {
+  const REAP_RECORD = "flow-browser-teardown --reap --record";
+  const TERMINAL_STATUS_RE =
+    /flow-gate-summary --status (merged|gated|needs-human|cancelled)/g;
+
+  it("D4: no flow-browser-teardown invocation is || true-swallowed", () => {
+    const matches =
+      content.match(/flow-browser-teardown[^\n]*\|\|\s*true/g) ?? [];
+    expect(
+      matches,
+      "flow-browser-teardown must never be `|| true`-swallowed (D4) — a " +
+        "non-zero exit on the failure path must surface, never be " +
+        `silently absorbed. Found: ${JSON.stringify(matches)}`,
+    ).toHaveLength(0);
+  });
+
+  /**
+   * STRUCTURAL, not a bare count: every WIRED terminal `flow-gate-summary`
+   * occurrence (identified by carrying `--cleanup` before the NEXT terminal
+   * occurrence) must have its own preceding `flow-browser-teardown --reap
+   * --record` call, newer than the reap call the previous wired site used.
+   * A bare >=8 count would pass unchanged if a 9th terminal site were added
+   * with `--cleanup` but no preceding reap, or if two sites shared one
+   * reap call — exactly the weakness a count can't catch.
+   *
+   * A handful of PRE-EXISTING terminal `flow-gate-summary` occurrences
+   * are genuinely out of scope for this feature: the deep interior NEEDS
+   * HUMAN escalation branches inside the step-10 merge-conflict-resolution
+   * flow that explicitly delegate to "the standard `# Failure paths`
+   * chain" (merge-resolver-spawn-denied, merge-failed x3) — that chain is
+   * itself wired, so wiring them separately would double-render — and the
+   * elliptical step-9/step-10 resume-path back-references that cite the
+   * SAME render used elsewhere via `...` rather than a full argument list.
+   *
+   * Those are PINNED BY COUNT, never skipped silently. An earlier draft of
+   * this check did a bare `if (!isWired) continue`, which was
+   * self-defeating: the one regression it most needed to catch — a NEW
+   * terminal site added with neither a reap nor `--cleanup` — is exactly
+   * the shape that skip waved through. Pinning the count makes any new
+   * unwired site trip this spec and forces a deliberate choice: wire it,
+   * or bump the expectation with a written justification.
+   */
+  function checkTerminalSitesWired(
+    text: string,
+    label: string,
+    expectedUnwired: number,
+  ): void {
+    const matches = [...text.matchAll(TERMINAL_STATUS_RE)];
+    const unwiredLines: number[] = [];
+    let prevReapIdx = -1;
+    for (let i = 0; i < matches.length; i++) {
+      const idx = matches[i].index ?? 0;
+      const nextIdx = matches[i + 1]?.index ?? text.length;
+      // Bounded lookahead: a wired call's --cleanup flag always sits within
+      // a few hundred chars of its own --status flag. Capping the window
+      // (rather than scanning all the way to the next terminal occurrence,
+      // which can be thousands of chars away or even EOF) stops an
+      // unrelated LATER --cleanup mention from falsely marking an
+      // elliptical resume-path back-reference as wired.
+      const segment = text.slice(idx, Math.min(nextIdx, idx + 400));
+      const isWired = /--cleanup\b/.test(segment);
+      if (!isWired) {
+        unwiredLines.push(text.slice(0, idx).split("\n").length);
+        continue;
+      }
+      const reapIdx = text.lastIndexOf(REAP_RECORD, idx);
+      expect(
+        reapIdx,
+        `${label}: the wired terminal call '${matches[i][0]}' at offset ` +
+          `${idx} must have a preceding '${REAP_RECORD}' call.`,
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        reapIdx,
+        `${label}: the reap call preceding '${matches[i][0]}' at offset ` +
+          `${idx} must be its OWN reap call, not one already claimed by ` +
+          `an earlier wired terminal site.`,
+      ).toBeGreaterThan(prevReapIdx);
+      prevReapIdx = reapIdx;
+    }
+    expect(
+      unwiredLines.length,
+      `${label}: expected exactly ${expectedUnwired} terminal ` +
+        `flow-gate-summary occurrence(s) to be deliberately unwired (see ` +
+        `the comment above this helper), but found ${unwiredLines.length} ` +
+        `at line(s) ${unwiredLines.join(", ") || "(none)"}. A NEW unwired ` +
+        `terminal site is the exact regression this spec exists to catch: ` +
+        `either give it its own preceding '${REAP_RECORD}' call plus ` +
+        `--cleanup, or raise this expectation deliberately and say why.`,
+    ).toBe(expectedUnwired);
+  }
+
+  it("every wired terminal flow-gate-summary occurrence in SKILL.md has its own preceding reap call", () => {
+    // 7 deliberately unwired: 4 step-10 merge-resolution escalations that
+    // delegate to the (already-wired) `# Failure paths` chain, and 3
+    // elliptical resume-path back-references.
+    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 7);
+  });
+
+  it("every wired terminal flow-gate-summary occurrence in the reference docs has its own preceding reap call", () => {
+    // All three reference docs are fully wired — no deliberate gap.
+    checkTerminalSitesWired(
+      redirectHandlingContent,
+      "references/redirect-handling.md",
+      0,
+    );
+    checkTerminalSitesWired(
+      failureRecoveryContent,
+      "references/failure-recovery.md",
+      0,
+    );
+    checkTerminalSitesWired(
+      pollingProtocolContent,
+      "references/polling-protocol.md",
+      0,
+    );
+    // Two deliberately unwired: the auto-merge and already-merged rows'
+    // elliptical `flow-gate-summary --status merged ...` back-references —
+    // same shape as SKILL.md's elliptical resume-path back-references.
+    checkTerminalSitesWired(
+      autoMergeRubricContent,
+      "references/auto-merge-rubric.md",
+      2,
+    );
+  });
+
+  it("the step-11 MERGED block and the Failure-paths NEEDS HUMAN block run the reap as a standalone, unchained, separate-line step before the render", () => {
+    const namedBlocks: Array<{ label: string; startAnchor: string }> = [
+      {
+        label: "step-11 MERGED block",
+        startAnchor:
+          'flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"  # executes auto-allowlisted entries',
+      },
+      {
+        label: "Failure-paths NEEDS HUMAN block",
+        startAnchor:
+          'flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"  # captures the deferred LOCAL FOLLOW-UPS block',
+      },
+    ];
+    for (const { label, startAnchor } of namedBlocks) {
+      const startIdx = content.indexOf(startAnchor);
+      expect(
+        startIdx,
+        `${label}: anchor text not found in SKILL.md.`,
+      ).toBeGreaterThanOrEqual(0);
+      const fenceEnd = content.indexOf("\n```", startIdx);
+      expect(fenceEnd, `${label}: closing fence not found.`).toBeGreaterThan(
+        startIdx,
+      );
+      const block = content.slice(startIdx, fenceEnd);
+
+      const reapIdx = block.indexOf(REAP_RECORD);
+      const gateSummaryIdx = block.indexOf("flow-gate-summary --status");
+      expect(
+        reapIdx,
+        `${label}: must contain '${REAP_RECORD}'.`,
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        gateSummaryIdx,
+        `${label}: must contain a flow-gate-summary call.`,
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        reapIdx,
+        `${label}: the reap call must precede the flow-gate-summary render.`,
+      ).toBeLessThan(gateSummaryIdx);
+
+      const reapLine =
+        block.slice(0, block.indexOf("\n", reapIdx)).split("\n").pop() ?? "";
+      // Strip the trailing shell comment before checking for chaining —
+      // the explanatory comment legitimately uses ';' as prose punctuation
+      // (e.g. "records the outcome in state.json; always exits 0"), which
+      // must not be mistaken for an actual command separator.
+      const reapCode = reapLine.split(/\s#/)[0] ?? reapLine;
+      expect(
+        reapCode.includes("&&") || reapCode.includes(";"),
+        `${label}: the reap call must be on its OWN line, never ` +
+          `&&-chained or ;-joined to the render that follows: '${reapLine}'`,
+      ).toBe(false);
+      expect(
+        reapLine.includes("flow-gate-summary"),
+        `${label}: the reap call and the flow-gate-summary render must be ` +
+          `on separate lines, found both on: '${reapLine}'`,
+      ).toBe(false);
+    }
+  });
+
+  it("AGENTS.md and SKILL.md's Resource cleanup section both name all three layers (point-of-use, backstop, crash-path)", () => {
+    for (const kw of ["point-of-use", "backstop", "crash-path"]) {
+      expect(
+        agentsContent.includes(kw),
+        `AGENTS.md's spawned-resources Don'ts bullet must name '${kw}'.`,
+      ).toBe(true);
+    }
+    const resourceCleanupStart = content.indexOf(
+      "# Resource cleanup (before any terminal state)",
+    );
+    const nextHeadingIdx = content.indexOf("\n# ", resourceCleanupStart + 1);
+    const resourceCleanupSection = content.slice(
+      resourceCleanupStart,
+      nextHeadingIdx === -1 ? undefined : nextHeadingIdx,
+    );
+    for (const kw of ["point-of-use", "backstop", "crash-path"]) {
+      expect(
+        resourceCleanupSection.includes(kw),
+        `SKILL.md's '# Resource cleanup' section must name '${kw}'.`,
+      ).toBe(true);
+    }
   });
 });
 

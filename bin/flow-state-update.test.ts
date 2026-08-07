@@ -268,6 +268,66 @@ describe("applyUpdate", () => {
     const updated = applyUpdate(existing, { slug: "csv-export", pr: 142 });
     expect(updated.pr).toBe(142);
   });
+
+  it("clears a stale reap record when the phase write moves to a non-terminal phase", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "merged",
+      repo: "/tmp/repo",
+      updatedAt: "2026-04-30T12:00:00Z",
+      reap: {
+        at: "2026-04-30T12:01:00Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      phase: "implementing",
+    });
+    expect(updated.phase).toBe("implementing");
+    expect(updated.reap).toBeUndefined();
+  });
+
+  it("preserves a reap record when the phase write stays terminal", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "gated",
+      repo: "/tmp/repo",
+      updatedAt: "2026-04-30T12:00:00Z",
+      reap: {
+        at: "2026-04-30T12:01:00Z",
+        status: "unclean",
+        summary: "1 still-alive process",
+        ran: true,
+        problems: ["registry: still-alive=1"],
+      },
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      phase: "merged",
+    });
+    expect(updated.phase).toBe("merged");
+    expect(updated.reap).toEqual(existing.reap);
+  });
+
+  it("preserves a reap record on a --pr-only write while already terminal", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "merged",
+      repo: "/tmp/repo",
+      updatedAt: "2026-04-30T12:00:00Z",
+      reap: {
+        at: "2026-04-30T12:01:00Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    };
+    const updated = applyUpdate(existing, { slug: "csv-export", pr: 142 });
+    expect(updated.reap).toEqual(existing.reap);
+  });
 });
 
 describe("runUpdate", () => {
@@ -311,6 +371,27 @@ describe("runUpdate", () => {
     expect(runUpdate(["csv-export", "--phase", "implementing"], dir)).toBe(0);
     const got = readState("csv-export", dir);
     expect(got?.phase).toBe("implementing");
+  });
+
+  it("clears a stale reap record when resumed past a terminal phase", () => {
+    seed("csv-export", {
+      phase: "merged",
+      reap: {
+        at: "2026-04-30T12:01:00Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    });
+    // A terminal->non-terminal write needs --force — the terminal-regression
+    // guard above refuses it otherwise (exit 4). --force is exactly the
+    // resume path this reap-clear exists for.
+    expect(
+      runUpdate(["csv-export", "--phase", "implementing", "--force"], dir),
+    ).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.phase).toBe("implementing");
+    expect(got?.reap).toBeUndefined();
   });
 
   it("persists autoMerge: false when --no-auto-merge is set, then flips back with --auto-merge", () => {
@@ -721,6 +802,96 @@ describe("terminal-regression guard", () => {
     expect(code).toBe(0);
     expect(readState("csv-export", dir)?.pr).toBe(42);
     expect(readState("csv-export", dir)?.phase).toBe("merged");
+  });
+
+  it("allows the allowlisted gated→verifying exit and writes the new phase", () => {
+    seed("csv-export", { phase: "gated" });
+    const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("verifying");
+  });
+
+  it("allows the allowlisted gated→gating exit", () => {
+    seed("csv-export", { phase: "gated" });
+    const code = runUpdate(["csv-export", "--phase", "gating"], dir);
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("gating");
+  });
+
+  it("allows the allowlisted gated→merging exit", () => {
+    seed("csv-export", { phase: "gated" });
+    const code = runUpdate(["csv-export", "--phase", "merging"], dir);
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("merging");
+  });
+
+  it("an allowlisted exit still appends exactly one phaseLog entry", () => {
+    seed("csv-export", { phase: "gated", phaseLog: [] });
+    const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phaseLog).toHaveLength(1);
+  });
+
+  it("still returns 4 for gated→triaging (not in the allowlist) and leaves state unchanged", () => {
+    seed("csv-export", { phase: "gated" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "triaging"], dir);
+    errSpy.mockRestore();
+    expect(code).toBe(4);
+    expect(readState("csv-export", dir)?.phase).toBe("gated");
+  });
+
+  it("returns 4 for merged→verifying — the allowlist is keyed on the from-phase, not the target", () => {
+    seed("csv-export", { phase: "merged" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+    errSpy.mockRestore();
+    expect(code).toBe(4);
+    expect(readState("csv-export", dir)?.phase).toBe("merged");
+  });
+
+  it.each(["needs-human", "cancelled", "epic-approved"])(
+    "returns 4 for %s→verifying — no allowlist entry outside gated",
+    (fromPhase) => {
+      seed("csv-export", { phase: fromPhase });
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+      errSpy.mockRestore();
+      expect(code).toBe(4);
+      expect(readState("csv-export", dir)?.phase).toBe(fromPhase);
+    },
+  );
+
+  it("branch-mismatch (exit 3) still wins over an allowlisted gated exit", () => {
+    const fx = makeWorktreeFixture("expected-branch", "actual-branch");
+    seed("csv-export", { phase: "gated", worktree: fx.worktreeDir });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+    errSpy.mockRestore();
+    expect(code).toBe(3);
+    expect(readState("csv-export", dir)?.phase).toBe("gated");
+    fx.cleanup();
+  });
+
+  it("the exit-4 refusal names the allowed exits for the from-phase", () => {
+    seed("csv-export", { phase: "gated" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "triaging"], dir);
+    expect(code).toBe(4);
+    const output = errSpy.mock.calls.flat().join("\n");
+    errSpy.mockRestore();
+    expect(output).toContain("Allowed exits");
+    expect(output).toContain("verifying");
+  });
+
+  it("the exit-4 refusal says 'none' when the from-phase has no allowlist entry", () => {
+    seed("csv-export", { phase: "merged" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "verifying"], dir);
+    expect(code).toBe(4);
+    const output = errSpy.mock.calls.flat().join("\n");
+    errSpy.mockRestore();
+    expect(output).toContain("Allowed exits from 'merged': none");
   });
 });
 

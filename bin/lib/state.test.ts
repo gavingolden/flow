@@ -6,6 +6,7 @@ import {
   autoResumesAfterClear,
   deleteState,
   EPIC_PHASES,
+  isAllowedTerminalExit,
   isEpicPhase,
   isLegitimateEndPhase,
   isMainStateFile,
@@ -21,6 +22,7 @@ import {
   readState,
   shortPhase,
   STEP_PHASES,
+  TERMINAL_EXIT_TRANSITIONS,
   TERMINAL_PHASES,
   writeState,
   type PipelineState,
@@ -688,6 +690,60 @@ describe("state", () => {
     expect(readState("checkpoint-malformed", dir)).toBeNull();
   });
 
+  it("readState round-trips a valid reap record through writeState", () => {
+    const withReap: PipelineState = {
+      slug: "with-reap",
+      phase: "merged",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      reap: {
+        at: "2026-05-17T00:01:00Z",
+        status: "ok",
+        summary: "no live processes",
+        ran: true,
+      },
+    };
+    writeState(withReap, dir);
+    expect(readState("with-reap", dir)).toEqual(withReap);
+  });
+
+  it("readState accepts an absent reap field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "reap-absent.json"),
+      JSON.stringify({
+        slug: "reap-absent",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    const got = readState("reap-absent", dir);
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("reap");
+  });
+
+  it("readState returns null when the reap record is malformed", () => {
+    // reap must be { at, status, summary, ran, problems? }. A record with
+    // an unrecognised status (or a missing summary) makes readState reject
+    // the WHOLE state file (returns null), degrading this pipeline to
+    // state-missing on resume — callers must treat a null readState as
+    // exactly that, not assume a corrupt reap sub-record is isolated from
+    // the rest of state.json.
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "reap-malformed.json"),
+      JSON.stringify({
+        slug: "reap-malformed",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        reap: { at: "2026-05-17T00:01:00Z", status: "not-a-real-status" },
+      }),
+    );
+    expect(readState("reap-malformed", dir)).toBeNull();
+  });
+
   it("readState round-trips valid pid and procStartedAt through writeState", () => {
     const withLiveness: PipelineState = {
       slug: "with-liveness",
@@ -977,6 +1033,42 @@ describe("phase constants", () => {
 
   it("autoResumesAfterClear('epic-run', ...) resumes regardless of phase", () => {
     expect(autoResumesAfterClear("epic-approved", "epic-run")).toBe(true);
+  });
+
+  it("isAllowedTerminalExit allows the three documented gated exits", () => {
+    expect(isAllowedTerminalExit("gated", "verifying")).toBe(true);
+    expect(isAllowedTerminalExit("gated", "gating")).toBe(true);
+    expect(isAllowedTerminalExit("gated", "merging")).toBe(true);
+  });
+
+  it("isAllowedTerminalExit rejects everything else, including a non-terminal from-phase", () => {
+    expect(isAllowedTerminalExit("gated", "triaging")).toBe(false);
+    expect(isAllowedTerminalExit("merged", "verifying")).toBe(false);
+    expect(isAllowedTerminalExit("verifying", "gating")).toBe(false);
+  });
+
+  it("isAllowedTerminalExit returns false (not a throw) for Object.prototype keys", () => {
+    expect(isAllowedTerminalExit("constructor", "verifying")).toBe(false);
+    expect(isAllowedTerminalExit("__proto__", "verifying")).toBe(false);
+  });
+
+  it("TERMINAL_EXIT_TRANSITIONS is exactly {gated: [verifying, gating, merging]} (drift-guard)", () => {
+    // Exact equality, not containment — this is what catches a silent
+    // widening of the allowlist to a phase other than `gated`, or a
+    // silent addition/removal of one of the three documented targets.
+    expect(Object.keys(TERMINAL_EXIT_TRANSITIONS)).toEqual(["gated"]);
+    expect(TERMINAL_EXIT_TRANSITIONS.gated).toEqual([
+      "verifying",
+      "gating",
+      "merging",
+    ]);
+  });
+
+  it("every TERMINAL_EXIT_TRANSITIONS.gated target is a real, non-terminal phase", () => {
+    for (const target of TERMINAL_EXIT_TRANSITIONS.gated) {
+      expect(PIPELINE_PHASES as readonly string[]).toContain(target);
+      expect(TERMINAL_PHASES as readonly string[]).not.toContain(target);
+    }
   });
 });
 
