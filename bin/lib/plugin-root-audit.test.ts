@@ -143,10 +143,20 @@ describe(unexpectedPluginRootEntries, () => {
     ]);
   });
 
-  it("a manifest with skills: [] declares skills (empty array is still an array of strings) — no issue for skills/", () => {
+  it("a manifest with skills: [] does NOT declare skills — skills/ is reported (the empty array is the named evasion)", () => {
     writeManifest({ skills: [] });
     fs.mkdirSync(path.join(root, "skills"), { recursive: true });
-    expect(unexpectedPluginRootEntries(root)).toEqual([]);
+    expect(unexpectedPluginRootEntries(root)).toEqual([
+      { relPath: "skills", reason: "unexpected-child" },
+    ]);
+  });
+
+  it("a manifest with skills: ['./skills', 1] does NOT declare skills — every element must be a string", () => {
+    writeManifest({ skills: ["./skills", 1] });
+    fs.mkdirSync(path.join(root, "skills"), { recursive: true });
+    expect(unexpectedPluginRootEntries(root)).toEqual([
+      { relPath: "skills", reason: "unexpected-child" },
+    ]);
   });
 
   it("a manifest with skills: 'yes' (a scalar) does NOT declare skills — skills/ is reported", () => {

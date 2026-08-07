@@ -43,8 +43,8 @@ function readdirNames(dir: string): string[] {
  * `pluginManifestFor`'s writer SHAPE, not mere key presence:
  * `pluginManifestFor` emits exactly `skills: ["./skills"]` (an array of
  * strings) and otherwise omits the key entirely, so a declared `skills` key
- * is only genuine when the parsed value is an array of strings. Plain key
- * presence would let a hand-edited-but-valid `plugin.json` declare
+ * is only genuine when the parsed value is a NON-EMPTY array of strings.
+ * Plain key presence would let a hand-edited-but-valid `plugin.json` declare
  * `"skills": []` (or `null`, or a scalar) to make `<root>/skills/**` an
  * unwalked, unreported subtree while the root stays loaded — an evasion
  * vector this stricter shape check closes. Deliberately NOT built on
@@ -66,7 +66,14 @@ function manifestDeclaresSkills(root: string): boolean {
     if (typeof parsed !== "object" || parsed === null) return true;
     const value = (parsed as Record<string, unknown>).skills;
     if (value === undefined) return false;
-    return Array.isArray(value) && value.every((v) => typeof v === "string");
+    // Non-EMPTY is load-bearing: `"skills": []` is the evasion the shape
+    // check exists to close, and an empty array is vacuously "an array of
+    // strings".
+    return (
+      Array.isArray(value) &&
+      value.length > 0 &&
+      value.every((v) => typeof v === "string")
+    );
   } catch {
     return true;
   }
