@@ -12,7 +12,8 @@
  * scrollback and infer whether any manual action was required and what
  * it was, separately for each shape. This helper renders one canonical
  * block — `STATUS:` / `PR:` / `WHY:` / `NEXT ACTION:` / optional
- * `FOLLOW-UPS:` / sentinel — so every site looks the same.
+ * `CLEANUP:` / optional `FOLLOW-UPS:` / sentinel — so every site looks
+ * the same.
  *
  * The follow-ups slot is named generically (not `DEFERRED:`) because
  * the captured block describes follow-ups in BOTH directions: noted
@@ -46,6 +47,7 @@
  *                     [--worktree <path>]
  *                     [--plan-file <path>]
  *                     [--echo-prose]   (awaiting-approval only; no-op elsewhere)
+ *                     [--cleanup]      (renders the terminal-state reap verdict from state.reap)
  *
  * Empty / missing --validation-items-file and --deferred-file are
  * silently suppressed (same convention as `flow-followups.formatVerdict`'s

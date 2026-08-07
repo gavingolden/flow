@@ -5747,14 +5747,6 @@ describe("terminal-state reap wiring lint", () => {
     ).toHaveLength(0);
   });
 
-  it("at least 8 flow-browser-teardown --reap --record sites are wired into SKILL.md", () => {
-    const count = (content.match(new RegExp(REAP_RECORD, "g")) ?? []).length;
-    expect(
-      count,
-      `expected >= 8 '${REAP_RECORD}' sites in flow-pipeline/SKILL.md, got ${count}.`,
-    ).toBeGreaterThanOrEqual(8);
-  });
-
   /**
    * STRUCTURAL, not a bare count: every WIRED terminal `flow-gate-summary`
    * occurrence (identified by carrying `--cleanup` before the NEXT terminal
@@ -5764,7 +5756,7 @@ describe("terminal-state reap wiring lint", () => {
    * with `--cleanup` but no preceding reap, or if two sites shared one
    * reap call — exactly the weakness a count can't catch.
    *
-   * A handful of PRE-EXISTING terminal `flow-gate-summary` occurrences are
+   * A handful of PRE-EXISTING terminal `flow-gate-summary` occurrences
    * are genuinely out of scope for this feature: the deep interior NEEDS
    * HUMAN escalation branches inside the step-10 merge-conflict-resolution
    * flow that explicitly delegate to "the standard `# Failure paths`
@@ -5853,6 +5845,14 @@ describe("terminal-state reap wiring lint", () => {
       pollingProtocolContent,
       "references/polling-protocol.md",
       0,
+    );
+    // Two deliberately unwired: the auto-merge and already-merged rows'
+    // elliptical `flow-gate-summary --status merged ...` back-references —
+    // same shape as SKILL.md's elliptical resume-path back-references.
+    checkTerminalSitesWired(
+      autoMergeRubricContent,
+      "references/auto-merge-rubric.md",
+      2,
     );
   });
 

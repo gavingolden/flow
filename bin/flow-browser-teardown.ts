@@ -31,6 +31,10 @@
  * kill-uncooperative process group) lives entirely in `bin/lib/reap.ts` —
  * see that module for the exact signal sequence a `default`-class row
  * receives. Run with `--dry-run` first; it sends no signal at all.
+ * `--record` (with `--reap` only, never under `--dry-run`) additionally
+ * writes the reap verdict to `~/.flow/state/<slug>.json` as `state.reap`
+ * — a plain state write, never a phase transition; a failure there is
+ * warned, never thrown, so this helper still cannot break its caller.
  *
  * Always exits 0. This helper must never break a caller.
  */
@@ -501,6 +505,26 @@ export function summarizeReapEnvelope(envelope: ReapEnvelope): string {
 }
 
 /**
+ * Short, human-scannable counterpart to `summarizeReapEnvelope` — the
+ * `CLEANUP:` row's whole payoff is at-a-glance scanning, so the recorded
+ * `ReapRecord.summary` uses this instead of the ~290-char counter dump.
+ * The verbose dump stays reachable via `--reap --json`; on the unclean
+ * path the caller passes `classifyReapEnvelope`'s own `problems` list so
+ * the row names the actual leak signal rather than a generic phrase.
+ */
+export function shortReapSummary(
+  envelope: ReapEnvelope,
+  problems: string[],
+): string {
+  if (problems.length > 0) return problems.join("; ");
+  const c = envelope.registry.counts;
+  const acted = c.reaped + c["already-dead"];
+  return acted === 0
+    ? "no live processes"
+    : `${c.reaped} reaped, ${c["already-dead"]} already dead`;
+}
+
+/**
  * Pure classification of a reap envelope into a durable ok/unclean verdict.
  * Problems are drawn only from genuine LEAK signals — `failed`,
  * `still-alive`, `deadline-exceeded`, `skipped-dead-leader`,
@@ -560,7 +584,7 @@ export function recordReapOutcome(
     const record: ReapRecord = {
       at: now.toISOString(),
       status,
-      summary: summarizeReapEnvelope(envelope),
+      summary: shortReapSummary(envelope, problems),
       ran: envelope.registry.ran || envelope.fallback !== null,
       ...(problems.length > 0 ? { problems } : {}),
     };
@@ -1000,6 +1024,9 @@ function parseCliArgs(argv: string[]): ParsedCli {
     } else {
       out.usageError = `unknown flag: ${a}`;
     }
+  }
+  if (!out.usageError && out.record && !out.reap) {
+    out.usageError = "--record requires --reap";
   }
   return out;
 }

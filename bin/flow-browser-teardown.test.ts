@@ -967,7 +967,7 @@ describe("recordReapOutcome", () => {
     expect(state?.reap).toEqual({
       at: "2026-01-02T00:00:00.000Z",
       status: "ok",
-      summary: summarizeReapEnvelope(envelope),
+      summary: "no live processes",
       ran: true,
     });
     // A plain state write, not a phase transition — updatedAt must not move.
@@ -1004,6 +1004,10 @@ describe("recordReapOutcome", () => {
         "fallback: not-gated",
       ]),
     );
+    // The short summary joins the same problems, so a human scanning the
+    // rendered CLEANUP row sees the actual leak signal, not a generic dump.
+    expect(state?.reap?.summary).toContain("failed=1");
+    expect(state?.reap?.summary).toContain("fallback: not-gated");
   });
 
   it("returns {written:false} without creating a file when no state exists for the slug", () => {
@@ -1047,6 +1051,23 @@ describe("main — --reap --record", () => {
     else process.env.FLOW_PIPELINE = originalPipeline;
   });
 
+  it("rejects --record without --reap as a usage error rather than silently falling through to the default teardown", () => {
+    const errSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const code = main(["--record"]);
+      expect(code).toBe(0);
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining("--record requires --reap"),
+      );
+    } finally {
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
   it("--dry-run --record never writes a state file, even for a resolvable slug", () => {
     // A random slug: main() has no state-dir injection seam, so this is the
     // only safe way to exercise the real FLOW_STATE_DIR without risking a
@@ -1063,6 +1084,39 @@ describe("main — --reap --record", () => {
       const code = main(["--reap", "--dry-run", "--record", "--slug", slug]);
       expect(code).toBe(0);
       expect(fs.existsSync(statePath)).toBe(false);
+    } finally {
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+      fs.rmSync(statePath, { force: true });
+    }
+  });
+
+  it("--reap --record (non-dry-run) writes state.reap through main()", () => {
+    // A fresh random slug has no ~/.flow/state/procs/<slug>.jsonl, so the
+    // registry phase signals nothing; with FLOW_PIPELINE unset the
+    // ancestry fallback stays gated off (fallbackSkipReason: "not-gated"),
+    // so no real signal is ever sent — this exercises the record wiring
+    // without touching any live process.
+    const slug = `flow-teardown-test-${randomUUID()}`;
+    delete process.env.FLOW_PIPELINE;
+    const statePath = path.join(FLOW_STATE_DIR, `${slug}.json`);
+    writeState({
+      slug,
+      phase: "merged",
+      repo: "/tmp/repo",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const errSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const code = main(["--reap", "--record", "--slug", slug]);
+      expect(code).toBe(0);
+      const reap = readState(slug)?.reap;
+      expect(reap).toBeDefined();
+      expect(reap?.status).toBe("unclean");
+      expect(reap?.summary).toBe("fallback: not-gated");
     } finally {
       errSpy.mockRestore();
       logSpy.mockRestore();
