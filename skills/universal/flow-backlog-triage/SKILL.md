@@ -145,7 +145,10 @@ alternative when the user doesn't want a durable file.
 - Every DO-LATER carries a concrete promotion trigger; a DO-LATER without
   one is a REJECT.
 - Every launch command in the emitted queue carries `--tmux` and
-  `--slug <bundle-slug>` and contains zero backticks.
+  `--slug <bundle-slug>`, contains zero backticks, and single-quotes
+  every interpolated untrusted value (issue/bundle title, close reason)
+  per the shell-safety contract in
+  [references/output-template.md](references/output-template.md).
 - The output document's `## Self-check` section is filled in, not left as
   a template.
 

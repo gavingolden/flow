@@ -359,7 +359,19 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
   });
 
   it("forbids gh api as the generic mutation escape hatch when the verifier agent defines its read-only contract", () => {
-    expect(verifierAgentContent.includes("gh api")).toBe(true);
+    // Same prohibition-shape anchoring as the loop above, not bare presence:
+    // `gh api` is the escape hatch that bypasses every named `gh issue ...`
+    // check, so the anchor pins BOTH the prohibition ("no `gh api`") and the
+    // non-GET qualifier that scopes it — a reword permitting non-GET calls
+    // while still mentioning `gh api` would keep a bare includes() green.
+    const normalized = verifierAgentContent.replace(/\s+/g, " ");
+    expect(
+      normalized.includes("no `gh api` with a non-GET method"),
+      "agents/flow-backlog-verifier.md must forbid '`gh api` with a " +
+        "non-GET method' (that literal phrasing) — it is the generic " +
+        "escape hatch around the named `gh issue ...` prohibitions, and " +
+        "the read-only contract is prose-enforced (Bash can mutate).",
+    ).toBe(true);
   });
 
   // Portability: this skill runs in arbitrary consumer repos

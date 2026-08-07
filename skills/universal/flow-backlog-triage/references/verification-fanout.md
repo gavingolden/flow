@@ -23,8 +23,9 @@ spawn.
 
 **Batch, never one-subagent-per-item.** Group items into batches sized
 `ceil(total_items / 6)`, clamped to 15–30 items per batch — e.g. a
-~190-item backlog yields 7 batches of ~27 items, spawned as one wave of 6
-plus a second wave of 1. Both cross-model reviewers who checked this
+~190-item backlog gives `ceil(190/6) = 32`, clamped down to 30, so 7
+batches (six of 30 plus a remainder of 10), spawned as one wave of 6 plus
+a second wave of 1. Both cross-model reviewers who checked this
 design flagged one-subagent-per-item independently against a ~190-item
 backlog — it would spawn far too many concurrent subagents for the item
 count involved. Batching amortizes each subagent's fixed spawn/context
