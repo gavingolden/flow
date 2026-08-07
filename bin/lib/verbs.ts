@@ -14,6 +14,7 @@ export const VERBS = [
   "attach",
   "a",
   "done",
+  "reap",
   "completion",
   "version",
   "help",

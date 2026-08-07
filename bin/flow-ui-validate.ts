@@ -534,7 +534,7 @@ export function run(argv: string[], deps: Deps = {}): number {
       loud: true,
       skipped_reason: "browser-profile-busy",
       nudge:
-        "Another flow pipeline is holding chrome-devtools-mcp's shared Chrome profile (~/.cache/chrome-devtools-mcp/chrome-profile). Register the chrome-devtools MCP with --isolated in ~/.claude.json so each pipeline gets its own auto-cleaned throwaway profile, or wait for/close the other pipeline's browser. --isolated resolves the profile LOCK, but a busy profile often means a previous session's browser was never closed — run flow-browser-teardown (session-scoped) or flow-browser-teardown --orphans (sessionless strays) to reap it. UI validation was skipped for this run; verify/review proceeded on the rest of the diff.",
+        "Another flow pipeline is holding chrome-devtools-mcp's shared Chrome profile (~/.cache/chrome-devtools-mcp/chrome-profile). Register the chrome-devtools MCP with --isolated in ~/.claude.json so each pipeline gets its own auto-cleaned throwaway profile, or wait for/close the other pipeline's browser. --isolated resolves the profile LOCK, but a busy profile often means a previous session's browser was never closed — run flow-browser-teardown (session-scoped) or flow reap --include-strays (sessionless strays; flow-browser-teardown --orphans is deprecated in favor of this) to reap it. UI validation was skipped for this run; verify/review proceeded on the rest of the diff.",
     });
   }
 

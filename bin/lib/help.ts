@@ -76,6 +76,7 @@ Usage:
   flow done --merged                    close every merged or cancelled window
   flow done --orphans                   close every state file whose tmux window is gone
   flow done --merged --orphans          compose: close terminal-state OR orphaned pipelines
+  flow reap [--slug <s>] [--yes]        report (and with --yes, clean up) processes left by dead pipelines
   flow completion <bash|zsh>            print a shell completion script to stdout
 
   flow --version                        print the installed flow version
@@ -286,10 +287,46 @@ Best-effort side effect: closing a pipeline whose session is still alive also
 SIGTERMs that session's own chrome-devtools-mcp browser server (via
 'flow-browser-teardown --session-pid <pid>') so its shutdown() handler reaps
 the leaked Chrome subprocess. A failed/missing teardown never blocks the
-close. NOTE: 'flow done --orphans' sweeps stale pipeline STATE FILES, not
-browser processes — for sessionless browser/server processes, see
-'flow-browser-teardown --orphans', a different command that happens to
-share the --orphans flag name.`,
+close. NOTE: 'flow done --orphans' sweeps stale pipeline STATE FILES here;
+for processes, see 'flow reap'.`,
+
+  reap: `flow reap — report (and clean up) processes left by dead pipelines
+
+Usage:
+  flow reap [--slug <s>] [--yes] [--include-strays] [--json]
+
+Report-only by default: without --yes, every row is inspected and
+classified but nothing is signalled. --yes acts on registered process-
+registry rows only — each one verified by pid+pgid+startEpoch identity
+(bin/lib/reap.ts's frozen verifyRow ladder) before any signal, exactly
+like 'flow-browser-teardown --reap'. A row whose recording session is
+alive is NEVER signalled, no matter how stale it looks — the state
+channel is the only channel that can positively establish a session is
+dead; the flow-spawn wrapper's own pid can only veto, never confirm.
+
+--include-strays additionally sweeps sessionless browser/mcp-server
+processes selected by SHAPE HEURISTICS (ppid 1, argv signature, profile
+shape) rather than a recorded registry row — no startEpoch
+re-verification and no session check, materially weaker discipline than
+the registry path. This is a SEPARATE gate from --yes: a bare --yes never
+signals a stray on its own; both --yes and --include-strays are required.
+
+Options:
+  --slug <s>            scope the REGISTRY half of the sweep to one
+                        pipeline slug (default: every registered slug on
+                        the host) — --include-strays stays HOST-WIDE
+                        regardless of --slug; the shape-heuristic stray
+                        sweep has no per-slug identity to scope by
+  --yes                 act on registered rows instead of only reporting
+  --include-strays      also act on shape-heuristic strays (requires --yes
+                        to actually signal anything; report-only alone;
+                        always host-wide, never scoped by --slug)
+  --json                emit machine-readable output ({registry, heuristic})
+
+Never passes --record and never writes to ~/.flow/state/<slug>.json — a
+host-wide sweep touches OTHER pipelines' slugs, and recording into a
+sibling's state file would corrupt that pipeline's own
+'flow-gate-summary --cleanup' CLEANUP row.`,
 
   install: `flow install — install skills, agents, helpers globally
 

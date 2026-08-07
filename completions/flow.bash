@@ -36,7 +36,7 @@ _flow() {
         cword=$COMP_CWORD
     fi
 
-    local verbs="install feature epic config ls attach a done completion version help --version -v --help -h"
+    local verbs="install feature epic config ls attach a done reap completion version help --version -v --help -h"
 
     # Find the verb (first non-flag token after `flow`).
     local verb="" i
@@ -239,6 +239,21 @@ _flow() {
                 # shellcheck disable=SC2207
                 COMPREPLY=( $(compgen -W "$(_flow_slugs)" -- "$cur") )
             fi
+            ;;
+        reap)
+            # Unlike `done`, `reap` takes no bare positional slug — only
+            # `--slug <value>` — so slug completion is offered ONLY as
+            # --slug's argument, never as a bare word (a bare word here is a
+            # usage error per parseReapArgs).
+            case "$prev" in
+                --slug)
+                    # shellcheck disable=SC2207
+                    COMPREPLY=( $(compgen -W "$(_flow_slugs)" -- "$cur") )
+                    return
+                    ;;
+            esac
+            # shellcheck disable=SC2207
+            COMPREPLY=( $(compgen -W "--slug --yes --include-strays --json" -- "$cur") )
             ;;
         completion)
             # shellcheck disable=SC2207

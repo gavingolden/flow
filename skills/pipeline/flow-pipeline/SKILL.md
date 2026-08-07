@@ -2477,12 +2477,12 @@ for what the registry missed. `--record` writes the verdict to
 call in the same session degrades exactly as
 `flow-ui-validate --mcp-absent`.
 
-**Layer 3 — the orphan sweep as the crash-path net, never the
-primary.** `flow-browser-teardown --orphans` sweeps sessionless
-browser/server processes left by a session that crashed before
-reaching Layer 2. Ad-hoc housekeeping only (`docs/configuration.md`),
-never wired into a runbook step — the last resort for what Layer 2
-cannot cover.
+**Layer 3 — `flow reap`, the crash-path net, never the
+primary.** `flow reap [--slug <s>] [--yes]` covers both registered
+rows left by a session that crashed before reaching Layer 2 and
+shape-heuristic strays (`--include-strays`) — report-only by
+default, `--yes` required to act. Ad-hoc housekeeping only
+(`docs/configuration.md`), never wired into a runbook step.
 
 **Why Layer 2 is ancestry-scoped, not page-enumeration.** A **page-enumeration** sweep (`list_pages`-and-close) was evaluated and **deliberately not built**: parallel pipelines may share one un-isolated MCP server, so it cannot reliably tell this pipeline's page from a sibling's or the user's own Chrome, and would risk the exact harm it set out to prevent. **Process ancestry** does not share that failure mode — a sibling's server is a different session PID, and the user's own Chrome is never a descendant of this session's `claude` process. The operator-side `--isolated` MCP registration is complementary, not sufficient: its temp profile is cleaned up only *after* the browser closes, so it is gated on the very close `close_page` never performs. The same standing rule binds every agent in this repo — `AGENTS.md` `## Don'ts` "Don't leave spawned resources running".
 

@@ -74,6 +74,17 @@ const turnTrackingMock = vi.hoisted(() => ({
 }));
 vi.mock("./stop-turn-tracking", () => turnTrackingMock);
 
+// done.ts's default registryReap seam calls the real `compact()`, which does
+// real readFileSync/writeFileSync/renameSync against the REAL
+// ~/.flow/state/procs/<slug>.jsonl. This file's node:fs mock (above) is a
+// PASS-THROUGH — only readSync is replaced — so without this mock the
+// default-seam argv assertion below would touch the real filesystem.
+const procRegistryMock = vi.hoisted(() => ({
+  compact: vi.fn(() => ({ kept: 0, dropped: 0 })),
+  readRows: vi.fn((_slug: string) => ({ rows: [] as unknown[], malformed: 0 })),
+}));
+vi.mock("./proc-registry", () => procRegistryMock);
+
 // done.ts's orphan predicate now consults livenessOf. Default mock mirrors
 // the real semantics closely enough for these tests: a fixture carrying
 // pid+procStartedAt resolves "dead" (isOrphan treats dead/stale
@@ -92,7 +103,7 @@ const livenessMock = vi.hoisted(() => ({
 }));
 vi.mock("./liveness", () => livenessMock);
 
-import { runDone, runDoneCli } from "./done";
+import { runDone, runDoneCli, REAP_TIMEOUT_MS } from "./done";
 
 const state = (overrides: {
   slug: string;
@@ -128,6 +139,7 @@ beforeEach(() => {
   );
   stateMock.listStates.mockReturnValue([]);
   stateMock.readState.mockReturnValue(null);
+  procRegistryMock.readRows.mockReturnValue({ rows: [], malformed: 0 });
   livenessMock.livenessOf.mockImplementation(
     (s: { pid?: number; procStartedAt?: number }) =>
       s.pid !== undefined && s.procStartedAt !== undefined ? "dead" : "unknown",
@@ -875,9 +887,14 @@ describe("browserTeardown seam", () => {
     expect(stateMock.deleteState).toHaveBeenCalledWith("windowed-throw");
   });
 
-  it("a state row with no recorded pid (the runDoneMulti window-only shape) results in no teardown subprocess call", () => {
+  it("a state row with no recorded pid (the runDoneMulti window-only shape) results in no browserTeardown subprocess call", () => {
     // No slug has a state file, but their windows exist — runDoneMulti
-    // synthesizes a pid-less row for each.
+    // synthesizes a pid-less row for each. `runDoneCli` has no injectable
+    // registryReap seam (its CLI surface is unchanged), so the default
+    // registryReap seam DOES shell out to flow-browser-teardown --reap for
+    // each slug here — isolate the assertion to the --session-pid
+    // (browserTeardown-specific) argv shape rather than "no spawnSync call
+    // at all".
     tmuxMock.windowExists.mockReturnValue(true);
     stateMock.readState.mockReturnValue(null);
     readSyncMock.mockImplementation((_fd, buf) => {
@@ -887,7 +904,10 @@ describe("browserTeardown seam", () => {
     });
     const code = runDoneCli(["win-only-a", "win-only-b"]);
     expect(code).toBe(0);
-    expect(spawnSyncMock).not.toHaveBeenCalled();
+    const sessionPidCalls = spawnSyncMock.mock.calls.filter((c) =>
+      (c[1] as string[]).includes("--session-pid"),
+    );
+    expect(sessionPidCalls).toHaveLength(0);
   });
 
   it("the sweep path fires browserTeardown once per swept slug", () => {
@@ -916,7 +936,11 @@ describe("defaultBrowserTeardown (real path — no browserTeardown seam injected
     stateMock.readState.mockReturnValue(
       state({ slug: "no-pid", phase: "implementing", pid: undefined }),
     );
-    const code = runDone("no-pid", { yes: true });
+    // registryReap is stubbed (not asserted) purely to isolate this test's
+    // spawnSync assertion to the browserTeardown call — the default
+    // registryReap seam also shells out to flow-browser-teardown and is
+    // covered by the "registryReap seam" describe block below.
+    const code = runDone("no-pid", { yes: true, registryReap: vi.fn() });
     expect(code).toBe(0);
     expect(spawnSyncMock).not.toHaveBeenCalled();
   });
@@ -932,7 +956,7 @@ describe("defaultBrowserTeardown (real path — no browserTeardown seam injected
       }),
     );
     livenessMock.livenessOf.mockReturnValue("dead");
-    const code = runDone("recycled-pid", { yes: true });
+    const code = runDone("recycled-pid", { yes: true, registryReap: vi.fn() });
     expect(code).toBe(0);
     expect(spawnSyncMock).not.toHaveBeenCalled();
   });
@@ -948,7 +972,7 @@ describe("defaultBrowserTeardown (real path — no browserTeardown seam injected
       }),
     );
     livenessMock.livenessOf.mockReturnValue("alive");
-    const code = runDone("alive-pid", { yes: true });
+    const code = runDone("alive-pid", { yes: true, registryReap: vi.fn() });
     expect(code).toBe(0);
     expect(spawnSyncMock).toHaveBeenCalledTimes(1);
     expect(spawnSyncMock).toHaveBeenCalledWith(
@@ -956,5 +980,173 @@ describe("defaultBrowserTeardown (real path — no browserTeardown seam injected
       ["--session-pid", "9999", "--json"],
       { stdio: "ignore" },
     );
+  });
+});
+
+describe("registryReap seam", () => {
+  it("runDone fires registryReap AFTER killWindow and BEFORE deleteState on the single-slug path (call order, not mere invocation)", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "windowed-reap", phase: "implementing" }),
+    );
+    const registryReap = vi.fn();
+    const code = runDone("windowed-reap", { yes: true, registryReap });
+    expect(code).toBe(0);
+    expect(registryReap).toHaveBeenCalledTimes(1);
+    expect(registryReap).toHaveBeenCalledWith("windowed-reap");
+    const killOrder = tmuxMock.killWindow.mock.invocationCallOrder[0]!;
+    const reapOrder = registryReap.mock.invocationCallOrder[0]!;
+    const deleteOrder = stateMock.deleteState.mock.invocationCallOrder[0]!;
+    expect(killOrder).toBeLessThan(reapOrder);
+    expect(reapOrder).toBeLessThan(deleteOrder);
+  });
+
+  it("the sweep path fires registryReap once per swept slug, BEFORE that slug's deleteState (call order)", () => {
+    const a = state({ slug: "sweep-reap-a", phase: "merged" });
+    const b = state({ slug: "sweep-reap-b", phase: "merged" });
+    stateMock.listStates.mockReturnValue([a, b]);
+    tmuxMock.listWindows.mockReturnValue([]);
+    const terminate = vi.fn(() => ({ terminated: true }));
+    const registryReap = vi.fn();
+    const code = runDone(undefined, {
+      merged: true,
+      yes: true,
+      terminate,
+      registryReap,
+    });
+    expect(code).toBe(0);
+    expect(registryReap).toHaveBeenCalledTimes(2);
+    expect(registryReap).toHaveBeenCalledWith("sweep-reap-a");
+    expect(registryReap).toHaveBeenCalledWith("sweep-reap-b");
+    const reapOrder = registryReap.mock.invocationCallOrder[0]!;
+    const deleteOrder = stateMock.deleteState.mock.invocationCallOrder[0]!;
+    expect(reapOrder).toBeLessThan(deleteOrder);
+  });
+
+  it("a throwing registryReap seam leaves the exit code and stdout unchanged", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "reap-throw", phase: "implementing" }),
+    );
+    const registryReap = vi.fn(() => {
+      throw new Error("boom");
+    });
+    const code = runDone("reap-throw", { yes: true, registryReap });
+    expect(code).toBe(0);
+    expect(registryReap).toHaveBeenCalledWith("reap-throw");
+    expect(stateMock.deleteState).toHaveBeenCalledWith("reap-throw");
+  });
+
+  it("the default registryReap seam never passes --record, and compacts the registry", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "reap-default", phase: "implementing" }),
+    );
+    const code = runDone("reap-default", { yes: true });
+    expect(code).toBe(0);
+    const reapCall = spawnSyncMock.mock.calls.find(
+      (c) =>
+        c[0] === "flow-browser-teardown" &&
+        (c[1] as string[]).includes("--reap"),
+    );
+    expect(reapCall).toBeDefined();
+    expect(reapCall![1]).toEqual([
+      "--reap",
+      "--slug",
+      "reap-default",
+      "--json",
+    ]);
+    expect(reapCall![1]).not.toContain("--record");
+    expect(reapCall![2]).toEqual(
+      expect.objectContaining({ timeout: REAP_TIMEOUT_MS }),
+    );
+    expect(procRegistryMock.compact).toHaveBeenCalledWith("reap-default");
+  });
+
+  it("a missing flow-browser-teardown binary (spawnSync returns {error}, never throws) surfaces a warning instead of vanishing silently, and still compacts", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "reap-enoent", phase: "implementing" }),
+    );
+    spawnSyncMock.mockReturnValueOnce({
+      error: Object.assign(new Error("spawnSync ENOENT"), { code: "ENOENT" }),
+      status: null,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const code = runDone("reap-enoent", { yes: true });
+    expect(code).toBe(0);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("reap-enoent"));
+    expect(procRegistryMock.compact).toHaveBeenCalledWith("reap-enoent");
+    warn.mockRestore();
+  });
+
+  it("the seam still fires for a slug with registry rows but NO state file and NO window (the relaxed hasRows guard)", () => {
+    tmuxMock.windowExists.mockReturnValue(false);
+    stateMock.readState.mockReturnValue(null);
+    procRegistryMock.readRows.mockReturnValue({
+      rows: [{ pid: 1 }] as unknown[],
+      malformed: 0,
+    });
+    const registryReap = vi.fn();
+    const code = runDone("rows-only", { yes: true, registryReap });
+    expect(code).toBe(0);
+    expect(registryReap).toHaveBeenCalledWith("rows-only");
+    expect(stateMock.deleteState).not.toHaveBeenCalledWith("rows-only");
+  });
+
+  it("a slug reached after the DONE_REAP_BUDGET_MS sweep budget is exhausted skips registryReap for that slug and prints the follow-up note, but still closes it", () => {
+    stateMock.listStates.mockReturnValue([
+      state({ slug: "budget-a", phase: "merged" }),
+      state({ slug: "budget-b", phase: "merged" }),
+    ]);
+    tmuxMock.listWindows.mockReturnValue([]);
+    const registryReap = vi.fn();
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    // First slug's iteration reads `now()` once (before its own reap
+    // check); the deadline itself is seeded from a first `now()` call at
+    // sweep() start. Sequence: seed=0 (deadline=60_000), slug A's check=10
+    // (well under), slug B's check=70_000 (budget exhausted).
+    const sequence = [0, 10, 70_000];
+    let calls = 0;
+    const now = () => {
+      const v = sequence[Math.min(calls, sequence.length - 1)];
+      calls++;
+      return v;
+    };
+    const code = runDone(undefined, {
+      merged: true,
+      yes: true,
+      registryReap,
+      now,
+    });
+    expect(code).toBe(0);
+    expect(registryReap).toHaveBeenCalledTimes(1);
+    expect(registryReap).toHaveBeenCalledWith("budget-a");
+    expect(registryReap).not.toHaveBeenCalledWith("budget-b");
+    expect(
+      log.mock.calls.some(
+        (c) =>
+          typeof c[0] === "string" &&
+          c[0].includes("skipped registry reap") &&
+          c[0].includes("budget-b"),
+      ),
+    ).toBe(true);
+    // Both slugs still close (state deleted) even though one skipped reap.
+    expect(stateMock.deleteState).toHaveBeenCalledWith("budget-a");
+    expect(stateMock.deleteState).toHaveBeenCalledWith("budget-b");
+    log.mockRestore();
+  });
+
+  it("a slug with no window, no state, and no registry rows still hits the pre-existing error guard", () => {
+    tmuxMock.windowExists.mockReturnValue(false);
+    stateMock.readState.mockReturnValue(null);
+    procRegistryMock.readRows.mockReturnValue({ rows: [], malformed: 0 });
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const code = runDone("truly-nothing", { yes: true });
+    expect(code).toBe(1);
+    expect(err).toHaveBeenCalledWith(
+      "flow done: no window or state for 'truly-nothing'.",
+    );
+    err.mockRestore();
   });
 });
