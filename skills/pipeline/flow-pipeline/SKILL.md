@@ -2457,20 +2457,10 @@ every exit path, at the site that opened it:
 
 - **Dev servers / launch subprocesses** — already torn down by the
   UI-smoke and UI-validation passes ("tear the launched server(s) down on completion").
-- **chrome-devtools MCP pages/contexts** — the per-pipeline isolated
-  page each browser pass opens is closed with `close_page` on
-  completion and on every error/early-exit path, scoped to the
-  page/context this pipeline opened. Contract in
-  [references/ui-smoke-pass.md](references/ui-smoke-pass.md)
-  "Teardown" and `/flow-pr-review`'s `references/ui-validation-evidence.md` "Teardown".
-- **Playwright / headless browsers** — any repo headless browser an
-  agent stood up (the Step 8c.iii fallback) exits when its Bash invocation returns.
-- **Background processes** — anything launched `run_in_background` (the
-  `flow-ci-wait` poll loop is the canonical case) reaches a terminal exit or is reaped before the pipeline ends, via `flow-spawn`'s registry (the wrapper process itself is unregistered and lives only for the poll's duration).
-- **Agent-written env/config files** — any env/config file a browser/UI
-  pass created is deleted on completion and on every error/early-exit
-  path (see "Teardown" in
-  [references/ui-smoke-pass.md](references/ui-smoke-pass.md)).
+- **chrome-devtools MCP pages/contexts** — the per-pipeline isolated page each browser pass opens is closed with `close_page` on completion and on every error/early-exit path, scoped to the page/context this pipeline opened. Contract in [references/ui-smoke-pass.md](references/ui-smoke-pass.md) "Teardown" and `/flow-pr-review`'s `references/ui-validation-evidence.md` "Teardown".
+- **Playwright / headless browsers** — any repo headless browser an agent stood up (the Step 8c.iii fallback) exits when its Bash invocation returns.
+- **Background processes** — anything launched `run_in_background` (the `flow-ci-wait` poll loop is the canonical case) reaches a terminal exit or is reaped before the pipeline ends, via `flow-spawn`'s registry (the wrapper process itself is unregistered and lives only for the poll's duration).
+- **Agent-written env/config files** — any env/config file a browser/UI pass created is deleted on completion and on every error/early-exit path (see "Teardown" in [references/ui-smoke-pass.md](references/ui-smoke-pass.md)).
 
 **Layer 2 — the guaranteed registry-first backstop.** `close_page`
 never closes the Chrome process — chrome-devtools-mcp exposes no
@@ -2494,7 +2484,7 @@ reaching Layer 2. Ad-hoc housekeeping only (`docs/configuration.md`),
 never wired into a runbook step — the last resort for what Layer 2
 cannot cover.
 
-This is a contract for page/context cleanup, not for the browser process itself: page-level cleanup happens at the point of use (where the handle is held), while the browser process is reaped by the one named supervisor-level sweep above (`flow-browser-teardown` at terminal state) — the two are different resources with different safe mechanisms, not a contradiction. A **page-enumeration** sweep (`list_pages`-and-close) was evaluated and **deliberately not built**: parallel pipelines may share one un-isolated MCP server, so a `list_pages`-and-close sweep cannot reliably distinguish this pipeline's page from a sibling's or the user's own Chrome, and would risk the exact harm it set out to prevent. A **process-ancestry** sweep does not share that failure mode — ancestry CAN distinguish them, because a sibling pipeline's server is a different session PID and the user's own Chrome is never a descendant of this session's `claude` process — which is why `flow-browser-teardown` is the sanctioned supervisor-level mechanism for the browser process. The operator-side `--isolated` MCP registration is complementary, not sufficient on its own: its temp profile is documented as cleaned up only *after* the browser is closed, so it is gated on the very close that `close_page` alone never performs. The same discipline is a standing rule for every agent in this repo — see `AGENTS.md` `## Don'ts` "Don't leave spawned resources running".
+**Why Layer 2 is ancestry-scoped, not page-enumeration.** A **page-enumeration** sweep (`list_pages`-and-close) was evaluated and **deliberately not built**: parallel pipelines may share one un-isolated MCP server, so it cannot reliably tell this pipeline's page from a sibling's or the user's own Chrome, and would risk the exact harm it set out to prevent. **Process ancestry** does not share that failure mode — a sibling's server is a different session PID, and the user's own Chrome is never a descendant of this session's `claude` process. The operator-side `--isolated` MCP registration is complementary, not sufficient: its temp profile is cleaned up only *after* the browser closes, so it is gated on the very close `close_page` never performs. The same standing rule binds every agent in this repo — `AGENTS.md` `## Don'ts` "Don't leave spawned resources running".
 
 # End conditions
 
