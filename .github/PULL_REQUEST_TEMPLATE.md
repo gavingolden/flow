@@ -26,12 +26,16 @@ implementation terms ("added X to the renderer"). For renames or removals use
 user-observable delta), write the literal word `none` here — never delete the
 heading. -->
 
-<!-- ## System flow changes
+<!-- System flow changes: only on a cross-component PR where behavior moved at
+the system/consumer level. Unlike User-facing changes above, this heading is
+conditional — omit it entirely (leave this whole comment in place, unedited)
+when nothing moved; there is no `none` affirmation for this section. When
+applicable, replace this comment with the live heading and Before → After
+bullets:
 
-Uncomment this heading only on a cross-component PR where behavior moved at the
-system/consumer level. Before → After bullets. Unlike User-facing changes above,
-this heading is conditional — omit it entirely (leave commented out) when nothing
-moved; there is no `none` affirmation for this section. -->
+## System flow changes
+
+<Before → After bullets> -->
 
 ## Test Steps
 
@@ -58,6 +62,11 @@ shell command (`npm run verify`, `test -f <path>`, `grep -q <pattern> <file>`,
 skill can run it and tick the box. Manual prose is the fallback, reserved for
 genuinely manual scenarios (subjective UX, production-only integrations,
 cross-browser rendering, performance under realistic load).
+
+On a fix-shaped PR, include at least one item that names a specific runnable
+regression check (a test file, a fixture, or a reproducible command) that
+failed before the fix and passes after it — not just a generic "tests pass"
+bullet.
 
 When you keep this section, paste the authoring-rubric marker between the
 heading and the first `- [ ]` item so the rubric travels with the body:

@@ -37,7 +37,7 @@ passthrough fallback.
 
 ## Code conventions
 
-- **Runtime:** Bun for everything under `bin/`. `package.json` declares `engines.node >= 20` so `npm install` and `npm run test` (vitest) still work, but no shipped code is Node-specific.
+- **Runtime:** Bun for everything under `bin/`. `package.json`'s `engines.node >= 20` keeps `npm install`/`npm run test` (vitest) working; no shipped code is Node-specific.
 - **Style:** small, single-purpose modules. Target < 200 lines/file.
 - **Comments:** default to none. Add one only when the *why* is non-obvious. Don't restate what the code does.
 - **Errors:** validate at boundaries (CLI args, subprocess output, parsed YAML). Trust internal callers.
@@ -52,16 +52,16 @@ Each bullet is the binding rule; full rationale, precedents, and recipes
 are at [references/output-style.md](references/output-style.md).
 
 - **Verify factual claims before emitting them.** Verify SHAs, paths, line numbers, URLs, PR/issue numbers, versions, env-var names, API surfaces, dates, counts, and CLI flags against their source before citing them — never from memory or a stale `Read`.
-- **Treat user prompts as evidence of intent, not exhaustive specifications.** When a prompt names prescribed methods AND a quantitative target, surface tensions between them in the artifact downstream consumers read, and proceed toward the stated goal rather than the literal reading that fails it (precedent: PR #170).
-- **Consider the middle ground when a request is framed as a binary choice.** Name a middle-ground option and surface the trade-off in the artifact, then proceed with the best guess.
+- **Treat user prompts as evidence of intent, not exhaustive specifications.** When a prompt names both a method and a target, surface the tension in the artifact and proceed toward the goal, not the literal reading that fails it (precedent: PR #170).
+- **Consider the middle ground when a request is framed as a binary choice.** Name a middle-ground option, surface the trade-off in the artifact, then proceed with the best guess.
 - **Understand the ultimate goal behind the request, not just the literal ask.** Infer the goal in one line and proceed for ambiguous/high-blast-radius requests; run expert/trivial/time-critical requests literally.
 - **Fix cheap, in-scope robustness issues now rather than deferring them.** A small, low-risk/mechanical, in-scope fix belongs in the PR, not in `anti_patterns_found` as a deferred trade-off.
 - **Treat every request as production-bound, not a hobby project.** Include cohesive work in-task (don't dodge it via a follow-up issue) and hold a production bar on the surface you touch.
-- **Satisfy local, reversible preconditions before gating a Test Step as manual.** Reserve the manual gate for genuinely external/irreversible/subjective items.
+- **Satisfy local, reversible preconditions before gating a Test Step as manual.** Reserve manual gates for genuinely external/irreversible/subjective items.
 - **Non-trivial UI appearance changes need an authored SUBJECTIVE: approval step the agent can't tick.**
 - **Structure every pause-point message.** A turn ending on user input or a stop uses the labeled slots of `skills/pipeline/flow-pipeline/references/pause-output-contract.md`, never open prose.
 - **Explain problems impact-first in plain language.** Problem reports lead with the user-visible impact, translate internal identifiers into their effect, and present options with each one's consequences, recommendation first.
-- **Emit instructions as scannable numbered steps.** Two or more discrete actions render as `1.`/`2.` imperative steps, one per line, sub-bullets for detail, actor named when parties interleave; a single action stays inline.
+- **Emit instructions as scannable numbered steps.** Two or more discrete actions render as `1.`/`2.` imperative steps, sub-bullets for detail, actor named when interleaved; a single action stays inline.
 
 See the reference for the remaining response-hygiene conventions (no
 preambles, no sycophantic openers, no emoji unless invited, calibrate
@@ -97,9 +97,8 @@ still wins.
 Conventions for any script under `bin/`: `#!/usr/bin/env bun` + `chmod
 +x`; gate `main()` with `import.meta.main` (not an
 `import.meta.url`/`process.argv[1]` comparison, which breaks through a
-symlink); tests live next door and run via `npm run test`. Default new
-scripts to Bun; deviating (e.g. a Node-only dependency) needs user
-confirmation and an inline comment.
+symlink); tests live next door, run via `npm run test`. Default new
+scripts to Bun; deviating needs user confirmation and an inline comment.
 
 ## Supervisor and sub-skills: in-process only
 

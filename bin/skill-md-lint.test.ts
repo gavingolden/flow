@@ -4222,8 +4222,9 @@ describe("pr-review include-by-reference structure", () => {
     // conditional-section mention appended to its existing User-facing-changes
     // bullet. Both were written as long single lines (matching the file's
     // existing `**Proactive verification.**`-style long-line convention) to
-    // cost only 2 net lines total, so 1755 is a minimal ratchet reflecting
-    // that exact cost, not round-number headroom for future growth.
+    // cost only 2 net lines total; 1755 leaves 4 lines of genuine headroom
+    // above the resulting 1751-line file (per this test's own split-length
+    // metric), not round-number headroom for future growth.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
@@ -4994,6 +4995,23 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "the tokens must update both authoring sites, flow-pr-review/SKILL.md " +
         "Step 11, and this lint in the same commit.",
     ).toBe(true);
+    expect(
+      pullRequestTemplateContent.includes("**Failing:**") &&
+        pullRequestTemplateContent.includes("**Root cause:**"),
+      ".github/PULL_REQUEST_TEMPLATE.md must carry both `**Failing:**` and " +
+        "`**Root cause:**` guidance — so a human authoring a fix PR by hand " +
+        "sees the same causal contract as the two skill-authored paths. " +
+        "Dropping either token silently drops the contract from hand-authored " +
+        "fix PRs.",
+    ).toBe(true);
+    expect(
+      agentsContent.includes("**Failing:**") &&
+        agentsContent.includes("**Root cause:**"),
+      "AGENTS.md's `- **PRs:**` bullet must name both `**Failing:**` and " +
+        "`**Root cause:**` — the repo-wide pointer to the causal-explanation " +
+        "contract. Dropping either token silently orphans the pointer from " +
+        "the canonical agent guide.",
+    ).toBe(true);
   });
 
   it("both authoring sites carry the fix-shaped Fix-mechanism lead bullet", () => {
@@ -5017,11 +5035,24 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "sites, flow-pr-review/SKILL.md Step 11, and this lint in the same " +
         "commit.",
     ).toBe(true);
+    expect(
+      pullRequestTemplateContent.includes("**Fix mechanism:**"),
+      ".github/PULL_REQUEST_TEMPLATE.md must carry `**Fix mechanism:**` " +
+        "guidance — so a human authoring a fix PR by hand sees the same " +
+        "lead-bullet rule as the two skill-authored paths. Dropping it " +
+        "silently drops the rule from hand-authored fix PRs.",
+    ).toBe(true);
+    expect(
+      agentsContent.includes("**Fix mechanism:**"),
+      "AGENTS.md's `- **PRs:**` bullet must name `**Fix mechanism:**` — the " +
+        "repo-wide pointer to the causal-explanation contract. Dropping it " +
+        "silently orphans the pointer from the canonical agent guide.",
+    ).toBe(true);
   });
 
   it("all four prose sites name the conditional 'System flow changes' section", () => {
     expect(
-      prDescriptionAuthoringContent.includes("System flow changes"),
+      prDescriptionAuthoringContent.includes("## System flow changes"),
       "flow-new-feature/references/pr-description-authoring.md must carry a " +
         "`## System flow changes` guidance block between `## User-facing " +
         "changes` and `## Test Steps` — the conditional, omit-when-empty " +
@@ -5029,14 +5060,14 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "section from every new-feature-authored PR description.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("System flow changes"),
+      discoveryInstructionsContent.includes("## System flow changes"),
       "product-planning discovery-instructions.md Step 7 must carry the same " +
         "`## System flow changes` guidance block, mirrored from " +
         "pr-description-authoring.md. Dropping it silently drops the section " +
         "from every discovery-seeded PR description.",
     ).toBe(true);
     expect(
-      pullRequestTemplateContent.includes("System flow changes"),
+      pullRequestTemplateContent.includes("## System flow changes"),
       ".github/PULL_REQUEST_TEMPLATE.md must carry a commented-out `## System " +
         "flow changes` block after the `## User-facing changes` comment — so a " +
         "human authoring a PR by hand (no seeding skill involved) sees the same " +
@@ -5044,12 +5075,30 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "silently drops the section from hand-authored PRs.",
     ).toBe(true);
     expect(
-      agentsContent.includes("System flow changes"),
+      agentsContent.includes("`## System flow changes`"),
       "AGENTS.md's `- **PRs:**` bullet must name `## System flow changes` as " +
         "conditional — the repo-wide pointer to the four-prose-site contract. " +
         "Dropping it silently orphans the pointer from the canonical agent " +
         "guide. Renaming the section name must update all four sites and this " +
         "lint in the same commit.",
+    ).toBe(true);
+  });
+
+  it("both authoring sites carry the System-flow-changes omit-when-empty rule", () => {
+    expect(
+      prDescriptionAuthoringContent.includes("OMIT THIS HEADING ENTIRELY"),
+      "flow-new-feature/references/pr-description-authoring.md must instruct " +
+        "OMIT THIS HEADING ENTIRELY for `## System flow changes` — the property " +
+        "that distinguishes it from `## User-facing changes`, which affirms " +
+        "`none` instead of omitting. Dropping this rule risks a vacuous `none` " +
+        "under a heading meant to be absent when nothing moved.",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("OMIT THIS HEADING ENTIRELY"),
+      "product-planning discovery-instructions.md Step 7 must carry the same " +
+        "OMIT THIS HEADING ENTIRELY rule, mirrored from " +
+        "pr-description-authoring.md. Dropping it risks a vacuous `none` under " +
+        "a heading meant to be absent when nothing moved.",
     ).toBe(true);
   });
 

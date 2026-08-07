@@ -39,7 +39,7 @@ test specs:
 feature description to explain what problem this solves and why it matters. 1-3 sentences,
 no solution language. On a fix-shaped PR — the pipeline exists to fix an observed defect, or
 the branch's dominant commit type is `fix:` — lead with `**Failing:**` naming the observed
-failure and `**Root cause:**` naming why it happened, before the 1-3 sentence motivation.>
+failure and `**Root cause:**` naming why it happened, before the 1-3-sentence motivation.>
 
 ## What
 
@@ -79,8 +79,8 @@ affirmation, while a missing heading is ambiguous between "no change" and "autho
 ## System flow changes
 
 <Only on a cross-component change where behavior moved at the system/consumer level —
-derive Before → After bullets from plan.md's `### System flow` subsection when the plan
-carries one. OMIT THIS HEADING ENTIRELY when nothing moved at that level; unlike
+derive Before → After bullets from plan.md's `### System flow` subsection when that
+subsection is non-`none`. OMIT THIS HEADING ENTIRELY when nothing moved at that level; unlike
 User-facing changes above, there is no `none` affirmation for this section — an absent
 heading already means "nothing moved here".>
 
