@@ -35,6 +35,11 @@ const browserTeardownMock = vi.hoisted(() => ({
 }));
 vi.mock("../flow-browser-teardown", () => browserTeardownMock);
 
+const livenessMock = vi.hoisted(() => ({
+  pidStartEpoch: vi.fn((_pid: number) => 1_234_567), // SECONDS, deliberately
+}));
+vi.mock("./liveness", () => livenessMock);
+
 import { runReapCli } from "./reap-cli";
 
 beforeEach(() => {
@@ -193,6 +198,24 @@ describe("runReapCli usage errors (non-zero exit, per the verb convention)", () 
     const code = runReapCli(["--slug"]);
     expect(code).not.toBe(0);
     errWrite.mockRestore();
+  });
+});
+
+describe("toReapCliDeps' startEpochOf bridge", () => {
+  it("forwards pidStartEpoch's raw SECONDS value verbatim — no millisecond scaling", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    runReapCli([]);
+    const calls = procSweepRunMock.runProcSweep.mock.calls as unknown as [
+      { startEpochOf: (pid: number) => number | null },
+    ][];
+    const depsArg = calls[0]?.[0];
+    expect(depsArg).toBeDefined();
+    // If this bridge ever forwarded a millisecond-scaled field instead
+    // (`startEpochMsOf`, per the module doc comment's own warning), this
+    // would return ~1_234_567_000, not the raw seconds value below.
+    expect(depsArg!.startEpochOf(999)).toBe(1_234_567);
+    expect(livenessMock.pidStartEpoch).toHaveBeenCalledWith(999);
+    log.mockRestore();
   });
 });
 

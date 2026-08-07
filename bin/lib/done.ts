@@ -80,6 +80,13 @@ export type DoneOptions = {
    * always swallowed, never fails `flow done`.
    */
   registryReap?: (slug: string) => void;
+  /**
+   * Clock seam for the `sweep()` cumulative registry-reap budget (test
+   * only) — defaults to `Date.now`. Lets a test exercise the
+   * `DONE_REAP_BUDGET_MS` skip branch deterministically instead of
+   * needing a real 60-second wait.
+   */
+  now?: () => number;
 };
 
 /**
@@ -445,10 +452,11 @@ function sweep(
   onProceed?.();
 
   const windows = listWindows();
+  const now = options.now ?? Date.now;
   // Cumulative wall-clock budget for this whole sweep's registry reaps —
   // without it, N stale pipelines ahead of a slow reap could stall the
   // sweep for up to N x REAP_TIMEOUT_MS.
-  const reapDeadline = Date.now() + DONE_REAP_BUDGET_MS;
+  const reapDeadline = now() + DONE_REAP_BUDGET_MS;
   for (const s of states) {
     safeBrowserTeardown(s.slug, options);
     if (findWindowBySlug(windows, s.slug)) {
@@ -459,7 +467,7 @@ function sweep(
       // recycled-PID-safe by construction.
       (options.terminate ?? plainTerminate)(s);
     }
-    if (Date.now() < reapDeadline) {
+    if (now() < reapDeadline) {
       safeRegistryReap(s.slug, options);
     } else {
       // `deleteState` below removes this slug's state file a few lines

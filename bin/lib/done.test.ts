@@ -1094,6 +1094,49 @@ describe("registryReap seam", () => {
     expect(stateMock.deleteState).not.toHaveBeenCalledWith("rows-only");
   });
 
+  it("a slug reached after the DONE_REAP_BUDGET_MS sweep budget is exhausted skips registryReap for that slug and prints the follow-up note, but still closes it", () => {
+    stateMock.listStates.mockReturnValue([
+      state({ slug: "budget-a", phase: "merged" }),
+      state({ slug: "budget-b", phase: "merged" }),
+    ]);
+    tmuxMock.listWindows.mockReturnValue([]);
+    const registryReap = vi.fn();
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    // First slug's iteration reads `now()` once (before its own reap
+    // check); the deadline itself is seeded from a first `now()` call at
+    // sweep() start. Sequence: seed=0 (deadline=60_000), slug A's check=10
+    // (well under), slug B's check=70_000 (budget exhausted).
+    const sequence = [0, 10, 70_000];
+    let calls = 0;
+    const now = () => {
+      const v = sequence[Math.min(calls, sequence.length - 1)];
+      calls++;
+      return v;
+    };
+    const code = runDone(undefined, {
+      merged: true,
+      yes: true,
+      registryReap,
+      now,
+    });
+    expect(code).toBe(0);
+    expect(registryReap).toHaveBeenCalledTimes(1);
+    expect(registryReap).toHaveBeenCalledWith("budget-a");
+    expect(registryReap).not.toHaveBeenCalledWith("budget-b");
+    expect(
+      log.mock.calls.some(
+        (c) =>
+          typeof c[0] === "string" &&
+          c[0].includes("skipped registry reap") &&
+          c[0].includes("budget-b"),
+      ),
+    ).toBe(true);
+    // Both slugs still close (state deleted) even though one skipped reap.
+    expect(stateMock.deleteState).toHaveBeenCalledWith("budget-a");
+    expect(stateMock.deleteState).toHaveBeenCalledWith("budget-b");
+    log.mockRestore();
+  });
+
   it("a slug with no window, no state, and no registry rows still hits the pre-existing error guard", () => {
     tmuxMock.windowExists.mockReturnValue(false);
     stateMock.readState.mockReturnValue(null);
