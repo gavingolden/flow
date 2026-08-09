@@ -300,6 +300,33 @@ describe("run — conformant output", () => {
     expect(run(BASE_ARGV, deps)).toBe(0);
     expect(envelope(deps)).toEqual({ ran: true, findingsPath: OUT });
   });
+
+  // Regression guard for the parseStructured swap: a fenced JSON block
+  // followed by trailing commentary that itself contains a `}` is
+  // recoverable ONLY by parseStructured's fenced-block-first extraction
+  // strategy. The former naive first-`{`-to-last-`}` slice would span from
+  // the fenced block's opening brace all the way to the trailing brace in
+  // the commentary, produce an invalid (over-wide) JSON.parse candidate,
+  // and fall through to `gemini-intent-guess-output-unparseable` — this
+  // test would have been RED against that old behaviour.
+  it("recovers a fenced payload followed by trailing commentary containing a brace", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(
+          rawPath,
+          "```json\n" +
+            JSON.stringify(VALID_GUESS) +
+            "\n```\nSee also {issue tracking this}.",
+        );
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({ ran: true, findingsPath: OUT });
+    expect(JSON.parse(deps.files.get(OUT)!)).toEqual(VALID_GUESS);
+  });
 });
 
 describe("run — malformed payloads drop the guess, never throw, leave no valid file", () => {

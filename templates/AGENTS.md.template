@@ -375,7 +375,10 @@ opts a tool-using run into non-interactive auto-approval, `--add-dir` scopes
 extra workspace dirs, and `--task` names the artifact
 (`.flow-tmp/delegate-<task>.md`). See the `bin/flow-delegate.ts` header docstring
 for the full per-flag contract. It is a standalone leaf helper — flow does not
-auto-invoke it from any pipeline step.
+auto-invoke it from any pipeline step. Every delegated prompt is unconditionally
+prefixed with a read-only-first operating-constraints preamble (no writes, no
+mutating git, no installs/builds/tests) before it reaches `agy`, regardless of
+what the caller's prompt text says.
 
 **Optional `research.discovery` opt-in (planning research pre-check).** Setting
 `{ "research": { "discovery": true } }` in `~/.flow/config.json` lets a pipeline

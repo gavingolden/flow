@@ -7,11 +7,14 @@
  * wins: (1) the whole trimmed text, (2) a fenced ```json / ``` block, (3) the
  * first balanced `{...}` span in the text (string-literal aware, so a brace
  * inside a JSON string value never desyncs the depth count). This is a more
- * robust sibling of `extractJsonObject` in `bin/flow-gemini-lens.ts` /
- * `bin/flow-gemini-intent-guess.ts`, which takes a naive first-`{`-to-last-`}`
- * slice; those two call sites are unchanged by this module (see their own
- * file headers), so the naive/balanced duplication is a known, deliberately
- * unconsolidated gap — not a regression introduced here.
+ * robust sibling of the naive first-`{`-to-last-`}` `extractJsonObject` still
+ * used in `bin/flow-gemini-lens.ts`. `bin/flow-gemini-intent-guess.ts` has
+ * migrated to `parseStructured` (this module) instead of its former naive
+ * decoder. `bin/flow-gemini-lens.ts` deliberately retains its own naive copy:
+ * its `findings[]` output quality is a recall concern, not a strict-parse
+ * concern, so swapping its decoder risks trading a loud rare parse-skip for a
+ * silent constant recall loss — a known, deliberately unconsolidated gap, not
+ * an oversight.
  *
  * Validation follows the `ValidationResult` prose conventions of
  * `bin/lib/design-spec-schema.ts`: a single `reason` string naming the

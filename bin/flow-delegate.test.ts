@@ -9,6 +9,7 @@ import {
   looksUnauthenticated,
   parseArgs,
   run,
+  withSafetyPreamble,
   type Args,
   type Deps,
 } from "./flow-delegate";
@@ -138,6 +139,14 @@ describe("parseArgs", () => {
     ).toEqual({
       error: "--json-schema and --structured-fallback are mutually exclusive",
     });
+  });
+});
+
+describe("withSafetyPreamble", () => {
+  it("joins the preamble and the caller prompt with exactly '\\n\\n---\\n\\n'", () => {
+    expect(withSafetyPreamble("do research")).toBe(
+      `${AGY_SAFETY_PREAMBLE}\n\n---\n\ndo research`,
+    );
   });
 });
 
@@ -673,53 +682,76 @@ describe("flow-delegate (subprocess, agy absent from PATH)", () => {
 // `agy` spawn site in bin/ to prefix. Modeled on the same
 // readdirSync -> filter -> readFileSync -> content-predicate mechanism as
 // bin/flow-pre-commit.test.ts's "guard: shipped bin/lib executable modules
-// are tracked 100755" — deliberately NOT a `grep -r` shell-out: BSD/GNU grep
-// classifies bin/flow-plan-review.ts and bin/flow-candidate-issues.test.ts
-// as binary (both contain a deliberate raw NUL byte, see
-// bin/flow-plan-review.ts's computeDecisionHash) and silently skips them,
-// which would make a grep-based guard permanently blind to a 754-line file
-// that already spawns flow-delegate. readFileSync(path, "utf8") decodes
-// both files correctly (the NUL is valid UTF-8).
+// are tracked 100755" — deliberately NOT a `grep -r` shell-out. grep
+// behaviour on NUL-bearing files (bin/flow-plan-review.ts and
+// bin/flow-candidate-issues.test.ts both contain a deliberate raw NUL byte,
+// see bin/flow-plan-review.ts's computeDecisionHash) is
+// environment-dependent: a skip-binary grep (e.g. `ugrep`, or any grep
+// invoked with `-I`) drops matches in those files silently, while BSD
+// `grep -l` (verified: /usr/bin/grep, BSD grep 2.6.0-FreeBSD) DOES report
+// them — binary classification there only suppresses the printed matching
+// line, not the file-level match — and GNU grep can differ again. An
+// invariant guard committed to CI must not depend on which grep happens to
+// be on PATH. readFileSync(path, "utf8") decodes both files correctly (the
+// NUL is valid UTF-8) regardless of environment.
 describe("guard: exactly one prompt-bearing agy spawn site in bin/", () => {
   const binDir = __dirname;
-  // Both bin/ and bin/lib/ are scanned. bin/lib/ carries no agy spawn today,
-  // but it is where a future one would plausibly land — the deferred
-  // agy-guardrails extraction is filed to create bin/lib/agy-guardrails.ts —
-  // and a non-recursive scan would let exactly that evade the guard.
+  // bin/, bin/lib/, and bin/flow-pr-static-analysis/ are scanned — the real
+  // shipped source dirs under bin/. bin/fixtures/ is deliberately EXCLUDED:
+  // bin/fixtures/model-bench/*/src/ holds deliberately-fake .ts fixture
+  // source that must never count toward this invariant.
   // .test.ts files are EXCLUDED from the scan — this file itself contains
   // the matched literal inside a string below, which would otherwise make
   // the count 2 and this guard permanently red.
-  const sourceFiles = [binDir, path.join(binDir, "lib")].flatMap((dir) =>
+  const scanDirs = [
+    binDir,
+    path.join(binDir, "lib"),
+    path.join(binDir, "flow-pr-static-analysis"),
+  ];
+  const sourceFiles = scanDirs.flatMap((dir) =>
     readdirSync(dir)
       .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
       .map((name) => path.relative(binDir, path.join(dir, name))),
   );
-  // The literal argv spread form, not a bare `Bun.spawnSync(["agy"` — the
-  // looser form matches 2 sites (this one plus flow-model-bench.ts's
-  // promptless `Bun.spawnSync(["agy", "--version"]` version probe) and a
-  // bare `"agy"` matches 3 (also bin/flow-delegate.ts's own
-  // `Bun.spawnSync(["which", "agy"]` PATH check). Only the `...argv` spread
-  // form is a prompt-bearing spawn.
-  const AGY_SPAWN_LITERAL = 'Bun.spawnSync(["agy", ...argv]';
+  // A regex, not an exact-string literal: it must match both the sync
+  // `Bun.spawnSync(` and the async `Bun.spawn(` forms (bin/flow-delegate-fanout.ts:465
+  // already uses the async form in this same delegation subsystem, so the
+  // async spelling is not hypothetical), any spread identifier
+  // (`...argv`, `...agyArgv`, ...), and tolerate prettier-style
+  // whitespace/newline reflow inside the call — while still EXCLUDING
+  // flow-model-bench.ts's promptless `Bun.spawnSync(["agy", "--version"]`
+  // version probe (a string literal, not a spread, in second position) and
+  // flow-delegate.ts's own `Bun.spawnSync(["which", "agy"]` PATH check
+  // (first arg is "which", not "agy").
+  const AGY_SPAWN_PATTERN =
+    /Bun\.spawn(?:Sync)?\(\s*\[\s*"agy"\s*,\s*\.\.\.\w+/;
   const promptBearingAgySpawnSites = sourceFiles.filter((name) =>
-    readFileSync(path.join(binDir, name), "utf8").includes(AGY_SPAWN_LITERAL),
+    AGY_SPAWN_PATTERN.test(readFileSync(path.join(binDir, name), "utf8")),
   );
 
   it("discovers a plausible non-zero number of bin/ source files to scan", () => {
     // Sanity check that the scan actually found files; a regex/path bug
     // that silently matched nothing would make the guard below vacuous.
-    // Asserted per-directory, not just on the total: a bug that dropped
-    // bin/lib/ entirely would still clear a bare total-count threshold,
-    // silently restoring the blind spot this scan exists to close.
+    // Asserted per-directory, not just on the total. bin/flow-pr-static-analysis/
+    // legitimately has only 4 source files (cli.ts, lenses.ts, parsers.ts,
+    // types.ts), so it gets its own low-but-nonzero threshold rather than
+    // the blanket >20 the other two dirs can clear — a blanket >20 would be
+    // wrong for it, but asserting nothing at all would let a scan that
+    // silently matches zero files there go unnoticed.
     expect(
       sourceFiles.filter((f) => !f.includes(path.sep)).length,
     ).toBeGreaterThan(20);
     expect(
       sourceFiles.filter((f) => f.startsWith(`lib${path.sep}`)).length,
     ).toBeGreaterThan(20);
+    expect(
+      sourceFiles.filter((f) =>
+        f.startsWith(`flow-pr-static-analysis${path.sep}`),
+      ).length,
+    ).toBeGreaterThanOrEqual(4);
   });
 
-  it("matches the prompt-bearing agy spawn literal exactly once, in flow-delegate.ts", () => {
+  it("matches the prompt-bearing agy spawn pattern exactly once, in flow-delegate.ts", () => {
     expect(promptBearingAgySpawnSites).toEqual(["flow-delegate.ts"]);
   });
 });
