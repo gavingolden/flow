@@ -389,9 +389,16 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
           "— a repo-root default leaves an untracked file that parallel " +
           "agents in the same checkout read as a dirty tree.",
       ).toBe(true);
+      // Anchor on the DEFAULT-CLAIM shape, not a file-wide phrase ban —
+      // "repo root" appears legitimately in correct prose (e.g. "never
+      // write to the repo root"), so a bare-absence check would forbid
+      // that alongside the wrong-default claim it's meant to catch. See
+      // the "forbids (not merely names)" and "forbids gh api" anchors
+      // above for the same reasoning applied to a different phrase.
       expect(
-        /repo root/i.test(content),
-        `${label} must not describe the repo root as the default output ` +
+        /default[^.]*repo root/i.test(content) ||
+          /repo root[^.]*default/i.test(content),
+        `${label} must not claim the repo root is the default output ` +
           "location — a repo-root default leaves an untracked file that " +
           "parallel agents in the same checkout read as a dirty tree.",
       ).toBe(false);
@@ -399,14 +406,31 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
   });
 
   it("SKILL.md pins the write-time ignore-ensure step", () => {
+    // Whitespace-normalize so a phrase spanning a markdown line-wrap still
+    // matches, matching the "forbids (not merely names)" anchors above.
+    const normalizedSkillContent = skillContent.replace(/\s+/g, " ");
+    // Anchor on the NEGATION shape, not bare presence — `includes("git
+    // check-ignore")` alone stays green if the `!` is dropped (polarity
+    // inversion: would append the exclude entry only when .flow-tmp/ is
+    // ALREADY ignored, the opposite of the intended guard).
     expect(
-      skillContent.includes("git check-ignore"),
-      "SKILL.md must check `.flow-tmp/` is ignored before the first write.",
+      /!\s*git check-ignore -q \.flow-tmp\//.test(normalizedSkillContent),
+      "SKILL.md must check `! git check-ignore -q .flow-tmp/` (negated) " +
+        "before the first write — a dropped `!` would invert the guard.",
     ).toBe(true);
+    // Anchor on BOTH the git-common-dir resolution AND the /info/exclude
+    // redirect target — bare `includes("git rev-parse --git-common-dir")`
+    // stays green even if the redirect is retargeted to `>> .gitignore`,
+    // since that string still appears elsewhere in the file.
     expect(
-      skillContent.includes("git rev-parse --git-common-dir"),
-      "SKILL.md must resolve the exclude file via the shared common dir, " +
-        "matching bin/lib/worktree-marker.ts's ensureFlowExcludes.",
+      /exclude="\$\(git rev-parse --git-common-dir\)\/info\/exclude"/.test(
+        normalizedSkillContent,
+      ),
+      "SKILL.md must resolve the exclude file via " +
+        "`$(git rev-parse --git-common-dir)/info/exclude`, matching " +
+        "bin/lib/worktree-marker.ts's ensureFlowExcludes — pinning the " +
+        "/info/exclude redirect target, not just the common-dir call, so a " +
+        "retarget to a tracked .gitignore still fails this check.",
     ).toBe(true);
     expect(
       skillContent.includes("never the user's tracked"),

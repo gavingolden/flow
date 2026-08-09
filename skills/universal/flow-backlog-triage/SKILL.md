@@ -139,7 +139,12 @@ pipeline worktree, so a plain consumer checkout may have no entry yet.
 ```sh
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
    ! git check-ignore -q .flow-tmp/; then
-  printf '.flow-tmp/\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
+  exclude="$(git rev-parse --git-common-dir)/info/exclude"
+  mkdir -p "$(dirname "$exclude")"
+  if [ -s "$exclude" ] && [ -n "$(tail -c1 "$exclude")" ]; then
+    printf '\n' >> "$exclude"
+  fi
+  printf '.flow-tmp/\n' >> "$exclude"
 fi
 ```
 
@@ -168,9 +173,11 @@ document is wanted.
   [references/output-template.md](references/output-template.md).
 - The output document's `## Self-check` section is filled in, not left as
   a template.
-- The triage document is written under `.flow-tmp/triage/` (or the
-  explicit path argument) and `git status` reports no new untracked
-  entry after the run.
+- The triage document is written under `.flow-tmp/triage/`, or under the
+  explicit path argument when one was given. On the default path,
+  `git status` reports no new untracked entry after the run; on an
+  explicit path, the new file is expected to show up as untracked (it
+  is meant to be committed).
 
 # Constraints
 
