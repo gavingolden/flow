@@ -438,6 +438,74 @@ describe(checkInstallDrift, () => {
     expect(result).toEqual({ status: "clean" });
   });
 
+  it("reports one 'unexpected' entry for a foreign live bin/ symlink (resolves outside flowSource/installRoot)", () => {
+    const dir = makeScratch();
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    const foreignTarget = path.join(dir, "foreign-helper.ts");
+    fs.writeFileSync(foreignTarget, "#!/bin/sh\n");
+    fs.symlinkSync(foreignTarget, path.join(root, "bin", "flow-foreign"));
+
+    // `run()`'s default flowSource/installRoot ("/flow-source") is a
+    // nonexistent path, so this scratch-dir live symlink is automatically
+    // foreign — no override needed for the positive case.
+    const result = run({
+      readManifest: () => manifest([]),
+      discover: () => [],
+      scanPluginRoots: () => [root],
+    });
+    expect(result).toEqual({
+      status: "drifted",
+      entries: [
+        {
+          kind: "unexpected",
+          displayName: "flow-module-copilot",
+          target: root,
+          detail: path.join("bin", "flow-foreign"),
+        },
+      ],
+    });
+  });
+
+  it("reports clean for the SAME root when the bin/ symlink resolves inside an injected flowSource", () => {
+    const dir = makeScratch();
+    const flowSourceDir = path.join(dir, "flow-src");
+    fs.mkdirSync(flowSourceDir, { recursive: true });
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    const ownedTarget = path.join(flowSourceDir, "helper.ts");
+    fs.writeFileSync(ownedTarget, "export {};\n");
+    fs.symlinkSync(ownedTarget, path.join(root, "bin", "flow-owned"));
+
+    const result = run({
+      flowSource: flowSourceDir,
+      installRoot: flowSourceDir,
+      readManifest: () => manifest([]),
+      discover: () => [],
+      scanPluginRoots: () => [root],
+    });
+    expect(result).toEqual({ status: "clean" });
+  });
+
+  it("formatDriftNotice names the foreign live bin/ symlink entry as '<displayName> → bin/<name>'", () => {
+    const dir = makeScratch();
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    const foreignTarget = path.join(dir, "foreign-helper.ts");
+    fs.writeFileSync(foreignTarget, "#!/bin/sh\n");
+    fs.symlinkSync(foreignTarget, path.join(root, "bin", "flow-foreign"));
+
+    const result = run({
+      readManifest: () => manifest([]),
+      discover: () => [],
+      scanPluginRoots: () => [root],
+    });
+    const notice = formatDriftNotice(result);
+    expect(notice).toContain(
+      `flow-module-copilot → ${path.join("bin", "flow-foreign")}`,
+    );
+  });
+
   it("scanPluginRoots returning [] (a deselected module's absent root) reports no entry of any kind", () => {
     const dir = makeScratch();
     const source = path.join(dir, "source.txt");
@@ -535,6 +603,144 @@ describe(checkInstallDrift, () => {
         "missing",
       ]);
     }
+  });
+
+  describe("default installRoot derivation (worktree-vantage false-positive fix)", () => {
+    it("does NOT collapse installRoot to flowSource on a worktree vantage with no configured source — a flow-owned bin/ symlink resolving to canonical is not reported", () => {
+      const dir = makeScratch();
+      const worktreeSource = path.join(dir, "worktree");
+      const canonicalRoot = path.join(dir, "canonical");
+      fs.mkdirSync(worktreeSource, { recursive: true });
+      fs.mkdirSync(canonicalRoot, { recursive: true });
+
+      const root = path.join(dir, "flow-module-copilot");
+      fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+      const canonicalHelper = path.join(canonicalRoot, "helper.ts");
+      fs.writeFileSync(canonicalHelper, "export {};\n");
+      fs.symlinkSync(canonicalHelper, path.join(root, "bin", "flow-helper"));
+
+      // No `installRoot` passed — exercises the DEFAULT derivation path.
+      const result = checkInstallDrift({
+        flowSource: worktreeSource,
+        manifestPath: "/unused",
+        readManifest: () => manifest([]),
+        discover: () => [],
+        scanPluginRoots: () => [root],
+        inspectRoot: () => ({ isWorktree: true, canonicalRoot }),
+        configuredSource: () => null,
+      });
+
+      expect(result).toEqual({ status: "clean" });
+    });
+
+    it("STILL reports a bin/ symlink resolving outside both worktree and canonical as foreign, proving the fix narrows the false positive without blinding real drift", () => {
+      const dir = makeScratch();
+      const worktreeSource = path.join(dir, "worktree");
+      const canonicalRoot = path.join(dir, "canonical");
+      const outside = path.join(dir, "not-flow");
+      fs.mkdirSync(worktreeSource, { recursive: true });
+      fs.mkdirSync(canonicalRoot, { recursive: true });
+      fs.mkdirSync(outside, { recursive: true });
+
+      const root = path.join(dir, "flow-module-copilot");
+      fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+      const foreignHelper = path.join(outside, "foreign.ts");
+      fs.writeFileSync(foreignHelper, "#!/bin/sh\n");
+      fs.symlinkSync(foreignHelper, path.join(root, "bin", "flow-foreign"));
+
+      const result = checkInstallDrift({
+        flowSource: worktreeSource,
+        manifestPath: "/unused",
+        readManifest: () => manifest([]),
+        discover: () => [],
+        scanPluginRoots: () => [root],
+        inspectRoot: () => ({ isWorktree: true, canonicalRoot }),
+        configuredSource: () => null,
+      });
+
+      expect(result).toEqual({
+        status: "drifted",
+        entries: [
+          {
+            kind: "unexpected",
+            displayName: "flow-module-copilot",
+            target: root,
+            detail: path.join("bin", "flow-foreign"),
+          },
+        ],
+      });
+    });
+
+    it("does NOT repoint to canonical when config.source is explicitly configured, mirroring setup.ts's own guard", () => {
+      const dir = makeScratch();
+      const worktreeSource = path.join(dir, "worktree");
+      const canonicalRoot = path.join(dir, "canonical");
+      fs.mkdirSync(worktreeSource, { recursive: true });
+      fs.mkdirSync(canonicalRoot, { recursive: true });
+
+      const root = path.join(dir, "flow-module-copilot");
+      fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+      const canonicalHelper = path.join(canonicalRoot, "helper.ts");
+      fs.writeFileSync(canonicalHelper, "export {};\n");
+      fs.symlinkSync(canonicalHelper, path.join(root, "bin", "flow-helper"));
+
+      const result = checkInstallDrift({
+        flowSource: worktreeSource,
+        manifestPath: "/unused",
+        readManifest: () => manifest([]),
+        discover: () => [],
+        scanPluginRoots: () => [root],
+        inspectRoot: () => ({ isWorktree: true, canonicalRoot }),
+        // A configured `source` means installRoot stays at flowSource (the
+        // worktree), same as `setup.ts:326-337`'s guard — so this symlink,
+        // which resolves to canonical rather than the worktree, IS reported.
+        configuredSource: () => worktreeSource,
+      });
+
+      expect(result).toEqual({
+        status: "drifted",
+        entries: [
+          {
+            kind: "unexpected",
+            displayName: "flow-module-copilot",
+            target: root,
+            detail: path.join("bin", "flow-helper"),
+          },
+        ],
+      });
+    });
+
+    it("an explicit opts.installRoot always wins over the derivation, unchanged from before this fix", () => {
+      const dir = makeScratch();
+      const worktreeSource = path.join(dir, "worktree");
+      const explicitRoot = path.join(dir, "explicit-root");
+      fs.mkdirSync(worktreeSource, { recursive: true });
+      fs.mkdirSync(explicitRoot, { recursive: true });
+
+      const root = path.join(dir, "flow-module-copilot");
+      fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+      const explicitHelper = path.join(explicitRoot, "helper.ts");
+      fs.writeFileSync(explicitHelper, "export {};\n");
+      fs.symlinkSync(explicitHelper, path.join(root, "bin", "flow-helper"));
+
+      const inspectRoot = () => ({
+        isWorktree: true,
+        canonicalRoot: path.join(dir, "never-used-canonical"),
+      });
+
+      const result = checkInstallDrift({
+        flowSource: worktreeSource,
+        installRoot: explicitRoot,
+        manifestPath: "/unused",
+        readManifest: () => manifest([]),
+        discover: () => [],
+        scanPluginRoots: () => [root],
+        inspectRoot,
+        configuredSource: () => null,
+      });
+
+      expect(result).toEqual({ status: "clean" });
+    });
   });
 });
 

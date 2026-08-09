@@ -22,10 +22,22 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isFlowOwnedSymlink, ownershipRoots } from "./flow-owned-symlink";
 
 export type PluginRootEntryIssue = {
   relPath: string;
-  reason: "unexpected-child" | "unmanaged-entry" | "dangling-symlink";
+  reason:
+    | "unexpected-child"
+    | "unmanaged-entry"
+    | "dangling-symlink"
+    | "foreign-live-bin-symlink";
+};
+
+/** The ownership roots a live `bin/` symlink is checked against — the same
+ * flow-source / install-root pair `setup.ts`'s sweep already resolves. */
+export type PluginRootOwnership = {
+  flowSource: string;
+  installRoot: string;
 };
 
 /** Ignored at every level — an OS-written artifact, never flow's and never
@@ -103,18 +115,23 @@ function expectedRootChildren(root: string): Set<string> {
  * DOES pick this one up (a dangling link is still a symlink), so
  * `flow install --upgrade` genuinely repairs it: the prune loop unlinks it
  * if it's no longer in the desired set, and `ensureSymlink`'s relink branch
- * repairs it in place when the name is still desired. `null` for a live
- * symlink — INCLUDING a live directory symlink (a skill's target is a
- * directory, unlike a `bin/` entry's file), which is just as healthy and
- * deliberately not reported at all: `fs.statSync` follows the link and
- * succeeds regardless of the resolved node's type, so no dir/file branch is
- * needed. The caller routes `"unmanaged"` through the hand-removal
- * remediation and `"dangling"` through the self-healing
+ * repairs it in place when the name is still desired. `"foreign-live"` for
+ * a LIVE symlink resolving outside every ownership root (wins PATH lookup
+ * now, until the next `flow install --upgrade` prunes it) — checked only
+ * when `roots` is non-null, i.e. only for `bin/`, the one subdir whose
+ * entries join the session PATH; a live `skills/`/`agents/` symlink is
+ * `null` regardless of target. `null` otherwise, for a live symlink —
+ * INCLUDING a live directory symlink (a skill's target is a directory,
+ * unlike a `bin/` entry's file), which is just as healthy: `fs.statSync`
+ * follows the link and succeeds regardless of the resolved node's type, so
+ * no dir/file branch is needed. The caller routes `"unmanaged"` through the
+ * hand-removal remediation and `"dangling"` through the self-healing
  * `flow install --upgrade` one. */
 function classifyEntry(
   dir: string,
   name: string,
-): "unmanaged" | "dangling" | null {
+  roots: readonly string[] | null,
+): "unmanaged" | "dangling" | "foreign-live" | null {
   const entryPath = path.join(dir, name);
   let lst: fs.Stats;
   try {
@@ -125,24 +142,27 @@ function classifyEntry(
   if (!lst.isSymbolicLink()) return "unmanaged";
   try {
     fs.statSync(entryPath);
-    return null;
   } catch {
     return "dangling";
   }
+  if (roots === null) return null;
+  return isFlowOwnedSymlink(entryPath, roots) ? null : "foreign-live";
 }
 
 /** Walks one level into `<root>/<subdir>/`, pushing an issue for every
  * non-healthy entry — shared by the `bin/`, `skills/`, and `agents/`
- * one-level walks below. */
+ * one-level walks below. `roots` is passed only for the `bin/` walk (the
+ * PATH-joining subdir); `null` skips the foreign-live ownership check. */
 function walkOneLevel(
   root: string,
   subdir: string,
   issues: PluginRootEntryIssue[],
+  roots: readonly string[] | null = null,
 ): void {
   const dir = path.join(root, subdir);
   for (const name of readdirNames(dir)) {
     if (IGNORED_ENTRIES.has(name)) continue;
-    const kind = classifyEntry(dir, name);
+    const kind = classifyEntry(dir, name, roots);
     if (kind === "unmanaged") {
       issues.push({
         relPath: path.join(subdir, name),
@@ -153,12 +173,18 @@ function walkOneLevel(
         relPath: path.join(subdir, name),
         reason: "dangling-symlink",
       });
+    } else if (kind === "foreign-live") {
+      issues.push({
+        relPath: path.join(subdir, name),
+        reason: "foreign-live-bin-symlink",
+      });
     }
   }
 }
 
 export function unexpectedPluginRootEntries(
   root: string,
+  ownership: PluginRootOwnership,
 ): PluginRootEntryIssue[] {
   const issues: PluginRootEntryIssue[] = [];
 
@@ -170,7 +196,12 @@ export function unexpectedPluginRootEntries(
     }
   }
 
-  walkOneLevel(root, "bin", issues);
+  // Hoisted out of the walk: `ownershipRoots` runs two `realpathSync` calls,
+  // both loop-invariant — computing it once instead of per-entry avoids
+  // ~2 redundant syscalls per `bin/` symlink on this interactive path
+  // (`flow ls` / `flow version`).
+  const roots = ownershipRoots(ownership.flowSource, ownership.installRoot);
+  walkOneLevel(root, "bin", issues, roots);
   walkOneLevel(root, "skills", issues);
   walkOneLevel(root, "agents", issues);
 

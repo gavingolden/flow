@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  extractJsonObject,
   isGeminiIntentGuessEnabled,
   parseArgs,
   run,
@@ -8,6 +7,7 @@ import {
   type DelegateEnvelope,
   type Deps,
 } from "./flow-gemini-intent-guess";
+import { parseStructured } from "./lib/structured-response";
 
 const VALID_GUESS = {
   guessed_purpose: "Adds a diff-only intent-guess check to catch scope drift.",
@@ -45,26 +45,62 @@ describe("isGeminiIntentGuessEnabled (config gate)", () => {
   });
 });
 
-describe("extractJsonObject", () => {
+describe("parseStructured (schema=undefined, shape-only) — extraction tolerance", () => {
   it("returns the object verbatim when there is no wrapper", () => {
-    expect(extractJsonObject('{"guessed_purpose":"x"}')).toBe(
-      '{"guessed_purpose":"x"}',
-    );
+    expect(parseStructured('{"guessed_purpose":"x"}', undefined)).toEqual({
+      ok: true,
+      value: { guessed_purpose: "x" },
+    });
   });
 
   it("recovers an object wrapped in leading/trailing prose", () => {
     const wrapped = 'Here is my guess:\n{"guessed_purpose":"x"}\nDone.';
-    expect(extractJsonObject(wrapped)).toBe('{"guessed_purpose":"x"}');
+    expect(parseStructured(wrapped, undefined)).toEqual({
+      ok: true,
+      value: { guessed_purpose: "x" },
+    });
   });
 
   it("recovers an object inside a ```json fence", () => {
     const fenced = '```json\n{"guessed_purpose":"x"}\n```';
-    expect(extractJsonObject(fenced)).toBe('{"guessed_purpose":"x"}');
+    expect(parseStructured(fenced, undefined)).toEqual({
+      ok: true,
+      value: { guessed_purpose: "x" },
+    });
   });
 
-  it("returns null when there is no brace pair", () => {
-    expect(extractJsonObject("no json here at all")).toBeNull();
-    expect(extractJsonObject("")).toBeNull();
+  it("returns ok:false when there is no brace pair", () => {
+    expect(parseStructured("no json here at all", undefined).ok).toBe(false);
+    expect(parseStructured("", undefined).ok).toBe(false);
+  });
+
+  // The two cases below are why this call site was swapped from the naive
+  // first-`{`-to-last-`}` extractJsonObject to parseStructured. Both were
+  // traced empirically against the OLD extractor (which returned a slice
+  // that failed JSON.parse, i.e. a dropped `-output-unparseable` skip) to
+  // confirm they are genuine regressions, not just theoretical improvements.
+  //
+  // SCOPE HONESTY: this is NOT a strict-superset claim. Both the old and
+  // new extractors still fail alike on `Here is {a} guess: {"k":1}` (a
+  // brace in LEADING prose before the object) — findBalancedObjectSpan
+  // locks onto the FIRST `{` in the whole text and does not retry from a
+  // later one, so that shape is out of scope for this swap.
+  it("recovers an object whose string value contains an unbalanced brace, even with trailing commentary that itself contains a brace", () => {
+    const raw =
+      '{"justification":"a note with an extra } inside"}\n\nSee also the {appendix}.';
+    expect(parseStructured(raw, undefined)).toEqual({
+      ok: true,
+      value: { justification: "a note with an extra } inside" },
+    });
+  });
+
+  it("recovers an object followed by trailing commentary that itself contains a brace", () => {
+    const raw =
+      '{"guessed_purpose":"x"}\n\nNote: this looks similar to the {baseline} case.';
+    expect(parseStructured(raw, undefined)).toEqual({
+      ok: true,
+      value: { guessed_purpose: "x" },
+    });
   });
 });
 
@@ -247,7 +283,7 @@ describe("run — conformant output", () => {
     expect(JSON.parse(deps.files.get(OUT)!)).toEqual(VALID_GUESS);
   });
 
-  it("recovers a prose-wrapped / fenced conformant payload via extractJsonObject", () => {
+  it("recovers a prose-wrapped / fenced conformant payload via parseStructured", () => {
     const deps = makeDeps({
       runDelegate: (argv) => {
         deps.calls.delegate.push(argv);
@@ -263,6 +299,33 @@ describe("run — conformant output", () => {
     });
     expect(run(BASE_ARGV, deps)).toBe(0);
     expect(envelope(deps)).toEqual({ ran: true, findingsPath: OUT });
+  });
+
+  // Regression guard for the parseStructured swap: a fenced JSON block
+  // followed by trailing commentary that itself contains a `}` is
+  // recoverable ONLY by parseStructured's fenced-block-first extraction
+  // strategy. The former naive first-`{`-to-last-`}` slice would span from
+  // the fenced block's opening brace all the way to the trailing brace in
+  // the commentary, produce an invalid (over-wide) JSON.parse candidate,
+  // and fall through to `gemini-intent-guess-output-unparseable` — this
+  // test would have been RED against that old behaviour.
+  it("recovers a fenced payload followed by trailing commentary containing a brace", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(
+          rawPath,
+          "```json\n" +
+            JSON.stringify(VALID_GUESS) +
+            "\n```\nSee also {issue tracking this}.",
+        );
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({ ran: true, findingsPath: OUT });
+    expect(JSON.parse(deps.files.get(OUT)!)).toEqual(VALID_GUESS);
   });
 });
 
