@@ -119,13 +119,18 @@ export function checkInstallDrift(
     // load-bearing: a machine with an empty manifest and a junk-filled
     // orphaned plugin root must still report that drift, not report clean.
     for (const root of scanPluginRoots(targets.skillsDir)) {
-      for (const issue of unexpectedPluginRootEntries(root)) {
+      for (const issue of unexpectedPluginRootEntries(root, {
+        flowSource,
+        installRoot,
+      })) {
         // A dangling `bin/` symlink is genuinely repaired by
         // `flow install --upgrade` (see `classifyBinEntry` in
         // `plugin-root-audit.ts`), so it gets the "dangling" kind and that
-        // kind's self-healing remediation — not "unexpected", which routes
-        // to the hand-removal remediation reserved for real, non-symlink
-        // files the prune loop never touches.
+        // kind's self-healing remediation. Everything else — including a
+        // foreign live `bin/` symlink — gets "unexpected": that's the only
+        // kind `formatDriftNotice` enumerates BY NAME, and naming the path
+        // is the whole point for an entry that is currently winning PATH
+        // lookup, not merely a repairable dangling link.
         entries.push({
           kind:
             issue.reason === "dangling-bin-symlink" ? "dangling" : "unexpected",
@@ -264,13 +269,17 @@ export function formatDriftNotice(result: InstallDriftResult): string | null {
     .map((k) => `${byKind[k]} ${k}`);
   // Two remediation branches, not three: `flow install --upgrade` repairs
   // every symlink kind unconditionally (it's a no-op when there is nothing
-  // to repair), while an `unexpected` entry — a real file or directory
-  // inside a flow-managed plugin root — must be removed by hand (flow never
-  // deletes a real file it did not write). Unlike the other three kinds,
-  // `unexpected` has no automated remedy, so it's the one kind that must
-  // NAME the offending entries rather than report an anonymous count —
-  // otherwise the user is told to hand-remove a file the tool refuses to
-  // name.
+  // to repair), while an `unexpected` entry has no automated remedy and must
+  // be removed by hand. `unexpected` covers two distinct cases: a real file
+  // or directory inside a flow-managed plugin root (flow never deletes a
+  // real file it did not write — genuinely no automated remedy), and a
+  // foreign live `bin/` symlink resolving outside the flow tree (flow
+  // *could* prune it — `flow install --upgrade`'s prune loop in
+  // `plugin-root.ts` does remove it on the next run — but won't do so
+  // silently on a bin/ entry it doesn't own). Unlike the other three kinds,
+  // `unexpected` must NAME the offending entries rather than report an
+  // anonymous count — otherwise the user is told to hand-remove something
+  // the tool refuses to name.
   const repair = "run `flow install --upgrade` to repair";
   const unexpectedEntries = result.entries.filter(
     (e) => e.kind === "unexpected" && e.detail,

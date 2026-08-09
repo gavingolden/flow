@@ -438,6 +438,74 @@ describe(checkInstallDrift, () => {
     expect(result).toEqual({ status: "clean" });
   });
 
+  it("reports one 'unexpected' entry for a foreign live bin/ symlink (resolves outside flowSource/installRoot)", () => {
+    const dir = makeScratch();
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    const foreignTarget = path.join(dir, "foreign-helper.ts");
+    fs.writeFileSync(foreignTarget, "#!/bin/sh\n");
+    fs.symlinkSync(foreignTarget, path.join(root, "bin", "flow-foreign"));
+
+    // `run()`'s default flowSource/installRoot ("/flow-source") is a
+    // nonexistent path, so this scratch-dir live symlink is automatically
+    // foreign — no override needed for the positive case.
+    const result = run({
+      readManifest: () => manifest([]),
+      discover: () => [],
+      scanPluginRoots: () => [root],
+    });
+    expect(result).toEqual({
+      status: "drifted",
+      entries: [
+        {
+          kind: "unexpected",
+          displayName: "flow-module-copilot",
+          target: root,
+          detail: path.join("bin", "flow-foreign"),
+        },
+      ],
+    });
+  });
+
+  it("reports clean for the SAME root when the bin/ symlink resolves inside an injected flowSource", () => {
+    const dir = makeScratch();
+    const flowSourceDir = path.join(dir, "flow-src");
+    fs.mkdirSync(flowSourceDir, { recursive: true });
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    const ownedTarget = path.join(flowSourceDir, "helper.ts");
+    fs.writeFileSync(ownedTarget, "export {};\n");
+    fs.symlinkSync(ownedTarget, path.join(root, "bin", "flow-owned"));
+
+    const result = run({
+      flowSource: flowSourceDir,
+      installRoot: flowSourceDir,
+      readManifest: () => manifest([]),
+      discover: () => [],
+      scanPluginRoots: () => [root],
+    });
+    expect(result).toEqual({ status: "clean" });
+  });
+
+  it("formatDriftNotice names the foreign live bin/ symlink entry as '<displayName> → bin/<name>'", () => {
+    const dir = makeScratch();
+    const root = path.join(dir, "flow-module-copilot");
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    const foreignTarget = path.join(dir, "foreign-helper.ts");
+    fs.writeFileSync(foreignTarget, "#!/bin/sh\n");
+    fs.symlinkSync(foreignTarget, path.join(root, "bin", "flow-foreign"));
+
+    const result = run({
+      readManifest: () => manifest([]),
+      discover: () => [],
+      scanPluginRoots: () => [root],
+    });
+    const notice = formatDriftNotice(result);
+    expect(notice).toContain(
+      `flow-module-copilot → ${path.join("bin", "flow-foreign")}`,
+    );
+  });
+
   it("scanPluginRoots returning [] (a deselected module's absent root) reports no entry of any kind", () => {
     const dir = makeScratch();
     const source = path.join(dir, "source.txt");
