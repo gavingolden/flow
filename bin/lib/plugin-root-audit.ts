@@ -20,10 +20,22 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isFlowOwnedSymlink, ownershipRoots } from "./flow-owned-symlink";
 
 export type PluginRootEntryIssue = {
   relPath: string;
-  reason: "unexpected-child" | "unmanaged-bin-entry" | "dangling-bin-symlink";
+  reason:
+    | "unexpected-child"
+    | "unmanaged-bin-entry"
+    | "dangling-bin-symlink"
+    | "foreign-live-bin-symlink";
+};
+
+/** The ownership roots a live `bin/` symlink is checked against — the same
+ * flow-source / install-root pair `setup.ts`'s sweep already resolves. */
+export type PluginRootOwnership = {
+  flowSource: string;
+  installRoot: string;
 };
 
 /** Ignored at every level — an OS-written artifact, never flow's and never
@@ -85,23 +97,18 @@ function expectedRootChildren(root: string): Set<string> {
   return expected;
 }
 
-/** Classification of a `bin/` entry that isn't a healthy live symlink:
- * `"unmanaged"` for a real (non-symlink) file — `listManagedSymlinks`
- * filters on `Dirent.isSymbolicLink()`, so `ensurePluginRoot`'s prune loop
- * never even sees it; flow never wrote it and never deletes it, so it
- * genuinely needs hand removal. `"dangling"` for a symlink that doesn't
- * resolve — `listManagedSymlinks` DOES pick this one up (a dangling link is
- * still a symlink), so `flow install --upgrade` genuinely repairs it: the
- * prune loop unlinks it if it's no longer in the desired set, and
- * `ensureSymlink`'s relink branch repairs it in place when the name is
- * still desired. `null` for a live symlink, which is deliberately not
- * reported at all. The caller routes `"unmanaged"` through the hand-removal
- * remediation and `"dangling"` through the self-healing
- * `flow install --upgrade` one. */
+/** Classification of a `bin/` entry: `"unmanaged"` for a real (non-symlink)
+ * file (needs hand removal — flow never wrote it), `"dangling"` for a
+ * symlink that doesn't resolve (self-healed by `flow install --upgrade`'s
+ * prune/relink), `"foreign-live"` for a LIVE symlink resolving outside both
+ * ownership roots (wins PATH lookup now, until the next
+ * `flow install --upgrade` prunes it), or `null` for a live symlink flow
+ * itself put there. */
 function classifyBinEntry(
   binDir: string,
   name: string,
-): "unmanaged" | "dangling" | null {
+  roots: readonly string[],
+): "unmanaged" | "dangling" | "foreign-live" | null {
   const entryPath = path.join(binDir, name);
   let lst: fs.Stats;
   try {
@@ -112,14 +119,15 @@ function classifyBinEntry(
   if (!lst.isSymbolicLink()) return "unmanaged";
   try {
     fs.statSync(entryPath);
-    return null;
   } catch {
     return "dangling";
   }
+  return isFlowOwnedSymlink(entryPath, roots) ? null : "foreign-live";
 }
 
 export function unexpectedPluginRootEntries(
   root: string,
+  ownership: PluginRootOwnership,
 ): PluginRootEntryIssue[] {
   const issues: PluginRootEntryIssue[] = [];
 
@@ -132,9 +140,14 @@ export function unexpectedPluginRootEntries(
   }
 
   const binDir = path.join(root, "bin");
+  // Hoisted out of the loop: `ownershipRoots` runs two `realpathSync` calls,
+  // both loop-invariant — computing it once instead of per-entry avoids
+  // ~2 redundant syscalls per `bin/` symlink on this interactive path
+  // (`flow ls` / `flow version`).
+  const roots = ownershipRoots(ownership.flowSource, ownership.installRoot);
   for (const name of readdirNames(binDir)) {
     if (IGNORED_ENTRIES.has(name)) continue;
-    const kind = classifyBinEntry(binDir, name);
+    const kind = classifyBinEntry(binDir, name, roots);
     if (kind === "unmanaged") {
       issues.push({
         relPath: path.join("bin", name),
@@ -144,6 +157,11 @@ export function unexpectedPluginRootEntries(
       issues.push({
         relPath: path.join("bin", name),
         reason: "dangling-bin-symlink",
+      });
+    } else if (kind === "foreign-live") {
+      issues.push({
+        relPath: path.join("bin", name),
+        reason: "foreign-live-bin-symlink",
       });
     }
   }

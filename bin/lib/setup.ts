@@ -20,6 +20,7 @@ import {
   SETUP_LOCK_PATH,
 } from "./paths";
 import { inspectFlowRoot, type FlowRootInfo } from "./worktree-source";
+import { isFlowOwnedSymlink } from "./flow-owned-symlink";
 import {
   readManifest,
   writeManifest,
@@ -980,35 +981,13 @@ function removeIfFlowOwnedSymlink(
   target: string,
   flowRoots: string[],
 ): boolean {
-  let link: string;
-  try {
-    link = fs.readlinkSync(target);
-  } catch {
-    return false; // not a symlink / unreadable
-  }
-  const raw = path.resolve(path.dirname(target), link);
-  let resolved = raw;
-  try {
-    resolved = fs.realpathSync(raw);
-  } catch {
-    // Dangling link — keep `raw` for the ownership check below.
-  }
-  const owned = flowRoots.some(
-    (root) => isPathUnder(resolved, root) || isPathUnder(raw, root),
-  );
-  if (!owned) return false;
+  if (!isFlowOwnedSymlink(target, flowRoots)) return false;
   try {
     fs.unlinkSync(target);
     return true;
   } catch {
     return false;
   }
-}
-
-/** True when `child` is `parent` itself or nested beneath it. */
-function isPathUnder(child: string, parent: string): boolean {
-  const rel = path.relative(parent, child);
-  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
 function mergeManifest(
