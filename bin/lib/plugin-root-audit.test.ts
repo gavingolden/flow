@@ -18,7 +18,13 @@ let root!: string;
 let flowSrc!: string;
 
 beforeEach(() => {
-  scratch = fs.mkdtempSync(path.join(os.tmpdir(), "flow-plugin-root-audit-"));
+  // realpath'd so a constructed alias/physical symlink pair below is the
+  // ONLY raw-vs-realpath divergence under test, not stacked on an
+  // incidental platform one (macOS routes `os.tmpdir()` through `/var` ->
+  // `/private/var`).
+  scratch = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "flow-plugin-root-audit-")),
+  );
   root = path.join(scratch, "flow-module-copilot");
   flowSrc = path.join(scratch, "flow-src");
   fs.mkdirSync(root, { recursive: true });
@@ -160,6 +166,38 @@ describe(unexpectedPluginRootEntries, () => {
     expect(audit(root, { flowSource: flowSrc, installRoot })).toEqual([]);
   });
 
+  it("a live symlink resolving inside flowSource ONLY via its realpath'd form is not reported — pins ownershipRoots' realpath-widening", () => {
+    // `flowSourceAlias` is a symlink indirection to a physical directory;
+    // the ownership pair passed in is the ALIAS path (mirroring a caller
+    // whose resolved flow-source sits behind an OS-level symlink, e.g.
+    // macOS's `/var` -> `/private/var`). The `bin/` symlink's target text
+    // is written through the PHYSICAL path directly, so only realpath'ing
+    // the alias root (ownershipRoots' widening) makes the two line up —
+    // the raw alias root alone would not. Mutating `ownershipRoots` to
+    // return only the raw (non-realpath'd) roots fails this test.
+    materializeCleanRoot();
+    const physicalSrc = path.join(scratch, "flow-src-physical");
+    fs.mkdirSync(physicalSrc, { recursive: true });
+    const flowSourceAlias = path.join(scratch, "flow-src-alias");
+    fs.symlinkSync(physicalSrc, flowSourceAlias);
+    const target = path.join(physicalSrc, "aliased-helper.ts");
+    fs.writeFileSync(target, "export {};\n");
+    fs.symlinkSync(target, path.join(root, "bin", "flow-aliased-helper"));
+    // `materializeCleanRoot()` also wrote a `flow-request-copilot` symlink
+    // pointing at `flowSrc` (not `flowSourceAlias`), so scope the assertion
+    // to the entry under test rather than the whole issue list — that
+    // pre-existing symlink is genuinely foreign relative to
+    // `flowSourceAlias` and reporting it is correct, unrelated behavior.
+    const issues = audit(root, {
+      flowSource: flowSourceAlias,
+      installRoot: flowSourceAlias,
+    });
+    expect(issues).not.toContainEqual({
+      relPath: path.join("bin", "flow-aliased-helper"),
+      reason: "foreign-live-bin-symlink",
+    });
+  });
+
   it("a foreign live symlink written with RELATIVE link text is still reported", () => {
     materializeCleanRoot();
     const outside = path.join(scratch, "not-flow-src");
@@ -189,15 +227,23 @@ describe(unexpectedPluginRootEntries, () => {
     });
   });
 
-  it("never throws when flowSource/installRoot do not exist on disk", () => {
+  it("never throws when flowSource/installRoot do not exist on disk, and correctly classifies the live bin/ symlink as foreign", () => {
     materializeCleanRoot();
     const missing = path.join(scratch, "no-such-flow-src");
-    expect(() =>
-      unexpectedPluginRootEntries(root, {
+    let issues: ReturnType<typeof unexpectedPluginRootEntries> = [];
+    expect(() => {
+      issues = unexpectedPluginRootEntries(root, {
         flowSource: missing,
         installRoot: missing,
-      }),
-    ).not.toThrow();
+      });
+    }).not.toThrow();
+    // `materializeCleanRoot()`'s bin/ symlink resolves into `flowSrc`, which
+    // is neither `missing` nor under it, so it is correctly reported as
+    // foreign rather than silently swallowed by the not-throwing path.
+    expect(issues).toContainEqual({
+      relPath: path.join("bin", "flow-request-copilot"),
+      reason: "foreign-live-bin-symlink",
+    });
   });
 
   it("a stray file inside .claude-plugin/ is an unexpected-child prefixed .claude-plugin/", () => {

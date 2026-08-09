@@ -20,7 +20,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { isFlowOwnedSymlink } from "./flow-owned-symlink";
+import { isFlowOwnedSymlink, ownershipRoots } from "./flow-owned-symlink";
 
 export type PluginRootEntryIssue = {
   relPath: string;
@@ -97,32 +97,6 @@ function expectedRootChildren(root: string): Set<string> {
   return expected;
 }
 
-/** `fs.realpathSync`, returning the input unchanged instead of throwing. */
-function realpathOrSelf(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return p;
-  }
-}
-
-/** `flowSource`/`installRoot` plus their realpath'd forms. `isFlowOwnedSymlink`
- * only `path.resolve`s the roots it's given (verbatim from `setup.ts`) while
- * always realpath'ing the LINK — and `ensureSymlink` always realpath's a
- * `bin/` entry's source before writing it. On a host where `flowSource`/
- * `installRoot` themselves sit behind a symlink (macOS's `/var` →
- * `/private/var`, which `os.tmpdir()` routes through), a raw-only root would
- * miss flow's own live symlinks. Widening here is a caller-side adjustment,
- * not a second ownership rule — `isFlowOwnedSymlink` stays untouched. */
-function ownershipRoots(ownership: PluginRootOwnership): string[] {
-  return [
-    ownership.flowSource,
-    realpathOrSelf(ownership.flowSource),
-    ownership.installRoot,
-    realpathOrSelf(ownership.installRoot),
-  ];
-}
-
 /** Classification of a `bin/` entry: `"unmanaged"` for a real (non-symlink)
  * file (needs hand removal — flow never wrote it), `"dangling"` for a
  * symlink that doesn't resolve (self-healed by `flow install --upgrade`'s
@@ -133,7 +107,7 @@ function ownershipRoots(ownership: PluginRootOwnership): string[] {
 function classifyBinEntry(
   binDir: string,
   name: string,
-  ownership: PluginRootOwnership,
+  roots: readonly string[],
 ): "unmanaged" | "dangling" | "foreign-live" | null {
   const entryPath = path.join(binDir, name);
   let lst: fs.Stats;
@@ -148,9 +122,7 @@ function classifyBinEntry(
   } catch {
     return "dangling";
   }
-  return isFlowOwnedSymlink(entryPath, ownershipRoots(ownership))
-    ? null
-    : "foreign-live";
+  return isFlowOwnedSymlink(entryPath, roots) ? null : "foreign-live";
 }
 
 export function unexpectedPluginRootEntries(
@@ -168,9 +140,14 @@ export function unexpectedPluginRootEntries(
   }
 
   const binDir = path.join(root, "bin");
+  // Hoisted out of the loop: `ownershipRoots` runs two `realpathSync` calls,
+  // both loop-invariant — computing it once instead of per-entry avoids
+  // ~2 redundant syscalls per `bin/` symlink on this interactive path
+  // (`flow ls` / `flow version`).
+  const roots = ownershipRoots(ownership.flowSource, ownership.installRoot);
   for (const name of readdirNames(binDir)) {
     if (IGNORED_ENTRIES.has(name)) continue;
-    const kind = classifyBinEntry(binDir, name, ownership);
+    const kind = classifyBinEntry(binDir, name, roots);
     if (kind === "unmanaged") {
       issues.push({
         relPath: path.join("bin", name),

@@ -1,14 +1,20 @@
 /**
  * Tests for the extracted flow-ownership predicate. Covers BOTH ownership
- * polarities of the raw-OR-realpath check — `mkdtempSync(os.tmpdir())` on
- * macOS yields `/var/folders/...`, which realpaths to
- * `/private/var/folders/...`, so a root derived from ONE of those two forms
- * exercises only ONE of the two `some()` clauses in
- * `isFlowOwnedSymlink`. Neither clause may be deleted without a test here
- * failing — that is the load-bearing property of this file, mirroring the
- * vectors `setup.test.ts`'s "drift-sweeps a flow-owned old-location
- * symlink..." (line ~2932) and "drift-sweeps a DANGLING flow-owned
- * old-location symlink..." (line ~2957) regressions exist to protect.
+ * polarities of the raw-OR-realpath check by CONSTRUCTING the divergence
+ * rather than relying on `os.tmpdir()` routing through a symlinked prefix
+ * (macOS's `/var` → `/private/var`) — that inherited routing made both
+ * polarity tests pass on `ubuntu-latest`, where `mkdtempSync`'s raw path IS
+ * its own realpath, even with either `some()` clause in `isFlowOwnedSymlink`
+ * deleted. `scratch/alias -> scratch/physical` is a real, portable symlink
+ * pair: a link/target created under the ALIAS side pins the `raw` clause
+ * (the alias path never realpath-resolves to itself), and one created under
+ * the PHYSICAL side pins the `resolved` clause (only realpathing the link
+ * text reaches the physical root). Neither clause may be deleted without a
+ * test here failing, on any platform — that is the load-bearing property of
+ * this file, mirroring the vectors `setup.test.ts`'s "drift-sweeps a
+ * flow-owned old-location symlink..." (line ~2932) and "drift-sweeps a
+ * DANGLING flow-owned old-location symlink..." (line ~2957) regressions
+ * exist to protect.
  */
 
 import * as fs from "node:fs";
@@ -18,9 +24,25 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isFlowOwnedSymlink, isPathUnder } from "./flow-owned-symlink";
 
 let scratch!: string;
+/** `scratch/physical` — the real directory. */
+let physical!: string;
+/** `scratch/alias -> physical` — a constructed symlink indirection, so the
+ * raw-vs-realpath divergence exists on every platform, not just macOS. */
+let alias!: string;
 
 beforeEach(() => {
-  scratch = fs.mkdtempSync(path.join(os.tmpdir(), "flow-owned-symlink-"));
+  // realpath the scratch root itself so `physical` isn't ALSO sitting
+  // behind an OS-level symlink indirection (macOS's `/var` ->
+  // `/private/var`, which `os.tmpdir()` routes through) — the alias/physical
+  // pair below must be the ONLY divergence under test, not stacked on top
+  // of an incidental platform one.
+  scratch = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "flow-owned-symlink-")),
+  );
+  physical = path.join(scratch, "physical");
+  fs.mkdirSync(physical);
+  alias = path.join(scratch, "alias");
+  fs.symlinkSync(physical, alias);
 });
 
 afterEach(() => {
@@ -29,28 +51,32 @@ afterEach(() => {
 
 describe(isFlowOwnedSymlink, () => {
   it("a live symlink under a REALPATH'd root is owned — pins the `resolved` clause", () => {
-    // The root is realpath'd (/private/var/... on macOS); the link and its
-    // target are created under the RAW scratch path. Only `isPathUnder(resolved, root)`
-    // can match here — the raw clause alone would compare a /var/... raw
-    // path against a /private/var/... root and miss.
-    const root = fs.realpathSync(scratch);
-    const target = path.join(scratch, "real-target.ts");
+    // The target FILE physically lives under `physical/`, but the symlink's
+    // TARGET TEXT is written through the `alias` indirection, and the
+    // ownership root is `physical`. `raw` (the un-resolved link text) is
+    // alias-rooted, so `isPathUnder(raw, physical)` misses; only
+    // `isPathUnder(resolved, physical)`, which realpaths the alias segment
+    // away, can match.
+    const target = path.join(physical, "real-target.ts");
     fs.writeFileSync(target, "export {};\n");
-    const link = path.join(scratch, "owned-link");
-    fs.symlinkSync(target, link);
-    expect(isFlowOwnedSymlink(link, [root])).toBe(true);
+    const aliasedTarget = path.join(alias, "real-target.ts");
+    const link = path.join(physical, "owned-link");
+    fs.symlinkSync(aliasedTarget, link);
+    expect(isFlowOwnedSymlink(link, [physical])).toBe(true);
   });
 
   it("a live symlink under the RAW (non-realpath'd) root is owned — pins the `raw` clause", () => {
-    // The root is the raw mkdtempSync path; nothing here is realpath'd.
-    // `isPathUnder(resolved, root)` compares a /private/var/... resolved
-    // target against a /var/... root and misses — only `isPathUnder(raw, root)`
-    // matches. Without the `raw` clause this vector alone would false-negate.
-    const target = path.join(scratch, "real-target.ts");
+    // Both the link and its target are created (and referenced) entirely
+    // through the `alias` path, and the ownership root is `alias` too. `raw`
+    // (the unresolved, alias-rooted link text) matches `alias` directly;
+    // `resolved` follows the alias symlink to `physical` and no longer
+    // mentions `alias` at all, so `isPathUnder(resolved, alias)` misses —
+    // only the `raw` clause can match.
+    const target = path.join(alias, "real-target.ts");
     fs.writeFileSync(target, "export {};\n");
-    const link = path.join(scratch, "owned-link");
+    const link = path.join(alias, "owned-link");
     fs.symlinkSync(target, link);
-    expect(isFlowOwnedSymlink(link, [scratch])).toBe(true);
+    expect(isFlowOwnedSymlink(link, [alias])).toBe(true);
   });
 
   it("relative link text resolves against path.dirname(linkPath)", () => {

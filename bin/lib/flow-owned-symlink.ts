@@ -15,6 +15,37 @@ export function isPathUnder(child: string, parent: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
+/** `fs.realpathSync`, returning the input unchanged instead of throwing. */
+export function realpathOrSelf(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+/** `flowSource`/`installRoot` plus their realpath'd forms, for callers
+ * checking `isFlowOwnedSymlink` against a caller-supplied ownership pair
+ * (e.g. `plugin-root-audit.ts`). `isFlowOwnedSymlink` takes the roots it's
+ * given as-is (verbatim from `setup.ts`, no `path.resolve` widening) while
+ * always realpath'ing the LINK — and `ensureSymlink` always realpath's a
+ * `bin/` entry's source before writing it. On a host where `flowSource`/
+ * `installRoot` themselves sit behind a symlink (macOS's `/var` →
+ * `/private/var`, which `os.tmpdir()` routes through), a raw-only root would
+ * miss flow's own live symlinks. Widening here is a caller-side adjustment,
+ * not a second ownership rule — `isFlowOwnedSymlink` stays untouched. */
+export function ownershipRoots(
+  flowSource: string,
+  installRoot: string,
+): string[] {
+  return [
+    flowSource,
+    realpathOrSelf(flowSource),
+    installRoot,
+    realpathOrSelf(installRoot),
+  ];
+}
+
 /**
  * True iff `linkPath` is a symlink whose resolved target lives under one of
  * `flowRoots` (flow-owned by construction). A symlink pointing outside every
@@ -41,12 +72,9 @@ export function isFlowOwnedSymlink(
     } catch {
       // Dangling link — keep `raw` for the ownership check below.
     }
-    return flowRoots.some((root) => {
-      const resolvedRoot = path.resolve(root);
-      return (
-        isPathUnder(resolved, resolvedRoot) || isPathUnder(raw, resolvedRoot)
-      );
-    });
+    return flowRoots.some(
+      (root) => isPathUnder(resolved, root) || isPathUnder(raw, root),
+    );
   } catch {
     return false; // not a symlink / unreadable
   }
