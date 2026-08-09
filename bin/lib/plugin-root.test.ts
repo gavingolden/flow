@@ -237,6 +237,39 @@ describe(ensurePluginRoot, () => {
     });
     expect(fs.existsSync(path.join(r, "skills"))).toBe(false);
   });
+
+  // Pins `effectiveIncludeSkills`'s observable effect (PR #605): the caller's
+  // blanket `includeSkills: true` is refined per-module by whether that
+  // module actually owns skill rows, so a helper-only module (copilot,
+  // skills: []) never gets a `skills` manifest key even when asked, while a
+  // module with skill rows (core) gets it as the caller passed it.
+  it("omits manifest.skills for a helper-only module (copilot) even with includeSkills: true", () => {
+    const r = root("flow-module-copilot");
+    ensurePluginRoot({
+      root: r,
+      moduleId: "copilot",
+      flowSource: realFlowSource,
+      version: "1.0.0",
+      includeSkills: true,
+      force: false,
+    });
+    const manifest = readManifestJson(r);
+    expect(manifest.skills).toBeUndefined();
+  });
+
+  it('sets manifest.skills = ["./skills"] for a module with skill rows (core) when includeSkills: true', () => {
+    const r = root("flow-module-core");
+    ensurePluginRoot({
+      root: r,
+      moduleId: "core",
+      flowSource: realFlowSource,
+      version: "1.0.0",
+      includeSkills: true,
+      force: false,
+    });
+    const manifest = readManifestJson(r);
+    expect(manifest.skills).toEqual(["./skills"]);
+  });
 });
 
 describe(isFlowOwnedPluginRoot, () => {

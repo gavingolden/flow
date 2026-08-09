@@ -3119,7 +3119,7 @@ describe("agent-move migration (Task 4, agent-invocation-name confirmed branch)"
       await setup({ upgrade: true });
       expect(errSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "active sessions detected; old locations preserved until next install",
+          "active sessions detected; non-manifest old-agent-location sweep skipped until next install",
         ),
       );
     } finally {

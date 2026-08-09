@@ -1531,6 +1531,46 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     }
   });
 
+  it("every guarded agent-file probe (`[ -f .../flow-module-<id>/agents/*.md ]`) targets a core-owned agent", () => {
+    // Pins the invariant behind the hardcoded `flow-module-core/agents/`
+    // guard paths sprinkled across SKILL.md/instructions files (PR #605):
+    // `agents:` currently non-empty for exactly module `core` in
+    // bin/lib/modules.ts, so every literal Task-tool guard probe in the
+    // corpus must resolve into `flow-module-core/agents/`, never another
+    // module's plugin root. Guards against a future guard site copy-pasting
+    // the wrong module id when a non-core module later grows an agent.
+    const guardRegex =
+      /\[ -f ~\/\.flow\/claude-home\/\.claude\/skills\/flow-module-([a-z0-9-]+)\/agents\/([a-zA-Z0-9_-]+)\.md \]/g;
+    const corpus = [
+      ...agentDefinitionFiles,
+      ...instructionsAndSpawnPromptFiles,
+      SKILL_MD_PATH,
+      PR_REVIEW_SKILL_MD_PATH,
+      CODER_SKILL_MD_PATH,
+    ].filter((p, i, arr) => fs.existsSync(p) && arr.indexOf(p) === i);
+    let matchCount = 0;
+    for (const file of corpus) {
+      const content = fs.readFileSync(file, "utf8");
+      for (const match of content.matchAll(guardRegex)) {
+        matchCount++;
+        const [, moduleId, agentName] = match;
+        expect(
+          moduleId,
+          `${file} guards agent '${agentName}.md' against module ` +
+            `'${moduleId}', but only 'core' owns any agents/ rows in ` +
+            "bin/lib/modules.ts — every Task-tool agent-file guard must " +
+            "target flow-module-core/agents/.",
+        ).toBe("core");
+      }
+    }
+    expect(
+      matchCount,
+      "expected at least one `[ -f .../flow-module-<id>/agents/*.md ]` guard " +
+        "in the corpus — a collapsed glob or renamed guard shape would make " +
+        "this assertion pass vacuously.",
+    ).toBeGreaterThan(0);
+  });
+
   it("the pr-review gatekeeper and consolidator spawn sites resolve their named agents with guarded fallbacks", () => {
     expect(
       prReviewContent.includes("GATEKEEPER_SUBAGENT=flow-gatekeeper"),
@@ -1883,7 +1923,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-pipeline/references/verify-loop-instructions.md",
-        378,
+        379,
         "NEVER touch the base branch",
       ],
       [

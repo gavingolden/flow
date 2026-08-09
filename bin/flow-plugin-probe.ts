@@ -127,6 +127,15 @@ function materializeRoot(
     includeSkills: true,
     force: false,
   });
+  // ensurePluginRoot deliberately never creates skills/ itself (see its own
+  // doc comment) — in the real install loop, setup.ts's discoverSkills pass
+  // populates it via per-artifact symlinks right after. This probe fixture
+  // skips that loop, so without this mkdir the manifest declares
+  // `skills: ["./skills"]` (module "core" owns skill rows, so
+  // effectiveIncludeSkills is true) with no skills/ dir on disk, which
+  // flips `claude plugin validate --strict` to a real "Path not found"
+  // failure and probeSymlinkMaterialization's verdict to a false "refuted".
+  fs.mkdirSync(path.join(root, "skills"), { recursive: true });
   return root;
 }
 

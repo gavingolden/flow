@@ -629,8 +629,14 @@ async function runUnderLock(
     .map((s) => s.phase)
     .filter((phase) => !TERMINAL_PHASE_SET.has(phase));
   if (activeSessionPhases.length > 0) {
+    // Scoped wording: this guard only withholds the UNGUARDED-elsewhere
+    // sweepOldAgentsLocation sweep below. `reapOrphans` above (manifest-
+    // recorded old-agent-location removals) and `sweepOldSkillsLocation`
+    // above already ran unconditionally by this point regardless of any
+    // active session, so "old locations preserved" would be false in the
+    // common case where those two already pruned something.
     console.error(
-      "flow install: active sessions detected; old locations preserved until next install",
+      "flow install: active sessions detected; non-manifest old-agent-location sweep skipped until next install",
     );
   } else {
     summary.removed += sweepOldAgentsLocation(

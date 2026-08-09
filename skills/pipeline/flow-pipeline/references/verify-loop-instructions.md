@@ -101,14 +101,15 @@ none.
 
 **Spawn procedure (wider-scope path only).**
 
-1. Resolve `agents/flow-edit-applier.md`: `[ -f
-~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-edit-applier.md ]`. Unlike the nine top-level
+1. Resolve `agents/flow-edit-applier.md`:
+   `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-edit-applier.md ]`.
+   Unlike the nine top-level
    exemptions, this site does **not** fall back to `general-purpose` on a
    miss — a `general-purpose` child would inherit the full session
    toolset (including `Task`) with none of `flow-edit-applier.md`'s
    lint-pinned containment invariants, and this site already has a
-   known-good inline fallback. On a miss, record `coder_spawn:
-"agent-unavailable"`, apply the fix inline instead, and stay inline
+   known-good inline fallback. On a miss, record
+   `coder_spawn: "agent-unavailable"`, apply the fix inline instead, and stay inline
    for the remainder of the run — do not spawn `general-purpose` here.
 2. Compose the JSON edit-set the same way `/flow-verify` step 3 does
    (one entry per failed `results[]` check, each `{file, intent,
