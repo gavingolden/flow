@@ -21,11 +21,12 @@
  *     default 5m timeout).
  *  3. Branch on the flow-delegate envelope's `ran` field (NEVER the exit
  *     code): `ran:false` → propagate the skipReason, finalize nothing.
- *  4. `ran:true` → read the raw agy artifact, defensively extract the JSON
- *     object (extractJsonObject tolerates a prose/markdown-fence wrapper),
- *     parse, validate the four-key shape. Any unusable output → dropped
- *     result + skipReason, NO `intent-guess-gemini.json` left behind
- *     (write-only-on-success).
+ *  4. `ran:true` → read the raw agy artifact and tolerantly recover a JSON
+ *     object via `parseStructured` (bin/lib/structured-response.ts — tries
+ *     whole-text, fenced-block, then a string-literal-aware balanced-brace
+ *     scan, in that order), then validate the four-key shape. Any unusable
+ *     output → dropped result + skipReason, NO `intent-guess-gemini.json`
+ *     left behind (write-only-on-success).
  *  5. Valid → write the guess object to `--out` →
  *     `{ran:true,findingsPath}`.
  *
@@ -37,6 +38,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { resolveDelegateModel } from "./lib/delegate-models";
+import { parseStructured } from "./lib/structured-response";
 
 // The model routes through resolveDelegateModel("intentGuess") — the default
 // lives in DELEGATE_MODEL_DEFAULTS; a `delegate.models.intentGuess` config
@@ -113,18 +115,6 @@ export function isGeminiIntentGuessEnabled(rawConfigText: string): boolean {
   const review = (parsed as Record<string, unknown>).review;
   if (typeof review !== "object" || review === null) return false;
   return (review as Record<string, unknown>).gemini === true;
-}
-
-// Recover the JSON object from a raw agy artifact that may wrap it in a
-// leading/trailing prose sentence or a ```json fence. Returns the substring
-// from the first '{' to the matching last '}' (inclusive), or null when no
-// brace pair is present. NEVER throws — JSON.parse validity is the caller's
-// concern.
-export function extractJsonObject(raw: string): string | null {
-  const first = raw.indexOf("{");
-  const last = raw.lastIndexOf("}");
-  if (first === -1 || last === -1 || last < first) return null;
-  return raw.slice(first, last + 1);
 }
 
 export type IntentGuess = {
@@ -308,18 +298,12 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return skip("gemini-intent-guess-output-unreadable");
   }
 
-  const objText = extractJsonObject(raw);
-  if (objText === null) {
-    return skip("gemini-intent-guess-output-unparseable");
-  }
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(objText);
-  } catch {
+  const structured = parseStructured(raw, undefined);
+  if (!structured.ok) {
     return skip("gemini-intent-guess-output-unparseable");
   }
 
-  const validation = validateIntentGuess(parsedJson);
+  const validation = validateIntentGuess(structured.value);
   if (!validation.ok) {
     return skip("gemini-intent-guess-output-schema-invalid");
   }
