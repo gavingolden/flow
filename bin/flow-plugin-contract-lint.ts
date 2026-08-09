@@ -45,6 +45,61 @@ import { resolveFlowSource } from "./lib/paths";
 import { ensurePluginRoot, pluginDirArgs } from "./lib/plugin-root";
 import { moduleIds, type ModuleId } from "./lib/modules";
 import { pluginRootName } from "./lib/plugin-manifest";
+import {
+  discoverAgents,
+  discoverSkills,
+  type InstallTargets,
+} from "./lib/sources";
+import { ensureSymlink } from "./lib/symlink";
+
+/**
+ * `includeSkills: true` declares the manifest's `skills` key, and every
+ * module's own `agents/` dir is unconditionally legitimate — but
+ * `ensurePluginRoot` never populates either directory's CONTENT (that's
+ * `sources.ts`'s/`setup.ts`'s job at real-install time). Without this, a
+ * manifest that DECLARES `skills` but has no matching `<root>/skills/`
+ * directory on disk fails `claude plugin validate --strict` with
+ * `Path not found: ./skills`, and `claude plugin list --json` reports the
+ * same as a non-empty `errors[]` — both would misreport genuine Claude Code
+ * drift when the real cause is this fixture harness's own incompleteness.
+ * Mirrors `setup.ts`'s install loop exactly: `discoverSkills`/`discoverAgents`
+ * already route each artifact's target into its OWNING module's root
+ * (`sources.ts`'s `ownerPluginRootName`), so one un-filtered call per kind,
+ * scoped to `skillsRoot`, symlinks every module's content into its own root
+ * in one pass — no per-module loop needed.
+ */
+function materializeModuleContent(
+  flowSource: string,
+  skillsRoot: string,
+  /** Restricts symlinking to roots actually materialized under
+   * `skillsRoot` (the Phase-3 `--plugin-dir` probe only ever
+   * `ensurePluginRoot`s the first two module ids there) — without this, an
+   * unfiltered call would `mkdirSync` an ownerless, never-`ensurePluginRoot`'d
+   * directory for every OTHER module id under the same parent. */
+  onlyIds?: readonly ModuleId[],
+): void {
+  const targets: InstallTargets = {
+    skillsDir: skillsRoot,
+    agentsDir: skillsRoot, // unused by discoverSkills/discoverAgents post-retarget
+    binDir: skillsRoot, // unused by either discover function
+    completionsDir: skillsRoot, // unused by either discover function
+  };
+  const allowedRootDirs = onlyIds
+    ? new Set(onlyIds.map((id) => path.join(skillsRoot, pluginRootName(id))))
+    : undefined;
+  for (const entry of [
+    ...discoverSkills(flowSource, targets),
+    ...discoverAgents(flowSource, targets),
+  ]) {
+    if (
+      allowedRootDirs &&
+      !allowedRootDirs.has(path.dirname(path.dirname(entry.target)))
+    ) {
+      continue;
+    }
+    ensureSymlink(entry.target, entry.source, false);
+  }
+}
 
 export type ContractLintResult = {
   status: "ok" | "drifted" | "skipped";
@@ -147,7 +202,7 @@ export async function checkPluginContract(
         moduleId: id,
         flowSource,
         version: "1.0.0",
-        includeSkills: false,
+        includeSkills: true,
         force: false,
       });
       if (result === "blocked") {
@@ -156,6 +211,7 @@ export async function checkPluginContract(
       }
       roots.push({ id, root });
     }
+    materializeModuleContent(flowSource, skillsDir);
 
     // claude plugin validate --strict, all roots concurrently — they are
     // read-only, target distinct roots, and share no state, so this is
@@ -252,7 +308,7 @@ export async function checkPluginContract(
           moduleId: id,
           flowSource,
           version: "1.0.0",
-          includeSkills: false,
+          includeSkills: true,
           force: false,
         }) === "blocked"
       ) {
@@ -265,6 +321,11 @@ export async function checkPluginContract(
       }
       probeRoots.push(root);
     }
+    materializeModuleContent(
+      flowSource,
+      path.join(tmpRoot, "plugin-dir-probe"),
+      probeIds,
+    );
     const probeArgv = [
       ...pluginDirArgs(probeRoots),
       "plugin",

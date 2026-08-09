@@ -6,16 +6,19 @@
  */
 
 import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
   DEFAULT_TARGETS,
+  discoverAgents,
   discoverAll,
   discoverPluginRoots,
   discoverSelected,
   discoverSkills,
   isPathBoundHelper,
 } from "./sources";
-import { moduleIds } from "./modules";
+import { MANDATORY_MODULE, moduleForArtifactName, moduleIds } from "./modules";
 import { pluginRootName } from "./plugin-manifest";
 import { resolveFlowSource } from "./paths";
 
@@ -89,6 +92,106 @@ describe("plugin roots never collide with skill targets", () => {
     );
     for (const target of pluginTargets) {
       expect(skillTargets.has(target)).toBe(false);
+    }
+  });
+});
+
+describe("discoverSkills root-internal targets", () => {
+  it("every skill's target lives under its owning module's plugin root at <root>/skills/<name>", () => {
+    const entries = discoverSkills(realFlowSource);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      const owner =
+        moduleForArtifactName(entry.displayName) ?? MANDATORY_MODULE;
+      expect(entry.target).toBe(
+        path.join(
+          DEFAULT_TARGETS.skillsDir,
+          pluginRootName(owner),
+          "skills",
+          entry.displayName,
+        ),
+      );
+    }
+  });
+
+  it("routes a registry-unknown skill into flow-module-core's root, never a flat top-level skills-home path", () => {
+    const tmpSource = fs.mkdtempSync(
+      path.join(os.tmpdir(), "sources-unknown-skill-"),
+    );
+    try {
+      const skillDir = path.join(
+        tmpSource,
+        "skills",
+        "universal",
+        "flow-not-a-real-skill",
+      );
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, "SKILL.md"), "# fixture\n");
+      const entries = discoverSkills(tmpSource);
+      const entry = entries.find(
+        (e) => e.displayName === "flow-not-a-real-skill",
+      );
+      expect(entry).toBeDefined();
+      expect(entry!.target).toBe(
+        path.join(
+          DEFAULT_TARGETS.skillsDir,
+          pluginRootName(MANDATORY_MODULE),
+          "skills",
+          "flow-not-a-real-skill",
+        ),
+      );
+    } finally {
+      fs.rmSync(tmpSource, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("discoverAgents root-internal targets", () => {
+  it("every agent's target lives under its owning module's plugin root at <root>/agents/<basename>", () => {
+    const entries = discoverAgents(realFlowSource);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      const owner =
+        moduleForArtifactName(entry.displayName) ?? MANDATORY_MODULE;
+      expect(entry.target).toBe(
+        path.join(
+          DEFAULT_TARGETS.skillsDir,
+          pluginRootName(owner),
+          "agents",
+          entry.displayName,
+        ),
+      );
+    }
+  });
+
+  it("routes a registry-unknown agent into flow-module-core's root, never the global agents dir", () => {
+    const tmpSource = fs.mkdtempSync(
+      path.join(os.tmpdir(), "sources-unknown-agent-"),
+    );
+    try {
+      fs.mkdirSync(path.join(tmpSource, "agents"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpSource, "agents", "flow-not-a-real-agent.md"),
+        "---\nname: flow-not-a-real-agent\n---\n",
+      );
+      const entries = discoverAgents(tmpSource);
+      const entry = entries.find(
+        (e) => e.displayName === "flow-not-a-real-agent.md",
+      );
+      expect(entry).toBeDefined();
+      expect(entry!.target).toBe(
+        path.join(
+          DEFAULT_TARGETS.skillsDir,
+          pluginRootName(MANDATORY_MODULE),
+          "agents",
+          "flow-not-a-real-agent.md",
+        ),
+      );
+      expect(entry!.target).not.toBe(
+        path.join(DEFAULT_TARGETS.agentsDir, "flow-not-a-real-agent.md"),
+      );
+    } finally {
+      fs.rmSync(tmpSource, { recursive: true, force: true });
     }
   });
 });

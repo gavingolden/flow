@@ -147,7 +147,7 @@ The fan-out's value is its cost-routing override (Sonnet → Haiku) and its cont
 
    ```bash
    GATEKEEPER_SUBAGENT=flow-gatekeeper
-   [ -f ~/.claude/agents/flow-gatekeeper.md ] || { GATEKEEPER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-gatekeeper → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+   [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-gatekeeper.md ] || { GATEKEEPER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-gatekeeper → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
    ```
 
    ```
@@ -289,7 +289,7 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
    prompt:        <the prompt template below, with variables filled in>
    ```
 
-   **Subagent type.** The `flow-fix-applier` definition (`agents/flow-fix-applier.md`) pins `effort: low` so this mechanical apply-commit-push loop stops burning high-effort tokens. Resolve `FIX_APPLIER_SUBAGENT=flow-fix-applier; [ -f ~/.claude/agents/flow-fix-applier.md ] || { FIX_APPLIER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-fix-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }` so an un-upgraded consumer (definition not symlinked) falls back to `general-purpose` — loudly — and the spawn never fails on an unknown agent type. The per-spawn `model:` below overrides the definition's model, so the model precedence is unchanged either way.
+   **Subagent type.** The `flow-fix-applier` definition (`agents/flow-fix-applier.md`) pins `effort: low` so this mechanical apply-commit-push loop stops burning high-effort tokens. Resolve `FIX_APPLIER_SUBAGENT=flow-fix-applier; [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-fix-applier.md ] || { FIX_APPLIER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-fix-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }` so an un-upgraded consumer (definition not symlinked) falls back to `general-purpose` — loudly — and the spawn never fails on an unknown agent type. The per-spawn `model:` below overrides the definition's model, so the model precedence is unchanged either way.
 
    **Per-phase model (fixApplier) resolution.** Field `state.modelFixApplier`; precedence `--model-fix-applier > config.models.fixApplier > "sonnet"` — fixApplier does **NOT** inherit the session model (a mechanical apply-commit-push loop over already-diagnosed findings rarely earns an expensive model — the same asymmetry as verify; see `../flow-pipeline/references/model-routing.md`). Resolve via `jq` (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug); FIX_APPLIER_MODEL=$(jq -r '.modelFixApplier // empty' ~/.flow/state/"$SLUG".json); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL=$(jq -r '.models.fixApplier // empty' ~/.flow/config.json 2>/dev/null); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL="sonnet"`) and pass FIX_APPLIER_MODEL as the Task call's per-spawn `model:` (never empty — the `sonnet` fallback always resolves).
 
@@ -572,7 +572,7 @@ none pins `effort:`/`model:` (judgment role — the per-spawn
 ```bash
 for LENS in bug-detection security pattern-consistency performance supply-chain test-coverage intent-guess; do
   LENS_AGENT="flow-review-$LENS"
-  [ -f ~/.claude/agents/flow-review-$LENS.md ] || { LENS_AGENT=general-purpose; echo "NOTICE — agent-fallback: flow-review-$LENS → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+  [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-review-$LENS.md ] || { LENS_AGENT=general-purpose; echo "NOTICE — agent-fallback: flow-review-$LENS → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
   echo "lens $LENS → subagent_type: $LENS_AGENT"
 done
 ```
@@ -743,7 +743,7 @@ Resolve the subagent type with the file-exists guard:
 
 ```bash
 CONSOLIDATOR_SUBAGENT=flow-consolidator
-[ -f ~/.claude/agents/flow-consolidator.md ] || { CONSOLIDATOR_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-consolidator → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-consolidator.md ] || { CONSOLIDATOR_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-consolidator → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
 ```
 
 The `agents/flow-consolidator.md` definition carries a `tools:` allowlist

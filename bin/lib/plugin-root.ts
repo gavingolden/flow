@@ -201,8 +201,11 @@ function existsDir(p: string): boolean {
  * Materializes `<root>/.claude-plugin/plugin.json` (from `pluginManifestFor`)
  * plus `<root>/bin/` (from `pluginBinEntries`), pruning any stale
  * flow-managed bin symlink that fell out of the module's entry set. Never
- * creates a `skills/` directory — the skill-content move is a deferred
- * follow-up; this task only emits the manifest's `skills` field.
+ * creates the `skills/`/`agents/` directories itself — those are populated
+ * by `discoverSkills`/`discoverAgents`'s own per-artifact symlinks (routed
+ * into this root by `sources.ts`) and `setup.ts`'s install loop, which runs
+ * plugin-root materialization first so the root always exists
+ * flow-owned before any child symlink lands inside it.
  *
  * Idempotent by construction: the manifest is only rewritten when its bytes
  * differ from what's on disk, and each bin entry goes through
@@ -236,11 +239,25 @@ export function ensurePluginRoot(args: {
     return "blocked";
   }
 
+  // Refine the caller's blanket `includeSkills` by whether THIS module
+  // actually owns any skill rows — `copilot`'s row is skills:[] (helper-only),
+  // so declaring `skills: ["./skills"]` for it would promise a directory
+  // `discoverSkills` never symlinks anything into (no artifact routes there),
+  // which fails `claude plugin validate --strict` with a real "Path not
+  // found" error. A module WITH skill rows still gets `includeSkills` as the
+  // caller passed it.
+  const moduleRow = MODULES.find((m) => m.id === moduleId);
+  const effectiveIncludeSkills =
+    includeSkills && (moduleRow?.skills.length ?? 0) > 0;
+
   const manifestDir = path.join(root, ".claude-plugin");
   const manifestPath = path.join(manifestDir, "plugin.json");
   const manifestJson =
     JSON.stringify(
-      pluginManifestFor(moduleId, { version, includeSkills }),
+      pluginManifestFor(moduleId, {
+        version,
+        includeSkills: effectiveIncludeSkills,
+      }),
       null,
       2,
     ) + "\n";

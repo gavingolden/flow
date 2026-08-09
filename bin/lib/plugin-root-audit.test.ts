@@ -69,15 +69,15 @@ describe(unexpectedPluginRootEntries, () => {
     ]);
   });
 
-  it("a real regular file in bin/ is an unmanaged-bin-entry", () => {
+  it("a real regular file in bin/ is an unmanaged-entry", () => {
     materializeCleanRoot();
     fs.writeFileSync(path.join(root, "bin", "curl"), "#!/bin/sh\n");
     expect(unexpectedPluginRootEntries(root)).toEqual([
-      { relPath: path.join("bin", "curl"), reason: "unmanaged-bin-entry" },
+      { relPath: path.join("bin", "curl"), reason: "unmanaged-entry" },
     ]);
   });
 
-  it("a dangling symlink in bin/ is a dangling-bin-symlink, not an unmanaged-bin-entry", () => {
+  it("a dangling symlink in bin/ is a dangling-symlink, not an unmanaged-entry", () => {
     materializeCleanRoot();
     fs.symlinkSync(
       path.join(scratch, "does-not-exist.ts"),
@@ -86,7 +86,7 @@ describe(unexpectedPluginRootEntries, () => {
     const issues = unexpectedPluginRootEntries(root);
     expect(issues).toContainEqual({
       relPath: path.join("bin", "flow-dangling"),
-      reason: "dangling-bin-symlink",
+      reason: "dangling-symlink",
     });
     expect(issues).toHaveLength(1);
   });
@@ -99,13 +99,13 @@ describe(unexpectedPluginRootEntries, () => {
     expect(unexpectedPluginRootEntries(root)).toEqual([]);
   });
 
-  it("a real directory in bin/ is an unmanaged-bin-entry", () => {
+  it("a real directory in bin/ is an unmanaged-entry", () => {
     materializeCleanRoot();
     fs.mkdirSync(path.join(root, "bin", "stray-dir"));
     const issues = unexpectedPluginRootEntries(root);
     expect(issues).toContainEqual({
       relPath: path.join("bin", "stray-dir"),
-      reason: "unmanaged-bin-entry",
+      reason: "unmanaged-entry",
     });
     expect(issues).toHaveLength(1);
   });
@@ -219,5 +219,89 @@ describe(unexpectedPluginRootEntries, () => {
     fs.writeFileSync(path.join(dir, "plugin.json"), "{ not json");
     fs.mkdirSync(path.join(root, "skills"), { recursive: true });
     expect(unexpectedPluginRootEntries(root)).toEqual([]);
+  });
+
+  describe("Task 5: agents/ is unconditionally expected, plus skills/+agents/ one-level walks", () => {
+    it("agents/ absent is never flagged — an absent expected child is not drift", () => {
+      materializeCleanRoot();
+      expect(unexpectedPluginRootEntries(root)).toEqual([]);
+    });
+
+    it("AC-1: a fully populated root (manifest declaring skills, plus a live skills/ and agents/ symlink each) reports clean", () => {
+      writeManifest({ skills: ["./skills"] });
+      fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+      fs.mkdirSync(path.join(root, "skills"), { recursive: true });
+      fs.mkdirSync(path.join(root, "agents"), { recursive: true });
+      const skillDir = path.join(scratch, "real-skill-dir");
+      fs.mkdirSync(skillDir);
+      fs.symlinkSync(skillDir, path.join(root, "skills", "flow-example"));
+      const agentFile = path.join(scratch, "real-agent.md");
+      fs.writeFileSync(agentFile, "# agent\n");
+      fs.symlinkSync(agentFile, path.join(root, "agents", "flow-example.md"));
+      expect(unexpectedPluginRootEntries(root)).toEqual([]);
+    });
+
+    it("AC-3: a live directory symlink in skills/ is not reported (skill targets are directories, unlike bin/'s files)", () => {
+      writeManifest({ skills: ["./skills"] });
+      fs.mkdirSync(path.join(root, "skills"), { recursive: true });
+      const skillDir = path.join(scratch, "another-real-skill-dir");
+      fs.mkdirSync(skillDir);
+      fs.symlinkSync(skillDir, path.join(root, "skills", "flow-another"));
+      expect(unexpectedPluginRootEntries(root)).toEqual([]);
+    });
+
+    it("a dangling symlink in skills/ is a dangling-symlink", () => {
+      writeManifest({ skills: ["./skills"] });
+      fs.mkdirSync(path.join(root, "skills"), { recursive: true });
+      fs.symlinkSync(
+        path.join(scratch, "does-not-exist-skill"),
+        path.join(root, "skills", "flow-ghost"),
+      );
+      expect(unexpectedPluginRootEntries(root)).toEqual([
+        {
+          relPath: path.join("skills", "flow-ghost"),
+          reason: "dangling-symlink",
+        },
+      ]);
+    });
+
+    it("a dangling symlink in agents/ is a dangling-symlink", () => {
+      materializeCleanRoot();
+      fs.mkdirSync(path.join(root, "agents"), { recursive: true });
+      fs.symlinkSync(
+        path.join(scratch, "does-not-exist-agent.md"),
+        path.join(root, "agents", "flow-ghost.md"),
+      );
+      expect(unexpectedPluginRootEntries(root)).toEqual([
+        {
+          relPath: path.join("agents", "flow-ghost.md"),
+          reason: "dangling-symlink",
+        },
+      ]);
+    });
+
+    it("AC-4: a hand-dropped real file in <root>/agents/ is an unmanaged-entry, naming the relative path", () => {
+      materializeCleanRoot();
+      fs.mkdirSync(path.join(root, "agents"), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, "agents", "hand-authored.md"),
+        "# not flow's\n",
+      );
+      expect(unexpectedPluginRootEntries(root)).toEqual([
+        {
+          relPath: path.join("agents", "hand-authored.md"),
+          reason: "unmanaged-entry",
+        },
+      ]);
+    });
+
+    it(".DS_Store is ignored in skills/ and agents/ too", () => {
+      writeManifest({ skills: ["./skills"] });
+      fs.mkdirSync(path.join(root, "skills"), { recursive: true });
+      fs.mkdirSync(path.join(root, "agents"), { recursive: true });
+      fs.writeFileSync(path.join(root, "skills", ".DS_Store"), "");
+      fs.writeFileSync(path.join(root, "agents", ".DS_Store"), "");
+      expect(unexpectedPluginRootEntries(root)).toEqual([]);
+    });
   });
 });

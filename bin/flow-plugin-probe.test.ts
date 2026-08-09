@@ -19,6 +19,7 @@ const ALL_IDS: ProbeId[] = [
   "bin-path-injection",
   "enabled-plugins",
   "skill-invocation-name",
+  "agent-invocation-name",
 ];
 
 describe(runProbes, () => {

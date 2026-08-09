@@ -43,7 +43,7 @@ batches return.
 
 ## Degrade path — inline sequential verification
 
-Probe with `[ -f ~/.claude/agents/flow-backlog-verifier.md ]` — the
+Probe with `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-backlog-verifier.md ]` — the
 installed-agent path, not a repo-relative source path. This skill runs
 in arbitrary consumer repos whose cwd is never the flow checkout, so a
 cwd-relative `agents/flow-backlog-verifier.md` check is never true there

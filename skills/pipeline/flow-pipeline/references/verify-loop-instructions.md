@@ -102,7 +102,7 @@ none.
 **Spawn procedure (wider-scope path only).**
 
 1. Resolve `agents/flow-edit-applier.md`: `[ -f
-~/.claude/agents/flow-edit-applier.md ]`. Unlike the nine top-level
+~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-edit-applier.md ]`. Unlike the nine top-level
    exemptions, this site does **not** fall back to `general-purpose` on a
    miss — a `general-purpose` child would inherit the full session
    toolset (including `Task`) with none of `flow-edit-applier.md`'s

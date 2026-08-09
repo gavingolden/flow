@@ -1537,7 +1537,9 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "pr-review SKILL.md Step 1.5 must resolve GATEKEEPER_SUBAGENT to `flow-gatekeeper`.",
     ).toBe(true);
     expect(
-      prReviewContent.includes("[ -f ~/.claude/agents/flow-gatekeeper.md ]"),
+      prReviewContent.includes(
+        "[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-gatekeeper.md ]",
+      ),
       "pr-review SKILL.md gatekeeper site must guard on the installed definition file.",
     ).toBe(true);
     expect(
@@ -1549,7 +1551,9 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "pr-review SKILL.md Step 3.5 must resolve CONSOLIDATOR_SUBAGENT to `flow-consolidator`.",
     ).toBe(true);
     expect(
-      prReviewContent.includes("[ -f ~/.claude/agents/flow-consolidator.md ]"),
+      prReviewContent.includes(
+        "[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-consolidator.md ]",
+      ),
       "pr-review SKILL.md consolidator site must guard on the installed definition file.",
     ).toBe(true);
     expect(
@@ -1568,7 +1572,9 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "pr-review SKILL.md Step 3 spawn must pass `subagent_type: $LENS_AGENT`.",
     ).toBe(true);
     expect(
-      prReviewContent.includes("[ -f ~/.claude/agents/flow-review-$LENS.md ]"),
+      prReviewContent.includes(
+        "[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-review-$LENS.md ]",
+      ),
       "pr-review SKILL.md Step 3 must guard each lens on the installed definition file.",
     ).toBe(true);
   });
@@ -1626,7 +1632,9 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "flow-new-feature SKILL.md Step 1b must resolve SCOUT_SUBAGENT to `flow-scout`.",
     ).toBe(true);
     expect(
-      newFeatureContent.includes("[ -f ~/.claude/agents/flow-scout.md ]"),
+      newFeatureContent.includes(
+        "[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-scout.md ]",
+      ),
       "flow-new-feature SKILL.md scout site must guard on the installed definition file.",
     ).toBe(true);
     expect(
@@ -1640,7 +1648,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     ).toBe(true);
     expect(
       productPlanningTopContent.includes(
-        "[ -f ~/.claude/agents/flow-discovery.md ]",
+        "[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-discovery.md ]",
       ),
       "flow-product-planning SKILL.md discovery site must guard on the installed definition file.",
     ).toBe(true);
@@ -1654,7 +1662,9 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "flow-pipeline SKILL.md step 10 must resolve MERGE_RESOLVER_SUBAGENT to `flow-merge-resolver`.",
     ).toBe(true);
     expect(
-      content.includes("[ -f ~/.claude/agents/flow-merge-resolver.md ]"),
+      content.includes(
+        "[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-merge-resolver.md ]",
+      ),
       "flow-pipeline SKILL.md merge-resolver site must guard on the installed definition file.",
     ).toBe(true);
     expect(
@@ -1667,7 +1677,9 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "flow-coder SKILL.md must resolve CODER_SUBAGENT to `flow-edit-applier`.",
     ).toBe(true);
     expect(
-      coderContent.includes("[ -f ~/.claude/agents/flow-edit-applier.md ]"),
+      coderContent.includes(
+        "[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-edit-applier.md ]",
+      ),
       "flow-coder SKILL.md edit-applier site must guard on the installed definition file.",
     ).toBe(true);
     expect(

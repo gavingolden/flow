@@ -197,7 +197,7 @@ spawn:
 
    ```bash
    CODER_SUBAGENT=flow-edit-applier
-   [ -f ~/.claude/agents/flow-edit-applier.md ] || { CODER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-edit-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+   [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-edit-applier.md ] || { CODER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-edit-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
    ```
 
    Make exactly **one** Task-tool call:

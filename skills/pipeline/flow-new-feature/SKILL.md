@@ -182,7 +182,7 @@ plan.md's `## Alternatives considered` (see
 
    ```bash
    SCOUT_SUBAGENT=flow-scout
-   [ -f ~/.claude/agents/flow-scout.md ] || { SCOUT_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-scout → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+   [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-scout.md ] || { SCOUT_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-scout → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
    ```
 
    Make exactly **one** Task-tool call:

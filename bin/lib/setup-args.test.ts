@@ -366,6 +366,19 @@ describe("runSetupCli", () => {
     };
   }
 
+  // A skill/agent's install target nests inside its owning module's plugin
+  // root (<skillsDir>/flow-module-<moduleId>/<kind>/<name>) — see
+  // setup.test.ts's identically-named helper for the full rationale.
+  // buildFakeFlowSource's "alpha" is registry-unknown, routing to "core".
+  function moduleRootTarget(
+    t: ReturnType<typeof targets>,
+    kind: "skills" | "agents",
+    name: string,
+    moduleId: string = "core",
+  ): string {
+    return path.join(t.skillsDir, `flow-module-${moduleId}`, kind, name);
+  }
+
   function cli(args: string[]) {
     return runSetupCli(args, {
       flowSource,
@@ -394,8 +407,9 @@ describe("runSetupCli", () => {
 
   it("returns exit code 1 when at least one target is blocked", async () => {
     const t = targets();
-    fs.mkdirSync(t.skillsDir, { recursive: true });
-    fs.writeFileSync(path.join(t.skillsDir, "alpha"), "user content");
+    const alphaTarget = moduleRootTarget(t, "skills", "alpha");
+    fs.mkdirSync(path.dirname(alphaTarget), { recursive: true });
+    fs.writeFileSync(alphaTarget, "user content");
     expect(await cli([])).toBe(1);
   });
 
@@ -494,7 +508,9 @@ describe("runSetupCli", () => {
     });
     expect(code).toBe(0);
     const t = targets();
-    const linkRealpath = fs.realpathSync(path.join(t.skillsDir, "alpha"));
+    const linkRealpath = fs.realpathSync(
+      moduleRootTarget(t, "skills", "alpha"),
+    );
     const altRealpath = fs.realpathSync(altSource);
     expect(linkRealpath.startsWith(altRealpath)).toBe(true);
   });

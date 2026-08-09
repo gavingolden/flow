@@ -27,7 +27,7 @@ via the Task tool. Each of the six lens spawns names
 `subagent_type: flow-review-<lens>` (the `agents/flow-review-<lens>.md`
 definitions with a Read/Grep/Glob/Write `tools:` allowlist and no
 `effort:`/`model:` pins), resolved via the
-`[ -f ~/.claude/agents/flow-review-<lens>.md ]` file-exists guard that
+`[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-review-<lens>.md ]` file-exists guard that
 falls back to `general-purpose` with the loud `NOTICE — agent-fallback:`
 line; the intent-guess spawn names `subagent_type:
 flow-review-intent-guess` (`agents/flow-review-intent-guess.md`, same
@@ -54,7 +54,7 @@ site, main-session reads each artifact once and never re-reads.
 Spawned as the named `agents/flow-discovery.md` definition (judgment
 role: no frontmatter `effort`/`model`; per-spawn `model:` threading
 unchanged), with the
-`[ -f ~/.claude/agents/flow-discovery.md ] || general-purpose` fallback
+`[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-discovery.md ] || general-purpose` fallback
 guard emitting the `NOTICE — agent-fallback:` line. The definition
 deliberately carries no `tools:` allowlist — discovery's research and
 design-artifact passes span Bash, `WebFetch`, MCP, and multimodal `Read`
@@ -72,7 +72,7 @@ both sides — at least one positive finding and at least one negative
 finding (off-limits surfaces, rejected approaches, foreclosed shortcuts).
 Spawned as the named `agents/flow-scout.md` definition (judgment role: no
 frontmatter `effort`/`model`; per-spawn `model:` threading unchanged),
-with the `[ -f ~/.claude/agents/flow-scout.md ] || general-purpose`
+with the `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-scout.md ] || general-purpose`
 fallback guard emitting the `NOTICE — agent-fallback:` line.
 
 ## `/flow-pr-review` Fix-Applier Subagent
@@ -96,7 +96,7 @@ default and the `bin/lib/base-branch-guard.ts` pre-commit hook that
 enforces the same invariant mechanically. Spawned as
 the named `agents/flow-fix-applier.md` definition (judgment role: no
 frontmatter `effort`/`model`; per-spawn `model:` threading unchanged),
-with the `[ -f ~/.claude/agents/flow-fix-applier.md ] || general-purpose`
+with the `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-fix-applier.md ] || general-purpose`
 fallback guard emitting the `NOTICE — agent-fallback:` line.
 
 ## Merge-Conflict Resolver Subagent
@@ -121,7 +121,7 @@ base branch.
 Spawned as the named `agents/flow-merge-resolver.md` definition (judgment
 role: no frontmatter `effort`/`model`; per-spawn `model:` threading
 unchanged), with the
-`[ -f ~/.claude/agents/flow-merge-resolver.md ] || general-purpose`
+`[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-merge-resolver.md ] || general-purpose`
 fallback guard emitting the `NOTICE — agent-fallback:` line.
 
 On a spawn-denial (the Task call itself refused, no artifact written),
@@ -150,7 +150,7 @@ bar). The full contract is in `skills/pipeline/flow-coder/SKILL.md`'s
 "Independent Edit-Applier Subagent" section. Spawned as the named
 `agents/flow-edit-applier.md` definition (judgment role: no frontmatter
 `effort`/`model`; per-spawn `model:` threading unchanged), with the
-`[ -f ~/.claude/agents/flow-edit-applier.md ] || general-purpose`
+`[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-edit-applier.md ] || general-purpose`
 fallback guard emitting the `NOTICE — agent-fallback:` line. A second,
 nested spawn site exists — the Verify-Retry-Loop's wider-scope path
 spawns the same definition directly at depth 3, writing
@@ -214,7 +214,7 @@ block from `final_failure_excerpt`. A committing subagent is consistent with the
 Fix-Applier (#4) and Merge-Conflict Resolver (#5) precedents. Spawned as
 the named `agents/flow-verify.md` definition (mechanical role: pins
 `effort: low`, no `model:` pin; per-spawn `model:` threading unchanged),
-with the `[ -f ~/.claude/agents/flow-verify.md ] || general-purpose`
+with the `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-verify.md ] || general-purpose`
 fallback guard emitting the `NOTICE — agent-fallback:` line. The
 subagent's full instructions are at
 `skills/pipeline/flow-pipeline/references/verify-loop-instructions.md`.

@@ -9,7 +9,7 @@ Step 3 points at.
 Spawn ONE additional Task agent, `flow-review-intent-guess`, in the SAME
 fan-out message as the six lens agents (rides the existing Multi-Agent
 Review exemption — no new Task-tool exemption), resolved via the same
-`[ -f ~/.claude/agents/flow-review-intent-guess.md ] ||
+`[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-review-intent-guess.md ] ||
 general-purpose` fallback as the per-lens resolution.
 
 Context is diff-only, deliberately narrower than the six lenses' shared

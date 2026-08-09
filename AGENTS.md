@@ -88,7 +88,8 @@ module (`docs/configuration.md`). `flow-plugin-probe`/`flow-plugin-contract-lint
 join `flow-release`/`flow-model-bench` in `MAINTAINER_ONLY` — never on PATH.
 
 Static agent-type definitions live in **`agents/`** (`*.md` frontmatter),
-discovered by `discoverAgents` and symlinked to `~/.claude/agents/`:
+discovered by `discoverAgents`, symlinked per-module
+(`flow-module-<id>/agents/`):
 14/15 carry `tools:` allowlists (flow-discovery: none); 2 mechanical
 roles (`flow-fix-applier`, `flow-verify`) pin `effort: low`, the
 gatekeeper (`flow-gatekeeper`) pins `model: haiku`; per-spawn `model:`

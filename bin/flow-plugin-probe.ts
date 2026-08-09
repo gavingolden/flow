@@ -37,7 +37,8 @@ export type ProbeId =
   | "symlink-materialization"
   | "bin-path-injection"
   | "enabled-plugins"
-  | "skill-invocation-name";
+  | "skill-invocation-name"
+  | "agent-invocation-name";
 
 export type ProbeVerdict = {
   id: ProbeId;
@@ -52,6 +53,7 @@ const PROBE_IDS: ProbeId[] = [
   "bin-path-injection",
   "enabled-plugins",
   "skill-invocation-name",
+  "agent-invocation-name",
 ];
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -122,7 +124,7 @@ function materializeRoot(
     moduleId,
     flowSource: resolveFlowSource(),
     version: "1.0.0",
-    includeSkills: false,
+    includeSkills: true,
     force: false,
   });
   return root;
@@ -359,6 +361,75 @@ async function probeSkillInvocationName(
   };
 }
 
+async function probeAgentInvocationName(
+  fixtureHome: string,
+): Promise<ProbeVerdict> {
+  const id: ProbeId = "agent-invocation-name";
+  // Forward-looking fixture, same shape as probeSkillInvocationName's: no
+  // manifest `agents` key is declared (the manifest type has none) — this
+  // settles whether an `agents/` directory is discovered by bare presence
+  // ahead of the deferred agent-move follow-up implementing it.
+  const root = materializeRoot(fixtureHome);
+  const agentsDir = path.join(root, "agents");
+  fs.mkdirSync(agentsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(agentsDir, "flow-probe-agent.md"),
+    "---\nname: flow-probe-agent\ndescription: probe fixture agent\n---\n# probe fixture agent\n",
+  );
+
+  const result = await runClaude(
+    ["plugin", "details", "flow-module-core@skills-dir"],
+    { home: fixtureHome },
+  );
+  if (result.timedOut) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `claude plugin details timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+      fallback:
+        "the deferred agent-move follow-up ships without a verified naming answer; re-probe before implementing it",
+    };
+  }
+  const bareNameConfirmed =
+    result.exitCode === 0 &&
+    /Agents\s*\(1\)/.test(result.stdout) &&
+    result.stdout.includes("flow-probe-agent");
+  if (!bareNameConfirmed) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `claude plugin details did not report the fixture agent under an Agents (1) count by its bare name (exit ${result.exitCode}): ${result.stdout.trim()}`,
+      fallback:
+        "the deferred agent-move follow-up ships without a verified naming answer; re-probe before implementing it",
+    };
+  }
+
+  // Task-tool visibility corroboration only — a one-shot `-p` session
+  // asking for the probe agent's subagent_type identifier. The verdict is
+  // gated on the bare-name `plugin details` evidence above alone (per this
+  // harness's existing contract, matching probeSkillInvocationName); this
+  // half never downgrades a bare-name `confirmed`, it only annotates the
+  // evidence string.
+  const taskResult = await runClaude(
+    [
+      "--plugin-dir",
+      root,
+      "-p",
+      "What is the exact subagent_type identifier for the flow-probe-agent agent available to the Task tool? Answer with just the identifier.",
+    ],
+    { home: fixtureHome },
+  );
+  const taskEvidence = taskResult.timedOut
+    ? `claude --plugin-dir <root> -p ... timed out after ${DEFAULT_TIMEOUT_MS}ms`
+    : `claude --plugin-dir <root> -p ... exit ${taskResult.exitCode}: ${taskResult.stdout.trim().slice(0, 300)}`;
+
+  return {
+    id,
+    verdict: "confirmed",
+    evidence: `claude plugin details flow-module-core@skills-dir reports the agent by its BARE file basename (flow-probe-agent) under an Agents (1) count, with no manifest 'agents' key declared — settles the naming convention for the deferred agent-move follow-up. Task-tool visibility corroboration (not gating): ${taskEvidence}`,
+  };
+}
+
 const PROBE_FNS: Record<
   ProbeId,
   (fixtureHome: string) => Promise<ProbeVerdict>
@@ -368,6 +439,7 @@ const PROBE_FNS: Record<
   "bin-path-injection": probeBinPathInjection,
   "enabled-plugins": probeEnabledPlugins,
   "skill-invocation-name": probeSkillInvocationName,
+  "agent-invocation-name": probeAgentInvocationName,
 };
 
 export function runProbes(

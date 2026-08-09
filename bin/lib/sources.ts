@@ -16,6 +16,7 @@ import type { SymlinkKind, SymlinkRecord } from "./manifest";
 import {
   isRegistryKnownArtifact,
   MANDATORY_MODULE,
+  moduleForArtifactName,
   moduleIds,
   type ModuleId,
 } from "./modules";
@@ -94,6 +95,19 @@ export const DEFAULT_TARGETS: InstallTargets = {
   completionsDir: FLOW_COMPLETIONS_DIR,
 };
 
+/**
+ * The plugin root a given artifact's target should live under:
+ * `moduleForArtifactName`'s owning module when the registry claims the
+ * name, else `MANDATORY_MODULE` ("core") for a registry-unknown artifact
+ * (an in-flight worktree addition not yet registered) — OQ-2 revised:
+ * unknown artifacts route into the core root rather than a separate
+ * flat/global location, so there is never dual-location logic downstream.
+ */
+function ownerPluginRootName(displayName: string): string {
+  const owner = moduleForArtifactName(displayName) ?? MANDATORY_MODULE;
+  return pluginRootName(owner);
+}
+
 /** Lists every skill directory across all tiers under <flow-source>/skills/. */
 export function discoverSkills(
   flowSource: string,
@@ -113,7 +127,12 @@ export function discoverSkills(
       if (!fs.existsSync(path.join(tierDir, dirent.name, "SKILL.md"))) continue;
       entries.push({
         source: path.join(tierDir, dirent.name),
-        target: path.join(targets.skillsDir, dirent.name),
+        target: path.join(
+          targets.skillsDir,
+          ownerPluginRootName(dirent.name),
+          "skills",
+          dirent.name,
+        ),
         kind: "skill",
         displayName: dirent.name,
       });
@@ -134,7 +153,12 @@ export function discoverAgents(
     .filter((d) => d.isFile() && d.name.endsWith(".md"))
     .map((d) => ({
       source: path.join(agentsRoot, d.name),
-      target: path.join(targets.agentsDir, d.name),
+      target: path.join(
+        targets.skillsDir,
+        ownerPluginRootName(d.name),
+        "agents",
+        d.name,
+      ),
       kind: "agent" as const,
       displayName: d.name,
     }));

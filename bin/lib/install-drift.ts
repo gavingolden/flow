@@ -120,15 +120,14 @@ export function checkInstallDrift(
     // orphaned plugin root must still report that drift, not report clean.
     for (const root of scanPluginRoots(targets.skillsDir)) {
       for (const issue of unexpectedPluginRootEntries(root)) {
-        // A dangling `bin/` symlink is genuinely repaired by
-        // `flow install --upgrade` (see `classifyBinEntry` in
+        // A dangling `bin/`/`skills/`/`agents/` symlink is genuinely
+        // repaired by `flow install --upgrade` (see `classifyEntry` in
         // `plugin-root-audit.ts`), so it gets the "dangling" kind and that
         // kind's self-healing remediation — not "unexpected", which routes
         // to the hand-removal remediation reserved for real, non-symlink
         // files the prune loop never touches.
         entries.push({
-          kind:
-            issue.reason === "dangling-bin-symlink" ? "dangling" : "unexpected",
+          kind: issue.reason === "dangling-symlink" ? "dangling" : "unexpected",
           displayName: path.basename(root),
           target: root,
           detail: issue.relPath,

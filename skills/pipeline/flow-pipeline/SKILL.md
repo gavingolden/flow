@@ -1176,7 +1176,9 @@ implement-failed`.
 Sub-skills loaded by the supervisor in steps 6–8 (`/flow-verify`,
 `/flow-pr-review`) are read from `~/.flow/claude-home/.claude/skills/`
 (loaded into the supervisor session via the seed session's
-`--add-dir ~/.flow/claude-home`) and agents still from `~/.claude/agents/`
+`--add-dir ~/.flow/claude-home`), and agents from the same tree, nested
+inside each artifact's owning module's plugin root
+(`~/.flow/claude-home/.claude/skills/flow-module-<id>/agents/`)
 — both populated by `flow install` (and `flow install --upgrade`) via symlink.
 A worktree that adds new files under `skills/` or `agents/` in step 5
 does not get those files symlinked automatically; the same supervisor
@@ -1239,7 +1241,8 @@ reaped on the next `flow install --upgrade`.
 **Concurrency.** `flow install` wraps its symlink work in
 `~/.flow/setup.lock` (`bin/lib/lock.ts`), so parallel pipelines that
 both add skills/agents serialise here rather than racing on
-`~/.flow/claude-home/.claude/skills/` and `~/.claude/agents/`. Do not add an ad-hoc
+`~/.flow/claude-home/.claude/skills/` (skills and agents both, each
+nested under its owning module's plugin root). Do not add an ad-hoc
 lock at this call site.
 
 **End condition:** the helper exits 0. On non-zero exit (the verb
@@ -1303,7 +1306,7 @@ VERIFY_MODEL=$(jq -r '.modelVerify // empty' ~/.flow/state/"$SLUG".json)
 # on an unknown agent type. The per-spawn model: below overrides the
 # definition's model, so the verify precedence is unchanged either way.
 VERIFY_SUBAGENT=flow-verify
-[ -f ~/.claude/agents/flow-verify.md ] || { VERIFY_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-verify → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-verify.md ] || { VERIFY_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-verify → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
 ```
 
 Spawn-prompt template (fill the `{{...}}` placeholders before passing to
@@ -1996,7 +1999,7 @@ CONFLICTING_FILES=$(cd "$WORKTREE" && git diff --name-only --diff-filter=U)
 PR_DESCRIPTION=$(gh pr view "$PR" --json body -q .body)
 # Guarded agent resolution — contract in references/exemption-contracts.md (exemption #5)
 MERGE_RESOLVER_SUBAGENT=flow-merge-resolver
-[ -f ~/.claude/agents/flow-merge-resolver.md ] || { MERGE_RESOLVER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-merge-resolver → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-merge-resolver.md ] || { MERGE_RESOLVER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-merge-resolver → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
 ```
 
 See [references/merge-resolver-spawn-prompt.md](references/merge-resolver-spawn-prompt.md) for the verbatim spawn-prompt template (nine `{{...}}` placeholders). Fill the placeholders from the resolve-inputs block above before passing it to the Task tool.
