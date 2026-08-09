@@ -676,6 +676,104 @@ describe("runOrphanSweep", () => {
   });
 });
 
+describe("main --orphans (deprecation pointer)", () => {
+  function setStderrIsTTY(value: boolean | undefined): void {
+    Object.defineProperty(process.stderr, "isTTY", {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  let origStderrIsTTY: boolean | undefined;
+
+  beforeEach(() => {
+    origStderrIsTTY = process.stderr.isTTY;
+  });
+
+  afterEach(() => {
+    setStderrIsTTY(origStderrIsTTY);
+  });
+
+  it("PRE-EXISTING stdout keys are unchanged (no key changes type or value) and the exit code is still 0", () => {
+    setStderrIsTTY(false);
+    const errSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const code = main(["--orphans", "--json"]);
+      expect(code).toBe(0);
+      const parsed = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
+      expect(typeof parsed.ran).toBe("boolean");
+      expect(Array.isArray(parsed.found)).toBe(true);
+      expect(Array.isArray(parsed.foundServers)).toBe(true);
+      expect(Array.isArray(parsed.signalled)).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
+  it("--json additively carries deprecated:true and successor:'flow reap'", () => {
+    setStderrIsTTY(false);
+    const errSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const code = main(["--orphans", "--json"]);
+      expect(code).toBe(0);
+      const parsed = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
+      expect(parsed.deprecated).toBe(true);
+      expect(parsed.successor).toBe("flow reap");
+    } finally {
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
+  it("the deprecation pointer appears on stderr ONLY when process.stderr.isTTY is true, and NEVER on stdout", () => {
+    setStderrIsTTY(true);
+    const errSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const code = main(["--orphans", "--json"]);
+      expect(code).toBe(0);
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "flow-browser-teardown --orphans is deprecated",
+        ),
+      );
+      const stdoutOutput = logSpy.mock.calls
+        .map((c) => String(c[0]))
+        .join("\n");
+      expect(stdoutOutput).not.toContain("deprecated —");
+    } finally {
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
+  it("the deprecation pointer is suppressed when process.stderr.isTTY is false (a redirected/CI stderr)", () => {
+    setStderrIsTTY(false);
+    const errSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const code = main(["--orphans", "--json"]);
+      expect(code).toBe(0);
+      expect(errSpy).not.toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+});
+
 describe("classifyProfileShape — verified live shapes that can result in a SIGTERM", () => {
   it("classifies puppeteer's isolated temp-profile shape (chrome-devtools-mcp-isolated), the shape marked UNCONFIRMED BY OBSERVATION but still allowlisted", () => {
     const opts = { homeDir: "/Users/dev", tmpDir: "/private/tmp/xyz" };

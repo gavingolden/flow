@@ -3,7 +3,7 @@
  * `~/.flow/state/procs/<slug>.jsonl` against the live process table before
  * ever sending a signal, then dispatches a class-specific kill policy.
  *
- * Three "reap" surfaces exist in this codebase and are easy to conflate:
+ * Four "reap" surfaces exist in this codebase and are easy to conflate:
  *   - `bin/lib/reap-orphans.ts` reaps pipeline STATE FILES (`deleteState`)
  *     for supervisors that never got past `starting` — it sends no signals
  *     at all.
@@ -13,6 +13,10 @@
  *   - THIS module reaps processes recorded as rows in the process registry
  *     (`bin/lib/proc-registry.ts`), verified by pid+pgid+startEpoch
  *     identity rather than shape.
+ *   - `bin/lib/reap-cli.ts` backs the user-facing `flow reap` VERB, which
+ *     composes the registry sweep (this module, via `proc-sweep-run.ts`)
+ *     with `runOrphanSweep`'s shape heuristics behind one report — report-
+ *     only unless `--yes`.
  *
  * Destructive by construction: every verification failure mode — an
  * unverifiable identity, an unreadable process table, an ambiguous group —

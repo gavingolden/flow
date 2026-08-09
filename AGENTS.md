@@ -233,9 +233,10 @@ three-layer resolution table, and the manifest/foundation fields — is at
   terminal state as the guaranteed registry-driven backstop, never
   `|| true`-swallowed, its outcome recorded in
   `~/.flow/state/<slug>.json` and surfaced as the gate summary's
-  CLEANUP row; (3) the orphan sweep as the crash-path net, never the
-  primary. See `skills/pipeline/flow-pipeline/SKILL.md` "Resource
-  cleanup".
+  CLEANUP row; (3) `flow reap` as the crash-path net, never the
+  primary — it covers both registered rows left by a crashed session
+  and shape-heuristic strays, and stays report-only without `--yes`.
+  See `skills/pipeline/flow-pipeline/SKILL.md` "Resource cleanup".
 - **Don't make tmux pane/window state a load-bearing input.** Prefer
   backend-agnostic signals, in order: the launch env (`FLOW_SLUG`, set by
   both launcher backends), `~/.flow/state/<slug>.json`, then on-disk

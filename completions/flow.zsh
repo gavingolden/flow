@@ -32,6 +32,7 @@ _flow() {
                 'attach:attach to a pipeline window'
                 'a:alias for attach'
                 'done:close a pipeline window'
+                'reap:report (and clean up) processes left by dead pipelines'
                 'completion:print a shell completion script'
                 'version:print flow version'
                 'help:show help'
@@ -161,6 +162,13 @@ _flow() {
                         '--orphans[close every state file whose tmux window is gone]' \
                         '(--yes -y)'{--yes,-y}'[skip confirmation]' \
                         '*::pipeline:_flow_slugs'
+                    ;;
+                reap)
+                    _arguments \
+                        '--slug[scope the sweep to one pipeline slug]:pipeline:_flow_slugs' \
+                        '--yes[act on registered rows instead of only reporting]' \
+                        '--include-strays[also act on shape-heuristic strays]' \
+                        '--json[emit machine-readable output]'
                     ;;
                 completion)
                     local -a shells

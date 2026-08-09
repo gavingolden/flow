@@ -16,10 +16,11 @@
  * signal skips the server's own shutdown path and orphans Chrome to PPID 1
  * (the exact failure mode this helper exists to prevent).
  *
- * `--orphans` mode (opt-in, report-only unless `--yes`): sweeps sessionless
- * automation-Chrome processes and sessionless chrome-devtools-mcp servers
- * left behind by a crashed/killed session. This is NOT the same sweep as
- * `flow done --orphans` (which sweeps stale pipeline STATE FILES, see
+ * `--orphans` mode (DEPRECATED — use `flow reap` instead; opt-in,
+ * report-only unless `--yes`): sweeps sessionless automation-Chrome
+ * processes and sessionless chrome-devtools-mcp servers left behind by a
+ * crashed/killed session. This is NOT the same sweep as `flow done
+ * --orphans` (which sweeps stale pipeline STATE FILES, see
  * `bin/lib/done.ts` / `bin/lib/help.ts`) — the two commands share a flag
  * name but sweep unrelated things.
  *
@@ -922,7 +923,9 @@ function memoizedListProcs(): () => ProcRow[] | undefined {
  * behaviour (in the common case where the pipeline-session gate fails
  * before `listProcs` is ever called, that stays a true no-op).
  */
-function buildDefaultDeps(opts: { includeReapExtras?: boolean } = {}): Deps {
+export function buildDefaultDeps(
+  opts: { includeReapExtras?: boolean } = {},
+): Deps {
   const listProcs = memoizedListProcs();
   const selfPid = process.pid;
 
@@ -1042,11 +1045,12 @@ function usage(): string {
     "its shutdown() handler reaps its Chrome subprocess. Gated on",
     "FLOW_PIPELINE=1 unless --session-pid is passed explicitly.",
     "",
-    "--orphans mode sweeps sessionless browser PROCESSES (and sessionless",
-    "chrome-devtools-mcp servers) left behind by a crashed/killed session.",
-    "This is NOT the same sweep as `flow done --orphans`, which sweeps stale",
-    "pipeline STATE FILES, not browser processes — the two commands share a",
-    "flag name but sweep unrelated things.",
+    "--orphans mode (DEPRECATED — use `flow reap` instead) sweeps",
+    "sessionless browser PROCESSES (and sessionless chrome-devtools-mcp",
+    "servers) left behind by a crashed/killed session. This is NOT the",
+    "same sweep as `flow done --orphans`, which sweeps stale pipeline",
+    "STATE FILES, not browser processes — the two commands share a flag",
+    "name but sweep unrelated things.",
     "",
     "--reap mode (opt-in) verifies and signals every row recorded in",
     "~/.flow/state/procs/<slug>.jsonl before falling back to the ancestry",
@@ -1104,6 +1108,14 @@ export function main(argv: string[]): number {
   const deps = buildDefaultDeps();
 
   if (parsed.orphans) {
+    // TTY-gated: a cron job or CI step that redirects stderr must not
+    // acquire new output from this pointer — some CI configs fail a step
+    // on any stderr write.
+    if (process.stderr.isTTY) {
+      process.stderr.write(
+        "flow-browser-teardown --orphans is deprecated — use 'flow reap' (process sweeps) instead; 'flow done --orphans' still sweeps state files.\n",
+      );
+    }
     const result = runOrphanSweep(deps, {
       yes: parsed.yes,
       dryRun: parsed.dryRun,
@@ -1111,7 +1123,12 @@ export function main(argv: string[]): number {
       tmpDir: deps.tmpDir,
     });
     if (parsed.json) {
-      console.log(JSON.stringify(result));
+      // ADDITIVE fields only — a scripted consumer has no TTY, so the
+      // gated stderr pointer above is invisible to exactly the caller that
+      // matters; this is the channel it actually reads.
+      console.log(
+        JSON.stringify({ ...result, deprecated: true, successor: "flow reap" }),
+      );
     } else {
       console.log(
         `flow-browser-teardown --orphans: found=${result.found.length} servers=${result.foundServers.length} signalled=${result.signalled.length}`,
