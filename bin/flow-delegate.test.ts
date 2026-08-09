@@ -1,7 +1,9 @@
 import { spawnSync } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  AGY_SAFETY_PREAMBLE,
   artifactPathFor,
   buildAgyArgv,
   looksUnauthenticated,
@@ -143,12 +145,17 @@ describe("buildAgyArgv", () => {
   const argsFor = (extra: string[] = []) =>
     parseArgs(["--prompt", "do research", ...extra]) as Args;
 
-  it("puts the prompt as the FINAL argv token, after -p", () => {
+  it("puts the prompt as the FINAL argv token, after -p, prefixed with the safety preamble", () => {
     const argv = buildAgyArgv(
       argsFor(["--model", "Gemini 3.1 Pro (High)"]),
       "do research",
     );
-    expect(argv[argv.length - 1]).toBe("do research");
+    expect((argv[argv.length - 1] as string).endsWith("do research")).toBe(
+      true,
+    );
+    expect(
+      (argv[argv.length - 1] as string).startsWith(AGY_SAFETY_PREAMBLE),
+    ).toBe(true);
     expect(argv[argv.length - 2]).toBe("-p");
   });
 
@@ -189,20 +196,27 @@ describe("buildAgyArgv", () => {
     expect(argv).toContain("/b");
   });
 
-  it("the agy argv is byte-identical to today's when no new flags are passed", () => {
+  it("the agy flags are byte-identical to today's when no new flags are passed, and the prompt is wrapped", () => {
     const argv = buildAgyArgv(
       argsFor(["--model", "Gemini 3.1 Pro (High)", "--timeout", "10m"]),
       "do research",
     );
-    expect(argv).toEqual([
+    // Every flag ahead of the trailing -p is unchanged — no stray flag
+    // crept in — while the prompt itself now carries the safety preamble.
+    expect(argv.slice(0, -1)).toEqual([
       "--sandbox",
       "--print-timeout",
       "10m",
       "--model",
       "Gemini 3.1 Pro (High)",
       "-p",
-      "do research",
     ]);
+    expect((argv[argv.length - 1] as string).endsWith("do research")).toBe(
+      true,
+    );
+    expect(
+      (argv[argv.length - 1] as string).startsWith(AGY_SAFETY_PREAMBLE),
+    ).toBe(true);
   });
 
   it("appends --output-format before the trailing -p", () => {
@@ -214,7 +228,9 @@ describe("buildAgyArgv", () => {
     expect(ofIndex).toBeGreaterThanOrEqual(0);
     expect(argv[ofIndex + 1]).toBe("json");
     expect(argv[argv.length - 2]).toBe("-p");
-    expect(argv[argv.length - 1]).toBe("do research");
+    expect((argv[argv.length - 1] as string).endsWith("do research")).toBe(
+      true,
+    );
   });
 
   it("appends --json-schema before the trailing -p", () => {
@@ -226,7 +242,9 @@ describe("buildAgyArgv", () => {
     expect(jsIndex).toBeGreaterThanOrEqual(0);
     expect(argv[jsIndex + 1]).toBe("/schema.json");
     expect(argv[argv.length - 2]).toBe("-p");
-    expect(argv[argv.length - 1]).toBe("do research");
+    expect((argv[argv.length - 1] as string).endsWith("do research")).toBe(
+      true,
+    );
   });
 
   it("--structured-fallback contributes no agy flag", () => {
@@ -414,7 +432,9 @@ describe("run", () => {
     });
     expect(deps.calls.agy).toHaveLength(1);
     const argv = deps.calls.agy[0]!.argv;
-    expect(argv[argv.length - 1]).toBe("do research");
+    expect((argv[argv.length - 1] as string).endsWith("do research")).toBe(
+      true,
+    );
     expect(deps.calls.mkdirp).toEqual([".flow-tmp"]);
   });
 
@@ -428,7 +448,9 @@ describe("run", () => {
     const deps = makeDeps();
     run(["--prompt-file", "/p.txt"], deps);
     const argv = deps.calls.agy[0]!.argv;
-    expect(argv[argv.length - 1]).toBe("FILE_CONTENT_OF:/p.txt");
+    expect(
+      (argv[argv.length - 1] as string).endsWith("FILE_CONTENT_OF:/p.txt"),
+    ).toBe(true);
   });
 
   it("honors --out for both the envelope artifactPath and the agy redirect target", () => {
@@ -644,4 +666,60 @@ describe("flow-delegate (subprocess, agy absent from PATH)", () => {
       });
     },
   );
+});
+
+// Committed single-chokepoint invariant: the safety preamble in
+// buildAgyArgv is only load-bearing if there is exactly one prompt-bearing
+// `agy` spawn site in bin/ to prefix. Modeled on the same
+// readdirSync -> filter -> readFileSync -> content-predicate mechanism as
+// bin/flow-pre-commit.test.ts's "guard: shipped bin/lib executable modules
+// are tracked 100755" — deliberately NOT a `grep -r` shell-out: BSD/GNU grep
+// classifies bin/flow-plan-review.ts and bin/flow-candidate-issues.test.ts
+// as binary (both contain a deliberate raw NUL byte, see
+// bin/flow-plan-review.ts's computeDecisionHash) and silently skips them,
+// which would make a grep-based guard permanently blind to a 754-line file
+// that already spawns flow-delegate. readFileSync(path, "utf8") decodes
+// both files correctly (the NUL is valid UTF-8).
+describe("guard: exactly one prompt-bearing agy spawn site in bin/", () => {
+  const binDir = __dirname;
+  // Both bin/ and bin/lib/ are scanned. bin/lib/ carries no agy spawn today,
+  // but it is where a future one would plausibly land — the deferred
+  // agy-guardrails extraction is filed to create bin/lib/agy-guardrails.ts —
+  // and a non-recursive scan would let exactly that evade the guard.
+  // .test.ts files are EXCLUDED from the scan — this file itself contains
+  // the matched literal inside a string below, which would otherwise make
+  // the count 2 and this guard permanently red.
+  const sourceFiles = [binDir, path.join(binDir, "lib")].flatMap((dir) =>
+    readdirSync(dir)
+      .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
+      .map((name) => path.relative(binDir, path.join(dir, name))),
+  );
+  // The literal argv spread form, not a bare `Bun.spawnSync(["agy"` — the
+  // looser form matches 2 sites (this one plus flow-model-bench.ts's
+  // promptless `Bun.spawnSync(["agy", "--version"]` version probe) and a
+  // bare `"agy"` matches 3 (also bin/flow-delegate.ts's own
+  // `Bun.spawnSync(["which", "agy"]` PATH check). Only the `...argv` spread
+  // form is a prompt-bearing spawn.
+  const AGY_SPAWN_LITERAL = 'Bun.spawnSync(["agy", ...argv]';
+  const promptBearingAgySpawnSites = sourceFiles.filter((name) =>
+    readFileSync(path.join(binDir, name), "utf8").includes(AGY_SPAWN_LITERAL),
+  );
+
+  it("discovers a plausible non-zero number of bin/ source files to scan", () => {
+    // Sanity check that the scan actually found files; a regex/path bug
+    // that silently matched nothing would make the guard below vacuous.
+    // Asserted per-directory, not just on the total: a bug that dropped
+    // bin/lib/ entirely would still clear a bare total-count threshold,
+    // silently restoring the blind spot this scan exists to close.
+    expect(
+      sourceFiles.filter((f) => !f.includes(path.sep)).length,
+    ).toBeGreaterThan(20);
+    expect(
+      sourceFiles.filter((f) => f.startsWith(`lib${path.sep}`)).length,
+    ).toBeGreaterThan(20);
+  });
+
+  it("matches the prompt-bearing agy spawn literal exactly once, in flow-delegate.ts", () => {
+    expect(promptBearingAgySpawnSites).toEqual(["flow-delegate.ts"]);
+  });
 });

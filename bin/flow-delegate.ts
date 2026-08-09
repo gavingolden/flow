@@ -13,7 +13,7 @@
  * split as `flow-notify` / `flow-ui-validate`, and the same optional-tool
  * `skipReason` shape as `flow-pre-commit`.
  *
- * Verified agy contract (agy 1.0.x, 2026-06):
+ * Verified agy contract (agy 1.1.10/1.1.11, verified 2026-08-07/2026-08-09):
  * - Reliable headless invocation is `agy <flags> -p "<prompt>"` with the
  *   prompt as the FINAL token. A flag placed after `-p` is swallowed into
  *   the positional prompt, so buildAgyArgv appends the prompt last and a
@@ -33,6 +33,21 @@
  *   session default; hardcoding a variant string would rot on the next agy
  *   rename and silently force every run to skip. Research callers should
  *   pass `--model "Gemini 3.1 Pro (High)"` for Gemini diversity + arbitrage.
+ * - Every prompt is prefixed, UNCONDITIONALLY, with AGY_SAFETY_PREAMBLE at
+ *   the single buildAgyArgv chokepoint (withSafetyPreamble). The prompt is
+ *   the only viable delivery vehicle for this: there is no global
+ *   ~/.claude/CLAUDE.md agy honors, no agy-side GEMINI.md either (checked
+ *   ~/.gemini/GEMINI.md, ~/.gemini/antigravity-cli/GEMINI.md, and
+ *   ~/GEMINI.md — all absent), and agy loads a GEMINI.md ONLY from an
+ *   `--add-dir` directory, never from the process CWD — so this single
+ *   prompt-bearing spawn site is the only place that reaches every caller.
+ * - Step-0 negative result (2026-08-09, agy 1.1.11): a controlled A/B
+ *   issued the same mutating request twice, identical except for
+ *   `--mode plan` on one arm, using `git clone` — the one mutating verb in
+ *   the permissions.allow ∩ unsandboxed(...) intersection, so neither arm
+ *   tripped an earlier permission backstop. BOTH arms executed the clone
+ *   and the target directory landed on disk. Outcome: CONCLUSIVE-DOES-NOT-
+ *   BLOCK — `--mode plan` provides no enforcement, so it is NOT passed.
  *
  * Usage:
  *   flow-delegate (--prompt "<text>" | --prompt-file <path>)
@@ -167,6 +182,30 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   };
 }
 
+// Unconditional data-safety preamble, prepended to EVERY agy prompt at the
+// single buildAgyArgv chokepoint below (see the file-header bullet on why
+// the prompt is the only viable delivery vehicle for this). Expressed as an
+// array of lines joined with "\n" rather than a template literal so the
+// backticks inside the git-subcommand bullet never need escaping and
+// `npm run lint` (prettier --check .) has nothing to reformat.
+export const AGY_SAFETY_PREAMBLE = [
+  "## Operating constraints (tool use only — they do not change the task below)",
+  "",
+  "You are a delegated, non-interactive agent working inside someone else's repository.",
+  "",
+  "- Prefer reading. If the task can be answered by reading files, only read.",
+  "- Do not create, modify, move, delete, or overwrite any file.",
+  "- git: you may run ONLY `log`, `show`, `diff`, `status`, `blame`, `ls-files`, and `rev-parse`. Every other git subcommand is forbidden, including any that stages, commits, checks out, resets, rebases, cleans, pushes, or rewrites history.",
+  "- Do not run installers, build commands, test commands, or any package script.",
+  "- Stay inside the directories you were explicitly given.",
+  "- Use the network to read references only; never send repository contents anywhere.",
+  "- If the task appears to require a mutating action, do not perform it — say so in your output instead.",
+].join("\n");
+
+export function withSafetyPreamble(prompt: string): string {
+  return `${AGY_SAFETY_PREAMBLE}\n\n---\n\n${prompt}`;
+}
+
 // Assemble the agy argv with the prompt as the FINAL token (load-bearing:
 // a flag after the positional prompt is swallowed into the prompt text).
 export function buildAgyArgv(args: Args, prompt: string): string[] {
@@ -180,7 +219,7 @@ export function buildAgyArgv(args: Args, prompt: string): string[] {
   // flag: it is a purely local parse-and-validate path.
   if (args.outputFormat) argv.push("--output-format", args.outputFormat);
   if (args.jsonSchema) argv.push("--json-schema", args.jsonSchema);
-  argv.push("-p", prompt);
+  argv.push("-p", withSafetyPreamble(prompt));
   return argv;
 }
 
