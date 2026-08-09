@@ -35,7 +35,12 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_MANIFEST, resolveFlowSource } from "./paths";
+import {
+  FLOW_MANIFEST,
+  configuredFlowSource,
+  resolveFlowSource,
+} from "./paths";
+import { inspectFlowRoot } from "./worktree-source";
 import { readManifest as readManifestFile, type Manifest } from "./manifest";
 import {
   discoverAll,
@@ -86,7 +91,43 @@ export type InstallDriftOptions = {
    * never scans the developer's real `~/.flow/claude-home`. MUST stay
    * synchronous, same as `discover`. */
   scanPluginRoots?: (skillsDir: string) => string[];
+  /** Injectable for tests; defaults to the real `inspectFlowRoot`
+   * (`worktree-source.ts`). Used only to derive the DEFAULT `installRoot`
+   * below, mirroring `setup.ts`'s own worktree-repoint decision — never
+   * applies when `opts.installRoot` is explicitly set. */
+  inspectRoot?: typeof inspectFlowRoot;
+  /** Injectable for tests; defaults to the real `configuredFlowSource`
+   * (`paths.ts`), same rationale as `inspectRoot` above. */
+  configuredSource?: (homeDir?: string) => string | null;
 };
+
+/**
+ * Default `installRoot`, mirroring `setup.ts:326-337`'s own worktree-repoint
+ * decision: when `flowSource` resolves to a git worktree (not the canonical
+ * checkout) and no `config.source` is configured, the installer links every
+ * `bin/` symlink against the canonical checkout instead — so the drift
+ * check's ownership pair must do the same, or a worktree-vantage `flow ls` /
+ * `flow version` reports every one of flow's own live plugin `bin/`
+ * symlinks as foreign (they resolve to canonical, not the worktree).
+ * `inspectFlowRoot` already fails open (`{ isWorktree: false, canonicalRoot:
+ * null }` on any error), so this degrades to the pre-existing `flowSource`
+ * default on any failure — never a new throw path.
+ */
+function defaultInstallRoot(
+  flowSource: string,
+  inspectRoot: typeof inspectFlowRoot,
+  configuredSource: (homeDir?: string) => string | null,
+): string {
+  const rootInfo = inspectRoot(flowSource);
+  if (
+    rootInfo.isWorktree &&
+    rootInfo.canonicalRoot &&
+    configuredSource() === null
+  ) {
+    return rootInfo.canonicalRoot;
+  }
+  return flowSource;
+}
 
 /** `fs.readlinkSync`, returning `null` instead of throwing on any error
  * (missing path, not-a-symlink). Mirrors `symlink.ts`'s `readSymlink`. */
@@ -103,7 +144,11 @@ export function checkInstallDrift(
 ): InstallDriftResult {
   try {
     const flowSource = opts.flowSource ?? resolveFlowSource();
-    const installRoot = opts.installRoot ?? flowSource;
+    const inspectRoot = opts.inspectRoot ?? inspectFlowRoot;
+    const configuredSource = opts.configuredSource ?? configuredFlowSource;
+    const installRoot =
+      opts.installRoot ??
+      defaultInstallRoot(flowSource, inspectRoot, configuredSource);
     const targets = opts.targets ?? DEFAULT_TARGETS;
     const discover = opts.discover ?? discoverAll;
     const readManifestFn = opts.readManifest ?? readManifestFile;
@@ -127,9 +172,14 @@ export function checkInstallDrift(
         // `flow install --upgrade` (see `classifyBinEntry` in
         // `plugin-root-audit.ts`), so it gets the "dangling" kind and that
         // kind's self-healing remediation. Everything else — including a
-        // foreign live `bin/` symlink — gets "unexpected": that's the only
+        // foreign live `bin/` symlink — gets "unexpected": `listManagedSymlinks`
+        // (`plugin-root.ts`) filters purely on `isSymbolicLink()` with no
+        // ownership check, so the prune loop in `plugin-root.ts` WOULD
+        // silently remove a foreign live `bin/` symlink on the next
+        // `flow install --upgrade` — it is not actually protected from
+        // pruning. "unexpected" is chosen anyway because it is the only
         // kind `formatDriftNotice` enumerates BY NAME, and naming the path
-        // is the whole point for an entry that is currently winning PATH
+        // is what matters for an entry that is currently winning PATH
         // lookup, not merely a repairable dangling link.
         entries.push({
           kind:
@@ -273,10 +323,10 @@ export function formatDriftNotice(result: InstallDriftResult): string | null {
   // be removed by hand. `unexpected` covers two distinct cases: a real file
   // or directory inside a flow-managed plugin root (flow never deletes a
   // real file it did not write — genuinely no automated remedy), and a
-  // foreign live `bin/` symlink resolving outside the flow tree (flow
-  // *could* prune it — `flow install --upgrade`'s prune loop in
-  // `plugin-root.ts` does remove it on the next run — but won't do so
-  // silently on a bin/ entry it doesn't own). Unlike the other three kinds,
+  // foreign live `bin/` symlink resolving outside the flow tree (the prune
+  // loop in `plugin-root.ts` has no ownership check, so it WOULD silently
+  // remove this on the next `flow install --upgrade` — this notice exists
+  // so the user sees it named before that happens). Unlike the other three kinds,
   // `unexpected` must NAME the offending entries rather than report an
   // anonymous count — otherwise the user is told to hand-remove something
   // the tool refuses to name.
