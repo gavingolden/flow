@@ -374,6 +374,49 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
     ).toBe(true);
   });
 
+  it("defaults the triage output to flow-owned scratch, not the repo root", () => {
+    const outputPathFiles: ReadonlyArray<{ label: string; content: string }> = [
+      { label: "SKILL.md", content: skillContent },
+      {
+        label: "references/output-template.md",
+        content: outputTemplateContent,
+      },
+    ];
+    for (const { label, content } of outputPathFiles) {
+      expect(
+        content.includes(".flow-tmp/triage/"),
+        `${label} must default the triage document under '.flow-tmp/triage/' ` +
+          "— a repo-root default leaves an untracked file that parallel " +
+          "agents in the same checkout read as a dirty tree.",
+      ).toBe(true);
+      expect(
+        /repo root/i.test(content),
+        `${label} must not describe the repo root as the default output ` +
+          "location — a repo-root default leaves an untracked file that " +
+          "parallel agents in the same checkout read as a dirty tree.",
+      ).toBe(false);
+    }
+  });
+
+  it("SKILL.md pins the write-time ignore-ensure step", () => {
+    expect(
+      skillContent.includes("git check-ignore"),
+      "SKILL.md must check `.flow-tmp/` is ignored before the first write.",
+    ).toBe(true);
+    expect(
+      skillContent.includes("git rev-parse --git-common-dir"),
+      "SKILL.md must resolve the exclude file via the shared common dir, " +
+        "matching bin/lib/worktree-marker.ts's ensureFlowExcludes.",
+    ).toBe(true);
+    expect(
+      skillContent.includes("never the user's tracked"),
+      "SKILL.md must state the ignore entry goes in the local " +
+        ".git/info/exclude and never a tracked .gitignore — mutating a " +
+        "tracked file in an arbitrary consumer repo produces a diff the " +
+        "user never asked for.",
+    ).toBe(true);
+  });
+
   // Portability: this skill runs in arbitrary consumer repos
   const ALL_SKILL_FILES: ReadonlyArray<{ label: string; content: string }> = [
     { label: "SKILL.md", content: skillContent },

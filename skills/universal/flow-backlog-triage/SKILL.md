@@ -128,9 +128,26 @@ notes. A pasted block in chat is accepted only for a trivial list (≤20
 items). When no notes source is given at all, run in **GitHub-issues-only**
 mode.
 
-**Output path.** Default `backlog-triage-<repo>-<YYYY-MM-DD>.md` at the
-repo root, overridable by argument. `.flow-tmp/` is the throwaway
-alternative when the user doesn't want a durable file.
+**Output path.** Default `.flow-tmp/triage/backlog-triage-<repo>-<YYYY-MM-DD>.md`,
+overridable by an explicit path argument. `.flow-tmp/` is flow's scratch
+convention — writing there keeps `git status` clean for parallel agents
+sharing the same checkout. Before the first write, `mkdir -p
+.flow-tmp/triage` and make sure `.flow-tmp/` is ignored: flow only
+registers it in `.git/info/exclude` when `flow-new-worktree` creates a
+pipeline worktree, so a plain consumer checkout may have no entry yet.
+
+```sh
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+   ! git check-ignore -q .flow-tmp/; then
+  printf '.flow-tmp/\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
+fi
+```
+
+Write to `.git/info/exclude` (resolved via the shared common dir),
+never the user's tracked `.gitignore`; outside a git work tree, skip
+the ignore step and still write the document; pass an explicit path
+argument (e.g. `docs/triage/<name>.md`) when a durable, committed
+document is wanted.
 
 # Verification
 
@@ -151,6 +168,9 @@ alternative when the user doesn't want a durable file.
   [references/output-template.md](references/output-template.md).
 - The output document's `## Self-check` section is filled in, not left as
   a template.
+- The triage document is written under `.flow-tmp/triage/` (or the
+  explicit path argument) and `git status` reports no new untracked
+  entry after the run.
 
 # Constraints
 
