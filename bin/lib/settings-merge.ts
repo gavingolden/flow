@@ -15,6 +15,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import { realpathOrSelf } from "./flow-owned-symlink";
+
 export type EnsureResult = {
   changed: boolean;
   reason?: "malformed-json" | "io-error" | "unsafe-symlink-target";
@@ -49,14 +51,6 @@ function escapesHome(resolved: string, home: string): boolean {
   const realResolved = realpathWithExistingAncestor(resolved);
   const rel = path.relative(realHome, realResolved);
   return rel.startsWith("..") || path.isAbsolute(rel);
-}
-
-function realpathOrSelf(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return p;
-  }
 }
 
 function realpathWithExistingAncestor(p: string): string {
