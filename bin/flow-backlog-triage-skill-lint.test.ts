@@ -291,7 +291,219 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
 
   // Runtime-visible half of enforcement
   it("contains a Self-check block when the output template defines its final section", () => {
-    expect(outputTemplateContent.includes("## Self-check")).toBe(true);
+    // Re-anchored: Self-check is deliberately demoted to `### Self-check`
+    // nested under `## Audit Appendix` by the Decision Brief restructure —
+    // a bare includes("## Self-check") would have kept passing by
+    // accidental substring match against "### Self-check" (the "## " in
+    // "### " is a substring), which would silently stop proving the
+    // heading exists at all. Pinning the heading shape at either `##` or
+    // `###` depth is STRICTER than the accidental substring match, not a
+    // weakening of the anchor.
+    expect(/^#{2,3} Self-check$/m.test(outputTemplateContent)).toBe(true);
+  });
+
+  // Decision Brief restructure (output-template.md is one document, brief
+  // first, appendix second — see references/output-template.md)
+  it("orders the Decision Brief before the Audit Appendix, and before every other top-level section", () => {
+    // Anchor on the HEADING shape (line-start '## ') via regex, not a bare
+    // indexOf substring search — output-template.md's own doc-shape prose
+    // legitimately mentions '`## Audit Appendix`' inside a backtick span
+    // ahead of the real '## Decision Brief' heading, and a substring
+    // indexOf would find that prose mention first and report a false
+    // ordering violation.
+    const headingRe = /^##[^#].*$/gm;
+    const headings = [...outputTemplateContent.matchAll(headingRe)].map((m) =>
+      m[0].trim(),
+    );
+    const briefIdx = headings.indexOf("## Decision Brief");
+    const appendixIdx = headings.indexOf("## Audit Appendix");
+    expect(
+      briefIdx,
+      "output-template.md must contain a '## Decision Brief' heading.",
+    ).toBeGreaterThan(-1);
+    expect(
+      appendixIdx,
+      "output-template.md must contain a '## Audit Appendix' heading.",
+    ).toBeGreaterThan(-1);
+    expect(
+      briefIdx < appendixIdx,
+      "'## Decision Brief' must precede '## Audit Appendix' — the brief is " +
+        "the reader's entry point, not an afterword.",
+    ).toBe(true);
+    expect(
+      briefIdx,
+      "no other top-level ('## ') heading may appear before " +
+        "'## Decision Brief' — no competing section may sit ahead of the " +
+        "brief.",
+    ).toBe(0);
+  });
+
+  it("states the one-file rule when the output template defines the document shape", () => {
+    expect(
+      outputTemplateContent.includes("ONE document, never two files"),
+      "output-template.md must state the document is ONE document, never " +
+        "two files — the closed 'two separate output files' alternative " +
+        "must not silently creep back in as a brief.md + audit.md split.",
+    ).toBe(true);
+  });
+
+  it("scopes the jargon ban to the Decision Brief layer", () => {
+    expect(
+      outputTemplateContent.includes(
+        "no internal codenames or mechanism language",
+      ),
+      "output-template.md's Decision Brief must ban internal codenames and " +
+        "mechanism language — a brief a PM reads must not read like an " +
+        "engineering ticket.",
+    ).toBe(true);
+  });
+
+  it("states the Decision Brief's audience contract", () => {
+    expect(
+      outputTemplateContent.includes(
+        "understands the product, has not read the tickets",
+      ),
+      "output-template.md must state the Decision Brief assumes a reader " +
+        "who understands the product but has not read the tickets — " +
+        "otherwise the brief drifts back into ticket-shaped prose.",
+    ).toBe(true);
+  });
+
+  const BUNDLE_CARD_FACETS = [
+    "**Outcome:**",
+    "**What changes / who notices:**",
+    "**Why it's worth it:**",
+    "**Size:**",
+  ];
+
+  it.each(BUNDLE_CARD_FACETS)(
+    "output-template.md's bundle card defines the facet %j",
+    (facet) => {
+      expect(
+        outputTemplateContent.includes(facet),
+        `output-template.md must render the bundle-card facet '${facet}' — ` +
+          "dropping a facet collapses the card back into a flat bullet.",
+      ).toBe(true);
+    },
+  );
+
+  it("emits the launch queue as tiered groups, never a flat list", () => {
+    expect(outputTemplateContent.includes("recommendation tiers")).toBe(true);
+    expect(
+      outputTemplateContent.includes("tiered groups"),
+      "output-template.md must emit the queue as 'tiered groups', not a " +
+        "flat list — a flat table hides the decision structure the brief " +
+        "exists to surface.",
+    ).toBe(true);
+  });
+
+  it("documents both milestone invocation-argument forms non-vacuously", () => {
+    expect(
+      skillContent.includes("milestone: <goal>"),
+      "SKILL.md must document the `milestone: <goal>` invocation form.",
+    ).toBe(true);
+    // Anchor on the distinguishing literal with its surrounding backticks,
+    // not the bare phrase 'no milestone' — that bare phrase already
+    // appears in pre-existing prose ("when no milestone is given") and
+    // would pass vacuously even if the invocation-argument docs this case
+    // exists to pin were deleted entirely.
+    expect(
+      skillContent.includes("`no milestone` suppresses"),
+      "SKILL.md must document that the `no milestone` invocation argument " +
+        "suppresses milestone inference — anchoring on the bare phrase " +
+        "'no milestone' would pass vacuously against pre-existing prose " +
+        "('when no milestone is given') and could not detect this doc " +
+        "being dropped.",
+    ).toBe(true);
+  });
+
+  it("states the default grooming lens is PM-shaped", () => {
+    const normalized = skillContent.replace(/\s+/g, " ");
+    expect(
+      normalized.includes(
+        "app stability, bug fixes, and high-value features/enhancements",
+      ),
+      "SKILL.md must state grooming mode's default lens is PM-shaped: " +
+        "app stability, bug fixes, and high-value features/enhancements.",
+    ).toBe(true);
+  });
+
+  it("discloses what would reorder if an inferred milestone is struck, additively to the existing confirm-or-strike question", () => {
+    const normalized = methodologyContent.replace(/\s+/g, " ");
+    expect(
+      normalized.includes(
+        "what would reorder if the inferred milestone is struck",
+      ),
+      "methodology.md must state what would reorder if the inferred " +
+        "milestone is struck — a strike without a named consequence lets " +
+        "the escalation answer get ignored.",
+    ).toBe(true);
+    expect(
+      normalized.includes(
+        'confirm or strike the inferred milestone" the FIRST numbered question',
+      ),
+      "methodology.md must still carry the pre-existing confirm-or-strike " +
+        "FIRST-numbered-question rule — asserting both in one case pins " +
+        "that the reorder-disclosure addition was additive, not a " +
+        "replacement.",
+    ).toBe(true);
+  });
+
+  it("documents delta re-triage as a first-class mode", () => {
+    const normalized = skillContent.replace(/\s+/g, " ");
+    for (const phrase of [
+      "prior triage document",
+      "merge delta",
+      "re-stage",
+      "unconfirmed kill list",
+    ]) {
+      expect(
+        normalized.includes(phrase),
+        `SKILL.md must document delta re-triage mode's '${phrase}' concept ` +
+          "— dropping it leaves delta re-triage undocumented as a mode a " +
+          "user can invoke.",
+      ).toBe(true);
+    }
+  });
+
+  it.each([
+    ["SKILL.md", skillContent],
+    ["references/output-template.md", outputTemplateContent],
+  ] as const)(
+    "%s requires printing the document's absolute path",
+    (label, content) => {
+      expect(
+        content.includes("absolute path"),
+        `${label} must require printing the document's absolute path — ` +
+          "without it, a reader can't find the file the chat summary " +
+          "refers to.",
+      ).toBe(true);
+    },
+  );
+
+  it("requires the chat summary to carry the top recommendation tier", () => {
+    expect(
+      outputTemplateContent.includes("top recommendation tier"),
+      "output-template.md's Chat summary shape must require surfacing the " +
+        "top recommendation tier inline, not just a pointer back to the " +
+        "document.",
+    ).toBe(true);
+  });
+
+  it("worked-example.md demonstrates the Decision Brief card shape", () => {
+    expect(
+      workedExampleContent.includes("## Decision Brief excerpt"),
+      "worked-example.md must contain a '## Decision Brief excerpt' " +
+        "section — the worked example is the shape a future run pattern" +
+        "-matches on; leaving it unanchored reproduces the exact drift " +
+        "this case exists to close.",
+    ).toBe(true);
+    expect(
+      workedExampleContent.includes("**Outcome:**"),
+      "worked-example.md's Decision Brief excerpt must render at least " +
+        "one bundle-card facet ('**Outcome:**') — a prose-only excerpt " +
+        "would demonstrate the superseded shape, not the new one.",
+    ).toBe(true);
   });
 
   // Phase-1 fan-out contract
