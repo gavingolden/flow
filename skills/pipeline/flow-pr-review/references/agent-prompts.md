@@ -4,10 +4,9 @@ This file contains prompt templates for the 6 specialized review agents. The orc
 reads the relevant section, fills in the context variables (marked with `{{...}}`), and
 spawns each agent as a subagent. When a plugin-root definition is installed, each lens
 spawns as `subagent_type: flow-module-core:flow-review-<lens>` (`agents/flow-review-<lens>.md`;
-a bare `flow-review-<lens>` name fails Task-tool resolution on a plugin-root install); on
-a legacy global install it spawns with the bare name instead. Either
-way — including the `general-purpose` fallback path when no definition is installed —
-this file remains the canonical rendered spawn prompt.
+a bare `flow-review-<lens>` name fails Task-tool resolution on a plugin-root install);
+when no definition is installed it falls back to `general-purpose` instead —
+either way this file remains the canonical rendered spawn prompt.
 
 All agents share a common output format and confidence calibration. The specialization is
 in what each agent looks for and what it ignores.

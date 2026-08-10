@@ -126,7 +126,7 @@ code.claude.com/docs/en/sub-agents, 2026-07-05):
 The one legitimate cost is an install dependency — each custom agent needs its
 `~/.flow/claude-home/.claude/skills/flow-module-<owner>/agents/<name>.md`
 symlinked (D-A below reverses; agents moved off the flat global
-`~/.claude/agents/`) — so every promoted spawn site keeps the
+`~/.claude/agents/`) — so every promoted spawn site keeps a single
 `[ -f <that path> ] || general-purpose` fallback guard, and the
 fallback **emits a named notice** when it fires (a silent swap to
 `general-purpose` discards a tool-restricted role's allowlist containment, a
