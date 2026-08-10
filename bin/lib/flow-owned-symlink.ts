@@ -2,8 +2,11 @@
  * Shared flow-ownership predicate for a symlink: whether `linkPath`'s
  * resolved target lives under one of `flowRoots`. Extracted verbatim from
  * `setup.ts`'s `removeIfFlowOwnedSymlink` (the raw-OR-realpath ownership
- * check) and its private `isPathUnder` helper, so `plugin-root-audit.ts`
- * can reuse the exact same rule without duplicating it.
+ * check) and its private `isPathUnder` helper, so consumers can reuse the
+ * exact same rule without duplicating it — currently `plugin-root-audit.ts`
+ * (the ownership predicate itself). This module also exports the generic
+ * `realpathOrSelf` fs helper (no ownership semantics), reused independently
+ * by `settings-merge.ts`'s home-containment guard.
  */
 
 import * as fs from "node:fs";

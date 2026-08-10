@@ -53,15 +53,20 @@ import { isRegistryKnownArtifact } from "./modules";
 import { scanPluginRoots as scanPluginRootsReal } from "./plugin-root";
 import { unexpectedPluginRootEntries } from "./plugin-root-audit";
 
-export type DriftKind = "missing" | "dangling" | "stale" | "unexpected";
+export type DriftKind =
+  | "missing"
+  | "dangling"
+  | "stale"
+  | "unexpected"
+  | "foreign";
 
 export type DriftEntry = {
   kind: DriftKind;
   displayName: string;
   target: string;
-  /** Set on the plugin-root-audit-derived kinds ("unexpected" and the
-   * dangling-`bin/`-symlink flavor of "dangling") — the offending path
-   * relative to the plugin root. Absent on the manifest-symlink-derived
+  /** Set on the plugin-root-audit-derived kinds ("unexpected", "foreign",
+   * and the dangling-`bin/`-symlink flavor of "dangling") — the offending
+   * path relative to the plugin root. Absent on the manifest-symlink-derived
    * kinds ("missing"/"stale"/the rest of "dangling"), which have no
    * plugin-root-relative path to report. */
   detail?: string;
@@ -168,22 +173,19 @@ export function checkInstallDrift(
         flowSource,
         installRoot,
       })) {
-        // A dangling `bin/` symlink is genuinely repaired by
-        // `flow install --upgrade` (see `classifyBinEntry` in
-        // `plugin-root-audit.ts`), so it gets the "dangling" kind and that
-        // kind's self-healing remediation. Everything else — including a
-        // foreign live `bin/` symlink — gets "unexpected": `listManagedSymlinks`
-        // (`plugin-root.ts`) filters purely on `isSymbolicLink()` with no
-        // ownership check, so the prune loop in `plugin-root.ts` WOULD
-        // silently remove a foreign live `bin/` symlink on the next
-        // `flow install --upgrade` — it is not actually protected from
-        // pruning. "unexpected" is chosen anyway because it is the only
-        // kind `formatDriftNotice` enumerates BY NAME, and naming the path
-        // is what matters for an entry that is currently winning PATH
-        // lookup, not merely a repairable dangling link.
+        // Three-way map: a dangling `bin/` symlink self-heals ("dangling"),
+        // a foreign live `bin/` symlink is auto-removed by the next
+        // `flow install --upgrade`'s name-based (ownership-blind) prune loop
+        // ("foreign"), and everything else — a real file/directory flow
+        // never wrote — has no automated remedy ("unexpected").
+        const kind: DriftKind =
+          issue.reason === "dangling-bin-symlink"
+            ? "dangling"
+            : issue.reason === "foreign-live-bin-symlink"
+              ? "foreign"
+              : "unexpected";
         entries.push({
-          kind:
-            issue.reason === "dangling-bin-symlink" ? "dangling" : "unexpected",
+          kind,
           displayName: path.basename(root),
           target: root,
           detail: issue.relPath,
@@ -302,51 +304,61 @@ export function checkInstallDrift(
   }
 }
 
-/** Cap on how many `unexpected` entries `formatDriftNotice` names inline —
- * the notice is a one-line dimmed message on an interactive path, so an
- * unbounded enumeration would blow past that budget on a badly-drifted
- * root; name the first few and fold the rest into a `(+N more)` tail. */
-const MAX_ENUMERATED_UNEXPECTED = 3;
+/** Cap on how many `unexpected`/`foreign` entries `formatDriftNotice` names
+ * inline — the notice is one dimmed line, so an unbounded enumeration would
+ * blow past that budget; name the first few and fold the rest into a
+ * `(+N more)` tail. */
+const MAX_ENUMERATED_ENTRIES = 3;
 
 /** Formats a one-line, dimmed-by-caller drift notice, or `null` when clean.
  * Mirrors `update-check.ts`'s `formatUpdateNotice` shape. */
 export function formatDriftNotice(result: InstallDriftResult): string | null {
   if (result.status !== "drifted") return null;
-  const byKind = { missing: 0, dangling: 0, stale: 0, unexpected: 0 };
+  const byKind = {
+    missing: 0,
+    dangling: 0,
+    stale: 0,
+    unexpected: 0,
+    foreign: 0,
+  };
   for (const e of result.entries) byKind[e.kind]++;
-  const parts = (["missing", "dangling", "stale", "unexpected"] as const)
+  const parts = (
+    ["missing", "dangling", "stale", "unexpected", "foreign"] as const
+  )
     .filter((k) => byKind[k] > 0)
     .map((k) => `${byKind[k]} ${k}`);
-  // Two remediation branches, not three: `flow install --upgrade` repairs
-  // every symlink kind unconditionally (it's a no-op when there is nothing
-  // to repair), while an `unexpected` entry has no automated remedy and must
-  // be removed by hand. `unexpected` covers two distinct cases: a real file
-  // or directory inside a flow-managed plugin root (flow never deletes a
-  // real file it did not write — genuinely no automated remedy), and a
-  // foreign live `bin/` symlink resolving outside the flow tree (the prune
-  // loop in `plugin-root.ts` has no ownership check, so it WOULD silently
-  // remove this on the next `flow install --upgrade` — this notice exists
-  // so the user sees it named before that happens). Unlike the other three kinds,
-  // `unexpected` must NAME the offending entries rather than report an
-  // anonymous count — otherwise the user is told to hand-remove something
-  // the tool refuses to name.
+  // `unexpected` (a real file/directory flow never wrote) has no automated
+  // remedy and must be removed by hand; `foreign` (a live bin/ symlink
+  // resolving outside the flow tree) IS auto-removed by the next
+  // `flow install --upgrade`'s ownership-blind prune loop (`plugin-root.ts`).
   const repair = "run `flow install --upgrade` to repair";
-  const unexpectedEntries = result.entries.filter(
-    (e) => e.kind === "unexpected" && e.detail,
-  );
-  let handRemoval = "";
-  if (byKind.unexpected > 0) {
-    const named = unexpectedEntries
-      .slice(0, MAX_ENUMERATED_UNEXPECTED)
+  const enumerate = (kind: DriftKind): string => {
+    const matched = result.entries.filter((e) => e.kind === kind && e.detail);
+    const named = matched
+      .slice(0, MAX_ENUMERATED_ENTRIES)
       .map((e) => `${e.displayName} → ${e.detail}`);
-    const remaining = unexpectedEntries.length - named.length;
-    const list =
-      named.join(", ") + (remaining > 0 ? ` (+${remaining} more)` : "");
-    handRemoval = list
-      ? `; must be removed by hand: ${list}`
-      : "; unexpected entries inside a flow-managed plugin root must be removed by hand";
-  }
+    const remaining = matched.length - named.length;
+    return named.join(", ") + (remaining > 0 ? ` (+${remaining} more)` : "");
+  };
+  const unexpectedList = byKind.unexpected > 0 ? enumerate("unexpected") : "";
+  const handRemoval =
+    byKind.unexpected === 0
+      ? ""
+      : unexpectedList
+        ? `; must be removed by hand: ${unexpectedList}`
+        : "; unexpected entries inside a flow-managed plugin root must be removed by hand";
+  // A `foreign` entry always carries a `detail` (the only path that produces
+  // it always sets one), so `foreignList` is never empty when reached — no
+  // second fallback string needed here, unlike `handRemoval` above.
+  const foreignList = byKind.foreign > 0 ? enumerate("foreign") : "";
+  const autoRemoval = foreignList
+    ? `; \`flow install --upgrade\` will remove ${
+        byKind.foreign === 1 ? "this foreign entry" : "these foreign entries"
+      } now on PATH (inspect first if you did not create ${
+        byKind.foreign === 1 ? "it" : "them"
+      }): ${foreignList}`
+    : "";
   return `flow: ${result.entries.length} install drift issue${
     result.entries.length === 1 ? "" : "s"
-  } (${parts.join(", ")}) — ${repair}${handRemoval}`;
+  } (${parts.join(", ")}) — ${repair}${handRemoval}${autoRemoval}`;
 }

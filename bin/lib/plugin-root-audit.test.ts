@@ -246,6 +246,66 @@ describe(unexpectedPluginRootEntries, () => {
     });
   });
 
+  it("a `flow install --source <worktree>` worktree-only-new-helper layout is not reported as foreign-live-bin-symlink", () => {
+    // Mirrors `flow install --source <worktree>`'s bin/ linking: flowSource
+    // (the worktree) and installRoot (the canonical checkout) DIFFER, and
+    // `effectiveLinkSource` falls back to the worktree path itself for a
+    // helper that has no canonical counterpart yet (the rebased path
+    // doesn't exist on disk), so the plugin-root bin/ symlink resolves
+    // into flowSource, not installRoot.
+    materializeCleanRoot();
+    const worktree = path.join(scratch, "flow-worktree");
+    const canonical = path.join(scratch, "flow-canonical");
+    fs.mkdirSync(worktree, { recursive: true });
+    fs.mkdirSync(canonical, { recursive: true });
+
+    // New helper: exists ONLY in the worktree. The bin/ symlink points at
+    // the worktree copy directly, as `effectiveLinkSource`'s no-rebase
+    // fallback produces.
+    const newHelperTarget = path.join(worktree, "flow-new-helper.ts");
+    fs.writeFileSync(newHelperTarget, "export {};\n");
+    fs.symlinkSync(newHelperTarget, path.join(root, "bin", "flow-new-helper"));
+
+    // Positive control: an existing helper present in BOTH roots, linked
+    // to the canonical copy — the ordinary already-released-helper case.
+    const existingHelperWorktree = path.join(
+      worktree,
+      "flow-existing-helper.ts",
+    );
+    const existingHelperCanonical = path.join(
+      canonical,
+      "flow-existing-helper.ts",
+    );
+    fs.writeFileSync(existingHelperWorktree, "export {};\n");
+    fs.writeFileSync(existingHelperCanonical, "export {};\n");
+    fs.symlinkSync(
+      existingHelperCanonical,
+      path.join(root, "bin", "flow-existing-helper"),
+    );
+
+    const issues = audit(root, {
+      flowSource: worktree,
+      installRoot: canonical,
+    });
+    // Positive control: materializeCleanRoot()'s symlink resolves into
+    // flowSrc, which is under neither ownership root here, so it MUST be
+    // reported — proving the audit ran and the two negatives below are real,
+    // not a silent no-op that would leave `issues` empty.
+    expect(issues).toContainEqual({
+      relPath: path.join("bin", "flow-request-copilot"),
+      reason: "foreign-live-bin-symlink",
+    });
+    expect(issues).toHaveLength(1);
+    expect(issues).not.toContainEqual({
+      relPath: path.join("bin", "flow-new-helper"),
+      reason: "foreign-live-bin-symlink",
+    });
+    expect(issues).not.toContainEqual({
+      relPath: path.join("bin", "flow-existing-helper"),
+      reason: "foreign-live-bin-symlink",
+    });
+  });
+
   it("a stray file inside .claude-plugin/ is an unexpected-child prefixed .claude-plugin/", () => {
     materializeCleanRoot();
     fs.writeFileSync(path.join(root, ".claude-plugin", "hooks.json"), "{}");
