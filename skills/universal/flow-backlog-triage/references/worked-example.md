@@ -116,24 +116,28 @@ Phase 3 bundle mechanics above:
 
 ### Fix now (active problems)
 
-**Outcome:** Users stop getting logged out at random during a normal
-session.
-**What changes / who notices:** Anyone who leaves a tab open and comes
-back after a short idle period; the session now survives it instead of
-silently dropping.
-**Why it's worth it:** A random forced logout is the kind of thing a
-user assumes is a bug in the whole product, not one code path — small
-fix, outsized trust cost if left alone.
-**Size:** S
+- **Outcome:** Users stop getting logged out at random during a normal
+  session.
+- **What changes / who notices:** Anyone who leaves a tab open and
+  comes back after a short idle period; the session now survives it
+  instead of silently dropping.
+- **Why it's worth it:** A random forced logout is the kind of thing a
+  user assumes is a bug in the whole product, not one code path —
+  small fix, outsized trust cost if left alone.
+- **Size:** S
 
-**Outcome:** The nightly deploy-health checks go green again and stay
-green.
-**What changes / who notices:** No one directly — this is a reliability
-fix. The team stops getting paged for a false-positive drift alert and a
-failing smoketest that were actually the same root cause.
-**Why it's worth it:** Two red signals every night erodes trust in CI
-faster than one; restoring the rotated secrets closes both at once.
-**Size:** M
+---
+
+- **Outcome:** The nightly deploy-health checks go green again and
+  stay green.
+- **What changes / who notices:** No one directly — this is a
+  reliability fix. The team stops getting paged for a false-positive
+  drift alert and a failing smoketest that were actually the same
+  root cause.
+- **Why it's worth it:** Two red signals every night erodes trust in
+  CI faster than one; restoring the rotated secrets closes both at
+  once.
+- **Size:** M
 
 Launch queue (Fix now tier):
 
@@ -143,12 +147,14 @@ flow feature create --tmux --model opus --effort high --slug restore-deploy-secr
 
 ### When you schedule it
 
-**Outcome:** Audit logs stop growing without bound.
-**What changes / who notices:** Nobody until storage or compliance asks
-— this trades an unbounded log for a configurable retention window.
-**Why it's worth it:** Cheap to add now, expensive to retrofit once logs
-are large; retention length is a product call, not an engineering one.
-**Size:** S
+- **Outcome:** Audit logs stop growing without bound.
+- **What changes / who notices:** Nobody until storage or compliance
+  asks — this trades an unbounded log for a configurable retention
+  window.
+- **Why it's worth it:** Cheap to add now, expensive to retrofit once
+  logs are large; retention length is a product call, not an
+  engineering one.
+- **Size:** S
 
 Launch queue (When you schedule it tier) — carries a fire-time decision
 parameter, not runnable until the user supplies the value:

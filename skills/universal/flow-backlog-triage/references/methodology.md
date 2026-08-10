@@ -45,9 +45,11 @@ app stability, bug fixes, and high-value features/enhancements.
 **Surfaced-never-silent milestone inference.** In grooming mode, when the
 notes source contains an explicit goal item, adopt it as a **provisional**
 milestone — never silently switch to milestone-mode ranking. State the
-inference in the Decision Brief's at-a-glance opener, and make "confirm or strike the inferred milestone" the FIRST numbered question in the Decision Brief's Open decisions group,
-every time inference fires. Name what would reorder if the inferred
-milestone is struck — the specific bundles or verdicts that move — and
+inference in the Decision Brief's at-a-glance opener, and make "confirm
+or strike the inferred milestone" the FIRST numbered question in the
+Decision Brief's Open decisions group, every time inference fires.
+Name what would reorder if the inferred milestone is struck — the
+specific bundles or verdicts that move — and
 state that a strike changes ORDERING, not verdicts, unless explicitly
 stated otherwise.
 
@@ -73,7 +75,7 @@ output — rather than a fresh backlog, run this mode instead of a
 cold-start Phase 0/1 pass:
 
 - Compute the **merge delta**: everything that landed since the prior
-  document was written. `git log --oneline <prior-doc-date>..HEAD` for
+  document was written. `git log --oneline --since='<prior-doc-date>'` for
   code, `gh pr list --state merged --search 'merged:>=<date>'` for
   merged PRs.
 - Phase 0's lossless inventory and the N+M assertion still hold over
@@ -213,7 +215,7 @@ distinction: **evidence-based closures are automated, judgment-based closures ar
       DO bundles that are bugs/hardening and Medium-or-smaller, capped at a configurable
       concurrency (default 4), and queue the rest.
     - Anything requiring credentials, dashboards, purchases, or manual ops goes to the
-      escalation section as a runbook step, never into the queue.
+      Decision Brief's Open decisions group as a runbook step, never into the queue.
 
 Every emitted launch command in the queue follows the queue-seed format
 from [output-template.md](output-template.md): `--tmux`, an explicit

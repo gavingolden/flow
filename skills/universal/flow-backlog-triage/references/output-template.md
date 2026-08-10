@@ -15,13 +15,15 @@ session; to keep it, pass an explicit path up front or copy it out
 **Document shape.** The top of the document carries a line the run
 emits at write time: `**This document:** <absolute path>`. The run
 also prints that same absolute path in the chat summary, so the reader
-can open the file without hunting for it. This document is ONE document, never two files — the brief and the appendix below (`## Decision Brief`
-and `## Audit Appendix`) are two sections of the same file, not a split
-output.
+can open the file without hunting for it. This document is ONE
+document, never two files — the brief and the appendix below
+(`## Decision Brief` and `## Audit Appendix`) are two sections of the
+same file, not a split output.
 
-The document body follows a two-layer section order: `## Decision Brief` comes first, for a reader who wants the outcome and the open questions;
-`## Audit Appendix` comes second, holding the full verified evidence
-trail underneath it.
+The document body follows a two-layer section order: `## Decision
+Brief` comes first, for a reader who wants the outcome and the open
+questions; `## Audit Appendix` comes second, holding the full verified
+evidence trail underneath it.
 
 ## Decision Brief
 
@@ -33,11 +35,17 @@ here too, and name what would reorder if the inferred milestone is
 struck — which specific bundles or verdicts move, and that a strike
 changes ordering, not verdicts, unless explicitly stated otherwise.
 
-This brief assumes its reader understands the product, has not read the tickets, and wants a recommendation, not a raw list. Inside this
+This brief assumes its reader understands the product, has not read
+the tickets, and wants a recommendation, not a raw list. Inside this
 Decision Brief: no internal codenames or mechanism language — no issue
-numbers, ref codes, or implementation mechanics. The Audit Appendix
-below, and the filed bundle issue each queued command points at, keep
-the mechanism language; this layer stays in outcomes.
+numbers, ref codes, or implementation mechanics. This ban scopes to
+the At-a-glance opener and the bundle cards. `### Not doing (kill
+list)` and `### Launch queue (grouped by tier)` are command-rendering
+surfaces: they keep their issue numbers, refs, and verbatim commands,
+and the shell-safety contract's `'\''` form below MUST be reproduced
+literally, never paraphrased for readability. The Audit Appendix
+below, and the filed bundle issue each queued command points at, also
+keep the mechanism language; the opener and cards stay in outcomes.
 
 Group every DO bundle into one of these **recommendation tiers**,
 introduced here and used throughout the Launch queue below: **Fix now
@@ -47,17 +55,21 @@ mergeable to fit the backlog's actual shape, and a tier with nothing in
 it is simply omitted — but never introduce a fifth tier without saying
 why the four defaults didn't fit this backlog.
 
-Each DO bundle gets one card:
+Each DO bundle gets one card, each facet its own list item so the
+card renders as four lines, never one run-on paragraph:
 
-**Outcome:** <one plain-language sentence — what a user or the
-business gets>
-**What changes / who notices:** <who is affected and how>
-**Why it's worth it:** <the value case — or the honest case against,
-if it's marginal>
-**Size:** S / M / L <sourced from Phase 3's Small/Medium/Large sizing>
+- **Outcome:** <one plain-language sentence — what a user or the
+  business gets>
+- **What changes / who notices:** <who is affected and how>
+- **Why it's worth it:** <the value case — or the honest case
+  against, if it's marginal>
+- **Size:** S / M / L <sourced from Phase 3's Small/Medium/Large
+  sizing>
 
 Keep the brief to at most two pages: one card per bundle, never per
-item — items collapse into their bundle's single card.
+item — items collapse into their bundle's single card. Separate
+consecutive cards with a blank line so they never merge into one
+blob.
 
 ### Not doing (kill list)
 
@@ -169,7 +181,7 @@ half of enforcement (a prose lint cannot police runtime behaviour):
 - Every queue command carries --tmux and --slug, zero backticks, and
   single-quoted interpolated values: YES/NO
 - Any hybrid verdict used: YES/NO
-- Inferred milestone surfaced as first escalation (or N/A): YES/N-A/NO
+- Inferred milestone surfaced as the first Open decision (or N/A): YES/N-A/NO
 - Decision Brief is the first section and every DO bundle has a card: YES/NO
 
 ## Chat summary shape

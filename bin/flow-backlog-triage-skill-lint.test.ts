@@ -256,8 +256,9 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
   });
 
   it("requires inferred milestones to be surfaced as the first escalation when the methodology defines grooming mode", () => {
+    const normalized = methodologyContent.replace(/\s+/g, " ");
     expect(
-      methodologyContent.includes(
+      normalized.includes(
         'confirm or strike the inferred milestone" the FIRST numbered question',
       ),
     ).toBe(true);
@@ -299,7 +300,12 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
     // heading exists at all. Pinning the heading shape at either `##` or
     // `###` depth is STRICTER than the accidental substring match, not a
     // weakening of the anchor.
-    expect(/^#{2,3} Self-check$/m.test(outputTemplateContent)).toBe(true);
+    expect(
+      /^#{2,3} Self-check$/m.test(outputTemplateContent),
+      "output-template.md must carry a '## Self-check' or '### Self-check' " +
+        "heading at heading position — a demoted or renamed heading is not " +
+        "caught by an accidental substring match.",
+    ).toBe(true);
   });
 
   // Decision Brief restructure (output-template.md is one document, brief
@@ -339,33 +345,74 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
   });
 
   it("states the one-file rule when the output template defines the document shape", () => {
+    const normalized = outputTemplateContent.replace(/\s+/g, " ");
     expect(
-      outputTemplateContent.includes("ONE document, never two files"),
+      normalized.includes("ONE document, never two files"),
       "output-template.md must state the document is ONE document, never " +
         "two files — the closed 'two separate output files' alternative " +
         "must not silently creep back in as a brief.md + audit.md split.",
     ).toBe(true);
   });
 
-  it("scopes the jargon ban to the Decision Brief layer", () => {
+  it("scopes the jargon ban to the Decision Brief's opener and bundle cards, not the whole layer", () => {
+    // Sliced to the brief (not a whole-file includes()): the jargon ban
+    // lives in the Decision Brief's opener, but two nested subsections
+    // (`### Not doing (kill list)` and `### Launch queue`) are
+    // command-rendering surfaces that are REQUIRED to carry issue numbers
+    // and shell commands. A whole-file includes() would stay green even if
+    // the ban sentence migrated into `## Audit Appendix`, whose whole
+    // purpose is the opposite.
+    const briefStart = outputTemplateContent.indexOf("\n## Decision Brief\n");
+    const appendixStart = outputTemplateContent.indexOf(
+      "\n## Audit Appendix\n",
+    );
+    const brief = outputTemplateContent.slice(briefStart, appendixStart);
+    const normalizedBrief = brief.replace(/\s+/g, " ");
     expect(
-      outputTemplateContent.includes(
-        "no internal codenames or mechanism language",
-      ),
+      normalizedBrief.includes("no internal codenames or mechanism language"),
       "output-template.md's Decision Brief must ban internal codenames and " +
         "mechanism language — a brief a PM reads must not read like an " +
         "engineering ticket.",
     ).toBe(true);
+    expect(
+      normalizedBrief.includes(
+        "This ban scopes to the At-a-glance opener and the bundle cards",
+      ),
+      "the jargon ban must carve out the kill list and launch queue " +
+        "subsections — both are command-rendering surfaces required to " +
+        "carry issue numbers and shell commands, and an unscoped ban " +
+        "would forbid a run from following its own template.",
+    ).toBe(true);
   });
 
   it("states the Decision Brief's audience contract", () => {
+    const normalized = outputTemplateContent.replace(/\s+/g, " ");
     expect(
-      outputTemplateContent.includes(
-        "understands the product, has not read the tickets",
-      ),
+      normalized.includes("understands the product, has not read the tickets"),
       "output-template.md must state the Decision Brief assumes a reader " +
         "who understands the product but has not read the tickets — " +
         "otherwise the brief drifts back into ticket-shaped prose.",
+    ).toBe(true);
+  });
+
+  it("pins the shell-safety contract's clauses, not just the narrower no-backticks rule", () => {
+    const normalized = outputTemplateContent.replace(/\s+/g, " ");
+    for (const clause of [
+      "Never interpolate it inside double quotes",
+      "Always single-quote it, escaping any embedded single quote as",
+      'stricter than, and supersedes, a "no backticks" rule',
+    ]) {
+      expect(
+        normalized.includes(clause),
+        `output-template.md must carry the shell-safety clause '${clause}' — ` +
+          "the ZERO-backticks anchor alone passes against a document that " +
+          "lost the double-quote and single-quoting rules.",
+      ).toBe(true);
+    }
+    expect(
+      outputTemplateContent.includes("'\\''"),
+      "output-template.md must show the '\\'' escaping form literally — " +
+        "prose describing the escape is not a usable exemplar.",
     ).toBe(true);
   });
 
@@ -388,11 +435,16 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
   );
 
   it("emits the launch queue as tiered groups, never a flat list", () => {
-    expect(outputTemplateContent.includes("recommendation tiers")).toBe(true);
+    expect(
+      outputTemplateContent.includes("recommendation tiers"),
+      "output-template.md must name the canonical **recommendation tiers** the " +
+        "Launch queue groups by — without the ladder the tiers become free-form " +
+        "per run and the reading order the brief exists to give is lost.",
+    ).toBe(true);
     expect(
       outputTemplateContent.includes("tiered groups"),
       "output-template.md must emit the queue as 'tiered groups', not a " +
-        "flat list — a flat table hides the decision structure the brief " +
+        "flat list — a flat list hides the decision structure the brief " +
         "exists to surface.",
     ).toBe(true);
   });
@@ -464,6 +516,35 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
           "user can invoke.",
       ).toBe(true);
     }
+  });
+
+  it("requires re-staging the unconfirmed kill list, not a bare word check satisfiable by prose forbidding it", () => {
+    // A bare `includes("re-stage")` against skillContent alone is
+    // polarity-blind — it would also pass against prose that FORBIDS an
+    // automatic re-stage. Anchor the affirmative obligation in
+    // methodology.md, the normative home of the rule.
+    const normalizedMethodology = methodologyContent.replace(/\s+/g, " ");
+    expect(
+      normalizedMethodology.includes(
+        "**Re-stage** the prior document's **unconfirmed kill list**",
+      ),
+      "methodology.md must REQUIRE re-staging the unconfirmed kill list — a bare " +
+        "'re-stage' word check is satisfied by prose that forbids it.",
+    ).toBe(true);
+  });
+
+  it("forbids a sixth carry-forward verdict and keeps N+M binding in delta mode", () => {
+    const normalized = methodologyContent.replace(/\s+/g, " ");
+    expect(
+      normalized.includes("no sixth verdict"),
+      "methodology.md's delta re-triage must reuse the five Phase-1 verdicts — a " +
+        "sixth 'unchanged since last time' verdict reintroduces the unverified carry-forward.",
+    ).toBe(true);
+    expect(
+      normalized.includes("a delta run is not exempt from either"),
+      "methodology.md must state a delta run is not exempt from the lossless " +
+        "inventory or the N+M assertion.",
+    ).toBe(true);
   });
 
   it.each([

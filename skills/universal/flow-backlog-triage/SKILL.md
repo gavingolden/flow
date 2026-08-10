@@ -78,15 +78,15 @@ detail: [references/methodology.md](references/methodology.md).
 **Delta re-triage mode.** When the input is a **prior triage document**
 (this skill's own prior output) rather than a fresh backlog, compute the
 **merge delta** — everything that landed since that document was
-written, via `git log --oneline <prior-doc-date>..HEAD` and `gh pr list
+written, via `git log --oneline --since='<prior-doc-date>'` and `gh pr list
 --state merged --search 'merged:>=<date>'` — and re-verify each prior
 verdict against it before doing anything else. Phase 0's lossless
 inventory and the N+M assertion still hold over the CURRENT backlog, not
 the prior document's snapshot. A prior verdict that re-verifies unchanged
 may be carried forward WITH its citation rather than re-derived from
 scratch; the prior document's **unconfirmed kill list** — REJECTs the
-user never ran the drafted close command for — gets a fresh look, not an
-automatic re-stage.
+user never ran the drafted close command for — gets **re-staged** for a
+fresh look, never silently carried forward as confirmed or withdrawn.
 
 **Reference index:**
 
@@ -175,8 +175,8 @@ document is wanted.
 
 Print the document's absolute path both at the top of the document
 itself and in the chat summary at the end of the run. The chat summary
-leads with the Decision Brief's top recommendation tier, not a pointer
-back into the document.
+opens with that path, then the Decision Brief's top recommendation
+tier(s) given inline, not a pointer back into the document.
 
 # Verification
 
