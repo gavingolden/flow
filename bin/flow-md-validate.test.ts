@@ -339,7 +339,7 @@ describe(listMarkdownFiles, () => {
     try {
       expect(() => listMarkdownFiles(tmp)).toThrow(MarkdownEnumerationError);
       expect(errSpy.mock.calls.flat().join(" ")).toMatch(
-        /git enumeration failed.*skipping validation/,
+        /git enumeration failed.*not falling back to a walk/,
       );
 
       const found2 = walkMarkdownFiles(tmp).map((p) => path.relative(tmp, p));

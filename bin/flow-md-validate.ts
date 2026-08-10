@@ -135,7 +135,7 @@ export function listMarkdownFiles(root: string): string[] {
   if (result.kind === "ok") return result.files;
   if (result.kind === "not-a-work-tree") return walkMarkdownFiles(root);
   console.error(
-    `flow-md-validate: git enumeration failed (${result.stderr}) — skipping validation`,
+    `flow-md-validate: git enumeration failed (${result.stderr}) — validated nothing; not falling back to a walk`,
   );
   throw new MarkdownEnumerationError(result.stderr);
 }
