@@ -10,8 +10,10 @@ import { spawnSync } from "node:child_process";
 import {
   extractHeadings,
   extractLinks,
+  gitEnv,
   listMarkdownFiles,
   main,
+  MarkdownEnumerationError,
   parseFrontmatter,
   runValidation,
   slugifyHeading,
@@ -39,14 +41,10 @@ function write(relPath: string, content: string): string {
 
 // Strip GIT_* so the fixture's `git init` never resolves against the
 // outer repo vitest itself runs inside (this suite can inherit GIT_DIR /
-// GIT_WORK_TREE from a pre-push hook context).
-function gitFixtureEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of Object.keys(env)) {
-    if (key.startsWith("GIT_")) delete env[key];
-  }
-  return env;
-}
+// GIT_WORK_TREE from a pre-push hook context). Reuses the production
+// `gitEnv` strip rather than duplicating it, so the fixture can't drift
+// from the behaviour it exercises.
+const gitFixtureEnv = gitEnv;
 
 function gitc(cwd: string, args: string[]) {
   return spawnSync(
@@ -264,7 +262,7 @@ describe(listMarkdownFiles, () => {
 
     const report = runValidation(tmp);
     expect(report.violations).toEqual([]);
-    const found = listMarkdownFiles(tmp);
+    const found = listMarkdownFiles(tmp).map((p) => path.relative(tmp, p));
     expect(found.some((p) => p.split(path.sep).includes("vend"))).toBe(false);
   });
 
@@ -324,7 +322,7 @@ describe(listMarkdownFiles, () => {
     expect(found).toEqual([path.join(docsDir, "a.md")]);
   });
 
-  it("warns and skips (never falls back to a blind walk) on enumeration failure", () => {
+  it("warns and exits 2 (never falls back to a blind walk) on enumeration failure", async () => {
     initRepo(tmp);
     write(".gitignore", "vend/\n");
     write("README.md", "# readme\n");
@@ -337,18 +335,79 @@ describe(listMarkdownFiles, () => {
     fs.writeFileSync(path.join(tmp, ".git", "index"), "x");
 
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
-      const found = listMarkdownFiles(tmp);
-      expect(found).toEqual([]);
-      expect(errSpy).toHaveBeenCalled();
+      expect(() => listMarkdownFiles(tmp)).toThrow(MarkdownEnumerationError);
+      expect(errSpy.mock.calls.flat().join(" ")).toMatch(
+        /git enumeration failed.*skipping validation/,
+      );
+
       const found2 = walkMarkdownFiles(tmp).map((p) => path.relative(tmp, p));
       // Sanity: a blind walk WOULD have found the ignored file — proving
-      // the enumeration-failed branch deliberately returns [] rather than
+      // the enumeration-failed branch deliberately skips rather than
       // falling back to it.
       expect(found2.some((p) => p.split(path.sep).includes("vend"))).toBe(true);
+
+      expect(await main([tmp])).toBe(2);
     } finally {
       errSpy.mockRestore();
+      logSpy.mockRestore();
     }
+  });
+
+  it("still skips IGNORE_DIRS inside a work tree", () => {
+    initRepo(tmp);
+    write(".flow-tmp/plan.md", "[gone](./nope.md)\n");
+    write("node_modules/pkg/README.md", "[gone](./nope.md)\n");
+    write("README.md", "# readme\n");
+    gitc(tmp, ["add", "-A", "-f"]);
+    gitc(tmp, ["commit", "-q", "-m", "track vendored md"]);
+
+    const found = listMarkdownFiles(tmp).map((p) => path.relative(tmp, p));
+    expect(found).toEqual(["README.md"]);
+    expect(runValidation(tmp).violations).toEqual([]);
+  });
+
+  it("ignores a leaked GIT_DIR/GIT_WORK_TREE from a hook context", () => {
+    initRepo(tmp);
+    write("tracked.md", "# tracked\n");
+    gitc(tmp, ["add", "-A"]);
+    gitc(tmp, ["commit", "-q", "-m", "t"]);
+
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "flow-md-outside-"));
+    fs.writeFileSync(path.join(outside, "only.md"), "# only\n");
+    const saved = {
+      d: process.env.GIT_DIR,
+      w: process.env.GIT_WORK_TREE,
+    };
+    process.env.GIT_DIR = path.join(tmp, ".git");
+    process.env.GIT_WORK_TREE = tmp;
+    try {
+      // Without the strip, the probe answers "true" for `outside` and
+      // ls-files enumerates the OTHER repo's files.
+      expect(listMarkdownFiles(outside)).toEqual([
+        path.join(outside, "only.md"),
+      ]);
+    } finally {
+      saved.d ? (process.env.GIT_DIR = saved.d) : delete process.env.GIT_DIR;
+      saved.w
+        ? (process.env.GIT_WORK_TREE = saved.w)
+        : delete process.env.GIT_WORK_TREE;
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("skips tracked symlinks (live and dangling)", () => {
+    initRepo(tmp);
+    write("real.md", "# real\n");
+    fs.symlinkSync("real.md", path.join(tmp, "live-link.md"));
+    fs.symlinkSync("gone.md", path.join(tmp, "dead-link.md"));
+    gitc(tmp, ["add", "-A"]);
+    gitc(tmp, ["commit", "-q", "-m", "links"]);
+
+    const found = listMarkdownFiles(tmp).map((p) => path.relative(tmp, p));
+    expect(found).toEqual(["real.md"]);
+    expect(() => runValidation(tmp)).not.toThrow();
   });
 });
 

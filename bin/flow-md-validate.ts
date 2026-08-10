@@ -53,13 +53,18 @@ export type GitMarkdownResult =
   | { kind: "not-a-work-tree" }
   | { kind: "enumeration-failed"; stderr: string };
 
+/** Thrown by `listMarkdownFiles` when a known git work tree fails to
+ * enumerate (e.g. a corrupt index). Caught in `main` and converted to
+ * exit code 2 — never silently swallowed into a clean-looking 0. */
+export class MarkdownEnumerationError extends Error {}
+
 /**
  * Build a spawn env with every `GIT_*` key stripped. A prefix strip, not an
  * enumerated blacklist — this helper runs from a pre-push hook that exports
  * GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE / GIT_PREFIX, and an enumerated
  * list can forget one, silently resolving `git` against the wrong repo.
  */
-function gitEnv(): NodeJS.ProcessEnv {
+export function gitEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of Object.keys(env)) {
     if (key.startsWith("GIT_")) delete env[key];
@@ -78,11 +83,11 @@ function gitEnv(): NodeJS.ProcessEnv {
  */
 export function gitTrackedMarkdown(root: string): GitMarkdownResult {
   const env = gitEnv();
-  const probe = spawnSync(
-    "git",
-    ["-C", root, "rev-parse", "--is-inside-work-tree"],
-    { env, encoding: "utf8" },
-  );
+  const probe = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+    cwd: root,
+    env,
+    encoding: "utf8",
+  });
   if (probe.error || probe.status !== 0 || probe.stdout.trim() !== "true") {
     return { kind: "not-a-work-tree" };
   }
@@ -100,7 +105,7 @@ export function gitTrackedMarkdown(root: string): GitMarkdownResult {
   }
 
   const entries = ls.stdout.split("\0").filter((e) => e.length > 0);
-  const files: string[] = [];
+  const files = new Set<string>();
   for (const entry of entries) {
     if (!entry.endsWith(".md")) continue;
     const abs = path.resolve(root, entry);
@@ -108,16 +113,19 @@ export function gitTrackedMarkdown(root: string): GitMarkdownResult {
     const segments = rel.split(path.sep);
     if (segments.some((s) => IGNORE_DIRS.has(s))) continue;
     try {
+      // A dangling symlink makes `lstatSync` SUCCEED (it stats the link,
+      // not the target) and exits here via `!isFile()`; the `catch` below
+      // only fires for a tracked-but-deleted path, where `lstatSync`
+      // itself throws ENOENT.
       if (!fs.lstatSync(abs).isFile()) continue;
     } catch {
-      // `git ls-files --cached` lists tracked-but-deleted paths and tracked
-      // symlinks to nowhere, neither of which today's walk yields; a
-      // subsequent readFileSync would crash the gate, so skip silently.
+      // Tracked-but-deleted path: a subsequent readFileSync would crash
+      // the gate, so skip silently.
       continue;
     }
-    files.push(abs);
+    files.add(abs);
   }
-  return { kind: "ok", files: files.sort() };
+  return { kind: "ok", files: Array.from(files).sort() };
 }
 
 export function listMarkdownFiles(root: string): string[] {
@@ -129,7 +137,7 @@ export function listMarkdownFiles(root: string): string[] {
   console.error(
     `flow-md-validate: git enumeration failed (${result.stderr}) — skipping validation`,
   );
-  return [];
+  throw new MarkdownEnumerationError(result.stderr);
 }
 
 /**
@@ -349,7 +357,13 @@ export async function main(argv: string[]): Promise<number> {
     console.error(`Error: path does not exist: ${argv[0]}`);
     return 2;
   }
-  const report = runValidation(target);
+  let report: RunReport;
+  try {
+    report = runValidation(target);
+  } catch (err) {
+    if (err instanceof MarkdownEnumerationError) return 2;
+    throw err;
+  }
   const root = fs.statSync(target).isDirectory()
     ? target
     : path.dirname(target);
