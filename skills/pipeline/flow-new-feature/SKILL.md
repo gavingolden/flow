@@ -28,8 +28,10 @@ acceptance criteria as `it.todo()` test specs, and mandatory test implementation
 
 This skill is a thin wrapper around a one-shot **Independent Scout
 Subagent**. The wrapper itself does no codebase scouting — it spawns one
-Task-tool subagent (`subagent_type: flow-scout`, guarded `general-purpose`
-fallback), passes the user's
+Task-tool subagent (`subagent_type: $SCOUT_SUBAGENT`, resolved to the
+plugin-qualified `flow-module-core:flow-scout` on a plugin-root install,
+the bare `flow-scout` on a legacy global install, or a guarded
+`general-purpose` fallback), passes the user's
 verbatim description plus the absolute path to write, and waits for the
 subagent to return a brief both-sides summary. The subagent does the
 discovery in its own isolated context: reading source files, scanning
@@ -177,12 +179,21 @@ plan.md's `## Alternatives considered` (see
 
 3. Resolve the subagent type. The `agents/flow-scout.md` definition
    (Bash/Read/Grep/Glob/Write allowlist, no `effort:`/`model:` pins) resolves
-   via a file-exists guard that falls back to `general-purpose` with a loud
-   `NOTICE — agent-fallback:` line so the pipeline never fails on an unknown agent type:
+   in three tiers so the pipeline never fails on an unknown agent type.
+   Plugin-hosted agents are addressable ONLY by the plugin-qualified name
+   `<pluginRootName>:<agentBasename>` — a bare `flow-scout` subagent_type
+   fails Task-tool resolution outright (measured: "Agent type 'flow-scout'
+   not found"):
 
    ```bash
-   SCOUT_SUBAGENT=flow-scout
-   [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-scout.md ] || { SCOUT_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-scout → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+   SCOUT_SUBAGENT=general-purpose
+   if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-scout.md ]; then
+     SCOUT_SUBAGENT=flow-module-core:flow-scout
+   elif [ -f ~/.claude/agents/flow-scout.md ]; then
+     SCOUT_SUBAGENT=flow-scout
+   else
+     echo "NOTICE — agent-fallback: flow-scout → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."
+   fi
    ```
 
    Make exactly **one** Task-tool call:
@@ -718,8 +729,10 @@ return contracts are out of scope for that contract.
 - Any new environment variables have been added to `.env.example` with comments and safe defaults
 - PR description draft exists (`.flow-tmp/pr-description-draft.md`) or user explicitly deferred it
 - For wider-scope features: exactly one Task-tool call was made at the
-  Step 1b scout site with `subagent_type: $SCOUT_SUBAGENT` (`flow-scout`,
-  or the guarded `general-purpose` fallback);
+  Step 1b scout site with `subagent_type: $SCOUT_SUBAGENT` (resolved to
+  `flow-module-core:flow-scout` on a plugin-root install, the bare
+  `flow-scout` on a legacy global install, or the guarded
+  `general-purpose` fallback);
   `.flow-tmp/scout.md` exists with the six expected sections
   (`## affected_modules`, `## relevant_tests`, `## public_api_surface`,
   `## open_questions`, `## recommended_strategy`, `## anti_patterns`);

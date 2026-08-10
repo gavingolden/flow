@@ -394,56 +394,77 @@ async function probeAgentInvocationName(
   );
   fs.symlinkSync(agentsSourceDir, path.join(root, "agents"));
 
-  const result = await runClaude(
+  // `claude plugin details` DISPLAY output is corroboration ONLY, never
+  // gating — a prior revision of this probe asserted "confirmed" from this
+  // call alone, inferring invocation naming from display naming. That was
+  // wrong: a live session measured a bare `subagent_type` (e.g.
+  // `flow-scout`) failing Task-tool resolution outright with
+  // `Agent type 'flow-scout' not found. Available agents: ... ,
+  // flow-module-core:flow-scout, ...` even though `plugin details` reports
+  // the bare basename under an `Agents (N)` count. Display naming is not
+  // invocation naming.
+  const detailsResult = await runClaude(
     ["plugin", "details", "flow-module-core@skills-dir"],
     { home: fixtureHome },
   );
-  if (result.timedOut) {
-    return {
-      id,
-      verdict: "inconclusive",
-      evidence: `claude plugin details timed out after ${DEFAULT_TIMEOUT_MS}ms`,
-      fallback:
-        "the deferred agent-move follow-up ships without a verified naming answer; re-probe before implementing it",
-    };
-  }
-  const bareNameConfirmed =
-    result.exitCode === 0 &&
-    /Agents\s*\(1\)/.test(result.stdout) &&
-    result.stdout.includes("flow-probe-agent");
-  if (!bareNameConfirmed) {
-    return {
-      id,
-      verdict: "inconclusive",
-      evidence: `claude plugin details did not report the fixture agent under an Agents (1) count by its bare name (exit ${result.exitCode}): ${result.stdout.trim()}`,
-      fallback:
-        "the deferred agent-move follow-up ships without a verified naming answer; re-probe before implementing it",
-    };
-  }
+  const detailsEvidence = detailsResult.timedOut
+    ? `claude plugin details timed out after ${DEFAULT_TIMEOUT_MS}ms`
+    : `claude plugin details exit ${detailsResult.exitCode}, reports agent under Agents(N): ${/Agents\s*\(1\)/.test(detailsResult.stdout) && detailsResult.stdout.includes("flow-probe-agent")}`;
 
-  // Task-tool visibility corroboration only — a one-shot `-p` session
-  // asking for the probe agent's subagent_type identifier. The verdict is
-  // gated on the bare-name `plugin details` evidence above alone (per this
-  // harness's existing contract, matching probeSkillInvocationName); this
-  // half never downgrades a bare-name `confirmed`, it only annotates the
-  // evidence string.
+  // GATING evidence: attempt an ACTUAL Task-tool spawn against the bare
+  // basename via a `-p` session, and inspect whichever identifier form the
+  // tool call actually resolves against — never inferred from display
+  // output.
   const taskResult = await runClaude(
     [
       "--plugin-dir",
       root,
       "-p",
-      "What is the exact subagent_type identifier for the flow-probe-agent agent available to the Task tool? Answer with just the identifier.",
+      "Use the Task tool to spawn a subagent with subagent_type: flow-probe-agent, description: probe, and prompt: 'reply OK'. Report back the exact raw Task-tool result or error text verbatim, unmodified.",
     ],
     { home: fixtureHome },
   );
-  const taskEvidence = taskResult.timedOut
-    ? `claude --plugin-dir <root> -p ... timed out after ${DEFAULT_TIMEOUT_MS}ms`
-    : `claude --plugin-dir <root> -p ... exit ${taskResult.exitCode}: ${taskResult.stdout.trim().slice(0, 300)}`;
+
+  if (taskResult.timedOut) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `Task-tool spawn probe timed out after ${DEFAULT_TIMEOUT_MS}ms. Display-only corroboration: ${detailsEvidence}`,
+      fallback:
+        "the deferred agent-move follow-up ships without a verified naming answer; re-probe before implementing it",
+    };
+  }
+  if (/not logged in/i.test(taskResult.stdout)) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `Task-tool spawn probe could not authenticate in the isolated fixture HOME ("Not logged in"), so no real Task-tool resolution was observed. Display-only corroboration (non-gating): ${detailsEvidence}`,
+      fallback:
+        "the deferred agent-move follow-up ships without a verified naming answer; re-probe from an authenticated session before implementing it",
+    };
+  }
+
+  const qualifiedMatch = taskResult.stdout.match(
+    /flow-module-core:flow-probe-agent/,
+  );
+  const bareResolutionFailed = /Agent type 'flow-probe-agent' not found/i.test(
+    taskResult.stdout,
+  );
+
+  if (qualifiedMatch || bareResolutionFailed) {
+    return {
+      id,
+      verdict: "confirmed",
+      evidence: `Actual Task-tool resolution (gating): a bare 'flow-probe-agent' subagent_type ${bareResolutionFailed ? "fails Task-tool resolution outright" : "was not accepted"}; the plugin-qualified 'flow-module-core:flow-probe-agent' form is what Task-tool resolution recognizes. Raw excerpt: ${taskResult.stdout.trim().slice(0, 300)}. Display-only corroboration (non-gating, NOT used to derive this verdict): ${detailsEvidence}`,
+    };
+  }
 
   return {
     id,
-    verdict: "confirmed",
-    evidence: `claude plugin details flow-module-core@skills-dir reports the agent by its BARE file basename (flow-probe-agent) under an Agents (1) count, with no manifest 'agents' key declared — settles the naming convention for the deferred agent-move follow-up. Task-tool visibility corroboration (not gating): ${taskEvidence}`,
+    verdict: "inconclusive",
+    evidence: `Task-tool spawn probe returned exit ${taskResult.exitCode} without a recognizable resolution signal (neither the qualified name nor the 'not found' error appeared): ${taskResult.stdout.trim().slice(0, 300)}. Display-only corroboration (non-gating): ${detailsEvidence}`,
+    fallback:
+      "the deferred agent-move follow-up ships without a verified naming answer; re-probe before implementing it",
   };
 }
 

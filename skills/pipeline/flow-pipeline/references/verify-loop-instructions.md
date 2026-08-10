@@ -101,11 +101,16 @@ none.
 
 **Spawn procedure (wider-scope path only).**
 
-1. Resolve `agents/flow-edit-applier.md`:
-   `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-edit-applier.md ]`.
+1. Resolve the subagent type in two tiers (no `general-purpose` tier at
+   this site — see below). Plugin-hosted agents are addressable ONLY by
+   the plugin-qualified name `<pluginRootName>:<agentBasename>` — a bare
+   `flow-edit-applier` subagent_type fails Task-tool resolution outright
+   (measured: "Agent type 'flow-scout' not found"):
+   `EDIT_APPLIER_SUBAGENT=""; if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-edit-applier.md ]; then EDIT_APPLIER_SUBAGENT=flow-module-core:flow-edit-applier; elif [ -f ~/.claude/agents/flow-edit-applier.md ]; then EDIT_APPLIER_SUBAGENT=flow-edit-applier; fi`.
    Unlike the nine top-level
    exemptions, this site does **not** fall back to `general-purpose` on a
-   miss — a `general-purpose` child would inherit the full session
+   miss (empty `$EDIT_APPLIER_SUBAGENT`) — a `general-purpose` child would
+   inherit the full session
    toolset (including `Task`) with none of `flow-edit-applier.md`'s
    lint-pinned containment invariants, and this site already has a
    known-good inline fallback. On a miss, record
@@ -124,7 +129,9 @@ expected_outcome}`), per
    `rm -f ".flow-tmp/verify-coder-result.json"` (you already `cd`'d into
    the worktree in step 1 above — do not reference `$WORKTREE`, which is
    a supervisor-side variable never exported into this subagent's shell).
-4. Spawn the one flow-edit-applier Task, passing the edit-set and — in
+4. Spawn the one flow-edit-applier Task with
+   `subagent_type: $EDIT_APPLIER_SUBAGENT` (resolved above), passing the
+   edit-set and — in
    the spawn prompt, explicitly — the absolute artifact path
    `<worktree>/.flow-tmp/verify-coder-result.json`. This filename
    diverges from the flow-edit-applier agent description's default

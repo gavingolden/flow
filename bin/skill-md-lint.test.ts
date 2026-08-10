@@ -1923,7 +1923,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-pipeline/references/verify-loop-instructions.md",
-        379,
+        386,
         "NEVER touch the base branch",
       ],
       [
@@ -4066,6 +4066,89 @@ describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites p
   );
 });
 
+describe("Agent spawn sites resolve plugin-qualified subagent_type on the plugin-root branch", () => {
+  // Measured ground truth (live Claude Code session, `--plugin-dir
+  // ~/.flow/claude-home/.claude/skills/flow-module-core`): passing the
+  // BARE string "flow-scout" as Task-tool subagent_type FAILS with
+  // `Agent type 'flow-scout' not found. Available agents: ...,
+  // flow-module-core:flow-scout, ...`. Plugin-hosted agents are therefore
+  // addressable ONLY by the plugin-qualified `<pluginRootName>:<agent>`
+  // name. Every agent-resolution block that guards on the plugin-root
+  // definition path (`~/.flow/claude-home/.claude/skills/flow-module-core/agents/<agent>.md`)
+  // must resolve the subagent type it assigns on that branch to a
+  // `flow-module-core:`-qualified value — never the bare agent name. This
+  // test pins that invariant so a future refactor cannot silently revert
+  // it back to the pre-fix, hard-spawn-failure shape.
+  const SITES: ReadonlyArray<{ file: string; agent: string }> = [
+    { file: "skills/pipeline/flow-pipeline/SKILL.md", agent: "flow-verify" },
+    {
+      file: "skills/pipeline/flow-pipeline/SKILL.md",
+      agent: "flow-merge-resolver",
+    },
+    {
+      file: "skills/pipeline/flow-pipeline/references/verify-loop-instructions.md",
+      agent: "flow-edit-applier",
+    },
+    { file: "skills/pipeline/flow-new-feature/SKILL.md", agent: "flow-scout" },
+    {
+      file: "skills/pipeline/flow-product-planning/SKILL.md",
+      agent: "flow-discovery",
+    },
+    {
+      file: "skills/pipeline/flow-pr-review/SKILL.md",
+      agent: "flow-gatekeeper",
+    },
+    {
+      file: "skills/pipeline/flow-pr-review/SKILL.md",
+      agent: "flow-fix-applier",
+    },
+    {
+      file: "skills/pipeline/flow-pr-review/SKILL.md",
+      agent: "flow-consolidator",
+    },
+    { file: "skills/pipeline/flow-coder/SKILL.md", agent: "flow-edit-applier" },
+    {
+      file: "skills/universal/flow-backlog-triage/references/verification-fanout.md",
+      agent: "flow-backlog-verifier",
+    },
+  ];
+
+  it.each(SITES)(
+    "$file resolves $agent to flow-module-core:$agent on the plugin-root branch, never the bare name",
+    ({ file, agent }) => {
+      const absPath = path.resolve(HERE, "..", ...file.split("/"));
+      const fileContent = fs.readFileSync(absPath, "utf8");
+      const qualified = `flow-module-core:${agent}`;
+      expect(
+        fileContent.includes(qualified),
+        `${file} must resolve ${agent}'s subagent_type to the plugin-qualified ` +
+          `'${qualified}' when ~/.flow/claude-home/.claude/skills/flow-module-core/agents/${agent}.md ` +
+          `exists — a bare '${agent}' subagent_type fails Task-tool resolution outright ` +
+          `(measured: "Agent type 'flow-scout' not found. Available agents: ...").`,
+      ).toBe(true);
+    },
+  );
+
+  it("the per-lens review agent resolution qualifies the computed $LENS_AGENT with flow-module-core:", () => {
+    const absPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "SKILL.md",
+    );
+    const fileContent = fs.readFileSync(absPath, "utf8");
+    expect(
+      fileContent.includes('LENS_AGENT="flow-module-core:flow-review-$LENS"'),
+      "flow-pr-review/SKILL.md's per-lens resolution loop must qualify the computed " +
+        "LENS_AGENT with flow-module-core: on the plugin-root branch, not just a " +
+        "hardcoded literal per lens — a bare 'flow-review-<lens>' subagent_type fails " +
+        "Task-tool resolution outright.",
+    ).toBe(true);
+  });
+});
+
 describe("pr-review include-by-reference structure", () => {
   const PR_REVIEW_REFS_DIR = path.resolve(
     HERE,
@@ -4277,12 +4360,23 @@ describe("pr-review include-by-reference structure", () => {
     // cost only 2 net lines total; 1755 leaves 4 lines of genuine headroom
     // above the resulting 1751-line file (per this test's own split-length
     // metric), not round-number headroom for future growth.
+    //
+    // Bumped 1755 → 1790 (plugin-qualified agent-resolution fix): a bare
+    // `flow-<agent>` subagent_type fails Task-tool resolution outright on a
+    // plugin-root install (measured: "Agent type 'flow-scout' not found").
+    // The gatekeeper, fix-applier, consolidator, and per-lens agent
+    // resolvers each grew from a one-line `X=flow-x; [ -f ... ] || fallback`
+    // guard to an explicit three-tier if/elif/else block (plugin-qualified
+    // → legacy bare → general-purpose) — genuine load-bearing correctness
+    // content, not incidental bloat. File lands at 1781 lines — 1790 leaves
+    // 9 lines of genuine headroom, not round-number headroom for future
+    // growth.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1755 lines. Material regrowth past this ceiling would ` +
+        `budget of 1790 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1755);
+    ).toBeLessThan(1790);
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
@@ -4338,12 +4432,21 @@ describe("pr-review include-by-reference structure", () => {
     // spanning every terminal exit. File lands at 2696 lines — raised the
     // ceiling to 2700 (4 lines of genuine headroom), same discipline as the
     // 2765 precedent above: not pinned back at zero headroom.
+    // Plugin-qualified agent-resolution fix: a bare `flow-<agent>`
+    // subagent_type fails Task-tool resolution outright on a plugin-root
+    // install (measured: "Agent type 'flow-scout' not found"). The
+    // flow-verify and flow-merge-resolver resolvers each grew from a
+    // one-line guard to an explicit three-tier if/elif/else block
+    // (plugin-qualified → legacy bare → general-purpose), plus corrected
+    // prose at each site — genuine load-bearing correctness content. File
+    // lands at 2725 lines — raised the ceiling to 2735 (10 lines of genuine
+    // headroom), same discipline as the precedents above.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2700 lines. Material regrowth past this ceiling would ` +
+        `budget of 2735 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2700);
+    ).toBeLessThan(2735);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -4362,12 +4465,22 @@ describe("pr-review include-by-reference structure", () => {
     // trimming the file 916 → 750 lines. 780 leaves modest headroom above
     // the post-diet floor; regrowth past it should be treated as bloat
     // creeping back in.
+    //
+    // Bumped 780 → 795 (plugin-qualified agent-resolution fix): a bare
+    // `flow-scout` subagent_type fails Task-tool resolution outright on a
+    // plugin-root install (measured: "Agent type 'flow-scout' not found").
+    // The scout resolver grew from a one-line guard to an explicit
+    // three-tier if/elif/else block (plugin-qualified → legacy bare →
+    // general-purpose), plus corrected prose at two other sites — genuine
+    // load-bearing correctness content. File lands at 785 lines — 795
+    // leaves 10 lines of genuine headroom, not round-number headroom for
+    // future growth.
     expect(
       lineCount,
       `flow-new-feature/SKILL.md line count must stay under the post-diet ` +
-        `budget of 780 lines. Material regrowth past this ceiling would ` +
+        `budget of 795 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(780);
+    ).toBeLessThan(795);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {

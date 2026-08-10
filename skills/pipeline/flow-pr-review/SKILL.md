@@ -143,11 +143,21 @@ The fan-out's value is its cost-routing override (Sonnet → Haiku) and its cont
    mkdir -p "$WORKTREE/.flow-tmp"
    ```
 
-3. Resolve the subagent type, then make exactly **one** Task-tool call:
+3. Resolve the subagent type, then make exactly **one** Task-tool call.
+   Plugin-hosted agents are addressable ONLY by the plugin-qualified name
+   `<pluginRootName>:<agentBasename>` — a bare `flow-gatekeeper`
+   subagent_type fails Task-tool resolution outright (measured: "Agent
+   type 'flow-scout' not found"):
 
    ```bash
-   GATEKEEPER_SUBAGENT=flow-gatekeeper
-   [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-gatekeeper.md ] || { GATEKEEPER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-gatekeeper → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+   GATEKEEPER_SUBAGENT=general-purpose
+   if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-gatekeeper.md ]; then
+     GATEKEEPER_SUBAGENT=flow-module-core:flow-gatekeeper
+   elif [ -f ~/.claude/agents/flow-gatekeeper.md ]; then
+     GATEKEEPER_SUBAGENT=flow-gatekeeper
+   else
+     echo "NOTICE — agent-fallback: flow-gatekeeper → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."
+   fi
    ```
 
    ```
@@ -289,7 +299,7 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
    prompt:        <the prompt template below, with variables filled in>
    ```
 
-   **Subagent type.** The `flow-fix-applier` definition (`agents/flow-fix-applier.md`) pins `effort: low` so this mechanical apply-commit-push loop stops burning high-effort tokens. Resolve `FIX_APPLIER_SUBAGENT=flow-fix-applier; [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-fix-applier.md ] || { FIX_APPLIER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-fix-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }` so an un-upgraded consumer (definition not symlinked) falls back to `general-purpose` — loudly — and the spawn never fails on an unknown agent type. The per-spawn `model:` below overrides the definition's model, so the model precedence is unchanged either way.
+   **Subagent type.** The `flow-fix-applier` definition (`agents/flow-fix-applier.md`) pins `effort: low` so this mechanical apply-commit-push loop stops burning high-effort tokens. Plugin-hosted agents are addressable ONLY by the plugin-qualified name `<pluginRootName>:<agentBasename>` — a bare `flow-fix-applier` subagent_type fails Task-tool resolution outright (measured: "Agent type 'flow-scout' not found"). Resolve in three tiers: `FIX_APPLIER_SUBAGENT=general-purpose; if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-fix-applier.md ]; then FIX_APPLIER_SUBAGENT=flow-module-core:flow-fix-applier; elif [ -f ~/.claude/agents/flow-fix-applier.md ]; then FIX_APPLIER_SUBAGENT=flow-fix-applier; else echo "NOTICE — agent-fallback: flow-fix-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; fi` so an un-upgraded consumer (definition not symlinked) falls back to `general-purpose` — loudly — and the spawn never fails on an unknown agent type. The per-spawn `model:` below overrides the definition's model, so the model precedence is unchanged either way.
 
    **Per-phase model (fixApplier) resolution.** Field `state.modelFixApplier`; precedence `--model-fix-applier > config.models.fixApplier > "sonnet"` — fixApplier does **NOT** inherit the session model (a mechanical apply-commit-push loop over already-diagnosed findings rarely earns an expensive model — the same asymmetry as verify; see `../flow-pipeline/references/model-routing.md`). Resolve via `jq` (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug); FIX_APPLIER_MODEL=$(jq -r '.modelFixApplier // empty' ~/.flow/state/"$SLUG".json); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL=$(jq -r '.models.fixApplier // empty' ~/.flow/config.json 2>/dev/null); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL="sonnet"`) and pass FIX_APPLIER_MODEL as the Task call's per-spawn `model:` (never empty — the `sonnet` fallback always resolves).
 
@@ -567,12 +577,22 @@ subagent rather than landing in the supervisor's transcript.
 `agents/flow-review-<lens>.md` (Definition column below) whose `tools:`
 allowlist (Read, Grep, Glob, Write) contains the review to read-and-report;
 none pins `effort:`/`model:` (judgment role — the per-spawn
-`model: "$REVIEW_MODEL"` always wins). Resolve the type per lens:
+`model: "$REVIEW_MODEL"` always wins). Plugin-hosted agents are
+addressable ONLY by the plugin-qualified name
+`<pluginRootName>:<agentBasename>` — a bare `flow-review-<lens>`
+subagent_type fails Task-tool resolution outright (measured: "Agent type
+'flow-scout' not found"). Resolve the type per lens, in three tiers:
 
 ```bash
 for LENS in bug-detection security pattern-consistency performance supply-chain test-coverage intent-guess; do
-  LENS_AGENT="flow-review-$LENS"
-  [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-review-$LENS.md ] || { LENS_AGENT=general-purpose; echo "NOTICE — agent-fallback: flow-review-$LENS → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+  LENS_AGENT=general-purpose
+  if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-review-$LENS.md ]; then
+    LENS_AGENT="flow-module-core:flow-review-$LENS"
+  elif [ -f ~/.claude/agents/flow-review-$LENS.md ]; then
+    LENS_AGENT="flow-review-$LENS"
+  else
+    echo "NOTICE — agent-fallback: flow-review-$LENS → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."
+  fi
   echo "lens $LENS → subagent_type: $LENS_AGENT"
 done
 ```
@@ -739,11 +759,21 @@ gh pr view "$PR_NUMBER" --json number,title,headRefName,baseRefName,headRefOid >
 
 **Per-phase model (consolidator) resolution.** Field `state.modelConsolidator`; precedence `--model-consolidator > config.models.consolidator > inherited` (see `../flow-pipeline/references/model-routing.md`). This spawn does **not** use a `model: "haiku"` pin (unlike the Gatekeeper) — the second-opinion validation needs the larger model. Resolve via `jq` (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug); CONSOLIDATOR_MODEL=$(jq -r '.modelConsolidator // empty' ~/.flow/state/"$SLUG".json); [ -z "$CONSOLIDATOR_MODEL" ] && CONSOLIDATOR_MODEL=$(jq -r '.models.consolidator // empty' ~/.flow/config.json 2>/dev/null)`) and pass the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒ inherit).
 
-Resolve the subagent type with the file-exists guard:
+Resolve the subagent type with the file-exists guard. Plugin-hosted agents
+are addressable ONLY by the plugin-qualified name
+`<pluginRootName>:<agentBasename>` — a bare `flow-consolidator`
+subagent_type fails Task-tool resolution outright (measured: "Agent type
+'flow-scout' not found"):
 
 ```bash
-CONSOLIDATOR_SUBAGENT=flow-consolidator
-[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-consolidator.md ] || { CONSOLIDATOR_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-consolidator → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+CONSOLIDATOR_SUBAGENT=general-purpose
+if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-consolidator.md ]; then
+  CONSOLIDATOR_SUBAGENT=flow-module-core:flow-consolidator
+elif [ -f ~/.claude/agents/flow-consolidator.md ]; then
+  CONSOLIDATOR_SUBAGENT=flow-consolidator
+else
+  echo "NOTICE — agent-fallback: flow-consolidator → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."
+fi
 ```
 
 The `agents/flow-consolidator.md` definition carries a `tools:` allowlist
