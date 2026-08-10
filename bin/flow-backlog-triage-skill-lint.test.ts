@@ -48,6 +48,7 @@ const verifierAgentPath = path.resolve(
   HERE,
   "..",
   "agents",
+  "core",
   "flow-backlog-verifier.md",
 );
 

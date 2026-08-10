@@ -28,7 +28,7 @@
  * seam so tests never touch real `~/.flow` state.
  */
 
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 import {
   MANDATORY_MODULE,
   MODULES,
@@ -36,6 +36,7 @@ import {
   type ModuleDefinition,
   type ModuleId,
 } from "./modules";
+import { moduleIdFromPluginRootName } from "./plugin-manifest";
 import { readModuleSelection } from "./modules-config";
 import { readManifest, type Manifest } from "./manifest";
 
@@ -53,8 +54,18 @@ type Deps = {
 };
 
 function declaredCount(m: ModuleDefinition): number {
+  // Agents contribute at most ONE linked artifact per module regardless of
+  // how many `.md` files the registry lists — `discoverAgents` materializes
+  // a single directory symlink per owning module, not one per file (see
+  // `sources.ts`). `m.agents.length` stays the true file count for other
+  // consumers (docs, the agents-drift test); only the install-count formula
+  // here collapses it.
+  const agentsContribution = m.agents.length > 0 ? 1 : 0;
   return (
-    m.helpers.length + m.skills.length + m.agents.length + m.validators.length
+    m.helpers.length +
+    m.skills.length +
+    agentsContribution +
+    m.validators.length
   );
 }
 
@@ -70,11 +81,17 @@ export function resolveModuleActivity(deps: Deps = {}): ModuleActivity[] {
   // Tally linked artifacts per owning module, skipping any record whose
   // target basename maps to no module (the `flow` wrapper, shell
   // completions) — those are never counted as a missing artifact for any
-  // module's declared set.
+  // module's declared set. An "agent" record's target is now the module's
+  // `agents/` directory symlink itself (`sources.ts`'s `discoverAgents`),
+  // not a `.md` basename, so its owner is read off the enclosing plugin-root
+  // directory name (`flow-module-<id>`) instead of `moduleForArtifactName`.
   const linkedCount = new Map<ModuleId, number>();
   let relevantRecords = 0;
   for (const rec of manifest.symlinks) {
-    const owner = moduleForArtifactName(basename(rec.target));
+    const owner =
+      rec.kind === "agent"
+        ? moduleIdFromPluginRootName(basename(dirname(rec.target)))
+        : moduleForArtifactName(basename(rec.target));
     if (owner === undefined) continue;
     relevantRecords++;
     linkedCount.set(owner, (linkedCount.get(owner) ?? 0) + 1);

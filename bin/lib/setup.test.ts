@@ -64,22 +64,34 @@ function settingsPath(): string {
 }
 
 /**
- * A skill/agent's install target now nests inside its owning module's
- * plugin root — `<skillsDir>/flow-module-<moduleId>/<kind>/<name>`. This
- * file's fixture skills/agents ("alpha", "beta", "reviewer.md", …) are
- * fictional names absent from the real module registry, so
- * `moduleForArtifactName` falls through to `MANDATORY_MODULE` ("core") for
- * every one of them — the same registry-unknown routing `moduleId`
- * defaults to here. Real-registry-named fixtures pass their actual owning
- * `moduleId` explicitly.
+ * A skill's install target nests inside its owning module's plugin root —
+ * `<skillsDir>/flow-module-<moduleId>/skills/<name>`. This file's fixture
+ * skills ("alpha", "beta", …) are fictional names absent from the real
+ * module registry, so `moduleForArtifactName` falls through to
+ * `MANDATORY_MODULE` ("core") for every one of them — the same
+ * registry-unknown routing `moduleId` defaults to here. Real-registry-named
+ * fixtures pass their actual owning `moduleId` explicitly.
  */
 function moduleRootTarget(
   t: ReturnType<typeof targets>,
-  kind: "skills" | "agents",
+  kind: "skills",
   name: string,
   moduleId: string = "core",
 ): string {
   return path.join(t.skillsDir, `flow-module-${moduleId}`, kind, name);
+}
+
+/**
+ * An agent module's install target is the module's `agents` directory
+ * itself, not a per-file path — `discoverAgents` emits one directory-symlink
+ * entry per module subdirectory (`<flow-source>/agents/<moduleId>`), not one
+ * per `.md` file (see `sources.ts`'s `discoverAgents` doc comment).
+ */
+function moduleAgentsTarget(
+  t: ReturnType<typeof targets>,
+  moduleId: string = "core",
+): string {
+  return path.join(t.skillsDir, `flow-module-${moduleId}`, "agents");
 }
 
 function setup(
@@ -165,10 +177,11 @@ describe("flow install", () => {
     expect(
       fs.lstatSync(moduleRootTarget(t, "skills", "beta")).isSymbolicLink(),
     ).toBe(true);
+    expect(fs.lstatSync(moduleAgentsTarget(t)).isSymbolicLink()).toBe(true);
     expect(
       fs
-        .lstatSync(moduleRootTarget(t, "agents", "reviewer.md"))
-        .isSymbolicLink(),
+        .readdirSync(fs.realpathSync(moduleAgentsTarget(t)))
+        .includes("reviewer.md"),
     ).toBe(true);
     expect(
       fs.lstatSync(path.join(t.binDir, "flow-helper")).isSymbolicLink(),
@@ -210,18 +223,22 @@ describe("flow install", () => {
     expect(names).toContain("flow-new-worktree");
   });
 
-  it("discovers the flow-verify and flow-fix-applier agent definitions", () => {
-    // Regression guard: discoverAgents ships every agents/*.md file as a
-    // kind: "agent" SourceEntry symlinked into its owning module's plugin
-    // root (<skillsDir>/flow-module-<owner>/agents/). Run against the real
+  it("discovers the core module's agents directory, including flow-verify and flow-fix-applier on disk", () => {
+    // Regression guard: discoverAgents ships ONE kind: "agent" SourceEntry
+    // per owning module's agents/ subdirectory (a directory-symlink target,
+    // <skillsDir>/flow-module-<owner>/agents), not one per `.md` file — see
+    // sources.ts's discoverAgents doc comment for why. Run against the real
     // repo's agents/ directory (not the synthetic fixture) so this fires if
     // a future refactor breaks discovery for the two low-effort agent
     // definitions that pin the mechanical fan-outs.
     const repoRoot = path.resolve(__dirname, "..", "..");
     const agents = discoverAgents(repoRoot);
-    const names = agents.map((a) => a.displayName);
-    expect(names).toContain("flow-verify.md");
-    expect(names).toContain("flow-fix-applier.md");
+    const core = agents.find((a) => a.displayName === "agents/core");
+    expect(core).toBeDefined();
+    expect(core!.kind).toBe("agent");
+    const files = fs.readdirSync(core!.source);
+    expect(files).toContain("flow-verify.md");
+    expect(files).toContain("flow-fix-applier.md");
     for (const a of agents) {
       expect(a.kind).toBe("agent");
     }
@@ -281,7 +298,14 @@ describe("flow install", () => {
     const manifest = readManifest(manifestPath);
     const targets_ = manifest.symlinks.map((s) => path.basename(s.target));
     expect(targets_).toContain("alpha");
-    expect(targets_).toContain("reviewer.md");
+    // An "agent" record's target basename is the module's agents/
+    // directory-symlink itself ("agents"), not a per-file basename — see
+    // discoverAgents's own doc comment.
+    expect(
+      manifest.symlinks.some(
+        (s) => s.kind === "agent" && path.basename(s.target) === "agents",
+      ),
+    ).toBe(true);
     expect(targets_).toContain("flow-helper");
     expect(targets_).toContain("flow");
     // End-to-end integration of discoverValidators through runSetup: the two
@@ -1898,9 +1922,13 @@ function buildFakeFlowSource(root: string): void {
     }
   }
 
-  // agents/<file>.md
-  fs.mkdirSync(path.join(root, "agents"), { recursive: true });
-  fs.writeFileSync(path.join(root, "agents", "reviewer.md"), "# reviewer\n");
+  // agents/<moduleId>/<file>.md — one subdirectory per owning module (a
+  // directory symlink target, not a per-file one; see discoverAgents).
+  fs.mkdirSync(path.join(root, "agents", "core"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "agents", "core", "reviewer.md"),
+    "# reviewer\n",
+  );
 
   // bin/flow-helper.ts + bin/flow-helper.test.ts + bin/flow
   const binDir = path.join(root, "bin");
@@ -2560,29 +2588,31 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
     // new agent was silently never linked even though it physically exists
     // in the worktree passed via `--source`.
     it("picks up a new-file-plus-new-registry-row addition from a --source tree the compiled registry doesn't know about yet", async () => {
-      const worktree = path.join(scratch, "worktree-with-new-agent");
+      const worktree = path.join(scratch, "worktree-with-new-skill");
       const canonicalRoot = path.join(scratch, "stale-canonical");
       buildFakeFlowSource(worktree);
       buildFakeFlowSource(canonicalRoot);
 
-      // The new artifact: an agent file that exists ONLY in the worktree.
-      fs.writeFileSync(
-        path.join(worktree, "agents", "new-agent.md"),
-        "# new-agent\n",
-      );
+      // The new artifact: a skill dir that exists ONLY in the worktree. (An
+      // agent file no longer needs this pass-through machinery at all — see
+      // the adjacent "agents need no registry row" test below — so this
+      // regression case, unchanged from PR #445, now exercises a skill.)
+      const newSkillDir = path.join(worktree, "skills", "universal", "epsilon");
+      fs.mkdirSync(newSkillDir, { recursive: true });
+      fs.writeFileSync(path.join(newSkillDir, "SKILL.md"), "# epsilon\n");
 
       // The new registry row: the worktree's OWN bin/lib/modules.ts, unknown
       // to the compiled-in (canonical-derived) registry this test process
       // was built from. Mirrors buildFakeFlowSource's existing rows so the
-      // pre-existing fixture artifacts stay linked too, plus the new agent.
+      // pre-existing fixture artifacts stay linked too, plus the new skill.
       fs.mkdirSync(path.join(worktree, "bin", "lib"), { recursive: true });
       fs.writeFileSync(
         path.join(worktree, "bin", "lib", "modules.ts"),
         `
         export function resolveArtifactSet(selectedIds) {
           return {
-            skills: ["alpha", "beta", "gamma", "delta"],
-            agents: ["reviewer.md", "new-agent.md"],
+            skills: ["alpha", "beta", "gamma", "delta", "epsilon"],
+            agents: ["reviewer.md"],
             helpers: ["flow-helper"],
             validators: ["pr-review-result-schema", "agent-finding-schema"],
           };
@@ -2608,18 +2638,55 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       });
 
       expect(summary.created).toBeGreaterThan(0);
-      // "new-agent.md" is unknown to the STATIC compiled-in registry
+      // "epsilon" is unknown to the STATIC compiled-in registry
       // `ownerPluginRootName` reads (only the worktree's dynamic
       // `resolveArtifactSetForSource` result knows it) — OQ-2 revised
       // routing sends it into flow-module-core's root, never a flat global
-      // agents dir.
-      const newAgentTarget = moduleRootTarget(t, "agents", "new-agent.md");
-      expect(fs.lstatSync(newAgentTarget).isSymbolicLink()).toBe(true);
+      // skills dir.
+      const newSkillTarget = moduleRootTarget(t, "skills", "epsilon");
+      expect(fs.lstatSync(newSkillTarget).isSymbolicLink()).toBe(true);
 
       const manifest = readManifest(manifestPath);
-      expect(manifest.symlinks.some((s) => s.target === newAgentTarget)).toBe(
+      expect(manifest.symlinks.some((s) => s.target === newSkillTarget)).toBe(
         true,
       );
+    });
+
+    it("agents need no registry row at all: a worktree-only file dropped into an EXISTING module's agents/ subdirectory ships through that module's directory symlink", async () => {
+      // The retired-pass-through case named in sources.ts's discoverSelected
+      // doc comment: unlike skills/helpers, an agent's install unit is the
+      // whole module subdirectory, so a brand-new .md file inside an
+      // ALREADY-SELECTED module's agents/ dir needs no modules.ts edit and
+      // no --source-tree-aware registry resolution to ship.
+      const worktree = path.join(scratch, "worktree-with-new-agent-file");
+      buildFakeFlowSource(worktree);
+      fs.writeFileSync(
+        path.join(worktree, "agents", "core", "new-agent.md"),
+        "# new-agent\n",
+      );
+
+      const t = targets();
+      await runSetup({
+        flowSource: worktree,
+        installRoot: worktree,
+        targets: t,
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        modules: ["core"],
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        quiet: true,
+      });
+
+      const agentsTarget = moduleAgentsTarget(t);
+      expect(fs.lstatSync(agentsTarget).isSymbolicLink()).toBe(true);
+      const linked = fs.readdirSync(fs.realpathSync(agentsTarget));
+      expect(linked).toContain("reviewer.md");
+      expect(linked).toContain("new-agent.md");
     });
 
     it("logs a '! module registry:' warning and falls back to the compiled-in registry when the --source tree's modules.ts is malformed", async () => {
@@ -3082,7 +3149,10 @@ describe("agent-move migration (Task 4, agent-invocation-name confirmed branch)"
     const old = oldAgentsDir();
     fs.mkdirSync(old, { recursive: true });
     const flowOwned = path.join(old, "reviewer.md");
-    fs.symlinkSync(path.join(flowSource, "agents", "reviewer.md"), flowOwned);
+    fs.symlinkSync(
+      path.join(flowSource, "agents", "core", "reviewer.md"),
+      flowOwned,
+    );
     const userFile = path.join(old, "my-own-agent.md");
     fs.writeFileSync(userFile, "# mine\n");
     const externalTarget = path.join(scratch, "external-agent");
@@ -3098,11 +3168,7 @@ describe("agent-move migration (Task 4, agent-invocation-name confirmed branch)"
     expect(fs.lstatSync(foreign).isSymbolicLink()).toBe(true); // foreign preserved
     // Relinked at its owning module's plugin root.
     const t = targets();
-    expect(
-      fs
-        .lstatSync(moduleRootTarget(t, "agents", "reviewer.md"))
-        .isSymbolicLink(),
-    ).toBe(true);
+    expect(fs.lstatSync(moduleAgentsTarget(t)).isSymbolicLink()).toBe(true);
   });
 
   it("skips pruning and warns on stderr when a recorded pipeline is in a non-terminal phase", async () => {
@@ -3110,7 +3176,10 @@ describe("agent-move migration (Task 4, agent-invocation-name confirmed branch)"
     const old = oldAgentsDir();
     fs.mkdirSync(old, { recursive: true });
     const flowOwned = path.join(old, "reviewer.md");
-    fs.symlinkSync(path.join(flowSource, "agents", "reviewer.md"), flowOwned);
+    fs.symlinkSync(
+      path.join(flowSource, "agents", "core", "reviewer.md"),
+      flowOwned,
+    );
 
     const errSpy = vi
       .spyOn(console, "error")
@@ -3134,7 +3203,10 @@ describe("agent-move migration (Task 4, agent-invocation-name confirmed branch)"
     const old = oldAgentsDir();
     fs.mkdirSync(old, { recursive: true });
     const flowOwned = path.join(old, "reviewer.md");
-    fs.symlinkSync(path.join(flowSource, "agents", "reviewer.md"), flowOwned);
+    fs.symlinkSync(
+      path.join(flowSource, "agents", "core", "reviewer.md"),
+      flowOwned,
+    );
 
     const errSpy = vi
       .spyOn(console, "error")
@@ -3154,13 +3226,16 @@ describe("agent-move migration (Task 4, agent-invocation-name confirmed branch)"
     const old = oldAgentsDir();
     fs.mkdirSync(old, { recursive: true });
     const oldLink = path.join(old, "reviewer.md");
-    fs.symlinkSync(path.join(flowSource, "agents", "reviewer.md"), oldLink);
+    fs.symlinkSync(
+      path.join(flowSource, "agents", "core", "reviewer.md"),
+      oldLink,
+    );
     writeManifest(
       {
         version: 1,
         symlinks: [
           {
-            source: path.join(flowSource, "agents", "reviewer.md"),
+            source: path.join(flowSource, "agents", "core", "reviewer.md"),
             target: oldLink,
             kind: "agent",
           },
@@ -3173,11 +3248,7 @@ describe("agent-move migration (Task 4, agent-invocation-name confirmed branch)"
 
     expect(fs.existsSync(oldLink)).toBe(false); // reaped by reapOrphans (manifest-recorded)
     const t = targets();
-    expect(
-      fs
-        .lstatSync(moduleRootTarget(t, "agents", "reviewer.md"))
-        .isSymbolicLink(),
-    ).toBe(true); // relinked at its owning module's plugin root
+    expect(fs.lstatSync(moduleAgentsTarget(t)).isSymbolicLink()).toBe(true); // relinked at its owning module's plugin root
   });
 });
 

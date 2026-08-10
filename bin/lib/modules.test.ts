@@ -19,6 +19,7 @@
  * selected).
  */
 
+import * as fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   discoverAgents,
@@ -71,13 +72,46 @@ describe("modules registry completeness (live discovery, not doc prose)", () => 
     );
   });
 
-  it("partitions every discovered agent into exactly one module's agents[]", () => {
-    const discovered = discoverAgents(flowSource).map((e) => e.displayName);
-    expect(discovered.length).toBeGreaterThan(0);
-    expectExactPartition(
-      discovered,
-      MODULES.map((m) => m.agents),
+  it("discoverAgents emits exactly one entry per module whose registry agents[] is non-empty (a directory-symlink target, not a per-file one)", () => {
+    // discoverAgents' unit of discovery changed from "one entry per .md
+    // file" to "one entry per module subdirectory" (Claude Code's
+    // plugin-root discovery follows a symlinked directory but not a
+    // symlinked file — see sources.ts's discoverAgents doc comment), so
+    // this is a module-id-set comparison, not a per-file partition like
+    // skills/helpers/validators below.
+    const discoveredModuleIds = new Set(
+      discoverAgents(flowSource).map((e) =>
+        e.displayName.replace(/^agents\//, ""),
+      ),
     );
+    const registryModuleIds = new Set(
+      MODULES.filter((m) => m.agents.length > 0).map((m) => m.id),
+    );
+    expect(discoveredModuleIds.size).toBeGreaterThan(0);
+    expect(discoveredModuleIds).toEqual(registryModuleIds);
+  });
+
+  it("agents/<moduleId>/*.md on disk never drifts from that module's registry agents[] array", () => {
+    // The two sources of truth this drift check guards: the files actually
+    // shipped under agents/<moduleId>/ (what discoverAgents' directory
+    // symlink exposes to Claude Code) and MODULES' declarative agents[]
+    // array (what moduleForArtifactName / flow-module-status counts still
+    // read — see modules.ts's header doc comment). Adding an agent file
+    // without registering it, or registering one without adding the file,
+    // must fail here.
+    for (const entry of discoverAgents(flowSource)) {
+      const moduleId = entry.displayName.replace(/^agents\//, "");
+      const onDisk = new Set(
+        fs
+          .readdirSync(entry.source, { withFileTypes: true })
+          .filter((d) => d.isFile() && d.name.endsWith(".md"))
+          .map((d) => d.name),
+      );
+      const registered = new Set(
+        MODULES.find((m) => m.id === moduleId)?.agents ?? [],
+      );
+      expect(onDisk, `agents/${moduleId} on-disk files`).toEqual(registered);
+    }
   });
 
   it("partitions every discovered PATH-bound helper into exactly one module's helpers[]", () => {
@@ -113,8 +147,19 @@ describe("modules registry completeness (live discovery, not doc prose)", () => 
     expect(new Set(all.skills)).toEqual(
       new Set(discoverSkills(flowSource).map((e) => e.displayName)),
     );
-    expect(new Set(all.agents)).toEqual(
-      new Set(discoverAgents(flowSource).map((e) => e.displayName)),
+    // Agents compare by MODULE ID, not by displayName set-equality like the
+    // other three kinds: `resolveArtifactSet(...).agents` is still the
+    // registry's flat `.md`-basename union (modules.ts's declarative
+    // array), while `discoverAgents` now emits one directory entry per
+    // module — a different unit, same underlying set of owning modules.
+    expect(
+      new Set(
+        discoverAgents(flowSource).map((e) =>
+          e.displayName.replace(/^agents\//, ""),
+        ),
+      ),
+    ).toEqual(
+      new Set(MODULES.filter((m) => m.agents.length > 0).map((m) => m.id)),
     );
     expect(new Set(all.helpers)).toEqual(
       new Set(discoverHelpers(flowSource).map((e) => e.displayName)),

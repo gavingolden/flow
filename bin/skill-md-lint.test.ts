@@ -1330,7 +1330,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
   it("neither low-effort agent definition pins a model (per-spawn override must win)", () => {
     for (const name of ["flow-verify.md", "flow-fix-applier.md"] as const) {
-      const agentPath = path.resolve(HERE, "..", "agents", name);
+      const agentPath = path.resolve(HERE, "..", "agents", "core", name);
       expect(
         fs.existsSync(agentPath),
         `agents/${name} must exist — it is the low-effort definition the spawn site resolves.`,
@@ -1416,7 +1416,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
   it("AGENT_FRONTMATTER_POLICY covers exactly the agents/ directory, with inheritsAllTools confined to flow-discovery.md", () => {
     const onDisk = fs
-      .readdirSync(path.resolve(HERE, "..", "agents"))
+      .readdirSync(path.resolve(HERE, "..", "agents", "core"))
       .filter((f) => f.endsWith(".md"))
       .sort();
     expect(AGENT_FRONTMATTER_POLICY.map((r) => r.file).sort()).toEqual(onDisk);
@@ -1435,7 +1435,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       wantTools,
       inheritsAllTools,
     } of AGENT_FRONTMATTER_POLICY) {
-      const agentPath = path.resolve(HERE, "..", "agents", file);
+      const agentPath = path.resolve(HERE, "..", "agents", "core", file);
       expect(
         fs.existsSync(agentPath),
         `agents/${file} must exist — a spawn site resolves it by name.`,
@@ -1496,7 +1496,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   it("flow-verify.md and flow-fix-applier.md retain the mcp__chrome-devtools__* and ToolSearch grants (UI-running agents)", () => {
     for (const file of ["flow-verify.md", "flow-fix-applier.md"]) {
       const content = fs.readFileSync(
-        path.resolve(HERE, "..", "agents", file),
+        path.resolve(HERE, "..", "agents", "core", file),
         "utf8",
       );
       for (const grant of ["ToolSearch", "mcp__chrome-devtools__*"]) {
@@ -1511,7 +1511,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   });
 
   it("no agent other than flow-verify.md and flow-fix-applier.md carries the chrome-devtools MCP grant", () => {
-    const agentsDir = path.resolve(HERE, "..", "agents");
+    const agentsDir = path.resolve(HERE, "..", "agents", "core");
     const otherAgentFiles = fs
       .readdirSync(agentsDir)
       .filter(
@@ -1755,7 +1755,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     expect(
       mandatesForcePush(
         fs.readFileSync(
-          path.resolve(HERE, "..", "agents", "flow-merge-resolver.md"),
+          path.resolve(HERE, "..", "agents", "core", "flow-merge-resolver.md"),
           "utf8",
         ),
       ),
@@ -1791,7 +1791,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   // rather than a narrower `/^flow-.*\.md$/` — every file `flow install`
   // actually ships as an agent belongs in this corpus, not just the ones
   // that happen to be `flow-`-prefixed today.
-  const AGENTS_DIR = path.resolve(HERE, "..", "agents");
+  const AGENTS_DIR = path.resolve(HERE, "..", "agents", "core");
   const agentDefinitionFiles = fs
     .readdirSync(AGENTS_DIR)
     .filter((name) => name.endsWith(".md"))
@@ -1927,7 +1927,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
         "NEVER touch the base branch",
       ],
       [
-        "agents/flow-merge-resolver.md",
+        "agents/core/flow-merge-resolver.md",
         11,
         "never `main`, `master`, or the base branch",
       ],
@@ -2141,7 +2141,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     const gatekeeperFrontmatter =
       fs
         .readFileSync(
-          path.resolve(HERE, "..", "agents", "flow-gatekeeper.md"),
+          path.resolve(HERE, "..", "agents", "core", "flow-gatekeeper.md"),
           "utf8",
         )
         .split("---")[1] ?? "";
@@ -7178,6 +7178,7 @@ describe("prompt-intent-sanity-check structural anchors", () => {
       HERE,
       "..",
       "agents",
+      "core",
       "flow-review-intent-guess.md",
     );
     expect(fs.existsSync(intentGuessAgentPath)).toBe(true);
@@ -7451,7 +7452,7 @@ describe("pause-output contract wiring lint", () => {
     const sites = [
       "skills/pipeline/flow-product-planning/SKILL.md",
       "skills/pipeline/flow-product-planning/references/discovery-instructions.md",
-      "agents/flow-discovery.md",
+      "agents/core/flow-discovery.md",
     ];
     for (const rel of sites) {
       const c = fs.readFileSync(path.join(REPO_ROOT, rel), "utf8");

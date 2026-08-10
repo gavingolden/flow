@@ -147,49 +147,67 @@ describe("discoverSkills root-internal targets", () => {
 });
 
 describe("discoverAgents root-internal targets", () => {
-  it("every agent's target lives under its owning module's plugin root at <root>/agents/<basename>", () => {
+  // Regression guard for the defect this PR fixes: Claude Code's
+  // plugin-root component discovery follows a symlinked DIRECTORY but not a
+  // symlinked FILE (verified experimentally against an isolated fixture
+  // HOME — see the PR's context note), so materializing one symlink PER
+  // AGENT FILE silently produces `Agents (0)` in `claude plugin details`.
+  // `discoverAgents` must therefore emit exactly one entry PER MODULE
+  // SUBDIRECTORY, whose target is the module's `agents` directory itself —
+  // never a per-`.md`-file target. A future refactor that reverts to
+  // per-file targets must fail this test, not silently ship a broken
+  // install.
+  it("emits one entry per module subdirectory under agents/, targeting <root>/agents (a directory), never a per-file path", () => {
     const entries = discoverAgents(realFlowSource);
     expect(entries.length).toBeGreaterThan(0);
     for (const entry of entries) {
-      const owner =
-        moduleForArtifactName(entry.displayName) ?? MANDATORY_MODULE;
+      expect(entry.target.endsWith(`${path.sep}agents`)).toBe(true);
+      expect(entry.target.endsWith(".md")).toBe(false);
+      expect(entry.displayName.startsWith("agents/")).toBe(true);
+    }
+  });
+
+  it("every agent entry's target lives under its owning module's plugin root at <root>/agents", () => {
+    const entries = discoverAgents(realFlowSource);
+    for (const entry of entries) {
+      const moduleId = entry.displayName.replace(/^agents\//, "");
       expect(entry.target).toBe(
         path.join(
           DEFAULT_TARGETS.skillsDir,
-          pluginRootName(owner),
+          pluginRootName(moduleId as Parameters<typeof pluginRootName>[0]),
           "agents",
-          entry.displayName,
         ),
       );
     }
   });
 
-  it("routes a registry-unknown agent into flow-module-core's root, never the global agents dir", () => {
+  it("routes a fixture module's agents subdirectory into that module's own root, never the global agents dir", () => {
     const tmpSource = fs.mkdtempSync(
       path.join(os.tmpdir(), "sources-unknown-agent-"),
     );
     try {
-      fs.mkdirSync(path.join(tmpSource, "agents"), { recursive: true });
+      fs.mkdirSync(path.join(tmpSource, "agents", "core"), {
+        recursive: true,
+      });
       fs.writeFileSync(
-        path.join(tmpSource, "agents", "flow-not-a-real-agent.md"),
+        path.join(tmpSource, "agents", "core", "flow-not-a-real-agent.md"),
         "---\nname: flow-not-a-real-agent\n---\n",
       );
       const entries = discoverAgents(tmpSource);
-      const entry = entries.find(
-        (e) => e.displayName === "flow-not-a-real-agent.md",
-      );
+      const entry = entries.find((e) => e.displayName === "agents/core");
       expect(entry).toBeDefined();
       expect(entry!.target).toBe(
         path.join(
           DEFAULT_TARGETS.skillsDir,
           pluginRootName(MANDATORY_MODULE),
           "agents",
-          "flow-not-a-real-agent.md",
         ),
       );
-      expect(entry!.target).not.toBe(
-        path.join(DEFAULT_TARGETS.agentsDir, "flow-not-a-real-agent.md"),
-      );
+      expect(entry!.target).not.toBe(DEFAULT_TARGETS.agentsDir);
+      // A stray non-directory entry directly under agents/ (a leftover
+      // README, an editor scratch file) must never surface as an entry.
+      fs.writeFileSync(path.join(tmpSource, "agents", "NOTES.md"), "# n\n");
+      expect(discoverAgents(tmpSource)).toHaveLength(1);
     } finally {
       fs.rmSync(tmpSource, { recursive: true, force: true });
     }

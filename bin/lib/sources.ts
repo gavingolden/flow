@@ -141,7 +141,18 @@ export function discoverSkills(
   return entries;
 }
 
-/** Lists agent files under <flow-source>/agents/. Empty if dir absent. */
+/**
+ * Lists one entry PER MODULE SUBDIRECTORY under <flow-source>/agents/, not
+ * one per .md file. Claude Code's plugin-root component discovery follows a
+ * symlinked DIRECTORY but not a symlinked FILE (verified experimentally —
+ * see the PR's context note), so a per-file agent symlink silently produces
+ * an empty `Agents (0)` count. `<root>/agents/` therefore materializes as
+ * ONE directory symlink per owning module (`<root>/agents ->
+ * <flowSource>/agents/<moduleId>`), the same shape `discoverSkills` already
+ * uses per-skill-directory. `displayName` is a stable human-readable label
+ * (`agents/<moduleId>`) for install output and the manifest — it is no
+ * longer a `.md` basename. Empty if the `agents/` root is absent.
+ */
 export function discoverAgents(
   flowSource: string,
   targets = DEFAULT_TARGETS,
@@ -150,17 +161,16 @@ export function discoverAgents(
   if (!existsDir(agentsRoot)) return [];
   return fs
     .readdirSync(agentsRoot, { withFileTypes: true })
-    .filter((d) => d.isFile() && d.name.endsWith(".md"))
+    .filter((d) => d.isDirectory())
     .map((d) => ({
       source: path.join(agentsRoot, d.name),
       target: path.join(
         targets.skillsDir,
-        ownerPluginRootName(d.name),
+        pluginRootName(d.name as ModuleId),
         "agents",
-        d.name,
       ),
       kind: "agent" as const,
-      displayName: d.name,
+      displayName: `agents/${d.name}`,
     }));
 }
 
@@ -370,25 +380,37 @@ export async function discoverSelected(
   );
   if (warning) onWarning?.(warning);
   const skillNames = new Set(resolved.skills);
-  const agentNames = new Set(resolved.agents);
   const helperNames = new Set(resolved.helpers);
   const validatorNames = new Set(resolved.validators);
+  // MANDATORY_MODULE folded the same way resolveArtifactSet folds it for the
+  // skill/helper/validator name sets above and for plugin roots below.
+  const foldedIds = new Set<string>(selectedIds);
+  foldedIds.add(MANDATORY_MODULE);
 
-  // gh#435 sub-case 1: pass through any skill/agent/helper the registry does
-  // not claim (an in-flight worktree addition not yet in the canonical
+  // gh#435 sub-case 1: pass through any skill/helper the registry does not
+  // claim (an in-flight worktree addition not yet in the canonical
   // registry), so it links regardless of the selection. Deselected KNOWN
   // modules stay filtered. Validators keep the strict allowlist — they are all
   // core, so pass-through would be inert there anyway.
+  //
+  // Agents are DELIBERATELY module-selection-filtered instead, not
+  // registry-unknown-pass-through-filtered like skills/helpers: since
+  // `discoverAgents` now emits one entry per module subdirectory (not one
+  // per .md file — see its own doc comment), the per-agent-name registry
+  // lookup this filter used to run (`agentNames.has(e.displayName)`) is
+  // meaningless — `displayName` is a module label, not a registered agent
+  // name. This deliberately RETIRES the registry-unknown pass-through for
+  // agents. That's an improvement, not a regression: a worktree-added agent
+  // file dropped into `agents/core/` is visible through core's directory
+  // symlink immediately, with no registry entry required at all.
   const all = [
     ...discoverSkills(flowSource, targets).filter(
       (e) =>
         skillNames.has(e.displayName) ||
         !isRegistryKnownArtifact(e.displayName),
     ),
-    ...discoverAgents(flowSource, targets).filter(
-      (e) =>
-        agentNames.has(e.displayName) ||
-        !isRegistryKnownArtifact(e.displayName),
+    ...discoverAgents(flowSource, targets).filter((e) =>
+      foldedIds.has(e.displayName.replace(/^agents\//, "")),
     ),
     ...discoverHelpers(flowSource, targets).filter(
       (e) =>
@@ -402,11 +424,6 @@ export async function discoverSelected(
   ];
   const wrapper = flowWrapperEntry(installRoot, targets);
   if (wrapper) all.push(wrapper);
-  // MANDATORY_MODULE folded in the same way resolveArtifactSet folds it for
-  // the artifact-name sets above — a plugin root is module-selection-scoped,
-  // not exempt residue like the wrapper/completions above it.
-  const foldedIds = new Set<string>(selectedIds);
-  foldedIds.add(MANDATORY_MODULE);
   all.push(...discoverPluginRoots(flowSource, [...foldedIds], targets));
   return all;
 }

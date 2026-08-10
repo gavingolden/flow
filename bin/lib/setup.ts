@@ -20,7 +20,7 @@ import {
   SETUP_LOCK_PATH,
 } from "./paths";
 import { inspectFlowRoot, type FlowRootInfo } from "./worktree-source";
-import { isFlowOwnedSymlink } from "./flow-owned-symlink";
+import { isFlowOwnedSymlink, ownershipRoots } from "./flow-owned-symlink";
 import {
   readManifest,
   writeManifest,
@@ -560,6 +560,24 @@ async function runUnderLock(
     ) {
       worktreeOnlyNames.push(entry.displayName);
     }
+    if (entry.kind === "agent") {
+      // Legacy-layout migration, load-bearing BEFORE `ensureSymlink` below:
+      // `ensureSymlink` returns "blocked" for ANY existing directory at the
+      // target unconditionally (even with --force — see its own doc
+      // comment), and this ensure loop runs BEFORE `reapOrphans` further
+      // down. An earlier revision of this repo (and any consumer who
+      // installed from it) materialized `entry.target` as a REAL directory
+      // of per-file agent symlinks (`<root>/agents/<name>.md`); post this
+      // PR, `entry.target` is `<root>/agents` itself, one directory level
+      // up. Without this migration that real directory would permanently
+      // block the new directory-symlink materialization, surviving even a
+      // second `flow install --upgrade` run.
+      migrateLegacyAgentsDir(
+        entry.target,
+        ownershipRoots(flowSource, installRoot),
+        log,
+      );
+    }
     const result = ensureSymlink(
       entry.target,
       liveSource,
@@ -1093,6 +1111,53 @@ function sweepOldAgentsLocation(
     }
   }
   return removed;
+}
+
+/**
+ * Legacy-layout migration for the agents install target, run BEFORE
+ * `ensureSymlink` sees it (see the call site's own comment for why this is
+ * load-bearing, not cosmetic). No-op unless `target` is a REAL directory
+ * (not a symlink, not absent) — the shape an earlier per-file-agent-symlink
+ * revision (and anyone who installed from it) left on disk.
+ *
+ * Ownership discipline mirrors `removeIfFlowOwnedSymlink` /
+ * `sweepOldAgentsLocation`: only a symlink whose resolved target lives under
+ * one of `flowRoots` is removed; a real file or a foreign symlink is left
+ * untouched. After sweeping owned symlinks, the directory is removed only if
+ * it ends up empty — a foreign leftover keeps it (and the entry stays
+ * correctly reported "blocked" by `ensureSymlink`, never silently deleted).
+ */
+function migrateLegacyAgentsDir(
+  target: string,
+  flowRoots: string[],
+  log: (msg: string) => void,
+): void {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(target);
+  } catch {
+    return; // absent — nothing to migrate
+  }
+  if (!stat.isDirectory()) return; // absent-as-symlink or already-correct
+
+  let dirents: fs.Dirent[];
+  try {
+    dirents = fs.readdirSync(target, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const dirent of dirents) {
+    if (!dirent.isSymbolicLink()) continue; // never touch a real file
+    if (removeIfFlowOwnedSymlink(path.join(target, dirent.name), flowRoots)) {
+      log(dim(`  - ${dirent.name}  (migrated legacy per-file agent symlink)`));
+    }
+  }
+  try {
+    fs.rmdirSync(target); // only succeeds when empty — foreign content stays
+  } catch {
+    // Non-empty (foreign file, or a symlink whose ownership we couldn't
+    // prove) — leave it; ensureSymlink reports "blocked" for it below.
+  }
 }
 
 /**

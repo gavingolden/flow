@@ -374,17 +374,25 @@ async function probeAgentInvocationName(
   fixtureHome: string,
 ): Promise<ProbeVerdict> {
   const id: ProbeId = "agent-invocation-name";
-  // Forward-looking fixture, same shape as probeSkillInvocationName's: no
-  // manifest `agents` key is declared (the manifest type has none) — this
-  // settles whether an `agents/` directory is discovered by bare presence
-  // ahead of the deferred agent-move follow-up implementing it.
+  // Materializes the shape `flow install` actually produces post the
+  // agents-directory-symlink move: `<root>/agents` is a SYMLINK to a real
+  // directory of `.md` files, not a real directory of per-file symlinks (or
+  // of real files directly). Claude Code's plugin-root discovery follows a
+  // symlinked directory but NOT a symlinked file — an earlier revision of
+  // this fixture wrote a real file straight into a real `agents/` dir,
+  // which is why it reported "confirmed" while the real per-file-symlink
+  // install (a different shape) was silently broken. No manifest `agents`
+  // key is declared (the manifest type has none) — this settles whether an
+  // `agents/` directory is discovered by bare presence.
   const root = materializeRoot(fixtureHome);
-  const agentsDir = path.join(root, "agents");
-  fs.mkdirSync(agentsDir, { recursive: true });
+  const agentsSourceDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "flow-probe-agents-"),
+  );
   fs.writeFileSync(
-    path.join(agentsDir, "flow-probe-agent.md"),
+    path.join(agentsSourceDir, "flow-probe-agent.md"),
     "---\nname: flow-probe-agent\ndescription: probe fixture agent\n---\n# probe fixture agent\n",
   );
+  fs.symlinkSync(agentsSourceDir, path.join(root, "agents"));
 
   const result = await runClaude(
     ["plugin", "details", "flow-module-core@skills-dir"],

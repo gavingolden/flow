@@ -10,10 +10,12 @@
  *
  * Bounded, non-recursive walk: the top level of `root`, one level into
  * `root/bin/`, one level into `root/.claude-plugin/`, and (Task 5) one level
- * into `root/skills/` and `root/agents/` when either is present. Those five
- * spots are every channel a `--plugin-dir` root loads from today; going
- * deeper risks unbounded output on an interactive path for no additional
- * coverage.
+ * into `root/skills/` when present. `root/agents` is checked at the TOP
+ * level only (`checkAgentsRoot`), not walked into — it is itself a single
+ * directory symlink per owning module, not a directory of per-file
+ * symlinks (see `checkAgentsRoot`'s own doc comment). Those spots are every
+ * channel a `--plugin-dir` root loads from today; going deeper risks
+ * unbounded output on an interactive path for no additional coverage.
  *
  * MUST NEVER THROW: every fs read below goes through a try/catch that
  * collapses to an empty result, mirroring `scanPluginRoots`'s idiom
@@ -150,9 +152,11 @@ function classifyEntry(
 }
 
 /** Walks one level into `<root>/<subdir>/`, pushing an issue for every
- * non-healthy entry — shared by the `bin/`, `skills/`, and `agents/`
- * one-level walks below. `roots` is passed only for the `bin/` walk (the
- * PATH-joining subdir); `null` skips the foreign-live ownership check. */
+ * non-healthy entry — shared by the `bin/` and `skills/` one-level walks
+ * below. `roots` is passed only for the `bin/` walk (the PATH-joining
+ * subdir); `null` skips the foreign-live ownership check. NOT used for
+ * `agents/` any more — see `checkAgentsRoot`'s own doc comment for why the
+ * two subdirs' expected shapes diverged. */
 function walkOneLevel(
   root: string,
   subdir: string,
@@ -182,6 +186,38 @@ function walkOneLevel(
   }
 }
 
+/**
+ * Checks `<root>/agents` ITSELF, not its contents — unlike `skills/`, whose
+ * per-skill-directory symlinks live one level INSIDE `root/skills/`,
+ * `discoverAgents` (`sources.ts`) materializes `root/agents` as ONE
+ * directory symlink for the whole owning module (Claude Code's plugin-root
+ * discovery follows a symlinked directory but not a symlinked file, so a
+ * per-file agent symlink is unusable — see that function's own doc
+ * comment). `root/agents`'s children are therefore real `.md` files inside
+ * the flow source tree, never individually-managed symlinks; walking one
+ * level in and expecting each child to be a symlink (the old `walkOneLevel`
+ * shape) would misreport every one of them as `unmanaged-entry`.
+ */
+function checkAgentsRoot(root: string, issues: PluginRootEntryIssue[]): void {
+  const entryPath = path.join(root, "agents");
+  let lst: fs.Stats;
+  try {
+    lst = fs.lstatSync(entryPath);
+  } catch {
+    return; // absent is not itself drift — mirrors expectedRootChildren's note
+  }
+  if (!lst.isSymbolicLink()) {
+    issues.push({ relPath: "agents", reason: "unmanaged-entry" });
+    return;
+  }
+  try {
+    fs.statSync(entryPath);
+  } catch {
+    issues.push({ relPath: "agents", reason: "dangling-symlink" });
+  }
+  // A live directory symlink is healthy as-is — no further per-child check.
+}
+
 export function unexpectedPluginRootEntries(
   root: string,
   ownership: PluginRootOwnership,
@@ -203,7 +239,7 @@ export function unexpectedPluginRootEntries(
   const roots = ownershipRoots(ownership.flowSource, ownership.installRoot);
   walkOneLevel(root, "bin", issues, roots);
   walkOneLevel(root, "skills", issues);
-  walkOneLevel(root, "agents", issues);
+  checkAgentsRoot(root, issues);
 
   const manifestDir = path.join(root, ".claude-plugin");
   for (const name of readdirNames(manifestDir)) {

@@ -347,23 +347,27 @@ describe(unexpectedPluginRootEntries, () => {
     expect(audit(root)).toEqual([]);
   });
 
-  describe("Task 5: agents/ is unconditionally expected, plus skills/+agents/ one-level walks", () => {
+  describe("Task 5/agent-move: agents/ is unconditionally expected, checked at the top level (not walked into)", () => {
     it("agents/ absent is never flagged — an absent expected child is not drift", () => {
       materializeCleanRoot();
       expect(audit(root)).toEqual([]);
     });
 
-    it("AC-1: a fully populated root (manifest declaring skills, plus a live skills/ and agents/ symlink each) reports clean", () => {
+    it("AC-1: a fully populated root (manifest declaring skills, plus a live skills/ symlink and a live agents/ directory symlink) reports clean", () => {
       writeManifest({ skills: ["./skills"] });
       fs.mkdirSync(path.join(root, "bin"), { recursive: true });
       fs.mkdirSync(path.join(root, "skills"), { recursive: true });
-      fs.mkdirSync(path.join(root, "agents"), { recursive: true });
       const skillDir = path.join(scratch, "real-skill-dir");
       fs.mkdirSync(skillDir);
       fs.symlinkSync(skillDir, path.join(root, "skills", "flow-example"));
-      const agentFile = path.join(scratch, "real-agent.md");
-      fs.writeFileSync(agentFile, "# agent\n");
-      fs.symlinkSync(agentFile, path.join(root, "agents", "flow-example.md"));
+      // agents/ is ITSELF a directory symlink, one level up from a
+      // per-agent-file symlink — discoverAgents materializes exactly this
+      // shape (Claude Code's plugin-root discovery follows a symlinked
+      // directory but not a symlinked file).
+      const agentsDir = path.join(scratch, "real-agents-dir");
+      fs.mkdirSync(agentsDir);
+      fs.writeFileSync(path.join(agentsDir, "flow-example.md"), "# agent\n");
+      fs.symlinkSync(agentsDir, path.join(root, "agents"));
       expect(audit(root)).toEqual([]);
     });
 
@@ -391,42 +395,36 @@ describe(unexpectedPluginRootEntries, () => {
       ]);
     });
 
-    it("a dangling symlink in agents/ is a dangling-symlink", () => {
+    it("a dangling agents/ symlink is a dangling-symlink, reported at the top level (not per-file)", () => {
       materializeCleanRoot();
-      fs.mkdirSync(path.join(root, "agents"), { recursive: true });
       fs.symlinkSync(
-        path.join(scratch, "does-not-exist-agent.md"),
-        path.join(root, "agents", "flow-ghost.md"),
+        path.join(scratch, "does-not-exist-agents-dir"),
+        path.join(root, "agents"),
       );
       expect(audit(root)).toEqual([
-        {
-          relPath: path.join("agents", "flow-ghost.md"),
-          reason: "dangling-symlink",
-        },
+        { relPath: "agents", reason: "dangling-symlink" },
       ]);
     });
 
-    it("AC-4: a hand-dropped real file in <root>/agents/ is an unmanaged-entry, naming the relative path", () => {
+    it("AC-4: a hand-dropped REAL agents/ directory (the pre-move per-file-symlink shape) is an unmanaged-entry, naming just 'agents'", () => {
       materializeCleanRoot();
+      // The legacy shape this PR's migration (setup.ts's
+      // migrateLegacyAgentsDir) converges away from: a real directory
+      // containing per-file symlinks, rather than a directory symlink.
       fs.mkdirSync(path.join(root, "agents"), { recursive: true });
       fs.writeFileSync(
         path.join(root, "agents", "hand-authored.md"),
         "# not flow's\n",
       );
       expect(audit(root)).toEqual([
-        {
-          relPath: path.join("agents", "hand-authored.md"),
-          reason: "unmanaged-entry",
-        },
+        { relPath: "agents", reason: "unmanaged-entry" },
       ]);
     });
 
-    it(".DS_Store is ignored in skills/ and agents/ too", () => {
+    it(".DS_Store is ignored in skills/", () => {
       writeManifest({ skills: ["./skills"] });
       fs.mkdirSync(path.join(root, "skills"), { recursive: true });
-      fs.mkdirSync(path.join(root, "agents"), { recursive: true });
       fs.writeFileSync(path.join(root, "skills", ".DS_Store"), "");
-      fs.writeFileSync(path.join(root, "agents", ".DS_Store"), "");
       expect(audit(root)).toEqual([]);
     });
   });
