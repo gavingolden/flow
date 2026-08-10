@@ -66,8 +66,27 @@ current milestone: **milestone mode** ranks value against that goal first;
 fundamentals with a default-decay bias — REJECT or DO-LATER-with-a-trigger
 is the default verdict when value is unclear. When the notes source itself
 names an explicit goal item, grooming mode adopts it as a **provisional**
-milestone and surfaces that inference — never silently. Full mode detail:
-[references/methodology.md](references/methodology.md).
+milestone and surfaces that inference — never silently. Invoke with an
+explicit argument to pick the mode directly: `milestone: <goal>` selects
+milestone mode against that goal; `no milestone` suppresses milestone
+inference entirely, and the run states in the Decision Brief that
+inference was suppressed by argument rather than absent by omission.
+Grooming mode's default lens, absent any other signal, is PM-shaped:
+app stability, bug fixes, and high-value features/enhancements. Full mode
+detail: [references/methodology.md](references/methodology.md).
+
+**Delta re-triage mode.** When the input is a **prior triage document**
+(this skill's own prior output) rather than a fresh backlog, compute the
+**merge delta** — everything that landed since that document was
+written, via `git log --oneline --since='<prior-doc-date>'` and `gh pr list
+--state merged --search 'merged:>=<date>'` — and re-verify each prior
+verdict against it before doing anything else. Phase 0's lossless
+inventory and the N+M assertion still hold over the CURRENT backlog, not
+the prior document's snapshot. A prior verdict that re-verifies unchanged
+may be carried forward WITH its citation rather than re-derived from
+scratch; the prior document's **unconfirmed kill list** — REJECTs the
+user never ran the drafted close command for — gets **re-staged** for a
+fresh look, never silently carried forward as confirmed or withdrawn.
 
 **Reference index:**
 
@@ -154,6 +173,11 @@ the ignore step and still write the document; pass an explicit path
 argument (e.g. `docs/triage/<name>.md`) when a durable, committed
 document is wanted.
 
+Print the document's absolute path both at the top of the document
+itself and in the chat summary at the end of the run. The chat summary
+opens with that path, then the Decision Brief's top recommendation
+tier(s) given inline, not a pointer back into the document.
+
 # Verification
 
 - Every inventoried item appears exactly once in the final disposition
@@ -171,13 +195,21 @@ document is wanted.
   every interpolated untrusted value (issue/bundle title, close reason)
   per the shell-safety contract in
   [references/output-template.md](references/output-template.md).
-- The output document's `## Self-check` section is filled in, not left as
-  a template.
+- The output document's `### Self-check` section (nested under `## Audit
+Appendix`) is filled in, not left as a template.
 - The triage document is written under `.flow-tmp/triage/`, or under the
   explicit path argument when one was given. On the default path,
   `git status` reports no new untracked entry after the run; on an
   explicit path, the new file is expected to show up as untracked (it
   is meant to be committed).
+- The invocation-argument forms are honoured: an explicit `no milestone`
+  means no inferred milestone appears anywhere in the document, and
+  `milestone: <goal>` means the document ranks against that goal, not a
+  guessed one.
+- The emitted document's first section is `## Decision Brief`, not
+  `## Audit Appendix` or anything else.
+- The chat summary carries the document's absolute path and the
+  Decision Brief's top recommendation tier(s).
 
 # Constraints
 

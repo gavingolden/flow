@@ -108,6 +108,61 @@ table must carry exactly 6 rows.
   flow feature create --tmux --model opus --effort low --slug audit-log-retention 'implement bundle issue #441 — configurable audit-log retention window (default retention: <value required>)'
   ```
 
+## Decision Brief excerpt
+
+The same run's Decision Brief renders the two DO bundles as outcome-first
+cards, grouped into a recommendation tier, rather than restating the
+Phase 3 bundle mechanics above:
+
+### Fix now (active problems)
+
+- **Outcome:** Users stop getting logged out at random during a normal
+  session.
+- **What changes / who notices:** Anyone who leaves a tab open and
+  comes back after a short idle period; the session now survives it
+  instead of silently dropping.
+- **Why it's worth it:** A random forced logout is the kind of thing a
+  user assumes is a bug in the whole product, not one code path —
+  small fix, outsized trust cost if left alone.
+- **Size:** S
+
+---
+
+- **Outcome:** The nightly deploy-health checks go green again and
+  stay green.
+- **What changes / who notices:** No one directly — this is a
+  reliability fix. The team stops getting paged for a false-positive
+  drift alert and a failing smoketest that were actually the same
+  root cause.
+- **Why it's worth it:** Two red signals every night erodes trust in
+  CI faster than one; restoring the rotated secrets closes both at
+  once.
+- **Size:** M
+
+Launch queue (Fix now tier):
+
+```
+flow feature create --tmux --model opus --effort high --slug restore-deploy-secrets 'implement bundle issue #440 — restore rotated deploy secrets (fixes #431, H3)'
+```
+
+### When you schedule it
+
+- **Outcome:** Audit logs stop growing without bound.
+- **What changes / who notices:** Nobody until storage or compliance
+  asks — this trades an unbounded log for a configurable retention
+  window.
+- **Why it's worth it:** Cheap to add now, expensive to retrofit once
+  logs are large; retention length is a product call, not an
+  engineering one.
+- **Size:** S
+
+Launch queue (When you schedule it tier) — carries a fire-time decision
+parameter, not runnable until the user supplies the value:
+
+```
+flow feature create --tmux --model opus --effort low --slug audit-log-retention 'implement bundle issue #441 — configurable audit-log retention window (default retention: <value required>)'
+```
+
 ## What this example demonstrates
 
 - **ALREADY DONE closure** — `#420`, verified against PR #533 and
@@ -123,3 +178,7 @@ won't-do — ..."` command shown verbatim, never run by the skill.
 - **Fire-time decision parameter** — hypothetical Bundle C, queued as DO
   with an explicit `<value required>` placeholder rather than silently
   assuming a default retention window.
+- **Outcome-first bundle cards** — the Decision Brief excerpt above
+  renders both DO bundles by user-facing outcome rather than mechanism,
+  and keeps the jargon ban: no code paths, no file names, no issue
+  mechanics in the card text itself.

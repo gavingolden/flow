@@ -12,38 +12,66 @@ accumulate unswept and unseen. Either way, act on it in the same
 session; to keep it, pass an explicit path up front or copy it out
 (e.g. archive under `docs/triage/`).
 
-The document body follows this exact section order.
+**Document shape.** The top of the document carries a line the run
+emits at write time: `**This document:** <absolute path>`. The run
+also prints that same absolute path in the chat summary, so the reader
+can open the file without hunting for it. This document is ONE
+document, never two files — the brief and the appendix below
+(`## Decision Brief` and `## Audit Appendix`) are two sections of the
+same file, not a split output.
 
-## Executive summary
+The document body follows a two-layer section order: `## Decision
+Brief` comes first, for a reader who wants the outcome and the open
+questions; `## Audit Appendix` comes second, holding the full verified
+evidence trail underneath it.
 
-Lead with blockers and root-cause links — what's broken and what one fix
-collapses multiple items. When grooming mode inferred a provisional
-milestone (see `methodology.md` "Surfaced-never-silent milestone
-inference"), state that inference here too.
+## Decision Brief
 
-## Closed / rescoped issues
+**At a glance.** Lead with blockers and root-cause links — what's
+broken and what one fix collapses multiple items. When grooming mode
+inferred a provisional milestone (see `methodology.md`
+"Surfaced-never-silent milestone inference"), state that inference
+here too, and name what would reorder if the inferred milestone is
+struck — which specific bundles or verdicts move, and that a strike
+changes ordering, not verdicts, unless explicitly stated otherwise.
 
-Every issue closed or rescoped in this run, each with its justification
-(PR/commit for ALREADY DONE, exact remainder for a rescope comment).
+This brief assumes its reader understands the product, has not read
+the tickets, and wants a recommendation, not a raw list. Inside this
+Decision Brief: no internal codenames or mechanism language — no issue
+numbers, ref codes, or implementation mechanics. This ban scopes to
+the At-a-glance opener and the bundle cards. `### Not doing (kill
+list)` and `### Launch queue (grouped by tier)` are command-rendering
+surfaces: they keep their issue numbers, refs, and verbatim commands,
+and the shell-safety contract's `'\''` form below MUST be reproduced
+literally, never paraphrased for readability. The Audit Appendix
+below, and the filed bundle issue each queued command points at, also
+keep the mechanism language; the opener and cards stay in outcomes.
 
-## Prod / CI health snapshot
+Group every DO bundle into one of these **recommendation tiers**,
+introduced here and used throughout the Launch queue below: **Fix now
+(active problems)**, **Stability insurance**, **High-value
+improvements**, **When you schedule it**. Tiers are renameable and
+mergeable to fit the backlog's actual shape, and a tier with nothing in
+it is simply omitted — but never introduce a fifth tier without saying
+why the four defaults didn't fit this backlog.
 
-Covers ONLY what was actually checked during Phase 1 — never a blanket
-health claim beyond the verified subset.
+Each DO bundle gets one card, each facet its own list item so the
+card renders as four lines, never one run-on paragraph:
 
-## Launched or queued bundles
+- **Outcome:** <one plain-language sentence — what a user or the
+  business gets>
+- **What changes / who notices:** <who is affected and how>
+- **Why it's worth it:** <the value case — or the honest case
+  against, if it's marginal>
+- **Size:** S / M / L <sourced from Phase 3's Small/Medium/Large
+  sizing>
 
-The DO bundles, each with its size, model/effort, and either "launched"
-(milestone mode / opt-in) or "queued" (grooming mode default) disposition.
+Keep the brief to at most two pages: one card per bundle, never per
+item — items collapse into their bundle's single card. Separate
+consecutive cards with a blank line so they never merge into one
+blob.
 
-## Escalations
-
-Numbered questions, each with a **recommendation first**, then the
-options. Batch every open question here — never scatter them through the
-document. When a milestone was inferred (see Executive summary), question
-1 is always: "Confirm or strike the inferred milestone."
-
-## Kill list
+### Not doing (kill list)
 
 Every REJECT verdict, with its one-sentence reasoning, plus every NOT
 REPRODUCIBLE IN CODE item flagged for the user to re-check. This section
@@ -72,22 +100,21 @@ supersedes, a "no backticks" rule scoped only to backticks: a
 double-quoted `$(...)` or `$VAR` is exploitable with zero backticks
 present.
 
-## Disposition table
+### Open decisions
 
-The full, lossless disposition table. Columns, exactly:
+Numbered questions, each with a **recommendation first**, then the
+options. Batch every open question here — never scatter them through the
+document. When a milestone was inferred (see the Decision Brief's
+at-a-glance opener), question 1 is always: "Confirm or strike the
+inferred milestone" — and that question states what would reorder if
+the inferred milestone is struck.
 
-| Ref | Item (short) | Source | Verification | Class | Verdict | Bundle | Reasoning |
-| --- | ------------ | ------ | ------------ | ----- | ------- | ------ | --------- |
+### Launch queue (grouped by tier)
 
-Row count MUST equal `N+M` from the Phase-0 `Inventory: <N> issues, <M>
-notes` line (see `methodology.md` "Phase 0").
-
-## Residue
-
-The verbatim residue section: blank, struck-through, already-rejected, or
-externally-referenced items that were never guessed at.
-
-## Queue section (inside "Launched or queued bundles")
+The DO bundles, each with its size, model/effort, and either "launched"
+(milestone mode / opt-in) or "queued" (grooming mode default)
+disposition. Emitted as `tiered groups` — grouped under the
+recommendation tiers above — never a flat list.
 
 **Queue-seed contract**, every emitted command:
 
@@ -115,7 +142,34 @@ warning list: which bundles touch the same files, and the recommended run
 order — so two bundles that would conflict are never launched
 concurrently by accident.
 
-## Self-check
+## Audit Appendix
+
+### Closed / rescoped issues
+
+Every issue closed or rescoped in this run, each with its justification
+(PR/commit for ALREADY DONE, exact remainder for a rescope comment).
+
+### Prod / CI health snapshot
+
+Covers ONLY what was actually checked during Phase 1 — never a blanket
+health claim beyond the verified subset.
+
+### Disposition table
+
+The full, lossless disposition table. Columns, exactly:
+
+| Ref | Item (short) | Source | Verification | Class | Verdict | Bundle | Reasoning |
+| --- | ------------ | ------ | ------------ | ----- | ------- | ------ | --------- |
+
+Row count MUST equal `N+M` from the Phase-0 `Inventory: <N> issues, <M>
+notes` line (see `methodology.md` "Phase 0").
+
+### Residue
+
+The verbatim residue section: blank, struck-through, already-rejected, or
+externally-referenced items that were never guessed at.
+
+### Self-check
 
 Fill this in while generating the document — it is the runtime-visible
 half of enforcement (a prose lint cannot police runtime behaviour):
@@ -127,9 +181,13 @@ half of enforcement (a prose lint cannot police runtime behaviour):
 - Every queue command carries --tmux and --slug, zero backticks, and
   single-quoted interpolated values: YES/NO
 - Any hybrid verdict used: YES/NO
-- Inferred milestone surfaced as first escalation (or N/A): YES/N-A/NO
+- Inferred milestone surfaced as the first Open decision (or N/A): YES/N-A/NO
+- Decision Brief is the first section and every DO bundle has a card: YES/NO
 
 ## Chat summary shape
 
-After writing the document, summarize in chat: outcome first, then all
-blocking questions batched at the end, each with a recommendation.
+After writing the document, summarize in chat, in this order: the
+document's absolute path; the top recommendation tier(s) from the
+Decision Brief, given inline as the actual recommendations — not a
+pointer back to the document; then every blocking question batched at
+the end, each with a recommendation.

@@ -34,11 +34,24 @@ Two modes, selected by whether the user supplies a milestone:
   > keeping everything that genuinely matters — not by how well the
   > survivors are organized.
 
+**Invocation arguments.** `milestone: <goal>` selects milestone mode
+directly against that goal. `no milestone` selects grooming mode and
+suppresses milestone inference entirely — no provisional milestone is
+adopted even when the notes source names an explicit goal item. Absent
+either argument, grooming mode is the default and inference stays live.
+Grooming mode's default lens, absent any other signal, is PM-shaped:
+app stability, bug fixes, and high-value features/enhancements.
+
 **Surfaced-never-silent milestone inference.** In grooming mode, when the
 notes source contains an explicit goal item, adopt it as a **provisional**
 milestone — never silently switch to milestone-mode ranking. State the
-inference in the executive summary, and make "confirm or strike the inferred milestone" the FIRST numbered question in the escalations section,
-every time inference fires.
+inference in the Decision Brief's at-a-glance opener, and make "confirm
+or strike the inferred milestone" the FIRST numbered question in the
+Decision Brief's Open decisions group, every time inference fires.
+Name what would reorder if the inferred milestone is struck — the
+specific bundles or verdicts that move — and
+state that a strike changes ORDERING, not verdicts, unless explicitly
+stated otherwise.
 
 ## Phase 0 — Lossless inventory
 
@@ -54,6 +67,30 @@ A mismatch is a self-evident truncation failure — treat it as one.
 For a large backlog, append disposition rows to the output file
 incrementally as verification batches return, rather than holding every
 row in context until the end.
+
+## Delta re-triage
+
+When the input is a **prior triage document** — this skill's own prior
+output — rather than a fresh backlog, run this mode instead of a
+cold-start Phase 0/1 pass:
+
+- Compute the **merge delta**: everything that landed since the prior
+  document was written. `git log --oneline --since='<prior-doc-date>'` for
+  code, `gh pr list --state merged --search 'merged:>=<date>'` for
+  merged PRs.
+- Phase 0's lossless inventory and the N+M assertion still hold over
+  the CURRENT backlog, not the prior document's snapshot — a delta run
+  is not exempt from either.
+- Re-verify each prior verdict against the merge delta using the SAME
+  five Phase-1 verdicts above — no sixth verdict for "unchanged since
+  last time." A prior verdict that re-verifies unchanged may be carried
+  forward WITH its citation rather than re-derived from scratch; a
+  verdict the delta contradicts (e.g. the underlying code moved, a
+  cited PR merged) gets re-adjudicated fresh.
+- **Re-stage** the prior document's **unconfirmed kill list** — REJECT
+  close-candidates the user never ran the drafted `gh issue close`
+  command for — rather than assuming silence meant confirmation or
+  meant withdrawal. Give each one a fresh look against current state.
 
 ## Phase 1 — Verify before judging (mandatory)
 
@@ -178,7 +215,7 @@ distinction: **evidence-based closures are automated, judgment-based closures ar
       DO bundles that are bugs/hardening and Medium-or-smaller, capped at a configurable
       concurrency (default 4), and queue the rest.
     - Anything requiring credentials, dashboards, purchases, or manual ops goes to the
-      escalation section as a runbook step, never into the queue.
+      Decision Brief's Open decisions group as a runbook step, never into the queue.
 
 Every emitted launch command in the queue follows the queue-seed format
 from [output-template.md](output-template.md): `--tmux`, an explicit
