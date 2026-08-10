@@ -4136,6 +4136,10 @@ describe("Agent spawn sites resolve plugin-qualified subagent_type on the plugin
       file: "skills/universal/flow-backlog-triage/references/verification-fanout.md",
       agent: "flow-backlog-verifier",
     },
+    {
+      file: "skills/pipeline/flow-pr-review/references/intent-mismatch-resolution.md",
+      agent: "flow-review-intent-guess",
+    },
   ];
 
   it.each(SITES)(

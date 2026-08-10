@@ -1308,7 +1308,7 @@ VERIFY_MODEL=$(jq -r '.modelVerify // empty' ~/.flow/state/"$SLUG".json)
 # <pluginRootName>:<agentBasename> — a bare "flow-verify" subagent_type
 # fails Task-tool resolution outright (measured: "Agent type 'flow-scout'
 # not found"). Resolve in two tiers: (1) plugin-root definition present
-# → plugin-qualified name; (2) neither → fall back to general-purpose,
+# → plugin-qualified name; (2) absent → fall back to general-purpose,
 # loudly, so the pipeline never fails on an unknown agent type. The
 # per-spawn model: below overrides the definition's model, so the verify
 # precedence is unchanged either way.

@@ -19,9 +19,10 @@ Spawn verifier subagents in **waves of at most 6 Task calls per message**
 fan-out has no separate "concurrent pool" primitive; concurrency IS the
 count of Task calls in one message, so the wave size below is also the
 in-flight cap). Use `subagent_type: $BACKLOG_VERIFIER_SUBAGENT` (resolved
-below — the plugin-qualified `flow-module-core:flow-backlog-verifier` on
-a plugin-root install, the bare `flow-backlog-verifier` on a legacy
-global install) for every spawn.
+below via a single plugin-root probe — the plugin-qualified
+`flow-module-core:flow-backlog-verifier` name, or the inline-verification
+degrade path when the probe misses; there is no bare-name fallback) for
+every spawn.
 
 **Batch, never one-subagent-per-item.** Group items into batches sized
 `ceil(total_items / 6)`, clamped to 15–30 items per batch — e.g. a
