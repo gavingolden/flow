@@ -398,7 +398,7 @@ describe(checkInstallDrift, () => {
     });
   });
 
-  it("reports one 'dangling' entry (not 'unexpected') for a dangling bin/ symlink inside a flow-owned root", () => {
+  it("reports one 'dangling' entry (not 'foreign') for a dangling bin/ symlink inside a flow-owned root", () => {
     const dir = makeScratch();
     const root = path.join(dir, "flow-module-copilot");
     fs.mkdirSync(path.join(root, "bin"), { recursive: true });
@@ -438,7 +438,7 @@ describe(checkInstallDrift, () => {
     expect(result).toEqual({ status: "clean" });
   });
 
-  it("reports one 'unexpected' entry for a foreign live bin/ symlink (resolves outside flowSource/installRoot)", () => {
+  it("reports one 'foreign' entry for a foreign live bin/ symlink (resolves outside flowSource/installRoot)", () => {
     const dir = makeScratch();
     const root = path.join(dir, "flow-module-copilot");
     fs.mkdirSync(path.join(root, "bin"), { recursive: true });
@@ -458,7 +458,7 @@ describe(checkInstallDrift, () => {
       status: "drifted",
       entries: [
         {
-          kind: "unexpected",
+          kind: "foreign",
           displayName: "flow-module-copilot",
           target: root,
           detail: path.join("bin", "flow-foreign"),
@@ -662,7 +662,7 @@ describe(checkInstallDrift, () => {
         status: "drifted",
         entries: [
           {
-            kind: "unexpected",
+            kind: "foreign",
             displayName: "flow-module-copilot",
             target: root,
             detail: path.join("bin", "flow-foreign"),
@@ -701,7 +701,7 @@ describe(checkInstallDrift, () => {
         status: "drifted",
         entries: [
           {
-            kind: "unexpected",
+            kind: "foreign",
             displayName: "flow-module-copilot",
             target: root,
             detail: path.join("bin", "flow-helper"),
@@ -818,5 +818,100 @@ describe(formatDriftNotice, () => {
     expect(notice).toContain("flow-module-2 → hooks-2");
     expect(notice).not.toContain("flow-module-3 → hooks-3");
     expect(notice).toContain("(+2 more)");
+  });
+
+  it("includes the auto-removal clause (not 'removed by hand') when a 'foreign' entry is present", () => {
+    const notice = formatDriftNotice({
+      status: "drifted",
+      entries: [
+        {
+          kind: "foreign",
+          displayName: "flow-module-copilot",
+          target: "/roots/flow-module-copilot",
+          detail: path.join("bin", "flow-foreign"),
+        },
+      ],
+    });
+    expect(notice).toContain("1 foreign");
+    expect(notice).toContain("flow install --upgrade");
+    expect(notice).toContain("will remove this foreign entry now on PATH");
+    expect(notice).toContain(
+      `flow-module-copilot → ${path.join("bin", "flow-foreign")}`,
+    );
+    expect(notice).not.toContain("removed by hand");
+  });
+
+  it("includes BOTH the hand-removal and auto-removal clauses, naming both paths, for a mixed unexpected + foreign result", () => {
+    const notice = formatDriftNotice({
+      status: "drifted",
+      entries: [
+        {
+          kind: "unexpected",
+          displayName: "flow-module-copilot",
+          target: "/roots/flow-module-copilot",
+          detail: "hooks",
+        },
+        {
+          kind: "foreign",
+          displayName: "flow-module-review",
+          target: "/roots/flow-module-review",
+          detail: path.join("bin", "flow-foreign"),
+        },
+      ],
+    });
+    expect(notice).toContain("1 unexpected");
+    expect(notice).toContain("1 foreign");
+    expect(notice).toContain("removed by hand");
+    expect(notice).toContain("will remove this foreign entry now on PATH");
+    expect(notice).toContain("flow-module-copilot → hooks");
+    expect(notice).toContain(
+      `flow-module-review → ${path.join("bin", "flow-foreign")}`,
+    );
+  });
+
+  it("uses the plural 'these foreign entries' wording for two or more foreign entries", () => {
+    const notice = formatDriftNotice({
+      status: "drifted",
+      entries: [
+        {
+          kind: "foreign",
+          displayName: "flow-module-a",
+          target: "/roots/flow-module-a",
+          detail: path.join("bin", "flow-foreign-a"),
+        },
+        {
+          kind: "foreign",
+          displayName: "flow-module-b",
+          target: "/roots/flow-module-b",
+          detail: path.join("bin", "flow-foreign-b"),
+        },
+      ],
+    });
+    expect(notice).toContain("2 foreign");
+    expect(notice).toContain("will remove these foreign entries now on PATH");
+    expect(notice).not.toContain("this foreign entry");
+  });
+
+  it("caps each clause independently — a mixed over-cap result names 3 unexpected and 3 foreign with two (+N more) tails", () => {
+    const entries = [
+      ...Array.from({ length: 5 }, (_, i) => ({
+        kind: "unexpected" as const,
+        displayName: `u-${i}`,
+        target: `/roots/u-${i}`,
+        detail: `hooks-${i}`,
+      })),
+      ...Array.from({ length: 5 }, (_, i) => ({
+        kind: "foreign" as const,
+        displayName: `f-${i}`,
+        target: `/roots/f-${i}`,
+        detail: path.join("bin", `f-${i}`),
+      })),
+    ];
+    const notice = formatDriftNotice({ status: "drifted", entries });
+    expect(notice).toContain("u-2 → hooks-2");
+    expect(notice).not.toContain("u-3 → ");
+    expect(notice).toContain("f-2 → " + path.join("bin", "f-2"));
+    expect(notice).not.toContain("f-3 → ");
+    expect(notice?.match(/\(\+2 more\)/g)).toHaveLength(2);
   });
 });

@@ -386,6 +386,73 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
     ).toBe(true);
   });
 
+  it("defaults the triage output to flow-owned scratch, not the repo root", () => {
+    const outputPathFiles: ReadonlyArray<{ label: string; content: string }> = [
+      { label: "SKILL.md", content: skillContent },
+      {
+        label: "references/output-template.md",
+        content: outputTemplateContent,
+      },
+    ];
+    for (const { label, content } of outputPathFiles) {
+      expect(
+        content.includes(".flow-tmp/triage/"),
+        `${label} must default the triage document under '.flow-tmp/triage/' ` +
+          "— a repo-root default leaves an untracked file that parallel " +
+          "agents in the same checkout read as a dirty tree.",
+      ).toBe(true);
+      // Anchor on the DEFAULT-CLAIM shape, not a file-wide phrase ban —
+      // "repo root" appears legitimately in correct prose (e.g. "never
+      // write to the repo root"), so a bare-absence check would forbid
+      // that alongside the wrong-default claim it's meant to catch. See
+      // the "forbids (not merely names)" and "forbids gh api" anchors
+      // above for the same reasoning applied to a different phrase.
+      expect(
+        /default[^.]*repo root/i.test(content) ||
+          /repo root[^.]*default/i.test(content),
+        `${label} must not claim the repo root is the default output ` +
+          "location — a repo-root default leaves an untracked file that " +
+          "parallel agents in the same checkout read as a dirty tree.",
+      ).toBe(false);
+    }
+  });
+
+  it("SKILL.md pins the write-time ignore-ensure step", () => {
+    // Whitespace-normalize so a phrase spanning a markdown line-wrap still
+    // matches, matching the "forbids (not merely names)" anchors above.
+    const normalizedSkillContent = skillContent.replace(/\s+/g, " ");
+    // Anchor on the NEGATION shape, not bare presence — `includes("git
+    // check-ignore")` alone stays green if the `!` is dropped (polarity
+    // inversion: would append the exclude entry only when .flow-tmp/ is
+    // ALREADY ignored, the opposite of the intended guard).
+    expect(
+      /!\s*git check-ignore -q \.flow-tmp\//.test(normalizedSkillContent),
+      "SKILL.md must check `! git check-ignore -q .flow-tmp/` (negated) " +
+        "before the first write — a dropped `!` would invert the guard.",
+    ).toBe(true);
+    // Anchor on BOTH the git-common-dir resolution AND the /info/exclude
+    // redirect target — bare `includes("git rev-parse --git-common-dir")`
+    // stays green even if the redirect is retargeted to `>> .gitignore`,
+    // since that string still appears elsewhere in the file.
+    expect(
+      /exclude="\$\(git rev-parse --git-common-dir\)\/info\/exclude"/.test(
+        normalizedSkillContent,
+      ),
+      "SKILL.md must resolve the exclude file via " +
+        "`$(git rev-parse --git-common-dir)/info/exclude`, matching " +
+        "bin/lib/worktree-marker.ts's ensureFlowExcludes — pinning the " +
+        "/info/exclude redirect target, not just the common-dir call, so a " +
+        "retarget to a tracked .gitignore still fails this check.",
+    ).toBe(true);
+    expect(
+      skillContent.includes("never the user's tracked"),
+      "SKILL.md must state the ignore entry goes in the local " +
+        ".git/info/exclude and never a tracked .gitignore — mutating a " +
+        "tracked file in an arbitrary consumer repo produces a diff the " +
+        "user never asked for.",
+    ).toBe(true);
+  });
+
   // Portability: this skill runs in arbitrary consumer repos
   const ALL_SKILL_FILES: ReadonlyArray<{ label: string; content: string }> = [
     { label: "SKILL.md", content: skillContent },

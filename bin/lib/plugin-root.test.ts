@@ -190,6 +190,48 @@ describe(ensurePluginRoot, () => {
     expect(fs.readFileSync(userFile, "utf8")).toBe("not flow's file\n");
   });
 
+  it("removes a FOREIGN live bin/ symlink (not merely a stale flow-managed one), while a sibling real file survives", () => {
+    const r = root();
+    ensurePluginRoot({
+      root: r,
+      moduleId: "copilot",
+      flowSource: realFlowSource,
+      version: "1.0.0",
+      includeSkills: false,
+      force: false,
+    });
+    // Foreign: a live symlink whose target resolves OUTSIDE realFlowSource
+    // entirely (unlike the pre-existing prune test above, whose stray
+    // symlink resolves INSIDE realFlowSource). This is the case
+    // `docs/configuration.md`/README.md's "will remove these" notice
+    // describes.
+    const foreignTarget = path.join(scratch, "foreign-executable.sh");
+    fs.writeFileSync(foreignTarget, "#!/bin/sh\n");
+    const foreignLink = path.join(r, "bin", "flow-foreign-executable");
+    fs.symlinkSync(foreignTarget, foreignLink);
+    // Sibling real (non-symlink) file — the manual case, which must stay
+    // untouched by the same round-trip.
+    const userFile = path.join(r, "bin", "my-notes.txt");
+    fs.writeFileSync(userFile, "not flow's file\n");
+
+    ensurePluginRoot({
+      root: r,
+      moduleId: "copilot",
+      flowSource: realFlowSource,
+      version: "1.0.0",
+      includeSkills: false,
+      force: false,
+    });
+
+    // lstat (not existsSync, which follows the link) to distinguish "link
+    // removed" from "target destroyed" — the prune loop must unlink the
+    // link, never touch the foreign payload it pointed at.
+    expect(() => fs.lstatSync(foreignLink)).toThrow();
+    expect(fs.existsSync(foreignTarget)).toBe(true);
+    expect(fs.existsSync(userFile)).toBe(true);
+    expect(fs.readFileSync(userFile, "utf8")).toBe("not flow's file\n");
+  });
+
   it('returns "blocked" and mutates nothing when the target exists as a directory WITHOUT a flow-written plugin.json', () => {
     const r = root();
     fs.mkdirSync(r, { recursive: true });
