@@ -48,6 +48,7 @@ const verifierAgentPath = path.resolve(
   HERE,
   "..",
   "agents",
+  "core",
   "flow-backlog-verifier.md",
 );
 
@@ -320,9 +321,20 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
   });
 
   it("names flow-backlog-verifier as the subagent type when the fan-out reference defines the spawn call", () => {
-    expect(fanoutContent.includes("subagent_type: flow-backlog-verifier")).toBe(
-      true,
-    );
+    // The literal is $BACKLOG_VERIFIER_SUBAGENT (resolved to the
+    // plugin-qualified flow-module-core:flow-backlog-verifier on a
+    // plugin-root install, else the bare name on a legacy global install —
+    // a bare "flow-backlog-verifier" subagent_type fails Task-tool
+    // resolution outright on a plugin-root install, measured: "Agent type
+    // 'flow-scout' not found"), not a hardcoded bare-name literal.
+    expect(
+      fanoutContent.includes("subagent_type: $BACKLOG_VERIFIER_SUBAGENT"),
+    ).toBe(true);
+    expect(
+      fanoutContent.includes(
+        "BACKLOG_VERIFIER_SUBAGENT=flow-module-core:flow-backlog-verifier",
+      ),
+    ).toBe(true);
   });
 
   it("requires batched work with a wave-bounded spawn cap when the fan-out reference defines the spawn shape", () => {

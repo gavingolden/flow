@@ -9,8 +9,11 @@ Step 3 points at.
 Spawn ONE additional Task agent, `flow-review-intent-guess`, in the SAME
 fan-out message as the six lens agents (rides the existing Multi-Agent
 Review exemption — no new Task-tool exemption), resolved via the same
-`[ -f ~/.claude/agents/flow-review-intent-guess.md ] ||
-general-purpose` fallback as the per-lens resolution.
+three-tier resolution as the per-lens resolution above: plugin-root
+definition at `~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-review-intent-guess.md`
+→ `flow-module-core:flow-review-intent-guess`; else legacy global
+definition at `~/.claude/agents/flow-review-intent-guess.md` → the bare
+`flow-review-intent-guess`; else `general-purpose`.
 
 Context is diff-only, deliberately narrower than the six lenses' shared
 context block: `$WORKTREE/.flow-tmp/diff.txt` and the changed-file list

@@ -124,8 +124,10 @@ code.claude.com/docs/en/sub-agents, 2026-07-05):
   frontmatter.
 
 The one legitimate cost is an install dependency — each custom agent needs its
-`~/.claude/agents/<name>.md` symlinked — so every promoted spawn site keeps the
-`[ -f ~/.claude/agents/<name>.md ] || general-purpose` fallback guard, and the
+`~/.flow/claude-home/.claude/skills/flow-module-<owner>/agents/<name>.md`
+symlinked (D-A below reverses; agents moved off the flat global
+`~/.claude/agents/`) — so every promoted spawn site keeps the
+`[ -f <that path> ] || general-purpose` fallback guard, and the
 fallback **emits a named notice** when it fires (a silent swap to
 `general-purpose` discards a tool-restricted role's allowlist containment, a
 prompt-injection concern).
@@ -296,8 +298,10 @@ the PATH-bound schema validators. Always installed.
 Phase 4 is complete: the scout, discovery, merge-resolver, and
 edit-applier fan-outs are now promoted `agents/*.md` definitions —
 mirroring the six review lenses, the gatekeeper, and the consolidator
-above — each resolved via the `[ -f ~/.claude/agents/<name>.md ] ||
-general-purpose` fallback guard.
+above — each resolved via the `[ -f
+~/.flow/claude-home/.claude/skills/flow-module-core/agents/<name>.md ] ||
+general-purpose` fallback guard (post-D-A-reversal; all 16 are
+core-owned today).
 
 **PATH-bound helpers** (all core — the pipeline machinery)
 
@@ -441,14 +445,21 @@ epic's open question about what a `--add-dir <dir>` grant actually loads:
   `.claude/`, `~/.claude/settings.json`, and managed settings (same
   permissions-page section).
 
-**Decision for this node (D-A):** agents stay global at `~/.claude/agents/`
-this node — moving flow's two agent definitions would stale the
-`[ -f ~/.claude/agents/<name>.md ]` fallback guards in `flow-pipeline`/`pr-review`
-for marginal gain, and Phase 4 (`p4-review-agents`, `p4-pipeline-agents`) can
-own a wholesale move with the guard sweep in one PR now that added-dir loading
-is documented. **Hooks stay global permanently** (the Stop / SessionStart
-hooks cannot load from an added dir, so `~/.claude/settings.json` is the only
-option regardless of phase).
+**Decision for this node (D-A), REVERSED:** agents originally stayed global
+at `~/.claude/agents/` at this node — moving flow's two agent definitions
+would have staled the `[ -f ~/.claude/agents/<name>.md ]` fallback guards in
+`flow-pipeline`/`pr-review` for marginal gain at the time, with the
+wholesale move deferred to a later PR once `claude plugin details` was
+verified to report agents by bare name under a plugin root the same way it
+reports skills (the `agent-invocation-name` probe, `bin/flow-plugin-probe.ts`).
+That probe came back `confirmed`, so the move landed: all 16 agent
+definitions now live nested inside their owning module's plugin root —
+`~/.flow/claude-home/.claude/skills/flow-module-<id>/agents/<name>.md` — and
+every guard pattern above (`p4-pipeline-agents`'s and `p4-review-agents`'s
+alike) probes that path, not the old global one. **Hooks stay global
+permanently** (the Stop / SessionStart hooks cannot load from an added dir,
+so `~/.claude/settings.json` is the only option regardless of phase) — that
+half of D-A is unaffected by the reversal.
 
 ### Phase 3 — plain-default runtime (tmux opt-in)
 
@@ -489,9 +500,11 @@ option regardless of phase).
   (see `AGENTS.md` `## Don'ts`), so there is no judgment-agent spawn site
   left to promote).
 - **Exit:** every promoted role is a named definition; every promoted spawn
-  site keeps the `[ -f ~/.claude/agents/<name>.md ] || general-purpose`
-  fallback guard (emitting a named notice on fallback); artifact contracts
-  unchanged; the nine-exemption set renamed in place, never widened.
+  site keeps the `[ -f
+~/.flow/claude-home/.claude/skills/flow-module-core/agents/<name>.md ] ||
+general-purpose` fallback guard (post-D-A-reversal path; emitting a named
+  notice on fallback); artifact contracts unchanged; the nine-exemption set
+  renamed in place, never widened.
 
 ### Phase 5 — context economy (measure, then tighten)
 
@@ -679,6 +692,7 @@ Contracted scope item 5).
   | `bin-path-injection`      | confirmed                            | `claude --plugin-dir <path> --plugin-dir <path> --version` accepts repeated `--plugin-dir` and exits 0; intra-session PATH propagation itself is not observable via a one-shot non-interactive probe                                                           | modules stay symlink-materialized for helper coverage; the packaging layer is revisited without touching the (b) backbone |
   | `enabled-plugins`         | confirmed                            | `claude plugin disable flow-module-core@skills-dir --scope project` writes `{"enabledPlugins":{"flow-module-core@skills-dir":false}}` to `.claude/settings.json`                                                                                               | per-repo enablement degrades to the existing symlink-selection mechanism                                                  |
   | `skill-invocation-name`   | confirmed                            | `claude plugin details` reports a skill nested under a plugin root's `skills/` by its BARE directory name, not a plugin-qualified name — settles the naming convention for the deferred skill-move follow-up                                                   | ship the deferred skill move without a verified naming answer; re-probe first                                             |
+  | `agent-invocation-name`   | confirmed                            | `claude plugin details` reports an agent nested under a plugin root's `agents/` by its BARE file basename under an `Agents (1)` count, with no manifest `agents` key declared — settles the naming convention for the agent-move (Task 4)                      | ship the agent move without a verified naming answer; keep agents global at `~/.claude/agents/` and re-probe first        |
 
   **Caveat on `add-dir-discovery`, carried forward from the PR body so this
   table doesn't overstate the evidence:** the probe confirmed discovery
@@ -694,7 +708,7 @@ Contracted scope item 5).
   anything since the launcher's own `PATH` prefix is the load-bearing
   mechanism.
 
-  All five confirmed on the locally installed build, subject to the two
+  All six confirmed on the locally installed build, subject to the two
   caveats above; none is currently operating on a fallback rung. Re-run
   `bun bin/flow-plugin-probe.ts --json` after any Claude Code upgrade —
   `bin/flow-plugin-contract-lint.ts` is the sibling harness for the same

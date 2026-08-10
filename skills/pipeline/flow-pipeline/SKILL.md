@@ -79,8 +79,12 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > `/flow-pr-review` auto-push and `/flow-pipeline` auto-merge exemptions
 > in `AGENTS.md`. If a future skill needs the same license, add it here
 > by name rather than generalising the rule. Each exemption spawns its
-> named `agents/flow-*.md` definition via a file-exists guard falling
-> back to `general-purpose` with a loud `NOTICE — agent-fallback:` line.
+> named `agents/flow-*.md` definition via a file-exists guard, addressing
+> a plugin-root definition by the plugin-qualified `flow-module-core:<agent>`
+> name (a bare agent name fails Task-tool resolution outright on a
+> plugin-root install), a legacy global definition by its bare name, and
+> falling back to `general-purpose` with a loud `NOTICE — agent-fallback:`
+> line when neither is installed.
 >
 > **Load the Task tool at each spawn site.** Each of the nine spawn
 > procedures below must instruct the supervisor to load the Task tool
@@ -1176,7 +1180,9 @@ implement-failed`.
 Sub-skills loaded by the supervisor in steps 6–8 (`/flow-verify`,
 `/flow-pr-review`) are read from `~/.flow/claude-home/.claude/skills/`
 (loaded into the supervisor session via the seed session's
-`--add-dir ~/.flow/claude-home`) and agents still from `~/.claude/agents/`
+`--add-dir ~/.flow/claude-home`), and agents from the same tree, nested
+inside each artifact's owning module's plugin root
+(`~/.flow/claude-home/.claude/skills/flow-module-<id>/agents/`)
 — both populated by `flow install` (and `flow install --upgrade`) via symlink.
 A worktree that adds new files under `skills/` or `agents/` in step 5
 does not get those files symlinked automatically; the same supervisor
@@ -1239,7 +1245,8 @@ reaped on the next `flow install --upgrade`.
 **Concurrency.** `flow install` wraps its symlink work in
 `~/.flow/setup.lock` (`bin/lib/lock.ts`), so parallel pipelines that
 both add skills/agents serialise here rather than racing on
-`~/.flow/claude-home/.claude/skills/` and `~/.claude/agents/`. Do not add an ad-hoc
+`~/.flow/claude-home/.claude/skills/` (skills and agents both, each
+nested under its owning module's plugin root). Do not add an ad-hoc
 lock at this call site.
 
 **End condition:** the helper exits 0. On non-zero exit (the verb
@@ -1298,12 +1305,23 @@ VERIFY_MODEL=$(jq -r '.modelVerify // empty' ~/.flow/state/"$SLUG".json)
 
 # Subagent type: the flow-verify definition (agents/flow-verify.md) pins
 # effort: low so this mechanical loop stops burning high-effort tokens.
-# Fall back to general-purpose when the definition is not symlinked (a
-# consumer who has not re-run flow install), so the pipeline never fails
-# on an unknown agent type. The per-spawn model: below overrides the
+# Plugin-hosted agents are addressable ONLY by the plugin-qualified name
+# <pluginRootName>:<agentBasename> — a bare "flow-verify" subagent_type
+# fails Task-tool resolution outright (measured: "Agent type 'flow-scout'
+# not found"). Resolve in three tiers: (1) plugin-root definition present
+# → plugin-qualified name; (2) legacy global definition present (a
+# pre-migration or non-plugin install) → bare name; (3) neither → fall
+# back to general-purpose, loudly, so the pipeline never fails on an
+# unknown agent type. The per-spawn model: below overrides the
 # definition's model, so the verify precedence is unchanged either way.
-VERIFY_SUBAGENT=flow-verify
-[ -f ~/.claude/agents/flow-verify.md ] || { VERIFY_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-verify → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+VERIFY_SUBAGENT=general-purpose
+if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-verify.md ]; then
+  VERIFY_SUBAGENT=flow-module-core:flow-verify
+elif [ -f ~/.claude/agents/flow-verify.md ]; then
+  VERIFY_SUBAGENT=flow-verify
+else
+  echo "NOTICE — agent-fallback: flow-verify → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."
+fi
 ```
 
 Spawn-prompt template (fill the `{{...}}` placeholders before passing to
@@ -1342,7 +1360,8 @@ the /flow-verify transcript back; the artifact on disk is the durable record.
 ```
 
 Make the Task call with `subagent_type: $VERIFY_SUBAGENT` (resolved above —
-`flow-verify` when the definition is symlinked, else `general-purpose`), the
+`flow-module-core:flow-verify` on a plugin-root install, the bare `flow-verify`
+on a legacy global install, else `general-purpose`), the
 per-spawn `model: "$VERIFY_MODEL"` argument resolved above (verify precedence
 `--model-verify > config.models.verify > "sonnet"`, NOT inherited — see
 [references/model-routing.md](references/model-routing.md)), and the filled
@@ -1994,14 +2013,26 @@ MERGE_RESOLVER_MODEL=$(jq -r '.modelMergeResolver // empty' ~/.flow/state/"$SLUG
 (cd "$WORKTREE" && git fetch origin "$BASE_BRANCH") || echo "warn: git fetch origin $BASE_BRANCH failed; resolver will retry the fetch in Step 2" >&2
 CONFLICTING_FILES=$(cd "$WORKTREE" && git diff --name-only --diff-filter=U)
 PR_DESCRIPTION=$(gh pr view "$PR" --json body -q .body)
-# Guarded agent resolution — contract in references/exemption-contracts.md (exemption #5)
-MERGE_RESOLVER_SUBAGENT=flow-merge-resolver
-[ -f ~/.claude/agents/flow-merge-resolver.md ] || { MERGE_RESOLVER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-merge-resolver → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+# Guarded agent resolution — contract in references/exemption-contracts.md (exemption #5).
+# Plugin-hosted agents resolve ONLY by the plugin-qualified name
+# <pluginRootName>:<agentBasename> — a bare name fails Task-tool
+# resolution outright (measured: "Agent type 'flow-scout' not found").
+MERGE_RESOLVER_SUBAGENT=general-purpose
+if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-merge-resolver.md ]; then
+  MERGE_RESOLVER_SUBAGENT=flow-module-core:flow-merge-resolver
+elif [ -f ~/.claude/agents/flow-merge-resolver.md ]; then
+  MERGE_RESOLVER_SUBAGENT=flow-merge-resolver
+else
+  echo "NOTICE — agent-fallback: flow-merge-resolver → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."
+fi
 ```
 
 See [references/merge-resolver-spawn-prompt.md](references/merge-resolver-spawn-prompt.md) for the verbatim spawn-prompt template (nine `{{...}}` placeholders). Fill the placeholders from the resolve-inputs block above before passing it to the Task tool.
 
-Make the Task call with `subagent_type: $MERGE_RESOLVER_SUBAGENT`, the per-spawn
+Make the Task call with `subagent_type: $MERGE_RESOLVER_SUBAGENT` (resolved
+above — `flow-module-core:flow-merge-resolver` on a plugin-root install, the
+bare `flow-merge-resolver` on a legacy global install, else
+`general-purpose`), the per-spawn
 `model: "$MERGE_RESOLVER_MODEL"` argument resolved above (precedence
 `--model-merge-resolver > config.models.mergeResolver > inherited`; when
 `$MERGE_RESOLVER_MODEL` is empty, omit `model:` so the resolver inherits the

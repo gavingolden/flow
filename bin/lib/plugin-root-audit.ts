@@ -9,9 +9,13 @@
  * `scanPluginRoots` returned (i.e. already-verified flow-owned roots).
  *
  * Bounded, non-recursive walk: the top level of `root`, one level into
- * `root/bin/`, and one level into `root/.claude-plugin/`. Those three spots
- * are every channel a `--plugin-dir` root loads from today; going deeper
- * risks unbounded output on an interactive path for no additional coverage.
+ * `root/bin/`, one level into `root/.claude-plugin/`, and (Task 5) one level
+ * into `root/skills/` when present. `root/agents` is checked at the TOP
+ * level only (`checkAgentsRoot`), not walked into — it is itself a single
+ * directory symlink per owning module, not a directory of per-file
+ * symlinks (see `checkAgentsRoot`'s own doc comment). Those spots are every
+ * channel a `--plugin-dir` root loads from today; going deeper risks
+ * unbounded output on an interactive path for no additional coverage.
  *
  * MUST NEVER THROW: every fs read below goes through a try/catch that
  * collapses to an empty result, mirroring `scanPluginRoots`'s idiom
@@ -26,8 +30,8 @@ export type PluginRootEntryIssue = {
   relPath: string;
   reason:
     | "unexpected-child"
-    | "unmanaged-bin-entry"
-    | "dangling-bin-symlink"
+    | "unmanaged-entry"
+    | "dangling-symlink"
     | "foreign-live-bin-symlink";
 };
 
@@ -92,24 +96,45 @@ function manifestDeclaresSkills(root: string): boolean {
 }
 
 function expectedRootChildren(root: string): Set<string> {
-  const expected = new Set([".claude-plugin", "bin"]);
+  // `agents` is unconditional (Task 5): an `agents/` directory inside a
+  // flow-owned root is always legitimate, whether or not the module owns
+  // any agent rows — an absent expected child is not itself drift (only an
+  // UNEXPECTED one is), so there is no manifest-declaration gate to mirror
+  // `manifestDeclaresSkills`' — a plugin manifest carries no `agents` key
+  // to declare in the first place (`plugin-manifest.ts`'s `PluginManifest`
+  // type has none).
+  const expected = new Set([".claude-plugin", "bin", "agents"]);
   if (manifestDeclaresSkills(root)) expected.add("skills");
   return expected;
 }
 
-/** Classification of a `bin/` entry: `"unmanaged"` for a real (non-symlink)
- * file (needs hand removal — flow never wrote it), `"dangling"` for a
- * symlink that doesn't resolve (self-healed by `flow install --upgrade`'s
- * prune/relink), `"foreign-live"` for a LIVE symlink resolving outside both
- * ownership roots (wins PATH lookup now, until the next
- * `flow install --upgrade` prunes it), or `null` for a live symlink flow
- * itself put there. */
-function classifyBinEntry(
-  binDir: string,
+/** Classification of a `bin/`/`skills/`/`agents/` entry that isn't a
+ * healthy live symlink: `"unmanaged"` for a real (non-symlink) file or
+ * directory — `listManagedSymlinks` filters on `Dirent.isSymbolicLink()`,
+ * so `ensurePluginRoot`'s prune loop never even sees it; flow never wrote
+ * it and never deletes it, so it genuinely needs hand removal.
+ * `"dangling"` for a symlink that doesn't resolve — `listManagedSymlinks`
+ * DOES pick this one up (a dangling link is still a symlink), so
+ * `flow install --upgrade` genuinely repairs it: the prune loop unlinks it
+ * if it's no longer in the desired set, and `ensureSymlink`'s relink branch
+ * repairs it in place when the name is still desired. `"foreign-live"` for
+ * a LIVE symlink resolving outside every ownership root (wins PATH lookup
+ * now, until the next `flow install --upgrade` prunes it) — checked only
+ * when `roots` is non-null, i.e. only for `bin/`, the one subdir whose
+ * entries join the session PATH; a live `skills/`/`agents/` symlink is
+ * `null` regardless of target. `null` otherwise, for a live symlink —
+ * INCLUDING a live directory symlink (a skill's target is a directory,
+ * unlike a `bin/` entry's file), which is just as healthy: `fs.statSync`
+ * follows the link and succeeds regardless of the resolved node's type, so
+ * no dir/file branch is needed. The caller routes `"unmanaged"` through the
+ * hand-removal remediation and `"dangling"` through the self-healing
+ * `flow install --upgrade` one. */
+function classifyEntry(
+  dir: string,
   name: string,
-  roots: readonly string[],
+  roots: readonly string[] | null,
 ): "unmanaged" | "dangling" | "foreign-live" | null {
-  const entryPath = path.join(binDir, name);
+  const entryPath = path.join(dir, name);
   let lst: fs.Stats;
   try {
     lst = fs.lstatSync(entryPath);
@@ -122,7 +147,75 @@ function classifyBinEntry(
   } catch {
     return "dangling";
   }
+  if (roots === null) return null;
   return isFlowOwnedSymlink(entryPath, roots) ? null : "foreign-live";
+}
+
+/** Walks one level into `<root>/<subdir>/`, pushing an issue for every
+ * non-healthy entry — shared by the `bin/` and `skills/` one-level walks
+ * below. `roots` is passed only for the `bin/` walk (the PATH-joining
+ * subdir); `null` skips the foreign-live ownership check. NOT used for
+ * `agents/` any more — see `checkAgentsRoot`'s own doc comment for why the
+ * two subdirs' expected shapes diverged. */
+function walkOneLevel(
+  root: string,
+  subdir: string,
+  issues: PluginRootEntryIssue[],
+  roots: readonly string[] | null = null,
+): void {
+  const dir = path.join(root, subdir);
+  for (const name of readdirNames(dir)) {
+    if (IGNORED_ENTRIES.has(name)) continue;
+    const kind = classifyEntry(dir, name, roots);
+    if (kind === "unmanaged") {
+      issues.push({
+        relPath: path.join(subdir, name),
+        reason: "unmanaged-entry",
+      });
+    } else if (kind === "dangling") {
+      issues.push({
+        relPath: path.join(subdir, name),
+        reason: "dangling-symlink",
+      });
+    } else if (kind === "foreign-live") {
+      issues.push({
+        relPath: path.join(subdir, name),
+        reason: "foreign-live-bin-symlink",
+      });
+    }
+  }
+}
+
+/**
+ * Checks `<root>/agents` ITSELF, not its contents — unlike `skills/`, whose
+ * per-skill-directory symlinks live one level INSIDE `root/skills/`,
+ * `discoverAgents` (`sources.ts`) materializes `root/agents` as ONE
+ * directory symlink for the whole owning module (Claude Code's plugin-root
+ * discovery follows a symlinked directory but not a symlinked file, so a
+ * per-file agent symlink is unusable — see that function's own doc
+ * comment). `root/agents`'s children are therefore real `.md` files inside
+ * the flow source tree, never individually-managed symlinks; walking one
+ * level in and expecting each child to be a symlink (the old `walkOneLevel`
+ * shape) would misreport every one of them as `unmanaged-entry`.
+ */
+function checkAgentsRoot(root: string, issues: PluginRootEntryIssue[]): void {
+  const entryPath = path.join(root, "agents");
+  let lst: fs.Stats;
+  try {
+    lst = fs.lstatSync(entryPath);
+  } catch {
+    return; // absent is not itself drift — mirrors expectedRootChildren's note
+  }
+  if (!lst.isSymbolicLink()) {
+    issues.push({ relPath: "agents", reason: "unmanaged-entry" });
+    return;
+  }
+  try {
+    fs.statSync(entryPath);
+  } catch {
+    issues.push({ relPath: "agents", reason: "dangling-symlink" });
+  }
+  // A live directory symlink is healthy as-is — no further per-child check.
 }
 
 export function unexpectedPluginRootEntries(
@@ -139,32 +232,14 @@ export function unexpectedPluginRootEntries(
     }
   }
 
-  const binDir = path.join(root, "bin");
-  // Hoisted out of the loop: `ownershipRoots` runs two `realpathSync` calls,
+  // Hoisted out of the walk: `ownershipRoots` runs two `realpathSync` calls,
   // both loop-invariant — computing it once instead of per-entry avoids
   // ~2 redundant syscalls per `bin/` symlink on this interactive path
   // (`flow ls` / `flow version`).
   const roots = ownershipRoots(ownership.flowSource, ownership.installRoot);
-  for (const name of readdirNames(binDir)) {
-    if (IGNORED_ENTRIES.has(name)) continue;
-    const kind = classifyBinEntry(binDir, name, roots);
-    if (kind === "unmanaged") {
-      issues.push({
-        relPath: path.join("bin", name),
-        reason: "unmanaged-bin-entry",
-      });
-    } else if (kind === "dangling") {
-      issues.push({
-        relPath: path.join("bin", name),
-        reason: "dangling-bin-symlink",
-      });
-    } else if (kind === "foreign-live") {
-      issues.push({
-        relPath: path.join("bin", name),
-        reason: "foreign-live-bin-symlink",
-      });
-    }
-  }
+  walkOneLevel(root, "bin", issues, roots);
+  walkOneLevel(root, "skills", issues);
+  checkAgentsRoot(root, issues);
 
   const manifestDir = path.join(root, ".claude-plugin");
   for (const name of readdirNames(manifestDir)) {

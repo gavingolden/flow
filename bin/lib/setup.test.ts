@@ -63,6 +63,37 @@ function settingsPath(): string {
   return path.join(homeDir, ".claude", "settings.json");
 }
 
+/**
+ * A skill's install target nests inside its owning module's plugin root —
+ * `<skillsDir>/flow-module-<moduleId>/skills/<name>`. This file's fixture
+ * skills ("alpha", "beta", …) are fictional names absent from the real
+ * module registry, so `moduleForArtifactName` falls through to
+ * `MANDATORY_MODULE` ("core") for every one of them — the same
+ * registry-unknown routing `moduleId` defaults to here. Real-registry-named
+ * fixtures pass their actual owning `moduleId` explicitly.
+ */
+function moduleRootTarget(
+  t: ReturnType<typeof targets>,
+  kind: "skills",
+  name: string,
+  moduleId: string = "core",
+): string {
+  return path.join(t.skillsDir, `flow-module-${moduleId}`, kind, name);
+}
+
+/**
+ * An agent module's install target is the module's `agents` directory
+ * itself, not a per-file path — `discoverAgents` emits one directory-symlink
+ * entry per module subdirectory (`<flow-source>/agents/<moduleId>`), not one
+ * per `.md` file (see `sources.ts`'s `discoverAgents` doc comment).
+ */
+function moduleAgentsTarget(
+  t: ReturnType<typeof targets>,
+  moduleId: string = "core",
+): string {
+  return path.join(t.skillsDir, `flow-module-${moduleId}`, "agents");
+}
+
 function setup(
   opts: {
     upgrade?: boolean;
@@ -140,14 +171,17 @@ describe("flow install", () => {
     expect(summary.blocked).toBe(0);
 
     const t = targets();
-    expect(fs.lstatSync(path.join(t.skillsDir, "alpha")).isSymbolicLink()).toBe(
-      true,
-    );
-    expect(fs.lstatSync(path.join(t.skillsDir, "beta")).isSymbolicLink()).toBe(
-      true,
-    );
     expect(
-      fs.lstatSync(path.join(t.agentsDir, "reviewer.md")).isSymbolicLink(),
+      fs.lstatSync(moduleRootTarget(t, "skills", "alpha")).isSymbolicLink(),
+    ).toBe(true);
+    expect(
+      fs.lstatSync(moduleRootTarget(t, "skills", "beta")).isSymbolicLink(),
+    ).toBe(true);
+    expect(fs.lstatSync(moduleAgentsTarget(t)).isSymbolicLink()).toBe(true);
+    expect(
+      fs
+        .readdirSync(fs.realpathSync(moduleAgentsTarget(t)))
+        .includes("reviewer.md"),
     ).toBe(true);
     expect(
       fs.lstatSync(path.join(t.binDir, "flow-helper")).isSymbolicLink(),
@@ -189,17 +223,22 @@ describe("flow install", () => {
     expect(names).toContain("flow-new-worktree");
   });
 
-  it("discovers the flow-verify and flow-fix-applier agent definitions", () => {
-    // Regression guard: discoverAgents ships every agents/*.md file as a
-    // kind: "agent" SourceEntry symlinked into ~/.claude/agents. Run against
-    // the real repo's agents/ directory (not the synthetic fixture) so this
-    // fires if a future refactor breaks discovery for the two low-effort
-    // agent definitions that pin the mechanical fan-outs.
+  it("discovers the core module's agents directory, including flow-verify and flow-fix-applier on disk", () => {
+    // Regression guard: discoverAgents ships ONE kind: "agent" SourceEntry
+    // per owning module's agents/ subdirectory (a directory-symlink target,
+    // <skillsDir>/flow-module-<owner>/agents), not one per `.md` file — see
+    // sources.ts's discoverAgents doc comment for why. Run against the real
+    // repo's agents/ directory (not the synthetic fixture) so this fires if
+    // a future refactor breaks discovery for the two low-effort agent
+    // definitions that pin the mechanical fan-outs.
     const repoRoot = path.resolve(__dirname, "..", "..");
     const agents = discoverAgents(repoRoot);
-    const names = agents.map((a) => a.displayName);
-    expect(names).toContain("flow-verify.md");
-    expect(names).toContain("flow-fix-applier.md");
+    const core = agents.find((a) => a.displayName === "agents/core");
+    expect(core).toBeDefined();
+    expect(core!.kind).toBe("agent");
+    const files = fs.readdirSync(core!.source);
+    expect(files).toContain("flow-verify.md");
+    expect(files).toContain("flow-fix-applier.md");
     for (const a of agents) {
       expect(a.kind).toBe("agent");
     }
@@ -259,7 +298,14 @@ describe("flow install", () => {
     const manifest = readManifest(manifestPath);
     const targets_ = manifest.symlinks.map((s) => path.basename(s.target));
     expect(targets_).toContain("alpha");
-    expect(targets_).toContain("reviewer.md");
+    // An "agent" record's target basename is the module's agents/
+    // directory-symlink itself ("agents"), not a per-file basename — see
+    // discoverAgents's own doc comment.
+    expect(
+      manifest.symlinks.some(
+        (s) => s.kind === "agent" && path.basename(s.target) === "agents",
+      ),
+    ).toBe(true);
     expect(targets_).toContain("flow-helper");
     expect(targets_).toContain("flow");
     // End-to-end integration of discoverValidators through runSetup: the two
@@ -282,15 +328,14 @@ describe("flow install", () => {
 
   it("blocks non-symlink files at the target without --force", async () => {
     const t = targets();
-    fs.mkdirSync(t.skillsDir, { recursive: true });
+    const alphaTarget = moduleRootTarget(t, "skills", "alpha");
+    fs.mkdirSync(path.dirname(alphaTarget), { recursive: true });
     // Pretend the user has authored their own 'alpha' skill at the target.
-    fs.writeFileSync(path.join(t.skillsDir, "alpha"), "user content");
+    fs.writeFileSync(alphaTarget, "user content");
     const summary = await setup();
     expect(summary.blocked).toBeGreaterThan(0);
     // Real file untouched.
-    expect(fs.readFileSync(path.join(t.skillsDir, "alpha"), "utf8")).toBe(
-      "user content",
-    );
+    expect(fs.readFileSync(alphaTarget, "utf8")).toBe("user content");
   });
 
   it("--force replaces a non-symlink file at the target", async () => {
@@ -317,8 +362,8 @@ describe("flow install", () => {
     // Re-run with --upgrade.
     const summary = await setup({ upgrade: true });
     expect(summary.removed).toBe(1);
-    expect(fs.existsSync(path.join(t.skillsDir, "alpha"))).toBe(false);
-    expect(fs.existsSync(path.join(t.skillsDir, "beta"))).toBe(true);
+    expect(fs.existsSync(moduleRootTarget(t, "skills", "alpha"))).toBe(false);
+    expect(fs.existsSync(moduleRootTarget(t, "skills", "beta"))).toBe(true);
   });
 
   it("acquires the setup lock and releases it on success", async () => {
@@ -458,8 +503,8 @@ describe("flow install", () => {
 
     // Manually replace alpha with a symlink to /tmp (not under flow source).
     const userTarget = fs.mkdtempSync(path.join(os.tmpdir(), "user-"));
-    fs.unlinkSync(path.join(t.skillsDir, "alpha"));
-    fs.symlinkSync(userTarget, path.join(t.skillsDir, "alpha"));
+    fs.unlinkSync(moduleRootTarget(t, "skills", "alpha"));
+    fs.symlinkSync(userTarget, moduleRootTarget(t, "skills", "alpha"));
 
     // Drop alpha from the source so it would otherwise be an orphan.
     fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), {
@@ -468,7 +513,7 @@ describe("flow install", () => {
 
     const summary = await setup({ upgrade: true });
     expect(summary.removed).toBe(0); // refused — replacement still resolves
-    expect(fs.existsSync(path.join(t.skillsDir, "alpha"))).toBe(true);
+    expect(fs.existsSync(moduleRootTarget(t, "skills", "alpha"))).toBe(true);
 
     fs.rmSync(userTarget, { recursive: true, force: true });
   });
@@ -485,8 +530,8 @@ describe("flow install", () => {
 
     // User replaces our `alpha` symlink with their own pointing somewhere else.
     const userTarget = fs.mkdtempSync(path.join(os.tmpdir(), "user-"));
-    fs.unlinkSync(path.join(t.skillsDir, "alpha"));
-    fs.symlinkSync(userTarget, path.join(t.skillsDir, "alpha"));
+    fs.unlinkSync(moduleRootTarget(t, "skills", "alpha"));
+    fs.symlinkSync(userTarget, moduleRootTarget(t, "skills", "alpha"));
 
     // Drop alpha from the source so it qualifies as an orphan in the manifest.
     fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), {
@@ -497,7 +542,7 @@ describe("flow install", () => {
 
     const summary = await setup({ upgrade: true });
     expect(summary.removed).toBeGreaterThanOrEqual(1);
-    expect(fs.existsSync(path.join(t.skillsDir, "alpha"))).toBe(false);
+    expect(fs.existsSync(moduleRootTarget(t, "skills", "alpha"))).toBe(false);
   });
 
   describe("Stop hook merge into Claude Code settings.json", () => {
@@ -872,7 +917,7 @@ describe("flow install", () => {
       // realpath on both sides — ensureSymlink writes realpath'd targets, and
       // /var → /private/var canonicalization on macOS would otherwise yield a
       // string mismatch.
-      expect(fs.realpathSync(path.join(t.skillsDir, "epsilon"))).toBe(
+      expect(fs.realpathSync(moduleRootTarget(t, "skills", "epsilon"))).toBe(
         fs.realpathSync(path.join(worktree, "skills", "pipeline", "epsilon")),
       );
     });
@@ -943,7 +988,7 @@ describe("flow install", () => {
 
       // Sanity: in-flight content (epsilon) still resolves to the worktree
       // — the fix must not break step 5.5's purpose.
-      expect(fs.realpathSync(path.join(t.skillsDir, "epsilon"))).toBe(
+      expect(fs.realpathSync(moduleRootTarget(t, "skills", "epsilon"))).toBe(
         fs.realpathSync(path.join(worktree, "skills", "pipeline", "epsilon")),
       );
     });
@@ -1015,7 +1060,7 @@ describe("flow install", () => {
       expect(fs.realpathSync(path.join(t.binDir, "flow-helper"))).toBe(
         fs.realpathSync(path.join(flowSource, "bin", "flow-helper.ts")),
       );
-      expect(fs.realpathSync(path.join(t.skillsDir, "alpha"))).toBe(
+      expect(fs.realpathSync(moduleRootTarget(t, "skills", "alpha"))).toBe(
         fs.realpathSync(path.join(flowSource, "skills", "pipeline", "alpha")),
       );
       // Neither link resolves into the worktree.
@@ -1116,7 +1161,7 @@ describe("flow install", () => {
         recursive: true,
       });
 
-      const linkBefore = path.join(t.skillsDir, "alpha");
+      const linkBefore = moduleRootTarget(t, "skills", "alpha");
       expect(
         fs.existsSync(linkBefore) || fs.lstatSync(linkBefore).isSymbolicLink(),
       ).toBe(true);
@@ -1877,9 +1922,13 @@ function buildFakeFlowSource(root: string): void {
     }
   }
 
-  // agents/<file>.md
-  fs.mkdirSync(path.join(root, "agents"), { recursive: true });
-  fs.writeFileSync(path.join(root, "agents", "reviewer.md"), "# reviewer\n");
+  // agents/<moduleId>/<file>.md — one subdirectory per owning module (a
+  // directory symlink target, not a per-file one; see discoverAgents).
+  fs.mkdirSync(path.join(root, "agents", "core"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "agents", "core", "reviewer.md"),
+    "# reviewer\n",
+  );
 
   // bin/flow-helper.ts + bin/flow-helper.test.ts + bin/flow
   const binDir = path.join(root, "bin");
@@ -2294,20 +2343,51 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       expect(summary.blocked).toBe(0);
       const t = targets();
       // core: present.
-      expect(fs.existsSync(path.join(t.skillsDir, "flow-coder"))).toBe(true);
+      expect(fs.existsSync(moduleRootTarget(t, "skills", "flow-coder"))).toBe(
+        true,
+      );
       // research: present (skill + a helper).
-      expect(fs.existsSync(path.join(t.skillsDir, "flow-research"))).toBe(true);
+      expect(
+        fs.existsSync(
+          moduleRootTarget(t, "skills", "flow-research", "research"),
+        ),
+      ).toBe(true);
       expect(fs.existsSync(path.join(t.binDir, "flow-delegate"))).toBe(true);
       // never-selected stack/copilot modules: absent.
-      expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(false);
       expect(
-        fs.existsSync(path.join(t.skillsDir, "flow-tailwind-shadcn")),
+        fs.existsSync(
+          moduleRootTarget(t, "skills", "flow-svelte", "stack-svelte"),
+        ),
       ).toBe(false);
       expect(
-        fs.existsSync(path.join(t.skillsDir, "flow-supabase-project")),
+        fs.existsSync(
+          moduleRootTarget(
+            t,
+            "skills",
+            "flow-tailwind-shadcn",
+            "stack-tailwind-shadcn",
+          ),
+        ),
       ).toBe(false);
       expect(
-        fs.existsSync(path.join(t.skillsDir, "flow-cloudflare-pages")),
+        fs.existsSync(
+          moduleRootTarget(
+            t,
+            "skills",
+            "flow-supabase-project",
+            "stack-supabase",
+          ),
+        ),
+      ).toBe(false);
+      expect(
+        fs.existsSync(
+          moduleRootTarget(
+            t,
+            "skills",
+            "flow-cloudflare-pages",
+            "stack-cloudflare-pages",
+          ),
+        ),
       ).toBe(false);
       expect(fs.existsSync(path.join(t.binDir, "flow-request-copilot"))).toBe(
         false,
@@ -2330,10 +2410,17 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
         quiet: true,
       });
       const t = targets();
-      expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(true);
+      expect(
+        fs.existsSync(
+          moduleRootTarget(t, "skills", "flow-svelte", "stack-svelte"),
+        ),
+      ).toBe(true);
 
       // A user-authored file living alongside the managed per-skill symlinks
       // — never recorded in any manifest, so the reap pass must leave it be.
+      // Planted at the top-level skills dir (outside any plugin root) so a
+      // module-narrowing reap that only ever touches root-internal targets
+      // can't accidentally sweep it either.
       const plantedFile = path.join(t.skillsDir, "my-notes.txt");
       fs.writeFileSync(plantedFile, "not a flow artifact\n");
 
@@ -2353,8 +2440,14 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       });
 
       expect(summary.removed).toBeGreaterThan(0);
-      expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(false);
-      expect(fs.existsSync(path.join(t.skillsDir, "flow-coder"))).toBe(true);
+      expect(
+        fs.existsSync(
+          moduleRootTarget(t, "skills", "flow-svelte", "stack-svelte"),
+        ),
+      ).toBe(false);
+      expect(fs.existsSync(moduleRootTarget(t, "skills", "flow-coder"))).toBe(
+        true,
+      );
       expect(fs.existsSync(plantedFile)).toBe(true);
       expect(fs.readFileSync(plantedFile, "utf8")).toBe(
         "not a flow artifact\n",
@@ -2425,7 +2518,11 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
         quiet: true,
         cachePath: path.join(homeDir, ".flow", "update-check.json"),
       });
-      expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(true);
+      expect(
+        fs.existsSync(
+          moduleRootTarget(t, "skills", "flow-svelte", "stack-svelte"),
+        ),
+      ).toBe(true);
     });
 
     it("(i) --modules core prints the inactive-modules doctor line naming every deselected optional", async () => {
@@ -2491,29 +2588,31 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
     // new agent was silently never linked even though it physically exists
     // in the worktree passed via `--source`.
     it("picks up a new-file-plus-new-registry-row addition from a --source tree the compiled registry doesn't know about yet", async () => {
-      const worktree = path.join(scratch, "worktree-with-new-agent");
+      const worktree = path.join(scratch, "worktree-with-new-skill");
       const canonicalRoot = path.join(scratch, "stale-canonical");
       buildFakeFlowSource(worktree);
       buildFakeFlowSource(canonicalRoot);
 
-      // The new artifact: an agent file that exists ONLY in the worktree.
-      fs.writeFileSync(
-        path.join(worktree, "agents", "new-agent.md"),
-        "# new-agent\n",
-      );
+      // The new artifact: a skill dir that exists ONLY in the worktree. (An
+      // agent file no longer needs this pass-through machinery at all — see
+      // the adjacent "agents need no registry row" test below — so this
+      // regression case, unchanged from PR #445, now exercises a skill.)
+      const newSkillDir = path.join(worktree, "skills", "universal", "epsilon");
+      fs.mkdirSync(newSkillDir, { recursive: true });
+      fs.writeFileSync(path.join(newSkillDir, "SKILL.md"), "# epsilon\n");
 
       // The new registry row: the worktree's OWN bin/lib/modules.ts, unknown
       // to the compiled-in (canonical-derived) registry this test process
       // was built from. Mirrors buildFakeFlowSource's existing rows so the
-      // pre-existing fixture artifacts stay linked too, plus the new agent.
+      // pre-existing fixture artifacts stay linked too, plus the new skill.
       fs.mkdirSync(path.join(worktree, "bin", "lib"), { recursive: true });
       fs.writeFileSync(
         path.join(worktree, "bin", "lib", "modules.ts"),
         `
         export function resolveArtifactSet(selectedIds) {
           return {
-            skills: ["alpha", "beta", "gamma", "delta"],
-            agents: ["reviewer.md", "new-agent.md"],
+            skills: ["alpha", "beta", "gamma", "delta", "epsilon"],
+            agents: ["reviewer.md"],
             helpers: ["flow-helper"],
             validators: ["pr-review-result-schema", "agent-finding-schema"],
           };
@@ -2539,16 +2638,55 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       });
 
       expect(summary.created).toBeGreaterThan(0);
-      expect(
-        fs.lstatSync(path.join(t.agentsDir, "new-agent.md")).isSymbolicLink(),
-      ).toBe(true);
+      // "epsilon" is unknown to the STATIC compiled-in registry
+      // `ownerPluginRootName` reads (only the worktree's dynamic
+      // `resolveArtifactSetForSource` result knows it) — OQ-2 revised
+      // routing sends it into flow-module-core's root, never a flat global
+      // skills dir.
+      const newSkillTarget = moduleRootTarget(t, "skills", "epsilon");
+      expect(fs.lstatSync(newSkillTarget).isSymbolicLink()).toBe(true);
 
       const manifest = readManifest(manifestPath);
-      expect(
-        manifest.symlinks.some(
-          (s) => s.target === path.join(t.agentsDir, "new-agent.md"),
-        ),
-      ).toBe(true);
+      expect(manifest.symlinks.some((s) => s.target === newSkillTarget)).toBe(
+        true,
+      );
+    });
+
+    it("agents need no registry row at all: a worktree-only file dropped into an EXISTING module's agents/ subdirectory ships through that module's directory symlink", async () => {
+      // The retired-pass-through case named in sources.ts's discoverSelected
+      // doc comment: unlike skills/helpers, an agent's install unit is the
+      // whole module subdirectory, so a brand-new .md file inside an
+      // ALREADY-SELECTED module's agents/ dir needs no modules.ts edit and
+      // no --source-tree-aware registry resolution to ship.
+      const worktree = path.join(scratch, "worktree-with-new-agent-file");
+      buildFakeFlowSource(worktree);
+      fs.writeFileSync(
+        path.join(worktree, "agents", "core", "new-agent.md"),
+        "# new-agent\n",
+      );
+
+      const t = targets();
+      await runSetup({
+        flowSource: worktree,
+        installRoot: worktree,
+        targets: t,
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        modules: ["core"],
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        quiet: true,
+      });
+
+      const agentsTarget = moduleAgentsTarget(t);
+      expect(fs.lstatSync(agentsTarget).isSymbolicLink()).toBe(true);
+      const linked = fs.readdirSync(fs.realpathSync(agentsTarget));
+      expect(linked).toContain("reviewer.md");
+      expect(linked).toContain("new-agent.md");
     });
 
     it("logs a '! module registry:' warning and falls back to the compiled-in registry when the --source tree's modules.ts is malformed", async () => {
@@ -2885,13 +3023,13 @@ describe("skills-home retarget + migration (Story 1)", () => {
 
   it("links selected skills under the new claude-home target", async () => {
     await runRetargeted();
-    const skillsDir = newStyleTargets().skillsDir;
-    expect(fs.lstatSync(path.join(skillsDir, "alpha")).isSymbolicLink()).toBe(
-      true,
-    );
-    expect(fs.lstatSync(path.join(skillsDir, "gamma")).isSymbolicLink()).toBe(
-      true,
-    );
+    const t = newStyleTargets();
+    expect(
+      fs.lstatSync(moduleRootTarget(t, "skills", "alpha")).isSymbolicLink(),
+    ).toBe(true);
+    expect(
+      fs.lstatSync(moduleRootTarget(t, "skills", "gamma")).isSymbolicLink(),
+    ).toBe(true);
   });
 
   it("reaps a manifest-recorded old-location symlink and preserves a non-flow file", async () => {
@@ -2927,9 +3065,9 @@ describe("skills-home retarget + migration (Story 1)", () => {
     expect(fs.existsSync(path.join(userFile, "SKILL.md"))).toBe(true); // untouched
     expect(
       fs
-        .lstatSync(path.join(newStyleTargets().skillsDir, "alpha"))
+        .lstatSync(moduleRootTarget(newStyleTargets(), "skills", "alpha"))
         .isSymbolicLink(),
-    ).toBe(true); // relinked at the new home
+    ).toBe(true); // relinked at the new home, nested under its plugin root
   });
 
   it("drift-sweeps a flow-owned old-location symlink with no manifest record, leaving a foreign symlink", async () => {
@@ -2985,6 +3123,135 @@ describe("skills-home retarget + migration (Story 1)", () => {
   });
 });
 
+describe("agent-move migration (Task 4, agent-invocation-name confirmed branch)", () => {
+  function oldAgentsDir() {
+    return path.join(homeDir, ".claude", "agents");
+  }
+
+  function stateDir() {
+    return path.join(homeDir, ".flow", "state");
+  }
+
+  function writeStateFile(slug: string, phase: string): void {
+    fs.mkdirSync(stateDir(), { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir(), `${slug}.json`),
+      JSON.stringify({
+        slug,
+        phase,
+        repo: "test/repo",
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+  }
+
+  it("reaps a flow-owned symlink from the old global agents/ location, preserving a real file and a foreign symlink", async () => {
+    const old = oldAgentsDir();
+    fs.mkdirSync(old, { recursive: true });
+    const flowOwned = path.join(old, "reviewer.md");
+    fs.symlinkSync(
+      path.join(flowSource, "agents", "core", "reviewer.md"),
+      flowOwned,
+    );
+    const userFile = path.join(old, "my-own-agent.md");
+    fs.writeFileSync(userFile, "# mine\n");
+    const externalTarget = path.join(scratch, "external-agent");
+    fs.mkdirSync(externalTarget, { recursive: true });
+    const foreign = path.join(old, "not-flow.md");
+    fs.symlinkSync(externalTarget, foreign);
+
+    await setup({ upgrade: true });
+
+    expect(fs.existsSync(flowOwned)).toBe(false); // swept (flow-owned)
+    expect(fs.existsSync(userFile)).toBe(true); // real file untouched
+    expect(fs.readFileSync(userFile, "utf8")).toBe("# mine\n");
+    expect(fs.lstatSync(foreign).isSymbolicLink()).toBe(true); // foreign preserved
+    // Relinked at its owning module's plugin root.
+    const t = targets();
+    expect(fs.lstatSync(moduleAgentsTarget(t)).isSymbolicLink()).toBe(true);
+  });
+
+  it("skips pruning and warns on stderr when a recorded pipeline is in a non-terminal phase", async () => {
+    writeStateFile("in-flight-pipeline", "implementing");
+    const old = oldAgentsDir();
+    fs.mkdirSync(old, { recursive: true });
+    const flowOwned = path.join(old, "reviewer.md");
+    fs.symlinkSync(
+      path.join(flowSource, "agents", "core", "reviewer.md"),
+      flowOwned,
+    );
+
+    const errSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      await setup({ upgrade: true });
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "active sessions detected; non-manifest old-agent-location sweep skipped until next install",
+        ),
+      );
+    } finally {
+      errSpy.mockRestore();
+    }
+    // Old-location link preserved — not force-migrated mid-session.
+    expect(fs.lstatSync(flowOwned).isSymbolicLink()).toBe(true);
+  });
+
+  it("prunes normally once every recorded pipeline reaches a terminal phase", async () => {
+    writeStateFile("done-pipeline", "merged");
+    const old = oldAgentsDir();
+    fs.mkdirSync(old, { recursive: true });
+    const flowOwned = path.join(old, "reviewer.md");
+    fs.symlinkSync(
+      path.join(flowSource, "agents", "core", "reviewer.md"),
+      flowOwned,
+    );
+
+    const errSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      await setup({ upgrade: true });
+      expect(errSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("active sessions detected"),
+      );
+    } finally {
+      errSpy.mockRestore();
+    }
+    expect(fs.existsSync(flowOwned)).toBe(false); // swept — no active session
+  });
+
+  it("reapOrphans migrates a manifest-recorded old-location agent link on --upgrade", async () => {
+    const old = oldAgentsDir();
+    fs.mkdirSync(old, { recursive: true });
+    const oldLink = path.join(old, "reviewer.md");
+    fs.symlinkSync(
+      path.join(flowSource, "agents", "core", "reviewer.md"),
+      oldLink,
+    );
+    writeManifest(
+      {
+        version: 1,
+        symlinks: [
+          {
+            source: path.join(flowSource, "agents", "core", "reviewer.md"),
+            target: oldLink,
+            kind: "agent",
+          },
+        ],
+      },
+      manifestPath,
+    );
+
+    await setup({ upgrade: true });
+
+    expect(fs.existsSync(oldLink)).toBe(false); // reaped by reapOrphans (manifest-recorded)
+    const t = targets();
+    expect(fs.lstatSync(moduleAgentsTarget(t)).isSymbolicLink()).toBe(true); // relinked at its owning module's plugin root
+  });
+});
+
 describe("gh#435 non-interactive --upgrade breadth preservation (Story 4)", () => {
   const realFlowSource = resolveFlowSource();
 
@@ -3013,7 +3280,11 @@ describe("gh#435 non-interactive --upgrade breadth preservation (Story 4)", () =
     // Clear the recorded selection --all persisted, so the next run has a
     // populated manifest but nothing recorded — the gh#435 scenario.
     fs.rmSync(cfgPath(), { force: true });
-    expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(true);
+    expect(
+      fs.existsSync(
+        moduleRootTarget(t, "skills", "flow-svelte", "stack-svelte"),
+      ),
+    ).toBe(true);
 
     const summary = await runSetup({
       flowSource: realFlowSource,
@@ -3033,8 +3304,14 @@ describe("gh#435 non-interactive --upgrade breadth preservation (Story 4)", () =
 
     // Breadth preserved — flow-svelte (a non-core stack skill) is still linked,
     // NOT reaped down to core.
-    expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(true);
-    expect(fs.existsSync(path.join(t.skillsDir, "flow-pipeline"))).toBe(true);
+    expect(
+      fs.existsSync(
+        moduleRootTarget(t, "skills", "flow-svelte", "stack-svelte"),
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(moduleRootTarget(t, "skills", "flow-pipeline"))).toBe(
+      true,
+    );
     expect(summary.blocked).toBe(0);
     // Not persisted — the manifest-derived selection re-derives each run.
     expect(fs.existsSync(cfgPath())).toBe(false);
@@ -3057,8 +3334,14 @@ describe("gh#435 non-interactive --upgrade breadth preservation (Story 4)", () =
       cachePath: path.join(homeDir, ".flow", "update-check.json"),
     });
     // core skill present, non-core stack skill absent.
-    expect(fs.existsSync(path.join(t.skillsDir, "flow-pipeline"))).toBe(true);
-    expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(false);
+    expect(fs.existsSync(moduleRootTarget(t, "skills", "flow-pipeline"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(
+        moduleRootTarget(t, "skills", "flow-svelte", "stack-svelte"),
+      ),
+    ).toBe(false);
     expect(summary.blocked).toBe(0);
   });
 });

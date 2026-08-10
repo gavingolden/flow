@@ -27,6 +27,7 @@ import {
   moduleForArtifactName,
   type ModuleId,
 } from "./modules";
+import { moduleIdFromPluginRootName } from "./plugin-manifest";
 import type { Manifest } from "./manifest";
 
 /**
@@ -136,18 +137,24 @@ export type ModuleSelectionSource =
  * The module selection implied by a previously-installed set: the union of
  * the modules owning each recorded symlink, with `MANDATORY_MODULE` folded
  * in. Maps `path.basename(record.target)` — a skill dir name, an
- * `agents/*.md` basename, an extensionless helper name, or a validator
- * invocation name — through `moduleForArtifactName`. Records that map to no
- * module (the `flow` wrapper, shell completions, or a registry-unknown
- * artifact) contribute nothing. Used by `resolveEntriesForRun` to preserve an
- * existing install's breadth when nothing is recorded (gh#435): a
- * non-interactive `--upgrade` with a populated manifest must not collapse to
- * core-only.
+ * extensionless helper name, or a validator invocation name — through
+ * `moduleForArtifactName`. An "agent" record's target is the module's
+ * `agents/` directory symlink itself (`sources.ts`'s `discoverAgents`), not
+ * an `agents/*.md` basename, so its owner is read off the enclosing
+ * plugin-root directory name (`flow-module-<id>`) instead. Records that map
+ * to no module (the `flow` wrapper, shell completions, or a
+ * registry-unknown artifact) contribute nothing. Used by
+ * `resolveEntriesForRun` to preserve an existing install's breadth when
+ * nothing is recorded (gh#435): a non-interactive `--upgrade` with a
+ * populated manifest must not collapse to core-only.
  */
 export function deriveSelectionFromManifest(manifest: Manifest): ModuleId[] {
   const ids = new Set<ModuleId>([MANDATORY_MODULE]);
   for (const record of manifest.symlinks) {
-    const mod = moduleForArtifactName(path.basename(record.target));
+    const mod =
+      record.kind === "agent"
+        ? moduleIdFromPluginRootName(path.basename(path.dirname(record.target)))
+        : moduleForArtifactName(path.basename(record.target));
     if (mod !== undefined) ids.add(mod);
   }
   return [...ids];

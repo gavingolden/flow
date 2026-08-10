@@ -1750,3 +1750,16 @@ Check any comment that says a default-off flag "keeps X out of" consumers:
 confirm whether X is statically imported. Caught by a human/bot reviewer on
 PR #473 (`SearchPageHarness.svelte`); the agent lenses flagged a different
 inaccuracy in the same comment but missed this one.
+
+### Broken inline-code span across a hard line-wrap in skill markdown (PR #605)
+
+When editing SKILL.md or a `references/*.md` file, a backtick-delimited inline
+code span (e.g. a shell `[ -f ... ]` probe or a code literal) that is split
+across a hard-wrapped line — the opening backtick on one line, the closing
+backtick on the next — breaks Markdown rendering: most renderers do not treat
+a bare newline inside a single-backtick span as part of the span, so the
+literal backticks and the raw text show up unrendered instead of a code span.
+The multi-agent review's six lenses all missed this; it was caught only by
+Copilot. Look for: long `[ -f <path> ]`-style guard literals or other inline
+code wrapped mid-token at ~80-col line-wrap boundaries in prose paragraphs —
+keep the span on one line, or fence it as a code block instead of wrapping it.

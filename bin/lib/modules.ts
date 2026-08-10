@@ -9,6 +9,18 @@
  * basenames, and validator invocation names (`flow-<name>`), so a row value
  * is directly a `sources.ts` `SourceEntry.displayName`.
  *
+ * Agents now live on disk at `agents/<moduleId>/<name>.md` (one directory
+ * per owning module, `sources.ts`'s `discoverAgents`), NOT at a flat
+ * `agents/<name>.md`. The subdirectory a `.md` file lives under — not this
+ * file's per-module `agents: [...]` array — determines its install target:
+ * `discoverAgents` materializes ONE directory symlink per module
+ * subdirectory (`<root>/agents -> <flowSource>/agents/<moduleId>`), because
+ * Claude Code's plugin-root discovery follows a symlinked directory but not
+ * a symlinked file. The `agents` arrays below remain the declarative
+ * registry other consumers (`moduleForArtifactName`, `flow-module-status`
+ * counts, docs) still read; keep them in sync with the subdirectory
+ * contents by hand — a drift test in `bin/lib` catches divergence.
+ *
  * Three refinements applied here diverge from the doc's map prose — do NOT
  * re-derive rows by transcribing the doc; these are code-verified against
  * the LIVE `sources.ts` discovery functions:

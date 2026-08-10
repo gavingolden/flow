@@ -87,11 +87,11 @@ tests next door
 module (`docs/configuration.md`). `flow-plugin-probe`/`flow-plugin-contract-lint`
 join `flow-release`/`flow-model-bench` in `MAINTAINER_ONLY` — never on PATH.
 
-Static agent-type definitions live in **`agents/`** (`*.md` frontmatter),
-discovered by `discoverAgents` and symlinked to `~/.claude/agents/`:
-14/15 carry `tools:` allowlists (flow-discovery: none); 2 mechanical
-roles (`flow-fix-applier`, `flow-verify`) pin `effort: low`, the
-gatekeeper (`flow-gatekeeper`) pins `model: haiku`; per-spawn `model:`
+Static agent-type definitions live at **`agents/<moduleId>/*.md`** (today
+only `core/`), symlinked as ONE dir per module (`flow-module-<id>/agents`
+— Claude Code follows a symlinked dir, not a symlinked file). 15/16 carry
+`tools:` allowlists (flow-discovery: none); 2 mechanical roles pin
+`effort: low`, the gatekeeper pins `model: haiku`; per-spawn `model:`
 still wins.
 
 Conventions for any script under `bin/`: `#!/usr/bin/env bun` + `chmod

@@ -37,7 +37,8 @@ export type ProbeId =
   | "symlink-materialization"
   | "bin-path-injection"
   | "enabled-plugins"
-  | "skill-invocation-name";
+  | "skill-invocation-name"
+  | "agent-invocation-name";
 
 export type ProbeVerdict = {
   id: ProbeId;
@@ -52,6 +53,7 @@ const PROBE_IDS: ProbeId[] = [
   "bin-path-injection",
   "enabled-plugins",
   "skill-invocation-name",
+  "agent-invocation-name",
 ];
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -122,9 +124,18 @@ function materializeRoot(
     moduleId,
     flowSource: resolveFlowSource(),
     version: "1.0.0",
-    includeSkills: false,
+    includeSkills: true,
     force: false,
   });
+  // ensurePluginRoot deliberately never creates skills/ itself (see its own
+  // doc comment) — in the real install loop, setup.ts's discoverSkills pass
+  // populates it via per-artifact symlinks right after. This probe fixture
+  // skips that loop, so without this mkdir the manifest declares
+  // `skills: ["./skills"]` (module "core" owns skill rows, so
+  // effectiveIncludeSkills is true) with no skills/ dir on disk, which
+  // flips `claude plugin validate --strict` to a real "Path not found"
+  // failure and probeSymlinkMaterialization's verdict to a false "refuted".
+  fs.mkdirSync(path.join(root, "skills"), { recursive: true });
   return root;
 }
 
@@ -359,6 +370,104 @@ async function probeSkillInvocationName(
   };
 }
 
+async function probeAgentInvocationName(
+  fixtureHome: string,
+): Promise<ProbeVerdict> {
+  const id: ProbeId = "agent-invocation-name";
+  // Materializes the shape `flow install` actually produces post the
+  // agents-directory-symlink move: `<root>/agents` is a SYMLINK to a real
+  // directory of `.md` files, not a real directory of per-file symlinks (or
+  // of real files directly). Claude Code's plugin-root discovery follows a
+  // symlinked directory but NOT a symlinked file — an earlier revision of
+  // this fixture wrote a real file straight into a real `agents/` dir,
+  // which is why it reported "confirmed" while the real per-file-symlink
+  // install (a different shape) was silently broken. No manifest `agents`
+  // key is declared (the manifest type has none) — this settles whether an
+  // `agents/` directory is discovered by bare presence.
+  const root = materializeRoot(fixtureHome);
+  const agentsSourceDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "flow-probe-agents-"),
+  );
+  fs.writeFileSync(
+    path.join(agentsSourceDir, "flow-probe-agent.md"),
+    "---\nname: flow-probe-agent\ndescription: probe fixture agent\n---\n# probe fixture agent\n",
+  );
+  fs.symlinkSync(agentsSourceDir, path.join(root, "agents"));
+
+  // `claude plugin details` DISPLAY output is corroboration ONLY, never
+  // gating — a prior revision of this probe asserted "confirmed" from this
+  // call alone, inferring invocation naming from display naming. That was
+  // wrong: a live session measured a bare `subagent_type` (e.g.
+  // `flow-scout`) failing Task-tool resolution outright with
+  // `Agent type 'flow-scout' not found. Available agents: ... ,
+  // flow-module-core:flow-scout, ...` even though `plugin details` reports
+  // the bare basename under an `Agents (N)` count. Display naming is not
+  // invocation naming.
+  const detailsResult = await runClaude(
+    ["plugin", "details", "flow-module-core@skills-dir"],
+    { home: fixtureHome },
+  );
+  const detailsEvidence = detailsResult.timedOut
+    ? `claude plugin details timed out after ${DEFAULT_TIMEOUT_MS}ms`
+    : `claude plugin details exit ${detailsResult.exitCode}, reports agent under Agents(N): ${/Agents\s*\(1\)/.test(detailsResult.stdout) && detailsResult.stdout.includes("flow-probe-agent")}`;
+
+  // GATING evidence: attempt an ACTUAL Task-tool spawn against the bare
+  // basename via a `-p` session, and inspect whichever identifier form the
+  // tool call actually resolves against — never inferred from display
+  // output.
+  const taskResult = await runClaude(
+    [
+      "--plugin-dir",
+      root,
+      "-p",
+      "Use the Task tool to spawn a subagent with subagent_type: flow-probe-agent, description: probe, and prompt: 'reply OK'. Report back the exact raw Task-tool result or error text verbatim, unmodified.",
+    ],
+    { home: fixtureHome },
+  );
+
+  if (taskResult.timedOut) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `Task-tool spawn probe timed out after ${DEFAULT_TIMEOUT_MS}ms. Display-only corroboration: ${detailsEvidence}`,
+      fallback:
+        "the deferred agent-move follow-up ships without a verified naming answer; re-probe before implementing it",
+    };
+  }
+  if (/not logged in/i.test(taskResult.stdout)) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `Task-tool spawn probe could not authenticate in the isolated fixture HOME ("Not logged in"), so no real Task-tool resolution was observed. Display-only corroboration (non-gating): ${detailsEvidence}`,
+      fallback:
+        "the deferred agent-move follow-up ships without a verified naming answer; re-probe from an authenticated session before implementing it",
+    };
+  }
+
+  const qualifiedMatch = taskResult.stdout.match(
+    /flow-module-core:flow-probe-agent/,
+  );
+  const bareResolutionFailed = /Agent type 'flow-probe-agent' not found/i.test(
+    taskResult.stdout,
+  );
+
+  if (qualifiedMatch || bareResolutionFailed) {
+    return {
+      id,
+      verdict: "confirmed",
+      evidence: `Actual Task-tool resolution (gating): a bare 'flow-probe-agent' subagent_type ${bareResolutionFailed ? "fails Task-tool resolution outright" : "was not accepted"}; the plugin-qualified 'flow-module-core:flow-probe-agent' form is what Task-tool resolution recognizes. Raw excerpt: ${taskResult.stdout.trim().slice(0, 300)}. Display-only corroboration (non-gating, NOT used to derive this verdict): ${detailsEvidence}`,
+    };
+  }
+
+  return {
+    id,
+    verdict: "inconclusive",
+    evidence: `Task-tool spawn probe returned exit ${taskResult.exitCode} without a recognizable resolution signal (neither the qualified name nor the 'not found' error appeared): ${taskResult.stdout.trim().slice(0, 300)}. Display-only corroboration (non-gating): ${detailsEvidence}`,
+    fallback:
+      "the deferred agent-move follow-up ships without a verified naming answer; re-probe before implementing it",
+  };
+}
+
 const PROBE_FNS: Record<
   ProbeId,
   (fixtureHome: string) => Promise<ProbeVerdict>
@@ -368,6 +477,7 @@ const PROBE_FNS: Record<
   "bin-path-injection": probeBinPathInjection,
   "enabled-plugins": probeEnabledPlugins,
   "skill-invocation-name": probeSkillInvocationName,
+  "agent-invocation-name": probeAgentInvocationName,
 };
 
 export function runProbes(

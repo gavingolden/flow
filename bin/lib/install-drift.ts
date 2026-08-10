@@ -173,13 +173,19 @@ export function checkInstallDrift(
         flowSource,
         installRoot,
       })) {
-        // Three-way map: a dangling `bin/` symlink self-heals ("dangling"),
-        // a foreign live `bin/` symlink is auto-removed by the next
-        // `flow install --upgrade`'s name-based (ownership-blind) prune loop
-        // ("foreign"), and everything else — a real file/directory flow
-        // never wrote — has no automated remedy ("unexpected").
+        // Three-way map: a dangling `bin/`/`skills/`/`agents/` symlink
+        // self-heals on the next `flow install --upgrade` ("dangling"), a
+        // foreign live `bin/` symlink is auto-removed by that same run's
+        // name-based (ownership-blind) prune loop ("foreign"), and
+        // everything else — a real file/directory flow never wrote — has no
+        // automated remedy ("unexpected").
+        //
+        // The dangling reason is `dangling-symlink`, not
+        // `dangling-bin-symlink`: `plugin-root-audit.ts` emits the one
+        // reason for every managed subtree, and since the agent move that
+        // includes the `agents` directory symlink itself.
         const kind: DriftKind =
-          issue.reason === "dangling-bin-symlink"
+          issue.reason === "dangling-symlink"
             ? "dangling"
             : issue.reason === "foreign-live-bin-symlink"
               ? "foreign"

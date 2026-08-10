@@ -20,7 +20,7 @@ import {
   SETUP_LOCK_PATH,
 } from "./paths";
 import { inspectFlowRoot, type FlowRootInfo } from "./worktree-source";
-import { isFlowOwnedSymlink } from "./flow-owned-symlink";
+import { isFlowOwnedSymlink, ownershipRoots } from "./flow-owned-symlink";
 import {
   readManifest,
   writeManifest,
@@ -92,6 +92,7 @@ import {
   resolveLauncherSelection,
   writeLauncherConfig,
 } from "./launcher-config";
+import { listStates, TERMINAL_PHASE_SET } from "./state";
 
 const STOP_HOOK_COMMAND = "flow-stop-guard";
 const SESSION_START_HOOK_COMMAND = "flow-session-start-hook";
@@ -260,6 +261,20 @@ export type SetupOptions = {
    * flow is still linking into the old location, there is nothing to migrate.
    */
   oldSkillsDir?: string;
+  /**
+   * Override the pre-agent-move global agents location swept for
+   * flow-owned symlinks during migration. Test-only (default:
+   * `<homeDir ?? os.homedir()>/.claude/agents`). Same no-op-when-live-target
+   * guard as `oldSkillsDir`, and the same active-session-guard skip — see
+   * `sweepOldAgentsLocation`.
+   */
+  oldAgentsDir?: string;
+  /**
+   * Override the `~/.flow/state/` directory the active-session guard scans
+   * before pruning old-location agent links. Test-only (default:
+   * `state.ts`'s own `FLOW_STATE_DIR` default via `listStates()`).
+   */
+  stateDir?: string;
   /**
    * `command -v <cmd>` probe seam for preflight's tmux-on-PATH check.
    * Test-only override (mirrors the `tmuxOnPath` seam `feature.ts`/`epic.ts`
@@ -483,7 +498,20 @@ async function runUnderLock(
   log(`      source ${flowSource}`);
 
   const worktreeOnlyNames: string[] = [];
-  for (const entry of entries) {
+  // Plugin-root entries process FIRST (a stable partition, not a mutation of
+  // `entries` itself — downstream `reapOrphans`/manifest writes still see
+  // the original order). Skill/agent targets now nest INSIDE their owning
+  // module's root (<root>/skills/<name>, <root>/agents/<name>), so
+  // `ensureSymlink`'s own `mkdirSync(dirname, {recursive:true})` would
+  // otherwise create the root directory ownerless (no `.claude-plugin/
+  // plugin.json` yet) ahead of `ensurePluginRoot` ever seeing it —
+  // `isFlowOwnedPluginRoot` would then read that ownerless directory as
+  // foreign and permanently "blocked" the root's own materialization.
+  const orderedEntries = [
+    ...entries.filter((e) => e.kind === "plugin"),
+    ...entries.filter((e) => e.kind !== "plugin"),
+  ];
+  for (const entry of orderedEntries) {
     if (entry.kind === "plugin") {
       // `ensureSymlink` is NOT reusable here: it calls
       // `fs.realpathSync(source)` and returns "blocked" for ANY existing
@@ -505,7 +533,7 @@ async function runUnderLock(
         flowSource,
         installRoot,
         version: pluginVersion,
-        includeSkills: false,
+        includeSkills: true,
         force: options.force ?? false,
       });
       logResult(entry, result, log);
@@ -531,6 +559,24 @@ async function runUnderLock(
       liveSource === entry.source
     ) {
       worktreeOnlyNames.push(entry.displayName);
+    }
+    if (entry.kind === "agent") {
+      // Legacy-layout migration, load-bearing BEFORE `ensureSymlink` below:
+      // `ensureSymlink` returns "blocked" for ANY existing directory at the
+      // target unconditionally (even with --force — see its own doc
+      // comment), and this ensure loop runs BEFORE `reapOrphans` further
+      // down. An earlier revision of this repo (and any consumer who
+      // installed from it) materialized `entry.target` as a REAL directory
+      // of per-file agent symlinks (`<root>/agents/<name>.md`); post this
+      // PR, `entry.target` is `<root>/agents` itself, one directory level
+      // up. Without this migration that real directory would permanently
+      // block the new directory-symlink materialization, surviving even a
+      // second `flow install --upgrade` run.
+      migrateLegacyAgentsDir(
+        entry.target,
+        ownershipRoots(flowSource, installRoot),
+        log,
+      );
     }
     const result = ensureSymlink(
       entry.target,
@@ -578,6 +624,47 @@ async function runUnderLock(
     installRoot,
     log,
   );
+  // Migration backstop for the agent-move (Task 4, agent-invocation-name
+  // `confirmed` branch): agents now route into their owning module's plugin
+  // root instead of the flat global `~/.claude/agents/`, so sweep the old
+  // location the same way `oldSkillsDir` is swept above. ACTIVE-SESSION
+  // GUARD: skip pruning this run when any recorded pipeline is mid-flight
+  // (a non-terminal phase) — see `sweepOldAgentsLocation`'s doc comment.
+  const oldAgentsDir =
+    options.oldAgentsDir ??
+    path.join(options.homeDir ?? os.homedir(), ".claude", "agents");
+  // `os.homedir()` read LAZILY here (call-time, not import-time) — safe
+  // under `vitest.setup.ts`'s global $HOME sandbox net, unlike
+  // `state.ts`'s own `FLOW_STATE_DIR` default, which freezes the REAL
+  // home at import time (documented gap, PR #86 followup). Passing an
+  // explicit `stateDir` derived from `options.homeDir` here, rather than
+  // relying on `listStates`'s own default, keeps every test in this suite
+  // off the developer's/CI runner's real `~/.flow/state/`.
+  const stateDir =
+    options.stateDir ??
+    path.join(options.homeDir ?? os.homedir(), ".flow", "state");
+  const activeSessionPhases = listStates(stateDir)
+    .map((s) => s.phase)
+    .filter((phase) => !TERMINAL_PHASE_SET.has(phase));
+  if (activeSessionPhases.length > 0) {
+    // Scoped wording: this guard only withholds the UNGUARDED-elsewhere
+    // sweepOldAgentsLocation sweep below. `reapOrphans` above (manifest-
+    // recorded old-agent-location removals) and `sweepOldSkillsLocation`
+    // above already ran unconditionally by this point regardless of any
+    // active session, so "old locations preserved" would be false in the
+    // common case where those two already pruned something.
+    console.error(
+      "flow install: active sessions detected; non-manifest old-agent-location sweep skipped until next install",
+    );
+  } else {
+    summary.removed += sweepOldAgentsLocation(
+      oldAgentsDir,
+      targets,
+      flowSource,
+      installRoot,
+      log,
+    );
+  }
   if (options.upgrade) {
     // Invalidate the update-check throttle cache so the next `flow ls` /
     // `flow version` re-fetches staleness instead of replaying the
@@ -969,6 +1056,108 @@ function sweepOldSkillsLocation(
     }
   }
   return removed;
+}
+
+/**
+ * One-time migration sweep of the pre-agent-move global `~/.claude/agents/`
+ * location (Task 4, the agent-invocation-name-`confirmed` branch). Removes
+ * every direct child that is a flow-owned symlink — same ownership rule as
+ * `sweepOldSkillsLocation`'s `removeIfFlowOwnedSymlink` — so a drifted or
+ * pre-migration install still cleans up the old location. Real files and
+ * foreign symlinks are never touched.
+ *
+ * NO live-target no-op guard, unlike `sweepOldSkillsLocation`'s: `targets`
+ * is threaded through for signature parity and so a future caller can log
+ * against it, but `targets.agentsDir` is otherwise DEAD post-retarget —
+ * `discoverAgents` (`sources.ts`) never emits a `targets.agentsDir`-rooted
+ * target any more (every agent routes into its owning module's plugin
+ * root), so there is no live installation this sweep could ever collide
+ * with the way skills' home-retarget guard collides. Gating on
+ * `oldAgentsDir === targets.agentsDir` the way skills does would make this
+ * sweep a permanent no-op under `DEFAULT_TARGETS` (both default to the same
+ * `~/.claude/agents` path) — the opposite of Task 4's intent.
+ *
+ * ACTIVE-SESSION GUARD: when any `~/.flow/state/*.json` carries a phase
+ * outside `TERMINAL_PHASE_SET` (`state.ts`), pruning is skipped this run —
+ * a live `/flow-pipeline` session may still expect its spawn-site guards
+ * (`bin/skill-md-lint.test.ts`'s pinned probe paths) to resolve against the
+ * OLD global location until it next re-installs. Old-location links are
+ * preserved, not force-migrated, so a resume mid-session degrades to
+ * `general-purpose` at worst rather than crashing on a missing file.
+ */
+function sweepOldAgentsLocation(
+  oldAgentsDir: string,
+  targets: InstallTargets,
+  flowSource: string,
+  installRoot: string,
+  log: (msg: string) => void,
+): number {
+  void targets; // signature parity with sweepOldSkillsLocation — see doc comment
+  let dirents: fs.Dirent[];
+  try {
+    dirents = fs.readdirSync(oldAgentsDir, { withFileTypes: true });
+  } catch {
+    return 0; // old location absent — clean machine or already migrated
+  }
+  const flowRoots = [path.resolve(flowSource), path.resolve(installRoot)];
+  let removed = 0;
+  for (const dirent of dirents) {
+    if (!dirent.isSymbolicLink()) continue; // never touch a real file
+    if (
+      removeIfFlowOwnedSymlink(path.join(oldAgentsDir, dirent.name), flowRoots)
+    ) {
+      log(dim(`  - ${dirent.name}  (migrated out of ~/.claude/agents)`));
+      removed++;
+    }
+  }
+  return removed;
+}
+
+/**
+ * Legacy-layout migration for the agents install target, run BEFORE
+ * `ensureSymlink` sees it (see the call site's own comment for why this is
+ * load-bearing, not cosmetic). No-op unless `target` is a REAL directory
+ * (not a symlink, not absent) — the shape an earlier per-file-agent-symlink
+ * revision (and anyone who installed from it) left on disk.
+ *
+ * Ownership discipline mirrors `removeIfFlowOwnedSymlink` /
+ * `sweepOldAgentsLocation`: only a symlink whose resolved target lives under
+ * one of `flowRoots` is removed; a real file or a foreign symlink is left
+ * untouched. After sweeping owned symlinks, the directory is removed only if
+ * it ends up empty — a foreign leftover keeps it (and the entry stays
+ * correctly reported "blocked" by `ensureSymlink`, never silently deleted).
+ */
+function migrateLegacyAgentsDir(
+  target: string,
+  flowRoots: string[],
+  log: (msg: string) => void,
+): void {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(target);
+  } catch {
+    return; // absent — nothing to migrate
+  }
+  if (!stat.isDirectory()) return; // absent-as-symlink or already-correct
+
+  let dirents: fs.Dirent[];
+  try {
+    dirents = fs.readdirSync(target, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const dirent of dirents) {
+    if (!dirent.isSymbolicLink()) continue; // never touch a real file
+    if (removeIfFlowOwnedSymlink(path.join(target, dirent.name), flowRoots)) {
+      log(dim(`  - ${dirent.name}  (migrated legacy per-file agent symlink)`));
+    }
+  }
+  try {
+    fs.rmdirSync(target); // only succeeds when empty — foreign content stays
+  } catch {
+    // Non-empty (foreign file, or a symlink whose ownership we couldn't
+    // prove) — leave it; ensureSymlink reports "blocked" for it below.
+  }
 }
 
 /**
