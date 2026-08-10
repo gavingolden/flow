@@ -1,10 +1,16 @@
 # Triage document template
 
-**Default output path:** `backlog-triage-<repo>-<YYYY-MM-DD>.md` at the
-repo root, overridable by argument. **Lifecycle note:** act on this
-document, then delete it or archive it under `docs/triage/` — it is a
-point-in-time snapshot, not a durable artifact to leave accumulating at
-the repo root.
+**Default output path:** `.flow-tmp/triage/backlog-triage-<repo>-<YYYY-MM-DD>.md`,
+overridable by an explicit path argument. See SKILL.md "Output path" for
+the write-time ignore-ensure step. **Lifecycle note:** this document is a
+point-in-time snapshot living in throwaway scratch. Inside a flow
+pipeline worktree, `.flow-tmp/` is swept by `flow-remove-worktree` on
+worktree teardown. In a plain consumer checkout — this skill's normal
+habitat when run standalone — nothing sweeps it, and the write-time
+ignore-ensure step also makes it invisible to `git status`, so it can
+accumulate unswept and unseen. Either way, act on it in the same
+session; to keep it, pass an explicit path up front or copy it out
+(e.g. archive under `docs/triage/`).
 
 The document body follows this exact section order.
 
