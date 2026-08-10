@@ -26,19 +26,18 @@ intent-guess agent are spawned in parallel, in the same fan-out message,
 via the Task tool. Each of the six lens spawns names
 `subagent_type: $LENS_AGENT` (resolved per-lens against the
 `agents/flow-review-<lens>.md` definitions with a Read/Grep/Glob/Write
-`tools:` allowlist and no `effort:`/`model:` pins), resolved in three
-tiers via the
+`tools:` allowlist and no `effort:`/`model:` pins), resolved via a
+single plugin-root probe using the
 `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-review-<lens>.md ]` file-exists guard:
 the plugin-qualified `flow-module-core:flow-review-<lens>` name when
 present (a bare `flow-review-<lens>` subagent_type fails Task-tool
 resolution outright — measured: "Agent type 'flow-scout' not found"),
-else the bare name against a legacy global install, else
-`general-purpose` with the loud `NOTICE — agent-fallback:`
-line; the intent-guess spawn names `subagent_type:
+else `general-purpose` with the loud `NOTICE — agent-fallback:`
+line (no bare-name legacy-install tier); the intent-guess spawn names `subagent_type:
 flow-module-core:flow-review-intent-guess` (`agents/flow-review-intent-guess.md`, same
 tools allowlist plus the blindness contract — no PR title/body/plan/
 commit messages in its context, diff + file list only), resolved via
-the same three-tier file-exists-guard-with-fallback pattern. The fan-out itself
+the same two-tier file-exists-guard-with-fallback pattern. The fan-out itself
 emits no consolidated artifact — each of the six lens agents persists
 its own `$WORKTREE/.flow-tmp/agent-output-<lens>.json`, and the
 intent-guess agent persists `$WORKTREE/.flow-tmp/intent-guess.json`
@@ -58,13 +57,13 @@ wrapper-owned `mkdir -p .flow-tmp/`, single side-effect attribution
 site, main-session reads each artifact once and never re-reads.
 Spawned as the named `agents/flow-discovery.md` definition (judgment
 role: no frontmatter `effort`/`model`; per-spawn `model:` threading
-unchanged), resolved in three tiers via the
+unchanged), resolved via a single plugin-root probe using the
 `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-discovery.md ]`
 file-exists guard: the plugin-qualified `flow-module-core:flow-discovery`
 name when present (a bare `flow-discovery` subagent_type fails
-Task-tool resolution outright), else the bare name against a legacy
-global install, else `general-purpose` fallback,
-emitting the `NOTICE — agent-fallback:` line only on the latter. The definition
+Task-tool resolution outright), else `general-purpose` fallback
+(no bare-name legacy-install tier),
+emitting the `NOTICE — agent-fallback:` line only on the fallback. The definition
 deliberately carries no `tools:` allowlist — discovery's research and
 design-artifact passes span Bash, `WebFetch`, MCP, and multimodal `Read`
 surfaces a fixed allowlist would silently break — so it inherits every
@@ -81,12 +80,12 @@ both sides — at least one positive finding and at least one negative
 finding (off-limits surfaces, rejected approaches, foreclosed shortcuts).
 Spawned as the named `agents/flow-scout.md` definition (judgment role: no
 frontmatter `effort`/`model`; per-spawn `model:` threading unchanged),
-resolved in three tiers via the `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-scout.md ]`
+resolved via a single plugin-root probe using the `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-scout.md ]`
 file-exists guard: the plugin-qualified `flow-module-core:flow-scout`
 name when present (a bare `flow-scout` subagent_type fails Task-tool
 resolution outright — measured: "Agent type 'flow-scout' not found"),
-else the bare name against a legacy global install, else
-`general-purpose` fallback emitting the `NOTICE — agent-fallback:` line.
+else `general-purpose` fallback emitting the `NOTICE — agent-fallback:` line
+(no bare-name legacy-install tier).
 
 ## `/flow-pr-review` Fix-Applier Subagent
 
@@ -109,12 +108,11 @@ default and the `bin/lib/base-branch-guard.ts` pre-commit hook that
 enforces the same invariant mechanically. Spawned as
 the named `agents/flow-fix-applier.md` definition (judgment role: no
 frontmatter `effort`/`model`; per-spawn `model:` threading unchanged),
-resolved in three tiers via the `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-fix-applier.md ]`
+resolved via a single plugin-root probe using the `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-fix-applier.md ]`
 file-exists guard: the plugin-qualified `flow-module-core:flow-fix-applier`
 name when present (a bare `flow-fix-applier` subagent_type fails
-Task-tool resolution outright), else the bare name against a legacy
-global install, else `general-purpose` fallback emitting the
-`NOTICE — agent-fallback:` line.
+Task-tool resolution outright), else `general-purpose` fallback emitting the
+`NOTICE — agent-fallback:` line (no bare-name legacy-install tier).
 
 ## Merge-Conflict Resolver Subagent
 
@@ -137,13 +135,12 @@ scoped to the per-pipeline branch only — never `main`, `master`, or the
 base branch.
 Spawned as the named `agents/flow-merge-resolver.md` definition (judgment
 role: no frontmatter `effort`/`model`; per-spawn `model:` threading
-unchanged), resolved in three tiers via the
+unchanged), resolved via a single plugin-root probe using the
 `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-merge-resolver.md ]`
 file-exists guard: the plugin-qualified `flow-module-core:flow-merge-resolver`
 name when present (a bare `flow-merge-resolver` subagent_type fails
-Task-tool resolution outright), else the bare name against a legacy
-global install, else `general-purpose` fallback emitting the
-`NOTICE — agent-fallback:` line.
+Task-tool resolution outright), else `general-purpose` fallback emitting the
+`NOTICE — agent-fallback:` line (no bare-name legacy-install tier).
 
 On a spawn-denial (the Task call itself refused, no artifact written),
 the supervisor escalates `NEEDS HUMAN: merge-resolver-spawn-denied` and
@@ -170,32 +167,33 @@ caller's "Spawn procedure (wider-scope path only)" for the canonical
 bar). The full contract is in `skills/pipeline/flow-coder/SKILL.md`'s
 "Independent Edit-Applier Subagent" section. Spawned as the named
 `agents/flow-edit-applier.md` definition (judgment role: no frontmatter
-`effort`/`model`; per-spawn `model:` threading unchanged), resolved in
-three tiers via the
+`effort`/`model`; per-spawn `model:` threading unchanged), resolved via a
+single plugin-root probe using the
 `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-edit-applier.md ]`
 file-exists guard: the plugin-qualified `flow-module-core:flow-edit-applier`
 name when present (a bare `flow-edit-applier` subagent_type fails
 Task-tool resolution outright — measured: "Agent type 'flow-scout' not
-found"), else the bare name against a legacy global install, else
-`general-purpose` fallback emitting the `NOTICE — agent-fallback:` line.
+found"), else `general-purpose` fallback emitting the `NOTICE — agent-fallback:` line
+(no bare-name legacy-install tier).
 A second,
 nested spawn site exists — the Verify-Retry-Loop's wider-scope path
-spawns the same definition directly at depth 3 (plugin-qualified or
-legacy bare name only), writing
-`verify-coder-result.json` with no `general-purpose` fallback; see the
+spawns the same definition directly at depth 3 via the same single
+plugin-root probe, writing
+`verify-coder-result.json` with no `general-purpose` fallback (a
+fallbackless site: a miss degrades inline instead); see the
 Verify-Retry-Loop section below.
 
 ## `/flow-pr-review` Independent Gatekeeper Subagent
 
 `/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
 Gatekeeper Subagent" step (Step 1.5), one gatekeeper agent is spawned
-via the Task tool as `subagent_type: $GATEKEEPER_SUBAGENT` (resolved in
-three tiers via the file-exists guard: the plugin-qualified
+via the Task tool as `subagent_type: $GATEKEEPER_SUBAGENT` (resolved via
+a single plugin-root probe using the file-exists guard: the plugin-qualified
 `flow-module-core:flow-gatekeeper` name when present — a bare
 `flow-gatekeeper` subagent_type fails Task-tool resolution outright —
-else the bare name against a legacy global install, else falling back
+else falling back
 to `general-purpose` with the loud
-`NOTICE — agent-fallback:` line) with a per-spawn `model: "haiku"`
+`NOTICE — agent-fallback:` line (no bare-name legacy-install tier)) with a per-spawn `model: "haiku"`
 override — justified primarily by **cost-routing** rather than context
 isolation. The haiku pin is paired: `agents/flow-gatekeeper.md`
 frontmatter declares `model: haiku` as the declarative record, and the
@@ -216,12 +214,12 @@ Consolidator-Validator Subagent" step (Step 3.5), one
 consolidator-validator agent is spawned via the Task tool as
 `subagent_type: $CONSOLIDATOR_SUBAGENT` (the `agents/flow-consolidator.md`
 definition — Bash/Read/Grep/Write allowlist, no `effort:`/`model:`
-pins), resolved in three tiers via the file-exists guard: the
+pins), resolved via a single plugin-root probe using the file-exists guard: the
 plugin-qualified `flow-module-core:flow-consolidator` name when present
 (a bare `flow-consolidator` subagent_type fails Task-tool resolution
-outright), else the bare name against a legacy global install, else
-falling back to
-`general-purpose` with the loud `NOTICE — agent-fallback:` line. Unlike
+outright), else falling back to
+`general-purpose` with the loud `NOTICE — agent-fallback:` line
+(no bare-name legacy-install tier). Unlike
 the Gatekeeper there is **no** `model: "haiku"` override — default
 Sonnet is used because the second-opinion pass needs the larger model's
 judgment.
@@ -250,20 +248,20 @@ block from `final_failure_excerpt`. A committing subagent is consistent with the
 Fix-Applier (#4) and Merge-Conflict Resolver (#5) precedents. Spawned as
 the named `agents/flow-verify.md` definition (mechanical role: pins
 `effort: low`, no `model:` pin; per-spawn `model:` threading unchanged),
-resolved in three tiers via the `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-verify.md ]`
+resolved via a single plugin-root probe using the `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-verify.md ]`
 file-exists guard: the plugin-qualified `flow-module-core:flow-verify`
 name when present (a bare `flow-verify` subagent_type fails Task-tool
 resolution outright — measured: "Agent type 'flow-scout' not found"),
-else the bare name against a legacy global install, else
-`general-purpose` fallback emitting the `NOTICE — agent-fallback:` line. The
+else `general-purpose` fallback emitting the `NOTICE — agent-fallback:` line
+(no bare-name legacy-install tier). The
 subagent's full instructions are at
 `skills/pipeline/flow-pipeline/references/verify-loop-instructions.md`.
 
 **Nested site.** On the wider-scope path, the verify-loop subagent
-spawns ONE flow-edit-applier subagent at depth 3, resolved to the
-plugin-qualified `flow-module-core:flow-edit-applier` name when the
-plugin-root definition is installed, else the bare `flow-edit-applier`
-name against a legacy global install, with NO
+spawns ONE flow-edit-applier subagent at depth 3, resolved via a single
+plugin-root probe to the plugin-qualified
+`flow-module-core:flow-edit-applier` name when the plugin-root
+definition is installed, with NO bare-name legacy-install tier and NO
 `general-purpose` fallback (unlike the nine top-level exemptions, this
 site has a known-good inline fallback and does not hand a Task-capable
 toolset to a definition that isn't lint-pinned to exclude `Task`),

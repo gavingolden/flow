@@ -30,8 +30,7 @@ This skill is a thin wrapper around a one-shot **Independent Scout
 Subagent**. The wrapper itself does no codebase scouting — it spawns one
 Task-tool subagent (`subagent_type: $SCOUT_SUBAGENT`, resolved to the
 plugin-qualified `flow-module-core:flow-scout` on a plugin-root install,
-the bare `flow-scout` on a legacy global install, or a guarded
-`general-purpose` fallback), passes the user's
+or a guarded `general-purpose` fallback), passes the user's
 verbatim description plus the absolute path to write, and waits for the
 subagent to return a brief both-sides summary. The subagent does the
 discovery in its own isolated context: reading source files, scanning
@@ -179,7 +178,7 @@ plan.md's `## Alternatives considered` (see
 
 3. Resolve the subagent type. The `agents/flow-scout.md` definition
    (Bash/Read/Grep/Glob/Write allowlist, no `effort:`/`model:` pins) resolves
-   in three tiers so the pipeline never fails on an unknown agent type.
+   in two tiers so the pipeline never fails on an unknown agent type.
    Plugin-hosted agents are addressable ONLY by the plugin-qualified name
    `<pluginRootName>:<agentBasename>` — a bare `flow-scout` subagent_type
    fails Task-tool resolution outright (measured: "Agent type 'flow-scout'
@@ -189,8 +188,6 @@ plan.md's `## Alternatives considered` (see
    SCOUT_SUBAGENT=general-purpose
    if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-scout.md ]; then
      SCOUT_SUBAGENT=flow-module-core:flow-scout
-   elif [ -f ~/.claude/agents/flow-scout.md ]; then
-     SCOUT_SUBAGENT=flow-scout
    else
      echo "NOTICE — agent-fallback: flow-scout → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."
    fi
@@ -730,8 +727,7 @@ return contracts are out of scope for that contract.
 - PR description draft exists (`.flow-tmp/pr-description-draft.md`) or user explicitly deferred it
 - For wider-scope features: exactly one Task-tool call was made at the
   Step 1b scout site with `subagent_type: $SCOUT_SUBAGENT` (resolved to
-  `flow-module-core:flow-scout` on a plugin-root install, the bare
-  `flow-scout` on a legacy global install, or the guarded
+  `flow-module-core:flow-scout` on a plugin-root install, or the guarded
   `general-purpose` fallback);
   `.flow-tmp/scout.md` exists with the six expected sections
   (`## affected_modules`, `## relevant_tests`, `## public_api_surface`,

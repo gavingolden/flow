@@ -36,8 +36,7 @@ This skill is a thin wrapper around a one-shot **Independent Discovery
 Subagent**. The wrapper itself does no discovery — it spawns one Task-tool
 subagent (`subagent_type: $DISCOVERY_SUBAGENT`, resolved to the
 plugin-qualified `flow-module-core:flow-discovery` on a plugin-root
-install, the bare `flow-discovery` on a legacy global install, or a
-guarded `general-purpose` fallback), passes the user's verbatim
+install, or a guarded `general-purpose` fallback), passes the user's verbatim
 description plus the absolute paths to write, and waits for the subagent to
 return a brief summary. The subagent does all the heavy lifting in its own
 isolated context: reading the codebase, scanning the skill directory,
@@ -121,7 +120,7 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 
 3. Resolve the subagent type. The `agents/flow-discovery.md` definition
    (no `tools:` allowlist — deliberately inherits every tool; no
-   `effort:`/`model:` pins) resolves in three tiers so the pipeline never
+   `effort:`/`model:` pins) resolves in two tiers so the pipeline never
    fails on an unknown agent type. Plugin-hosted agents are addressable
    ONLY by the plugin-qualified name `<pluginRootName>:<agentBasename>` —
    a bare `flow-discovery` subagent_type fails Task-tool resolution
@@ -131,8 +130,6 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
    DISCOVERY_SUBAGENT=general-purpose
    if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-discovery.md ]; then
      DISCOVERY_SUBAGENT=flow-module-core:flow-discovery
-   elif [ -f ~/.claude/agents/flow-discovery.md ]; then
-     DISCOVERY_SUBAGENT=flow-discovery
    else
      echo "NOTICE — agent-fallback: flow-discovery → general-purpose (definition not installed — run \`flow install\`)."
    fi
@@ -372,7 +369,7 @@ exemption.
 
 # Verification
 
-- Exactly one Task-tool call was made with `subagent_type: $DISCOVERY_SUBAGENT` (`flow-module-core:flow-discovery` on a plugin-root install, the bare `flow-discovery` on a legacy global install, or the guarded `general-purpose` fallback).
+- Exactly one Task-tool call was made with `subagent_type: $DISCOVERY_SUBAGENT` (`flow-module-core:flow-discovery` on a plugin-root install, or the guarded `general-purpose` fallback).
 - **Feature mode (default):** `.flow-tmp/plan.md` exists at the resolved
   absolute path with the three expected sections (`# PRD`, `# Task breakdown`,
   `# PR description draft`), and `.flow-tmp/pr-description-draft.md` exists at

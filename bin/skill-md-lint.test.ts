@@ -1271,9 +1271,11 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
         "so the resolved low-effort agent (or the general-purpose fallback) is passed.",
     ).toBe(true);
     expect(
-      content.includes("VERIFY_SUBAGENT=flow-verify"),
-      "flow-pipeline SKILL.md must resolve VERIFY_SUBAGENT to `flow-verify` — the " +
-        "agents/flow-verify.md definition that pins effort: low.",
+      content.includes("VERIFY_SUBAGENT=flow-module-core:flow-verify"),
+      "flow-pipeline SKILL.md must resolve VERIFY_SUBAGENT to " +
+        "`flow-module-core:flow-verify` — the agents/flow-verify.md definition " +
+        "that pins effort: low (plugin-qualified resolution asserted in full " +
+        "by the SITES it.each below).",
     ).toBe(true);
     expect(
       /VERIFY_SUBAGENT=general-purpose/.test(content),
@@ -1295,9 +1297,12 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
         "so the resolved low-effort agent (or the general-purpose fallback) is passed.",
     ).toBe(true);
     expect(
-      prReviewContent.includes("FIX_APPLIER_SUBAGENT=flow-fix-applier"),
-      "pr-review SKILL.md must resolve FIX_APPLIER_SUBAGENT to `flow-fix-applier` — the " +
-        "agents/flow-fix-applier.md definition that pins effort: low.",
+      prReviewContent.includes(
+        "FIX_APPLIER_SUBAGENT=flow-module-core:flow-fix-applier",
+      ),
+      "pr-review SKILL.md must resolve FIX_APPLIER_SUBAGENT to " +
+        "`flow-module-core:flow-fix-applier` — the agents/flow-fix-applier.md " +
+        "definition that pins effort: low.",
     ).toBe(true);
     expect(
       /FIX_APPLIER_SUBAGENT=general-purpose/.test(prReviewContent),
@@ -1573,8 +1578,11 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
   it("the pr-review gatekeeper and consolidator spawn sites resolve their named agents with guarded fallbacks", () => {
     expect(
-      prReviewContent.includes("GATEKEEPER_SUBAGENT=flow-gatekeeper"),
-      "pr-review SKILL.md Step 1.5 must resolve GATEKEEPER_SUBAGENT to `flow-gatekeeper`.",
+      prReviewContent.includes(
+        "GATEKEEPER_SUBAGENT=flow-module-core:flow-gatekeeper",
+      ),
+      "pr-review SKILL.md Step 1.5 must resolve GATEKEEPER_SUBAGENT to " +
+        "`flow-module-core:flow-gatekeeper`.",
     ).toBe(true);
     expect(
       prReviewContent.includes(
@@ -1587,8 +1595,11 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "pr-review SKILL.md gatekeeper spawn must pass `subagent_type: $GATEKEEPER_SUBAGENT`.",
     ).toBe(true);
     expect(
-      prReviewContent.includes("CONSOLIDATOR_SUBAGENT=flow-consolidator"),
-      "pr-review SKILL.md Step 3.5 must resolve CONSOLIDATOR_SUBAGENT to `flow-consolidator`.",
+      prReviewContent.includes(
+        "CONSOLIDATOR_SUBAGENT=flow-module-core:flow-consolidator",
+      ),
+      "pr-review SKILL.md Step 3.5 must resolve CONSOLIDATOR_SUBAGENT to " +
+        "`flow-module-core:flow-consolidator`.",
     ).toBe(true);
     expect(
       prReviewContent.includes(
@@ -1604,8 +1615,12 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
   it("the pr-review Step 3 fan-out resolves a named flow-review-<lens> agent per lens", () => {
     expect(
-      prReviewContent.includes('LENS_AGENT="flow-review-$LENS"'),
-      "pr-review SKILL.md Step 3 must resolve each lens's subagent type to `flow-review-$LENS`.",
+      prReviewContent.includes(
+        'LENS_AGENT="flow-module-core:flow-review-$LENS"',
+      ),
+      "pr-review SKILL.md Step 3 must resolve each lens's subagent type to " +
+        "`flow-module-core:flow-review-$LENS` (asserted in full by the " +
+        "dedicated qualification test above).",
     ).toBe(true);
     expect(
       prReviewContent.includes("subagent_type: $LENS_AGENT"),
@@ -1668,8 +1683,9 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
   it("the scout, discovery, merge-resolver, and edit-applier spawn sites resolve their named agents with guarded fallbacks", () => {
     expect(
-      newFeatureContent.includes("SCOUT_SUBAGENT=flow-scout"),
-      "flow-new-feature SKILL.md Step 1b must resolve SCOUT_SUBAGENT to `flow-scout`.",
+      newFeatureContent.includes("SCOUT_SUBAGENT=flow-module-core:flow-scout"),
+      "flow-new-feature SKILL.md Step 1b must resolve SCOUT_SUBAGENT to " +
+        "`flow-module-core:flow-scout`.",
     ).toBe(true);
     expect(
       newFeatureContent.includes(
@@ -1683,8 +1699,11 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     ).toBe(true);
 
     expect(
-      productPlanningTopContent.includes("DISCOVERY_SUBAGENT=flow-discovery"),
-      "flow-product-planning SKILL.md must resolve DISCOVERY_SUBAGENT to `flow-discovery`.",
+      productPlanningTopContent.includes(
+        "DISCOVERY_SUBAGENT=flow-module-core:flow-discovery",
+      ),
+      "flow-product-planning SKILL.md must resolve DISCOVERY_SUBAGENT to " +
+        "`flow-module-core:flow-discovery`.",
     ).toBe(true);
     expect(
       productPlanningTopContent.includes(
@@ -1698,8 +1717,11 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     ).toBe(true);
 
     expect(
-      content.includes("MERGE_RESOLVER_SUBAGENT=flow-merge-resolver"),
-      "flow-pipeline SKILL.md step 10 must resolve MERGE_RESOLVER_SUBAGENT to `flow-merge-resolver`.",
+      content.includes(
+        "MERGE_RESOLVER_SUBAGENT=flow-module-core:flow-merge-resolver",
+      ),
+      "flow-pipeline SKILL.md step 10 must resolve MERGE_RESOLVER_SUBAGENT to " +
+        "`flow-module-core:flow-merge-resolver`.",
     ).toBe(true);
     expect(
       content.includes(
@@ -1713,8 +1735,11 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     ).toBe(true);
 
     expect(
-      coderContent.includes("CODER_SUBAGENT=flow-edit-applier"),
-      "flow-coder SKILL.md must resolve CODER_SUBAGENT to `flow-edit-applier`.",
+      coderContent.includes(
+        "CODER_SUBAGENT=flow-module-core:flow-edit-applier",
+      ),
+      "flow-coder SKILL.md must resolve CODER_SUBAGENT to " +
+        "`flow-module-core:flow-edit-applier`.",
     ).toBe(true);
     expect(
       coderContent.includes(
@@ -1923,7 +1948,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-pipeline/references/verify-loop-instructions.md",
-        386,
+        387,
         "NEVER touch the base branch",
       ],
       [
@@ -4111,6 +4136,10 @@ describe("Agent spawn sites resolve plugin-qualified subagent_type on the plugin
       file: "skills/universal/flow-backlog-triage/references/verification-fanout.md",
       agent: "flow-backlog-verifier",
     },
+    {
+      file: "skills/pipeline/flow-pr-review/references/intent-mismatch-resolution.md",
+      agent: "flow-review-intent-guess",
+    },
   ];
 
   it.each(SITES)(
@@ -4371,6 +4400,10 @@ describe("pr-review include-by-reference structure", () => {
     // content, not incidental bloat. File lands at 1781 lines — 1790 leaves
     // 9 lines of genuine headroom, not round-number headroom for future
     // growth.
+    // Note: a later PR collapsed these three-tier guards to two tiers
+    // (plugin-qualified → general-purpose, dropping the legacy-bare
+    // elif branch), shrinking the file below this ceiling — the number
+    // above is left as historical record, not re-tightened.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
@@ -4441,6 +4474,10 @@ describe("pr-review include-by-reference structure", () => {
     // prose at each site — genuine load-bearing correctness content. File
     // lands at 2725 lines — raised the ceiling to 2735 (10 lines of genuine
     // headroom), same discipline as the precedents above.
+    // Note: a later PR collapsed these three-tier guards to two tiers
+    // (plugin-qualified → general-purpose, dropping the legacy-bare
+    // elif branch), shrinking the file below this ceiling — the number
+    // above is left as historical record, not re-tightened.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
@@ -4475,6 +4512,10 @@ describe("pr-review include-by-reference structure", () => {
     // load-bearing correctness content. File lands at 785 lines — 795
     // leaves 10 lines of genuine headroom, not round-number headroom for
     // future growth.
+    // Note: a later PR collapsed this three-tier guard to two tiers
+    // (plugin-qualified → general-purpose, dropping the legacy-bare
+    // elif branch), shrinking the file below this ceiling — the number
+    // above is left as historical record, not re-tightened.
     expect(
       lineCount,
       `flow-new-feature/SKILL.md line count must stay under the post-diet ` +
@@ -7684,5 +7725,36 @@ describe("pause-output contract wiring lint", () => {
     expect(templateC).toContain(
       "**Emit instructions as scannable numbered steps.**",
     );
+  });
+
+  it("no .md file under skills/ probes the legacy ~/.claude/agents/ location", () => {
+    // The three-tier legacy-bare-name resolution tier was collapsed to two
+    // tiers (plugin-qualified → general-purpose) across every spawn-site
+    // guard. This is a negative repo-wide guard against reintroducing the
+    // `~/.claude/agents/` probe anywhere under skills/ — scoped to skills/
+    // ONLY, never bin/ (bin/lib/setup.ts legitimately still references it
+    // for the sweep-migration path).
+    const skillsRoot = path.join(REPO_ROOT, "skills");
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.isFile() && entry.name.endsWith(".md")) {
+          const c = fs.readFileSync(full, "utf8");
+          if (c.includes(".claude/agents")) {
+            offenders.push(path.relative(REPO_ROOT, full));
+          }
+        }
+      }
+    };
+    walk(skillsRoot);
+    expect(
+      offenders,
+      `The following skills/ .md files reference the legacy '.claude/agents' ` +
+        `location, which no live spawn-site guard resolves against anymore: ` +
+        `${offenders.join(", ")}`,
+    ).toEqual([]);
   });
 });

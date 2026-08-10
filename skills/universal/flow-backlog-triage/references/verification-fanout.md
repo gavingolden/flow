@@ -19,9 +19,10 @@ Spawn verifier subagents in **waves of at most 6 Task calls per message**
 fan-out has no separate "concurrent pool" primitive; concurrency IS the
 count of Task calls in one message, so the wave size below is also the
 in-flight cap). Use `subagent_type: $BACKLOG_VERIFIER_SUBAGENT` (resolved
-below — the plugin-qualified `flow-module-core:flow-backlog-verifier` on
-a plugin-root install, the bare `flow-backlog-verifier` on a legacy
-global install) for every spawn.
+below via a single plugin-root probe — the plugin-qualified
+`flow-module-core:flow-backlog-verifier` name, or the inline-verification
+degrade path when the probe misses; there is no bare-name fallback) for
+every spawn.
 
 **Batch, never one-subagent-per-item.** Group items into batches sized
 `ceil(total_items / 6)`, clamped to 15–30 items per batch — e.g. a
@@ -45,29 +46,28 @@ batches return.
 
 ## Degrade path — inline sequential verification
 
-Resolve `$BACKLOG_VERIFIER_SUBAGENT` in two tiers (no `general-purpose`
-tier at this site — see below). Plugin-hosted agents are addressable
-ONLY by the plugin-qualified name `<pluginRootName>:<agentBasename>` — a
-bare `flow-backlog-verifier` subagent_type fails Task-tool resolution
-outright (measured: "Agent type 'flow-scout' not found"):
+Resolve `$BACKLOG_VERIFIER_SUBAGENT` via a single plugin-root probe (no
+`general-purpose` tier at this site — see below). Plugin-hosted agents are
+addressable ONLY by the plugin-qualified name
+`<pluginRootName>:<agentBasename>` — a bare `flow-backlog-verifier`
+subagent_type fails Task-tool resolution outright (measured: "Agent type
+'flow-scout' not found"):
 
 ```bash
 BACKLOG_VERIFIER_SUBAGENT=""
 if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-backlog-verifier.md ]; then
   BACKLOG_VERIFIER_SUBAGENT=flow-module-core:flow-backlog-verifier
-elif [ -f ~/.claude/agents/flow-backlog-verifier.md ]; then
-  BACKLOG_VERIFIER_SUBAGENT=flow-backlog-verifier
 fi
 ```
 
-Both probe against the **installed-agent path**, not a repo-relative
+The probe checks the **installed-agent path**, not a repo-relative
 source path. This skill runs in arbitrary consumer repos whose cwd is
 never the flow checkout, so a cwd-relative `agents/flow-backlog-verifier.md`
 check is never true there and would degrade unconditionally; the
 installed-agent probe is the same shape every other flow spawn site uses
 to detect an optional module.
 
-When both probes miss (empty `$BACKLOG_VERIFIER_SUBAGENT` — a bare
+When the probe misses (empty `$BACKLOG_VERIFIER_SUBAGENT` — a bare
 `flow install` without this module, or a stripped-down consumer
 checkout), do **not** fall back to flow's usual
 write-capable catch-all subagent type. That fallback is write-capable,

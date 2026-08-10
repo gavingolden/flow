@@ -101,12 +101,13 @@ none.
 
 **Spawn procedure (wider-scope path only).**
 
-1. Resolve the subagent type in two tiers (no `general-purpose` tier at
-   this site — see below). Plugin-hosted agents are addressable ONLY by
+1. Resolve the subagent type via a single plugin-root probe (no
+   `general-purpose` tier at this site — see below). Plugin-hosted agents
+   are addressable ONLY by
    the plugin-qualified name `<pluginRootName>:<agentBasename>` — a bare
    `flow-edit-applier` subagent_type fails Task-tool resolution outright
    (measured: "Agent type 'flow-scout' not found"):
-   `EDIT_APPLIER_SUBAGENT=""; if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-edit-applier.md ]; then EDIT_APPLIER_SUBAGENT=flow-module-core:flow-edit-applier; elif [ -f ~/.claude/agents/flow-edit-applier.md ]; then EDIT_APPLIER_SUBAGENT=flow-edit-applier; fi`.
+   `EDIT_APPLIER_SUBAGENT=""; if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-edit-applier.md ]; then EDIT_APPLIER_SUBAGENT=flow-module-core:flow-edit-applier; fi`.
    Unlike the nine top-level
    exemptions, this site does **not** fall back to `general-purpose` on a
    miss (empty `$EDIT_APPLIER_SUBAGENT`) — a `general-purpose` child would

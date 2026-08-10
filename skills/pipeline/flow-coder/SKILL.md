@@ -91,8 +91,7 @@ This skill is a thin wrapper around a one-shot **Independent Edit-Applier
 Subagent**. The wrapper itself does no file reads and no edits — it spawns
 one Task-tool subagent (`subagent_type: $CODER_SUBAGENT`, resolved to the
 plugin-qualified `flow-module-core:flow-edit-applier` on a plugin-root
-install, the bare `flow-edit-applier` on a legacy global install, or a
-guarded `general-purpose` fallback), passes the
+install, or a guarded `general-purpose` fallback), passes the
 caller's structured edit-set plus the absolute paths to write, and waits
 for the subagent to return a brief both-sides summary. The subagent does
 the heavy lifting in its own isolated context: opening each cited file,
@@ -193,7 +192,7 @@ spawn:
 
 3. Resolve the subagent type. The `agents/flow-edit-applier.md` definition
    (Bash/Read/Edit/Write/Grep/Glob/NotebookEdit allowlist, no
-   `effort:`/`model:` pins) resolves in three tiers so the pipeline never
+   `effort:`/`model:` pins) resolves in two tiers so the pipeline never
    fails on an unknown agent type. Plugin-hosted agents are addressable
    ONLY by the plugin-qualified name `<pluginRootName>:<agentBasename>` —
    a bare `flow-edit-applier` subagent_type fails Task-tool resolution
@@ -203,8 +202,6 @@ spawn:
    CODER_SUBAGENT=general-purpose
    if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-edit-applier.md ]; then
      CODER_SUBAGENT=flow-module-core:flow-edit-applier
-   elif [ -f ~/.claude/agents/flow-edit-applier.md ]; then
-     CODER_SUBAGENT=flow-edit-applier
    else
      echo "NOTICE — agent-fallback: flow-edit-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."
    fi
