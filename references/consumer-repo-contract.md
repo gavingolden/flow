@@ -10,7 +10,9 @@ gate needs to know about.
 `/flow-coder` rely on. Scope detection is prefix-/extension-based against
 the diff: `src/` trips `src`; `scripts/`, `templates/scripts/`, and
 `bin/` all trip `scripts`; any `.md` or `.template` file trips `docs`,
-which runs `flow-md-validate .` (link + frontmatter, `.md`-only),
+which runs `flow-md-validate .` (link + frontmatter, `.md`-only; inside a
+git work tree, only non-ignored markdown is validated, so a vendored/
+gitignored tree never reds the gate),
 `npm run test` (structural-anchor lints), and `npm run lint`; the
 `backend/` prefix trips `backend` (prefix-only): `go vet -C backend ./...`
 and `go test -C backend ./...`. Workflow YAML under `.github/workflows/`

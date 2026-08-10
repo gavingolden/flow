@@ -13,6 +13,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 
 export type ViolationKind =
   | "broken-link-target"
@@ -45,6 +46,90 @@ export function walkMarkdownFiles(root: string): string[] {
     }
   }
   return out.sort();
+}
+
+export type GitMarkdownResult =
+  | { kind: "ok"; files: string[] }
+  | { kind: "not-a-work-tree" }
+  | { kind: "enumeration-failed"; stderr: string };
+
+/**
+ * Build a spawn env with every `GIT_*` key stripped. A prefix strip, not an
+ * enumerated blacklist — this helper runs from a pre-push hook that exports
+ * GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE / GIT_PREFIX, and an enumerated
+ * list can forget one, silently resolving `git` against the wrong repo.
+ */
+function gitEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("GIT_")) delete env[key];
+  }
+  return env;
+}
+
+/**
+ * Three-state git-tracked markdown probe/enumerate. Returns `ok` with every
+ * `.md` file git tracks or would track (cached + untracked-not-ignored),
+ * `not-a-work-tree` when `dir` isn't inside a git work tree (including a
+ * missing `git` binary), or `enumeration-failed` when the work-tree probe
+ * succeeds but enumeration itself errors (e.g. a corrupt index) — the
+ * dispatcher treats this distinctly from `not-a-work-tree` so it never
+ * silently falls back to a blind walk of a tree it knows to be a work tree.
+ */
+export function gitTrackedMarkdown(root: string): GitMarkdownResult {
+  const env = gitEnv();
+  const probe = spawnSync(
+    "git",
+    ["-C", root, "rev-parse", "--is-inside-work-tree"],
+    { env, encoding: "utf8" },
+  );
+  if (probe.error || probe.status !== 0 || probe.stdout.trim() !== "true") {
+    return { kind: "not-a-work-tree" };
+  }
+
+  const ls = spawnSync(
+    "git",
+    ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+    { cwd: root, env, encoding: "utf8", maxBuffer: 50 * 1024 * 1024 },
+  );
+  if (ls.error || ls.status !== 0) {
+    const stderr = (ls.error ? ls.error.message : (ls.stderr ?? ""))
+      .trim()
+      .split("\n")[0];
+    return { kind: "enumeration-failed", stderr };
+  }
+
+  const entries = ls.stdout.split("\0").filter((e) => e.length > 0);
+  const files: string[] = [];
+  for (const entry of entries) {
+    if (!entry.endsWith(".md")) continue;
+    const abs = path.resolve(root, entry);
+    const rel = path.relative(root, abs);
+    const segments = rel.split(path.sep);
+    if (segments.some((s) => IGNORE_DIRS.has(s))) continue;
+    try {
+      if (!fs.lstatSync(abs).isFile()) continue;
+    } catch {
+      // `git ls-files --cached` lists tracked-but-deleted paths and tracked
+      // symlinks to nowhere, neither of which today's walk yields; a
+      // subsequent readFileSync would crash the gate, so skip silently.
+      continue;
+    }
+    files.push(abs);
+  }
+  return { kind: "ok", files: files.sort() };
+}
+
+export function listMarkdownFiles(root: string): string[] {
+  const stat = fs.statSync(root);
+  if (stat.isFile()) return root.endsWith(".md") ? [root] : [];
+  const result = gitTrackedMarkdown(root);
+  if (result.kind === "ok") return result.files;
+  if (result.kind === "not-a-work-tree") return walkMarkdownFiles(root);
+  console.error(
+    `flow-md-validate: git enumeration failed (${result.stderr}) — skipping validation`,
+  );
+  return [];
 }
 
 /**
@@ -223,7 +308,7 @@ export type RunReport = {
 };
 
 export function runValidation(target: string): RunReport {
-  const files = walkMarkdownFiles(target);
+  const files = listMarkdownFiles(target);
   const violations: Violation[] = [];
   let linkCount = 0;
   for (const file of files) {
@@ -245,6 +330,8 @@ export async function main(argv: string[]): Promise<number> {
       "Usage: flow-md-validate <path>\n\n" +
       "Validates internal markdown links (relative paths + heading anchors) and\n" +
       "SKILL.md frontmatter presence.\n\n" +
+      "Inside a git work tree, paths git ignores are skipped (git ls-files); outside one,\n" +
+      "only node_modules, .git, and .flow-tmp are skipped.\n\n" +
       "Exit codes: 0 clean, 1 violations, 2 usage/I-O error.";
     if (argv[0] === "--help" || argv[0] === "-h") {
       console.log(usage);
