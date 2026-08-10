@@ -891,4 +891,27 @@ describe(formatDriftNotice, () => {
     expect(notice).toContain("will remove these foreign entries now on PATH");
     expect(notice).not.toContain("this foreign entry");
   });
+
+  it("caps each clause independently — a mixed over-cap result names 3 unexpected and 3 foreign with two (+N more) tails", () => {
+    const entries = [
+      ...Array.from({ length: 5 }, (_, i) => ({
+        kind: "unexpected" as const,
+        displayName: `u-${i}`,
+        target: `/roots/u-${i}`,
+        detail: `hooks-${i}`,
+      })),
+      ...Array.from({ length: 5 }, (_, i) => ({
+        kind: "foreign" as const,
+        displayName: `f-${i}`,
+        target: `/roots/f-${i}`,
+        detail: path.join("bin", `f-${i}`),
+      })),
+    ];
+    const notice = formatDriftNotice({ status: "drifted", entries });
+    expect(notice).toContain("u-2 → hooks-2");
+    expect(notice).not.toContain("u-3 → ");
+    expect(notice).toContain("f-2 → " + path.join("bin", "f-2"));
+    expect(notice).not.toContain("f-3 → ");
+    expect(notice?.match(/\(\+2 more\)/g)).toHaveLength(2);
+  });
 });

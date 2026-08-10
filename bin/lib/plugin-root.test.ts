@@ -223,7 +223,11 @@ describe(ensurePluginRoot, () => {
       force: false,
     });
 
-    expect(fs.existsSync(foreignLink)).toBe(false);
+    // lstat (not existsSync, which follows the link) to distinguish "link
+    // removed" from "target destroyed" — the prune loop must unlink the
+    // link, never touch the foreign payload it pointed at.
+    expect(() => fs.lstatSync(foreignLink)).toThrow();
+    expect(fs.existsSync(foreignTarget)).toBe(true);
     expect(fs.existsSync(userFile)).toBe(true);
     expect(fs.readFileSync(userFile, "utf8")).toBe("not flow's file\n");
   });

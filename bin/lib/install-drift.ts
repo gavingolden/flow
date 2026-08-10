@@ -354,7 +354,9 @@ export function formatDriftNotice(result: InstallDriftResult): string | null {
   const autoRemoval = foreignList
     ? `; \`flow install --upgrade\` will remove ${
         byKind.foreign === 1 ? "this foreign entry" : "these foreign entries"
-      } now on PATH: ${foreignList}`
+      } now on PATH (inspect first if you did not create ${
+        byKind.foreign === 1 ? "it" : "them"
+      }): ${foreignList}`
     : "";
   return `flow: ${result.entries.length} install drift issue${
     result.entries.length === 1 ? "" : "s"

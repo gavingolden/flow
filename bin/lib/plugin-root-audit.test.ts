@@ -268,7 +268,6 @@ describe(unexpectedPluginRootEntries, () => {
 
     // Positive control: an existing helper present in BOTH roots, linked
     // to the canonical copy — the ordinary already-released-helper case.
-    // Paired in the same test so the assertion below cannot pass vacuously.
     const existingHelperWorktree = path.join(
       worktree,
       "flow-existing-helper.ts",
@@ -288,6 +287,15 @@ describe(unexpectedPluginRootEntries, () => {
       flowSource: worktree,
       installRoot: canonical,
     });
+    // Positive control: materializeCleanRoot()'s symlink resolves into
+    // flowSrc, which is under neither ownership root here, so it MUST be
+    // reported — proving the audit ran and the two negatives below are real,
+    // not a silent no-op that would leave `issues` empty.
+    expect(issues).toContainEqual({
+      relPath: path.join("bin", "flow-request-copilot"),
+      reason: "foreign-live-bin-symlink",
+    });
+    expect(issues).toHaveLength(1);
     expect(issues).not.toContainEqual({
       relPath: path.join("bin", "flow-new-helper"),
       reason: "foreign-live-bin-symlink",
