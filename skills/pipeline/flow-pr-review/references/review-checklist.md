@@ -1763,3 +1763,18 @@ The multi-agent review's six lenses all missed this; it was caught only by
 Copilot. Look for: long `[ -f <path> ]`-style guard literals or other inline
 code wrapped mid-token at ~80-col line-wrap boundaries in prose paragraphs —
 keep the span on one line, or fence it as a code block instead of wrapping it.
+
+### JSDoc/comment cross-reference to an instance member written as `Class.method` (PR #577)
+
+A doc comment or module-header note that cites an instance method with dot
+notation — `Graph.isInterpolatedAnchorUsable` — implies a public static API
+when the member is actually a private/instance method. The correct notation is
+`Class#method` (`Graph#isInterpolatedAnchorUsable`), which is also what JSDoc
+and TypeDoc resolve as an instance-member link. The six agent lenses all missed
+this on PR #577; Copilot caught it.
+
+Check any cross-file or cross-module comment that names a method on another
+class: confirm whether the member is static (`Class.method`) or instance
+(`Class#method`), and whether it is even exported — citing a private method
+from another module's comment is itself a smell worth flagging, since the
+reader cannot navigate to it.
