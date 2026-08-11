@@ -1212,9 +1212,24 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * branch cannot see. Raised to the next round value (140 chars of
    * headroom) rather than trimming either branch's lint-anchored prose,
    * on the same grounds as the precedents above.
+   * Raised once more from 24_900 to 25_300 to fund the `## Output style`
+   * rule **Frame every explanation impact-first for a product-lens
+   * reader.**, whose full rule body (worked examples, exclusion list,
+   * per-stage focus table) is offloaded to references/output-style.md,
+   * so only the lean anchored one-line summary costs bytes here, per
+   * the offload-then-trim playbook. Pre-raise headroom was 22 chars
+   * (24_878 measured in code units via String.prototype.length, not
+   * `wc -c` bytes) against a ~247-char lean opener; post-edit size is
+   * 25_125. 25_200 was rejected — 75 chars of headroom is closer to the
+   * 9-char red-build trap called out two raises above than to the
+   * 136–202-char headroom the three most recent deliberate raises landed
+   * with (202, 136, 140) — so the budget
+   * goes to 25_300 (175 chars of headroom) instead, and trimming
+   * lint-anchored `## Output style` prose to make room was rejected on
+   * the same grounds as the precedents above.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 24_900;
+    const CHAR_BUDGET = 25_300;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -3270,6 +3285,31 @@ describe("AGENTS.md Output style anchors", () => {
         "'- **Emit instructions as scannable numbered steps.**' " +
         "exactly once at the start of a list item in `## Output style`. " +
         "Found " +
+        (matches?.length ?? 0) +
+        " match(es).",
+    ).toBe(1);
+  });
+
+  it("AGENTS.md contains the product-lens impact-first rule anchor phrase exactly once", () => {
+    // The bolded anchor phrase **Frame every explanation impact-first for
+    // a product-lens reader.** is the stable lint hook for the rule
+    // documented at AGENTS.md `## Output style`. Its rationale (worked
+    // examples, exclusion list, per-stage focus table) lives at
+    // references/output-style.md `## Frame every explanation
+    // impact-first for a product-lens reader`, and the pause-point
+    // widening sentence lives at
+    // skills/pipeline/flow-pipeline/references/pause-output-contract.md.
+    // Renaming the rule's anchor phrase requires updating this assertion
+    // in the same commit.
+    const matches = agentsContent.match(
+      /^- \*\*Frame every explanation impact-first for a product-lens reader\.\*\*/gm,
+    );
+    expect(
+      matches?.length ?? 0,
+      "AGENTS.md must contain the rule anchor phrase " +
+        "'- **Frame every explanation impact-first for a product-lens " +
+        "reader.**' exactly once at the start of a list item in " +
+        "`## Output style`. Found " +
         (matches?.length ?? 0) +
         " match(es).",
     ).toBe(1);
@@ -7724,6 +7764,31 @@ describe("pause-output contract wiring lint", () => {
     );
     expect(templateC).toContain(
       "**Emit instructions as scannable numbered steps.**",
+    );
+  });
+
+  it("references/output-style.md carries the product-lens impact-first section", () => {
+    // Deliberately NOT mirrored into templates/AGENTS.md.template — this
+    // rule's cross-repo delivery lives in the user's own global
+    // ~/.claude/CLAUDE.md (managed outside this repo — flow ships nothing
+    // it doesn't manage), and a repo's own AGENTS.md rules win by
+    // precedence, so a template mirror would duplicate delivery paths
+    // rather than add coverage.
+    const c = fs.readFileSync(
+      path.join(REPO_ROOT, "references", "output-style.md"),
+      "utf8",
+    );
+    expect(c).toContain(
+      "## Frame every explanation impact-first for a product-lens reader",
+    );
+    expect(c).toContain("### Where impact-first does NOT apply");
+    expect(c).toContain("### Per-stage focus");
+  });
+
+  it("pause-output-contract.md carries the explanatory-content widening sentence", () => {
+    const c = fs.readFileSync(CONTRACT_PATH, "utf8").replace(/\s+/g, " ");
+    expect(c).toContain(
+      "Explanatory content in any slot follows rules 1–2 as well",
     );
   });
 
