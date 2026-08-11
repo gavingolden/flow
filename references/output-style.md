@@ -366,7 +366,13 @@ Nothing is lost. Recommended: let me refresh the branch and re-verify
   follows the impact-first rule — a commit body is an explanation you
   read.
 - Test Steps commands, Contract blocks, and acceptance-criteria
-  commands — surgical by design.
+  commands — surgical by design. The same carve-out covers the rest of
+  `.flow-tmp/plan.md`'s agent-consumed surface — its Task Breakdown task
+  bodies, dependency table, and file lists — since scout and coder
+  subagents parse those sections, not a human reader; only the plan's
+  reader-facing parts (the Problem Statement / Decision analysis
+  sections, and the chat summary rendered at `plan-pending-review`) take
+  the product lens, per the Per-stage focus row below.
 - Code comments — governed by the "default to none; explain the _why_"
   convention.
 - Expert-mode / time-critical exchanges where the user is driving

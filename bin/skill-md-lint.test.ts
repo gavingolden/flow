@@ -7768,11 +7768,12 @@ describe("pause-output contract wiring lint", () => {
   });
 
   it("references/output-style.md carries the product-lens impact-first section", () => {
-    // Deliberately NOT mirrored into templates/AGENTS.md.template — see
-    // docs/global-claude-rules.md's preamble: cross-repo delivery of this
-    // rule routes through that doc, and a repo's own AGENTS.md rules win
-    // by precedence, so extending the template would duplicate delivery
-    // paths rather than add coverage.
+    // Deliberately NOT mirrored into templates/AGENTS.md.template — this
+    // rule's cross-repo delivery lives in the user's own global
+    // ~/.claude/CLAUDE.md (managed outside this repo — flow ships nothing
+    // it doesn't manage), and a repo's own AGENTS.md rules win by
+    // precedence, so a template mirror would duplicate delivery paths
+    // rather than add coverage.
     const c = fs.readFileSync(
       path.join(REPO_ROOT, "references", "output-style.md"),
       "utf8",
@@ -7820,38 +7821,5 @@ describe("pause-output contract wiring lint", () => {
         `location, which no live spawn-site guard resolves against anymore: ` +
         `${offenders.join(", ")}`,
     ).toEqual([]);
-  });
-});
-
-describe("docs/global-claude-rules.md display/heredoc sync", () => {
-  // The doc's own preamble declares an invariant: the fenced display copy
-  // (for humans pasting by hand) and the heredoc payload (for the one-shot
-  // terminal apply) must stay byte-identical. Nothing enforced that until
-  // now — a two-copy prose file is exactly the shape that drifts silently
-  // when someone edits the readable copy and forgets the heredoc.
-  it("the fenced display block and the heredoc payload are identical", () => {
-    const c = fs.readFileSync(
-      path.resolve(HERE, "..", "docs", "global-claude-rules.md"),
-      "utf8",
-    );
-
-    const fenceMatch = c.match(/```markdown\n([\s\S]*?)\n```/);
-    expect(fenceMatch, "expected a ```markdown fenced block").not.toBeNull();
-    const displayBody = fenceMatch![1];
-
-    const heredocMatch = c.match(
-      /cat << 'EOF' >> ~\/\.claude\/CLAUDE\.md\n([\s\S]*?)\nEOF/,
-    );
-    expect(
-      heredocMatch,
-      "expected a `cat << 'EOF' >> ~/.claude/CLAUDE.md` heredoc block",
-    ).not.toBeNull();
-    const heredocBody = heredocMatch![1];
-
-    expect(
-      heredocBody,
-      "the heredoc payload has drifted from the fenced display block — " +
-        "keep the two copies byte-identical (see the preamble invariant)",
-    ).toBe(displayBody);
   });
 });
