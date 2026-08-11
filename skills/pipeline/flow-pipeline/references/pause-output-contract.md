@@ -39,6 +39,8 @@ pauses, escalations, `NEEDS HUMAN` blocks, gate decisions, verify/CI
 failures, and merge-conflict reports — follow the six rules below;
 everything else follows "Calibrate length to task" in
 `references/output-style.md`.
+Explanatory content in any slot follows rules 1–2 as well — see the
+generalized rule in `references/output-style.md`.
 
 1. **Impact first.** The status heading and the first slot line state
    the user-visible consequence, never the mechanism; a caveat that

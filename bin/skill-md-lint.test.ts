@@ -1212,9 +1212,23 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * branch cannot see. Raised to the next round value (140 chars of
    * headroom) rather than trimming either branch's lint-anchored prose,
    * on the same grounds as the precedents above.
+   * Raised once more from 24_900 to 25_300 to fund the `## Output style`
+   * rule **Frame every explanation impact-first for a product-lens
+   * reader.**, whose full rule body (worked examples, exclusion list,
+   * per-stage focus table) is offloaded to references/output-style.md,
+   * so only the lean anchored one-line summary costs bytes here, per
+   * the offload-then-trim playbook. Pre-raise headroom was 22 chars
+   * (24_878 measured in code units via String.prototype.length, not
+   * `wc -c` bytes) against a ~247-char lean opener; post-edit size is
+   * 25_125. 25_200 was rejected — 75 chars of headroom is closer to the
+   * 9-char red-build trap called out two raises above than to the
+   * 136–202-char headroom every prior raise landed with — so the budget
+   * goes to 25_300 (175 chars of headroom) instead, and trimming
+   * lint-anchored `## Output style` prose to make room was rejected on
+   * the same grounds as the precedents above.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 24_900;
+    const CHAR_BUDGET = 25_300;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +

@@ -257,6 +257,135 @@ argument depends on one sentence following causally from the last —
 bullets fragment that chain into disconnected assertions the reader has
 to re-thread themselves.
 
+## Frame every explanation impact-first for a product-lens reader
+
+Generalizes "Explain problems impact-first in plain language" above from
+problem reports at pause points to every explanatory surface: fix
+recaps, plan summaries, review findings, refactor rationales,
+escalations, and ordinary Q&A. The reader is a user/product-manager
+first and an engineer second — the first sentence answers "what does
+this mean for me / the product?", not "what did the code do?". The
+pause-point `## Language contract` in
+`skills/pipeline/flow-pipeline/references/pause-output-contract.md`
+stays the enforceable specialization of this rule; this section composes
+with it by reference and does not restate its six rules.
+
+The register is calibrated from the user's explicit picks in an
+11-scenario battery (2026-08-11), not guessed:
+
+- **Default: impact-only, concise.** Open with the user-visible
+  consequence or outcome; omit mechanism and internal identifiers by
+  default. Because detail is omitted by default, the standing escape is
+  load-bearing: **saying "give me the technical version" (or driving an
+  expert-mode exchange) gets the raw technical style at any time.**
+- **Always name the concrete user-facing surface** — the command, flag,
+  or artifact the user will actually touch (e.g. `flow ls --csv`) — even
+  in the concise register. Concreteness about _what you get_ is not
+  "technical detail"; it survives the cut.
+- **CI/status notices: terse impact-first.** What was caught, what is
+  protected, the next step — a narrative retelling is an acceptable
+  second choice, technical-first never is.
+- **Performance: felt effect with the concrete numbers kept**, the term
+  of art trailing in a parenthetical — the one surface where quantified
+  detail is retained by default.
+- **Security: threat-model framing** — who could exploit it, under what
+  conditions, with calibrated urgency: no alarmism, no false comfort.
+- **Architecture decisions: a deliberate blend** — open with the
+  recommendation and its user-consequence in one or two tight sentences,
+  name the trade-off in impact terms, then one compact technical line
+  carrying the load-bearing specifics; never a full technical
+  evaluation, never verdict-only.
+- **Dependency/upgrade recaps: minimal** — "fully handled, same
+  commands, CI green", optionally one "what could have bitten" line.
+- **Escalations: impact + "nothing is lost" + single recommended next
+  step**; enumerate multiple options only when they genuinely diverge.
+- **No-change explainers: reassure first** ("nothing's wrong with your
+  edit"), then the one-line why, then the action that makes it take
+  effect.
+
+**Crash-detail preservation.** Impact-only framing never hides the data
+needed to debug: on a crash, panic, or unhandled exception, append the
+raw error excerpt in a collapsed `<details>` block below the
+impact-first prose.
+
+Worked pairs, verbatim from the picked battery variants:
+
+**Bug-fix recap — before:** "Fixed the race in `bin/flow-new.ts`:
+`writeState()` now executes inside the retry closure before
+`launchSession()`, with `deleteState()` on failure. Previously
+`launchSession()` could beat the state write, so `flow-state-update`
+found no state file and fell through to the default branch."
+
+**After:** "This closes the bug where a brand-new pipeline could dump
+commits onto your main branch. Root cause was a startup ordering issue;
+it's now impossible by construction. Nothing to do on your side —
+existing pipelines are unaffected."
+
+**Review finding — before:** "`retryFetch()` in `bin/lib/http.ts:42`
+catches and discards the original error object; the final throw is
+`new Error('retries exhausted')` with no `cause`. Recommend attaching
+`{ cause: lastError }`."
+
+**After:** "One finding worth fixing: failed downloads currently hide
+_why_ they failed, which turns a 30-second diagnosis into a full re-run.
+Two-line fix; I'd apply it now."
+
+**Performance issue — before:** "`flow ls --cost` has an N+1: it shells
+out to `gh` once per pipeline inside the render loop. O(n) subprocess
+spawns at ~300ms each dominate."
+
+**After:** "`flow ls --cost` gets slower the more pipelines you have —
+each one triggers its own separate GitHub lookup (~0.3s each), so 20
+pipelines means a 6-second wait. Batching them into one lookup makes it
+near-constant (the classic 'N+1' pattern, for the record)."
+
+**Security finding — before:** "`writeConfig()` uses default file mode
+(0644). `config.json` may include a GitHub token. Recommend mode 0600
+plus a migration chmod."
+
+**After:** "Your GitHub token can end up in a file any process on your
+machine can read. That matters on shared machines or if malware ever
+lands locally; it is _not_ remotely exploitable on its own, so no
+urgency panic — but it's a one-line fix and there's no reason to leave
+it open."
+
+**Escalation — before:** "`gh pr merge` exited 1: 'Base branch was
+modified'. Retried ×3. Escalating."
+
+**After:** "Merge is blocked because `main` moved underneath this PR.
+Nothing is lost. Recommended: let me refresh the branch and re-verify
+(~10 min). Say `merge manually` if you'd rather handle it in the UI."
+
+### Where impact-first does NOT apply
+
+- Machine-consumed artifacts: schema JSON envelopes, `spec.json`,
+  `state.json`, result artifacts.
+- Commit-message _summaries_ and format — the conventional-commit
+  contract (`AGENTS.md ## Git workflow`) keeps the `type: summary` line
+  technical-imperative; the commit body's `Why:` prose, however,
+  follows the impact-first rule — a commit body is an explanation you
+  read.
+- Test Steps commands, Contract blocks, and acceptance-criteria
+  commands — surgical by design.
+- Code comments — governed by the "default to none; explain the _why_"
+  convention.
+- Expert-mode / time-critical exchanges where the user is driving
+  technically — the existing "run expert requests literally" rule wins.
+- Raw logs/diffs — progressive-disclosure material, referenced by path,
+  never rewritten into prose.
+
+### Per-stage focus
+
+| Stage / surface                        | Focus                                                                                                |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Triage answers                         | Impact-first, heaviest — the user is deciding whether to proceed                                     |
+| Plan summaries (`plan-pending-review`) | PM lens: what you get, what it costs, the one decision worth your attention — then the task skeleton |
+| Pause-point problem reports            | Already governed by the Language contract (unchanged, now a specialization of this rule)             |
+| Review findings                        | Consequence a user/operator would hit first; code pointer + fix mechanism second                     |
+| Escalations / `NEEDS HUMAN`            | Impact + "nothing is lost" state + the single recommended next step                                  |
+| Terminal recap                         | User-facing-changes lens; mechanism only where it changed something observable                       |
+| Verify/CI mechanics mid-run            | Concise technical is fine — transient bookkeeping the user rarely reads                              |
+
 ## Emit instructions as scannable numbered steps
 
 A returning reader — resuming a paused pipeline, following an escalation
