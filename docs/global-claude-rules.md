@@ -5,6 +5,10 @@ flow's `AGENTS.md ## Output style` only apply inside this repo; this
 block carries the same calibrated communication preferences (elicited
 via the 2026-08-11 battery) to every repo and every session on this
 machine. No file in this repo consumes it — it exists to be copied out.
+Deliberately not mirrored into `templates/AGENTS.md.template`: this doc
+is the cross-repo delivery path, and the precedence rule below means a
+repo's own AGENTS.md/CLAUDE.md rules already win, so a template mirror
+would duplicate the delivery path rather than add coverage.
 
 ```markdown
 # Communication rules

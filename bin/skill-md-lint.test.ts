@@ -1222,7 +1222,8 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * `wc -c` bytes) against a ~247-char lean opener; post-edit size is
    * 25_125. 25_200 was rejected — 75 chars of headroom is closer to the
    * 9-char red-build trap called out two raises above than to the
-   * 136–202-char headroom every prior raise landed with — so the budget
+   * 136–202-char headroom the three most recent deliberate raises landed
+   * with (202, 136, 140) — so the budget
    * goes to 25_300 (175 chars of headroom) instead, and trimming
    * lint-anchored `## Output style` prose to make room was rejected on
    * the same grounds as the precedents above.
@@ -3284,6 +3285,31 @@ describe("AGENTS.md Output style anchors", () => {
         "'- **Emit instructions as scannable numbered steps.**' " +
         "exactly once at the start of a list item in `## Output style`. " +
         "Found " +
+        (matches?.length ?? 0) +
+        " match(es).",
+    ).toBe(1);
+  });
+
+  it("AGENTS.md contains the product-lens impact-first rule anchor phrase exactly once", () => {
+    // The bolded anchor phrase **Frame every explanation impact-first for
+    // a product-lens reader.** is the stable lint hook for the rule
+    // documented at AGENTS.md `## Output style`. Its rationale (worked
+    // examples, exclusion list, per-stage focus table) lives at
+    // references/output-style.md `## Frame every explanation
+    // impact-first for a product-lens reader`, and the pause-point
+    // widening sentence lives at
+    // skills/pipeline/flow-pipeline/references/pause-output-contract.md.
+    // Renaming the rule's anchor phrase requires updating this assertion
+    // in the same commit.
+    const matches = agentsContent.match(
+      /^- \*\*Frame every explanation impact-first for a product-lens reader\.\*\*/gm,
+    );
+    expect(
+      matches?.length ?? 0,
+      "AGENTS.md must contain the rule anchor phrase " +
+        "'- **Frame every explanation impact-first for a product-lens " +
+        "reader.**' exactly once at the start of a list item in " +
+        "`## Output style`. Found " +
         (matches?.length ?? 0) +
         " match(es).",
     ).toBe(1);
@@ -7741,6 +7767,30 @@ describe("pause-output contract wiring lint", () => {
     );
   });
 
+  it("references/output-style.md carries the product-lens impact-first section", () => {
+    // Deliberately NOT mirrored into templates/AGENTS.md.template — see
+    // docs/global-claude-rules.md's preamble: cross-repo delivery of this
+    // rule routes through that doc, and a repo's own AGENTS.md rules win
+    // by precedence, so extending the template would duplicate delivery
+    // paths rather than add coverage.
+    const c = fs.readFileSync(
+      path.join(REPO_ROOT, "references", "output-style.md"),
+      "utf8",
+    );
+    expect(c).toContain(
+      "## Frame every explanation impact-first for a product-lens reader",
+    );
+    expect(c).toContain("### Where impact-first does NOT apply");
+    expect(c).toContain("### Per-stage focus");
+  });
+
+  it("pause-output-contract.md carries the explanatory-content widening sentence", () => {
+    const c = fs.readFileSync(CONTRACT_PATH, "utf8").replace(/\s+/g, " ");
+    expect(c).toContain(
+      "Explanatory content in any slot follows rules 1–2 as well",
+    );
+  });
+
   it("no .md file under skills/ probes the legacy ~/.claude/agents/ location", () => {
     // The three-tier legacy-bare-name resolution tier was collapsed to two
     // tiers (plugin-qualified → general-purpose) across every spawn-site
@@ -7770,5 +7820,38 @@ describe("pause-output contract wiring lint", () => {
         `location, which no live spawn-site guard resolves against anymore: ` +
         `${offenders.join(", ")}`,
     ).toEqual([]);
+  });
+});
+
+describe("docs/global-claude-rules.md display/heredoc sync", () => {
+  // The doc's own preamble declares an invariant: the fenced display copy
+  // (for humans pasting by hand) and the heredoc payload (for the one-shot
+  // terminal apply) must stay byte-identical. Nothing enforced that until
+  // now — a two-copy prose file is exactly the shape that drifts silently
+  // when someone edits the readable copy and forgets the heredoc.
+  it("the fenced display block and the heredoc payload are identical", () => {
+    const c = fs.readFileSync(
+      path.resolve(HERE, "..", "docs", "global-claude-rules.md"),
+      "utf8",
+    );
+
+    const fenceMatch = c.match(/```markdown\n([\s\S]*?)\n```/);
+    expect(fenceMatch, "expected a ```markdown fenced block").not.toBeNull();
+    const displayBody = fenceMatch![1];
+
+    const heredocMatch = c.match(
+      /cat << 'EOF' >> ~\/\.claude\/CLAUDE\.md\n([\s\S]*?)\nEOF/,
+    );
+    expect(
+      heredocMatch,
+      "expected a `cat << 'EOF' >> ~/.claude/CLAUDE.md` heredoc block",
+    ).not.toBeNull();
+    const heredocBody = heredocMatch![1];
+
+    expect(
+      heredocBody,
+      "the heredoc payload has drifted from the fenced display block — " +
+        "keep the two copies byte-identical (see the preamble invariant)",
+    ).toBe(displayBody);
   });
 });
