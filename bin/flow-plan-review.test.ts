@@ -18,8 +18,12 @@ import {
 const MODEL_1 = "Gemini 3.1 Pro (High)";
 const MODEL_2 = "Claude Opus 4.6 (Thinking)";
 
+// Must clear BOTH the engagement bars in bin/lib/plan-review-engagement.ts:
+// >=40 chars AND >=2 lens tokens (case-insensitive, from the lens-matcher
+// list — "goal"/"preference"/"walkthrough or user-flow"/"alternative"/
+// "failure-mode"/"cut-list"). Realistic prose, not keyword salad.
 const AGY_PROSE =
-  "Decision A — supervisor vs subagent: the supervisor branch dominates because it owns the gate. Pre-mortem: if agy is flaky the review silently skips, which is acceptable.";
+  "Judged against the stated goal, the supervisor branch dominates the subagent alternative because it owns the gate. A preference the author elicited mid-discovery softens this, but the goal anchor still wins. Failure-mode: if agy is flaky the review silently skips, which is acceptable.";
 
 const PLAN_WITH_SECTION = [
   "# PRD",
@@ -124,7 +128,15 @@ describe("parseArgs", () => {
 const ENABLED = JSON.stringify({ review: { gemini: true } });
 const PLAN_FILE = "/wt/.flow-tmp/plan.md";
 const OUT = "/wt/.flow-tmp/plan-review.md";
-const BASE_ARGV = ["--plan-file", PLAN_FILE, "--out", OUT];
+const WORKTREE = "/wt";
+const BASE_ARGV = [
+  "--plan-file",
+  PLAN_FILE,
+  "--out",
+  OUT,
+  "--worktree",
+  WORKTREE,
+];
 
 function makeDeps(overrides: Partial<Deps> = {}): Deps & {
   calls: {
@@ -200,6 +212,7 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     },
     mkdirp: () => {},
     writeOut: (line) => calls.out.push(line),
+    dirExists: () => true,
   };
   // Seed the plan file the helper reads (with the gate section present).
   files.set(PLAN_FILE, PLAN_WITH_SECTION);
@@ -309,6 +322,29 @@ describe("run — stale --out cleanup on skip", () => {
   });
 });
 
+describe("run — worktree gate", () => {
+  it("skips with worktree-not-provided when --worktree is omitted", () => {
+    const deps = makeDeps();
+    const argv = ["--plan-file", PLAN_FILE, "--out", OUT];
+    expect(run(argv, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "worktree-not-provided",
+    });
+    expect(deps.calls.delegate).toHaveLength(0);
+  });
+
+  it("skips with worktree-not-found when --worktree does not exist", () => {
+    const deps = makeDeps({ dirExists: () => false });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "worktree-not-found",
+    });
+    expect(deps.calls.delegate).toHaveLength(0);
+  });
+});
+
 describe("run — post-delegate error paths (ran:true → degrade to skip)", () => {
   it("skips with plan-output-unreadable when reading the raw artifact throws", () => {
     // Delegate reports ran:true but the raw artifact it points at can't be read.
@@ -361,7 +397,12 @@ describe("run — happy path", () => {
       skipReason: null,
       depth: "standard",
       reviewers: [
-        { model: "Gemini 3.1 Pro (High)", ran: true, skipReason: null },
+        {
+          model: "Gemini 3.1 Pro (High)",
+          ran: true,
+          skipReason: null,
+          lensesEngaged: 4,
+        },
       ],
     });
     // The finalized feedback file holds AGY's raw prose verbatim.
@@ -371,13 +412,53 @@ describe("run — happy path", () => {
     expect(deps.files.has(`${OUT}.agy-raw`)).toBe(false);
   });
 
-  it("passes the hardcoded Gemini model and --plan-file dir as --add-dir to the delegate", () => {
+  it("passes the hardcoded Gemini model and the worktree as --add-dir, with an 8m --timeout, to the delegate", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
     const argv = deps.calls.delegate[0]!;
     expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 3.1 Pro (High)");
-    expect(argv[argv.indexOf("--add-dir") + 1]).toBe("/wt/.flow-tmp");
+    expect(argv[argv.indexOf("--add-dir") + 1]).toBe(WORKTREE);
     expect(argv[argv.indexOf("--task") + 1]).toBe("plan-review");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe("8m");
+  });
+});
+
+describe("run — reviewer engagement (standard tier)", () => {
+  it("demotes a zero-byte reviewer artifact to reviewer-empty", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(rawPath, "");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "reviewer-empty",
+    });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
+  it("demotes a non-engaging reviewer (0-1 lenses) to reviewer-not-engaged", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(
+          rawPath,
+          "This plan looks fine overall and I have nothing further to add here.",
+        );
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "reviewer-not-engaged",
+    });
+    expect(deps.files.has(OUT)).toBe(false);
   });
 });
 
@@ -584,6 +665,17 @@ describe("run — --print-hash compute-only mode", () => {
     run(PRINT_ARGV, deps);
     expect(deps.calls.out[0]).toBe(computeDecisionHash(marked));
   });
+
+  // Regression guard: the worktree gate sits AFTER the printHash early
+  // return, so --print-hash must stay gate-free even with NO --worktree
+  // passed at all (PRINT_ARGV above never includes it, but this test pins
+  // the invariant explicitly rather than leaving it implicit).
+  it("still works with NO --worktree passed at all", () => {
+    const deps = makeDeps();
+    expect(PRINT_ARGV).not.toContain("--worktree");
+    expect(run(PRINT_ARGV, deps)).toBe(0);
+    expect(deps.calls.out[0]).toBe(computeDecisionHash(PLAN_WITH_SECTION));
+  });
 });
 
 describe("round-trip: --print-hash marker makes the next run skip", () => {
@@ -699,6 +791,38 @@ describe("run — battery prompt content", () => {
     expect(() => run(BASE_ARGV, deps)).not.toThrow();
     expect(promptFor(deps)).toContain("Users cannot export widgets today.");
   });
+
+  it("names the worktree path as the readable repository root", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    expect(promptFor(deps)).toContain(WORKTREE);
+  });
+
+  it("instructs the reviewer to emit the exact authored lens headings", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    expect(promptFor(deps)).toContain("EXACT authored headings");
+  });
+
+  it("requires any current-behaviour claim to cite the exact file path it was read from", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    expect(promptFor(deps)).toContain(
+      "must cite the exact file path you read it from",
+    );
+  });
+
+  it("no longer carries the removed 'Do NOT trace code paths you cannot see' instruction", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    expect(promptFor(deps)).not.toContain(
+      "Do NOT trace code paths you cannot see",
+    );
+  });
 });
 
 // --- computeDepth (auto|standard|deep boundary) ------------------------------
@@ -797,8 +921,8 @@ describe("run — deep tier happy path", () => {
     expect(env.depth).toBe("deep");
     expect(env.skipReason).toBeNull();
     expect(env.reviewers).toEqual([
-      { model: MODEL_1, ran: true },
-      { model: MODEL_2, ran: true },
+      { model: MODEL_1, ran: true, lensesEngaged: 4 },
+      { model: MODEL_2, ran: true, lensesEngaged: 4 },
     ]);
     const out = deps.files.get(OUT);
     expect(out).toContain("## Reviewer 1 — " + MODEL_1);
@@ -806,7 +930,7 @@ describe("run — deep tier happy path", () => {
     expect(out).toContain("Convergence rule");
   });
 
-  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's", () => {
+  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's, both with an 8m timeout", () => {
     // Reviewer 2 (SECOND_MODEL) is the same model family as the PRD's
     // author, so it must not receive the byte-identical "different model
     // family" prompt handed to reviewer 1.
@@ -824,6 +948,8 @@ describe("run — deep tier happy path", () => {
     expect(manifest[1].model).toBe(MODEL_2);
     expect(manifest[0].out).toBe(`${OUT}.r1.md`);
     expect(manifest[1].out).toBe(`${OUT}.r2.md`);
+    expect(manifest[0].timeout).toBe("8m");
+    expect(manifest[1].timeout).toBe("8m");
 
     const r1Prompt = deps.calls.writes.find(
       (w) => w.path === `${OUT}.prompt`,
@@ -850,7 +976,10 @@ describe("run — deep tier partial failure", () => {
       runFanout: (input) => {
         const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
         const artifactPath = `${input.outPath}.artifact.0.md`;
-        deps.files.set(artifactPath, "reviewer one prose, verbatim");
+        deps.files.set(
+          artifactPath,
+          "Reviewer one prose, verbatim: judged against the stated goal, this structurally different alternative holds up well.",
+        );
         return {
           entries: [
             {
@@ -876,10 +1005,12 @@ describe("run — deep tier partial failure", () => {
     expect(env.ran).toBe(true);
     expect(env.depth).toBe("deep");
     expect(env.reviewers).toEqual([
-      { model: MODEL_1, ran: true },
+      { model: MODEL_1, ran: true, lensesEngaged: 2 },
       { model: MODEL_2, ran: false, skipReason: "agy-not-authenticated" },
     ]);
-    expect(deps.files.get(OUT)).toBe("reviewer one prose, verbatim");
+    expect(deps.files.get(OUT)).toBe(
+      "Reviewer one prose, verbatim: judged against the stated goal, this structurally different alternative holds up well.",
+    );
   });
 });
 
@@ -902,6 +1033,95 @@ describe("run — deep tier both-skip", () => {
     });
     expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
     expect(envelope(deps)).toEqual({ ran: false, skipReason: "agy-not-found" });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+});
+
+describe("run — deep tier reviewer engagement demotion", () => {
+  // A non-engaging prose: clears the substance floor (>=40 chars) but
+  // engages 0 lenses, so classifyEngagement demotes it to
+  // reviewer-not-engaged rather than counting it as a survivor.
+  const NON_ENGAGING_PROSE =
+    "This plan looks fine overall and I have nothing further to add here.";
+
+  it("one demoted reviewer yields a single-reviewer output with NO convergence preamble, reviewers[] telling the truth", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        const artifactPath0 = `${input.outPath}.artifact.0.md`;
+        const artifactPath1 = `${input.outPath}.artifact.1.md`;
+        deps.files.set(artifactPath0, AGY_PROSE);
+        deps.files.set(artifactPath1, NON_ENGAGING_PROSE);
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath: artifactPath0,
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ran: true,
+              artifactPath: artifactPath1,
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.ran).toBe(true);
+    expect(env.depth).toBe("deep");
+    expect(env.reviewers).toEqual([
+      { model: MODEL_1, ran: true, lensesEngaged: 4 },
+      {
+        model: MODEL_2,
+        ran: false,
+        skipReason: "reviewer-not-engaged",
+        lensesEngaged: 0,
+      },
+    ]);
+    expect(deps.files.get(OUT)).toBe(AGY_PROSE);
+    expect(deps.files.get(OUT)).not.toContain("Convergence rule");
+  });
+
+  it("both demoted yields {ran:false, skipReason:'reviewer-empty'} carrying NO depth and NO reviewers fields", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        const artifactPath0 = `${input.outPath}.artifact.0.md`;
+        const artifactPath1 = `${input.outPath}.artifact.1.md`;
+        deps.files.set(artifactPath0, "");
+        deps.files.set(artifactPath1, NON_ENGAGING_PROSE);
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath: artifactPath0,
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ran: true,
+              artifactPath: artifactPath1,
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "reviewer-empty",
+    });
     expect(deps.files.has(OUT)).toBe(false);
   });
 });
@@ -963,7 +1183,10 @@ describe("run — deep tier degrade branches (untested seams)", () => {
         // Reviewer 1's artifact is seeded and readable; reviewer 2's
         // reported artifactPath is never written, so readFile throws.
         const artifactPath0 = `${input.outPath}.artifact.0.md`;
-        deps.files.set(artifactPath0, "reviewer one prose, verbatim");
+        deps.files.set(
+          artifactPath0,
+          "Reviewer one prose, verbatim: judged against the stated goal, this structurally different alternative holds up well.",
+        );
         return {
           entries: [
             {
@@ -988,10 +1211,12 @@ describe("run — deep tier degrade branches (untested seams)", () => {
     const env = envelope(deps);
     expect(env.ran).toBe(true);
     expect(env.reviewers).toEqual([
-      { model: MODEL_1, ran: true },
+      { model: MODEL_1, ran: true, lensesEngaged: 2 },
       { model: MODEL_2, ran: false, skipReason: "plan-output-unreadable" },
     ]);
-    expect(deps.files.get(OUT)).toBe("reviewer one prose, verbatim");
+    expect(deps.files.get(OUT)).toBe(
+      "Reviewer one prose, verbatim: judged against the stated goal, this structurally different alternative holds up well.",
+    );
   });
 
   it("treats an entry-less/malformed fanout aggregate as a both-skip (agy-not-found)", () => {

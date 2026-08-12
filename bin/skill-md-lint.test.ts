@@ -2722,6 +2722,53 @@ describe("cross-model design review doc symmetry (AGENTS.md ↔ flow-epic-create
   });
 });
 
+describe("cross-model plan review worktree + convergence pins", () => {
+  /**
+   * Pins two invariants added by the reviewer-engagement PR: every
+   * flow-plan-review review-mode invocation across BOTH SKILL.md call
+   * sites must thread `--worktree "$WORKTREE"` (a `worktree-not-provided`
+   * skip is a wiring bug, not an environment condition), and
+   * flow-pipeline/SKILL.md's convergence rule must be stated as
+   * conditional on two genuinely `ran:true` reviewers — not merely "both
+   * reviewers dispatched" — so a demoted (non-engaging/empty) reviewer
+   * can never be silently re-admitted into the convergence count.
+   */
+  const EPIC_CREATE_SKILL_MD_PATH = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "flow-epic-create",
+    "SKILL.md",
+  );
+  const epicCreateContent = fs.readFileSync(EPIC_CREATE_SKILL_MD_PATH, "utf8");
+
+  it.each([
+    ["flow-pipeline/SKILL.md", content],
+    ["flow-epic-create/SKILL.md", epicCreateContent],
+  ])(
+    '%s\'s flow-plan-review call site threads --worktree "$WORKTREE"',
+    (name, skillContent) => {
+      expect(
+        skillContent.includes('--worktree "$WORKTREE"'),
+        `${name}'s flow-plan-review call site must pass --worktree "$WORKTREE" ` +
+          "— both tiers pass the repository itself as the reviewer's sole " +
+          "--add-dir, and an omitted flag is a wiring bug (worktree-not-provided).",
+      ).toBe(true);
+    },
+  );
+
+  it("flow-pipeline/SKILL.md states the convergence rule is conditional on two ran:true reviewers", () => {
+    expect(
+      content.includes("reviewers[]` holds exactly two `ran:true` entries"),
+      "flow-pipeline/SKILL.md's convergence-rule prose must require " +
+        "reviewers[] to hold exactly two ran:true entries — a demoted " +
+        "(non-engaging/empty) reviewer must not count as a survivor for " +
+        "the convergence rule.",
+    ).toBe(true);
+  });
+});
+
 describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ references/fix-applier-instructions.md)", () => {
   const REQUIRED_KEYS = [
     "commits",

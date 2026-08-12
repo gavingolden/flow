@@ -12,6 +12,12 @@
  * preferences when they conflict with that goal, and forces the reviewer to
  * form an independent cut-list BEFORE it reads the plan's own `## Cut
  * list` — so a lazy "I agree with the author" never happens by construction.
+ *
+ * The battery now runs WITH REPO ACCESS: `flow-plan-review.ts` passes the
+ * repository itself as the reviewer's sole `--add-dir`, so the prompt
+ * instructs the reviewer to verify the plan's claims about existing
+ * behaviour against the real code rather than assuming them, and to cite
+ * the exact path any current-behaviour claim was read from.
  */
 
 /**
@@ -64,6 +70,11 @@ export type BatteryPromptInput = {
   // different-family framing) for the standard tier and the deep tier's
   // first (genuinely different-family) reviewer.
   sameFamilyAsAuthor?: boolean;
+  // The absolute repository root the reviewer can read (flow-plan-review.ts
+  // passes it as the reviewer's sole `--add-dir`). REQUIRED: both call
+  // sites in flow-plan-review.ts already hold `$WORKTREE` verbatim, so a
+  // caller that omits it is a wiring bug the type system should catch.
+  worktreePath: string;
 };
 
 /**
@@ -88,7 +99,9 @@ export function buildBatteryPrompt(input: BatteryPromptInput): string {
 
   return `${opener}
 
-Your output is INPUT the supervisor weighs against codebase context it can see and you cannot — it is NOT a verdict. Reason at the end-user and PRD level (named skills, pipeline steps, consumer repos). Do NOT trace code paths you cannot see: when you are uncertain whether a flow holds, flag the uncertainty explicitly — never fabricate a concrete flow to sound authoritative.
+Your output is INPUT the supervisor weighs against context it has and you do not — it is NOT a verdict. Reason at the end-user and PRD level (named skills, pipeline steps, consumer repos). ${input.worktreePath} is the readable repository root — READ it to VERIFY the plan's claims about existing behaviour rather than assuming them. Findings are about the PLAN's decisions, not about the current code's style — the code this plan describes does not exist yet, so do not review it. When you cannot verify a claim from the repository, flag the uncertainty explicitly — never fabricate a concrete flow to sound authoritative.
+
+Emit the six lenses below under their EXACT authored headings (e.g. \`**Goal-anchored verdicts.**\`) — do not paraphrase or rename them, so your output can be matched back to the lens it addresses. Any claim you make about CURRENT behaviour must cite the exact file path you read it from; an uncited claim about current behaviour must be labelled an assumption, not stated as fact — with repo access, a confident-but-fabricated codebase claim is the new failure mode this battery must guard against.
 
 ## Goal anchor
 

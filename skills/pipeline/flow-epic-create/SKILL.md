@@ -216,8 +216,12 @@ When both fire, run ONE review and branch on the helper's `{ran}` envelope
 
 ```bash
 flow-plan-review --plan-file "$WORKTREE/<EPIC_DIR>/design.md" \
-  --out "$WORKTREE/.flow-tmp/design-review.md" --task epic-design-review --depth deep
+  --out "$WORKTREE/.flow-tmp/design-review.md" --worktree "$WORKTREE" \
+  --task epic-design-review --depth deep
 ```
+
+The Bash tool call MUST pass an explicit `timeout: 600000`, since its own
+120000 ms default undercuts the helper's 8m agy cap.
 
 Always `--depth deep`: an epic decomposition is always consequential, and
 `auto` genuinely cannot fire deep here — `design.md` carries neither
