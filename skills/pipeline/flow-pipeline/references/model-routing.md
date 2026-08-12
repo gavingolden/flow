@@ -93,7 +93,16 @@ use, just declared on the skill instead of on a spawned agent. It should
 **NOT** carry `model:`. Prompt caches are model-scoped, so a mid-turn
 model switch discards the supervisor's warm cache and forces a full
 re-read of the transcript at full input rate — the opposite of the
-saving the pin is meant to buy.
+saving the pin is meant to buy, for a same- or adjacent-tier switch:
+staying put costs the re-read at the session model's cache-read rate,
+switching costs it at the target's uncached base rate, and that
+inequality holds when the two tiers' rates are close. It is not a law
+across a large tier gap — a top-tier model's cache-read rate can exceed
+a cheap tier's uncached base rate, which would flip the comparison. The
+decision not to pin `model:` here also rests on an independent
+judgment-quality argument, not the cache-cost argument alone: this
+skill's calls are exactly the kind of local, bounded judgment the
+supervisor's own session model is already carrying context for.
 
 `skills/universal/flow-checkpoint/SKILL.md` is the one instance of this
 pattern today: it pins `effort: medium` and deliberately omits `model:`.

@@ -8135,4 +8135,47 @@ describe("flow-checkpoint SKILL.md frontmatter policy", () => {
         "documents for the supervisor's natural-language checkpoint redirect.",
     ).toBe(false);
   });
+
+  // Repo-wide freeze on the two claims above: AGENTS.md states flow-checkpoint
+  // is the ONLY skill pinning `effort:` and that NO skill pins `model:`
+  // (see AGENTS.md's per-spawn model:-still-wins passage and
+  // skills/pipeline/flow-pipeline/references/model-routing.md). The two
+  // `it`s above only check flow-checkpoint's own file; without this scan
+  // both claims go stale silently the moment a second SKILL.md pins effort
+  // or any SKILL.md pins model.
+  it("is the ONLY SKILL.md pinning effort:, and no SKILL.md pins model:", () => {
+    const repoRoot = path.resolve(HERE, "..");
+    const skillsRoot = path.join(repoRoot, "skills");
+    const effortPinned: string[] = [];
+    const modelPinned: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.isFile() && entry.name === "SKILL.md") {
+          const fm = fs.readFileSync(full, "utf8").split("---")[1] ?? "";
+          if (/^effort:/m.test(fm))
+            effortPinned.push(path.relative(repoRoot, full));
+          if (/^model:/m.test(fm))
+            modelPinned.push(path.relative(repoRoot, full));
+        }
+      }
+    };
+    walk(skillsRoot);
+    expect(
+      effortPinned,
+      "AGENTS.md claims skills/universal/flow-checkpoint/SKILL.md is the ONLY " +
+        "skill pinning 'effort:' — the following SKILL.md files also pin it, " +
+        "which makes that claim stale: " +
+        effortPinned.join(", "),
+    ).toEqual(["skills/universal/flow-checkpoint/SKILL.md"]);
+    expect(
+      modelPinned,
+      "AGENTS.md states skills never pin 'model:' (see also " +
+        "skills/pipeline/flow-pipeline/references/model-routing.md) — the " +
+        "following SKILL.md files pin one, which makes that claim stale: " +
+        modelPinned.join(", "),
+    ).toEqual([]);
+  });
 });

@@ -71,11 +71,23 @@ two judgment calls inside it are real: deciding what conversational
 state is load-bearing enough to keep, and telling an implementation-nuance
 addendum apart from a scope/plan change that must instead be routed to a
 re-plan. Both failures are silent and unrecoverable once the transcript
-is cleared, so `effort: low` is not safe here. The frontmatter
+is cleared, so `effort: low` is not safe here. The pin is also a
+ceiling, not just a floor: on a session running deeper than medium
+(high/xhigh/max), this turn is deliberately capped rather than
+inheriting the session's depth. `docs/target-architecture.md`'s
+named-agent frontmatter policy reserves an omitted `effort:` for
+judgment roles precisely so they inherit session depth for open-ended
+design work — this skill's two judgment calls are bounded and local
+(classify conversational residue, distinguish an implementation nuance
+from a scope change) rather than open-ended, so capping them at
+`medium` is the deliberate trade-off, not an oversight. The frontmatter
 deliberately does NOT pin `model:`, because prompt caches are
 model-scoped — a model switch mid-turn would discard the supervisor's
 warm cache and force it to re-read the whole transcript at full input
-rate, the opposite of the intended saving. It also deliberately does NOT
+rate, the opposite of the intended saving in most cases (see
+`../../pipeline/flow-pipeline/references/model-routing.md` "In-process
+skills pin effort, not model" for the full routing rationale, including
+where that comparison can flip). It also deliberately does NOT
 set `disable-model-invocation:`, which would block the Skill-tool load
 path `../../pipeline/flow-pipeline/references/redirect-handling.md`
 documents for the supervisor's natural-language checkpoint redirect, nor
