@@ -7823,3 +7823,53 @@ describe("pause-output contract wiring lint", () => {
     ).toEqual([]);
   });
 });
+
+describe("flow-checkpoint SKILL.md frontmatter policy", () => {
+  const frontmatter = checkpointSkillContent.split("---")[1] ?? "";
+
+  it("pins effort: medium", () => {
+    expect(
+      /^effort: medium$/m.test(frontmatter),
+      "skills/universal/flow-checkpoint/SKILL.md frontmatter must declare " +
+        "'effort: medium' — the skill's judgment calls (what conversational " +
+        "state is load-bearing, and whether an addendum is an implementation " +
+        "nuance or a scope change) fail silently and unrecoverably once the " +
+        "transcript is cleared, so 'effort: low' is not safe.",
+    ).toBe(true);
+  });
+
+  it("does NOT pin a model", () => {
+    expect(
+      /^model:/m.test(frontmatter),
+      "skills/universal/flow-checkpoint/SKILL.md frontmatter must NOT pin a " +
+        "'model:' — prompt caches are model-scoped, so a model switch on this " +
+        "turn would discard the supervisor's warm cache and re-read the whole " +
+        "transcript at full input rate, the opposite of the intended saving.",
+    ).toBe(false);
+  });
+
+  it("does NOT fork context or pin an agent", () => {
+    expect(
+      /^context:/m.test(frontmatter),
+      "skills/universal/flow-checkpoint/SKILL.md frontmatter must NOT set " +
+        "'context:' (e.g. fork) — a forked context cannot see the " +
+        "conversation, which is this skill's only input.",
+    ).toBe(false);
+    expect(
+      /^agent:/m.test(frontmatter),
+      "skills/universal/flow-checkpoint/SKILL.md frontmatter must NOT set " +
+        "'agent:' — a forked context cannot see the conversation, which is " +
+        "this skill's only input.",
+    ).toBe(false);
+  });
+
+  it("does NOT disable model invocation", () => {
+    expect(
+      /^disable-model-invocation:/m.test(frontmatter),
+      "skills/universal/flow-checkpoint/SKILL.md frontmatter must NOT set " +
+        "'disable-model-invocation:' — it would block the Skill-tool load " +
+        "path skills/pipeline/flow-pipeline/references/redirect-handling.md " +
+        "documents for the supervisor's natural-language checkpoint redirect.",
+    ).toBe(false);
+  });
+});

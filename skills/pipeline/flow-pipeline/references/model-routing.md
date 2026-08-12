@@ -79,3 +79,21 @@ its identical per-spawn `model: "haiku"` param regardless — per-spawn wins
 over frontmatter, the two values are identical so they never conflict, and
 the param is what keeps the `general-purpose` fallback path (definition not
 installed) on haiku too.
+
+## In-process skills pin effort, not model
+
+The precedence table above governs Task-SPAWN sites only, and it
+structurally cannot cover an in-process skill: an in-process `SKILL.md`
+runs on the supervisor's own turn, never in a spawned subagent, so there
+is no Task call for a `model:` argument to attach to.
+
+A `SKILL.md` may still carry `effort:` in its frontmatter to bound that
+turn's reasoning depth — the same lever the low-effort agent definitions
+use, just declared on the skill instead of on a spawned agent. It should
+**NOT** carry `model:`. Prompt caches are model-scoped, so a mid-turn
+model switch discards the supervisor's warm cache and forces a full
+re-read of the transcript at full input rate — the opposite of the
+saving the pin is meant to buy.
+
+`skills/universal/flow-checkpoint/SKILL.md` is the one instance of this
+pattern today: it pins `effort: medium` and deliberately omits `model:`.

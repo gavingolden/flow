@@ -41,7 +41,11 @@ export type SpawnSite = {
    */
   fineGrainAbove?: string;
   fallback: Fallback;
-  /** Only `flow-verify` + `flow-fix-applier` pin effort (frontmatter). */
+  /**
+   * Of the spawn sites, only `flow-verify` + `flow-fix-applier` pin effort
+   * (frontmatter). An in-process `SKILL.md` (e.g. flow-checkpoint) may also
+   * pin effort — outside this spawn-site table entirely.
+   */
   effortPin?: EffortLevel;
 };
 

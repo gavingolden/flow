@@ -9,6 +9,7 @@ description: >-
   inside any flow supervisor window — a feature pipeline (`flow feature
   create`), an epic-design window (`flow epic create`), or an epic-run
   window (`flow epic run`).
+effort: medium
 ---
 
 # Goal
@@ -63,6 +64,23 @@ It does **NOT** auto-run `/clear`. `/clear` is a user-typed harness
 command with no tool/hook/SDK equivalent — Claude cannot invoke it. The
 skill's job ends by telling the user it is safe to type `/clear`
 themselves; a `SessionStart:clear` hook then auto-resumes the pipeline.
+
+This skill's frontmatter pins `effort: medium` rather than inheriting the
+session's depth. Step 1's work reads as a short summarization, but the
+two judgment calls inside it are real: deciding what conversational
+state is load-bearing enough to keep, and telling an implementation-nuance
+addendum apart from a scope/plan change that must instead be routed to a
+re-plan. Both failures are silent and unrecoverable once the transcript
+is cleared, so `effort: low` is not safe here. The frontmatter
+deliberately does NOT pin `model:`, because prompt caches are
+model-scoped — a model switch mid-turn would discard the supervisor's
+warm cache and force it to re-read the whole transcript at full input
+rate, the opposite of the intended saving. It also deliberately does NOT
+set `disable-model-invocation:`, which would block the Skill-tool load
+path `../../pipeline/flow-pipeline/references/redirect-handling.md`
+documents for the supervisor's natural-language checkpoint redirect, nor
+`context: fork` / `agent:`, since a forked context cannot see the
+conversation — this skill's only input.
 
 # Procedure
 
