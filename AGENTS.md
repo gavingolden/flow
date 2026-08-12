@@ -93,8 +93,8 @@ only `core/`), symlinked as ONE dir per module (`flow-module-<id>/agents`
 — Claude Code follows a symlinked dir, not a symlinked file). 15/16 carry
 `tools:` allowlists (flow-discovery: none); 2 mechanical roles pin
 `effort: low`, the gatekeeper pins `model: haiku`; per-spawn `model:`
-still wins. One in-process `SKILL.md` (`flow-checkpoint`) pins `effort:`
-too; skills never pin `model:` — see `model-routing.md`.
+still wins. In-process skills (`flow-checkpoint`) pin `effort:`, never
+`model:`.
 
 Conventions for any script under `bin/`: `#!/usr/bin/env bun` + `chmod
 +x`; gate `main()` with `import.meta.main` (not an
