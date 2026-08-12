@@ -60,7 +60,7 @@ Reference files (read on demand, not upfront):
 
 - `references/checklists/<lens>.md` — one per-lens checklist file (`security.md`,
   `performance.md`, `bug-detection.md`, `pattern-consistency.md`, `test-coverage.md`,
-  `supply-chain.md`), each ~150 lines. Read the lens-matching file at Step 3 when preparing
+  `supply-chain.md`), soft-capped at ~150 lines each. Read the lens-matching file at Step 3 when preparing
   that agent's context. `docs/consumer-review-patterns.md` is a portable seed for consumer
   repos' `.flow/review-checklist.md` — not loaded here.
 - `references/conventional-comments.md` — labeling framework (praise/nitpick/suggestion/
@@ -872,24 +872,38 @@ Otherwise, read the review comments from Step 2's fetch output. This is the self
      `references/fix-applier-instructions.md`'s checklist-append step) — never a separate
      commit.
    - **Generic / flow-shipped gap** (a pattern that belongs in one of flow's own lens
-     checklists, not this repo's `.flow/review-checklist.md`) → file it on the **flow repo**
-     via `flow-create-issue --label review-checklist --title "<pattern class>" --body
-     "<drafted pattern entry, ready to paste into a lens file>"`. This is a
-     `flow-create-issue` call, not an edit — **never edit files under `SKILL_DIR`**; the
-     lens checklists ship with flow and are only updated by a flow maintainer landing a PR
-     against the flow repo itself.
+     checklists, not this repo's `.flow/review-checklist.md`) → file it via
+     `flow-create-issue`, current-repo-only by v1 design (no `--repo` flag — see
+     `bin/flow-create-issue.ts`'s header comment): on the flow repo itself the issue
+     naturally lands there; on any OTHER (consumer) repo it's filed locally against
+     that repo's tracker with the `review-checklist` label plus a body naming flow as
+     the intended upstream destination (same convention as the helper's existing
+     third-party-regression deferrals — fix-applier-instructions.md step 2). Write the
+     drafted entry to a scratch file first, then pass it via `--body-file` (there is no
+     `--body` flag):
 
-   **The retrospective must never edit files under SKILL_DIR.** Its
-   `references/checklists/*.md` are flow-shipped and read-only from every invocation of
-   this skill — the only write paths from a retrospective are the target repo's
-   `.flow/review-checklist.md` (repo-specific) or a filed issue on the flow repo
-   (generic).
+     ```bash
+     cat > "$WORKTREE/.flow-tmp/review-checklist-gap.md" <<'EOF'
+     <drafted pattern entry, ready to paste into a lens file>
+     EOF
+     flow-create-issue --label review-checklist --title "<pattern class>" \
+       --body-file "$WORKTREE/.flow-tmp/review-checklist-gap.md"
+     ```
+
+     This is a `flow-create-issue` call, not an edit — **never edit files under
+     `SKILL_DIR`**; the lens checklists ship with flow and are only updated by a flow
+     maintainer landing a PR against the flow repo itself.
+
+   **The retrospective must never edit files under SKILL_DIR.** The only write paths
+   are the target repo's `.flow/review-checklist.md` (repo-specific) or a filed issue
+   (generic — flow's tracker when this repo IS flow, else the target repo's, per above).
 5. Record coverage stats for the report: "X of Y reviewer findings independently caught,"
    plus the destination for each captured gap (repo-specific `.flow/review-checklist.md`
-   append vs. flow-repo issue filed). When step 4 filed any generic gap, also record the
-   open `review-checklist`-labeled issue count (`gh issue list --label review-checklist
-   --repo <flow-repo> --state open --json number | jq length` or equivalent) with a
-   one-line nudge to run `/flow-backlog-triage` on the flow repo once that queue builds up.
+   append vs. issue filed, and which repo it landed on). If step 4 filed a generic gap
+   against the flow repo itself, also record the open `review-checklist`-labeled issue
+   count (`gh issue list --label review-checklist --state open --json number | jq length`)
+   with a nudge to run `/flow-backlog-triage` once that queue builds up — skip the count on
+   a consumer repo, where the issue was filed locally, not on flow's tracker.
 
 ## 6. Address Agent Findings
 

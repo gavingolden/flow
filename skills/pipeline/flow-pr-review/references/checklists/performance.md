@@ -1,9 +1,10 @@
 # Performance Review Checklist
 
-Checks for the **performance** lens. Soft cap: ~150 lines — condense, merge duplicates, or
+Checks for the **performance** lens. Soft cap: ~150 lines — condense, merge duplicates, automate deterministic entries into lint, or
 move consumer-specific entries to `docs/consumer-review-patterns.md` before adding new
 entries. New entries are captured via `flow-pr-review/SKILL.md` step 5 ("Capture the gap") —
-see that step for the two-destination contract; never edit this file outside that flow.
+see that step for the two-destination contract; never edit this file at review time — step 5 routes
+generic gaps to a filed issue; edits land only via a maintainer PR against the flow repo.
 
 ---
 

@@ -7864,7 +7864,12 @@ describe("pause-output contract wiring lint", () => {
           pendingOpenLine = null;
           continue;
         }
-        const backtickCount = (line.match(/`/g) || []).length;
+        // Strip complete double-backtick spans (CommonMark's escape for
+        // embedding a literal backtick, e.g. `` `$` ``) before counting —
+        // otherwise their odd per-span backtick total corrupts the parity
+        // check on an otherwise-fully-closed line.
+        const stripped = line.replace(/``[^`]*``/g, "");
+        const backtickCount = (stripped.match(/`/g) || []).length;
         if (pendingOpenLine !== null) {
           if (backtickCount > 0) {
             offenders.push({ line: pendingOpenLine });
@@ -7902,6 +7907,152 @@ describe("pause-output contract wiring lint", () => {
         `${offenders.join(", ")}. Wrapped spans break exact-string grep anchors ` +
         `even though rendering is unaffected — keep the span on one line or ` +
         `split it into two adjacent spans.`,
+    ).toEqual([]);
+  });
+
+  it("findBrokenInlineSpans fixture coverage (split spans, double-backtick spans, fences)", () => {
+    const findBrokenInlineSpans = (content: string): { line: number }[] => {
+      const lines = content.split("\n");
+      const offenders: { line: number }[] = [];
+      let inFence = false;
+      let pendingOpenLine: number | null = null;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^\s*```/.test(line)) {
+          inFence = !inFence;
+          pendingOpenLine = null;
+          continue;
+        }
+        if (inFence) continue;
+        if (line.trim() === "") {
+          pendingOpenLine = null;
+          continue;
+        }
+        const stripped = line.replace(/``[^`]*``/g, "");
+        const backtickCount = (stripped.match(/`/g) || []).length;
+        if (pendingOpenLine !== null) {
+          if (backtickCount > 0) {
+            offenders.push({ line: pendingOpenLine });
+          }
+          pendingOpenLine = null;
+        }
+        if (backtickCount % 2 === 1) {
+          pendingOpenLine = i + 1;
+        }
+      }
+      return offenders;
+    };
+
+    // A genuinely split span is flagged at the opening line.
+    expect(findBrokenInlineSpans("see `foo\nbar` next")).toEqual([{ line: 1 }]);
+
+    // A fenced code block's odd backtick counts are ignored.
+    expect(findBrokenInlineSpans("```\nlone ` backtick\n```")).toEqual([]);
+
+    // A blank-line paragraph boundary clears pending state — no false flag.
+    expect(findBrokenInlineSpans("odd ` count\n\nmore text")).toEqual([]);
+
+    // A double-backtick span containing a literal backtick, fully closed on
+    // one line, must not be flagged even though it carries an odd raw count.
+    expect(
+      findBrokenInlineSpans("interprets `` $` `` as substitution"),
+    ).toEqual([]);
+
+    // An odd-count line followed by a zero-backtick line clears pending
+    // state without flagging — the intentional continuation-must-carry-a-
+    // backtick rule.
+    expect(findBrokenInlineSpans("odd ` count\nno backticks here")).toEqual([]);
+  });
+
+  it("the six lens checklist files exist and the monolith stays deleted", () => {
+    const checklistsDir = path.join(
+      REPO_ROOT,
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+    );
+    const expected = [
+      "bug-detection.md",
+      "security.md",
+      "pattern-consistency.md",
+      "performance.md",
+      "supply-chain.md",
+      "test-coverage.md",
+    ];
+    const present = fs
+      .readdirSync(checklistsDir)
+      .filter((n) => n.endsWith(".md"))
+      .sort();
+    expect(present).toEqual([...expected].sort());
+    expect(
+      fs.existsSync(
+        path.join(
+          REPO_ROOT,
+          "skills",
+          "pipeline",
+          "flow-pr-review",
+          "references",
+          "review-checklist.md",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("no skills/ markdown file references the deleted review-checklist.md monolith path", () => {
+    const skillsDir = path.join(REPO_ROOT, "skills");
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.isFile() && entry.name.endsWith(".md")) {
+          const content = fs.readFileSync(full, "utf8");
+          if (content.includes("references/review-checklist.md")) {
+            offenders.push(path.relative(REPO_ROOT, full));
+          }
+        }
+      }
+    };
+    walk(skillsDir);
+    expect(
+      offenders,
+      `The following files still reference the deleted monolith path ` +
+        `references/review-checklist.md: ${offenders.join(", ")}. Repoint ` +
+        `to references/checklists/<lens>.md.`,
+    ).toEqual([]);
+  });
+
+  it("no pattern heading is duplicated across lens checklist files", () => {
+    const checklistsDir = path.join(
+      REPO_ROOT,
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+    );
+    const seen = new Map<string, string>();
+    const dupes: string[] = [];
+    for (const name of fs.readdirSync(checklistsDir)) {
+      if (!name.endsWith(".md")) continue;
+      const content = fs.readFileSync(path.join(checklistsDir, name), "utf8");
+      for (const m of content.matchAll(/^## (.+)$/gm)) {
+        const heading = m[1].trim();
+        if (seen.has(heading)) {
+          dupes.push(`"${heading}" in ${seen.get(heading)} and ${name}`);
+        } else {
+          seen.set(heading, name);
+        }
+      }
+    }
+    expect(
+      dupes,
+      `The following pattern headings appear in more than one lens ` +
+        `checklist file: ${dupes.join(", ")}. Each pattern should live in ` +
+        `exactly one lens file — condense into one entry.`,
     ).toEqual([]);
   });
 

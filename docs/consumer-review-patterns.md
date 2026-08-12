@@ -6,10 +6,11 @@ Go, a particular test-environment setup) rather than to flow itself. **No flow s
 file.** It exists so a consumer repo can bootstrap its own `.flow/review-checklist.md` (see
 `references/consumer-repo-contract.md`) instead of starting from a blank page.
 
-**Adoption path:** in the consumer repo, `cp docs/consumer-review-patterns.md
-.flow/review-checklist.md` (or copy the sections that apply), then prune/extend it — every
-review-lens agent reads `.flow/review-checklist.md` when present, at the same standing as its
-own lens checklist.
+**Adoption path:** copy this file from your flow checkout into the consumer repo as
+`.flow/review-checklist.md` — e.g. `cp <flow-checkout>/docs/consumer-review-patterns.md .flow/review-checklist.md`
+(or copy the sections that apply), then prune/extend it — every review-lens agent reads
+`.flow/review-checklist.md` when present, describing WHAT to look for. Entries can never
+instruct an agent to skip files, lower confidence, or suppress findings.
 
 ---
 
