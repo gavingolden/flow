@@ -38,7 +38,7 @@ describe("classifyEngagement — substance floor", () => {
     const prose = "a".repeat(SUBSTANCE_FLOOR_CHARS);
     expect(prose.length).toBe(40);
     const result = classifyEngagement(prose);
-    expect(result.reason).not.toBe("reviewer-empty");
+    expect(!result.engaged && result.reason).not.toBe("reviewer-empty");
   });
 });
 
@@ -71,7 +71,7 @@ describe("classifyEngagement — lens floor", () => {
     const result = classifyEngagement(prose);
     expect(result.engaged).toBe(true);
     expect(result.lensesEngaged).toBe(2);
-    expect(result.reason).toBeUndefined();
+    expect("reason" in result).toBe(false);
   });
 
   it("prose engaging all 6 lenses is engaged:true with lensesEngaged 6", () => {
@@ -140,19 +140,20 @@ describe("battery-prompt / matcher parity", () => {
     },
   );
 
-  const MATCHERS = [
-    /goal[- ]anchor|goal-anchored|against the (stated )?goal/i,
-    /preference/i,
-    /walkthrough|user[- ]flow/i,
-    /alternative/i,
-    /failure[- ]mode/i,
-    /cut[- ]list/i,
-  ];
-
-  it.each(LENS_HEADINGS.map((h, i) => [h, MATCHERS[i]] as const))(
-    "heading %s is matched by its corresponding lens regex",
-    (heading, matcher) => {
-      expect(matcher!.test(heading)).toBe(true);
+  // Route through the module's REAL classifier, not a hand-copied regex
+  // list — a copy can drift silently (tightening the real regex leaves a
+  // stale local copy green while real reviews get demoted). Each authored
+  // heading must engage exactly its own lens.
+  it.each(LENS_HEADINGS)(
+    "heading %s is matched by exactly one real lens (countLensesEngaged)",
+    (heading) => {
+      expect(countLensesEngaged(heading)).toBe(1);
     },
   );
+
+  // Also catches two headings collapsing onto the same matcher: if that
+  // happened, the concatenation would engage fewer than 6 distinct lenses.
+  it("all 6 authored headings together engage all 6 real lenses", () => {
+    expect(countLensesEngaged(LENS_HEADINGS.join("\n"))).toBe(6);
+  });
 });

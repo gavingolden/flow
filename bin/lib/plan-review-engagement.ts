@@ -2,9 +2,20 @@
  * Pure prose engagement classifier for `bin/flow-plan-review.ts`'s
  * cross-model (AGY) reviewers. Scores a reviewer's raw prose output against
  * the six battery lenses `bin/lib/plan-review-prompt.ts` prescribes so a
- * truncated/empty/rubber-stamp reviewer can be demoted to `ran:false`
- * instead of silently counting as a genuine "reviewer engaged" survivor for
- * the deep-tier convergence rule.
+ * truncated/empty reviewer can be demoted to `ran:false` instead of
+ * silently counting as a genuine "reviewer engaged" survivor for the
+ * deep-tier convergence rule.
+ *
+ * HONEST SCOPE: this is a truncation/silence detector, NOT a quality
+ * detector. It does not, and cannot, catch a genuine rubber-stamp review —
+ * the battery prompt mandates the six exact lens headings, and each heading
+ * contains its own matcher keyword (e.g. `**Goal-anchored verdicts.**`
+ * matches the goal-anchor lens), so a reviewer that emits all six headings
+ * followed only by "Nothing to add." scores a full 6/6 here. This
+ * heading-satisfiability is a known limitation, not a bug to fix by
+ * redesigning the classifier — catching content-free-but-well-formatted
+ * prose would need actual judgment (e.g. another model pass), which this
+ * pure, fast, deterministic gate deliberately does not attempt.
  *
  * Deliberately a PURE PROSE classifier with NO markdown-structure
  * assumptions — it does not scan for headings or sections the way
@@ -23,17 +34,26 @@ export const SUBSTANCE_FLOOR_CHARS = 40;
 // lens in passing).
 export const MIN_LENSES_ENGAGED = 2;
 
-export type EngagementResult = {
-  engaged: boolean;
-  lensesEngaged: number;
-  reason?: "reviewer-empty" | "reviewer-not-engaged";
-};
+// Discriminated union: `engaged: false` GUARANTEES a present `reason`, so
+// call sites never need a `eng.reason!` non-null assertion — the type
+// system enforces the invariant that only an engaged:false result carries a
+// demotion reason.
+export type EngagementResult =
+  | { engaged: true; lensesEngaged: number }
+  | {
+      engaged: false;
+      lensesEngaged: number;
+      reason: "reviewer-empty" | "reviewer-not-engaged";
+    };
 
 // One matcher per battery lens, in the prescribed lens order. Each is
 // case-insensitive and matches at most once per lens regardless of how many
 // times the pattern recurs in the prose.
 const LENS_MATCHERS: RegExp[] = [
-  /goal[- ]anchor|goal-anchored|against the (stated )?goal/i,
+  // `goal-anchored` is already subsumed by `goal[- ]anchor` (matches both
+  // "goal-anchor" and "goal anchor" as a prefix) — the third alternative was
+  // dead.
+  /goal[- ]anchor|against the (stated )?goal/i,
   /preference/i,
   /walkthrough|user[- ]flow/i,
   /alternative/i,

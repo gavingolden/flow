@@ -2750,10 +2750,15 @@ describe("cross-model plan review worktree + convergence pins", () => {
     '%s\'s flow-plan-review call site threads --worktree "$WORKTREE"',
     (name, skillContent) => {
       expect(
-        skillContent.includes('--worktree "$WORKTREE"'),
+        /flow-plan-review\b[\s\S]{0,200}?--worktree "\$WORKTREE"/.test(
+          skillContent,
+        ),
         `${name}'s flow-plan-review call site must pass --worktree "$WORKTREE" ` +
           "— both tiers pass the repository itself as the reviewer's sole " +
-          "--add-dir, and an omitted flag is a wiring bug (worktree-not-provided).",
+          "--add-dir, and an omitted flag is a wiring bug (worktree-not-provided). " +
+          "This must be anchored to the flow-plan-review invocation itself, not " +
+          "merely present anywhere in the file (e.g. on an unrelated " +
+          "flow-state-update call).",
       ).toBe(true);
     },
   );

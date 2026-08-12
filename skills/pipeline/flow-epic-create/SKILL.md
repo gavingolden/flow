@@ -221,7 +221,7 @@ flow-plan-review --plan-file "$WORKTREE/<EPIC_DIR>/design.md" \
 ```
 
 The Bash tool call MUST pass an explicit `timeout: 600000`, since its own
-120000 ms default undercuts the helper's 5m-per-reviewer agy cap (the deep tier runs its two reviewers serially, so the budget is 2 x 5m).
+120000 ms default undercuts the helper's per-reviewer agy cap (the deep tier runs its two reviewers serially at an asymmetric 3m+6m=9m budget, sized to measured durations — never 10m, which would leave zero real margin under the ceiling). Treat a missing/unparseable envelope (the harness killed the Bash call before either reviewer finished) as `skipReason: "review-timed-out"` and proceed unchanged — this layer is advisory and must never block the gate.
 
 Always `--depth deep`: an epic decomposition is always consequential, and
 `auto` genuinely cannot fire deep here — `design.md` carries neither
@@ -237,10 +237,13 @@ required-headings contract) — the deep tier here is forced by this
 - `ran:true` → read `design-review.md` and weigh EACH material AGY point against
   the codebase context you hold. AGY is a different model with less context —
   its output is **INPUT you weigh, NOT a verdict**. Also record each
-  reviewer's `ran`/`skipReason` from the envelope's `reviewers[]` in
-  scrollback. **Convergence rule:** a material point raised **independently
-  by BOTH reviewers is presumptively accepted**; overriding it requires a
-  named rationale in the appended subsection below, same as `/flow-pipeline`
+  reviewer's `ran`/`skipReason`/`lensesEngaged` (as N/6) from the envelope's
+  `reviewers[]` in scrollback — a demoted (non-engaging/empty) reviewer is
+  not a survivor for the convergence rule below. **Convergence rule:** applies
+  ONLY when `reviewers[]` holds exactly two `ran:true` (genuinely engaged)
+  entries — a material point raised **independently by BOTH reviewers is
+  presumptively accepted**; overriding it requires a named rationale in the
+  appended subsection below, same as `/flow-pipeline`
   Step 3's deep-tier convergence rule. Because this site always forces
   `--depth deep`, a partial deep failure (one reviewer ran, one skipped) is a
   routine outcome here, not an edge case — on that outcome `design-review.md`

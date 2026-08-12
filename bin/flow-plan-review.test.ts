@@ -412,14 +412,14 @@ describe("run — happy path", () => {
     expect(deps.files.has(`${OUT}.agy-raw`)).toBe(false);
   });
 
-  it("passes the hardcoded Gemini model and the worktree as --add-dir, with a 5m --timeout, to the delegate", () => {
+  it("passes the hardcoded Gemini model and the worktree as --add-dir, with a 3m --timeout, to the delegate", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
     const argv = deps.calls.delegate[0]!;
     expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 3.1 Pro (High)");
     expect(argv[argv.indexOf("--add-dir") + 1]).toBe(WORKTREE);
     expect(argv[argv.indexOf("--task") + 1]).toBe("plan-review");
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("5m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe("3m");
   });
 });
 
@@ -838,6 +838,29 @@ describe("run — battery prompt content", () => {
       "Do NOT trace code paths you cannot see",
     );
   });
+
+  // Regression: `.flow-tmp/` sits inside the new `--add-dir`, and the deep
+  // tier's `concurrency: 1` guarantees reviewer 1's finished review is on
+  // disk before reviewer 2 starts — so without this instruction, "a point
+  // BOTH reviewers raised independently" could silently be echo, not
+  // agreement, undermining the convergence rule this PR hardens.
+  it("tells the reviewer not to read .flow-tmp/, naming why independence matters", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    const prompt = promptFor(deps);
+    expect(prompt).toContain(".flow-tmp/");
+    expect(prompt).toContain("Do NOT read");
+  });
+
+  it("tells the reviewer not to open .env/credential/secret files", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    const prompt = promptFor(deps);
+    expect(prompt).toContain(".env");
+    expect(prompt).toMatch(/credential|secret/i);
+  });
 });
 
 // --- computeDepth (auto|standard|deep boundary) ------------------------------
@@ -945,7 +968,7 @@ describe("run — deep tier happy path", () => {
     expect(out).toContain("Convergence rule");
   });
 
-  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's, both with a 5m timeout", () => {
+  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's, with the asymmetric per-reviewer timeouts and addDirs threading the worktree", () => {
     // Reviewer 2 (SECOND_MODEL) is the same model family as the PRD's
     // author, so it must not receive the byte-identical "different model
     // family" prompt handed to reviewer 1.
@@ -963,8 +986,16 @@ describe("run — deep tier happy path", () => {
     expect(manifest[1].model).toBe(MODEL_2);
     expect(manifest[0].out).toBe(`${OUT}.r1.md`);
     expect(manifest[1].out).toBe(`${OUT}.r2.md`);
-    expect(manifest[0].timeout).toBe("5m");
-    expect(manifest[1].timeout).toBe("5m");
+    // Asymmetric split: reviewer 1 (fast, Gemini) 3m, reviewer 2 (slow,
+    // Opus) 6m — sum 9m, staying under the 10m Bash-tool ceiling instead of
+    // exactly equalling it.
+    expect(manifest[0].timeout).toBe("3m");
+    expect(manifest[1].timeout).toBe("6m");
+    // addDirs = [parsed.worktree] on BOTH manifest entries — this is the
+    // exact line this PR exists to fix (the reviewer must be granted repo
+    // access, not left to review in a vacuum).
+    expect(manifest[0].addDirs).toEqual([WORKTREE]);
+    expect(manifest[1].addDirs).toEqual([WORKTREE]);
 
     const r1Prompt = deps.calls.writes.find(
       (w) => w.path === `${OUT}.prompt`,
@@ -976,6 +1007,10 @@ describe("run — deep tier happy path", () => {
     expect(r2Prompt).toContain(
       "A PRD drafted by another instance of your own model family",
     );
+    // Reviewer 2's prompt is built at an independently-threaded second call
+    // site (buildBatteryPrompt with sameFamilyAsAuthor:true), so its
+    // worktree threading must be asserted separately from reviewer 1's.
+    expect(r2Prompt).toContain(WORKTREE);
   });
 
   // Serial, not parallel — verified live, and the deep tier's whole premise

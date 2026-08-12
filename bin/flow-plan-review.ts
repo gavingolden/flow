@@ -15,7 +15,7 @@
  *
  * Depth tiers (`--depth auto|standard|deep`, default `auto`): STANDARD runs
  * one reviewer (MODEL, unchanged from the original single-reviewer shape).
- * DEEP runs TWO reviewers (MODEL + SECOND_MODEL) concurrently via
+ * DEEP runs TWO reviewers (MODEL + SECOND_MODEL) serially via
  * `flow-delegate-fanout` — a 2-entry manifest handed to the fanout BINARY,
  * never two direct `Bun.spawn` calls (see `computeDepth`/the deep branch
  * below for why). `auto` resolves via `computeDepth`: a plan whose task
@@ -54,11 +54,9 @@
  * neither field, so every skip envelope stays byte-identical to the
  * single-reviewer era. Exit 2 only on a usage error.
  *
- * The convergence preamble (below) now requires TWO GENUINELY ENGAGED
- * reviewers: a demoted (non-engaging/empty) reviewer is not a survivor, so
- * `reviewers[]` holding two `ran:true` entries is what actually means
- * "convergence rule applies" — a single surviving reviewer's points remain
- * plain INPUT, same as the standard tier.
+ * The convergence preamble (below) requires TWO GENUINELY ENGAGED reviewers
+ * — see the `survivors` computation in the deep-tier branch for the
+ * authoritative statement of that invariant.
  *
  * Revision-pass re-fire: on a step-3 re-entry the supervisor re-runs this
  * helper unconditionally; the `decision-analysis-unchanged` skip is what makes
@@ -101,20 +99,26 @@ export { extractGoalLine };
 const DEFAULT_TASK = "plan-review";
 
 // Bounds each agy call explicitly rather than relying on flow-delegate's own
-// default: bounded ABOVE by the supervisor's 600000 ms Bash-tool ceiling
-// (the caller must pass an explicit `timeout: 600000` to the Bash tool call
-// that invokes this helper — see flow-pipeline/SKILL.md step 3), and bounded
-// BELOW by what an agentic six-lens run actually needs (measured live:
-// ~2m for Gemini, ~4.5m for Opus, against this repo).
+// default: bounded ABOVE by the supervisor's 600000 ms (10m) Bash-tool
+// ceiling (the caller must pass an explicit `timeout: 600000` to the Bash
+// tool call that invokes this helper — see flow-pipeline/SKILL.md step 3),
+// and bounded BELOW by what an agentic six-lens run actually needs (measured
+// live against this repo: ~1m35-1m50 for Gemini/reviewer 1, ~4m30-4m50 for
+// Opus/reviewer 2).
 //
 // The deep tier runs its two reviewers SERIALLY (see the fanout call's
 // `concurrency: 1` and the comment there), so the ceiling constrains the
-// SUM, not the max: 2 x 5m = 10m is the whole budget. A larger per-reviewer
-// cap would let a single slow reviewer run the Bash call past 600000 ms,
-// where the harness kills it and NO envelope is produced at all — strictly
-// worse than a truncated one, which the engagement check below still
-// detects and reports via `lensesEngaged`.
-const REVIEW_TIMEOUT = "5m";
+// SUM, not the max. A symmetric 2 x 5m = 10m split left ZERO real margin
+// once four bun startups and two agy spawns are counted — it exactly
+// equalled the ceiling, not stayed under it. Split ASYMMETRICALLY instead,
+// sized to the measured durations: reviewer 1 (Gemini, fast) gets 3m,
+// reviewer 2 (Opus, slow) gets 6m. INVARIANT: the sum must stay <= 9m,
+// never == 10m — leaving ~60s of real margin under the 600000 ms ceiling
+// while also raising Opus's own headroom from ~10s to ~70s. The standard
+// tier runs only reviewer 1 (MODEL, i.e. Gemini), so it uses the
+// REVIEWER_1_TIMEOUT value.
+const REVIEWER_1_TIMEOUT = "3m";
+const REVIEWER_2_TIMEOUT = "6m";
 
 // The DEEP-tier combined --out preamble: names the convergence rule the
 // supervisor applies when reading a two-reviewer file (kept in sync with
@@ -634,7 +638,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       "--task",
       parsed.task,
       "--timeout",
-      REVIEW_TIMEOUT,
+      REVIEWER_1_TIMEOUT,
     ]);
 
     // Branch on the `ran` field (NEVER the exit code): flow-delegate exits 0
@@ -656,7 +660,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     // demotion below.
     const eng = classifyEngagement(raw);
     if (!eng.engaged) {
-      return skip(eng.reason!);
+      // EngagementResult is a discriminated union: engaged:false guarantees
+      // a present `reason`, so no non-null assertion is needed here.
+      return skip(eng.reason);
     }
 
     try {
@@ -726,7 +732,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       promptFile: promptPath,
       addDirs,
       out: deepArtifactR1,
-      timeout: REVIEW_TIMEOUT,
+      timeout: REVIEWER_1_TIMEOUT,
     },
     {
       task: `${parsed.task}-r2`,
@@ -734,7 +740,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       promptFile: promptPathR2,
       addDirs,
       out: deepArtifactR2,
-      timeout: REVIEW_TIMEOUT,
+      timeout: REVIEWER_2_TIMEOUT,
     },
   ];
 
