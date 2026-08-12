@@ -104,10 +104,17 @@ const DEFAULT_TASK = "plan-review";
 // default: bounded ABOVE by the supervisor's 600000 ms Bash-tool ceiling
 // (the caller must pass an explicit `timeout: 600000` to the Bash tool call
 // that invokes this helper — see flow-pipeline/SKILL.md step 3), and bounded
-// BELOW by flow-delegate's known-truncating 5m default (a shorter timeout
-// has been observed to silently truncate an agentic agy run mid-battery,
-// exiting 0 with a partial transcript embedded as though it were complete).
-const REVIEW_TIMEOUT = "8m";
+// BELOW by what an agentic six-lens run actually needs (measured live:
+// ~2m for Gemini, ~4.5m for Opus, against this repo).
+//
+// The deep tier runs its two reviewers SERIALLY (see the fanout call's
+// `concurrency: 1` and the comment there), so the ceiling constrains the
+// SUM, not the max: 2 x 5m = 10m is the whole budget. A larger per-reviewer
+// cap would let a single slow reviewer run the Bash call past 600000 ms,
+// where the harness kills it and NO envelope is produced at all — strictly
+// worse than a truncated one, which the engagement check below still
+// detects and reports via `lensesEngaged`.
+const REVIEW_TIMEOUT = "5m";
 
 // The DEEP-tier combined --out preamble: names the convergence rule the
 // supervisor applies when reading a two-reviewer file (kept in sync with
@@ -737,10 +744,20 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return skip("plan-prep-failed");
   }
 
+  // concurrency 1 — SERIAL, and load-bearing. Measured live on this repo:
+  // with both reviewers now reading the repository, two simultaneous agy
+  // sessions contend and one dies — 3/3 concurrent deep runs lost Gemini
+  // (twice `reviewer-empty`, once `agy-error`) while the SAME reviewer
+  // succeeded 4/4 when it was the only agy session running. Serialising
+  // took the run to 2/2 reviewers engaged at 6/6 lenses each, in 6m27s.
+  // Raising this back to 2 re-breaks the deep tier's whole premise: it
+  // silently reduces a paid two-reviewer review to one, which is the exact
+  // defect this helper was fixed to eliminate. REVIEW_TIMEOUT is sized
+  // against this serialisation (see its comment).
   const aggregate = deps.runFanout({
     manifestPath,
     outPath: fanoutOutPath,
-    concurrency: 2,
+    concurrency: 1,
   });
   const entries = aggregate.entries ?? [];
   const r1 = resolveReviewer(

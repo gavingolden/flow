@@ -221,7 +221,7 @@ flow-plan-review --plan-file "$WORKTREE/<EPIC_DIR>/design.md" \
 ```
 
 The Bash tool call MUST pass an explicit `timeout: 600000`, since its own
-120000 ms default undercuts the helper's 8m agy cap.
+120000 ms default undercuts the helper's 5m-per-reviewer agy cap (the deep tier runs its two reviewers serially, so the budget is 2 x 5m).
 
 Always `--depth deep`: an epic decomposition is always consequential, and
 `auto` genuinely cannot fire deep here — `design.md` carries neither

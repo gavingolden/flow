@@ -769,7 +769,7 @@ When all three fire, run `flow-plan-review --plan-file
 "$WORKTREE/.flow-tmp/plan.md" --out "$WORKTREE/.flow-tmp/plan-review.md"
 --worktree "$WORKTREE"` (no `--depth` flag — relies on `auto`). The Bash
 tool call MUST pass an explicit `timeout: 600000`, since its own 120000 ms
-default undercuts the helper's 8m agy cap. Branch on the `{ran}` envelope
+default undercuts the helper's 5m-per-reviewer agy cap (the deep tier runs its two reviewers serially, so the budget is 2 x 5m). Branch on the `{ran}` envelope
 (never the exit code): `ran:false` records `skipReason` and proceeds
 unchanged (graceful no-op, e.g. agy unavailable); `ran:true` weighs each
 material AGY point as INPUT (never a verdict), revises plan.md **once**

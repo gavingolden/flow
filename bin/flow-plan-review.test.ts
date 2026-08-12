@@ -412,14 +412,14 @@ describe("run — happy path", () => {
     expect(deps.files.has(`${OUT}.agy-raw`)).toBe(false);
   });
 
-  it("passes the hardcoded Gemini model and the worktree as --add-dir, with an 8m --timeout, to the delegate", () => {
+  it("passes the hardcoded Gemini model and the worktree as --add-dir, with a 5m --timeout, to the delegate", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
     const argv = deps.calls.delegate[0]!;
     expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 3.1 Pro (High)");
     expect(argv[argv.indexOf("--add-dir") + 1]).toBe(WORKTREE);
     expect(argv[argv.indexOf("--task") + 1]).toBe("plan-review");
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("8m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe("5m");
   });
 });
 
@@ -815,6 +815,21 @@ describe("run — battery prompt content", () => {
     );
   });
 
+  // Regression: verified live against agy. Told to verify claims against the
+  // repo but not HOW, Gemini reached for shell (`grep`/`ls`) instead of its
+  // file-read tools. Shell needs the "command" permission, which headless `-p`
+  // mode cannot prompt for and auto-denies, so the run died at 0 bytes in 25s.
+  // Naming the access method took the same reviewer to a full six-lens review.
+  // Same failure class as the --add-dir bug this PR fixes, one layer over.
+  it("tells the reviewer to use file-reading tools and never shell out", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    const prompt = promptFor(deps);
+    expect(prompt).toContain("Do NOT shell out");
+    expect(prompt).toContain("auto-denied");
+  });
+
   it("no longer carries the removed 'Do NOT trace code paths you cannot see' instruction", () => {
     const deps = makeDeps();
     deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
@@ -930,7 +945,7 @@ describe("run — deep tier happy path", () => {
     expect(out).toContain("Convergence rule");
   });
 
-  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's, both with an 8m timeout", () => {
+  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's, both with a 5m timeout", () => {
     // Reviewer 2 (SECOND_MODEL) is the same model family as the PRD's
     // author, so it must not receive the byte-identical "different model
     // family" prompt handed to reviewer 1.
@@ -948,8 +963,8 @@ describe("run — deep tier happy path", () => {
     expect(manifest[1].model).toBe(MODEL_2);
     expect(manifest[0].out).toBe(`${OUT}.r1.md`);
     expect(manifest[1].out).toBe(`${OUT}.r2.md`);
-    expect(manifest[0].timeout).toBe("8m");
-    expect(manifest[1].timeout).toBe("8m");
+    expect(manifest[0].timeout).toBe("5m");
+    expect(manifest[1].timeout).toBe("5m");
 
     const r1Prompt = deps.calls.writes.find(
       (w) => w.path === `${OUT}.prompt`,
@@ -963,10 +978,17 @@ describe("run — deep tier happy path", () => {
     );
   });
 
-  it("pins --concurrency 2 on the fanout call so both reviewers dispatch in one wave", () => {
+  // Serial, not parallel — verified live, and the deep tier's whole premise
+  // depends on it. Once both reviewers read the repository, two simultaneous
+  // agy sessions contend: 3/3 concurrent deep runs lost Gemini (twice
+  // `reviewer-empty`, once `agy-error`) while the same reviewer succeeded
+  // 4/4 as the only running session. Serialising gave 2/2 reviewers at 6/6
+  // lenses in 6m27s. Raising this to 2 silently returns a paid two-reviewer
+  // review to one — the exact defect this helper was fixed to eliminate.
+  it("pins --concurrency 1 on the fanout call so the two reviewers run serially", () => {
     const deps = makeDeps();
     run([...BASE_ARGV, "--depth", "deep"], deps);
-    expect(deps.calls.fanout[0]?.concurrency).toBe(2);
+    expect(deps.calls.fanout[0]?.concurrency).toBe(1);
   });
 });
 
