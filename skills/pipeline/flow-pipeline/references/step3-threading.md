@@ -258,6 +258,33 @@ Full mechanics for the marker-hash embedding and the re-fire detection
 that SKILL.md Step 3's "Cross-model plan review (Layer 2, optional,
 config-gated)" sub-step points at.
 
+**Worktree threading (mandatory).** `$WORKTREE` is the supervisor's own
+worktree path (already held verbatim at this point in step 3); it is
+passed to `flow-plan-review` as `--worktree "$WORKTREE"` on EVERY
+review-mode call, standard or deep, so both tiers pass the repository
+itself as the reviewer's sole `--add-dir` and the reviewer can verify the
+plan's claims against real code. Two named skips guard this: an omitted
+`--worktree` yields `worktree-not-provided` (a wiring bug, distinct from
+an environment condition — `bin/skill-md-lint.test.ts` pins the flag at
+every SKILL.md call site, so an omission is a TEST-TIME failure, not just
+a runtime skip); a `--worktree` pointing at a non-directory yields
+`worktree-not-found`.
+
+**Reviewer engagement.** Each reviewer's raw prose is scored by
+`bin/lib/plan-review-engagement.ts` against the six battery lenses. A
+reviewer whose prose is empty/near-empty is demoted with
+`reviewer-empty`; one that clears the substance floor but engages fewer
+than 2 of the 6 lenses is demoted with `reviewer-not-engaged`. Either
+demotion sets `ran:false` on that reviewer's `reviewers[]` entry — a
+demoted reviewer is NOT a survivor for the convergence rule below. The
+envelope's `lensesEngaged` field (N out of 6) is the truncation
+detector: a run cut short mid-battery still reports `ran:true` but with a
+low N, which the supervisor surfaces so the user can discount it even
+when the reviewer wasn't formally demoted. The deep-tier convergence rule
+therefore requires `reviewers[]` to hold exactly two `ran:true` entries —
+a single surviving (or single genuinely engaged) reviewer's points remain
+plain INPUT, same as the standard tier.
+
 **Why `--print-hash`, not the envelope hash.** `flow-plan-review
 --print-hash --plan-file "$WORKTREE/.flow-tmp/plan.md"` must run on the
 **FINAL** plan — after the revision and the appended
@@ -296,16 +323,18 @@ that gate fires.
 
 **Depth tier and the `reviewers[]` envelope field.** The envelope
 additionally carries `depth` (`"standard"` or `"deep"`) and
-`reviewers: [{model, ran, skipReason?}, ...]` on EVERY `ran:true`
-result — one entry on the standard tier, two on the deep tier. These
-fields are ADDITIVE — only a `ran:false` SKIP envelope carries neither
-field and stays byte-identical to the single-reviewer era. On a deep
-point raised **independently by both reviewers is presumptively
-accepted** (the convergence rule SKILL.md Step 3 records); a
-single-reviewer point remains input to weigh exactly as a standard-tier
-point does today. A partial deep failure (one reviewer ran, one skipped)
-still reports `ran:true`, degraded to the surviving reviewer's prose,
-with the failed reviewer's `skipReason` recorded in its `reviewers[]`
-entry; a full deep both-skip propagates the FIRST reviewer's `skipReason`
-exactly as a standard-tier skip would (no `depth`/`reviewers` fields on
-any skip envelope, deep or standard).
+`reviewers: [{model, ran, skipReason?, lensesEngaged?}, ...]` on EVERY
+`ran:true` result — one entry on the standard tier, two on the deep tier.
+These fields are ADDITIVE — only a `ran:false` SKIP envelope carries
+neither field and stays byte-identical to the single-reviewer era. On a
+deep point raised **independently by both reviewers is presumptively
+accepted** (the convergence rule SKILL.md Step 3 records) — but only when
+both reviewers are `ran:true` (see "Reviewer engagement" above; a
+demoted reviewer is not a survivor); a single-reviewer point remains
+input to weigh exactly as a standard-tier point does today. A partial
+deep failure (one reviewer ran, one skipped OR demoted for
+non-engagement) still reports `ran:true`, degraded to the surviving
+reviewer's prose, with the failed reviewer's `skipReason` recorded in its
+`reviewers[]` entry; a full deep both-skip propagates the FIRST
+reviewer's `skipReason` exactly as a standard-tier skip would (no
+`depth`/`reviewers` fields on any skip envelope, deep or standard).

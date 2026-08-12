@@ -766,18 +766,31 @@ in `~/.flow/config.json` (same key the Gemini lens uses), AND a non-empty
 fails, record the reason in the chat summary and skip this sub-step unchanged.
 
 When all three fire, run `flow-plan-review --plan-file
-"$WORKTREE/.flow-tmp/plan.md" --out "$WORKTREE/.flow-tmp/plan-review.md"`
-(no `--depth` flag — relies on `auto`) and branch on the `{ran}` envelope
+"$WORKTREE/.flow-tmp/plan.md" --out "$WORKTREE/.flow-tmp/plan-review.md"
+--worktree "$WORKTREE"` (no `--depth` flag — relies on `auto`). The Bash
+tool call MUST pass an explicit `timeout: 600000`, since its own 120000 ms
+default undercuts the helper's per-reviewer agy cap (the deep tier runs its two reviewers serially at an asymmetric 3m+6m=9m budget, sized to measured durations — never 10m, which would leave zero real margin under the ceiling). Branch on the `{ran}` envelope
 (never the exit code): `ran:false` records `skipReason` and proceeds
-unchanged (graceful no-op, e.g. agy unavailable); `ran:true` weighs each
+unchanged. `skipReason` values split into two classes: an environment skip
+(e.g. `agy-not-found`) is a genuine no-op, but `reviewer-empty` /
+`reviewer-not-engaged` mean the review RAN and produced nothing usable —
+surface those two distinctly in the chat summary, never folded into
+"agy unavailable" prose. A missing/unparseable envelope (harness killed the
+Bash call) is treated the same as `skipReason: "review-timed-out"` and
+proceeds unchanged — this layer is advisory and must never block the gate.
+`ran:true` weighs each
 material AGY point as INPUT (never a verdict), revises plan.md **once**
 where warranted, and appends a `### Cross-model review (AGY)` subsection
 recording each point **accepted** or **overridden** — also record the
-run's `depth` and any per-reviewer `skipReason` in the chat summary.
-**Convergence rule (deep tier):** a point BOTH reviewers raised
-independently is **presumptively accepted**; overriding it needs a named
-rationale in that subsection — a single-reviewer point stays INPUT, same
-as today. Then embed the marker hash — run `flow-plan-review --print-hash
+run's `depth` and, per reviewer, `model`/`ran`/`skipReason`/`lensesEngaged`
+(as N/6) in the chat summary; a demoted reviewer also carries a one-liner
+into the awaiting-approval gate's `--why` string, same precedent as
+`design spec INVALID` above. **Convergence rule (deep tier):** applies
+ONLY when `reviewers[]` holds exactly two `ran:true` entries — a point
+BOTH raised independently is **presumptively accepted**, overriding it
+needs a named rationale in that subsection; otherwise (any reviewer
+demoted/skipped) every point stays single-reviewer INPUT, same as today.
+Then embed the marker hash — run `flow-plan-review --print-hash
 --plan-file "$WORKTREE/.flow-tmp/plan.md"` on the FINAL revised plan
 (never the pre-revision envelope hash, which would falsely re-fire the
 next pass) and embed its stdout as

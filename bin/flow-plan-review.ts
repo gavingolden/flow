@@ -15,7 +15,7 @@
  *
  * Depth tiers (`--depth auto|standard|deep`, default `auto`): STANDARD runs
  * one reviewer (MODEL, unchanged from the original single-reviewer shape).
- * DEEP runs TWO reviewers (MODEL + SECOND_MODEL) concurrently via
+ * DEEP runs TWO reviewers (MODEL + SECOND_MODEL) serially via
  * `flow-delegate-fanout` — a 2-entry manifest handed to the fanout BINARY,
  * never two direct `Bun.spawn` calls (see `computeDepth`/the deep branch
  * below for why). `auto` resolves via `computeDepth`: a plan whose task
@@ -32,20 +32,31 @@
  * `decision-analysis-unchanged` (the widened hashed inputs — `**Goal:**` +
  * `## Decision analysis` + `## Cut list`, each normalized — are unchanged
  * since the last reviewed revision; see the hash helpers below),
- * `agy-not-found` (propagated from a `ran:false` delegate/fanout entry),
- * `agy-error` (delegate output unparseable), and the local IO-throw
- * defensive skips `plan-prep-failed`, `plan-output-unreadable`,
- * `plan-finalize-failed`. A DEEP run where BOTH reviewers skip propagates
- * the FIRST reviewer's skip reason exactly as a standard-tier skip would —
- * the envelope shape for every skip path is unchanged from the
- * single-reviewer era; `depth`/`reviewers` are additive fields that appear on
- * every `ran:true` envelope — `depth:"standard"` with a single reviewer entry
- * on the standard tier, `depth:"deep"` with two on the deep tier (a partial
- * deep failure — one reviewer ran, one skipped — is also `ran:true`, degraded
- * to the surviving reviewer's prose, with the failed reviewer's skip reason
- * recorded in its `reviewers[]` entry). A `ran:false` skip carries neither
- * field, so every skip envelope stays byte-identical to the single-reviewer
- * era. Exit 2 only on a usage error.
+ * `worktree-not-provided` (`--worktree` omitted on the review path — a
+ * wiring bug, distinct from an environment condition), `worktree-not-found`
+ * (`--worktree` points at a non-directory), `reviewer-empty` /
+ * `reviewer-not-engaged` (a reviewer's raw prose failed
+ * `bin/lib/plan-review-engagement.ts`'s substance floor or lens-engagement
+ * floor — see `resolveReviewer` below), `agy-not-found` (propagated from a
+ * `ran:false` delegate/fanout entry), `agy-error` (delegate output
+ * unparseable), and the local IO-throw defensive skips `plan-prep-failed`,
+ * `plan-output-unreadable`, `plan-finalize-failed`. A DEEP run where BOTH
+ * reviewers skip (including both demoted for non-engagement) propagates the
+ * FIRST reviewer's skip reason exactly as a standard-tier skip would — the
+ * envelope shape for every skip path is unchanged from the single-reviewer
+ * era; `depth`/`reviewers` are additive fields that appear on every
+ * `ran:true` envelope — `depth:"standard"` with a single reviewer entry on
+ * the standard tier, `depth:"deep"` with two on the deep tier (a partial
+ * deep failure — one reviewer ran, one skipped/demoted — is also `ran:true`,
+ * degraded to the surviving reviewer's prose, with the failed reviewer's
+ * skip reason recorded in its `reviewers[]` entry, which also carries each
+ * reviewer's `lensesEngaged` count out of 6). A `ran:false` skip carries
+ * neither field, so every skip envelope stays byte-identical to the
+ * single-reviewer era. Exit 2 only on a usage error.
+ *
+ * The convergence preamble (below) requires TWO GENUINELY ENGAGED reviewers
+ * — see the `survivors` computation in the deep-tier branch for the
+ * authoritative statement of that invariant.
  *
  * Revision-pass re-fire: on a step-3 re-entry the supervisor re-runs this
  * helper unconditionally; the `decision-analysis-unchanged` skip is what makes
@@ -68,16 +79,46 @@
  * It is how the supervisor re-embeds a fresh marker over the final revised body.
  */
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { buildBatteryPrompt, extractGoalLine } from "./lib/plan-review-prompt";
+import { classifyEngagement } from "./lib/plan-review-engagement";
 import { resolveDelegateModel } from "./lib/delegate-models";
 
 export { extractGoalLine };
 
 const DEFAULT_TASK = "plan-review";
+
+// Bounds each agy call explicitly rather than relying on flow-delegate's own
+// default: bounded ABOVE by the supervisor's 600000 ms (10m) Bash-tool
+// ceiling (the caller must pass an explicit `timeout: 600000` to the Bash
+// tool call that invokes this helper — see flow-pipeline/SKILL.md step 3),
+// and bounded BELOW by what an agentic six-lens run actually needs (measured
+// live against this repo: ~1m35-1m50 for Gemini/reviewer 1, ~4m30-4m50 for
+// Opus/reviewer 2).
+//
+// The deep tier runs its two reviewers SERIALLY (see the fanout call's
+// `concurrency: 1` and the comment there), so the ceiling constrains the
+// SUM, not the max. A symmetric 2 x 5m = 10m split left ZERO real margin
+// once four bun startups and two agy spawns are counted — it exactly
+// equalled the ceiling, not stayed under it. Split ASYMMETRICALLY instead,
+// sized to the measured durations: reviewer 1 (Gemini, fast) gets 3m,
+// reviewer 2 (Opus, slow) gets 6m. INVARIANT: the sum must stay <= 9m,
+// never == 10m — leaving ~60s of real margin under the 600000 ms ceiling
+// while also raising Opus's own headroom from ~10s to ~70s. The standard
+// tier runs only reviewer 1 (MODEL, i.e. Gemini), so it uses the
+// REVIEWER_1_TIMEOUT value.
+const REVIEWER_1_TIMEOUT = "3m";
+const REVIEWER_2_TIMEOUT = "6m";
 
 // The DEEP-tier combined --out preamble: names the convergence rule the
 // supervisor applies when reading a two-reviewer file (kept in sync with
@@ -94,6 +135,12 @@ export type Args = {
   task: string;
   printHash: boolean;
   depth: DepthArg;
+  // OPTIONAL by design: --print-hash needs no worktree, and a caller that
+  // omits it on the review path hits the worktree-not-provided skip below
+  // rather than a parseArgs usage error (parseArgs stays the light
+  // required-flag validator; the worktree gate is a run()-time behavioral
+  // skip, not a CLI-shape error).
+  worktree?: string;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
@@ -123,6 +170,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--task":
         out.task = value;
         break;
+      case "--worktree":
+        out.worktree = value;
+        break;
       case "--depth":
         if (value !== "auto" && value !== "standard" && value !== "deep") {
           return {
@@ -150,6 +200,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     task: out.task ?? DEFAULT_TASK,
     printHash: out.printHash ?? false,
     depth: out.depth ?? "auto",
+    worktree: out.worktree,
   };
 }
 
@@ -373,6 +424,10 @@ type DeepManifestEntry = {
   // flow-delegate-fanout's default `artifacts/<index>-<task>.md`) so
   // cleanScratch can name and remove it deterministically.
   out: string;
+  // Explicit per-entry cap (see REVIEW_TIMEOUT above); flow-delegate-fanout
+  // already accepts and forwards a manifest entry's `timeout` field, so no
+  // change to that module is needed.
+  timeout: string;
 };
 
 export type Deps = {
@@ -392,6 +447,9 @@ export type Deps = {
   removeFile: (path: string) => void;
   mkdirp: (dir: string) => void;
   writeOut: (line: string) => void;
+  // True when `path` exists and is a directory. Backs the worktree gate
+  // below; injectable like the other deps.
+  dirExists: (path: string) => boolean;
 };
 
 function emit(deps: Deps, envelope: Record<string, unknown>): number {
@@ -404,13 +462,17 @@ type ReviewerStatus = {
   ran: boolean;
   skipReason?: string;
   prose?: string;
+  lensesEngaged?: number;
 };
 
 type FanoutEntry = NonNullable<FanoutAggregate["entries"]>[number];
 
 // Resolves one deep-tier manifest entry's fanout result into a reviewer
 // status: a skipped/missing entry stays unread; a `ran:true` entry whose
-// artifact can't be read degrades to a skip rather than crashing the run.
+// artifact can't be read degrades to a skip rather than crashing the run;
+// a `ran:true` entry whose prose doesn't clear the engagement bar (empty or
+// non-engaging) is demoted to a skip too — a truncated/rubber-stamp run is
+// not a genuine survivor for the deep-tier convergence rule.
 function resolveReviewer(
   deps: Deps,
   entry: FanoutEntry | undefined,
@@ -425,7 +487,16 @@ function resolveReviewer(
   }
   try {
     const prose = deps.readFile(entry.artifactPath ?? "");
-    return { model, ran: true, prose };
+    const result = classifyEngagement(prose);
+    if (!result.engaged) {
+      return {
+        model,
+        ran: false,
+        skipReason: result.reason,
+        lensesEngaged: result.lensesEngaged,
+      };
+    }
+    return { model, ran: true, prose, lensesEngaged: result.lensesEngaged };
   } catch {
     return { model, ran: false, skipReason: "plan-output-unreadable" };
   }
@@ -437,7 +508,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   if ("error" in parsed) {
     console.error(`flow-plan-review: ${parsed.error}`);
     console.error(
-      "usage: flow-plan-review --plan-file <path> --out <path> [--config <path>] [--task <name>] [--depth auto|standard|deep]",
+      "usage: flow-plan-review --plan-file <path> --out <path> --worktree <dir> [--config <path>] [--task <name>] [--depth auto|standard|deep]",
     );
     console.error("       flow-plan-review --print-hash --plan-file <path>");
     return 2;
@@ -527,13 +598,28 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return skip("decision-analysis-unchanged");
   }
 
+  // Worktree gate: both tiers pass the repository itself as the sole
+  // --add-dir (see below), so a reviewer can verify the plan's claims
+  // against real code rather than assuming them. Placed AFTER the
+  // printHash early return so --print-hash stays gate-free.
+  if (!parsed.worktree) {
+    return skip("worktree-not-provided");
+  }
+  if (!deps.dirExists(parsed.worktree)) {
+    return skip("worktree-not-found");
+  }
+
   const depth = parsed.depth === "auto" ? computeDepth(plan) : parsed.depth;
 
   try {
     deps.mkdirp(dirname(parsed.out));
     deps.writeFile(
       promptPath,
-      buildBatteryPrompt({ planText: plan, goalLine: extractGoalLine(plan) }),
+      buildBatteryPrompt({
+        planText: plan,
+        goalLine: extractGoalLine(plan),
+        worktreePath: parsed.worktree,
+      }),
     );
   } catch {
     return skip("plan-prep-failed");
@@ -546,11 +632,13 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       "--model",
       MODEL,
       "--add-dir",
-      dirname(parsed.planFile),
+      parsed.worktree,
       "--out",
       rawPath,
       "--task",
       parsed.task,
+      "--timeout",
+      REVIEWER_1_TIMEOUT,
     ]);
 
     // Branch on the `ran` field (NEVER the exit code): flow-delegate exits 0
@@ -565,6 +653,18 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     } catch {
       return skip("plan-output-unreadable");
     }
+
+    // The standard tier has only one reviewer, so a non-engaging/empty
+    // reviewer degrades the WHOLE run to a skip — there is no second
+    // reviewer to fall back to, unlike the deep tier's per-reviewer
+    // demotion below.
+    const eng = classifyEngagement(raw);
+    if (!eng.engaged) {
+      // EngagementResult is a discriminated union: engaged:false guarantees
+      // a present `reason`, so no non-null assertion is needed here.
+      return skip(eng.reason);
+    }
+
     try {
       deps.writeFile(parsed.out, raw);
     } catch {
@@ -585,7 +685,14 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       feedbackPath: parsed.out,
       skipReason: null,
       depth: "standard",
-      reviewers: [{ model: MODEL, ran: true, skipReason: null }],
+      reviewers: [
+        {
+          model: MODEL,
+          ran: true,
+          skipReason: null,
+          lensesEngaged: eng.lensesEngaged,
+        },
+      ],
     });
   }
 
@@ -599,7 +706,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // requiring this module to become async, and — just as importantly — its
   // per-entry indexed artifact paths avoid both direct spawns writing to the
   // SAME `${rawPath}` and silently clobbering the first reviewer's output.
-  const addDirs = [dirname(parsed.planFile)];
+  const addDirs = [parsed.worktree];
   try {
     // Reviewer 2 is the SAME model family as the PRD's author (flow's PRDs
     // are drafted by the Claude discovery subagent, and SECOND_MODEL is
@@ -611,6 +718,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
         planText: plan,
         goalLine: extractGoalLine(plan),
         sameFamilyAsAuthor: true,
+        worktreePath: parsed.worktree,
       }),
     );
   } catch {
@@ -624,6 +732,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       promptFile: promptPath,
       addDirs,
       out: deepArtifactR1,
+      timeout: REVIEWER_1_TIMEOUT,
     },
     {
       task: `${parsed.task}-r2`,
@@ -631,6 +740,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       promptFile: promptPathR2,
       addDirs,
       out: deepArtifactR2,
+      timeout: REVIEWER_2_TIMEOUT,
     },
   ];
 
@@ -640,10 +750,20 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return skip("plan-prep-failed");
   }
 
+  // concurrency 1 — SERIAL, and load-bearing. Measured live on this repo:
+  // with both reviewers now reading the repository, two simultaneous agy
+  // sessions contend and one dies — 3/3 concurrent deep runs lost Gemini
+  // (twice `reviewer-empty`, once `agy-error`) while the SAME reviewer
+  // succeeded 4/4 when it was the only agy session running. Serialising
+  // took the run to 2/2 reviewers engaged at 6/6 lenses each, in 6m27s.
+  // Raising this back to 2 re-breaks the deep tier's whole premise: it
+  // silently reduces a paid two-reviewer review to one, which is the exact
+  // defect this helper was fixed to eliminate. REVIEW_TIMEOUT is sized
+  // against this serialisation (see its comment).
   const aggregate = deps.runFanout({
     manifestPath,
     outPath: fanoutOutPath,
-    concurrency: 2,
+    concurrency: 1,
   });
   const entries = aggregate.entries ?? [];
   const r1 = resolveReviewer(
@@ -657,6 +777,13 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     SECOND_MODEL,
   );
 
+  // `survivors` is a resolveReviewer() output, and resolveReviewer() now
+  // demotes a non-engaging/empty reviewer to `ran:false` (see above) — so
+  // `survivors.length === 2` means "two GENUINELY ENGAGED reviewers", not
+  // merely "two agy calls that returned artifacts". A later refactor must
+  // not quietly re-admit a demoted (phantom) reviewer into this count, or
+  // the convergence rule below would apply to input one of the two never
+  // actually engaged with.
   const survivors = [r1, r2].filter((r) => r.ran);
   if (survivors.length === 0) {
     // Both reviewers skipped: propagate the FIRST reviewer's skip reason
@@ -693,8 +820,18 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     skipReason: null,
     depth: "deep",
     reviewers: [
-      { model: r1.model, ran: r1.ran, skipReason: r1.skipReason },
-      { model: r2.model, ran: r2.ran, skipReason: r2.skipReason },
+      {
+        model: r1.model,
+        ran: r1.ran,
+        skipReason: r1.skipReason,
+        lensesEngaged: r1.lensesEngaged,
+      },
+      {
+        model: r2.model,
+        ran: r2.ran,
+        skipReason: r2.skipReason,
+        lensesEngaged: r2.lensesEngaged,
+      },
     ],
   });
 }
@@ -746,6 +883,8 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     removeFile: o?.removeFile ?? ((p) => void rmSync(p, { force: true })),
     mkdirp: o?.mkdirp ?? ((d) => void mkdirSync(d, { recursive: true })),
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
+    dirExists:
+      o?.dirExists ?? ((p) => existsSync(p) && statSync(p).isDirectory()),
   };
 }
 
