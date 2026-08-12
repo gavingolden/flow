@@ -308,7 +308,8 @@ Before writing the artifact and returning, self-check:
   rule as the wrapper.
 - NEVER call `gh issue create`, `flow-create-issue`, `linear` CLI, or any
   tracker integration. The named auto-issue-create exemption authorises
-  only `/flow-pr-review`'s deferral path and `/flow-pipeline`'s post-merge
+  only `/flow-pr-review`'s Step 6 deferral path, `/flow-pr-review`'s Step 5
+  retrospective generic-gap capture, and `/flow-pipeline`'s post-merge
   sweep. Surface deferred-worthy observations as `anti_patterns_found`
   and let the parent caller file the issue if appropriate.
 - NEVER skip the `flow-pre-commit --json` re-run in step 3. The re-run

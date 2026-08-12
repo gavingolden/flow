@@ -58,9 +58,11 @@ just helpers.
 
 Reference files (read on demand, not upfront):
 
-- `references/review-checklist.md` — 3-part checklist: Universal (security, performance),
-  Project-Specific (SvelteKit patterns), and Learned Patterns (grows from retrospectives).
-  Read at Step 3 when preparing agent context.
+- `references/checklists/<lens>.md` — one per-lens checklist file (`security.md`,
+  `performance.md`, `bug-detection.md`, `pattern-consistency.md`, `test-coverage.md`,
+  `supply-chain.md`), soft-capped at ~150 lines each. Read the lens-matching file at Step 3 when preparing
+  that agent's context. `docs/consumer-review-patterns.md` is a portable seed for consumer
+  repos' `.flow/review-checklist.md` — not loaded here.
 - `references/conventional-comments.md` — labeling framework (praise/nitpick/suggestion/
   issue/todo/question) with decorations. Read at Step 3 when preparing agent context.
 - `references/agent-prompts.md` — prompt templates for the 6 specialized review agents.
@@ -281,7 +283,7 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
 2. Capture `SKILL_DIR` from the Skill tool's "Base directory for this skill" line so
    the subagent can resolve sibling references
    (`references/fix-applier-instructions.md`, `references/conventional-comments.md`,
-   `references/review-checklist.md`) as absolute paths under `SKILL_DIR` rather than
+   `references/checklists/<lens>.md`) as absolute paths under `SKILL_DIR` rather than
    relative to its `cd`'d worktree, where they don't exist. Also create the
    consumer-side `.flow-tmp/` directory now:
 
@@ -621,8 +623,8 @@ resolved type) and the resolved
   `.flow-tmp/static-analysis.json` (the lens routing is owned by the helper; the
   agent table below lists the lens-per-agent for human reference).
 - Append the agent-specific section (Role, Process, False Positive Avoidance)
-- Include paths to `references/review-checklist.md` and `references/conventional-comments.md`
-  so agents can read them
+- Include the path to that agent's lens checklist (`references/checklists/<lens>.md`) and to
+  `references/conventional-comments.md` so agents can read them
 - Instruct agents to treat commit bodies as author intent: a finding that contradicts a
   stated rationale should cite the commit and explain why the rationale doesn't hold,
   rather than assuming the author didn't consider the alternative.
@@ -636,14 +638,14 @@ resolved type) and the resolved
 
 The 6 agents:
 
-| Agent                   | Focus                                                                            | Checklist sections                          | Static-analysis lens | On-disk output path | Definition |
-| ----------------------- | -------------------------------------------------------------------------------- | ------------------------------------------- | -------------------- | ------------------- | ---------- |
-| **Bug Detection**       | Logic errors, null deref, race conditions, broken contracts                      | Error Handling, Type Safety                 | `types` (tsc errors) | `agent-output-bug-detection.json` | `agents/flow-review-bug-detection.md` |
-| **Security**            | OWASP top 10, input validation, auth, secrets, injection                         | Security                                    | `security` + `dependencies` (semgrep + npm-audit) | `agent-output-security.json` | `agents/flow-review-security.md` |
-| **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code                        | Consistency, Lifecycle/Cleanup, Composition | `lint` (biome/eslint, shared with Performance) | `agent-output-pattern-consistency.json` | `agents/flow-review-pattern-consistency.md` |
-| **Performance**         | N+1, pagination, leaks, sequential awaits, O(n^2)                                | Performance (review-checklist.md §Performance) | `lint` (biome/eslint, shared with Pattern/Consistency) | `agent-output-performance.json` | `agents/flow-review-performance.md` |
-| **Supply-Chain**        | Dependency additions, semver bumps, license drift, package.json top-level deletions | Part 3 §Removing a Top-Level Field          | `none` (synthetic `meta.ran=false` block) | `agent-output-supply-chain.json` | `agents/flow-review-supply-chain.md` |
-| **Test Coverage**       | Missing tests, untested edges, test quality, env setup                           | Test Environment                            | `none` (synthetic `meta.ran=false` block) | `agent-output-test-coverage.json` | `agents/flow-review-test-coverage.md` |
+| Agent                   | Focus                                                                            | Checklist file                                | Static-analysis lens | On-disk output path | Definition |
+| ----------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------- | -------------------- | ------------------- | ---------- |
+| **Bug Detection**       | Logic errors, null deref, race conditions, broken contracts                      | `checklists/bug-detection.md`                  | `types` (tsc errors) | `agent-output-bug-detection.json` | `agents/flow-review-bug-detection.md` |
+| **Security**            | OWASP top 10, input validation, auth, secrets, injection                         | `checklists/security.md`                       | `security` + `dependencies` (semgrep + npm-audit) | `agent-output-security.json` | `agents/flow-review-security.md` |
+| **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code                        | `checklists/pattern-consistency.md`            | `lint` (biome/eslint, shared with Performance) | `agent-output-pattern-consistency.json` | `agents/flow-review-pattern-consistency.md` |
+| **Performance**         | N+1, pagination, leaks, sequential awaits, O(n^2)                                | `checklists/performance.md`                    | `lint` (biome/eslint, shared with Pattern/Consistency) | `agent-output-performance.json` | `agents/flow-review-performance.md` |
+| **Supply-Chain**        | Dependency additions, semver bumps, license drift, package.json top-level deletions | `checklists/supply-chain.md`                | `none` (synthetic `meta.ran=false` block) | `agent-output-supply-chain.json` | `agents/flow-review-supply-chain.md` |
+| **Test Coverage**       | Missing tests, untested edges, test quality                                      | `checklists/test-coverage.md`                  | `none` (synthetic `meta.ran=false` block) | `agent-output-test-coverage.json` | `agents/flow-review-test-coverage.md` |
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
 `decoration`, `confidence`, `subject`, `body`. The on-disk artifact at
@@ -856,10 +858,52 @@ Otherwise, read the review comments from Step 2's fetch output. This is the self
    multi-agent review missed.
 3. **Classify gaps**: For each gap, identify the issue _class_ (e.g., "race condition in async
    cleanup", "missing error boundary"), not the specific instance.
-4. **Evolve the checklist**: Check `references/review-checklist.md` for coverage of each gap
-   class. If not covered, append a new pattern to Part 3 ("Learned Patterns") following the
-   template at the bottom of the checklist. Include the PR number for traceability.
-5. Record coverage stats for the report: "X of Y reviewer findings independently caught."
+4. **Capture the gap**: For each gap not already covered by a lens checklist
+   (`references/checklists/*.md`) or the target repo's `.flow/review-checklist.md`, draft a
+   short pattern entry (1-2 sentence description, "What to look for", PR number for
+   traceability) and route it to exactly one of two destinations based on whether the gap is
+   specific to THIS repo's stack/conventions or is a generic pattern any repo running
+   `/flow-pr-review` could hit:
+
+   - **Repo-specific gap** → append the drafted entry to the TARGET repo's
+     `.flow/review-checklist.md` (create it with a 3-line header — same convention as
+     `references/checklists/<lens>.md`'s header — if the file doesn't exist yet). This edit
+     is bundled into the Fix-Applier Subagent's existing commit+push on the PR branch (see
+     `references/fix-applier-instructions.md`'s checklist-append step) — never a separate
+     commit.
+   - **Generic / flow-shipped gap** (a pattern that belongs in one of flow's own lens
+     checklists, not this repo's `.flow/review-checklist.md`) → file it via
+     `flow-create-issue`, current-repo-only by v1 design (no `--repo` flag — see
+     `bin/flow-create-issue.ts`'s header comment): on the flow repo itself the issue
+     naturally lands there; on any OTHER (consumer) repo it's filed locally against
+     that repo's tracker with the `review-checklist` label plus a body naming flow as
+     the intended upstream destination (same convention as the helper's existing
+     third-party-regression deferrals — fix-applier-instructions.md step 2). Write the
+     drafted entry to a scratch file first, then pass it via `--body-file` (there is no
+     `--body` flag):
+
+     ```bash
+     cat > "$WORKTREE/.flow-tmp/review-checklist-gap.md" <<'EOF'
+     <drafted pattern entry, ready to paste into a lens file>
+     EOF
+     flow-create-issue --label review-checklist --title "<pattern class>" \
+       --body-file "$WORKTREE/.flow-tmp/review-checklist-gap.md"
+     ```
+
+     This is a `flow-create-issue` call, not an edit — **never edit files under
+     `SKILL_DIR`**; the lens checklists ship with flow and are only updated by a flow
+     maintainer landing a PR against the flow repo itself.
+
+   **The retrospective must never edit files under SKILL_DIR.** The only write paths
+   are the target repo's `.flow/review-checklist.md` (repo-specific) or a filed issue
+   (generic — flow's tracker when this repo IS flow, else the target repo's, per above).
+5. Record coverage stats for the report: "X of Y reviewer findings independently caught,"
+   plus the destination for each captured gap (repo-specific `.flow/review-checklist.md`
+   append vs. issue filed, and which repo it landed on). If step 4 filed a generic gap
+   against the flow repo itself, also record the open `review-checklist`-labeled issue
+   count (`gh issue list --label review-checklist --state open --json number | jq length`)
+   with a nudge to run `/flow-backlog-triage` once that queue builds up — skip the count on
+   a consumer repo, where the issue was filed locally, not on flow's tracker.
 
 ## 6. Address Agent Findings
 
