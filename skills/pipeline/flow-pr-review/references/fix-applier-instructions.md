@@ -17,7 +17,7 @@ The wrapper passes you these inputs in its spawn prompt:
 - The PR number.
 - The absolute worktree path (your working directory).
 - The absolute skill base directory (`SKILL_DIR`). Resolve every sibling
-  reference path under it — e.g. `<SKILL_DIR>/references/review-checklist.md`,
+  reference path under it — e.g. `<SKILL_DIR>/references/checklists/<lens>.md`,
   `<SKILL_DIR>/references/conventional-comments.md`. Those files do not exist
   relative to the worktree you `cd`'d into — they live in the skill directory,
   which is somewhere else on disk (typically
@@ -40,8 +40,11 @@ Before drafting any fix, load the inputs:
   `body`), and the head SHA captured at fetch time.
 - Read `<SKILL_DIR>/references/conventional-comments.md` for the labelling
   vocabulary the inline reply bodies in step 4 must use.
-- Read `<SKILL_DIR>/references/review-checklist.md` only if a finding's
-  category is unclear and you need to disambiguate.
+- Read the lens-matching `<SKILL_DIR>/references/checklists/<lens>.md` only if a
+  finding's category is unclear and you need to disambiguate (`Bug-Detection` →
+  `bug-detection.md`, `Security` → `security.md`, `Pattern-Consistency` →
+  `pattern-consistency.md`, `Performance` → `performance.md`, `Supply-Chain` →
+  `supply-chain.md`, `Test-Coverage` → `test-coverage.md`).
 
 This is read-only background — these reads stay in your context.
 
@@ -335,6 +338,29 @@ When it modifies `.flow/epics/<epic-slug>/status.json`, bundle the edit
 into the fix commit you are already making (steps 3–4 / 5a–5b). If it is
 the only change this run produced, use commit message `chore(epic): sync
 <epic-slug> status board (pr-review #$PR_NUMBER)`.
+
+### 5e. Checklist-append from the retrospective
+
+When the wrapper's Step 5 retrospective hands you a drafted repo-specific pattern entry
+(a gap classified as belonging to the target repo's own stack/conventions rather than a
+generic flow-shipped gap), append it to the target repo's `.flow/review-checklist.md`:
+
+- If `.flow/review-checklist.md` doesn't exist yet, create it first with a 3-line header
+  (same convention as `SKILL_DIR/references/checklists/<lens>.md`'s header: what the file
+  is, that entries are freeform pattern write-ups, and that every review-lens agent reads
+  it when present).
+- Append the drafted entry (description, "What to look for", PR number) under its own
+  heading, following the same shape as an entry in `references/checklists/<lens>.md`.
+- Never write to anything under `SKILL_DIR` — this step only ever touches the target
+  repo's own `.flow/review-checklist.md`.
+
+**Don't commit the checklist edit alone** — same bundling rule as step 5c: it lands in
+whatever commit step 7 produces.
+
+- If you made code fixes in steps 3–4 (or the roadmap/epic edits above) and the checklist
+  append is the only additional change, bundle it into the same fix commit.
+- If the checklist append is the _only_ change this run produced, use commit message
+  `chore(review-checklist): capture <pattern class> (pr-review #$PR_NUMBER)`.
 
 ## 6. Pre-commit checks
 

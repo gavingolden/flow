@@ -82,3 +82,16 @@ agent-maintained, committed (full convention in
 never secrets; re-freeze is explicit-only. Deleting it degrades to
 fully-ephemeral. `spec.json` + reference snapshot stay pipeline-ephemeral
 under `.flow-tmp/design/`, never committed.
+
+## Review checklist
+
+`.flow/review-checklist.md` is freeform markdown — pattern entries with What-to-look-for /
+How-to-check bodies, same shape as an entry in flow's own
+`skills/pipeline/flow-pr-review/references/checklists/<lens>.md`. It is produced by
+`/flow-pr-review` review retrospectives (Step 5's "Capture the gap") on the PR branch when a
+reviewer-caught gap is specific to this repo's stack or conventions, bundled into the
+Fix-Applier Subagent's existing commit rather than committed alone, and reviewed in-PR like
+any other diff. Every review-lens agent reads it when present, at the same standing as its
+own lens checklist. Absent is a legitimate, common state — most repos never populate it.
+`docs/consumer-review-patterns.md` in the flow repo is a portable seed a consumer repo can
+copy in as a starting point.

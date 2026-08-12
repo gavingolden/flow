@@ -4444,12 +4444,23 @@ describe("pr-review include-by-reference structure", () => {
     // (plugin-qualified → general-purpose, dropping the legacy-bare
     // elif branch), shrinking the file below this ceiling — the number
     // above is left as historical record, not re-tightened.
+    //
+    // Bumped 1790 → 1820 (monolith checklist → per-lens checklists split):
+    // Step 3's reference-files bullet, the Step 8 spawn-procedure sibling-path
+    // note, the per-agent checklist-path bullet, the 6-lens table's Checklist
+    // file column, and Step 5.4's "Capture the gap" two-destination rewrite
+    // (repo-specific `.flow/review-checklist.md` append vs. flow-repo
+    // `flow-create-issue` filing, plus the never-edit-SKILL_DIR rule and the
+    // Step 12 report/backlog-triage nudge) are genuine load-bearing content —
+    // the monolith they replace moved to `references/checklists/*.md`, not
+    // this file. File lands at 1804 lines — 1820 leaves 16 lines of genuine
+    // headroom, not round-number headroom for future growth.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1790 lines. Material regrowth past this ceiling would ` +
+        `budget of 1820 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1790);
+    ).toBeLessThan(1820);
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
@@ -6950,9 +6961,11 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
     ).toBe(true);
   });
 
-  it("flow-new-feature/SKILL.md and flow-pr-review/references/review-checklist.md both name the 'Bundled during implementation:' marker", () => {
+  it("flow-new-feature/SKILL.md and flow-pr-review/references/checklists/pattern-consistency.md both name the 'Bundled during implementation:' marker", () => {
     const nf = read("flow-new-feature/SKILL.md");
-    const rc = read("flow-pr-review/references/review-checklist.md");
+    const rc = read(
+      "flow-pr-review/references/checklists/pattern-consistency.md",
+    );
     expect(
       nf.includes("Bundled during implementation:"),
       "flow-new-feature/SKILL.md must name the verbatim " +
@@ -6960,7 +6973,7 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
     ).toBe(true);
     expect(
       rc.includes("Bundled during implementation:"),
-      "flow-pr-review/references/review-checklist.md must name the same " +
+      "flow-pr-review/references/checklists/pattern-consistency.md must name the same " +
         "verbatim marker so the review-side check stays anchored to the " +
         "implementation-side contract.",
     ).toBe(true);
@@ -7820,6 +7833,256 @@ describe("pause-output contract wiring lint", () => {
       `The following skills/ .md files reference the legacy '.claude/agents' ` +
         `location, which no live spawn-site guard resolves against anymore: ` +
         `${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("no inline code span is split across a hard line-wrap in review checklist files", () => {
+    // Scoped deliberately to the six per-lens checklist files, NOT a repo-wide
+    // scan — a repo-wide scan flags ~177 pre-existing spans elsewhere; the
+    // wider sweep is a filed follow-up, not this guard's job. CommonMark/GFM
+    // inline code spans cannot contain an unescaped line break: a span whose
+    // opening backtick lands on one line and closing backtick on the next
+    // breaks exact-string grep anchors that cite the span later, even though
+    // rendering is (mostly) unaffected — some renderers merge the tokens
+    // instead, but the anchor breakage is the reason this guard exists.
+    const findBrokenInlineSpans = (content: string): { line: number }[] => {
+      const lines = content.split("\n");
+      const offenders: { line: number }[] = [];
+      let inFence = false;
+      let pendingOpenLine: number | null = null;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^\s*```/.test(line)) {
+          inFence = !inFence;
+          pendingOpenLine = null;
+          continue;
+        }
+        if (inFence) continue;
+        if (line.trim() === "") {
+          // Paragraph boundary — an unclosed span here isn't "split across a
+          // hard line-wrap within a paragraph"; drop any pending state.
+          pendingOpenLine = null;
+          continue;
+        }
+        // Strip complete double-backtick spans (CommonMark's escape for
+        // embedding a literal backtick, e.g. `` `$` ``) before counting —
+        // otherwise their odd per-span backtick total corrupts the parity
+        // check on an otherwise-fully-closed line.
+        const stripped = line.replace(/``[^`]*``/g, "");
+        const backtickCount = (stripped.match(/`/g) || []).length;
+        if (pendingOpenLine !== null) {
+          if (backtickCount > 0) {
+            offenders.push({ line: pendingOpenLine });
+          }
+          pendingOpenLine = null;
+        }
+        if (backtickCount % 2 === 1) {
+          pendingOpenLine = i + 1;
+        }
+      }
+      return offenders;
+    };
+
+    const checklistsDir = path.join(
+      REPO_ROOT,
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+    );
+    const offenders: string[] = [];
+    for (const name of fs.readdirSync(checklistsDir)) {
+      if (!name.endsWith(".md")) continue;
+      const full = path.join(checklistsDir, name);
+      const content = fs.readFileSync(full, "utf8");
+      for (const { line } of findBrokenInlineSpans(content)) {
+        offenders.push(`${path.relative(REPO_ROOT, full)}:${line}`);
+      }
+    }
+    expect(
+      offenders,
+      `The following review checklist files split an inline code span across ` +
+        `a hard line-wrap (opening backtick on one line, closing on the next): ` +
+        `${offenders.join(", ")}. Wrapped spans break exact-string grep anchors ` +
+        `even though rendering is unaffected — keep the span on one line or ` +
+        `split it into two adjacent spans.`,
+    ).toEqual([]);
+  });
+
+  it("findBrokenInlineSpans fixture coverage (split spans, double-backtick spans, fences)", () => {
+    const findBrokenInlineSpans = (content: string): { line: number }[] => {
+      const lines = content.split("\n");
+      const offenders: { line: number }[] = [];
+      let inFence = false;
+      let pendingOpenLine: number | null = null;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^\s*```/.test(line)) {
+          inFence = !inFence;
+          pendingOpenLine = null;
+          continue;
+        }
+        if (inFence) continue;
+        if (line.trim() === "") {
+          pendingOpenLine = null;
+          continue;
+        }
+        const stripped = line.replace(/``[^`]*``/g, "");
+        const backtickCount = (stripped.match(/`/g) || []).length;
+        if (pendingOpenLine !== null) {
+          if (backtickCount > 0) {
+            offenders.push({ line: pendingOpenLine });
+          }
+          pendingOpenLine = null;
+        }
+        if (backtickCount % 2 === 1) {
+          pendingOpenLine = i + 1;
+        }
+      }
+      return offenders;
+    };
+
+    // A genuinely split span is flagged at the opening line.
+    expect(findBrokenInlineSpans("see `foo\nbar` next")).toEqual([{ line: 1 }]);
+
+    // A fenced code block's odd backtick counts are ignored.
+    expect(findBrokenInlineSpans("```\nlone ` backtick\n```")).toEqual([]);
+
+    // A blank-line paragraph boundary clears pending state — no false flag.
+    expect(findBrokenInlineSpans("odd ` count\n\nmore text")).toEqual([]);
+
+    // A double-backtick span containing a literal backtick, fully closed on
+    // one line, must not be flagged even though it carries an odd raw count.
+    expect(
+      findBrokenInlineSpans("interprets `` $` `` as substitution"),
+    ).toEqual([]);
+
+    // An odd-count line followed by a zero-backtick line clears pending
+    // state without flagging — the intentional continuation-must-carry-a-
+    // backtick rule.
+    expect(findBrokenInlineSpans("odd ` count\nno backticks here")).toEqual([]);
+  });
+
+  it("the six lens checklist files exist and the monolith stays deleted", () => {
+    const checklistsDir = path.join(
+      REPO_ROOT,
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+    );
+    const expected = [
+      "bug-detection.md",
+      "security.md",
+      "pattern-consistency.md",
+      "performance.md",
+      "supply-chain.md",
+      "test-coverage.md",
+    ];
+    const present = fs
+      .readdirSync(checklistsDir)
+      .filter((n) => n.endsWith(".md"))
+      .sort();
+    expect(present).toEqual([...expected].sort());
+    expect(
+      fs.existsSync(
+        path.join(
+          REPO_ROOT,
+          "skills",
+          "pipeline",
+          "flow-pr-review",
+          "references",
+          "review-checklist.md",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("no skills/ markdown file references the deleted review-checklist.md monolith path", () => {
+    const skillsDir = path.join(REPO_ROOT, "skills");
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.isFile() && entry.name.endsWith(".md")) {
+          const content = fs.readFileSync(full, "utf8");
+          if (content.includes("references/review-checklist.md")) {
+            offenders.push(path.relative(REPO_ROOT, full));
+          }
+        }
+      }
+    };
+    walk(skillsDir);
+    expect(
+      offenders,
+      `The following files still reference the deleted monolith path ` +
+        `references/review-checklist.md: ${offenders.join(", ")}. Repoint ` +
+        `to references/checklists/<lens>.md.`,
+    ).toEqual([]);
+  });
+
+  it("no pattern heading is duplicated across lens checklist files", () => {
+    const checklistsDir = path.join(
+      REPO_ROOT,
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+    );
+    const seen = new Map<string, string>();
+    const dupes: string[] = [];
+    for (const name of fs.readdirSync(checklistsDir)) {
+      if (!name.endsWith(".md")) continue;
+      const content = fs.readFileSync(path.join(checklistsDir, name), "utf8");
+      for (const m of content.matchAll(/^## (.+)$/gm)) {
+        const heading = m[1].trim();
+        if (seen.has(heading)) {
+          dupes.push(`"${heading}" in ${seen.get(heading)} and ${name}`);
+        } else {
+          seen.set(heading, name);
+        }
+      }
+    }
+    expect(
+      dupes,
+      `The following pattern headings appear in more than one lens ` +
+        `checklist file: ${dupes.join(", ")}. Each pattern should live in ` +
+        `exactly one lens file — condense into one entry.`,
+    ).toEqual([]);
+  });
+
+  it("no lens checklist exceeds the 250-line accretion tripwire", () => {
+    const checklistsDir = path.join(
+      REPO_ROOT,
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+    );
+    const LINE_LIMIT = 250;
+    const offenders: string[] = [];
+    for (const name of fs.readdirSync(checklistsDir)) {
+      if (!name.endsWith(".md")) continue;
+      const full = path.join(checklistsDir, name);
+      const lineCount = fs.readFileSync(full, "utf8").split("\n").length;
+      if (lineCount > LINE_LIMIT) {
+        offenders.push(`${name} (${lineCount} lines)`);
+      }
+    }
+    expect(
+      offenders,
+      `The following lens checklist files exceed the ${LINE_LIMIT}-line ` +
+        `accretion tripwire: ${offenders.join(", ")}. Remediate in this order: ` +
+        `condense → merge duplicates → automate deterministic entries into ` +
+        `lint → move consumer-specific entries to the portable doc ` +
+        `(docs/consumer-review-patterns.md). Never split a lens file into ` +
+        `sub-files, and never delete a load-bearing pattern just for length.`,
     ).toEqual([]);
   });
 });

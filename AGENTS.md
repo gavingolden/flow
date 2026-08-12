@@ -370,9 +370,10 @@ three-layer resolution table, and the manifest/foundation fields — is at
     instructs the supervisor to merge a `gated` PR anyway — a *fresh*
     confirmation, not an inference from an earlier instruction. This
     named form is the **only** authorised `AskUserQuestion` site.
-  - **Auto-issue-create exemption: `/flow-pr-review` Step 6 deferral path
-    and `/flow-pipeline` Step 10 post-merge sweep.** `flow-create-issue`
-    fires only from these two named sites. Feature and `route-to-step-4`
+  - **Auto-issue-create exemption: `/flow-pr-review` Step 6 deferral path,
+    `/flow-pr-review` Step 5 retrospective generic-gap capture, and
+    `/flow-pipeline` Step 10 post-merge sweep.** `flow-create-issue`
+    fires only from these three named sites. Feature and `route-to-step-4`
     pipelines curate the ticked set at plan review; step 3's
     `advance-to-step-5` route has no checkpoint, so its pre-ticked
     candidates and bundled tasks proceed as discovery authored them,
