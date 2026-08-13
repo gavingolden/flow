@@ -6,6 +6,7 @@ import {
   run,
   sessionStartOutput,
   terminalAdvisory,
+  terminalCarryOver,
   type DeliverSeams,
   type Deps,
   type ResumeKind,
@@ -19,6 +20,7 @@ type Stub = {
   dispatchedKinds: ResumeKind[];
   emitted: string[];
   loadCalls: string[];
+  retiredSlugs: string[];
 };
 
 function makeDeps(opts: {
@@ -28,6 +30,12 @@ function makeDeps(opts: {
   flowSlugEnv?: string;
   state?: PipelineState | null;
   markerExists?: boolean;
+  /** Terminal-carry-over body: `null`/omitted falls back to `terminalAdvisory`. */
+  checkpointBody?: string | null;
+  /** Makes `readCheckpointBody` throw — must still return 0 and emit nothing. */
+  readCheckpointBodyThrows?: boolean;
+  /** Makes `retireCheckpoint` throw — must still return 0. */
+  retireCheckpointThrows?: boolean;
   /**
    * Stubs the `@flow-kind` seam. Defaults to `() => null` — NOT omitted —
    * so tests never fall through to the real `resolveKindAmbient()` (which
@@ -40,6 +48,7 @@ function makeDeps(opts: {
   const dispatchedKinds: ResumeKind[] = [];
   const emitted: string[] = [];
   const loadCalls: string[] = [];
+  const retiredSlugs: string[] = [];
   const deps: Deps = {
     readStdin: async () => opts.stdin ?? "",
     flowSlugEnv: opts.flowSlugEnv,
@@ -50,6 +59,14 @@ function makeDeps(opts: {
       return opts.state ?? null;
     },
     markerExists: () => opts.markerExists ?? false,
+    readCheckpointBody: () => {
+      if (opts.readCheckpointBodyThrows) throw new Error("boom");
+      return opts.checkpointBody ?? null;
+    },
+    retireCheckpoint: (slug) => {
+      if (opts.retireCheckpointThrows) throw new Error("boom");
+      retiredSlugs.push(slug);
+    },
     resolveKind: opts.resolveKind ?? (() => null),
     dispatchResume: (slug, kind) => {
       dispatched.push(slug);
@@ -59,7 +76,14 @@ function makeDeps(opts: {
       emitted.push(context);
     },
   };
-  return { deps, dispatched, dispatchedKinds, emitted, loadCalls };
+  return {
+    deps,
+    dispatched,
+    dispatchedKinds,
+    emitted,
+    loadCalls,
+    retiredSlugs,
+  };
 }
 
 function fakeState(
@@ -110,6 +134,8 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
       showFlowSlug: () => "demo",
       loadState: () => fakeState("checkpoint-pending-clear"),
       markerExists: () => true,
+      readCheckpointBody: () => null,
+      retireCheckpoint: () => undefined,
       resolveKind: () => null,
       dispatchResume: (slug) => {
         // Simulate the real detached-child dispatch: returns immediately,
@@ -199,10 +225,12 @@ describe("flow-session-start-hook — silent no-op paths", () => {
     expect(dispatched).toEqual([]);
   });
 
-  it("no-op for a non-terminal slug whose state carries no worktree", async () => {
-    // Explicit `undefined` still triggers fakeState's `worktree = "/tmp/wt"`
-    // default param, so override the field directly to get a genuinely
-    // worktree-less state (no worktree ⇒ no marker path ⇒ hard no-op).
+  it("dispatches for a non-terminal slug even when state carries no worktree — the marker gate is worktree-independent now", async () => {
+    // Before the state-dir move, `!worktree` alone short-circuited to a
+    // no-op regardless of the marker. The checkpoint marker is now slug-
+    // keyed, not worktree-keyed, so a worktree-less non-terminal state (e.g.
+    // `starting`, before step 2 creates the worktree) with an armed marker
+    // reaches the normal dispatch path.
     const { deps, dispatched } = makeDeps({
       pane: "%1",
       slug: "demo",
@@ -210,7 +238,7 @@ describe("flow-session-start-hook — silent no-op paths", () => {
       markerExists: true,
     });
     expect(await run(deps)).toBe(0);
-    expect(dispatched).toEqual([]);
+    expect(dispatched).toEqual(["demo"]);
   });
 });
 
@@ -431,6 +459,85 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     expect(dispatched).toEqual([]);
     expect(emitted).toEqual([terminalAdvisory("demo", "merged", "feature")]);
     expect(emitted[0]).toContain("flow feature resume demo");
+  });
+});
+
+describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task 2)", () => {
+  it("a terminal phase with a non-empty body emits it under '## Checkpoint (carried over)' plus the terminal note, and retires the checkpoint exactly once", async () => {
+    const { deps, dispatched, emitted, retiredSlugs } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("merged"),
+      markerExists: true,
+      checkpointBody: "approved with condition X\n",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]); // no resume seed dispatched at a terminal phase
+    expect(emitted).toEqual([
+      terminalCarryOver(
+        "demo",
+        "merged",
+        "feature",
+        "approved with condition X\n",
+      ),
+    ]);
+    expect(emitted[0]).toContain("## Checkpoint (carried over)");
+    expect(emitted[0]).toContain("approved with condition X");
+    expect(emitted[0]).toContain("flow feature resume demo");
+    expect(retiredSlugs).toEqual(["demo"]);
+  });
+
+  it("a terminal phase with NO readable body falls back to the plain terminalAdvisory and does not retire anything", async () => {
+    const { deps, emitted, retiredSlugs } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("needs-human"),
+      markerExists: true,
+      checkpointBody: null,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(emitted).toEqual([
+      terminalAdvisory("demo", "needs-human", "feature"),
+    ]);
+    expect(retiredSlugs).toEqual([]);
+  });
+
+  it("a throwing readCheckpointBody still returns 0 and emits nothing — session start is never blocked", async () => {
+    const { deps, emitted, retiredSlugs, dispatched } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("merged"),
+      markerExists: true,
+      readCheckpointBodyThrows: true,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(emitted).toEqual([]);
+    expect(retiredSlugs).toEqual([]);
+    expect(dispatched).toEqual([]);
+  });
+
+  it("a throwing retireCheckpoint still returns 0 — the carry-over context was already emitted before the throw, but the hook never propagates the failure", async () => {
+    const { deps } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("merged"),
+      markerExists: true,
+      checkpointBody: "note\n",
+      retireCheckpointThrows: true,
+    });
+    await expect(run(deps)).resolves.toBe(0);
+  });
+
+  it("a second run() after retirement (readCheckpointBody now returns null) falls back to the plain advisory", async () => {
+    const { deps, emitted } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("cancelled"),
+      markerExists: true,
+      checkpointBody: null, // simulates the post-retirement state
+    });
+    expect(await run(deps)).toBe(0);
+    expect(emitted).toEqual([terminalAdvisory("demo", "cancelled", "feature")]);
   });
 });
 

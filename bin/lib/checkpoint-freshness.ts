@@ -10,6 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { FLOW_STATE_DIR } from "./paths";
 
 /** The `/flow-checkpoint` arm sites. Single source of truth — `CheckpointSiteValue`
  *  in `bin/lib/state.ts` is derived from this const via `(typeof CHECKPOINT_SITES)[number]`,
@@ -20,12 +21,24 @@ export const CHECKPOINT_SITES = [
   "plan-review",
   "plan-approval",
   "gate",
+  "terminal",
 ] as const;
 export type CheckpointSite = (typeof CHECKPOINT_SITES)[number];
 
+/**
+ * Directory holding a pipeline's checkpoint files, keyed by slug alone —
+ * worktree-independent so a body written here survives `flow-remove-worktree`
+ * and every terminal phase. Pure `path.join`, no mkdir and no existence
+ * probe (mkdir stays at the write sites, mirroring
+ * `bin/lib/stop-turn-tracking.ts:41,73`'s `turns/` subdirectory precedent).
+ */
+export function checkpointDir(slug: string, dir = FLOW_STATE_DIR): string {
+  return path.join(dir, "checkpoints", slug);
+}
+
 /** Absolute path of the checkpoint body the /flow-checkpoint skill writes. */
-export function checkpointPath(worktreePath: string): string {
-  return path.join(worktreePath, ".flow-tmp", "checkpoint.md");
+export function checkpointBodyPath(slug: string, dir = FLOW_STATE_DIR): string {
+  return path.join(checkpointDir(slug, dir), "checkpoint.md");
 }
 
 /**
@@ -58,15 +71,16 @@ export function hasPhaseAdvancedSince(
  */
 export function probeFreshness(
   state: {
+    slug: string;
     checkpoint?: { site: CheckpointSite; phase: string; armedAt: string };
     phaseLog?: Array<{ at: string }>;
   },
-  worktreePath: string,
   site: CheckpointSite,
+  dir = FLOW_STATE_DIR,
 ): { verdict: "write" | "preserve"; reason: string } {
   let stat: fs.Stats;
   try {
-    stat = fs.statSync(checkpointPath(worktreePath));
+    stat = fs.statSync(checkpointBodyPath(state.slug, dir));
   } catch {
     return { verdict: "write", reason: "absent" };
   }
@@ -127,14 +141,15 @@ export function probeFreshness(
  */
 export function isCheckpointUsable(
   state: {
+    slug: string;
     checkpoint?: { site: CheckpointSite; phase: string; armedAt: string };
     phaseLog?: Array<{ at: string }>;
   },
-  worktreePath: string,
+  dir = FLOW_STATE_DIR,
 ): boolean {
   let stat: fs.Stats;
   try {
-    stat = fs.statSync(checkpointPath(worktreePath));
+    stat = fs.statSync(checkpointBodyPath(state.slug, dir));
   } catch {
     return false;
   }

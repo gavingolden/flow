@@ -285,9 +285,10 @@ export const PENDING_PHASES = [
   "ci-wait-pending",
   // Auto-checkpoint at the approval → implement hand-off (step 4 affirmative
   // branch). The supervisor flushes conversational state to
-  // `.flow-tmp/checkpoint.md`, nudges "safe to /clear", and ends the turn
-  // here — a legitimate turn-end so `flow-stop-guard` permits the yield. On
-  // resume it resolves to step-5 (implement).
+  // `~/.flow/state/checkpoints/<slug>/checkpoint.md`, nudges "safe to
+  // /clear", and ends the turn here — a legitimate turn-end so
+  // `flow-stop-guard` permits the yield. On resume it resolves to step-5
+  // (implement).
   "checkpoint-pending-clear",
   // Epic-designer review checkpoint (the open design PR). `flow-stop-guard`
   // must permit ending the turn here, so it is a pending phase.
@@ -405,9 +406,11 @@ export function isLegitimateEndPhase(value: string): boolean {
  * `epic-*` phase joins automatically. Two ambiguities this predicate does
  * NOT resolve, both left to callers:
  *
- * - `starting` is shared with feature pipelines and is unreachable via
- *   `bin/flow-session-start-hook.ts` regardless (no worktree, no
- *   `checkpoint.md` yet, so the marker check never passes).
+ * - `starting` is shared with feature pipelines; reaching it via
+ *   `bin/flow-session-start-hook.ts` requires an armed checkpoint marker,
+ *   same as any other phase (the state-dir checkpoint location is
+ *   worktree-independent, so `starting` is no longer categorically
+ *   unreachable the way it was before checkpoint storage moved).
  * - The shared terminals `cancelled` / `needs-human` are feature-or-epic
  *   ambiguous; callers must apply the terminal guard (`TERMINAL_PHASE_SET`)
  *   before consulting `isEpicPhase` for anything.

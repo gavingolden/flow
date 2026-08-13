@@ -5,27 +5,29 @@
  * marker the `SessionStart:clear` auto-resume hook gates on.
  *
  * The `/flow-checkpoint` skill (LLM) writes the conversational-state summary to
- * `<worktree>/.flow-tmp/checkpoint.md`; this helper is the non-LLM half that
- * confirms disk is current and, on a `ready` verdict, writes the marker so a
- * subsequent user-typed `/clear` auto-resumes the pipeline — and, on that same
- * `ready` verdict, records a freshness receipt (`state.checkpoint`: which site
- * armed it, at which phase, and when) so a LATER probe can tell a still-fresh
- * manual note apart from a stale or already-consumed one. `--consume` retires
- * the body outright: it archives `checkpoint.md` to `checkpoint.consumed.md`
- * (recoverable, never silently deleted) and clears the freshness record.
- * `--probe` answers "is the current body still worth keeping?" without
- * mutating anything, so the four auto-checkpoint sites in `flow-pipeline`
- * can branch on a computed verdict instead of restating the freshness rule
- * in prose at each site.
+ * `~/.flow/state/checkpoints/<slug>/checkpoint.md` (slug-keyed, worktree-
+ * independent — `--path` publishes the resolved location); this helper is the
+ * non-LLM half that confirms disk is current and, on a `ready` verdict, writes
+ * the marker so a subsequent user-typed `/clear` auto-resumes the pipeline —
+ * and, on that same `ready` verdict, records a freshness receipt
+ * (`state.checkpoint`: which site armed it, at which phase, and when) so a
+ * LATER probe can tell a still-fresh manual note apart from a stale or
+ * already-consumed one. `--consume` retires the body outright: it archives
+ * `checkpoint.md` to `checkpoint.consumed.md` (recoverable, never silently
+ * deleted) and clears the freshness record. `--probe` answers "is the current
+ * body still worth keeping?" without mutating anything, so the auto-checkpoint
+ * sites in `flow-pipeline` can branch on a computed verdict instead of
+ * restating the freshness rule in prose at each site.
  *
  * Usage:
  *   flow-checkpoint [<slug>] [--site <site>]              validate + arm (write marker + record) on ready
  *   flow-checkpoint [<slug>] --consume                    archive checkpoint.md + clear the marker/record (Resume mode)
  *   flow-checkpoint [<slug>] --probe --site <site>         read-only freshness verdict, no mutation
+ *   flow-checkpoint [<slug>] --path                        print the absolute checkpoint.md path and exit
  *
  * `<slug>` is optional inside a flow tmux pane: it auto-resolves from
  * `$TMUX_PANE`'s `@flow-slug` window option. `--site` defaults to `"manual"`
- * (the `/flow-checkpoint` skill's own bare call); the four auto sites in
+ * (the `/flow-checkpoint` skill's own bare call); the auto sites in
  * `flow-pipeline/SKILL.md` pass their own `--site` explicitly.
  *
  * Output: a single JSON object on stdout.
@@ -42,7 +44,7 @@
  *
  * Exit codes (same exit-0-for-every-decision contract as flow-resume-decide /
  * flow-gate-decide — the skill captures stdout and branches on `.status`):
- *   0 — decision computed (ready / needs / consumed / noop / probe)
+ *   0 — decision computed (ready / needs / consumed / noop / probe), or --path printed
  *   2 — bad CLI args, or no slug given and none resolvable from $TMUX_PANE
  */
 
@@ -60,7 +62,8 @@ import { resolveKindAmbient, resolveSlugAmbient } from "./lib/session-identity";
 import {
   CHECKPOINT_SITES,
   type CheckpointSite,
-  checkpointPath,
+  checkpointBodyPath,
+  checkpointDir,
   hasPhaseAdvancedSince,
   probeFreshness,
 } from "./lib/checkpoint-freshness";
@@ -68,14 +71,16 @@ import {
 // Re-exported for external convenience, not because every symbol has a
 // current importer: only `CHECKPOINT_SITES` is actually imported from here
 // (by `skill-md-lint.test.ts`) — `flow-resume-decide.ts` and
-// `flow-session-start-hook.ts` import just `markerPath` from this file and
-// pull `probeFreshness`/`isCheckpointUsable` from `./lib/checkpoint-freshness`
-// directly. The freshness predicates live in `./lib/checkpoint-freshness`
-// because this file is itself past the AGENTS.md ~200-line/file target
-// (383 lines as of this comment), not to stay under it.
+// `flow-session-start-hook.ts` import the renamed slug-keyed forms from this
+// file and pull `probeFreshness`/`isCheckpointUsable` from
+// `./lib/checkpoint-freshness` directly. The freshness predicates live in
+// `./lib/checkpoint-freshness` because this file is itself past the
+// AGENTS.md ~200-line/file target (448 lines as of this comment), not to
+// stay under it.
 export {
   CHECKPOINT_SITES,
-  checkpointPath,
+  checkpointBodyPath,
+  checkpointDir,
   hasPhaseAdvancedSince,
   probeFreshness,
 };
@@ -112,23 +117,32 @@ export type Deps = {
 };
 
 /** Absolute path of the one-shot marker the SessionStart:clear hook gates on. */
-export function markerPath(worktreePath: string): string {
-  return path.join(worktreePath, ".flow-tmp", "checkpoint.pending");
+export function checkpointMarkerPath(
+  slug: string,
+  dir = FLOW_STATE_DIR,
+): string {
+  return path.join(checkpointDir(slug, dir), "checkpoint.pending");
 }
 
 /** Absolute path of the retired-body archive `--consume` writes to. */
-export function consumedPath(worktreePath: string): string {
-  return path.join(worktreePath, ".flow-tmp", "checkpoint.consumed.md");
+export function checkpointConsumedPath(
+  slug: string,
+  dir = FLOW_STATE_DIR,
+): string {
+  return path.join(checkpointDir(slug, dir), "checkpoint.consumed.md");
 }
 
 /**
- * True iff `<worktree>/.flow-tmp/checkpoint.md` is present and non-empty.
- * Mirrors `probePlan` in flow-resume-decide.ts — empty and missing collapse to
- * the same `false`.
+ * True iff the slug's `checkpoint.md` is present and non-empty. Mirrors
+ * `probePlan` in flow-resume-decide.ts — empty and missing collapse to the
+ * same `false`.
  */
-export function probeCheckpoint(worktreePath: string): boolean {
+export function probeCheckpointBody(
+  slug: string,
+  dir = FLOW_STATE_DIR,
+): boolean {
   try {
-    const stat = fs.statSync(checkpointPath(worktreePath));
+    const stat = fs.statSync(checkpointBodyPath(slug, dir));
     if (!stat.isFile()) return false;
     return stat.size > 0;
   } catch {
@@ -146,8 +160,11 @@ export function probeCheckpoint(worktreePath: string): boolean {
  * the forensic copy. Independent of marker presence: called unconditionally
  * from the `--consume` branch, not gated on the marker existing.
  */
-export function archiveCheckpoint(worktreePath: string): string | null {
-  const src = checkpointPath(worktreePath);
+export function archiveCheckpointBody(
+  slug: string,
+  dir = FLOW_STATE_DIR,
+): string | null {
+  const src = checkpointBodyPath(slug, dir);
   let stat: fs.Stats;
   try {
     stat = fs.statSync(src);
@@ -156,7 +173,7 @@ export function archiveCheckpoint(worktreePath: string): string | null {
   }
   if (!stat.isFile() || stat.size === 0) return null;
 
-  const dest = consumedPath(worktreePath);
+  const dest = checkpointConsumedPath(slug, dir);
   try {
     fs.renameSync(src, dest);
     return dest;
@@ -171,13 +188,20 @@ export function archiveCheckpoint(worktreePath: string): string | null {
 }
 
 export type Args =
-  | { slug?: string; consume: boolean; probe: boolean; site: CheckpointSite }
+  | {
+      slug?: string;
+      consume: boolean;
+      probe: boolean;
+      path: boolean;
+      site: CheckpointSite;
+    }
   | { error: string };
 
 export function parseArgs(argv: string[]): Args {
   let slug: string | undefined;
   let consume = false;
   let probe = false;
+  let pathFlag = false;
   let site: CheckpointSite = "manual";
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -188,6 +212,10 @@ export function parseArgs(argv: string[]): Args {
     }
     if (a === "--probe") {
       probe = true;
+      continue;
+    }
+    if (a === "--path") {
+      pathFlag = true;
       continue;
     }
     if (a === "--site") {
@@ -205,11 +233,14 @@ export function parseArgs(argv: string[]): Args {
   if (probe && consume) {
     return { error: "--probe and --consume are mutually exclusive" };
   }
-  return { slug, consume, probe, site };
+  if (pathFlag && (consume || probe)) {
+    return { error: "--path is mutually exclusive with --consume/--probe" };
+  }
+  return { slug, consume, probe, path: pathFlag, site };
 }
 
 const USAGE =
-  "usage: flow-checkpoint [<slug>] [--consume | --probe] [--site manual|plan-review|plan-approval|gate]";
+  "usage: flow-checkpoint [<slug>] [--consume | --probe | --path] [--site manual|plan-review|plan-approval|gate|terminal]";
 
 function emit(result: CheckpointResult): void {
   process.stdout.write(JSON.stringify(result) + "\n");
@@ -242,9 +273,17 @@ export function run(argv: string[], deps: Deps = {}): number {
 
   const state = readState(slug, stateDir);
 
+  // --path: print the resolved checkpoint body path and exit. Derives from
+  // the slug alone, so it never requires state.json and never fails for an
+  // unknown slug — it is a pure path lookup, not a decision.
+  if (parsed.path) {
+    process.stdout.write(checkpointBodyPath(slug, stateDir) + "\n");
+    return 0;
+  }
+
   // --probe: read-only freshness verdict, checked before any consume/arm
   // mutation logic below. Fails open (verdict "write") on any unresolvable
-  // precondition — no state, no worktree.
+  // precondition — no state.
   if (parsed.probe) {
     if (!state) {
       emit({
@@ -256,18 +295,7 @@ export function run(argv: string[], deps: Deps = {}): number {
       });
       return 0;
     }
-    if (!state.worktree) {
-      emit({
-        status: "probe",
-        slug,
-        phase: state.phase,
-        site: parsed.site,
-        verdict: "write",
-        reason: "no-worktree",
-      });
-      return 0;
-    }
-    const result = probeFreshness(state, state.worktree, parsed.site);
+    const result = probeFreshness(state, parsed.site, stateDir);
     emit({
       status: "probe",
       slug,
@@ -285,53 +313,58 @@ export function run(argv: string[], deps: Deps = {}): number {
   // record) after Resume mode re-injects checkpoint.md, and delete the
   // one-shot marker so a later unrelated /clear in the same window does not
   // re-fire the auto-resume hook. Idempotent: a no-op when there is nothing
-  // to retire. Archiving/record-clearing run unconditionally — independent
-  // of whether the marker itself is present.
+  // to retire. Archiving/record-clearing run unconditionally, independent of
+  // both marker presence and `state.worktree` — the body is slug-keyed, not
+  // worktree-keyed.
   if (parsed.consume) {
-    const worktree = state?.worktree;
-    if (worktree) {
-      const marker = markerPath(worktree);
-      const archived = archiveCheckpoint(worktree) ?? undefined;
-      if (state?.checkpoint) {
-        try {
-          writeState({ ...state, checkpoint: undefined }, stateDir);
-        } catch {
-          // best-effort: a failed record clear does not block the decision.
-        }
+    if (!state) {
+      emit({ status: "noop", slug, reason: "state-missing" });
+      return 0;
+    }
+    const marker = checkpointMarkerPath(slug, stateDir);
+    const archived = archiveCheckpointBody(slug, stateDir) ?? undefined;
+    if (state.checkpoint) {
+      try {
+        writeState({ ...state, checkpoint: undefined }, stateDir);
+      } catch {
+        // best-effort: a failed record clear does not block the decision.
       }
-      if (fs.existsSync(marker)) {
-        try {
-          fs.unlinkSync(marker);
-        } catch {
-          // best-effort: a marker that can't be removed still no-ops the next
-          // clear once the worktree is gone; don't fail the decision.
-        }
-        emit({ status: "consumed", slug, worktree, marker, archived });
-        return 0;
+    }
+    if (fs.existsSync(marker)) {
+      try {
+        fs.unlinkSync(marker);
+      } catch {
+        // best-effort: a marker that can't be removed still no-ops the next
+        // clear once the worktree is gone; don't fail the decision.
       }
-      emit({ status: "noop", slug, worktree, reason: "no-marker", archived });
+      emit({
+        status: "consumed",
+        slug,
+        worktree: state.worktree,
+        marker,
+        archived,
+      });
       return 0;
     }
     emit({
       status: "noop",
       slug,
-      reason: state ? "no-worktree" : "state-missing",
+      worktree: state.worktree,
+      reason: "no-marker",
+      archived,
     });
     return 0;
   }
 
   // Ready/needs: a ready verdict requires state.json + a non-empty
   // checkpoint.md, and writes the marker (plus a freshness record for the
-  // armed site); a needs verdict writes nothing.
+  // armed site); a needs verdict writes nothing. No worktree requirement —
+  // the checkpoint location is slug-keyed.
   if (!state) {
     emit({ status: "needs", slug, reason: "state-missing" });
     return 0;
   }
-  if (!state.worktree) {
-    emit({ status: "needs", slug, phase: state.phase, reason: "no-worktree" });
-    return 0;
-  }
-  if (!probeCheckpoint(state.worktree)) {
+  if (!probeCheckpointBody(slug, stateDir)) {
     emit({
       status: "needs",
       slug,
@@ -342,7 +375,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 0;
   }
 
-  const marker = markerPath(state.worktree);
+  const marker = checkpointMarkerPath(slug, stateDir);
   try {
     fs.mkdirSync(path.dirname(marker), { recursive: true });
     fs.writeFileSync(marker, `${slug}\n${nowIso()}\n`);
@@ -365,7 +398,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   // (`site: "manual"`) the preserve decision itself rested on, silently
   // demoting a note that should keep outranking auto sites with no phase
   // change since it was left.
-  const verdict = probeFreshness(state, state.worktree, parsed.site).verdict;
+  const verdict = probeFreshness(state, parsed.site, stateDir).verdict;
   if (verdict === "write" || !state.checkpoint) {
     try {
       writeState(
@@ -394,7 +427,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   const kind = resolveKind() ?? "feature";
   let warning: string | undefined;
   if (!autoResumesAfterClear(state.phase, kind)) {
-    warning = `phase '${state.phase}' is terminal — the SessionStart:clear hook will not auto-resume after /clear; the marker stays armed and checkpoint.md will not be re-injected.`;
+    warning = `phase '${state.phase}' is terminal — your notes are still carried over into the fresh session after /clear, but the pipeline itself will not auto-resume (there is nothing left to resume).`;
     process.stderr.write(`flow-checkpoint: warning: ${warning}\n`);
   }
 
@@ -403,7 +436,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     slug,
     phase: state.phase,
     worktree: state.worktree,
-    checkpoint: checkpointPath(state.worktree),
+    checkpoint: checkpointBodyPath(slug, stateDir),
     marker,
     ...(warning ? { warning } : {}),
   });

@@ -51,7 +51,7 @@ import * as path from "node:path";
 import { readState, type PipelineState, TERMINAL_PHASES } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
-import { markerPath } from "./flow-checkpoint";
+import { checkpointBodyPath, checkpointMarkerPath } from "./flow-checkpoint";
 import { isCheckpointUsable } from "./lib/checkpoint-freshness";
 import {
   probeWorktree,
@@ -110,7 +110,8 @@ export type DecisionContext = {
   hasSkillAdditions?: boolean;
   answer?: string;
   /**
-   * True when `<worktree>/.flow-tmp/checkpoint.md` holds a body worth
+   * True when the slug's state-dir `checkpoint.md`
+   * (`~/.flow/state/checkpoints/<slug>/checkpoint.md`) holds a body worth
    * re-injecting — the signal Resume mode reads to surface persisted
    * conversational addenda (an "approved with condition X" note the fresh
    * process would otherwise drop). Computed via `isCheckpointUsable`, NOT
@@ -118,12 +119,13 @@ export type DecisionContext = {
    * later phase transition has superseded is usable even though
    * `probeFreshness` would say a later auto site is free to overwrite it —
    * those are different questions (see `bin/lib/checkpoint-freshness.ts`).
+   * Worktree-independent, so it is populated at terminal phases too.
    * Additive/optional; absent on pipelines that never checkpointed.
    */
   checkpointExists?: boolean;
   /**
-   * True when the one-shot `<worktree>/.flow-tmp/checkpoint.pending` marker is
-   * present — DISTINCT from `checkpointExists` (which probes the persistent
+   * True when the one-shot state-dir `checkpoint.pending` marker is present
+   * — DISTINCT from `checkpointExists` (which probes the persistent
    * `checkpoint.md`). The `gated`→feedback-vs-terminal decision gates on this
    * marker (the same signal the SessionStart hook uses), because the marker
    * does NOT survive `--consume`; `checkpoint.md` does. Gating on the marker
@@ -131,6 +133,14 @@ export type DecisionContext = {
    * consumed round does not re-fire feedback mode.
    */
   checkpointMarkerExists?: boolean;
+  /**
+   * Absolute path of the resolved checkpoint body — published so the
+   * supervisor's Resume-mode re-injection block reads the same file this
+   * decision probed, instead of re-deriving the state-dir location itself.
+   * Additive/optional; set whenever `checkpointExists`/`checkpointMarkerExists`
+   * are set.
+   */
+  checkpointPath?: string;
 };
 
 export type DecisionResult = {
@@ -151,6 +161,8 @@ export type Inputs = {
   planExists: boolean;
   checkpointExists: boolean;
   checkpointMarkerExists: boolean;
+  /** Absolute path of the resolved checkpoint body — always computed, since it derives from `slug` alone. */
+  checkpointPath: string;
   pr: PrInfo;
   hasSkillAdditions: boolean;
   ciState: CiState;
@@ -281,6 +293,7 @@ export function decide(inputs: Inputs): DecisionResult {
   if (inputs.state.phase === "gated") {
     ctx.checkpointExists = inputs.checkpointExists;
     ctx.checkpointMarkerExists = inputs.checkpointMarkerExists;
+    ctx.checkpointPath = inputs.checkpointPath;
     if (inputs.pr.kind === "found") {
       ctx.pr = inputs.pr.number;
       ctx.prState = inputs.pr.state;
@@ -329,8 +342,13 @@ export function decide(inputs: Inputs): DecisionResult {
     };
   }
 
-  // Edge 1.3-1.5: terminal phases — pipeline already ended.
+  // Edge 1.3-1.5: terminal phases — pipeline already ended. The checkpoint
+  // signals are worktree-independent filesystem stats, so they are populated
+  // here even though this branch never probes gh/git.
   if (TERMINAL_PHASE_SET.has(inputs.state.phase)) {
+    ctx.checkpointExists = inputs.checkpointExists;
+    ctx.checkpointMarkerExists = inputs.checkpointMarkerExists;
+    ctx.checkpointPath = inputs.checkpointPath;
     return {
       resumeAt: "terminal",
       reason: `phase: ${inputs.state.phase}`,
@@ -347,6 +365,9 @@ export function decide(inputs: Inputs): DecisionResult {
   // reach Row 2's "worktree not yet created" → step-2 and mechanically spin up
   // a worktree + plan + build, contradicting the recorded triage.
   if (NO_INFLIGHT_WORK_PHASES.has(inputs.state.phase)) {
+    ctx.checkpointExists = inputs.checkpointExists;
+    ctx.checkpointMarkerExists = inputs.checkpointMarkerExists;
+    ctx.checkpointPath = inputs.checkpointPath;
     return {
       resumeAt: "terminal",
       reason:
@@ -529,7 +550,7 @@ export function probePlan(worktreePath: string): boolean {
 }
 
 /**
- * True iff the one-shot `<worktree>/.flow-tmp/checkpoint.pending` marker exists.
+ * True iff the one-shot state-dir `checkpoint.pending` marker exists.
  * DISTINCT from `checkpointExists` in `gatherInputs` (which asks whether the
  * persistent `checkpoint.md` is USABLE — present, non-empty, AND not
  * superseded by a later phase transition, via `isCheckpointUsable` imported
@@ -539,9 +560,12 @@ export function probePlan(worktreePath: string): boolean {
  * `./flow-checkpoint` (single source of truth, one-way import) rather than
  * re-derived here.
  */
-export function probeCheckpointMarker(worktreePath: string): boolean {
+export function probeCheckpointMarker(
+  slug: string,
+  dir = FLOW_STATE_DIR,
+): boolean {
   try {
-    return fs.existsSync(markerPath(worktreePath));
+    return fs.existsSync(checkpointMarkerPath(slug, dir));
   } catch {
     return false;
   }
@@ -628,14 +652,18 @@ export function gatherInputs(
   state: PipelineState,
   gh: GhRunner,
   git: GitRunner,
+  stateDir = FLOW_STATE_DIR,
 ): Inputs {
   // Terminal phases — and the no-in-flight-work pending phases — short-circuit
-  // all I/O: decide() returns terminal from the phase check alone, so probing
-  // gh/git on a completed (or pre-worktree) pipeline is wasted work (and unsafe
-  // under a stub gh/git in tests). `gated` is the one terminal phase EXCLUDED
-  // from the short-circuit: its decide() branch resolves to `gated-feedback`
-  // when a checkpoint marker is present, so it must probe worktree + checkpoint
-  // + marker + PR (the feedback session needs PR context) rather than skip I/O.
+  // gh/git I/O: decide() returns terminal from the phase check alone, so
+  // probing gh/git on a completed (or pre-worktree) pipeline is wasted work
+  // (and unsafe under a stub gh/git in tests). The checkpoint signals are
+  // still probed here — they are worktree-independent filesystem stats after
+  // the state-dir storage move, not gh/git calls, so this short-circuit still
+  // performs ZERO gh/git I/O. `gated` is the one terminal phase EXCLUDED from
+  // the short-circuit: its decide() branch resolves to `gated-feedback` when
+  // a checkpoint marker is present, so it must probe worktree + checkpoint +
+  // marker + PR (the feedback session needs PR context) rather than skip I/O.
   if (
     (TERMINAL_PHASE_SET.has(state.phase) && state.phase !== "gated") ||
     NO_INFLIGHT_WORK_PHASES.has(state.phase)
@@ -645,8 +673,9 @@ export function gatherInputs(
       state,
       worktree: { kind: "absent-from-state" },
       planExists: false,
-      checkpointExists: false,
-      checkpointMarkerExists: false,
+      checkpointExists: isCheckpointUsable(state, stateDir),
+      checkpointMarkerExists: probeCheckpointMarker(slug, stateDir),
+      checkpointPath: checkpointBodyPath(slug, stateDir),
       pr: { kind: "none" },
       hasSkillAdditions: false,
       ciState: { kind: "no-checks-reported" },
@@ -658,12 +687,12 @@ export function gatherInputs(
 
   const planExists =
     worktree.kind === "present" ? probePlan(worktree.path) : false;
-  const checkpointExists =
-    worktree.kind === "present"
-      ? isCheckpointUsable(state, worktree.path)
-      : false;
-  const checkpointMarkerExists =
-    worktree.kind === "present" ? probeCheckpointMarker(worktree.path) : false;
+  // Worktree-independent: the checkpoint body/marker live in the state dir,
+  // not the worktree, so these are unconditional (unlike planExists above,
+  // which genuinely lives inside the worktree).
+  const checkpointExists = isCheckpointUsable(state, stateDir);
+  const checkpointMarkerExists = probeCheckpointMarker(slug, stateDir);
+  const checkpointPath = checkpointBodyPath(slug, stateDir);
   const hasSkillAdditions =
     worktree.kind === "present"
       ? probeSkillAdditions(worktree.path, git)
@@ -685,6 +714,7 @@ export function gatherInputs(
     planExists,
     checkpointExists,
     checkpointMarkerExists,
+    checkpointPath,
     pr,
     hasSkillAdditions,
     ciState,
@@ -729,7 +759,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 0;
   }
 
-  const inputs = gatherInputs(slug, state, gh, git);
+  const inputs = gatherInputs(slug, state, gh, git, stateDir);
   const decision = decide(inputs);
   process.stdout.write(JSON.stringify(decision) + "\n");
   return 0;

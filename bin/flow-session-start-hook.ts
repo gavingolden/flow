@@ -39,16 +39,19 @@
  *
  * Correctness constraint: the hook is global (`~/.claude/settings.json`) and
  * fires on EVERY `/clear` on the machine, so it MUST do nothing — no delivery,
- * exit 0 — unless ALL of: the window resolves to a pipeline `autoResumesAfterClear`
- * for its kind AND a `<worktree>/.flow-tmp/checkpoint.pending` marker is present
- * (written by `flow-checkpoint` on a ready verdict). A plain `/clear` with no
- * prior checkpoint leaves no marker → the hook no-ops and the session clears
- * normally. Modeled on `flow-stop-guard`'s "no-op when state.json
- * missing/terminal" discipline. When the guard declines a `/clear` that DID
- * carry an armed marker, it now emits a passive advisory (`terminalAdvisory`)
- * naming the phase and the manual recovery command — `additionalContext` is
- * the right surface for a note precisely because it triggers no autonomous
- * turn (the same passivity that disqualifies it for a resume seed).
+ * exit 0 — unless a slug-keyed `~/.flow/state/checkpoints/<slug>/checkpoint.pending`
+ * marker is present (written by `flow-checkpoint` on a ready verdict) —
+ * worktree-independent, so a checkpointed window whose worktree is already
+ * gone still qualifies. A plain `/clear` with no prior checkpoint leaves no
+ * marker → the hook no-ops and the session clears normally. Modeled on
+ * `flow-stop-guard`'s "no-op when state.json missing/terminal" discipline.
+ * When the pipeline will not auto-resume for this kind but the marker WAS
+ * armed, the hook instead carries the checkpoint body over as passive
+ * context (`terminalCarryOver`) when one is readable, or falls back to a
+ * plain advisory (`terminalAdvisory`) naming the phase and the manual
+ * recovery command — `additionalContext` is the right surface for both
+ * precisely because it triggers no autonomous turn (the same passivity that
+ * disqualifies it for a resume seed).
  */
 
 import * as fs from "node:fs";
@@ -73,7 +76,11 @@ import { epicDirRelative } from "./lib/epic-manifest-schema";
 import { capturePaneBySlug, sendKeysBySlug } from "./lib/tmux";
 import { deliverSeed } from "./lib/seed-delivery";
 import { sleepSync } from "./lib/sleep";
-import { markerPath } from "./flow-checkpoint";
+import {
+  archiveCheckpointBody,
+  checkpointBodyPath,
+  checkpointMarkerPath,
+} from "./flow-checkpoint";
 
 /** Which resume seed a window gets — re-exports Task 1's `PipelineKind`. */
 export type ResumeKind = PipelineKind;
@@ -112,18 +119,40 @@ export function resumeSeedFor(slug: string, kind: ResumeKind): string {
  * pointing the user at `flow feature resume` for a window that has no
  * feature pipeline at all.
  */
+/** Shared recovery-command mapping — reused by `terminalAdvisory` and `terminalCarryOver`. */
+function recoveryCommandFor(slug: string, kind: ResumeKind): string {
+  return kind === "epic-design"
+    ? `flow epic create --resume ${slug}`
+    : kind === "epic-run"
+      ? `flow epic run ${slug}`
+      : `flow feature resume ${slug}`;
+}
+
 export function terminalAdvisory(
   slug: string,
   phase: string,
   kind: ResumeKind,
 ): string {
-  const recovery =
-    kind === "epic-design"
-      ? `flow epic create --resume ${slug}`
-      : kind === "epic-run"
-        ? `flow epic run ${slug}`
-        : `flow feature resume ${slug}`;
+  const recovery = recoveryCommandFor(slug, kind);
   return `flow: phase '${phase}' is terminal for '${slug}' — checkpoint.md was not re-injected and the checkpoint marker is still armed. Recover manually with \`${recovery}\`.`;
+}
+
+/**
+ * The passive context emitted when a `/clear` at a terminal phase DOES carry
+ * a non-empty checkpoint body — the carry-over path Task 2 adds. Reuses
+ * `terminalAdvisory`'s recovery-command mapping (via `recoveryCommandFor`)
+ * rather than duplicating it, then appends the body verbatim under a
+ * dedicated heading so it reads as distinct from the one-line note.
+ */
+export function terminalCarryOver(
+  slug: string,
+  phase: string,
+  kind: ResumeKind,
+  body: string,
+): string {
+  const recovery = recoveryCommandFor(slug, kind);
+  const note = `flow: phase '${phase}' is terminal for '${slug}' — the pipeline has finished. Your checkpoint notes are carried over below; recover the pipeline manually with \`${recovery}\` if you need it.`;
+  return `${note}\n\n## Checkpoint (carried over)\n\n${body}`;
 }
 
 export type Deps = {
@@ -139,7 +168,19 @@ export type Deps = {
    */
   emitContext: (context: string) => void;
   loadState: (slug: string) => PipelineState | null;
-  markerExists: (worktree: string) => boolean;
+  markerExists: (slug: string) => boolean;
+  /**
+   * Reads the slug's resolved checkpoint body; `null` on any read error or
+   * empty content. Used only by the terminal carry-over branch.
+   */
+  readCheckpointBody: (slug: string) => string | null;
+  /**
+   * Retires the checkpoint after a successful terminal carry-over: archives
+   * the body (same semantics as `--consume`) and removes the marker, so a
+   * second `/clear` at the same terminal phase emits nothing. Best-effort —
+   * never throws.
+   */
+  retireCheckpoint: (slug: string) => void;
   /**
    * Resolves the window's kind from the `@flow-kind` pane option. Optional,
    * defaulting to `resolveKindAmbient()` — matches `bin/flow-checkpoint.ts`'s
@@ -193,9 +234,10 @@ export async function run(deps: Deps): Promise<number> {
   // the emit path returns early without one — so hoisting it keeps the common
   // case (a /clear in a flow window that was never checkpointed) from paying a
   // `tmux show-options` subprocess in a hook that blocks session start on
-  // EVERY /clear on the machine.
-  const worktree = state.worktree;
-  if (!worktree || !deps.markerExists(worktree)) return 0;
+  // EVERY /clear on the machine. Worktree-independent: the marker lives in the
+  // state dir, keyed on slug alone, so a checkpointed window whose worktree
+  // was already deleted (MERGED, cancelled) still reaches the terminal branch.
+  if (!deps.markerExists(slug)) return 0;
 
   // Resolve the window's kind BEFORE the terminal guard — the guard now
   // depends on it. `@flow-kind` (the pane option) wins; the phase predicate
@@ -219,12 +261,24 @@ export async function run(deps: Deps): Promise<number> {
   // lifecycle, not run progress).
   if (!autoResumesAfterClear(state.phase, kind)) {
     // The user checkpointed (marker armed) and then cleared at a phase this
-    // hook will not resume from. Task 7's checkpoint-time warning may be
-    // many minutes stale by now, so re-state it HERE, at the destructive
-    // step. additionalContext is PASSIVE — it triggers no autonomous turn
-    // (exactly why it is wrong for a resume seed and right for a note), so
-    // this fires on BOTH launcher paths.
-    deps.emitContext(terminalAdvisory(slug, state.phase, kind));
+    // hook will not resume from. additionalContext is PASSIVE — it triggers
+    // no autonomous turn (exactly why it is wrong for a resume seed and right
+    // for a note/carry-over), so this fires on BOTH launcher paths. A non-
+    // empty body is carried over verbatim and retired one-shot; otherwise the
+    // plain advisory fires unchanged. The whole branch is wrapped so no
+    // checkpoint I/O failure (unreadable body, unwritable archive) can ever
+    // block session start — this hook is global and fires on EVERY /clear.
+    try {
+      const body = deps.readCheckpointBody(slug);
+      if (body) {
+        deps.emitContext(terminalCarryOver(slug, state.phase, kind, body));
+        deps.retireCheckpoint(slug);
+      } else {
+        deps.emitContext(terminalAdvisory(slug, state.phase, kind));
+      }
+    } catch {
+      return 0;
+    }
     return 0;
   }
 
@@ -442,11 +496,27 @@ if (import.meta.main) {
     },
     showFlowSlug: defaultShowFlowSlug,
     loadState: (slug) => readState(slug),
-    markerExists: (worktree) => {
+    markerExists: (slug) => {
       try {
-        return fs.existsSync(markerPath(worktree));
+        return fs.existsSync(checkpointMarkerPath(slug));
       } catch {
         return false;
+      }
+    },
+    readCheckpointBody: (slug) => {
+      try {
+        const body = fs.readFileSync(checkpointBodyPath(slug), "utf8");
+        return body.length > 0 ? body : null;
+      } catch {
+        return null;
+      }
+    },
+    retireCheckpoint: (slug) => {
+      try {
+        archiveCheckpointBody(slug);
+        fs.unlinkSync(checkpointMarkerPath(slug));
+      } catch {
+        // best-effort: retirement never blocks session start.
       }
     },
     resolveKind: resolveKindAmbient,

@@ -59,7 +59,7 @@ import {
   type GhRunner,
   type GitRunner,
 } from "./lib/resume-probes";
-import { probeCheckpoint } from "./flow-checkpoint";
+import { probeCheckpointBody } from "./flow-checkpoint";
 
 // --- Types -----------------------------------------------------------------
 
@@ -82,9 +82,10 @@ export type DecisionContext = {
   prState?: "OPEN" | "MERGED" | "CLOSED";
   /**
    * Additive/optional (parity with `bin/flow-resume-decide.ts:117`): whether
-   * `<worktree>/.flow-tmp/checkpoint.md` is present and non-empty, so
-   * `/flow-epic-create` Resume mode can branch on it without a bespoke shell
-   * probe. Absent worktree ⇒ `false`, never omitted.
+   * the slug-keyed checkpoint body under `~/.flow/state/checkpoints/<slug>/`
+   * is present and non-empty, so `/flow-epic-create` Resume mode can branch
+   * on it without a bespoke shell probe. Worktree-independent, so a removed
+   * or broken checkout does not zero it. Never omitted.
    */
   checkpointExists?: boolean;
 };
@@ -260,6 +261,7 @@ export function gatherInputs(
   state: PipelineState,
   gh: GhRunner,
   git: GitRunner,
+  stateDir = FLOW_STATE_DIR,
 ): Inputs {
   // Terminal phases short-circuit all I/O: decide() returns terminal from the
   // phase check alone, so probing gh/git on a completed epic is wasted work
@@ -278,17 +280,9 @@ export function gatherInputs(
   const branch =
     worktree.kind === "present" ? probeBranch(worktree.path, git) : null;
   const pr = branch ? probePr(branch, gh) : { kind: "none" as const };
-  // Deliberately gates on the raw `state.worktree` path rather than
-  // `worktree.kind === "present"` like `branch` above. The two disagree on a
-  // directory that exists but is not a valid git checkout (`probeWorktree`
-  // calls that `missing-on-disk`) — and there, the raw-path form is the right
-  // one: `checkpoint.md` is conversational state, still readable and still
-  // worth re-injecting even when the git metadata is broken. `probeCheckpoint`
-  // stats the file, so a genuinely absent directory already collapses to
-  // `false`.
-  const checkpointExists = state.worktree
-    ? probeCheckpoint(state.worktree)
-    : false;
+  // Slug-keyed and worktree-independent: the body lives in the state dir, so
+  // it is unaffected by a broken or removed git checkout.
+  const checkpointExists = probeCheckpointBody(slug, stateDir);
 
   return { slug, state, worktree, pr, checkpointExists };
 }
@@ -330,7 +324,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 0;
   }
 
-  const inputs = gatherInputs(slug, state, gh, git);
+  const inputs = gatherInputs(slug, state, gh, git, stateDir);
   const decision = decide(inputs);
   process.stdout.write(JSON.stringify(decision) + "\n");
   return 0;
