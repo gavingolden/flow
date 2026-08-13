@@ -6,6 +6,7 @@ import {
   CHECKPOINT_SITES,
   checkpointBodyPath,
   checkpointDir,
+  deleteCheckpointDir,
   isCheckpointUsable,
   probeFreshness,
 } from "./checkpoint-freshness";
@@ -43,16 +44,74 @@ describe("checkpointDir / checkpointBodyPath", () => {
     expect(fs.existsSync(d)).toBe(false);
   });
 
-  it("derivation is identical whether state.worktree is live, points at a deleted directory, or is unset", () => {
-    // checkpointDir/checkpointBodyPath take only a slug — no worktree
-    // parameter exists to vary, which is itself the point: a live worktree
-    // path, a deleted one, and an unset one all resolve to the exact same
-    // location because the function signature admits no worktree input.
-    const live = checkpointBodyPath("same-slug", dir);
-    const deleted = checkpointBodyPath("same-slug", dir);
-    const unset = checkpointBodyPath("same-slug", dir);
-    expect(live).toBe(deleted);
-    expect(deleted).toBe(unset);
+  it("resolution is unaffected by state.worktree being live, deleted, or unset", () => {
+    // The point of the migration: a body written for a slug stays readable no
+    // matter what happened to that pipeline's worktree. Assert it through a
+    // predicate that actually CONSUMES state.worktree — comparing repeated
+    // `checkpointBodyPath(slug)` calls would pass trivially, since the
+    // signature admits no worktree to vary in the first place.
+    writeBody("same-slug");
+
+    const liveWorktree = fs.mkdtempSync(path.join(os.tmpdir(), "live-wt-"));
+    const deletedWorktree = fs.mkdtempSync(path.join(os.tmpdir(), "dead-wt-"));
+    fs.rmSync(deletedWorktree, { recursive: true, force: true });
+
+    const base = {
+      slug: "same-slug",
+      phase: "implementing",
+      repo: "/repo",
+      updatedAt: new Date(0).toISOString(),
+    };
+
+    const verdicts = [
+      isCheckpointUsable({ ...base, worktree: liveWorktree } as never, dir),
+      isCheckpointUsable({ ...base, worktree: deletedWorktree } as never, dir),
+      isCheckpointUsable(base as never, dir),
+    ];
+
+    fs.rmSync(liveWorktree, { recursive: true, force: true });
+
+    expect(verdicts).toEqual([true, true, true]);
+  });
+});
+
+describe("deleteCheckpointDir", () => {
+  it("removes the whole slug directory — body, marker, and archive together", () => {
+    writeBody("torn-down");
+    const d = checkpointDir("torn-down", dir);
+    fs.writeFileSync(path.join(d, "checkpoint.pending"), "torn-down\n");
+    fs.writeFileSync(path.join(d, "checkpoint.consumed.md"), "old\n");
+
+    expect(deleteCheckpointDir("torn-down", dir)).toBe(true);
+    expect(fs.existsSync(d)).toBe(false);
+  });
+
+  it("leaves a sibling slug's checkpoint untouched", () => {
+    writeBody("victim");
+    writeBody("bystander");
+    deleteCheckpointDir("victim", dir);
+    expect(fs.existsSync(checkpointBodyPath("victim", dir))).toBe(false);
+    expect(fs.existsSync(checkpointBodyPath("bystander", dir))).toBe(true);
+  });
+
+  it("is a no-op for a slug that never checkpointed — never throws", () => {
+    expect(() => deleteCheckpointDir("never-existed", dir)).not.toThrow();
+  });
+
+  it("clears an armed marker so a reused slug cannot inherit the previous run's auto-resume", () => {
+    // The regression this exists to prevent: the marker used to die with the
+    // worktree, so a same-slug successor pipeline could never inherit it.
+    // Slug-keyed storage outlives the worktree, so teardown must be explicit.
+    writeBody("recycled");
+    const marker = path.join(
+      checkpointDir("recycled", dir),
+      "checkpoint.pending",
+    );
+    fs.writeFileSync(marker, "recycled\n");
+
+    deleteCheckpointDir("recycled", dir);
+
+    expect(fs.existsSync(marker)).toBe(false);
   });
 });
 

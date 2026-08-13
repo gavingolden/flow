@@ -876,14 +876,14 @@ normalized-diff re-fire detection) in
   and approve on a fresh session. Run `flow-checkpoint --probe --site plan-review`,
   branch on `jq -r '.verdict'`, and only on `write` write a minimal
   one-line pointer to the path `flow-checkpoint --path` prints (a still-fresh
-  manual `/flow-checkpoint` note — `verdict: preserve` — wins and is left
-  untouched). Then `flow-checkpoint --site plan-review` to arm the marker and record the freshness receipt, and add a one-line nudge: **safe to `/clear` — approve on a fresh session; the plan re-renders on resume.**
+  manual note — `verdict: preserve` — wins and is left untouched). Then
+  `flow-checkpoint --site plan-review` to arm the marker and record the freshness receipt, and add a one-line nudge: **safe to `/clear` — approve on a fresh session; the plan re-renders on resume.**
   No helper change is needed: `plan-pending-review` is non-terminal, so
   `flow-resume-decide` already resolves it to step-4 and the
-  `SessionStart:clear` hook already fires on it when the marker is
-  present. `flow-checkpoint --consume` in Resume mode re-injects and
-  retires the body exactly like every other checkpoint resume — archiving
-  it to `checkpoint.consumed.md` (same directory), clearing the receipt.
+  `SessionStart:clear` hook already fires on it when the marker is present.
+  `flow-checkpoint --consume` in Resume mode re-injects and retires the body
+  like every other resume — archiving it to `checkpoint.consumed.md` (same
+  directory), clearing the receipt.
 
   Format the checkpoint-nudge tail per `references/pause-output-contract.md` — labeled slots, no open prose, appended under the plan-summary block's heading (template: `**Notes:** safe to /clear — the plan re-renders on resume` / `**Next action:** approve / redirect: … / cancel`).
   <!-- any new pause site below must reference pause-output-contract.md -->
@@ -1041,15 +1041,16 @@ It is the approval → implement clear point: it flushes the load-bearing
 approval state so the user can `/clear` here and resume into step 5 on
 a fresh, low-context session.
 
-1. **Flush approval state to `checkpoint.md` (non-clobbering).** Probe
-   with `flow-checkpoint --probe --site plan-approval`; only on a
-   `write` verdict (a still-fresh manual note reads `preserve` and wins,
-   left untouched) write the load-bearing conversational state the fresh
-   process would otherwise drop: the approval verdict plus any addenda or
-   conditions the user attached (e.g. an "approved with A1" note, a
-   folded-in scope change, an "ignore flake X" decision). Unlike the gate
-   auto-checkpoint (near-zero residue), this one genuinely flushes
-   approval state, so it uses the fuller `/flow-checkpoint`-style flush.
+1. **Flush approval state to `checkpoint.md` (non-clobbering).** Write it at
+   the path `flow-checkpoint --path` prints. Probe with
+   `flow-checkpoint --probe --site plan-approval`; only on a `write` verdict
+   (a still-fresh manual note reads `preserve` and wins, left untouched)
+   write the load-bearing conversational state the fresh process would
+   otherwise drop: the approval verdict plus any addenda or conditions the
+   user attached (e.g. an "approved with A1" note, a folded-in scope change,
+   an "ignore flake X" decision). Unlike the gate auto-checkpoint (near-zero
+   residue), this one genuinely flushes approval state, so it uses the fuller
+   `/flow-checkpoint`-style flush.
 2. **Arm the one-shot marker:** `flow-checkpoint --site plan-approval`
    (validates `checkpoint.md`, writes the `checkpoint.pending` marker on
    a ready verdict, and records the freshness receipt for this site).
@@ -1819,8 +1820,9 @@ rounds of feedback while the supervisor carries a huge `/flow-pr-review`
 context the next fix does not need). **Non-clobbering:** probe with
 `flow-checkpoint --probe --site gate`; only on a `write` verdict write a
 minimal one-line pointer (e.g. `gated on PR #<pr> — feedback-mode
-checkpoint`) — a still-fresh manual `/flow-checkpoint` note (`verdict:
-preserve`) wins, left untouched. Then arm: `flow-checkpoint --site gate`.
+checkpoint`) to the path `flow-checkpoint --path` prints — a still-fresh
+manual note (`verdict: preserve`) wins, left untouched. Then arm:
+`flow-checkpoint --site gate`.
 
 This is a **near-zero-residue** arm — it flushes no approval state, only
 the pointer that lets `SessionStart:clear` fire at `gated`. Add a
@@ -2196,11 +2198,10 @@ jq '{additions,deletions,changedFiles,commits:(.commits|length)}' "$WORKTREE/.fl
 flow-pipeline-summary --status merged --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --post-comment "$PR" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH"  # prints the echo recap (top of stdout) then the ## PIPELINE SNAPSHOT block ABOVE the gate-summary (emits NO sentinel); --post-comment additionally persists the snapshot as an idempotent PR comment (MERGED-only, best-effort)
 flow-epic-membership --slug "$SLUG" --terminal-state merged  # epic-membership block (prints nothing for non-epic features)
 flow-browser-teardown --reap --record  # registry-driven reap; records the outcome in state.json; always exits 0 — never blocks, never silently no-ops
-flow-gate-summary --status merged --pr-url "$PR_URL" --cleanup \
-  --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"     # renders STATUS/PR/NEXT ACTION/CLEANUP/FOLLOW-UPS + sentinel MERGED — must run BEFORE the terminal state transition
+flow-gate-summary --status merged --pr-url "$PR_URL" --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"  # renders STATUS/PR/NEXT ACTION/CLEANUP/FOLLOW-UPS + sentinel MERGED — must run BEFORE the terminal state transition
 flow-state-update --phase merged
 flow-notify --status merged --url "$PR_URL"
-[ "$(flow-checkpoint --probe --site terminal | jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal  # best-effort, non-clobbering arm; not armed at the merged-externally rows or the step-9 resume MERGED branch — nothing lost, the body is worktree-independent
+[ "$(flow-checkpoint --probe --site terminal | jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null  # best-effort, non-clobbering arm (stdout muted so the JSON verdict does not land beside the gate block); not armed at the merged-externally rows or the step-9 resume MERGED branch — nothing lost, the body is worktree-independent
 flow-remove-worktree --delete-branch
 ```
 
@@ -2380,10 +2381,8 @@ caps.
 process reconstructs the pipeline *step* from disk but drops any
 instruction held only in chat. Before re-entering the resolved step,
 check `$CHECKPOINT_EXISTS`: when `true` (a **usable** body — present,
-non-empty, still fresh per `flow-checkpoint`'s rules — written by
-`/flow-checkpoint` or an auto-checkpoint sub-step; it is slug-keyed, so it
-survives even at a phase whose worktree is gone, and the `terminal` row
-below therefore re-injects too), resolve
+non-empty, still fresh; slug-keyed, so it survives a worktree-less phase and
+the `terminal` row re-injects too), resolve
 `CHECKPOINT_PATH=$(printf '%s' "$RESULT" | jq -r '.context.checkpointPath // empty')`
 and **read `$CHECKPOINT_PATH` BEFORE running `--consume`**, folding its
 addenda into the re-entered step — honor the persisted approval
@@ -2394,10 +2393,10 @@ flow-checkpoint --consume
 ```
 
 which retires the body — archiving it to `checkpoint.consumed.md` (same
-directory, recoverable, never silently deleted), clearing the freshness
-record, and deleting the one-shot `checkpoint.pending` marker so a later
-unrelated `/clear` does not re-fire it. Skip the read-before-consume
-ordering and an "approved with condition X" addendum vanishes on the clear.
+directory, recoverable, never silently deleted), clearing the freshness record,
+and deleting the one-shot `checkpoint.pending` marker so a later `/clear` does
+not re-fire it. Skip the read-before-consume ordering and an addendum like
+"approved with condition X" vanishes on the clear.
 
 Branch on `.resumeAt`:
 
@@ -2571,9 +2570,9 @@ flow-browser-teardown --reap --record  # registry-driven; records outcome; alway
 flow-gate-summary --status needs-human --reason "<reason>" \
   --why "<one-line context>" --cleanup \
   --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"
-[ "$(flow-checkpoint --probe --site terminal | jq -r '.verdict')" = write ] && echo "Pipeline escalated to NEEDS HUMAN (<reason>) at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal  # best-effort, non-clobbering arm
 flow-state-update --phase needs-human
 flow-notify --status needs-human --reason "<reason>"
+[ "$(flow-checkpoint --probe --site terminal | jq -r '.verdict')" = write ] && echo "Pipeline escalated to NEEDS HUMAN (<reason>) at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null  # terminal arm, stdout muted; MUST follow the phase write above — `--phase` appends a phaseLog entry, so arming first is stale on arrival and `flow feature resume` would report no checkpoint here
 ```
 
 On a POST-review escalation (a PR exists), after the helper runs, echo the
@@ -2616,15 +2615,16 @@ mid-phase. Apply `references/redirect-handling.md`:
 - Imperative redirect → re-enter the relevant phase with the
   redirect appended to the next prompt. Verbatim — don't paraphrase.
 - Cancel → wait for any in-flight atomic action (commit, push, merge) to
-  finish, then close the PR if open, best-effort checkpoint
+  finish, then close the PR if open, run `flow-remove-worktree`, write
+  `phase: cancelled`, then best-effort checkpoint — always AFTER that phase
+  write, since arming first is stale on arrival
   (`flow-checkpoint --probe --site terminal`; on `write`, echo a one-line
   residue to `flow-checkpoint --path`'s target, then
-  `flow-checkpoint --site terminal` to arm), run `flow-remove-worktree`,
-  write `phase: cancelled`, run `flow-browser-teardown --reap --record`
-  (registry-driven; standalone step, never `&&`-chained; always exits 0),
-  then render the CANCELLED block via `flow-gate-summary --status
-  cancelled --cleanup --why "user cancelled mid-flight at $(jq -r .phase
-  ~/.flow/state/$SLUG.json)"`, end.
+  `flow-checkpoint --site terminal` to arm) — run
+  `flow-browser-teardown --reap --record` (registry-driven; standalone step,
+  never `&&`-chained; always exits 0), then render the CANCELLED block via
+  `flow-gate-summary --status cancelled --cleanup --why "user cancelled
+  mid-flight at $(jq -r .phase ~/.flow/state/$SLUG.json)"`, end.
 - Ambiguous → one clarifying question; if still unclear, escalate.
 
 ## Mid-flight code-change redirects

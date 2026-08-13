@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decide,
+  gatherInputs,
   parseArgs,
   run,
   TERMINAL_PHASE_SET,
@@ -201,6 +202,75 @@ describe("decide() — checkpointExists (Task 5 parity with flow-resume-decide)"
     );
     expect(r.epicResumeAt).toBe("terminal");
     expect(r.context.checkpointExists).toBe(false);
+  });
+});
+
+describe("gatherInputs() — terminal-phase checkpoint probe", () => {
+  // The decide() tests above build Inputs directly, so they never exercise the
+  // terminal short-circuit that actually produces `checkpointExists`. These
+  // drive gatherInputs itself: the short-circuit used to hard-code `false`,
+  // which silently dropped epic-design notes at `epic-approved` — the exact
+  // defect the feature-side helper was fixed for.
+  let stateDir!: string;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "epic-resume-cp-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  function seedBody(slug: string): void {
+    const d = path.join(stateDir, "checkpoints", slug);
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, "checkpoint.md"), "epic note\n");
+  }
+
+  function countingRunners(): {
+    gh: GhRunner;
+    git: GitRunner;
+    calls: () => number;
+  } {
+    let calls = 0;
+    const gh = ((...args: unknown[]) => {
+      void args;
+      calls += 1;
+      return { ok: false, stdout: "", stderr: "" };
+    }) as unknown as GhRunner;
+    const git = ((...args: unknown[]) => {
+      void args;
+      calls += 1;
+      return { ok: false, stdout: "", stderr: "" };
+    }) as unknown as GitRunner;
+    return { gh, git, calls: () => calls };
+  }
+
+  it("reports checkpointExists: true at a terminal phase when a body exists, with zero gh/git calls", () => {
+    seedBody("epic-done");
+    const { gh, git, calls } = countingRunners();
+    const inputs = gatherInputs(
+      "epic-done",
+      baseState({ phase: "epic-approved" }),
+      gh,
+      git,
+      stateDir,
+    );
+    expect(inputs.checkpointExists).toBe(true);
+    expect(calls()).toBe(0);
+  });
+
+  it("reports checkpointExists: false at a terminal phase when no body exists", () => {
+    const { gh, git, calls } = countingRunners();
+    const inputs = gatherInputs(
+      "epic-none",
+      baseState({ phase: "epic-approved" }),
+      gh,
+      git,
+      stateDir,
+    );
+    expect(inputs.checkpointExists).toBe(false);
+    expect(calls()).toBe(0);
   });
 });
 

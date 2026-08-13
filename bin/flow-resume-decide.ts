@@ -437,6 +437,13 @@ export function decide(inputs: Inputs): DecisionResult {
   // Row 3 — plan.md exists and is non-empty.
   ctx.planExists = inputs.planExists;
   ctx.checkpointExists = inputs.checkpointExists;
+  // Publish the resolved body path on the mainline walk too, not only in the
+  // gated / terminal / no-in-flight branches. The supervisor's Resume-mode
+  // re-injection reads `.context.checkpointPath` and then runs
+  // `flow-checkpoint --consume`; leaving it unset on Rows 3-10 would make the
+  // most common resume read nothing and then archive the body, silently
+  // destroying the addenda the checkpoint exists to carry.
+  ctx.checkpointPath = checkpointBodyPath(inputs.slug);
   if (!inputs.planExists) {
     return {
       resumeAt: "step-3",

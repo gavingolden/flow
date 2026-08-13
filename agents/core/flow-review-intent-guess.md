@@ -22,7 +22,11 @@ Concretely, `fetch.md`, `pr-body.md`, `pr-body-current.md`,
 `checkpoint.md`, and `scout.md` all carry the PR's stated intent (title,
 body, plan, or commit messages) and are off-limits, as is
 `.git/COMMIT_EDITMSG`. If any of those happen to be visible in your
-working directory, do not open them.
+working directory, do not open them. The checkpoint body and its
+`checkpoint.consumed.md` archive now live at
+`~/.flow/state/checkpoints/<slug>/` as well — both locations are
+off-limits, since a worktree created before that move still carries the
+`.flow-tmp/` copies.
 
 **Output.** Write `.flow-tmp/intent-guess.json` at the absolute path
 passed in, with this shape:

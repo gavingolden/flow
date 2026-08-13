@@ -211,6 +211,27 @@ describe("run() — --path", () => {
     );
   });
 
+  it("creates the parent directory so a `> $(flow-checkpoint --path)` redirect works on a never-checkpointed slug", () => {
+    // The three terminal auto-checkpoint sites in flow-pipeline/SKILL.md write
+    // the body with a bare shell redirect into this path. `checkpointDir` is
+    // deliberately mkdir-free and the arm path's own mkdir runs only AFTER a
+    // body already exists, so without this the redirect fails with ENOENT and
+    // the terminal site silently never arms — for exactly the never-
+    // checkpointed pipelines it was added to serve.
+    const { writes, restore } = captureStdout();
+    const exit = run(["fresh-slug", "--path"], {
+      stateDir,
+      resolveSlug: () => null,
+    });
+    restore();
+    const printed = writes.join("").trim();
+    expect(exit).toBe(0);
+    expect(fs.existsSync(path.dirname(printed))).toBe(true);
+    // The redirect the supervisor prose actually performs must now succeed.
+    expect(() => fs.writeFileSync(printed, "residue\n")).not.toThrow();
+    expect(fs.readFileSync(printed, "utf8")).toBe("residue\n");
+  });
+
   it("prints the same path regardless of whether state.worktree is live, deleted, or unset", () => {
     seedState("path-a", { worktree: "/does/not/exist" });
     seedState("path-b", { worktree: undefined });

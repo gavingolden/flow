@@ -715,11 +715,6 @@ describe("gatherInputs — checkpointExists reflects freshness, not bare presenc
   it("a consumed checkpoint body is not reported as an existing checkpoint", () => {
     initWorktree();
     seedState("consumed-slug", { phase: "implementing" });
-    fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"), { recursive: true });
-    fs.writeFileSync(
-      path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
-      "note\n",
-    );
 
     // Drive the real flow-checkpoint CLI (arm, then consume) so state.checkpoint
     // and checkpoint.md end up in the exact post-consume shape production code

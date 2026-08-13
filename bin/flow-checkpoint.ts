@@ -23,7 +23,7 @@
  *   flow-checkpoint [<slug>] [--site <site>]              validate + arm (write marker + record) on ready
  *   flow-checkpoint [<slug>] --consume                    archive checkpoint.md + clear the marker/record (Resume mode)
  *   flow-checkpoint [<slug>] --probe --site <site>         read-only freshness verdict, no mutation
- *   flow-checkpoint [<slug>] --path                        print the absolute checkpoint.md path and exit
+ *   flow-checkpoint [<slug>] --path                        print the absolute checkpoint.md path (creating its parent dir) and exit
  *
  * `<slug>` is optional inside a flow tmux pane: it auto-resolves from
  * `$TMUX_PANE`'s `@flow-slug` window option. `--site` defaults to `"manual"`
@@ -276,8 +276,26 @@ export function run(argv: string[], deps: Deps = {}): number {
   // --path: print the resolved checkpoint body path and exit. Derives from
   // the slug alone, so it never requires state.json and never fails for an
   // unknown slug — it is a pure path lookup, not a decision.
+  //
+  // The parent directory is created here because `--path` is the *write-target*
+  // resolver: every caller redirects into it (`echo … > "$(flow-checkpoint
+  // --path)"` at the three terminal auto-checkpoint sites, and the
+  // `/flow-checkpoint` skill's step 1). `checkpointDir` itself stays a pure
+  // path.join, so the read-side probes never materialize a directory — but a
+  // resolver whose result cannot be written to is useless, and without this the
+  // terminal site silently no-ops for exactly the never-checkpointed pipelines
+  // it exists to serve (the redirect fails, then the arm reports
+  // `checkpoint-missing`). mkdir is idempotent and the directory is empty until
+  // something writes, so a read-only caller pays only an empty dir.
   if (parsed.path) {
-    process.stdout.write(checkpointBodyPath(slug, stateDir) + "\n");
+    const bodyPath = checkpointBodyPath(slug, stateDir);
+    try {
+      fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
+    } catch {
+      // Best-effort: still print the path. A caller that only wanted to read
+      // is unaffected, and a writer surfaces the real error on its redirect.
+    }
+    process.stdout.write(bodyPath + "\n");
     return 0;
   }
 
@@ -424,9 +442,16 @@ export function run(argv: string[], deps: Deps = {}): number {
   // flow-checkpoint arming the marker at a terminal phase). Kind-aware
   // (revision 1): an `epic-run` window resumes regardless of phase, so
   // warning there would be a false alarm in exactly the window Task 3 fixed.
+  //
+  // Suppressed for `--site terminal`: that site exists precisely to arm AT a
+  // terminal render, so "this phase is terminal" tells its caller nothing it
+  // did not already know — and the warning would land in the user's terminal
+  // right beside the MERGED / NEEDS HUMAN gate block, reading as a problem
+  // when it is the designed path. Every other site keeps the warning, which is
+  // where it is actually news.
   const kind = resolveKind() ?? "feature";
   let warning: string | undefined;
-  if (!autoResumesAfterClear(state.phase, kind)) {
+  if (parsed.site !== "terminal" && !autoResumesAfterClear(state.phase, kind)) {
     warning = `phase '${state.phase}' is terminal — your notes are still carried over into the fresh session after /clear, but the pipeline itself will not auto-resume (there is nothing left to resume).`;
     process.stderr.write(`flow-checkpoint: warning: ${warning}\n`);
   }

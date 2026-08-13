@@ -263,16 +263,20 @@ export function gatherInputs(
   git: GitRunner,
   stateDir = FLOW_STATE_DIR,
 ): Inputs {
-  // Terminal phases short-circuit all I/O: decide() returns terminal from the
-  // phase check alone, so probing gh/git on a completed epic is wasted work
-  // (and unsafe under a stub gh/git in tests).
+  // Terminal phases short-circuit the gh/git I/O: decide() returns terminal
+  // from the phase check alone, so probing a completed epic's remote state is
+  // wasted work (and unsafe under a stub gh/git in tests). The checkpoint
+  // probe is exempt from that short-circuit — it is a slug-keyed `statSync`,
+  // not a subprocess, and zeroing it here would drop the design notes at
+  // `epic-approved`, contradicting `/flow-epic-create`'s Resume-mode block.
+  // Same rationale as the feature-side un-gating in `flow-resume-decide.ts`.
   if (TERMINAL_PHASE_SET.has(state.phase)) {
     return {
       slug,
       state,
       worktree: { kind: "absent-from-state" },
       pr: { kind: "none" },
-      checkpointExists: false,
+      checkpointExists: probeCheckpointBody(slug, stateDir),
     };
   }
 
