@@ -1759,6 +1759,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
   // ── ls ──────────────────────────────────────────────────────────────────
 
   it("ls: lists every epic with per-state counts + status and exits 0", () => {
+    gitInit();
     const alphaManifest = writeManifest("alpha", [{ id: "a" }]);
     const betaManifest = writeManifest("beta", [
       { id: "b" },
@@ -1777,7 +1778,9 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       epicsDir,
     );
     const code = runEpicCli(["ls"], {
+      cwd: repoDir,
       epicsDir,
+      readMaxParallel: () => 3,
       readFeatureState: (slug) =>
         slug === "alpha-a"
           ? { slug, phase: "merged", repo: repoDir, updatedAt: "x" }
@@ -1790,6 +1793,127 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(out).toContain("EPIC");
     expect(out).toContain("alpha");
     expect(out).toContain("beta");
+  });
+
+  it("ls: a designed-but-never-run epic appears from its committed manifest", () => {
+    gitInit();
+    writeManifest("designed-only", [
+      { id: "a" },
+      { id: "b" },
+      { id: "c", dependsOn: ["a"] },
+    ]);
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("designed-only");
+    // DAG roots a + b are READY; c is blocked; total is the manifest's 3.
+    const row = out.split("\n").find((l) => l.startsWith("designed-only"))!;
+    expect(row).toMatch(/^designed-only\s+2\s+0\s+1\s+0 \/ 3\b/);
+  });
+
+  it("ls: a run-state epic still appears with live counts from the readFeatureState seam", () => {
+    gitInit();
+    const manifestPath = writeManifest("live-epic", [
+      { id: "a" },
+      { id: "b" },
+      { id: "c", dependsOn: ["a"] },
+    ]);
+    writeEpicRunState(
+      seedRunState("live-epic", manifestPath, {
+        features: {
+          a: { slug: "live-a", launchedAt: "x" },
+          b: { slug: "live-b", launchedAt: "x" },
+        },
+      }),
+      epicsDir,
+    );
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readMaxParallel: () => 3,
+      readFeatureState: (slug) =>
+        slug === "live-a"
+          ? { slug, phase: "merged", repo: repoDir, updatedAt: "x" }
+          : slug === "live-b"
+            ? { slug, phase: "implementing", repo: repoDir, updatedAt: "x" }
+            : null,
+    });
+    expect(code).toBe(0);
+    const row = logs
+      .join("\n")
+      .split("\n")
+      .find((l) => l.startsWith("live-epic"))!;
+    // a merged → c ready; b running; nothing blocked; 1/3 merged.
+    expect(row).toMatch(/^live-epic\s+1\s+1\s+0\s+1 \/ 3\b/);
+  });
+
+  it("ls: dedups a slug present in both sources, with the run-state row winning", () => {
+    gitInit();
+    const manifestPath = writeManifest("both-sources", [
+      { id: "a" },
+      { id: "b" },
+    ]);
+    writeEpicRunState(
+      seedRunState("both-sources", manifestPath, {
+        features: { a: { slug: "both-a", launchedAt: "x" } },
+      }),
+      epicsDir,
+    );
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readMaxParallel: () => 3,
+      readFeatureState: (slug) =>
+        slug === "both-a"
+          ? { slug, phase: "merged", repo: repoDir, updatedAt: "x" }
+          : null,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    const rowsForSlug = out
+      .split("\n")
+      .filter((l) => l.startsWith("both-sources"));
+    expect(rowsForSlug).toHaveLength(1);
+    // MERGED 1 / 2 is only reachable via the run-state branch; the ephemeral
+    // committed-only branch would render 0 / 2.
+    expect(rowsForSlug[0]).toMatch(/^both-sources\s+1\s+0\s+0\s+1 \/ 2\b/);
+  });
+
+  it("ls: an archived epic re-lists as done from its committed status board, not as fresh work", () => {
+    gitInit();
+    const manifestPath = writeManifest("archived-epic", [
+      { id: "a" },
+      { id: "b", dependsOn: ["a"] },
+    ]);
+    fs.writeFileSync(
+      path.join(path.dirname(manifestPath), "status.json"),
+      JSON.stringify({
+        version: 1,
+        epicId: "archived-epic",
+        features: {
+          a: { status: "merged", pr: 11 },
+          b: { status: "merged", pr: 12 },
+        },
+      }),
+    );
+    // No run.json — `flow epic done` deleted it.
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    const row = logs
+      .join("\n")
+      .split("\n")
+      .find((l) => l.startsWith("archived-epic"))!;
+    expect(row).toMatch(/^archived-epic\s+0\s+0\s+0\s+2 \/ 2\s+done\b/);
   });
 
   // ── bind ──────────────────────────────────────────────────────────────────
