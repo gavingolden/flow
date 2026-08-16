@@ -74,6 +74,15 @@ const turnTrackingMock = vi.hoisted(() => ({
 }));
 vi.mock("./stop-turn-tracking", () => turnTrackingMock);
 
+// Mocked rather than exercised for real: an un-mocked `deleteCheckpointDir`
+// defaults to FLOW_STATE_DIR, so a test would rm under the developer's real
+// ~/.flow/state. Asserting the CALL is the point here — the deletion itself is
+// covered in bin/lib/checkpoint-freshness.test.ts.
+const checkpointFreshnessMock = vi.hoisted(() => ({
+  deleteCheckpointDir: vi.fn(),
+}));
+vi.mock("./checkpoint-freshness", () => checkpointFreshnessMock);
+
 // done.ts's default registryReap seam calls the real `compact()`, which does
 // real readFileSync/writeFileSync/renameSync against the REAL
 // ~/.flow/state/procs/<slug>.jsonl. This file's node:fs mock (above) is a
@@ -211,6 +220,19 @@ describe("runDone --merged (renamed from --all-merged)", () => {
     expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("a");
     expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("b");
     expect(turnTrackingMock.deleteTurnTracking).not.toHaveBeenCalledWith("c");
+    // The checkpoint dir is the third slug-keyed artifact and must be torn
+    // down with the other two: a reused slug would otherwise inherit the
+    // previous run's notes AND its armed marker, so the next plain /clear
+    // would re-inject a dead pipeline's context.
+    expect(checkpointFreshnessMock.deleteCheckpointDir).toHaveBeenCalledWith(
+      "a",
+    );
+    expect(checkpointFreshnessMock.deleteCheckpointDir).toHaveBeenCalledWith(
+      "b",
+    );
+    expect(
+      checkpointFreshnessMock.deleteCheckpointDir,
+    ).not.toHaveBeenCalledWith("c");
     expect(tmuxMock.killWindow).toHaveBeenCalledWith("a");
     expect(tmuxMock.killWindow).not.toHaveBeenCalledWith("b");
     log.mockRestore();

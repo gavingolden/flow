@@ -387,9 +387,10 @@ re-entering, so the user reading scrollback can confirm.
 **Checkpoint re-injection (persisted conversational state).** A fresh
 process reconstructs the epic _step_ from disk but drops any instruction
 held only in chat. Before re-entering the resolved step, check
-`$CHECKPOINT_EXISTS`: when `true` (a `<worktree>/.flow-tmp/checkpoint.md`
-written by `/flow-checkpoint`), **read `$WORKTREE/.flow-tmp/checkpoint.md`**
-and fold its addenda into the re-entered step — honor the persisted
+`$CHECKPOINT_EXISTS`: when `true` (a checkpoint body written by
+`/flow-checkpoint` at the slug-keyed, worktree-independent location),
+**resolve it with `CHECKPOINT_PATH=$(flow-checkpoint --path)` and read
+`$CHECKPOINT_PATH`** — and fold its addenda into the re-entered step — honor the persisted
 approval condition, redirect, or in-chat decision as if just given. Then
 run:
 

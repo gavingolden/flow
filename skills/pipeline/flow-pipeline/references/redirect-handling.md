@@ -51,7 +51,9 @@ before I clear`. Means "flush the load-bearing conversational
   `/flow-checkpoint` skill in-process (via the `Skill` tool — no `Task`
   spawn, no new exemption): it summarizes pending approval
   conditions/addenda, unmaterialized redirects, and explicit in-chat
-  decisions to `<worktree>/.flow-tmp/checkpoint.md`, runs
+  decisions to the path `flow-checkpoint --path` resolves
+  (`~/.flow/state/checkpoints/<slug>/checkpoint.md` — worktree-independent,
+  so it survives worktree removal), runs
   `flow-checkpoint` to write the one-shot `checkpoint.pending`
   marker, tells the user it is safe to `/clear`, and ends the turn.
   It does NOT auto-`/clear` (Claude cannot self-invoke `/clear`).

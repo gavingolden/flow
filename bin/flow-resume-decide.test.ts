@@ -18,7 +18,7 @@ import {
   type Inputs,
   type WorktreeInfo,
 } from "./flow-resume-decide";
-import { run as checkpointRun } from "./flow-checkpoint";
+import { checkpointBodyPath, run as checkpointRun } from "./flow-checkpoint";
 import {
   readState,
   writeState,
@@ -53,6 +53,7 @@ function makeInputs(overrides: Partial<Inputs> = {}): Inputs {
     planExists: true,
     checkpointExists: false,
     checkpointMarkerExists: false,
+    checkpointPath: "/tmp/.flow/state/checkpoints/test/checkpoint.md",
     pr: {
       kind: "found",
       state: "OPEN",
@@ -714,15 +715,14 @@ describe("gatherInputs — checkpointExists reflects freshness, not bare presenc
   it("a consumed checkpoint body is not reported as an existing checkpoint", () => {
     initWorktree();
     seedState("consumed-slug", { phase: "implementing" });
-    fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"), { recursive: true });
-    fs.writeFileSync(
-      path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
-      "note\n",
-    );
 
     // Drive the real flow-checkpoint CLI (arm, then consume) so state.checkpoint
     // and checkpoint.md end up in the exact post-consume shape production code
-    // produces, rather than hand-constructing an approximation.
+    // produces, rather than hand-constructing an approximation. The body now
+    // lives in the state dir (slug-keyed), not the worktree.
+    const consumedBody = checkpointBodyPath("consumed-slug", stateDir);
+    fs.mkdirSync(path.dirname(consumedBody), { recursive: true });
+    fs.writeFileSync(consumedBody, "note\n");
     checkpointRun(["consumed-slug", "--site", "manual"], {
       stateDir,
       resolveSlug: () => null,
@@ -733,25 +733,23 @@ describe("gatherInputs — checkpointExists reflects freshness, not bare presenc
     });
 
     const state = readState("consumed-slug", stateDir)!;
-    const inputs = gatherInputs("consumed-slug", state, gh, git);
+    const inputs = gatherInputs("consumed-slug", state, gh, git, stateDir);
     expect(inputs.checkpointExists).toBe(false);
   });
 
   it("a freshly-armed manual checkpoint IS reported as existing", () => {
     initWorktree();
     seedState("fresh-slug", { phase: "implementing" });
-    fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"), { recursive: true });
-    fs.writeFileSync(
-      path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
-      "note\n",
-    );
+    const bodyPath = checkpointBodyPath("fresh-slug", stateDir);
+    fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
+    fs.writeFileSync(bodyPath, "note\n");
     checkpointRun(["fresh-slug", "--site", "manual"], {
       stateDir,
       resolveSlug: () => null,
     });
 
     const state = readState("fresh-slug", stateDir)!;
-    const inputs = gatherInputs("fresh-slug", state, gh, git);
+    const inputs = gatherInputs("fresh-slug", state, gh, git, stateDir);
     expect(inputs.checkpointExists).toBe(true);
   });
 
@@ -763,29 +761,25 @@ describe("gatherInputs — checkpointExists reflects freshness, not bare presenc
     // silently archived by --consume.
     initWorktree();
     seedState("auto-fresh-slug", { phase: "plan-approval" });
-    fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"), { recursive: true });
-    fs.writeFileSync(
-      path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
-      "approved with A1\n",
-    );
+    const bodyPath = checkpointBodyPath("auto-fresh-slug", stateDir);
+    fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
+    fs.writeFileSync(bodyPath, "approved with A1\n");
     checkpointRun(["auto-fresh-slug", "--site", "plan-approval"], {
       stateDir,
       resolveSlug: () => null,
     });
 
     const state = readState("auto-fresh-slug", stateDir)!;
-    const inputs = gatherInputs("auto-fresh-slug", state, gh, git);
+    const inputs = gatherInputs("auto-fresh-slug", state, gh, git, stateDir);
     expect(inputs.checkpointExists).toBe(true);
   });
 
   it("an AUTO checkpoint superseded by a later phase transition is NOT reported as existing", () => {
     initWorktree();
     seedState("auto-superseded-slug", { phase: "plan-approval" });
-    fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"), { recursive: true });
-    fs.writeFileSync(
-      path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
-      "approved with A1\n",
-    );
+    const bodyPath = checkpointBodyPath("auto-superseded-slug", stateDir);
+    fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
+    fs.writeFileSync(bodyPath, "approved with A1\n");
     checkpointRun(["auto-superseded-slug", "--site", "plan-approval"], {
       stateDir,
       resolveSlug: () => null,
@@ -808,7 +802,13 @@ describe("gatherInputs — checkpointExists reflects freshness, not bare presenc
     );
 
     const state = readState("auto-superseded-slug", stateDir)!;
-    const inputs = gatherInputs("auto-superseded-slug", state, gh, git);
+    const inputs = gatherInputs(
+      "auto-superseded-slug",
+      state,
+      gh,
+      git,
+      stateDir,
+    );
     expect(inputs.checkpointExists).toBe(false);
   });
 });
@@ -929,6 +929,33 @@ describe("run() integration", () => {
     expect(git).not.toHaveBeenCalled();
   });
 
+  it("exits 0 with terminal JSON and populated checkpoint context at a terminal phase with a real usable checkpoint (Story 3), with zero gh/git I/O", () => {
+    seedState("checkpoint-terminal", { phase: "merged" });
+    const bodyPath = checkpointBodyPath("checkpoint-terminal", stateDir);
+    fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
+    fs.writeFileSync(bodyPath, "notes from the session\n");
+    // Drive the real flow-checkpoint CLI to arm it (writes the marker + the
+    // freshness record), matching production sequencing.
+    checkpointRun(["checkpoint-terminal", "--site", "manual"], {
+      stateDir,
+      resolveSlug: () => null,
+    });
+
+    const gh = vi.fn();
+    const git = vi.fn();
+    const { writes, restore } = captureStdout();
+    const exit = run(["checkpoint-terminal"], { stateDir, gh, git });
+    restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(writes.join("")) as DecisionResult;
+    expect(result.resumeAt).toBe("terminal");
+    expect(result.context.checkpointExists).toBe(true);
+    expect(result.context.checkpointMarkerExists).toBe(true);
+    expect(result.context.checkpointPath).toBe(bodyPath);
+    expect(gh).not.toHaveBeenCalled();
+    expect(git).not.toHaveBeenCalled();
+  });
+
   it("exits 2 with usage error on bad CLI args", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const exit = run(["--bogus"], { stateDir, gh: vi.fn(), git: vi.fn() });
@@ -1010,5 +1037,44 @@ describe("decide() — checkpoint re-injection + auto-checkpoint resume", () => 
     // PR exists at the auto-checkpoint boundary, so Row 5 resumes at implement —
     // NOT step-4 re-approval.
     expect(r.resumeAt).toBe("step-5");
+  });
+
+  it("populates checkpointExists/checkpointMarkerExists/checkpointPath at every TERMINAL_PHASE_SET phase (Story 3), with resumeAt staying terminal", () => {
+    for (const phase of TERMINAL_PHASE_SET) {
+      if (phase === "gated") continue; // gated has its own dedicated branch, tested above
+      const r = decide(
+        makeInputs({
+          state: baseState({ phase }),
+          checkpointExists: true,
+          checkpointMarkerExists: true,
+          checkpointPath: "/tmp/.flow/state/checkpoints/test/checkpoint.md",
+        }),
+      );
+      expect(r.resumeAt, phase).toBe("terminal");
+      expect(r.context.checkpointExists, phase).toBe(true);
+      expect(r.context.checkpointMarkerExists, phase).toBe(true);
+      expect(r.context.checkpointPath, phase).toBe(
+        "/tmp/.flow/state/checkpoints/test/checkpoint.md",
+      );
+    }
+  });
+
+  it("populates checkpoint context at the no-in-flight-work phases too", () => {
+    for (const phase of NO_INFLIGHT_WORK_PHASES) {
+      const r = decide(
+        makeInputs({
+          state: baseState({ phase }),
+          checkpointExists: true,
+          checkpointMarkerExists: true,
+          checkpointPath: "/tmp/.flow/state/checkpoints/test/checkpoint.md",
+        }),
+      );
+      expect(r.resumeAt, phase).toBe("terminal");
+      expect(r.context.checkpointExists, phase).toBe(true);
+      expect(r.context.checkpointMarkerExists, phase).toBe(true);
+      expect(r.context.checkpointPath, phase).toBe(
+        "/tmp/.flow/state/checkpoints/test/checkpoint.md",
+      );
+    }
   });
 });

@@ -10,6 +10,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { FLOW_STATE_DIR } from "./paths";
+import { isValidSlug } from "./slug";
 
 /** The `/flow-checkpoint` arm sites. Single source of truth — `CheckpointSiteValue`
  *  in `bin/lib/state.ts` is derived from this const via `(typeof CHECKPOINT_SITES)[number]`,
@@ -20,12 +22,54 @@ export const CHECKPOINT_SITES = [
   "plan-review",
   "plan-approval",
   "gate",
+  "terminal",
 ] as const;
 export type CheckpointSite = (typeof CHECKPOINT_SITES)[number];
 
+/**
+ * Directory holding a pipeline's checkpoint files, keyed by slug alone —
+ * worktree-independent so a body written here survives `flow-remove-worktree`
+ * and every terminal phase. Pure `path.join`, no mkdir and no existence
+ * probe (mkdir stays at the write sites, mirroring
+ * `bin/lib/stop-turn-tracking.ts:41,73`'s `turns/` subdirectory precedent).
+ */
+export function checkpointDir(slug: string, dir = FLOW_STATE_DIR): string {
+  // The slug becomes a filesystem path component here, so validate rather than
+  // trust the caller — same reasoning (and same throw) as the sibling
+  // `registryPath` in `bin/lib/proc-registry.ts`. Without it a slug carrying
+  // `../` would build a traversal-prone path that the hook then reads and
+  // injects into a fresh session.
+  if (!isValidSlug(slug)) {
+    throw new Error(`checkpoint-freshness: invalid slug "${slug}"`);
+  }
+  return path.join(dir, "checkpoints", slug);
+}
+
+/**
+ * Deletes a pipeline's checkpoint directory. Completes the per-slug teardown
+ * that `deleteState` + `deleteTurnTracking` already perform — without it a
+ * reused slug inherits the previous run's notes AND its armed
+ * `checkpoint.pending` marker, so the next plain `/clear` would re-inject a
+ * dead pipeline's context. That inheritance was structurally impossible while
+ * the body lived in the worktree (`flow-remove-worktree` took it), so this is
+ * the move's own cleanup obligation, not a general GC pass. Best-effort:
+ * never throws, returns true only when a directory was actually removed.
+ */
+export function deleteCheckpointDir(
+  slug: string,
+  dir = FLOW_STATE_DIR,
+): boolean {
+  try {
+    fs.rmSync(checkpointDir(slug, dir), { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Absolute path of the checkpoint body the /flow-checkpoint skill writes. */
-export function checkpointPath(worktreePath: string): string {
-  return path.join(worktreePath, ".flow-tmp", "checkpoint.md");
+export function checkpointBodyPath(slug: string, dir = FLOW_STATE_DIR): string {
+  return path.join(checkpointDir(slug, dir), "checkpoint.md");
 }
 
 /**
@@ -51,22 +95,24 @@ export function hasPhaseAdvancedSince(
  *   4. manual arm, phase advanced since arm            -> write   (stale-manual:<phase>)
  *   5. auto-site arm (any non-manual site)             -> write   (auto-refresh:<site>) — always
  * Fails open: any unresolvable precondition inside this function (unreadable
- * checkpoint.md) yields `write`; the no-state/no-worktree preconditions are
- * checked by the caller before this runs. `site` is the PROBING site (who is
+ * checkpoint.md) yields `write`; the no-state precondition is checked by the
+ * caller before this runs (there is no worktree precondition — the body is
+ * slug-keyed). `site` is the PROBING site (who is
  * asking), threaded into the auto-refresh reason for observability — the
  * armed site is `state.checkpoint.site`.
  */
 export function probeFreshness(
   state: {
+    slug: string;
     checkpoint?: { site: CheckpointSite; phase: string; armedAt: string };
     phaseLog?: Array<{ at: string }>;
   },
-  worktreePath: string,
   site: CheckpointSite,
+  dir = FLOW_STATE_DIR,
 ): { verdict: "write" | "preserve"; reason: string } {
   let stat: fs.Stats;
   try {
-    stat = fs.statSync(checkpointPath(worktreePath));
+    stat = fs.statSync(checkpointBodyPath(state.slug, dir));
   } catch {
     return { verdict: "write", reason: "absent" };
   }
@@ -127,14 +173,15 @@ export function probeFreshness(
  */
 export function isCheckpointUsable(
   state: {
+    slug: string;
     checkpoint?: { site: CheckpointSite; phase: string; armedAt: string };
     phaseLog?: Array<{ at: string }>;
   },
-  worktreePath: string,
+  dir = FLOW_STATE_DIR,
 ): boolean {
   let stat: fs.Stats;
   try {
-    stat = fs.statSync(checkpointPath(worktreePath));
+    stat = fs.statSync(checkpointBodyPath(state.slug, dir));
   } catch {
     return false;
   }

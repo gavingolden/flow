@@ -3,10 +3,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  archiveCheckpoint,
-  consumedPath,
+  archiveCheckpointBody,
+  checkpointBodyPath,
+  checkpointConsumedPath,
+  checkpointMarkerPath,
   parseArgs,
-  probeCheckpoint,
+  probeCheckpointBody,
   run,
   type CheckpointResult,
 } from "./flow-checkpoint";
@@ -19,17 +21,13 @@ import {
 } from "./lib/state";
 
 let stateDir!: string;
-let worktreeRoot!: string;
 
 beforeEach(() => {
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-checkpoint-state-"));
-  worktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "flow-checkpoint-wt-"));
-  fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"), { recursive: true });
 });
 
 afterEach(() => {
   fs.rmSync(stateDir, { recursive: true, force: true });
-  fs.rmSync(worktreeRoot, { recursive: true, force: true });
 });
 
 function seedState(slug: string, overrides: Partial<PipelineState> = {}): void {
@@ -38,7 +36,7 @@ function seedState(slug: string, overrides: Partial<PipelineState> = {}): void {
       slug,
       phase: "checkpoint-pending-clear",
       repo: "/tmp/repo",
-      worktree: worktreeRoot,
+      worktree: "/tmp/some-worktree-path",
       updatedAt: "2026-06-30T12:00:00Z",
       ...overrides,
     },
@@ -46,12 +44,17 @@ function seedState(slug: string, overrides: Partial<PipelineState> = {}): void {
   );
 }
 
-function writeCheckpoint(body = "approved with condition X\n"): void {
-  fs.writeFileSync(path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"), body);
+function writeCheckpoint(
+  slug: string,
+  body = "approved with condition X\n",
+): void {
+  const p = checkpointBodyPath(slug, stateDir);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, body);
 }
 
-function markerFile(): string {
-  return path.join(worktreeRoot, ".flow-tmp", "checkpoint.pending");
+function markerFile(slug: string): string {
+  return checkpointMarkerPath(slug, stateDir);
 }
 
 function captureStdout(): { writes: string[]; restore: () => void } {
@@ -79,28 +82,31 @@ function runCapture(
   return { ...result, exit };
 }
 
-describe("probeCheckpoint", () => {
+describe("probeCheckpointBody", () => {
   it("is false when checkpoint.md is missing", () => {
-    expect(probeCheckpoint(worktreeRoot)).toBe(false);
+    expect(probeCheckpointBody("no-body-slug", stateDir)).toBe(false);
   });
 
   it("is false when checkpoint.md is empty", () => {
-    fs.writeFileSync(path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"), "");
-    expect(probeCheckpoint(worktreeRoot)).toBe(false);
+    const p = checkpointBodyPath("empty-body-slug", stateDir);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, "");
+    expect(probeCheckpointBody("empty-body-slug", stateDir)).toBe(false);
   });
 
   it("is true when checkpoint.md is present and non-empty", () => {
-    writeCheckpoint();
-    expect(probeCheckpoint(worktreeRoot)).toBe(true);
+    writeCheckpoint("has-body-slug");
+    expect(probeCheckpointBody("has-body-slug", stateDir)).toBe(true);
   });
 });
 
 describe("parseArgs", () => {
-  it("treats empty argv as slug-omitted, consume off, probe off, site manual", () => {
+  it("treats empty argv as slug-omitted, consume off, probe off, path off, site manual", () => {
     expect(parseArgs([])).toEqual({
       slug: undefined,
       consume: false,
       probe: false,
+      path: false,
       site: "manual",
     });
   });
@@ -110,6 +116,7 @@ describe("parseArgs", () => {
       slug: "my-slug",
       consume: false,
       probe: false,
+      path: false,
       site: "manual",
     });
   });
@@ -119,12 +126,14 @@ describe("parseArgs", () => {
       slug: undefined,
       consume: true,
       probe: false,
+      path: false,
       site: "manual",
     });
     expect(parseArgs(["my-slug", "--consume"])).toEqual({
       slug: "my-slug",
       consume: true,
       probe: false,
+      path: false,
       site: "manual",
     });
   });
@@ -138,6 +147,7 @@ describe("parseArgs", () => {
       slug: "my-slug",
       consume: false,
       probe: true,
+      path: false,
       site: "gate",
     });
   });
@@ -148,23 +158,107 @@ describe("parseArgs", () => {
     });
   });
 
+  it("accepts a new terminal --site value", () => {
+    expect(parseArgs(["--site", "terminal"])).toEqual({
+      slug: undefined,
+      consume: false,
+      probe: false,
+      path: false,
+      site: "terminal",
+    });
+  });
+
   it("rejects --probe combined with --consume", () => {
     expect(parseArgs(["--probe", "--consume"])).toEqual({
       error: "--probe and --consume are mutually exclusive",
     });
+  });
+
+  it("accepts --path", () => {
+    expect(parseArgs(["my-slug", "--path"])).toEqual({
+      slug: "my-slug",
+      consume: false,
+      probe: false,
+      path: true,
+      site: "manual",
+    });
+  });
+
+  it("rejects --path combined with --consume", () => {
+    expect(parseArgs(["--path", "--consume"])).toEqual({
+      error: "--path is mutually exclusive with --consume/--probe",
+    });
+  });
+
+  it("rejects --path combined with --probe", () => {
+    expect(parseArgs(["--path", "--probe"])).toEqual({
+      error: "--path is mutually exclusive with --consume/--probe",
+    });
+  });
+});
+
+describe("run() — --path", () => {
+  it("prints the absolute checkpoint.md path and exits 0 with NO state.json present", () => {
+    const { writes, restore } = captureStdout();
+    const exit = run(["never-seen-slug", "--path"], {
+      stateDir,
+      resolveSlug: () => null,
+    });
+    restore();
+    expect(exit).toBe(0);
+    expect(writes.join("").trim()).toBe(
+      checkpointBodyPath("never-seen-slug", stateDir),
+    );
+  });
+
+  it("creates the parent directory so a `> $(flow-checkpoint --path)` redirect works on a never-checkpointed slug", () => {
+    // The three terminal auto-checkpoint sites in flow-pipeline/SKILL.md write
+    // the body with a bare shell redirect into this path. `checkpointDir` is
+    // deliberately mkdir-free and the arm path's own mkdir runs only AFTER a
+    // body already exists, so without this the redirect fails with ENOENT and
+    // the terminal site silently never arms — for exactly the never-
+    // checkpointed pipelines it was added to serve.
+    const { writes, restore } = captureStdout();
+    const exit = run(["fresh-slug", "--path"], {
+      stateDir,
+      resolveSlug: () => null,
+    });
+    restore();
+    const printed = writes.join("").trim();
+    expect(exit).toBe(0);
+    expect(fs.existsSync(path.dirname(printed))).toBe(true);
+    // The redirect the supervisor prose actually performs must now succeed.
+    expect(() => fs.writeFileSync(printed, "residue\n")).not.toThrow();
+    expect(fs.readFileSync(printed, "utf8")).toBe("residue\n");
+  });
+
+  it("prints the same path regardless of whether state.worktree is live, deleted, or unset", () => {
+    seedState("path-a", { worktree: "/does/not/exist" });
+    seedState("path-b", { worktree: undefined });
+    const { writes: writesA, restore: restoreA } = captureStdout();
+    run(["path-a", "--path"], { stateDir, resolveSlug: () => null });
+    restoreA();
+    const { writes: writesB, restore: restoreB } = captureStdout();
+    run(["path-b", "--path"], { stateDir, resolveSlug: () => null });
+    restoreB();
+    expect(writesA.join("").trim()).toBe(
+      checkpointBodyPath("path-a", stateDir),
+    );
+    expect(writesB.join("").trim()).toBe(
+      checkpointBodyPath("path-b", stateDir),
+    );
   });
 });
 
 describe("run() — ready / needs", () => {
   it("ready verdict (exit 0) + writes the .pending marker when checkpoint.md + state.json are present", () => {
     seedState("alpha");
-    writeCheckpoint();
+    writeCheckpoint("alpha");
     const r = runCapture(["alpha"]);
     expect(r.exit).toBe(0);
     expect(r.status).toBe("ready");
-    expect(r.worktree).toBe(worktreeRoot);
-    expect(r.marker).toBe(markerFile());
-    expect(fs.existsSync(markerFile())).toBe(true);
+    expect(r.marker).toBe(markerFile("alpha"));
+    expect(fs.existsSync(markerFile("alpha"))).toBe(true);
   });
 
   it("needs verdict + writes NO marker when checkpoint.md is missing", () => {
@@ -173,7 +267,7 @@ describe("run() — ready / needs", () => {
     expect(r.exit).toBe(0);
     expect(r.status).toBe("needs");
     expect(r.reason).toBe("checkpoint-missing");
-    expect(fs.existsSync(markerFile())).toBe(false);
+    expect(fs.existsSync(markerFile("beta"))).toBe(false);
   });
 
   it("needs verdict (state-missing) when the state file is absent", () => {
@@ -181,55 +275,74 @@ describe("run() — ready / needs", () => {
     expect(r.exit).toBe(0);
     expect(r.status).toBe("needs");
     expect(r.reason).toBe("state-missing");
-    expect(fs.existsSync(markerFile())).toBe(false);
+    expect(fs.existsSync(markerFile("ghost"))).toBe(false);
   });
 
   it("auto-resolves the slug from the pane resolver when omitted", () => {
     seedState("gamma");
-    writeCheckpoint();
+    writeCheckpoint("gamma");
     const r = runCapture([], "gamma");
     expect(r.exit).toBe(0);
     expect(r.status).toBe("ready");
     expect(r.slug).toBe("gamma");
+  });
+
+  it("arms successfully at a phase with no worktree (e.g. starting) — the state-dir location needs none", () => {
+    seedState("no-wt-starting", { phase: "starting", worktree: undefined });
+    writeCheckpoint("no-wt-starting");
+    const r = runCapture(["no-wt-starting"]);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("ready");
+    expect(r.reason).toBeUndefined();
+    expect(fs.existsSync(markerFile("no-wt-starting"))).toBe(true);
+  });
+
+  it("arms successfully at a terminal phase with no worktree (e.g. merged, worktree already removed)", () => {
+    seedState("no-wt-merged", { phase: "merged", worktree: undefined });
+    writeCheckpoint("no-wt-merged");
+    const r = runCapture(["no-wt-merged"]);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("ready");
+    expect(fs.existsSync(markerFile("no-wt-merged"))).toBe(true);
   });
 });
 
 describe("run() — ready-path terminal-phase warning (Task 7)", () => {
   it("(a) epic-approved with no resolvable kind: ready, marker written, warning present and names the phase", () => {
     seedState("epic-terminal", { phase: "epic-approved" });
-    writeCheckpoint();
+    writeCheckpoint("epic-terminal");
     const r = runCapture(["epic-terminal"], undefined, () => null);
     expect(r.exit).toBe(0);
     expect(r.status).toBe("ready");
-    expect(fs.existsSync(markerFile())).toBe(true);
+    expect(fs.existsSync(markerFile("epic-terminal"))).toBe(true);
     expect(r.warning).toBeDefined();
     expect(r.warning).toContain("epic-approved");
   });
 
   it("(b) gated: ready, marker written, warning ABSENT (the feedback-resume carve-out)", () => {
     seedState("gated-epic", { phase: "gated" });
-    writeCheckpoint();
+    writeCheckpoint("gated-epic");
     const r = runCapture(["gated-epic"], undefined, () => null);
     expect(r.exit).toBe(0);
     expect(r.status).toBe("ready");
-    expect(fs.existsSync(markerFile())).toBe(true);
+    expect(fs.existsSync(markerFile("gated-epic"))).toBe(true);
     expect(r.warning).toBeUndefined();
   });
 
   it("(c) a non-terminal epic phase and a non-terminal feature phase: warning absent", () => {
     for (const phase of ["epic-design-pending-review", "implementing"]) {
       seedState("non-terminal", { phase });
-      writeCheckpoint();
+      writeCheckpoint("non-terminal");
       const r = runCapture(["non-terminal"], undefined, () => null);
       expect(r.status, phase).toBe("ready");
       expect(r.warning, phase).toBeUndefined();
-      fs.rmSync(markerFile(), { force: true });
+      fs.rmSync(markerFile("non-terminal"), { force: true });
     }
   });
 
   it("(d) merged: warning present", () => {
     seedState("merged-epic", { phase: "merged" });
-    writeCheckpoint();
+    writeCheckpoint("merged-epic");
     const r = runCapture(["merged-epic"], undefined, () => null);
     expect(r.status).toBe("ready");
     expect(r.warning).toBeDefined();
@@ -238,10 +351,10 @@ describe("run() — ready-path terminal-phase warning (Task 7)", () => {
 
   it("(e) epic-approved with resolveKind() === 'epic-run': warning ABSENT — the run window WILL auto-resume, so warning there is a false alarm", () => {
     seedState("run-window", { phase: "epic-approved" });
-    writeCheckpoint();
+    writeCheckpoint("run-window");
     const r = runCapture(["run-window"], undefined, () => "epic-run");
     expect(r.status).toBe("ready");
-    expect(fs.existsSync(markerFile())).toBe(true);
+    expect(fs.existsSync(markerFile("run-window"))).toBe(true);
     expect(r.warning).toBeUndefined();
   });
 });
@@ -249,11 +362,12 @@ describe("run() — ready-path terminal-phase warning (Task 7)", () => {
 describe("run() — --consume", () => {
   it("removes an existing .pending marker and reports consumed", () => {
     seedState("delta");
-    fs.writeFileSync(markerFile(), "delta\n");
+    fs.mkdirSync(path.dirname(markerFile("delta")), { recursive: true });
+    fs.writeFileSync(markerFile("delta"), "delta\n");
     const r = runCapture(["delta", "--consume"]);
     expect(r.exit).toBe(0);
     expect(r.status).toBe("consumed");
-    expect(fs.existsSync(markerFile())).toBe(false);
+    expect(fs.existsSync(markerFile("delta"))).toBe(false);
   });
 
   it("is a no-op when no marker is present", () => {
@@ -263,22 +377,44 @@ describe("run() — --consume", () => {
     expect(r.status).toBe("noop");
     expect(r.reason).toBe("no-marker");
   });
+
+  it("is a no-op (state-missing) when state.json is absent", () => {
+    const r = runCapture(["ghost-consume", "--consume"]);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("noop");
+    expect(r.reason).toBe("state-missing");
+  });
+
+  it("archives the body and clears state.checkpoint when state.worktree points at a deleted directory", () => {
+    const deletedWt = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-checkpoint-deleted-wt-"),
+    );
+    fs.rmSync(deletedWt, { recursive: true, force: true });
+    seedState("gone-wt", { phase: "merged", worktree: deletedWt });
+    writeCheckpoint("gone-wt", "orphaned by a deleted worktree\n");
+    runCapture(["gone-wt", "--site", "manual"]); // arm
+    const r = runCapture(["gone-wt", "--consume"]);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("consumed");
+    expect(readState("gone-wt", stateDir)?.checkpoint).toBeUndefined();
+    expect(fs.existsSync(checkpointConsumedPath("gone-wt", stateDir))).toBe(
+      true,
+    );
+  });
 });
 
 describe("run() — --consume archives the body", () => {
   it("archives checkpoint.md, clears the freshness record, and a later --probe --site gate returns write (the reported scenario)", () => {
     seedState("zeta");
-    writeCheckpoint("plan-approval body\n");
+    writeCheckpoint("zeta", "plan-approval body\n");
     runCapture(["zeta", "--site", "plan-approval"]); // arm
     const consumeResult = runCapture(["zeta", "--consume"]);
     expect(consumeResult.exit).toBe(0);
+    expect(fs.existsSync(checkpointBodyPath("zeta", stateDir))).toBe(false);
+    expect(fs.existsSync(checkpointConsumedPath("zeta", stateDir))).toBe(true);
     expect(
-      fs.existsSync(path.join(worktreeRoot, ".flow-tmp", "checkpoint.md")),
-    ).toBe(false);
-    expect(fs.existsSync(consumedPath(worktreeRoot))).toBe(true);
-    expect(fs.readFileSync(consumedPath(worktreeRoot), "utf8")).toBe(
-      "plan-approval body\n",
-    );
+      fs.readFileSync(checkpointConsumedPath("zeta", stateDir), "utf8"),
+    ).toBe("plan-approval body\n");
     expect(readState("zeta", stateDir)?.checkpoint).toBeUndefined();
 
     const probeResult = runCapture(["zeta", "--probe", "--site", "gate"]);
@@ -292,25 +428,21 @@ describe("run() — --consume archives the body", () => {
     expect(r.status).toBe("noop");
     expect(r.archived).toBeUndefined();
 
-    // Force the rename inside archiveCheckpoint to fail by pre-occupying the
-    // destination with a non-empty directory (ENOTEMPTY on rename).
-    fs.mkdirSync(consumedPath(worktreeRoot));
-    fs.writeFileSync(path.join(consumedPath(worktreeRoot), "keep"), "x");
-    fs.writeFileSync(
-      path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
-      "body\n",
-    );
-    const archived = archiveCheckpoint(worktreeRoot);
+    // Force the rename inside archiveCheckpointBody to fail by pre-occupying
+    // the destination with a non-empty directory (ENOTEMPTY on rename).
+    const dest = checkpointConsumedPath("eta", stateDir);
+    fs.mkdirSync(dest, { recursive: true });
+    fs.writeFileSync(path.join(dest, "keep"), "x");
+    writeCheckpoint("eta", "body\n");
+    const archived = archiveCheckpointBody("eta", stateDir);
     expect(archived).toBeNull();
-    expect(
-      fs.existsSync(path.join(worktreeRoot, ".flow-tmp", "checkpoint.md")),
-    ).toBe(false); // unlinked despite the failed rename
-    fs.rmSync(consumedPath(worktreeRoot), { recursive: true, force: true });
+    expect(fs.existsSync(checkpointBodyPath("eta", stateDir))).toBe(false); // unlinked despite the failed rename
+    fs.rmSync(dest, { recursive: true, force: true });
   });
 
   it("archives a present body even with no marker (marker-independent archiving), and reports the archived path", () => {
     seedState("theta-noop");
-    writeCheckpoint("orphaned body\n");
+    writeCheckpoint("theta-noop", "orphaned body\n");
     // No arm this run, so no marker exists — --consume must still archive
     // the body unconditionally rather than skipping because there is
     // "nothing to consume" from the marker's point of view.
@@ -318,14 +450,16 @@ describe("run() — --consume archives the body", () => {
     expect(r.exit).toBe(0);
     expect(r.status).toBe("noop");
     expect(r.reason).toBe("no-marker");
-    expect(r.archived).toBe(consumedPath(worktreeRoot));
-    expect(
-      fs.existsSync(path.join(worktreeRoot, ".flow-tmp", "checkpoint.md")),
-    ).toBe(false);
-    expect(fs.existsSync(consumedPath(worktreeRoot))).toBe(true);
-    expect(fs.readFileSync(consumedPath(worktreeRoot), "utf8")).toBe(
-      "orphaned body\n",
+    expect(r.archived).toBe(checkpointConsumedPath("theta-noop", stateDir));
+    expect(fs.existsSync(checkpointBodyPath("theta-noop", stateDir))).toBe(
+      false,
     );
+    expect(fs.existsSync(checkpointConsumedPath("theta-noop", stateDir))).toBe(
+      true,
+    );
+    expect(
+      fs.readFileSync(checkpointConsumedPath("theta-noop", stateDir), "utf8"),
+    ).toBe("orphaned body\n");
   });
 });
 
@@ -336,7 +470,7 @@ describe("probeFreshness / --probe", () => {
 
   it("returns write (auto-refresh) when the never-cleared auto-site leaks past a later phase advance", () => {
     seedState("theta");
-    writeCheckpoint("auto body\n");
+    writeCheckpoint("theta", "auto body\n");
     runCapture(["theta", "--site", "plan-approval"]); // arm, no consume
     writeState(
       {
@@ -355,7 +489,7 @@ describe("probeFreshness / --probe", () => {
 
   it("preserves a fresh manual note with no later phase advance", () => {
     seedState("iota");
-    writeCheckpoint("manual note\n");
+    writeCheckpoint("iota", "manual note\n");
     runCapture(["iota", "--site", "manual"]);
     const r = runCapture(["iota", "--probe", "--site", "gate"]);
     expect(r.verdict).toBe("preserve");
@@ -364,7 +498,7 @@ describe("probeFreshness / --probe", () => {
 
   it("writes over a manual note once the phase has advanced since it was armed", () => {
     seedState("kappa");
-    writeCheckpoint("manual note\n");
+    writeCheckpoint("kappa", "manual note\n");
     runCapture(["kappa", "--site", "manual"]);
     writeState(
       {
@@ -391,7 +525,7 @@ describe("probeFreshness / --probe", () => {
         at: "2020-01-01T00:00:00.000Z",
       }),
     });
-    writeCheckpoint("unrecorded body\n");
+    writeCheckpoint("lambda", "unrecorded body\n");
     const fresh = runCapture(["lambda", "--probe", "--site", "gate"]);
     expect(fresh.verdict).toBe("preserve");
     expect(fresh.reason).toBe("fresh-unrecorded");
@@ -402,16 +536,13 @@ describe("probeFreshness / --probe", () => {
         at: "2099-01-01T00:00:00.000Z",
       }),
     });
-    fs.writeFileSync(
-      path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
-      "unrecorded body\n",
-    );
+    writeCheckpoint("mu", "unrecorded body\n");
     const stale = runCapture(["mu", "--probe", "--site", "gate"]);
     expect(stale.verdict).toBe("write");
     expect(stale.reason).toBe("stale-unrecorded");
   });
 
-  it("fails open to write on missing state, missing worktree, or absent checkpoint.md", () => {
+  it("fails open to write on missing state or an absent checkpoint.md — a missing worktree no longer short-circuits (no-worktree removed)", () => {
     const missingState = runCapture([
       "ghost-probe",
       "--probe",
@@ -420,10 +551,17 @@ describe("probeFreshness / --probe", () => {
     ]);
     expect(missingState.exit).toBe(0);
     expect(missingState.verdict).toBe("write");
+    expect(missingState.reason).toBe("state-missing");
 
     seedState("nu", { worktree: undefined });
-    const missingWorktree = runCapture(["nu", "--probe", "--site", "gate"]);
-    expect(missingWorktree.verdict).toBe("write");
+    const noWorktreeNoBody = runCapture(["nu", "--probe", "--site", "gate"]);
+    expect(noWorktreeNoBody.verdict).toBe("write");
+    expect(noWorktreeNoBody.reason).toBe("absent");
+
+    seedState("nu2", { worktree: undefined });
+    writeCheckpoint("nu2", "note\n");
+    const noWorktreeWithBody = runCapture(["nu2", "--probe", "--site", "gate"]);
+    expect(noWorktreeWithBody.verdict).toBe("preserve");
 
     seedState("xi");
     const absentBody = runCapture(["xi", "--probe", "--site", "gate"]);
@@ -433,7 +571,7 @@ describe("probeFreshness / --probe", () => {
 
   it("a manual body reads fresh-manual when phaseLog is absent entirely", () => {
     seedState("omicron", { phaseLog: undefined });
-    writeCheckpoint("manual note\n");
+    writeCheckpoint("omicron", "manual note\n");
     runCapture(["omicron", "--site", "manual"]);
     const r = runCapture(["omicron", "--probe", "--site", "gate"]);
     expect(r.verdict).toBe("preserve");
@@ -447,16 +585,13 @@ describe("probeFreshness / --probe", () => {
     // note would silently stop outranking auto sites on the NEXT probe.
     seedState("pi");
     const body = "byte-identical body\n";
-    writeCheckpoint(body);
+    writeCheckpoint("pi", body);
     runCapture(["pi", "--site", "manual"]);
     const beforeUpdatedAt = readState("pi", stateDir)?.updatedAt;
     runCapture(["pi", "--site", "plan-review"]);
-    expect(
-      fs.readFileSync(
-        path.join(worktreeRoot, ".flow-tmp", "checkpoint.md"),
-        "utf8",
-      ),
-    ).toBe(body);
+    expect(fs.readFileSync(checkpointBodyPath("pi", stateDir), "utf8")).toBe(
+      body,
+    );
     const state = readState("pi", stateDir);
     expect(state?.checkpoint?.site).toBe("manual");
     expect(state?.updatedAt).toBe(beforeUpdatedAt); // arming never bumps updatedAt
@@ -465,7 +600,7 @@ describe("probeFreshness / --probe", () => {
   it("re-arming with a second auto site DOES relabel the record (rule 5: auto may overwrite auto)", () => {
     seedState("rho");
     const body = "auto body\n";
-    writeCheckpoint(body);
+    writeCheckpoint("rho", body);
     runCapture(["rho", "--site", "plan-approval"]);
     runCapture(["rho", "--site", "gate"]);
     const state = readState("rho", stateDir);
@@ -506,11 +641,11 @@ describe("probeFreshness vs isCheckpointUsable — intentional divergence", () =
       },
       phaseLog: [{ phase: "planning", at: "2026-06-30T11:00:00.000Z" }],
     });
-    writeCheckpoint();
+    writeCheckpoint("drift");
     const state = readState("drift", stateDir)!;
 
-    expect(probeFreshness(state, worktreeRoot, "gate").verdict).toBe("write");
-    expect(isCheckpointUsable(state, worktreeRoot)).toBe(true);
+    expect(probeFreshness(state, "gate", stateDir).verdict).toBe("write");
+    expect(isCheckpointUsable(state, stateDir)).toBe(true);
   });
 
   it("agrees once a later phase transition supersedes the auto record", () => {
@@ -522,11 +657,11 @@ describe("probeFreshness vs isCheckpointUsable — intentional divergence", () =
       },
       phaseLog: [{ phase: "implementing", at: "2026-06-30T13:00:00.000Z" }],
     });
-    writeCheckpoint();
+    writeCheckpoint("drift");
     const state = readState("drift", stateDir)!;
 
-    expect(probeFreshness(state, worktreeRoot, "gate").verdict).toBe("write");
-    expect(isCheckpointUsable(state, worktreeRoot)).toBe(false);
+    expect(probeFreshness(state, "gate", stateDir).verdict).toBe("write");
+    expect(isCheckpointUsable(state, stateDir)).toBe(false);
   });
 
   it("agrees a fresh manual record is both preserved and usable", () => {
@@ -538,12 +673,10 @@ describe("probeFreshness vs isCheckpointUsable — intentional divergence", () =
       },
       phaseLog: [{ phase: "gating", at: "2026-06-30T11:00:00.000Z" }],
     });
-    writeCheckpoint();
+    writeCheckpoint("drift");
     const state = readState("drift", stateDir)!;
 
-    expect(probeFreshness(state, worktreeRoot, "gate").verdict).toBe(
-      "preserve",
-    );
-    expect(isCheckpointUsable(state, worktreeRoot)).toBe(true);
+    expect(probeFreshness(state, "gate", stateDir).verdict).toBe("preserve");
+    expect(isCheckpointUsable(state, stateDir)).toBe(true);
   });
 });

@@ -207,12 +207,13 @@ and proceed.
 
 **Checkpoint re-injection (persisted conversational state).** A fresh
 process reconstructs the board from disk but drops any instruction held
-only in chat. Resolve the worktree **read-only** — `jq -r '.worktree'
-~/.flow/state/<slug>.json`, or `flow ls`. Do **not** resolve it by running
-bare `flow-checkpoint <slug>`: that form re-arms the one-shot
-`checkpoint.pending` marker on every resume, which is exactly what the
-`--consume` below exists to retire. Then probe
-`<worktree>/.flow-tmp/checkpoint.md`.
+only in chat. Resolve the checkpoint body **read-only** —
+`CHECKPOINT_PATH=$(flow-checkpoint --path)`, which derives the
+slug-keyed, worktree-independent location and only prints it. Do **not**
+resolve it by running bare `flow-checkpoint <slug>`: that form re-arms the
+one-shot `checkpoint.pending` marker on every resume, which is exactly
+what the `--consume` below exists to retire. Then probe
+`$CHECKPOINT_PATH`.
 When it exists, read it and fold its addenda into the reconcile step —
 honor the persisted decision as if just given — **before** taking the one
 deliberate step. Then run:

@@ -35,6 +35,7 @@ import {
   type PipelineState,
 } from "./state";
 import { deleteTurnTracking } from "./stop-turn-tracking";
+import { deleteCheckpointDir } from "./checkpoint-freshness";
 import { plainTerminate } from "./launcher";
 import { dim } from "./color";
 import { compact, readRows } from "./proc-registry";
@@ -358,6 +359,7 @@ export function runDone(
   if (hasState) {
     deleteState(name);
     deleteTurnTracking(name);
+    deleteCheckpointDir(name);
   } else if (!warned) {
     console.warn(`  (no state file for '${name}' — window existed alone)`);
   }
@@ -486,6 +488,7 @@ function sweep(
     }
     deleteState(s.slug);
     deleteTurnTracking(s.slug);
+    deleteCheckpointDir(s.slug);
     console.log(`closed: ${s.slug}`);
   }
   return 0;
