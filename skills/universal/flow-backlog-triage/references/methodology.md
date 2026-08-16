@@ -68,6 +68,31 @@ For a large backlog, append disposition rows to the output file
 incrementally as verification batches return, rather than holding every
 row in context until the end.
 
+**Verbatim capture (mandatory when a notes source is given).** On any
+run that reads a notes source, emit
+`.flow-tmp/triage/source-notes-verbatim.md` alongside the disposition
+table. Quoting contract: quote EXACTLY — copy the owner's original text
+byte-for-byte, blockquoted with `> `.
+Do not fix spelling, grammar, punctuation, or truncation; a typo, a
+dangling sentence, or inconsistent capitalization in the source stays
+exactly as written. Each captured item is a `**<REF>**` heading followed
+by its blockquote body, where `<REF>` matches the item's Phase-0 ref (an
+issue number or a notes ref like `H3`/`M7`) whenever the owner's own
+numbering supplies one. Precede the blocks with a
+`<!-- flow-verbatim-refs: <comma-separated refs> -->` index line naming
+every ref the file contains, and a
+`<!-- flow-verbatim-source: <path to the original notes file> -->`
+provenance line naming the notes file the text was copied from — both
+machine-read by the attachment helper: the index disambiguates block
+boundaries and the source path drives the byte-for-byte cross-check.
+When a ref was assigned by the model rather than taken from the owner's
+own numbering, say so in a preamble sentence before the first block.
+The block count MUST equal `M` from the `Inventory: <N> issues, <M>
+notes` assertion above. Sequence this write AFTER the existing
+`mkdir -p .flow-tmp/triage` + `.git/info/exclude` ensure block
+(SKILL.md), never before it — the capture file lands in the same
+gitignored scratch directory the disposition table does.
+
 ## Delta re-triage
 
 When the input is a **prior triage document** — this skill's own prior
@@ -229,3 +254,20 @@ subagent. The read-only constraint from
 [verification-fanout.md](verification-fanout.md) binds the Phase-1
 verifier subagents only; it does not extend to the parent session's own
 Phase-4 actions.
+
+**Attach the owner's verbatim notes.** After the evidence-based and
+staged actions above, attach each captured ref's verbatim text to the
+GitHub issue it belongs to per
+[verbatim-attachment.md](verbatim-attachment.md). Only open issues
+receive an attachment — a REJECT close-candidate, a residue item, and
+an issue closed as ALREADY DONE never do; an issue closed as superseded
+routes its ref to the child issue that carries the remaining work
+instead. When the owner's note and a verified Phase-1 finding disagree,
+never reconcile them into one edited comment —
+the disagreement is the signal, and belongs to the user as two
+separately authored comments, not a single smoothed-over one. A ref
+that lands on no open issue is
+reported in the Verbatim note attachment section with a reason; it is
+never auto-filed as new issues on its own. On a delta re-triage run, a
+ref absent from the current notes file is reported unattached and any
+prior comment for it is left untouched.

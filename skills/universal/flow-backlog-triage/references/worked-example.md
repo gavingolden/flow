@@ -108,6 +108,66 @@ table must carry exactly 6 rows.
   flow feature create --tmux --model opus --effort low --slug audit-log-retention 'implement bundle issue #441 — configurable audit-log retention window (default retention: <value required>)'
   ```
 
+## Verbatim note attachment
+
+`H3` came from the adhoc notes file, so Phase 0 also captured it
+byte-for-byte into `.flow-tmp/triage/source-notes-verbatim.md`:
+
+```
+<!-- flow-verbatim-refs: H3, H7, M2 -->
+<!-- flow-verbatim-source: notes/backlog-dump.md -->
+
+**H3** — adhoc notes, high priority
+
+> Prod smoketest against /api/health failing every run, not sure if
+> its the health endpoint itself or something upstream
+```
+
+Once Bundle B's work is filed as issue `#440` (see Phase 4 above), Phase
+4's attach step maps `H3` onto it in
+`.flow-tmp/triage/verbatim-map.json`:
+
+```json
+{
+  "version": 1,
+  "sourceOfTruth": "notes/backlog-dump.md",
+  "preamble": { "triageDates": "the 2026-08-07 triage" },
+  "attachments": [
+    {
+      "issue": 440,
+      "refs": [{ "ref": "H3", "label": "adhoc notes, high priority" }]
+    }
+  ],
+  "unattached": []
+}
+```
+
+The parent session then runs the helper by its bare PATH name:
+
+```
+flow-verbatim-notes attach --verbatim-file .flow-tmp/triage/source-notes-verbatim.md --map-file .flow-tmp/triage/verbatim-map.json
+```
+
+The run's JSON envelope drives the document's report section:
+
+### Verbatim note attachment
+
+| Issue | Refs attached | Result  |
+| ----- | ------------- | ------- |
+| 440   | H3            | created |
+
+**Refs on no issue:** none.
+
+And the end-of-run chat summary gains one line:
+
+```
+Verbatim notes: 1 issue (1 created, 0 updated), 0 skipped, 0 refs on no issue.
+```
+
+`H7` and `M2` stay out of this run's map entirely — the conflict between
+them is still an open Decision Brief question, and neither has a
+GitHub issue to attach to yet.
+
 ## Decision Brief excerpt
 
 The same run's Decision Brief renders the two DO bundles as outcome-first
@@ -182,3 +242,8 @@ won't-do — ..."` command shown verbatim, never run by the skill.
   renders both DO bundles by user-facing outcome rather than mechanism,
   and keeps the jargon ban: no code paths, no file names, no issue
   mechanics in the card text itself.
+- **Verbatim note attachment** — `H3`'s adhoc note, captured
+  byte-for-byte at Phase 0, is posted onto its bundle issue (`#440`) at
+  Phase 4 via `flow-verbatim-notes attach`, and the run reports it
+  `created` in the `### Verbatim note attachment` section and the chat
+  tally.

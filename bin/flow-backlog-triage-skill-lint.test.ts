@@ -44,6 +44,10 @@ const methodologyPath = path.join(REFERENCES_DIR, "methodology.md");
 const outputTemplatePath = path.join(REFERENCES_DIR, "output-template.md");
 const fanoutPath = path.join(REFERENCES_DIR, "verification-fanout.md");
 const workedExamplePath = path.join(REFERENCES_DIR, "worked-example.md");
+const verbatimAttachmentPath = path.join(
+  REFERENCES_DIR,
+  "verbatim-attachment.md",
+);
 const verifierAgentPath = path.resolve(
   HERE,
   "..",
@@ -57,6 +61,10 @@ const methodologyContent = fs.readFileSync(methodologyPath, "utf8");
 const outputTemplateContent = fs.readFileSync(outputTemplatePath, "utf8");
 const fanoutContent = fs.readFileSync(fanoutPath, "utf8");
 const workedExampleContent = fs.readFileSync(workedExamplePath, "utf8");
+const verbatimAttachmentContent = fs.readFileSync(
+  verbatimAttachmentPath,
+  "utf8",
+);
 const verifierAgentContent = fs.readFileSync(verifierAgentPath, "utf8");
 
 describe("flow-backlog-triage opinionated-constraint anchors", () => {
@@ -825,5 +833,62 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
 
   it("SKILL.md body stays under the 500-line hard cap", () => {
     expect(skillContent.split("\n").length).toBeLessThan(500);
+  });
+});
+
+describe("flow-backlog-triage owner-verbatim attachment anchors", () => {
+  it("states the quoting contract forbids fixing spelling, grammar, punctuation, or truncation", () => {
+    for (const content of [methodologyContent, verbatimAttachmentContent]) {
+      expect(
+        content.includes(
+          "Do not fix spelling, grammar, punctuation, or truncation",
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("names the owner-verbatim-notes marker string", () => {
+    expect(
+      verbatimAttachmentContent.includes("<!-- owner-verbatim-notes-v1 -->"),
+    ).toBe(true);
+  });
+
+  it("states the comment-over-body-edit rule", () => {
+    expect(
+      /never a body edit|not.{0,20}a body edit|comment, never a body/i.test(
+        verbatimAttachmentContent,
+      ),
+    ).toBe(true);
+  });
+
+  it("states the never-reconcile rule (a disagreement between the owner's note and a verified finding stands as two separate comments)", () => {
+    for (const content of [
+      methodologyContent,
+      verbatimAttachmentContent,
+      skillContent,
+    ]) {
+      expect(
+        /never reconcile|not reconciled|disagreement is the signal/i.test(
+          content,
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("states refs on no issue are never auto-filed as new issues", () => {
+    for (const content of [methodologyContent, verbatimAttachmentContent]) {
+      expect(content.includes("never auto-filed as new issues")).toBe(true);
+    }
+  });
+
+  it("invokes the helper by bare PATH name — no `bun bin/` occurrence in either new/edited skill file", () => {
+    for (const content of [skillContent, verbatimAttachmentContent]) {
+      expect(content.includes("bun bin/flow-verbatim-notes")).toBe(false);
+    }
+    expect(skillContent.includes("flow-verbatim-notes attach")).toBe(true);
+  });
+
+  it("SKILL.md links verbatim-attachment.md from its reference index", () => {
+    expect(skillContent.includes("verbatim-attachment.md")).toBe(true);
   });
 });
