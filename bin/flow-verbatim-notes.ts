@@ -23,6 +23,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { basename } from "node:path";
 
 export const MARKER = "<!-- owner-verbatim-notes-v1 -->";
 export const MAX_COMMENT_CHARS = 65536;
@@ -216,20 +217,57 @@ export function crossCheckAgainstSource(
   const failures: { ref: string; reason: string }[] = [];
   for (const [ref, body] of blocks) {
     const stripped = stripQuotePrefix(body);
-    const idx = notesText.indexOf(stripped);
-    if (idx === -1) {
+    if (stripped.trim() === "") {
+      failures.push({
+        ref,
+        reason: `captured block is empty — nothing was copied from the notes source`,
+      });
+      continue;
+    }
+    // The block text can legitimately occur more than once in a notes
+    // dump (short lines like "?" or "revisit this" repeat). Judging the
+    // boundary from only the first `indexOf` hit is wrong in both
+    // directions — an unrelated earlier occurrence can fail a
+    // byte-perfect capture, and a truncated form that happens to appear
+    // earlier can pass. Evaluate every occurrence; accept the block if
+    // ANY occurrence has clean boundaries on both ends.
+    let from = 0;
+    let idx = -1;
+    let found = false;
+    let cleanMatch = false;
+    let anyTrailingOk = false;
+    let anyLeadingOk = false;
+    while ((idx = notesText.indexOf(stripped, from)) !== -1) {
+      found = true;
+      const nextChar = notesText[idx + stripped.length];
+      const prevChar = idx === 0 ? undefined : notesText[idx - 1];
+      const thisTrailingOk = nextChar === undefined || /\s/.test(nextChar);
+      const thisLeadingOk = prevChar === undefined || /\s/.test(prevChar);
+      anyTrailingOk = anyTrailingOk || thisTrailingOk;
+      anyLeadingOk = anyLeadingOk || thisLeadingOk;
+      if (thisTrailingOk && thisLeadingOk) {
+        cleanMatch = true;
+        break;
+      }
+      from = idx + 1;
+    }
+    if (!found) {
       failures.push({
         ref,
         reason: `captured block does not appear byte-for-byte in the recorded notes source`,
       });
-      continue;
-    }
-    const nextChar = notesText[idx + stripped.length];
-    if (nextChar !== undefined && !/\s/.test(nextChar)) {
-      failures.push({
-        ref,
-        reason: `captured block appears truncated relative to the recorded notes source (non-whitespace content follows with no boundary)`,
-      });
+    } else if (!cleanMatch) {
+      if (!anyTrailingOk) {
+        failures.push({
+          ref,
+          reason: `captured block appears truncated relative to the recorded notes source (non-whitespace content follows with no boundary)`,
+        });
+      } else {
+        failures.push({
+          ref,
+          reason: `captured block appears to drop leading content relative to the recorded notes source (non-whitespace content precedes with no boundary)`,
+        });
+      }
     }
   }
   return failures;
@@ -251,12 +289,14 @@ export function parseMapFile(text: string): MapFile | { error: string } {
     return { error: "map file must have a non-empty sourceOfTruth" };
   }
   const preamble = obj.preamble;
-  if (
-    preamble === null ||
-    typeof preamble !== "object" ||
-    typeof (preamble as Record<string, unknown>).triageDates !== "string"
-  ) {
+  if (preamble === null || typeof preamble !== "object") {
     return { error: "map file must have preamble.triageDates as a string" };
+  }
+  const triageDates = (preamble as Record<string, unknown>).triageDates;
+  if (typeof triageDates !== "string" || triageDates.trim().length === 0) {
+    return {
+      error: "map file must have a non-empty preamble.triageDates string",
+    };
   }
   if (!Array.isArray(obj.attachments)) {
     return { error: "map file must have an attachments array" };
@@ -267,8 +307,14 @@ export function parseMapFile(text: string): MapFile | { error: string } {
       return { error: "each attachments entry must be an object" };
     }
     const e = entry as Record<string, unknown>;
-    if (typeof e.issue !== "number") {
-      return { error: "each attachments entry must have a numeric issue" };
+    if (
+      typeof e.issue !== "number" ||
+      !Number.isInteger(e.issue) ||
+      e.issue <= 0
+    ) {
+      return {
+        error: `attachments entry has a non-positive/non-integer issue: ${e.issue}`,
+      };
     }
     if (!Array.isArray(e.refs)) {
       return {
@@ -282,7 +328,8 @@ export function parseMapFile(text: string): MapFile | { error: string } {
         r === null ||
         typeof r !== "object" ||
         typeof ro.ref !== "string" ||
-        typeof ro.label !== "string"
+        typeof ro.label !== "string" ||
+        ro.label.trim().length === 0
       ) {
         return {
           error: `attachments entry for issue ${e.issue} has a malformed ref`,
@@ -352,20 +399,35 @@ export function renderComment(
     const body = blocks.get(ref.ref) ?? "";
     lines.push(`**${ref.ref}** — ${ref.label}`, "", body, "");
   }
-  lines.push("---", "", `<sub>Source of truth: ${map.sourceOfTruth}</sub>`);
+  // `sourceOfTruth` commonly lives outside the worktree (an owner's dump
+  // file) and is often an absolute path — publishing it verbatim into a
+  // public GitHub comment leaks local filesystem layout (e.g. an OS
+  // account name). Only the basename carries provenance value publicly;
+  // the full path stays local, in the envelope.
+  lines.push(
+    "---",
+    "",
+    `<sub>Source of truth: ${basename(map.sourceOfTruth)}</sub>`,
+  );
   return lines.join("\n");
 }
 
-type IssueComment = { id: number; body: string };
+type IssueComment = { id: number; body: string; login: string | null };
 
 function listComments(
   issue: number,
   gh: GhRunner,
 ): IssueComment[] | { error: string } {
+  // --paginate without --slurp concatenates page bodies as `[{...}][{...}]`,
+  // which is not valid JSON on its own. --slurp wraps multi-page output as
+  // an array-of-pages (`[[...],[...]]`); a single-page response flattens to
+  // itself since its objects aren't arrays. Mirrors
+  // flow-pipeline-summary.ts's findMarkedCommentId.
   const r = gh([
     "api",
     `repos/{owner}/{repo}/issues/${issue}/comments`,
     "--paginate",
+    "--slurp",
   ]);
   if (r.exitCode !== 0) {
     return {
@@ -386,13 +448,29 @@ function listComments(
     return { error: `gh api issues/${issue}/comments returned non-array` };
   }
   const comments: IssueComment[] = [];
-  for (const c of parsed) {
+  for (const c of parsed.flat()) {
     const obj = c as Record<string, unknown>;
     if (typeof obj.id === "number" && typeof obj.body === "string") {
-      comments.push({ id: obj.id, body: obj.body });
+      const user = obj.user as Record<string, unknown> | undefined;
+      const login = user && typeof user.login === "string" ? user.login : null;
+      comments.push({ id: obj.id, body: obj.body, login });
     }
   }
   return comments;
+}
+
+/**
+ * Resolves the login of the account `gh` is authenticated as. The marker
+ * match below trusts only comments this login posted — otherwise, on a
+ * public repo, anyone who can comment can pre-post the marker HTML comment
+ * (it's visible in this repo's own docs) and either hijack the upsert slot
+ * or make every future PATCH 403.
+ */
+function currentLogin(gh: GhRunner): string | null {
+  const r = gh(["api", "user", "--jq", ".login"]);
+  if (r.exitCode !== 0) return null;
+  const login = r.stdout.trim();
+  return login.length > 0 ? login : null;
 }
 
 function issueState(
@@ -436,6 +514,7 @@ function attachOne(
   args: Args,
   gh: GhRunner,
   envelope: Envelope,
+  selfLogin: string | null,
 ): void {
   const refs = entry.refs.map((r) => r.ref);
   const push = (
@@ -474,7 +553,15 @@ function attachOne(
     return;
   }
 
-  const markerComments = comments.filter((c) => c.body.startsWith(MARKER));
+  // A marker-bearing comment authored by someone other than the account
+  // running this helper is never a legitimate upsert target — resolving
+  // `selfLogin` as null (gh api user failed) falls back to body-only
+  // matching so a run doesn't hard-fail purely on the auth-probe call.
+  const markerComments = comments.filter(
+    (c) =>
+      c.body.startsWith(MARKER) &&
+      (selfLogin === null || c.login === null || c.login === selfLogin),
+  );
   if (markerComments.length > 1) envelope.duplicateMarkers.push(entry.issue);
 
   if (markerComments.length === 0) {
@@ -563,7 +650,13 @@ export function attach(args: Args, gh: GhRunner = defaultGh): Envelope {
   if (!existsSync(sourcePath)) {
     throw new Error(`recorded notes source no longer exists: ${sourcePath}`);
   }
-  const notesText = readFileSync(sourcePath, "utf8");
+  // Normalize CRLF to LF for the comparison only — `parseVerbatimFile`
+  // always rejoins block bodies with `\n` (line 169), so an owner's notes
+  // file with CRLF endings (a Windows export, a Notion/email paste) would
+  // otherwise fail `indexOf` on every multi-line block. Line endings carry
+  // no owner-authored content, so normalizing them here doesn't weaken the
+  // byte-for-byte guarantee; the posted bytes (from `blocks`) are untouched.
+  const notesText = readFileSync(sourcePath, "utf8").replace(/\r\n/g, "\n");
 
   const crossCheckFailures = crossCheckAgainstSource(blocks, notesText);
   if (crossCheckFailures.length > 0) {
@@ -581,8 +674,9 @@ export function attach(args: Args, gh: GhRunner = defaultGh): Envelope {
     duplicateMarkers: [],
   };
 
+  const selfLogin = currentLogin(gh);
   for (const entry of map.attachments) {
-    attachOne(entry, blocks, map, args, gh, envelope);
+    attachOne(entry, blocks, map, args, gh, envelope, selfLogin);
   }
 
   return envelope;

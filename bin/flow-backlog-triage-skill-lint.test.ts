@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { MARKER } from "./flow-verbatim-notes";
 
 /**
  * Structural-anchor lint for `skills/universal/flow-backlog-triage/`.
@@ -764,6 +765,10 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
     },
     { label: "references/verification-fanout.md", content: fanoutContent },
     { label: "references/worked-example.md", content: workedExampleContent },
+    {
+      label: "references/verbatim-attachment.md",
+      content: verbatimAttachmentContent,
+    },
     { label: "agents/flow-backlog-verifier.md", content: verifierAgentContent },
   ];
 
@@ -881,12 +886,22 @@ describe("flow-backlog-triage owner-verbatim attachment anchors", () => {
     }
   });
 
-  it("invokes the helper by bare PATH name — no `bun bin/` occurrence in either new/edited skill file", () => {
-    for (const content of [skillContent, verbatimAttachmentContent]) {
-      expect(content.includes("bun bin/flow-verbatim-notes")).toBe(false);
-    }
+  it("invokes the helper by bare PATH name (the bare-PATH check itself is covered by ALL_SKILL_FILES above)", () => {
     expect(skillContent.includes("flow-verbatim-notes attach")).toBe(true);
   });
+
+  it("pins the owner-verbatim-notes marker string against the helper's exported MARKER constant, not a hand-copied literal", () => {
+    expect(verbatimAttachmentContent.includes(MARKER)).toBe(true);
+  });
+
+  it.each(["<!-- flow-verbatim-refs:", "<!-- flow-verbatim-source:"])(
+    "names the machine-read capture index line %j",
+    (literal) => {
+      for (const content of [methodologyContent, verbatimAttachmentContent]) {
+        expect(content.includes(literal)).toBe(true);
+      }
+    },
+  );
 
   it("SKILL.md links verbatim-attachment.md from its reference index", () => {
     expect(skillContent.includes("verbatim-attachment.md")).toBe(true);

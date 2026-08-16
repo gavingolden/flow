@@ -119,9 +119,16 @@ and update the same comment instead of stacking a second one.
 
 ## Invocation
 
-The parent session runs the helper by its **bare PATH name** — never a
-repo-relative `bun bin/...` path, since this skill runs in arbitrary
-consumer repos whose cwd is never the flow checkout:
+Probe `command -v flow-verbatim-notes` first. If it is absent, the
+install predates this helper: report a named skip in the
+`### Verbatim note attachment` section (`skipped — helper not
+installed; run \`flow install --upgrade\` and re-run the attach command
+above`), leave the capture file and map in place, and do not fail the
+triage run.
+
+Otherwise, the parent session runs the helper by its **bare PATH name**
+— never a repo-relative `bun bin/...` path, since this skill runs in
+arbitrary consumer repos whose cwd is never the flow checkout:
 
 ```
 flow-verbatim-notes attach --verbatim-file .flow-tmp/triage/source-notes-verbatim.md --map-file .flow-tmp/triage/verbatim-map.json

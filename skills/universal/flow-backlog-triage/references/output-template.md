@@ -218,7 +218,9 @@ half of enforcement (a prose lint cannot police runtime behaviour):
 - Inferred milestone surfaced as the first Open decision (or N/A): YES/N-A/NO
 - Decision Brief is the first section and every DO bundle has a card: YES/NO
 - Verbatim capture emitted and ref-block count == M: YES/NO/N-A
-- Every attached issue reported posted/updated/skipped-with-reason: YES/NO/N-A
+- Every attached issue reported with its envelope `action` (`created` /
+  `updated` / `unchanged` / `skipped` with a named reason, or
+  `would-create` / `would-update` on a dry run): YES/NO/N-A
 
 ## Chat summary shape
 
@@ -232,5 +234,5 @@ When a verbatim-notes attachment run happened, append a tally line in
 this shape:
 
 ```
-Verbatim notes: <n> issues (<c> created, <u> updated), <s> skipped (<reason>), <k> refs on no issue.
+Verbatim notes: <n> issues (<c> created, <u> updated, <e> unchanged), <s> skipped (<reason>), <k> refs on no issue.
 ```

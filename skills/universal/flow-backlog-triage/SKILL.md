@@ -226,9 +226,11 @@ Appendix`) is filled in, not left as a template.
   Decision Brief's top recommendation tier(s).
 - On any run with a notes source, the capture file exists and its
   ref-block count equals `M` from the Phase-0 count assertion.
-- Every `flow-verbatim-notes attach` attachment is reported
-  posted/updated/skipped-with-a-named-reason, and every ref that landed
-  on no issue is listed in the `### Verbatim note attachment` section.
+- Every `flow-verbatim-notes attach` attachment is reported with its
+  envelope `action` (`created` / `updated` / `unchanged` / `skipped` with
+  a named reason, or `would-create` / `would-update` on a dry run), and
+  every ref that landed on no issue is listed in the
+  `### Verbatim note attachment` section.
 
 # Constraints
 
