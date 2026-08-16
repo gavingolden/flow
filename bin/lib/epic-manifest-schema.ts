@@ -64,9 +64,12 @@ export const EPIC_DESIGN_FILENAME = "design.md";
  */
 export const EPIC_STATUS_FILENAME = "status.json";
 
+/** The epics parent directory, repo-relative — the sole literal for the tree. */
+export const EPICS_DIR_RELATIVE = ".flow/epics";
+
 /** The per-slug epic directory, repo-relative. */
 export function epicDirRelative(slug: string): string {
-  return `.flow/epics/${slug}`;
+  return `${EPICS_DIR_RELATIVE}/${slug}`;
 }
 
 export type ValidationOk = { ok: true; value: EpicManifest };
