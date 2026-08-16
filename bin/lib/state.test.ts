@@ -553,6 +553,52 @@ describe("state", () => {
     expect(readState("full", dir)).toEqual(full);
   });
 
+  it("readState returns null when state JSON has wrong-type interview", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-interview.json"),
+      JSON.stringify({
+        slug: "bad-interview",
+        phase: "triage-pending-interview",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        interview: 42,
+      }),
+    );
+    expect(readState("bad-interview", dir)).toBeNull();
+  });
+
+  it("readState accepts a string interview digest and round-trips it", () => {
+    writeState(
+      fixture("with-interview", {
+        phase: "triage-pending-interview",
+        interview: "Q1: ... A: ...",
+      }),
+      dir,
+    );
+    expect(readState("with-interview", dir)?.interview).toBe("Q1: ... A: ...");
+  });
+
+  it("readState accepts interviewMode 'force' and 'skip', and rejects other values", () => {
+    writeState(fixture("interview-force", { interviewMode: "force" }), dir);
+    expect(readState("interview-force", dir)?.interviewMode).toBe("force");
+
+    writeState(fixture("interview-skip", { interviewMode: "skip" }), dir);
+    expect(readState("interview-skip", dir)?.interviewMode).toBe("skip");
+
+    fs.writeFileSync(
+      path.join(dir, "bad-interview-mode.json"),
+      JSON.stringify({
+        slug: "bad-interview-mode",
+        phase: "triaging",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        interviewMode: "always",
+      }),
+    );
+    expect(readState("bad-interview-mode", dir)).toBeNull();
+  });
+
   it("readState returns null when state JSON has a malformed gateOverride", () => {
     // gateOverride must be { pr: number, confirmedAt: string }. A token
     // missing confirmedAt (or with a wrong-typed field) is rejected so a
@@ -953,6 +999,13 @@ describe("phase constants", () => {
     expect(PENDING_PHASES).toContain("checkpoint-pending-clear");
   });
 
+  it("includes the two intent-interview pending phases and their PHASE_SHORT entries", () => {
+    expect(PENDING_PHASES).toContain("triage-pending-interview");
+    expect(PENDING_PHASES).toContain("plan-pending-interview");
+    expect(PHASE_SHORT["triage-pending-interview"]).toBe("intq?");
+    expect(PHASE_SHORT["plan-pending-interview"]).toBe("planq?");
+  });
+
   it("includes the full epic-designer phase lifecycle", () => {
     // /flow-epic-create's lifecycle: starting → epic-designing → epic-validating →
     // epic-pr-open → epic-design-pending-review → {epic-approved | cancelled}.
@@ -1106,6 +1159,7 @@ describe("shortPhase", () => {
     "plan-pending-review": "plan?",
     "triaged-no-change": "no-chg",
     "triage-pending-clarification": "triage?",
+    "triage-pending-interview": "intq?",
     "approval-pending-clarification": "appr?",
     "ci-wait-pending": "ci?",
     "checkpoint-pending-clear": "ckpt?",
@@ -1118,6 +1172,7 @@ describe("shortPhase", () => {
     "epic-pr-open": "e-pr",
     "epic-design-pending-review": "e-rvw?",
     "epic-approved": "e-ok",
+    "plan-pending-interview": "planq?",
   };
 
   it.each(PIPELINE_PHASES)("maps %s to its canonical abbreviation", (phase) => {

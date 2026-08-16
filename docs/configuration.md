@@ -162,15 +162,16 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 
 `~/.flow/config.json` is created by `flow install` and read at launch. The keys in use today:
 
-| key                  | what it controls                                                                                                  |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `modules`            | the persisted module selection from `flow install` (see above)                                                    |
-| `models.*`           | per-phase model routing (see [Per-phase models](#per-phase-models))                                               |
-| `delegate.models.*`  | per-surface agy delegate-model routing (see [Delegate models](#delegate-models))                                  |
-| `update.checkFor`    | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                            |
-| `update.autoUpgrade` | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                         |
-| `research.discovery` | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run) |
-| `launcher`           | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell        |
+| key                  | what it controls                                                                                                                                                                                                                                                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modules`            | the persisted module selection from `flow install` (see above)                                                                                                                                                                                                                                                                        |
+| `models.*`           | per-phase model routing (see [Per-phase models](#per-phase-models))                                                                                                                                                                                                                                                                   |
+| `delegate.models.*`  | per-surface agy delegate-model routing (see [Delegate models](#delegate-models))                                                                                                                                                                                                                                                      |
+| `update.checkFor`    | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                                                                                                                                                                                                                                                |
+| `update.autoUpgrade` | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                                                                                                                                                                                                                                             |
+| `research.discovery` | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run)                                                                                                                                                                                                                     |
+| `interview.enabled`  | opt-in for the adaptive intent interview (default `true`), read by the supervisor via `jq` against `~/.flow/config.json` (never a `bin/lib` import — subagents run in the consumer worktree, where flow's own `bin/lib` isn't present); overridable per run with `flow feature create --interview` (force) or `--no-interview` (skip) |
+| `launcher`           | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell                                                                                                                                                                                                                            |
 
 The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher set tmux`.
 

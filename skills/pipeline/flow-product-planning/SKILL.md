@@ -178,7 +178,7 @@ Fill in the `{{...}}` placeholders before passing to the Task tool. The
 `{{OUTPUT_PATHS}}` block is **mode-dependent** — substitute the feature-mode
 text by default, the epic-mode text under `MODE: epic` (both shown after the
 template). The `{{RESEARCH_OVERRIDE}}`, `{{REVISION_OVERRIDE}}`, `{{EPIC_OVERRIDE}}`,
-and `{{PROMPT_SANITY_OVERRIDE}}` blocks are all **omit-when-absent** (shown after the
+`{{PROMPT_SANITY_OVERRIDE}}`, and `{{INTERVIEW_OVERRIDE}}` blocks are all **omit-when-absent** (shown after the
 template). The other placeholders
 (`{{INSTRUCTIONS_PATH}}`, `{{USER_DESCRIPTION}}`, `{{WORKTREE}}`,
 `{{SKILL_DIR}}`) are mode-independent:
@@ -196,6 +196,7 @@ User feature description (verbatim):
 {{REVISION_OVERRIDE}}
 {{EPIC_OVERRIDE}}
 {{PROMPT_SANITY_OVERRIDE}}
+{{INTERVIEW_OVERRIDE}}
 Working directory (cd here before reading any project files):
   {{WORKTREE}}
 
@@ -346,6 +347,48 @@ entirely (consistent with `{{RESEARCH_OVERRIDE}}`, `{{REVISION_OVERRIDE}}`,
 and `{{EPIC_OVERRIDE}}` above). This passthrough rides the existing single
 discovery Task call; it adds **no** new Task-tool spawn and **no** new
 exemption.
+
+### `{{INTERVIEW_OVERRIDE}}` — intent-interview digest + post-gate answers passthrough
+
+The intent interview (adaptive)
+(`skills/pipeline/flow-pipeline/references/interview-playbook.md`) can
+run at `/flow-pipeline` step 1 before discovery is ever spawned, and can
+also be triggered mid-run by discovery's OWN question-gate contract
+(`discovery-instructions.md` § question-gate). Both forward through this
+one block:
+
+- **Step-1 digest.** When `state.interview` is non-empty (step 1's
+  interview ran), substitute the `INTERVIEW: <digest>` marker
+  (`references/step3-threading.md` § Interview threading) for
+  `{{INTERVIEW_OVERRIDE}}`:
+
+  ```
+  INTERVIEW: <digest>
+    The intent interview ran at triage (step 1). Treat every answer as a
+    load-bearing user clarification — same authority as USER
+    CLARIFICATIONS — never re-litigated.
+  ```
+
+- **Post-gate answers.** When this is a re-invocation following
+  discovery's own question-gate pause (the prior discovery run wrote
+  `.flow-tmp/interview-questions.md` instead of `plan.md`, and the
+  supervisor collected the user's answers), substitute (or append,
+  when a step-1 digest is ALSO present) the post-gate form instead:
+
+  ```
+  INTERVIEW ANSWERS (post-discovery): <answers>
+    You paused a prior run of this same discovery invocation on your own
+    question gate. These are the user's answers to the questions in
+    .flow-tmp/interview-questions.md — resume with them as settled
+    context; do not re-ask.
+  ```
+
+When neither signal is present, substitute the **empty string** — omit
+the block entirely (consistent with `{{RESEARCH_OVERRIDE}}`,
+`{{REVISION_OVERRIDE}}`, `{{EPIC_OVERRIDE}}`, and
+`{{PROMPT_SANITY_OVERRIDE}}` above). This passthrough rides the existing
+single discovery Task call; it adds **no** new Task-tool spawn and
+**no** new exemption.
 
 # Constraints
 

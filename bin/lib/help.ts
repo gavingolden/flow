@@ -47,13 +47,16 @@ Usage:
                                         the three are mutually exclusive; absent any of them, an interactive
                                         terminal is asked once per optional module and a non-interactive run
                                         defaults to core only)
-  flow feature create [--tmux|--no-tmux] [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
+  flow feature create [--tmux|--no-tmux] [--no-auto-merge] [--wait-for-copilot] [--research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
                                         start a new pipeline (plain launcher by default; --tmux opts into a tmux window)
                                         (--no-auto-merge stops at gated regardless of rubric;
                                         --wait-for-copilot forces the full 10-min Copilot wait
                                         even when auto-detect would skip;
                                         --research forces web-grounded discovery research on,
                                         bypassing the relevance gate and the research.discovery config opt-in;
+                                        --interview forces the intent interview on, --no-interview skips it
+                                        (mutually exclusive; absent falls back to interview-playbook.md's
+                                        judgment gate and config.json's interview.enabled);
                                         --copilot-review controls Copilot review opt-in, default auto;
                                         --effort sets the Claude Code reasoning-effort level for the claude session;
                                         --model sets the whole-session Claude model alias;
@@ -93,7 +96,7 @@ export const HELP_TEXT: Record<string, string> = {
   feature: `flow feature — start or resume a pipeline
 
 Usage:
-  flow feature create [--tmux|--no-tmux] [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
+  flow feature create [--tmux|--no-tmux] [--no-auto-merge] [--wait-for-copilot] [--research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
   flow feature resume <name> [<name> ...] [--yes] [--tmux|--no-tmux]
 
 Subcommands:
@@ -114,6 +117,10 @@ Options (create):
   --wait-for-copilot    force the full 10-min Copilot wait even when auto-detect would skip
   --research            force web-grounded discovery research on, bypassing the relevance gate
                         and the research.discovery config opt-in
+  --interview / --no-interview
+                        force the intent interview on, or skip it (mutually exclusive).
+                        Absent falls back to interview-playbook.md's judgment gate and
+                        ~/.flow/config.json's interview.enabled (default true)
   --copilot-review <auto|always|never>
                         opt-in for Copilot review (default auto): 'always' always requests,
                         'never' never requests, 'auto' lets the hybrid classifier decide

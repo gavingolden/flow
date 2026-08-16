@@ -131,6 +131,9 @@ code.claude.com/docs/en/how-claude-code-works.
   `.flow-tmp/plan.md` and `.flow-tmp/scout.md` artifact paths, current pipeline
   step, and any `NEEDS HUMAN: <reason>` — the supervisor's resume anchors;
   lose them and it cannot tell what it has done.
+- **KEEP**: `state.interview` when either interview pending phase
+  (`triage-pending-interview`, `plan-pending-interview`) is in flight —
+  losing it forces re-asking answered questions.
 - **KEEP**: the pause-output contract — pause-point messages stay slot-labeled after compaction.
 - **DROP**: verify failure-log excerpts, raw tool outputs, and CI poll progress.
   These are high-volume and reconstructable (`state.json`, the PR, and a
@@ -371,6 +374,11 @@ three-layer resolution table, and the manifest/foundation fields — is at
     instructs the supervisor to merge a `gated` PR anyway — a *fresh*
     confirmation, not an inference from an earlier instruction. This
     named form is the **only** authorised `AskUserQuestion` site.
+  - **The intent interview's two pauses (`triage-pending-interview`,
+    `plan-pending-interview`) are ordinary markdown chat pauses, NOT
+    `AskUserQuestion`** — no new exemption, one-form rule unaffected;
+    full contract in
+    `skills/pipeline/flow-pipeline/references/interview-playbook.md`.
   - **Auto-issue-create exemption: `/flow-pr-review` Step 6 deferral path,
     `/flow-pr-review` Step 5 retrospective generic-gap capture, and
     `/flow-pipeline` Step 10 post-merge sweep.** `flow-create-issue`

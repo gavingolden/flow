@@ -108,6 +108,42 @@ scrollback, not in this marker. Discovery's own premise check (see
 `discovery-instructions.md`) treats this as additional context for its own
 verification pass, not as a directive to change scope.
 
+## Interview threading
+
+The sixth marker. When `state.interview` is non-empty — the intent
+interview (adaptive) ran at step 1 and produced a persisted digest —
+append an `INTERVIEW: <digest>` marker line to the
+`/flow-product-planning` invocation through the same append channel as
+`MODEL_PLANNING:` / `RESEARCH:` / `REVISION:` / `EPIC:` /
+`PROMPT-SANITY:` — a marker on the existing Discovery exemption, **no**
+new fan-out site:
+
+```bash
+INTERVIEW_DIGEST=$(jq -r '.interview // empty' ~/.flow/state/"$SLUG".json)
+# When non-empty, append `INTERVIEW: $INTERVIEW_DIGEST` to the invocation.
+```
+
+`<digest>` is the full interview-to-date (every question asked and its
+resolution — explicit answer, adopted recommendation, or still-open),
+byte-verbatim as persisted by `flow-state-update --interview-stdin`
+(see `references/interview-playbook.md` `## 7. Persistence contract`).
+`/flow-product-planning`'s `{{INTERVIEW_OVERRIDE}}` spawn-template
+placeholder forwards it to the Discovery Subagent, which treats it as
+load-bearing user clarification per
+`discovery-instructions.md` `## 1.4 Interview context` — the same
+authority as USER CLARIFICATIONS, never re-litigated.
+
+**Post-gate append form.** When step 3's own Question-gate branch pauses
+mid-run (`.flow-tmp/interview-questions.md` written, `plan.md` not) and
+the user answers on the next turn, the re-invocation appends the answers
+under a **distinct** label — `INTERVIEW ANSWERS (post-discovery):
+<answers>` — through the same channel, so discovery can tell "interview
+answers gathered before this discovery run started" (`INTERVIEW:`) apart
+from "answers to THIS discovery run's own question gate"
+(`INTERVIEW ANSWERS (post-discovery):`). Both may be present on a
+re-invocation that follows both an step-1 interview and a step-3 question
+gate.
+
 ## Deterministic forced research (mandatory on the forced path)
 
 The discovery subagent's own Step 1.5 was observed to skip the fan-out

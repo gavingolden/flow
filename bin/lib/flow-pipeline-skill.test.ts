@@ -112,6 +112,11 @@ describe("flow-pipeline supervisor SKILL.md", () => {
       expect(hardRules).toMatch(/approval-pending-clarification/);
     });
 
+    it("guard enumerates the two intent-interview pending phase names", () => {
+      expect(hardRules).toMatch(/triage-pending-interview/);
+      expect(hardRules).toMatch(/plan-pending-interview/);
+    });
+
     it("guard enumerates ci-wait-pending as a legitimate turn-end (step 7 yield)", () => {
       // ci-wait-pending is the pending phase the supervisor writes when the
       // harness force-backgrounds the long-running flow-ci-wait call. Same
@@ -154,6 +159,12 @@ describe("flow-pipeline supervisor SKILL.md", () => {
     it("step 1 ambiguous branch writes triage-pending-clarification before ending the turn", () => {
       const step1 = sliceStep(readSkill(), "## Step 1 ");
       expect(step1).toMatch(/triage-pending-clarification/);
+    });
+
+    it("step 1 references interview-playbook.md and writes triage-pending-interview", () => {
+      const step1 = sliceStep(readSkill(), "## Step 1 ");
+      expect(step1).toMatch(/interview-playbook\.md/);
+      expect(step1).toMatch(/triage-pending-interview/);
     });
 
     it("step 3 feature-intent branch still ends the turn at plan-pending-review", () => {
@@ -202,6 +213,18 @@ describe("flow-pipeline supervisor SKILL.md", () => {
       );
       expect(edgeCases).toMatch(/two\s+markdown\s+bullets/i);
       expect(edgeCases).toMatch(/no\s+trailing\s+punctuation/i);
+    });
+
+    it("step 3 End condition documents the 'answer:' reply verb for the numbered answer sheet", () => {
+      const step3 = sliceStep(readSkill(), "## Step 3 ");
+      expect(step3).toMatch(/answer:\s*<sheet>/);
+      expect(step3).toMatch(/answer sheet/i);
+    });
+
+    it("step 3 documents the plan-pending-interview question-gate branch", () => {
+      const step3 = sliceStep(readSkill(), "## Step 3 ");
+      expect(step3).toMatch(/plan-pending-interview/);
+      expect(step3).toMatch(/interview-questions\.md/);
     });
 
     it("step 4 ambiguous branch writes approval-pending-clarification before ending the turn", () => {

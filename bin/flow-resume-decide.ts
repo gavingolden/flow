@@ -18,7 +18,7 @@
  *
  * Output: a single JSON object on stdout.
  *   {
- *     "resumeAt": "step-2"|"step-3"|"step-4"|"step-5"|"step-5.5"
+ *     "resumeAt": "step-1"|"step-2"|"step-3"|"step-4"|"step-5"|"step-5.5"
  *               | "step-6"|"step-7"|"step-8"|"step-9"
  *               | "gated-feedback"|"terminal"|"escalate"|"abort",
  *     "reason": "<one-line summary>",
@@ -31,7 +31,8 @@
  *       "planExists"?: boolean,
  *       "headCommitSubject"?: string,
  *       "hasSkillAdditions"?: boolean,
- *       "answer"?: string
+ *       "answer"?: string,
+ *       "interview"?: string
  *     }
  *   }
  *
@@ -85,6 +86,7 @@ export {
 // --- Types -----------------------------------------------------------------
 
 export type ResumeAt =
+  | "step-1"
   | "step-2"
   | "step-3"
   | "step-4"
@@ -109,6 +111,13 @@ export type DecisionContext = {
   headCommitSubject?: string;
   hasSkillAdditions?: boolean;
   answer?: string;
+  /**
+   * The persisted intent-interview digest (`state.interview`), surfaced so
+   * the supervisor's step-1/step-3 re-entry can re-render the battery
+   * without re-deriving it. Set only on the two interview pending phases
+   * (`triage-pending-interview`, `plan-pending-interview`) when present.
+   */
+  interview?: string;
   /**
    * True when the slug's state-dir `checkpoint.md`
    * (`~/.flow/state/checkpoints/<slug>/checkpoint.md`) holds a body worth
@@ -187,14 +196,25 @@ export const TERMINAL_PHASE_SET = new Set<string>(TERMINAL_PHASES);
 // The pending phases that have NO in-flight work on a clean crash — no worktree,
 // no plan, no PR — because they occur BEFORE step 2 creates the worktree.
 // `triaged-no-change`: the no-change investigation already produced its answer
-// and ended. `triage-pending-clarification`: awaiting the user's reply to a
-// clarifying question, which a `--resume` can't re-ask in-context. A resume of
-// either must resolve to a terminal no-op, NOT fall through to Row 2 (which
-// would spin up a worktree + plan + build, contradicting the recorded triage).
+// and ended. `triage-pending-clarification`: a single, UNPERSISTED ask —
+// awaiting the user's reply to one clarifying question, which a `--resume`
+// can't re-ask in-context. A resume of either must resolve to a terminal
+// no-op, NOT fall through to Row 2 (which would spin up a worktree + plan +
+// build, contradicting the recorded triage).
+//
+// `triage-pending-interview` is DELIBERATELY excluded from this set even
+// though it also precedes the worktree: unlike the single unpersisted
+// clarification above, the intent interview (adaptive) is multi-round and
+// PERSISTED (`state.interview`), so it is re-renderable and resumes at
+// step-1 rather than terminating — see its dedicated branch in decide()
+// below, placed before the Row-2 fall-through for the same reason this set
+// is checked before Row 2.
+//
 // The other PENDING_PHASES (plan-pending-review, approval-pending-clarification,
-// ci-wait-pending) DO have in-flight work and fall through to their correct rows
-// (4 / 4 / 7) — deliberately excluded here. The subset relationship to the
-// canonical PENDING_PHASES is guarded in flow-resume-decide.test.ts.
+// ci-wait-pending, plan-pending-interview) DO have in-flight work and fall
+// through to their correct rows (4 / 4 / 7 / 3) — deliberately excluded here.
+// The subset relationship to the canonical PENDING_PHASES is guarded in
+// flow-resume-decide.test.ts.
 export const NO_INFLIGHT_WORK_PHASES = new Set<string>([
   "triaged-no-change",
   "triage-pending-clarification",
@@ -378,6 +398,24 @@ export function decide(inputs: Inputs): DecisionResult {
     };
   }
 
+  // Intent interview (adaptive), step 1: distinct from
+  // triage-pending-clarification above — the interview is multi-round and
+  // re-renderable from `state.interview`, so it resumes at step-1 rather
+  // than terminating. Occurs before the worktree exists (same as the
+  // no-in-flight-work phases), so this MUST be checked before Row 2's
+  // "worktree not yet created" fall-through, which would otherwise spin up
+  // a worktree and skip the unresolved interview.
+  if (inputs.state.phase === "triage-pending-interview") {
+    if (inputs.state.interview !== undefined) {
+      ctx.interview = inputs.state.interview;
+    }
+    return {
+      resumeAt: "step-1",
+      reason: "awaiting-triage-interview-answers",
+      context: ctx,
+    };
+  }
+
   // Populate PR context up front so all downstream branches can reference it.
   if (inputs.pr.kind === "found") {
     ctx.pr = inputs.pr.number;
@@ -444,6 +482,23 @@ export function decide(inputs: Inputs): DecisionResult {
   // most common resume read nothing and then archive the body, silently
   // destroying the addenda the checkpoint exists to carry.
   ctx.checkpointPath = checkpointBodyPath(inputs.slug);
+
+  // Intent interview (adaptive), step 3's post-discovery question gate:
+  // discovery paused before writing plan.md, so this would already resolve
+  // to step-3 via the bare `!inputs.planExists` check below — this explicit
+  // branch exists only to surface the interview-specific reason and
+  // `.flow-tmp/interview-questions.md` re-render pointer via `ctx.interview`.
+  if (inputs.state.phase === "plan-pending-interview") {
+    if (inputs.state.interview !== undefined) {
+      ctx.interview = inputs.state.interview;
+    }
+    return {
+      resumeAt: "step-3",
+      reason: "awaiting-plan-interview-answers",
+      context: ctx,
+    };
+  }
+
   if (!inputs.planExists) {
     return {
       resumeAt: "step-3",

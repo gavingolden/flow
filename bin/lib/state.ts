@@ -133,6 +133,23 @@ export type PipelineState = {
    */
   answer?: string;
   /**
+   * The persisted interview digest for the intent interview (adaptive),
+   * written via `flow-state-update --interview-stdin` at the end of each
+   * round (step 1's `triage-pending-interview` and step 3's
+   * `plan-pending-interview`). Byte-verbatim, like `--answer-stdin`.
+   * Re-rendered on resume by `flow-resume-decide`. Absent on every
+   * pipeline that never triggered the interview.
+   */
+  interview?: string;
+  /**
+   * Per-run override for the intent interview trigger, set via
+   * `flow feature create --interview` (force) or `--no-interview` (skip).
+   * Mutually exclusive; absent when neither flag was passed, in which case
+   * the trigger falls back to the `interview-playbook.md` judgment gate and
+   * `config.json`'s `interview.enabled`.
+   */
+  interviewMode?: "force" | "skip";
+  /**
    * Fresh-confirmation token for a gate override. Written by
    * `flow-merge-guard --record-override` after the user gives an
    * unambiguous, in-context instruction — confirmed via `AskUserQuestion`
@@ -281,6 +298,10 @@ export const PENDING_PHASES = [
   "plan-pending-review",
   "triaged-no-change",
   "triage-pending-clarification",
+  // Intent interview (adaptive), step 1. Distinct from
+  // `triage-pending-clarification` (a single unpersisted ask): the interview
+  // is multi-round and re-renderable from `state.interview` on resume.
+  "triage-pending-interview",
   "approval-pending-clarification",
   "ci-wait-pending",
   // Auto-checkpoint at the approval → implement hand-off (step 4 affirmative
@@ -293,6 +314,9 @@ export const PENDING_PHASES = [
   // Epic-designer review checkpoint (the open design PR). `flow-stop-guard`
   // must permit ending the turn here, so it is a pending phase.
   "epic-design-pending-review",
+  // Intent interview (adaptive), step 3's post-discovery question gate.
+  // Re-renderable from `.flow-tmp/interview-questions.md`.
+  "plan-pending-interview",
 ] as const;
 
 export const STEP_PHASES = [
@@ -495,6 +519,7 @@ export const PHASE_SHORT: Record<PipelinePhase, string> = {
   "plan-pending-review": "plan?",
   "triaged-no-change": "no-chg",
   "triage-pending-clarification": "triage?",
+  "triage-pending-interview": "intq?",
   "approval-pending-clarification": "appr?",
   "ci-wait-pending": "ci?",
   "checkpoint-pending-clear": "ckpt?",
@@ -507,6 +532,7 @@ export const PHASE_SHORT: Record<PipelinePhase, string> = {
   "epic-pr-open": "e-pr",
   "epic-design-pending-review": "e-rvw?",
   "epic-approved": "e-ok",
+  "plan-pending-interview": "planq?",
 };
 
 /**
@@ -626,6 +652,14 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.sessionId !== undefined && typeof o.sessionId !== "string")
     return false;
   if (o.answer !== undefined && typeof o.answer !== "string") return false;
+  if (o.interview !== undefined && typeof o.interview !== "string")
+    return false;
+  if (
+    o.interviewMode !== undefined &&
+    o.interviewMode !== "force" &&
+    o.interviewMode !== "skip"
+  )
+    return false;
   if (o.gateOverride !== undefined && !isGateOverride(o.gateOverride))
     return false;
   if (o.epic !== undefined && !isEpicMembership(o.epic)) return false;

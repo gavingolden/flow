@@ -1227,9 +1227,21 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * goes to 25_300 (175 chars of headroom) instead, and trimming
    * lint-anchored `## Output style` prose to make room was rejected on
    * the same grounds as the precedents above.
+   * Raised once more from 25_300 to 25_900 to fund two deliberate
+   * additions for the intent interview (adaptive) feature: a
+   * `## Compact Instructions` KEEP bullet for `state.interview`, and a
+   * `## Don'ts` bullet naming the two interview pending phases as
+   * ordinary chat pauses, NOT `AskUserQuestion` (no new exemption). Both
+   * bullets were already tightened to lean anchored openers with the
+   * full round contract offloaded to
+   * skills/pipeline/flow-pipeline/references/interview-playbook.md, per
+   * the offload-then-trim playbook; post-edit size is 25_749, so 25_900
+   * (151 chars of headroom) matches the 136-202-char range the recent
+   * precedents above landed with, rather than the tighter traps rejected
+   * earlier in this history.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 25_300;
+    const CHAR_BUDGET = 25_900;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -4581,12 +4593,19 @@ describe("pr-review include-by-reference structure", () => {
     // (plugin-qualified → general-purpose, dropping the legacy-bare
     // elif branch), shrinking the file below this ceiling — the number
     // above is left as historical record, not re-tightened.
+    // Intent interview (adaptive): step 1's Intent interview sub-step,
+    // step 3's Question-gate branch, the sixth invocation-threading
+    // marker, the answer-sheet End-condition addition, and the two new
+    // pending-phase enumerations are genuine load-bearing feature
+    // content, not incidental bloat. File lands at 2815 lines — raised
+    // the ceiling to 2830 (15 lines of genuine headroom), same
+    // discipline as the precedents above.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2735 lines. Material regrowth past this ceiling would ` +
+        `budget of 2830 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2735);
+    ).toBeLessThan(2830);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
