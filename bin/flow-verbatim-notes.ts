@@ -468,9 +468,16 @@ function listComments(
  */
 function currentLogin(gh: GhRunner): string | null {
   const r = gh(["api", "user", "--jq", ".login"]);
-  if (r.exitCode !== 0) return null;
-  const login = r.stdout.trim();
-  return login.length > 0 ? login : null;
+  const login = r.exitCode === 0 ? r.stdout.trim() : "";
+  if (login.length > 0) return login;
+  // Degraded mode is silent otherwise: the author filter below falls back to
+  // body-only marker matching, re-opening the squat window this check closes.
+  process.stderr.write(
+    "flow-verbatim-notes: could not resolve the authenticated gh login; " +
+      "falling back to body-only marker matching (a third party who posted " +
+      "the marker first may own the upsert slot).\n",
+  );
+  return null;
 }
 
 function issueState(

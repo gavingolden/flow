@@ -507,6 +507,30 @@ describe("attach", () => {
     );
   });
 
+  it("warns on stderr when the authenticated login cannot be resolved, instead of degrading silently", () => {
+    // The author filter falls back to body-only marker matching here, which
+    // re-opens the squat window it exists to close. Silent is the failure mode.
+    const args = setupFixture();
+    const warnings: string[] = [];
+    const stderrWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string) => {
+      warnings.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const { gh } = fakeGh([
+        { stdout: "", exitCode: 1 }, // gh api user fails
+        { stdout: JSON.stringify({ state: "OPEN" }) },
+        { stdout: JSON.stringify([[]]) },
+        { stdout: JSON.stringify({ html_url: "https://x/6" }) },
+      ]);
+      attach(args, gh);
+    } finally {
+      process.stderr.write = stderrWrite;
+    }
+    expect(warnings.join("")).toContain("body-only marker matching");
+  });
+
   it("fatal: a captured block fails the byte-for-byte cross-check posts nothing for any issue", () => {
     write("notes-source.md", NOTES_SOURCE);
     const verbatimFile = write(
