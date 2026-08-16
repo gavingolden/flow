@@ -1916,6 +1916,53 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(row).toMatch(/^archived-epic\s+0\s+0\s+0\s+2 \/ 2\s+done\b/);
   });
 
+  it("ls: a malformed committed manifest is skipped from the table and warned on stderr", () => {
+    gitInit();
+    const dir = path.join(repoDir, ".flow", "epics", "broken-epic");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "manifest.json"), "{ not json");
+    writeManifest("good-epic", [{ id: "a" }]);
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("good-epic");
+    expect(out).not.toContain("broken-epic");
+    expect(errors.join("\n")).toMatch(/flow epic ls: skipping broken-epic — /);
+  });
+
+  it("ls: outside a git repo, only run-state epics are listed (exit 0)", () => {
+    // deliberately NO gitInit() — resolveRepoRoot returns null
+    const manifestPath = writeManifest("committed-only", [{ id: "a" }]);
+    writeEpicRunState(seedRunState("live-only", manifestPath), epicsDir);
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("live-only");
+    expect(out).not.toContain("committed-only");
+  });
+
+  it("ls: no run-states and no committed epics → 'no epics', exit 0", () => {
+    gitInit();
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toContain("no epics");
+  });
+
   // ── bind ──────────────────────────────────────────────────────────────────
 
   it("bind: adopts an unbound feature, init-ing run.json on missing", () => {

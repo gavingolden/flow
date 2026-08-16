@@ -170,6 +170,11 @@ describe("HELP_TEXT", () => {
       "epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--force]",
     );
   });
+
+  it("HELP_TEXT.epic describes ls as the union of committed + run-state epics", () => {
+    expect(HELP_TEXT.epic).toContain("run-state");
+    expect(HELP_TEXT.epic).not.toContain("list every epic under ~/.flow/epics");
+  });
 });
 
 describe("HELP_TOP", () => {

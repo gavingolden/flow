@@ -54,6 +54,7 @@ import { slugify } from "./slug";
 import { confirmStdin } from "./confirm";
 import {
   epicDirRelative,
+  EPICS_DIR_RELATIVE,
   EPIC_DESIGN_FILENAME,
   EPIC_MANIFEST_FILENAME,
   validateEpicManifest,
@@ -1540,8 +1541,8 @@ function discoverCommittedEpics(
   const repo = resolveRepoRoot(cwd);
   if (!repo) return [];
   // R1: the CLI is the sole evaluator of the epic-dir path — derive the parent
-  // from `epicDirRelative` rather than re-hardcoding `.flow/epics`.
-  const epicsParent = path.join(repo, path.dirname(epicDirRelative("x")));
+  // from `EPICS_DIR_RELATIVE` rather than re-hardcoding `.flow/epics`.
+  const epicsParent = path.join(repo, EPICS_DIR_RELATIVE);
   try {
     return fs
       .readdirSync(epicsParent, { withFileTypes: true })
@@ -1562,6 +1563,9 @@ function runEpicLs(options: EpicOptions): number {
     const loaded = loadCommittedManifest(rs.manifestPath);
     if (!loaded.ok) {
       // Degraded row: manifest unreadable (moved/unmerged). Count launched only.
+      console.error(
+        `flow epic ls: ${rs.epicSlug} — manifest unreadable (${loaded.reason}); showing launched features only`,
+      );
       const launched = Object.values(rs.features).length;
       return {
         slug: rs.epicSlug,
@@ -1614,7 +1618,6 @@ function runEpicLs(options: EpicOptions): number {
       maxParallel: maxParallel(),
       committedStatus: readCommittedStatus(path.dirname(manifestPath)),
     });
-    seen.add(slug);
     rows.push({
       slug,
       ready: result.summary.ready,
