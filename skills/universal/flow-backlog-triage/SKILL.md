@@ -98,6 +98,10 @@ fresh look, never silently carried forward as confirmed or withdrawn.
   exact triage-document section order and the queue-seed contract.
 - [references/worked-example.md](references/worked-example.md) — a small
   worked example through all four phases.
+- [references/verbatim-attachment.md](references/verbatim-attachment.md) —
+  the capture-file grammar, the map-authoring rules, and the
+  `flow-verbatim-notes attach` invocation that posts an owner's verbatim
+  notes to their GitHub issue.
 
 # Instructions
 
@@ -108,7 +112,10 @@ or a notes ref like `H3`/`M7` preserving the source list's own numbering).
 Blank, struck-through, already-rejected, or externally-referenced items
 (screenshots, linked notes not provided) go to a verbatim residue section —
 never guess at missing context. See
-[references/methodology.md](references/methodology.md) "Phase 0".
+[references/methodology.md](references/methodology.md) "Phase 0". Any run
+with a notes source also emits the byte-for-byte capture artifact
+`.flow-tmp/triage/source-notes-verbatim.md` — see "Verbatim capture" in
+that same reference.
 
 ## 2. Phase 1 — Verify before judging (mandatory)
 
@@ -141,6 +148,13 @@ Split evidence-based closures (automated) from judgment-based closures
 and emit the ready-to-launch queue using the output template. See
 [references/methodology.md](references/methodology.md) "Phase 4 — act" and
 [references/output-template.md](references/output-template.md).
+
+Then attach each captured ref's verbatim text to the GitHub issue it
+belongs to by running `flow-verbatim-notes attach` by its bare PATH name
+against `.flow-tmp/triage/source-notes-verbatim.md` and
+`.flow-tmp/triage/verbatim-map.json`. See
+[references/verbatim-attachment.md](references/verbatim-attachment.md)
+for the full map-authoring and attachment contract.
 
 **Notes-source contract.** A **file path** is the supported form for adhoc
 notes. A pasted block in chat is accepted only for a trivial list (≤20
@@ -210,6 +224,13 @@ Appendix`) is filled in, not left as a template.
   `## Audit Appendix` or anything else.
 - The chat summary carries the document's absolute path and the
   Decision Brief's top recommendation tier(s).
+- On any run with a notes source, the capture file exists and its
+  ref-block count equals `M` from the Phase-0 count assertion.
+- Every `flow-verbatim-notes attach` attachment is reported with its
+  envelope `action` (`created` / `updated` / `unchanged` / `skipped` with
+  a named reason, or `would-create` / `would-update` on a dry run), and
+  every ref that landed on no issue is listed in the
+  `### Verbatim note attachment` section.
 
 # Constraints
 
@@ -243,3 +264,8 @@ future run actually behaved this way.
   Phase-1 verification. Its degrade path is inline sequential verification
   by this skill itself — see
   [references/verification-fanout.md](references/verification-fanout.md).
+- NEVER edit, normalize, summarize, or `[sic]`-annotate an owner's
+  verbatim note text. Quote it exactly, including typos and truncation —
+  see [references/verbatim-attachment.md](references/verbatim-attachment.md).
+- NEVER reconcile a disagreement between an owner's note and a verified
+  triage finding — post them as two separately authored comments.

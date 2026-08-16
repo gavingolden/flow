@@ -133,6 +133,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-reply-pr-comments",
       "flow-fetch-intent-comments",
       "flow-post-findings",
+      "flow-verbatim-notes",
       "flow-annotate-pr",
       "flow-pr-diff",
       "flow-pr-agent-lens",

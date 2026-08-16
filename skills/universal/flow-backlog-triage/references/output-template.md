@@ -158,8 +158,12 @@ health claim beyond the verified subset.
 
 The full, lossless disposition table. Columns, exactly:
 
-| Ref | Item (short) | Source | Verification | Class | Verdict | Bundle | Reasoning |
-| --- | ------------ | ------ | ------------ | ----- | ------- | ------ | --------- |
+| Ref | Item (short) | Source | Verification | Class | Verdict | Bundle | Issue | Reasoning |
+| --- | ------------ | ------ | ------------ | ----- | ------- | ------ | ----- | --------- |
+
+The `Issue` cell holds the issue number the ref's verbatim text attaches
+to (see "Verbatim note attachment" below), or `—` when the ref lands on
+none.
 
 Row count MUST equal `N+M` from the Phase-0 `Inventory: <N> issues, <M>
 notes` line (see `methodology.md` "Phase 0").
@@ -168,6 +172,36 @@ notes` line (see `methodology.md` "Phase 0").
 
 The verbatim residue section: blank, struck-through, already-rejected, or
 externally-referenced items that were never guessed at.
+
+### Verbatim note attachment
+
+The outcome of running the attachment helper (see
+[verbatim-attachment.md](verbatim-attachment.md)) against
+`.flow-tmp/triage/source-notes-verbatim.md` and its `verbatim-map.json`,
+sourced from the helper's JSON envelope:
+
+| Issue | Refs attached | Result |
+| ----- | ------------- | ------ |
+
+**Refs on no issue:** <ref list, or "none">, each with the reason it was
+left unattached.
+
+The map file this section is driven from has this shape:
+
+```json
+{
+  "version": 1,
+  "sourceOfTruth": "<path>",
+  "preamble": { "triageDates": "<string>" },
+  "attachments": [
+    {
+      "issue": <number>,
+      "refs": [{ "ref": "<REF>", "label": "<string>" }]
+    }
+  ],
+  "unattached": [{ "ref": "<REF>", "reason": "<string>" }]
+}
+```
 
 ### Self-check
 
@@ -183,6 +217,10 @@ half of enforcement (a prose lint cannot police runtime behaviour):
 - Any hybrid verdict used: YES/NO
 - Inferred milestone surfaced as the first Open decision (or N/A): YES/N-A/NO
 - Decision Brief is the first section and every DO bundle has a card: YES/NO
+- Verbatim capture emitted and ref-block count == M: YES/NO/N-A
+- Every attached issue reported with its envelope `action` (`created` /
+  `updated` / `unchanged` / `skipped` with a named reason, or
+  `would-create` / `would-update` on a dry run): YES/NO/N-A
 
 ## Chat summary shape
 
@@ -191,3 +229,10 @@ document's absolute path; the top recommendation tier(s) from the
 Decision Brief, given inline as the actual recommendations — not a
 pointer back to the document; then every blocking question batched at
 the end, each with a recommendation.
+
+When a verbatim-notes attachment run happened, append a tally line in
+this shape:
+
+```
+Verbatim notes: <n> issues (<c> created, <u> updated, <e> unchanged), <s> skipped (<reason>), <k> refs on no issue.
+```
