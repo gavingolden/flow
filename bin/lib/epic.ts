@@ -24,7 +24,10 @@
  * no tick loop, no judgment sub-agent). `bind` / `launch` are the safe-write
  * primitives the playbook actuates with (repoint a drifted binding; atomic
  * create+bind). `status` renders the live board read-only (or a machine-readable
- * hypothesis with `--json`), and `ls` lists every epic under `~/.flow/epics/`.
+ * hypothesis with `--json`), and `ls` lists the UNION of this repo's committed
+ * epics (repo-scoped — discovered from `.flow/epics/<slug>/manifest.json` under
+ * the current repo root) and the per-machine run-state under `~/.flow/epics/`,
+ * with the run-state row winning on a slug present in both.
  * All read the committed `.flow/epics/<slug>/manifest.json` READ-ONLY and keep
  * per-machine runtime state at `~/.flow/epics/<slug>/run.json` — a recomputable
  * cache, never the source of truth.
@@ -51,6 +54,7 @@ import { slugify } from "./slug";
 import { confirmStdin } from "./confirm";
 import {
   epicDirRelative,
+  EPICS_DIR_RELATIVE,
   EPIC_DESIGN_FILENAME,
   EPIC_MANIFEST_FILENAME,
   validateEpicManifest,
@@ -1526,16 +1530,42 @@ Options:
   return 0;
 }
 
+/**
+ * Discover this repo's COMMITTED epics (`.flow/epics/<slug>/manifest.json`).
+ * Repo-scoped and read-only; returns [] outside a repo or when the epics dir
+ * is unreadable, so `ls` degrades to run-state-only rather than crashing.
+ */
+function discoverCommittedEpics(
+  cwd: string,
+): { slug: string; manifestPath: string }[] {
+  const repo = resolveRepoRoot(cwd);
+  if (!repo) return [];
+  // R1: the CLI is the sole evaluator of the epic-dir path — derive the parent
+  // from `EPICS_DIR_RELATIVE` rather than re-hardcoding `.flow/epics`.
+  const epicsParent = path.join(repo, EPICS_DIR_RELATIVE);
+  try {
+    return fs
+      .readdirSync(epicsParent, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => ({
+        slug: e.name,
+        manifestPath: path.join(epicsParent, e.name, EPIC_MANIFEST_FILENAME),
+      }))
+      .filter((e) => fs.existsSync(e.manifestPath));
+  } catch {
+    return [];
+  }
+}
+
 function runEpicLs(options: EpicOptions): number {
   const states = listEpicRunStates(options.epicsDir);
-  if (states.length === 0) {
-    console.log(renderEpicList([]));
-    return 0;
-  }
   const rows: EpicListRow[] = states.map((rs) => {
     const loaded = loadCommittedManifest(rs.manifestPath);
     if (!loaded.ok) {
       // Degraded row: manifest unreadable (moved/unmerged). Count launched only.
+      console.error(
+        `flow epic ls: ${rs.epicSlug} — manifest unreadable (${loaded.reason}); showing launched features only`,
+      );
       const launched = Object.values(rs.features).length;
       return {
         slug: rs.epicSlug,
@@ -1565,6 +1595,40 @@ function runEpicLs(options: EpicOptions): number {
       status: result.epicStatus,
     };
   });
+
+  // Union in this repo's committed epics. Run-state rows always win on slug —
+  // they carry live per-feature bindings the committed manifest cannot.
+  const seen = new Set(rows.map((r) => r.slug));
+  for (const { slug, manifestPath } of discoverCommittedEpics(
+    options.cwd ?? process.cwd(),
+  )) {
+    if (seen.has(slug)) continue;
+    const loaded = loadCommittedManifest(manifestPath);
+    if (!loaded.ok) {
+      // stdout stays table-only; a just-merged malformed manifest is visible
+      // on stderr rather than silently absent.
+      console.error(`flow epic ls: skipping ${slug} — ${loaded.reason}`);
+      continue;
+    }
+    const maxParallel = options.readMaxParallel ?? readEpicMaxParallel;
+    const result = reconcile({
+      manifest: loaded.manifest,
+      runState: ephemeralRunState(slug, manifestPath, maxParallel),
+      readFeatureState: options.readFeatureState,
+      maxParallel: maxParallel(),
+      committedStatus: readCommittedStatus(path.dirname(manifestPath)),
+    });
+    rows.push({
+      slug,
+      ready: result.summary.ready,
+      running: result.summary.running,
+      blocked: result.summary.blocked,
+      merged: result.summary.merged,
+      total: result.summary.total,
+      status: result.epicStatus,
+    });
+  }
+
   rows.sort((a, b) => a.slug.localeCompare(b.slug));
   console.log(renderEpicList(rows));
   return 0;

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  deliverArgv,
   deliverResumeSeed,
   parseResumeKind,
+  parseSeedMode,
   capCheckpointBody,
   CHECKPOINT_BODY_MAX_BYTES,
   resumeSeedFor,
@@ -9,17 +11,25 @@ import {
   sessionStartOutput,
   terminalAdvisory,
   terminalCarryOver,
+  terminalContinueSeed,
   type DeliverSeams,
   type Deps,
   type ResumeKind,
+  type SeedMode,
 } from "./flow-session-start-hook";
 import { flowPipelineResumeSeed } from "./lib/feature";
 import { TERMINAL_PHASES, type PipelineState } from "./lib/state";
 
 type Stub = {
   deps: Deps;
+  /** Slugs dispatched in `resume` mode — the pre-existing meaning of this array. */
   dispatched: string[];
   dispatchedKinds: ResumeKind[];
+  dispatchedModes: SeedMode[];
+  /** Slugs dispatched in `terminal` mode (the orientation turn). */
+  dispatchedTerminal: string[];
+  /** Kinds threaded into the terminal-mode dispatch, parallel to `dispatchedTerminal`. */
+  dispatchedTerminalKinds: ResumeKind[];
   emitted: string[];
   loadCalls: string[];
   retiredSlugs: string[];
@@ -46,8 +56,17 @@ function makeDeps(opts: {
    */
   resolveKind?: () => ResumeKind | null;
 }): Stub {
+  // Three PARALLEL arrays, deliberately not a `(slug, kind, mode)` tuple array:
+  // 20+ existing tests read `dispatched` / `dispatchedKinds` directly, and a
+  // tuple rewrite would churn every one of them for no added signal.
+  // `dispatched` keeps its historical meaning — slugs dispatched in the RESUME
+  // mode — so the terminal orientation turn (new) never masquerades as a
+  // supervisor resume in an existing assertion.
   const dispatched: string[] = [];
   const dispatchedKinds: ResumeKind[] = [];
+  const dispatchedModes: SeedMode[] = [];
+  const dispatchedTerminal: string[] = [];
+  const dispatchedTerminalKinds: ResumeKind[] = [];
   const emitted: string[] = [];
   const loadCalls: string[] = [];
   const retiredSlugs: string[] = [];
@@ -70,7 +89,13 @@ function makeDeps(opts: {
       retiredSlugs.push(slug);
     },
     resolveKind: opts.resolveKind ?? (() => null),
-    dispatchResume: (slug, kind) => {
+    dispatchResume: (slug, kind, mode) => {
+      dispatchedModes.push(mode);
+      if (mode === "terminal") {
+        dispatchedTerminal.push(slug);
+        dispatchedTerminalKinds.push(kind);
+        return;
+      }
       dispatched.push(slug);
       dispatchedKinds.push(kind);
     },
@@ -82,6 +107,9 @@ function makeDeps(opts: {
     deps,
     dispatched,
     dispatchedKinds,
+    dispatchedModes,
+    dispatchedTerminal,
+    dispatchedTerminalKinds,
     emitted,
     loadCalls,
     retiredSlugs,
@@ -188,20 +216,27 @@ describe("flow-session-start-hook — silent no-op paths", () => {
     expect(dispatched).toEqual([]);
   });
 
-  it("no-op at every terminal phase even with a marker present (EXCEPT gated)", async () => {
-    // `gated` is deliberately excluded from the terminal no-op: a gated
+  it("no RESUME dispatch at any terminal phase even with a marker present (EXCEPT gated) — the terminal orientation turn goes out instead", async () => {
+    // `gated` is deliberately excluded from the terminal guard: a gated
     // pipeline carrying a checkpoint marker is a feedback-mode resume point,
-    // so it dispatches (covered above). Every OTHER terminal phase still
-    // no-ops even with a marker present.
+    // so it dispatches a resume seed (covered above). Every OTHER terminal
+    // phase still refuses to resume with a marker present — it now fires the
+    // repo-grounded orientation turn on the tmux path instead, which is a
+    // different seed and must never be counted as a resume.
     for (const phase of TERMINAL_PHASES.filter((p) => p !== "gated")) {
-      const { deps, dispatched } = makeDeps({
-        pane: "%1",
-        slug: "demo",
-        state: fakeState(phase),
-        markerExists: true,
-      });
+      const { deps, dispatched, dispatchedTerminal, dispatchedModes } =
+        makeDeps({
+          pane: "%1",
+          slug: "demo",
+          state: fakeState(phase),
+          markerExists: true,
+        });
       expect(await run(deps), phase).toBe(0);
       expect(dispatched, phase).toEqual([]);
+      expect(dispatchedTerminal, phase).toEqual(["demo"]);
+      // Confirms the array actually carries "terminal" here, not just that
+      // dispatchedTerminal (a separate bucket) got populated.
+      expect(dispatchedModes, phase).toEqual(["terminal"]);
     }
   });
 
@@ -286,7 +321,7 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     );
   });
 
-  it("(d) deliverResumeSeed(slug, seams, 'epic-design') sends the epic-create resume seed then a separate Enter", () => {
+  it("(d) deliverResumeSeed(slug, seams, 'epic-design', 'resume') sends the epic-create resume seed then a separate Enter", () => {
     const capture = frames(["old pre-clear prompt", "fresh", "fresh", "fresh"]);
     const seed = resumeSeedFor("demo", "epic-design");
     const lead = seed.split("\n")[0]!;
@@ -306,7 +341,9 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
       sleep: () => {},
       attempts: 20,
     };
-    expect(deliverResumeSeed("demo", seams, "epic-design")).toBe(true);
+    expect(deliverResumeSeed("demo", seams, "epic-design", "resume")).toBe(
+      true,
+    );
     expect(sends).toEqual([
       { text: lead, literal: true },
       { text: remainder, literal: true },
@@ -331,8 +368,14 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     expect(emitted).toEqual([resumeSeedFor("demo", "epic-design")]);
   });
 
-  it("(f)/(j) epic-approved + marker + no @flow-kind: no dispatch, but an advisory is emitted naming the phase + epic recovery command", async () => {
-    const { deps, dispatched, emitted } = makeDeps({
+  it("(f)/(j) epic-approved + marker + no @flow-kind: no RESUME dispatch, but an advisory is emitted naming the phase + epic recovery command", async () => {
+    const {
+      deps,
+      dispatched,
+      dispatchedTerminal,
+      dispatchedTerminalKinds,
+      emitted,
+    } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState("epic-approved"),
@@ -340,6 +383,12 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     });
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual([]);
+    expect(dispatchedTerminal).toEqual(["demo"]);
+    // The dispatched kind must be the RESOLVED one (epic-design), not a
+    // hardcoded "feature" that would still leave this assertion suite green
+    // while sending an epic-design window's orientation turn at
+    // flow feature resume.
+    expect(dispatchedTerminalKinds).toEqual(["epic-design"]);
     expect(emitted).toEqual([
       terminalAdvisory("demo", "epic-approved", "epic-design"),
     ]);
@@ -348,7 +397,13 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
   });
 
   it("(f2) cancelled (a SHARED terminal phase, not in EPIC_PHASES) + marker + resolveKind() === 'epic-design': advisory names the epic-design recovery command, not flow feature resume", async () => {
-    const { deps, dispatched, emitted } = makeDeps({
+    const {
+      deps,
+      dispatched,
+      dispatchedTerminal,
+      dispatchedTerminalKinds,
+      emitted,
+    } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState("cancelled"),
@@ -357,6 +412,8 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     });
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual([]);
+    expect(dispatchedTerminal).toEqual(["demo"]);
+    expect(dispatchedTerminalKinds).toEqual(["epic-design"]);
     expect(emitted).toEqual([
       terminalAdvisory("demo", "cancelled", "epic-design"),
     ]);
@@ -365,7 +422,13 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
   });
 
   it("(f3) needs-human (a SHARED terminal phase) + marker + resolveKind() === 'epic-design': isEpicPhase('needs-human') would wrongly say false — the fix must use the resolved kind, not re-derive from phase", async () => {
-    const { deps, dispatched, emitted } = makeDeps({
+    const {
+      deps,
+      dispatched,
+      dispatchedTerminal,
+      dispatchedTerminalKinds,
+      emitted,
+    } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState("needs-human"),
@@ -374,6 +437,8 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     });
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual([]);
+    expect(dispatchedTerminal).toEqual(["demo"]);
+    expect(dispatchedTerminalKinds).toEqual(["epic-design"]);
     expect(emitted).toEqual([
       terminalAdvisory("demo", "needs-human", "epic-design"),
     ]);
@@ -394,7 +459,7 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     expect(emitted).toEqual([]); // resumed, not declined — no advisory
   });
 
-  it("(h) deliverResumeSeed(slug, seams, 'epic-run') sends the epic-run seed with NO SKILL_DIR line", () => {
+  it("(h) deliverResumeSeed(slug, seams, 'epic-run', 'resume') sends the epic-run seed with NO SKILL_DIR line", () => {
     const capture = frames(["old pre-clear prompt", "fresh", "fresh", "fresh"]);
     const seed = resumeSeedFor("demo", "epic-run");
     const lead = seed.split("\n")[0]!;
@@ -414,7 +479,7 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
       sleep: () => {},
       attempts: 20,
     };
-    expect(deliverResumeSeed("demo", seams, "epic-run")).toBe(true);
+    expect(deliverResumeSeed("demo", seams, "epic-run", "resume")).toBe(true);
     expect(sends).toEqual([
       { text: lead, literal: true },
       { text: remainder, literal: true },
@@ -451,7 +516,7 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
   });
 
   it("(l) merged + marker on a feature pipeline: advisory names the flow feature resume recovery command", async () => {
-    const { deps, dispatched, emitted } = makeDeps({
+    const { deps, dispatched, dispatchedTerminal, emitted } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState("merged"),
@@ -459,6 +524,7 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     });
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual([]);
+    expect(dispatchedTerminal).toEqual(["demo"]);
     expect(emitted).toEqual([terminalAdvisory("demo", "merged", "feature")]);
     expect(emitted[0]).toContain("flow feature resume demo");
   });
@@ -466,15 +532,19 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
 
 describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task 2)", () => {
   it("a terminal phase with a non-empty body emits it under '## Checkpoint (carried over)' plus the terminal note, and retires the checkpoint exactly once", async () => {
-    const { deps, dispatched, emitted, retiredSlugs } = makeDeps({
-      pane: "%1",
-      slug: "demo",
-      state: fakeState("merged"),
-      markerExists: true,
-      checkpointBody: "approved with condition X\n",
-    });
+    const { deps, dispatched, dispatchedTerminal, emitted, retiredSlugs } =
+      makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState("merged"),
+        markerExists: true,
+        checkpointBody: "approved with condition X\n",
+      });
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual([]); // no resume seed dispatched at a terminal phase
+    // ...but the orientation turn IS dispatched, so the pane says what
+    // finished instead of sitting blank after the passive carry-over.
+    expect(dispatchedTerminal).toEqual(["demo"]);
     expect(emitted).toEqual([
       terminalCarryOver(
         "demo",
@@ -533,21 +603,26 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
   });
 
   it("a throwing readCheckpointBody still returns 0 and emits nothing — session start is never blocked", async () => {
-    const { deps, emitted, retiredSlugs, dispatched } = makeDeps({
-      pane: "%1",
-      slug: "demo",
-      state: fakeState("merged"),
-      markerExists: true,
-      readCheckpointBodyThrows: true,
-    });
+    const { deps, emitted, retiredSlugs, dispatched, dispatchedTerminal } =
+      makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState("merged"),
+        markerExists: true,
+        readCheckpointBodyThrows: true,
+      });
     expect(await run(deps)).toBe(0);
     expect(emitted).toEqual([]);
     expect(retiredSlugs).toEqual([]);
     expect(dispatched).toEqual([]);
+    // Load-bearing placement check: the terminal dispatch sits OUTSIDE the
+    // branch's try, so a checkpoint I/O failure returns from the catch without
+    // ever waking the pane — no orientation turn about notes that never landed.
+    expect(dispatchedTerminal).toEqual([]);
   });
 
   it("a throwing retireCheckpoint still returns 0 AND the body was already emitted — emit-before-retire ordering, so a failed retirement never costs the user their notes", async () => {
-    const { deps, emitted } = makeDeps({
+    const { deps, emitted, dispatchedTerminal } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState("merged"),
@@ -560,6 +635,40 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
     // swapped the emit and the retire, which would silently drop the notes.
     expect(emitted).toHaveLength(1);
     expect(emitted[0]).toContain("note");
+    // A throwing retirement lands in the branch's catch, which returns before
+    // the dispatch — the notes are already safely emitted, and waking the pane
+    // to summarise a checkpoint whose retirement just failed would re-fire on
+    // the next /clear (the marker is still armed).
+    expect(dispatchedTerminal).toEqual([]);
+  });
+
+  it("dispatches the terminal orientation turn AFTER both the emit and the retire", async () => {
+    // Ordering is the guarantee: the passive carry-over is the foreground,
+    // always-delivered channel, and the pane turn is best-effort. Asserting
+    // only "all three happened" would stay green if a refactor hoisted the
+    // dispatch above the emit, which is exactly the regression that would let
+    // a fired turn summarise notes that had not been delivered yet.
+    const order: string[] = [];
+    const deps: Deps = {
+      readStdin: async () => "",
+      tmuxPane: "%1",
+      showFlowSlug: () => "demo",
+      loadState: () => fakeState("merged"),
+      markerExists: () => true,
+      readCheckpointBody: () => "note\n",
+      retireCheckpoint: () => {
+        order.push("retire");
+      },
+      resolveKind: () => null,
+      dispatchResume: (_slug, _kind, mode) => {
+        order.push(`dispatch:${mode}`);
+      },
+      emitContext: () => {
+        order.push("emit");
+      },
+    };
+    expect(await run(deps)).toBe(0);
+    expect(order).toEqual(["emit", "retire", "dispatch:terminal"]);
   });
 
   it("a second /clear after retirement emits nothing — retirement unlinks the marker, so the hook returns at the marker gate", async () => {
@@ -567,21 +676,25 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
     // the body AND unlinks `checkpoint.pending`, so the next run never reaches
     // the terminal branch. Stubbing `markerExists: true` with a null body would
     // assert an advisory the user never actually sees.
-    const { deps, emitted, retiredSlugs, dispatched } = makeDeps({
-      pane: "%1",
-      slug: "demo",
-      state: fakeState("cancelled"),
-      markerExists: false, // post-retirement
-      checkpointBody: null,
-    });
+    const { deps, emitted, retiredSlugs, dispatched, dispatchedTerminal } =
+      makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState("cancelled"),
+        markerExists: false, // post-retirement
+        checkpointBody: null,
+      });
     expect(await run(deps)).toBe(0);
     expect(emitted).toEqual([]);
     expect(retiredSlugs).toEqual([]);
     expect(dispatched).toEqual([]);
+    // The orientation turn is one-shot too: it hangs off the same marker gate,
+    // so a second /clear in the same window stays silent instead of re-firing.
+    expect(dispatchedTerminal).toEqual([]);
   });
 
-  it("an armed marker with no readable body falls back to the plain advisory (arm succeeded, body lost)", async () => {
-    const { deps, emitted } = makeDeps({
+  it("an armed marker with no readable body falls back to the plain advisory (arm succeeded, body lost) and STILL fires the orientation turn", async () => {
+    const { deps, emitted, dispatchedTerminal } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState("cancelled"),
@@ -589,7 +702,65 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
       checkpointBody: null,
     });
     expect(await run(deps)).toBe(0);
+    // The advisory sub-branch is exactly where the user has NO notes, so
+    // suppressing the turn here would preserve the blank-pane symptom in the
+    // worst case rather than the best one.
+    expect(dispatchedTerminal).toEqual(["demo"]);
     expect(emitted).toEqual([terminalAdvisory("demo", "cancelled", "feature")]);
+  });
+
+  it("a plain-launched pipeline at a terminal phase carries the notes over but fires NO orientation turn, even with a pane inherited from the user's terminal", async () => {
+    // Plain mode has no send-keys surface, so the passive carry-over is the
+    // whole delivery — byte-identical to before this turn existed. The pane is
+    // deliberately SET here: `TMUX_PANE` leaks in from the user's own terminal,
+    // so `state.launcher === "plain"` is the half of the gate doing the work.
+    const { deps, dispatched, dispatchedTerminal, emitted, retiredSlugs } =
+      makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: { ...fakeState("merged"), launcher: "plain" },
+        markerExists: true,
+        checkpointBody: "approved with condition X\n",
+      });
+    expect(await run(deps)).toBe(0);
+    expect(emitted).toEqual([
+      terminalCarryOver(
+        "demo",
+        "merged",
+        "feature",
+        "approved with condition X\n",
+      ),
+    ]);
+    expect(retiredSlugs).toEqual(["demo"]);
+    expect(dispatched).toEqual([]);
+    expect(dispatchedTerminal).toEqual([]);
+  });
+
+  it("no pane at all (undefined, not merely inherited-plain) also carries the notes over with NO orientation turn — the `pane &&` half of the gate, isolated from the launcher half", async () => {
+    // The sibling test above isolates `state.launcher !== "plain"`; this one
+    // isolates `pane &&` by leaving TMUX_PANE unset while keeping the
+    // launcher tmux. Dropping `pane &&` from the gate would stay green on
+    // every other test in this suite but would try to dispatch send-keys
+    // against a nonexistent window here.
+    const { deps, dispatched, dispatchedTerminal, emitted, retiredSlugs } =
+      makeDeps({
+        flowSlugEnv: "demo",
+        state: { ...fakeState("merged"), launcher: "tmux" },
+        markerExists: true,
+        checkpointBody: "approved with condition X\n",
+      });
+    expect(await run(deps)).toBe(0);
+    expect(emitted).toEqual([
+      terminalCarryOver(
+        "demo",
+        "merged",
+        "feature",
+        "approved with condition X\n",
+      ),
+    ]);
+    expect(retiredSlugs).toEqual(["demo"]);
+    expect(dispatched).toEqual([]);
+    expect(dispatchedTerminal).toEqual([]);
   });
 });
 
@@ -663,7 +834,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
       "fresh",
     ]);
     const { seams, sends } = makeSeams(capture);
-    expect(deliverResumeSeed("demo", seams, "feature")).toBe(true);
+    expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(true);
     // Chunked delivery: leading line, then remainder, then a SEPARATE Enter.
     expect(sends).toEqual([
       { text: RESUME_LEAD, literal: true },
@@ -685,7 +856,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     const { seams, sends } = makeSeams(capture, /* attempts */ 3);
     // With 3 attempts and no transition, the fast path (needs a change) never
     // fires and the fallback (STABLE_PROBES + EXTRA = 6) is not reached → no send.
-    expect(deliverResumeSeed("demo", seams, "feature")).toBe(false);
+    expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(false);
     expect(sends).toEqual([]);
   });
 
@@ -693,7 +864,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     // Alternating content never stabilises → never ready within budget.
     const capture = frames(["a", "b", "a", "b", "a", "b"]);
     const { seams, sends } = makeSeams(capture, 6);
-    expect(deliverResumeSeed("demo", seams, "feature")).toBe(false);
+    expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(false);
     expect(sends).toEqual([]);
   });
 
@@ -709,7 +880,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
       sleep: () => {},
       attempts: 20,
     };
-    expect(deliverResumeSeed("demo", seams, "feature")).toBe(false);
+    expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(false);
     // The leading-line literal send failed, so delivery stops and the separate
     // Enter is guarded off — only the one (failed) send, never a partial submit.
     expect(sends).toEqual([{ text: RESUME_LEAD, literal: true }]);
@@ -724,7 +895,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     // must still return true and the seed must still be sent.
     const capture = () => "already-settled prompt";
     const { seams, sends } = makeSeams(capture, /* attempts */ 10);
-    expect(deliverResumeSeed("demo", seams, "feature")).toBe(true);
+    expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(true);
     expect(sends).toEqual([
       { text: RESUME_LEAD, literal: true },
       { text: RESUME_REMAINDER, literal: true },
@@ -754,7 +925,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
       "fresh",
     ]);
     const { seams, sends } = makeSeams(capture, /* attempts */ 6);
-    expect(deliverResumeSeed("demo", seams, "feature")).toBe(true);
+    expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(true);
     expect(sends).toEqual([
       { text: RESUME_LEAD, literal: true },
       { text: RESUME_REMAINDER, literal: true },
@@ -770,7 +941,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     const { seams, sends } = makeSeams(capture, /* attempts */ 20, {
       dropLeadingEchoes: 1,
     });
-    expect(deliverResumeSeed("demo", seams, "feature")).toBe(true);
+    expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(true);
     expect(sends).toEqual([
       { text: RESUME_LEAD, literal: true },
       { text: "C-u", literal: false },
@@ -866,9 +1037,10 @@ describe("flow-session-start-hook — parseResumeKind argv round-trip", () => {
 
   for (const kind of KINDS) {
     it(`survives the argv hop for '${kind}'`, () => {
-      // Mirrors defaultDispatchResume's argv exactly, then reads back the slot
-      // the import.meta.main branch reads (argv[2] after the leading two).
-      const argv = ["deliver", "demo", kind];
+      // Built through the SAME deliverArgv the producer (defaultDispatchResume)
+      // uses, not a hand-copied literal — a producer-side slot reorder now
+      // fails here instead of staying invisible to CI.
+      const argv = deliverArgv("demo", kind, "resume");
       expect(parseResumeKind(argv[2])).toBe(kind);
     });
   }
@@ -877,7 +1049,7 @@ describe("flow-session-start-hook — parseResumeKind argv round-trip", () => {
     // Pins the coupling itself: kind is the 3rd token, after "deliver" and the
     // slug. If either side ever reorders, this fails instead of silently
     // degrading to "feature".
-    const argv = ["deliver", "demo", "epic-run"];
+    const argv = deliverArgv("demo", "epic-run", "resume");
     expect(argv[0]).toBe("deliver");
     expect(argv[1]).toBe("demo");
     expect(parseResumeKind(argv[2])).toBe("epic-run");
@@ -889,5 +1061,220 @@ describe("flow-session-start-hook — parseResumeKind argv round-trip", () => {
     expect(parseResumeKind("bogus")).toBe("feature");
     expect(parseResumeKind("epic")).toBe("feature");
     expect(parseResumeKind("EPIC-RUN")).toBe("feature");
+  });
+});
+
+describe("terminalContinueSeed — the terminal orientation turn", () => {
+  const KINDS: ResumeKind[] = ["feature", "epic-design", "epic-run"];
+  const TERMINAL_SEED_PHASES = [
+    "merged",
+    "cancelled",
+    "needs-human",
+    "epic-approved",
+  ];
+
+  it("leads with the bare [pipeline-slug: <slug>] line the delivery handshake echoes back", () => {
+    // deliverSeed sends the leading line ALONE and matches a whitespace-squashed
+    // echo, and a ~77-char line already wraps in an 80-column pane — so this
+    // line stays short and static apart from the slug. It is also the marker
+    // the supervisor's slug contract reads.
+    const seed = terminalContinueSeed("demo", "merged", "feature", {
+      repo: "/tmp/repo",
+      worktree: "/tmp/wt",
+      pr: 42,
+    });
+    expect(seed.split("\n")[0]).toBe("[pipeline-slug: demo]");
+  });
+
+  it("does not wake the supervisor — carries none of the three resume-mode trigger prefixes at any phase or kind", () => {
+    // The whole point of a separate seed: a finished window must orient the
+    // user, never re-enter a pipeline. Any of these prefixes would put the
+    // fresh session straight back into supervisor mode. (The `epic-run` arm is
+    // unreachable from run() — autoResumesAfterClear short-circuits it — but is
+    // still built here, so a future routing change cannot introduce the bug.)
+    const TRIGGERS = [
+      "Use the /flow-pipeline skill in --resume mode for:",
+      "Use the /flow-epic-create skill in --resume mode for:",
+      "Use the /flow-epic-run skill for:",
+    ];
+    for (const phase of TERMINAL_SEED_PHASES) {
+      for (const kind of KINDS) {
+        const seed = terminalContinueSeed("demo", phase, kind, {
+          repo: "/tmp/repo",
+          worktree: "/tmp/wt",
+          pr: 42,
+        });
+        for (const trigger of TRIGGERS) {
+          expect(seed, `${phase} × ${kind}`).not.toContain(trigger);
+        }
+      }
+    }
+  });
+
+  it("grounds the session in the live canonical checkout at merged — never the worktree flow-remove-worktree just deleted", () => {
+    // `flow-remove-worktree` performs no writeState, so `state.worktree` still
+    // points at the removed sibling directory (issue #632). Naming it would
+    // send the session at a path where every read 404s.
+    const seed = terminalContinueSeed("demo", "merged", "feature", {
+      repo: "/tmp/repo",
+      worktree: "/tmp/wt",
+      pr: 42,
+    });
+    expect(seed).toContain("/tmp/repo");
+    expect(seed).toContain("42");
+    expect(seed).not.toContain("/tmp/wt");
+  });
+
+  it("keeps the session free to go look — no tool-free / answer-only-from-context prohibition", () => {
+    // The ratified acceptance bar: the user keeps asking questions about what
+    // merged, which the session can only answer by reading the repo.
+    const seed = terminalContinueSeed("demo", "merged", "feature", {
+      repo: "/tmp/repo",
+      worktree: "/tmp/wt",
+      pr: 42,
+    });
+    expect(seed).not.toMatch(
+      /run no commands|do not run|without running any|answer only from/i,
+    );
+    expect(seed).toContain("git log");
+    expect(seed).toContain("gh pr view 42");
+  });
+
+  it("omits the PR clause entirely when state carries no pr — never the literal 'undefined'", () => {
+    for (const phase of TERMINAL_SEED_PHASES) {
+      const seed = terminalContinueSeed("demo", phase, "feature", {
+        repo: "/tmp/repo",
+        worktree: "/tmp/wt",
+      });
+      expect(seed, phase).not.toContain("undefined");
+      expect(seed, phase).not.toContain("pull request");
+      expect(seed, phase).not.toContain("gh pr view");
+    }
+  });
+
+  it("names the worktree and the kind's recovery command at the phases where the worktree still exists", () => {
+    // needs-human and epic-approved are terminal for the supervisor but the
+    // worktree is untouched, so pointing at it is correct there.
+    const intact: [string, ResumeKind, string][] = [
+      ["needs-human", "feature", "flow feature resume demo"],
+      ["epic-approved", "epic-design", "flow epic create --resume demo"],
+      ["epic-approved", "epic-run", "flow epic run demo"],
+    ];
+    for (const [phase, kind, recovery] of intact) {
+      const seed = terminalContinueSeed("demo", phase, kind, {
+        repo: "/tmp/repo",
+        worktree: "/tmp/wt",
+        pr: 42,
+      });
+      expect(seed, `${phase} × ${kind}`).toContain("/tmp/wt");
+      expect(seed, `${phase} × ${kind}`).toContain(recovery);
+    }
+  });
+
+  it("names no worktree path and gives a generic canonical-checkout instruction when state recorded none — reachable via a pipeline that escalated to needs-human before ever creating a worktree", () => {
+    // state.worktree === undefined at an intact-worktree phase is reachable:
+    // a pipeline can hit `needs-human` at triage, before `worktree-create`
+    // ever runs, so `state.json` never gets a worktree field.
+    const seed = terminalContinueSeed("demo", "needs-human", "feature", {
+      repo: "/tmp/repo",
+      worktree: undefined,
+      pr: undefined,
+    });
+    expect(seed).toContain(
+      "The pipeline recorded no worktree, so work from /tmp/repo, the canonical checkout.",
+    );
+    expect(seed).toContain("flow feature resume demo");
+  });
+
+  it("degrades gracefully when the carried-over notes never arrived", () => {
+    // The notes land on `additionalContext` (foreground) and the turn on
+    // send-keys (detached child) — two channels. If the first one is dropped,
+    // the session must say so, not hallucinate a summary of notes it never saw.
+    const seed = terminalContinueSeed("demo", "merged", "feature", {
+      repo: "/tmp/repo",
+      pr: 42,
+    });
+    expect(seed).toContain("If no checkpoint notes are present");
+  });
+});
+
+describe("deliverResumeSeed — terminal mode", () => {
+  it("types the orientation seed, using the same leading-line handshake as a resume seed", () => {
+    const capture = frames(["old pre-clear prompt", "fresh", "fresh", "fresh"]);
+    const { seams, sends } = makeSeams(capture);
+    const state: PipelineState = {
+      slug: "demo",
+      phase: "merged",
+      repo: "/tmp/repo",
+      worktree: "/tmp/wt",
+      pr: 42,
+      updatedAt: "2026-06-30T00:00:00Z",
+    };
+    const seed = terminalContinueSeed("demo", "merged", "feature", state);
+    expect(
+      deliverResumeSeed(
+        "demo",
+        { ...seams, readState: () => state },
+        "feature",
+        "terminal",
+      ),
+    ).toBe(true);
+    expect(sends).toEqual([
+      { text: RESUME_LEAD, literal: true },
+      { text: seed.slice(RESUME_LEAD.length), literal: true },
+      { text: "Enter", literal: false },
+    ]);
+  });
+
+  it("SKIPS the delivery and returns false when the slug's state is unreadable", () => {
+    // There is no repo-less seed worth sending: `repo` is required on
+    // PipelineState and a seed that cannot name a checkout has no purpose. The
+    // user loses nothing — the notes were emitted and retired in the foreground
+    // before this child was ever spawned.
+    const { seams, sends } = makeSeams(frames(["old", "fresh", "fresh"]));
+    expect(
+      deliverResumeSeed(
+        "demo",
+        { ...seams, readState: () => null },
+        "feature",
+        "terminal",
+      ),
+    ).toBe(false);
+    expect(sends).toEqual([]);
+  });
+});
+
+// The mode rides the same uncheckable argv hop as the kind, one slot over:
+// `defaultDispatchResume` writes `[..., "deliver", slug, kind, mode]` and the
+// detached child re-reads `argv[3]`. Every run() test stubs `dispatchResume`,
+// so none of them crosses that boundary — a positional slip would type a live
+// resume seed into a finished window with CI green.
+describe("flow-session-start-hook — parseSeedMode argv round-trip", () => {
+  const MODES: SeedMode[] = ["resume", "terminal"];
+
+  for (const mode of MODES) {
+    it(`survives the argv hop for '${mode}'`, () => {
+      // Built through the SAME deliverArgv the producer uses (see the kind
+      // round-trip block above for the rationale).
+      const argv = deliverArgv("demo", "feature", mode);
+      expect(parseSeedMode(argv[3])).toBe(mode);
+    });
+  }
+
+  it("positions the mode at the slot the deliver branch actually reads", () => {
+    const argv = deliverArgv("demo", "feature", "terminal");
+    expect(argv[0]).toBe("deliver");
+    expect(argv[1]).toBe("demo");
+    expect(parseResumeKind(argv[2])).toBe("feature");
+    expect(parseSeedMode(argv[3])).toBe("terminal");
+  });
+
+  it("falls back to 'resume' for undefined, empty, and unknown values", () => {
+    // "resume" is what every dispatch did before this token existed, so a
+    // dropped token degrades to the old behaviour rather than to silence.
+    expect(parseSeedMode(undefined)).toBe("resume");
+    expect(parseSeedMode("")).toBe("resume");
+    expect(parseSeedMode("bogus")).toBe("resume");
+    expect(parseSeedMode("TERMINAL")).toBe("resume");
   });
 });

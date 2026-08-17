@@ -174,8 +174,10 @@ Subcommands:
                         "<ref>"\` records a completed out-of-band feature
   launch <epic> <id>    atomically create + bind a feature (manifest read →
                         \`flow feature create\` → binding recorded)
-  ls                    list every epic under ~/.flow/epics with per-state
-                        feature counts and overall status
+  ls                    list this repo's committed epics unioned with the
+                        per-machine run-state under ~/.flow/epics, with
+                        per-state feature counts and overall status (the
+                        committed half is scoped to the current repo)
   done <slug>           remove the recomputable per-machine ~/.flow/epics/<slug>/
                         runtime state (does NOT close the design window or
                         pipeline state — use \`flow done <slug>\` for those)

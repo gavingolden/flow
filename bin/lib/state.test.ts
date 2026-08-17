@@ -26,6 +26,7 @@ import {
   STEP_PHASES,
   TERMINAL_EXIT_TRANSITIONS,
   TERMINAL_PHASES,
+  WORKTREE_REMOVED_PHASES,
   writeState,
   type PipelineState,
 } from "./state";
@@ -973,6 +974,12 @@ describe("phase constants", () => {
       (AWAITING_HUMAN_PHASES as readonly string[]).includes(v),
     );
     expect(overlap).toEqual([]);
+  });
+
+  it("WORKTREE_REMOVED_PHASES is exactly FINISHED_PHASES minus 'epic-approved' (anti-drift guard: a new FINISHED_PHASES entry must be explicitly classified as worktree-removed or not)", () => {
+    expect([...WORKTREE_REMOVED_PHASES].sort()).toEqual(
+      FINISHED_PHASES.filter((p) => p !== "epic-approved").sort(),
+    );
   });
 
   it("PIPELINE_PHASES is the union of TERMINAL, PENDING, STEP", () => {

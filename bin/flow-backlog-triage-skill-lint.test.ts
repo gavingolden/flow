@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { MARKER } from "./flow-verbatim-notes";
 
 /**
  * Structural-anchor lint for `skills/universal/flow-backlog-triage/`.
@@ -44,6 +45,10 @@ const methodologyPath = path.join(REFERENCES_DIR, "methodology.md");
 const outputTemplatePath = path.join(REFERENCES_DIR, "output-template.md");
 const fanoutPath = path.join(REFERENCES_DIR, "verification-fanout.md");
 const workedExamplePath = path.join(REFERENCES_DIR, "worked-example.md");
+const verbatimAttachmentPath = path.join(
+  REFERENCES_DIR,
+  "verbatim-attachment.md",
+);
 const verifierAgentPath = path.resolve(
   HERE,
   "..",
@@ -57,6 +62,10 @@ const methodologyContent = fs.readFileSync(methodologyPath, "utf8");
 const outputTemplateContent = fs.readFileSync(outputTemplatePath, "utf8");
 const fanoutContent = fs.readFileSync(fanoutPath, "utf8");
 const workedExampleContent = fs.readFileSync(workedExamplePath, "utf8");
+const verbatimAttachmentContent = fs.readFileSync(
+  verbatimAttachmentPath,
+  "utf8",
+);
 const verifierAgentContent = fs.readFileSync(verifierAgentPath, "utf8");
 
 describe("flow-backlog-triage opinionated-constraint anchors", () => {
@@ -756,6 +765,10 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
     },
     { label: "references/verification-fanout.md", content: fanoutContent },
     { label: "references/worked-example.md", content: workedExampleContent },
+    {
+      label: "references/verbatim-attachment.md",
+      content: verbatimAttachmentContent,
+    },
     { label: "agents/flow-backlog-verifier.md", content: verifierAgentContent },
   ];
 
@@ -825,5 +838,72 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
 
   it("SKILL.md body stays under the 500-line hard cap", () => {
     expect(skillContent.split("\n").length).toBeLessThan(500);
+  });
+});
+
+describe("flow-backlog-triage owner-verbatim attachment anchors", () => {
+  it("states the quoting contract forbids fixing spelling, grammar, punctuation, or truncation", () => {
+    for (const content of [methodologyContent, verbatimAttachmentContent]) {
+      expect(
+        content.includes(
+          "Do not fix spelling, grammar, punctuation, or truncation",
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("names the owner-verbatim-notes marker string", () => {
+    expect(
+      verbatimAttachmentContent.includes("<!-- owner-verbatim-notes-v1 -->"),
+    ).toBe(true);
+  });
+
+  it("states the comment-over-body-edit rule", () => {
+    expect(
+      /never a body edit|not.{0,20}a body edit|comment, never a body/i.test(
+        verbatimAttachmentContent,
+      ),
+    ).toBe(true);
+  });
+
+  it("states the never-reconcile rule (a disagreement between the owner's note and a verified finding stands as two separate comments)", () => {
+    for (const content of [
+      methodologyContent,
+      verbatimAttachmentContent,
+      skillContent,
+    ]) {
+      expect(
+        /never reconcile|not reconciled|disagreement is the signal/i.test(
+          content,
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("states refs on no issue are never auto-filed as new issues", () => {
+    for (const content of [methodologyContent, verbatimAttachmentContent]) {
+      expect(content.includes("never auto-filed as new issues")).toBe(true);
+    }
+  });
+
+  it("invokes the helper by bare PATH name (the bare-PATH check itself is covered by ALL_SKILL_FILES above)", () => {
+    expect(skillContent.includes("flow-verbatim-notes attach")).toBe(true);
+  });
+
+  it("pins the owner-verbatim-notes marker string against the helper's exported MARKER constant, not a hand-copied literal", () => {
+    expect(verbatimAttachmentContent.includes(MARKER)).toBe(true);
+  });
+
+  it.each(["<!-- flow-verbatim-refs:", "<!-- flow-verbatim-source:"])(
+    "names the machine-read capture index line %j",
+    (literal) => {
+      for (const content of [methodologyContent, verbatimAttachmentContent]) {
+        expect(content.includes(literal)).toBe(true);
+      }
+    },
+  );
+
+  it("SKILL.md links verbatim-attachment.md from its reference index", () => {
+    expect(skillContent.includes("verbatim-attachment.md")).toBe(true);
   });
 });

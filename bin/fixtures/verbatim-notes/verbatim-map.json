@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "sourceOfTruth": "bin/fixtures/verbatim-notes/notes-source.md",
+  "preamble": {
+    "triageDates": "the 2026-08-07 / 2026-08-09 backlog triages"
+  },
+  "attachments": [
+    {
+      "issue": 632,
+      "refs": [
+        { "ref": "H5", "label": "adhoc notes, high priority" },
+        { "ref": "M33", "label": "adhoc notes, medium priority" }
+      ]
+    }
+  ],
+  "unattached": [
+    { "ref": "H9", "reason": "no matching open issue — filed as residue" }
+  ]
+}
