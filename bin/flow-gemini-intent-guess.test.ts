@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  INTENT_GUESS_JSON_SCHEMA,
   isGeminiIntentGuessEnabled,
   parseArgs,
   run,
@@ -74,17 +75,20 @@ describe("parseStructured (schema=undefined, shape-only) — extraction toleranc
     expect(parseStructured("", undefined).ok).toBe(false);
   });
 
-  // The two cases below are why this call site was swapped from the naive
-  // first-`{`-to-last-`}` extractJsonObject to parseStructured. Both were
-  // traced empirically against the OLD extractor (which returned a slice
-  // that failed JSON.parse, i.e. a dropped `-output-unparseable` skip) to
-  // confirm they are genuine regressions, not just theoretical improvements.
+  // The two cases below pin why `parseStructured` (rung 2 of the
+  // `decodeDelegateArtifact` ladder `run()` now calls) sits AHEAD of the
+  // naive first-`{`-to-last-`}` `extractJsonObject` (rung 3, last-resort
+  // salvage): both were traced empirically against the naive extractor
+  // alone (which returned an over-wide slice that failed JSON.parse, i.e. a
+  // dropped `-output-unparseable` skip) to confirm parseStructured recovers
+  // genuinely more cases, not just theoretically more.
   //
-  // SCOPE HONESTY: this is NOT a strict-superset claim. Both the old and
-  // new extractors still fail alike on `Here is {a} guess: {"k":1}` (a
-  // brace in LEADING prose before the object) — findBalancedObjectSpan
-  // locks onto the FIRST `{` in the whole text and does not retry from a
-  // later one, so that shape is out of scope for this swap.
+  // SCOPE HONESTY: this is NOT a strict-superset claim over the WHOLE
+  // ladder. `parseStructured` and the naive rung still fail alike on `Here
+  // is {a} guess: {"k":1}` (a brace in LEADING prose before the object) —
+  // findBalancedObjectSpan locks onto the FIRST `{` in the whole text and
+  // does not retry from a later one, so that shape is out of scope for
+  // either rung.
   it("recovers an object whose string value contains an unbalanced brace, even with trailing commentary that itself contains a brace", () => {
     const raw =
       '{"justification":"a note with an extra } inside"}\n\nSee also the {appendix}.';
@@ -234,6 +238,7 @@ describe("run — gate", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-intent-guess-disabled",
+      skipClass: "environment",
     });
     expect(deps.calls.delegate).toHaveLength(0);
     expect(deps.files.has(OUT)).toBe(false);
@@ -262,6 +267,7 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-not-found",
+      skipClass: "environment",
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -271,7 +277,11 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
       runDelegate: () => ({ ran: false }),
     });
     run(BASE_ARGV, deps);
-    expect(envelope(deps)).toEqual({ ran: false, skipReason: "agy-skip" });
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "agy-skip",
+      skipClass: "ran-unusable",
+    });
   });
 });
 
@@ -279,7 +289,11 @@ describe("run — conformant output", () => {
   it("finalizes a schema-valid intent-guess-gemini.json and reports ran:true", () => {
     const deps = makeDeps();
     expect(run(BASE_ARGV, deps)).toBe(0);
-    expect(envelope(deps)).toEqual({ ran: true, findingsPath: OUT });
+    expect(envelope(deps)).toEqual({
+      ran: true,
+      findingsPath: OUT,
+      decodedVia: "response-parse",
+    });
     expect(JSON.parse(deps.files.get(OUT)!)).toEqual(VALID_GUESS);
   });
 
@@ -298,7 +312,11 @@ describe("run — conformant output", () => {
       },
     });
     expect(run(BASE_ARGV, deps)).toBe(0);
-    expect(envelope(deps)).toEqual({ ran: true, findingsPath: OUT });
+    expect(envelope(deps)).toEqual({
+      ran: true,
+      findingsPath: OUT,
+      decodedVia: "response-parse",
+    });
   });
 
   // Regression guard for the parseStructured swap: a fenced JSON block
@@ -324,36 +342,153 @@ describe("run — conformant output", () => {
       },
     });
     expect(run(BASE_ARGV, deps)).toBe(0);
-    expect(envelope(deps)).toEqual({ ran: true, findingsPath: OUT });
+    expect(envelope(deps)).toEqual({
+      ran: true,
+      findingsPath: OUT,
+      decodedVia: "response-parse",
+    });
     expect(JSON.parse(deps.files.get(OUT)!)).toEqual(VALID_GUESS);
   });
-});
 
-describe("run — malformed payloads drop the guess, never throw, leave no valid file", () => {
-  it.each([
-    [
-      "non-JSON prose",
-      "I reviewed the diff and found nothing.",
-      "gemini-intent-guess-output-unparseable",
-    ],
-    [
-      "JSON object missing required key",
-      JSON.stringify({ guessed_purpose: "x" }),
-      "gemini-intent-guess-output-schema-invalid",
-    ],
-  ])("drops %s with skipReason %s", (_name, raw, expectedReason) => {
+  // S1-equivalent: a `flow-delegate --output-format json` envelope whose
+  // `.response` opens with a prose sentence but whose `.structured_output`
+  // carries the clean, schema-conformant guess — this must decode via rung
+  // 1 (structured-output), never falling through to the prose rungs.
+  it("succeeds via decodedVia:'structured-output' on an envelope with a prose-preamble .response", () => {
     const deps = makeDeps({
       runDelegate: (argv) => {
         deps.calls.delegate.push(argv);
         const rawPath = argv[argv.indexOf("--out") + 1]!;
-        deps.files.set(rawPath, raw as string);
+        deps.files.set(
+          rawPath,
+          JSON.stringify({
+            response:
+              "Sure, here is my analysis of the diff: " +
+              JSON.stringify(VALID_GUESS),
+            structured_output: VALID_GUESS,
+          }),
+        );
         return { ran: true, artifactPath: rawPath };
       },
     });
-    expect(() => run(BASE_ARGV, deps)).not.toThrow();
-    expect(envelope(deps)).toEqual({ ran: false, skipReason: expectedReason });
-    expect(deps.files.has(OUT)).toBe(false);
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: true,
+      findingsPath: OUT,
+      decodedVia: "structured-output",
+    });
+    expect(JSON.parse(deps.files.get(OUT)!)).toEqual(VALID_GUESS);
   });
+
+  // S2: a plain-prose, non-envelope raw artifact (the pre-this-PR, non-json
+  // mode shape) must decode byte-identically to before — via rung 2
+  // (response-parse), same skipReason vocabulary on the failure path.
+  it("decodes a plain-prose non-envelope artifact identically to before (S2)", () => {
+    const deps = makeDeps();
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    const finalized = JSON.parse(deps.files.get(OUT)!);
+    expect(finalized).toEqual(VALID_GUESS);
+    expect(envelope(deps).decodedVia).toBe("response-parse");
+  });
+
+  // S5: the wire-schema scratch file must never survive either exit path.
+  it("removes the .schema.json scratch file after a success exit (S5)", () => {
+    const deps = makeDeps();
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(deps.files.has(`${OUT}.schema.json`)).toBe(false);
+  });
+
+  it("removes the .schema.json scratch file after a skip exit (S5)", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        return { ran: false, skipReason: "agy-not-found" };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(deps.files.has(`${OUT}.schema.json`)).toBe(false);
+  });
+
+  // S5: the delegate argv assertion is flag-presence, never exact array
+  // equality — every stub above resolves paths via
+  // argv.indexOf('--out') + 1, so a flag addition must stay non-breaking.
+  it("passes --output-format json and --json-schema <path> to flow-delegate (S5)", () => {
+    const deps = makeDeps();
+    run(BASE_ARGV, deps);
+    const argv = deps.calls.delegate[0]!;
+    expect(argv).toContain("--output-format");
+    expect(argv[argv.indexOf("--output-format") + 1]).toBe("json");
+    expect(argv).toContain("--json-schema");
+    expect(argv[argv.indexOf("--json-schema") + 1]).toBe(`${OUT}.schema.json`);
+  });
+
+  it("writes INTENT_GUESS_JSON_SCHEMA to the --json-schema scratch path before dispatch", () => {
+    const deps = makeDeps();
+    run(BASE_ARGV, deps);
+    const write = deps.calls.writes.find(
+      (w) => w.path === `${OUT}.schema.json`,
+    );
+    expect(write).toBeDefined();
+    expect(JSON.parse(write!.contents)).toEqual(INTENT_GUESS_JSON_SCHEMA);
+  });
+
+  it("has INTENT_GUESS_JSON_SCHEMA on disk at the --json-schema path BEFORE dispatch (asserted from inside the delegate stub, not after run() returns)", () => {
+    // Same rationale as bin/flow-gemini-lens.test.ts's sibling test:
+    // `deps.calls.writes` and `deps.calls.delegate` are separate arrays with
+    // no interleaved ordering, so asserting after `run()` returns only
+    // proves the write happened, not that it happened first.
+    let schemaOnDiskAtDispatch: string | undefined;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const schemaPath = argv[argv.indexOf("--json-schema") + 1]!;
+        schemaOnDiskAtDispatch = deps.files.get(schemaPath);
+        const rawPathIdx = argv.indexOf("--out") + 1;
+        const rawPath = argv[rawPathIdx]!;
+        deps.files.set(rawPath, JSON.stringify(VALID_GUESS));
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(schemaOnDiskAtDispatch).toBeDefined();
+    expect(JSON.parse(schemaOnDiskAtDispatch!)).toEqual(
+      INTENT_GUESS_JSON_SCHEMA,
+    );
+  });
+});
+
+describe("run — malformed payloads drop the guess, never throw, leave no valid file", () => {
+  // Both cases collapse into the SAME skipReason now: decodeDelegateArtifact
+  // folds parse and validate into one ladder, so a payload that parses but
+  // fails validation is no longer distinguishable from one that never
+  // parsed at all — this is a rewrite of the former, since-removed
+  // `-output-schema-invalid` case, not a deletion of its coverage.
+  it.each([
+    ["non-JSON prose", "I reviewed the diff and found nothing."],
+    [
+      "JSON object missing required key",
+      JSON.stringify({ guessed_purpose: "x" }),
+    ],
+  ])(
+    "drops %s with skipReason gemini-intent-guess-output-unparseable",
+    (_name, raw) => {
+      const deps = makeDeps({
+        runDelegate: (argv) => {
+          deps.calls.delegate.push(argv);
+          const rawPath = argv[argv.indexOf("--out") + 1]!;
+          deps.files.set(rawPath, raw as string);
+          return { ran: true, artifactPath: rawPath };
+        },
+      });
+      expect(() => run(BASE_ARGV, deps)).not.toThrow();
+      expect(envelope(deps)).toEqual({
+        ran: false,
+        skipReason: "gemini-intent-guess-output-unparseable",
+        skipClass: "ran-unusable",
+      });
+      expect(deps.files.has(OUT)).toBe(false);
+    },
+  );
 });
 
 describe("run — IO-throw catch branches each map to a graceful skip, never throw", () => {
@@ -368,6 +503,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-intent-guess-diff-unreadable",
+      skipClass: "environment",
     });
     expect(deps.calls.delegate).toHaveLength(0);
   });
@@ -382,6 +518,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-intent-guess-prep-failed",
+      skipClass: "environment",
     });
     expect(deps.calls.delegate).toHaveLength(0);
     expect(deps.files.has(OUT)).toBe(false);
@@ -398,6 +535,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-intent-guess-output-unreadable",
+      skipClass: "ran-unusable",
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -414,6 +552,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-intent-guess-finalize-failed",
+      skipClass: "ran-unusable",
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -434,6 +573,7 @@ describe("run — cross-run staleness: a prior --out is cleared before any skip 
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-intent-guess-output-unparseable",
+      skipClass: "ran-unusable",
     });
     expect(deps.files.has(OUT)).toBe(false);
     expect(deps.calls.removed).toContain(OUT);

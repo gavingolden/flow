@@ -683,8 +683,7 @@ It NEVER hard-fails the review.
    strict-boolean-`true` rule, so the jq read is the human-readable gate, not
    the runtime authority.
 
-2. **Run the lens** via the PATH helper (write `$WORKTREE/.flow-tmp/diff.txt`
-   with `flow-pr-diff "$PR_NUMBER"` if Step 3 prep hasn't; Step 3.5 reuses it):
+2. **Run the lens** via the PATH helper (write `$WORKTREE/.flow-tmp/diff.txt` with `flow-pr-diff "$PR_NUMBER"` if Step 3 prep hasn't; Step 3.5 reuses it — the Bash tool call MUST pass an explicit `timeout: 600000`, since its own 120000 ms default undercuts flow-delegate's 5m agy call cap):
 
    ```bash
    flow-gemini-lens --worktree "$WORKTREE" \
@@ -692,20 +691,16 @@ It NEVER hard-fails the review.
      --out "$WORKTREE/.flow-tmp/agent-output-gemini.json"
    ```
 
-   The helper re-gates, runs ONE bounded `flow-delegate --model "Gemini 3.1
-   Pro (High)"` call (flow-delegate's default 5m timeout, worktree as
-   `--add-dir`), parses the agy output defensively (tolerating a prose wrapper
-   or ```json fence), validates it against the shared agent-finding schema,
-   and finalizes `agent-output-gemini.json` **only on success**.
+   The helper re-gates, runs ONE bounded `flow-delegate --model "Gemini 3.1 Pro (High)"` call (flow-delegate's default 5m timeout, worktree as `--add-dir`, `--output-format json` + `--json-schema` pinning the wire-level `AGENT_FINDINGS_JSON_SCHEMA`), decodes the response through the `structured_output` → `parseStructured` → naive-salvage ladder in `bin/lib/structured-response.ts`, validates it against the shared agent-finding schema, and finalizes `agent-output-gemini.json` **only on success**.
 
 3. **Branch on the helper's `{ran}` JSON** (the one-line stdout envelope),
    NEVER on the exit code (the helper exits 0 on every graceful path):
    - `ran: true` → `agent-output-gemini.json` is schema-valid; it becomes the
-     SEVENTH input to the Step 3.5 Consolidator.
-   - `ran: false` → record `skipReason` and proceed. No
-     `agent-output-gemini.json` is left on disk; the consolidator tolerates its
-     absence (it is NOT one of the six mandatory lenses, so its absence does
-     NOT escalate `consolidator-missing-artifact`).
+     SEVENTH input to the Step 3.5 Consolidator. Record `decodedVia` from
+     the envelope for Step 12's report — the report template renders it
+     ONLY when it is not `structured-output`, so a silently-degrading model
+     surface (falling back through the parse/salvage rungs) stays visible.
+   - `ran: false` → record `skipReason` and its `skipClass` (`environment` — not run, no quota spent — vs `ran-unusable` — ran but produced nothing usable — reported distinctly, never folded into one generic "skipped" phrase) and proceed. No `agent-output-gemini.json` is left on disk; the consolidator tolerates its absence (it is NOT one of the six mandatory lenses, so its absence does NOT escalate `consolidator-missing-artifact`).
 
 Do NOT add a seventh row to the six-agent table above — the Gemini lens
 reviews the whole diff with no static-analysis lens, so it is deliberately

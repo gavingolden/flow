@@ -20,13 +20,17 @@
  *     "Gemini 3.1 Pro (High)", flow-delegate's default 5m timeout).
  *  3. Branch on the flow-delegate envelope's `ran` field (NEVER the exit
  *     code): `ran:false` → propagate the skipReason, finalize nothing.
- *  4. `ran:true` → read the raw agy artifact, defensively extract the JSON
- *     object (extractJsonObject tolerates a prose/markdown-fence wrapper),
- *     parse, validate via the in-repo agent-finding schema. Any unusable
- *     output → dropped result + skipReason, NO consolidator-valid
+ *  4. `ran:true` → read the raw agy artifact and decode it through the
+ *     rung-ordered ladder in `bin/lib/structured-response.ts`
+ *     (`decodeDelegateArtifact`): the envelope's wire-level
+ *     `structured_output` (from `--json-schema AGENT_FINDINGS_JSON_SCHEMA`)
+ *     first, then `parseStructured` over the response prose, then a naive
+ *     salvage — normalizing (`normalizeParsedFindings`) and validating
+ *     (`validateAgentFindings`) at every rung. Any unusable output →
+ *     dropped result + skipReason, NO consolidator-valid
  *     `agent-output-gemini.json` left behind (write-only-on-success).
  *  5. Valid → write the normalized `{findings:[...]}` to `--out` →
- *     `{ran:true,findingsPath,findingCount}`.
+ *     `{ran:true,findingsPath,findingCount,decodedVia}`.
  *
  * Exit codes: 0 on every graceful path (callers branch on `ran`); 2 only
  * on a usage error (missing required flag).
@@ -40,10 +44,14 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 import {
+  VALID_DECORATIONS,
+  VALID_LABELS,
   normalizeParsedFindings,
   validateAgentFindings,
 } from "./lib/agent-finding-schema";
 import { resolveDelegateModel } from "./lib/delegate-models";
+import { classifyDelegateSkip } from "./lib/delegate-skip-class";
+import { decodeDelegateArtifact } from "./lib/structured-response";
 
 // The model routes through resolveDelegateModel("reviewLens") — the default
 // lives in DELEGATE_MODEL_DEFAULTS; a `delegate.models.reviewLens` config
@@ -123,17 +131,68 @@ export function isGeminiLensEnabled(rawConfigText: string): boolean {
   return (review as Record<string, unknown>).gemini === true;
 }
 
-// Recover the JSON object from a raw agy artifact that may wrap it in a
-// leading/trailing prose sentence or a ```json fence. Returns the substring
-// from the first '{' to the matching last '}' (inclusive), or null when no
-// brace pair is present. NEVER throws — JSON.parse validity is the caller's
-// concern.
-export function extractJsonObject(raw: string): string | null {
-  const first = raw.indexOf("{");
-  const last = raw.lastIndexOf("}");
-  if (first === -1 || last === -1 || last < first) return null;
-  return raw.slice(first, last + 1);
-}
+// Wire-level `--json-schema` contract for the agy call. Every property
+// carries a `description` (load-bearing — a description-less schema was
+// observed to produce degenerate output in probing). `reasoning` is a
+// LEADING scratchpad-only field, never projected into the finalized
+// `{findings}` file. `decoration` is deliberately NOT in `required` on each
+// finding — `validateFinding` allows a `praise` finding to omit it. The
+// `label` / `decoration` enums are built FROM the imported
+// `VALID_LABELS` / `VALID_DECORATIONS` sets so the schema cannot drift from
+// the validator.
+export const AGENT_FINDINGS_JSON_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["reasoning", "findings"],
+  properties: {
+    reasoning: {
+      type: "string",
+      description:
+        "Use this exclusively for scratchpad reasoning; every finding you want reported must go in the findings array, never here.",
+    },
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["file", "line", "label", "confidence", "subject", "body"],
+        properties: {
+          file: { type: "string", description: "The changed file path." },
+          line: { type: "number", description: "The primary line number." },
+          end_line: {
+            type: "number",
+            description: "Optional end line for a multi-line span.",
+          },
+          label: {
+            type: "string",
+            enum: Array.from(VALID_LABELS),
+            description: "The conventional-comments label for this finding.",
+          },
+          decoration: {
+            type: "string",
+            enum: Array.from(VALID_DECORATIONS),
+            description:
+              "The bare decoration keyword. Omit (or set null) for a praise finding; every other label requires one.",
+          },
+          confidence: {
+            type: "number",
+            description:
+              "0-100. Only emit findings you are >= 80% confident are real.",
+          },
+          subject: {
+            type: "string",
+            description: "A short description of the finding.",
+          },
+          body: {
+            type: "string",
+            description:
+              "Detailed explanation in conventional-comments format with a concrete fix.",
+          },
+        },
+      },
+      description: "The reviewer's findings, one entry per issue/praise/etc.",
+    },
+  },
+};
 
 function buildPrompt(diff: string): string {
   return `You are a cross-model code reviewer. A separate set of reviewers running on a different model family is reviewing this same pull request; your job is to catch real issues their model family systematically under-weights. Review the whole diff below from every angle (correctness, security, performance, consistency, test coverage, supply-chain).
@@ -213,13 +272,18 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     rawConfig = "";
   }
   if (!isGeminiLensEnabled(rawConfig)) {
-    return emit(deps, { ran: false, skipReason: "gemini-lens-disabled" });
+    return emit(deps, {
+      ran: false,
+      skipReason: "gemini-lens-disabled",
+      skipClass: classifyDelegateSkip("gemini-lens-disabled"),
+    });
   }
 
   // The raw agy artifact is a scratch sibling of --out; finalize --out only
   // on a fully-valid payload so the consolidator never sees a half-baked file.
   const rawPath = `${parsed.out}.agy-raw`;
   const promptPath = `${parsed.out}.prompt`;
+  const schemaPath = `${parsed.out}.schema.json`;
 
   // Pre-clean any stale --out from a prior run on this reused worktree: every
   // path past the gate either rewrites --out (success) or leaves it absent
@@ -227,15 +291,21 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // the current review. removeFile is idempotent (force:true) — absent is fine.
   deps.removeFile(parsed.out);
 
-  // Scratch files (prompt + raw agy output) are transient; clear both on every
-  // exit so they don't accumulate in the worktree's .flow-tmp/.
+  // Scratch files (prompt + schema + raw agy output) are transient; clear
+  // all three on every exit so they don't accumulate in the worktree's
+  // .flow-tmp/.
   const cleanScratch = () => {
     deps.removeFile(promptPath);
     deps.removeFile(rawPath);
+    deps.removeFile(schemaPath);
   };
   const skip = (skipReason: string): number => {
     cleanScratch();
-    return emit(deps, { ran: false, skipReason });
+    return emit(deps, {
+      ran: false,
+      skipReason,
+      skipClass: classifyDelegateSkip(skipReason),
+    });
   };
 
   let diff = "";
@@ -247,11 +317,16 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   try {
     deps.mkdirp(dirname(parsed.out));
     deps.writeFile(promptPath, buildPrompt(diff));
+    deps.writeFile(schemaPath, JSON.stringify(AGENT_FINDINGS_JSON_SCHEMA));
   } catch {
     return skip("gemini-prep-failed");
   }
 
   const envelope = deps.runDelegate([
+    "--output-format",
+    "json",
+    "--json-schema",
+    schemaPath,
     "--prompt-file",
     promptPath,
     "--model",
@@ -279,25 +354,30 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return skip("gemini-output-unreadable");
   }
 
-  const objText = extractJsonObject(raw);
-  if (objText === null) {
-    return skip("gemini-output-unparseable");
-  }
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(objText);
-  } catch {
+  // Normalization applies to EVERY rung, including structured_output — this
+  // is what lets a model's off-enum label still land through the ladder,
+  // not just through the prose-parse rungs.
+  const decoded = decodeDelegateArtifact(raw, (candidate) =>
+    validateAgentFindings(normalizeParsedFindings(candidate)),
+  );
+  if (!decoded.ok) {
+    // The former -output-unparseable and -output-schema-invalid reasons
+    // collapse into one: the ladder folds validation into decoding, so once
+    // no rung both parses AND validates, the two are no longer
+    // distinguishable from the caller's side.
     return skip("gemini-output-unparseable");
   }
 
-  const normalized = normalizeParsedFindings(parsedJson);
-  const validation = validateAgentFindings(normalized);
-  if (!validation.ok) {
-    return skip("gemini-output-schema-invalid");
-  }
-
   try {
-    deps.writeFile(parsed.out, JSON.stringify(validation.value, null, 2));
+    // MANDATORY, not cosmetic: validateAgentFindings tolerates extra
+    // top-level keys and returns the input unmodified, so writing
+    // decoded.value directly would leak a schema-supplied `reasoning` key
+    // into agent-output-gemini.json and hand the consolidator a non-
+    // {findings} artifact. Re-project to exactly {findings}.
+    deps.writeFile(
+      parsed.out,
+      JSON.stringify({ findings: decoded.value.findings }, null, 2),
+    );
   } catch {
     return skip("gemini-finalize-failed");
   }
@@ -306,7 +386,8 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   return emit(deps, {
     ran: true,
     findingsPath: parsed.out,
-    findingCount: validation.value.findings.length,
+    decodedVia: decoded.via,
+    findingCount: decoded.value.findings.length,
   });
 }
 

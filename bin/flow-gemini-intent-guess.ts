@@ -21,14 +21,16 @@
  *     default 5m timeout).
  *  3. Branch on the flow-delegate envelope's `ran` field (NEVER the exit
  *     code): `ran:false` → propagate the skipReason, finalize nothing.
- *  4. `ran:true` → read the raw agy artifact and tolerantly recover a JSON
- *     object via `parseStructured` (bin/lib/structured-response.ts — tries
- *     whole-text, fenced-block, then a string-literal-aware balanced-brace
- *     scan, in that order), then validate the four-key shape. Any unusable
+ *  4. `ran:true` → read the raw agy artifact and decode it through the
+ *     rung-ordered ladder in `bin/lib/structured-response.ts`
+ *     (`decodeDelegateArtifact`): the envelope's wire-level
+ *     `structured_output` (from `--json-schema INTENT_GUESS_JSON_SCHEMA`)
+ *     first, then `parseStructured` over the response prose, then a naive
+ *     salvage — validating the four-key shape at each rung. Any unusable
  *     output → dropped result + skipReason, NO `intent-guess-gemini.json`
  *     left behind (write-only-on-success).
  *  5. Valid → write the guess object to `--out` →
- *     `{ran:true,findingsPath}`.
+ *     `{ran:true,findingsPath,decodedVia}`.
  *
  * Exit codes: 0 on every graceful path (callers branch on `ran`); 2 only
  * on a usage error (missing required flag).
@@ -38,7 +40,8 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { resolveDelegateModel } from "./lib/delegate-models";
-import { parseStructured } from "./lib/structured-response";
+import { decodeDelegateArtifact } from "./lib/structured-response";
+import { classifyDelegateSkip } from "./lib/delegate-skip-class";
 
 // The model routes through resolveDelegateModel("intentGuess") — the default
 // lives in DELEGATE_MODEL_DEFAULTS; a `delegate.models.intentGuess` config
@@ -116,6 +119,52 @@ export function isGeminiIntentGuessEnabled(rawConfigText: string): boolean {
   if (typeof review !== "object" || review === null) return false;
   return (review as Record<string, unknown>).gemini === true;
 }
+
+// Wire-level `--json-schema` contract for the agy call. Every property
+// carries a `description` — load-bearing: a description-less schema was
+// observed to produce a degenerate `confidence: 1` in probing. `reasoning`
+// is a LEADING scratchpad-only field (not part of `IntentGuess` /
+// `validateIntentGuess`, which still projects exactly the other four keys)
+// — a leading reasoning field measurably improves constrained JSON output
+// quality without itself being graded.
+export const INTENT_GUESS_JSON_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "reasoning",
+    "guessed_purpose",
+    "key_changes",
+    "justification",
+    "confidence",
+  ],
+  properties: {
+    reasoning: {
+      type: "string",
+      description:
+        "Use this exclusively for scratchpad reasoning; every finding you want reported must go in the other fields, never here.",
+    },
+    guessed_purpose: {
+      type: "string",
+      description: "One or two sentences: what you believe this diff is for.",
+    },
+    key_changes: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "The specific changes that support guessed_purpose, one per array entry.",
+    },
+    justification: {
+      type: "string",
+      description:
+        "Why you believe guessed_purpose — cite specific diff hunks by file.",
+    },
+    confidence: {
+      type: "number",
+      description:
+        "0-100. Low confidence is a valid, expected answer when the diff is genuinely uninformative about intent.",
+    },
+  },
+};
 
 export type IntentGuess = {
   guessed_purpose: string;
@@ -220,6 +269,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return emit(deps, {
       ran: false,
       skipReason: "gemini-intent-guess-disabled",
+      skipClass: classifyDelegateSkip("gemini-intent-guess-disabled"),
     });
   }
 
@@ -228,6 +278,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // file.
   const rawPath = `${parsed.out}.agy-raw`;
   const promptPath = `${parsed.out}.prompt`;
+  const schemaPath = `${parsed.out}.schema.json`;
 
   // Pre-clean any stale --out from a prior run on this reused worktree.
   deps.removeFile(parsed.out);
@@ -235,10 +286,15 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   const cleanScratch = () => {
     deps.removeFile(promptPath);
     deps.removeFile(rawPath);
+    deps.removeFile(schemaPath);
   };
   const skip = (skipReason: string): number => {
     cleanScratch();
-    return emit(deps, { ran: false, skipReason });
+    return emit(deps, {
+      ran: false,
+      skipReason,
+      skipClass: classifyDelegateSkip(skipReason),
+    });
   };
 
   let diff = "";
@@ -266,11 +322,16 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   try {
     deps.mkdirp(dirname(parsed.out));
     deps.writeFile(promptPath, buildPrompt(diff, fileList));
+    deps.writeFile(schemaPath, JSON.stringify(INTENT_GUESS_JSON_SCHEMA));
   } catch {
     return skip("gemini-intent-guess-prep-failed");
   }
 
   const envelope = deps.runDelegate([
+    "--output-format",
+    "json",
+    "--json-schema",
+    schemaPath,
     "--prompt-file",
     promptPath,
     "--model",
@@ -298,18 +359,17 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return skip("gemini-intent-guess-output-unreadable");
   }
 
-  const structured = parseStructured(raw, undefined);
-  if (!structured.ok) {
+  const decoded = decodeDelegateArtifact(raw, validateIntentGuess);
+  if (!decoded.ok) {
+    // The former -output-unparseable and -output-schema-invalid reasons
+    // collapse into one: the ladder folds validation into decoding, so once
+    // no rung both parses AND validates, the two are no longer
+    // distinguishable from the caller's side.
     return skip("gemini-intent-guess-output-unparseable");
   }
 
-  const validation = validateIntentGuess(structured.value);
-  if (!validation.ok) {
-    return skip("gemini-intent-guess-output-schema-invalid");
-  }
-
   try {
-    deps.writeFile(parsed.out, JSON.stringify(validation.value, null, 2));
+    deps.writeFile(parsed.out, JSON.stringify(decoded.value, null, 2));
   } catch {
     return skip("gemini-intent-guess-finalize-failed");
   }
@@ -318,6 +378,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   return emit(deps, {
     ran: true,
     findingsPath: parsed.out,
+    decodedVia: decoded.via,
   });
 }
 

@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { validateAgentFindings } from "./lib/agent-finding-schema";
 import {
-  extractJsonObject,
+  VALID_DECORATIONS,
+  VALID_LABELS,
+  validateAgentFindings,
+} from "./lib/agent-finding-schema";
+import {
+  AGENT_FINDINGS_JSON_SCHEMA,
   isGeminiLensEnabled,
   parseArgs,
   run,
@@ -47,39 +51,10 @@ describe("isGeminiLensEnabled (config gate)", () => {
   });
 });
 
-describe("extractJsonObject", () => {
-  it("returns the object verbatim when there is no wrapper", () => {
-    expect(extractJsonObject('{"findings":[]}')).toBe('{"findings":[]}');
-  });
-
-  it("recovers an object wrapped in leading/trailing prose", () => {
-    const wrapped = 'Here are my findings:\n{"findings":[]}\nDone.';
-    expect(extractJsonObject(wrapped)).toBe('{"findings":[]}');
-  });
-
-  it("recovers an object inside a ```json fence", () => {
-    const fenced = '```json\n{"findings":[]}\n```';
-    expect(extractJsonObject(fenced)).toBe('{"findings":[]}');
-  });
-
-  it("returns null when there is no brace pair", () => {
-    expect(extractJsonObject("no json here at all")).toBeNull();
-    expect(extractJsonObject("")).toBeNull();
-    expect(extractJsonObject("} only a close brace {")).toBeNull();
-  });
-
-  // Pins the load-bearing lastIndexOf("}") (vs a first-`}` indexOf): a payload
-  // with nested braces must be recovered whole, not truncated at the inner `}`.
-  // A naive indexOf rewrite passes the empty-body cases above but fails here.
-  it("recovers a non-empty payload with nested braces (lastIndexOf, not indexOf)", () => {
-    const nested = '{"findings":[{"file":"x"}]}';
-    expect(extractJsonObject(nested)).toBe(nested);
-    const wrapped = 'My review:\n{"findings":[{"file":"x","line":1}]}\nEnd.';
-    expect(extractJsonObject(wrapped)).toBe(
-      '{"findings":[{"file":"x","line":1}]}',
-    );
-  });
-});
+// `extractJsonObject` moved to `bin/lib/structured-response.ts` (rung 3 of
+// the decode ladder); its own test suite now lives there
+// (`bin/lib/structured-response.test.ts`'s `describe("extractJsonObject")`)
+// rather than duplicated here — this file no longer imports the function.
 
 describe("parseArgs", () => {
   it("requires --worktree, --diff-file, --out", () => {
@@ -187,6 +162,7 @@ describe("run — gate", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-lens-disabled",
+      skipClass: "environment",
     });
     expect(deps.calls.delegate).toHaveLength(0);
     expect(deps.files.has(OUT)).toBe(false);
@@ -215,6 +191,7 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-not-found",
+      skipClass: "environment",
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -224,7 +201,11 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
       runDelegate: () => ({ ran: false }),
     });
     run(BASE_ARGV, deps);
-    expect(envelope(deps)).toEqual({ ran: false, skipReason: "agy-skip" });
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "agy-skip",
+      skipClass: "ran-unusable",
+    });
   });
 });
 
@@ -243,7 +224,7 @@ describe("run — conformant output", () => {
     expect(validateAgentFindings(finalized).ok).toBe(true);
   });
 
-  it("recovers a prose-wrapped / fenced conformant payload via extractJsonObject", () => {
+  it("recovers a prose-wrapped / fenced conformant payload via the decodeDelegateArtifact ladder", () => {
     const deps = makeDeps({
       runDelegate: (argv) => {
         deps.calls.delegate.push(argv);
@@ -258,9 +239,145 @@ describe("run — conformant output", () => {
       },
     });
     expect(run(BASE_ARGV, deps)).toBe(0);
-    expect(envelope(deps)).toMatchObject({ ran: true, findingCount: 1 });
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      findingCount: 1,
+      decodedVia: "response-parse",
+    });
     expect(validateAgentFindings(JSON.parse(deps.files.get(OUT)!)).ok).toBe(
       true,
+    );
+  });
+
+  // S1: a `flow-delegate --output-format json` envelope whose `.response`
+  // opens with a prose sentence but whose `.structured_output` carries the
+  // clean, schema-valid findings object — must decode via rung 1
+  // (structured-output), never falling through to the prose rungs.
+  it("succeeds via decodedVia:'structured-output' on an envelope with a prose-preamble .response", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(
+          rawPath,
+          JSON.stringify({
+            response:
+              "Here is my full review of the diff: " +
+              JSON.stringify({ findings: [VALID_FINDING] }),
+            structured_output: { findings: [VALID_FINDING] },
+          }),
+        );
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      findingCount: 1,
+      decodedVia: "structured-output",
+    });
+    const finalized = JSON.parse(deps.files.get(OUT)!);
+    expect(validateAgentFindings(finalized).ok).toBe(true);
+    // MANDATORY re-projection: the finalized file is exactly {findings},
+    // never leaking a schema-supplied top-level `reasoning` key.
+    expect(finalized).toEqual({ findings: [VALID_FINDING] });
+  });
+
+  // S2: a plain-prose, non-envelope raw artifact (the pre-this-PR, non-json
+  // mode shape) must decode byte-identically to before, via rung 2
+  // (response-parse).
+  it("decodes a plain-prose non-envelope artifact identically to before (S2)", () => {
+    const deps = makeDeps();
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      findingCount: 1,
+      decodedVia: "response-parse",
+    });
+    const finalized = JSON.parse(deps.files.get(OUT)!);
+    expect(finalized).toEqual({ findings: [VALID_FINDING] });
+  });
+
+  // S5: the wire-schema scratch file must never survive either exit path.
+  it("removes the .schema.json scratch file after a success exit (S5)", () => {
+    const deps = makeDeps();
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(deps.files.has(`${OUT}.schema.json`)).toBe(false);
+  });
+
+  it("removes the .schema.json scratch file after a skip exit (S5)", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        return { ran: false, skipReason: "agy-not-found" };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(deps.files.has(`${OUT}.schema.json`)).toBe(false);
+  });
+
+  // S5: flag presence, never exact argv array equality — every stub above
+  // resolves the raw path via argv.indexOf('--out') + 1.
+  it("passes --output-format json and --json-schema <path> to flow-delegate (S5)", () => {
+    const deps = makeDeps();
+    run(BASE_ARGV, deps);
+    const argv = deps.calls.delegate[0]!;
+    expect(argv).toContain("--output-format");
+    expect(argv[argv.indexOf("--output-format") + 1]).toBe("json");
+    expect(argv).toContain("--json-schema");
+    expect(argv[argv.indexOf("--json-schema") + 1]).toBe(`${OUT}.schema.json`);
+  });
+
+  it("writes AGENT_FINDINGS_JSON_SCHEMA to the --json-schema scratch path before dispatch", () => {
+    const deps = makeDeps();
+    run(BASE_ARGV, deps);
+    const write = deps.calls.writes.find(
+      (w) => w.path === `${OUT}.schema.json`,
+    );
+    expect(write).toBeDefined();
+    expect(JSON.parse(write!.contents)).toEqual(AGENT_FINDINGS_JSON_SCHEMA);
+  });
+
+  it("has AGENT_FINDINGS_JSON_SCHEMA on disk at the --json-schema path BEFORE dispatch (asserted from inside the delegate stub, not after run() returns)", () => {
+    // `deps.calls.writes` and `deps.calls.delegate` are separate arrays with
+    // no interleaved ordering, so asserting on them after `run()` returns
+    // only proves the write happened, not that it happened first. Asserting
+    // from inside the `runDelegate` stub observes dispatch time directly:
+    // if a refactor ever moved the schema write below the delegate call,
+    // this assertion (unlike the one above) would go red.
+    let schemaOnDiskAtDispatch: string | undefined;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const schemaPath = argv[argv.indexOf("--json-schema") + 1]!;
+        schemaOnDiskAtDispatch = deps.files.get(schemaPath);
+        const rawPathIdx = argv.indexOf("--out") + 1;
+        const rawPath = argv[rawPathIdx]!;
+        deps.files.set(rawPath, JSON.stringify({ findings: [VALID_FINDING] }));
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(schemaOnDiskAtDispatch).toBeDefined();
+    expect(JSON.parse(schemaOnDiskAtDispatch!)).toEqual(
+      AGENT_FINDINGS_JSON_SCHEMA,
+    );
+  });
+
+  // S6: the schema's label/decoration enums must be SET-EQUAL to the
+  // exported validator enums so the two cannot silently drift apart.
+  it("keeps AGENT_FINDINGS_JSON_SCHEMA's label/decoration enums in set-equality with VALID_LABELS/VALID_DECORATIONS (S6)", () => {
+    const schema = AGENT_FINDINGS_JSON_SCHEMA as {
+      properties: {
+        findings: {
+          items: { properties: Record<string, { enum?: string[] }> };
+        };
+      };
+    };
+    const findingProps = schema.properties.findings.items.properties;
+    expect(new Set(findingProps.label!.enum)).toEqual(new Set(VALID_LABELS));
+    expect(new Set(findingProps.decoration!.enum)).toEqual(
+      new Set(VALID_DECORATIONS),
     );
   });
 
@@ -279,33 +396,25 @@ describe("run — conformant output", () => {
 });
 
 describe("run — malformed payloads drop the lens, never throw, leave no valid file", () => {
+  // All five shapes collapse into the SAME skipReason now:
+  // decodeDelegateArtifact folds parse and validate into one ladder, so a
+  // payload that parses but fails validation is no longer distinguishable
+  // from one that never parsed at all — this is a rewrite of the former,
+  // since-removed `-output-schema-invalid` cases, not a deletion of their
+  // coverage.
   it.each([
-    [
-      "non-JSON prose",
-      "I reviewed the diff and found nothing.",
-      "gemini-output-unparseable",
-    ],
-    [
-      "JSON array, not {findings}",
-      JSON.stringify([VALID_FINDING]),
-      "gemini-output-schema-invalid",
-    ],
-    [
-      "JSON object without findings",
-      JSON.stringify({ foo: 1 }),
-      "gemini-output-schema-invalid",
-    ],
+    ["non-JSON prose", "I reviewed the diff and found nothing."],
+    ["JSON array, not {findings}", JSON.stringify([VALID_FINDING])],
+    ["JSON object without findings", JSON.stringify({ foo: 1 })],
     [
       "findings with an unrecoverable bad label",
       JSON.stringify({ findings: [{ ...VALID_FINDING, label: "xyzzy" }] }),
-      "gemini-output-schema-invalid",
     ],
     [
       "findings missing a required field",
       JSON.stringify({ findings: [{ subject: "no file/line" }] }),
-      "gemini-output-schema-invalid",
     ],
-  ])("drops %s with skipReason %s", (_name, raw, expectedReason) => {
+  ])("drops %s with skipReason gemini-output-unparseable", (_name, raw) => {
     const deps = makeDeps({
       runDelegate: (argv) => {
         deps.calls.delegate.push(argv);
@@ -315,7 +424,11 @@ describe("run — malformed payloads drop the lens, never throw, leave no valid 
       },
     });
     expect(() => run(BASE_ARGV, deps)).not.toThrow();
-    expect(envelope(deps)).toEqual({ ran: false, skipReason: expectedReason });
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "gemini-output-unparseable",
+      skipClass: "ran-unusable",
+    });
     // CRITICAL: no consolidator-valid agent-output-gemini.json left behind.
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -345,6 +458,73 @@ describe("run — malformed payloads drop the lens, never throw, leave no valid 
       true,
     );
   });
+
+  // Same coercion, but fed through `structured_output` (rung 1) instead of
+  // `.response` prose (rung 2). The module header claims normalization
+  // applies to EVERY rung, including structured_output — this pins it: a
+  // rewrite that drops normalizeParsedFindings from the structured-rung path
+  // (e.g. `validateAgentFindings(candidate)` with no normalize call) would
+  // hard-drop this payload and turn this test red, where the rung-2-only
+  // coercible test above would stay green.
+  it("normalizes bad-but-coercible findings arriving via structured_output too (rung 1)", () => {
+    const coercibleViaStructured = {
+      file: "src/foo.ts",
+      line: 7,
+      label: "issue",
+      decoration: "(blocking)",
+      confidence: 90,
+      title:
+        "coercible via structured_output: title->subject and paren-stripped decoration",
+      body: "details",
+    };
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(
+          rawPath,
+          JSON.stringify({
+            response: "irrelevant prose the structured channel bypasses",
+            structured_output: { findings: [coercibleViaStructured] },
+          }),
+        );
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      findingCount: 1,
+      decodedVia: "structured-output",
+    });
+    expect(validateAgentFindings(JSON.parse(deps.files.get(OUT)!)).ok).toBe(
+      true,
+    );
+  });
+
+  // MANDATORY re-projection: validateAgentFindings tolerates extra
+  // top-level keys and returns the input unmodified, so a schema-supplied
+  // `reasoning` key must never survive into the finalized file.
+  it("never lets a schema-supplied top-level reasoning key leak into the finalized file", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(
+          rawPath,
+          JSON.stringify({
+            reasoning: "scratchpad notes that must never reach --out",
+            findings: [VALID_FINDING],
+          }),
+        );
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    const finalized = JSON.parse(deps.files.get(OUT)!);
+    expect(finalized).toEqual({ findings: [VALID_FINDING] });
+    expect(finalized).not.toHaveProperty("reasoning");
+  });
 });
 
 describe("run — IO-throw catch branches each map to a graceful skip, never throw, leave no valid file", () => {
@@ -359,6 +539,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-diff-unreadable",
+      skipClass: "environment",
     });
     expect(deps.files.has(OUT)).toBe(false);
     expect(deps.calls.delegate).toHaveLength(0);
@@ -374,6 +555,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-prep-failed",
+      skipClass: "environment",
     });
     expect(deps.files.has(OUT)).toBe(false);
     expect(deps.calls.delegate).toHaveLength(0);
@@ -390,6 +572,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-output-unreadable",
+      skipClass: "ran-unusable",
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -408,6 +591,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-finalize-failed",
+      skipClass: "ran-unusable",
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -430,6 +614,7 @@ describe("run — cross-run staleness: a prior --out is cleared before any skip 
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-output-unparseable",
+      skipClass: "ran-unusable",
     });
     // CRITICAL: the stale run-1 file is gone — the consolidator can't consume it.
     expect(deps.files.has(OUT)).toBe(false);

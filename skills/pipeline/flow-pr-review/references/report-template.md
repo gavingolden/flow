@@ -9,7 +9,7 @@ Use this format for the structured report at the end of every PR review.
 
 - **PR size**: +<additions> -<deletions> across <N> files
 - **Agents**: 6 ran, <M> findings above 80 confidence, <P> praise observations
-- **Cross-model (Gemini) lens**: ran (<N> findings) / skipped (<skipReason>) — reflects the `flow-gemini-lens` `{ran}` result (off by default; only "ran" when `review.gemini` is enabled and `agy` is available)
+- **Cross-model (Gemini) lens**: `ran (<N> findings[, decoded via <decodedVia>])` (the bracketed clause appears ONLY when `decodedVia` is not `structured-output`, so a silently-degrading model surface stays visible without adding noise to the happy path) / `not run (<skipReason>) — pre-dispatch gate or local precondition failed, no quota spent` (`skipClass: environment`) / `ran but unusable (<skipReason>) — the cross-model call executed and spent quota but returned nothing the review could use` (`skipClass: ran-unusable`) — reflects the `flow-gemini-lens` `{ran}` result (off by default; only "ran" when `review.gemini` is enabled and `agy` is available)
 - **Blocking issues**: <count>
 - **Inline review comments addressed**: <count> (or "none" when the PR had none)
 

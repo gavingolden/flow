@@ -76,7 +76,7 @@ export type ValidationOk<T> = { ok: true; value: T };
 export type ValidationErr = { ok: false; reason: string; path?: string };
 export type ValidationResult<T> = ValidationOk<T> | ValidationErr;
 
-const VALID_LABELS: ReadonlySet<string> = new Set([
+export const VALID_LABELS: ReadonlySet<string> = new Set([
   "praise",
   "nitpick",
   "suggestion",
@@ -85,7 +85,7 @@ const VALID_LABELS: ReadonlySet<string> = new Set([
   "question",
 ]);
 
-const VALID_DECORATIONS: ReadonlySet<string> = new Set([
+export const VALID_DECORATIONS: ReadonlySet<string> = new Set([
   "blocking",
   "non-blocking",
   "if-minor",
