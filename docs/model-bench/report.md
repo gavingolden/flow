@@ -107,6 +107,7 @@
 - Latency is read from durationSeconds (agy's own model-time reading), never the fanout's pool wall-clock.
 - A non-discriminating case contributes no clear verdict for any candidate on that surface.
 - Non-discriminating this run: c9b-pushback-control (free-form).
+
 ## Production-scaffold reference
 
 Not captured this run. The plan called for one manually-captured
