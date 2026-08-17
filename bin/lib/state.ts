@@ -296,6 +296,11 @@ export const TERMINAL_PHASES = [
 
 export const PENDING_PHASES = [
   "plan-pending-review",
+  // Intent interview (adaptive), step 3's post-discovery question gate.
+  // Re-renderable from `.flow-tmp/interview-questions.md`. Grouped next to
+  // its sibling `plan-pending-review` (pipeline phases first, epic phases
+  // last — order isn't load-bearing, but keeps the list readable).
+  "plan-pending-interview",
   "triaged-no-change",
   "triage-pending-clarification",
   // Intent interview (adaptive), step 1. Distinct from
@@ -314,9 +319,6 @@ export const PENDING_PHASES = [
   // Epic-designer review checkpoint (the open design PR). `flow-stop-guard`
   // must permit ending the turn here, so it is a pending phase.
   "epic-design-pending-review",
-  // Intent interview (adaptive), step 3's post-discovery question gate.
-  // Re-renderable from `.flow-tmp/interview-questions.md`.
-  "plan-pending-interview",
 ] as const;
 
 export const STEP_PHASES = [
@@ -517,6 +519,7 @@ export const PHASE_SHORT: Record<PipelinePhase, string> = {
   gating: "gate",
   merging: "merge",
   "plan-pending-review": "plan?",
+  "plan-pending-interview": "planq?",
   "triaged-no-change": "no-chg",
   "triage-pending-clarification": "triage?",
   "triage-pending-interview": "intq?",
@@ -532,7 +535,6 @@ export const PHASE_SHORT: Record<PipelinePhase, string> = {
   "epic-pr-open": "e-pr",
   "epic-design-pending-review": "e-rvw?",
   "epic-approved": "e-ok",
-  "plan-pending-interview": "planq?",
 };
 
 /**

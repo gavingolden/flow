@@ -486,9 +486,17 @@ export function decide(inputs: Inputs): DecisionResult {
   // Intent interview (adaptive), step 3's post-discovery question gate:
   // discovery paused before writing plan.md, so this would already resolve
   // to step-3 via the bare `!inputs.planExists` check below — this explicit
-  // branch exists only to surface the interview-specific reason and
-  // `.flow-tmp/interview-questions.md` re-render pointer via `ctx.interview`.
-  if (inputs.state.phase === "plan-pending-interview") {
+  // branch exists only to surface the interview-specific reason. `ctx.interview`
+  // (when set) is `state.interview` — the text digest carried over from a
+  // step-1 triage interview, if any — NOT a pointer to
+  // `.flow-tmp/interview-questions.md`; the agent re-renders that battery
+  // straight off the file, keyed on `state.phase === "plan-pending-interview"`,
+  // regardless of whether `ctx.interview` is set. Guarded by `!inputs.planExists`
+  // so a crash between discovery's post-answer re-run finishing and the
+  // supervisor's phase write to `plan-pending-review` doesn't re-render an
+  // already-answered battery — a landed `plan.md` falls through to the
+  // normal Row-4 approval re-entry below instead.
+  if (inputs.state.phase === "plan-pending-interview" && !inputs.planExists) {
     if (inputs.state.interview !== undefined) {
       ctx.interview = inputs.state.interview;
     }

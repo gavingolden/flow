@@ -390,11 +390,15 @@ recommend would be a guess dressed as a decision.
   rather than ship it.
 
 **On fire:** write `.flow-tmp/interview-questions.md` in the
-`references/interview-playbook.md` `## 3. Question format` shape —
+`../../flow-pipeline/references/interview-playbook.md` `## 3. Question format` shape —
 stable `Q<n>` ids, category headings, lettered options where sensible,
-one `Recommended:` line per question — covering exactly the fork(s)
-that invalidated every plan branch (and, on the mechanical-floor path,
-the `**Needs user input:**` items that tripped it). Do **NOT** write
+covering exactly the fork(s) that invalidated every plan branch (and, on
+the mechanical-floor path, the `**Needs user input:**` items that
+tripped it). Include a `Recommended:` line where a defensible lean
+exists among the options (even a genuinely-invalidating fork can have a
+lettered option that's marginally better-grounded than the others); a
+genuinely open fork with no defensible lean states `Recommended: none —
+genuinely open` instead of forcing a coin-flip pick. Do **NOT** write
 `plan.md` or `pr-description-draft.md` on this path — the question gate
 is instead-of, not alongside. Return the `Questions:` summary variant
 (`## 9`) instead of the normal artifact-paths summary.

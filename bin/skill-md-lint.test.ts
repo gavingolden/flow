@@ -4600,12 +4600,18 @@ describe("pr-review include-by-reference structure", () => {
     // content, not incidental bloat. File lands at 2815 lines — raised
     // the ceiling to 2830 (15 lines of genuine headroom), same
     // discipline as the precedents above.
+    // pr-review fix pass (PR #637): the step-1 per-round persistence fix,
+    // the step-3 question-gate post-answer persistence fix, and the
+    // reconciled step-3 resume-row wording are genuine correctness content
+    // fixing a mid-interview data-loss bug, not incidental bloat. File
+    // lands at 2845 lines — raised the ceiling to 2860 (15 lines of
+    // genuine headroom), same discipline as the precedents above.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2830 lines. Material regrowth past this ceiling would ` +
+        `budget of 2860 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2830);
+    ).toBeLessThan(2860);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -7650,7 +7656,7 @@ describe("pause-output contract wiring lint", () => {
     }
   });
 
-  it("flow-pipeline/SKILL.md references pause-output-contract.md at ≥7 pause sites", () => {
+  it("flow-pipeline/SKILL.md references pause-output-contract.md at ≥9 pause sites", () => {
     const c = fs.readFileSync(
       path.join(REPO_ROOT, "skills", "pipeline", "flow-pipeline", "SKILL.md"),
       "utf8",
@@ -7665,10 +7671,11 @@ describe("pause-output contract wiring lint", () => {
     expect(
       matches.length,
       "flow-pipeline SKILL.md must reference `references/pause-output-contract.md` " +
-        "at each of its seven informal pause sites (triage clarification, plan " +
+        "at each of its nine informal pause sites (triage clarification, plan " +
         "summary, checkpoint nudge, approval clarification, gated feedback, " +
-        "post-render QA, resume-mode terminal QA).",
-    ).toBeGreaterThanOrEqual(7);
+        "post-render QA, resume-mode terminal QA, step-1 intent interview, " +
+        "step-3 question-gate interview).",
+    ).toBeGreaterThanOrEqual(9);
   });
 
   it("each wired sibling SKILL.md references the contract via a resolvable cross-skill path", () => {
@@ -7691,6 +7698,29 @@ describe("pause-output contract wiring lint", () => {
   it("AGENTS.md carries the binding pause-point bullet", () => {
     const c = fs.readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf8");
     expect(c).toContain("**Structure every pause-point message.**");
+  });
+
+  it("interview-playbook.md ships no AskUserQuestion site and no numeric question/round cap", () => {
+    // Converts the PR's two one-shot Test Steps checklist greps into a
+    // durable regression: the intent interview (adaptive) is a one-form-rule
+    // exemption (no new AskUserQuestion form) with an explicit no-numeric-cap
+    // user clarification, and a future edit to interview-playbook.md could
+    // silently reintroduce either without any signal short of this lint.
+    const c = fs.readFileSync(
+      path.join(
+        REPO_ROOT,
+        "skills",
+        "pipeline",
+        "flow-pipeline",
+        "references",
+        "interview-playbook.md",
+      ),
+      "utf8",
+    );
+    expect(c).not.toMatch(/AskUserQuestion/);
+    expect(c).not.toMatch(
+      /at most \d+ questions|≤ ?\d+ questions|maximum of \d+ (questions|rounds)/i,
+    );
   });
 
   it("references/output-style.md carries the section and both carve-outs", () => {

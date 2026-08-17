@@ -469,6 +469,14 @@ describe("runUpdate", () => {
     expect(got?.phase).toBe("gating");
   });
 
+  it("preserves interview across a later update that omits --interview-stdin", () => {
+    seed("csv-export", { interview: "Q1: scope\nA: whole repo" });
+    expect(runUpdate(["csv-export", "--phase", "planning"], dir)).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.interview).toBe("Q1: scope\nA: whole repo");
+    expect(got?.phase).toBe("planning");
+  });
+
   it("preserves autoMerge across phase-only updates", () => {
     seed("csv-export", { autoMerge: false });
     expect(runUpdate(["csv-export", "--phase", "gating"], dir)).toBe(0);
@@ -819,6 +827,28 @@ describe("--interview-stdin (spawned binary)", () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toContain(
       "cannot combine --answer-stdin and --interview-stdin",
+    );
+  });
+
+  it("REPLACES the prior digest rather than merging on a second round write", () => {
+    seedState("rounds");
+    const r1 = run(
+      "rounds",
+      ["--phase", "triage-pending-interview", "--interview-stdin"],
+      "Q1: scope\nA: whole repo\n",
+    );
+    expect(r1.status).toBe(0);
+    expect(readInterview("rounds")).toBe("Q1: scope\nA: whole repo");
+
+    const r2 = run(
+      "rounds",
+      ["--phase", "triage-pending-interview", "--interview-stdin"],
+      "Q1: scope\nA: whole repo\nQ2: budget\nA: unbounded\n",
+    );
+    expect(r2.status).toBe(0);
+    // Round 2's digest fully replaces round 1's — no trace of a merge.
+    expect(readInterview("rounds")).toBe(
+      "Q1: scope\nA: whole repo\nQ2: budget\nA: unbounded",
     );
   });
 });

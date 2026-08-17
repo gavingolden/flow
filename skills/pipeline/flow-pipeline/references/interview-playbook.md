@@ -54,8 +54,8 @@ applies:
   per-run `flow feature create --no-interview` override, or the
   `~/.flow/config.json` `interview.enabled` key set to `false` (see
   `docs/configuration.md`), disables the trigger outright regardless
-  of judgment. The inverse override, `interviewMode: "force"` (`flow
-feature create --interview`), forces the trigger on even when a
+  of judgment. The inverse override, `interviewMode: "force"`
+  (`flow feature create --interview`), forces the trigger on even when a
   carve-out above would otherwise skip it.
 
 **Safe-by-default tie-breaker.** When you cannot confidently place the
@@ -68,16 +68,22 @@ out to have been unambiguous costs one round the user can clear with
 `proceed` (cheap — see `## 6. Escape verbs`). Do not skip a borderline
 case to save a round — the safe default is to ask.
 
-**Mechanical floor (no judgment applied).** A change-intent prompt
-under approximately 50 characters with no file/symbol anchor
-**mechanically fires the interview** — this is a bright-line check, not
-a judgment call, so it survives even when a lens above is trying to
-argue for a carve-out. "add rate limiting" (18 characters, no anchor)
-fires on the floor alone, independent of the time-critical judgment
-above. This floor exists precisely because short, anchor-free prompts
-are the shape most likely to be under-specified, and the mechanical
-check is cheap to apply even when the judgment gates above are close
-calls.
+**Mechanical floor (no judgment applied, evaluated last).** Evaluate the
+named carve-outs above FIRST; the floor below applies only when none of
+them matched. A change-intent prompt under approximately 50 characters
+with no file/symbol anchor **mechanically fires the interview** once it
+has cleared every carve-out — this is a bright-line check, not a
+judgment call, so it survives even when a lens above is trying to argue
+for firing on ambiguity alone once no carve-out applies. "add rate
+limiting" (18 characters, no anchor) fires on the floor alone,
+independent of the time-critical judgment above, because no carve-out
+matched it. A prompt that DOES match a named carve-out (expert-specified,
+trivial, time-critical, epic-launched, or an explicit skip override) is
+skipped regardless of length — the floor never overrides a matched
+carve-out. This floor exists precisely because short, anchor-free
+prompts are the shape most likely to be under-specified, and the
+mechanical check is cheap to apply even when the judgment gates above
+are close calls.
 
 ## 2. Frontier-round protocol
 

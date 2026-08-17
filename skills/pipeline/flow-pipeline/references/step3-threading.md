@@ -119,6 +119,9 @@ append an `INTERVIEW: <digest>` marker line to the
 new fan-out site:
 
 ```bash
+# Env-first, tmux-pane fallback — the plain shell launcher (the default)
+# never sets $TMUX_PANE, so $SLUG must resolve from $FLOW_SLUG first.
+SLUG=${FLOW_SLUG:-$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug 2>/dev/null)}
 INTERVIEW_DIGEST=$(jq -r '.interview // empty' ~/.flow/state/"$SLUG".json)
 # When non-empty, append `INTERVIEW: $INTERVIEW_DIGEST` to the invocation.
 ```
@@ -141,7 +144,7 @@ under a **distinct** label — `INTERVIEW ANSWERS (post-discovery):
 answers gathered before this discovery run started" (`INTERVIEW:`) apart
 from "answers to THIS discovery run's own question gate"
 (`INTERVIEW ANSWERS (post-discovery):`). Both may be present on a
-re-invocation that follows both an step-1 interview and a step-3 question
+re-invocation that follows both a step-1 interview and a step-3 question
 gate.
 
 ## Deterministic forced research (mandatory on the forced path)

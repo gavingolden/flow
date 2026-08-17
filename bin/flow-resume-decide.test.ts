@@ -609,6 +609,7 @@ describe("decide() — intent interview pending phases", () => {
       }),
     );
     expect(r.resumeAt).toBe("step-1");
+    expect(r.reason).toBe("awaiting-triage-interview-answers");
     expect(r.context.interview).toBe("Q1: scope\nA: whole repo");
   });
 
@@ -640,6 +641,31 @@ describe("decide() — intent interview pending phases", () => {
     expect(r.resumeAt).toBe("step-3");
     expect(r.reason).toBe("awaiting-plan-interview-answers");
     expect(r.context.interview).toBe("Q1: scope\nA: whole repo");
+  });
+
+  it("resumes at step-3 for 'plan-pending-interview' with interview absent when state.interview is unset", () => {
+    const r = decide(
+      makeInputs({
+        planExists: false,
+        state: baseState({ phase: "plan-pending-interview" }),
+      }),
+    );
+    expect(r.resumeAt).toBe("step-3");
+    expect(r.reason).toBe("awaiting-plan-interview-answers");
+    expect(r.context).not.toHaveProperty("interview");
+  });
+
+  it("falls through to step-4 when 'plan-pending-interview' is stale and plan.md already landed", () => {
+    const r = decide(
+      makeInputs({
+        planExists: true,
+        state: baseState({
+          phase: "plan-pending-interview",
+          interview: "Q1: scope\nA: whole repo",
+        }),
+      }),
+    );
+    expect(r.resumeAt).toBe("step-4");
   });
 });
 

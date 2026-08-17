@@ -551,8 +551,9 @@ When the trigger **fires**:
 1. Write `flow-state-update --phase triage-pending-interview`.
 2. Render the current frontier round per the playbook's `## 3. Question
    format` — every question numbered `Q<n>`, grouped under its category
-   heading — inside the `## 8. Pause-output-contract slot templates`
-   shape (labeled slots, no open prose).
+   heading — inside the `references/pause-output-contract.md` slot
+   shape (template: `references/interview-playbook.md` `## 8`; labeled
+   slots, no open prose).
    <!-- any new pause site below must reference pause-output-contract.md -->
 3. End the turn.
 4. On the user's reply, parse it per the playbook's `## 5. Answer
@@ -560,14 +561,19 @@ When the trigger **fires**:
    answer silently adopts that question's `Recommended:` option) or
    route an escape verb per `## 6` (`proceed` / `skip interview` /
    `cancel`).
-5. Recompute the frontier: settled answers may reveal new questions
+5. Immediately after parsing the reply — BEFORE recomputing the
+   frontier — persist the full interview digest so far (every question
+   asked in every round up to and including this one, and its
+   resolution) via `flow-state-update --interview-stdin` (see the
+   playbook's `## 7. Persistence contract`; the write REPLACES the
+   prior digest with the full interview-to-date, not a delta). This
+   per-round write is what makes a mid-interview crash or `/clear`
+   recoverable — a resumed session re-renders from the last persisted
+   round instead of losing every answered round since the interview
+   started.
+6. Recompute the frontier: settled answers may reveal new questions
    (push them to the next round) or the frontier may be empty (proceed
    to step 2). Repeat from step 2 above for a non-empty frontier.
-6. Before advancing to step 2, persist the full interview digest —
-   every question asked and its resolution — via
-   `flow-state-update --interview-stdin` (see the playbook's `## 7.
-   Persistence contract`; the write REPLACES the prior digest with the
-   full interview-to-date, not a delta).
 
 This sub-step is DISTINCT from the unparseable-input branch below
 (**Ambiguous** → `triage-pending-clarification`): that branch is a
@@ -1029,11 +1035,19 @@ branch is invalidated by an unanswered fork. On that signal:
    `references/interview-playbook.md` `## 8`).
    <!-- any new pause site below must reference pause-output-contract.md -->
 3. End the turn.
-4. On the next turn, re-invoke `/flow-product-planning` appending
-   `INTERVIEW ANSWERS (post-discovery): <answers>` onto the same
-   threading channel as `## Invocation threading` above, so discovery
-   resumes with the answers as load-bearing context instead of
-   re-deriving the plan from scratch.
+4. On the next turn, BEFORE re-invoking `/flow-product-planning`,
+   persist the post-gate digest — the union of the question-gate
+   battery's questions/answers and any existing triage digest from
+   `state.interview` — via `flow-state-update --phase planning
+   --interview-stdin` (see the playbook's `## 7. Persistence contract`;
+   the write REPLACES the prior digest with the full interview-to-date).
+   This is what moves the phase off `plan-pending-interview` and makes
+   the answers survive a crash between this write and discovery's
+   post-answer re-run finishing. Then re-invoke `/flow-product-planning`
+   appending `INTERVIEW ANSWERS (post-discovery): <answers>` onto the
+   same threading channel as `## Invocation threading` above, so
+   discovery resumes with the answers as load-bearing context instead
+   of re-deriving the plan from scratch.
 
 **At most one question-gate fire per pipeline.** If `.flow-tmp/plan.md`
 is still absent after the post-answer re-invocation (a second
@@ -2483,7 +2497,7 @@ Branch on `.resumeAt`:
 |---|---|
 | `step-1` | Re-enter step 1's Intent interview (adaptive) sub-step. `.context.interview` (when present) carries `state.interview`'s persisted digest — re-render the frontier's unanswered questions from it (do NOT re-derive the frontier from scratch) and continue the round protocol from `references/interview-playbook.md`. |
 | `step-2` | Re-enter step 2 (worktree). Recreate via `flow-new-worktree`. |
-| `step-3` | Re-enter step 3 (plan). If `state.phase` was `plan-pending-interview`, `.context.interview` carries the persisted digest — re-render `.flow-tmp/interview-questions.md`'s battery instead of blindly re-invoking discovery. Otherwise re-invoke `/flow-product-planning`. |
+| `step-3` | Re-enter step 3 (plan). If `state.phase` was `plan-pending-interview`, re-render the battery from `.flow-tmp/interview-questions.md` on disk (the file, not `.context.interview`) instead of blindly re-invoking discovery; `.context.interview`, when present, carries only the prior triage-side digest as background context for framing the re-render, never the battery itself. Otherwise re-invoke `/flow-product-planning`. |
 | `step-4` | Re-enter step 4 (approval). Re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
 | `step-5` | Re-enter step 5 (implement). Re-invoke `/flow-new-feature`. |
 | `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow install --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
