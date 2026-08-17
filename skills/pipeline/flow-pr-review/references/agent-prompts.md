@@ -667,8 +667,9 @@ conventional-comments rules exactly:
 - Output **ONLY a single JSON object** of shape `{"findings": [...]}` — **no
   prose, no preamble, no markdown code fence**. The first output character
   must be `{` and the last `}`. (This is the explicit mitigation for Gemini
-  prose-wrapping; the helper additionally tolerates a wrapper defensively via
-  `extractJsonObject`, but the prompt must still demand a bare object.)
+  prose-wrapping; the helper also pins a wire-level `--json-schema` and
+  decodes the response through a `structured_output`-first ladder in
+  `bin/lib/structured-response.ts`, but the prompt must still demand a bare object.)
 - Each finding: `{file, line, end_line?, label, decoration, confidence,
 subject, body}` per `bin/lib/agent-finding-schema.ts`.
 - `label`: one of `praise | nitpick | suggestion | issue | todo | question`.

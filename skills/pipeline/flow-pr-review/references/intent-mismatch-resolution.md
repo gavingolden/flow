@@ -56,12 +56,20 @@ flow-gemini-intent-guess --worktree "$WORKTREE" \
   --out "$WORKTREE/.flow-tmp/intent-guess-gemini.json"
 ```
 
+The Bash tool call MUST pass an explicit `timeout: 600000`, since its own
+120000 ms default undercuts flow-delegate's 5m agy call cap.
+
 Branch on the helper's `{ran}` stdout envelope, never the exit code (it
 exits 0 on every graceful path): `ran: true` → `intent-guess-gemini.json`
-is schema-valid and feeds Step 3.6's cross-model agreement weighing;
-`ran: false` → record `skipReason` and proceed with only the diff-only
-agent's guess. Gate off, agy absent/unauthenticated, or unparseable agy
-output are all graceful skips — never a hard failure.
+is schema-valid (decoded via the `structured_output`-first ladder in
+`bin/lib/structured-response.ts`) and feeds Step 3.6's cross-model
+agreement weighing; `ran: false` → record `skipReason` AND its
+`skipClass`, reported distinctly, never folded into one generic "skipped"
+phrase: `environment` (gate off, agy absent/unauthenticated — a genuine
+no-op, no quota spent) vs `ran-unusable` (the agy call ran but its output
+was unparseable/invalid — quota may have been spent for nothing). Either
+class proceeds with only the diff-only agent's guess — never a hard
+failure.
 
 ## 3.6. Intent-mismatch resolution — full detail
 

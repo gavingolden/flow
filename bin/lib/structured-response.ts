@@ -6,15 +6,7 @@
  * Extraction is tried in order, first candidate that parses to a JSON object
  * wins: (1) the whole trimmed text, (2) a fenced ```json / ``` block, (3) the
  * first balanced `{...}` span in the text (string-literal aware, so a brace
- * inside a JSON string value never desyncs the depth count). This is a more
- * robust sibling of the naive first-`{`-to-last-`}` `extractJsonObject` still
- * used in `bin/flow-gemini-lens.ts`. `bin/flow-gemini-intent-guess.ts` has
- * migrated to `parseStructured` (this module) instead of its former naive
- * decoder. `bin/flow-gemini-lens.ts` deliberately retains its own naive copy:
- * its `findings[]` output quality is a recall concern, not a strict-parse
- * concern, so swapping its decoder risks trading a loud rare parse-skip for a
- * silent constant recall loss — a known, deliberately unconsolidated gap, not
- * an oversight.
+ * inside a JSON string value never desyncs the depth count).
  *
  * Validation follows the `ValidationResult` prose conventions of
  * `bin/lib/design-spec-schema.ts`: a single `reason` string naming the
@@ -23,6 +15,32 @@
  * `{type}`) are consulted — this is a schema-FREE helper, not a full
  * JSON-Schema implementation. A non-object schema, or one with no `required`,
  * validates shape-only (an object was recovered) and returns ok.
+ *
+ * `unwrapAgyEnvelope` / `extractJsonObject` / `decodeDelegateArtifact` below
+ * are one rung-ordered decode ladder for a `flow-delegate --output-format
+ * json` artifact: rung 1 trusts the envelope's `structured_output` (the
+ * wire-level `--json-schema` contract), rung 2 falls back to `parseStructured`
+ * over the envelope's `.response` prose, rung 3 is `extractJsonObject` (a
+ * naive first-`{`-to-last-`}` slice) as a last-resort salvage. This
+ * supersedes the former "deliberately unconsolidated gap" note that lived
+ * here: `extractJsonObject` used to be `bin/flow-gemini-lens.ts`'s OWN
+ * competing decoder, never called by this module — it is now rung 3 of ONE
+ * ladder every wire-schema call site shares.
+ *
+ * Rung 3 is kept as a deliberate LAST-RESORT rung, not an empirically-earned
+ * one: re-running both decoders over all 588 committed
+ * `docs/model-bench/results.json` responses found 0 cases where the naive
+ * decoder recovered an object `parseStructured` missed, and 2 case-groups
+ * where the naive decoder failed (an over-wide span swallowing trailing
+ * prose that itself contained a brace) while `parseStructured` still
+ * recovered the object. `parseStructured` in fact strictly dominates
+ * `extractJsonObject` on parse-success BY CONSTRUCTION: a first-`{`-to-last-
+ * `}` slice that itself parses as valid JSON is necessarily brace-balanced,
+ * so `findBalancedObjectSpan`'s scanner returns that identical span too —
+ * no input parses for the naive decoder but not for `parseStructured`. Rung
+ * 3's salvage case (a naive-parseable candidate outside this corpus, e.g.
+ * from a future extraction tweak) is unreachable so far, not proven
+ * unreachable in general.
  */
 
 export type ParseStructuredResult =
@@ -195,4 +213,94 @@ export function parseStructured(
     };
   }
   return validateAgainstSchema(obj, schema);
+}
+
+// Unwraps a `flow-delegate --output-format json` artifact: a JSON envelope
+// whose `.response` field is the model's raw prose/JSON text, optionally
+// alongside a `.structured_output` field the CLI populated when a
+// `--json-schema` call actually returned schema-conformant output. NEVER
+// throws — on any parse failure or non-envelope shape (text mode, a partial
+// write), the raw artifact is returned verbatim as `text` with no
+// `structured` field, so callers on a non-json-mode call see no behaviour
+// change.
+export function unwrapAgyEnvelope(rawArtifact: string): {
+  text: string;
+  structured?: unknown;
+} {
+  try {
+    const envelope = JSON.parse(rawArtifact) as Record<string, unknown>;
+    if (
+      typeof envelope === "object" &&
+      envelope !== null &&
+      typeof envelope.response === "string"
+    ) {
+      return {
+        text: envelope.response,
+        structured: envelope.structured_output ?? undefined,
+      };
+    }
+  } catch {
+    // not an envelope (text mode / partial write) — fall through below.
+  }
+  return { text: rawArtifact };
+}
+
+// The naive first-`{`-to-last-`}` slice, moved verbatim from
+// `bin/flow-gemini-lens.ts` (formerly a second, competing decoder there) —
+// see the module header for why it now lives here as rung 3 of one ladder.
+// Returns the substring from the first '{' to the matching last '}'
+// (inclusive), or null when no brace pair is present. NEVER throws —
+// JSON.parse validity is the caller's concern.
+export function extractJsonObject(raw: string): string | null {
+  const first = raw.indexOf("{");
+  const last = raw.lastIndexOf("}");
+  if (first === -1 || last === -1 || last < first) return null;
+  return raw.slice(first, last + 1);
+}
+
+export type DecodeVia =
+  | "structured-output"
+  | "response-parse"
+  | "naive-salvage";
+
+// Decodes a `flow-delegate --output-format json` artifact through a
+// rung-ordered ladder, returning the first rung whose candidate satisfies
+// `validate`: (1) the envelope's `structured_output`, when present; (2)
+// `parseStructured` over the envelope's (or raw, on unwrap failure) text;
+// (3) `extractJsonObject` + `JSON.parse` over that same text, as a
+// last-resort salvage. NEVER throws — any rung's parse/validate failure just
+// falls through to the next rung, and exhausting the ladder returns
+// `{ok:false}`.
+export function decodeDelegateArtifact<T>(
+  rawArtifact: string,
+  validate: (candidate: unknown) => { ok: true; value: T } | { ok: false },
+): { ok: true; value: T; via: DecodeVia } | { ok: false } {
+  const { text, structured } = unwrapAgyEnvelope(rawArtifact);
+
+  if (structured !== undefined) {
+    const result = validate(structured);
+    if (result.ok)
+      return { ok: true, value: result.value, via: "structured-output" };
+  }
+
+  const parsed = parseStructured(text, undefined);
+  if (parsed.ok) {
+    const result = validate(parsed.value);
+    if (result.ok)
+      return { ok: true, value: result.value, via: "response-parse" };
+  }
+
+  const naive = extractJsonObject(text);
+  if (naive !== null) {
+    try {
+      const candidate = JSON.parse(naive);
+      const result = validate(candidate);
+      if (result.ok)
+        return { ok: true, value: result.value, via: "naive-salvage" };
+    } catch {
+      // falls through to {ok:false} below
+    }
+  }
+
+  return { ok: false };
 }
