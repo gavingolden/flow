@@ -49,9 +49,13 @@
  * armed, the hook instead carries the checkpoint body over as passive
  * context (`terminalCarryOver`) when one is readable, or falls back to a
  * plain advisory (`terminalAdvisory`) naming the phase and the manual
- * recovery command — `additionalContext` is the right surface for both
- * precisely because it triggers no autonomous turn (the same passivity that
- * disqualifies it for a resume seed).
+ * recovery command — `additionalContext` is RETAINED as the right surface for
+ * both precisely because it triggers no autonomous turn (the same passivity
+ * that disqualifies it for a resume seed). On the tmux path the hook ALSO
+ * dispatches a repo-grounded orientation turn (`terminalContinueSeed`, sent
+ * with `mode: "terminal"`) after that carry-over, so the pane says what
+ * finished instead of sitting blank; that turn deliberately drives no
+ * pipeline. Plain mode has no send-keys surface and stays passive-only.
  */
 
 import * as fs from "node:fs";
@@ -61,6 +65,7 @@ import {
   isEpicPhase,
   isPipelineKind,
   readState,
+  WORKTREE_REMOVED_PHASE_SET,
   type PipelineKind,
   type PipelineState,
 } from "./lib/state";
@@ -86,6 +91,15 @@ import {
 export type ResumeKind = PipelineKind;
 
 /**
+ * Which seed the detached delivery child types into the pane: the supervisor
+ * `resume` seed (a live pipeline continues) or the `terminal` orientation seed
+ * (the pipeline is over; the session just answers questions about it). The two
+ * are mutually exclusive by construction — `run()` reaches the terminal branch
+ * only when `autoResumesAfterClear` said no.
+ */
+export type SeedMode = "resume" | "terminal";
+
+/**
  * Picks the byte-exact resume seed for `kind`, reusing (never re-authoring)
  * each launcher's own seed builder. Exhaustive `switch`, no `default`
  * fallthrough — a future kind fails typecheck here rather than silently
@@ -107,6 +121,88 @@ export function resumeSeedFor(slug: string, kind: ResumeKind): string {
 }
 
 /**
+ * Shared recovery-command mapping — reused by `terminalAdvisory`,
+ * `terminalCarryOver`, and `terminalContinueSeed`.
+ */
+function recoveryCommandFor(slug: string, kind: ResumeKind): string {
+  return kind === "epic-design"
+    ? `flow epic create --resume ${slug}`
+    : kind === "epic-run"
+      ? `flow epic run ${slug}`
+      : `flow feature resume ${slug}`;
+}
+
+/**
+ * The user-turn seed fired into a tmux pane after a `/clear` at a phase the
+ * pipeline will NOT resume from. `terminalCarryOver` already delivers the notes
+ * passively, but `additionalContext` triggers no autonomous turn — so without
+ * this the user stares at a blank pane and cannot tell whether the carry-over
+ * worked at all. This seed's only job is orientation: say what finished, say
+ * where the repo is, then stop.
+ *
+ * Deliberately NOT a supervisor seed. It carries none of the three resume-mode
+ * trigger prefixes, so the fresh session answers questions instead of
+ * re-entering a pipeline with nothing left to do. It also never restates the
+ * checkpoint body: that arrives on the additionalContext channel already framed
+ * as data, and re-typing up to `CHECKPOINT_BODY_MAX_BYTES` through
+ * `send-keys -l` would both strip the `<checkpoint-notes>` framing and turn a
+ * one-shot handshake into a multi-chunk literal paste.
+ *
+ * ASCII-only by choice: unlike the advisory / carry-over strings (which reach
+ * the session as JSON), every byte of this one is typed into a live pane.
+ */
+export function terminalContinueSeed(
+  slug: string,
+  phase: string,
+  kind: ResumeKind,
+  state: Pick<PipelineState, "repo" | "worktree" | "pr">,
+): string {
+  // "Worktree removed" is classified from the phase, never probed from disk.
+  // WORKTREE_REMOVED_PHASE_SET is exactly `merged` + `cancelled`, the two
+  // phases flow-remove-worktree runs behind — and it performs no writeState,
+  // so `state.worktree` still points at the deleted sibling dir (issue #632)
+  // and must not be named there. It comes from ./lib/state, never from
+  // flow-resume-decide (which re-declares a same-named phase set and would
+  // drag the resume decision tree into a hook that blocks session start).
+  const worktreeGone = WORKTREE_REMOVED_PHASE_SET.has(phase);
+  const pr = state.pr;
+  const prSentence = pr === undefined ? "" : `The pull request is #${pr}.`;
+  const inspectExamples =
+    pr === undefined
+      ? "read files, run `git log`"
+      : `read files, run \`git log\`, run \`gh pr view ${pr}\``;
+  // state.repo / state.worktree are interpolated directly into this send-keys
+  // prose, unlike terminalCarryOver's checkpoint body, which is deliberately
+  // wrapped in <checkpoint-notes> data-framing. That asymmetry is intentional,
+  // not an oversight: both fields come from ~/.flow/state/<slug>.json, which
+  // is filesystem-writable by anyone who already controls the user's machine —
+  // at that point they can edit checkpoint.md (the framed content) just as
+  // easily, so framing these two paths would add ceremony without narrowing
+  // the trust boundary. Revisit only if state.json ever starts round-tripping
+  // through a channel an attacker could control without full local access.
+  const environment = worktreeGone
+    ? [
+        `The pipeline's worktree has been removed. This window's working directory is ${state.repo}, the live canonical checkout, and it already carries the finished work.`,
+        prSentence,
+      ]
+    : [
+        state.worktree === undefined
+          ? `The pipeline recorded no worktree, so work from ${state.repo}, the canonical checkout.`
+          : `The pipeline's worktree is still at ${state.worktree}; ${state.repo} is the canonical checkout.`,
+        prSentence,
+        `If the user asks to pick the pipeline back up, the manual recovery command is \`${recoveryCommandFor(slug, kind)}\`.`,
+      ];
+  return [
+    `[pipeline-slug: ${slug}]`,
+    `The flow pipeline for this window finished at phase '${phase}'. You are NOT driving a supervisor: nothing is running, nothing is waiting on you, and there is no gate to render.`,
+    environment.filter((s) => s.length > 0).join(" "),
+    `You MAY inspect the repo to answer the user's follow-up questions - ${inspectExamples} - and you should, rather than guessing.`,
+    "You MUST NOT drive a pipeline, re-render a gate block, or resume anything.",
+    "Now: give a 2-3 line summary of the carried-over checkpoint notes in your context, offer to answer questions about what shipped, then stop and wait. If no checkpoint notes are present in your context, say the pipeline finished and offer to go look.",
+  ].join("\n\n");
+}
+
+/**
  * The passive note emitted when the terminal guard declines a `/clear` that
  * DID carry an armed marker — so a user who checkpointed and cleared at a
  * phase this hook will not resume learns why the pane stayed blank, instead
@@ -119,15 +215,6 @@ export function resumeSeedFor(slug: string, kind: ResumeKind): string {
  * pointing the user at `flow feature resume` for a window that has no
  * feature pipeline at all.
  */
-/** Shared recovery-command mapping — reused by `terminalAdvisory` and `terminalCarryOver`. */
-function recoveryCommandFor(slug: string, kind: ResumeKind): string {
-  return kind === "epic-design"
-    ? `flow epic create --resume ${slug}`
-    : kind === "epic-run"
-      ? `flow epic run ${slug}`
-      : `flow feature resume ${slug}`;
-}
-
 export function terminalAdvisory(
   slug: string,
   phase: string,
@@ -226,12 +313,13 @@ export type Deps = {
    */
   resolveKind?: () => ResumeKind | null;
   /**
-   * Fire-and-forget resume-seed delivery. On the emit path `run()` calls this
-   * and returns immediately — it MUST NOT block session start, so the default
-   * implementation spawns a detached child and returns synchronously. Injected
-   * in tests to record the dispatch without spawning anything.
+   * Fire-and-forget seed delivery. Both the emit path (`mode: "resume"`) and
+   * the terminal branch (`mode: "terminal"`) call this and return immediately —
+   * it MUST NOT block session start, so the default implementation spawns a
+   * detached child and returns synchronously. Injected in tests to record the
+   * dispatch without spawning anything.
    */
-  dispatchResume: (slug: string, kind: ResumeKind) => void;
+  dispatchResume: (slug: string, kind: ResumeKind, mode: SeedMode) => void;
 };
 
 export async function run(deps: Deps): Promise<number> {
@@ -300,11 +388,13 @@ export async function run(deps: Deps): Promise<number> {
     // The user checkpointed (marker armed) and then cleared at a phase this
     // hook will not resume from. additionalContext is PASSIVE — it triggers
     // no autonomous turn (exactly why it is wrong for a resume seed and right
-    // for a note/carry-over), so this fires on BOTH launcher paths. A non-
-    // empty body is carried over verbatim and retired one-shot; otherwise the
-    // plain advisory fires unchanged. The whole branch is wrapped so no
-    // checkpoint I/O failure (unreadable body, unwritable archive) can ever
-    // block session start — this hook is global and fires on EVERY /clear.
+    // for a note/carry-over), so the emit + retire below fire on BOTH launcher
+    // paths; the orientation turn dispatched afterwards is tmux-only, because
+    // plain mode has no send-keys surface. A non-empty body is carried over
+    // verbatim and retired one-shot; otherwise the plain advisory fires
+    // unchanged. The whole branch is wrapped so no checkpoint I/O failure
+    // (unreadable body, unwritable archive) can ever block session start —
+    // this hook is global and fires on EVERY /clear.
     try {
       const body = deps.readCheckpointBody(slug);
       if (body) {
@@ -315,6 +405,17 @@ export async function run(deps: Deps): Promise<number> {
       }
     } catch {
       return 0;
+    }
+    // Dispatched OUTSIDE the try and AFTER the emit + retire: the passive
+    // carry-over is the guaranteed foreground delivery, and a checkpoint I/O
+    // failure returns from the catch above without ever waking the pane. Fires
+    // on both sub-branches (carry-over and advisory) — the advisory case is
+    // precisely where the user has no notes and the blank pane is most
+    // confusing. Same `pane && launcher !== "plain"` shape as the emit path
+    // below, reusing state the hook already holds: no `tmux show-options` read
+    // and no new filesystem probe, because this runs on EVERY /clear.
+    if (pane && state.launcher !== "plain") {
+      deps.dispatchResume(slug, kind, "terminal");
     }
     return 0;
   }
@@ -328,7 +429,7 @@ export async function run(deps: Deps): Promise<number> {
     deps.emitContext(resumeSeedFor(slug, kind));
     return 0;
   }
-  deps.dispatchResume(slug, kind);
+  deps.dispatchResume(slug, kind, "resume");
   return 0;
 }
 
@@ -352,6 +453,13 @@ export type DeliverSeams = {
   sleep: (ms: number) => void;
   /** Per-poll-pass attempt budget (injectable so tests run instantly). */
   attempts?: number;
+  /**
+   * Reads the slug's state — needed only in `terminal` mode, where the seed
+   * names the repo / worktree / PR the finished pipeline left behind. Optional,
+   * defaulting to the real `readState`; injected in tests. The read lives in
+   * the detached child, never in the foreground hook.
+   */
+  readState?: (slug: string) => PipelineState | null;
 };
 
 const DELIVER_POLL_ATTEMPTS = 40; // ~40 × 150ms ≈ 6s budget per pass
@@ -394,6 +502,30 @@ function paneClearedAndSettled(seams: DeliverSeams, attempts: number): boolean {
 }
 
 /**
+ * Picks the seed the detached child types, per mode. Exhaustive `switch`, no
+ * `default` fallthrough — same discipline as `resumeSeedFor`: a future mode
+ * fails typecheck here rather than silently sending a resume seed into a
+ * finished window. `null` means "nothing to send" (terminal mode with an
+ * unreadable state) and is the ONLY non-delivering outcome.
+ */
+function seedForMode(
+  slug: string,
+  kind: ResumeKind,
+  mode: SeedMode,
+  seams: DeliverSeams,
+): string | null {
+  switch (mode) {
+    case "resume":
+      return resumeSeedFor(slug, kind);
+    case "terminal": {
+      const state = (seams.readState ?? readState)(slug);
+      if (!state) return null;
+      return terminalContinueSeed(slug, state.phase, kind, state);
+    }
+  }
+}
+
+/**
  * Delivers the resume seed to the pipeline window as a real user turn. Waits for
  * the clear-aware readiness gate (with ONE bounded retry — the plan's mitigation
  * for the timing race), then delegates to the shared `deliverSeed`: it sends the
@@ -403,15 +535,25 @@ function paneClearedAndSettled(seams: DeliverSeams, attempts: number): boolean {
  * preserving this path's discipline of never submitting after a failed literal
  * send (which could submit stale/partial pane content on a live pane). Returns
  * false (never fires blind) when the pane never becomes ready or delivery fails.
- * `kind` is required — a defaulted `"feature"` would let a caller that forgot
- * to thread the kind silently deliver the wrong seed, which is the bug this
- * hook exists to fix. Exported for unit testing.
+ * `kind` and `mode` are both required — a defaulted `"feature"` / `"resume"`
+ * would let a caller that forgot to thread them silently deliver the wrong
+ * seed, which is the bug this hook exists to fix. Exported for unit testing.
  */
 export function deliverResumeSeed(
   slug: string,
   seams: DeliverSeams,
   kind: ResumeKind,
+  mode: SeedMode,
 ): boolean {
+  // Resolved BEFORE the readiness gate: in `terminal` mode an unreadable state
+  // means there is no seed to send, and discovering that after two ~6s poll
+  // passes would only delay the child's exit. There is no repo-less fallback —
+  // `repo` is required on PipelineState and a seed that cannot name a checkout
+  // has no purpose — so an unreadable state SKIPS the delivery entirely. That
+  // costs the user nothing: the notes were already emitted and retired on the
+  // foreground path before this child was ever spawned.
+  const seed = seedForMode(slug, kind, mode, seams);
+  if (seed === null) return false;
   const attempts = seams.attempts ?? DELIVER_POLL_ATTEMPTS;
   // paneClearedAndSettled owns the CLEAR-aware gate (its transitioned-away-from-
   // the-pre-clear-snapshot semantics are distinct from deliverSeed's generic
@@ -423,7 +565,7 @@ export function deliverResumeSeed(
   // above already waited for the pane to clear and stabilise, so the redundant
   // gate would only cost one wasted sleep interval.
   const result = deliverSeed(
-    resumeSeedFor(slug, kind),
+    seed,
     {
       capture: seams.capturePane,
       send: seams.sendKeys,
@@ -448,17 +590,41 @@ export function defaultShowFlowSlug(pane: string): string {
 }
 
 /**
+ * Builds the argv the detached `deliver` child is spawned with, and the ONE
+ * shared source both the producer (`defaultDispatchResume`) and the consumer
+ * (the `import.meta.main` `deliver` branch below, plus this file's own argv
+ * round-trip tests) read the token positions from. Before this existed, the
+ * test asserted a hand-copied argv literal, so a producer-side reorder of the
+ * kind/mode slots would still pass CI — precisely the failure the round-trip
+ * tests exist to catch. Now a reorder here fails every test that reads a
+ * position through this function, and the only unchecked link left is the
+ * `argv.slice(2)` offset itself (compiler-invisible because it crosses a
+ * subprocess boundary).
+ */
+export function deliverArgv(
+  slug: string,
+  kind: ResumeKind,
+  mode: SeedMode,
+): [string, string, string, string] {
+  return ["deliver", slug, kind, mode];
+}
+
+/**
  * Default fire-and-forget dispatch: re-exec THIS script as `deliver <slug>` in
  * a detached, unref'd child so the foreground hook returns without awaiting the
  * clear-aware readiness poll (which must run AFTER the hook returns and the
  * session finishes clearing). Best-effort: a spawn failure must never break
  * session start.
  */
-function defaultDispatchResume(slug: string, kind: ResumeKind): void {
+function defaultDispatchResume(
+  slug: string,
+  kind: ResumeKind,
+  mode: SeedMode,
+): void {
   try {
     const child = spawn(
       process.execPath,
-      [import.meta.path, "deliver", slug, kind],
+      [import.meta.path, ...deliverArgv(slug, kind, mode)],
       {
         detached: true,
         stdio: "ignore",
@@ -505,6 +671,23 @@ export function parseResumeKind(value: string | undefined): ResumeKind {
   return value !== undefined && isPipelineKind(value) ? value : "feature";
 }
 
+/**
+ * Only `"terminal"` selects the terminal orientation seed; anything else falls
+ * back to `"resume"`.
+ *
+ * Exported for its own test, not for reuse. Same uncheckable hop as
+ * `parseResumeKind` one slot over: `defaultDispatchResume` writes the mode into
+ * an argv token and this re-reads it in a fresh process, so a positional slip
+ * would send a live resume seed into a finished window (or nothing at all) with
+ * CI green, because the in-process tests stub `dispatchResume` and never cross
+ * the boundary. `"resume"` is the safe fallback — it is what every dispatch did
+ * before this token existed. This argv-hop default is the ONLY sanctioned
+ * fallback for a `SeedMode`; the mode `switch` itself stays exhaustive.
+ */
+export function parseSeedMode(value: string | undefined): SeedMode {
+  return value === "terminal" ? "terminal" : "resume";
+}
+
 if (import.meta.main) {
   const argv = process.argv.slice(2);
   if (argv[0] === "deliver" && argv[1]) {
@@ -512,6 +695,7 @@ if (import.meta.main) {
     // live tmux window resolved by slug, then exit.
     const slug = argv[1];
     const kind = parseResumeKind(argv[2]);
+    const mode = parseSeedMode(argv[3]);
     const ok = deliverResumeSeed(
       slug,
       {
@@ -521,6 +705,7 @@ if (import.meta.main) {
         sleep: (ms) => sleepSync(ms),
       },
       kind,
+      mode,
     );
     process.exit(ok ? 0 : 1);
   }
