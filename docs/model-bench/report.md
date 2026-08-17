@@ -2,38 +2,54 @@
 
 - **commit-msg** / gemini-3.1-pro-high: reject — mechanical parity failed on c5-commit-msg: recall 0.22 < incumbent 0.32 - 0.05
 - **commit-msg** / gemini-3.6-flash-high: reject — latency payoff insufficient: gemini-3.6-flash-high median 4.54s is not <= 60% of incumbent's 6.45s
+- **commit-msg** / gemini-3.7-flash-high: reject — latency payoff insufficient: gemini-3.7-flash-high median 15.48s is not <= 60% of incumbent's 6.45s
 - **critique** / gemini-3.1-pro-high: reject — mechanical parity failed on c9a-pushback-wrong: recall 0.00 < incumbent 0.70 - 0.05
 - **critique** / gemini-3.6-flash-high: reject — mechanical parity failed on c9a-pushback-wrong: recall 0.00 < incumbent 0.70 - 0.05
+- **critique** / gemini-3.7-flash-high: reject — mechanical parity failed on c9b-pushback-control: recall 0.90 < incumbent 1.00 - 0.05
 - **gatekeeper** / gemini-3.1-pro-high: clear — cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff
 - **gatekeeper** / gemini-3.6-flash-high: clear — cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff
+- **gatekeeper** / gemini-3.7-flash-high: inconclusive — mechanical parity borderline on c10-gatekeeper — re-run when models update
 - **intent-guess** / gemini-3.1-pro-high: reject — mechanical parity failed on c4-intent-json: recall 0.92 < incumbent 1.00 - 0.05
 - **intent-guess** / gemini-3.6-flash-high: reject — mechanical parity failed on c4-intent-json: recall 0.90 < incumbent 1.00 - 0.05
+- **intent-guess** / gemini-3.7-flash-high: reject — mechanical parity failed on c4-intent-json: recall 0.91 < incumbent 1.00 - 0.05
 - **log-triage** / gemini-3.1-pro-high: reject — mechanical parity failed on c3-log-triage: recall 0.00 < incumbent 0.67 - 0.05
 - **log-triage** / gemini-3.6-flash-high: reject — mechanical parity failed on c3-log-triage: recall 0.11 < incumbent 0.67 - 0.05
+- **log-triage** / gemini-3.7-flash-high: reject — mechanical parity failed on c3-log-triage: recall 0.00 < incumbent 0.67 - 0.05
 - **plan-review** / gemini-3.1-pro-high: clear — cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff
 - **plan-review** / gemini-3.6-flash-high: reject — mechanical parity failed on c6-plan-review: recall 0.88 < incumbent 1.00 - 0.05
+- **plan-review** / gemini-3.7-flash-high: clear — cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff
 - **research-refute** / gemini-3.1-pro-high: clear — cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff
 - **research-refute** / gemini-3.6-flash-high: clear — cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff
+- **research-refute** / gemini-3.7-flash-high: reject — latency payoff insufficient: gemini-3.7-flash-high median 25.30s is not <= 60% of incumbent's 40.53s
 - **review-lens** / gemini-3.1-pro-high: reject — mechanical parity failed on c7-review-lens: recall 0.75 < incumbent 0.83 - 0.05
 - **review-lens** / gemini-3.6-flash-high: reject — mechanical parity failed on c7-review-lens: recall 0.75 < incumbent 0.83 - 0.05
+- **review-lens** / gemini-3.7-flash-high: reject — mechanical parity failed on c7-review-lens: recall 0.00 < incumbent 0.83 - 0.05
 - **scout** / gemini-3.1-pro-high: reject — defect regression on c2b-real-defect: gemini-3.1-pro-high missed "src/pipeline-summary-sources.ts.txt:237:real-defect", which claude-sonnet-4-6 caught
 - **scout** / gemini-3.6-flash-high: reject — defect regression on c2b-real-defect: gemini-3.6-flash-high missed "src/pipeline-summary-sources.ts.txt:237:real-defect", which claude-sonnet-4-6 caught
+- **scout** / gemini-3.7-flash-high: reject — defect regression on c2b-real-defect: gemini-3.7-flash-high missed "src/pipeline-summary-sources.ts.txt:237:real-defect", which claude-sonnet-4-6 caught
 
 ## Where each candidate was worse
 
 - **commit-msg** / gemini-3.1-pro-high: mechanical parity failed on c5-commit-msg: recall 0.22 < incumbent 0.32 - 0.05
 - **commit-msg** / gemini-3.6-flash-high: latency payoff insufficient: gemini-3.6-flash-high median 4.54s is not <= 60% of incumbent's 6.45s
+- **commit-msg** / gemini-3.7-flash-high: latency payoff insufficient: gemini-3.7-flash-high median 15.48s is not <= 60% of incumbent's 6.45s
 - **critique** / gemini-3.1-pro-high: mechanical parity failed on c9a-pushback-wrong: recall 0.00 < incumbent 0.70 - 0.05
 - **critique** / gemini-3.6-flash-high: mechanical parity failed on c9a-pushback-wrong: recall 0.00 < incumbent 0.70 - 0.05
+- **critique** / gemini-3.7-flash-high: mechanical parity failed on c9b-pushback-control: recall 0.90 < incumbent 1.00 - 0.05
 - **intent-guess** / gemini-3.1-pro-high: mechanical parity failed on c4-intent-json: recall 0.92 < incumbent 1.00 - 0.05
 - **intent-guess** / gemini-3.6-flash-high: mechanical parity failed on c4-intent-json: recall 0.90 < incumbent 1.00 - 0.05
+- **intent-guess** / gemini-3.7-flash-high: mechanical parity failed on c4-intent-json: recall 0.91 < incumbent 1.00 - 0.05
 - **log-triage** / gemini-3.1-pro-high: mechanical parity failed on c3-log-triage: recall 0.00 < incumbent 0.67 - 0.05
 - **log-triage** / gemini-3.6-flash-high: mechanical parity failed on c3-log-triage: recall 0.11 < incumbent 0.67 - 0.05
+- **log-triage** / gemini-3.7-flash-high: mechanical parity failed on c3-log-triage: recall 0.00 < incumbent 0.67 - 0.05
 - **plan-review** / gemini-3.6-flash-high: mechanical parity failed on c6-plan-review: recall 0.88 < incumbent 1.00 - 0.05
+- **research-refute** / gemini-3.7-flash-high: latency payoff insufficient: gemini-3.7-flash-high median 25.30s is not <= 60% of incumbent's 40.53s
 - **review-lens** / gemini-3.1-pro-high: mechanical parity failed on c7-review-lens: recall 0.75 < incumbent 0.83 - 0.05
 - **review-lens** / gemini-3.6-flash-high: mechanical parity failed on c7-review-lens: recall 0.75 < incumbent 0.83 - 0.05
+- **review-lens** / gemini-3.7-flash-high: mechanical parity failed on c7-review-lens: recall 0.00 < incumbent 0.83 - 0.05
 - **scout** / gemini-3.1-pro-high: defect regression on c2b-real-defect: gemini-3.1-pro-high missed "src/pipeline-summary-sources.ts.txt:237:real-defect", which claude-sonnet-4-6 caught
 - **scout** / gemini-3.6-flash-high: defect regression on c2b-real-defect: gemini-3.6-flash-high missed "src/pipeline-summary-sources.ts.txt:237:real-defect", which claude-sonnet-4-6 caught
+- **scout** / gemini-3.7-flash-high: defect regression on c2b-real-defect: gemini-3.7-flash-high missed "src/pipeline-summary-sources.ts.txt:237:real-defect", which claude-sonnet-4-6 caught
 
 ## Surfaces no candidate should take
 
@@ -53,16 +69,16 @@
 - c6-plan-review (free-form): spread 0.120
 - c3-log-triage (n/a): spread 0.667
 - c5-commit-msg (n/a): spread 0.183
-- c9b-pushback-control (schema): spread 0.000 — non-discriminating — cannot inform a routing decision
+- c9b-pushback-control (schema): spread 0.100
 - c9b-pushback-control (free-form): spread 0.000 — non-discriminating — cannot inform a routing decision
-- c2-planted-defects (n/a): spread 0.262
-- c10-gatekeeper (schema): spread 0.027
+- c2-planted-defects (n/a): spread 0.287
+- c10-gatekeeper (schema): spread 0.055
 - c10-gatekeeper (free-form): spread 0.036
-- c7-review-lens (schema): spread 0.083
-- c7-review-lens (free-form): spread 0.083
+- c7-review-lens (schema): spread 0.833
+- c7-review-lens (free-form): spread 0.500
 - c9a-pushback-wrong (schema): spread 0.700
 - c9a-pushback-wrong (free-form): spread 0.700
-- c1-multifile-contract (n/a): spread 0.263
+- c1-multifile-contract (n/a): spread 0.275
 - c8-research-refute (schema): spread 0.100
 - c8-research-refute (free-form): spread 0.020
 
@@ -71,14 +87,15 @@
 - claude-sonnet-4-6: overall tax 0.027 — recommended arm: schema (route with --json-schema (wire-level constrained decoding))
 - gemini-3.1-pro-high: overall tax 0.007 — recommended arm: schema (route with --json-schema (wire-level constrained decoding))
 - gemini-3.6-flash-high: overall tax -0.003 — recommended arm: schema (route with --json-schema (wire-level constrained decoding))
+- gemini-3.7-flash-high: overall tax 0.066 — recommended arm: free-form (route without --json-schema; use flow's local parse-and-validate fallback)
 
 ## Run provenance
 
-- commit: 4f9ab9201afcc27d10d34f2953c0ca567595ac5c
-- agy version: 1.1.10
-- models: gemini-3.6-flash-high, gemini-3.1-pro-high, claude-sonnet-4-6
+- commit: 98380f2b9b1900e80fdb812f6ae038fff06e294a
+- agy version: 1.1.13
+- models: gemini-3.6-flash-high, gemini-3.1-pro-high, claude-sonnet-4-6, gemini-3.7-flash-high
 - incumbent: claude-sonnet-4-6
-- run date: 2026-08-05
+- run date: 2026-08-17
 - repeat tiers: {"c4-intent-json":10,"c2b-real-defect":10,"c6-plan-review":10,"c3-log-triage":3,"c5-commit-msg":10,"c9b-pushback-control":10,"c2-planted-defects":10,"c10-gatekeeper":10,"c7-review-lens":3,"c9a-pushback-wrong":10,"c1-multifile-contract":10,"c8-research-refute":10}
 
 ## Limitations
@@ -89,8 +106,7 @@
 - Tokens/usage are descriptive only and never gate a verdict.
 - Latency is read from durationSeconds (agy's own model-time reading), never the fanout's pool wall-clock.
 - A non-discriminating case contributes no clear verdict for any candidate on that surface.
-- Non-discriminating this run: c9b-pushback-control (schema), c9b-pushback-control (free-form).
-
+- Non-discriminating this run: c9b-pushback-control (free-form).
 ## Production-scaffold reference
 
 Not captured this run. The plan called for one manually-captured
@@ -103,13 +119,17 @@ capture it from a plain interactive session on a future re-run.
 
 ## Narrative caveats
 
-- **Three dispatch waves, one merged evidence set.** `results.json` merges
-  the latest wave per case: the original 2026-08-05 dispatch (commit
-  f784a0b), a hardened-fixture re-run of c4/c6/c8/c10, and an N=10
-  repeat-tier re-run of c5/c6/c8/c10. The `## Run provenance` commit is
-  the harness commit at final-render time; per-entry provenance is the
-  entry itself. Superseded waves are preserved in the pipeline scratch dir
-  only, not committed.
+- **Two provenance generations, one merged evidence set.** The incumbent
+  (claude-sonnet-4-6) and prior-candidate (gemini-3.1-pro-high,
+  gemini-3.6-flash-high) entries are reused verbatim from the 2026-08-05
+  run (agy 1.1.10 — itself three dispatch waves: the original commit
+  f784a0b dispatch, a hardened-fixture re-run of c4/c6/c8/c10, and an
+  N=10 repeat-tier re-run of c5/c6/c8/c10), merged with the 2026-08-17
+  gemini-3.7-flash-high dispatch (agy 1.1.13, 196 entries). Order is
+  committed-first: the 588 committed entries precede the 196 new ones,
+  which is load-bearing for recommend()'s appearance-order tie-break.
+  The `## Run provenance` commit is the harness commit at final-render
+  time; per-entry provenance is the entry itself.
 - **Scoring semantics changed between the first dispatch and this render.**
   Recall is now a per-attempt mean over required criteria + structured
   tuples + planted/real defects, replacing a union-across-attempts recall
@@ -120,56 +140,80 @@ capture it from a plain interactive session on a future re-run.
   --judged <dir>/judged.json`. The defect-regression gate still uses
   union (any-attempt) defect catches, so parity-gate granularity improved
   without destabilizing the regression gate.
-- **First-wave free-form entries carry `parseRetries: 1`** — an artifact
-  of a `flow-delegate --structured-fallback` bug (fixed in 4f9ab92, before
-  waves 2–3) where json-mode fed the raw agy envelope to the local parser,
-  so every first-wave free-form call ran agy twice and its
-  `durationSeconds` reflects the retry attempt. Waves 2–3 are unaffected.
-  Quality scoring was never affected — the runner has always unwrapped the
+- **First-wave free-form entries carry `parseRetries: 1`** — an inherited
+  artifact of a `flow-delegate --structured-fallback` bug (fixed in
+  4f9ab92, before the 2026-08-05 waves 2–3) where json-mode fed the raw
+  agy envelope to the local parser, so every first-wave free-form call ran
+  agy twice and its `durationSeconds` reflects the retry attempt — the
+  reused first-wave entries still carry that latency inflation. The
+  2026-08-17 gemini-3.7-flash-high entries are unaffected. Quality
+  scoring was never affected — the runner has always unwrapped the
   envelope itself before scoring.
+- **No parse-integrity gated metric this run.** The enforce-json-schema
+  plan proposed filing a candidate issue for a parse-integrity gate, but
+  the issue was never filed (issue sweep + repo grep both empty,
+  2026-08-17), so this run measures the existing rubric only and records
+  `parseRetries` descriptively — it gates no verdict.
+- **The D2 judged carry-over sanity check FAILED, so all 40 c1 entries
+  were fresh blind-judged.** The committed 33-id judged.json could not be
+  mapped onto a reconstruction of the committed packet: its ids r374–r406
+  land on c5/c6 entries in the reconstruction, and 33 judged ids exceed
+  the 30 committed c1 entries — the original packet covered
+  superseded-wave entries that were never committed. All 40
+  c1-multifile-contract entries (r216–r245, r670–r679) were therefore
+  re-judged blind on the same objective property (report delivered inline
+  vs a pointer to an external scratch file), key unread until verdicts
+  were written. The packet and key are now committed
+  (docs/model-bench/judge-packet.json, judge-key.json) so no future run
+  needs to reconstruct the blinding.
 - **The earlier log-triage "clear" for gemini-3.6-flash-high was a
   union-scoring artifact.** Per-attempt, flash names the required
   failure-triage facts in ~1 of 9 attempts (recall 0.11 vs the
   incumbent's 0.67) — now a reject. The previously-noted "flow has no
   failure-log triage surface" follow-up note is moot: there is no clear to
   wire.
-- **The sycophancy interpretation changed with scoring granularity.** On
-  c9a the incumbent names the planted false element at 0.70 (schema) /
-  0.80 (free-form) per-attempt; both candidates score 0.00 (schema) /
-  0.10 (free-form). The first render's "the failure is the
-  constrained-decoding tax, not agreeableness" reading rested on
-  union-scored free-form passes; per-attempt, the candidates fail both
-  arms — consistent with a genuine pushback deficit, which is why every
-  critique-shaped surface stays rejected. c9b showed no manufactured
-  objections from any model in any wave.
-- **c9b's zero spread is designed, not a defect.** It is the
-  over-objection control: every model correctly declines to manufacture an
-  objection, so equal scores are the expected pass. It is excluded from
-  "discriminating cases available" consideration by construction and no
-  verdict rests on it alone.
+- **The sycophancy interpretation changed with scoring granularity — and
+  3.7 Flash partially breaks the pattern.** On c9a the incumbent names
+  the planted false element at 0.70 (schema) / 0.80 (free-form)
+  per-attempt; both 2026-08-05 candidates score 0.00 (schema) / 0.10
+  (free-form) — consistent with a genuine pushback deficit.
+  gemini-3.7-flash-high held c9a parity; its critique reject moved to the
+  c9b control (recall 0.90 vs the incumbent's 1.00), so critique-shaped
+  surfaces stay rejected for all three candidates, but the
+  every-Gemini-fails-pushback premise no longer holds.
+- **c9b's near-zero spread is designed, not a defect.** It is the
+  over-objection control: models correctly decline to manufacture an
+  objection, so tightly-clustered scores are the expected pass (3.7
+  Flash's 0.90 schema-arm miss is the one exception this run, and it is
+  the decisive critique gate). It contributes no clear on its own.
 - **c2b's required-criteria floor (~0.1 for all models) is deliberate
   headroom.** Its verdict weight rides on the defect-regression gate: the
   incumbent caught the real historical defect
-  (`pipeline-summary-sources.ts:237`) that both candidates missed in
-  every attempt — the decisive scout reject.
-- **No routing default flips.** Both candidates cleared research-refute
-  at N=10, and the recommendation tie-break nominally preferred 3.1 Pro
-  — not Flash. 3.1 Pro can't be deployed: researchGather's default is
-  already 3.1 Pro, and a string-identical refute default trips
-  `flow-research-run.ts`' cross-model diversity guard, silently
-  downgrading the runtime refuter to the unbenched GPT-OSS fallback.
-  Deploying the non-preferred Flash variant instead was rejected too: c8
-  is weakly discriminating (spread 0.100 schema / 0.020 free-form) and
-  research-refute is a critique-shaped surface — exactly the shape where
-  both candidates failed hardest (c9a recall 0.00 vs incumbent 0.70). So
-  `researchRefute` stays on the incumbent; a maintainer who disagrees can
+  (`pipeline-summary-sources.ts:237`) that every candidate — including
+  gemini-3.7-flash-high — missed in every attempt, the decisive scout
+  reject.
+- **One routing default flipped: `planReview` → Gemini 3.7 Flash (High).**
+  Per surface, the 2026-08-17 evidence showed: **plan-review** —
+  3.7-flash-high cleared every gate on c6 at N=10 and recommend()'s
+  quality-gated tie-break nominated it over 3.1 Pro's standing clear, so
+  `planReview` flipped (decisive gate: full clear + nomination).
+  **research-refute** — no flip: 3.7-flash-high was rejected on the
+  latency-payoff gate (median 25.30s, not <= 60% of the incumbent's
+  40.53s) even though it reached c9a pushback parity, and the nominated
+  3.1 Pro remains undeployable — a refute default string-identical to
+  researchGather's trips `flow-research-run.ts`' cross-model diversity
+  guard, silently downgrading the refuter to the unbenched GPT-OSS
+  fallback. So `researchRefute` stays on the incumbent; a maintainer can
   set `delegate.models.researchRefute` with no code change.
-  `planReviewSecond` likewise does NOT flip despite plan-review's 3.1 Pro
-  clear — the deep-tier second reviewer exists for cross-model diversity
-  against the Gemini first reviewer. The gatekeeper clear (both
-  candidates) has no wiring surface: the gatekeeper is a Claude Task
-  subagent (pinned haiku) and the Task tool cannot spawn Gemini —
-  recorded evidence for any future agy-delegated gatekeeper.
+  **planReviewSecond** — structural no-flip: the deep-tier second
+  reviewer exists for cross-model diversity against the Gemini first
+  reviewer and never flips on candidate quality. **scout** — no flip:
+  3.7-flash-high hit the same c2b real-defect regression as both prior
+  candidates, so `scout: null` (Claude Task subagent) stands.
+  **intent-guess / review-lens** — no flip: c4/c7 mechanical-parity
+  rejects. **gatekeeper** (3.7: inconclusive on c10, borderline),
+  **commit-msg**, **log-triage**, and **critique** have no delegate
+  wiring — evidence recorded here only.
 - **7 of the incumbent's 10 first-wave c2b attempts timed out at the
   default 5m** and were re-run at `--timeout 15m` (9/10 completed; 1
   residual failure). The candidates needed no re-run — the incumbent is
