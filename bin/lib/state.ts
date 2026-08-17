@@ -355,6 +355,23 @@ export const AWAITING_HUMAN_PHASES = ["gated", "needs-human"] as const;
 
 export const FINISHED_PHASE_SET: ReadonlySet<string> = new Set(FINISHED_PHASES);
 
+/**
+ * The subset of FINISHED_PHASES where `flow-remove-worktree` has already run
+ * and `state.worktree` is stale (points at a deleted sibling dir — issue
+ * #632). Hand-listed rather than derived (`FINISHED_PHASES` minus
+ * `"epic-approved"`): a derived split would silently reclassify a future
+ * `FINISHED_PHASES` entry into "worktree gone" by default, which is the
+ * unsafe direction — telling a still-live worktree that it is gone is a
+ * user-facing lie. See the parity test in `bin/lib/state.test.ts`'s "phase
+ * constants" describe block, which fails until a new FINISHED_PHASES entry
+ * is explicitly classified here too.
+ */
+export const WORKTREE_REMOVED_PHASES = ["merged", "cancelled"] as const;
+
+export const WORKTREE_REMOVED_PHASE_SET: ReadonlySet<string> = new Set(
+  WORKTREE_REMOVED_PHASES,
+);
+
 export const AWAITING_HUMAN_PHASE_SET: ReadonlySet<string> = new Set(
   AWAITING_HUMAN_PHASES,
 );

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  deliverArgv,
   deliverResumeSeed,
   parseResumeKind,
   parseSeedMode,
@@ -27,6 +28,8 @@ type Stub = {
   dispatchedModes: SeedMode[];
   /** Slugs dispatched in `terminal` mode (the orientation turn). */
   dispatchedTerminal: string[];
+  /** Kinds threaded into the terminal-mode dispatch, parallel to `dispatchedTerminal`. */
+  dispatchedTerminalKinds: ResumeKind[];
   emitted: string[];
   loadCalls: string[];
   retiredSlugs: string[];
@@ -63,6 +66,7 @@ function makeDeps(opts: {
   const dispatchedKinds: ResumeKind[] = [];
   const dispatchedModes: SeedMode[] = [];
   const dispatchedTerminal: string[] = [];
+  const dispatchedTerminalKinds: ResumeKind[] = [];
   const emitted: string[] = [];
   const loadCalls: string[] = [];
   const retiredSlugs: string[] = [];
@@ -89,6 +93,7 @@ function makeDeps(opts: {
       dispatchedModes.push(mode);
       if (mode === "terminal") {
         dispatchedTerminal.push(slug);
+        dispatchedTerminalKinds.push(kind);
         return;
       }
       dispatched.push(slug);
@@ -104,6 +109,7 @@ function makeDeps(opts: {
     dispatchedKinds,
     dispatchedModes,
     dispatchedTerminal,
+    dispatchedTerminalKinds,
     emitted,
     loadCalls,
     retiredSlugs,
@@ -218,15 +224,19 @@ describe("flow-session-start-hook — silent no-op paths", () => {
     // repo-grounded orientation turn on the tmux path instead, which is a
     // different seed and must never be counted as a resume.
     for (const phase of TERMINAL_PHASES.filter((p) => p !== "gated")) {
-      const { deps, dispatched, dispatchedTerminal } = makeDeps({
-        pane: "%1",
-        slug: "demo",
-        state: fakeState(phase),
-        markerExists: true,
-      });
+      const { deps, dispatched, dispatchedTerminal, dispatchedModes } =
+        makeDeps({
+          pane: "%1",
+          slug: "demo",
+          state: fakeState(phase),
+          markerExists: true,
+        });
       expect(await run(deps), phase).toBe(0);
       expect(dispatched, phase).toEqual([]);
       expect(dispatchedTerminal, phase).toEqual(["demo"]);
+      // Confirms the array actually carries "terminal" here, not just that
+      // dispatchedTerminal (a separate bucket) got populated.
+      expect(dispatchedModes, phase).toEqual(["terminal"]);
     }
   });
 
@@ -359,7 +369,13 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
   });
 
   it("(f)/(j) epic-approved + marker + no @flow-kind: no RESUME dispatch, but an advisory is emitted naming the phase + epic recovery command", async () => {
-    const { deps, dispatched, dispatchedTerminal, emitted } = makeDeps({
+    const {
+      deps,
+      dispatched,
+      dispatchedTerminal,
+      dispatchedTerminalKinds,
+      emitted,
+    } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState("epic-approved"),
@@ -368,6 +384,11 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual([]);
     expect(dispatchedTerminal).toEqual(["demo"]);
+    // The dispatched kind must be the RESOLVED one (epic-design), not a
+    // hardcoded "feature" that would still leave this assertion suite green
+    // while sending an epic-design window's orientation turn at
+    // flow feature resume.
+    expect(dispatchedTerminalKinds).toEqual(["epic-design"]);
     expect(emitted).toEqual([
       terminalAdvisory("demo", "epic-approved", "epic-design"),
     ]);
@@ -376,7 +397,13 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
   });
 
   it("(f2) cancelled (a SHARED terminal phase, not in EPIC_PHASES) + marker + resolveKind() === 'epic-design': advisory names the epic-design recovery command, not flow feature resume", async () => {
-    const { deps, dispatched, dispatchedTerminal, emitted } = makeDeps({
+    const {
+      deps,
+      dispatched,
+      dispatchedTerminal,
+      dispatchedTerminalKinds,
+      emitted,
+    } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState("cancelled"),
@@ -386,6 +413,7 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual([]);
     expect(dispatchedTerminal).toEqual(["demo"]);
+    expect(dispatchedTerminalKinds).toEqual(["epic-design"]);
     expect(emitted).toEqual([
       terminalAdvisory("demo", "cancelled", "epic-design"),
     ]);
@@ -394,7 +422,13 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
   });
 
   it("(f3) needs-human (a SHARED terminal phase) + marker + resolveKind() === 'epic-design': isEpicPhase('needs-human') would wrongly say false — the fix must use the resolved kind, not re-derive from phase", async () => {
-    const { deps, dispatched, dispatchedTerminal, emitted } = makeDeps({
+    const {
+      deps,
+      dispatched,
+      dispatchedTerminal,
+      dispatchedTerminalKinds,
+      emitted,
+    } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState("needs-human"),
@@ -404,6 +438,7 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual([]);
     expect(dispatchedTerminal).toEqual(["demo"]);
+    expect(dispatchedTerminalKinds).toEqual(["epic-design"]);
     expect(emitted).toEqual([
       terminalAdvisory("demo", "needs-human", "epic-design"),
     ]);
@@ -700,6 +735,33 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
     expect(dispatched).toEqual([]);
     expect(dispatchedTerminal).toEqual([]);
   });
+
+  it("no pane at all (undefined, not merely inherited-plain) also carries the notes over with NO orientation turn — the `pane &&` half of the gate, isolated from the launcher half", async () => {
+    // The sibling test above isolates `state.launcher !== "plain"`; this one
+    // isolates `pane &&` by leaving TMUX_PANE unset while keeping the
+    // launcher tmux. Dropping `pane &&` from the gate would stay green on
+    // every other test in this suite but would try to dispatch send-keys
+    // against a nonexistent window here.
+    const { deps, dispatched, dispatchedTerminal, emitted, retiredSlugs } =
+      makeDeps({
+        flowSlugEnv: "demo",
+        state: { ...fakeState("merged"), launcher: "tmux" },
+        markerExists: true,
+        checkpointBody: "approved with condition X\n",
+      });
+    expect(await run(deps)).toBe(0);
+    expect(emitted).toEqual([
+      terminalCarryOver(
+        "demo",
+        "merged",
+        "feature",
+        "approved with condition X\n",
+      ),
+    ]);
+    expect(retiredSlugs).toEqual(["demo"]);
+    expect(dispatched).toEqual([]);
+    expect(dispatchedTerminal).toEqual([]);
+  });
 });
 
 // A capturePane stub that yields the given frames in order, then repeats the
@@ -975,9 +1037,10 @@ describe("flow-session-start-hook — parseResumeKind argv round-trip", () => {
 
   for (const kind of KINDS) {
     it(`survives the argv hop for '${kind}'`, () => {
-      // Mirrors defaultDispatchResume's argv exactly, then reads back the slot
-      // the import.meta.main branch reads (argv[2] after the leading two).
-      const argv = ["deliver", "demo", kind];
+      // Built through the SAME deliverArgv the producer (defaultDispatchResume)
+      // uses, not a hand-copied literal — a producer-side slot reorder now
+      // fails here instead of staying invisible to CI.
+      const argv = deliverArgv("demo", kind, "resume");
       expect(parseResumeKind(argv[2])).toBe(kind);
     });
   }
@@ -986,7 +1049,7 @@ describe("flow-session-start-hook — parseResumeKind argv round-trip", () => {
     // Pins the coupling itself: kind is the 3rd token, after "deliver" and the
     // slug. If either side ever reorders, this fails instead of silently
     // degrading to "feature".
-    const argv = ["deliver", "demo", "epic-run"];
+    const argv = deliverArgv("demo", "epic-run", "resume");
     expect(argv[0]).toBe("deliver");
     expect(argv[1]).toBe("demo");
     expect(parseResumeKind(argv[2])).toBe("epic-run");
@@ -1108,6 +1171,21 @@ describe("terminalContinueSeed — the terminal orientation turn", () => {
     }
   });
 
+  it("names no worktree path and gives a generic canonical-checkout instruction when state recorded none — reachable via a pipeline that escalated to needs-human before ever creating a worktree", () => {
+    // state.worktree === undefined at an intact-worktree phase is reachable:
+    // a pipeline can hit `needs-human` at triage, before `worktree-create`
+    // ever runs, so `state.json` never gets a worktree field.
+    const seed = terminalContinueSeed("demo", "needs-human", "feature", {
+      repo: "/tmp/repo",
+      worktree: undefined,
+      pr: undefined,
+    });
+    expect(seed).toContain(
+      "The pipeline recorded no worktree, so work from /tmp/repo, the canonical checkout.",
+    );
+    expect(seed).toContain("flow feature resume demo");
+  });
+
   it("degrades gracefully when the carried-over notes never arrived", () => {
     // The notes land on `additionalContext` (foreground) and the turn on
     // send-keys (detached child) — two channels. If the first one is dropped,
@@ -1176,13 +1254,15 @@ describe("flow-session-start-hook — parseSeedMode argv round-trip", () => {
 
   for (const mode of MODES) {
     it(`survives the argv hop for '${mode}'`, () => {
-      const argv = ["deliver", "demo", "feature", mode];
+      // Built through the SAME deliverArgv the producer uses (see the kind
+      // round-trip block above for the rationale).
+      const argv = deliverArgv("demo", "feature", mode);
       expect(parseSeedMode(argv[3])).toBe(mode);
     });
   }
 
   it("positions the mode at the slot the deliver branch actually reads", () => {
-    const argv = ["deliver", "demo", "feature", "terminal"];
+    const argv = deliverArgv("demo", "feature", "terminal");
     expect(argv[0]).toBe("deliver");
     expect(argv[1]).toBe("demo");
     expect(parseResumeKind(argv[2])).toBe("feature");

@@ -206,5 +206,9 @@ marker so a later unrelated `/clear` in the same window does not re-fire
 the auto-resume. At a terminal phase there is no resume to re-enter, so
 the `SessionStart:clear` hook does the equivalent itself — it emits the
 body as context and retires it the same one-shot way, then (tmux only)
-dispatches the orientation turn described above. That turn is one-shot
-too: it hangs off the same marker, so a second `/clear` stays silent.
+dispatches the orientation turn described above. When there IS a body to
+carry over, that turn is one-shot too: retirement removes the marker, so
+a second `/clear` stays silent. When there is no body, nothing retires
+the marker, so both the plain advisory and the orientation turn re-fire
+on every later `/clear` at that phase — deliberately, since a blank pane
+with no notes is the most confusing case to leave silent.

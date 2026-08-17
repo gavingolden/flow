@@ -62,10 +62,10 @@ import * as fs from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import {
   autoResumesAfterClear,
-  FINISHED_PHASE_SET,
   isEpicPhase,
   isPipelineKind,
   readState,
+  WORKTREE_REMOVED_PHASE_SET,
   type PipelineKind,
   type PipelineState,
 } from "./lib/state";
@@ -158,21 +158,28 @@ export function terminalContinueSeed(
   state: Pick<PipelineState, "repo" | "worktree" | "pr">,
 ): string {
   // "Worktree removed" is classified from the phase, never probed from disk.
-  // FINISHED_PHASE_SET minus `epic-approved` is exactly `merged` + `cancelled`,
-  // the two phases flow-remove-worktree runs behind — and it performs no
-  // writeState, so `state.worktree` still points at the deleted sibling dir
-  // (issue #632) and must not be named there. FINISHED_PHASE_SET comes from
-  // ./lib/state, never from flow-resume-decide (which re-declares a same-named
-  // phase set and would drag the resume decision tree into a hook that blocks
-  // session start).
-  const worktreeGone =
-    FINISHED_PHASE_SET.has(phase) && phase !== "epic-approved";
+  // WORKTREE_REMOVED_PHASE_SET is exactly `merged` + `cancelled`, the two
+  // phases flow-remove-worktree runs behind — and it performs no writeState,
+  // so `state.worktree` still points at the deleted sibling dir (issue #632)
+  // and must not be named there. It comes from ./lib/state, never from
+  // flow-resume-decide (which re-declares a same-named phase set and would
+  // drag the resume decision tree into a hook that blocks session start).
+  const worktreeGone = WORKTREE_REMOVED_PHASE_SET.has(phase);
   const pr = state.pr;
   const prSentence = pr === undefined ? "" : `The pull request is #${pr}.`;
   const inspectExamples =
     pr === undefined
       ? "read files, run `git log`"
       : `read files, run \`git log\`, run \`gh pr view ${pr}\``;
+  // state.repo / state.worktree are interpolated directly into this send-keys
+  // prose, unlike terminalCarryOver's checkpoint body, which is deliberately
+  // wrapped in <checkpoint-notes> data-framing. That asymmetry is intentional,
+  // not an oversight: both fields come from ~/.flow/state/<slug>.json, which
+  // is filesystem-writable by anyone who already controls the user's machine —
+  // at that point they can edit checkpoint.md (the framed content) just as
+  // easily, so framing these two paths would add ceremony without narrowing
+  // the trust boundary. Revisit only if state.json ever starts round-tripping
+  // through a channel an attacker could control without full local access.
   const environment = worktreeGone
     ? [
         `The pipeline's worktree has been removed. This window's working directory is ${state.repo}, the live canonical checkout, and it already carries the finished work.`,
@@ -583,6 +590,26 @@ export function defaultShowFlowSlug(pane: string): string {
 }
 
 /**
+ * Builds the argv the detached `deliver` child is spawned with, and the ONE
+ * shared source both the producer (`defaultDispatchResume`) and the consumer
+ * (the `import.meta.main` `deliver` branch below, plus this file's own argv
+ * round-trip tests) read the token positions from. Before this existed, the
+ * test asserted a hand-copied argv literal, so a producer-side reorder of the
+ * kind/mode slots would still pass CI — precisely the failure the round-trip
+ * tests exist to catch. Now a reorder here fails every test that reads a
+ * position through this function, and the only unchecked link left is the
+ * `argv.slice(2)` offset itself (compiler-invisible because it crosses a
+ * subprocess boundary).
+ */
+export function deliverArgv(
+  slug: string,
+  kind: ResumeKind,
+  mode: SeedMode,
+): [string, string, string, string] {
+  return ["deliver", slug, kind, mode];
+}
+
+/**
  * Default fire-and-forget dispatch: re-exec THIS script as `deliver <slug>` in
  * a detached, unref'd child so the foreground hook returns without awaiting the
  * clear-aware readiness poll (which must run AFTER the hook returns and the
@@ -597,7 +624,7 @@ function defaultDispatchResume(
   try {
     const child = spawn(
       process.execPath,
-      [import.meta.path, "deliver", slug, kind, mode],
+      [import.meta.path, ...deliverArgv(slug, kind, mode)],
       {
         detached: true,
         stdio: "ignore",
