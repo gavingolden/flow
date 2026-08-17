@@ -22,11 +22,41 @@ describe("classifyDelegateSkip", () => {
     },
   );
 
-  it("classifies agy-error as ran-unusable (the spawn itself never ran, but the rule stays pre-dispatch-based per the module header)", () => {
+  // The it.each above is self-referential — it iterates the very set
+  // classifyDelegateSkip looks up, so it cannot catch a member being
+  // silently dropped from ENVIRONMENT_SKIP_REASONS (every remaining
+  // assertion would still pass). Pin the independent members the two
+  // shipped helpers actually emit plus the pre-covered flow-plan-review
+  // vocabulary, by literal value, so a drop is caught here even though
+  // most of these members have no other caller today.
+  it("pins the exact ENVIRONMENT_SKIP_REASONS membership (catches an accidental drop the it.each above can't)", () => {
+    expect(Array.from(ENVIRONMENT_SKIP_REASONS).sort()).toEqual(
+      [
+        "agy-not-found",
+        "agy-not-authenticated",
+        "gemini-lens-disabled",
+        "gemini-intent-guess-disabled",
+        "plan-review-disabled",
+        "gemini-diff-unreadable",
+        "gemini-intent-guess-diff-unreadable",
+        "gemini-prep-failed",
+        "gemini-intent-guess-prep-failed",
+        "plan-prep-failed",
+        "plan-unreadable",
+        "no-decision-analysis",
+        "decision-analysis-unchanged",
+        "worktree-not-provided",
+        "worktree-not-found",
+      ].sort(),
+    );
+  });
+
+  it("classifies agy-error as ran-unusable (deliberately excluded from ENVIRONMENT_SKIP_REASONS — it may cover a genuinely-dispatched call)", () => {
     // NOTE: agy-error is deliberately excluded from ENVIRONMENT_SKIP_REASONS
-    // per the Task 2 contract adjustment (safe direction), even though
-    // bin/flow-delegate.ts emits it when the runAgy spawn throws (i.e. agy
-    // never actually ran) — this pins that exclusion.
+    // (the safe direction): bin/flow-delegate.ts emits it both when the
+    // runAgy spawn throws (agy never ran) AND on a non-zero exit without an
+    // auth signature (agy genuinely ran) — since it can't be assumed
+    // quota-free, it classifies as ran-unusable. This pins that exclusion.
     expect(classifyDelegateSkip("agy-error")).toBe("ran-unusable");
   });
 

@@ -223,21 +223,35 @@ export function parseStructured(
 // write), the raw artifact is returned verbatim as `text` with no
 // `structured` field, so callers on a non-json-mode call see no behaviour
 // change.
+// Wire-contract dependency: this decoder hard-codes the `agy` CLI's
+// `--output-format json` envelope field names (`response`, `structured_output`)
+// with no version pin. Rung 2 (below) is keyed on `.response` being a string;
+// rung 1 is keyed on `.structured_output`. If a future `agy` renames either
+// field, this rung degrades silently rather than erroring — verify against
+// the currently-installed `agy --version` when either rung stops firing.
 export function unwrapAgyEnvelope(rawArtifact: string): {
   text: string;
   structured?: unknown;
 } {
   try {
     const envelope = JSON.parse(rawArtifact) as Record<string, unknown>;
-    if (
-      typeof envelope === "object" &&
-      envelope !== null &&
-      typeof envelope.response === "string"
-    ) {
-      return {
-        text: envelope.response,
-        structured: envelope.structured_output ?? undefined,
-      };
+    if (typeof envelope === "object" && envelope !== null) {
+      const hasResponse = typeof envelope.response === "string";
+      const hasStructured =
+        envelope.structured_output !== undefined &&
+        envelope.structured_output !== null;
+      // The two channels are independent — don't gate `structured` on
+      // `.response` being a string. An envelope can carry a populated
+      // `structured_output` alongside a null/absent `.response`; discarding
+      // `structured` there would drop the wire-schema channel this ladder
+      // exists to prioritize (see `bin/flow-delegate.ts`'s
+      // `attemptStructuredParse`, which checks `structured_output` first).
+      if (hasResponse || hasStructured) {
+        return {
+          text: hasResponse ? (envelope.response as string) : rawArtifact,
+          structured: hasStructured ? envelope.structured_output : undefined,
+        };
+      }
     }
   } catch {
     // not an envelope (text mode / partial write) — fall through below.

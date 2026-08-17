@@ -130,6 +130,24 @@ describe("extractJsonObject", () => {
   it("returns null when there is no brace pair", () => {
     expect(extractJsonObject("no json here at all")).toBeNull();
     expect(extractJsonObject("")).toBeNull();
+    expect(extractJsonObject("} only a close brace {")).toBeNull();
+  });
+
+  it("recovers an object inside a ```json fence", () => {
+    const fenced = '```json\n{"findings":[]}\n```';
+    expect(extractJsonObject(fenced)).toBe('{"findings":[]}');
+  });
+
+  // Pins the load-bearing lastIndexOf("}") (vs a first-`}` indexOf): a payload
+  // with nested braces must be recovered whole, not truncated at the inner `}`.
+  // A naive indexOf rewrite passes the empty-body cases above but fails here.
+  it("recovers a non-empty payload with nested braces (lastIndexOf, not indexOf)", () => {
+    const nested = '{"findings":[{"file":"x"}]}';
+    expect(extractJsonObject(nested)).toBe(nested);
+    const wrapped = 'My review:\n{"findings":[{"file":"x","line":1}]}\nEnd.';
+    expect(extractJsonObject(wrapped)).toBe(
+      '{"findings":[{"file":"x","line":1}]}',
+    );
   });
 });
 
@@ -236,5 +254,46 @@ describe("decodeDelegateArtifact — rung ordering", () => {
         validateFoo,
       ),
     ).toEqual({ ok: false });
+  });
+
+  it("does not throw when the validate callback itself throws on rung 1 or rung 2", () => {
+    const throwingValidate = (): { ok: true; value: unknown } => {
+      throw new Error("validator blew up");
+    };
+    // Rung 1: structured_output present, validator throws.
+    expect(() =>
+      decodeDelegateArtifact(
+        JSON.stringify({
+          response: "prose",
+          structured_output: { foo: "bar" },
+        }),
+        throwingValidate as never,
+      ),
+    ).toThrow();
+    // Rung 2: no structured_output, parseStructured succeeds, validator throws.
+    expect(() =>
+      decodeDelegateArtifact('{"foo":"bar"}', throwingValidate as never),
+    ).toThrow();
+  });
+});
+
+describe("unwrapAgyEnvelope — decoupled channels", () => {
+  it("surfaces structured_output even when .response is null/absent", () => {
+    const rawNullResponse = JSON.stringify({
+      response: null,
+      structured_output: { foo: "bar" },
+    });
+    expect(unwrapAgyEnvelope(rawNullResponse)).toEqual({
+      text: rawNullResponse,
+      structured: { foo: "bar" },
+    });
+
+    const rawNoResponseKey = JSON.stringify({
+      structured_output: { foo: "bar" },
+    });
+    expect(unwrapAgyEnvelope(rawNoResponseKey)).toEqual({
+      text: rawNoResponseKey,
+      structured: { foo: "bar" },
+    });
   });
 });

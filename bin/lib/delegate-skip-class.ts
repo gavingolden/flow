@@ -7,10 +7,16 @@
  *  - `ran-unusable` — the call WAS dispatched (past every pre-check) and
  *    produced nothing usable. Quota may have been spent for nothing.
  *
- * The rule is "was the agy call attempted past the local pre-checks?", not
- * "did agy exit non-zero?" — `bin/flow-delegate.ts`'s `agy-error` reason is
- * emitted when the `runAgy` spawn itself throws, i.e. agy never ran, so it
- * still classifies as `environment` despite being an error path.
+ * The rule is "could this have spent quota?", not "did agy exit non-zero?".
+ * `bin/flow-delegate.ts`'s `agy-error` reason is deliberately EXCLUDED from
+ * `ENVIRONMENT_SKIP_REASONS` (it classifies as `ran-unusable`): it covers
+ * two emission sites — the spawn-throw path (agy never ran) AND the
+ * non-zero-exit-without-auth-signature path (agy genuinely ran) — so it
+ * cannot be assumed quota-free and is reported the safer way. Conversely,
+ * `agy-not-authenticated` sits IN `ENVIRONMENT_SKIP_REASONS` even though
+ * it is only emitted after agy ran: the auth failure is what makes the
+ * call unusable before any billable work happens, so no quota is spent
+ * despite the call having been dispatched.
  *
  * This is an internal lib, not a PATH-shipped helper: it is deliberately NOT
  * registered in `bin/lib/sources.ts`'s `VALIDATOR_MODULES` allowlist —

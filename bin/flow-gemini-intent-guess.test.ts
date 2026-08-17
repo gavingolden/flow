@@ -431,6 +431,30 @@ describe("run — conformant output", () => {
     expect(write).toBeDefined();
     expect(JSON.parse(write!.contents)).toEqual(INTENT_GUESS_JSON_SCHEMA);
   });
+
+  it("has INTENT_GUESS_JSON_SCHEMA on disk at the --json-schema path BEFORE dispatch (asserted from inside the delegate stub, not after run() returns)", () => {
+    // Same rationale as bin/flow-gemini-lens.test.ts's sibling test:
+    // `deps.calls.writes` and `deps.calls.delegate` are separate arrays with
+    // no interleaved ordering, so asserting after `run()` returns only
+    // proves the write happened, not that it happened first.
+    let schemaOnDiskAtDispatch: string | undefined;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const schemaPath = argv[argv.indexOf("--json-schema") + 1]!;
+        schemaOnDiskAtDispatch = deps.files.get(schemaPath);
+        const rawPathIdx = argv.indexOf("--out") + 1;
+        const rawPath = argv[rawPathIdx]!;
+        deps.files.set(rawPath, JSON.stringify(VALID_GUESS));
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(schemaOnDiskAtDispatch).toBeDefined();
+    expect(JSON.parse(schemaOnDiskAtDispatch!)).toEqual(
+      INTENT_GUESS_JSON_SCHEMA,
+    );
+  });
 });
 
 describe("run — malformed payloads drop the guess, never throw, leave no valid file", () => {

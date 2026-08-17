@@ -4,7 +4,6 @@ import {
   VALID_LABELS,
   validateAgentFindings,
 } from "./lib/agent-finding-schema";
-import { extractJsonObject } from "./lib/structured-response";
 import {
   AGENT_FINDINGS_JSON_SCHEMA,
   isGeminiLensEnabled,
@@ -52,39 +51,10 @@ describe("isGeminiLensEnabled (config gate)", () => {
   });
 });
 
-describe("extractJsonObject", () => {
-  it("returns the object verbatim when there is no wrapper", () => {
-    expect(extractJsonObject('{"findings":[]}')).toBe('{"findings":[]}');
-  });
-
-  it("recovers an object wrapped in leading/trailing prose", () => {
-    const wrapped = 'Here are my findings:\n{"findings":[]}\nDone.';
-    expect(extractJsonObject(wrapped)).toBe('{"findings":[]}');
-  });
-
-  it("recovers an object inside a ```json fence", () => {
-    const fenced = '```json\n{"findings":[]}\n```';
-    expect(extractJsonObject(fenced)).toBe('{"findings":[]}');
-  });
-
-  it("returns null when there is no brace pair", () => {
-    expect(extractJsonObject("no json here at all")).toBeNull();
-    expect(extractJsonObject("")).toBeNull();
-    expect(extractJsonObject("} only a close brace {")).toBeNull();
-  });
-
-  // Pins the load-bearing lastIndexOf("}") (vs a first-`}` indexOf): a payload
-  // with nested braces must be recovered whole, not truncated at the inner `}`.
-  // A naive indexOf rewrite passes the empty-body cases above but fails here.
-  it("recovers a non-empty payload with nested braces (lastIndexOf, not indexOf)", () => {
-    const nested = '{"findings":[{"file":"x"}]}';
-    expect(extractJsonObject(nested)).toBe(nested);
-    const wrapped = 'My review:\n{"findings":[{"file":"x","line":1}]}\nEnd.';
-    expect(extractJsonObject(wrapped)).toBe(
-      '{"findings":[{"file":"x","line":1}]}',
-    );
-  });
-});
+// `extractJsonObject` moved to `bin/lib/structured-response.ts` (rung 3 of
+// the decode ladder); its own test suite now lives there
+// (`bin/lib/structured-response.test.ts`'s `describe("extractJsonObject")`)
+// rather than duplicated here — this file no longer imports the function.
 
 describe("parseArgs", () => {
   it("requires --worktree, --diff-file, --out", () => {
@@ -368,6 +338,32 @@ describe("run — conformant output", () => {
     expect(JSON.parse(write!.contents)).toEqual(AGENT_FINDINGS_JSON_SCHEMA);
   });
 
+  it("has AGENT_FINDINGS_JSON_SCHEMA on disk at the --json-schema path BEFORE dispatch (asserted from inside the delegate stub, not after run() returns)", () => {
+    // `deps.calls.writes` and `deps.calls.delegate` are separate arrays with
+    // no interleaved ordering, so asserting on them after `run()` returns
+    // only proves the write happened, not that it happened first. Asserting
+    // from inside the `runDelegate` stub observes dispatch time directly:
+    // if a refactor ever moved the schema write below the delegate call,
+    // this assertion (unlike the one above) would go red.
+    let schemaOnDiskAtDispatch: string | undefined;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const schemaPath = argv[argv.indexOf("--json-schema") + 1]!;
+        schemaOnDiskAtDispatch = deps.files.get(schemaPath);
+        const rawPathIdx = argv.indexOf("--out") + 1;
+        const rawPath = argv[rawPathIdx]!;
+        deps.files.set(rawPath, JSON.stringify({ findings: [VALID_FINDING] }));
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(schemaOnDiskAtDispatch).toBeDefined();
+    expect(JSON.parse(schemaOnDiskAtDispatch!)).toEqual(
+      AGENT_FINDINGS_JSON_SCHEMA,
+    );
+  });
+
   // S6: the schema's label/decoration enums must be SET-EQUAL to the
   // exported validator enums so the two cannot silently drift apart.
   it("keeps AGENT_FINDINGS_JSON_SCHEMA's label/decoration enums in set-equality with VALID_LABELS/VALID_DECORATIONS (S6)", () => {
@@ -458,6 +454,49 @@ describe("run — malformed payloads drop the lens, never throw, leave no valid 
     });
     expect(run(BASE_ARGV, deps)).toBe(0);
     expect(envelope(deps)).toMatchObject({ ran: true, findingCount: 1 });
+    expect(validateAgentFindings(JSON.parse(deps.files.get(OUT)!)).ok).toBe(
+      true,
+    );
+  });
+
+  // Same coercion, but fed through `structured_output` (rung 1) instead of
+  // `.response` prose (rung 2). The module header claims normalization
+  // applies to EVERY rung, including structured_output — this pins it: a
+  // rewrite that drops normalizeParsedFindings from the structured-rung path
+  // (e.g. `validateAgentFindings(candidate)` with no normalize call) would
+  // hard-drop this payload and turn this test red, where the rung-2-only
+  // coercible test above would stay green.
+  it("normalizes bad-but-coercible findings arriving via structured_output too (rung 1)", () => {
+    const coercibleViaStructured = {
+      file: "src/foo.ts",
+      line: 7,
+      label: "issue",
+      decoration: "(blocking)",
+      confidence: 90,
+      title:
+        "coercible via structured_output: title->subject and paren-stripped decoration",
+      body: "details",
+    };
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(
+          rawPath,
+          JSON.stringify({
+            response: "irrelevant prose the structured channel bypasses",
+            structured_output: { findings: [coercibleViaStructured] },
+          }),
+        );
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      findingCount: 1,
+      decodedVia: "structured-output",
+    });
     expect(validateAgentFindings(JSON.parse(deps.files.get(OUT)!)).ok).toBe(
       true,
     );
