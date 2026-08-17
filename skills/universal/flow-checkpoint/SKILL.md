@@ -38,7 +38,8 @@ this` / `checkpoint` inside a flow pipeline window.
   phases `epic-designing`, `epic-validating`, `epic-pr-open`, and
   `epic-design-pending-review` all checkpoint and auto-resume like a
   feature pipeline. `epic-approved` is terminal for the design supervisor,
-  so `/clear` there carries the notes over but does not auto-resume (an
+  so `/clear` there carries the notes over and (in tmux) opens with a
+  short orientation turn, but does not auto-resume the pipeline (an
   `epic-run` window at the same phase is a separate case — see the gate
   note below).
 
@@ -55,7 +56,12 @@ At a terminal phase, a `/clear` **carries the checkpoint over**: the
 `SessionStart:clear` hook emits the body as passive context in the fresh
 session and retires it one-shot. What it does not do there is _resume the
 pipeline_ — a terminal pipeline has nothing left to resume (`gated` and
-an `epic-run` window are the exceptions that do auto-resume). So your
+an `epic-run` window are the exceptions that do auto-resume). In a tmux
+window the hook also fires a short **orientation turn** into the pane: it
+summarises the carried-over notes, names the repo and PR the finished
+pipeline left behind, and then waits for your questions — it never drives
+a pipeline or re-renders a gate block. A plain-shell session has no
+send-keys surface, so there the carry-over stays passive-only. So your
 notes always survive the clear; only the auto-resume is phase-dependent.
 Step 2 below surfaces a warning when the pipeline will not auto-resume,
 so you know which of the two you are getting.
@@ -199,4 +205,6 @@ and clears the freshness record, then deletes the `checkpoint.pending`
 marker so a later unrelated `/clear` in the same window does not re-fire
 the auto-resume. At a terminal phase there is no resume to re-enter, so
 the `SessionStart:clear` hook does the equivalent itself — it emits the
-body as context and retires it the same one-shot way.
+body as context and retires it the same one-shot way, then (tmux only)
+dispatches the orientation turn described above. That turn is one-shot
+too: it hangs off the same marker, so a second `/clear` stays silent.

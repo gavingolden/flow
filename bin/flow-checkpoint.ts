@@ -452,7 +452,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   const kind = resolveKind() ?? "feature";
   let warning: string | undefined;
   if (parsed.site !== "terminal" && !autoResumesAfterClear(state.phase, kind)) {
-    warning = `phase '${state.phase}' is terminal — your notes are still carried over into the fresh session after /clear, but the pipeline itself will not auto-resume (there is nothing left to resume).`;
+    warning = `phase '${state.phase}' is terminal — your notes are still carried over into the fresh session after /clear, but the pipeline itself will not auto-resume (there is nothing left to resume). In a tmux window the notes arrive alongside a short orientation turn that summarises them and then waits for your questions, so the pane does not sit blank.`;
     process.stderr.write(`flow-checkpoint: warning: ${warning}\n`);
   }
 
