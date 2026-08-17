@@ -7723,6 +7723,34 @@ describe("pause-output contract wiring lint", () => {
     );
   });
 
+  it("step 1's intent interview persists the digest at ask time, not only after the answer", () => {
+    // Live-pipeline regression (PR #637): driving a real `flow feature
+    // create` battery showed step 1 writing `--phase
+    // triage-pending-interview` with NO `--interview-stdin`, because the
+    // only persistence instruction sat after answer-parsing. The pause
+    // between asking and answering is exactly the /clear-and-crash
+    // window, so `state.interview` was absent at the one phase a resume
+    // can land on mid-interview — leaving flow-resume-decide's step-1 row
+    // with an empty `.context.interview` and forcing it to re-derive a
+    // renumbered frontier, breaking the stable-Q<n> contract the compact
+    // `3a` answer form depends on. Step 3's question gate does not share
+    // the bug (its battery survives on disk at
+    // .flow-tmp/interview-questions.md), which is why this pins step 1
+    // specifically.
+    const c = fs.readFileSync(SKILL_MD_PATH, "utf8").replace(/\s+/g, " ");
+    const askTimeWrite =
+      /flow-state-update --phase triage-pending-interview --interview-stdin/;
+    expect(
+      askTimeWrite.test(c),
+      "step 1 must write the phase together with --interview-stdin so the " +
+        "battery survives the pause it ends the turn on",
+    ).toBe(true);
+    expect(
+      c.includes("still-open"),
+      "the ask-time digest must carry this round's questions at still-open",
+    ).toBe(true);
+  });
+
   it("references/output-style.md carries the section and both carve-outs", () => {
     // Normalize hard-wrapped prose so the carve-out phrases match
     // regardless of where the 72-col wrap falls.

@@ -548,7 +548,26 @@ does NOT fire, proceed straight to classification below unchanged.
 
 When the trigger **fires**:
 
-1. Write `flow-state-update --phase triage-pending-interview`.
+1. Compose the round's questions, then write the phase **together with
+   the ask-time digest** — the full interview-to-date with this round's
+   questions carried at `still-open` (the third resolution state the
+   playbook's `## 7` names):
+
+   ```bash
+   flow-state-update --phase triage-pending-interview --interview-stdin <<'EOF'
+   <digest: every question asked so far, each ANSWERED/adopted/still-open>
+   EOF
+   ```
+
+   Unlike step 3's question gate — whose battery survives the pause on
+   disk at `.flow-tmp/interview-questions.md` — the step-1 battery
+   exists ONLY in the turn being ended here, so a `/clear` or crash at
+   the pause would otherwise strand the resume row (`step-1`,
+   `awaiting-triage-interview-answers`) with an empty
+   `.context.interview` and force it to re-derive a different frontier —
+   renumbering questions the user is looking at and breaking the stable
+   `Q<n>` ids that make `answer: 3a` unambiguous. This ask-time write is
+   what makes the pause itself recoverable.
 2. Render the current frontier round per the playbook's `## 3. Question
    format` — every question numbered `Q<n>`, grouped under its category
    heading — inside the `references/pause-output-contract.md` slot
@@ -2495,7 +2514,7 @@ Branch on `.resumeAt`:
 
 | `.resumeAt` | Action |
 |---|---|
-| `step-1` | Re-enter step 1's Intent interview (adaptive) sub-step. `.context.interview` (when present) carries `state.interview`'s persisted digest — re-render the frontier's unanswered questions from it (do NOT re-derive the frontier from scratch) and continue the round protocol from `references/interview-playbook.md`. |
+| `step-1` | Re-enter step 1's Intent interview (adaptive) sub-step. `.context.interview` carries `state.interview`'s persisted digest — re-render the frontier's `still-open` questions from it under their existing `Q<n>` ids (do NOT re-derive the frontier from scratch, and do NOT renumber) and continue the round protocol from `references/interview-playbook.md`. Step 1's ask-time write means a digest is present at every `triage-pending-interview` pause; an ABSENT one is a pre-fix state file (or a crash before the phase write landed), so re-derive the frontier from the original request and say so in the re-rendered round, rather than silently presenting renumbered questions as if they were the ones already on screen. |
 | `step-2` | Re-enter step 2 (worktree). Recreate via `flow-new-worktree`. |
 | `step-3` | Re-enter step 3 (plan). If `state.phase` was `plan-pending-interview`, re-render the battery from `.flow-tmp/interview-questions.md` on disk (the file, not `.context.interview`) instead of blindly re-invoking discovery; `.context.interview`, when present, carries only the prior triage-side digest as background context for framing the re-render, never the battery itself. Otherwise re-invoke `/flow-product-planning`. |
 | `step-4` | Re-enter step 4 (approval). Re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
