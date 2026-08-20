@@ -1510,8 +1510,7 @@ on the fail subtype:
   cat > .flow-tmp/body.md <<'EOF'
   <original description with test section extended or added>
   EOF
-  flow-md-validate --fix-pr-body .flow-tmp/body.md
-  gh pr edit <number> --body-file .flow-tmp/body.md
+  flow-md-validate --fix-pr-body .flow-tmp/body.md && gh pr edit <number> --body-file .flow-tmp/body.md
   ```
 
 - **Fail (automatable)**: Unlike the `Fail (shallow)` and `Fail (missing)` branches

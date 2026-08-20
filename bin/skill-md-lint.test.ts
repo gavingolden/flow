@@ -8361,4 +8361,30 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
       "new-feature-overflow-note",
     ]);
   });
+
+  it("BODY_EDIT_SITES' per-file count matches the actual 'gh pr edit ... --body-file' occurrence count in each covered file (independent of the enumerated list itself)", () => {
+    // The test above only asserts BODY_EDIT_SITES against a literal copy
+    // of its own siteName list, so an eighth recipe added to a covered
+    // file (or a ninth in a new file) would silently slip through
+    // unrepaired without failing anything. Cross-check against the raw
+    // occurrence count in each file this describe block actually reads,
+    // so drift between the enumerated sites and the real markdown is
+    // caught mechanically.
+    const filesCovered = [...new Set(BODY_EDIT_SITES.map((s) => s.file))];
+    for (const file of filesCovered) {
+      const absPath = path.resolve(HERE, "..", ...file.split("/"));
+      const content = fs.readFileSync(absPath, "utf8");
+      const actualCount = (content.match(/gh pr edit .*--body-file/g) ?? [])
+        .length;
+      const enumeratedCount = BODY_EDIT_SITES.filter(
+        (s) => s.file === file,
+      ).length;
+      expect(
+        actualCount,
+        `${file}: found ${actualCount} 'gh pr edit ... --body-file' occurrence(s) ` +
+          `but BODY_EDIT_SITES enumerates ${enumeratedCount} site(s) for this file — ` +
+          `a recipe was added or removed without updating BODY_EDIT_SITES.`,
+      ).toBe(enumeratedCount);
+    }
+  });
 });

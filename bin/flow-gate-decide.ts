@@ -210,6 +210,22 @@ export function decide(inputs: GateInputs): DecisionResult {
       ? ` (excluded ${trappedItems.length} item(s) trapped in an unterminated <details> block: ${trappedItems[0]})`
       : "";
   if (section.kind === "no-unchecked") {
+    // A body with trapped items can never legitimately read as
+    // "no-unchecked" — the trap is a formatting defect masking real
+    // unchecked (or unreadable) items, not evidence every step passed.
+    // Failing open here (auto-merging a PR whose Test Steps section is
+    // unreadable) would silently undo the pre-PR-95 gate: same body
+    // shape, worse verdict.
+    if (trappedItems.length > 0) {
+      return {
+        decision: "gated",
+        prState: state,
+        prUrl: url,
+        validationItems: [],
+        reason: "trapped test-step item(s) cannot be verified" + trappedSuffix,
+        autoMerge,
+      };
+    }
     if (!autoMerge) {
       return {
         decision: "gated",

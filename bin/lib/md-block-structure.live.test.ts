@@ -33,8 +33,17 @@ const ghEnv = { ...process.env, HOME: REAL_HOME };
 const ghOnPath = spawnSync("gh", ["--version"], { env: ghEnv }).status === 0;
 const ghAuthed =
   ghOnPath && spawnSync("gh", ["auth", "status"], { env: ghEnv }).status === 0;
+// A transient api.github.com failure (rate limit, network blip) is not
+// "gh absent/unauthenticated" — probe the actual endpoint this file
+// calls so that class of failure also self-skips instead of turning
+// `npm run verify` red.
+const ghApiReachable =
+  ghAuthed &&
+  spawnSync("gh", ["api", "markdown", "-f", "text=x", "-f", "mode=gfm"], {
+    env: ghEnv,
+  }).status === 0;
 
-const describeIfGhAuthed = ghAuthed ? describe : describe.skip;
+const describeIfGhAuthed = ghApiReachable ? describe : describe.skip;
 
 function renderGfm(text: string): string {
   const r = spawnSync(
@@ -74,6 +83,19 @@ describeIfGhAuthed(
 
       const afterHtml = renderGfm(after);
       expect(afterHtml).toContain("<pre");
+    });
+
+    it("</details> rule: missing blank after </details> swallows the next checkbox as literal text; normalizing renders it as a real task-list item", () => {
+      const before =
+        "<details><summary>x</summary>\ncontent\n</details>\n- [ ] item\n";
+      const after = normalizeDetailsBlocks(before).body;
+      expect(after).not.toBe(before);
+
+      const beforeHtml = renderGfm(before);
+      expect(beforeHtml).not.toContain('class="contains-task-list"');
+
+      const afterHtml = renderGfm(after);
+      expect(afterHtml).toContain('class="contains-task-list"');
     });
   },
 );

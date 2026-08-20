@@ -24,9 +24,17 @@ export type Defect = {
 };
 
 const FENCE_OPEN_RE = /^\s*(`{3,}|~{3,})/;
+const FENCE_CLOSE_RE = /^\s*(`{3,}|~{3,})\s*$/;
 const SUMMARY_END_RE = /<\/summary>\s*$/;
 const DETAILS_END_RE = /<\/details>\s*$/;
-const DETAILS_OPEN_RE = /<details\b/i;
+// GFM only honours a `<details>` line as an HTML-block START condition
+// when `<` is the first non-whitespace character at an indent of at most
+// 3 spaces (CommonMark HTML block type 7 / GFM raw-HTML rules) — 4+
+// spaces makes it an indented code block instead, never an HTML-block
+// start. Anchored (not `\s*`, which would admit 4+ spaces and tabs) so a
+// `- [ ]` item that merely MENTIONS `<details>` inline doesn't trip the
+// open state and trap every checkbox below it to EOF.
+const DETAILS_OPEN_RE = /^ {0,3}<details\b/i;
 
 /**
  * Split `body` into its real content lines plus a `trailingNewline`
@@ -81,7 +89,17 @@ class FenceTracker {
       }
       return false;
     }
-    if (m && m[1][0] === this.openChar && m[1].length >= this.openLen) {
+    // CommonMark forbids an info string on a CLOSING fence — a line like
+    // "```js" inside an already-open fence is ordinary fenced content,
+    // not a close. Re-match against the close-only pattern (fence run
+    // followed by nothing but trailing whitespace) so a line such as
+    // "```js" inside an open fence doesn't desynchronize the tracker.
+    const closeMatch = text.match(FENCE_CLOSE_RE);
+    if (
+      closeMatch &&
+      closeMatch[1][0] === this.openChar &&
+      closeMatch[1].length >= this.openLen
+    ) {
       this.openChar = null;
       this.openLen = 0;
       return true;

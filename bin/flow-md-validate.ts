@@ -386,7 +386,9 @@ export async function main(argv: string[]): Promise<number> {
     }
     const defects = findDetailsBlockDefects(body);
     for (const d of defects) {
-      console.log(`${argv[1]}:${d.line}: ${d.kind}`);
+      // d.line is 0-indexed (see findDetailsBlockDefects); +1 to match
+      // the repo-walk path's 1-indexed file:line: shape below.
+      console.log(`${argv[1]}:${d.line + 1}: ${d.kind}`);
     }
     console.log(
       `flow-md-validate: ${defects.length} <details> blank-line defect(s) in ${argv[1]}`,

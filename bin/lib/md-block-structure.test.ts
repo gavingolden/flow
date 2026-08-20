@@ -38,6 +38,31 @@ describe("normalizeDetailsBlocks", () => {
     expect(insertions).toBe(0);
   });
 
+  it("does not close a fence on a line carrying an info string (CommonMark forbids trailing chars on a closing fence)", () => {
+    // Regression: a naive close check (match FENCE_OPEN_RE and compare
+    // char/length) treated "```js" as a close for an already-open
+    // 3-backtick fence, desynchronizing the tracker and injecting a
+    // blank line into genuinely fenced content.
+    const body = "```\n```js\n</details>\nnext\n```\n";
+    const { body: out, insertions } = normalizeDetailsBlocks(body);
+    expect(out).toBe(body);
+    expect(insertions).toBe(0);
+  });
+
+  it("closes on a tilde fence of equal length, and does not close a tilde-opened fence on a backtick line", () => {
+    const body = "~~~\n```\n</details>\n~~~\nafter\n";
+    const { body: out, insertions } = normalizeDetailsBlocks(body);
+    expect(out).toBe(body);
+    expect(insertions).toBe(0);
+  });
+
+  it("does not close on a same-character fence shorter than the opener", () => {
+    const body = "````\n```\n</details>\n````\nafter\n";
+    const { body: out, insertions } = normalizeDetailsBlocks(body);
+    expect(out).toBe(body);
+    expect(insertions).toBe(0);
+  });
+
   it("is depth-independent: unbalanced/nested </details> spliced mid-body normalizes flatly", () => {
     const body =
       "<details><summary>a</summary>\n</details>\nextra </details>\nmore </details>\ntail\n";
@@ -148,5 +173,29 @@ describe("findUnterminatedHtmlBlockLines", () => {
     const body = "<details>\nclosed\n\n<details>\nunclosed\n";
     const trapped = findUnterminatedHtmlBlockLines(body);
     expect(trapped).toEqual(new Set([3, 4]));
+  });
+
+  it("does not open on a checkbox that merely mentions <details> inline (not the line's first non-whitespace char)", () => {
+    // Regression: DETAILS_OPEN_RE was unanchored, so a Test Steps item
+    // like "- [ ] Verify the `<details>` block renders" set the open
+    // state and trapped every checkbox below it to EOF. GFM only
+    // honours <details> as an HTML-block start when `<` is the first
+    // non-whitespace char at indent <= 3.
+    const body =
+      "- [ ] Verify the `<details>` block renders\n- [ ] a real step\n";
+    const trapped = findUnterminatedHtmlBlockLines(body);
+    expect(trapped).toEqual(new Set());
+  });
+
+  it("does not open on <details> indented 4+ spaces (CommonMark indented code block, not an HTML-block start)", () => {
+    const body = "    <details>\n- [ ] a real step\n";
+    const trapped = findUnterminatedHtmlBlockLines(body);
+    expect(trapped).toEqual(new Set());
+  });
+
+  it("still opens on <details> indented up to 3 spaces", () => {
+    const body = "   <details>\n- [ ] trapped\n";
+    const trapped = findUnterminatedHtmlBlockLines(body);
+    expect(trapped).toEqual(new Set([0, 1]));
   });
 });

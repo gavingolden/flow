@@ -288,14 +288,18 @@ describe(decide, () => {
     expect(r.decision).toBe("merged-externally");
   });
 
-  it("names a trapped item's exclusion in the reason on an otherwise-empty section (auto-merge)", () => {
+  it("gates rather than auto-merges when every surviving item is trapped (fail-closed)", () => {
+    // Was "auto-merge" pre-fix: the trapped-checkbox exclusion ran before
+    // the emptiness test, so a body where EVERY item is trapped read as
+    // "no-unchecked" and un-gated. A trapped item is unreadable, not
+    // verified — this must never resolve to auto-merge.
     const r = decide({
       body: "## Test Steps\n\n<details>\n- [ ] trapped item\n",
       state: "OPEN",
       url: "https://x/y/pull/1",
       autoMerge: true,
     });
-    expect(r.decision).toBe("auto-merge");
+    expect(r.decision).toBe("gated");
     expect(r.reason).toContain("trapped item");
     expect(r.reason).toMatch(/excluded 1 item/);
   });
