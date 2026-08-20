@@ -192,7 +192,7 @@ throws.
 | `reviewLens`       | `/flow-pr-review` Gemini review lens                                     | `Gemini 3.1 Pro (High)`                   |
 | `researchGather`   | forced-research gather pass                                              | `Gemini 3.1 Pro (High)`                   |
 | `researchRefute`   | forced-research adversarial refute pass                                  | `Claude Opus 4.6 (Thinking)`              |
-| `planReview`       | `/flow-pipeline` step 3 plan review, reviewer 1                          | `Gemini 3.1 Pro (High)`                   |
+| `planReview`       | `/flow-pipeline` step 3 plan review, reviewer 1                          | `Gemini 3.7 Flash (High)`                 |
 | `planReviewSecond` | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2                | `Claude Opus 4.6 (Thinking)`              |
 | `scout`            | reserved — not yet wired; scouting still spawns the Claude Task subagent | `null` (no effect on any code path today) |
 

@@ -60,8 +60,20 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // refuter anyway can set delegate.models.researchRefute — no code
   // change needed — and an agy-delegated refuter keeps the spend on the
   // Google-AI-Ultra subscription either way.
+  // RE-CHECKED, STILL NO FLIP (2026-08-17 run, gemini-3.7-flash-high):
+  // 3.7 Flash reached c9a-pushback-wrong parity (its critique reject moved
+  // to c9b, 0.90 vs 1.00), so the pushback-deficit premise above no longer
+  // holds for it — but its research-refute verdict is a latency reject
+  // (median 25.30s, not <= 60% of the incumbent's 40.53s) and recommend()
+  // still nominates 3.1 Pro, which the diversity guard still blocks.
   researchRefute: "Claude Opus 4.6 (Thinking)",
-  planReview: "Gemini 3.1 Pro (High)",
+  // FLIPPED (2026-08-17 run): gemini-3.7-flash-high cleared every
+  // plan-review gate on c6-plan-review at N=10 (no defect regression,
+  // mechanical parity, structured integrity, reliability, real latency
+  // payoff) and recommend()'s quality-gated tie-break nominated it over
+  // 3.1 Pro's clear — docs/model-bench/verdicts.json. Cross-model
+  // diversity vs planReviewSecond (Claude Opus) is preserved.
+  planReview: "Gemini 3.7 Flash (High)",
   // Does NOT flip despite plan-review's gemini-3.1-pro-high clear (same
   // bench run): the deep-tier second reviewer exists for cross-model
   // diversity against the Gemini first reviewer (the convergence rule

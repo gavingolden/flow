@@ -15,7 +15,7 @@ import {
   type FanoutAggregate,
 } from "./flow-plan-review";
 
-const MODEL_1 = "Gemini 3.1 Pro (High)";
+const MODEL_1 = "Gemini 3.7 Flash (High)";
 const MODEL_2 = "Claude Opus 4.6 (Thinking)";
 
 // Must clear BOTH the engagement bars in bin/lib/plan-review-engagement.ts:
@@ -398,7 +398,7 @@ describe("run — happy path", () => {
       depth: "standard",
       reviewers: [
         {
-          model: "Gemini 3.1 Pro (High)",
+          model: "Gemini 3.7 Flash (High)",
           ran: true,
           skipReason: null,
           lensesEngaged: 4,
@@ -416,7 +416,7 @@ describe("run — happy path", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
     const argv = deps.calls.delegate[0]!;
-    expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 3.1 Pro (High)");
+    expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 3.7 Flash (High)");
     expect(argv[argv.indexOf("--add-dir") + 1]).toBe(WORKTREE);
     expect(argv[argv.indexOf("--task") + 1]).toBe("plan-review");
     expect(argv[argv.indexOf("--timeout") + 1]).toBe("3m");
