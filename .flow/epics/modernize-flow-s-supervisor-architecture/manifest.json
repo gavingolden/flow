@@ -1,0 +1,118 @@
+{
+  "epicId": "modernize-flow-s-supervisor-architecture",
+  "prompt": "Modernize flow's supervisor architecture around 2026 Claude Code harness primitives, based on the completed research review (pipeline review-research-related-even-newer, phase triaged-no-change). Keep the confirmed-right architecture (discovery → coder → multi-lens review split, .flow-tmp artifacts + state.json + checkpoint/clear, the UI-smoke active-evaluator pass, plan Contract blocks + the Test Steps auto-merge rubric) and flow's differentiators (auto-merge gate rubric, cross-model review, resource-teardown discipline). Address the outdated compensations: the hand-rolled prose state machine, the nine-exemption ledger's outlived platform rationale, tmux-derived identity plumbing, flow-ci-wait's owned poll loop (the false-ci-hang bug class), and 200k-era context-isolation scaffolds — measurement first, one measured removal at a time, with re-verified platform claims recorded in design.md.",
+  "createdAt": "2026-08-19T00:00:00Z",
+  "features": [
+    {
+      "id": "f1-eval-harness",
+      "title": "Flow-owned eval harness + baseline scaffold suites",
+      "description": "Build a flow-owned, locally-runnable eval harness that makes supervisor-scaffold removals measurable: a bin/flow-eval runner (Bun, maintainer-run) that executes small fixed headless scenario suites and scores them with deterministic graders over the artifacts flow already emits (state.json fields, .flow-tmp/*-result.json shapes, transcript-derived signals), emitting a machine-readable JSON report plus a human summary. Do NOT anchor on `claude plugin eval` — it is org-gated early access (verified 2026-08-19) and flow's CI installs no claude binary; instead mirror flow-plugin-contract-lint's pattern (local signal, named skip with notice when claude is absent, vitest stays the CI gate) and keep the report schema as a stable seam so `claude plugin eval` can become a runner backend once GA. Ship committed baseline suites for the three stress-test candidates — verify-loop subagent isolation, the haiku gatekeeper, checkpoint-pending-clear — and record their baseline scores. Part of epic `modernize-flow-s-supervisor-architecture` (feature `f1-eval-harness`) — design at `.flow/epics/modernize-flow-s-supervisor-architecture/design.md`.",
+      "dependsOn": [],
+      "rationale": "Hides D1 (how supervisor behavior is scored) behind a stable flow-eval CLI + report schema; the walking-skeleton root the measured-removal bet hangs off.",
+      "acceptanceCriteria": [
+        "WHEN a maintainer runs the flow-eval runner on a named suite THE SYSTEM SHALL execute its scenarios and emit a machine-readable JSON score report plus a human-readable summary",
+        "WHEN the runner is invoked where no claude binary is available (e.g. CI) THE SYSTEM SHALL skip with a named notice and exit 0, leaving vitest as the CI gate",
+        "WHEN the three candidate baseline suites are run on an unchanged tree THE SYSTEM SHALL produce recorded baseline scores from deterministic artifact graders, not free-form LLM judgment alone"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "auto",
+        "effort": "high"
+      },
+      "mvp": true
+    },
+    {
+      "id": "f2-scaffold-stress-test",
+      "title": "Eval-gated stress-test of the three 200k-era scaffolds",
+      "description": "Behind the f1-eval-harness suites, stress-test the three context-isolation scaffolds sized for 200k-token windows (current models carry 1M windows — verified 2026-08-19), one candidate at a time: the verify-loop subagent isolation, the haiku gatekeeper, and checkpoint-pending-clear. For each candidate: remove it on its own commit, run the f1 suite before/after, and either keep the removal (delta clean) or revert and record a keep-verdict with the measured evidence — never a silent retention. Treat checkpoint-pending-clear as keep-biased: its eval must specifically cover the post-/clear resume path (PR #640's orientation turn touches the same machinery). Land a committed keep/remove verdict table (consumed by the workflow-port feature) and correct the stale nested-subagent depth-cap citation in docs/nested-subagents-assessment.md (default cap is now 3, env-overridable via CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH — not 5). Part of epic `modernize-flow-s-supervisor-architecture` (feature `f2-scaffold-stress-test`) — design at `.flow/epics/modernize-flow-s-supervisor-architecture/design.md`.",
+      "dependsOn": ["f1-eval-harness"],
+      "rationale": "Hides D2 (which scaffolds survive — a measurement outcome, not an architecture commitment) behind the committed verdict table + eval suites.",
+      "acceptanceCriteria": [
+        "WHEN a candidate scaffold is removed THE SYSTEM SHALL carry a before/after eval delta for that candidate, one candidate per commit",
+        "WHEN a candidate's delta shows regression THE SYSTEM SHALL retain the scaffold and record a keep-verdict with the measured evidence in the committed verdict table",
+        "WHEN all three candidates are adjudicated THE SYSTEM SHALL have committed a verdict table naming each candidate's outcome and evidence",
+        "WHEN docs/nested-subagents-assessment.md cites the nesting depth cap THE SYSTEM SHALL state the current contract (default 3, env-overridable), not the stale 5"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "always",
+        "effort": "high"
+      }
+    },
+    {
+      "id": "f3-ci-check-split",
+      "title": "Split flow-ci-wait into a harness-native wait + one-shot flow-ci-check",
+      "description": "Retire flow-ci-wait's hand-rolled 20-minute poll loop (bin/flow-ci-wait.ts, ~1,851 lines — the source of the false-ci-hang bug class where a suspended background process inflates its in-process elapsed clock) by separating waiting from deciding. Deciding: extract a one-shot deterministic flow-ci-check helper that computes the existing CI/Copilot decision matrix (decideOnPoll, deriveCheckState, deriveCopilotSkipReason and friends — moved with their unit tests, not rewritten) from a single fresh GitHub observation plus wall-clock anchor timestamps persisted in ~/.flow/state/<slug>.json, so elapsed time derives from durable timestamps and a suspended or slept process can never fabricate ci-hang. Waiting: a dumb, restartable, policy-free waiter driven by harness-native primitives — a backgrounded blocking wait whose exit wakes the session via the completion notification, with Monitor/ScheduleWakeup (60s floor supersedes the 30s early cadence) as the cadence fallback — per the verified 2026-08-19 background-task semantics (completion notification + transcript capture; processes resume across machine sleep). Update skills/pipeline/flow-pipeline/references/polling-protocol.md and the step-7 runbook accordingly, and add a suspension-immunity regression test. Part of epic `modernize-flow-s-supervisor-architecture` (feature `f3-ci-check-split`) — design at `.flow/epics/modernize-flow-s-supervisor-architecture/design.md`.",
+      "dependsOn": [],
+      "rationale": "Hides D3 (how waiting happens — a swappable harness primitive) behind the stable, unit-tested verdict matrix now exposed as one-shot flow-ci-check.",
+      "acceptanceCriteria": [
+        "WHEN the supervisor reaches the CI wait THE SYSTEM SHALL wait via harness-native primitives (background completion notification, Monitor/ScheduleWakeup) instead of a helper-owned verdict loop",
+        "WHEN the session wakes THE SYSTEM SHALL compute the verdict via one-shot flow-ci-check from live GitHub state plus timestamps persisted in state.json",
+        "WHEN the waiter process is suspended, slept, or killed THE SYSTEM SHALL NOT emit ci-hang from inflated in-process elapsed time — a regression test covers the suspension scenario",
+        "WHEN the split lands THE SYSTEM SHALL preserve the existing decision-matrix functions and their unit tests (moved, not rewritten) and the CI/Copilot decision taxonomy unchanged"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "always",
+        "effort": "high"
+      }
+    },
+    {
+      "id": "f4-env-state-identity",
+      "title": "Finish env/state-only session identity",
+      "description": "Complete the env/state-only session-identity migration: audit every tmux pane-option read site (the @flow-slug/@flow-phase/@flow-repo/@flow-phase-short/@flow-kind consumers across bin/*.ts, bin/lib/*, and the pipeline skills' prose) and drop pane-option READS everywhere except the epic-orchestration surfaces that are tmux-only by independent hard constraint — resolveKindAmbient's documented contract in bin/lib/session-identity.ts, with its bidirectional producing/consuming-site comments kept intact. Identity resolves from FLOW_SLUG (launch env, both backends) then ~/.flow/state/<slug>.json then on-disk artifacts, per AGENTS.md's backend-agnostic signal order; tmux options remain additive publish-only mirrors, and any option nothing consumes anymore is deleted rather than left as cargo. Add a structural lint (test-enforced grep, mirroring skill-md-lint's pattern) pinning that no pane-option read exists outside tmux.ts and the named epic surfaces, and verify the plain-shell launcher path end-to-end (env -u FLOW_SLUG test suite stays green). Part of epic `modernize-flow-s-supervisor-architecture` (feature `f4-env-state-identity`) — design at `.flow/epics/modernize-flow-s-supervisor-architecture/design.md`.",
+      "dependsOn": [],
+      "rationale": "Hides D4 (the identity carrier) behind session-identity.ts once and for all; plain shell is the default launcher, so pane-derived identity is legacy plumbing.",
+      "acceptanceCriteria": [
+        "WHEN any helper or skill resolves pipeline identity outside the documented tmux-only epic surfaces THE SYSTEM SHALL read FLOW_SLUG/state.json, never a tmux pane option",
+        "WHEN running under the tmux launcher THE SYSTEM SHALL keep pane options as additive publish-only mirrors, with unconsumed options deleted",
+        "WHEN a pane-option read is introduced outside tmux.ts or the named epic surfaces THE SYSTEM SHALL fail a structural lint test",
+        "WHEN the epic-orchestration surfaces read @flow-kind THE SYSTEM SHALL retain the documented tmux-only exception with safe-by-construction absence defaults"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "auto",
+        "effort": "medium"
+      }
+    },
+    {
+      "id": "f5-workflow-spike",
+      "title": "Throwaway workflow spike + go/no-go ADR for the steps-5-10 port",
+      "description": "Run a throwaway spike against the Claude Code dynamic-workflow runtime (verified GA 2026-08-19 at code.claude.com/docs/en/workflows.md, but with flow-critical capabilities undocumented) and commit a go/no-go ADR for porting pipeline steps 5-10. The spike must exercise, live, the four load-bearing capabilities the port depends on: (1) invoking flow's PATH-bound Bash helpers from workflow steps, (2) spawning flow's named agents by plugin-qualified name (flow-module-core:flow-scout etc.) with their frontmatter model/effort pins honored, (3) handing control back to the supervisor session at a human gate (the workflow must be able to STOP at gate verdicts, not merge), and (4) resume semantics after interruption, reconciled against ~/.flow/state/<slug>.json as the durable anchor. Record per-capability evidence (confirmed/refuted, with the observed behavior) in a committed ADR mirroring the p6-distribution-eval precedent, ending in a go/no-go verdict plus the fallback (retain the prose state machine) on no-go. Nothing from the spike ships to consumers; the spike script is committed as evidence only. Part of epic `modernize-flow-s-supervisor-architecture` (feature `f5-workflow-spike`) — design at `.flow/epics/modernize-flow-s-supervisor-architecture/design.md`.",
+      "dependsOn": [],
+      "rationale": "Hides the evidence half of D5 (does the workflow runtime actually support flow's four load-bearing capabilities) so the port never designs on undocumented claims.",
+      "acceptanceCriteria": [
+        "WHEN the spike completes THE SYSTEM SHALL have committed an ADR with a go/no-go verdict backed by live per-capability evidence for all four named capabilities",
+        "WHEN any capability is refuted THE SYSTEM SHALL name the refuted capability and the fallback rung in the ADR rather than asserting the port is viable",
+        "WHEN the spike lands THE SYSTEM SHALL ship nothing to consumer-facing surfaces (no skill, helper, or install change beyond the committed ADR and spike script)"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "never",
+        "effort": "high"
+      }
+    },
+    {
+      "id": "f6-workflow-port",
+      "title": "Port pipeline steps 5-10 to a deterministic workflow script",
+      "description": "CONTINGENT feature — proceed only if f5-workflow-spike's ADR records go AND f2-scaffold-stress-test's verdicts leave the port's premise intact; on a no-go, cancel this feature at the epic-run checkpoint and record why (the prose state machine is retained for steps 5-10). Port the mechanical middle of /flow-pipeline (steps 5-10: implement, verify, ci-wait, review, gate mechanics, merge mechanics) from the prose state machine in skills/pipeline/flow-pipeline/SKILL.md (~2,733 lines) to a committed deterministic workflow script, keeping the LLM supervisor session for the human-in-the-loop phases (triage, plan review, and the gate verdict — the workflow stops at gate and hands back; the auto-merge exemption's fresh-confirmation contract is preserved byte-equivalent in behavior, as are the auto-merge rubric, cross-model review, and resource-teardown discipline). The ported step 7 invokes f3's one-shot flow-ci-check; the ported steps carry only the scaffolds f2's verdict table kept. Dissolve the Task-tool exemption prose for the ported spawn sites into workflow code (the exemption ledger shrinks to the sites that remain supervisor-driven), slim SKILL.md accordingly, and gate the port on the f1/f2 eval suites showing no regression against the prose baseline. Part of epic `modernize-flow-s-supervisor-architecture` (feature `f6-workflow-port`) — design at `.flow/epics/modernize-flow-s-supervisor-architecture/design.md`.",
+      "dependsOn": [
+        "f5-workflow-spike",
+        "f2-scaffold-stress-test",
+        "f3-ci-check-split"
+      ],
+      "rationale": "Hides the commitment half of D5 (the orchestration substrate for the mechanical middle) behind the workflow script, consuming the spike ADR, the scaffold verdicts, and the ci-check helper.",
+      "acceptanceCriteria": [
+        "WHEN a feature pipeline reaches step 5 with the port landed THE SYSTEM SHALL drive steps 5-10 via the committed workflow script while triage, plan review, and the gate verdict remain supervisor turns",
+        "WHEN the workflow reaches the gate THE SYSTEM SHALL stop and hand back to the supervisor — a gated verdict is never merged by the workflow, preserving the fresh-confirmation gate-override contract",
+        "WHEN the workflow run is interrupted THE SYSTEM SHALL resume without losing pipeline state, with state.json remaining the durable anchor",
+        "WHEN the port lands THE SYSTEM SHALL pass the f1/f2 eval suites with no regression against the prose baseline, and the ported sites' Task-tool exemption prose SHALL be dissolved into workflow code"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "always",
+        "effort": "max"
+      }
+    }
+  ]
+}
