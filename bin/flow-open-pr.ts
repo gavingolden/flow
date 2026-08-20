@@ -31,6 +31,7 @@ import * as path from "node:path";
 import { runUpdate } from "./flow-state-update";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { type GitRunner, defaultGit } from "./lib/resume-probes";
+import { normalizeDetailsBlocks } from "./lib/md-block-structure";
 
 type Args = {
   /** undefined when omitted — caller falls back to resolveSlugAmbient(). */
@@ -285,18 +286,33 @@ export function run(argv: string[], deps: Deps = {}): number {
     }
 
     // Fresh-create path only: append the self-describing session marker
-    // to the body. The marker is NOT re-applied on the resume (`found`)
-    // path — flow-open-pr is idempotent and re-editing would duplicate it.
+    // to the body, and repair any <details> blank-line defects in it.
+    // The marker is NOT re-applied on the resume (`found`) path —
+    // flow-open-pr is idempotent and re-editing would duplicate it. The
+    // temp-file hoist fires whenever EITHER the marker is appended OR
+    // the normalizer inserted anything — never write back to
+    // `parsed.bodyFile`, which is typically a caller-owned discovery
+    // artifact (e.g. `.flow-tmp/pr-description-draft.md`) other pipeline
+    // steps read afterward.
     let createArgs = parsed;
-    if (validSessionId !== undefined) {
-      const original = fs.readFileSync(parsed.bodyFile, "utf8");
-      const augmented = `${original}\n\n${sessionMarker(validSessionId)}\n`;
+    const original = fs.readFileSync(parsed.bodyFile, "utf8");
+    const withMarker =
+      validSessionId !== undefined
+        ? `${original}\n\n${sessionMarker(validSessionId)}\n`
+        : original;
+    const { body: normalized, insertions } = normalizeDetailsBlocks(withMarker);
+    if (validSessionId !== undefined || insertions > 0) {
       const tmpDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "flow-open-pr-body-"),
       );
       const tmpBody = path.join(tmpDir, "body.md");
-      fs.writeFileSync(tmpBody, augmented);
+      fs.writeFileSync(tmpBody, normalized);
       createArgs = { ...parsed, bodyFile: tmpBody };
+    }
+    if (insertions > 0) {
+      process.stderr.write(
+        `flow-open-pr: normalized ${insertions} <details> blank-line gap(s) in ${parsed.bodyFile}\n`,
+      );
     }
     const created = gh(buildCreateArgv(createArgs));
     if (created.exitCode !== 0) {

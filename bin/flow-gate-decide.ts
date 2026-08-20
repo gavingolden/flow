@@ -39,6 +39,7 @@ import { spawnSync } from "node:child_process";
 import { readState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
+import { findUnterminatedHtmlBlockLines } from "./lib/md-block-structure";
 
 export type Decision =
   | "auto-merge"
@@ -67,6 +68,36 @@ export type GateInputs = {
 const HEADING_RE = /^## Test Steps[ \t]*$/m;
 
 /**
+ * Extract the `## Test Steps` section text (heading line to the next
+ * `## ` heading at column 0, or end-of-input) with HTML comments
+ * stripped. Shared by `parseTestStepsSection` and `findTrappedTestSteps`
+ * so the two agree on exactly what text they're scanning.
+ */
+function extractStrippedSection(body: string): string | null {
+  if (!HEADING_RE.test(body)) return null;
+
+  // Extract from the heading line to the next `## ` heading at column 0
+  // (or end-of-input). awk-equivalent: flag-loop bounded by another H2.
+  const lines = body.split("\n");
+  const startIdx = lines.findIndex((l) => HEADING_RE.test(l));
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (/^## /.test(lines[i])) {
+      endIdx = i;
+      break;
+    }
+  }
+  let section = lines.slice(startIdx + 1, endIdx).join("\n");
+
+  // Strip HTML comments (multi-line, non-greedy). Same as `perl -0pe 's/<!--.*?-->//gs'`.
+  // The strip is essential: the PR template's instructional comment carries no
+  // `- [ ]` items, so on a pure-internal change the section has zero unchecked
+  // items after the strip → auto-merge.
+  section = section.replace(/<!--[\s\S]*?-->/g, "");
+  return section;
+}
+
+/**
  * Pure parse of the Test Steps section.
  *
  *   - "missing"        → no `## Test Steps` heading at column 0.
@@ -89,39 +120,51 @@ export function parseTestStepsSection(
   | { kind: "missing" }
   | { kind: "no-unchecked" }
   | { kind: "has-unchecked"; uncheckedItems: string[] } {
-  if (!HEADING_RE.test(body)) return { kind: "missing" };
+  const section = extractStrippedSection(body);
+  if (section === null) return { kind: "missing" };
 
-  // Extract from the heading line to the next `## ` heading at column 0
-  // (or end-of-input). awk-equivalent: flag-loop bounded by another H2.
-  const lines = body.split("\n");
-  const startIdx = lines.findIndex((l) => HEADING_RE.test(l));
-  let endIdx = lines.length;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    if (/^## /.test(lines[i])) {
-      endIdx = i;
-      break;
-    }
-  }
-  let section = lines.slice(startIdx + 1, endIdx).join("\n");
-
-  // Strip HTML comments (multi-line, non-greedy). Same as `perl -0pe 's/<!--.*?-->//gs'`.
-  // The strip is essential: the PR template's instructional comment carries no
-  // `- [ ]` items, so on a pure-internal change the section has zero unchecked
-  // items after the strip → auto-merge.
-  section = section.replace(/<!--[\s\S]*?-->/g, "");
+  // Line indices inside an OPEN `<details>` block GFM never closes with a
+  // blank line: GitHub renders that span as raw HTML, so any `- [ ]` text
+  // there was never a real checkbox to begin with — a reviewer literally
+  // cannot tick it. Computed post-comment-strip so the indices this set
+  // reports line up with `sectionLines` below.
+  const trapped = findUnterminatedHtmlBlockLines(section);
 
   // Count unchecked items only. The match anchors on `- [ ]` (with the literal
   // single space) at the start of any line, optionally indented. `- [x]` and
   // `- [X]` (ticked) do NOT count — pr-review ticks runnable items in place
   // and we should treat those as completed.
   const uncheckedItems: string[] = [];
-  for (const raw of section.split("\n")) {
-    const m = raw.match(/^\s*-\s+\[ \]\s+(.*\S)\s*$/);
+  const sectionLines = section.split("\n");
+  for (let i = 0; i < sectionLines.length; i++) {
+    if (trapped.has(i)) continue;
+    const m = sectionLines[i].match(/^\s*-\s+\[ \]\s+(.*\S)\s*$/);
     if (m) uncheckedItems.push(m[1]);
   }
 
   if (uncheckedItems.length === 0) return { kind: "no-unchecked" };
   return { kind: "has-unchecked", uncheckedItems };
+}
+
+/**
+ * Companion to `parseTestStepsSection`, used only for reason-text
+ * surfacing: names the `- [ ]` items excluded from `uncheckedItems`
+ * because they're trapped inside an unterminated `<details>` block.
+ * Additive export — does not change `parseTestStepsSection`'s frozen
+ * return shape.
+ */
+export function findTrappedTestSteps(body: string): string[] {
+  const section = extractStrippedSection(body);
+  if (section === null) return [];
+  const trapped = findUnterminatedHtmlBlockLines(section);
+  const items: string[] = [];
+  const sectionLines = section.split("\n");
+  for (let i = 0; i < sectionLines.length; i++) {
+    if (!trapped.has(i)) continue;
+    const m = sectionLines[i].match(/^\s*-\s+\[ \]\s+(.*\S)\s*$/);
+    if (m) items.push(m[1]);
+  }
+  return items;
 }
 
 export function decide(inputs: GateInputs): DecisionResult {
@@ -157,14 +200,39 @@ export function decide(inputs: GateInputs): DecisionResult {
       autoMerge,
     };
   }
+  // Named, not silently dropped: items trapped inside an unterminated
+  // <details> block are excluded from validationItems (a reviewer can't
+  // tick what GitHub renders as raw HTML) — this is a formatting defect
+  // to name in the reason, never a NEEDS HUMAN escalation.
+  const trappedItems = findTrappedTestSteps(body);
+  const trappedSuffix =
+    trappedItems.length > 0
+      ? ` (excluded ${trappedItems.length} item(s) trapped in an unterminated <details> block: ${trappedItems[0]})`
+      : "";
   if (section.kind === "no-unchecked") {
+    // A body with trapped items can never legitimately read as
+    // "no-unchecked" — the trap is a formatting defect masking real
+    // unchecked (or unreadable) items, not evidence every step passed.
+    // Failing open here (auto-merging a PR whose Test Steps section is
+    // unreadable) would silently undo the pre-PR-95 gate: same body
+    // shape, worse verdict.
+    if (trappedItems.length > 0) {
+      return {
+        decision: "gated",
+        prState: state,
+        prUrl: url,
+        validationItems: [],
+        reason: "trapped test-step item(s) cannot be verified" + trappedSuffix,
+        autoMerge,
+      };
+    }
     if (!autoMerge) {
       return {
         decision: "gated",
         prState: state,
         prUrl: url,
         validationItems: [],
-        reason: "auto-merge opted out (--no-auto-merge)",
+        reason: "auto-merge opted out (--no-auto-merge)" + trappedSuffix,
         autoMerge,
       };
     }
@@ -172,7 +240,7 @@ export function decide(inputs: GateInputs): DecisionResult {
       decision: "auto-merge",
       prState: state,
       prUrl: url,
-      reason: "no unchecked test steps; auto-merge",
+      reason: "no unchecked test steps; auto-merge" + trappedSuffix,
       autoMerge,
     };
   }
@@ -182,7 +250,8 @@ export function decide(inputs: GateInputs): DecisionResult {
     prState: state,
     prUrl: url,
     validationItems: section.uncheckedItems,
-    reason: section.uncheckedItems[0] ?? "test steps remaining",
+    reason:
+      (section.uncheckedItems[0] ?? "test steps remaining") + trappedSuffix,
     autoMerge,
   };
 }

@@ -308,6 +308,16 @@ needed to debug: on a crash, panic, or unhandled exception, append the
 raw error excerpt in a collapsed `<details>` block below the
 impact-first prose.
 
+**`<details>` block spacing (measured, not stylistic taste).** GitHub's
+renderer only leaves raw-HTML mode at a blank line: a blank line is
+required after any line ending in `</summary>` and after any line ending
+in `</details>`, or the following markdown (the next bullet, the next
+`<details>`) gets absorbed as literal text. Two measured counter-facts:
+no blank line is needed _before_ `<details>` — GitHub renders that fine
+either way — and plain `- [ ]` checklists are not fragile; the failure
+mode is specific to unclosed `<details>` spans, not checkboxes in
+general.
+
 Worked pairs, verbatim from the picked battery variants:
 
 **Bug-fix recap — before:** "Fixed the race in `bin/flow-new.ts`:

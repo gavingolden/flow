@@ -650,6 +650,104 @@ describe("flow-open-pr run()", () => {
     );
   });
 
+  // --- <details> blank-line normalization on the fresh-create path ---------
+
+  it("routes a malformed body with no session ID through a hoisted temp file, normalized", () => {
+    seedState("malformed-no-session");
+    fs.writeFileSync(
+      bodyFile,
+      "## Why\nbecause.\n<details><summary>x</summary>\ncontent\n</details>\nafter\n",
+    );
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 60,
+        url: "https://github.com/x/y/pull/60",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    const exit = run(["malformed-no-session", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git: branchOnRemoteGit(),
+      sessionId: "",
+    });
+    expect(exit).toBe(0);
+    const createCall = calls.find((c) => c[0] === "pr" && c[1] === "create")!;
+    const routedPath = createCall[createCall.indexOf("--body-file") + 1];
+    expect(routedPath).not.toBe(bodyFile);
+    const routedBody = fs.readFileSync(routedPath, "utf8");
+    expect(routedBody).toContain("<summary>x</summary>\n\ncontent");
+    expect(routedBody).toContain("</details>\n\nafter");
+  });
+
+  it("never mutates the caller's --body-file, even when normalization fires", () => {
+    seedState("malformed-preserve-caller");
+    const original =
+      "## Why\nbecause.\n<details><summary>x</summary>\ncontent\n</details>\nafter\n";
+    fs.writeFileSync(bodyFile, original);
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 61,
+        url: "https://github.com/x/y/pull/61",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    const exit = run(["malformed-preserve-caller", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git: branchOnRemoteGit(),
+      sessionId: "",
+    });
+    expect(exit).toBe(0);
+    expect(fs.readFileSync(bodyFile, "utf8")).toBe(original);
+  });
+
+  it("still appends the session marker when the body also needs normalization", () => {
+    seedState("malformed-with-session");
+    fs.writeFileSync(
+      bodyFile,
+      "## Why\n<details><summary>x</summary>\ncontent\n</details>\nafter\n",
+    );
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 62,
+        url: "https://github.com/x/y/pull/62",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    const exit = run(["malformed-with-session", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git: branchOnRemoteGit(),
+      sessionId: VALID_SESSION,
+    });
+    expect(exit).toBe(0);
+    const routedBody = createBodyContent(calls);
+    expect(routedBody).toContain("Claude Code session");
+    expect(routedBody).toContain("<summary>x</summary>\n\ncontent");
+  });
+
   // --- pre-create auto-push when the branch's head is absent on origin ------
 
   it("pushes the branch before gh pr create when its head is absent on origin", () => {

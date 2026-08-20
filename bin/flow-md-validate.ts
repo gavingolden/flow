@@ -4,16 +4,29 @@
  *
  * Usage:
  *   flow-md-validate <path>
+ *   flow-md-validate --fix-pr-body <file>
+ *   flow-md-validate --check-pr-body <file>
+ *
+ * `--fix-pr-body`/`--check-pr-body` are additive, single-file entry points
+ * for the `<details>` GFM blank-line rules in `bin/lib/md-block-structure.ts`
+ * — the same repair the hand-written `gh pr edit --body-file` recipes across
+ * the skill library call before writing a PR body. They never touch the
+ * repo-walk path above.
  *
  * Exit codes:
- *   0 — clean
- *   1 — violations (printed to stdout)
+ *   0 — clean (repo-walk: no violations; --fix-pr-body: always;
+ *       --check-pr-body: no defects)
+ *   1 — violations / defects found (printed to stdout)
  *   2 — usage / I-O error (printed to stderr)
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import {
+  findDetailsBlockDefects,
+  normalizeDetailsBlocks,
+} from "./lib/md-block-structure";
 
 export type ViolationKind =
   | "broken-link-target"
@@ -335,11 +348,15 @@ export function runValidation(target: string): RunReport {
 export async function main(argv: string[]): Promise<number> {
   if (argv.length === 0 || argv[0] === "--help" || argv[0] === "-h") {
     const usage =
-      "Usage: flow-md-validate <path>\n\n" +
+      "Usage: flow-md-validate <path>\n" +
+      "       flow-md-validate --fix-pr-body <file>\n" +
+      "       flow-md-validate --check-pr-body <file>\n\n" +
       "Validates internal markdown links (relative paths + heading anchors) and\n" +
       "SKILL.md frontmatter presence.\n\n" +
       "Inside a git work tree, paths git ignores are skipped (git ls-files); outside one,\n" +
       "only node_modules, .git, and .flow-tmp are skipped.\n\n" +
+      "--fix-pr-body/--check-pr-body apply the <details> GFM blank-line rules to a single\n" +
+      "PR-body file, independent of the repo-walk path above.\n\n" +
       "Exit codes: 0 clean, 1 violations, 2 usage/I-O error.";
     if (argv[0] === "--help" || argv[0] === "-h") {
       console.log(usage);
@@ -347,6 +364,36 @@ export async function main(argv: string[]): Promise<number> {
     }
     console.error(usage);
     return 2;
+  }
+  if (argv[0] === "--fix-pr-body" || argv[0] === "--check-pr-body") {
+    if (argv.length !== 2) {
+      console.error(`Error: ${argv[0]} requires exactly one file path.`);
+      return 2;
+    }
+    const file = path.resolve(argv[1]);
+    if (!fs.existsSync(file)) {
+      console.error(`Error: path does not exist: ${argv[1]}`);
+      return 2;
+    }
+    const body = fs.readFileSync(file, "utf8");
+    if (argv[0] === "--fix-pr-body") {
+      const { body: fixed, insertions } = normalizeDetailsBlocks(body);
+      if (insertions > 0) fs.writeFileSync(file, fixed);
+      console.log(
+        `flow-md-validate: normalized ${insertions} <details> blank-line gap(s) in ${argv[1]}`,
+      );
+      return 0;
+    }
+    const defects = findDetailsBlockDefects(body);
+    for (const d of defects) {
+      // d.line is 0-indexed (see findDetailsBlockDefects); +1 to match
+      // the repo-walk path's 1-indexed file:line: shape below.
+      console.log(`${argv[1]}:${d.line + 1}: ${d.kind}`);
+    }
+    console.log(
+      `flow-md-validate: ${defects.length} <details> blank-line defect(s) in ${argv[1]}`,
+    );
+    return defects.length === 0 ? 0 : 1;
   }
   if (argv.length > 1) {
     console.error("Error: too many arguments. Pass exactly one path.");

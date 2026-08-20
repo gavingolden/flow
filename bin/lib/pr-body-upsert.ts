@@ -7,7 +7,14 @@
  * rather than a hardcoded regex; everything else preserves the original
  * find-heading / splice-to-next-`^## ` / replace-in-place / append-when-absent
  * / no-op-on-identical behavior.
+ *
+ * The result is routed through `normalizeDetailsBlocks` before returning, so
+ * every caller (currently `flow-followups.ts` and `flow-foreclosed-paths.ts`)
+ * gets GFM-correct `<details>` blank-line spacing for free — upstream content
+ * (an injected finding, a fix-applier note) can carry unbalanced or
+ * unspaced `<details>`/`</summary>` text.
  */
+import { normalizeDetailsBlocks } from "./md-block-structure";
 
 /**
  * Build the anchor regex for a heading: matches the heading on its own line
@@ -33,9 +40,10 @@ export function upsertPrBodySection(
 ): string {
   const headingRe = headingRegex(heading);
   if (!headingRe.test(body)) {
-    if (body.length === 0) return section + "\n";
+    if (body.length === 0) return normalizeDetailsBlocks(section + "\n").body;
     const trailingSep = body.endsWith("\n") ? "" : "\n";
-    return body + trailingSep + "\n" + section + "\n";
+    return normalizeDetailsBlocks(body + trailingSep + "\n" + section + "\n")
+      .body;
   }
   const lines = body.split("\n");
   const startIdx = lines.findIndex((l) => headingRe.test(l));
@@ -58,5 +66,5 @@ export function upsertPrBodySection(
   let result = newLines.join("\n");
   const hadTrailingNewline = body.endsWith("\n");
   if (hadTrailingNewline && !result.endsWith("\n")) result += "\n";
-  return result;
+  return normalizeDetailsBlocks(result).body;
 }

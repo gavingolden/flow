@@ -610,3 +610,75 @@ describe(main, () => {
     expect(log.some((l) => l.includes("Usage:"))).toBe(true);
   });
 });
+
+describe("main --fix-pr-body / --check-pr-body", () => {
+  it("--fix-pr-body rewrites a malformed file in place and exits 0", async () => {
+    const file = write(
+      "body.md",
+      "<details><summary>x</summary>\ncontent\n</details>\nafter\n",
+    );
+    const log: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => log.push(args.join(" "));
+    try {
+      const code = await main(["--fix-pr-body", file]);
+      expect(code).toBe(0);
+    } finally {
+      console.log = origLog;
+    }
+    const out = fs.readFileSync(file, "utf8");
+    expect(out).toContain("<summary>x</summary>\n\ncontent");
+    expect(out).toContain("</details>\n\nafter");
+    expect(log.some((l) => l.includes("normalized 2"))).toBe(true);
+  });
+
+  it("--fix-pr-body is a no-op on an already-clean file and still exits 0", async () => {
+    const clean = "<details><summary>x</summary>\n\ncontent\n\n</details>\n";
+    const file = write("clean.md", clean);
+    const log: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => log.push(args.join(" "));
+    try {
+      const code = await main(["--fix-pr-body", file]);
+      expect(code).toBe(0);
+    } finally {
+      console.log = origLog;
+    }
+    expect(fs.readFileSync(file, "utf8")).toBe(clean);
+    expect(log.some((l) => l.includes("normalized 0"))).toBe(true);
+  });
+
+  it("--check-pr-body exits 1 and reports defects without mutating the file", async () => {
+    const malformed =
+      "<details><summary>x</summary>\ncontent\n</details>\nafter\n";
+    const file = write("check.md", malformed);
+    const log: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => log.push(args.join(" "));
+    try {
+      const code = await main(["--check-pr-body", file]);
+      expect(code).toBe(1);
+    } finally {
+      console.log = origLog;
+    }
+    expect(fs.readFileSync(file, "utf8")).toBe(malformed);
+    expect(log.some((l) => l.includes("missing-blank-after-summary"))).toBe(
+      true,
+    );
+    expect(
+      log.some((l) => l.includes("missing-blank-after-details-close")),
+    ).toBe(true);
+  });
+
+  it("--check-pr-body exits 0 on a clean file", async () => {
+    const clean = "<details><summary>x</summary>\n\ncontent\n\n</details>\n";
+    const file = write("check-clean.md", clean);
+    const code = await main(["--check-pr-body", file]);
+    expect(code).toBe(0);
+  });
+
+  it("does not break the existing single-path repo-walk contract", async () => {
+    write("a.md", "# A\n");
+    expect(await main([tmp])).toBe(0);
+  });
+});

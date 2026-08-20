@@ -198,6 +198,39 @@ describe("rewriteBody", () => {
     expect((second.body.match(/<!-- flow:evidence -->/g) ?? []).length).toBe(1);
   });
 
+  it("normalizes captured output containing unbalanced/nested <details> markup", () => {
+    // The captured stdout/stderr can itself contain HTML from a nested
+    // tool's own output (e.g. a test runner echoing markdown). Without
+    // the InjectResult.body normalization pass, an unbalanced </details>
+    // inside the fenced payload would still be safely inside our own
+    // fence — but a stray, unfenced <details> line elsewhere in the
+    // body (e.g. injected by a prior run's malformed edit) must still
+    // come back normalized.
+    const malformed = [
+      "## Test Steps",
+      "",
+      "- [ ] `npm run verify` — pass",
+      "<details><summary>stray</summary>",
+      "orphaned content",
+      "</details>",
+      "- [ ] manual smoke",
+    ].join("\n");
+    const result = rewriteBody(
+      malformed,
+      {
+        bodyFile: "",
+        outputFile: "",
+        item: "npm run verify",
+        exitCode: 0,
+        timestamp: TS,
+      },
+      "all green",
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.body).toContain("<summary>stray</summary>\n\norphaned");
+    expect(result.body).toContain("</details>\n\n- [ ] manual smoke");
+  });
+
   it("returns an error when no line matches the item regex", () => {
     const result = rewriteBody(
       body,

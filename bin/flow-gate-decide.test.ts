@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decide,
   fetchPrInputs,
+  findTrappedTestSteps,
   parseArgs,
   parseTestStepsSection,
   run,
@@ -143,6 +144,49 @@ describe(parseTestStepsSection, () => {
       "## Test Steps\n\n<!-- example: - [ ] do thing -->\n- [x] ran tests\n";
     expect(parseTestStepsSection(body)).toEqual({ kind: "no-unchecked" });
   });
+
+  it("excludes a `- [ ]` line trapped inside an unterminated <details> block", () => {
+    // GitHub renders this span as raw HTML (no closing blank line ever
+    // arrives) — the checkbox never rendered, so a reviewer can't tick
+    // it. It must not count as a genuine unchecked item.
+    const body =
+      "## Test Steps\n\n- [ ] visible item\n<details>\n- [ ] trapped item\n";
+    const r = parseTestStepsSection(body);
+    expect(r.kind).toBe("has-unchecked");
+    if (r.kind === "has-unchecked") {
+      expect(r.uncheckedItems).toEqual(["visible item"]);
+    }
+  });
+
+  it("returns no-unchecked when the only `- [ ]` item is trapped", () => {
+    const body = "## Test Steps\n\n<details>\n- [ ] trapped item\n";
+    expect(parseTestStepsSection(body)).toEqual({ kind: "no-unchecked" });
+  });
+
+  it("still counts a `- [ ]` item inside a <details> block that IS closed by a blank line", () => {
+    const body =
+      "## Test Steps\n\n<details>\n- [ ] not trapped\n\n</details>\n";
+    const r = parseTestStepsSection(body);
+    expect(r.kind).toBe("has-unchecked");
+    if (r.kind === "has-unchecked") {
+      expect(r.uncheckedItems).toEqual(["not trapped"]);
+    }
+  });
+});
+
+describe(findTrappedTestSteps, () => {
+  it("names the trapped items excluded from parseTestStepsSection", () => {
+    const body =
+      "## Test Steps\n\n- [ ] visible item\n<details>\n- [ ] trapped item\n";
+    expect(findTrappedTestSteps(body)).toEqual(["trapped item"]);
+  });
+
+  it("returns [] when the heading is missing or nothing is trapped", () => {
+    expect(findTrappedTestSteps("## Why\nbecause\n")).toEqual([]);
+    expect(findTrappedTestSteps("## Test Steps\n\n- [ ] plain item\n")).toEqual(
+      [],
+    );
+  });
 });
 
 // --- decide() --------------------------------------------------------------
@@ -242,6 +286,45 @@ describe(decide, () => {
       autoMerge: true,
     });
     expect(r.decision).toBe("merged-externally");
+  });
+
+  it("gates rather than auto-merges when every surviving item is trapped (fail-closed)", () => {
+    // Was "auto-merge" pre-fix: the trapped-checkbox exclusion ran before
+    // the emptiness test, so a body where EVERY item is trapped read as
+    // "no-unchecked" and un-gated. A trapped item is unreadable, not
+    // verified — this must never resolve to auto-merge.
+    const r = decide({
+      body: "## Test Steps\n\n<details>\n- [ ] trapped item\n",
+      state: "OPEN",
+      url: "https://x/y/pull/1",
+      autoMerge: true,
+    });
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("trapped item");
+    expect(r.reason).toMatch(/excluded 1 item/);
+  });
+
+  it("names a trapped item's exclusion in the reason alongside a visible unchecked item (gated)", () => {
+    const r = decide({
+      body: "## Test Steps\n\n- [ ] visible item\n<details>\n- [ ] trapped item\n",
+      state: "OPEN",
+      url: "https://x/y/pull/1",
+      autoMerge: true,
+    });
+    expect(r.decision).toBe("gated");
+    expect(r.validationItems).toEqual(["visible item"]);
+    expect(r.reason).toContain("visible item");
+    expect(r.reason).toContain("trapped item");
+  });
+
+  it("leaves the reason unchanged (no trapped suffix) for a well-formed body", () => {
+    const r = decide({
+      body: "## Test Steps\n\n- [ ] step one\n",
+      state: "OPEN",
+      url: "https://x/y/pull/1",
+      autoMerge: true,
+    });
+    expect(r.reason).toBe("step one");
   });
 });
 
