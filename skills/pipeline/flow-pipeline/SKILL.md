@@ -1406,7 +1406,7 @@ silent:
     gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
     # upsert the sibling line "> [!NOTE] UI changed; browser validation did
     # not run — <UI_REASON>" under ## Test Steps, then
-    gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
+    flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/body.md" && gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
   fi
   ```
 
@@ -1443,7 +1443,7 @@ the session:
   gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
   # upsert the > [!CAUTION] block (built from verify-caution.txt) under
   # ## Test Steps, then
-  gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
+  flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/body.md" && gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
   ```
 
 **Re-entry / resume.** Phase stays `verifying` and the resume `step-6`

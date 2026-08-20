@@ -8231,3 +8231,134 @@ describe("flow-checkpoint SKILL.md frontmatter policy", () => {
     ).toEqual([]);
   });
 });
+
+describe("gh pr edit --body-file recipes repair <details> blank-line gaps first", () => {
+  // Enumerated by NAME, not a directory glob (house style pinned above at
+  // the "pause-output contract wiring lint" describe block). Every
+  // hand-written `gh pr edit ... --body-file` recipe across the skill
+  // library must run `flow-md-validate --fix-pr-body` on the same file
+  // immediately before writing it, so a malformed <details> block a prior
+  // step produced never reaches GitHub unrepaired. Model this on the
+  // "Load the Task tool before spawning" precedent above.
+  type BodyEditSite = {
+    file: string;
+    siteName: string;
+    kind: "adjacent-lines" | "same-paragraph";
+    anchor: string;
+  };
+
+  const BODY_EDIT_SITES: BodyEditSite[] = [
+    {
+      file: "skills/pipeline/flow-pipeline/SKILL.md",
+      siteName: "pipeline-ui-smoke-note",
+      kind: "adjacent-lines",
+      anchor: 'upsert the sibling line "> [!NOTE] UI changed',
+    },
+    {
+      file: "skills/pipeline/flow-pipeline/SKILL.md",
+      siteName: "pipeline-verify-exhausted-caution",
+      kind: "adjacent-lines",
+      anchor: "verify-caution.txt",
+    },
+    {
+      file: "skills/pipeline/flow-pr-review/SKILL.md",
+      siteName: "pr-review-evidence-injection",
+      kind: "adjacent-lines",
+      anchor: "After every runnable item has been processed",
+    },
+    {
+      file: "skills/pipeline/flow-pr-review/SKILL.md",
+      siteName: "pr-review-redraft-description",
+      kind: "adjacent-lines",
+      anchor: "<updated description>",
+    },
+    {
+      file: "skills/pipeline/flow-pr-review/SKILL.md",
+      siteName: "pr-review-testability-extend",
+      kind: "adjacent-lines",
+      anchor: "<original description with test section extended or added>",
+    },
+    {
+      file: "skills/pipeline/flow-pr-review/SKILL.md",
+      siteName: "pr-review-automatable-prune",
+      kind: "same-paragraph",
+      anchor: "prune the converted bullet",
+    },
+    {
+      file: "skills/pipeline/flow-new-feature/SKILL.md",
+      siteName: "new-feature-overflow-note",
+      kind: "same-paragraph",
+      anchor: "append it as a self-contained callout at the END of the PR body",
+    },
+  ];
+
+  function findAdjacentRepairPair(content: string, anchor: string): boolean {
+    const anchorIdx = content.indexOf(anchor);
+    if (anchorIdx < 0) return false;
+    // Search a bounded window after the anchor for a
+    // `flow-md-validate --fix-pr-body` line immediately followed (next
+    // non-blank line) by a `gh pr edit ... --body-file` line — or, when
+    // the two are chained on one `&&` line, the same line.
+    const window = content.slice(anchorIdx, anchorIdx + 2000);
+    const lines = window.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].includes("flow-md-validate --fix-pr-body")) continue;
+      if (/gh pr edit .*--body-file/.test(lines[i])) return true;
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === "") j++;
+      if (j < lines.length && /gh pr edit .*--body-file/.test(lines[j])) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function findSameParagraphRepairPair(
+    content: string,
+    anchor: string,
+  ): boolean {
+    const anchorIdx = content.indexOf(anchor);
+    if (anchorIdx < 0) return false;
+    const before = content.lastIndexOf("\n\n", anchorIdx);
+    const after = content.indexOf("\n\n", anchorIdx);
+    const paragraph = content.slice(
+      before < 0 ? 0 : before,
+      after < 0 ? content.length : after,
+    );
+    return (
+      paragraph.includes("flow-md-validate --fix-pr-body") &&
+      /gh pr edit .*--body-file/.test(paragraph)
+    );
+  }
+
+  it.each(BODY_EDIT_SITES)(
+    "$file names the '$siteName' site running flow-md-validate --fix-pr-body before its gh pr edit --body-file call",
+    ({ file, siteName, kind, anchor }) => {
+      const absPath = path.resolve(HERE, "..", ...file.split("/"));
+      const content = fs.readFileSync(absPath, "utf8");
+      const found =
+        kind === "adjacent-lines"
+          ? findAdjacentRepairPair(content, anchor)
+          : findSameParagraphRepairPair(content, anchor);
+      expect(
+        found,
+        `${file}'s '${siteName}' recipe (anchored on ${JSON.stringify(anchor)}) ` +
+          `must run 'flow-md-validate --fix-pr-body' on the same body file ` +
+          `immediately before its 'gh pr edit ... --body-file' call, so a ` +
+          `malformed <details> block never reaches GitHub unrepaired.`,
+      ).toBe(true);
+    },
+  );
+
+  it("covers exactly the seven known gh pr edit --body-file recipe sites, by name", () => {
+    expect(BODY_EDIT_SITES.map((s) => s.siteName)).toEqual([
+      "pipeline-ui-smoke-note",
+      "pipeline-verify-exhausted-caution",
+      "pr-review-evidence-injection",
+      "pr-review-redraft-description",
+      "pr-review-testability-extend",
+      "pr-review-automatable-prune",
+      "new-feature-overflow-note",
+    ]);
+  });
+});

@@ -233,3 +233,6 @@ confirmation before proceeding to implementation.
 - Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
   and let the renderer wrap it. Hard wraps go ragged the moment a sentence is edited and
   add no value on GitHub, which renders one long line as one flowing paragraph.
+- Leave a blank line after every line ending in `</summary>` and after every line ending
+  in `</details>`. GitHub's renderer only re-enters markdown mode at a blank line — without
+  one, the next bullet or `<details>` block gets absorbed as literal HTML text.

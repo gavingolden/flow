@@ -25,6 +25,7 @@
  * spaces, dashes, slashes, equals signs are all literal.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { normalizeDetailsBlocks } from "./lib/md-block-structure";
 
 export type InjectArgs = {
   bodyFile: string;
@@ -104,16 +105,15 @@ export function buildEvidenceBlock(
   const summary = `Output (auto-captured ${timestamp}; ${status})`;
   const trimmed = trimOutput(output);
   const fence = "`".repeat(pickFenceLength(trimmed));
-  // The trailing empty string yields a blank line after `</details>`
-  // when these are joined with `\n`. GitHub's GFM type 6/7 HTML blocks
-  // only end at a blank line — without one, the next bullet (or the
-  // next `<details>`'s `</details>`) gets absorbed into a chained
-  // raw-HTML block, killing checkbox rendering for everything that
-  // follows. Same pattern as the leading blank between `<summary>` and
-  // the code fence: GFM only re-enters markdown mode after a blank.
-  return [
+  // The blank line before `</details>` here just closes off the fenced
+  // code block for markdown re-entry (unrelated to the two GFM
+  // `<details>` blank-line rules). Those two rules — a blank line after
+  // `</summary>` and after `</details>` — are applied by the shared
+  // `normalizeDetailsBlocks` primitive below rather than hand-inserted
+  // here, so this block-open shape and `bin/lib/md-block-structure.ts`
+  // cannot drift apart.
+  const block = [
     `<details>${MARKER_OPEN}<summary>${summary}</summary>`,
-    "",
     `${fence}text`,
     trimmed,
     fence,
@@ -121,6 +121,7 @@ export function buildEvidenceBlock(
     "</details>",
     "",
   ].join("\n");
+  return normalizeDetailsBlocks(block).body;
 }
 
 /**
@@ -235,7 +236,15 @@ export function rewriteBody(
   const evidence = buildEvidenceBlock(output, args.exitCode, ts);
   lines.splice(itemEnd + 1, 0, ...evidence.split("\n"));
 
-  return { ok: true, body: lines.join("\n"), replaced, ticked };
+  const { body: normalizedBody, insertions } = normalizeDetailsBlocks(
+    lines.join("\n"),
+  );
+  if (insertions > 0) {
+    process.stderr.write(
+      `flow-inject-evidence: normalized ${insertions} <details> blank-line gap(s) in ${args.bodyFile}\n`,
+    );
+  }
+  return { ok: true, body: normalizedBody, replaced, ticked };
 }
 
 async function main(): Promise<void> {

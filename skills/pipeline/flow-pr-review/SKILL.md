@@ -1190,7 +1190,7 @@ After every runnable item has been processed, write the body back in a single
 edit:
 
 ```bash
-gh pr edit <number> --body-file .flow-tmp/body.md
+flow-md-validate --fix-pr-body .flow-tmp/body.md && gh pr edit <number> --body-file .flow-tmp/body.md
 ```
 
 Apply the no-hard-wrap and preserve-existing-wrapping rules from 11e — the
@@ -1488,9 +1488,10 @@ Default-on — no upfront confirmation; show the before/after comparison with th
 criteria annotated *after* the edit lands, so the user can redirect via reply:
 
 ```bash
-gh pr edit <number> --body-file /dev/stdin <<'EOF'
+cat > .flow-tmp/body.md <<'EOF'
 <updated description>
 EOF
+flow-md-validate --fix-pr-body .flow-tmp/body.md && gh pr edit <number> --body-file .flow-tmp/body.md
 ```
 
 **If only Testability fails and the rest of the description is accurate**: Do NOT redraft
@@ -1506,9 +1507,11 @@ on the fail subtype:
   diff — just the test-section change, not the full description — so they can redirect:
 
   ```bash
-  gh pr edit <number> --body-file /dev/stdin <<'EOF'
+  cat > .flow-tmp/body.md <<'EOF'
   <original description with test section extended or added>
   EOF
+  flow-md-validate --fix-pr-body .flow-tmp/body.md
+  gh pr edit <number> --body-file .flow-tmp/body.md
   ```
 
 - **Fail (automatable)**: Unlike the `Fail (shallow)` and `Fail (missing)` branches
@@ -1524,8 +1527,10 @@ on the fail subtype:
 
   For each automatable item: write the test, run it (`npm test` / `RUN_INTEGRATION=1
   npm test` as appropriate), commit and push (covered by the `Auto-push exemption:
-  pr-review` clause in AGENTS.md), then prune the converted bullet via `gh pr edit
-  <number> --body-file /dev/stdin`. Leave only items that genuinely require human
+  pr-review` clause in AGENTS.md), then prune the converted bullet by writing the
+  updated body to `.flow-tmp/body.md`, running `flow-md-validate --fix-pr-body
+  .flow-tmp/body.md`, and applying it via `gh pr edit <number> --body-file
+  .flow-tmp/body.md`. Leave only items that genuinely require human
   judgment (the rubric's "Genuinely manual" list). The user redirects via reply after
   the fact (e.g. "this one should have stayed manual — revert it") rather than gating
   each conversion upfront.
