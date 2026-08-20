@@ -172,4 +172,10 @@ describe("resolveDelegateModel", () => {
       expect(value).toMatch(/\(.*\)$/);
     }
   });
+
+  it("gather/refute defaults stay distinct (flow-research-run diversity guard would silently downgrade an equal pair)", () => {
+    expect(DELEGATE_MODEL_DEFAULTS.researchGather).not.toBe(
+      DELEGATE_MODEL_DEFAULTS.researchRefute,
+    );
+  });
 });
