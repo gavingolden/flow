@@ -96,7 +96,11 @@
       "id": "f6-workflow-port",
       "title": "Port pipeline steps 5-10 to a deterministic workflow script",
       "description": "CONTINGENT feature — proceed only if f5-workflow-spike's ADR records go AND f2-scaffold-stress-test's verdicts leave the port's premise intact; on a no-go, cancel this feature at the epic-run checkpoint and record why (the prose state machine is retained for steps 5-10). Port the mechanical middle of /flow-pipeline (steps 5-10: implement, verify, ci-wait, review, gate mechanics, merge mechanics) from the prose state machine in skills/pipeline/flow-pipeline/SKILL.md (~2,733 lines) to a committed deterministic workflow script, keeping the LLM supervisor session for the human-in-the-loop phases (triage, plan review, and the gate verdict — the workflow stops at gate and hands back; the auto-merge exemption's fresh-confirmation contract is preserved byte-equivalent in behavior, as are the auto-merge rubric, cross-model review, and resource-teardown discipline). The ported step 7 invokes f3's one-shot flow-ci-check; the ported steps carry only the scaffolds f2's verdict table kept. Dissolve the Task-tool exemption prose for the ported spawn sites into workflow code (the exemption ledger shrinks to the sites that remain supervisor-driven), slim SKILL.md accordingly, and gate the port on the f1/f2 eval suites showing no regression against the prose baseline. Part of epic `modernize-flow-s-supervisor-architecture` (feature `f6-workflow-port`) — design at `.flow/epics/modernize-flow-s-supervisor-architecture/design.md`.",
-      "dependsOn": ["f5-workflow-spike", "f2-scaffold-stress-test", "f3-ci-check-split"],
+      "dependsOn": [
+        "f5-workflow-spike",
+        "f2-scaffold-stress-test",
+        "f3-ci-check-split"
+      ],
       "rationale": "Hides the commitment half of D5 (the orchestration substrate for the mechanical middle) behind the workflow script, consuming the spike ADR, the scaffold verdicts, and the ci-check helper.",
       "acceptanceCriteria": [
         "WHEN a feature pipeline reaches step 5 with the port landed THE SYSTEM SHALL drive steps 5-10 via the committed workflow script while triage, plan review, and the gate verdict remain supervisor turns",
