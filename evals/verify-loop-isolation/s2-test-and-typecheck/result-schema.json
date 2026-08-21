@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "verify_status": { "type": "string", "enum": ["pass", "exhausted"] },
+    "attempts": { "type": "integer" },
+    "fixes": { "type": "array", "items": { "type": "string" } }
+  },
+  "required": ["verify_status", "attempts", "fixes"]
+}

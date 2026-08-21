@@ -1,0 +1,5 @@
+{
+  "pr": 206,
+  "decision": "proceed",
+  "rationale": "state OPEN, isDraft false, 50 lines changed (not < 10), commit headlines match none of the trivial-diff patterns — no rule matches, falls through to 'otherwise'. The existing APPROVED review from copilot-pull-request-reviewer is not a skip signal under the documented rules and must not change the verdict."
+}

@@ -1,0 +1,88 @@
+{
+  "id": "s4-closed-first-match",
+  "title": "Gatekeeper applies first-match-wins: closed-or-merged over draft and trivial-diff",
+  "provenance": "PR 205 lifted from bin/fixtures/model-bench/c10-gatekeeper/pr.json; ground truth from the same fixture's truth.json.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture",
+    "shims": ["../../_shims/gh"]
+  },
+  "model": "haiku",
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "decision-matches-truth",
+      "kind": "structured",
+      "path": "decision",
+      "equals": "skip"
+    },
+    {
+      "id": "skip-kind-matches-truth",
+      "kind": "structured",
+      "path": "skip_kind",
+      "equals": "closed-or-merged"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$STREAM",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core"
+    },
+    {
+      "id": "gatekeeper-result-decision",
+      "kind": "json-file",
+      "gate": false,
+      "file": "$REPO/.flow-tmp/gatekeeper-result.json",
+      "path": "decision",
+      "equals": "skip"
+    },
+    {
+      "id": "gatekeeper-result-exists",
+      "kind": "file",
+      "gate": false,
+      "file": "$REPO/.flow-tmp/gatekeeper-result.json",
+      "exists": true
+    },
+    {
+      "id": "transcript.modelShare.haiku",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.modelShare.haiku",
+      "direction": "higher"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.subagentsSpawned",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.subagentsSpawned",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    }
+  ]
+}

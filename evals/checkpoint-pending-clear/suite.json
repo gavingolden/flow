@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "checkpoint-pending-clear",
+  "candidate": "checkpoint-pending-clear",
+  "description": "Measures the step-4 auto-checkpoint -> /clear -> resume hand-off (bin/flow-checkpoint.ts + bin/flow-session-start-hook.ts) across a plan-approval addendum resume, a gated-feedback resume, and a post-merge terminal-orientation turn.",
+  "scenarios": [
+    "s1-resume-step5-addendum",
+    "s2-resume-gated-feedback",
+    "s3-terminal-orientation"
+  ]
+}

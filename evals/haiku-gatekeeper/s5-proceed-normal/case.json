@@ -1,0 +1,82 @@
+{
+  "id": "s5-proceed-normal",
+  "title": "Gatekeeper proceeds on a normal-sized PR; an existing APPROVED review must not change the verdict",
+  "provenance": "PR 206 lifted from bin/fixtures/model-bench/c10-gatekeeper/pr.json; ground truth from the same fixture's truth.json.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture",
+    "shims": ["../../_shims/gh"]
+  },
+  "model": "haiku",
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "decision-matches-truth",
+      "kind": "structured",
+      "path": "decision",
+      "equals": "proceed"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$STREAM",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core"
+    },
+    {
+      "id": "gatekeeper-result-decision",
+      "kind": "json-file",
+      "gate": false,
+      "file": "$REPO/.flow-tmp/gatekeeper-result.json",
+      "path": "decision",
+      "equals": "proceed"
+    },
+    {
+      "id": "gatekeeper-result-exists",
+      "kind": "file",
+      "gate": false,
+      "file": "$REPO/.flow-tmp/gatekeeper-result.json",
+      "exists": true
+    },
+    {
+      "id": "transcript.modelShare.haiku",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.modelShare.haiku",
+      "direction": "higher"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.subagentsSpawned",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.subagentsSpawned",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "pr": 204,
+  "decision": "proceed",
+  "rationale": "additions+deletions == 7 (< 10, superficially trivial by size), but the commit headline 'fix: correct off-by-one in retry backoff' matches none of the four trivial-diff patterns, so the AND condition fails; no earlier rule matches (state OPEN, isDraft false) — falls through to 'otherwise'."
+}

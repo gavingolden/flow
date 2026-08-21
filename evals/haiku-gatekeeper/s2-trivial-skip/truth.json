@@ -1,0 +1,6 @@
+{
+  "pr": 203,
+  "decision": "skip",
+  "skip_kind": "trivial-diff",
+  "rationale": "additions+deletions == 6 (< 10) and the single commit headline 'chore: regenerate lockfile' matches ^chore: regenerate."
+}

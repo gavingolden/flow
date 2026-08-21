@@ -1,0 +1,6 @@
+{
+  "pr": 201,
+  "decision": "skip",
+  "skip_kind": "closed-or-merged",
+  "rationale": ".state == 'MERGED' matches the first rule in order (gatekeeper-spawn-prompt.md step 2)."
+}

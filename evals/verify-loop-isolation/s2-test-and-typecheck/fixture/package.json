@@ -1,0 +1,9 @@
+{
+  "name": "verify-loop-fixture-typecheck",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  }
+}

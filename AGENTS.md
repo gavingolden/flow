@@ -25,6 +25,7 @@ Read it once at the start of a session.
 | The skill library structure | `skills/` (categorized: `pipeline/`, `universal/`, `stacks/`) |
 | Generic engineering rules to copy into a new repo | `templates/AGENTS.md.template` |
 | Where flow is heading (modular redesign) | `docs/target-architecture.md` |
+| Measure a scaffold removal | `docs/eval/README.md` |
 
 ## Current state
 
@@ -72,8 +73,7 @@ length to task, fenced blocks only for runnable code, etc.).
 
 Source for shipped helper binaries lives in **`bin/`**. User-callable
 helpers (`flow-new-worktree`, `flow-pre-commit`, `flow-state-update`,
-`flow-notify`, `flow-ui-validate`, `flow-delegate`, `flow-research-cache`,
-`flow-spawn`, etc.) live there with `.ts` extensions, Bun shebangs, and
+`flow-notify`, `flow-ui-validate`, etc.) live there with `.ts` extensions, Bun shebangs, and
 tests next door
 (`<name>.test.ts`, skipped when `flow install` symlinks into
 `~/.local/bin/<name>`). The five schema validators
@@ -86,7 +86,7 @@ tests next door
 
 `flow install` also materializes a skills-dir plugin root per selected
 module (`docs/configuration.md`). `flow-plugin-probe`/`flow-plugin-contract-lint`
-join `flow-release`/`flow-model-bench` in `MAINTAINER_ONLY` — never on PATH.
+join `flow-release`/`flow-model-bench`/`flow-eval` in `MAINTAINER_ONLY` — never on PATH.
 
 Static agent-type definitions live at **`agents/<moduleId>/*.md`** (today
 only `core/`), symlinked as ONE dir per module (`flow-module-<id>/agents`

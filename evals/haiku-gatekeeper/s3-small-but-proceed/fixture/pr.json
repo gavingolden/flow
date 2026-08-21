@@ -1,0 +1,17 @@
+[
+  {
+    "number": 204,
+    "title": "fix: correct off-by-one in retry backoff",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 3,
+    "deletions": 4,
+    "commits": [{ "messageHeadline": "fix: correct off-by-one in retry backoff" }],
+    "files": ["bin/lib/retry.ts"],
+    "reviews": [],
+    "author": { "login": "contributor-c" },
+    "body": "## Why\n\nThe backoff loop retried one extra time on the max-attempts boundary, silently doubling the last wait interval before giving up.\n\n## What\n\nChanges `i <= maxAttempts` to `i < maxAttempts` in the retry loop.",
+    "url": "https://github.com/example-org/example-repo/pull/204"
+  }
+]

@@ -1,0 +1,17 @@
+[
+  {
+    "number": 205,
+    "title": "chore: bump dependency",
+    "state": "CLOSED",
+    "isDraft": true,
+    "mergedAt": null,
+    "additions": 2,
+    "deletions": 1,
+    "commits": [{ "messageHeadline": "chore: bump dependency" }],
+    "files": ["package.json"],
+    "reviews": [],
+    "author": { "login": "contributor-d" },
+    "body": "## Why\n\nOpened by mistake against the wrong base branch, closed without merging.\n\n## What\n\nBumps a single dependency.",
+    "url": "https://github.com/example-org/example-repo/pull/205"
+  }
+]
