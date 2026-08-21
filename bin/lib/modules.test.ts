@@ -127,6 +127,7 @@ describe("modules registry completeness (live discovery, not doc prose)", () => 
     // setup.test.ts.
     expect(discovered).not.toContain("flow-release");
     expect(discovered).not.toContain("flow-model-bench");
+    expect(discovered).not.toContain("flow-eval");
     expectExactPartition(
       discovered,
       MODULES.map((m) => m.helpers),

@@ -1,0 +1,134 @@
+{
+  "id": "s2-test-and-typecheck",
+  "title": "Step 6 verify-retry-loop fixes a test failure AND a type error in one run",
+  "provenance": "Synthetic zero-dependency Bun+tsc fixture authored for this suite; preload/plan-digest.md is a ~40KB sanitized excerpt of this feature's own approved plan.md (PRD + architecture-decisions sections, no relative links).",
+  "prompt": "prompt.md",
+  "preload": ["preload/plan-digest.md"],
+  "fixture": {
+    "repo": "fixture",
+    "overlay": "overlay",
+    "state": "state.json",
+    "linkNodeModules": true
+  },
+  "env": {
+    "flowSlug": true
+  },
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "bun-test-passes",
+      "kind": "command",
+      "argv": ["bun", "test"],
+      "cwd": "$REPO",
+      "expectExit": 0
+    },
+    {
+      "id": "typecheck-passes",
+      "kind": "command",
+      "argv": ["bun", "run", "typecheck"],
+      "cwd": "$REPO",
+      "expectExit": 0
+    },
+    {
+      "id": "verify-status-pass",
+      "kind": "structured",
+      "path": "verify_status",
+      "equals": "pass"
+    },
+    {
+      "id": "slug-fix-applied",
+      "kind": "file",
+      "file": "$REPO/src/slug.ts",
+      "matches": "slice\\(0,\\s*MAX_LEN\\)"
+    },
+    {
+      "id": "other-fix-applied",
+      "kind": "file",
+      "file": "$REPO/src/other.ts",
+      "notMatches": "not a number"
+    },
+    {
+      "id": "state-phase-verifying",
+      "kind": "json-file",
+      "file": "$STATE",
+      "path": "phase",
+      "equals": "verifying"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$STREAM",
+      "notMatches": "NOTICE \u2014 agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core"
+    },
+    {
+      "id": "bash-calls-floor",
+      "kind": "metric",
+      "source": "transcript.toolCalls.Bash",
+      "direction": "lower",
+      "min": 1
+    },
+    {
+      "id": "verify-loop-result-status",
+      "kind": "json-file",
+      "gate": false,
+      "file": "$REPO/.flow-tmp/verify-loop-result.json",
+      "path": "verify_status",
+      "equals": "pass"
+    },
+    {
+      "id": "verify-loop-result-exists",
+      "kind": "file",
+      "gate": false,
+      "file": "$REPO/.flow-tmp/verify-loop-result.json",
+      "exists": true
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.subagentsSpawned",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.subagentsSpawned",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.toolCalls.Bash",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.toolCalls.Bash",
+      "direction": "lower"
+    }
+  ]
+}

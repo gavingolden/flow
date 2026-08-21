@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ensurePluginRoot,
   isFlowOwnedPluginRoot,
+  materializeModuleContent,
   pluginDirArgs,
   pluginBinPath,
   withPluginPath,
@@ -516,5 +517,67 @@ describe(withPluginPath, () => {
     expect(
       withPluginPath("/roots/flow-module-core/bin", "/usr/bin::/bin"),
     ).toBe("/usr/bin::/bin:/roots/flow-module-core/bin");
+  });
+});
+
+describe(materializeModuleContent, () => {
+  let fakeFlowSource!: string;
+
+  beforeEach(() => {
+    // A minimal, self-contained flowSource — not the real checkout — so
+    // ownership routing is exercised in isolation: `x-skill` carries no
+    // MODULES registry row, so discoverSkills routes it to MANDATORY_MODULE
+    // ("core") via ownerPluginRootName's fallback; `agents/core/` routes
+    // directly by directory name.
+    fakeFlowSource = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-module-content-"),
+    );
+    const skillDir = path.join(fakeFlowSource, "skills", "pipeline", "x-skill");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "SKILL.md"), "# x-skill\n");
+    const agentDir = path.join(fakeFlowSource, "agents", "core");
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, "x.md"), "---\nname: x\n---\nbody\n");
+  });
+
+  afterEach(() => {
+    fs.rmSync(fakeFlowSource, { recursive: true, force: true });
+  });
+
+  it("symlinks skills and agents under the materialized module root", () => {
+    materializeModuleContent(fakeFlowSource, skillsDir);
+
+    const skillLink = path.join(
+      skillsDir,
+      "flow-module-core",
+      "skills",
+      "x-skill",
+    );
+    expect(fs.existsSync(skillLink)).toBe(true);
+    expect(fs.realpathSync(skillLink)).toBe(
+      fs.realpathSync(
+        path.join(fakeFlowSource, "skills", "pipeline", "x-skill"),
+      ),
+    );
+
+    const agentsLink = path.join(skillsDir, "flow-module-core", "agents");
+    expect(fs.existsSync(agentsLink)).toBe(true);
+    expect(fs.realpathSync(agentsLink)).toBe(
+      fs.realpathSync(path.join(fakeFlowSource, "agents", "core")),
+    );
+    expect(fs.existsSync(path.join(agentsLink, "x.md"))).toBe(true);
+  });
+
+  it("honours onlyIds — a module not in the allowlist gets no symlinks", () => {
+    materializeModuleContent(fakeFlowSource, skillsDir, ["copilot"]);
+
+    expect(
+      fs.existsSync(
+        path.join(skillsDir, "flow-module-core", "skills", "x-skill"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(skillsDir, "flow-module-core", "agents")),
+    ).toBe(false);
   });
 });

@@ -220,6 +220,7 @@ describe("flow install", () => {
     // benchmark). Other helpers stay present.
     expect(names).not.toContain("flow-release");
     expect(names).not.toContain("flow-model-bench");
+    expect(names).not.toContain("flow-eval");
     expect(names).toContain("flow-new-worktree");
   });
 

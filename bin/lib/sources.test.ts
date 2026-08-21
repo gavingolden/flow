@@ -72,9 +72,10 @@ describe(discoverAll, () => {
 });
 
 describe(isPathBoundHelper, () => {
-  it("is false for flow-plugin-probe and flow-plugin-contract-lint (never on a user's PATH)", () => {
+  it("is false for flow-plugin-probe, flow-plugin-contract-lint, and flow-eval (never on a user's PATH)", () => {
     expect(isPathBoundHelper("flow-plugin-probe.ts")).toBe(false);
     expect(isPathBoundHelper("flow-plugin-contract-lint.ts")).toBe(false);
+    expect(isPathBoundHelper("flow-eval.ts")).toBe(false);
   });
 
   it("is true for a normal helper like flow-new-worktree", () => {

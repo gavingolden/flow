@@ -1,0 +1,1 @@
+Load the `flow-pipeline` skill with the Skill tool. Execute ONLY `## Step 6 — Local verify` against the worktree at `$REPO` for PR number 0 (no PR exists; do not open one and do not proceed to Step 7). When Step 6 reaches its terminal branch, emit the structured verdict and end the turn.

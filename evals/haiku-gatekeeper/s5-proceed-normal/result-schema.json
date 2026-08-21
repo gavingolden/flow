@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "decision": { "type": "string", "enum": ["proceed", "skip"] },
+    "skip_kind": {
+      "type": "string",
+      "enum": ["closed-or-merged", "trivial-diff", "no-new-commits"]
+    },
+    "prompt_interpretation_tension": { "type": "boolean" }
+  },
+  "required": ["decision", "prompt_interpretation_tension"]
+}

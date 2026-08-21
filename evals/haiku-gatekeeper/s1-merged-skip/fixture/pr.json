@@ -1,0 +1,20 @@
+[
+  {
+    "number": 201,
+    "title": "feat: add webhook payload builder for terminal states",
+    "state": "MERGED",
+    "isDraft": false,
+    "mergedAt": "2026-07-30T14:02:11Z",
+    "additions": 118,
+    "deletions": 22,
+    "commits": [
+      { "messageHeadline": "feat: add WebhookPayload contract" },
+      { "messageHeadline": "feat: wire flow-webhook-notify call sites" }
+    ],
+    "files": ["bin/lib/webhook-notify.ts", "bin/flow-webhook-notify.ts"],
+    "reviews": [{ "state": "APPROVED", "author": { "login": "reviewer-a" } }],
+    "author": { "login": "contributor-a" },
+    "body": "## Why\n\nRemote integrations need a terminal-state signal.\n\n## What\n\nAdds the webhook payload builder and CLI helper.",
+    "url": "https://github.com/example-org/example-repo/pull/201"
+  }
+]

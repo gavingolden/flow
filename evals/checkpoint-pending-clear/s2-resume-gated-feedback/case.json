@@ -1,0 +1,76 @@
+{
+  "id": "s2-resume-gated-feedback",
+  "title": "Resume re-enters gated-feedback mode and carries the cleared manual Test Step",
+  "provenance": "Synthetic fixture authored against bin/flow-resume-decide.ts's gated-feedback branch (worktree present AND checkpoint marker AND PR OPEN) and bin/flow-checkpoint.ts's arm/consume contract.",
+  "prompt": "prompt.md",
+  "promptSeed": "resume",
+  "fixture": {
+    "repo": "fixture",
+    "state": "state.json",
+    "checkpoint": { "body": "checkpoint.md", "site": "gate", "armed": true },
+    "shims": ["../../_shims/gh"]
+  },
+  "env": { "flowSlug": true },
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "resumed-step-matches",
+      "kind": "structured",
+      "path": "resumed_step",
+      "equals": 9
+    },
+    {
+      "id": "cleared-items-carries-test-step-2",
+      "kind": "structured",
+      "path": "cleared_items",
+      "contains": "Test Step 2"
+    },
+    {
+      "id": "state-phase-still-gated",
+      "kind": "json-file",
+      "file": "$STATE",
+      "path": "phase",
+      "equals": "gated"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$STREAM",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core"
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}
