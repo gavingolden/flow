@@ -82,6 +82,22 @@ export type Deps = {
   readdir: (p: string) => string[];
 } & LoadSuiteDeps;
 
+// `Deps.readFile` throws on a missing file (matching every other reader in
+// this file); `LoadSuiteDeps.readFile` is contractually null-tolerant, so
+// `loadSuite`'s typed "missing suite.json"/"missing case.json" errors were
+// unreachable through either CLI call site below — the throw always won
+// first. Adapt at the boundary instead of loosening `Deps.readFile`
+// itself, which every other reader in this file still wants to throw.
+function nullTolerantReadFile(deps: Deps): LoadSuiteDeps["readFile"] {
+  return (p: string) => {
+    try {
+      return deps.readFile(p);
+    } catch {
+      return null;
+    }
+  };
+}
+
 /** Bounded concurrency pool: runs `items` through `worker`, never more than
  * `concurrency` in flight at once. */
 export async function runPool<T, R>(
@@ -196,11 +212,7 @@ async function runOneScenarioRun(
           grades.push(deps.gradeAll([spec], ctx).grades[0]);
         }
       }
-      const gates = grades.filter((g) => g.gate);
-      const score =
-        gates.length === 0
-          ? 1
-          : gates.filter((g) => g.pass).length / gates.length;
+      const score = scoreRun(grades);
       deps.writeFile(
         path.join(runDir, "grades.json"),
         JSON.stringify({ grades, score }, null, 2) + "\n",
@@ -262,7 +274,10 @@ async function runSuite(
   availability: ClaudeAvailability,
 ): Promise<EvalReport> {
   const startedAt = deps.now().toISOString();
-  const loaded = loadSuite(suiteDir, deps);
+  const loaded = loadSuite(suiteDir, {
+    readFile: nullTolerantReadFile(deps),
+    exists: deps.exists,
+  });
   if (!loaded.ok) {
     throw new Error(
       `flow-eval: ${loaded.reason}${loaded.path ? ` (${loaded.path})` : ""}`,
@@ -347,7 +362,7 @@ function listSuiteDirs(evalsDir: string, deps: Deps): string[] {
 
 async function runVerb(args: RunArgs, deps: Deps): Promise<number> {
   if (args.recordBaseline && deps.gitDirty() && !args.allowDirty) {
-    process.stderr.write(
+    deps.progress(
       "flow-eval: --record-baseline refuses a dirty tree (pass --allow-dirty to override)\n",
     );
     return 2;
@@ -378,7 +393,7 @@ async function runVerb(args: RunArgs, deps: Deps): Promise<number> {
     reports.push(report);
 
     if (report.skipped) {
-      process.stderr.write(
+      deps.progress(
         `flow-eval: skipped — ${report.skipped.notice} (vitest remains the CI gate; install and log in to Claude Code to run evals)\n`,
       );
     }
@@ -409,6 +424,14 @@ export async function main(
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     process.stderr.write(`flow-eval: ${parsed.error}\n`);
+    process.stderr.write(
+      "usage: flow-eval <run|validate|report|compare> [flags]\n" +
+        "  run --suite <id>|--all --out <dir> [--record-baseline] [--dry-run] ...\n" +
+        "  validate <path>...\n" +
+        "  report <report.json>\n" +
+        "  compare --base <report.json> --candidate <report.json>\n" +
+        "See docs/eval/README.md for the full flag reference.\n",
+    );
     return 2;
   }
 
@@ -428,11 +451,10 @@ export async function main(
     readFile: (p) => fs.readFileSync(p, "utf8"),
     mkdirp: (p) => fs.mkdirSync(p, { recursive: true }),
     exists: (p) => fs.existsSync(p),
-    readdir: (p) =>
-      fs
-        .readdirSync(p, { withFileTypes: true })
-        .filter((d) => d.isDirectory())
-        .map((d) => d.name),
+    // Files and directories both: `listSuiteDirs` filters by presence of a
+    // `suite.json` sibling regardless, and `writeBaselineFiles`'s README
+    // merge needs the `<suite>.report.json` *files* under `baselineDir`.
+    readdir: (p) => fs.readdirSync(p),
     progress: (line) => process.stderr.write(line + "\n"),
     sessionId: () => randomUUID(),
     ...deps,
@@ -443,15 +465,18 @@ export async function main(
     for (const p of parsed.paths) {
       const stat = fs.statSync(p);
       if (stat.isDirectory()) {
-        const result = loadSuite(p, fullDeps);
+        const result = loadSuite(p, {
+          readFile: nullTolerantReadFile(fullDeps),
+          exists: fullDeps.exists,
+        });
         if (!result.ok) {
-          process.stderr.write(`flow-eval: ${p}: ${result.reason}\n`);
+          fullDeps.progress(`flow-eval: ${p}: ${result.reason}\n`);
           ok = false;
         }
       } else {
         const result = validateReport(JSON.parse(fullDeps.readFile(p)));
         if (!result.ok) {
-          process.stderr.write(`flow-eval: ${p}: ${result.reason}\n`);
+          fullDeps.progress(`flow-eval: ${p}: ${result.reason}\n`);
           ok = false;
         }
       }
@@ -462,7 +487,7 @@ export async function main(
   if (parsed.verb === "report") {
     const report = validateReport(JSON.parse(fullDeps.readFile(parsed.in)));
     if (!report.ok) {
-      process.stderr.write(`flow-eval: ${parsed.in}: ${report.reason}\n`);
+      fullDeps.progress(`flow-eval: ${parsed.in}: ${report.reason}\n`);
       return 2;
     }
     process.stdout.write(renderSummary(report.value) + "\n");
@@ -475,9 +500,7 @@ export async function main(
       JSON.parse(fullDeps.readFile(parsed.candidate)),
     );
     if (!base.ok || !candidate.ok) {
-      process.stderr.write(
-        `flow-eval: could not parse report(s) for compare\n`,
-      );
+      fullDeps.progress(`flow-eval: could not parse report(s) for compare\n`);
       return 2;
     }
     const cmp = compareReports(base.value, candidate.value, {
@@ -493,5 +516,3 @@ export async function main(
 
   return runVerb(parsed, fullDeps);
 }
-
-export { scoreRun };

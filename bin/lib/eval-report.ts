@@ -7,11 +7,7 @@
  */
 
 import type { GraderKind, SuiteSpec } from "./eval-suite";
-import type {
-  ValidationErr,
-  ValidationOk,
-  ValidationResult,
-} from "./eval-suite";
+import type { ValidationErr, ValidationResult } from "./eval-suite";
 
 export const EVAL_REPORT_SCHEMA_VERSION = 1;
 

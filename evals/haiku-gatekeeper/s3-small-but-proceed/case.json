@@ -1,7 +1,7 @@
 {
   "id": "s3-small-but-proceed",
   "title": "Gatekeeper proceeds on a small diff whose commit headline doesn't match a trivial-diff pattern",
-  "provenance": "PR 204 lifted from bin/fixtures/model-bench/c10-gatekeeper/pr.json; ground truth from the same fixture's truth.json.",
+  "provenance": "PR 204 lifted from bin/fixtures/model-bench/c10-gatekeeper/pr.json; ground truth Ground truth: additions+deletions == 7 (< 10, superficially trivial by size), but the commit headline 'fix: correct off-by-one in retry backoff' matches none of the four trivial-diff patterns, so the AND condition fails; no earlier rule matches (state OPEN, isDraft false) \u2014 falls through to 'otherwise'.",
   "prompt": "prompt.md",
   "fixture": {
     "repo": "fixture",
@@ -20,7 +20,7 @@
       "id": "no-agent-fallback",
       "kind": "file",
       "file": "$STREAM",
-      "notMatches": "NOTICE — agent-fallback:"
+      "notMatches": "NOTICE \u2014 agent-fallback:"
     },
     {
       "id": "plugin-loaded",

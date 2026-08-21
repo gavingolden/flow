@@ -523,13 +523,43 @@ function resolveScenario(
       referenced.push({ label: "fixture.shims", rel: s });
   }
 
+  const scenarioDirResolved = path.resolve(scenarioDir) + path.sep;
   for (const { label, rel } of referenced) {
     const abs = path.join(scenarioDir, rel);
+    // Every reference must resolve inside its own scenario dir — EXCEPT
+    // `fixture.shims`, which intentionally climbs out via `../` to reach
+    // the shared `evals/_shims/` directory (see the comment above).
+    // Without this, a scenario's own case.json could point `prompt` or
+    // `fixture.overlay` at an arbitrary path outside its case dir.
+    if (
+      label !== "fixture.shims" &&
+      !path.resolve(abs).startsWith(scenarioDirResolved)
+    ) {
+      return err(`'${label}' escapes its scenario dir: ${rel}`, abs);
+    }
     if (!deps.exists(abs)) {
       return err(
         `'${label}' references a path that does not exist: ${rel}`,
         abs,
       );
+    }
+  }
+
+  // `resultSchema` existing on disk isn't enough — a malformed schema file
+  // otherwise fails at run time (inside `buildChildArgv`'s `JSON.parse`),
+  // long after `validate` reported success.
+  if (spec.resultSchema) {
+    const abs = path.join(scenarioDir, spec.resultSchema);
+    const raw = deps.readFile(abs);
+    if (raw !== null) {
+      try {
+        JSON.parse(raw);
+      } catch (e) {
+        return err(
+          `'resultSchema' is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
+          abs,
+        );
+      }
     }
   }
 

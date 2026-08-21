@@ -10,6 +10,20 @@ import type { RunArgs } from "./eval-args";
 // the functions below as values).
 import type { Deps } from "./eval-cli";
 
+function readExistingReport(
+  baselineDir: string,
+  suite: string,
+  deps: Deps,
+): EvalReport | undefined {
+  const p = path.join(baselineDir, `${suite}.report.json`);
+  if (!deps.exists(p)) return undefined;
+  try {
+    return JSON.parse(deps.readFile(p)) as EvalReport;
+  } catch {
+    return undefined;
+  }
+}
+
 const BASELINE_START = "<!-- flow-eval-baseline:start -->";
 const BASELINE_END = "<!-- flow-eval-baseline:end -->";
 
@@ -37,7 +51,20 @@ export function writeBaselineFiles(
   deps: Deps,
 ): void {
   deps.mkdirp(args.baselineDir);
+
+  // A `skipped` report (flow-not-installed / claude-not-on-path / not
+  // authenticated) carries no real scoring data — committing it over a
+  // real recorded baseline would silently erase it. Skip the write, warn
+  // on stderr, and keep whatever baseline already exists on disk for
+  // this suite so the README merge below still has a real row to show.
+  const recorded: EvalReport[] = [];
   for (const report of reports) {
+    if (report.skipped) {
+      deps.progress(
+        `flow-eval: --record-baseline skipped ${report.suite} — ${report.skipped.notice} (existing baseline, if any, left untouched)\n`,
+      );
+      continue;
+    }
     deps.writeFile(
       path.join(args.baselineDir, `${report.suite}.report.json`),
       JSON.stringify(report, null, 2) + "\n",
@@ -46,13 +73,34 @@ export function writeBaselineFiles(
       path.join(args.baselineDir, `${report.suite}.summary.md`),
       renderSummary(report) + "\n",
     );
+    recorded.push(report);
   }
+
+  // The README table must reflect every suite with an on-disk baseline,
+  // not just the suites this invocation ran — a `--suite` run must not
+  // drop every other suite's row. Merge this run's freshly-recorded
+  // reports over whatever `<suite>.report.json` files already sit in
+  // `baselineDir`, keyed by suite.
+  const bySuite = new Map<string, EvalReport>();
+  for (const name of deps.readdir(args.baselineDir)) {
+    const m = /^(.*)\.report\.json$/.exec(name);
+    if (!m) continue;
+    const suite = m[1]!;
+    const existingReport = readExistingReport(args.baselineDir, suite, deps);
+    if (existingReport) bySuite.set(suite, existingReport);
+  }
+  for (const report of recorded) {
+    bySuite.set(report.suite, report);
+  }
+  const mergedReports = [...bySuite.values()].sort((a, b) =>
+    a.suite.localeCompare(b.suite),
+  );
 
   const readmePath = path.join(args.baselineDir, "README.md");
   const existing = deps.exists(readmePath)
     ? deps.readFile(readmePath)
     : `${BASELINE_START}\n${BASELINE_END}\n`;
-  const table = `${BASELINE_START}\n${baselineTable(reports)}\n${BASELINE_END}`;
+  const table = `${BASELINE_START}\n${baselineTable(mergedReports)}\n${BASELINE_END}`;
   const startIdx = existing.indexOf(BASELINE_START);
   const endIdx = existing.indexOf(BASELINE_END);
   const updated =

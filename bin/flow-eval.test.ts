@@ -201,43 +201,60 @@ describe("main run — availability skip paths", () => {
   ] as const;
 
   for (const scenario of reasons) {
-    it(`emits the exact skip line and a skipped report, exit 0 (${scenario.expected})`, async () => {
+    it(`emits the exact skip line (via deps.progress) and a skipped report, exit 0 (${scenario.expected})`, async () => {
       const fs = memFs(baseFiles());
-      const deps = fakeDeps(fs, scenario as Partial<Deps>);
-      const stderrSpy = vi
-        .spyOn(process.stderr, "write")
-        .mockImplementation(() => true);
-      try {
-        const code = await main(
-          [
-            "run",
-            "--suite",
-            "fake-suite",
-            "--out",
-            "out",
-            "--evals-dir",
-            "evals",
-          ],
-          deps,
-        );
-        expect(code).toBe(0);
-        const lines = stderrSpy.mock.calls.map((c) => String(c[0]));
-        expect(
-          lines.some(
-            (l) =>
-              l ===
-              `flow-eval: skipped — ${scenario.expected === "flow-not-installed" ? "flow is not installed" : scenario.expected === "claude-not-on-path" ? "claude is not on PATH" : "claude is not authenticated"} (vitest remains the CI gate; install and log in to Claude Code to run evals)\n`,
-          ),
-        ).toBe(true);
-        const report: EvalReport = JSON.parse(
-          fs.readFile(path.join("out", "fake-suite", "report.json")),
-        );
-        expect(report.skipped?.reason).toBe(scenario.expected);
-      } finally {
-        stderrSpy.mockRestore();
-      }
+      const progressLines: string[] = [];
+      const deps = fakeDeps(fs, {
+        ...(scenario as Partial<Deps>),
+        progress: (line) => progressLines.push(line),
+      });
+      const code = await main(
+        [
+          "run",
+          "--suite",
+          "fake-suite",
+          "--out",
+          "out",
+          "--evals-dir",
+          "evals",
+        ],
+        deps,
+      );
+      expect(code).toBe(0);
+      expect(
+        progressLines.some(
+          (l) =>
+            l ===
+            `flow-eval: skipped — ${scenario.expected === "flow-not-installed" ? "flow is not installed" : scenario.expected === "claude-not-on-path" ? "claude is not on PATH" : "claude is not authenticated"} (vitest remains the CI gate; install and log in to Claude Code to run evals)\n`,
+        ),
+      ).toBe(true);
+      const report: EvalReport = JSON.parse(
+        fs.readFile(path.join("out", "fake-suite", "report.json")),
+      );
+      expect(report.skipped?.reason).toBe(scenario.expected);
     });
   }
+});
+
+describe("main run — nonexistent suite", () => {
+  it("rejects with a `missing suite.json` error instead of routing through a stray/thrown readFile", async () => {
+    const fs = memFs(baseFiles());
+    const deps = fakeDeps(fs);
+    await expect(
+      main(
+        [
+          "run",
+          "--suite",
+          "does-not-exist",
+          "--out",
+          "out",
+          "--evals-dir",
+          "evals",
+        ],
+        deps,
+      ),
+    ).rejects.toThrow(/missing suite\.json/);
+  });
 });
 
 describe("main run --dry-run", () => {
@@ -414,15 +431,34 @@ describe("main run --record-baseline", () => {
     expect(code).toBe(2);
   });
 
+  function realRunDeps(fs: MemFs, overrides: Partial<Deps> = {}): Deps {
+    return fakeDeps(fs, {
+      materializeFixture: () =>
+        ({
+          root: "/r",
+          repoDir: "/r/repo",
+          claudeHome: "/r/home",
+          pluginRoots: [],
+          shimDir: "/r/shims",
+          slug: "eval-fake-suite-s1-r1",
+          stateDir: "/state",
+          teardown: () => {},
+        }) as ReturnType<Deps["materializeFixture"]>,
+      runScenarioOnce: async () =>
+        ({
+          exitCode: 0,
+          timedOut: false,
+          streamPath: "/r/stream.jsonl",
+          events: [],
+          result: null,
+        }) as Awaited<ReturnType<Deps["runScenarioOnce"]>>,
+      ...overrides,
+    });
+  }
+
   it("writes baseline report/summary files and refreshes the README table on a clean tree", async () => {
     const fs = memFs(baseFiles());
-    const deps = fakeDeps(fs, {
-      probeFlowInstall: () => ({
-        ok: false,
-        reason: "flow-not-installed",
-        notice: "flow is not installed",
-      }),
-    });
+    const deps = realRunDeps(fs);
     const code = await main(
       [
         "run",
@@ -448,6 +484,100 @@ describe("main run --record-baseline", () => {
     const readme = fs.readFile(path.join("docs/eval/baseline", "README.md"));
     expect(readme).toContain("<!-- flow-eval-baseline:start -->");
     expect(readme).toContain("fake-suite");
+  });
+
+  it("skips writing a `skipped` report, warns on stderr, and leaves an existing baseline untouched", async () => {
+    const fs = memFs(baseFiles());
+    fs.dirs.add("docs/eval/baseline");
+    fs.files[path.join("docs/eval/baseline", "fake-suite.report.json")] =
+      JSON.stringify({
+        schemaVersion: 1,
+        runner: { name: "flow-eval-headless", model: "sonnet" },
+        tree: { gitHead: "priorsha", dirty: false },
+        suite: "fake-suite",
+        candidate: "fake-candidate",
+        startedAt: "t0",
+        finishedAt: "t1",
+        scenarios: [],
+        summary: { scenarios: 0, passed: 0, score: 0, costUsd: 0 },
+      });
+    fs.files[path.join("docs/eval/baseline", "fake-suite.summary.md")] =
+      "prior summary\n";
+    fs.files[path.join("docs/eval/baseline", "README.md")] =
+      "<!-- flow-eval-baseline:start -->\nold table\n<!-- flow-eval-baseline:end -->\n";
+
+    const progressLines: string[] = [];
+    const deps = fakeDeps(fs, {
+      probeFlowInstall: () => ({
+        ok: false,
+        reason: "flow-not-installed",
+        notice: "flow is not installed",
+      }),
+      progress: (line) => progressLines.push(line),
+    });
+    const code = await main(
+      [
+        "run",
+        "--suite",
+        "fake-suite",
+        "--out",
+        "out",
+        "--evals-dir",
+        "evals",
+        "--record-baseline",
+        "--baseline-dir",
+        "docs/eval/baseline",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    expect(progressLines.some((l) => l.includes("skipped fake-suite"))).toBe(
+      true,
+    );
+    // Skipped report never overwrites the prior real baseline on disk.
+    expect(
+      fs.readFile(path.join("docs/eval/baseline", "fake-suite.report.json")),
+    ).toContain("priorsha");
+    const readme = fs.readFile(path.join("docs/eval/baseline", "README.md"));
+    expect(readme).toContain("fake-suite");
+    expect(readme).toContain("priorsha".slice(0, 12));
+  });
+
+  it("merges the README table from on-disk baselines instead of dropping suites the --suite run didn't touch", async () => {
+    const fs = memFs(baseFiles());
+    fs.dirs.add("docs/eval/baseline");
+    fs.files[path.join("docs/eval/baseline", "other-suite.report.json")] =
+      JSON.stringify({
+        schemaVersion: 1,
+        runner: { name: "flow-eval-headless", model: "sonnet" },
+        tree: { gitHead: "othersha".repeat(5), dirty: false },
+        suite: "other-suite",
+        candidate: "other-candidate",
+        startedAt: "t0",
+        finishedAt: "t1",
+        scenarios: [],
+        summary: { scenarios: 0, passed: 0, score: 1, costUsd: 0 },
+      });
+    const deps = realRunDeps(fs);
+    const code = await main(
+      [
+        "run",
+        "--suite",
+        "fake-suite",
+        "--out",
+        "out",
+        "--evals-dir",
+        "evals",
+        "--record-baseline",
+        "--baseline-dir",
+        "docs/eval/baseline",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    const readme = fs.readFile(path.join("docs/eval/baseline", "README.md"));
+    expect(readme).toContain("fake-suite");
+    expect(readme).toContain("other-suite");
   });
 });
 

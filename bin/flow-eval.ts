@@ -15,7 +15,13 @@
 
 import { activeFixtureTeardowns, main } from "./lib/eval-cli";
 
-process.on("SIGINT", () => {
+// Shared by the SIGINT handler below and the `main()` rejection path: a
+// pooled job throwing mid-run (concurrency > 1) rejects `runPool`'s
+// `Promise.all` without cancelling its still-running siblings, so any
+// fixture/child they materialized needs the same best-effort sweep an
+// interrupt gets — otherwise it leaks `~/.flow/state/eval-*` rows and tmp
+// directories until the next `flow reap`.
+function sweepActiveFixtures(): void {
   for (const teardown of [...activeFixtureTeardowns]) {
     activeFixtureTeardowns.delete(teardown);
     try {
@@ -24,11 +30,24 @@ process.on("SIGINT", () => {
       // best-effort — never block process exit on a failed teardown
     }
   }
-  process.exit(130);
-});
+}
 
 if (import.meta.main) {
-  main(process.argv.slice(2)).then((code) => {
-    process.exit(code);
+  process.on("SIGINT", () => {
+    sweepActiveFixtures();
+    process.exit(130);
   });
+
+  main(process.argv.slice(2)).then(
+    (code) => {
+      process.exit(code);
+    },
+    (err) => {
+      sweepActiveFixtures();
+      process.stderr.write(
+        `flow-eval: uncaught error: ${err instanceof Error ? err.stack : String(err)}\n`,
+      );
+      process.exit(1);
+    },
+  );
 }

@@ -1,7 +1,7 @@
 {
   "id": "s4-closed-first-match",
   "title": "Gatekeeper applies first-match-wins: closed-or-merged over draft and trivial-diff",
-  "provenance": "PR 205 lifted from bin/fixtures/model-bench/c10-gatekeeper/pr.json; ground truth from the same fixture's truth.json.",
+  "provenance": "PR 205 lifted from bin/fixtures/model-bench/c10-gatekeeper/pr.json; ground truth Ground truth: .state == 'CLOSED' matches the FIRST rule in order, even though this PR also satisfies the surface conditions for the draft rule (isDraft true) and the trivial-diff rule (3 lines, headline matches ^chore: bump) \u2014 first-match-wins means closed-or-merged governs, not draft or trivial-diff.",
   "prompt": "prompt.md",
   "fixture": {
     "repo": "fixture",
@@ -26,7 +26,7 @@
       "id": "no-agent-fallback",
       "kind": "file",
       "file": "$STREAM",
-      "notMatches": "NOTICE — agent-fallback:"
+      "notMatches": "NOTICE \u2014 agent-fallback:"
     },
     {
       "id": "plugin-loaded",

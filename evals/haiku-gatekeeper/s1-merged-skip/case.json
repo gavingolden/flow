@@ -1,7 +1,7 @@
 {
   "id": "s1-merged-skip",
   "title": "Gatekeeper skips a MERGED PR (closed-or-merged, first rule)",
-  "provenance": "PR 201 lifted from bin/fixtures/model-bench/c10-gatekeeper/pr.json; ground truth from the same fixture's truth.json.",
+  "provenance": "PR 201 lifted from bin/fixtures/model-bench/c10-gatekeeper/pr.json; ground truth Ground truth: .state == 'MERGED' matches the first rule in order (gatekeeper-spawn-prompt.md step 2).",
   "prompt": "prompt.md",
   "fixture": {
     "repo": "fixture",
@@ -26,7 +26,7 @@
       "id": "no-agent-fallback",
       "kind": "file",
       "file": "$STREAM",
-      "notMatches": "NOTICE — agent-fallback:"
+      "notMatches": "NOTICE \u2014 agent-fallback:"
     },
     {
       "id": "plugin-loaded",

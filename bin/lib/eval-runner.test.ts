@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -129,6 +131,8 @@ describe("buildChildArgv", () => {
       "dontAsk",
       "--allowedTools",
       "Bash,Read",
+      "--disallowedTools",
+      "Bash(git push:*),Bash(gh pr merge:*),Bash(gh pr create:*),Bash(gh pr close:*),Bash(gh release:*),Bash(rm -rf node_modules*)",
       "--max-budget-usd",
       "4",
       "--session-id",
@@ -198,6 +202,25 @@ describe("buildChildEnv", () => {
       PATH: "/usr/bin:/bin",
     });
     expect(env.PATH!.startsWith(fixture.shimDir + ":")).toBe(true);
+  });
+
+  it("puts the fixture's plugin bin/ ahead of the inherited PATH, not appended", () => {
+    const pluginRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-eval-plugin-root-"),
+    );
+    fs.mkdirSync(path.join(pluginRoot, "bin"));
+    const fixture = makeFixture({ pluginRoots: [pluginRoot] });
+    try {
+      const base = { PATH: "/usr/bin:/bin" };
+      const env = buildChildEnv(makeScenario(), fixture, base);
+      const pluginBin = path.join(pluginRoot, "bin");
+      const parts = env.PATH!.split(":");
+      expect(parts[0]).toBe(fixture.shimDir);
+      expect(parts.indexOf(pluginBin)).toBeGreaterThan(-1);
+      expect(parts.indexOf(pluginBin)).toBeLessThan(parts.indexOf("/usr/bin"));
+    } finally {
+      fs.rmSync(pluginRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -307,6 +330,43 @@ describe("runScenarioOnce", () => {
     expect(
       fs.readFileSync(path.join(outDir, "stream.jsonl"), "utf8"),
     ).toContain('"type":"result"');
+  });
+
+  it("drains stderr chunks into <outDir>/stderr.txt", async () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const files: Record<string, string> = {
+      [path.join(scenario.dir, "prompt.md")]: "hi",
+    };
+    const resultLine = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      num_turns: 1,
+      total_cost_usd: 0.01,
+      duration_ms: 10,
+      session_id: "s",
+      usage: { input_tokens: 1, output_tokens: 1 },
+      modelUsage: {},
+      permission_denials: [],
+    });
+
+    const fakeSpawn: SpawnFn = (_argv, _env, _cwd, onStdout, onStderr) => {
+      onStdout(resultLine + "\n");
+      onStderr?.("warning: something noisy\n");
+      return { exited: Promise.resolve(0), kill: () => {} };
+    };
+
+    await runScenarioOnce(scenario, fixture, {
+      claudeBin: "claude",
+      outDir,
+      sessionId: "sess-1",
+      spawn: fakeSpawn,
+      readFile: (p) => files[p] ?? "",
+    });
+    expect(fs.readFileSync(path.join(outDir, "stderr.txt"), "utf8")).toBe(
+      "warning: something noisy\n",
+    );
   });
 
   it("kills the child and reports timedOut when timeoutSec elapses", async () => {

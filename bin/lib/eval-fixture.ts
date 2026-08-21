@@ -139,6 +139,10 @@ export function materializeFixture(
   git(["symbolic-ref", "HEAD", "refs/heads/main"], repoDir);
   git(["config", "user.email", "eval@flow.local"], repoDir);
   git(["config", "user.name", "flow-eval"], repoDir);
+  // Must run before the first `git add -A`: otherwise .flow-tmp/ (created
+  // above) gets committed into the fixture's base commit instead of being
+  // excluded like a real worktree excludes it.
+  ensureFlowExcludes(repoDir);
   git(["add", "-A"], repoDir);
   git(["commit", "-q", "-m", "eval fixture base", "--allow-empty"], repoDir);
   const mainSha = gitRead(["rev-parse", "HEAD"], repoDir);
@@ -158,14 +162,16 @@ export function materializeFixture(
     git(["commit", "-q", "-m", "eval fixture overlay"], repoDir);
   }
 
-  ensureFlowExcludes(repoDir);
   writeBranchMarker(repoDir, "eval");
 
   if (scenario.fixture?.linkNodeModules) {
     const src = path.join(flowSource, "node_modules");
-    if (fs.existsSync(src)) {
-      fs.symlinkSync(src, path.join(repoDir, "node_modules"), "dir");
+    if (!fs.existsSync(src)) {
+      throw new Error(
+        `linkNodeModules: no node_modules at ${src} — run \`npm install\` in the canonical checkout before running this scenario (a silent no-op here reads as a model regression, not a missing install)`,
+      );
     }
+    fs.symlinkSync(src, path.join(repoDir, "node_modules"), "dir");
   }
 
   const statePartial: Partial<PipelineState> = scenario.fixture?.state

@@ -1,7 +1,7 @@
 {
   "id": "s2-trivial-skip",
   "title": "Gatekeeper skips a trivial lockfile-regen PR (trivial-diff)",
-  "provenance": "PR 203 lifted from bin/fixtures/model-bench/c10-gatekeeper/pr.json; ground truth from the same fixture's truth.json.",
+  "provenance": "PR 203 lifted from bin/fixtures/model-bench/c10-gatekeeper/pr.json; ground truth Ground truth: additions+deletions == 6 (< 10) and the single commit headline 'chore: regenerate lockfile' matches ^chore: regenerate.",
   "prompt": "prompt.md",
   "fixture": {
     "repo": "fixture",
@@ -26,7 +26,7 @@
       "id": "no-agent-fallback",
       "kind": "file",
       "file": "$STREAM",
-      "notMatches": "NOTICE — agent-fallback:"
+      "notMatches": "NOTICE \u2014 agent-fallback:"
     },
     {
       "id": "plugin-loaded",

@@ -1,6 +1,0 @@
-{
-  "pr": 205,
-  "decision": "skip",
-  "skip_kind": "closed-or-merged",
-  "rationale": ".state == 'CLOSED' matches the FIRST rule in order, even though this PR also satisfies the surface conditions for the draft rule (isDraft true) and the trivial-diff rule (3 lines, headline matches ^chore: bump) — first-match-wins means closed-or-merged governs, not draft or trivial-diff."
-}

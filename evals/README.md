@@ -107,6 +107,13 @@ denominator, still recorded and rendered).
 | `git-clean`  | optional `cwd`/`allow`                                          | `git status --porcelain` in `cwd`, ignoring paths matching `allow` globs |
 | `metric`     | `source`, `direction` (`lower`\|`higher`), optional `max`/`min` | records a numeric metric; only GATES when `max` or `min` is set          |
 
+A gate-only `metric` spec (`max`/`min` set) is excluded from the recorded
+`metrics` map — its pass/fail already lives in `grades`. Compare it via a
+separate, unbounded (`gate: false`) sibling spec with the same `source`
+(see `bash-calls-floor` + `transcript.toolCalls.Bash` in
+`evals/verify-loop-isolation/s1-single-fix/case.json`) when you also want
+it to show up as a compared metric.
+
 Matchers (exactly one required for `structured`/`json-file`/`file`):
 `equals` (deep-equal), `oneOf` (deep-equal against any member), `contains`
 (substring or array membership), `matches`/`notMatches` (regex over
@@ -125,6 +132,10 @@ and the captured `stream.jsonl` path).
 
 - No `node_modules/` — use `fixture.linkNodeModules: true` to symlink the
   flow checkout's own `node_modules/` in at materialization time instead.
+  `materializeFixture` throws (not a silent no-op) if the checkout has no
+  `node_modules/` to link — run `npm install` in the canonical checkout
+  first; a silently-missing symlink otherwise reads as a model regression
+  in the eval report, not a missing install.
 - `flow-tmp/` vs `.flow-tmp/`: a committed fixture uses the **non-dot**
   name `flow-tmp/`, because `.flow-tmp/` is git-ignored repo-wide (`flow
 new-worktree` registers it in `.git/info/exclude`) and `git add` would

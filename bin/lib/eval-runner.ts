@@ -4,9 +4,10 @@
  * only — NEVER `Bun.spawn`, which is undefined under vitest's Node-hosted
  * process. Mirrors `bin/flow-plugin-contract-lint.ts`'s
  * `commandOnPath`/`runClaude` availability discipline, minus the `HOME`
- * override (an eval child must stay authenticated against the real
- * account — see the flow repo's excluded-path note on
- * `override-home-for-isolation`).
+ * override: an eval child deliberately stays authenticated against the
+ * maintainer's real account (see `buildChildEnv` below) rather than
+ * running under an isolated `HOME`, since the point of the harness is to
+ * exercise a session the way a real launched pipeline would.
  */
 
 import * as fs from "node:fs";
@@ -20,7 +21,7 @@ import {
   type ResultEnvelope,
   type StreamEvent,
 } from "./eval-transcript";
-import { pluginBinPath, pluginDirArgs, withPluginPath } from "./plugin-root";
+import { pluginBinPath, pluginDirArgs } from "./plugin-root";
 import { statePath } from "./state";
 import { checkpointBodyPath } from "./checkpoint-freshness";
 import {
@@ -200,6 +201,15 @@ export function buildChildArgv(
     "dontAsk",
     "--allowedTools",
     scenario.allowedTools.join(","),
+    // The child runs as an unattended agent under `--permission-mode
+    // dontAsk`, with the maintainer's real account, real HOME, and real
+    // node_modules (see `linkNodeModules` in eval-fixture.ts). This
+    // fixed deny-list bounds that blast radius against the highest-harm
+    // shell actions regardless of what any single scenario's
+    // `allowedTools` grants — it is not a substitute for a tight
+    // `allowedTools` list, which each scenario still owns.
+    "--disallowedTools",
+    "Bash(git push:*),Bash(gh pr merge:*),Bash(gh pr create:*),Bash(gh pr close:*),Bash(gh release:*),Bash(rm -rf node_modules*)",
     "--max-budget-usd",
     String(scenario.maxBudgetUsd),
     "--session-id",
@@ -230,10 +240,16 @@ export function buildChildEnv(
   if (scenario.env?.flowSlug) {
     env.FLOW_SLUG = fixture.slug;
   }
-  const currentPath = `${fixture.shimDir}:${base.PATH ?? ""}`;
-  env.PATH =
-    withPluginPath(pluginBinPath(fixture.pluginRoots), currentPath) ??
-    currentPath;
+  // Prepend (not append) the fixture's own plugin bin/ ahead of the
+  // inherited PATH: the eval child must resolve flow helpers from the
+  // checkout under evaluation, not fall through to whatever `~/.local/bin`
+  // symlinks the maintainer's shell already has on PATH. `withPluginPath`
+  // (append-only) is the right shape for a live flow session's own PATH
+  // extension elsewhere; a hermetic eval child needs the opposite order.
+  const pluginBin = pluginBinPath(fixture.pluginRoots);
+  env.PATH = [fixture.shimDir, pluginBin, base.PATH ?? ""]
+    .filter((seg) => seg.length > 0)
+    .join(":");
   return env;
 }
 
@@ -242,15 +258,23 @@ export type SpawnFn = (
   env: Record<string, string>,
   cwd: string,
   onStdout: (chunk: string) => void,
+  onStderr?: (chunk: string) => void,
 ) => { exited: Promise<number>; kill: () => void };
 
-const defaultSpawn: SpawnFn = (argv, env, cwd, onStdout) => {
+// A child that never has its stderr pipe drained blocks writing to it once
+// the OS pipe buffer fills, and stays blocked until `timeoutSec` kills it —
+// so stderr is always drained here, even when the caller doesn't pass
+// `onStderr` (the events still fire; the drain just has nowhere else to go).
+const SIGKILL_GRACE_MS = 5_000;
+
+const defaultSpawn: SpawnFn = (argv, env, cwd, onStdout, onStderr) => {
   const child = spawnAsync(argv[0], argv.slice(1), {
     cwd,
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stdout?.on("data", (chunk: Buffer) => onStdout(chunk.toString()));
+  child.stderr?.on("data", (chunk: Buffer) => onStderr?.(chunk.toString()));
   const exited = new Promise<number>((resolve) => {
     child.on("close", (code) => resolve(code ?? -1));
     child.on("error", () => resolve(-1));
@@ -258,7 +282,13 @@ const defaultSpawn: SpawnFn = (argv, env, cwd, onStdout) => {
   return {
     exited,
     kill: () => {
-      child.kill();
+      child.kill("SIGTERM");
+      const escalate = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGKILL");
+        }
+      }, SIGKILL_GRACE_MS);
+      escalate.unref();
     },
   };
 };
@@ -304,9 +334,18 @@ export async function runScenarioOnce(
   const env = buildChildEnv(scenario, fixture, process.env);
 
   let out = "";
-  const child = spawn(argv, env, fixture.repoDir, (chunk) => {
-    out += chunk;
-  });
+  let stderrOut = "";
+  const child = spawn(
+    argv,
+    env,
+    fixture.repoDir,
+    (chunk) => {
+      out += chunk;
+    },
+    (chunk) => {
+      stderrOut += chunk;
+    },
+  );
 
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -318,6 +357,9 @@ export async function runScenarioOnce(
 
   const streamPath = path.join(opts.outDir, "stream.jsonl");
   fs.writeFileSync(streamPath, out);
+  if (stderrOut) {
+    fs.writeFileSync(path.join(opts.outDir, "stderr.txt"), stderrOut);
+  }
 
   const { events, result } = parseStream(out);
   const error = result?.is_error ? (result.subtype ?? "error") : undefined;

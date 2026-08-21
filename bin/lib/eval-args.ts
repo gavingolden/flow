@@ -221,6 +221,7 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
     }
     i++;
   }
+  if (!out && recordBaseline) out = ".flow-tmp/eval";
   if (!out) return { error: "--out is required" };
   if (!allSuites && suites.length === 0)
     return { error: "at least one --suite or --all is required" };

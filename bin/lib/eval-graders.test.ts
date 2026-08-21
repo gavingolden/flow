@@ -224,6 +224,22 @@ describe("grade", () => {
     ).toBe(true);
   });
 
+  it("file: caps a failed grader's `actual` to a bounded excerpt plus byte count for a large $STREAM", () => {
+    const big = "x".repeat(2000);
+    const ctx = makeCtx({
+      readFile: (p) => (p === "/out/stream.jsonl" ? big : null),
+      exists: (p) => p === "/out/stream.jsonl",
+    });
+    const result = grade(
+      { id: "g1", kind: "file", file: "$STREAM", contains: "not-present" },
+      ctx,
+    );
+    expect(result.pass).toBe(false);
+    expect(typeof result.actual).toBe("string");
+    expect((result.actual as string).length).toBeLessThan(600);
+    expect(result.actual).toContain("truncated, 2000 bytes total");
+  });
+
   it("command: runs argv in cwd and compares exit code to expectExit (default 0)", () => {
     const ctx = makeCtx({
       runCommand: (argv) => ({
@@ -310,6 +326,24 @@ describe("git-clean grading", () => {
       grade({ id: "g1", kind: "git-clean", allow: ["*.log"] }, ctx).pass,
     ).toBe(true);
   });
+
+  it("matches allow globs on unstaged modifications (` M` porcelain rows)", () => {
+    fs.appendFileSync(path.join(repo, "tracked.txt"), "more\n");
+    const ctx = makeCtx({ repoDir: repo, runCommand: realRunCommand });
+    const result = grade(
+      { id: "g1", kind: "git-clean", allow: ["tracked.txt"] },
+      ctx,
+    );
+    expect(result.pass).toBe(true);
+  });
+
+  it("reports the full path (not truncated) for an unstaged modification", () => {
+    fs.appendFileSync(path.join(repo, "tracked.txt"), "more\n");
+    const ctx = makeCtx({ repoDir: repo, runCommand: realRunCommand });
+    const result = grade({ id: "g1", kind: "git-clean" }, ctx);
+    expect(result.pass).toBe(false);
+    expect(result.actual).toEqual(["tracked.txt"]);
+  });
 });
 
 describe("gradeAll", () => {
@@ -349,5 +383,29 @@ describe("gradeAll", () => {
       value: 1000,
       direction: "lower",
     });
+  });
+
+  it("excludes a thresholded (gate-only) metric spec from the recorded metrics map", () => {
+    const ctx = makeCtx();
+    const specs: GraderSpec[] = [
+      {
+        id: "bash-calls-floor",
+        kind: "metric",
+        source: "transcript.toolCalls.Bash",
+        direction: "lower",
+        min: 1,
+      },
+      {
+        id: "transcript.toolCalls.Bash",
+        kind: "metric",
+        gate: false,
+        source: "transcript.toolCalls.Bash",
+        direction: "lower",
+      },
+    ];
+    const { grades, metrics } = gradeAll(specs, ctx);
+    expect(grades.find((g) => g.id === "bash-calls-floor")?.gate).toBe(true);
+    expect(metrics["bash-calls-floor"]).toBeUndefined();
+    expect(metrics["transcript.toolCalls.Bash"]).toBeDefined();
   });
 });

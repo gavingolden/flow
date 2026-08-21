@@ -10,7 +10,9 @@
     "state": "state.json",
     "linkNodeModules": true
   },
-  "env": { "flowSlug": true },
+  "env": {
+    "flowSlug": true
+  },
   "resultSchema": "result-schema.json",
   "graders": [
     {
@@ -56,13 +58,20 @@
       "id": "no-agent-fallback",
       "kind": "file",
       "file": "$STREAM",
-      "notMatches": "NOTICE — agent-fallback:"
+      "notMatches": "NOTICE \u2014 agent-fallback:"
     },
     {
       "id": "plugin-loaded",
       "kind": "file",
       "file": "$STREAM",
       "contains": "flow-module-core"
+    },
+    {
+      "id": "bash-calls-floor",
+      "kind": "metric",
+      "source": "transcript.toolCalls.Bash",
+      "direction": "lower",
+      "min": 1
     },
     {
       "id": "verify-loop-result-status",

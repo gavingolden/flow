@@ -304,8 +304,9 @@ export function ensurePluginRoot(args: {
  * directory on disk fails `claude plugin validate --strict` with
  * `Path not found: ./skills`, and `claude plugin list --json` reports the
  * same as a non-empty `errors[]` — both would misreport genuine Claude Code
- * drift when the real cause is this fixture harness's own incompleteness.
- * Mirrors `setup.ts`'s install loop exactly: `discoverSkills`/`discoverAgents`
+ * drift when the real cause is an incompletely materialized plugin root,
+ * not an actual manifest/content mismatch. Mirrors `setup.ts`'s install
+ * loop exactly: `discoverSkills`/`discoverAgents`
  * already route each artifact's target into its OWNING module's root
  * (`sources.ts`'s `ownerPluginRootName`), so one un-filtered call per kind,
  * scoped to `skillsRoot`, symlinks every module's content into its own root

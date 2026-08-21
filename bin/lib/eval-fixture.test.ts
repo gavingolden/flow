@@ -136,8 +136,43 @@ describe("materializeFixture", () => {
       // .flow-tmp/ and .flow-branch are excluded, so a fully-committed
       // fixture reports a clean porcelain status with no untracked entries.
       expect(git(["status", "--porcelain"], fixture.repoDir)).toBe("");
+      // The exclude must be registered before the base commit's `git add
+      // -A`, or .flow-tmp/ lands in the fixture's committed base tree.
+      const tracked = git(["ls-files"], fixture.repoDir);
+      expect(tracked.split("\n")).not.toContain(".flow-tmp/plan.md");
     } finally {
       fixture.teardown();
+    }
+  });
+
+  it("throws loudly instead of silently no-oping when linkNodeModules is set but node_modules is missing", () => {
+    const noModulesRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-eval-no-node-modules-"),
+    );
+    try {
+      expect(() =>
+        materializeFixture(
+          buildScenario({
+            fixture: {
+              repo: "fixture",
+              overlay: "overlay",
+              state: "state.json",
+              checkpoint: {
+                body: "checkpoint.md",
+                site: "plan-approval",
+                armed: true,
+              },
+              shims: ["gh"],
+              linkNodeModules: true,
+            },
+          }),
+          "my-suite",
+          1,
+          { stateDir, flowSource: noModulesRoot },
+        ),
+      ).toThrow(/linkNodeModules/);
+    } finally {
+      fs.rmSync(noModulesRoot, { recursive: true, force: true });
     }
   });
 

@@ -9,6 +9,18 @@ instead of a prose argument. `bin/flow-eval.ts` is never installed onto a
 user's PATH (see `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it
 from a flow checkout.
 
+## Security note: the child runs with your real account
+
+Every scenario's `claude -p` child is intentionally NOT sandboxed by a
+fake `HOME` or a throwaway account: the child runs with your real
+account, your real home directory, and (under `--permission-mode
+dontAsk`) auto-approved shell access, so it can exercise a session the
+way a real launched pipeline would. `buildChildArgv` bounds the highest-
+harm actions with a fixed `--disallowedTools` deny-list (no `git push`,
+no `gh pr merge/create/close`, no `gh release`, no `rm -rf
+node_modules*`), but that is a floor, not a sandbox — only run scenarios
+you trust, the same as you would `claude -p` directly.
+
 ## Precondition: `flow install`
 
 `flow-eval` spawns a real `claude -p` child that loads the same

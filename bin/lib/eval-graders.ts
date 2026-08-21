@@ -202,8 +202,20 @@ function gradeFile(spec: GraderSpec, ctx: GraderContext): GradeResult {
     kind: spec.kind,
     gate: spec.gate !== false,
     pass,
-    ...(pass ? {} : { expected, actual: raw }),
+    ...(pass ? {} : { expected, actual: capActual(raw) }),
   };
+}
+
+const ACTUAL_CAP_CHARS = 500;
+
+// A failed `file` grader over `$STREAM` would otherwise copy the whole
+// transcript (often tens of KB) into `grades.json` / `report.json` —
+// which `--record-baseline` commits verbatim. Cap it to a bounded excerpt
+// plus the real byte count, so the failure is still legible without
+// bloating every committed baseline.
+function capActual(raw: string): string {
+  if (raw.length <= ACTUAL_CAP_CHARS) return raw;
+  return `${raw.slice(0, ACTUAL_CAP_CHARS)}… (truncated, ${Buffer.byteLength(raw, "utf8")} bytes total)`;
 }
 
 function gradeCommand(spec: GraderSpec, ctx: GraderContext): GradeResult {
@@ -246,7 +258,6 @@ function gradeGitClean(spec: GraderSpec, ctx: GraderContext): GradeResult {
     spec.allow && spec.allow.length > 0 ? picomatch(spec.allow) : () => false;
   const dirty = stdout
     .split("\n")
-    .map((l) => l.trim())
     .filter((l) => l.length > 0)
     .map((l) => l.slice(3).trim())
     .filter((p) => !isMatch(p));
@@ -322,6 +333,12 @@ export function gradeAll(
   const metrics: Record<string, MetricValue> = {};
   for (const spec of specs) {
     if (spec.kind !== "metric") continue;
+    // A `max`/`min` threshold makes this spec gate-only (see gradeMetric):
+    // its pass/fail already lives in `grades`, and it must NOT also land
+    // under `metrics[spec.id]` — otherwise a gated metric like
+    // `bash-calls-floor` shows up a second time as an unthresholded
+    // compared metric next to its own unbounded sibling.
+    if (spec.max !== undefined || spec.min !== undefined) continue;
     const value = metricSource(spec.source ?? "", ctx);
     if (value !== undefined) {
       metrics[spec.id] = { value, direction: spec.direction ?? "lower" };

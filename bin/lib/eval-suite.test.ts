@@ -262,6 +262,38 @@ describe("loadSuite", () => {
     if (!result.ok) expect(result.reason).toMatch(/does not exist/);
   });
 
+  it("fails when a non-shims reference escapes its scenario dir", () => {
+    const deps = memDeps({
+      "/e/s/suite.json": JSON.stringify(validSuite),
+      "/e/s/s1/case.json": JSON.stringify({
+        ...validScenario,
+        prompt: "../../../etc/passwd",
+      }),
+      "/e/etc/passwd": "nope",
+      "/e/s/s1/out.txt": "hi",
+    });
+    const result = loadSuite("/e/s", deps);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/escapes its scenario dir/);
+  });
+
+  it("fails at validate time when resultSchema is not valid JSON", () => {
+    const deps = memDeps({
+      "/e/s/suite.json": JSON.stringify(validSuite),
+      "/e/s/s1/case.json": JSON.stringify({
+        ...validScenario,
+        resultSchema: "result-schema.json",
+      }),
+      "/e/s/s1/prompt.md": "hi",
+      "/e/s/s1/out.txt": "hi",
+      "/e/s/s1/result-schema.json": "{ not valid json",
+    });
+    const result = loadSuite("/e/s", deps);
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.reason).toMatch(/resultSchema.*not valid JSON/);
+  });
+
   it("fails when the suite.json is missing", () => {
     const result = loadSuite("/e/s", memDeps({}));
     expect(result.ok).toBe(false);

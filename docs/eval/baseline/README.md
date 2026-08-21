@@ -10,7 +10,7 @@ flow's three supervisor context-isolation scaffolds. Each suite under
   (`renderSummary`), for a human skim without parsing JSON.
 
 Do not hand-author or fabricate these two files per suite — they are
-written verbatim by `bun bin/flow-eval.ts run --all --record-baseline`
+written verbatim by `bun bin/flow-eval.ts run --all --out .flow-tmp/eval --record-baseline`
 (see `docs/eval/README.md`). Recording a baseline is a maintainer gate
 step, not something a pipeline or an eval-harness feature PR does on its
 own behalf.
@@ -33,6 +33,6 @@ hand-edit inside the markers.
 <!-- flow-eval-baseline:start -->
 
 _No baseline has been recorded yet. Run `bun bin/flow-eval.ts run --all
---record-baseline` from a plain shell to populate this table._
+--out .flow-tmp/eval --record-baseline` from a plain shell to populate this table._
 
 <!-- flow-eval-baseline:end -->
