@@ -127,12 +127,19 @@ export type ContractLintResult = {
   status: "ok" | "drifted" | "skipped";
   reason?: string;
   failures: ContractLintFailure[];
-  /** The Phase-1a dereferenced twins that passed `claude plugin validate
-   * --strict` — a positive observable so a vacuous strict pass (e.g. every
-   * root silently dropped by a Phase-1a materialize failure) shows up as a
-   * short array here rather than merely an empty `failures`. Populated only
-   * past the D4 short-circuit. */
+  /** The shipped root path (not the dereferenced twin, which is deleted with
+   * `tmpRoot` in the `finally`) for every root that passed Phase 1a's `claude
+   * plugin validate --strict` against its twin — a positive observable so a
+   * vacuous strict pass (e.g. every root silently dropped by a Phase-1a
+   * materialize failure) shows up as a short array here rather than merely an
+   * empty `failures`. Populated only past the D4 short-circuit. */
   derefValidatedRoots: string[];
+  /** The shipped symlinked root paths that passed Phase 1b's non-strict
+   * `claude plugin validate` — same pass-only positive-observable semantics
+   * as `derefValidatedRoots`, so a deleted/no-op Phase 1b shows up as an
+   * empty array here rather than merely an empty `failures`. Populated only
+   * past the D4 short-circuit. */
+  shippedValidatedRoots: string[];
   /** The Phase-3 `--plugin-dir` probe roots `claude plugin list --json`
    * actually confirmed loaded (matching `installPath`, `enabled:true`) —
    * a positive observable so a deleted/no-op Phase 3 shows up as an
@@ -199,13 +206,38 @@ function runClaude(
  * of the twin meaningful. On a dangling component symlink `cp -RL` exits
  * non-zero — the realistic symlink-specific regression this guards
  * against — so the returned detail includes the trimmed stderr; without it
- * a materialize failure here is unactionable. */
-function dereferenceRoot(
+ * a materialize failure here is unactionable. `node:child_process`, not
+ * `Bun.spawnSync` — same Node-hosted-vitest reason as `commandOnPath` /
+ * `runClaude` above. `spawnSync` RETURNS (never throws) on both a missing
+ * binary and a signal kill — in both cases `status` is `null` and `stderr`
+ * is `null` — so those two cases are branched on explicitly rather than
+ * falling into the generic non-zero-exit branch, where they'd read as the
+ * unactionable `cp -RL exited null: `. */
+export function dereferenceRoot(
   root: string,
   dest: string,
 ): { ok: true; path: string } | { ok: false; detail: string } {
   try {
-    const result = spawnSync("cp", ["-RL", root, dest], { encoding: "utf8" });
+    const result = spawnSync("cp", ["-RL", root, dest], {
+      encoding: "utf8",
+      timeout: DEFAULT_TIMEOUT_MS,
+    });
+    if (result.error) {
+      return {
+        ok: false,
+        detail: `cp -RL failed to spawn: ${result.error.message}`,
+      };
+    }
+    if (result.signal) {
+      const timeoutNote =
+        result.signal === "SIGTERM"
+          ? ` (likely the ${DEFAULT_TIMEOUT_MS}ms spawnSync timeout — -L follows symlinks unboundedly)`
+          : "";
+      return {
+        ok: false,
+        detail: `cp -RL was killed by signal ${result.signal}${timeoutNote}`,
+      };
+    }
     if (result.status !== 0) {
       return {
         ok: false,
@@ -226,16 +258,23 @@ export async function checkPluginContract(
     claudeOnPath?: (cmd: string) => boolean;
     tmpRoot?: string;
     runClaude?: typeof runClaude;
+    /** Narrow injection seam so a spec can force a Phase-1a materialize
+     * failure for a specific root deterministically, without needing a real
+     * `cp -RL`-hostile fixture (e.g. a dangling component symlink) on CI.
+     * Defaults to the real `dereferenceRoot`. */
+    dereference?: typeof dereferenceRoot;
   } = {},
 ): Promise<ContractLintResult> {
   const claudeOnPath = opts.claudeOnPath ?? commandOnPath;
   const runClaudeFn = opts.runClaude ?? runClaude;
+  const dereferenceFn = opts.dereference ?? dereferenceRoot;
   if (!claudeOnPath("claude")) {
     return {
       status: "skipped",
       reason: "claude is not on PATH",
       failures: [],
       derefValidatedRoots: [],
+      shippedValidatedRoots: [],
       probedPluginDirRoots: [],
     };
   }
@@ -284,7 +323,7 @@ export async function checkPluginContract(
     const derefTwins: { root: string; twin: string }[] = [];
     for (const { id, root } of roots) {
       const dest = path.join(derefRoot, pluginRootName(id));
-      const deref = dereferenceRoot(root, dest);
+      const deref = dereferenceFn(root, dest);
       if (!deref.ok) {
         failures.push({ root, phase: "materialize", detail: deref.detail });
         continue;
@@ -327,7 +366,11 @@ export async function checkPluginContract(
     }
 
     // Phase 1b: validate the actual shipped symlinked root, non-strict —
-    // this is the shape `flow install` really produces.
+    // this is the shape `flow install` really produces. Same concurrency/
+    // sandboxing rationale as Phase 1a above: read-only, distinct roots, no
+    // shared state, one wall-clock cold start instead of `roots.length`
+    // serial ones, each sandboxed to `fixtureHome`.
+    const shippedValidatedRoots: string[] = [];
     const shippedResults = await Promise.all(
       roots.map(({ root }) =>
         runClaudeFn(["plugin", "validate", root], {
@@ -350,7 +393,9 @@ export async function checkPluginContract(
           phase: "validate-shipped-root",
           detail: `claude plugin validate exited ${result.exitCode}`,
         });
+        continue;
       }
+      shippedValidatedRoots.push(root);
     }
 
     // claude plugin list --json, once, HOME pointed at the fixture — every
@@ -534,12 +579,14 @@ export async function checkPluginContract(
           status: "drifted",
           failures,
           derefValidatedRoots,
+          shippedValidatedRoots,
           probedPluginDirRoots,
         }
       : {
           status: "ok",
           failures: [],
           derefValidatedRoots,
+          shippedValidatedRoots,
           probedPluginDirRoots,
         };
   } finally {

@@ -25,6 +25,7 @@ import {
 } from "vitest";
 import {
   checkPluginContract,
+  dereferenceRoot,
   exitCodeFor,
   type ContractLintPhase,
 } from "./flow-plugin-contract-lint";
@@ -34,14 +35,15 @@ import { pluginRootName } from "./lib/plugin-manifest";
 const claudeMissing =
   spawnSync("sh", ["-c", "command -v claude"], { stdio: "pipe" }).status !== 0;
 
-// checkPluginContract's own worst case rose to 60s+ with the split Phase-1
-// strict-deref/shipped-root pair plus the --plugin-dir probe phase (4
-// sequential 20s DEFAULT_TIMEOUT_MS phases: validate-strict-deref,
-// validate-shipped-root, list-skills-dir, plugin-dir-probe) — this budget
-// must stay above that, or a slow claude cold start reads as a generic
-// vitest timeout instead of the named "timed out after 20000ms" failure
-// entry the lint itself is designed to produce.
-const REAL_CLI_TIMEOUT_MS = 90_000;
+// checkPluginContract's own worst case is 4 x 20s DEFAULT_TIMEOUT_MS phases
+// = 80s (validate-strict-deref, validate-shipped-root, list-skills-dir,
+// plugin-dir-probe, each run sequentially) — PLUS 9 ensurePluginRoot
+// materializations, two symlink passes, and the new 7-root `cp -RL` loop.
+// This budget must stay comfortably above the 80s phase floor, or a slow
+// claude cold start reads as a generic vitest timeout instead of the named
+// "timed out after 20000ms" failure entry the lint itself is designed to
+// produce.
+const REAL_CLI_TIMEOUT_MS = 120_000;
 
 let tmpRoot!: string;
 
@@ -145,15 +147,180 @@ describe(checkPluginContract, () => {
     expect(phases).toEqual(
       new Set<ContractLintPhase>(["validate-strict-deref"]),
     );
+    // Every strict-deref call failed, so nothing should have been pushed to
+    // derefValidatedRoots — without this pin, deleting the `continue` after
+    // the strict-fail push would make the vacuous-pass guard (see the
+    // real-CLI spec below) permanently self-satisfying with nothing going
+    // red.
+    expect(result.derefValidatedRoots).toEqual([]);
     // Phase 3 still ran and reported both probe roots loaded — proving
     // Phase 1's failure did not short-circuit or poison Phase 3's own probe
     // accounting.
     expect(result.probedPluginDirRoots).toHaveLength(2);
   });
 
-  // The four real-CLI specs below share one checkPluginContract() run —
+  it("a Phase-1b shipped-root validate failure is isolated to its own phase and never leaks into Phase 1a/2/3 (injected runClaude, no real claude needed)", async () => {
+    const result = await checkPluginContract({
+      tmpRoot,
+      claudeOnPath: () => true,
+      // Mirror image of the strict-deref isolation spec above: fail ONLY
+      // the non-strict shipped-root validate; every other invocation — the
+      // strict-deref validate, `plugin list --json`, and the --plugin-dir
+      // probe — reports success.
+      runClaude: async (args) => {
+        if (args.includes("--strict")) {
+          return { stdout: "", exitCode: 0, timedOut: false };
+        }
+        if (args.includes("--plugin-dir")) {
+          const roots: string[] = [];
+          for (let i = 0; i < args.length; i++) {
+            if (args[i] === "--plugin-dir") roots.push(args[i + 1]);
+          }
+          const entries = roots.map((root) => ({
+            id: `${path.basename(root)}@inline`,
+            enabled: true,
+            installPath: root,
+          }));
+          return {
+            stdout: JSON.stringify(entries),
+            exitCode: 0,
+            timedOut: false,
+          };
+        }
+        if (args[0] === "plugin" && args[1] === "list") {
+          const entries = moduleIds().map((id) => ({
+            id: `${pluginRootName(id)}@skills-dir`,
+            enabled: true,
+          }));
+          return {
+            stdout: JSON.stringify(entries),
+            exitCode: 0,
+            timedOut: false,
+          };
+        }
+        // Phase 1b: shipped-root validate, no --strict.
+        return { stdout: "", exitCode: 1, timedOut: false };
+      },
+    });
+    expect(result.status).toBe("drifted");
+    expect(
+      result.failures.every((f) => f.phase === "validate-shipped-root"),
+    ).toBe(true);
+    expect(result.derefValidatedRoots).toHaveLength(moduleIds().length);
+    expect(result.probedPluginDirRoots).toHaveLength(2);
+  });
+
+  it("a dereferenceRoot failure produces a materialize-phase entry and drops that root from the strict pass, without poisoning any other root (injected dereference)", async () => {
+    const firstModuleRoot = { id: moduleIds()[0] };
+    const result = await checkPluginContract({
+      tmpRoot,
+      claudeOnPath: () => true,
+      // Fail dereferenceRoot for exactly one module (the first) so the spec
+      // can assert both halves: the failing root drops out of the strict
+      // pass, and every other root proceeds normally.
+      dereference: (root, dest) =>
+        root.includes(firstModuleRoot.id)
+          ? { ok: false, detail: "injected materialize failure" }
+          : dereferenceRoot(root, dest),
+      runClaude: async (args) => {
+        if (args.includes("--plugin-dir")) {
+          const roots: string[] = [];
+          for (let i = 0; i < args.length; i++) {
+            if (args[i] === "--plugin-dir") roots.push(args[i + 1]);
+          }
+          const entries = roots.map((root) => ({
+            id: `${path.basename(root)}@inline`,
+            enabled: true,
+            installPath: root,
+          }));
+          return {
+            stdout: JSON.stringify(entries),
+            exitCode: 0,
+            timedOut: false,
+          };
+        }
+        if (args[0] === "plugin" && args[1] === "list") {
+          const entries = moduleIds().map((id) => ({
+            id: `${pluginRootName(id)}@skills-dir`,
+            enabled: true,
+          }));
+          return {
+            stdout: JSON.stringify(entries),
+            exitCode: 0,
+            timedOut: false,
+          };
+        }
+        return { stdout: "", exitCode: 0, timedOut: false };
+      },
+    });
+    const materializeFailures = result.failures.filter(
+      (f) => f.phase === "materialize",
+    );
+    expect(materializeFailures).toHaveLength(1);
+    expect(materializeFailures[0].detail).toBe("injected materialize failure");
+    expect(materializeFailures[0].root).toContain(firstModuleRoot.id);
+    // The failing root never reached the strict pass, so it must be absent
+    // from derefValidatedRoots — but every other module id's root still
+    // passed.
+    expect(result.derefValidatedRoots).toHaveLength(moduleIds().length - 1);
+    expect(
+      result.derefValidatedRoots.some((r) => r.includes(firstModuleRoot.id)),
+    ).toBe(false);
+  });
+
+  describe(dereferenceRoot, () => {
+    let unitTmpRoot!: string;
+
+    beforeEach(() => {
+      unitTmpRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), "flow-plugin-contract-lint-deref-unit-"),
+      );
+    });
+
+    afterEach(() => {
+      fs.rmSync(unitTmpRoot, { recursive: true, force: true });
+    });
+
+    it("reports a distinct actionable detail when the `cp` binary itself cannot be spawned (ENOENT)", () => {
+      const src = path.join(unitTmpRoot, "src");
+      fs.mkdirSync(src);
+      const dest = path.join(unitTmpRoot, "dest");
+      // A nonexistent PATH entry only, so `sh -c cp` cannot resolve `cp` —
+      // spawnSync returns rather than throws, with status/stderr both null.
+      const priorPath = process.env.PATH;
+      process.env.PATH = "/nonexistent-flow-test-path";
+      try {
+        const result = dereferenceRoot(src, dest);
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.detail).toContain("failed to spawn");
+          expect(result.detail).not.toContain("exited null");
+        }
+      } finally {
+        process.env.PATH = priorPath;
+      }
+    });
+
+    it("reports a distinct actionable detail on a dangling component symlink (real `cp -RL` non-zero exit)", () => {
+      const src = path.join(unitTmpRoot, "src");
+      fs.mkdirSync(src);
+      fs.symlinkSync(
+        path.join(unitTmpRoot, "does-not-exist"),
+        path.join(src, "dangling"),
+      );
+      const dest = path.join(unitTmpRoot, "dest");
+      const result = dereferenceRoot(src, dest);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.detail).toMatch(/^cp -RL exited \d+:/);
+      }
+    });
+  });
+
+  // The five real-CLI specs below share one checkPluginContract() run —
   // separately they'd each re-materialize 7 module roots + 2 probe roots
-  // and fire 9 claude invocations, tripling wall-clock cost for zero extra
+  // and fire 16 claude invocations (7 strict-deref + 7 shipped-root + 1
+  // list + 1 plugin-dir-probe), quadrupling wall-clock cost for zero extra
   // coverage since they assert on disjoint slices of the same result.
   describe("real CLI", () => {
     let result: Awaited<ReturnType<typeof checkPluginContract>>;
@@ -189,6 +356,9 @@ describe(checkPluginContract, () => {
         expect(
           result.failures.filter((f) => f.phase === "validate-shipped-root"),
         ).toEqual([]);
+        // Positive observable, not just an absence-of-failure check — same
+        // vacuous-pass guard rationale as derefValidatedRoots above.
+        expect(result.shippedValidatedRoots).toHaveLength(moduleIds().length);
       },
     );
 
@@ -248,6 +418,7 @@ describe("CLI exit-code mapping", () => {
         },
       ],
       derefValidatedRoots: [],
+      shippedValidatedRoots: [],
       probedPluginDirRoots: [],
     };
     expect(exitCodeFor(injectedResult)).toBe(1);
