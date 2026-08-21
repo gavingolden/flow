@@ -214,7 +214,7 @@ async function probeSymlinkMaterialization(
     return {
       id,
       verdict: "confirmed",
-      evidence: `ensurePluginRoot's own materialization shape (a real root directory with symlinked bin/ entries${hasSymlinkedBin ? "" : " — none present for module 'core'"}) passes \`claude plugin validate --strict\` — exit 0`,
+      evidence: `ensurePluginRoot's own materialization shape (a real root directory with symlinked bin/ entries${hasSymlinkedBin ? "" : " — none present for module 'core'"}) passes \`claude plugin validate --strict\` — exit 0. This fixture carries no symlinked skills/ or agents/ COMPONENT directories (skills/ is a real mkdirSync'd empty dir, agents/ is absent entirely), so this rung covers the root/manifest shape only — see bin/flow-plugin-contract-lint.ts for shipped-shape (symlinked components) coverage`,
     };
   }
   return {

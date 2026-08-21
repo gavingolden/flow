@@ -2,8 +2,17 @@
 /**
  * CI-runnable drift lint: materializes one plugin root per module (via the
  * REAL `ensurePluginRoot` primitive) into a temp fixture and asserts, via
- * the first-party `claude` CLI, that every emitted manifest still passes
- * `claude plugin validate --strict` and that `claude plugin list --json`
+ * the first-party `claude` CLI, that every emitted manifest is
+ * contract-clean. VERIFIED on Claude Code 2.1.239: `claude plugin validate`
+ * reads component directories WITHOUT following symlinks, so a root built
+ * from symlinked `bin/`/`skills`/`agents` entries — exactly how
+ * `flow install` ships them (AGENTS.md's "distributed via symlinks") —
+ * cannot itself pass `--strict`. Phase 1 is split in two: 1a
+ * dereferences each root into a real-file `cp -RL` twin and validates
+ * THAT `--strict` (the CLI's own escape hatch for validating the real
+ * paths separately); 1b validates the actual shipped symlinked root,
+ * non-strict. Before this split the strict pass inspected ZERO of flow's
+ * skills and agents. Phase 2 asserts `claude plugin list --json`
  * reports each root enabled with no errors. A third phase then proves
  * repeated `--plugin-dir <root>` is not merely ACCEPTED but actually
  * HONOURED: two dedicated fixture roots outside the skills-dir fixture are
@@ -101,10 +110,29 @@ function materializeModuleContent(
   }
 }
 
+export type ContractLintPhase =
+  | "materialize"
+  | "validate-strict-deref"
+  | "validate-shipped-root"
+  | "list-skills-dir"
+  | "plugin-dir-probe";
+
+export type ContractLintFailure = {
+  root: string;
+  phase: ContractLintPhase;
+  detail: string;
+};
+
 export type ContractLintResult = {
   status: "ok" | "drifted" | "skipped";
   reason?: string;
-  failures: { root: string; detail: string }[];
+  failures: ContractLintFailure[];
+  /** The Phase-1a dereferenced twins that passed `claude plugin validate
+   * --strict` — a positive observable so a vacuous strict pass (e.g. every
+   * root silently dropped by a Phase-1a materialize failure) shows up as a
+   * short array here rather than merely an empty `failures`. Populated only
+   * past the D4 short-circuit. */
+  derefValidatedRoots: string[];
   /** The Phase-3 `--plugin-dir` probe roots `claude plugin list --json`
    * actually confirmed loaded (matching `installPath`, `enabled:true`) —
    * a positive observable so a deleted/no-op Phase 3 shows up as an
@@ -164,6 +192,35 @@ function runClaude(
   });
 }
 
+/** Copies `root` to `dest` (the FULL target path, not a containing
+ * directory — `cp -RL /a/src /existing/dest` yields `/existing/dest/src`)
+ * with `-L` so every symlinked component (bin/skills/agents entries) lands
+ * as a real file/dir in the twin, which is what makes `--strict` validation
+ * of the twin meaningful. On a dangling component symlink `cp -RL` exits
+ * non-zero — the realistic symlink-specific regression this guards
+ * against — so the returned detail includes the trimmed stderr; without it
+ * a materialize failure here is unactionable. */
+function dereferenceRoot(
+  root: string,
+  dest: string,
+): { ok: true; path: string } | { ok: false; detail: string } {
+  try {
+    const result = spawnSync("cp", ["-RL", root, dest], { encoding: "utf8" });
+    if (result.status !== 0) {
+      return {
+        ok: false,
+        detail: `cp -RL exited ${result.status}: ${(result.stderr ?? "").trim()}`,
+      };
+    }
+    return { ok: true, path: dest };
+  } catch (err) {
+    return {
+      ok: false,
+      detail: `cp -RL threw: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
 export async function checkPluginContract(
   opts: {
     claudeOnPath?: (cmd: string) => boolean;
@@ -178,6 +235,7 @@ export async function checkPluginContract(
       status: "skipped",
       reason: "claude is not on PATH",
       failures: [],
+      derefValidatedRoots: [],
       probedPluginDirRoots: [],
     };
   }
@@ -192,7 +250,7 @@ export async function checkPluginContract(
     fs.mkdirSync(skillsDir, { recursive: true });
 
     const flowSource = resolveFlowSource();
-    const failures: { root: string; detail: string }[] = [];
+    const failures: ContractLintFailure[] = [];
     const roots: { id: ModuleId; root: string }[] = [];
 
     for (const id of moduleIds()) {
@@ -206,30 +264,53 @@ export async function checkPluginContract(
         force: false,
       });
       if (result === "blocked") {
-        failures.push({ root, detail: "ensurePluginRoot returned 'blocked'" });
+        failures.push({
+          root,
+          phase: "materialize",
+          detail: "ensurePluginRoot returned 'blocked'",
+        });
         continue;
       }
       roots.push({ id, root });
     }
     materializeModuleContent(flowSource, skillsDir);
 
-    // claude plugin validate --strict, all roots concurrently — they are
+    // Phase 1a: dereference each root into a real-file `cp -RL` twin under
+    // <tmpRoot>/deref and validate THAT --strict. A failed copy is a LOCAL
+    // materialize failure, not Claude Code drift — the root is dropped from
+    // the strict pass entirely rather than recorded as validation drift.
+    const derefRoot = path.join(tmpRoot, "deref");
+    fs.mkdirSync(derefRoot, { recursive: true });
+    const derefTwins: { root: string; twin: string }[] = [];
+    for (const { id, root } of roots) {
+      const dest = path.join(derefRoot, pluginRootName(id));
+      const deref = dereferenceRoot(root, dest);
+      if (!deref.ok) {
+        failures.push({ root, phase: "materialize", detail: deref.detail });
+        continue;
+      }
+      derefTwins.push({ root, twin: deref.path });
+    }
+
+    // claude plugin validate --strict, all twins concurrently — they are
     // read-only, target distinct roots, and share no state, so this is
     // roughly one wall-clock cold start instead of `roots.length` serial
     // ones. Each invocation is sandboxed to `fixtureHome` — the real
     // `~/.claude` must never be touched, same as the `plugin list` call
     // below.
-    const validateResults = await Promise.all(
-      roots.map(({ root }) =>
-        runClaudeFn(["plugin", "validate", "--strict", root], {
+    const derefValidatedRoots: string[] = [];
+    const strictDerefResults = await Promise.all(
+      derefTwins.map(({ root, twin }) =>
+        runClaudeFn(["plugin", "validate", "--strict", twin], {
           home: fixtureHome,
         }).then((result) => ({ root, result })),
       ),
     );
-    for (const { root, result } of validateResults) {
+    for (const { root, result } of strictDerefResults) {
       if (result.timedOut) {
         failures.push({
           root,
+          phase: "validate-strict-deref",
           detail: `claude plugin validate --strict timed out after ${DEFAULT_TIMEOUT_MS}ms`,
         });
         continue;
@@ -237,7 +318,37 @@ export async function checkPluginContract(
       if (result.exitCode !== 0) {
         failures.push({
           root,
+          phase: "validate-strict-deref",
           detail: `claude plugin validate --strict exited ${result.exitCode}`,
+        });
+        continue;
+      }
+      derefValidatedRoots.push(root);
+    }
+
+    // Phase 1b: validate the actual shipped symlinked root, non-strict —
+    // this is the shape `flow install` really produces.
+    const shippedResults = await Promise.all(
+      roots.map(({ root }) =>
+        runClaudeFn(["plugin", "validate", root], {
+          home: fixtureHome,
+        }).then((result) => ({ root, result })),
+      ),
+    );
+    for (const { root, result } of shippedResults) {
+      if (result.timedOut) {
+        failures.push({
+          root,
+          phase: "validate-shipped-root",
+          detail: `claude plugin validate timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+        });
+        continue;
+      }
+      if (result.exitCode !== 0) {
+        failures.push({
+          root,
+          phase: "validate-shipped-root",
+          detail: `claude plugin validate exited ${result.exitCode}`,
         });
       }
     }
@@ -250,6 +361,7 @@ export async function checkPluginContract(
     if (listResult.timedOut) {
       failures.push({
         root: skillsDir,
+        phase: "list-skills-dir",
         detail: `claude plugin list --json timed out after ${DEFAULT_TIMEOUT_MS}ms`,
       });
     } else {
@@ -260,6 +372,7 @@ export async function checkPluginContract(
       } catch (err) {
         failures.push({
           root: skillsDir,
+          phase: "list-skills-dir",
           detail: `could not parse claude plugin list --json output: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
@@ -270,16 +383,19 @@ export async function checkPluginContract(
         if (!entry) {
           failures.push({
             root,
+            phase: "list-skills-dir",
             detail: "not reported by claude plugin list --json",
           });
         } else if (entry.enabled !== true) {
           failures.push({
             root,
+            phase: "list-skills-dir",
             detail: `enabled:${entry.enabled}, expected true`,
           });
         } else if (entry.errors && entry.errors.length > 0) {
           failures.push({
             root,
+            phase: "list-skills-dir",
             detail: `errors: ${JSON.stringify(entry.errors)}`,
           });
         }
@@ -314,6 +430,7 @@ export async function checkPluginContract(
       ) {
         failures.push({
           root,
+          phase: "materialize",
           detail:
             "ensurePluginRoot returned 'blocked' materializing the --plugin-dir probe fixture",
         });
@@ -350,11 +467,13 @@ export async function checkPluginContract(
     if (probeResult.timedOut) {
       failures.push({
         root: probeLabel,
+        phase: "plugin-dir-probe",
         detail: `timed out after ${DEFAULT_TIMEOUT_MS}ms, via ${probeLabel}`,
       });
     } else if (probeResult.exitCode !== 0) {
       failures.push({
         root: probeLabel,
+        phase: "plugin-dir-probe",
         detail: `exited ${probeResult.exitCode}, via ${probeLabel}`,
       });
     } else {
@@ -375,6 +494,7 @@ export async function checkPluginContract(
       } catch (err) {
         failures.push({
           root: probeLabel,
+          phase: "plugin-dir-probe",
           detail: `could not parse output: ${err instanceof Error ? err.message : String(err)}, via ${probeLabel}`,
         });
       }
@@ -387,16 +507,19 @@ export async function checkPluginContract(
           if (!entry) {
             failures.push({
               root,
+              phase: "plugin-dir-probe",
               detail: `not reported by claude plugin list --json, via ${probeLabel}`,
             });
           } else if (entry.enabled !== true) {
             failures.push({
               root,
+              phase: "plugin-dir-probe",
               detail: `enabled:${entry.enabled}, expected true, via ${probeLabel}`,
             });
           } else if (entry.errors && entry.errors.length > 0) {
             failures.push({
               root,
+              phase: "plugin-dir-probe",
               detail: `errors: ${JSON.stringify(entry.errors)}, via ${probeLabel}`,
             });
           } else {
@@ -407,8 +530,18 @@ export async function checkPluginContract(
     }
 
     return failures.length > 0
-      ? { status: "drifted", failures, probedPluginDirRoots }
-      : { status: "ok", failures: [], probedPluginDirRoots };
+      ? {
+          status: "drifted",
+          failures,
+          derefValidatedRoots,
+          probedPluginDirRoots,
+        }
+      : {
+          status: "ok",
+          failures: [],
+          derefValidatedRoots,
+          probedPluginDirRoots,
+        };
   } finally {
     if (ownsTmpRoot) {
       fs.rmSync(tmpRoot, { recursive: true, force: true });

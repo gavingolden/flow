@@ -23,15 +23,21 @@ import {
   expect,
   it,
 } from "vitest";
-import { checkPluginContract, exitCodeFor } from "./flow-plugin-contract-lint";
+import {
+  checkPluginContract,
+  exitCodeFor,
+  type ContractLintPhase,
+} from "./flow-plugin-contract-lint";
 import { moduleIds } from "./lib/modules";
 import { pluginRootName } from "./lib/plugin-manifest";
 
 const claudeMissing =
   spawnSync("sh", ["-c", "command -v claude"], { stdio: "pipe" }).status !== 0;
 
-// checkPluginContract's own worst case rose to 60s with the --plugin-dir
-// probe phase (3 sequential 20s DEFAULT_TIMEOUT_MS phases) — this budget
+// checkPluginContract's own worst case rose to 60s+ with the split Phase-1
+// strict-deref/shipped-root pair plus the --plugin-dir probe phase (4
+// sequential 20s DEFAULT_TIMEOUT_MS phases: validate-strict-deref,
+// validate-shipped-root, list-skills-dir, plugin-dir-probe) — this budget
 // must stay above that, or a slow claude cold start reads as a generic
 // vitest timeout instead of the named "timed out after 20000ms" failure
 // entry the lint itself is designed to produce.
@@ -87,7 +93,65 @@ describe(checkPluginContract, () => {
     expect(result.probedPluginDirRoots).toEqual([]);
   });
 
-  // The three real-CLI specs below share one checkPluginContract() run —
+  it("a Phase-1a strict-deref failure is isolated to its own phase and never leaks into Phase 2/3 (injected runClaude, no real claude needed)", async () => {
+    const result = await checkPluginContract({
+      tmpRoot,
+      claudeOnPath: () => true,
+      // Fail ONLY the strict-deref invocation (detected by the presence of
+      // `--strict` in argv); every other invocation — the shipped-root
+      // non-strict validate, `plugin list --json`, and the --plugin-dir
+      // probe — reports success. This is the phase-isolation proof: it is
+      // what makes "a Phase-1 regression can no longer make the Phase-2/3
+      // specs lie" externally falsifiable.
+      runClaude: async (args) => {
+        if (args.includes("--strict")) {
+          return { stdout: "", exitCode: 1, timedOut: false };
+        }
+        if (args.includes("--plugin-dir")) {
+          const roots: string[] = [];
+          for (let i = 0; i < args.length; i++) {
+            if (args[i] === "--plugin-dir") roots.push(args[i + 1]);
+          }
+          const entries = roots.map((root) => ({
+            id: `${path.basename(root)}@inline`,
+            enabled: true,
+            installPath: root,
+          }));
+          return {
+            stdout: JSON.stringify(entries),
+            exitCode: 0,
+            timedOut: false,
+          };
+        }
+        if (args[0] === "plugin" && args[1] === "list") {
+          const entries = moduleIds().map((id) => ({
+            id: `${pluginRootName(id)}@skills-dir`,
+            enabled: true,
+          }));
+          return {
+            stdout: JSON.stringify(entries),
+            exitCode: 0,
+            timedOut: false,
+          };
+        }
+        // Phase 1b: shipped-root validate, no --strict.
+        return { stdout: "", exitCode: 0, timedOut: false };
+      },
+    });
+    expect(result.status).toBe("drifted");
+    const phases = new Set<ContractLintPhase>(
+      result.failures.map((f) => f.phase),
+    );
+    expect(phases).toEqual(
+      new Set<ContractLintPhase>(["validate-strict-deref"]),
+    );
+    // Phase 3 still ran and reported both probe roots loaded — proving
+    // Phase 1's failure did not short-circuit or poison Phase 3's own probe
+    // accounting.
+    expect(result.probedPluginDirRoots).toHaveLength(2);
+  });
+
+  // The four real-CLI specs below share one checkPluginContract() run —
   // separately they'd each re-materialize 7 module roots + 2 probe roots
   // and fire 9 claude invocations, tripling wall-clock cost for zero extra
   // coverage since they assert on disjoint slices of the same result.
@@ -107,24 +171,39 @@ describe(checkPluginContract, () => {
     });
 
     it.skipIf(claudeMissing)(
-      "every emitted manifest passes `claude plugin validate --strict` (real CLI)",
+      "every dereferenced root twin passes `claude plugin validate --strict` (real CLI)",
       () => {
-        expect(result.status).toBe("ok");
-        expect(result.failures).toEqual([]);
+        expect(
+          result.failures.filter((f) => f.phase === "validate-strict-deref"),
+        ).toEqual([]);
+        // Vacuous-pass guard: a Phase-1a materialize failure would silently
+        // drop every root from the strict pass, leaving `failures` clean for
+        // the wrong reason (nothing was validated, not "validated clean").
+        expect(result.derefValidatedRoots).toHaveLength(moduleIds().length);
+      },
+    );
+
+    it.skipIf(claudeMissing)(
+      "the shipped symlinked root still validates non-strict (real CLI)",
+      () => {
+        expect(
+          result.failures.filter((f) => f.phase === "validate-shipped-root"),
+        ).toEqual([]);
       },
     );
 
     it.skipIf(claudeMissing)(
       "a materialized root is reported by `claude plugin list --json` as <name>@skills-dir with enabled:true and no errors[] (real CLI)",
       () => {
-        expect(result.status).toBe("ok");
         // Every module id's root landed cleanly — the absence of any
         // per-root failure entry IS the enabled:true/no-errors[] assertion,
         // since checkPluginContract records exactly that failure shape.
         for (const id of moduleIds()) {
           const name = pluginRootName(id);
           expect(
-            result.failures.find((f) => f.root.includes(name)),
+            result.failures.find(
+              (f) => f.phase === "list-skills-dir" && f.root.includes(name),
+            ),
           ).toBeUndefined();
         }
       },
@@ -133,7 +212,9 @@ describe(checkPluginContract, () => {
     it.skipIf(claudeMissing)(
       "repeated `--plugin-dir` roots are actually LOADED, not merely accepted (real CLI)",
       () => {
-        expect(result.status).toBe("ok");
+        expect(
+          result.failures.filter((f) => f.phase === "plugin-dir-probe"),
+        ).toEqual([]);
         // Positive observable, not just an absence-of-failure check: a
         // deleted/no-op Phase 3 would leave probedPluginDirRoots empty
         // even though `failures` staying [] wouldn't otherwise notice.
@@ -159,7 +240,14 @@ describe("CLI exit-code mapping", () => {
   it("a drifted result (injected) maps to exit 1 via the production exitCodeFor mapping", () => {
     const injectedResult: Awaited<ReturnType<typeof checkPluginContract>> = {
       status: "drifted",
-      failures: [{ root: "/fake/root", detail: "injected failure" }],
+      failures: [
+        {
+          root: "/fake/root",
+          phase: "validate-strict-deref",
+          detail: "injected failure",
+        },
+      ],
+      derefValidatedRoots: [],
       probedPluginDirRoots: [],
     };
     expect(exitCodeFor(injectedResult)).toBe(1);

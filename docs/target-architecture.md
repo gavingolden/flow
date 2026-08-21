@@ -715,7 +715,12 @@ Contracted scope item 5).
   drift risk, but it is a LOCAL signal, not a CI one: CI installs no
   `claude`, so its real-CLI cases skip on every CI run, and the only place
   it can actually turn red is a maintainer's local `npm run test` /
-  `flow-pre-commit` (`bin/flow-plugin-contract-lint.test.ts`).
+  `flow-pre-commit` (`bin/flow-plugin-contract-lint.test.ts`). Verified on
+  Claude Code 2.1.239, `claude plugin validate` reads component
+  directories without following symlinks, so strict coverage is obtained
+  against a `cp -RL`-dereferenced twin of each root while the shipped
+  symlinked shape is asserted non-strict; every failure the harness
+  records is phase-tagged so each spec asserts only its own phase.
 
 - **Sanctioned break, restated precisely:** the `--all` install's SYMLINK
   set (skills/agents/helpers/validators/completions/wrapper) is still
