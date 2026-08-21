@@ -125,10 +125,15 @@ export function materializeFixture(
   // git-ignored repo-wide, so `git add` would silently drop it) — rename
   // to the real dotted name at materialization time, mirroring a real
   // worktree.
+  // Always present afterwards: a fixture with no committed flow-tmp/ files
+  // has no directory at all on a fresh checkout (git tracks files, not
+  // empty dirs), and a real worktree creates .flow-tmp/ lazily anyway.
   const nonDotFlowTmp = path.join(repoDir, "flow-tmp");
+  const dotFlowTmp = path.join(repoDir, ".flow-tmp");
   if (fs.existsSync(nonDotFlowTmp)) {
-    fs.renameSync(nonDotFlowTmp, path.join(repoDir, ".flow-tmp"));
+    fs.renameSync(nonDotFlowTmp, dotFlowTmp);
   }
+  fs.mkdirSync(dotFlowTmp, { recursive: true });
 
   git(["init", "-q"], repoDir);
   git(["symbolic-ref", "HEAD", "refs/heads/main"], repoDir);
