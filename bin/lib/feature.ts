@@ -181,6 +181,14 @@ export type FeatureOptions = {
    */
   forceResearch?: boolean;
   /**
+   * Persist the per-run intent-interview override (`force` | `skip`), set
+   * via `flow feature create --interview` / `--no-interview`. Mutually
+   * exclusive; absent when neither flag was passed, in which case the
+   * trigger falls back to the `interview-playbook.md` judgment gate and
+   * `config.json`'s `interview.enabled`.
+   */
+  interviewMode?: "force" | "skip";
+  /**
    * Persist the tri-state Copilot-review opt-in (`auto` | `always` |
    * `never`). Omitted when absent (absent ≡ `auto`).
    */
@@ -406,6 +414,22 @@ function runCreateCli(
   const noAutoMerge = args.includes("--no-auto-merge");
   const waitForCopilot = args.includes("--wait-for-copilot");
   const forceResearch = args.includes("--research");
+
+  // --interview / --no-interview: per-run intent-interview override,
+  // mutually exclusive, mirroring --tmux / --no-tmux below.
+  const wantInterview = args.includes("--interview");
+  const wantNoInterview = args.includes("--no-interview");
+  if (wantInterview && wantNoInterview) {
+    console.error(
+      "flow feature create: --interview and --no-interview are mutually exclusive.",
+    );
+    return 1;
+  }
+  const interviewMode: "force" | "skip" | undefined = wantInterview
+    ? "force"
+    : wantNoInterview
+      ? "skip"
+      : options.interviewMode;
 
   // --tmux / --no-tmux: per-run launcher override, mutually exclusive.
   // Validated here, before any side-effect (slug, state write), mirroring
@@ -643,7 +667,9 @@ function runCreateCli(
         a !== "--wait-for-copilot" &&
         a !== "--research" &&
         a !== "--tmux" &&
-        a !== "--no-tmux"
+        a !== "--no-tmux" &&
+        a !== "--interview" &&
+        a !== "--no-interview"
       );
     })
     .join(" ");
@@ -653,6 +679,7 @@ function runCreateCli(
     noAutoMerge,
     waitForCopilot,
     forceResearch,
+    interviewMode,
     copilotReview,
     effort,
     model,
@@ -669,7 +696,7 @@ function runFresh(
   if (!description || description.trim() === "") {
     console.error("flow feature create: description is required.");
     console.error(
-      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] [--epic <epic-slug>/<feature-id>] <description>",
+      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--interview | --no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] [--epic <epic-slug>/<feature-id>] <description>",
     );
     return 1;
   }
@@ -792,6 +819,7 @@ function runFresh(
     autoMerge: options.noAutoMerge ? false : undefined,
     waitForCopilot: options.waitForCopilot ? true : undefined,
     forceResearch: options.forceResearch ? true : undefined,
+    interviewMode: options.interviewMode,
     copilotReview: options.copilotReview,
     effort: options.effort,
     model: sessionModel,

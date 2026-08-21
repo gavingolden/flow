@@ -1227,9 +1227,21 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * goes to 25_300 (175 chars of headroom) instead, and trimming
    * lint-anchored `## Output style` prose to make room was rejected on
    * the same grounds as the precedents above.
+   * Raised once more from 25_300 to 25_900 to fund two deliberate
+   * additions for the intent interview (adaptive) feature: a
+   * `## Compact Instructions` KEEP bullet for `state.interview`, and a
+   * `## Don'ts` bullet naming the two interview pending phases as
+   * ordinary chat pauses, NOT `AskUserQuestion` (no new exemption). Both
+   * bullets were already tightened to lean anchored openers with the
+   * full round contract offloaded to
+   * skills/pipeline/flow-pipeline/references/interview-playbook.md, per
+   * the offload-then-trim playbook; post-edit size is 25_749, so 25_900
+   * (151 chars of headroom) matches the 136-202-char range the recent
+   * precedents above landed with, rather than the tighter traps rejected
+   * earlier in this history.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 25_300;
+    const CHAR_BUDGET = 25_900;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -4581,12 +4593,25 @@ describe("pr-review include-by-reference structure", () => {
     // (plugin-qualified → general-purpose, dropping the legacy-bare
     // elif branch), shrinking the file below this ceiling — the number
     // above is left as historical record, not re-tightened.
+    // Intent interview (adaptive): step 1's Intent interview sub-step,
+    // step 3's Question-gate branch, the sixth invocation-threading
+    // marker, the answer-sheet End-condition addition, and the two new
+    // pending-phase enumerations are genuine load-bearing feature
+    // content, not incidental bloat. File lands at 2815 lines — raised
+    // the ceiling to 2830 (15 lines of genuine headroom), same
+    // discipline as the precedents above.
+    // pr-review fix pass (PR #637): the step-1 per-round persistence fix,
+    // the step-3 question-gate post-answer persistence fix, and the
+    // reconciled step-3 resume-row wording are genuine correctness content
+    // fixing a mid-interview data-loss bug, not incidental bloat. File
+    // lands at 2845 lines — raised the ceiling to 2860 (15 lines of
+    // genuine headroom), same discipline as the precedents above.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2735 lines. Material regrowth past this ceiling would ` +
+        `budget of 2860 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2735);
+    ).toBeLessThan(2860);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -7631,7 +7656,7 @@ describe("pause-output contract wiring lint", () => {
     }
   });
 
-  it("flow-pipeline/SKILL.md references pause-output-contract.md at ≥7 pause sites", () => {
+  it("flow-pipeline/SKILL.md references pause-output-contract.md at ≥9 pause sites", () => {
     const c = fs.readFileSync(
       path.join(REPO_ROOT, "skills", "pipeline", "flow-pipeline", "SKILL.md"),
       "utf8",
@@ -7646,10 +7671,11 @@ describe("pause-output contract wiring lint", () => {
     expect(
       matches.length,
       "flow-pipeline SKILL.md must reference `references/pause-output-contract.md` " +
-        "at each of its seven informal pause sites (triage clarification, plan " +
+        "at each of its nine informal pause sites (triage clarification, plan " +
         "summary, checkpoint nudge, approval clarification, gated feedback, " +
-        "post-render QA, resume-mode terminal QA).",
-    ).toBeGreaterThanOrEqual(7);
+        "post-render QA, resume-mode terminal QA, step-1 intent interview, " +
+        "step-3 question-gate interview).",
+    ).toBeGreaterThanOrEqual(9);
   });
 
   it("each wired sibling SKILL.md references the contract via a resolvable cross-skill path", () => {
@@ -7672,6 +7698,57 @@ describe("pause-output contract wiring lint", () => {
   it("AGENTS.md carries the binding pause-point bullet", () => {
     const c = fs.readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf8");
     expect(c).toContain("**Structure every pause-point message.**");
+  });
+
+  it("interview-playbook.md ships no AskUserQuestion site and no numeric question/round cap", () => {
+    // Converts the PR's two one-shot Test Steps checklist greps into a
+    // durable regression: the intent interview (adaptive) is a one-form-rule
+    // exemption (no new AskUserQuestion form) with an explicit no-numeric-cap
+    // user clarification, and a future edit to interview-playbook.md could
+    // silently reintroduce either without any signal short of this lint.
+    const c = fs.readFileSync(
+      path.join(
+        REPO_ROOT,
+        "skills",
+        "pipeline",
+        "flow-pipeline",
+        "references",
+        "interview-playbook.md",
+      ),
+      "utf8",
+    );
+    expect(c).not.toMatch(/AskUserQuestion/);
+    expect(c).not.toMatch(
+      /at most \d+ questions|≤ ?\d+ questions|maximum of \d+ (questions|rounds)/i,
+    );
+  });
+
+  it("step 1's intent interview persists the digest at ask time, not only after the answer", () => {
+    // Live-pipeline regression (PR #637): driving a real `flow feature
+    // create` battery showed step 1 writing `--phase
+    // triage-pending-interview` with NO `--interview-stdin`, because the
+    // only persistence instruction sat after answer-parsing. The pause
+    // between asking and answering is exactly the /clear-and-crash
+    // window, so `state.interview` was absent at the one phase a resume
+    // can land on mid-interview — leaving flow-resume-decide's step-1 row
+    // with an empty `.context.interview` and forcing it to re-derive a
+    // renumbered frontier, breaking the stable-Q<n> contract the compact
+    // `3a` answer form depends on. Step 3's question gate does not share
+    // the bug (its battery survives on disk at
+    // .flow-tmp/interview-questions.md), which is why this pins step 1
+    // specifically.
+    const c = fs.readFileSync(SKILL_MD_PATH, "utf8").replace(/\s+/g, " ");
+    const askTimeWrite =
+      /flow-state-update --phase triage-pending-interview --interview-stdin/;
+    expect(
+      askTimeWrite.test(c),
+      "step 1 must write the phase together with --interview-stdin so the " +
+        "battery survives the pause it ends the turn on",
+    ).toBe(true);
+    expect(
+      c.includes("still-open"),
+      "the ask-time digest must carry this round's questions at still-open",
+    ).toBe(true);
   });
 
   it("references/output-style.md carries the section and both carve-outs", () => {

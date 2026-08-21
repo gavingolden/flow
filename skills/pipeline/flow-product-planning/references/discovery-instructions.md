@@ -42,6 +42,23 @@ Before forming an opinion, load background context so your scoping is informed:
 
 This is read-only background — these reads stay in your context and don't propagate.
 
+## 1.4 Interview context
+
+Your spawn prompt may carry an `INTERVIEW: <digest>` marker (the
+step-1 intent interview's persisted digest,
+`skills/pipeline/flow-pipeline/references/step3-threading.md` § Interview
+threading), an `INTERVIEW ANSWERS (post-discovery): <answers>` marker
+(a resume of YOUR OWN question-gate pause, see `## Question-gate
+contract` below), or both. Treat every answer either marker carries as
+a **load-bearing user clarification** — the same authority as any other
+explicit user clarification threaded into your invocation (a redirect,
+an answered ambiguity question) — never as advisory context to weigh
+against the codebase scan. When the interview settled a design fork,
+that fork is CLOSED: do not re-open it as an `## Open Questions` item
+or a `**Needs user input:**` marker, and do not silently override it
+with a codebase-derived default. Absent either marker, this step is a
+no-op — proceed to `## 1.5` unchanged.
+
 ## 1.5. Web-grounded research pre-check
 
 **Engage this step on every discovery run; it self-gates internally and is a no-op for most features.** It runs at most once. It lets a pipeline gather current, web-grounded, adversarially-verified evidence **before** planning, so a plan whose viability turns on an external factual question is grounded on real evidence rather than your training cutoff. It runs **only when** (1) a `jq` read of the global `~/.flow/config.json` returns `research.discovery: true`, AND (2) the relevance gate below judges the feature researchable. agy availability is checked **last**, by the research fan-out itself — an `allSkipped` result means agy is unavailable, so research gracefully no-ops. When any gate fails, skip the entire step and proceed to step 2 (Scope Check) with discovery exactly as it is today. **One override:** a `RESEARCH: force-on` signal in your spawn prompt (set by `flow feature create --research`) forces the pre-check on, bypassing **both** gate (1) and gate (2) — see (a0) below; only the agy guard still applies.
@@ -332,6 +349,59 @@ For deeper techniques — including the **framing lenses** (Jobs-to-be-Done, fir
 inversion, pre-mortem, second-order effects, and internal-only Five Whys) that sharpen the
 categories above — load `<SKILL_DIR>/references/discovery-playbook.md`. Apply them as bounded
 internal heuristics that reason into the categories below, never as a performed PRD section.
+
+## Question-gate contract
+
+**Strict judgment gate — engage only when discovery genuinely cannot
+proceed.** The default is still the resolution-first discipline above:
+make a defensible assumption, surface it as an Open Question, and let
+the user redirect at `plan-pending-review`. This gate is the narrow
+exception, and its bar is: **every viable plan branch is invalidated by
+an unanswered fork** — not "a fork exists", not "the fork is
+consequential enough for `## Decision analysis`", but that you cannot
+write a single coherent PRD without first knowing the answer, because
+each candidate answer produces an incompatible plan and picking one to
+recommend would be a guess dressed as a decision.
+
+- **NEVER fires when `INTERVIEW ANSWERS (post-discovery)` is already
+  present** (`## 1.4 Interview context`) — that marker means you are
+  resuming your OWN prior question-gate pause; the answers it carries
+  resolve the fork that triggered it, so re-firing would loop.
+- **Fire example:** "add a background job queue for exports" with no
+  existing queue infra in the repo and two live candidates (a new
+  lightweight in-process queue vs. adopting an external broker) that
+  imply entirely different modules, dependencies, and PRD shapes — a
+  `**Recommended:**` marker here would be a coin flip, not a grounded
+  recommendation.
+- **Skip example:** "add a background job queue for exports, use the
+  same worker pattern as the existing `report-generator` job" — the
+  user named the pattern to follow; not a fork, just detail to work
+  out (resolves inline, no gate).
+- **Skip example:** a fork that IS consequential but has a defensible
+  `**Recommended:**` answer grounded in a rubric factor (existing
+  convention, lower risk, smaller footprint) — that's exactly what
+  `### Decision analysis` and the resolution-first discipline exist
+  for; the gate is reserved for forks that resist grounding entirely.
+- **Mechanical floor.** More than 3 unresolved `**Needs user input:**`
+  items (see "Open Questions (resolution-first)" below) forces the
+  gate regardless of judgment — a PRD with that many unresolved
+  user-only items is not a grounded recommendation, it's a
+  transcription of the ambiguity back at the user, so stop and ask
+  rather than ship it.
+
+**On fire:** write `.flow-tmp/interview-questions.md` in the
+`../../flow-pipeline/references/interview-playbook.md` `## 3. Question format` shape —
+stable `Q<n>` ids, category headings, lettered options where sensible,
+covering exactly the fork(s) that invalidated every plan branch (and, on
+the mechanical-floor path, the `**Needs user input:**` items that
+tripped it). Include a `Recommended:` line where a defensible lean
+exists among the options (even a genuinely-invalidating fork can have a
+lettered option that's marginally better-grounded than the others); a
+genuinely open fork with no defensible lean states `Recommended: none —
+genuinely open` instead of forcing a coin-flip pick. Do **NOT** write
+`plan.md` or `pr-description-draft.md` on this path — the question gate
+is instead-of, not alongside. Return the `Questions:` summary variant
+(`## 9`) instead of the normal artifact-paths summary.
 
 ## 4. Architecture Checkpoint
 
@@ -700,6 +770,16 @@ rubric's value/effort/risk weighing. When the decisive input is an external fact
 agent cannot verify, taking the `**Needs user input:**` escape is MANDATORY, not a
 stylistic choice: a confident wrong answer that looks right is worse than a bare
 question.
+
+**Answer-sheet numbering.** Every `**Needs user input:**` item (and every
+`## Decision analysis` fork left unresolved) carries a stable `Q<n>` id,
+assigned once and never renumbered across a redirect or revision pass —
+`/flow-pipeline` step 3's End condition renders these ids as a numbered
+answer sheet above the AWAITING APPROVAL block, and the user's `answer:
+1a 2: <text>` reply is unambiguous only because the id it references
+never shifted underneath it. Assign the next unused `Q<n>` in document
+order the first time an item is written; a later revision pass that
+resolves `Q2` does not renumber `Q3` down to `Q2`.
 
 ### Decision analysis
 
@@ -1284,6 +1364,15 @@ unavailable; force with `flow feature create --research`.") so it reaches
 chat; omit the bullet when research ran or the path was fully dormant. Do not paste the PRD or task list back — the wrapper only forwards your summary to the caller, and
 the artifacts on disk are the durable record. Keeping the return value
 short is the whole point of the subagent fan-out.
+
+**`Questions:` variant (question-gate fire).** When the `## Question-gate
+contract` above fired, replace the whole labeled-bullet summary with a
+single `Questions: <n> unresolved — see .flow-tmp/interview-questions.md`
+line (`<n>` is the frontier size written) instead of `Problem:` /
+`Tasks:` / etc. — there is no PRD to summarize on this path, and the
+wrapper reads the artifact-existence check (`## 3` "Suggest the next
+handoff") to route the pause per `/flow-pipeline` step 3's Question-gate
+branch.
 
 ## Revision pass mode
 

@@ -83,6 +83,17 @@ disk + a brief summary.
 
 ## 1. Understand the User Flow
 
+**Standalone-mode interview pointer.** When this skill is invoked
+standalone in a live chat session — a human ran `/flow-new-feature`
+directly, not `/flow-pipeline` driving it — it MAY run the intent
+interview (adaptive) referenced by path at
+`skills/pipeline/flow-pipeline/references/interview-playbook.md` before
+scaffolding, since a live chat has a user to interview. A
+`/flow-pipeline`-driven invocation never asks here — the interview
+already ran (or was deliberately skipped) at the supervisor's own step
+1/step 3, and this skill's job at that point is to implement the
+already-approved plan, not re-open it.
+
 - If `$ARGUMENTS` is provided, use it as the initial feature description. Ask clarifying
   questions to fill gaps rather than asking the user to describe the feature from scratch.
 - If `$ARGUMENTS` is empty, ask the user to describe the feature from their perspective:

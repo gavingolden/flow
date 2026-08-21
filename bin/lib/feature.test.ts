@@ -1281,6 +1281,72 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(raw).not.toHaveProperty("forceResearch");
   });
 
+  it("runFeatureCli --interview writes interviewMode: 'force' and excludes the flag from the slug", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--interview", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    // Slug must not include the "interview" token; description was "do thing".
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.interviewMode).toBe("force");
+  });
+
+  it("runFeatureCli --no-interview writes interviewMode: 'skip' and excludes the flag from the slug", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--no-interview", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.interviewMode).toBe("skip");
+  });
+
+  it("runFeatureCli without --interview/--no-interview leaves interviewMode absent", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("interviewMode");
+  });
+
+  it("runFeatureCli rejects combining --interview and --no-interview", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runFeatureCli(
+      ["create", "--interview", "--no-interview", "do", "thing"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "--interview and --no-interview are mutually exclusive",
+      ),
+    );
+    errSpy.mockRestore();
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(false);
+  });
+
   it.each(["auto", "always", "never"] as const)(
     "runFeatureCli --copilot-review %s persists copilotReview and excludes the flag+value from the slug",
     (value) => {

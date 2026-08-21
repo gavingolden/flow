@@ -295,7 +295,14 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > where the supervisor flushes conversational state to the state-dir
 > checkpoint, nudges "safe to `/clear`", and yields so the user can reset
 > context before the token-heavy phases (see step 4 for the
-> auto-checkpoint sub-step). Every other step transition stays in the
+> auto-checkpoint sub-step); and (7) the intent interview (adaptive)'s
+> two chat pauses — step 1 (state writes `phase:
+> triage-pending-interview`) and step 3's post-discovery question gate
+> (state writes `phase: plan-pending-interview`) — each ending the turn
+> once per round until the frontier is empty (see step 1's Intent
+> interview sub-step and step 3's Question-gate branch;
+> `references/interview-playbook.md` governs the round shape). Every
+> other step transition stays in the
 > same turn. Harness-level enforcement: `flow-stop-guard`
 > (registered as a Claude Code Stop hook by `flow install`) reads
 > `~/.flow/state/<slug>.json` and blocks any turn-end whose phase
@@ -532,13 +539,67 @@ gated and revertible, so proceed on the most-likely goal and surface the
 considered alternative in the PRD and the PR `## Why` (gated at
 `plan-pending-review` for feature intent) rather than stopping to ask.
 
-**The one question (rare).** Ask exactly one focused goal-framing question
-ONLY when no defensible one-line goal can be stated even after laddering up
-AND guessing wrong would be costly or hard to reverse. When that bar is met,
-write `flow-state-update --phase triage-pending-clarification`, ask the single
-question, and end the turn; the next turn re-enters step 1 with the reply, and
-if still ambiguous, escalate `NEEDS HUMAN: triage-ambiguous` rather than asking
-twice. Never ask mid-run and never interrogate with a chain of "why".
+**Intent interview (adaptive).** After Ladder Up above and the prompt-sanity
+gate below, apply the trigger contract in
+`references/interview-playbook.md` (fire-by-default for change-intent
+requests, with named carve-outs and a mechanical under-~50-character
+floor — full detail lives there, not duplicated here). When the trigger
+does NOT fire, proceed straight to classification below unchanged.
+
+When the trigger **fires**:
+
+1. Compose the round's questions, then write the phase **together with
+   the ask-time digest** — the full interview-to-date with this round's
+   questions carried at `still-open` (the third resolution state the
+   playbook's `## 7` names):
+
+   ```bash
+   flow-state-update --phase triage-pending-interview --interview-stdin <<'EOF'
+   <digest: every question asked so far, each ANSWERED/adopted/still-open>
+   EOF
+   ```
+
+   Unlike step 3's question gate — whose battery survives the pause on
+   disk at `.flow-tmp/interview-questions.md` — the step-1 battery
+   exists ONLY in the turn being ended here, so a `/clear` or crash at
+   the pause would otherwise strand the resume row (`step-1`,
+   `awaiting-triage-interview-answers`) with an empty
+   `.context.interview` and force it to re-derive a different frontier —
+   renumbering questions the user is looking at and breaking the stable
+   `Q<n>` ids that make `answer: 3a` unambiguous. This ask-time write is
+   what makes the pause itself recoverable.
+2. Render the current frontier round per the playbook's `## 3. Question
+   format` — every question numbered `Q<n>`, grouped under its category
+   heading — inside the `references/pause-output-contract.md` slot
+   shape (template: `references/interview-playbook.md` `## 8`; labeled
+   slots, no open prose).
+   <!-- any new pause site below must reference pause-output-contract.md -->
+3. End the turn.
+4. On the user's reply, parse it per the playbook's `## 5. Answer
+   parsing` (compact `1a 2c 3: <text>` form; a vague/non-committal
+   answer silently adopts that question's `Recommended:` option) or
+   route an escape verb per `## 6` (`proceed` / `skip interview` /
+   `cancel`).
+5. Immediately after parsing the reply — BEFORE recomputing the
+   frontier — persist the full interview digest so far (every question
+   asked in every round up to and including this one, and its
+   resolution) via `flow-state-update --interview-stdin` (see the
+   playbook's `## 7. Persistence contract`; the write REPLACES the
+   prior digest with the full interview-to-date, not a delta). This
+   per-round write is what makes a mid-interview crash or `/clear`
+   recoverable — a resumed session re-renders from the last persisted
+   round instead of losing every answered round since the interview
+   started.
+6. Recompute the frontier: settled answers may reveal new questions
+   (push them to the next round) or the frontier may be empty (proceed
+   to step 2). Repeat from step 2 above for a non-empty frontier.
+
+This sub-step is DISTINCT from the unparseable-input branch below
+(**Ambiguous** → `triage-pending-clarification`): that branch is a
+single, unpersisted clarifying ask for genuinely unparseable input; this
+interview is the adaptive, multi-round, persisted battery for a
+parseable-but-underspecified change request. Never ask mid-run outside
+either of these two named mechanisms.
 
 #### Prompt sanity gate
 
@@ -662,7 +723,7 @@ discovery still validates the goal against the codebase and surfaces an Open
 Question if it disagrees — see `discovery-instructions.md` §3 ("User intent").
 
 **Invocation threading.** Before invoking `/flow-product-planning`, thread up
-to five marker lines onto the same append channel as the inferred ultimate
+to six marker lines onto the same append channel as the inferred ultimate
 goal — full contract for each in
 [references/step3-threading.md](references/step3-threading.md); none add a
 new Task-tool exemption or spawn site (all are markers on the existing
@@ -679,6 +740,10 @@ Discovery exemption, #2 in Hard rules):
 - **Epic-membership threading** — when `.epic` is set, append
   `EPIC: <slug>/<featureId> (design at .flow/epics/<slug>/design.md)`.
 - **Prompt-sanity threading** — on a `suspect` step-1 verdict, append `PROMPT-SANITY: <note>`.
+- **Interview threading** — when `state.interview` is non-empty, append
+  `INTERVIEW: <digest>` so discovery treats the persisted intent-interview
+  answers as load-bearing user clarifications (full contract:
+  [references/step3-threading.md](references/step3-threading.md)).
 
 **Deterministic forced research (mandatory on the forced path).** The
 discovery subagent's own Step 1.5 was observed to skip the fan-out even when
@@ -836,6 +901,18 @@ normalized-diff re-fire detection) in
   into ONE bounded revision pass back to step 3; see step 4's redirect
   classification below and `references/redirect-handling.md`).
 
+  **Answer sheet (unresolved plan questions).** When `plan.md` still
+  carries unresolved `**Needs user input:**` items and/or `## Decision
+  analysis` forks the interview (or discovery) left open, render them
+  as a numbered answer sheet ABOVE the AWAITING APPROVAL block — stable
+  `Q<n>` ids, one line each naming the open item and, where discovery
+  recorded one, its recommended resolution. Document the `answer:
+  <sheet>` reply verb in the same message (e.g. `answer: 1a 2: use the
+  existing retry pattern`) — step 4 classifies it as ONE batched
+  Imperative scope/plan revision redirect back to step 3 (see
+  `references/redirect-handling.md`), the same disposition as `pull #N
+  into the plan` above, never as a fresh interview round.
+
   Then render the AWAITING APPROVAL block via `flow-gate-summary` so
   the header rows precede the two markdown bullets the user clicks:
 
@@ -963,9 +1040,44 @@ normalized-diff re-fire detection) in
     route-to-step-4 non-feature pipeline also auto-resumes to the plan
     render.
 
-If `/flow-product-planning` doesn't write `.flow-tmp/plan.md`, re-invoke
-once with an explicit instruction to write the consolidated artifact.
-If the second attempt also fails, escalate `NEEDS HUMAN: plan-missing`.
+**Question-gate branch.** When `/flow-product-planning` doesn't write
+`.flow-tmp/plan.md`, first check whether it wrote
+`.flow-tmp/interview-questions.md` instead — discovery's own strict
+question-gate (`skills/pipeline/flow-product-planning/references/discovery-instructions.md`
+§ question-gate contract) can pause mid-run when every viable plan
+branch is invalidated by an unanswered fork. On that signal:
+
+1. Write `flow-state-update --phase plan-pending-interview`.
+2. Render the battery from `.flow-tmp/interview-questions.md` inside
+   the `references/pause-output-contract.md` slot shape (the same
+   template as the step-1 interview — see
+   `references/interview-playbook.md` `## 8`).
+   <!-- any new pause site below must reference pause-output-contract.md -->
+3. End the turn.
+4. On the next turn, BEFORE re-invoking `/flow-product-planning`,
+   persist the post-gate digest — the union of the question-gate
+   battery's questions/answers and any existing triage digest from
+   `state.interview` — via `flow-state-update --phase planning
+   --interview-stdin` (see the playbook's `## 7. Persistence contract`;
+   the write REPLACES the prior digest with the full interview-to-date).
+   This is what moves the phase off `plan-pending-interview` and makes
+   the answers survive a crash between this write and discovery's
+   post-answer re-run finishing. Then re-invoke `/flow-product-planning`
+   appending `INTERVIEW ANSWERS (post-discovery): <answers>` onto the
+   same threading channel as `## Invocation threading` above, so
+   discovery resumes with the answers as load-bearing context instead
+   of re-deriving the plan from scratch.
+
+**At most one question-gate fire per pipeline.** If `.flow-tmp/plan.md`
+is still absent after the post-answer re-invocation (a second
+`interview-questions.md` write), do NOT loop a second gate round —
+escalate `NEEDS HUMAN: interview-loop` instead.
+
+If `/flow-product-planning` doesn't write `.flow-tmp/plan.md` AND does
+NOT write `.flow-tmp/interview-questions.md` either — a genuine
+plan-missing failure, not the question gate — re-invoke once with an
+explicit instruction to write the consolidated artifact. If the second
+attempt also fails, escalate `NEEDS HUMAN: plan-missing`.
 
 ## Step 4 — Approval handling
 
@@ -2402,8 +2514,9 @@ Branch on `.resumeAt`:
 
 | `.resumeAt` | Action |
 |---|---|
+| `step-1` | Re-enter step 1's Intent interview (adaptive) sub-step. `.context.interview` carries `state.interview`'s persisted digest — re-render the frontier's `still-open` questions from it under their existing `Q<n>` ids (do NOT re-derive the frontier from scratch, and do NOT renumber) and continue the round protocol from `references/interview-playbook.md`. Step 1's ask-time write means a digest is present at every `triage-pending-interview` pause; an ABSENT one is a pre-fix state file (or a crash before the phase write landed), so re-derive the frontier from the original request and say so in the re-rendered round, rather than silently presenting renumbered questions as if they were the ones already on screen. |
 | `step-2` | Re-enter step 2 (worktree). Recreate via `flow-new-worktree`. |
-| `step-3` | Re-enter step 3 (plan). Re-invoke `/flow-product-planning`. |
+| `step-3` | Re-enter step 3 (plan). If `state.phase` was `plan-pending-interview`, re-render the battery from `.flow-tmp/interview-questions.md` on disk (the file, not `.context.interview`) instead of blindly re-invoking discovery; `.context.interview`, when present, carries only the prior triage-side digest as background context for framing the re-render, never the battery itself. Otherwise re-invoke `/flow-product-planning`. |
 | `step-4` | Re-enter step 4 (approval). Re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
 | `step-5` | Re-enter step 5 (implement). Re-invoke `/flow-new-feature`. |
 | `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow install --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
@@ -2690,7 +2803,9 @@ Pending phases (legitimate turn-ends mid-pipeline; recognised by
 plan-pending-review                (step 3 → 4 handoff for feature intent)
 triaged-no-change                  (step 1 no-change branch)
 triage-pending-clarification       (step 1 single clarifying question)
+triage-pending-interview           (step 1 intent interview (adaptive) round)
 approval-pending-clarification     (step 4 single clarifying question)
+plan-pending-interview             (step 3 post-discovery question-gate round)
 ci-wait-pending                    (step 7 yield while flow-ci-wait is backgrounded)
 checkpoint-pending-clear           (step 4 auto-checkpoint at the approval → implement hand-off)
 ```

@@ -11,6 +11,7 @@
  *   flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]
  *                              [--worktree <path>] [--auto-merge | --no-auto-merge]
  *                              [--session-id <value>] [--answer <text> | --answer-stdin]
+ *                              [--interview-stdin]
  *                              [--slug <slug>] [--force]
  *
  * `--phase-outcome <text>` records a short outcome string on the phaseLog
@@ -22,6 +23,9 @@
  * verbatim — immune to shell expansion and to argv parsing of a leading `--`.
  * This is the `--body` / `--body-file` split: the two answer flags are
  * mutually exclusive.
+ *
+ * `--interview-stdin` mirrors `--answer-stdin` byte-for-byte, persisting the
+ * intent interview digest through `state.interview` instead of `state.answer`.
  *
  * - At least one update flag is required.
  * - The slug is optional when invoked from inside a flow tmux pane: it
@@ -70,6 +74,9 @@ type Args = {
   answer?: string;
   /** true when `--answer-stdin` was passed; runUpdate reads the answer from stdin. */
   answerStdin?: boolean;
+  interview?: string;
+  /** true when `--interview-stdin` was passed; runUpdate reads the interview digest from stdin. */
+  interviewStdin?: boolean;
   phaseOutcome?: string;
   /** When true, bypass the terminal-phase regression guard. */
   force?: boolean;
@@ -151,6 +158,10 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       out.answerStdin = true;
       continue;
     }
+    if (flag === "--interview-stdin") {
+      out.interviewStdin = true;
+      continue;
+    }
     if (flag === "--force") {
       out.force = true;
       continue;
@@ -200,6 +211,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   if (out.answer !== undefined && out.answerStdin) {
     return { error: "cannot combine --answer and --answer-stdin" };
   }
+  if (out.answerStdin && out.interviewStdin) {
+    return { error: "cannot combine --answer-stdin and --interview-stdin" };
+  }
   if (
     out.phase === undefined &&
     out.pr === undefined &&
@@ -207,11 +221,12 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     out.autoMerge === undefined &&
     out.sessionId === undefined &&
     out.answer === undefined &&
-    !out.answerStdin
+    !out.answerStdin &&
+    !out.interviewStdin
   ) {
     return {
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin is required",
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
     };
   }
   return out;
@@ -256,6 +271,7 @@ export function applyUpdate(
     autoMerge: args.autoMerge ?? existing.autoMerge,
     sessionId: args.sessionId ?? existing.sessionId,
     answer: args.answer ?? existing.answer,
+    interview: args.interview ?? existing.interview,
     phaseLog,
     reap,
     updatedAt: nowIso(),
@@ -290,6 +306,7 @@ export function runUpdate(
       "usage: flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]\n" +
         "                                 [--worktree <path>] [--auto-merge | --no-auto-merge]\n" +
         "                                 [--session-id <value>] [--answer <text> | --answer-stdin]\n" +
+        "                                 [--interview-stdin]\n" +
         "                                 [--slug <slug>] [--force]",
     );
     return 2;
@@ -303,6 +320,12 @@ export function runUpdate(
   if (parsed.answerStdin) {
     const raw = fs.readFileSync(0, "utf8");
     parsed.answer = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
+  }
+  // Mirrors the --answer-stdin byte-verbatim read above, persisting the
+  // interview digest into state.interview instead of state.answer.
+  if (parsed.interviewStdin) {
+    const raw = fs.readFileSync(0, "utf8");
+    parsed.interview = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
   }
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
   const slug = parsed.slug ?? resolveSlug();

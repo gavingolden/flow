@@ -46,7 +46,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag (empty argv)", () => {
     expect(parseArgs([])).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin is required",
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
     });
   });
 
@@ -62,7 +62,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag", () => {
     expect(parseArgs(["foo"])).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin is required",
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
     });
   });
 
@@ -153,6 +153,19 @@ describe("parseArgs", () => {
   it("rejects combining --answer and --answer-stdin (mutually exclusive)", () => {
     expect(parseArgs(["foo", "--answer", "X", "--answer-stdin"])).toEqual({
       error: "cannot combine --answer and --answer-stdin",
+    });
+  });
+
+  it("parses --interview-stdin as a boolean flag (no inline value)", () => {
+    expect(parseArgs(["foo", "--interview-stdin"])).toEqual({
+      slug: "foo",
+      interviewStdin: true,
+    });
+  });
+
+  it("rejects combining --answer-stdin and --interview-stdin (mutually exclusive)", () => {
+    expect(parseArgs(["foo", "--answer-stdin", "--interview-stdin"])).toEqual({
+      error: "cannot combine --answer-stdin and --interview-stdin",
     });
   });
 
@@ -456,6 +469,14 @@ describe("runUpdate", () => {
     expect(got?.phase).toBe("gating");
   });
 
+  it("preserves interview across a later update that omits --interview-stdin", () => {
+    seed("csv-export", { interview: "Q1: scope\nA: whole repo" });
+    expect(runUpdate(["csv-export", "--phase", "planning"], dir)).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.interview).toBe("Q1: scope\nA: whole repo");
+    expect(got?.phase).toBe("planning");
+  });
+
   it("preserves autoMerge across phase-only updates", () => {
     seed("csv-export", { autoMerge: false });
     expect(runUpdate(["csv-export", "--phase", "gating"], dir)).toBe(0);
@@ -723,6 +744,115 @@ describe("--answer-stdin (spawned binary)", () => {
   });
 });
 
+// --- --interview-stdin end-to-end (real binary, stdin transport) -----------
+
+describe("--interview-stdin (spawned binary)", () => {
+  let home!: string;
+  let stateDir!: string;
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.resolve(here, "..");
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "flow-stdin-home-"));
+    stateDir = path.join(home, ".flow", "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  function seedState(slug: string): void {
+    fs.writeFileSync(
+      path.join(stateDir, `${slug}.json`),
+      JSON.stringify({
+        slug,
+        phase: "triaging",
+        repo: "/tmp/repo",
+        updatedAt: "2026-04-30T12:00:00Z",
+      }),
+    );
+  }
+
+  function run(slug: string, args: string[], stdin: string) {
+    return spawnSync("bun", ["bin/flow-state-update.ts", slug, ...args], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      input: stdin,
+      env: { ...process.env, HOME: home },
+    });
+  }
+
+  function readInterview(slug: string): unknown {
+    return JSON.parse(
+      fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"),
+    ).interview;
+  }
+
+  it("persists a plain interview digest piped on stdin verbatim", () => {
+    seedState("plain");
+    const r = run(
+      "plain",
+      ["--phase", "triage-pending-interview", "--interview-stdin"],
+      "Q1: scope\nA: whole repo\n",
+    );
+    expect(r.status).toBe(0);
+    // The single trailing newline a heredoc appends is stripped.
+    expect(readInterview("plain")).toBe("Q1: scope\nA: whole repo");
+  });
+
+  it("round-trips shell metacharacters and a leading --- byte-for-byte", () => {
+    seedState("meta");
+    const digest =
+      "---\n" +
+      "Q1: Run `echo $HOME` to print it?\n" +
+      "A: Cost is $(date) at the `$PATH` boundary.\n" +
+      "Trailing prose line.";
+    const r = run(
+      "meta",
+      ["--phase", "triage-pending-interview", "--interview-stdin"],
+      digest + "\n",
+    );
+    expect(r.status).toBe(0);
+    expect(readInterview("meta")).toBe(digest);
+  });
+
+  it("rejects combining --answer-stdin and --interview-stdin with exit 2", () => {
+    seedState("excl");
+    const r = run(
+      "excl",
+      ["--answer-stdin", "--interview-stdin"],
+      "from stdin\n",
+    );
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(
+      "cannot combine --answer-stdin and --interview-stdin",
+    );
+  });
+
+  it("REPLACES the prior digest rather than merging on a second round write", () => {
+    seedState("rounds");
+    const r1 = run(
+      "rounds",
+      ["--phase", "triage-pending-interview", "--interview-stdin"],
+      "Q1: scope\nA: whole repo\n",
+    );
+    expect(r1.status).toBe(0);
+    expect(readInterview("rounds")).toBe("Q1: scope\nA: whole repo");
+
+    const r2 = run(
+      "rounds",
+      ["--phase", "triage-pending-interview", "--interview-stdin"],
+      "Q1: scope\nA: whole repo\nQ2: budget\nA: unbounded\n",
+    );
+    expect(r2.status).toBe(0);
+    // Round 2's digest fully replaces round 1's — no trace of a merge.
+    expect(readInterview("rounds")).toBe(
+      "Q1: scope\nA: whole repo\nQ2: budget\nA: unbounded",
+    );
+  });
+});
+
 // --- checkWorktreeBranch + worktree fixture --------------------------------
 
 type WorktreeFixture = { worktreeDir: string; cleanup: () => void };
@@ -907,7 +1037,7 @@ describe("parseArgs --slug flag", () => {
     const result = parseArgs(["--slug", "csv-export"]);
     expect(result).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin is required",
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
     });
   });
 
