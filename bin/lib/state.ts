@@ -248,6 +248,15 @@ export type PipelineState = {
    * this field existed — no migration, AGENTS.md forbids back-compat shims).
    */
   reap?: ReapRecord;
+  /**
+   * Discovered-but-not-in-plan work items, written by `bin/flow-untracked.ts`
+   * (`add` / `file` / `drop`). Persisted in state.json (not the worktree —
+   * `flow-followups`'s pattern — so unfiled items survive to the terminal
+   * block after `flow-remove-worktree` runs). `id` is monotonic per pipeline
+   * and never renumbered; items are discarded with the state file at
+   * `flow done`, nothing accumulates across pipelines.
+   */
+  untracked?: UntrackedItem[];
   updatedAt: string;
 };
 
@@ -261,6 +270,22 @@ export type ReapRecord = {
   summary: string;
   ran: boolean;
   problems?: string[];
+};
+
+/**
+ * One discovered-but-not-in-plan work item. `filedAs` is set once
+ * `flow-untracked file <id>` has run `flow-create-issue` for it (idempotent
+ * — a second `file` call is a no-op); `droppedAt` is set once
+ * `flow-untracked drop <id>` has run — dropped items never render again.
+ */
+export type UntrackedItem = {
+  id: number;
+  title: string;
+  body?: string;
+  source: string;
+  at: string;
+  filedAs?: string;
+  droppedAt?: string;
 };
 
 /**
@@ -628,6 +653,23 @@ function isPhaseLog(
   return true;
 }
 
+function isUntrackedList(x: unknown): x is UntrackedItem[] {
+  if (!Array.isArray(x)) return false;
+  for (const e of x) {
+    if (typeof e !== "object" || e === null || Array.isArray(e)) return false;
+    const o = e as Record<string, unknown>;
+    if (typeof o.id !== "number") return false;
+    if (typeof o.title !== "string") return false;
+    if (typeof o.source !== "string") return false;
+    if (typeof o.at !== "string") return false;
+    if (o.body !== undefined && typeof o.body !== "string") return false;
+    if (o.filedAs !== undefined && typeof o.filedAs !== "string") return false;
+    if (o.droppedAt !== undefined && typeof o.droppedAt !== "string")
+      return false;
+  }
+  return true;
+}
+
 function isPipelineState(x: unknown): x is PipelineState {
   if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
   const o = x as Record<string, unknown>;
@@ -686,6 +728,8 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.checkpoint !== undefined && !isCheckpointRecord(o.checkpoint))
     return false;
   if (o.reap !== undefined && !isReapRecord(o.reap)) return false;
+  if (o.untracked !== undefined && !isUntrackedList(o.untracked))
+    return false;
   if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
     return false;
   if (o.pid !== undefined && typeof o.pid !== "number") return false;

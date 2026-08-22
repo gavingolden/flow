@@ -380,9 +380,14 @@ three-layer resolution table, and the manifest/foundation fields — is at
     full contract in
     `skills/pipeline/flow-pipeline/references/interview-playbook.md`.
   - **Auto-issue-create exemption: `/flow-pr-review` Step 6 deferral path,
-    `/flow-pr-review` Step 5 retrospective generic-gap capture, and
-    `/flow-pipeline` Step 10 post-merge sweep.** `flow-create-issue`
-    fires only from these three named sites. Feature and `route-to-step-4`
+    `/flow-pr-review` Step 5 retrospective generic-gap capture,
+    `/flow-pipeline` Step 10 post-merge sweep, and a user-instructed
+    `flow-untracked file <n>` reply.** `flow-create-issue`
+    fires only from these four named sites — the fourth is user-instructed
+    (a reply of `file #N` at a pause or terminal block), never automatic;
+    `flow-untracked` itself only lists discovered-but-not-in-plan items
+    (`state.json.untracked[]`), it never files on their behalf. Feature and
+    `route-to-step-4`
     pipelines curate the ticked set at plan review; step 3's
     `advance-to-step-5` route has no checkpoint, so its pre-ticked
     candidates and bundled tasks proceed as discovery authored them,
