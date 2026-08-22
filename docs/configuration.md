@@ -172,8 +172,29 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 | `research.discovery` | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run)                                                                                                                                                                                                                     |
 | `interview.enabled`  | opt-in for the adaptive intent interview (default `true`), read by the supervisor via `jq` against `~/.flow/config.json` (never a `bin/lib` import — subagents run in the consumer worktree, where flow's own `bin/lib` isn't present); overridable per run with `flow feature create --interview` (force) or `--no-interview` (skip) |
 | `launcher`           | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell                                                                                                                                                                                                                            |
+| `output.lens`        | `"pm"` (default) or `"dev"` — see [Output lens](#output-lens) below                                                                                                                                                                                                                                                                    |
 
 The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher set tmux`.
+
+## Output lens
+
+`output.lens` (`bin/lib/output-lens.ts`) controls how much detail flow's
+terminal blocks and PR-facing renders show. `pm` (the default) hides
+phase timings, the full review narrative, `rejected:` reasoning, and the
+`## Foreclosed Paths` prose behind `<details>` or the `dev` lens, leaving
+only the six-slot decision surface (`pause-output-contract.md`). `dev`
+restores every render byte-for-byte to today's shape — the pause-block
+*slot set* is the same under both lenses, only the helper renders widen.
+Absent key is silent `pm`; a wrong-typed or unknown value warns on
+stderr and falls back to `pm`. Set it with:
+
+```sh
+jq '.output.lens = "dev"' ~/.flow/config.json > /tmp/flow-config.json && mv /tmp/flow-config.json ~/.flow/config.json
+```
+
+Per-helper `--lens pm|dev` always wins over the config value. In chat,
+saying "give me the technical version" expands one reply to the `dev`
+shape without touching config.
 
 ## Delegate models
 
