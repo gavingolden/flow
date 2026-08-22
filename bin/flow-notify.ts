@@ -19,7 +19,14 @@
  *
  * Usage:
  *   flow-notify --status <merged|gated|needs-human>
- *               [--slug <slug>] [--reason <text>] [--url <url>]
+ *               [--slug <slug>] [--reason <text>] [--url <url>] [--tag <tag>]
+ *
+ * `--reason` is the TLDR sentence at every call site — the pause/terminal
+ * block's one-sentence, user-visible outcome — not the first validation
+ * item or a raw escalation tag. The escalation reason *tag* (e.g.
+ * `verify-exhausted`) travels separately via `--tag`, folded into the
+ * subtitle (`<slug> · <tag>`) so it isn't lost now that `--reason` carries
+ * the TLDR instead.
  *
  * `--slug` is optional: when omitted, the helper auto-resolves the
  * supervisor's slug from `$TMUX_PANE`'s `@flow-slug` window option.
@@ -38,13 +45,14 @@ import { spawn } from "node:child_process";
 import { resolveSlugAmbient } from "./lib/session-identity";
 
 const VALID_STATUSES = new Set(["merged", "gated", "needs-human"]);
-const MESSAGE_MAX_CHARS = 120;
+const MESSAGE_MAX_CHARS = 180;
 
 type Args = {
   status: string;
   slug?: string;
   reason?: string;
   url?: string;
+  tag?: string;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
@@ -68,6 +76,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--url":
         out.url = value;
         break;
+      case "--tag":
+        out.tag = value;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -88,7 +99,13 @@ export type Payload = { title: string; subtitle: string; message: string };
 
 export function buildPayload(args: Args): Payload {
   const title = `flow: ${args.status}`;
-  const subtitle = args.slug ?? "";
+  const slug = args.slug ?? "";
+  const tag = args.tag?.trim();
+  const subtitle = tag
+    ? slug.length > 0
+      ? `${slug} · ${tag}`
+      : tag
+    : slug;
   const reason = args.reason?.trim();
   const message =
     reason && reason.length > 0 ? collapseAndTruncate(reason) : "(no reason)";
@@ -209,7 +226,7 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
   if ("error" in parsed) {
     console.error(`flow-notify: ${parsed.error}`);
     console.error(
-      "usage: flow-notify --status <merged|gated|needs-human> [--slug <slug>] [--reason <text>] [--url <url>]",
+      "usage: flow-notify --status <merged|gated|needs-human> [--slug <slug>] [--reason <text>] [--url <url>] [--tag <tag>]",
     );
     return 2;
   }
