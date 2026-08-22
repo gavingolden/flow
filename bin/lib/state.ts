@@ -728,8 +728,7 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.checkpoint !== undefined && !isCheckpointRecord(o.checkpoint))
     return false;
   if (o.reap !== undefined && !isReapRecord(o.reap)) return false;
-  if (o.untracked !== undefined && !isUntrackedList(o.untracked))
-    return false;
+  if (o.untracked !== undefined && !isUntrackedList(o.untracked)) return false;
   if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
     return false;
   if (o.pid !== undefined && typeof o.pid !== "number") return false;

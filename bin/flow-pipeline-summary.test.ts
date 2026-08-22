@@ -705,9 +705,17 @@ describe("run — end-to-end", () => {
       "fix-applier-result.json",
       JSON.stringify({
         commits: [
-          { sha: "a", files: ["x"], finding_id: "F1", reasoning: "r", verify_status: "pass" },
+          {
+            sha: "a",
+            files: ["x"],
+            finding_id: "F1",
+            reasoning: "r",
+            verify_status: "pass",
+          },
         ],
-        deferred: [{ finding_id: "F2", tracker_entry_url: "", reason: "later" }],
+        deferred: [
+          { finding_id: "F2", tracker_entry_url: "", reason: "later" },
+        ],
         rejected_alternatives: [],
         anti_patterns_found: [],
         summary: "s",
@@ -775,7 +783,9 @@ describe("run — end-to-end", () => {
       "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow install --upgrade  (exit 0)\n",
     );
     const out = captureStdout(() => {
-      run(["--status", "merged", "--followups-block-file", blockFile], { read: DEV_LENS_READ });
+      run(["--status", "merged", "--followups-block-file", blockFile], {
+        read: DEV_LENS_READ,
+      });
     });
     expect(out).toContain("RAN     flow install --upgrade  (exit 0)");
   });
@@ -791,7 +801,9 @@ describe("run — end-to-end", () => {
       }),
     );
     const out = captureStdout(() => {
-      run(["--status", "gated", "--intent-resolution", intentFile], { read: DEV_LENS_READ });
+      run(["--status", "gated", "--intent-resolution", intentFile], {
+        read: DEV_LENS_READ,
+      });
     });
     expect(out).toContain(
       "INTENT:\n  scope-drift: guess is narrower than the request",
@@ -804,7 +816,9 @@ describe("run — end-to-end", () => {
       JSON.stringify({ verdict: "benign-divergence" }),
     );
     const out = captureStdout(() => {
-      run(["--status", "gated", "--intent-resolution", intentFile], { read: DEV_LENS_READ });
+      run(["--status", "gated", "--intent-resolution", intentFile], {
+        read: DEV_LENS_READ,
+      });
     });
     expect(out).toContain(
       "INTENT:\n  benign-divergence: (resolution unreadable)",
@@ -823,7 +837,9 @@ describe("run — end-to-end", () => {
       }) + "\n",
     );
     const out = captureStdout(() => {
-      run(["--status", "gated", "--followups-jsonl", jsonl], { read: DEV_LENS_READ });
+      run(["--status", "gated", "--followups-jsonl", jsonl], {
+        read: DEV_LENS_READ,
+      });
     });
     // noteOnly: true => the auto-allowlisted entry is NOTED, not run, and the
     // header carries the deferred verdict.
@@ -1173,9 +1189,7 @@ describe("buildCommentBody / findMarkedCommentId", () => {
     expect(body.endsWith(`\n\n${SNAPSHOT_MARKER}`)).toBe(true);
     expect(body).toContain(pm);
     expect(body).toContain(dev);
-    expect(body).toContain(
-      "<details><summary>Developer detail</summary>",
-    );
+    expect(body).toContain("<details><summary>Developer detail</summary>");
     expect(body).toContain("</details>");
     // The marker sits OUTSIDE the fenced region and the <details> wrapper:
     // after the closing </details>.
@@ -1217,7 +1231,12 @@ describe("buildCommentBody / findMarkedCommentId", () => {
 describe("postSnapshotComment", () => {
   it("creates a new comment when none is marked", () => {
     const { gh, calls } = fakeGh([{ stdout: "[]" }]);
-    const result = postSnapshotComment(123, "## PIPELINE SNAPSHOT\n…", "dev block", gh);
+    const result = postSnapshotComment(
+      123,
+      "## PIPELINE SNAPSHOT\n…",
+      "dev block",
+      gh,
+    );
     expect(result).toEqual({ action: "created" });
     // calls[0] lists; calls[1] POSTs the create.
     expect(calls).toHaveLength(2);
@@ -1235,7 +1254,12 @@ describe("postSnapshotComment", () => {
       { id: 555, body: `old\n\n${SNAPSHOT_MARKER}` },
     ]);
     const { gh, calls } = fakeGh([{ stdout: listJson }]);
-    const result = postSnapshotComment(123, "## PIPELINE SNAPSHOT\nnew", "dev block", gh);
+    const result = postSnapshotComment(
+      123,
+      "## PIPELINE SNAPSHOT\nnew",
+      "dev block",
+      gh,
+    );
     expect(result).toEqual({ action: "updated", id: 555 });
     const patch = calls[1];
     expect(patch).toContain("repos/{owner}/{repo}/issues/comments/555");
@@ -1290,7 +1314,10 @@ describe("run — --post-comment write path", () => {
   it("posts (create) on MERGED with the marker, exactly one create call", () => {
     const { gh, calls } = fakeGh([{ stdout: "[]" }]);
     const out = captureStdout(() => {
-      const code = run(["--status", "merged", "--post-comment", "123"], { gh, read: DEV_LENS_READ });
+      const code = run(["--status", "merged", "--post-comment", "123"], {
+        gh,
+        read: DEV_LENS_READ,
+      });
       expect(code).toBe(0);
     });
     // One list + one create.
@@ -1309,7 +1336,10 @@ describe("run — --post-comment write path", () => {
     ]);
     const { gh, calls } = fakeGh([{ stdout: listJson }]);
     captureStdout(() =>
-      run(["--status", "merged", "--post-comment", "123"], { gh, read: DEV_LENS_READ }),
+      run(["--status", "merged", "--post-comment", "123"], {
+        gh,
+        read: DEV_LENS_READ,
+      }),
     );
     expect(calls.some((c) => c.includes("PATCH"))).toBe(true);
     const creates = calls.filter(
@@ -1323,7 +1353,10 @@ describe("run — --post-comment write path", () => {
   it("makes zero gh write calls on a non-merged status (MERGED-only)", () => {
     const { gh, calls } = fakeGh();
     captureStdout(() =>
-      run(["--status", "gated", "--post-comment", "123"], { gh, read: DEV_LENS_READ }),
+      run(["--status", "gated", "--post-comment", "123"], {
+        gh,
+        read: DEV_LENS_READ,
+      }),
     );
     expect(calls).toHaveLength(0);
   });
@@ -1332,7 +1365,10 @@ describe("run — --post-comment write path", () => {
     const { gh } = fakeGh([{ exitCode: 1, stderr: "rate limited" }]);
     let code = -1;
     const out = captureStdout(() => {
-      code = run(["--status", "merged", "--post-comment", "123"], { gh, read: DEV_LENS_READ });
+      code = run(["--status", "merged", "--post-comment", "123"], {
+        gh,
+        read: DEV_LENS_READ,
+      });
     });
     expect(code).toBe(0);
     expect(out).toContain("## PIPELINE SNAPSHOT");
@@ -1340,7 +1376,9 @@ describe("run — --post-comment write path", () => {
 
   it("leaves scrollback untouched and gh unused when --post-comment is absent", () => {
     const { gh, calls } = fakeGh();
-    const out = captureStdout(() => run(["--status", "merged"], { gh, read: DEV_LENS_READ }));
+    const out = captureStdout(() =>
+      run(["--status", "merged"], { gh, read: DEV_LENS_READ }),
+    );
     expect(calls).toHaveLength(0);
     expect(out).not.toContain(SNAPSHOT_MARKER);
   });
@@ -1351,7 +1389,10 @@ describe("run — --post-comment write path", () => {
     const { gh, calls } = fakeGh();
     let code = -1;
     const out = captureStdout(() => {
-      code = run(["--status", "merged", "--post-comment", "not-a-pr"], { gh, read: DEV_LENS_READ });
+      code = run(["--status", "merged", "--post-comment", "not-a-pr"], {
+        gh,
+        read: DEV_LENS_READ,
+      });
     });
     expect(code).toBe(0);
     expect(out).toContain("## PIPELINE SNAPSHOT");
@@ -1364,7 +1405,10 @@ describe("run — --post-comment write path", () => {
     const { gh, calls } = fakeGh();
     let code = -1;
     captureStdout(() => {
-      code = run(["--status", "merged", "--post-comment", ""], { gh, read: DEV_LENS_READ });
+      code = run(["--status", "merged", "--post-comment", ""], {
+        gh,
+        read: DEV_LENS_READ,
+      });
     });
     expect(code).toBe(0);
     expect(calls).toHaveLength(0);
@@ -1543,7 +1587,8 @@ describe("renderComment — slim PR-comment block (pm)", () => {
   it("threads scoutRaw PLAN-DEVIATION bullets and untrackedBlock lines", () => {
     const block = renderComment({
       ...POPULATED_COMMENT_INPUTS,
-      scoutRaw: "## open_questions\n\n- PLAN-DEVIATION: moved to a sibling module\n",
+      scoutRaw:
+        "## open_questions\n\n- PLAN-DEVIATION: moved to a sibling module\n",
       untrackedBlock: "- #1 found a bug",
     }).pm;
     expect(block).toContain("moved to a sibling module");
@@ -1569,7 +1614,10 @@ describe("run — slim comment vs unchanged scrollback", () => {
   it("posts the slim fenced+marked block while scrollback stays full and clean", () => {
     const { gh, calls } = fakeGh([{ stdout: "[]" }]);
     const out = captureStdout(() => {
-      const code = run(["--status", "merged", "--post-comment", "123"], { gh, read: DEV_LENS_READ });
+      const code = run(["--status", "merged", "--post-comment", "123"], {
+        gh,
+        read: DEV_LENS_READ,
+      });
       expect(code).toBe(0);
     });
     // Scrollback: all five sections present, 2-space indentation preserved,

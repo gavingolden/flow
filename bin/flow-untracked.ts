@@ -34,7 +34,12 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { readState, writeState, type PipelineState, type UntrackedItem } from "./lib/state";
+import {
+  readState,
+  writeState,
+  type PipelineState,
+  type UntrackedItem,
+} from "./lib/state";
 import { resolveSlugAmbient } from "./lib/session-identity";
 
 export const UNTRACKED_RENDER_CAP = 2;
@@ -362,9 +367,11 @@ function runRender(argv: string[], deps: Deps): number {
   const state = loadState(deps);
   const items = (state?.untracked ?? []).filter(
     (i) =>
-      i.droppedAt === undefined && (!parsed.unfiledOnly || i.filedAs === undefined),
+      i.droppedAt === undefined &&
+      (!parsed.unfiledOnly || i.filedAs === undefined),
   );
-  const lines = parsed.format === "gate" ? renderGate(items) : renderMarkdown(items);
+  const lines =
+    parsed.format === "gate" ? renderGate(items) : renderMarkdown(items);
   if (lines.length > 0) out(lines.join("\n") + "\n");
   return 0;
 }

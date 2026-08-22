@@ -16,7 +16,10 @@ export type ClampedTldr = { text: string; truncated: boolean; words: number };
  * printing the paired stderr warning; this function stays pure.
  */
 export function clampTldr(s: string): ClampedTldr {
-  const words = s.trim().split(/\s+/).filter((w) => w.length > 0);
+  const words = s
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 0);
   if (words.length <= TLDR_MAX_WORDS) {
     return { text: s.trim(), truncated: false, words: words.length };
   }
@@ -28,7 +31,10 @@ export function clampTldr(s: string): ClampedTldr {
 }
 
 export function tldrWordCount(s: string): number {
-  return s.trim().split(/\s+/).filter((w) => w.length > 0).length;
+  return s
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 0).length;
 }
 
 /**
@@ -40,7 +46,9 @@ export function buildNeedsAttention(
   validationItems: string[],
   prUrl: string | undefined,
 ): string[] {
-  const items = validationItems.map((i) => i.trim()).filter((i) => i.length > 0);
+  const items = validationItems
+    .map((i) => i.trim())
+    .filter((i) => i.length > 0);
   if (items.length === 0) return [];
   const lines = ["NEEDS ATTENTION:"];
   for (const item of items) {
@@ -90,7 +98,11 @@ export function buildManualAction(
  * calibration-sample-7 shape); 2+ items expand to a header + bullets so
  * multiple items stay individually readable within the ceiling.
  */
-function pushManualBucket(lines: string[], label: string, items: string[]): void {
+function pushManualBucket(
+  lines: string[],
+  label: string,
+  items: string[],
+): void {
   if (items.length === 0) return;
   if (items.length === 1) {
     lines.push(`  ${label}: ${items[0]}`);

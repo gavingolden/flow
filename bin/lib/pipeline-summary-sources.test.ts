@@ -486,8 +486,20 @@ describe(renderIntent, () => {
 
 const fixApplierTwoFixedOneDeferred = JSON.stringify({
   commits: [
-    { sha: "a", files: ["x"], finding_id: "F1", reasoning: "r", verify_status: "pass" },
-    { sha: "b", files: ["y"], finding_id: "F2", reasoning: "r", verify_status: "pass" },
+    {
+      sha: "a",
+      files: ["x"],
+      finding_id: "F1",
+      reasoning: "r",
+      verify_status: "pass",
+    },
+    {
+      sha: "b",
+      files: ["y"],
+      finding_id: "F2",
+      reasoning: "r",
+      verify_status: "pass",
+    },
   ],
   deferred: [
     { finding_id: "F3", tracker_entry_url: "https://x/3", reason: "later" },
@@ -586,9 +598,9 @@ describe(parsePlanDeviations, () => {
   });
 
   it("returns an empty array when there is no ## open_questions heading", () => {
-    expect(parsePlanDeviations("# Scout report\n\nno such heading here\n")).toEqual(
-      [],
-    );
+    expect(
+      parsePlanDeviations("# Scout report\n\nno such heading here\n"),
+    ).toEqual([]);
   });
 
   it("returns an empty array for an empty scout.md", () => {
@@ -661,7 +673,11 @@ describe(renderDeviations, () => {
       fixApplierRaw: JSON.stringify({
         commits: [],
         deferred: [
-          { finding_id: "F1", tracker_entry_url: "https://x/1", reason: "later" },
+          {
+            finding_id: "F1",
+            tracker_entry_url: "https://x/1",
+            reason: "later",
+          },
         ],
         rejected_alternatives: [],
         anti_patterns_found: [],

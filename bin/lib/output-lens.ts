@@ -11,10 +11,7 @@
  * jq, never a bin/lib import" — this seam is for helpers on PATH only).
  */
 
-import {
-  defaultReadConfigFile,
-  type ReadConfigFile,
-} from "./modules-config";
+import { defaultReadConfigFile, type ReadConfigFile } from "./modules-config";
 
 export type OutputLens = "pm" | "dev";
 

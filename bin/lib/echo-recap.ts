@@ -69,7 +69,10 @@ export function renderEchoRecap(inputs: EchoRecapInputs): string {
     inputs.findingCount === undefined;
 
   const rows: { text: string; isNone: boolean }[] = [
-    { text: `- PR URL: ${orNone(inputs.prUrl)}`, isNone: !inputs.prUrl?.trim() },
+    {
+      text: `- PR URL: ${orNone(inputs.prUrl)}`,
+      isNone: !inputs.prUrl?.trim(),
+    },
     {
       text: `- Plan file: ${orNone(inputs.planFile)}`,
       isNone: !inputs.planFile?.trim(),

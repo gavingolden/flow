@@ -228,7 +228,10 @@ describe("run", () => {
 
   it("drop on an unknown id fails with exit 2", () => {
     seed(BASE);
-    const code = run(["drop", "99"], { resolveSlug: () => "s1", stateDir: dir });
+    const code = run(["drop", "99"], {
+      resolveSlug: () => "s1",
+      stateDir: dir,
+    });
     expect(code).toBe(2);
   });
 
@@ -285,8 +288,6 @@ describe("run", () => {
   });
 
   it("an unknown subcommand fails with exit 2", () => {
-    expect(run(["bogus"], { resolveSlug: () => "s1", stateDir: dir })).toBe(
-      2,
-    );
+    expect(run(["bogus"], { resolveSlug: () => "s1", stateDir: dir })).toBe(2);
   });
 });

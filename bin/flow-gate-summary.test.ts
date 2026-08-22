@@ -1383,7 +1383,9 @@ describe("run (end-to-end CLI)", () => {
     expect(rc).toBe(0);
     // The explicit --lens flag beats the injected config value.
     expect(out.split("\n")[0]).toBe("TLDR: Two hand checks remain.");
-    expect(out).toContain("UNTRACKED: #1 found a bug (reply: file #1 / drop #1)");
+    expect(out).toContain(
+      "UNTRACKED: #1 found a bug (reply: file #1 / drop #1)",
+    );
     expect(out).toContain("3 findings fixed, 1 deferred");
   });
 
@@ -1422,10 +1424,9 @@ describe("run (end-to-end CLI)", () => {
 
   it("absent --lens falls through to config; with nothing recorded it resolves to pm", () => {
     const { rc, out } = captureStdout(() =>
-      run(
-        ["--status", "gated", "--pr-url", "https://example/pr/1"],
-        { read: () => ({}) },
-      ),
+      run(["--status", "gated", "--pr-url", "https://example/pr/1"], {
+        read: () => ({}),
+      }),
     );
     expect(rc).toBe(0);
     expect(out).toContain("NEXT ACTION: tick the items above, then:");

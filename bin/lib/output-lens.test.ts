@@ -51,9 +51,7 @@ describe("readOutputLens", () => {
 
   it("falls back to pm with a stderr notice on an unknown string value", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(readOutputLens(reader({ output: { lens: "verbose" } }))).toBe(
-      "pm",
-    );
+    expect(readOutputLens(reader({ output: { lens: "verbose" } }))).toBe("pm");
     expect(spy).toHaveBeenCalledWith(OUTPUT_LENS_INVALID_NOTICE);
   });
 
@@ -66,9 +64,7 @@ describe("readOutputLens", () => {
 
 describe("resolveLens", () => {
   it("an explicit flag beats config", () => {
-    expect(resolveLens("dev", reader({ output: { lens: "pm" } }))).toBe(
-      "dev",
-    );
+    expect(resolveLens("dev", reader({ output: { lens: "pm" } }))).toBe("dev");
     expect(resolveLens("pm", reader({ output: { lens: "dev" } }))).toBe("pm");
   });
 

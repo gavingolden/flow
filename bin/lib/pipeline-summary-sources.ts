@@ -310,7 +310,9 @@ function fixApplierCounts(fixApplierRaw: string): {
   if (!fixApplierRaw.trim()) return { fixed: 0, deferred: 0 };
   const parsed = parseJson(fixApplierRaw);
   const r = parsed === undefined ? null : collectFixApplierTolerant(parsed);
-  return r ? { fixed: r.commits.length, deferred: r.deferred.length } : { fixed: 0, deferred: 0 };
+  return r
+    ? { fixed: r.commits.length, deferred: r.deferred.length }
+    : { fixed: 0, deferred: 0 };
 }
 
 /**
@@ -387,7 +389,9 @@ export function renderDeviations(inputs: {
     if (r) {
       for (const d of r.deferred) {
         if (d.tracker_entry_url) {
-          lines.push(`deferred → ${d.tracker_entry_url} (${d.reason || d.finding_id})`);
+          lines.push(
+            `deferred → ${d.tracker_entry_url} (${d.reason || d.finding_id})`,
+          );
         }
       }
     }
@@ -568,9 +572,10 @@ function renderCommentPm(inputs: RenderCommentInputs): string {
  * `buildCommentBody` composes the two). Pure over already-read inputs;
  * never reads files.
  */
-export function renderComment(
-  inputs: RenderCommentInputs,
-): { pm: string; dev: string } {
+export function renderComment(inputs: RenderCommentInputs): {
+  pm: string;
+  dev: string;
+} {
   return { pm: renderCommentPm(inputs), dev: renderCommentDev(inputs) };
 }
 

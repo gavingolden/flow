@@ -162,7 +162,9 @@ export type ForeclosedSummary = {
  * `unreadable`/`skipped` residual markers are excluded from every count
  * (they are not findings) but still render as bullets inside the wrapper.
  */
-export function summarizeEntries(entries: ForeclosedEntry[]): ForeclosedSummary {
+export function summarizeEntries(
+  entries: ForeclosedEntry[],
+): ForeclosedSummary {
   let rejected = 0;
   let antiPatterns = 0;
   let notes = 0;

@@ -101,11 +101,7 @@ export function buildPayload(args: Args): Payload {
   const title = `flow: ${args.status}`;
   const slug = args.slug ?? "";
   const tag = args.tag?.trim();
-  const subtitle = tag
-    ? slug.length > 0
-      ? `${slug} · ${tag}`
-      : tag
-    : slug;
+  const subtitle = tag ? (slug.length > 0 ? `${slug} · ${tag}` : tag) : slug;
   const reason = args.reason?.trim();
   const message =
     reason && reason.length > 0 ? collapseAndTruncate(reason) : "(no reason)";
