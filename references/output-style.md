@@ -175,12 +175,14 @@ next), so open prose there costs real time: the ask and the remaining
 work get buried. Every pause-point message therefore ends in the pause
 block defined at
 `skills/pipeline/flow-pipeline/references/pause-output-contract.md`: one
-`###` status heading plus the labeled slots (`**Went wrong:**`,
-`**Remaining:**`, `**Needs your review:**`, `**Notes:**`,
-`**Next action:**`). Slot omission is omit-when-empty and unconditional
-— a trivial answer collapses to heading + answer + Next action, which is
-already the minimal compliant block; there is no "too trivial for the
-block" escape. Formal helper renders (`flow-gate-summary`,
+`###` status heading, `**TLDR:**` first, the omit-when-empty labeled
+slots (`**Unsolved:**`, `**Needs attention:**`, `**Manual action:**`,
+`**Untracked:**`), and `**Next action:**` last — targeting a ~12-line
+ceiling with ≤2 bullets per slot, overflow behind a path or `<details>`.
+Slot omission is omit-when-empty and unconditional — a trivial answer
+collapses to heading + TLDR + Next action, which is already the minimal
+compliant block; there is no "too trivial for the block" escape. Formal
+helper renders (`flow-gate-summary`,
 `flow-pipeline-summary`) satisfy the contract via their own
 `STATUS:`/`WHY:`/`NEXT ACTION:` grammar and are never re-wrapped.
 
@@ -392,15 +394,15 @@ Nothing is lost. Recommended: let me refresh the branch and re-verify
 
 ### Per-stage focus
 
-| Stage / surface                        | Focus                                                                                                |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Triage answers                         | Impact-first, heaviest — the user is deciding whether to proceed                                     |
-| Plan summaries (`plan-pending-review`) | PM lens: what you get, what it costs, the one decision worth your attention — then the task skeleton |
-| Pause-point problem reports            | Already governed by the Language contract (unchanged, now a specialization of this rule)             |
-| Review findings                        | Consequence a user/operator would hit first; code pointer + fix mechanism second                     |
-| Escalations / `NEEDS HUMAN`            | Impact + "nothing is lost" state + the single recommended next step                                  |
-| Terminal recap                         | User-facing-changes lens; mechanism only where it changed something observable                       |
-| Verify/CI mechanics mid-run            | Concise technical is fine — transient bookkeeping the user rarely reads                              |
+| Stage / surface                        | Focus                                                                                                                                                                                                                        |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Triage answers                         | Impact-first, heaviest — the user is deciding whether to proceed                                                                                                                                                             |
+| Plan summaries (`plan-pending-review`) | PM lens: `**TLDR:**`, `**Unsolved:**` (open forks + recommended default), `**Needs attention:**` (high-stakes decisions, before→after, chosen option + why) — task titles and file lists stay in the plan file, never echoed |
+| Pause-point problem reports            | Already governed by the Language contract (unchanged, now a specialization of this rule)                                                                                                                                     |
+| Review findings                        | Consequence a user/operator would hit first; code pointer + fix mechanism second                                                                                                                                             |
+| Escalations / `NEEDS HUMAN`            | Impact + "nothing is lost" state + the single recommended next step                                                                                                                                                          |
+| Terminal recap                         | `**TLDR:**` first, count line for solved items, `**Untracked:**` for unfiled discoveries; mechanism only where it changed something observable                                                                               |
+| Verify/CI mechanics mid-run            | Concise technical is fine — transient bookkeeping the user rarely reads                                                                                                                                                      |
 
 ## Emit instructions as scannable numbered steps
 
