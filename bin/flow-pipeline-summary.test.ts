@@ -659,6 +659,19 @@ describe("run — end-to-end", () => {
     expect(out).toContain("PHASES:");
   });
 
+  it("absent --lens and nothing recorded in config resolves the CLI to pm", () => {
+    // render()'s own default is `dev` (test-pin stability), but run() must
+    // resolve flag > config > "pm" — with both flag and config absent, the
+    // CLI-observable output must be the pm shape (no PHASES section),
+    // proving the CLI default diverges from the pure renderer's default.
+    const out = captureStdout(() => {
+      const code = run(["--status", "merged"], { read: () => ({}) });
+      expect(code).toBe(0);
+    });
+    expect(out).toContain("REVIEW:");
+    expect(out).not.toContain("PHASES:");
+  });
+
   it("--scout-file threads PLAN-DEVIATION bullets into DEVIATIONS", () => {
     const scoutFile = write(
       "scout.md",

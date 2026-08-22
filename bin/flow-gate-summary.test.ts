@@ -1423,6 +1423,11 @@ describe("run (end-to-end CLI)", () => {
   });
 
   it("absent --lens falls through to config; with nothing recorded it resolves to pm", () => {
+    // run() (the CLI) must resolve to `pm` by default (flag > config >
+    // "pm") even though render()'s own default is `dev` for test-pin
+    // stability — asserting two pm-only markers (the NEXT ACTION phrasing
+    // AND the always-present UNTRACKED row) makes this a real proof of
+    // lens divergence, not just a "didn't crash" smoke check.
     const { rc, out } = captureStdout(() =>
       run(["--status", "gated", "--pr-url", "https://example/pr/1"], {
         read: () => ({}),
@@ -1430,5 +1435,7 @@ describe("run (end-to-end CLI)", () => {
     );
     expect(rc).toBe(0);
     expect(out).toContain("NEXT ACTION: tick the items above, then:");
+    expect(out).toContain("UNTRACKED: none");
+    expect(out).not.toContain("NEXT ACTION: validate then run:");
   });
 });
