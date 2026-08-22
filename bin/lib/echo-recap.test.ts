@@ -90,3 +90,39 @@ describe(renderEchoRecap, () => {
     expect(out).toContain("- Follow-ups: 1");
   });
 });
+
+describe("renderEchoRecap suppressNone", () => {
+  it("omits every row when nothing is populated, keeping only the markers", () => {
+    const out = renderEchoRecap({ suppressNone: true });
+    expect(out.split("\n")).toEqual([ECHO_RECAP_START, ECHO_RECAP_END]);
+  });
+
+  it("keeps only the populated rows — plan-file-only, the awaiting-approval shape", () => {
+    const out = renderEchoRecap({
+      planFile: "/work/.flow-tmp/plan.md",
+      suppressNone: true,
+    });
+    expect(out.split("\n")).toEqual([
+      ECHO_RECAP_START,
+      "- Plan file: /work/.flow-tmp/plan.md",
+      ECHO_RECAP_END,
+    ]);
+  });
+
+  it("keeps a count of 0 (not none) even under suppressNone", () => {
+    const out = renderEchoRecap({ followupCount: 0, suppressNone: true });
+    expect(out).toContain("- Follow-ups: 0");
+  });
+
+  it("suppresses the compound branch row only when both branch and prNumber are absent", () => {
+    const partial = renderEchoRecap({ prNumber: "42", suppressNone: true });
+    expect(partial).toContain("- branch: none (PR #42)");
+    const full = renderEchoRecap({ suppressNone: true });
+    expect(full).not.toContain("- branch:");
+  });
+
+  it("default (suppressNone absent) is unchanged — every row still prints", () => {
+    const out = renderEchoRecap({});
+    expect(out.split("\n")).toHaveLength(10);
+  });
+});

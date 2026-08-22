@@ -12,6 +12,13 @@ import {
   type CleanupInput,
 } from "./flow-gate-summary";
 import { writeState, type PipelineState } from "./lib/state";
+import {
+  TLDR_MAX_WORDS,
+  buildManualAction,
+  buildNeedsAttention,
+  buildUntracked,
+  clampTldr,
+} from "./lib/gate-summary-rows";
 
 let tmpRoot!: string;
 
@@ -537,6 +544,267 @@ describe("render — cancelled", () => {
   });
 });
 
+describe("gate-summary-rows", () => {
+  describe("clampTldr", () => {
+    it("passes a ≤25-word sentence through unchanged", () => {
+      expect(clampTldr("short and sweet")).toEqual({
+        text: "short and sweet",
+        truncated: false,
+        words: 3,
+      });
+    });
+
+    it("truncates a 26-word sentence at the word boundary with an ellipsis", () => {
+      const words = Array.from({ length: 26 }, (_, i) => `w${i + 1}`);
+      const result = clampTldr(words.join(" "));
+      expect(result.truncated).toBe(true);
+      expect(result.words).toBe(26);
+      expect(result.text).toBe(words.slice(0, TLDR_MAX_WORDS).join(" ") + "…");
+    });
+
+    it("counts exactly 25 words as not truncated", () => {
+      const words = Array.from({ length: 25 }, (_, i) => `w${i + 1}`);
+      expect(clampTldr(words.join(" ")).truncated).toBe(false);
+    });
+  });
+
+  describe("buildNeedsAttention", () => {
+    it("is empty when there are no validation items", () => {
+      expect(buildNeedsAttention([], "https://x/pull/1")).toEqual([]);
+    });
+
+    it("suffixes every item with the PR URL as an arrow click target", () => {
+      expect(
+        buildNeedsAttention(
+          ["SUBJECTIVE: check A", "check B"],
+          "https://x/pull/1",
+        ),
+      ).toEqual([
+        "NEEDS ATTENTION:",
+        "  - SUBJECTIVE: check A → https://x/pull/1",
+        "  - check B → https://x/pull/1",
+      ]);
+    });
+  });
+
+  describe("buildManualAction", () => {
+    it("is empty when there is nothing before-merge or whenever", () => {
+      expect(buildManualAction([], undefined)).toEqual([]);
+    });
+
+    it("never re-lists validation items (they already render under NEEDS ATTENTION); a single whenever item collapses onto one line", () => {
+      expect(
+        buildManualAction(
+          ["SUBJECTIVE: check A", "check B"],
+          "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN flow install --upgrade",
+        ),
+      ).toEqual(["MANUAL ACTION:", "  whenever: RAN flow install --upgrade"]);
+    });
+
+    it("expands to a header + bullets when whenever holds 2+ items", () => {
+      expect(
+        buildManualAction(
+          [],
+          "LOCAL FOLLOW-UPS: 2 ran\n\n  RAN flow install --upgrade\n  RAN brew install shellcheck",
+        ),
+      ).toEqual([
+        "MANUAL ACTION:",
+        "  whenever:",
+        "    - RAN flow install --upgrade",
+        "    - RAN brew install shellcheck",
+      ]);
+    });
+
+    it("is empty when there is a follow-ups block but it holds nothing beyond the header", () => {
+      expect(buildManualAction([], "LOCAL FOLLOW-UPS: 0 ran")).toEqual([]);
+    });
+  });
+
+  describe("buildUntracked", () => {
+    it("renders none when the block is empty or absent", () => {
+      expect(buildUntracked(undefined)).toEqual(["UNTRACKED: none"]);
+      expect(buildUntracked("")).toEqual(["UNTRACKED: none"]);
+      expect(buildUntracked("   \n")).toEqual(["UNTRACKED: none"]);
+    });
+
+    it("collapses a single item onto the header line", () => {
+      expect(
+        buildUntracked("  - #1 found a bug (reply: file #1 / drop #1)"),
+      ).toEqual(["UNTRACKED: #1 found a bug (reply: file #1 / drop #1)"]);
+    });
+
+    it("renders the pre-rendered lines under a header when there is more than one line", () => {
+      expect(
+        buildUntracked(
+          "  - #3 third (reply: file #3 / drop #3)\n  - #2 second (reply: file #2 / drop #2)\n  (+1 more — flow-untracked list)",
+        ),
+      ).toEqual([
+        "UNTRACKED:",
+        "  - #3 third (reply: file #3 / drop #3)",
+        "  - #2 second (reply: file #2 / drop #2)",
+        "  (+1 more — flow-untracked list)",
+      ]);
+    });
+  });
+});
+
+describe("render — pm lens", () => {
+  it("gated: TLDR first, NEEDS ATTENTION with arrow, MANUAL ACTION, UNTRACKED, counts line, NEXT ACTION last, sentinel last", () => {
+    const out = render({
+      status: "gated",
+      lens: "pm",
+      prUrl: "https://github.com/org/repo/pull/640",
+      tldr: "Two hand checks remain.",
+      validationItems: ["SUBJECTIVE: check A", "SUBJECTIVE: check B"],
+      deferredBlock: "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN flow install --upgrade",
+      untrackedBlock: "",
+      countsLine: "16 findings fixed, none changed behavior",
+    });
+    const lines = out.split("\n");
+    expect(lines[0]).toBe("TLDR: Two hand checks remain.");
+    expect(out).not.toContain("WHY:");
+    expect(out).toContain("NEEDS ATTENTION:");
+    expect(out).toContain(
+      "  - SUBJECTIVE: check A → https://github.com/org/repo/pull/640",
+    );
+    expect(out).toContain("MANUAL ACTION:");
+    expect(out).toContain("UNTRACKED: none");
+    expect(out).toContain("16 findings fixed, none changed behavior");
+    const nextActionIdx = lines.findIndex((l) => l.startsWith("NEXT ACTION:"));
+    expect(lines[nextActionIdx]).toBe(
+      "NEXT ACTION: tick the items above, then: gh pr merge --squash 640",
+    );
+    expect(lines[nextActionIdx + 1]).toBe(
+      "GATED: https://github.com/org/repo/pull/640",
+    );
+    expect(lines[lines.length - 1]).toBe(
+      "GATED: https://github.com/org/repo/pull/640",
+    );
+  });
+
+  it("gated ceiling: 2 validation items + 1 follow-up + 1 untracked item renders in ≤12 lines", () => {
+    const out = render({
+      status: "gated",
+      lens: "pm",
+      prUrl: "https://x/pull/1",
+      tldr: "Two hand checks remain.",
+      validationItems: ["SUBJECTIVE: check A", "SUBJECTIVE: check B"],
+      deferredBlock: "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN flow install --upgrade",
+      untrackedBlock: "  - #1 found a bug (reply: file #1 / drop #1)",
+      countsLine: "3 findings fixed, none changed behavior",
+    });
+    expect(out.split("\n").length).toBeLessThanOrEqual(12);
+  });
+
+  it("merged: TLDR first, untracked/count rows, cleanup collapses, sentinel last", () => {
+    const out = render({
+      status: "merged",
+      lens: "pm",
+      prUrl: "https://x/pull/1",
+      tldr: "Plan review now runs on flash by default.",
+      untrackedBlock: "",
+      countsLine: "5 findings fixed, none changed behavior",
+      cleanup: {
+        kind: "record",
+        record: {
+          at: "2026-01-01T00:00:00.000Z",
+          status: "ok",
+          summary: "0 rows",
+          ran: true,
+        },
+      },
+    });
+    const lines = out.split("\n");
+    expect(lines[0]).toBe("TLDR: Plan review now runs on flash by default.");
+    expect(out).toContain("UNTRACKED: none");
+    expect(out).toContain("5 findings fixed, none changed behavior");
+    expect(out).toContain("CLEANUP: reap ok — 0 rows");
+    expect(out).not.toContain("(recorded");
+    expect(lines[lines.length - 1]).toBe("MERGED");
+  });
+
+  it("needs-human: TLDR first, untracked row, NEXT ACTION, sentinel last", () => {
+    const out = render({
+      status: "needs-human",
+      lens: "pm",
+      reason: "verify-exhausted",
+      tldr: "Verify retries are exhausted.",
+      untrackedBlock: "",
+    });
+    const lines = out.split("\n");
+    expect(lines[0]).toBe("TLDR: Verify retries are exhausted.");
+    expect(out).toContain("UNTRACKED: none");
+    expect(lines[lines.length - 1]).toBe("NEEDS HUMAN: verify-exhausted");
+  });
+
+  it("cancelled: TLDR first, sentinel last", () => {
+    const out = render({
+      status: "cancelled",
+      lens: "pm",
+      tldr: "The user cancelled at plan review.",
+    });
+    const lines = out.split("\n");
+    expect(lines[0]).toBe("TLDR: The user cancelled at plan review.");
+    expect(lines[lines.length - 1]).toBe("cancelled");
+  });
+
+  it("awaiting-approval: TLDR is the last line (path bullets stay last otherwise), suppressNone drops the none rows", () => {
+    const out = render({
+      status: "awaiting-approval",
+      lens: "pm",
+      echoProse: true,
+      tldr: "CI waiting becomes crash-proof.",
+      planFile: "/work/.flow-tmp/plan.md",
+    });
+    expect(out).not.toContain("- PR URL: none");
+    expect(out).toContain("- Plan file: /work/.flow-tmp/plan.md");
+    expect(out).toContain("TLDR: CI waiting becomes crash-proof.");
+  });
+
+  it("a 26-word --tldr truncates at the word boundary rather than failing the render", () => {
+    const words = Array.from({ length: 26 }, (_, i) => `w${i + 1}`);
+    const clamped = clampTldr(words.join(" "));
+    const out = render({
+      status: "gated",
+      lens: "pm",
+      prUrl: "https://x/pull/1",
+      tldr: clamped.text,
+    });
+    expect(out.split("\n")[0]).toBe(`TLDR: ${clamped.text}`);
+    expect(clamped.text.endsWith("…")).toBe(true);
+  });
+
+  it("TLDR renders on every status, including awaiting-approval and cancelled, dev lens too", () => {
+    for (const input of [
+      { status: "merged" as const, prUrl: "https://x/pull/1" },
+      { status: "gated" as const, prUrl: "https://x/pull/1" },
+      { status: "needs-human" as const, reason: "verify-exhausted" },
+      { status: "cancelled" as const },
+      { status: "awaiting-approval" as const },
+    ]) {
+      const out = render({ ...input, tldr: "one sentence" });
+      expect(out.split("\n")[0]).toBe("TLDR: one sentence");
+    }
+  });
+
+  it("absent --tldr omits the row entirely on every status and lens", () => {
+    for (const lens of ["pm", "dev"] as const) {
+      const out = render({ status: "gated", lens, prUrl: "https://x/pull/1" });
+      expect(out).not.toContain("TLDR:");
+    }
+  });
+
+  it("dev lens (explicit) reproduces the default (omitted-lens) shape byte-for-byte", () => {
+    const inputs = {
+      status: "gated" as const,
+      prUrl: "https://x/pull/1",
+      why: "2 unchecked test steps",
+      validationItems: ["one", "two"],
+    };
+    expect(render({ ...inputs, lens: "dev" })).toBe(render(inputs));
+  });
+});
+
 describe("universal sentinel invariant", () => {
   const sentinelCases: Array<{
     name: string;
@@ -728,6 +996,27 @@ describe("parseArgs", () => {
     expect(args.planFile).toBe("/w/p.md");
   });
 
+  it("accepts --tldr, --lens, --untracked-file, --counts-line", () => {
+    const args = parseArgs([
+      "--status",
+      "gated",
+      "--tldr",
+      "one sentence",
+      "--lens",
+      "pm",
+      "--untracked-file",
+      "/tmp/untracked.txt",
+      "--counts-line",
+      "3 findings fixed, 1 deferred",
+    ]);
+    expect("error" in args).toBe(false);
+    if ("error" in args) return;
+    expect(args.tldr).toBe("one sentence");
+    expect(args.lens).toBe("pm");
+    expect(args.untrackedFile).toBe("/tmp/untracked.txt");
+    expect(args.countsLine).toBe("3 findings fixed, 1 deferred");
+  });
+
   it("rejects an unknown --status value", () => {
     const r = parseArgs(["--status", "bogus"]);
     expect(r).toHaveProperty("error");
@@ -787,6 +1076,8 @@ describe("run (end-to-end CLI)", () => {
         "2 items remain",
         "--validation-items-file",
         itemsPath,
+        "--lens",
+        "dev",
       ]);
       expect(rc).toBe(0);
     } finally {
@@ -812,6 +1103,8 @@ describe("run (end-to-end CLI)", () => {
         "https://example/pr/1",
         "--deferred-file",
         "/this/path/does/not/exist.txt",
+        "--lens",
+        "dev",
       ]);
       expect(rc).toBe(0);
     } finally {
@@ -838,6 +1131,8 @@ describe("run (end-to-end CLI)", () => {
         "https://example/pr/1",
         "--deferred-file",
         emptyPath,
+        "--lens",
+        "dev",
       ]);
     } finally {
       process.stdout.write = original;
@@ -864,6 +1159,8 @@ describe("run (end-to-end CLI)", () => {
         "https://example/pr/1",
         "--validation-items-file",
         "/this/path/does/not/exist.txt",
+        "--lens",
+        "dev",
       ]);
       expect(rc).toBe(0);
     } finally {
@@ -895,6 +1192,8 @@ describe("run (end-to-end CLI)", () => {
         "https://example/pr/1",
         "--validation-items-file",
         emptyPath,
+        "--lens",
+        "dev",
       ]);
       expect(rc).toBe(0);
     } finally {
@@ -959,7 +1258,7 @@ describe("run (end-to-end CLI)", () => {
       },
     });
     const { rc, out } = captureStdout(() =>
-      run(["--status", "merged"], {
+      run(["--status", "merged", "--lens", "dev"], {
         env: { FLOW_SLUG: "cleanup-flag-off-slug" },
         stateDir: tmpRoot,
       }),
@@ -978,7 +1277,7 @@ describe("run (end-to-end CLI)", () => {
       },
     });
     const { rc, out } = captureStdout(() =>
-      run(["--status", "merged", "--cleanup"], {
+      run(["--status", "merged", "--cleanup", "--lens", "dev"], {
         env: { FLOW_SLUG: "cleanup-fresh-slug" },
         stateDir: tmpRoot,
       }),
@@ -999,7 +1298,7 @@ describe("run (end-to-end CLI)", () => {
       },
     });
     const { rc, out } = captureStdout(() =>
-      run(["--status", "merged", "--cleanup"], {
+      run(["--status", "merged", "--cleanup", "--lens", "dev"], {
         env: { FLOW_SLUG: "cleanup-stale-slug" },
         stateDir: tmpRoot,
       }),
@@ -1019,7 +1318,7 @@ describe("run (end-to-end CLI)", () => {
       },
     });
     const { rc, out } = captureStdout(() =>
-      run(["--status", "merged", "--cleanup"], {
+      run(["--status", "merged", "--cleanup", "--lens", "dev"], {
         env: { FLOW_SLUG: "cleanup-badtime-slug" },
         stateDir: tmpRoot,
       }),
@@ -1031,7 +1330,7 @@ describe("run (end-to-end CLI)", () => {
 
   it("--cleanup renders unknown when no state file exists for the resolved slug", () => {
     const { rc, out } = captureStdout(() =>
-      run(["--status", "merged", "--cleanup"], {
+      run(["--status", "merged", "--cleanup", "--lens", "dev"], {
         env: { FLOW_SLUG: "cleanup-missing-slug" },
         stateDir: tmpRoot,
       }),
@@ -1045,7 +1344,7 @@ describe("run (end-to-end CLI)", () => {
   it("--cleanup renders REAP NOT RECORDED when state exists but carries no reap field", () => {
     seedState("cleanup-norecord-slug");
     const { rc, out } = captureStdout(() =>
-      run(["--status", "merged", "--cleanup"], {
+      run(["--status", "merged", "--cleanup", "--lens", "dev"], {
         env: { FLOW_SLUG: "cleanup-norecord-slug" },
         stateDir: tmpRoot,
       }),
@@ -1054,5 +1353,81 @@ describe("run (end-to-end CLI)", () => {
     expect(out).toContain(
       "CLEANUP: REAP NOT RECORDED — the terminal-state reap did not run",
     );
+  });
+
+  it("--lens pm renders the pm shape end-to-end; never touches the real config (injected read)", () => {
+    const untrackedPath = path.join(tmpRoot, "untracked.txt");
+    fs.writeFileSync(
+      untrackedPath,
+      "  - #1 found a bug (reply: file #1 / drop #1)\n",
+    );
+    const { rc, out } = captureStdout(() =>
+      run(
+        [
+          "--status",
+          "gated",
+          "--pr-url",
+          "https://example/pr/1",
+          "--tldr",
+          "Two hand checks remain.",
+          "--lens",
+          "pm",
+          "--untracked-file",
+          untrackedPath,
+          "--counts-line",
+          "3 findings fixed, 1 deferred",
+        ],
+        { read: () => ({ output: { lens: "dev" } }) },
+      ),
+    );
+    expect(rc).toBe(0);
+    // The explicit --lens flag beats the injected config value.
+    expect(out.split("\n")[0]).toBe("TLDR: Two hand checks remain.");
+    expect(out).toContain("UNTRACKED: #1 found a bug (reply: file #1 / drop #1)");
+    expect(out).toContain("3 findings fixed, 1 deferred");
+  });
+
+  it("a 26-word --tldr warns on stderr, truncates, and still exits 0", () => {
+    const words = Array.from({ length: 26 }, (_, i) => `w${i + 1}`);
+    const originalErr = process.stderr.write.bind(process.stderr);
+    let stderrCaptured = "";
+    process.stderr.write = ((chunk: unknown) => {
+      stderrCaptured += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    let stdoutOut = "";
+    try {
+      const { rc, out } = captureStdout(() =>
+        run([
+          "--status",
+          "gated",
+          "--pr-url",
+          "https://example/pr/1",
+          "--tldr",
+          words.join(" "),
+          "--lens",
+          "dev",
+        ]),
+      );
+      stdoutOut = out;
+      expect(rc).toBe(0);
+    } finally {
+      process.stderr.write = originalErr;
+    }
+    expect(stderrCaptured).toContain(
+      "flow-gate-summary: --tldr truncated to 25 words (got 26)",
+    );
+    expect(stdoutOut.split("\n")[0].endsWith("…")).toBe(true);
+  });
+
+  it("absent --lens falls through to config; with nothing recorded it resolves to pm", () => {
+    const { rc, out } = captureStdout(() =>
+      run(
+        ["--status", "gated", "--pr-url", "https://example/pr/1"],
+        { read: () => ({}) },
+      ),
+    );
+    expect(rc).toBe(0);
+    expect(out).toContain("NEXT ACTION: tick the items above, then:");
   });
 });
