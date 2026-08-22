@@ -260,6 +260,145 @@ export function renderIntent(raw: string): string[] {
 }
 
 /**
+ * `REVIEW:` body for the `pm`-lens snapshot/comment: the verdict + count
+ * line (`<status> — N findings fixed, M deferred` — Q8 dropped the
+ * `behavior_changed` self-attestation; a fix that changed behavior belongs
+ * under DEVIATIONS instead, never a "none changed behavior" clause here)
+ * plus the CI/Copilot line. Bare body lines (no `REVIEW:` label) — the
+ * caller prepends the header + 2-space indent, same convention as every
+ * other `render*` in this module. `none` only when NONE of prReviewRaw /
+ * fixApplierRaw / ciWaitRaw carry data (mirrors `renderFindings`'s gate).
+ */
+export function renderReviewCounts(inputs: {
+  prReviewRaw: string;
+  fixApplierRaw: string;
+  ciWaitRaw: string;
+}): string[] {
+  const any =
+    inputs.prReviewRaw.trim() ||
+    inputs.fixApplierRaw.trim() ||
+    inputs.ciWaitRaw.trim();
+  if (!any) return NONE;
+
+  let status = "(unknown)";
+  if (inputs.prReviewRaw.trim()) {
+    const parsed = parseJson(inputs.prReviewRaw);
+    const v = parsed === undefined ? undefined : validatePrReviewResult(parsed);
+    status = v && v.ok ? v.value.status : "(unreadable)";
+  }
+
+  const { fixed, deferred } = fixApplierCounts(inputs.fixApplierRaw);
+  const lines = [`${status} — ${fixed} findings fixed, ${deferred} deferred`];
+
+  if (inputs.ciWaitRaw.trim()) {
+    try {
+      const o = JSON.parse(inputs.ciWaitRaw) as Record<string, unknown>;
+      lines.push(
+        `CI: ${String(o.decision ?? "(unknown)")} · Copilot: ${copilotOutcome(o)}`,
+      );
+    } catch {
+      lines.push("CI: (unreadable)");
+    }
+  }
+  return lines;
+}
+
+function fixApplierCounts(fixApplierRaw: string): {
+  fixed: number;
+  deferred: number;
+} {
+  if (!fixApplierRaw.trim()) return { fixed: 0, deferred: 0 };
+  const parsed = parseJson(fixApplierRaw);
+  const r = parsed === undefined ? null : collectFixApplierTolerant(parsed);
+  return r ? { fixed: r.commits.length, deferred: r.deferred.length } : { fixed: 0, deferred: 0 };
+}
+
+/**
+ * The single composed count line `--counts-line` prints (and the
+ * supervisor threads into `flow-gate-summary --counts-line`) — bare `N
+ * findings fixed, M deferred`, no status prefix, no behavior clause (Q8).
+ */
+export function composeCountsLine(fixApplierRaw: string): string {
+  const { fixed, deferred } = fixApplierCounts(fixApplierRaw);
+  return `${fixed} findings fixed, ${deferred} deferred`;
+}
+
+/**
+ * `PLAN-DEVIATION:` bullets under scout.md's `## open_questions` heading —
+ * binding contract adjustments the scout agent found between the plan and
+ * the actual code (`AGENTS.md`/coder-instructions discipline: these
+ * override the plan where they conflict). Returns the bullet text with the
+ * leading `- ` and `PLAN-DEVIATION: ` markers stripped; other bullets
+ * under the same heading (`Assumption:` etc.) are not deviations and are
+ * excluded.
+ */
+export function parsePlanDeviations(scoutMd: string): string[] {
+  const lines = scoutMd.split("\n");
+  const headingIdx = lines.findIndex((l) => l.trim() === "## open_questions");
+  if (headingIdx === -1) return [];
+  const out: string[] = [];
+  for (let i = headingIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^##\s/.test(line)) break;
+    const m = line.match(/^-\s*PLAN-DEVIATION:\s*(.+)$/);
+    if (m) out.push(m[1].trim());
+  }
+  return out;
+}
+
+/**
+ * `DEVIATIONS:` body: the intent-resolution verdict when non-`match`, fix-
+ * applier deferrals that carry a `tracker_entry_url`, and scout
+ * `PLAN-DEVIATION:` bullets — the only three mechanical deviation sources
+ * (Cut list: no machine-parsed "meaningful deviation" classifier). `none`
+ * when all three are empty. An absent `scoutRaw` (no scout file — the
+ * ≤3-affected-file path never spawns one) degrades silently to no
+ * contribution from that source, not `(unreadable)` — that marker is
+ * reserved for a present-but-unparseable scout.md, which this function
+ * never produces (scout.md is prose, not JSON, so there is no parse step
+ * to fail).
+ */
+export function renderDeviations(inputs: {
+  intentResolutionRaw: string;
+  fixApplierRaw: string;
+  scoutRaw: string;
+}): string[] {
+  const lines: string[] = [];
+  if (inputs.intentResolutionRaw.trim()) {
+    try {
+      const o = JSON.parse(inputs.intentResolutionRaw) as Record<
+        string,
+        unknown
+      >;
+      if (typeof o.verdict === "string" && o.verdict !== "match") {
+        const resolution =
+          typeof o.resolution === "string"
+            ? ` — ${o.resolution}`
+            : " — (resolution unreadable)";
+        lines.push(`intent: ${o.verdict}${resolution}`);
+      }
+    } catch {
+      /* unparseable intent-resolution contributes nothing here */
+    }
+  }
+  if (inputs.fixApplierRaw.trim()) {
+    const parsed = parseJson(inputs.fixApplierRaw);
+    const r = parsed === undefined ? null : collectFixApplierTolerant(parsed);
+    if (r) {
+      for (const d of r.deferred) {
+        if (d.tracker_entry_url) {
+          lines.push(`deferred → ${d.tracker_entry_url} (${d.reason || d.finding_id})`);
+        }
+      }
+    }
+  }
+  if (inputs.scoutRaw.trim()) {
+    for (const d of parsePlanDeviations(inputs.scoutRaw)) lines.push(d);
+  }
+  return lines.length > 0 ? lines : NONE;
+}
+
+/**
  * Rejected decisions for the slim PR comment's DECISIONS section: the
  * `rejected_alternatives[]` from BOTH the fix-applier artifact (objects with
  * `finding_id` / `considered_approach` / `why_rejected`) AND the consolidator
@@ -308,7 +447,7 @@ function rejectedDecisionLines(
  * PHASES and MANUAL STEPS are intentionally dropped. Pure over already-read
  * inputs — mirrors render(); never reads files.
  */
-export function renderComment(inputs: {
+export type RenderCommentInputs = {
   prChangesRaw: string;
   prReviewRaw: string;
   fixApplierRaw: string;
@@ -316,7 +455,13 @@ export function renderComment(inputs: {
   ciWaitRaw: string;
   filedIssuesRaw: string;
   intentResolutionRaw?: string;
-}): string {
+  /** pm-lens only: scout.md raw text for PLAN-DEVIATION: bullets. */
+  scoutRaw?: string;
+  /** pm-lens only: pre-rendered `flow-untracked render --format markdown --unfiled-only` lines. */
+  untrackedBlock?: string;
+};
+
+function renderCommentDev(inputs: RenderCommentInputs): string {
   const lines: string[] = ["PIPELINE SNAPSHOT"];
   lines.push("CHANGES:");
   for (const ln of renderChanges(inputs.prChangesRaw)) lines.push(`  ${ln}`);
@@ -379,6 +524,54 @@ export function renderComment(inputs: {
     lines.push(`    ${ln}`);
   }
   return lines.join("\n");
+}
+
+/**
+ * pm-lens PR-comment block: `CHANGES` / `REVIEW` (verdict + count line,
+ * never the `review:` narrative) / `DEVIATIONS` / `UNTRACKED` only — the
+ * developer detail (full review summary, `consolidator:` line, `rejected:`
+ * reasoning) moves to `dev`, rendered inside a `<details>` wrapper by
+ * `buildCommentBody`.
+ */
+function renderCommentPm(inputs: RenderCommentInputs): string {
+  const lines: string[] = ["PIPELINE SNAPSHOT"];
+  lines.push("CHANGES:");
+  for (const ln of renderChanges(inputs.prChangesRaw)) lines.push(`  ${ln}`);
+  lines.push("REVIEW:");
+  for (const ln of renderReviewCounts({
+    prReviewRaw: inputs.prReviewRaw,
+    fixApplierRaw: inputs.fixApplierRaw,
+    ciWaitRaw: inputs.ciWaitRaw,
+  })) {
+    lines.push(`  ${ln}`);
+  }
+  lines.push("DEVIATIONS:");
+  for (const ln of renderDeviations({
+    intentResolutionRaw: inputs.intentResolutionRaw ?? "",
+    fixApplierRaw: inputs.fixApplierRaw,
+    scoutRaw: inputs.scoutRaw ?? "",
+  })) {
+    lines.push(`  ${ln}`);
+  }
+  lines.push("UNTRACKED:");
+  for (const ln of renderManualSteps(inputs.untrackedBlock ?? "")) {
+    lines.push(`  ${ln}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Slimmed, un-fenced PR-comment block (NOT the scrollback block) — both
+ * lenses: `pm` (CHANGES / REVIEW counts / DEVIATIONS / UNTRACKED, the
+ * top-level fenced block) and `dev` (today's CHANGES / REVIEW narrative /
+ * optional INTENT / DECISIONS, the `<details>`-collapsed developer block —
+ * `buildCommentBody` composes the two). Pure over already-read inputs;
+ * never reads files.
+ */
+export function renderComment(
+  inputs: RenderCommentInputs,
+): { pm: string; dev: string } {
+  return { pm: renderCommentPm(inputs), dev: renderCommentDev(inputs) };
 }
 
 function parseJson(raw: string): unknown | undefined {

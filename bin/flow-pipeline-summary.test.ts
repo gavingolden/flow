@@ -14,6 +14,14 @@ import {
 } from "./flow-pipeline-summary";
 import { renderComment } from "./lib/pipeline-summary-sources";
 import { writeState, type PipelineState } from "./lib/state";
+import type { ReadConfigFile } from "./lib/modules-config";
+
+// `run()` always resolves lens via `resolveLens(flag, read)`; passing this
+// injected reader (rather than leaving `read` undefined, which falls
+// through to the REAL `~/.flow/config.json`) pins every pre-existing test
+// below to the `dev` shape it was written against — a developer's local
+// `output.lens: "dev"` config must never redden this suite either way.
+const DEV_LENS_READ: ReadConfigFile = () => ({ output: { lens: "dev" } });
 
 let tmpRoot!: string;
 
@@ -525,6 +533,89 @@ describe("render — MANUAL STEPS", () => {
   });
 });
 
+describe("render — DEVIATIONS (dev lens)", () => {
+  it("dev lens (explicit) still carries all seven today's-shape sections, plus a trailing DEVIATIONS", () => {
+    const out = render({ ...EMPTY_RENDER, lens: "dev" });
+    for (const header of [
+      "CHANGES:",
+      "PHASES:",
+      "INTENT:",
+      "FINDINGS:",
+      "FORECLOSED PATHS:",
+      "FOLLOW-UP ISSUES:",
+      "MANUAL STEPS:",
+      "DEVIATIONS:",
+    ]) {
+      expect(out).toContain(header);
+    }
+    expect(out).toContain("DEVIATIONS:\n  none");
+  });
+
+  it("omitted lens reproduces the explicit-dev shape byte-for-byte", () => {
+    expect(render(EMPTY_RENDER)).toBe(render({ ...EMPTY_RENDER, lens: "dev" }));
+  });
+});
+
+describe("render — pm lens", () => {
+  it("has exactly CHANGES / REVIEW / DEVIATIONS / UNTRACKED / MANUAL STEPS — no PHASES, no FORECLOSED PATHS, no INTENT, no FINDINGS", () => {
+    const out = render({ ...EMPTY_RENDER, lens: "pm" });
+    for (const header of [
+      "CHANGES:",
+      "REVIEW:",
+      "DEVIATIONS:",
+      "UNTRACKED:",
+      "MANUAL STEPS:",
+    ]) {
+      expect(out).toContain(header);
+    }
+    for (const header of [
+      "PHASES:",
+      "FORECLOSED PATHS:",
+      "INTENT:",
+      "FINDINGS:",
+      "FOLLOW-UP ISSUES:",
+    ]) {
+      expect(out).not.toContain(header);
+    }
+  });
+
+  it("REVIEW is the counts line, never the review: narrative field", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      lens: "pm",
+      prReviewRaw: JSON.stringify({
+        status: "partial",
+        completed_steps: [],
+        missed_steps: ["x"],
+        escalation_tag: null,
+        summary: "two findings open",
+      }),
+    });
+    expect(out).toContain("REVIEW:\n  partial — 0 findings fixed, 0 deferred");
+    expect(out).not.toContain("review: partial — two findings open");
+  });
+
+  it("DEVIATIONS surfaces scoutRaw PLAN-DEVIATION bullets", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      lens: "pm",
+      scoutRaw: "## open_questions\n\n- PLAN-DEVIATION: renamed the export.\n",
+    });
+    expect(out).toContain("DEVIATIONS:\n  renamed the export.");
+  });
+
+  it("UNTRACKED renders the pre-rendered untrackedBlock lines, `none` when absent", () => {
+    const withItems = render({
+      ...EMPTY_RENDER,
+      lens: "pm",
+      untrackedBlock: "- #1 found a bug",
+    });
+    expect(withItems).toContain("UNTRACKED:\n  - #1 found a bug");
+    const empty = render({ ...EMPTY_RENDER, lens: "pm" });
+    expect(empty).toContain("UNTRACKED:\n  none");
+  });
+});
+
 describe("run — end-to-end", () => {
   function captureStdout(fn: () => void): string {
     const chunks: string[] = [];
@@ -541,6 +632,101 @@ describe("run — end-to-end", () => {
     return chunks.join("");
   }
 
+  it("--lens pm renders the pm shape end-to-end; no PHASES section", () => {
+    const out = captureStdout(() => {
+      const code = run(["--status", "merged", "--lens", "pm"]);
+      expect(code).toBe(0);
+    });
+    expect(out).toContain("REVIEW:");
+    expect(out).not.toContain("PHASES:");
+  });
+
+  it("--lens flag beats an injected config value", () => {
+    const out = captureStdout(() => {
+      run(["--status", "merged", "--lens", "dev"], {
+        read: () => ({ output: { lens: "pm" } }),
+      });
+    });
+    expect(out).toContain("PHASES:");
+  });
+
+  it("config-driven lens (no --lens flag) resolves via the injected read seam", () => {
+    const out = captureStdout(() => {
+      run(["--status", "merged"], {
+        read: () => ({ output: { lens: "dev" } }),
+      });
+    });
+    expect(out).toContain("PHASES:");
+  });
+
+  it("--scout-file threads PLAN-DEVIATION bullets into DEVIATIONS", () => {
+    const scoutFile = write(
+      "scout.md",
+      "## open_questions\n\n- PLAN-DEVIATION: renderComment lives in sources.ts.\n",
+    );
+    const out = captureStdout(() => {
+      run(["--status", "merged", "--lens", "pm", "--scout-file", scoutFile]);
+    });
+    expect(out).toContain("renderComment lives in sources.ts.");
+  });
+
+  it("an absent --scout-file degrades DEVIATIONS to none, not (unreadable)", () => {
+    const out = captureStdout(() => {
+      run([
+        "--status",
+        "merged",
+        "--lens",
+        "pm",
+        "--scout-file",
+        path.join(tmpRoot, "missing-scout.md"),
+      ]);
+    });
+    expect(out).toContain("DEVIATIONS:\n  none");
+    expect(out).not.toContain("(unreadable)");
+  });
+
+  it("--untracked-file threads pre-rendered lines into UNTRACKED", () => {
+    const untrackedFile = write("untracked.md", "- #1 found a bug\n");
+    const out = captureStdout(() => {
+      run([
+        "--status",
+        "merged",
+        "--lens",
+        "pm",
+        "--untracked-file",
+        untrackedFile,
+      ]);
+    });
+    expect(out).toContain("- #1 found a bug");
+  });
+
+  it("--counts-line prints ONLY the composed count line and exits 0", () => {
+    const fixApplierFile = write(
+      "fix-applier-result.json",
+      JSON.stringify({
+        commits: [
+          { sha: "a", files: ["x"], finding_id: "F1", reasoning: "r", verify_status: "pass" },
+        ],
+        deferred: [{ finding_id: "F2", tracker_entry_url: "", reason: "later" }],
+        rejected_alternatives: [],
+        anti_patterns_found: [],
+        summary: "s",
+      }),
+    );
+    let code = -1;
+    const out = captureStdout(() => {
+      code = run([
+        "--status",
+        "merged",
+        "--fix-applier-result",
+        fixApplierFile,
+        "--counts-line",
+      ]);
+    });
+    expect(code).toBe(0);
+    expect(out).toBe("1 findings fixed, 1 deferred\n");
+  });
+
   it("reads a state-file phaseLog and renders PHASES in order", () => {
     const state: PipelineState = {
       slug: "demo",
@@ -554,12 +740,10 @@ describe("run — end-to-end", () => {
     };
     writeState(state, tmpRoot);
     const out = captureStdout(() => {
-      const code = run([
-        "--status",
-        "merged",
-        "--state-file",
-        path.join(tmpRoot, "demo.json"),
-      ]);
+      const code = run(
+        ["--status", "merged", "--state-file", path.join(tmpRoot, "demo.json")],
+        { read: DEV_LENS_READ },
+      );
       expect(code).toBe(0);
     });
     expect(out).toContain("## PIPELINE SNAPSHOT");
@@ -572,12 +756,15 @@ describe("run — end-to-end", () => {
 
   it("renders `PHASES: none` when the state file is absent", () => {
     const out = captureStdout(() => {
-      run([
-        "--status",
-        "needs-human",
-        "--state-file",
-        path.join(tmpRoot, "missing.json"),
-      ]);
+      run(
+        [
+          "--status",
+          "needs-human",
+          "--state-file",
+          path.join(tmpRoot, "missing.json"),
+        ],
+        { read: DEV_LENS_READ },
+      );
     });
     expect(out).toContain("PHASES:\n  none");
   });
@@ -588,7 +775,7 @@ describe("run — end-to-end", () => {
       "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow install --upgrade  (exit 0)\n",
     );
     const out = captureStdout(() => {
-      run(["--status", "merged", "--followups-block-file", blockFile]);
+      run(["--status", "merged", "--followups-block-file", blockFile], { read: DEV_LENS_READ });
     });
     expect(out).toContain("RAN     flow install --upgrade  (exit 0)");
   });
@@ -604,7 +791,7 @@ describe("run — end-to-end", () => {
       }),
     );
     const out = captureStdout(() => {
-      run(["--status", "gated", "--intent-resolution", intentFile]);
+      run(["--status", "gated", "--intent-resolution", intentFile], { read: DEV_LENS_READ });
     });
     expect(out).toContain(
       "INTENT:\n  scope-drift: guess is narrower than the request",
@@ -617,7 +804,7 @@ describe("run — end-to-end", () => {
       JSON.stringify({ verdict: "benign-divergence" }),
     );
     const out = captureStdout(() => {
-      run(["--status", "gated", "--intent-resolution", intentFile]);
+      run(["--status", "gated", "--intent-resolution", intentFile], { read: DEV_LENS_READ });
     });
     expect(out).toContain(
       "INTENT:\n  benign-divergence: (resolution unreadable)",
@@ -636,7 +823,7 @@ describe("run — end-to-end", () => {
       }) + "\n",
     );
     const out = captureStdout(() => {
-      run(["--status", "gated", "--followups-jsonl", jsonl]);
+      run(["--status", "gated", "--followups-jsonl", jsonl], { read: DEV_LENS_READ });
     });
     // noteOnly: true => the auto-allowlisted entry is NOTED, not run, and the
     // header carries the deferred verdict.
@@ -661,14 +848,17 @@ describe("run — end-to-end", () => {
       }) + "\n",
     );
     const out = captureStdout(() => {
-      run([
-        "--status",
-        "merged",
-        "--followups-block-file",
-        blockFile,
-        "--followups-jsonl",
-        jsonl,
-      ]);
+      run(
+        [
+          "--status",
+          "merged",
+          "--followups-block-file",
+          blockFile,
+          "--followups-jsonl",
+          jsonl,
+        ],
+        { read: DEV_LENS_READ },
+      );
     });
     // Block-file wins: the captured ran/failed results are preserved and the
     // jsonl note-only fallback never fires.
@@ -680,19 +870,22 @@ describe("run — end-to-end", () => {
 
   it("--echo-prose leads stdout with the delimited recap above the snapshot", () => {
     const out = captureStdout(() => {
-      const code = run([
-        "--status",
-        "merged",
-        "--echo-prose",
-        "--pr-url",
-        "https://github.com/org/repo/pull/9",
-        "--plan-file",
-        "/w/.flow-tmp/plan.md",
-        "--pr-title",
-        "Echo recap",
-        "--branch",
-        "feat/echo",
-      ]);
+      const code = run(
+        [
+          "--status",
+          "merged",
+          "--echo-prose",
+          "--pr-url",
+          "https://github.com/org/repo/pull/9",
+          "--plan-file",
+          "/w/.flow-tmp/plan.md",
+          "--pr-title",
+          "Echo recap",
+          "--branch",
+          "feat/echo",
+        ],
+        { read: DEV_LENS_READ },
+      );
       expect(code).toBe(0);
     });
     expect(out.startsWith("<!-- flow-echo-recap:start -->")).toBe(true);
@@ -756,17 +949,20 @@ describe("run — end-to-end", () => {
       }),
     );
     const out = captureStdout(() => {
-      run([
-        "--status",
-        "gated",
-        "--echo-prose",
-        "--ci-wait-result",
-        ciFile,
-        "--pr-review-result",
-        reviewFile,
-        "--fix-applier-result",
-        fixApplierFile,
-      ]);
+      run(
+        [
+          "--status",
+          "gated",
+          "--echo-prose",
+          "--ci-wait-result",
+          ciFile,
+          "--pr-review-result",
+          reviewFile,
+          "--fix-applier-result",
+          fixApplierFile,
+        ],
+        { read: DEV_LENS_READ },
+      );
     });
     expect(out).toContain("- CI: proceed");
     expect(out).toContain("- Review: clean (3 findings)");
@@ -804,17 +1000,20 @@ describe("run — end-to-end", () => {
       }),
     );
     const out = captureStdout(() => {
-      run([
-        "--status",
-        "gated",
-        "--echo-prose",
-        "--pr-review-result",
-        reviewFile,
-        "--consolidator-result",
-        consolidatorFile,
-        "--fix-applier-result",
-        fixApplierFile,
-      ]);
+      run(
+        [
+          "--status",
+          "gated",
+          "--echo-prose",
+          "--pr-review-result",
+          reviewFile,
+          "--consolidator-result",
+          consolidatorFile,
+          "--fix-applier-result",
+          fixApplierFile,
+        ],
+        { read: DEV_LENS_READ },
+      );
     });
     // A truthiness regression collapsing a legitimate 0 to `none` must fail here.
     expect(out).toContain("- Review: clean (0 findings)");
@@ -869,17 +1068,20 @@ describe("run — end-to-end", () => {
       }),
     );
     const out = captureStdout(() => {
-      run([
-        "--status",
-        "gated",
-        "--echo-prose",
-        "--pr-review-result",
-        reviewFile,
-        "--consolidator-result",
-        consolidatorFile,
-        "--fix-applier-result",
-        fixApplierFile,
-      ]);
+      run(
+        [
+          "--status",
+          "gated",
+          "--echo-prose",
+          "--pr-review-result",
+          reviewFile,
+          "--consolidator-result",
+          consolidatorFile,
+          "--fix-applier-result",
+          fixApplierFile,
+        ],
+        { read: DEV_LENS_READ },
+      );
     });
     expect(out).toContain("- Review: clean (1 findings)");
     expect(out).not.toContain("(3 findings)");
@@ -887,8 +1089,10 @@ describe("run — end-to-end", () => {
 
   it("WITHOUT --echo-prose stdout is byte-for-byte unchanged (regression guard)", () => {
     const argv = ["--status", "merged"];
-    const withFlag = captureStdout(() => run([...argv, "--echo-prose"]));
-    const without = captureStdout(() => run(argv));
+    const withFlag = captureStdout(() =>
+      run([...argv, "--echo-prose"], { read: DEV_LENS_READ }),
+    );
+    const without = captureStdout(() => run(argv, { read: DEV_LENS_READ }));
     // The non-echo render carries no recap marker at all.
     expect(without).not.toContain("flow-echo-recap");
     // The echo run's tail (after the recap block) equals the whole non-echo run.
@@ -959,18 +1163,26 @@ function captureStdout(fn: () => void): string {
 }
 
 describe("buildCommentBody / findMarkedCommentId", () => {
-  it("fences the block and appends the marker after the closing fence", () => {
-    const block = "PIPELINE SNAPSHOT\nCHANGES:\n  none";
-    const body = buildCommentBody(block);
-    // Opening fence, then the block, then a closing fence, then the marker.
+  it("fences the pm block and appends the marker after the closing </details>", () => {
+    const pm = "PIPELINE SNAPSHOT\nCHANGES:\n  none";
+    const dev = "PIPELINE SNAPSHOT\nCHANGES:\n  none\nPHASES:\n  none";
+    const body = buildCommentBody(pm, dev);
+    // Opening fence, then the pm block, then a closing fence, then the
+    // collapsed dev block, then the marker.
     expect(body.startsWith("```text\n")).toBe(true);
     expect(body.endsWith(`\n\n${SNAPSHOT_MARKER}`)).toBe(true);
-    expect(body).toContain(block);
-    // The marker sits OUTSIDE the fenced region: after the closing fence.
-    const closingFenceIdx = body.lastIndexOf("\n```");
+    expect(body).toContain(pm);
+    expect(body).toContain(dev);
+    expect(body).toContain(
+      "<details><summary>Developer detail</summary>",
+    );
+    expect(body).toContain("</details>");
+    // The marker sits OUTSIDE the fenced region and the <details> wrapper:
+    // after the closing </details>.
+    const detailsCloseIdx = body.lastIndexOf("</details>");
     const markerIdx = body.indexOf(SNAPSHOT_MARKER);
-    expect(closingFenceIdx).toBeGreaterThanOrEqual(0);
-    expect(markerIdx).toBeGreaterThan(closingFenceIdx);
+    expect(detailsCloseIdx).toBeGreaterThanOrEqual(0);
+    expect(markerIdx).toBeGreaterThan(detailsCloseIdx);
   });
 
   it("finds the first comment bearing the marker", () => {
@@ -1005,7 +1217,7 @@ describe("buildCommentBody / findMarkedCommentId", () => {
 describe("postSnapshotComment", () => {
   it("creates a new comment when none is marked", () => {
     const { gh, calls } = fakeGh([{ stdout: "[]" }]);
-    const result = postSnapshotComment(123, "## PIPELINE SNAPSHOT\n…", gh);
+    const result = postSnapshotComment(123, "## PIPELINE SNAPSHOT\n…", "dev block", gh);
     expect(result).toEqual({ action: "created" });
     // calls[0] lists; calls[1] POSTs the create.
     expect(calls).toHaveLength(2);
@@ -1023,7 +1235,7 @@ describe("postSnapshotComment", () => {
       { id: 555, body: `old\n\n${SNAPSHOT_MARKER}` },
     ]);
     const { gh, calls } = fakeGh([{ stdout: listJson }]);
-    const result = postSnapshotComment(123, "## PIPELINE SNAPSHOT\nnew", gh);
+    const result = postSnapshotComment(123, "## PIPELINE SNAPSHOT\nnew", "dev block", gh);
     expect(result).toEqual({ action: "updated", id: 555 });
     const patch = calls[1];
     expect(patch).toContain("repos/{owner}/{repo}/issues/comments/555");
@@ -1039,7 +1251,7 @@ describe("postSnapshotComment", () => {
 
   it("returns failed (never throws) when the list call exits non-zero", () => {
     const { gh, calls } = fakeGh([{ exitCode: 1, stderr: "boom" }]);
-    const result = postSnapshotComment(123, "block", gh);
+    const result = postSnapshotComment(123, "block", "dev block", gh);
     expect(result.action).toBe("failed");
     expect(calls).toHaveLength(1); // bailed after the failed list, no write
   });
@@ -1050,7 +1262,7 @@ describe("postSnapshotComment", () => {
       { stdout: "[]" },
       { exitCode: 1, stderr: "create denied" },
     ]);
-    const result = postSnapshotComment(123, "block", gh);
+    const result = postSnapshotComment(123, "block", "dev block", gh);
     expect(result).toEqual({ action: "failed", error: "create denied" });
     expect(calls).toHaveLength(2);
   });
@@ -1065,7 +1277,7 @@ describe("postSnapshotComment", () => {
       { stdout: listJson },
       { exitCode: 1, stderr: "" },
     ]);
-    const result = postSnapshotComment(123, "block", gh);
+    const result = postSnapshotComment(123, "block", "dev block", gh);
     expect(result).toEqual({
       action: "failed",
       error: "gh api PATCH failed (1)",
@@ -1078,7 +1290,7 @@ describe("run — --post-comment write path", () => {
   it("posts (create) on MERGED with the marker, exactly one create call", () => {
     const { gh, calls } = fakeGh([{ stdout: "[]" }]);
     const out = captureStdout(() => {
-      const code = run(["--status", "merged", "--post-comment", "123"], { gh });
+      const code = run(["--status", "merged", "--post-comment", "123"], { gh, read: DEV_LENS_READ });
       expect(code).toBe(0);
     });
     // One list + one create.
@@ -1097,7 +1309,7 @@ describe("run — --post-comment write path", () => {
     ]);
     const { gh, calls } = fakeGh([{ stdout: listJson }]);
     captureStdout(() =>
-      run(["--status", "merged", "--post-comment", "123"], { gh }),
+      run(["--status", "merged", "--post-comment", "123"], { gh, read: DEV_LENS_READ }),
     );
     expect(calls.some((c) => c.includes("PATCH"))).toBe(true);
     const creates = calls.filter(
@@ -1111,7 +1323,7 @@ describe("run — --post-comment write path", () => {
   it("makes zero gh write calls on a non-merged status (MERGED-only)", () => {
     const { gh, calls } = fakeGh();
     captureStdout(() =>
-      run(["--status", "gated", "--post-comment", "123"], { gh }),
+      run(["--status", "gated", "--post-comment", "123"], { gh, read: DEV_LENS_READ }),
     );
     expect(calls).toHaveLength(0);
   });
@@ -1120,7 +1332,7 @@ describe("run — --post-comment write path", () => {
     const { gh } = fakeGh([{ exitCode: 1, stderr: "rate limited" }]);
     let code = -1;
     const out = captureStdout(() => {
-      code = run(["--status", "merged", "--post-comment", "123"], { gh });
+      code = run(["--status", "merged", "--post-comment", "123"], { gh, read: DEV_LENS_READ });
     });
     expect(code).toBe(0);
     expect(out).toContain("## PIPELINE SNAPSHOT");
@@ -1128,7 +1340,7 @@ describe("run — --post-comment write path", () => {
 
   it("leaves scrollback untouched and gh unused when --post-comment is absent", () => {
     const { gh, calls } = fakeGh();
-    const out = captureStdout(() => run(["--status", "merged"], { gh }));
+    const out = captureStdout(() => run(["--status", "merged"], { gh, read: DEV_LENS_READ }));
     expect(calls).toHaveLength(0);
     expect(out).not.toContain(SNAPSHOT_MARKER);
   });
@@ -1139,7 +1351,7 @@ describe("run — --post-comment write path", () => {
     const { gh, calls } = fakeGh();
     let code = -1;
     const out = captureStdout(() => {
-      code = run(["--status", "merged", "--post-comment", "not-a-pr"], { gh });
+      code = run(["--status", "merged", "--post-comment", "not-a-pr"], { gh, read: DEV_LENS_READ });
     });
     expect(code).toBe(0);
     expect(out).toContain("## PIPELINE SNAPSHOT");
@@ -1152,7 +1364,7 @@ describe("run — --post-comment write path", () => {
     const { gh, calls } = fakeGh();
     let code = -1;
     captureStdout(() => {
-      code = run(["--status", "merged", "--post-comment", ""], { gh });
+      code = run(["--status", "merged", "--post-comment", ""], { gh, read: DEV_LENS_READ });
     });
     expect(code).toBe(0);
     expect(calls).toHaveLength(0);
@@ -1219,9 +1431,9 @@ const EMPTY_COMMENT_INPUTS = {
   filedIssuesRaw: "",
 };
 
-describe("renderComment — slim PR-comment block", () => {
+describe("renderComment — slim PR-comment block (dev)", () => {
   it("surfaces change summary, review verdict, deferred + rejected decisions", () => {
-    const block = renderComment(POPULATED_COMMENT_INPUTS);
+    const block = renderComment(POPULATED_COMMENT_INPUTS).dev;
     // Plain title line, no leading `##`.
     expect(block.startsWith("PIPELINE SNAPSHOT")).toBe(true);
     expect(block).not.toContain("## PIPELINE SNAPSHOT");
@@ -1241,7 +1453,7 @@ describe("renderComment — slim PR-comment block", () => {
   });
 
   it("surfaces rejected_alternatives from BOTH fix-applier and consolidator", () => {
-    const block = renderComment(POPULATED_COMMENT_INPUTS);
+    const block = renderComment(POPULATED_COMMENT_INPUTS).dev;
     // Fix-applier rejected_alternatives are objects → `id: approach — why`.
     expect(block).toContain("F1: inline the helper — would break the seam");
     // Consolidator rejected_alternatives are plain strings.
@@ -1249,7 +1461,7 @@ describe("renderComment — slim PR-comment block", () => {
   });
 
   it("renders the literal `none` for empty deferred and rejected parts", () => {
-    const block = renderComment(EMPTY_COMMENT_INPUTS);
+    const block = renderComment(EMPTY_COMMENT_INPUTS).dev;
     // Both DECISIONS sub-parts collapse to the explicit `none` discipline.
     expect(block).toContain("deferred:");
     expect(block).toContain("rejected:");
@@ -1270,7 +1482,7 @@ describe("renderComment — slim PR-comment block", () => {
         resolution: "guess vs request diverge on scope",
         cross_model: { ran: false, agreement: null },
       }),
-    });
+    }).dev;
     expect(block).toContain("INTENT:");
     expect(block).toContain("scope-drift: guess vs request diverge on scope");
   });
@@ -1284,12 +1496,12 @@ describe("renderComment — slim PR-comment block", () => {
         resolution: "guess matches request",
         cross_model: { ran: false, agreement: null },
       }),
-    });
+    }).dev;
     expect(block).not.toContain("INTENT:");
   });
 
   it("omits the INTENT section when the artifact is absent", () => {
-    const block = renderComment(POPULATED_COMMENT_INPUTS);
+    const block = renderComment(POPULATED_COMMENT_INPUTS).dev;
     expect(block).not.toContain("INTENT:");
   });
 
@@ -1297,21 +1509,59 @@ describe("renderComment — slim PR-comment block", () => {
     const block = renderComment({
       ...POPULATED_COMMENT_INPUTS,
       intentResolutionRaw: "{not json",
-    });
+    }).dev;
     expect(block).not.toContain("INTENT:");
   });
 });
 
+describe("renderComment — slim PR-comment block (pm)", () => {
+  it("has exactly CHANGES / REVIEW / DEVIATIONS / UNTRACKED, never the review: narrative", () => {
+    const block = renderComment(POPULATED_COMMENT_INPUTS).pm;
+    expect(block.startsWith("PIPELINE SNAPSHOT")).toBe(true);
+    expect(block).toContain("CHANGES:");
+    expect(block).toContain("3 commits, +40/-7 across 5 files");
+    expect(block).toContain("REVIEW:");
+    expect(block).toContain("partial — 0 findings fixed, 1 deferred");
+    expect(block).not.toContain("review: partial — two findings open");
+    expect(block).toContain("DEVIATIONS:");
+    expect(block).toContain(
+      "deferred → https://github.com/o/r/issues/2 (later)",
+    );
+    expect(block).toContain("UNTRACKED:");
+    expect(block).not.toContain("DECISIONS:");
+    expect(block).not.toContain("PHASES:");
+    expect(block).not.toContain("MANUAL STEPS:");
+  });
+
+  it("renders `none` for empty REVIEW/DEVIATIONS/UNTRACKED", () => {
+    const block = renderComment(EMPTY_COMMENT_INPUTS).pm;
+    expect(block).toMatch(/REVIEW:\n\s+none/);
+    expect(block).toMatch(/DEVIATIONS:\n\s+none/);
+    expect(block).toMatch(/UNTRACKED:\n\s+none/);
+  });
+
+  it("threads scoutRaw PLAN-DEVIATION bullets and untrackedBlock lines", () => {
+    const block = renderComment({
+      ...POPULATED_COMMENT_INPUTS,
+      scoutRaw: "## open_questions\n\n- PLAN-DEVIATION: moved to a sibling module\n",
+      untrackedBlock: "- #1 found a bug",
+    }).pm;
+    expect(block).toContain("moved to a sibling module");
+    expect(block).toContain("- #1 found a bug");
+  });
+});
+
 describe("buildCommentBody round-trip with findMarkedCommentId", () => {
-  it("dedups a fenced slim body and keeps the marker outside the fence", () => {
-    const body = buildCommentBody(renderComment(POPULATED_COMMENT_INPUTS));
+  it("dedups a fenced pm+dev body and keeps the marker outside the wrapper", () => {
+    const { pm, dev } = renderComment(POPULATED_COMMENT_INPUTS);
+    const body = buildCommentBody(pm, dev);
     // Round-trip through the dedup lookup: a comment carrying this body resolves.
     const listJson = JSON.stringify([{ id: 314, body }]);
     expect(findMarkedCommentId(listJson)).toBe(314);
-    // Marker index is greater than the closing-fence index (outside the fence).
-    const closingFenceIdx = body.lastIndexOf("\n```");
+    // Marker index is greater than the closing-</details> index (outside).
+    const detailsCloseIdx = body.lastIndexOf("</details>");
     const markerIdx = body.indexOf(SNAPSHOT_MARKER);
-    expect(markerIdx).toBeGreaterThan(closingFenceIdx);
+    expect(markerIdx).toBeGreaterThan(detailsCloseIdx);
   });
 });
 
@@ -1319,7 +1569,7 @@ describe("run — slim comment vs unchanged scrollback", () => {
   it("posts the slim fenced+marked block while scrollback stays full and clean", () => {
     const { gh, calls } = fakeGh([{ stdout: "[]" }]);
     const out = captureStdout(() => {
-      const code = run(["--status", "merged", "--post-comment", "123"], { gh });
+      const code = run(["--status", "merged", "--post-comment", "123"], { gh, read: DEV_LENS_READ });
       expect(code).toBe(0);
     });
     // Scrollback: all five sections present, 2-space indentation preserved,

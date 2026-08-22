@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  composeCountsLine,
+  parsePlanDeviations,
   renderComment,
+  renderDeviations,
   renderFindings,
   renderForeclosedPaths,
   renderIntent,
   renderPhases,
+  renderReviewCounts,
 } from "./pipeline-summary-sources";
 
 const iso = (s: number) =>
@@ -283,7 +287,7 @@ describe("renderComment DECISIONS — consolidator lens-name label", () => {
       ciWaitRaw: "",
       filedIssuesRaw: "",
     });
-    expect(comment).toContain("kept the two lenses separate");
+    expect(comment.dev).toContain("kept the two lenses separate");
   });
 });
 
@@ -458,7 +462,7 @@ describe(renderIntent, () => {
         resolution: "resolution-only, no verdict",
       }),
     });
-    expect(block).not.toContain("INTENT:");
+    expect(block.dev).not.toContain("INTENT:");
   });
 
   it("renders the degraded INTENT body in the comment when the verdict is readable but the resolution is not", () => {
@@ -474,6 +478,225 @@ describe(renderIntent, () => {
       ...commentInputs,
       intentResolutionRaw: JSON.stringify({ verdict: "scope-drift" }),
     });
-    expect(block).toContain("INTENT:\n  scope-drift: (resolution unreadable)");
+    expect(block.dev).toContain(
+      "INTENT:\n  scope-drift: (resolution unreadable)",
+    );
+  });
+});
+
+const fixApplierTwoFixedOneDeferred = JSON.stringify({
+  commits: [
+    { sha: "a", files: ["x"], finding_id: "F1", reasoning: "r", verify_status: "pass" },
+    { sha: "b", files: ["y"], finding_id: "F2", reasoning: "r", verify_status: "pass" },
+  ],
+  deferred: [
+    { finding_id: "F3", tracker_entry_url: "https://x/3", reason: "later" },
+  ],
+  rejected_alternatives: [],
+  anti_patterns_found: [],
+  summary: "s",
+});
+
+describe(renderReviewCounts, () => {
+  it("renders none when prReview/fixApplier/ciWait are all absent", () => {
+    expect(
+      renderReviewCounts({ prReviewRaw: "", fixApplierRaw: "", ciWaitRaw: "" }),
+    ).toEqual(["none"]);
+  });
+
+  it("composes status + counts, then CI/Copilot on a second line", () => {
+    const out = renderReviewCounts({
+      prReviewRaw: JSON.stringify({
+        status: "clean",
+        completed_steps: [],
+        missed_steps: [],
+        escalation_tag: null,
+        summary: "ok",
+      }),
+      fixApplierRaw: fixApplierTwoFixedOneDeferred,
+      ciWaitRaw: JSON.stringify({
+        decision: "proceed-to-review",
+        copilotConfigured: false,
+      }),
+    });
+    expect(out).toEqual([
+      "clean — 2 findings fixed, 1 deferred",
+      "CI: proceed-to-review · Copilot: not configured",
+    ]);
+  });
+
+  it("never renders a behavior-changed clause (Q8 dropped behavior_changed)", () => {
+    const out = renderReviewCounts({
+      prReviewRaw: JSON.stringify({
+        status: "clean",
+        completed_steps: [],
+        missed_steps: [],
+        escalation_tag: null,
+        summary: "ok",
+      }),
+      fixApplierRaw: fixApplierTwoFixedOneDeferred,
+      ciWaitRaw: "",
+    }).join("\n");
+    expect(out).not.toContain("changed behavior");
+  });
+
+  it("degrades an unreadable pr-review artifact to (unreadable) status without dropping counts", () => {
+    const out = renderReviewCounts({
+      prReviewRaw: "{not json",
+      fixApplierRaw: fixApplierTwoFixedOneDeferred,
+      ciWaitRaw: "",
+    });
+    expect(out[0]).toBe("(unreadable) — 2 findings fixed, 1 deferred");
+  });
+});
+
+describe(composeCountsLine, () => {
+  it("is bare 'N findings fixed, M deferred', no status prefix", () => {
+    expect(composeCountsLine(fixApplierTwoFixedOneDeferred)).toBe(
+      "2 findings fixed, 1 deferred",
+    );
+  });
+
+  it("is 0/0 when fix-applier is absent", () => {
+    expect(composeCountsLine("")).toBe("0 findings fixed, 0 deferred");
+  });
+});
+
+describe(parsePlanDeviations, () => {
+  it("extracts PLAN-DEVIATION bullets under ## open_questions", () => {
+    const scoutMd = [
+      "# Scout report",
+      "",
+      "## affected_modules",
+      "- some module",
+      "",
+      "## open_questions",
+      "",
+      "- PLAN-DEVIATION: Task 6 names the wrong file for renderComment.",
+      "- Assumption: something unrelated, not a deviation.",
+      "- PLAN-DEVIATION: Task 2 overcounts wired-skill files.",
+      "",
+      "## recommended_strategy",
+      "- PLAN-DEVIATION: this one is under the WRONG heading, excluded.",
+    ].join("\n");
+    expect(parsePlanDeviations(scoutMd)).toEqual([
+      "Task 6 names the wrong file for renderComment.",
+      "Task 2 overcounts wired-skill files.",
+    ]);
+  });
+
+  it("returns an empty array when there is no ## open_questions heading", () => {
+    expect(parsePlanDeviations("# Scout report\n\nno such heading here\n")).toEqual(
+      [],
+    );
+  });
+
+  it("returns an empty array for an empty scout.md", () => {
+    expect(parsePlanDeviations("")).toEqual([]);
+  });
+});
+
+describe(renderDeviations, () => {
+  const empty = { intentResolutionRaw: "", fixApplierRaw: "", scoutRaw: "" };
+
+  it("renders none when all three sources are empty", () => {
+    expect(renderDeviations(empty)).toEqual(["none"]);
+  });
+
+  it("includes the intent verdict only when non-match", () => {
+    expect(
+      renderDeviations({
+        ...empty,
+        intentResolutionRaw: JSON.stringify({
+          verdict: "scope-drift",
+          resolution: "guess narrower than request",
+        }),
+      }),
+    ).toEqual(["intent: scope-drift — guess narrower than request"]);
+    expect(
+      renderDeviations({
+        ...empty,
+        intentResolutionRaw: JSON.stringify({
+          verdict: "match",
+          resolution: "matches",
+        }),
+      }),
+    ).toEqual(["none"]);
+  });
+
+  it("includes fix-applier deferrals that carry a tracker_entry_url, excludes unfiled ones", () => {
+    const fixApplierRaw = JSON.stringify({
+      commits: [],
+      deferred: [
+        { finding_id: "F1", tracker_entry_url: "https://x/1", reason: "later" },
+        { finding_id: "F2", tracker_entry_url: "", reason: "no url yet" },
+      ],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+    });
+    expect(renderDeviations({ ...empty, fixApplierRaw })).toEqual([
+      "deferred → https://x/1 (later)",
+    ]);
+  });
+
+  it("includes scout PLAN-DEVIATION bullets", () => {
+    const scoutRaw =
+      "## open_questions\n\n- PLAN-DEVIATION: renderComment lives in sources.ts not the helper.\n";
+    expect(renderDeviations({ ...empty, scoutRaw })).toEqual([
+      "renderComment lives in sources.ts not the helper.",
+    ]);
+  });
+
+  it("degrades an absent scout file silently to no contribution (not (unreadable))", () => {
+    expect(renderDeviations({ ...empty, scoutRaw: "" })).toEqual(["none"]);
+  });
+
+  it("combines all three sources in order: intent, deferrals, scout", () => {
+    const out = renderDeviations({
+      intentResolutionRaw: JSON.stringify({
+        verdict: "fundamental",
+        resolution: "diverges",
+      }),
+      fixApplierRaw: JSON.stringify({
+        commits: [],
+        deferred: [
+          { finding_id: "F1", tracker_entry_url: "https://x/1", reason: "later" },
+        ],
+        rejected_alternatives: [],
+        anti_patterns_found: [],
+        summary: "s",
+      }),
+      scoutRaw: "## open_questions\n\n- PLAN-DEVIATION: scope note.\n",
+    });
+    expect(out).toEqual([
+      "intent: fundamental — diverges",
+      "deferred → https://x/1 (later)",
+      "scope note.",
+    ]);
+  });
+});
+
+describe("renderComment — pm lens", () => {
+  it("returns {pm, dev} with pm carrying REVIEW counts + DEVIATIONS + UNTRACKED, never the review: narrative", () => {
+    const { pm, dev } = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: JSON.stringify({
+        status: "clean",
+        completed_steps: [],
+        missed_steps: [],
+        escalation_tag: null,
+        summary: "narrative text that must not leak into pm",
+      }),
+      fixApplierRaw: fixApplierTwoFixedOneDeferred,
+      consolidatorRaw: "",
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    });
+    expect(pm).toContain("clean — 2 findings fixed, 1 deferred");
+    expect(pm).not.toContain("narrative text that must not leak into pm");
+    expect(pm).toContain("DEVIATIONS:");
+    expect(pm).toContain("UNTRACKED:");
+    expect(dev).toContain("narrative text that must not leak into pm");
   });
 });
