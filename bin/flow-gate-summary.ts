@@ -62,6 +62,14 @@ import * as fs from "node:fs";
 import { renderEchoRecap } from "./lib/echo-recap";
 import { readState, type ReapRecord } from "./lib/state";
 import { resolveSlugFromEnv } from "./lib/session-identity";
+import { resolveLens, type OutputLens } from "./lib/output-lens";
+import {
+  TLDR_MAX_WORDS,
+  buildManualAction,
+  buildNeedsAttention,
+  buildUntracked,
+  clampTldr,
+} from "./lib/gate-summary-rows";
 
 export type Status =
   | "merged"
@@ -96,6 +104,21 @@ export type GateSummaryInputs = {
   planFile?: string;
   echoProse?: boolean;
   cleanup?: CleanupInput;
+  /** One sentence, already clamped to TLDR_MAX_WORDS — see `clampTldr`. */
+  tldr?: string;
+  /**
+   * Optional and defaults to `"dev"` at this pure-function layer — the
+   * CLI (`run()`) is where `resolveLens` applies the real flag > config >
+   * `"pm"` precedence and where every SKILL.md call site passes `--lens`
+   * explicitly, so this default only governs a direct `render()` call
+   * (e.g. every pre-existing test in `flow-gate-summary.test.ts`) that
+   * omits `lens` — it must keep reproducing today's shape unchanged.
+   */
+  lens?: OutputLens;
+  /** Pre-rendered `flow-untracked render --format gate --unfiled-only` lines. */
+  untrackedBlock?: string;
+  /** The one composed count line, e.g. "12 findings fixed, 2 deferred". */
+  countsLine?: string;
 };
 
 const VALID_STATUSES: ReadonlySet<string> = new Set([
@@ -312,12 +335,16 @@ type Args = {
   prUrl?: string;
   why?: string;
   reason?: string;
+  tldr?: string;
   validationItemsFile?: string;
   deferredFile?: string;
   worktree?: string;
   planFile?: string;
   echoProse?: boolean;
   cleanup?: boolean;
+  lens?: string;
+  untrackedFile?: string;
+  countsLine?: string;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
@@ -357,6 +384,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--reason":
         out.reason = value;
         break;
+      case "--tldr":
+        out.tldr = value;
+        break;
       case "--validation-items-file":
         out.validationItemsFile = value;
         break;
@@ -368,6 +398,15 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         break;
       case "--plan-file":
         out.planFile = value;
+        break;
+      case "--lens":
+        out.lens = value;
+        break;
+      case "--untracked-file":
+        out.untrackedFile = value;
+        break;
+      case "--counts-line":
+        out.countsLine = value;
         break;
       default:
         return { error: `unknown flag: ${flag}` };
@@ -459,14 +498,35 @@ export function render(inputs: GateSummaryInputs): string {
   }
 }
 
+// Prepends `TLDR: <text>` as the literal first line — Q16/Task-9: "first
+// row on every status" (including awaiting-approval and cancelled),
+// independent of lens. Absent `tldr` ⇒ no row (never required — a missing
+// --tldr must never block a terminal render).
+function pushTldr(lines: string[], tldr: string | undefined): void {
+  const t = oneLine(tldr);
+  if (t) lines.unshift(`TLDR: ${t}`);
+}
+
+function effectiveLens(inputs: GateSummaryInputs): OutputLens {
+  return inputs.lens ?? "dev";
+}
+
 function renderMerged(inputs: GateSummaryInputs): string {
   const lines: string[] = ["STATUS: MERGED"];
   if (inputs.prUrl) lines.push(`PR: ${inputs.prUrl}`);
-  const why = oneLine(inputs.why);
-  if (why) lines.push(`WHY: ${why}`);
+  const pm = effectiveLens(inputs) === "pm";
+  if (!pm) {
+    const why = oneLine(inputs.why);
+    if (why) lines.push(`WHY: ${why}`);
+  }
+  if (pm) {
+    lines.push(...buildUntracked(inputs.untrackedBlock));
+    if (inputs.countsLine) lines.push(oneLine(inputs.countsLine));
+  }
+  pushCleanup(lines, inputs.cleanup, pm);
+  if (!pm) appendFollowups(lines, inputs.deferredBlock);
   lines.push("NEXT ACTION: none (post-merge cleanup already ran)");
-  pushCleanup(lines, inputs.cleanup);
-  appendFollowups(lines, inputs.deferredBlock);
+  pushTldr(lines, inputs.tldr);
   lines.push("MERGED");
   return lines.join("\n");
 }
@@ -474,24 +534,38 @@ function renderMerged(inputs: GateSummaryInputs): string {
 function renderGated(inputs: GateSummaryInputs): string {
   const lines: string[] = ["STATUS: GATED"];
   if (inputs.prUrl) lines.push(`PR: ${inputs.prUrl}`);
-  const why = oneLine(inputs.why);
-  if (why) lines.push(`WHY: ${why}`);
-  const mergeVerb = inputs.prUrl
-    ? `validate then run: gh pr merge --squash ${extractPrNumber(inputs.prUrl) ?? "<pr>"}`
-    : "validate then run: gh pr merge --squash <pr>";
-  lines.push(`NEXT ACTION: ${mergeVerb}`);
+  const pm = effectiveLens(inputs) === "pm";
   const items = inputs.validationItems ?? [];
-  for (const item of items) {
-    const trimmed = item.trim();
-    if (!trimmed) continue;
-    // Items may arrive pre-bulleted (e.g. read verbatim from a file
-    // containing "- foo") or as bare text; normalise to the same
-    // two-space indent + leading `- ` shape.
-    const stripped = trimmed.replace(/^[-*]\s+/, "");
-    lines.push(`  - ${stripped}`);
+  if (pm) {
+    lines.push(...buildNeedsAttention(items, inputs.prUrl));
+    lines.push(...buildManualAction(items, inputs.deferredBlock));
+    lines.push(...buildUntracked(inputs.untrackedBlock));
+    if (inputs.countsLine) lines.push(oneLine(inputs.countsLine));
+    pushCleanup(lines, inputs.cleanup, pm);
+    const mergeVerb = inputs.prUrl
+      ? `gh pr merge --squash ${extractPrNumber(inputs.prUrl) ?? "<pr>"}`
+      : "gh pr merge --squash <pr>";
+    lines.push(`NEXT ACTION: tick the items above, then: ${mergeVerb}`);
+  } else {
+    const why = oneLine(inputs.why);
+    if (why) lines.push(`WHY: ${why}`);
+    const mergeVerb = inputs.prUrl
+      ? `validate then run: gh pr merge --squash ${extractPrNumber(inputs.prUrl) ?? "<pr>"}`
+      : "validate then run: gh pr merge --squash <pr>";
+    lines.push(`NEXT ACTION: ${mergeVerb}`);
+    for (const item of items) {
+      const trimmed = item.trim();
+      if (!trimmed) continue;
+      // Items may arrive pre-bulleted (e.g. read verbatim from a file
+      // containing "- foo") or as bare text; normalise to the same
+      // two-space indent + leading `- ` shape.
+      const stripped = trimmed.replace(/^[-*]\s+/, "");
+      lines.push(`  - ${stripped}`);
+    }
+    pushCleanup(lines, inputs.cleanup, pm);
+    appendFollowups(lines, inputs.deferredBlock);
   }
-  pushCleanup(lines, inputs.cleanup);
-  appendFollowups(lines, inputs.deferredBlock);
+  pushTldr(lines, inputs.tldr);
   const sentinel = inputs.prUrl ? `GATED: ${inputs.prUrl}` : "GATED:";
   lines.push(sentinel);
   return lines.join("\n");
@@ -500,18 +574,26 @@ function renderGated(inputs: GateSummaryInputs): string {
 function renderNeedsHuman(inputs: GateSummaryInputs): string {
   const lines: string[] = ["STATUS: NEEDS HUMAN"];
   if (inputs.prUrl) lines.push(`PR: ${inputs.prUrl}`);
+  const pm = effectiveLens(inputs) === "pm";
   // The WHY field carries the inline context. When `--reason` is set
   // but `--why` is omitted, surface the bare reason tag — the user
   // still gets the escalation tag printed twice (once on the WHY
   // line, once on the sentinel) which matches the historical inline
   // `echo "NEEDS HUMAN: <reason>"` shape callers had to maintain by
   // hand.
-  const why =
-    oneLine(inputs.why) || (inputs.reason ? oneLine(inputs.reason) : "");
-  if (why) lines.push(`WHY: ${why}`);
+  if (!pm) {
+    const why =
+      oneLine(inputs.why) || (inputs.reason ? oneLine(inputs.reason) : "");
+    if (why) lines.push(`WHY: ${why}`);
+  }
+  if (pm) {
+    lines.push(...buildUntracked(inputs.untrackedBlock));
+    if (inputs.countsLine) lines.push(oneLine(inputs.countsLine));
+  }
+  pushCleanup(lines, inputs.cleanup, pm);
+  if (!pm) appendFollowups(lines, inputs.deferredBlock);
   pushNextAction(lines, nextActionForReason(inputs.reason));
-  pushCleanup(lines, inputs.cleanup);
-  appendFollowups(lines, inputs.deferredBlock);
+  pushTldr(lines, inputs.tldr);
   const reasonText = inputs.reason ? oneLine(inputs.reason) : "<reason>";
   lines.push(`NEEDS HUMAN: ${reasonText}`);
   return lines.join("\n");
@@ -519,14 +601,20 @@ function renderNeedsHuman(inputs: GateSummaryInputs): string {
 
 function renderAwaitingApproval(inputs: GateSummaryInputs): string {
   const lines: string[] = [];
+  const pm = effectiveLens(inputs) === "pm";
   // --echo-prose PREPENDS the delimited recap block above STATUS. At
   // awaiting-approval no reviewable artifact exists yet, so only the path
   // fields are populated; review/CI/count fields render `none`. The block is
   // the SAME marker pair flow-pipeline-summary uses; --echo-prose is a strict
   // no-op on the four sentinel-bearing statuses (handled by their own
-  // renderers, which never read inputs.echoProse).
+  // renderers, which never read inputs.echoProse). Under `pm`, the
+  // eight always-`none` rows carry no decision value (calibration
+  // sample 1) — suppressed via `suppressNone`.
   if (inputs.echoProse) {
-    const recap = renderEchoRecap({ planFile: inputs.planFile });
+    const recap = renderEchoRecap({
+      planFile: inputs.planFile,
+      suppressNone: pm,
+    });
     lines.push(recap, "");
   }
   lines.push("STATUS: AWAITING APPROVAL");
@@ -539,17 +627,22 @@ function renderAwaitingApproval(inputs: GateSummaryInputs): string {
   // click target. See SKILL.md:629 for the canonical explanation.
   if (inputs.worktree) lines.push(`  - ${inputs.worktree}`);
   if (inputs.planFile) lines.push(`  - ${inputs.planFile}`);
+  pushTldr(lines, inputs.tldr);
   return lines.join("\n");
 }
 
 function renderCancelled(inputs: GateSummaryInputs): string {
   const lines: string[] = ["STATUS: CANCELLED"];
-  const why = oneLine(inputs.why);
-  if (why) lines.push(`WHY: ${why}`);
+  const pm = effectiveLens(inputs) === "pm";
+  if (!pm) {
+    const why = oneLine(inputs.why);
+    if (why) lines.push(`WHY: ${why}`);
+  }
   lines.push("NEXT ACTION: none");
   // No appendFollowups call on this path — cleanup sits directly between
   // NEXT ACTION and the sentinel here, not before a FOLLOW-UPS block.
-  pushCleanup(lines, inputs.cleanup);
+  pushCleanup(lines, inputs.cleanup, pm);
+  pushTldr(lines, inputs.tldr);
   lines.push("cancelled");
   return lines.join("\n");
 }
@@ -593,9 +686,39 @@ export function renderCleanup(cleanup: CleanupInput): string[] {
   }
 }
 
-function pushCleanup(lines: string[], cleanup: CleanupInput | undefined): void {
+/**
+ * `pm`-lens collapse: one row, no timestamp, no re-run follow-on bullet —
+ * the reader gets the verdict, not the audit trail (`dev` keeps
+ * `renderCleanup`'s full multi-line shape unchanged).
+ */
+function renderCleanupPm(cleanup: CleanupInput): string {
+  switch (cleanup.kind) {
+    case "record": {
+      const r = cleanup.record;
+      return r.status === "ok"
+        ? `CLEANUP: reap ok — ${r.summary}`
+        : `CLEANUP: REAP UNCLEAN — ${r.summary}`;
+    }
+    case "stale":
+      return "CLEANUP: REAP NOT RECORDED (stale) — this render's reap did not run";
+    case "missing-record":
+      return "CLEANUP: REAP NOT RECORDED — the terminal-state reap did not run";
+    case "no-state":
+      return "CLEANUP: unknown — no pipeline state file for this run";
+  }
+}
+
+function pushCleanup(
+  lines: string[],
+  cleanup: CleanupInput | undefined,
+  pm = false,
+): void {
   if (!cleanup) return;
-  lines.push(...renderCleanup(cleanup));
+  if (pm) {
+    lines.push(renderCleanupPm(cleanup));
+  } else {
+    lines.push(...renderCleanup(cleanup));
+  }
 }
 
 function appendFollowups(
@@ -684,17 +807,22 @@ function resolveCleanupInput(
 
 export function run(
   argv: string[],
-  opts?: { env?: NodeJS.ProcessEnv; stateDir?: string },
+  opts?: {
+    env?: NodeJS.ProcessEnv;
+    stateDir?: string;
+    read?: Parameters<typeof resolveLens>[1];
+  },
 ): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     process.stderr.write(`flow-gate-summary: ${parsed.error}\n`);
     process.stderr.write(
       "usage: flow-gate-summary --status <merged|gated|needs-human|awaiting-approval|cancelled>\n" +
-        "                         [--pr-url <url>] [--why <text>] [--reason <tag>]\n" +
+        "                         [--pr-url <url>] [--why <text>] [--reason <tag>] [--tldr <text>]\n" +
         "                         [--validation-items-file <path>] [--deferred-file <path>]\n" +
         "                         [--worktree <path>] [--plan-file <path>] [--echo-prose]\n" +
-        "                         [--cleanup]\n",
+        "                         [--cleanup] [--lens <pm|dev>] [--untracked-file <path>]\n" +
+        "                         [--counts-line <text>]\n",
     );
     return 2;
   }
@@ -704,17 +832,33 @@ export function run(
   const cleanup = parsed.cleanup
     ? resolveCleanupInput(opts?.env ?? process.env, opts?.stateDir)
     : undefined;
+  const lens = resolveLens(parsed.lens, opts?.read);
+  let tldr = parsed.tldr;
+  if (tldr !== undefined) {
+    const clamped = clampTldr(tldr);
+    if (clamped.truncated) {
+      process.stderr.write(
+        `flow-gate-summary: --tldr truncated to ${TLDR_MAX_WORDS} words (got ${clamped.words})\n`,
+      );
+    }
+    tldr = clamped.text;
+  }
+  const untrackedBlock = readFileOrEmpty(parsed.untrackedFile);
   const block = render({
     status: parsed.status,
     prUrl: parsed.prUrl,
     why: parsed.why,
     reason: parsed.reason,
+    tldr,
     validationItems,
     deferredBlock,
     worktree: parsed.worktree,
     planFile: parsed.planFile,
     echoProse: parsed.echoProse,
     cleanup,
+    lens,
+    untrackedBlock,
+    countsLine: parsed.countsLine,
   });
   process.stdout.write(block + "\n");
   return 0;

@@ -148,6 +148,39 @@ export function isEmpty(entries: ForeclosedEntry[]): boolean {
   return entries.length === 0;
 }
 
+export type ForeclosedSummary = {
+  rejected: number;
+  antiPatterns: number;
+  notes: number;
+};
+
+/**
+ * Counts for the `<details><summary>N rejected alternatives, M
+ * anti-patterns, K reviewer notes</summary>` header. `notes` = consolidator
+ * string[] entries (`raw !== undefined`) — the free-form reviewer bullets
+ * that don't decompose into the structured rejected/anti-pattern shape.
+ * `unreadable`/`skipped` residual markers are excluded from every count
+ * (they are not findings) but still render as bullets inside the wrapper.
+ */
+export function summarizeEntries(
+  entries: ForeclosedEntry[],
+): ForeclosedSummary {
+  let rejected = 0;
+  let antiPatterns = 0;
+  let notes = 0;
+  for (const e of entries) {
+    if (e.unreadable || e.skipped) continue;
+    if (e.raw !== undefined) {
+      notes++;
+    } else if (e.category === "rejected-alternative") {
+      rejected++;
+    } else {
+      antiPatterns++;
+    }
+  }
+  return { rejected, antiPatterns, notes };
+}
+
 /**
  * Neutralize markdown heading markers in a free-form string so they can never
  * be misread as a section boundary by the idempotent upsert's `^## ` re-parse.
@@ -166,42 +199,57 @@ function annotateIntroduced(introduced: boolean | undefined): string {
   return introduced ? " (new)" : " (pre-existing)";
 }
 
-/** GitHub-markdown lines for the PR-body `## Foreclosed Paths` section. */
+/**
+ * GitHub-markdown lines for the PR-body `## Foreclosed Paths` section.
+ * The heading stays a bare `##` line (`upsertPrBodySection` splices on it
+ * via `^## ` → the next `^## `); the bullets themselves are collapsed
+ * inside a `<details>` wrapper so the section reads as one summary line
+ * at the top level of the PR body instead of 14+ reviewer-only bullets.
+ */
 export function formatMarkdown(inputs: {
   fixApplierRaw: string;
   consolidatorRaw: string;
 }): string[] {
   const entries = collectForeclosedEntries(inputs);
-  const lines: string[] = [FORECLOSED_HEADING, ""];
+  const summary = summarizeEntries(entries);
+  const bullets: string[] = [];
   for (const e of entries) {
     if (e.skipped) {
-      lines.push(`- ${e.source}: (${e.skipped} unreadable)`);
+      bullets.push(`- ${e.source}: (${e.skipped} unreadable)`);
       continue;
     }
     if (e.unreadable) {
-      lines.push(`- ${e.source}: (unreadable)`);
+      bullets.push(`- ${e.source}: (unreadable)`);
       continue;
     }
     if (e.raw !== undefined) {
-      lines.push(`- ${neutralizeHeading(e.raw)}`);
+      bullets.push(`- ${neutralizeHeading(e.raw)}`);
       continue;
     }
     if (e.category === "rejected-alternative") {
       const fid = e.finding_id ? ` (\`${e.finding_id}\`)` : "";
-      lines.push(
+      bullets.push(
         `- **rejected:** ${neutralizeHeading(e.considered_approach ?? "")}${fid}`,
       );
-      lines.push(`  - why: ${neutralizeHeading(e.why_rejected ?? "")}`);
+      bullets.push(`  - why: ${neutralizeHeading(e.why_rejected ?? "")}`);
     } else {
-      lines.push(
+      bullets.push(
         `- **anti-pattern${annotateIntroduced(e.introduced_by_this_pr)}:** ${neutralizeHeading(e.location ?? "")} — ${neutralizeHeading(e.pattern ?? "")}`,
       );
-      lines.push(
+      bullets.push(
         `  - recommendation: ${neutralizeHeading(e.recommendation ?? "")}`,
       );
     }
   }
-  return lines;
+  return [
+    FORECLOSED_HEADING,
+    "",
+    `<details><summary>${summary.rejected} rejected alternatives, ${summary.antiPatterns} anti-patterns, ${summary.notes} reviewer notes</summary>`,
+    "",
+    ...bullets,
+    "",
+    "</details>",
+  ];
 }
 
 /** Indented plain-text lines for the terminal snapshot (no markdown). */

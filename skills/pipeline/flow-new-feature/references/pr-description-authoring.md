@@ -84,6 +84,21 @@ subsection is non-`none`. OMIT THIS HEADING ENTIRELY when nothing moved at that 
 User-facing changes above, there is no `none` affirmation for this section — an absent
 heading already means "nothing moved here".>
 
+## Deviations from plan
+
+<Omit-when-empty. One bullet per meaningful deviation between the
+approved plan and what shipped — per
+`skills/pipeline/flow-pipeline/references/pause-output-contract.md`
+`## Definitions`, a meaningful deviation is: user-visible behavior
+differs from what the plan described, scope was dropped or added, an
+architecture choice changed from the plan's, or something was
+deferred rather than shipped. At draft time (seeded before
+implementation runs) this section is authored EMPTY — omit the
+heading entirely; `/flow-pr-review` Step 11d populates it post-hoc
+from the accuracy sync when a deviation is actually found. Never a
+`suggestion` finding; a Q5-class deviation belongs here, not in the
+review findings list.>
+
 ## Test Steps
 
 <Verification steps for this PR — both automated and manual smoke. The heading is also

@@ -35,6 +35,15 @@ export type EchoRecapInputs = {
   reviewVerdict?: string;
   findingCount?: number;
   followupCount?: number;
+  /**
+   * When true, a row whose entire value is `none` is omitted rather than
+   * printed — used ONLY at `awaiting-approval` under the `pm` lens, where
+   * eight always-`none` rows carried no decision value (calibration
+   * sample 1). Never applied to the gated/merged echo-recap or to
+   * `pipeline-summary-sources`' NONE rows — those keep the
+   * never-fabricate-always-print-`none` honesty discipline.
+   */
+  suppressNone?: boolean;
 };
 
 function orNone(value: string | undefined): string {
@@ -48,22 +57,47 @@ function countOrNone(value: number | undefined): string {
 
 export function renderEchoRecap(inputs: EchoRecapInputs): string {
   // PR URL + plan-file: click targets, so NO trailing punctuation.
+  const branchIsNone =
+    (!inputs.branch || !inputs.branch.trim()) &&
+    (!inputs.prNumber || !inputs.prNumber.trim());
   const branchBullet =
     inputs.prNumber !== undefined && inputs.prNumber.trim()
       ? `branch: ${orNone(inputs.branch)} (PR #${inputs.prNumber.trim()})`
       : `branch: ${orNone(inputs.branch)} (PR #${NONE})`;
+  const reviewIsNone =
+    (!inputs.reviewVerdict || !inputs.reviewVerdict.trim()) &&
+    inputs.findingCount === undefined;
 
-  const lines: string[] = [
-    ECHO_RECAP_START,
-    `- PR URL: ${orNone(inputs.prUrl)}`,
-    `- Plan file: ${orNone(inputs.planFile)}`,
-    `- ${branchBullet}`,
-    `- PR title: ${orNone(inputs.prTitle)}`,
-    `- Phase: ${orNone(inputs.phase)}`,
-    `- CI: ${orNone(inputs.ciVerdict)}`,
-    `- Review: ${orNone(inputs.reviewVerdict)} (${countOrNone(inputs.findingCount)} findings)`,
-    `- Follow-ups: ${countOrNone(inputs.followupCount)}`,
-    ECHO_RECAP_END,
+  const rows: { text: string; isNone: boolean }[] = [
+    {
+      text: `- PR URL: ${orNone(inputs.prUrl)}`,
+      isNone: !inputs.prUrl?.trim(),
+    },
+    {
+      text: `- Plan file: ${orNone(inputs.planFile)}`,
+      isNone: !inputs.planFile?.trim(),
+    },
+    { text: `- ${branchBullet}`, isNone: branchIsNone },
+    {
+      text: `- PR title: ${orNone(inputs.prTitle)}`,
+      isNone: !inputs.prTitle?.trim(),
+    },
+    { text: `- Phase: ${orNone(inputs.phase)}`, isNone: !inputs.phase?.trim() },
+    {
+      text: `- CI: ${orNone(inputs.ciVerdict)}`,
+      isNone: !inputs.ciVerdict?.trim(),
+    },
+    {
+      text: `- Review: ${orNone(inputs.reviewVerdict)} (${countOrNone(inputs.findingCount)} findings)`,
+      isNone: reviewIsNone,
+    },
+    {
+      text: `- Follow-ups: ${countOrNone(inputs.followupCount)}`,
+      isNone: inputs.followupCount === undefined,
+    },
   ];
+
+  const body = inputs.suppressNone ? rows.filter((r) => !r.isNone) : rows;
+  const lines = [ECHO_RECAP_START, ...body.map((r) => r.text), ECHO_RECAP_END];
   return lines.join("\n");
 }

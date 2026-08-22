@@ -115,6 +115,13 @@ describe("runUpsert", () => {
     expect(edit!.bodyFileContent!).toContain("## Foreclosed Paths");
     expect(edit!.bodyFileContent!).toContain("memoize the parser");
     expect(edit!.bodyFileContent!).toContain("kept the two lenses separate");
+    // The section body is collapsed under a <details> wrapper (Task 7);
+    // normalizeDetailsBlocks (routed through upsertPrBodySection) leaves
+    // its blank-line-after-<summary>/</details> shape unchanged.
+    expect(edit!.bodyFileContent!).toContain(
+      "<details><summary>1 rejected alternatives, 0 anti-patterns, 1 reviewer notes</summary>",
+    );
+    expect(edit!.bodyFileContent!).toContain("</details>");
   });
 
   it("is idempotent — a second run produces no further edit", () => {

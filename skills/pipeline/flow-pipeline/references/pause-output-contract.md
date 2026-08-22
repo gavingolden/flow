@@ -14,19 +14,102 @@ markdown instead of a helper block.
    carrying the status, e.g. `### ⏸ GATED — manual validation needed`,
    `### ❓ Clarification needed`, `### ✅ Merged`. It is the visual
    anchor the user scrolls to.
-2. **Labeled slots (omit-when-empty, in this order):**
-   - `**Went wrong:**` — what failed or blocked, if anything. The
-     informal synonym of the gate grammar's `WHY:`.
-   - `**Remaining:**` — work still outstanding (unchecked items, next
-     pipeline steps, deferred fixes).
-   - `**Needs your review:**` — items awaiting the user's judgment
-     (subjective checks, gated Test Steps, open questions).
-   - `**Notes:**` — the catch-all for genuinely unclassifiable content
-     (see below).
-3. `**Next action:**` (always) — the single most useful thing the user
-   can do next, naming the reply verbs the site accepts (e.g. `approve`
-   / `redirect: …` / `cancel`, or "tick the Test Steps boxes and say
-   `merge`").
+2. `**TLDR:**` (always) — one sentence, the user-visible outcome or
+   consequence, never the mechanism. It is the first slot, before any
+   omit-when-empty slot, so a reader who stops after one line still
+   knows what happened.
+3. **Labeled slots (omit-when-empty, in this order):**
+   - `**Unsolved:**` — open forks, unresolved questions, or known-red
+     items left as-is, each with the recommended default inline when
+     one exists.
+   - `**Needs attention:**` — high-stakes decisions (see
+     `## Definitions`) and items awaiting the user's judgment
+     (subjective checks, gated Test Steps with their click target, open
+     questions), each stated as before→after plus the option chosen and
+     why.
+   - `**Manual action:**` — split `before merge:` / `whenever:` (see
+     `## Definitions`).
+   - `**Untracked:**` — discovered-but-not-tracked work items (see
+     `## Definitions`), each with its `#N` and the `file #N` /
+     `drop #N` reply verbs.
+4. `**Next action:**` (always, last) — the single most useful thing the
+   user can do next, naming the reply verbs the site accepts (e.g.
+   `approve` / `redirect: …` / `cancel`, or "tick the Test Steps boxes
+   and say `merge`").
+
+There is no catch-all slot. A Q&A answer, a mechanism note, or any
+content that does not fit one of the six labels above lives as prose
+**above** the block (see `## Closing-summary` below), never forced under
+a wrong label and never left as unlabeled prose after the block.
+
+## Ceiling
+
+A pause block is a decision surface, not a recap: it targets **~12
+lines** including the status heading and the reply-verb line, with
+**≤2 bullets per slot**. When a slot's content would exceed two bullets:
+
+- minor/solved items collapse into the one count line inside
+  `**Manual action:**` or the area just above `**Next action:**` (see
+  the count-line definition below) rather than enumerating each one,
+- overflow rides behind a named artifact path (`plan: <path>`,
+  `→ <pr-url>`) the reader can open on demand, or behind a chat-visible
+  `<details>` block for a snapshot/comment render,
+- never behind a second, unlinked pause block or a wall of additional
+  bullets.
+
+The ceiling is advisory for helper-rendered blocks with more than two
+attention items (calibration sample 7 renders 13 lines with two items
+plus one follow-up) and binding for LLM-authored informal pauses, which
+have no mechanical cap — see a feature plan's `## Plan risks` for the
+acknowledged risk that this is a strong, not mechanical, lever.
+
+## Definitions
+
+**Meaningful deviation** (feeds `**Unsolved:**` / `**Needs attention:**`
+and the PR body's `## Deviations from plan`): user-visible behavior
+differs from what the plan described, scope was dropped or added, an
+architecture choice changed from the plan's, or something was deferred
+rather than shipped.
+
+**High-stakes decision** (feeds `**Needs attention:**`): a new
+dependency or module, a changed storage/state/contract shape, a new
+policy or exemption, a hard-to-reverse choice, or a debated fork with
+more than one viable option. Read these from a plan's
+`## Decision analysis` and `## Architecture Decisions` sections; state
+each as before→after, the option chosen, and why — never as an
+enumerated task or file list (see `## Applicability`'s plan-approval
+entry).
+
+**Untracked** (feeds `**Untracked:**`): work discovered mid-run that is
+not in the plan and not filed as an issue — a mechanically-seeded
+deferral, an observed anti-pattern, or a supervisor-judged addition.
+flow only **lists** untracked items with their `#N`; it never
+auto-files one. `file #N` (any pause site) or `drop #N` are the only
+ways an item leaves the unfiled list; both produce a one-line
+confirmation, never a silent state change.
+
+**Count line**: minor, already-solved problems (findings fixed, defects
+closed) collapse to one line — `N findings fixed, M deferred` — rather
+than an itemized recap. It never attests to behavior ("none changed
+behavior"); a fix whose behavior changed is a deviation and belongs
+under `**Needs attention:**` / `## Deviations from plan` instead, per
+its own defined slot.
+
+**Manual action split**: `before merge:` is the mechanical
+`SUBJECTIVE:`-prefixed subset of a gate's validation items; `whenever:`
+is everything else queued for later (local follow-ups, post-merge
+chores). An item never appears in both buckets.
+
+**"Give me the technical version"**: on request, the current reply
+expands in place to the full mechanism-and-identifier detail (the raw
+tool names, step numbers, internal error strings this contract
+otherwise translates away) — a one-time chat expansion, not a change to
+`output.lens` or any persisted setting.
+
+**Q&A answers live above the block**: an answer to a question the user
+asked rides as prose immediately above the pause block, in ≤3 sentences
+per `## Language contract`; it is never squeezed into `**TLDR:**` or any
+other slot as a label-mismatched summary.
 
 ## Language contract
 
@@ -54,7 +137,7 @@ generalized rule in `references/output-style.md`.
    confident bottom line. (This rule is deliberately ordered before the
    options rule.)
 4. **Options with consequences.** When a decision is needed,
-   `**Needs your review:**` carries the short option list —
+   `**Needs attention:**` carries the short option list —
    recommendation first, each option naming its good AND bad
    consequence on one line. `**Next action:**` keeps the single-line
    form the slot set above defines: the recommended reply verb, or
@@ -118,7 +201,7 @@ are chosen. It is binding, not advisory.
 imperative steps, one action per line: `  1. <imperative step>`, `  2.
 <imperative step>`, … — in a helper-rendered block the step lines carry
 the block's two-space indent, matching the GATED block's validation-item
-rows (`  - <item>`) and the `FOLLOW-UPS:` entries. Multi-sentence or
+rows (`  - <item>`) and the `MANUAL ACTION:` entries. Multi-sentence or
 reference detail rides as an indented sub-bullet under the step it
 belongs to (`   - <detail>`), never bundled onto the step line itself —
 except a short trailing qualifier on the step's own command (see
@@ -132,7 +215,7 @@ back — name the actor at the start of the relevant step (`**Supervisor:**
 `NEXT ACTION:` row `bin/flow-gate-summary.ts` renders for a multi-action
 recipe, and (b) authored procedure docs — the escalation procedures in
 `references/failure-recovery.md`. It does **not** change the informal
-pause-block `**Next action:**` slot defined in `## The block` item 3
+pause-block `**Next action:**` slot defined in `## The block` item 4
 above: that slot is bound by `## Language contract` rule 4 to a single
 most-useful next thing, single-line by construction, and stays that way.
 The two sections are not in tension — `## The block` governs the one
@@ -211,36 +294,44 @@ input or reports a stop**, formal or informal:
 - an escalation,
 - a terminal completion report.
 
+The plan-approval message (a step-3 end condition) is a named instance
+of the awaiting-approval render: `**Needs attention:**` carries
+before→after changes and high-stakes decisions with the option chosen
+and why (`## Definitions` above), plus one `Scope: N tasks, M files`
+line — task titles and file lists are never echoed, only the plan path
+under `**Next action:**`.
+
 Mid-turn progress narration is out of scope — the block marks the
 _pause point_, not every message.
 
 ## Omit-when-empty
 
 Slot omission is **unconditional**: an empty slot is dropped, never
-rendered as `**Went wrong:** none`. There is **no discretionary
-"trivial answer" escape hatch** — a trivial answer collapses naturally
-to the STATUS heading + a `**Notes:**` slot carrying the answer +
-`**Next action:**`, which is already the minimal legal block: the
-answer still lands in a labeled slot, never as unlabeled prose inside
-the block. If you find yourself wanting to skip the block because the
-message is short, the short block _is_ the compliant form.
+rendered as `**Unsolved:** none`. There is **no discretionary "trivial
+answer" escape hatch** — a trivial answer collapses naturally to the
+STATUS heading + `**TLDR:**` + `**Next action:**`, which is already the
+minimal legal block: the answer itself lives as prose above the block
+(see `## Definitions`'s Q&A rule), never as unlabeled prose inside or
+after the block. If you find yourself wanting to skip the block because
+the message is short, the short block _is_ the compliant form.
 
-## Closing-summary and Notes catch-all
+## Closing-summary
 
 The pause block is the **closing summary of the message**, not its
-body. Detail — analysis prose, file excerpts, tables — lives above the
-block; the block distills it into slots. `**Notes:**` exists so that
-genuinely unclassifiable content still lands _inside_ the block: nothing
-may be forced under a wrong label, and nothing may leak into open prose
-after the block. The block is always the last thing in the message.
+body. Detail — analysis prose, file excerpts, tables, and any Q&A
+answer — lives above the block; the block distills it into slots.
+Nothing may be forced under a wrong label, and nothing may leak into
+open prose after the block. The block is always the last thing in the
+message.
 
 ## Gate-grammar reconciliation
 
 Formal helper-rendered blocks — `flow-gate-summary` and
 `flow-pipeline-summary` — **satisfy this contract via their own
-grammar**: `STATUS:` is the status heading, `WHY:` is the formal-gate
-synonym for `**Went wrong:**` context, `NEXT ACTION:` is
-`**Next action:**`. A gate render is never duplicated, re-wrapped, or
+grammar**: `STATUS:` is the status heading, `TLDR:` is `**TLDR:**`,
+`NEEDS ATTENTION:` is `**Needs attention:**`, `MANUAL ACTION:` is
+`**Manual action:**`, `UNTRACKED:` is `**Untracked:**`, `NEXT ACTION:`
+is `**Next action:**`. A gate render is never duplicated, re-wrapped, or
 followed by a second markdown pause block over the same content. The
 markdown block form below is only for the informal sites the helpers do
 not cover (clarifying questions, feedback replies, post-render QA
@@ -250,29 +341,83 @@ prose).
 
 The language-side before/after pairs for these same pause points live
 in `## Language contract` above; the examples below show the full slot
-grammar in context.
+grammar in context (calibration samples 1, 3, 5, and 6 — full derivation
+in a feature plan's calibration appendix).
 
-**Clarifying question (triage):**
+**Plan ready (calibration sample 1):**
 
-> ### ❓ Clarification needed
+> ### ⏸ Plan ready for review
 >
-> **Needs your review:** "make the dashboard faster" — is the target the initial page load or the live-refresh interval?
-> **Next action:** Reply with one of the two; I re-enter triage with your answer.
-
-**Gated feedback reply (after a bug callout was fixed):**
-
-> ### ⏸ GATED — fix applied, re-verified
+> **TLDR:** CI waiting becomes crash-proof: a suspended laptop can no
+> longer produce a false "CI stuck" escalation.
+> **Unsolved:** Q2–Q6 all have a recommended default (keep the
+> `flow-ci-wait` name; drop the transient-`gh` hang path; cap the
+> waiter at 9 min) — reply `answer: …` only to override.
+> **Needs attention:** state shape changes — CI anchors now persist in
+> `~/.flow/state/<slug>.json` (before: none; after:
+> `ciWait.startedAt`), chosen over stateless GitHub-only anchors
+> because a slept process needs a durable start time. Risk: two
+> binaries instead of one.
+> **Next action:** `approve` · `redirect: …` · `answer: …` · `cancel`
+> — plan: /Users/gavingolden/code/me/flow-f3-ci-check-split/.flow-tmp/plan.md
+> (safe to `/clear`)
 >
-> **Remaining:** Test Steps items 2 and 4 are still unchecked on PR #212.
-> **Needs your review:** re-check the popover positioning at narrow widths (the reported bug).
-> **Next action:** Tick the remaining boxes and say `merge`, or report another issue.
+> ```
+> STATUS: AWAITING APPROVAL
+> NEXT ACTION: reply approve / redirect <new direction> / cancel
+>   - /Users/gavingolden/code/me/flow-f3-ci-check-split/.flow-tmp/plan.md
+> ```
 
-**Post-merge QA answer:**
+**GATED, judgment needed (calibration sample 3):**
 
-> ### ✅ Merged — question answered
+> ### ⏸ GATED — PR #640, 2 checks need you
 >
-> **Notes:** the wall-clock retry cap lives in `bin/flow-ci-wait.ts` (`maxElapsed`, default 1200s); the squash commit is `abc1234`.
-> **Next action:** Nothing pending — this pipeline is complete.
+> **TLDR:** `/clear` in a finished flow window now fires an
+> orientation turn naming the merged PR; two hand checks remain.
+> **Needs attention:** SUBJECTIVE — in a real tmux window at `merged`,
+> `/clear` fires a turn within ~10s → https://github.com/gavingolden/flow/pull/640
+> · ask a follow-up there and confirm the answer is repo-grounded.
+> **Manual action:** whenever — `flow install --upgrade` is queued
+> post-merge; verify only after it runs.
+> **Untracked:** none — #641, #642 already filed.
+> 16 findings fixed, none changed behavior (the one real defect was a
+> docs claim; fixed in prose).
+> **Next action:** tick the two boxes and say `merge`, or report an
+> issue.
+
+**MERGED, nothing outstanding (calibration sample 5):**
+
+> ### ✅ MERGED — PR #644
+>
+> **TLDR:** Plan review now runs on Gemini 3.7 Flash by default
+> (benched: same defect catch rate, ~2× faster) →
+> https://github.com/gavingolden/flow/pull/644
+> **Untracked:** none — #651 (bench the flash-medium/-low tiers) filed
+> at merge.
+> 5 findings fixed, none changed behavior.
+> **Next action:** none — `flow done re-run-flow-model-benchmark` when
+> you like.
+
+**GATED, Q&A above the block (calibration sample 6):**
+
+> Your three questions, answered: the baseline run draws on the Max
+> subscription's quota, not a per-call dollar cost (`claude auth
+status` shows the active plan); "just gatekeeper" already means the
+> haiku-routed `/flow-pr-review` step 1.5 agent, nothing else changed;
+> report-model choice is unaffected by anything in this PR.
+>
+> ### ⏸ GATED — PR #660, baseline recording is yours
+>
+> **TLDR:** Your three questions are answered above; the baseline run
+> draws on Max quota, not dollars, and nothing here decides your
+> report-model choice.
+> **Unsolved:** `.flow/epics/…/status.json` on `main` already says f1
+> merged (PR #660 is still open) — harmless until merge, don't trust
+> it for `flow epic run` yet.
+> **Manual action:** before merge — run the baseline-recording script
+> from a plain shell, then commit + push on this branch; then tick the
+> validate/self-compare step.
+> **Next action:** run the baseline, tick the boxes, say `merge`.
 
 **Don't (negative example — open prose, no block):**
 

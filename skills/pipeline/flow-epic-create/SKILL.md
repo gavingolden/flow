@@ -308,11 +308,11 @@ Any prose added around the checkpoint render (the palette-deferral note
 above, a design highlight) is supplemental text, not a second pause
 block — the STATUS block itself already satisfies
 `flow-pipeline/references/pause-output-contract.md` via its own
-grammar and is never re-wrapped or duplicated. Add this compact
-`**Notes:**` line ABOVE the helper-rendered STATUS block, per the
-contract's `**Notes:**` catch-all slot:
+grammar and is never re-wrapped or duplicated. Per the contract's Q&A
+rule, this supplemental text lives as plain prose ABOVE the
+helper-rendered STATUS block — never squeezed into a slot:
 
-> **Notes:** <deferral note / design highlight>
+> <deferral note / design highlight, ≤3 sentences>
 
 Then **END the turn**. The `epic-design-pending-review` phase is a pending
 phase, so `flow-stop-guard` permits ending here. Wait for the user to attach
@@ -351,11 +351,11 @@ Every turn-ending Step 7 reply — the ambiguous clarifying question, the
 post-redirect re-checkpoint prose, the approve/cancel confirmation — is
 formatted per the cross-skill
 `flow-pipeline/references/pause-output-contract.md` — labeled slots, no
-open prose. Compact template:
+open prose, ≤12 lines. Compact template:
 
 > ### ❓ Clarification needed
 >
-> **Needs your review:** <the ambiguous reply, quoted>
+> **Needs attention:** <the ambiguous reply, quoted>
 > **Next action:** `approve` / `redirect: <new direction>` / `cancel`.
 
 # Resume mode

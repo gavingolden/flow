@@ -63,6 +63,12 @@ describe("parseArgs", () => {
   it.each(["merged", "gated", "needs-human"])("accepts status %s", (status) => {
     expect(parseArgs(["--status", status])).toMatchObject({ status });
   });
+
+  it("accepts --tag", () => {
+    expect(
+      parseArgs(["--status", "needs-human", "--tag", "verify-exhausted"]),
+    ).toMatchObject({ tag: "verify-exhausted" });
+  });
 });
 
 describe("buildPayload", () => {
@@ -78,11 +84,11 @@ describe("buildPayload", () => {
     expect(buildPayload({ status: "needs-human" }).message).toBe("(no reason)");
   });
 
-  it("collapses whitespace and trims a long reason", () => {
-    const long = `${"x".repeat(125)}\n\nmore`;
+  it("collapses whitespace and trims a long reason at 180 chars", () => {
+    const long = `${"x".repeat(185)}\n\nmore`;
     const payload = buildPayload({ status: "gated", reason: long });
     expect(payload.message.endsWith("…")).toBe(true);
-    expect(payload.message.length).toBe(121);
+    expect(payload.message.length).toBe(181);
   });
 
   it("preserves a short single-line reason verbatim", () => {
@@ -90,6 +96,28 @@ describe("buildPayload", () => {
       buildPayload({ status: "gated", reason: "validate the smoke test" })
         .message,
     ).toBe("validate the smoke test");
+  });
+
+  it("folds --tag into the subtitle after the slug", () => {
+    expect(
+      buildPayload({
+        status: "needs-human",
+        slug: "csv-export",
+        tag: "verify-exhausted",
+      }),
+    ).toMatchObject({ subtitle: "csv-export · verify-exhausted" });
+  });
+
+  it("uses the bare tag as the subtitle when slug is absent", () => {
+    expect(
+      buildPayload({ status: "needs-human", tag: "verify-exhausted" }),
+    ).toMatchObject({ subtitle: "verify-exhausted" });
+  });
+
+  it("leaves the subtitle as the bare slug when tag is absent", () => {
+    expect(
+      buildPayload({ status: "merged", slug: "csv-export" }),
+    ).toMatchObject({ subtitle: "csv-export" });
   });
 });
 
