@@ -311,7 +311,7 @@ core-owned today).
 `flow-pipeline-summary`, `flow-resume-decide`, `flow-stop-guard`,
 `flow-classify-step`, `flow-step3-route`, `flow-candidate-issues`,
 `flow-create-issue`, `flow-followups`, `flow-foreclosed-paths`,
-`flow-notify`, `flow-checkpoint`, `flow-ci-wait`, `flow-fetch-pr-review`,
+`flow-untracked`, `flow-notify`, `flow-checkpoint`, `flow-ci-wait`, `flow-fetch-pr-review`,
 `flow-reply-pr-comments`, `flow-fetch-intent-comments`, `flow-post-findings`,
 `flow-annotate-pr`, `flow-pr-diff`, `flow-pr-agent-lens`,
 `flow-pr-static-analysis`, `flow-inject-evidence`, `flow-ui-validate`,
