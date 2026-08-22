@@ -572,6 +572,18 @@ describe(composeCountsLine, () => {
   it("is 0/0 when fix-applier is absent", () => {
     expect(composeCountsLine("")).toBe("0 findings fixed, 0 deferred");
   });
+
+  it("degrades to 0/0 — not a thrown error — on unparsable fix-applier JSON", () => {
+    expect(composeCountsLine("{not valid json")).toBe(
+      "0 findings fixed, 0 deferred",
+    );
+  });
+
+  it("degrades to 0/0 on well-formed JSON missing the commits/deferred arrays", () => {
+    expect(composeCountsLine(JSON.stringify({ summary: "ok" }))).toBe(
+      "0 findings fixed, 0 deferred",
+    );
+  });
 });
 
 describe(parsePlanDeviations, () => {

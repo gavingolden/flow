@@ -183,8 +183,10 @@ terminal blocks and PR-facing renders show. `pm` (the default) hides
 phase timings, the full review narrative, `rejected:` reasoning, and the
 `## Foreclosed Paths` prose behind `<details>` or the `dev` lens, leaving
 only the six-slot decision surface (`pause-output-contract.md`). `dev`
-restores every render byte-for-byte to today's shape — the pause-block
-_slot set_ is the same under both lenses, only the helper renders widen.
+widens the same helper renders back toward today's fuller shape — the
+pause-block _slot set_ is identical under both lenses, but per-render-site
+detail (e.g. which rows are populated) can still diverge between lenses;
+it is not a guaranteed byte-for-byte restoration of every render.
 Absent key is silent `pm`; a wrong-typed or unknown value warns on
 stderr and falls back to `pm`. Set it with:
 

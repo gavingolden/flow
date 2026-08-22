@@ -18,7 +18,7 @@ export type OutputLens = "pm" | "dev";
 export const OUTPUT_LENSES = ["pm", "dev"] as const;
 
 export function isOutputLens(x: unknown): x is OutputLens {
-  return x === "pm" || x === "dev";
+  return (OUTPUT_LENSES as readonly unknown[]).includes(x);
 }
 
 /**

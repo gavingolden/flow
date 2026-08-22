@@ -5,6 +5,7 @@ import {
   readOutputLens,
   resolveLens,
 } from "./output-lens";
+import * as modulesConfig from "./modules-config";
 import type { ReadConfigFile } from "./modules-config";
 
 const reader =
@@ -55,10 +56,12 @@ describe("readOutputLens", () => {
     expect(spy).toHaveBeenCalledWith(OUTPUT_LENS_INVALID_NOTICE);
   });
 
-  it("never touches the real ~/.flow/config.json (default read param is only exercised via injection in these tests)", () => {
-    // Every case above passes an explicit reader; this test documents the
-    // discipline rather than asserting new behavior.
-    expect(true).toBe(true);
+  it("falls back to the real defaultReadConfigFile seam when no reader is injected", () => {
+    const spy = vi
+      .spyOn(modulesConfig, "defaultReadConfigFile")
+      .mockReturnValue({ output: { lens: "dev" } });
+    expect(readOutputLens()).toBe("dev");
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });
 

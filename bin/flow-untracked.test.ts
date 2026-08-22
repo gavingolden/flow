@@ -215,6 +215,47 @@ describe("run", () => {
     expect(readState("s1", dir)?.untracked?.[0].filedAs).toBe("https://x/1");
   });
 
+  it("file on an unknown id fails with exit 2 (bad-args contract, not the flow-create-issue exit)", () => {
+    seed(BASE);
+    const code = run(["file", "99"], {
+      resolveSlug: () => "s1",
+      stateDir: dir,
+      createIssue: () => ({ url: "https://x/should-not-happen" }),
+    });
+    expect(code).toBe(2);
+  });
+
+  it("file fails with exit 1 when the injected createIssue throws (flow-create-issue failed)", () => {
+    seed(addItem(BASE, { title: "a", source: "x" }, now));
+    const code = run(["file", "1"], {
+      resolveSlug: () => "s1",
+      stateDir: dir,
+      createIssue: () => {
+        throw new Error("flow-create-issue exited 1: no gh auth");
+      },
+    });
+    expect(code).toBe(1);
+  });
+
+  it("list (plain text) appends the filed/dropped suffix", () => {
+    let s = addItem(BASE, { title: "unfiled", source: "x" }, now);
+    s = addItem(s, { title: "filed", source: "x" }, now);
+    s = fileItem(s, 2, () => ({ url: "https://x/2" }));
+    s = addItem(s, { title: "dropped", source: "x" }, now);
+    s = dropItem(s, 3, now);
+    seed(s);
+    const lines: string[] = [];
+    run(["list"], {
+      resolveSlug: () => "s1",
+      stateDir: dir,
+      out: (l) => lines.push(l),
+    });
+    const text = lines.join("");
+    expect(text).toContain("#1 unfiled\n");
+    expect(text).toContain("#2 filed (filed: https://x/2)");
+    expect(text).toContain("#3 dropped (dropped)");
+  });
+
   it("drop records droppedAt", () => {
     seed(addItem(BASE, { title: "a", source: "x" }, now));
     const code = run(["drop", "1"], {

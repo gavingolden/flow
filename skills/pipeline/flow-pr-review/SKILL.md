@@ -1693,10 +1693,10 @@ two mechanical sources — supervisor judgment adds items at any other
 step via `flow-untracked add`, but these two are always checked here:
 
 ```bash
-printf '%s' "$FIX_APPLIER_ARTIFACT" | jq -r '.deferred[] | select(.tracker_entry_url == "") | .finding' | while IFS= read -r title; do  # source 1: deferred[] with no tracker_entry_url
+jq -r '.deferred[] | select(.tracker_entry_url == "") | .finding_id + ": " + .reason' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r title; do  # source 1: deferred[] with no tracker_entry_url
   [ -n "$title" ] && flow-untracked add --title "$title" --source pr-review
 done
-printf '%s' "$FIX_APPLIER_ARTIFACT" | jq -r '.anti_patterns_found[] | select(.introduced_by_this_pr == false) | .pattern' | while IFS= read -r title; do  # source 2: anti_patterns_found[] not introduced by this PR
+jq -r '.anti_patterns_found[] | select(.introduced_by_this_pr == false) | .pattern' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r title; do  # source 2: anti_patterns_found[] not introduced by this PR
   [ -n "$title" ] && flow-untracked add --title "$title" --source pr-review
 done
 ```

@@ -723,6 +723,77 @@ describe("render — pm lens", () => {
     expect(lines[lines.length - 1]).toBe("MERGED");
   });
 
+  it("merged: cleanup UNCLEAN collapses to the one-row pm summary (no timestamp, no re-run bullet)", () => {
+    const out = render({
+      status: "merged",
+      lens: "pm",
+      prUrl: "https://x/pull/1",
+      untrackedBlock: "",
+      cleanup: {
+        kind: "record",
+        record: {
+          at: "2026-01-01T00:00:00.000Z",
+          status: "unclean",
+          summary: "1 stray process",
+          ran: true,
+        },
+      },
+    });
+    expect(out).toContain("CLEANUP: REAP UNCLEAN — 1 stray process");
+    expect(out).not.toContain("(recorded");
+    expect(out).not.toContain("re-run:");
+  });
+
+  it("merged: cleanup stale collapses to the one-row pm summary", () => {
+    const out = render({
+      status: "merged",
+      lens: "pm",
+      prUrl: "https://x/pull/1",
+      untrackedBlock: "",
+      cleanup: {
+        kind: "stale",
+        record: {
+          at: "2026-01-01T00:00:00.000Z",
+          status: "ok",
+          summary: "no live processes",
+          ran: true,
+        },
+      },
+    });
+    expect(out).toContain(
+      "CLEANUP: REAP NOT RECORDED (stale) — this render's reap did not run",
+    );
+    expect(out).not.toContain("(recorded");
+    expect(out).not.toContain("re-run:");
+  });
+
+  it("merged: cleanup missing-record collapses to the one-row pm summary", () => {
+    const out = render({
+      status: "merged",
+      lens: "pm",
+      prUrl: "https://x/pull/1",
+      untrackedBlock: "",
+      cleanup: { kind: "missing-record" },
+    });
+    expect(out).toContain(
+      "CLEANUP: REAP NOT RECORDED — the terminal-state reap did not run",
+    );
+    expect(out).not.toContain("re-run:");
+  });
+
+  it("merged: cleanup no-state collapses to the one-row pm summary", () => {
+    const out = render({
+      status: "merged",
+      lens: "pm",
+      prUrl: "https://x/pull/1",
+      untrackedBlock: "",
+      cleanup: { kind: "no-state" },
+    });
+    expect(out).toContain(
+      "CLEANUP: unknown — no pipeline state file for this run",
+    );
+  });
+
   it("needs-human: TLDR first, untracked row, NEXT ACTION, sentinel last", () => {
     const out = render({
       status: "needs-human",

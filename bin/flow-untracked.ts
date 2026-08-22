@@ -327,8 +327,11 @@ function runFile(argv: string[], deps: Deps): number {
     saveState(next, deps);
     return 0;
   } catch (e) {
-    console.error(`flow-untracked: ${(e as Error).message}`);
-    return 1;
+    const message = (e as Error).message;
+    console.error(`flow-untracked: ${message}`);
+    // Unknown id is a bad-args case (exit 2, matching `drop`'s contract);
+    // only a flow-create-issue failure gets the dedicated exit 1.
+    return message.startsWith("no untracked item") ? 2 : 1;
   }
 }
 

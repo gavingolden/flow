@@ -30,13 +30,6 @@ export function clampTldr(s: string): ClampedTldr {
   };
 }
 
-export function tldrWordCount(s: string): number {
-  return s
-    .trim()
-    .split(/\s+/)
-    .filter((w) => w.length > 0).length;
-}
-
 /**
  * `NEEDS ATTENTION:` — every gated validation item, each suffixed with the
  * PR URL as its click target. Omit-when-empty: returns `[]` when there are
