@@ -6,6 +6,7 @@ import { readState, writeState, type PipelineState } from "./lib/state";
 import {
   UNTRACKED_RENDER_CAP,
   addItem,
+  addItemDedup,
   dropItem,
   fileItem,
   renderGate,
@@ -62,6 +63,47 @@ describe("addItem", () => {
   it("carries an optional body", () => {
     const s = addItem(BASE, { title: "a", body: "detail", source: "x" }, now);
     expect(s.untracked?.[0].body).toBe("detail");
+  });
+});
+
+describe("addItemDedup", () => {
+  it("appends a genuinely new title+source pair", () => {
+    const r = addItemDedup(BASE, { title: "a", source: "pr-review" }, now);
+    expect(r.deduped).toBe(false);
+    expect(r.id).toBe(1);
+    expect(r.state.untracked).toHaveLength(1);
+  });
+
+  it("skips re-adding when an undropped item shares title+source, returning the existing id", () => {
+    const s0 = addItemDedup(
+      BASE,
+      { title: "a", source: "pr-review" },
+      now,
+    ).state;
+    const r = addItemDedup(s0, { title: "a", source: "pr-review" }, now);
+    expect(r.deduped).toBe(true);
+    expect(r.id).toBe(1);
+    expect(r.state).toBe(s0);
+    expect(r.state.untracked).toHaveLength(1);
+  });
+
+  it("still appends when title matches but source differs (distinct discovery)", () => {
+    const s0 = addItemDedup(
+      BASE,
+      { title: "a", source: "pr-review" },
+      now,
+    ).state;
+    const r = addItemDedup(s0, { title: "a", source: "verify" }, now);
+    expect(r.deduped).toBe(false);
+    expect(r.state.untracked).toHaveLength(2);
+  });
+
+  it("re-adds a title+source that was previously dropped (not silently suppressed forever)", () => {
+    let s = addItemDedup(BASE, { title: "a", source: "pr-review" }, now).state;
+    s = dropItem(s, 1, now);
+    const r = addItemDedup(s, { title: "a", source: "pr-review" }, now);
+    expect(r.deduped).toBe(false);
+    expect(r.state.untracked).toHaveLength(2);
   });
 });
 
@@ -172,6 +214,25 @@ describe("run", () => {
       stateDir: dir,
     });
     expect(code).toBe(2);
+  });
+
+  it("add is idempotent on re-run — same title+source dedupes instead of appending", () => {
+    seed(BASE);
+    const deps = { resolveSlug: () => "s1", stateDir: dir, now };
+    expect(
+      run(["add", "--title", "dup finding", "--source", "pr-review"], deps),
+    ).toBe(0);
+    const lines: string[] = [];
+    const code = run(
+      ["add", "--title", "dup finding", "--source", "pr-review"],
+      {
+        ...deps,
+        out: (l) => lines.push(l),
+      },
+    );
+    expect(code).toBe(0);
+    expect(lines.join("")).toContain("existing item #1");
+    expect(readState("s1", dir)?.untracked).toHaveLength(1);
   });
 
   it("list prints nothing when state is absent", () => {

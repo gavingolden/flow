@@ -380,7 +380,7 @@ in a feature plan's calibration appendix).
 > **Manual action:** whenever — `flow install --upgrade` is queued
 > post-merge; verify only after it runs.
 > **Untracked:** none — #641, #642 already filed.
-> 16 findings fixed, none changed behavior (the one real defect was a
+> 16 findings fixed, 0 deferred (the one real defect was a
 > docs claim; fixed in prose).
 > **Next action:** tick the two boxes and say `merge`, or report an
 > issue.
@@ -394,7 +394,7 @@ in a feature plan's calibration appendix).
 > https://github.com/gavingolden/flow/pull/644
 > **Untracked:** none — #651 (bench the flash-medium/-low tiers) filed
 > at merge.
-> 5 findings fixed, none changed behavior.
+> 5 findings fixed, 0 deferred.
 > **Next action:** none — `flow done re-run-flow-model-benchmark` when
 > you like.
 

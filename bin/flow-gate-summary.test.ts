@@ -832,6 +832,48 @@ describe("render — pm lens", () => {
     expect(out).toContain("TLDR: CI waiting becomes crash-proof.");
   });
 
+  it("awaiting-approval: pm lens omits UNTRACKED entirely when there are no carried items", () => {
+    const out = render({
+      status: "awaiting-approval",
+      lens: "pm",
+      tldr: "one sentence",
+      worktree: "/work",
+      planFile: "/work/.flow-tmp/plan.md",
+    });
+    expect(out).not.toContain("UNTRACKED");
+  });
+
+  it("awaiting-approval: pm lens renders UNTRACKED above the path bullets when items are carried over", () => {
+    const out = render({
+      status: "awaiting-approval",
+      lens: "pm",
+      tldr: "one sentence",
+      worktree: "/work",
+      planFile: "/work/.flow-tmp/plan.md",
+      untrackedBlock: "  - #1 carried item (reply: file #1 / drop #1)",
+    });
+    const lines = out.split("\n");
+    const untrackedIdx = lines.findIndex((l) => l.startsWith("UNTRACKED"));
+    const worktreeIdx = lines.indexOf("  - /work");
+    const planIdx = lines.indexOf("  - /work/.flow-tmp/plan.md");
+    expect(untrackedIdx).toBeGreaterThan(-1);
+    expect(untrackedIdx).toBeLessThan(worktreeIdx);
+    // Path bullets stay the trailing content (before the TLDR prepend).
+    expect(planIdx).toBe(worktreeIdx + 1);
+    expect(out).toContain("#1 carried item");
+  });
+
+  it("awaiting-approval: dev lens never renders UNTRACKED, even with items carried over", () => {
+    const out = render({
+      status: "awaiting-approval",
+      lens: "dev",
+      worktree: "/work",
+      planFile: "/work/.flow-tmp/plan.md",
+      untrackedBlock: "  - #1 carried item (reply: file #1 / drop #1)",
+    });
+    expect(out).not.toContain("UNTRACKED");
+  });
+
   it("a 26-word --tldr truncates at the word boundary rather than failing the render", () => {
     const words = Array.from({ length: 26 }, (_, i) => `w${i + 1}`);
     const clamped = clampTldr(words.join(" "));

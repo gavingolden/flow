@@ -1687,18 +1687,28 @@ PR body — escalation can fire before a PR exists, and the JSONL log persists
 on disk for any later resume to consume. PR review never runs the follow-up
 directly — that's the supervisor's job, gated by the helper's allowlist.
 
-**Seed the untracked list (two mechanical sources).** Still in Step 13,
-after the follow-ups block above, seed `state.json.untracked[]` from
-two mechanical sources — supervisor judgment adds items at any other
-step via `flow-untracked add`, but these two are always checked here:
+**Seed the untracked list (two mechanical sources, pipeline runs only).**
+Still in Step 13, after the follow-ups block above, seed
+`state.json.untracked[]` from two mechanical sources — supervisor
+judgment adds items at any other step via `flow-untracked add`, but
+these two are always checked here. Guarded: a **standalone**
+`/flow-pr-review` run has no slug/state file and `flow-untracked add`
+exits 2 there, so skip cleanly ("skipped: no pipeline state") instead
+of failing Step 13. `flow-untracked add` dedupes on an existing
+UNDROPPED item sharing `--title` + `--source`, so a review-fix-loop or
+resume re-run of this block never duplicates an entry:
 
 ```bash
-jq -r '.deferred[] | select(.tracker_entry_url == "") | .finding_id + ": " + .reason' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r title; do  # source 1: deferred[] with no tracker_entry_url
-  [ -n "$title" ] && flow-untracked add --title "$title" --source pr-review
-done
-jq -r '.anti_patterns_found[] | select(.introduced_by_this_pr == false) | .pattern' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r title; do  # source 2: anti_patterns_found[] not introduced by this PR
-  [ -n "$title" ] && flow-untracked add --title "$title" --source pr-review
-done
+if flow-untracked list --json >/dev/null 2>&1; then  # guard: standalone run has no pipeline state
+  jq -r '.deferred[] | select(.tracker_entry_url == "") | .finding_id + ": " + .reason' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r title; do  # source 1: deferred[] with no tracker_entry_url
+    [ -n "$title" ] && flow-untracked add --title "$title" --source pr-review
+  done
+  jq -r '.anti_patterns_found[] | select(.introduced_by_this_pr == false) | .pattern' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r title; do  # source 2: anti_patterns_found[] not introduced by this PR
+    [ -n "$title" ] && flow-untracked add --title "$title" --source pr-review
+  done
+else
+  echo "skipped: no pipeline state"  # named no-op
+fi
 ```
 
 Both sources are read-only against the fix-applier artifact schema —

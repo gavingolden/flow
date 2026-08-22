@@ -942,11 +942,14 @@ normalized-diff re-fire detection) in
   WHY="plan ready for review (intent=feature)"
   [ "$SPEC_RC" != "0" ] && WHY="$WHY; design spec INVALID: $DESIGN_SPEC_REASON"
   LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)
+  TLDR="<one sentence, ≤25 words, the plan's outcome for the reader>"
   flow-gate-summary --status awaiting-approval --echo-prose \
     --why "$WHY" \
     --worktree "$WORKTREE" \
     --plan-file "$WORKTREE/.flow-tmp/plan.md" \
-    --lens "$LENS"
+    --lens "$LENS" \
+    --tldr "$TLDR" \
+    --untracked-file <(flow-untracked render --format gate --unfiled-only)
   ```
 
   Then echo the recap per [Gate-stage echo-verbatim
@@ -1044,10 +1047,15 @@ normalized-diff re-fire detection) in
     ```bash
     WHY="plan ready for review (intent=$INTENT, prompt-interpretation tension)"
     [ "$SPEC_RC" != "0" ] && WHY="$WHY; design spec INVALID: $DESIGN_SPEC_REASON"
+    LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)
+    TLDR="<one sentence, ≤25 words, the plan's outcome for the reader>"
     flow-gate-summary --status awaiting-approval --echo-prose \
       --why "$WHY" \
       --worktree "$WORKTREE" \
-      --plan-file "$WORKTREE/.flow-tmp/plan.md"
+      --plan-file "$WORKTREE/.flow-tmp/plan.md" \
+      --lens "$LENS" \
+      --tldr "$TLDR" \
+      --untracked-file <(flow-untracked render --format gate --unfiled-only)
     ```
 
     Then echo the recap per [Gate-stage echo-verbatim

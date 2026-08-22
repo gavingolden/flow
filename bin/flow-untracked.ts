@@ -70,6 +70,36 @@ export function addItem(
   return { ...state, untracked: [...items, item] };
 }
 
+/**
+ * `add`'s dedup-aware entry point: mechanical seeders (e.g. the pr-review
+ * Step 13 untracked seed) can run again across a review fix loop or a
+ * resume, and `addItem` alone is append-only — every re-run would add the
+ * same finding/anti-pattern again under a new id. Skip re-adding when an
+ * existing UNDROPPED item shares the same `title` + `source` (a dropped
+ * item's title is deliberately re-addable — the reader dropped it once,
+ * a genuinely new occurrence should surface again). Distinct discoveries
+ * (different title or source) still append normally.
+ */
+export function addItemDedup(
+  state: PipelineState,
+  input: { title: string; body?: string; source: string },
+  now: () => string = () => new Date().toISOString(),
+): { state: PipelineState; id: number; deduped: boolean } {
+  const items = state.untracked ?? [];
+  const existing = items.find(
+    (i) =>
+      i.droppedAt === undefined &&
+      i.title === input.title &&
+      i.source === input.source,
+  );
+  if (existing) {
+    return { state, id: existing.id, deduped: true };
+  }
+  const next = addItem(state, input, now);
+  const added = next.untracked as UntrackedItem[];
+  return { state: next, id: added[added.length - 1].id, deduped: false };
+}
+
 export type CreateIssue = (
   title: string,
   body: string | undefined,
@@ -254,8 +284,13 @@ function runAdd(argv: string[], deps: Deps): number {
     console.error("flow-untracked: no state file for this pipeline");
     return 2;
   }
-  const next = addItem(state, parsed, deps.now);
-  saveState(next, deps);
+  const out = deps.out ?? ((s: string) => process.stdout.write(s));
+  const result = addItemDedup(state, parsed, deps.now);
+  if (result.deduped) {
+    out(`flow-untracked: existing item #${result.id} (not re-added)\n`);
+    return 0;
+  }
+  saveState(result.state, deps);
   return 0;
 }
 

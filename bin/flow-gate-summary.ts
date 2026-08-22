@@ -621,6 +621,15 @@ function renderAwaitingApproval(inputs: GateSummaryInputs): string {
   const why = oneLine(inputs.why);
   if (why) lines.push(`WHY: ${why}`);
   lines.push("NEXT ACTION: reply approve / redirect <new direction> / cancel");
+  // Carried-over untracked items (file #N / drop #N replies), pm lens
+  // only — omitted entirely when there are none, unlike the terminal
+  // renderers' `UNTRACKED: none` default, since a plan-pending-review
+  // pause usually has nothing carried over and the row would be pure
+  // noise on every ordinary run.
+  if (pm) {
+    const trimmed = (inputs.untrackedBlock ?? "").trim();
+    if (trimmed !== "") lines.push(...buildUntracked(inputs.untrackedBlock));
+  }
   // The two path bullets are the LAST lines of the block (no
   // sentinel). No trailing punctuation — most terminals greedily
   // extend URL auto-detection through trailing dots and break the
