@@ -1374,6 +1374,7 @@ Check whether the PR description follows the standardized format with these sect
 - **What** — deliverables as capabilities/behaviors
 - **Key decisions** — non-obvious choices with rationale
 - **User-facing changes** — concrete user-observable deltas (or the literal `none` for pure-internal PRs) — and a conditional `## System flow changes` section may follow it on cross-component PRs (omitted when nothing moved)
+- **Deviations from plan** — omit-when-empty; one bullet per meaningful deviation between the approved plan and what shipped (see `flow-pipeline/references/pause-output-contract.md` `## Definitions`), populated by 11d below, immediately before Test Steps
 - **Test Steps** — verification steps for reviewers, automated and manual (also the auto-merge gate signal: zero unchecked `- [ ]` items ⇒ auto-merge, one or more ⇒ gated)
 
 **If the description is empty or missing**: Draft one from the diff and PR title using the
@@ -1459,6 +1460,16 @@ the Fix-Applier Subagent — already parsed at Step 9) against the description:
   or review
 - Architectural approach that differs from what was described (e.g., description says
   "client-side only" but implementation adds a server endpoint)
+
+When any of the above rises to a Q5-class meaningful deviation (per
+`flow-pipeline/references/pause-output-contract.md` `## Definitions`:
+user-visible behavior differs from the plan, scope dropped/added, an
+architecture choice changed, or something was deferred), route it into
+the PR body's `## Deviations from plan` section (one bullet, placed
+immediately before `## Test Steps`, inserted if the heading is absent)
+— **not** a `suggestion` finding in the Structured Report below. A gap
+that doesn't rise to that bar (a typo, a missing example) stays an
+ordinary Accuracy Sync fix in the description body.
 
 ### 11e. Resolution
 
@@ -1675,6 +1686,26 @@ scrollback (via `flow-followups run --note-only`) but does **not** edit the
 PR body — escalation can fire before a PR exists, and the JSONL log persists
 on disk for any later resume to consume. PR review never runs the follow-up
 directly — that's the supervisor's job, gated by the helper's allowlist.
+
+**Seed the untracked list (two mechanical sources).** Still in Step 13,
+after the follow-ups block above, seed `state.json.untracked[]` from
+two mechanical sources — supervisor judgment adds items at any other
+step via `flow-untracked add`, but these two are always checked here:
+
+```bash
+printf '%s' "$FIX_APPLIER_ARTIFACT" | jq -r '.deferred[] | select(.tracker_entry_url == "") | .finding' | while IFS= read -r title; do  # source 1: deferred[] with no tracker_entry_url
+  [ -n "$title" ] && flow-untracked add --title "$title" --source pr-review
+done
+printf '%s' "$FIX_APPLIER_ARTIFACT" | jq -r '.anti_patterns_found[] | select(.introduced_by_this_pr == false) | .pattern' | while IFS= read -r title; do  # source 2: anti_patterns_found[] not introduced by this PR
+  [ -n "$title" ] && flow-untracked add --title "$title" --source pr-review
+done
+```
+
+Both sources are read-only against the fix-applier artifact schema —
+no new field is added to it. Items seeded here are unfiled by default;
+they surface in the terminal block's `**Untracked:**` row and the
+reader files or drops them with `file #N` / `drop #N` at any later
+pause.
 
 After Step 13 finishes (including its no-op-skipped branch), write the
 clean-completion result artifact at `<worktree>/.flow-tmp/pr-review-result.json`
