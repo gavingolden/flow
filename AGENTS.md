@@ -59,7 +59,7 @@ are at [references/output-style.md](references/output-style.md).
 - **Treat every request as production-bound, not a hobby project.** Include cohesive work in-task (don't dodge it via a follow-up issue) and hold a production bar on the surface you touch.
 - **Satisfy local, reversible preconditions before gating a Test Step as manual.** Reserve manual gates for genuinely external/irreversible/subjective items.
 - **Non-trivial UI appearance changes need an authored SUBJECTIVE: approval step the agent can't tick.**
-- **Structure every pause-point message.** A turn ending on user input or a stop uses the labeled slots of `skills/pipeline/flow-pipeline/references/pause-output-contract.md`, never open prose.
+- **Structure every pause-point message.** A turn ending on user input or a stop uses the six labeled slots of `skills/pipeline/flow-pipeline/references/pause-output-contract.md` — `**TLDR:**` first, `**Unsolved:**` / `**Needs attention:**` / `**Manual action:**` / `**Untracked:**` omit-when-empty, `**Next action:**` last — within its ~12-line ceiling, never open prose.
 - **Explain problems impact-first in plain language.** Problem reports lead with the user-visible impact, translate internal identifiers into their effect, and present options with each one's consequences, recommendation first.
 - **Frame every explanation impact-first for a product-lens reader.** Lead with the user-visible consequence, naming the concrete command/flag/artifact; mechanism only on "give me the technical version"; exclusions per `references/output-style.md`.
 - **Emit instructions as scannable numbered steps.** Two or more discrete actions render as `1.`/`2.` imperative steps, sub-bullets for detail, actor named when interleaved; a single action stays inline.
@@ -143,7 +143,7 @@ code.claude.com/docs/en/how-claude-code-works.
 
 - **Branches:** short, descriptive. The supervisor uses `flow-new-worktree` to create per-pipeline branches from the slug; humans can use `<type>/<topic>` for non-supervisor work.
 - **Commits:** conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`). Imperative summary ≤ 50 chars. Body explains *why*. Trivial changes may omit the body.
-- **PRs:** Why / What / Key decisions / User-facing changes / Test Steps, in that order. The Test Steps section is also the auto-merge gate signal — zero unchecked `- [ ]` items ⇒ auto-merge, one or more unchecked items ⇒ gated. See `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md`. Fix PRs add `**Failing:**`/`**Root cause:**` and a `**Fix mechanism:**` lead bullet; `## System flow changes` is conditional.
+- **PRs:** Why / What / Key decisions / User-facing changes / Deviations from plan / Test Steps, in that order. `## Deviations from plan` is omit-when-empty — present only when the accuracy sync finds a meaningful deviation (`pause-output-contract.md` `## Definitions`), one bullet per deviation, immediately before Test Steps. The Test Steps section is also the auto-merge gate signal — zero unchecked `- [ ]` items ⇒ auto-merge, one or more unchecked items ⇒ gated. See `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md`. Fix PRs add `**Failing:**`/`**Root cause:**` and a `**Fix mechanism:**` lead bullet; `## System flow changes` is conditional.
 - **Never amend pushed commits.** Make a new commit instead.
 - **Never force-push** without explicit user request.
 - **Inline intent annotations** and the **session-marker + trailer** mechanics (how a PR's Claude Code session ID reaches both an HTML-comment marker and a `Claude-Code-Session-Id:` git trailer) are documented in full at [references/git-workflow.md](references/git-workflow.md).
@@ -307,51 +307,42 @@ three-layer resolution table, and the manifest/foundation fields — is at
     only the byte-exact opener and a one-line summary remain below.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
     Multi-Agent Review.** Step 8's six parallel review agents plus one
-    diff-only intent-guess agent, spawned in the same fan-out message;
-    each of the six writes its own `agent-output-<lens>.json`, the
-    intent-guess agent writes `.flow-tmp/intent-guess.json`.
+    intent-guess agent, one fan-out message, each with its own artifact.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-product-planning`
-    Independent Discovery Subagent.** Step 3's one discovery agent,
-    writing `.flow-tmp/plan.md` + `.flow-tmp/pr-description-draft.md`.
+    Independent Discovery Subagent.** Step 3's one discovery agent.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-new-feature`
-    Independent Scout Subagent.** Step 5's one scout agent (wider-scope
-    path only — ≤3 affected files skip it), writing `.flow-tmp/scout.md`.
+    Independent Scout Subagent.** Step 5's one scout agent, wider-scope
+    path only.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Fix-Applier
     Subagent.** Step 8's one fix-applier agent for the per-finding
-    address loop + commit/push, writing `.flow-tmp/fix-applier-result.json`.
+    address loop + commit/push.
   - **Task-tool exemption: `/flow-pipeline` → Merge-Conflict Resolver
     Subagent.** Step 10's one resolver agent for the base-branch merge +
-    per-file resolution + push (per-pipeline branch only, never a
-    force-push), writing `.flow-tmp/merge-resolver-result.json`.
+    per-file resolution + push, per-pipeline branch only.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-coder` Independent
     Edit-Applier Subagent.** The edit-applier agent `/flow-coder` spawns
-    when `/flow-new-feature` step 5, `/flow-verify` step 3, or `/flow-refactoring`
-    step 3 takes its wider-scope path — or the `/flow-pipeline`
-    supervisor's interactive code-change redirect path fires — writing
-    `.flow-tmp/coder-result.json`; full contract in
-    `skills/pipeline/flow-coder/SKILL.md`. (A second, nested spawn site
-    exists — see the Verify-Retry-Loop bullet below.) These are the
+    when `/flow-new-feature` step 5, `/flow-verify` step 3, or
+    `/flow-refactoring` step 3 takes its wider-scope path — or the
+    supervisor's **interactive code-change redirect** path; full
+    contract in `skills/pipeline/flow-coder/SKILL.md`. (A second, nested
+    spawn site exists — see the Verify-Retry-Loop bullet below.) These are the
     **only nine** authorised Task-tool fan-out sites from `/flow-pipeline`;
     no other skill or step may call Task.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
-    Gatekeeper Subagent.** `/flow-pr-review` Step 1.5's one gatekeeper agent
-    with a `model: "haiku"` cost-routing override, writing
-    `.flow-tmp/gatekeeper-result.json`.
+    Gatekeeper Subagent.** Step 1.5's one gatekeeper agent, `model:
+    "haiku"` cost-routing override.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
-    Consolidator-Validator Subagent.** `/flow-pr-review` Step 3.5's one
-    consolidator-validator agent (default Sonnet, no model override),
-    writing `.flow-tmp/consolidator-result.json`.
+    Consolidator-Validator Subagent.** Step 3.5's one consolidator
+    agent, default Sonnet.
   - **Task-tool exemption: `/flow-pipeline` → Verify-Retry-Loop
     Subagent.** Step 6's one verify-retry-loop agent owning the
-    3-outer-attempt `/flow-verify` loop, so the re-pasted failure JSON
-    never accumulates in the supervisor's own context across attempts;
-    writing `.flow-tmp/verify-loop-result.json`. The verify-loop subagent
-    may itself spawn one flow-edit-applier subagent (depth 3) on its
-    wider-scope path, writing `.flow-tmp/verify-coder-result.json`, with
-    an artifact-miss inline fallback and NO `general-purpose` fallback —
-    a sanctioned nested site inside this exemption, not a tenth
-    exemption; see the flow repo's `docs/nested-subagents-assessment.md`
-    (rationale only; not shipped by `flow install`).
+    3-outer-attempt `/flow-verify` loop so failure JSON never
+    accumulates in the supervisor's own context. May itself spawn one
+    edit-applier subagent (depth 3) on its wider-scope path, with an
+    artifact-miss inline fallback and no `general-purpose` fallback — a
+    sanctioned nested site inside this exemption, not a tenth; see the
+    flow repo's `docs/nested-subagents-assessment.md` (rationale only;
+    not shipped by `flow install`).
   - **Task-tool spawn sites must load Task first.** Each of the nine
     sites above must load the Task schema via
     `ToolSearch query="select:Task"` before invoking Task (or its alias
