@@ -4627,12 +4627,16 @@ describe("pr-review include-by-reference structure", () => {
     // per-site wiring away from the site it documents. File lands at
     // 2904 lines — raised the ceiling to 2920 (16 lines of genuine
     // headroom), same discipline as the precedents above.
+    // Merging that PM-lens work with the flow-ci-check/flow-ci-wait
+    // step-7 split (PR #666) lands the combined file at 2923 lines —
+    // both sides' growth is feature-mechanical, so the ceiling moves to
+    // 2940 (17 lines of headroom), same discipline as above.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2920 lines. Material regrowth past this ceiling would ` +
+        `budget of 2940 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2920);
+    ).toBeLessThan(2940);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
