@@ -9,10 +9,10 @@
  * It EXTENDS two existing flow patterns:
  * - flow-delegate's optional-tool graceful-skip envelope (per entry, the child
  *   reports `ran:false`/`skipReason` and we exit 0 on an all-skip run).
- * - flow-ci-wait's "background a long run, persist the verdict JSON to --out,
- *   stdout-result / stderr-progress" shape (a deep fan-out can exceed the
- *   harness foreground budget, so a resumed turn reads --out instead of
- *   re-running).
+ * - flow-ci-check's "background a long run, persist the verdict JSON to
+ *   --out ONLY on a decided exit, stdout-result / stderr-progress" shape
+ *   (a deep fan-out can exceed the harness foreground budget, so a resumed
+ *   turn reads --out instead of re-running).
  *
  * Concurrency mechanism (load-bearing): the default runner async-`Bun.spawn`s
  * the `flow-delegate` BINARY per entry and `await`s up to K concurrently, so
@@ -260,10 +260,11 @@ function parseManifest(raw: string): ManifestEntry[] | { error: string } {
   return parsed as ManifestEntry[];
 }
 
-// Mirrors bin/flow-ci-wait.ts:1751 emitResult: the SAME serialized string goes
-// to BOTH stdout and the --out file; the file write is mkdir-recursive then
-// wrapped in try/catch so a failure writes a one-line stderr notice and is
-// SWALLOWED — it never changes the exit code or suppresses the stdout result.
+// Mirrors bin/flow-ci-check.ts's `emit` closure (decided-only --out write):
+// the SAME serialized string goes to BOTH stdout and the --out file; the
+// file write is mkdir-recursive then wrapped in try/catch so a failure
+// writes a one-line stderr notice and is SWALLOWED — it never changes the
+// exit code or suppresses the stdout result.
 function emitResult(
   deps: FanoutDeps,
   result: FanoutResult,

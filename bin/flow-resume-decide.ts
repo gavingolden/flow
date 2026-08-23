@@ -42,7 +42,7 @@
  *       and branches on `.resumeAt`; a non-zero exit on the abort case would
  *       trip strict-shell callers before they could read the JSON, so abort
  *       (state.json missing) also exits 0 and surfaces via the JSON verdict.
- *       Same exit-0-for-every-decision contract as `flow-ci-wait` and
+ *       Same exit-0-for-every-decision contract as `flow-ci-check` and
  *       `flow-gate-decide`.
  *   2 — bad CLI args
  */

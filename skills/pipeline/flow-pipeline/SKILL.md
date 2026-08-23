@@ -285,12 +285,14 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > (state writes `phase: approval-pending-clarification`); (4) the
 > no-change branch of step 1 (state writes `phase:
 > triaged-no-change`); (5) step 7's CI-wait yield, where the
-> supervisor runs the long-running `flow-ci-wait` call backgrounded
-> (it persists its verdict to `$VERDICT_FILE`); if turn-end arrives
-> before the verdict file lands, the supervisor writes `phase:
-> ci-wait-pending` and ends the turn cleanly rather than hand-rolling
-> a discouraged manual poll loop (see step 7 for the yield-and-resume
-> contract); and (6) step 4's auto-checkpoint at the approval →
+> supervisor runs the one-shot `flow-ci-check` decider in the
+> foreground and, on a `waiting` verdict, backgrounds the dumb
+> `flow-ci-wait` waiter; if turn-end arrives before a wake primitive
+> fires and a fresh `flow-ci-check` call reaches `decided`, the
+> supervisor writes `phase: ci-wait-pending` and ends the turn cleanly
+> rather than hand-rolling a discouraged manual poll loop (see step 7
+> for the yield-and-resume contract); and (6) step 4's auto-checkpoint
+> at the approval →
 > implement hand-off (state writes `phase: checkpoint-pending-clear`),
 > where the supervisor flushes conversational state to the state-dir
 > checkpoint, nudges "safe to `/clear`", and yields so the user can reset
@@ -1576,13 +1578,13 @@ Continue to step 7.
 `flow-module-status --check copilot >/dev/null 2>&1` — non-zero means the
 `copilot` module is deselected (`flow-request-copilot` never on PATH): skip
 the request/classify subsection below (PR treated as declined), note the
-skip quietly, and invoke `flow-ci-wait` below with `--copilot-not-requested`
+skip quietly, and invoke `flow-ci-check` below with `--copilot-not-requested`
 (its self-guard prints the one user-facing notice — hence the discarded
 stderr). Full rationale in
 [references/polling-protocol.md](references/polling-protocol.md#copilot-module-precheck).
 
 **Copilot request decision (before the wait).** Copilot review is opt-in
-for non-trivial changes only; decide *before* invoking `flow-ci-wait`, so a
+for non-trivial changes only; decide *before* invoking `flow-ci-check`, so a
 declined PR can collapse the bot wait. The decision combines the
 per-pipeline `copilotReview` override (from state.json) with
 `flow-request-copilot`'s deterministic glob classifier:
@@ -1615,13 +1617,21 @@ VERDICT=$(gh pr diff "$PR" --name-only \
 REQUESTED=$(printf '%s' "$VERDICT" | jq -r '.requestCopilot')
 ```
 
-`flow-ci-wait` consolidates the entire poll loop (presence checks → cadence
-ramp → 20-min wall-clock cap → 10-min Copilot timeout → CI/Copilot/PR-state
-decision matrix) into a single Bash call returning one JSON verdict on
-stdout (per-iteration progress goes to stderr). Full contract in
-`references/polling-protocol.md`, unit-tested at `bin/flow-ci-wait.test.ts`.
+Two helpers split the old single-file poll loop: `flow-ci-check` is the
+one-shot decider (presence checks → conflict/blocked short-circuits →
+CI/Copilot/PR-state decision matrix, one fresh `gh` observation per call,
+wall-clock anchors durably persisted in `~/.flow/state/<slug>.json`'s
+`ciWait` record) and `flow-ci-wait` is the dumb bounded waiter (owns zero
+state, zero decisions — it only sleeps). Wake precedence: the Bash
+`run_in_background` completion notification on the backgrounded waiter →
+a bounded Monitor `until` loop (or `ScheduleWakeup`, equivalent, when
+present) → the `ci-wait-pending` yield-and-resume as the last resort —
+every layer ends in the same foreground `flow-ci-check` call, so the wake
+primitive never changes the verdict. Full contract in
+`references/polling-protocol.md`, unit-tested at `bin/lib/ci-decision.test.ts`,
+`bin/lib/ci-observe.test.ts`, `bin/flow-ci-check.test.ts`.
 
-Append `--copilot-not-requested` to the `flow-ci-wait` call only when no
+Append `--copilot-not-requested` to the `flow-ci-check` call only when no
 Copilot review is coming — **two** signals: the request decision was to
 **decline** (`$REQUESTED` is `false` — trivial PR or the
 `bots.copilotSkipWait` budget short-circuit), or the verdict reports
@@ -1639,64 +1649,64 @@ check and the historical-PR fallback; `$SKIP_REASON` is logged only, never a
 driver. A forced request (`--override always`) never yields a
 `requestSkipReason` — the POST always fires (the #260 fix).
 
-Launch the call (run the Bash tool with `run_in_background: true`):
+**(1) Foreground decider call** — `flow-ci-check` directly, NOT backgrounded (one fresh `gh` observation completes in seconds):
 
 ```bash
 VERDICT_FILE="$WORKTREE/.flow-tmp/ci-wait-result.json"
 rm -f "$VERDICT_FILE"   # clear any stale verdict from a prior CI cycle
 REQUESTABLE=$(printf '%s' "$VERDICT" | jq -r '.copilotRequestable // empty')
-SKIP_REASON=$(printf '%s' "$VERDICT" | jq -r '.requestSkipReason // empty')  # logged only; does NOT drive the flag
+SKIP_REASON=$(printf '%s' "$VERDICT" | jq -r '.requestSkipReason // empty')  # logged only
 NOT_REQUESTED_FLAG=""
-# Only a genuine decline ($REQUESTED=false) or genuine unavailability
-# ($REQUESTABLE=false) collapses the wait; an auto-review skip keeps it.
-if [ "$REQUESTED" = "false" ] || [ "$REQUESTABLE" = "false" ]; then
-  NOT_REQUESTED_FLAG="--copilot-not-requested"
-fi
-# Background-by-default: the 10–20-min poll loop outlives the harness's
-# foreground budget. --out persists the final verdict JSON to $VERDICT_FILE
-# on every terminal-decision exit path; that file — NOT a stdout capture —
-# is the durable handoff the supervisor reads on completion or resume.
-# flow-spawn records one registry row and passes stdio + exit code through
-# unchanged; the slug resolves from FLOW_SLUG (never a tmux pane option —
-# no --slug is passed).
-flow-spawn --class default -- flow-ci-wait "$PR" $NOT_REQUESTED_FLAG --out "$VERDICT_FILE"
+# A genuine decline or unavailability collapses the wait; an auto-review skip keeps it.
+[ "$REQUESTED" = "false" ] || [ "$REQUESTABLE" = "false" ] && NOT_REQUESTED_FLAG="--copilot-not-requested"
+# WAIT_FLAG (--wait-for-copilot) mirrors state.json's waitForCopilot override.
+WAIT_FLAG=""
+[ "$(jq -r '.waitForCopilot // empty' ~/.flow/state/"$SLUG".json)" = "true" ] && WAIT_FLAG="--wait-for-copilot"
+flow-ci-check "$PR" $NOT_REQUESTED_FLAG $WAIT_FLAG --out "$VERDICT_FILE" > "$WORKTREE/.flow-tmp/ci-check-stdout.json"
+CHECK=$(cat "$WORKTREE/.flow-tmp/ci-check-stdout.json"); STATUS=$(printf '%s' "$CHECK" | jq -r '.status')
 ```
 
-When the backgrounded call exits (or on resume), read the persisted
-verdict from the file and branch on `.decision`:
+Branch on `.status`: **`decided`** — go straight to "Branch on `.decision`"
+below (`$CHECK` already carries every `RunResult` field; `$VERDICT_FILE`
+was written since the exit was decided). **`waiting`** — go to step (2).
+
+**(2) Backgrounded waiter, primary wake** — read `nextCheckSec` (flat 60s,
+`FLAT_CADENCE_SEC`) and arm the dumb waiter with `run_in_background: true`:
 
 ```bash
-RESULT=$(cat "$VERDICT_FILE")
-DECISION=$(printf '%s' "$RESULT" | jq -r '.decision')
-PR_URL=$(printf '%s' "$RESULT" | jq -r '.prUrl // empty')
-CI_FAILED_CHECKS=$(printf '%s' "$RESULT" | jq -r '.ciFailedChecks // empty')
+NEXT=$(printf '%s' "$CHECK" | jq -r '.nextCheckSec')
+flow-spawn --class default -- flow-ci-wait "$PR" --min-sec "$NEXT" --max-sec 540
 ```
 
-**Why background-by-default + file-read, not a foreground capture.** A
-foreground `RESULT=$(flow-ci-wait …)` loses the verdict whenever the
-harness force-backgrounds the long-running call to reclaim its budget
-(observed live: empty stdout). Running detached with `--out` makes
-recovery the *normal* path — `flow-ci-wait` writes the verdict JSON to
-`$VERDICT_FILE` on every `emitResult` exit, so the supervisor reads a
-file that is always there rather than racing the budget.
+The Bash completion notification (waiter exit, up to 540s later) is the
+wake: **on wake, re-run step (1)** — a fresh `flow-ci-check` call, never a
+resumed loop.
 
-**On completion.** When the backgrounded `flow-ci-wait` exits, the
-harness re-invokes the supervisor; it runs the read block above and
-branches on `.decision` immediately.
+**(3) Fallback ladder**, only when the primary wake misses a turn: a
+bounded Monitor `until` loop (`until flow-ci-check "$PR"
+$NOT_REQUESTED_FLAG $WAIT_FLAG --out "$VERDICT_FILE" | jq -e
+'.status=="decided"' >/dev/null; do sleep "$NEXT"; done`, ≤3600000 ms) or
+`ScheduleWakeup` (same 60s floor, equivalent, when present) — both end in
+the same `flow-ci-check` call. If neither fires before turn-end:
+**yield-and-resume (`ci-wait-pending`)** — write `flow-state-update --phase
+ci-wait-pending` and end the turn cleanly (a pending phase; `flow-stop-guard`
+treats it as a legitimate turn-end, no loop-break budget consumed). On
+re-invocation, re-run step (1): a parsing `$VERDICT_FILE` short-circuits to
+"Branch on `.decision`"; otherwise `flow-ci-check` runs fresh.
 
-**Yield-and-resume (`ci-wait-pending`).** If the supervisor reaches
-turn-end while the backgrounded call is still running — `$VERDICT_FILE`
-does not yet exist or does not parse — it does **not** hand-roll a
-discouraged manual poll loop: it writes `flow-state-update --phase
-ci-wait-pending` and ends the turn cleanly. `ci-wait-pending` is a
-pending phase — `flow-stop-guard` recognises it as a legitimate
-turn-end (see "Harness-level enforcement" above) and the exit does not
-consume the loop-break budget. On the next re-invocation the supervisor
-re-enters step 7: if `$VERDICT_FILE` now exists and parses, it reads the
-persisted verdict and branches on `.decision` without re-running the
-loop; otherwise it re-launches the backgrounded `flow-ci-wait` (which
-resumes the poll loop — CI state is observed fresh from GitHub, not
-re-derived from memory).
+**(4) Failed observation.** A `flow-ci-check` call whose `gh` read itself
+failed emits `waiting` + `observation:"failed"` + `observationFailedSec`
+(from `ciWait.lastObservedAt ?? ciWait.startedAt`) — never a fabricated
+decision. Rule: `observationFailedSec >= 1200` ⇒ `NEEDS HUMAN: gh-unavailable`.
+
+**Anchors, not an in-process clock.** Every `elapsedSec` re-derives from
+`ciWait.startedAt` in state.json; `ciTerminalAt` prefers GitHub's own
+`completedAt` (floored at `startedAt`) over observation time — a
+suspended/parked waiter can delay the next `flow-ci-check` call but never
+inflate what it reports as elapsed, immune to fabricating `ci-hang`.
+`$VERDICT_FILE` is written only on `decided`, so "file exists and parses
+⇒ branch" resume logic and `flow-pipeline-summary --ci-wait-result` keep
+working unchanged.
 
 Branch on `.decision`:
 
@@ -1708,7 +1718,7 @@ Branch on `.decision`:
 | `merged-externally` | PR was merged externally mid-flight. Capture follow-ups output to a file: `flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (still executes auto-allowlisted entries; `>` captures the rendered block). Resolve the slug inline (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)`), in ONE `gh pr view` round-trip guarded by `[ -n "$PR" ]`, capture the diff-size source AND the echo-recap fields (`[ -n "$PR" ] && gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json" && IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] \| @tsv' "$WORKTREE/.flow-tmp/pr-view.json") && jq '{additions,deletions,changedFiles,commits:(.commits\|length)}' "$WORKTREE/.flow-tmp/pr-view.json" > "$WORKTREE/.flow-tmp/pr-changes.json"`), then render the snapshot ABOVE the gate block via `flow-pipeline-summary --status merged --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --post-comment "$PR" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH"` (`--post-comment` durably persists the snapshot as an idempotent PR comment on the MERGED path; it no-ops when `$PR` is empty) — then **extract the block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as markdown bullets in your assistant message (prose, not tool output)**; see the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection. Then render the epic-membership block via `flow-epic-membership --slug "$SLUG" --terminal-state merged-externally` (no-op for non-epic features). Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally mid-flight; supervisor cleaned up the worktree" --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"` **BEFORE** the terminal state transition, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry (the helper silently suppresses the FOLLOW-UPS slot when the file is empty; its final stdout line is the byte-exact sentinel `MERGED`). Then `flow-remove-worktree --delete-branch`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`. End. The roadmap row was self-marked in the PR's diff by `/flow-pr-review` step 7.5; no post-merge sweep required. |
 | `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
 | `pr-conflicted` | Branch conflicts with base; CI can never run. Advance to the step-10 merge path — `gh pr merge --squash` surfaces the conflict-class failure and the existing Merge-Conflict Resolver Subagent merges base into the branch, resolves, and pushes, after which CI re-runs on the clean head and the pipeline re-enters step 7. Does NOT consume a ci-fix-loop budget slot (conflict remediation is a merge, not a code fix). |
-| `pr-blocked` | Branch protection blocks the merge — `mergeStateStatus` is still `BLOCKED` (a failing required check, a missing required review, CODEOWNERS, or a linear-history rule outside the `gh pr checks` surface) **after** CI reached terminal and passed. Unlike `pr-conflicted`, this fires only post-CI-terminal (a PR is legitimately `BLOCKED` while required checks are still pending, so `flow-ci-wait` waits CI out first), and unlike a conflict it has no universal mechanical fix the pipeline owns. Escalate `NEEDS HUMAN: pr-blocked` via the standard `# Failure paths` block. Does NOT route to the step-10 merge path and does NOT consume a ci-fix-loop budget slot. |
+| `pr-blocked` | Branch protection blocks the merge — `mergeStateStatus` is still `BLOCKED` (a failing required check, a missing required review, CODEOWNERS, or a linear-history rule outside the `gh pr checks` surface) **after** CI reached terminal and passed. Unlike `pr-conflicted`, this fires only post-CI-terminal (a PR is legitimately `BLOCKED` while required checks are still pending, so `flow-ci-check` waits CI out first), and unlike a conflict it has no universal mechanical fix the pipeline owns. Escalate `NEEDS HUMAN: pr-blocked` via the standard `# Failure paths` block. Does NOT route to the step-10 merge path and does NOT consume a ci-fix-loop budget slot. |
 | `ci-hang` | Escalate `NEEDS HUMAN: ci-hang`. |
 
 `--copilot-login <login>` overrides the bot login (default reads
@@ -1724,7 +1734,7 @@ auto-detect short-circuits (see
 `references/polling-protocol.md` "Claim-deadline auto-detect" and
 "Self-dismissal short-circuit"). The supervisor reads the
 `waitForCopilot` field from state.json (`jq -r '.waitForCopilot //
-empty'`) and appends `--wait-for-copilot` to the `flow-ci-wait` call
+empty'`) and appends `--wait-for-copilot` to the `flow-ci-check` call
 when the value is the literal `true`. Absent ≡ false ≡ auto-detect ON
 (the documented default). The flag is set per-pipeline via
 `flow feature create --wait-for-copilot "<description>"`.
@@ -2521,7 +2531,7 @@ Branch on `.resumeAt`:
 | `step-5` | Re-enter step 5 (implement). Re-invoke `/flow-new-feature`. |
 | `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow install --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
 | `step-6` | Re-enter step 6 (verify). Re-spawn the Verify-Retry-Loop subagent (phase stays `verifying`; the subagent re-runs the `/flow-verify` loop observing the worktree fresh, so a re-spawn is idempotent). |
-| `step-7` | Re-enter step 7 (ci-wait). A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-backgrounded pending phase) both resolve here. **Read `$WORKTREE/.flow-tmp/ci-wait-result.json` first**: if it exists and parses, the backgrounded `flow-ci-wait` already reached a terminal decision — read the persisted verdict and branch on `.decision` without re-running the loop. Only when the file is absent or unparseable does the supervisor re-launch the backgrounded `flow-ci-wait` (the poll loop restarts, observing CI state fresh from GitHub). |
+| `step-7` | Re-enter step 7 (ci-wait). A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-waiting pending phase) both resolve here. **Read `$WORKTREE/.flow-tmp/ci-wait-result.json` first**: if it exists and parses, a prior `flow-ci-check` call already reached `decided` — read the persisted verdict and branch on `.decision` without re-running anything. Only when the file is absent or unparseable does the supervisor re-run `flow-ci-check` fresh (never re-launch the old poll loop — there is none; a `waiting` verdict re-arms the dumb `flow-ci-wait` waiter per step 7's wake ladder). |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/flow-pr-review <PR>`. |
 | `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — which re-runs `flow-pipeline-summary ... --echo-prose ...` and re-echoes the recap verbatim per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection — then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition) and run `flow-remove-worktree --delete-branch`, write `phase: merged`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
 | `gated-feedback` | Re-enter feedback mode for a `gated` PR carrying a checkpoint marker. Print `RESUMING AT: gated-feedback (gated-with-checkpoint-marker)`, re-inject `$CHECKPOINT_PATH` (the generic checkpoint re-injection above), then position to take a bug callout → route it through the `/flow-coder` interactive redirect → re-verify (step 6) → re-gate (step 9). **This loop introduces no new merge path and never merges on its own authority:** its re-gate re-enters the normal step 9 gate, which routes every merge through the existing `flow-merge-guard` backstop (Decision A1) — a still-`gated` PR ends terminally at `gated`; the only merge routes are the user ticking all Test Steps boxes (gate re-reads `auto-merge`, `flow-merge-guard` confirms zero-unchecked) or the existing gate-override token. Then `flow-checkpoint --consume` to retire the body (archive to `checkpoint.consumed.md`, clear the freshness record) and drop the one-shot marker. The loop's phase writes are exactly `verifying` (step 6) and `gating` (step 9) — the `/flow-coder` step itself writes no phase — and both are allowlisted in `TERMINAL_EXIT_TRANSITIONS` (`bin/lib/state.ts`) so they no longer trip the exit-4 terminal-regression guard. |
@@ -2608,7 +2618,7 @@ every exit path, at the site that opened it:
   UI-smoke and UI-validation passes ("tear the launched server(s) down on completion").
 - **chrome-devtools MCP pages/contexts** — the per-pipeline isolated page each browser pass opens is closed with `close_page` on completion and on every error/early-exit path, scoped to the page/context this pipeline opened. Contract in [references/ui-smoke-pass.md](references/ui-smoke-pass.md) "Teardown" and `/flow-pr-review`'s `references/ui-validation-evidence.md` "Teardown".
 - **Playwright / headless browsers** — any repo headless browser an agent stood up (the Step 8c.iii fallback) exits when its Bash invocation returns.
-- **Background processes** — anything launched `run_in_background` (the `flow-ci-wait` poll loop is the canonical case) reaches a terminal exit or is reaped before the pipeline ends, via `flow-spawn`'s registry (the wrapper process itself is unregistered and lives only for the poll's duration).
+- **Background processes** — anything launched `run_in_background` (the bounded `flow-ci-wait` waiter is the canonical case) reaches a terminal exit or is reaped before the pipeline ends, via `flow-spawn`'s registry (the wrapper process itself is unregistered and lives only for the wait's duration).
 - **Agent-written env/config files** — any env/config file a browser/UI pass created is deleted on completion and on every error/early-exit path (see "Teardown" in [references/ui-smoke-pass.md](references/ui-smoke-pass.md)).
 
 **Layer 2 — the guaranteed registry-first backstop.** `close_page`

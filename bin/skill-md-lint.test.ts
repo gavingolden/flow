@@ -6198,6 +6198,11 @@ describe("browser-driven UI-validation structural anchors", () => {
       "flow-pipeline SKILL.md must not carry a bare (unwrapped) " +
         '`flow-ci-wait "$PR"` launch line.',
     ).toBe(false);
+    expect(
+      /^flow-ci-check "\$PR"/m.test(content),
+      "flow-pipeline SKILL.md step 7 must run the foreground " +
+        '`flow-ci-check "$PR"` decider call.',
+    ).toBe(true);
 
     const uiSmokeLaunchLine = uiSmokePassContent
       .split("\n")

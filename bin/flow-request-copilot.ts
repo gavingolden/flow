@@ -36,7 +36,7 @@ import {
   fetchRequestedReviewers,
   resolveCopilotConfigured,
   type GhRunner,
-} from "./flow-ci-wait";
+} from "./lib/ci-observe";
 
 export { classifyByGlobs, resolveRequestDecision };
 export type { AgentDecision, GlobClass, ReviewOverride };

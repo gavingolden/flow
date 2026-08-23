@@ -248,6 +248,18 @@ export type PipelineState = {
    * this field existed — no migration, AGENTS.md forbids back-compat shims).
    */
   reap?: ReapRecord;
+  /**
+   * Durable wall-clock anchors for the step-7 CI/Copilot wait, written by
+   * `flow-ci-check` (`bin/flow-ci-check.ts`). A plain state write (like
+   * `reap` above), never a `flow-state-update` phase transition —
+   * `updatedAt` is deliberately NOT bumped by writing this field. Anchoring
+   * `elapsedSec`/`ciTerminalAt` here (rather than an in-process clock) is
+   * what makes a suspended/parked `flow-ci-check` invocation immune to
+   * fabricating a false `ci-hang`: every call re-derives elapsed time from
+   * `startedAt`/`ciTerminalAt`, never from how long the calling process
+   * itself has been alive. Reset whenever `(pr, headSha)` changes.
+   */
+  ciWait?: CiWaitRecord;
   updatedAt: string;
 };
 
@@ -261,6 +273,25 @@ export type ReapRecord = {
   summary: string;
   ran: boolean;
   problems?: string[];
+};
+
+/**
+ * Durable anchors for one CI/Copilot wait cycle, written by `flow-ci-check`.
+ * Cycle identity is `(pr, headSha)`: a new head (ci-fix push, merge-resolver
+ * push) resets `startedAt`/`ciTerminalAt`/`lastObservedAt`/`checks`/
+ * `copilotRetriggered` automatically. `ciTerminalAt`/`lastObservedAt` are
+ * ISO strings (null until first observed) rather than relative seconds so
+ * the record survives a host restart between waits.
+ */
+export type CiWaitRecord = {
+  pr: number;
+  headSha: string;
+  startedAt: string;
+  ciTerminalAt: string | null;
+  lastObservedAt: string | null;
+  checks: number;
+  copilotRetriggered: boolean;
+  copilotRetriggeredAt?: string;
 };
 
 /**
@@ -614,6 +645,26 @@ function isReapRecord(x: unknown): x is ReapRecord {
   return true;
 }
 
+export function isCiWaitRecord(x: unknown): x is CiWaitRecord {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  if (typeof o.pr !== "number") return false;
+  if (typeof o.headSha !== "string") return false;
+  if (typeof o.startedAt !== "string") return false;
+  if (o.ciTerminalAt !== null && typeof o.ciTerminalAt !== "string")
+    return false;
+  if (o.lastObservedAt !== null && typeof o.lastObservedAt !== "string")
+    return false;
+  if (typeof o.checks !== "number") return false;
+  if (typeof o.copilotRetriggered !== "boolean") return false;
+  if (
+    o.copilotRetriggeredAt !== undefined &&
+    typeof o.copilotRetriggeredAt !== "string"
+  )
+    return false;
+  return true;
+}
+
 function isPhaseLog(
   x: unknown,
 ): x is Array<{ phase: string; outcome?: string; at: string }> {
@@ -686,6 +737,7 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.checkpoint !== undefined && !isCheckpointRecord(o.checkpoint))
     return false;
   if (o.reap !== undefined && !isReapRecord(o.reap)) return false;
+  if (o.ciWait !== undefined && !isCiWaitRecord(o.ciWait)) return false;
   if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
     return false;
   if (o.pid !== undefined && typeof o.pid !== "number") return false;
