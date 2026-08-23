@@ -580,4 +580,27 @@ describe(materializeModuleContent, () => {
       fs.existsSync(path.join(skillsDir, "flow-module-core", "agents")),
     ).toBe(false);
   });
+
+  it("honours onlyIds — an allowlisted module still gets its agents symlink, not just skills", () => {
+    // Regression guard: the agents/<module> target nests one path segment
+    // shallower under skillsRoot than skills/<tier>/<name> does
+    // (`<root>/agents` vs `<root>/skills/<name>`). A fixed-depth
+    // allowlist check that only matches the skills depth would silently
+    // drop every agent symlink whenever onlyIds is passed — exactly the
+    // shape eval-fixture.ts's `materializeModuleContent(..., ["core"])`
+    // call uses.
+    materializeModuleContent(fakeFlowSource, skillsDir, ["core"]);
+
+    const skillLink = path.join(
+      skillsDir,
+      "flow-module-core",
+      "skills",
+      "x-skill",
+    );
+    expect(fs.existsSync(skillLink)).toBe(true);
+
+    const agentsLink = path.join(skillsDir, "flow-module-core", "agents");
+    expect(fs.existsSync(agentsLink)).toBe(true);
+    expect(fs.existsSync(path.join(agentsLink, "x.md"))).toBe(true);
+  });
 });

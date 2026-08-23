@@ -248,6 +248,27 @@ describe("materializeFixture", () => {
     }
   });
 
+  it("materializes an agents symlink under the plugin root, reachable for child sessions", () => {
+    // Regression guard for the onlyIds=["core"] allowlist filter in
+    // materializeModuleContent silently dropping agent symlinks (they nest
+    // one path segment shallower than skill symlinks under the plugin
+    // root) — without it a fixture's child claude session sees "Agent type
+    // 'flow-module-core:flow-gatekeeper' not found".
+    const fixture = materializeFixture(buildScenario(), "my-suite", 1, {
+      stateDir,
+    });
+    try {
+      const agentsDir = path.join(fixture.pluginRoots[0], "agents");
+      expect(fs.existsSync(agentsDir)).toBe(true);
+      const agentFiles = fs
+        .readdirSync(agentsDir)
+        .filter((name) => name.endsWith(".md"));
+      expect(agentFiles.length).toBeGreaterThan(0);
+    } finally {
+      fixture.teardown();
+    }
+  });
+
   it("teardown removes root/state/checkpoints/turns/procs and never throws when called twice", () => {
     const fixture = materializeFixture(buildScenario(), "my-suite", 1, {
       stateDir,

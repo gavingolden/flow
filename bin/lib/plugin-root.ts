@@ -340,11 +340,18 @@ export function materializeModuleContent(
     ...discoverSkills(flowSource, targets),
     ...discoverAgents(flowSource, targets),
   ]) {
-    if (
-      allowedRootDirs &&
-      !allowedRootDirs.has(path.dirname(path.dirname(entry.target)))
-    ) {
-      continue;
+    if (allowedRootDirs) {
+      // Skill targets nest two levels below skillsRoot
+      // (`<root>/skills/<name>`); agent targets nest only one
+      // (`<root>/agents`). A fixed dirname/dirname depth matches skills
+      // but silently misses every agent symlink, so derive the plugin
+      // root as skillsRoot joined with the target's first path segment
+      // instead of assuming a fixed depth.
+      const rootDir = path.join(
+        skillsRoot,
+        path.relative(skillsRoot, entry.target).split(path.sep)[0],
+      );
+      if (!allowedRootDirs.has(rootDir)) continue;
     }
     ensureSymlink(entry.target, entry.source, false);
   }
