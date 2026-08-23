@@ -81,7 +81,9 @@ export function buildManualAction(
     .filter((l) => !l.startsWith("LOCAL FOLLOW-UPS"))
     // The block's own bullets/checkboxes are re-bulleted by pushManualBucket;
     // strip them so a follow-up never renders as `- - [ ] …`.
-    .map((l) => l.replace(/^[-*]\s+(\[[ x]\]\s+)?/, "").replace(/\s{2,}/g, " "));
+    .map((l) =>
+      l.replace(/^[-*]\s+(\[[ x]\]\s+)?/, "").replace(/\s{2,}/g, " "),
+    );
   if (beforeMerge.length === 0 && whenever.length === 0) return [];
   const lines = ["MANUAL ACTION:"];
   pushManualBucket(lines, "before merge", beforeMerge);
