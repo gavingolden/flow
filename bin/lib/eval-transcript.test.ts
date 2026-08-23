@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  assistantText,
   initInfo,
   metricSource,
   parseStream,
@@ -250,5 +251,53 @@ describe("initInfo", () => {
     expect(info.plugins).toEqual([]);
     expect(info.agents).toEqual([]);
     expect(info.claudeVersion).toBeUndefined();
+  });
+});
+
+describe("assistantText", () => {
+  it("concatenates newline-joined text blocks from assistant events only", () => {
+    const events: StreamEvent[] = [
+      {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "first" }] },
+      },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            { type: "tool_use", name: "Bash" },
+            { type: "text", text: "second" },
+          ],
+        },
+      },
+    ];
+    expect(assistantText(events)).toBe("first\nsecond");
+  });
+
+  it("excludes text inside a user-role tool_result even when it contains a NOTICE pattern", () => {
+    const events: StreamEvent[] = [
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              text: "NOTICE — agent-fallback: skill prose echoed back",
+            },
+          ],
+        },
+      },
+      {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "clean assistant text" }] },
+      },
+    ];
+    expect(assistantText(events)).toBe("clean assistant text");
+    expect(assistantText(events)).not.toContain("agent-fallback");
+  });
+
+  it("returns '' for empty events", () => {
+    expect(assistantText([])).toBe("");
   });
 });

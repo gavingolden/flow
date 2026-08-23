@@ -35,6 +35,7 @@ function makeCtx(overrides: Partial<GraderContext> = {}): GraderContext {
     stateSlug: "eval-test-s1-r1",
     stateDir: "/state",
     streamPath: "/out/stream.jsonl",
+    assistantTextPath: "/out/assistant-text.txt",
     result: {
       type: "result",
       subtype: "success",
@@ -97,6 +98,13 @@ describe("expandPlaceholders", () => {
       "/fixture/case.json",
     );
     expect(expandPlaceholders("$STREAM", ctx)).toBe("/out/stream.jsonl");
+  });
+
+  it("expands $ASSISTANT_TEXT to ctx.assistantTextPath", () => {
+    const ctx = makeCtx();
+    expect(expandPlaceholders("$ASSISTANT_TEXT", ctx)).toBe(
+      "/out/assistant-text.txt",
+    );
   });
 
   it("expands $STATE/$CHECKPOINTS through the real helpers", () => {

@@ -355,6 +355,65 @@ describe("runScenarioOnce", () => {
     ).toContain('"type":"result"');
   });
 
+  it("writes assistant-text.txt containing only assistant-emitted text, excluding user-role content", async () => {
+    const fs = await import("node:fs");
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const files: Record<string, string> = {
+      [path.join(scenario.dir, "prompt.md")]: "do the thing",
+    };
+    const userLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            text: "skill prose containing a fake NOTICE — agent-fallback: nope",
+          },
+        ],
+      },
+    });
+    const assistantLine = JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "real assistant output" }] },
+    });
+    const resultLine = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      num_turns: 1,
+      total_cost_usd: 0.01,
+      duration_ms: 10,
+      session_id: "s",
+      usage: { input_tokens: 1, output_tokens: 1 },
+      modelUsage: {},
+      permission_denials: [],
+    });
+
+    const fakeSpawn: SpawnFn = (_argv, _env, _cwd, onStdout) => {
+      onStdout([userLine, assistantLine, resultLine].join("\n") + "\n");
+      return { exited: Promise.resolve(0), kill: () => {} };
+    };
+
+    const outcome = await runScenarioOnce(scenario, fixture, {
+      claudeBin: "claude",
+      outDir,
+      sessionId: "sess-1",
+      spawn: fakeSpawn,
+      readFile: (p) => files[p] ?? "",
+    });
+    expect(outcome.assistantTextPath).toBe(
+      path.join(outDir, "assistant-text.txt"),
+    );
+    const assistantTextContent = fs.readFileSync(
+      outcome.assistantTextPath,
+      "utf8",
+    );
+    expect(assistantTextContent).toBe("real assistant output");
+    expect(assistantTextContent).not.toContain("agent-fallback");
+  });
+
   it("drains stderr chunks into <outDir>/stderr.txt", async () => {
     const scenario = makeScenario();
     const fixture = makeFixture();

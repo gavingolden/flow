@@ -57,7 +57,7 @@
     {
       "id": "no-agent-fallback",
       "kind": "file",
-      "file": "$STREAM",
+      "file": "$ASSISTANT_TEXT",
       "notMatches": "NOTICE \u2014 agent-fallback:"
     },
     {

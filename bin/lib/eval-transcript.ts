@@ -26,7 +26,7 @@ export type StreamEvent = {
     role?: string;
     model?: string;
     usage?: Usage;
-    content?: Array<{ type: string; name?: string }>;
+    content?: Array<{ type: string; name?: string; text?: string }>;
   };
   [k: string]: unknown;
 };
@@ -211,6 +211,27 @@ export function transcriptMetrics(
     numTurns: result?.num_turns ?? 0,
     permissionDenials: result?.permission_denials?.length ?? 0,
   };
+}
+
+/**
+ * Concatenates every text block the assistant itself emitted, newline-joined
+ * — user-role events are excluded entirely, including the Skill-tool prose
+ * that lands inside a user-role `tool_result` block when the child reads a
+ * skill/reference file. A `notMatches` grader that needs to catch only
+ * text the model actually authored (e.g. an agent-fallback NOTICE) should
+ * source from this, not from the raw `$STREAM` transcript.
+ */
+export function assistantText(events: StreamEvent[]): string {
+  const parts: string[] = [];
+  for (const event of events) {
+    if (event.type !== "assistant" || !event.message) continue;
+    for (const block of event.message.content ?? []) {
+      if (block.type === "text" && typeof block.text === "string") {
+        parts.push(block.text);
+      }
+    }
+  }
+  return parts.join("\n");
 }
 
 /**

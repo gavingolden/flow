@@ -132,10 +132,13 @@ a real filesystem existence check, not a "field is defined" check).
 ## Placeholders
 
 `file`/`cwd` fields may use `$REPO`, `$FIXTURE`, `$STATE`, `$CHECKPOINTS`,
-`$STREAM` — expanded by `bin/lib/eval-graders.ts`'s `expandPlaceholders`
-against the materialized fixture (repo dir, the scenario's own source
-directory, the real per-slug `state.json` path, the checkpoint directory,
-and the captured `stream.jsonl` path).
+`$STREAM`, `$ASSISTANT_TEXT` — expanded by `bin/lib/eval-graders.ts`'s
+`expandPlaceholders` against the materialized fixture (repo dir, the
+scenario's own source directory, the real per-slug `state.json` path, the
+checkpoint directory, and the captured `stream.jsonl` path). `$ASSISTANT_TEXT`
+points at `assistant-text.txt` — assistant-emitted text only — use for
+`notMatches` patterns that also appear in skill/reference prose (which
+lands in user-role stream events).
 
 ## fixture/ layout rules
 

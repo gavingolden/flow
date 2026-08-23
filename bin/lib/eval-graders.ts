@@ -20,6 +20,7 @@ export type GraderContext = {
   stateSlug: string;
   stateDir: string;
   streamPath: string;
+  assistantTextPath: string;
   result: ResultEnvelope | null;
   transcript: TranscriptMetrics;
   runCommand: (
@@ -31,10 +32,11 @@ export type GraderContext = {
 };
 
 /**
- * Expands `$REPO`/`$FIXTURE`/`$STATE`/`$CHECKPOINTS`/`$STREAM` placeholders
- * in `file`/`cwd` grader fields. `$STATE` and `$CHECKPOINTS` resolve
- * through the real `statePath`/`checkpointDir` helpers so a grader can
- * never drift from where the harness itself wrote those files.
+ * Expands `$REPO`/`$FIXTURE`/`$STATE`/`$CHECKPOINTS`/`$STREAM`/
+ * `$ASSISTANT_TEXT` placeholders in `file`/`cwd` grader fields. `$STATE`
+ * and `$CHECKPOINTS` resolve through the real `statePath`/`checkpointDir`
+ * helpers so a grader can never drift from where the harness itself wrote
+ * those files.
  */
 export function expandPlaceholders(s: string, ctx: GraderContext): string {
   return s
@@ -42,7 +44,8 @@ export function expandPlaceholders(s: string, ctx: GraderContext): string {
     .replace(/\$FIXTURE\b/g, ctx.fixtureRoot)
     .replace(/\$STATE\b/g, statePath(ctx.stateSlug, ctx.stateDir))
     .replace(/\$CHECKPOINTS\b/g, checkpointDir(ctx.stateSlug, ctx.stateDir))
-    .replace(/\$STREAM\b/g, ctx.streamPath);
+    .replace(/\$STREAM\b/g, ctx.streamPath)
+    .replace(/\$ASSISTANT_TEXT\b/g, ctx.assistantTextPath);
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

@@ -17,6 +17,7 @@ import { spawn as spawnAsync, spawnSync } from "node:child_process";
 import type { ResolvedScenario } from "./eval-suite";
 import type { MaterializedFixture } from "./eval-fixture";
 import {
+  assistantText,
   parseStream,
   type ResultEnvelope,
   type StreamEvent,
@@ -299,6 +300,7 @@ export type RunOutcome = {
   exitCode: number;
   timedOut: boolean;
   streamPath: string;
+  assistantTextPath: string;
   events: StreamEvent[];
   result: ResultEnvelope | null;
   error?: string;
@@ -366,12 +368,15 @@ export async function runScenarioOnce(
   }
 
   const { events, result } = parseStream(out);
+  const assistantTextPath = path.join(opts.outDir, "assistant-text.txt");
+  fs.writeFileSync(assistantTextPath, assistantText(events));
   const error = result?.is_error ? (result.subtype ?? "error") : undefined;
 
   return {
     exitCode,
     timedOut,
     streamPath,
+    assistantTextPath,
     events,
     result,
     ...(error ? { error } : {}),

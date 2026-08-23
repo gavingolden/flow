@@ -47,6 +47,7 @@ type MemFs = {
   writeFile: (p: string, data: string) => void;
   exists: (p: string) => boolean;
   mkdirp: (p: string) => void;
+  rm: (p: string) => void;
   readdir: (p: string) => string[];
 };
 
@@ -66,6 +67,14 @@ function memFs(initial: Record<string, string> = {}): MemFs {
     exists: (p) => p in files || dirs.has(p),
     mkdirp: (p) => {
       dirs.add(p);
+    },
+    rm: (p) => {
+      const prefix = p.endsWith("/") ? p : `${p}/`;
+      dirs.delete(p);
+      for (const d of [...dirs]) if (d.startsWith(prefix)) dirs.delete(d);
+      for (const f of Object.keys(files)) {
+        if (f === p || f.startsWith(prefix)) delete files[f];
+      }
     },
     readdir: (p) => {
       const prefix = p.endsWith("/") ? p : `${p}/`;
@@ -94,6 +103,7 @@ function fakeDeps(fs: MemFs, overrides: Partial<Deps> = {}): Deps {
     writeFile: fs.writeFile,
     readFile: fs.readFile,
     mkdirp: fs.mkdirp,
+    rm: fs.rm,
     exists: fs.exists,
     readdir: fs.readdir,
     progress: () => {},
@@ -272,6 +282,52 @@ describe("main run — nonexistent suite", () => {
   });
 });
 
+describe("main run — stale run dir", () => {
+  it("wipes a stale run-N/ directory left by a cancelled earlier invocation before writing fresh output", async () => {
+    const files = baseFiles();
+    const staleRunFile = path.join(
+      "out",
+      "fake-suite",
+      "s1",
+      "run-1",
+      "stale-leftover.txt",
+    );
+    files[staleRunFile] = "from a cancelled invocation";
+    const fs = memFs(files);
+    const deps = fakeDeps(fs, {
+      materializeFixture: () =>
+        ({
+          root: "/r",
+          repoDir: "/r/repo",
+          claudeHome: "/r/home",
+          pluginRoots: [],
+          shimDir: "/r/shims",
+          slug: "eval-fake-suite-s1-r1",
+          stateDir: "/state",
+          teardown: () => {},
+        }) as ReturnType<Deps["materializeFixture"]>,
+    });
+    const code = await main(
+      [
+        "run",
+        "--suite",
+        "fake-suite",
+        "--out",
+        "out",
+        "--evals-dir",
+        "evals",
+        "--dry-run",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    expect(fs.exists(staleRunFile)).toBe(false);
+    expect(
+      fs.exists(path.join("out", "fake-suite", "s1", "run-1", "grades.json")),
+    ).toBe(true);
+  });
+});
+
 describe("main run --dry-run", () => {
   it("materializes a real tmp fixture, grades non-spawned graders, and leaves no eval-* state", async () => {
     const scenarioRoot = realFs.mkdtempSync(
@@ -329,6 +385,7 @@ describe("main run --dry-run", () => {
       },
       readFile: (p) => realFs.readFileSync(p, "utf8"),
       mkdirp: (p) => realFs.mkdirSync(p, { recursive: true }),
+      rm: (p) => realFs.rmSync(p, { recursive: true, force: true }),
       exists: (p) => realFs.existsSync(p),
       readdir: (p) =>
         realFs
@@ -402,6 +459,7 @@ describe("main run --threshold", () => {
           exitCode: 0,
           timedOut: false,
           streamPath: "/r/stream.jsonl",
+          assistantTextPath: "/r/assistant-text.txt",
           events: [],
           result: null,
         }) as Awaited<ReturnType<Deps["runScenarioOnce"]>>,
@@ -464,6 +522,7 @@ describe("main run --record-baseline", () => {
           exitCode: 0,
           timedOut: false,
           streamPath: "/r/stream.jsonl",
+          assistantTextPath: "/r/assistant-text.txt",
           events: [],
           result: null,
         }) as Awaited<ReturnType<Deps["runScenarioOnce"]>>,
@@ -825,6 +884,7 @@ describe("concurrency pool", () => {
           exitCode: 0,
           timedOut: false,
           streamPath: "/r/stream.jsonl",
+          assistantTextPath: "/r/assistant-text.txt",
           events: [],
           result: null,
         } as Awaited<ReturnType<Deps["runScenarioOnce"]>>;

@@ -68,6 +68,13 @@ export type Deps = {
   writeFile: (p: string, data: string) => void;
   readFile: (p: string) => string;
   mkdirp: (p: string) => void;
+  /**
+   * Recursive, force-quiet removal (`fs.rmSync(p, { recursive: true,
+   * force: true })` semantics) — used to wipe a per-run output directory
+   * before recreating it, so a cancelled earlier invocation's stale
+   * `run-N/` contents never survive into a fresh run.
+   */
+  rm: (p: string) => void;
   exists: (p: string) => boolean;
   progress: (line: string) => void;
   sessionId: () => string;
@@ -128,6 +135,7 @@ function buildGraderContext(
   scenario: ResolvedScenario,
   outcome: {
     streamPath: string;
+    assistantTextPath: string;
     result: GraderContext["result"];
     transcript: ReturnType<typeof transcriptMetrics>;
   },
@@ -139,6 +147,7 @@ function buildGraderContext(
     stateSlug: fixture.slug,
     stateDir: fixture.stateDir,
     streamPath: outcome.streamPath,
+    assistantTextPath: outcome.assistantTextPath,
     result: outcome.result,
     transcript: outcome.transcript,
     runCommand: (argv, cwd) => {
@@ -181,6 +190,11 @@ async function runOneScenarioRun(
   });
   activeFixtureTeardowns.add(fixture.teardown);
   const runDir = path.join(outBase, suite.id, scenario.id, `run-${run}`);
+  // Wipe any stale contents left by a cancelled earlier invocation (e.g. a
+  // prior --all run interrupted mid-scenario) before recreating the dir,
+  // so a fresh run never mixes its output with a leftover run-N/ from a
+  // run that never completed.
+  deps.rm(runDir);
   deps.mkdirp(runDir);
 
   try {
@@ -193,6 +207,7 @@ async function runOneScenarioRun(
         scenario,
         {
           streamPath: path.join(runDir, "stream.jsonl"),
+          assistantTextPath: path.join(runDir, "assistant-text.txt"),
           result: null,
           transcript,
         },
@@ -237,7 +252,12 @@ async function runOneScenarioRun(
     const ctx = buildGraderContext(
       fixture,
       scenario,
-      { streamPath: outcome.streamPath, result: outcome.result, transcript },
+      {
+        streamPath: outcome.streamPath,
+        assistantTextPath: outcome.assistantTextPath,
+        result: outcome.result,
+        transcript,
+      },
       deps,
     );
     const { grades, metrics, score } = deps.gradeAll(scenario.graders, ctx);
@@ -452,6 +472,7 @@ export async function main(
     },
     readFile: (p) => fs.readFileSync(p, "utf8"),
     mkdirp: (p) => fs.mkdirSync(p, { recursive: true }),
+    rm: (p) => fs.rmSync(p, { recursive: true, force: true }),
     exists: (p) => fs.existsSync(p),
     // Files and directories both: `listSuiteDirs` filters by presence of a
     // `suite.json` sibling regardless, and `writeBaselineFiles`'s README
