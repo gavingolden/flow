@@ -626,7 +626,6 @@ function makePollState(overrides: Partial<PollState> = {}): PollState {
     prUrl: "https://x/y/pull/1",
     ci: { kind: "pending" },
     copilotPosted: false,
-    copilotRequestedThisPoll: true,
     ciConfigured: true,
     copilotConfigured: true,
     maxElapsed: 1200,

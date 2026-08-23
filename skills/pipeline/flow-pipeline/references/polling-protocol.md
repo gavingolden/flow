@@ -84,15 +84,19 @@ correlate the line against state.json directly). The line has no fixed
 is ~20 before the 20-min cap trips. The 20-min budget is still printed
 as `elapsed Xm Ys of 20m`.
 
-### Per-poll `requested_reviewers` in-progress signal
+### Per-invocation `requested_reviewers` in-progress signal
 
-When Copilot is configured, each poll also re-reads `requested_reviewers`
-(`gh pr view <n> --json reviewRequests`) rather than caching the
-loop-entry value — GitHub auto-removes Copilot from the list once it
-posts its review, so membership genuinely changes across polls. The read
-feeds a `copilotRequestedThisPoll` flag that distinguishes a healthy
-in-progress wait from a dead one. When CI is terminal and no Copilot
-review has posted yet, the loop emits one of two stderr variants:
+`requested_reviewers` is read once, at loop entry, via
+`gh pr view <n> --json reviewRequests`. Since PR #666 split
+`flow-ci-wait` into `flow-ci-check` (one invocation == one poll), a
+second re-read later in the same invocation would be redundant — GitHub
+auto-removes Copilot from the list once it posts its review, so
+membership genuinely changes across polls, but that cross-poll freshness
+comes from each new process's own entry read, not from a second read
+inside this one. The entry read feeds a `copilotRequestedThisPoll` flag
+that distinguishes a healthy in-progress wait from a dead one. When CI is
+terminal and no Copilot review has posted yet, the loop emits one of two
+stderr variants:
 
 - `Copilot queued, still waiting` — the configured login is present in
   this poll's `requested_reviewers` (queued; the review is expected).
@@ -100,9 +104,8 @@ review has posted yet, the loop emits one of two stderr variants:
 
 This is observability only: `copilotRequestedThisPoll` informs the
 stderr line, not the pure decision matrix (`decideOnPoll` does not
-branch on it). The same per-poll read is reused by the post-POST
-verification when a retrigger fires on that iteration (see "Retrigger on
-stale review").
+branch on it). The post-POST verification when a retrigger fires on that
+iteration uses its own separate fetch (see "Retrigger on stale review").
 
 ## Presence checks
 
@@ -381,9 +384,9 @@ SMALL_FOLLOWUP_MAX_FILES` (3). Detected via
     in the same poll, elapsed well below the 600s timeout (no 10-minute
     wait). This is an early decision at the retrigger call site, not a
     new decision-matrix row; the pure decision matrix is unchanged. The
-    re-read only runs on the POST-ok path and is shared with the
-    per-poll `requested_reviewers` signal (see "Per-poll
-    `requested_reviewers` in-progress signal").
+    re-read only runs on the POST-ok path and is its own separate fetch,
+    independent of the per-invocation `requested_reviewers` signal (see
+    "Per-invocation `requested_reviewers` in-progress signal").
 
 The **10-min Copilot timeout** branch in the decision matrix reuses
 the existing `copilotTimeout` constant; on retrigger, `ciTerminalAt`
@@ -437,7 +440,7 @@ the `~/.flow/config.json` `bots.copilotClaimDeadlineSec` global
 override (a positive integer), then `DEFAULT_CLAIM_DEADLINE_SEC`
 (60 seconds). "Claimed" means **any** of:
 
-- The per-poll `gh pr view --json reviewRequests` projection includes
+- The loop-entry `gh pr view --json reviewRequests` projection includes
   the configured Copilot login (the bot is still in
   `requested_reviewers`).
 - A PENDING Copilot review exists on the current `headRefOid` (the
@@ -493,10 +496,16 @@ anchor.
 
 The check runs **per poll** because a conflict can appear at loop entry
 (poll 1) or mid-wait (a later poll once base advances), and it runs
-**before** the per-poll `requested_reviewers` / `gh pr checks` reads so a
-conflicted PR never pays for those calls. The OPEN-state guard preserves
-MERGED/CLOSED precedence: a PR that is MERGED or CLOSED falls through to
-the decision matrix and routes to `merged-externally` / `pr-closed`.
+**after** the entry `requested_reviewers` / PR-view reads but **before**
+the `gh pr checks` read — a conflicted PR still pays the three entry
+spawns (`fetchRequestedReviewers`'s GraphQL + REST union, plus the
+`observePr` PR-view read; there is no per-poll re-read left to skip
+after the collapse described in "Per-invocation `requested_reviewers`
+in-progress signal"),
+but it short-circuits before the checks-list call. The OPEN-state guard
+preserves MERGED/CLOSED precedence: a PR that is MERGED or CLOSED falls
+through to the decision matrix and routes to `merged-externally` /
+`pr-closed`.
 
 The mergeability read **fails open**: a non-zero gh exit or malformed
 JSON (`observeMergeState` returns `null`) keeps the loop polling rather
@@ -608,13 +617,11 @@ gh pr checks <pr> --json name,state,startedAt,completedAt
 # `pr_state` (OPEN/MERGED/CLOSED) is sourced from, which the decision
 # matrix needs even for repos with no CI configured. `headRefOid` is
 # the PR's current HEAD SHA, needed by the stale-Copilot-review
-# retrigger branch under "## Copilot reviewer" below. `reviewRequests`
-# is the per-poll requested-reviewers projection (lowercased before
-# matching), consumed by the Copilot auto-detect short-circuits
-# ('Claim-deadline auto-detect' and 'Self-dismissal short-circuit')
-# under "## Copilot reviewer". Re-projected per poll because GitHub
-# auto-removes Copilot after its first review.
-gh pr view <pr> --json reviews,state,headRefOid,reviewRequests
+# retrigger branch under "## Copilot reviewer" below. `url` is included
+# for readability in ad-hoc debugging output only. `reviewRequests` is
+# read separately at loop entry only (see `fetchRequestedReviewers`),
+# not re-projected here every poll.
+gh pr view <pr> --json state,url,reviews,headRefOid
 
 # Mergeability projection. Read every iteration on an OPEN PR to detect a
 # branch conflict with base — `mergeStateStatus` is the primary signal (it is
