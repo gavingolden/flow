@@ -594,6 +594,13 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
           "Copilot review stale — intervening commits are a small follow-up, skipping retrigger\n",
         );
       } else {
+        // Snapshot the pre-retrigger anchors so a confirmed silent
+        // rejection (below) can restore them — mirrors the pre-split
+        // helper's documented contract: a silently-declined re-request
+        // must not burn the 10-min Copilot timeout on a review that will
+        // never post (PR #161 incident write-up).
+        const preRetriggerCiTerminalAtIso = record.ciTerminalAt;
+        const preRetriggerCiTerminalAt = ciTerminalAt;
         record.copilotRetriggered = true;
         record.copilotRetriggeredAt = isoOf(nowMs);
         record.ciTerminalAt = isoOf(nowMs);
@@ -613,6 +620,15 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
             process.stderr.write(
               "NOTICE: Copilot retrigger returned ok but Copilot is not in requested_reviewers — silent rejection, not queued. Proceeding to review without bot.\n",
             );
+            // Confirmed silent rejection: restore the pre-retrigger anchors
+            // and leave copilotRetriggered false on the wire and in the
+            // persisted record — a declined re-request never spent the
+            // one-shot retrigger budget.
+            record.copilotRetriggered = false;
+            record.copilotRetriggeredAt = undefined;
+            record.ciTerminalAt = preRetriggerCiTerminalAtIso;
+            ciTerminalAt = preRetriggerCiTerminalAt;
+            persistRecord();
             decided({
               decision: "proceed-to-review-no-bot",
               elapsedSec,
