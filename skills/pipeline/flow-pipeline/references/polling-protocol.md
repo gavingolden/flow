@@ -368,17 +368,22 @@ SMALL_FOLLOWUP_MAX_FILES` (3). Detected via
   - **Login present (queued confirmed):** today's behavior —
     `copilotRetriggered := true`, reset the Copilot-timeout window
     (`ciTerminalAt := elapsedSec`), and keep polling for the fresh
-    review.
+    review. (`flow-ci-check` persists both fields, plus a snapshot of the
+    pre-retrigger anchors, _before_ the POST fires — see the `bin/flow-ci-check.ts`
+    pre-mortem (d) note — so a one-shot process killed between the POST
+    and the state write can never re-fire the request on the next call.)
   - **Login absent (silent rejection):** write a `NOTICE` line to stderr
-    naming the silent rejection, leave `copilotRetriggered := false`, do
-    **not** reset `ciTerminalAt`, and immediately
-    `emitResult({ decision: "proceed-to-review-no-bot", copilotRetriggered: false })`
-    and return — in the same poll, elapsed well below the 600s timeout
-    (no 10-minute wait). This is an early emit at the retrigger call
-    site, not a new decision-matrix row; the pure decision matrix is
-    unchanged. The re-read only runs on the POST-ok path and is shared
-    with the per-poll `requested_reviewers` read (see "Per-poll
-    counter").
+    naming the silent rejection, restore the snapshotted pre-retrigger
+    anchors (`copilotRetriggered := false`, `ciTerminalAt` back to its
+    pre-retrigger value — a declined re-request never spends the
+    one-shot retrigger budget), and immediately decide
+    `proceed-to-review-no-bot` (`copilotRetriggered: false`) and return —
+    in the same poll, elapsed well below the 600s timeout (no 10-minute
+    wait). This is an early decision at the retrigger call site, not a
+    new decision-matrix row; the pure decision matrix is unchanged. The
+    re-read only runs on the POST-ok path and is shared with the
+    per-poll `requested_reviewers` signal (see "Per-poll
+    `requested_reviewers` in-progress signal").
 
 The **10-min Copilot timeout** branch in the decision matrix reuses
 the existing `copilotTimeout` constant; on retrigger, `ciTerminalAt`
@@ -692,10 +697,9 @@ wait happens inside a backgrounded `flow-ci-wait` process (or a
 Monitor / `ScheduleWakeup` fallback), off the supervisor's own turn.
 Worst case ~20 wakes at the flat 60s cadence before the 20-min cap
 trips, giving ~20 × 400 B ≈ 8 KB of conversation growth — an order of
-magnitude below the old loop's ~40-80 KB (20 polls × 2-4 KB of raw CI
-
-- reviews JSON per poll). `gh` API call volume per wake is unchanged
-  (3-4 calls); only what lands in the conversation shrank.
+magnitude below the old loop's ~40-80 KB (20 polls × 2-4 KB of raw CI and
+reviews JSON per poll). `gh` API call volume per wake is unchanged (3-4
+calls); only what lands in the conversation shrank.
 
 The pre-split design kept all wait-phase state in the supervisor's own
 conversation session, trading conversation growth for statelessness

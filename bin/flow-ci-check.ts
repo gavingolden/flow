@@ -376,10 +376,19 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
       ? priorState.ciWait
       : freshRecord(parsed.pr, nowMs);
 
+  let stateMissingWarned = false;
   const persistRecord = (): void => {
     if (stateless) return;
     const base = priorState ?? readState(slug, stateDir);
-    if (base === null) return;
+    if (base === null) {
+      if (!stateMissingWarned) {
+        stateMissingWarned = true;
+        process.stderr.write(
+          `flow-ci-check: FLOW_SLUG resolved to "${slug}" but no readable state file at ~/.flow/state/${slug}.json — anchors will not persist this call, so the 20-min cap and the 10-min Copilot timeout can never fire. Run 'flow-state-update' to (re)create it.\n`,
+        );
+      }
+      return;
+    }
     writeState({ ...base, ciWait: record }, stateDir);
   };
 
@@ -604,7 +613,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         record.copilotRetriggered = true;
         record.copilotRetriggeredAt = isoOf(nowMs);
         record.ciTerminalAt = isoOf(nowMs);
-        ciTerminalAt = 0;
+        ciTerminalAt = elapsedSec;
         persistRecord();
 
         const retrigger = retriggerCopilotReview(parsed.pr, gh);

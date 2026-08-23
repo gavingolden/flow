@@ -637,28 +637,108 @@ describe("run() — failed observation", () => {
     expect(result).not.toHaveProperty("decision");
   });
 
-  it("never fires ci-hang on a failed observation, even past the 20-min cap", async () => {
+  it("never fires ci-hang on a failed observation, even past the 20-min cap — startedAt-anchored", async () => {
     const dir = makeStateDir();
     const slug = "flow-ci-check-failed-obs";
     seedState(dir, slug);
     process.env.FLOW_SLUG = slug;
+    const t0Ms = Date.parse("2026-01-01T00:00:00.000Z");
     const gh: GhRunner = () => ({
       stdout: "",
       stderr: "gh: rate limited",
       exitCode: 1,
     });
-    const cap = captureStreams();
-    // 1300s (> the 1200s cap) since startedAt, but the observation itself
-    // still fails — must stay "waiting", never "ci-hang".
-    const exit = await run(
-      ["100", "--state-dir", dir, "--now", "2026-01-01T00:21:40.000Z"],
-      baseDeps(gh, Date.parse("2026-01-01T00:21:40.000Z"), { now: undefined }),
+
+    // Call 1 at T0 seeds the durable anchor: no prior state exists, so
+    // `run()` takes the `freshRecord` branch and `startedAt === T0`. The
+    // observation fails, so `lastObservedAt` is never set.
+    const cap1 = captureStreams();
+    const exit1 = await run(
+      ["100", "--state-dir", dir, "--now", "2026-01-01T00:00:00.000Z"],
+      baseDeps(gh, t0Ms, { now: undefined }),
     );
-    cap.restore();
-    expect(exit).toBe(0);
-    const result = JSON.parse(cap.stdout.join("")) as CheckResult;
+    cap1.restore();
+    expect(exit1).toBe(0);
+    expect(readAnchors(dir, slug)?.lastObservedAt).toBeNull();
+
+    // Call 2, 1300s later (> the 1200s cap): the observation itself still
+    // fails — `observationFailedSec` must measure the full 1300s against
+    // the seeded `startedAt` anchor (the only anchor available, since
+    // `lastObservedAt` was never set) and the result must stay "waiting",
+    // never "ci-hang". This is the assertion the previous version of this
+    // test never made — it asserted 0-elapsed with no prior anchor seeded,
+    // so a reintroduced `elapsedSec >= maxElapsed => ci-hang` regression
+    // would still have passed it.
+    const laterMs = t0Ms + 1300 * 1000;
+    const cap2 = captureStreams();
+    const exit2 = await run(
+      ["100", "--state-dir", dir, "--now", "2026-01-01T00:21:40.000Z"],
+      baseDeps(gh, laterMs, { now: undefined }),
+    );
+    cap2.restore();
+    expect(exit2).toBe(0);
+    const result = JSON.parse(cap2.stdout.join("")) as CheckResult;
     expect(result.status).toBe("waiting");
     expect((result as { observation?: string }).observation).toBe("failed");
+    expect(
+      (result as { observationFailedSec?: number }).observationFailedSec,
+    ).toBe(1300);
+    expect(readAnchors(dir, slug)?.lastObservedAt).toBeNull();
+  });
+
+  it("never fires ci-hang on a failed observation, even past the 20-min cap — lastObservedAt-anchored", async () => {
+    const dir = makeStateDir();
+    const slug = "flow-ci-check-failed-obs-anchored";
+    seedState(dir, slug);
+    process.env.FLOW_SLUG = slug;
+    const t0Ms = Date.parse("2026-01-01T00:00:00.000Z");
+
+    // Call 1 at T0 succeeds and is not CI-terminal, so it sets
+    // `lastObservedAt = T0` and stays "waiting".
+    const gh1 = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", [], "sha-1") },
+      {
+        matches: isPrChecks,
+        response: prChecksResponse([{ name: "t", state: "IN_PROGRESS" }]),
+      },
+    ]);
+    const cap1 = captureStreams();
+    const exit1 = await run(
+      ["100", "--state-dir", dir, "--now", "2026-01-01T00:00:00.000Z"],
+      baseDeps(gh1, t0Ms, { now: undefined }),
+    );
+    cap1.restore();
+    expect(exit1).toBe(0);
+    expect(readAnchors(dir, slug)?.lastObservedAt).toBe(
+      new Date(t0Ms).toISOString(),
+    );
+
+    // Call 2, 1300s later, fails the observation. `observationFailedSec`
+    // must measure from the seeded `lastObservedAt` (T0), not from `now`,
+    // and a failed observation must never advance `lastObservedAt`.
+    const laterMs = t0Ms + 1300 * 1000;
+    const gh2: GhRunner = () => ({
+      stdout: "",
+      stderr: "gh: rate limited",
+      exitCode: 1,
+    });
+    const cap2 = captureStreams();
+    const exit2 = await run(
+      ["100", "--state-dir", dir, "--now", "2026-01-01T00:21:40.000Z"],
+      baseDeps(gh2, laterMs, { now: undefined }),
+    );
+    cap2.restore();
+    expect(exit2).toBe(0);
+    const result = JSON.parse(cap2.stdout.join("")) as CheckResult;
+    expect(result.status).toBe("waiting");
+    expect((result as { observation?: string }).observation).toBe("failed");
+    expect(
+      (result as { observationFailedSec?: number }).observationFailedSec,
+    ).toBe(1300);
+    expect(readAnchors(dir, slug)?.lastObservedAt).toBe(
+      new Date(t0Ms).toISOString(),
+    );
   });
 });
 
@@ -895,20 +975,41 @@ describe("run() — headSha-change reset", () => {
     process.env.FLOW_SLUG = slug;
     const t0Ms = Date.parse("2026-04-01T00:00:00.000Z");
 
+    // Call 1 uses the retrigger-idempotency fixtures (stale review vs
+    // "sha-1" + CI terminal + POST-ok + queued re-read) so
+    // `copilotRetriggered` is genuinely `true` before the reset — a
+    // regression that carried the flag across a headSha reset would
+    // otherwise go unnoticed by this test.
     const gh1 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
-      { matches: isPrView, response: prViewResponse("OPEN", [], "sha-1") },
       {
-        matches: isPrChecks,
-        response: prChecksResponse([{ name: "t", state: "IN_PROGRESS" }]),
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_QUEUED),
       },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", staleCopilotReview(), "sha-1"),
+      },
+      perPollReviewRequests(),
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      {
+        matches: isRequestedReviewersPost,
+        response: { stdout: "", stderr: "", exitCode: 0 },
+      },
+      perPollReviewRequests(),
     ]);
     const cap1 = captureStreams();
-    await run(["100", "--state-dir", dir], baseDeps(gh1, t0Ms));
+    await run(
+      ["100", "--state-dir", dir],
+      baseDeps(gh1, t0Ms, {
+        readCommitsAreAllMerges: () => false,
+        readIsSmallFollowup: () => false,
+      }),
+    );
     cap1.restore();
     const first = readAnchors(dir, slug)!;
     expect(first.headSha).toBe("sha-1");
     expect(first.checks).toBe(1);
+    expect(first.copilotRetriggered).toBe(true);
 
     // A ci-fix push landed — headRefOid advances. 300s later.
     const laterMs = t0Ms + 300 * 1000;
@@ -928,6 +1029,11 @@ describe("run() — headSha-change reset", () => {
     expect(second.checks).toBe(1);
     expect(second.startedAt).not.toBe(first.startedAt);
     expect(Date.parse(second.startedAt)).toBe(laterMs);
+    // A new headSha cycle re-arms the one-shot retrigger budget for the
+    // new SHA (state.ts's cycle-identity contract) — this is the half of
+    // the reset the title promised but the original fixtures never
+    // exercised (copilotRetriggered was false on both sides).
+    expect(second.copilotRetriggered).toBe(false);
   });
 
   it("does not reset when the observed headSha is empty (a transient gh projection miss)", async () => {
@@ -987,30 +1093,26 @@ describe("run() — retrigger idempotency across invocations", () => {
       },
     ];
     const allCalls: string[][] = [];
-    function trackingGh(steps: GhStep[]): GhRunner {
-      const inner = makeGhSequence(steps);
-      return (argv) => {
-        allCalls.push(argv);
-        return inner(argv);
-      };
-    }
 
     // Call 1: CI terminal, stale Copilot review vs current headRefOid ->
     // fires the retrigger POST, then verifies it queued.
-    const gh1 = trackingGh([
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
-      },
-      { matches: isPrView, response: prViewResponse("OPEN", staleReview) },
-      perPollReviewRequests(),
-      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-      {
-        matches: isRequestedReviewersPost,
-        response: { stdout: "", stderr: "", exitCode: 0 },
-      },
-      perPollReviewRequests(),
-    ]);
+    const gh1 = trackingGhSequence(
+      [
+        {
+          matches: isReviewRequests,
+          response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+        },
+        { matches: isPrView, response: prViewResponse("OPEN", staleReview) },
+        perPollReviewRequests(),
+        { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+        {
+          matches: isRequestedReviewersPost,
+          response: { stdout: "", stderr: "", exitCode: 0 },
+        },
+        perPollReviewRequests(),
+      ],
+      allCalls,
+    );
     const cap1 = captureStreams();
     const exit1 = await run(
       ["100", "--state-dir", dir],
@@ -1032,15 +1134,18 @@ describe("run() — retrigger idempotency across invocations", () => {
     // Call 2, same (pr, headSha) cycle, same stale review still present (the
     // fresh review hasn't posted yet) — the budget is already spent, so no
     // second POST should fire.
-    const gh2 = trackingGh([
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
-      },
-      { matches: isPrView, response: prViewResponse("OPEN", staleReview) },
-      perPollReviewRequests(),
-      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-    ]);
+    const gh2 = trackingGhSequence(
+      [
+        {
+          matches: isReviewRequests,
+          response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+        },
+        { matches: isPrView, response: prViewResponse("OPEN", staleReview) },
+        perPollReviewRequests(),
+        { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      ],
+      allCalls,
+    );
     const cap2 = captureStreams();
     const exit2 = await run(
       ["100", "--state-dir", dir],
@@ -2519,7 +2624,19 @@ describe("run() — post-POST verification, item 2 (ported)", () => {
     expect(result2.polls).toBe(2);
   });
 
-  it("POST ok + re-read misses (silent rejection) → proceed-to-review-no-bot, copilotRetriggered:false, NOTICE, no 10-min wait", async () => {
+  it("POST ok + re-read misses (silent rejection) → proceed-to-review-no-bot, copilotRetriggered:false, NOTICE, no 10-min wait, and the persisted anchors are restored", async () => {
+    // Stateful (--state-dir), not the bare `["100"]` the previous version
+    // of this test used: with no `--state-dir`, `persistRecord()` returns
+    // at its first line (`stateless === true`), so the pre-fix code
+    // (leaving `record.copilotRetriggered = true` and `ciTerminalAt`
+    // un-restored in the persisted record) would have passed this test
+    // just as well as the fix — the wire-only assertions below cannot
+    // distinguish the two. Running with a real state dir and reading the
+    // persisted record back closes that gap.
+    const dir = makeStateDir();
+    const slug = "flow-ci-check-silent-rejection-restore";
+    seedState(dir, slug);
+    process.env.FLOW_SLUG = slug;
     const stale = staleCopilotReview(STALE_SHA);
     const gh = makeGhSequence([
       {
@@ -2538,7 +2655,7 @@ describe("run() — post-POST verification, item 2 (ported)", () => {
     ]);
     const cap = captureStreams();
     const exit = await run(
-      ["100"],
+      ["100", "--state-dir", dir],
       baseDeps(gh, 0, {
         readCommitsAreAllMerges: () => false,
         readIsSmallFollowup: () => false,
@@ -2554,6 +2671,14 @@ describe("run() — post-POST verification, item 2 (ported)", () => {
     expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
     expect(cap.stderr.join("")).toContain("NOTICE");
     expect(cap.stderr.join("")).toContain("silent rejection");
+
+    // The persisted record — not just the wire result — must show the
+    // restore: a declined re-request never spends the one-shot retrigger
+    // budget, so `copilotRetriggered` is `false` and `copilotRetriggeredAt`
+    // is cleared in state.json, not merely on the emitted decision.
+    const persisted = readAnchors(dir, slug)!;
+    expect(persisted.copilotRetriggered).toBe(false);
+    expect(persisted.copilotRetriggeredAt).toBeUndefined();
   });
 
   it("POST non-zero (422/403) path is unchanged: copilotRetriggered:true, no re-read, falls through to the timeout", async () => {

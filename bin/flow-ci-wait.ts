@@ -159,7 +159,17 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     killed = true;
     child.kill();
   };
-  const onSignal = (): void => killOnce();
+  // A signal is an explicit "stop now" — killing the child at any instant
+  // loses nothing (the supervisor simply re-arms it), so a signal must exit
+  // promptly rather than still sleeping out the --min-sec floor below.
+  // `once` (not `on`) is intentional: the first signal kills the child and
+  // skips the floor; a second signal during teardown falls through to the
+  // platform default.
+  let signaled = false;
+  const onSignal = (): void => {
+    signaled = true;
+    killOnce();
+  };
   process.once("SIGTERM", onSignal);
   process.once("SIGINT", onSignal);
 
@@ -175,6 +185,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     process.removeListener("SIGTERM", onSignal);
     process.removeListener("SIGINT", onSignal);
   }
+
+  if (signaled) return 0;
 
   const elapsedMs = now() - startMs;
   const remainMs = parsed.minSec * 1000 - elapsedMs;

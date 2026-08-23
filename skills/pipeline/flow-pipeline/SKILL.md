@@ -1659,8 +1659,8 @@ SKIP_REASON=$(printf '%s' "$VERDICT" | jq -r '.requestSkipReason // empty')  # l
 NOT_REQUESTED_FLAG=""
 # A genuine decline or unavailability collapses the wait; an auto-review skip keeps it.
 [ "$REQUESTED" = "false" ] || [ "$REQUESTABLE" = "false" ] && NOT_REQUESTED_FLAG="--copilot-not-requested"
-# WAIT_FLAG (--wait-for-copilot) mirrors state.json's waitForCopilot override.
-WAIT_FLAG=""
+# WAIT_FLAG mirrors state.json's waitForCopilot; resolve SLUG inline (env-first, then pane) — a per-call shell loses any prior `SLUG=...`.
+SLUG="${FLOW_SLUG:-$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)}"; WAIT_FLAG=""
 [ "$(jq -r '.waitForCopilot // empty' ~/.flow/state/"$SLUG".json)" = "true" ] && WAIT_FLAG="--wait-for-copilot"
 flow-ci-check "$PR" $NOT_REQUESTED_FLAG $WAIT_FLAG --out "$VERDICT_FILE" > "$WORKTREE/.flow-tmp/ci-check-stdout.json"
 CHECK=$(cat "$WORKTREE/.flow-tmp/ci-check-stdout.json"); STATUS=$(printf '%s' "$CHECK" | jq -r '.status')

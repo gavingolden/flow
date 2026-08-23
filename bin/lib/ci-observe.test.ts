@@ -7,6 +7,7 @@ import {
   fetchHistoricalBotReview,
   fetchRequestedReviewers,
   isSmallFollowup,
+  observeChecks,
   observeCopilotRuleset,
   observeMergeState,
   observePr,
@@ -87,6 +88,65 @@ describe(observeMergeState, () => {
       deriveConflictState(coerced!.mergeable, coerced!.mergeStateStatus)
         .conflicting,
     ).toBe(false);
+  });
+});
+
+describe(observeChecks, () => {
+  it("returns startedAt/completedAt when gh supports the field set", () => {
+    const gh: GhRunner = () => ({
+      stdout: JSON.stringify([
+        {
+          name: "verify",
+          state: "SUCCESS",
+          startedAt: "2026-01-01T00:00:00Z",
+          completedAt: "2026-01-01T00:05:00Z",
+        },
+      ]),
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(observeChecks(100, gh)).toEqual([
+      {
+        name: "verify",
+        state: "SUCCESS",
+        startedAt: "2026-01-01T00:00:00Z",
+        completedAt: "2026-01-01T00:05:00Z",
+      },
+    ]);
+  });
+
+  it("retries with the legacy name,state field set when gh rejects the timestamp fields", () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = (argv) => {
+      calls.push(argv);
+      if (argv.includes("name,state,startedAt,completedAt")) {
+        return {
+          stdout: "",
+          stderr: 'Unknown JSON field: "startedAt"\n',
+          exitCode: 1,
+        };
+      }
+      return {
+        stdout: JSON.stringify([{ name: "verify", state: "SUCCESS" }]),
+        stderr: "",
+        exitCode: 0,
+      };
+    };
+    expect(observeChecks(100, gh)).toEqual([
+      { name: "verify", state: "SUCCESS" },
+    ]);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain("name,state");
+  });
+
+  it("returns [] (not the legacy-field retry) on a non-field-related gh failure", () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = (argv) => {
+      calls.push(argv);
+      return { stdout: "", stderr: "network error", exitCode: 1 };
+    };
+    expect(observeChecks(100, gh)).toEqual([]);
+    expect(calls).toHaveLength(1);
   });
 });
 

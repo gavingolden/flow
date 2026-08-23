@@ -22,27 +22,38 @@ function makeFakeClock() {
 }
 
 /** A fake `spawnWatch` whose child "exits" after `exitAfterMs` (relative to
- * spawn time) with `exitCode`, or never exits if `exitAfterMs` is null. */
+ * spawn time) with `exitCode`, or never exits on its own if `exitAfterMs` is
+ * null. When `exitAfterMs` is null, `killResolvesExit` (default `false`)
+ * controls whether `kill()` itself resolves `exited` — the real `Bun.spawn`
+ * child's `.exited` promise resolves once the killed process actually
+ * terminates, which is what makes a signal handler that calls `kill()` then
+ * `await`s `child.exited` return promptly instead of only being bounded by
+ * the --max-sec race. */
 function makeFakeSpawnWatch(opts: {
   exitAfterMs: number | null;
   exitCode?: number;
   clock: { now: () => number; sleep: (ms: number) => Promise<void> };
+  killResolvesExit?: boolean;
 }) {
   const calls: Array<{ pr: number; intervalSec: number }> = [];
   let killCount = 0;
   const spawnWatch = (pr: number, intervalSec: number) => {
     calls.push({ pr, intervalSec });
+    let resolveOnKill: ((code: number) => void) | null = null;
     const exited: Promise<number> =
       opts.exitAfterMs === null
-        ? new Promise(() => {
+        ? new Promise((resolve) => {
             // Never resolves on its own — only `kill()` (simulated
-            // externally, e.g. by the max-sec race) ends this child.
+            // externally, e.g. by the max-sec race, or a signal handler)
+            // ends this child.
+            if (opts.killResolvesExit) resolveOnKill = resolve;
           })
         : opts.clock.sleep(opts.exitAfterMs).then(() => opts.exitCode ?? 0);
     return {
       exited,
       kill: () => {
         killCount++;
+        resolveOnKill?.(opts.exitCode ?? 0);
       },
     };
   };
@@ -176,6 +187,10 @@ describe(run, () => {
       now: clock.now,
     });
     expect(exit).toBe(0);
+    // The floor guard applies on every exit path, including a non-zero
+    // watch exit — the watch exited at t=0, so the waiter must still have
+    // slept up to the 5s floor before returning.
+    expect(clock.now()).toBeGreaterThanOrEqual(5000);
   });
 
   it("passes the PR number and --interval through to spawnWatch", async () => {
@@ -200,15 +215,32 @@ describe(run, () => {
   });
 
   it("SIGTERM invokes the child's kill() and leaves no file/state side effects", async () => {
-    const clock = makeFakeClock();
-    const fake = makeFakeSpawnWatch({ exitAfterMs: null, clock });
+    // A macrotask (real setTimeout), not `makeFakeClock`'s instantly-resolved
+    // microtask sleep — `makeFakeClock`'s sleep resolves synchronously
+    // regardless of the requested duration, so its --max-sec race would
+    // always win against the single-microtask-tick SIGTERM below, masking
+    // the very ordering this test exists to pin (signal preempts the floor).
+    let nowMs = 0;
+    const now = () => nowMs;
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(() => {
+          nowMs += ms;
+          resolve();
+        }, 0);
+      });
+    const fake = makeFakeSpawnWatch({
+      exitAfterMs: null,
+      clock: { now, sleep },
+      killResolvesExit: true,
+    });
     const tmpCwd = fs.mkdtempSync(path.join(os.tmpdir(), "flow-ci-wait-sig-"));
     const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tmpCwd);
     try {
       const runPromise = run(["100", "--min-sec", "1", "--max-sec", "5"], {
         spawnWatch: fake.spawnWatch,
-        sleep: clock.sleep,
-        now: clock.now,
+        sleep,
+        now,
       });
       // Give the SIGTERM listener a tick to attach before firing it.
       await Promise.resolve();
@@ -216,6 +248,9 @@ describe(run, () => {
       const exit = await runPromise;
       expect(exit).toBe(0);
       expect(fake.killCount).toBeGreaterThanOrEqual(1);
+      // A signal is an explicit "stop now" — it must exit promptly rather
+      // than still sleeping out the 1s --min-sec floor.
+      expect(now()).toBe(0);
       // No verdict file, no state directory — the waiter writes nothing.
       expect(fs.readdirSync(tmpCwd)).toEqual([]);
     } finally {

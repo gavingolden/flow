@@ -448,18 +448,28 @@ export function resolveCopilotConfigured(login: string, gh: GhRunner): boolean {
  * A `gh pr checks` row extended with the check's `startedAt`/`completedAt`
  * timestamps — the GitHub-side signal `flow-ci-check` prefers for
  * `ciTerminalAt` (a suspended/slept process can never inflate this the way
- * an in-process clock could). Absent on older `gh` (pre-2.93.0); tolerated.
+ * an in-process clock could). Required: `gh --json` field names are
+ * validated against a fixed per-command allowlist, so a `gh` older than
+ * the release that added `startedAt`/`completedAt` to `pr checks --json`
+ * exits 1 with `Unknown JSON field` — it does not omit the fields. On
+ * that failure we retry once with the legacy `name,state` field set (the
+ * pre-split minimum, gh >= 2.28) so a stale `gh` still degrades to
+ * `ciTerminalAt` falling back to observation time rather than reporting
+ * zero checks and forcing a false `ci-hang` at the 20-minute anchor.
  */
 export type TimedCheck = Check & { startedAt?: string; completedAt?: string };
 
 export function observeChecks(prNumber: number, gh: GhRunner): TimedCheck[] {
-  const r = gh([
+  let r = gh([
     "pr",
     "checks",
     String(prNumber),
     "--json",
     "name,state,startedAt,completedAt",
   ]);
+  if (r.exitCode !== 0 && /Unknown JSON field/i.test(r.stderr)) {
+    r = gh(["pr", "checks", String(prNumber), "--json", "name,state"]);
+  }
   if (r.exitCode !== 0) return [];
   try {
     const parsed = JSON.parse(r.stdout) as Array<{
