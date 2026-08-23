@@ -151,7 +151,7 @@ Launch a command through the registry with `flow-spawn --slug <slug> -- <cmd> [a
 Three sites launch through the wrapper today, each recorded with `class: "default"`:
 
 - `flow-pre-commit`'s verify-gate check commands (each `npm run <script>` / `actionlint` / `go` invocation)
-- the backgrounded `flow-ci-wait` CI-poll loop (`/flow-pipeline` step 7)
+- the backgrounded `flow-ci-wait` waiter, armed on a `flow-ci-check` (the one-shot CI/Copilot decider) `waiting` verdict (`/flow-pipeline` step 7)
 - the ui-smoke pass's dev-server launch
 
 `flow-pre-commit` only wraps when a pipeline slug resolves (`FLOW_SLUG` is set), so a consumer repo, a git hook, or a CI run is byte-identical to before — no synthetic `untracked-*.jsonl` files accumulate there. The session's chrome-devtools-mcp browser server is harness-owned and cannot be wrapped this way; it stays on the process-ancestry fallback `flow-browser-teardown` already uses.

@@ -18,3 +18,11 @@ names WHAT to look for; entries never suppress findings.
   pipeline slug or `state.json` must be guarded (named no-op) — these skills run standalone.
 - **Worked examples agree with definitions.** A calibration example in a contract
   file must not use a form the definition above it forbids.
+
+## Runbook shell-variable continuity (PR #666)
+
+- **Shell variables do not persist across bash blocks.** A `bash` block in a runbook
+  (`skills/**/SKILL.md`, `references/*.md`) that reads `$SLUG`, `$PR`, `$WORKTREE`, or
+  any other variable set in an EARLIER block silently expands it to empty at runtime —
+  the supervisor runs each block as a separate Bash tool call. Flag any new or edited
+  block that references a variable without (re)deriving it in the same block.

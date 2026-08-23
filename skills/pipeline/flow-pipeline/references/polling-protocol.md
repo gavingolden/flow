@@ -1,8 +1,17 @@
 # Polling protocol
 
 How the supervisor waits for CI and the bot reviewer (Copilot) to
-finish on an open PR. This is a sleep + poll loop run as Bash tool
-calls inside one conversation turn.
+finish on an open PR. Two helpers split the work: `flow-ci-check` is a
+one-shot decider — one fresh `gh` observation per call, wall-clock
+anchors durably persisted in `~/.flow/state/<slug>.json`'s `ciWait`
+record, so a suspended or restarted process can never fabricate a
+`ci-hang` from stale elapsed time — and `flow-ci-wait` is a dumb bounded
+waiter that owns no state and makes no decisions. The supervisor calls
+`flow-ci-check` in the foreground; on a `waiting` verdict it backgrounds
+`flow-ci-wait` and wakes on its completion notification (with a Monitor
+/ `ScheduleWakeup` fallback, then a `ci-wait-pending` yield-and-resume as
+the last resort) to call `flow-ci-check` again. See SKILL.md step 7 for
+the full wake-precedence contract.
 
 ## Goals
 
@@ -18,58 +27,62 @@ calls inside one conversation turn.
 
 ### Cadence schedule
 
-The supervisor's sleep between polls follows a three-tier ramp,
-capped by the 20-min wall-clock budget below:
+Flat **60s** (`FLAT_CADENCE_SEC` in `bin/lib/ci-decision.ts`) — the
+three-tier 30/60/90s ramp from the old single-file loop is gone,
+deleted (with its tests) in the cross-model-reviewed split
+(`.flow-tmp/plan.md` Cut list): the 30s tier is superseded by the
+harness's own wake floor (a backgrounded waiter can't usefully wake
+faster than the harness schedules it), and the 90s tier only delayed
+reporting a build that had already finished. Every `waiting`
+`flow-ci-check` verdict emits `nextCheckSec: 60`, which the supervisor
+passes straight to `flow-ci-wait --min-sec`.
 
-| Poll number | Sleep before next poll |
-| ----------- | ---------------------- |
-| 1–5         | 30s                    |
-| 6–10        | 60s                    |
-| 11+         | 90s                    |
-
-`gh pr checks` JSON is small and GitHub rate limits are generous
-even at the 30s baseline; the ramp's purpose is to bound supervisor-
-session token cost as the wait stretches, not to ease load on
-GitHub. The ramp was activated in Item 19 (the response to Item 6
-cost reporting) — before that, the loop slept 30s on every
-iteration regardless of `POLLS`.
-
-**Unconditional on the first iteration** — empty `gh` results never
+**Unconditional on the first call** — empty `gh` results never
 short-circuit the wait when presence is affirmed; only the presence
-checks below can legitimately skip. This is orthogonal to the ramp:
-the ramp governs _how long_ to wait, the presence checks govern
-_whether_ to wait at all.
+checks below can legitimately skip. This is orthogonal to the cadence:
+the 60s floor governs _how long_ to wait between checks, the presence
+checks govern _whether_ to wait at all.
 
 ## Hard cap
 
-**20 minutes from the first poll.** If neither CI nor a bot review
-has reached a terminal state by then, escalate `NEEDS HUMAN: ci-hang
-<url>` and end. The PR + worktree are preserved.
+**20 minutes, measured from `ciWait.startedAt`** in state.json — never
+from an in-process clock. If neither CI nor a bot review has reached a
+terminal state by then, `flow-ci-check` returns `decision: "ci-hang"`
+and the supervisor escalates `NEEDS HUMAN: ci-hang <url>`; the PR +
+worktree are preserved. Because elapsed time is always re-derived from
+the durable anchor on a fresh observation, a suspended, parked, or
+restarted `flow-ci-check`/`flow-ci-wait` process can delay when the cap
+is next checked, but can never inflate what it reports as elapsed — the
+bug class this split exists to close
+(`project_flow_ci_wait_background_suspension_false_cihang`).
 
-## Per-poll counter
+**No-observation path removed.** The old loop's transient-`gh`-failure
+branch fabricated `ci-hang` with zero fresh observation once the clock
+said 20 minutes had passed. That path is gone: a failed `gh` read now
+returns `{status: "waiting", observation: "failed",
+observationFailedSec}` — never a decision. The one deterministic
+escalation rule: `observationFailedSec >= 1200` (computed by
+`flow-ci-check` from `ciWait.lastObservedAt ?? ciWait.startedAt`) ⇒
+`NEEDS HUMAN: gh-unavailable`.
 
-Each iteration prints exactly one summary line on **stderr** so the
-user reading scrollback (or attaching mid-wait) can see progress at a
-glance — and so the final JSON verdict on stdout stays cleanly
-capturable via `RESULT=$(flow-ci-wait "$PR")`:
+## Per-check line
+
+Each `flow-ci-check` call prints exactly one summary line on
+**stderr** so the user reading scrollback (or attaching mid-wait) can
+see progress at a glance:
 
 ```
-CI poll <N>, elapsed <X>m<Y>s of 20m, cadence <C>s
+CI check <N>, elapsed <X>m<Y>s of 20m (anchor <startedAt>)
 ```
 
-`N` starts at 1 and increments each iteration. `<X>m<Y>s` is
-wall-clock elapsed since the first poll began. `<C>` is the current
-ramp tier — `30` for polls 1–5, `60` for polls 6–10, `90` from poll
-11 onward. The line is rendered before the gh calls fire — if the
-calls fail or hang, the user still sees the iteration started.
-
-The line has no fixed `/N` denominator: with the ramp, the
-worst-case poll count is ~20 — the 19th poll fires at elapsed ≈
-1170s (`5×30 + 5×60 + 8×90`) and the 20th is the iteration whose
-start-of-loop cap check (`ELAPSED >= 1200`) finally trips, versus
-40 under the pre-ramp 30s-fixed cadence. Printing a hard-coded
-`/40` would be misleading. The 20-min budget is still printed as
-`elapsed Xm Ys of 20m`.
+`N` is `ciWait.checks` — incremented on every call regardless of
+whether the observation succeeded, so a run of failed-observation
+lines still shows progress. `<X>m<Y>s` is wall-clock elapsed since
+`ciWait.startedAt` (the durable anchor, echoed so a reader can
+correlate the line against state.json directly). The line has no fixed
+`/N` denominator: with the flat 60s cadence, the worst-case call count
+is ~20 before the 20-min cap trips. The 20-min budget is still printed
+as `elapsed Xm Ys of 20m`.
 
 ### Per-poll `requested_reviewers` in-progress signal
 
@@ -93,11 +106,14 @@ stale review").
 
 ## Presence checks
 
-The first poll on a freshly-opened PR may legitimately return empty
+The first call on a freshly-opened PR may legitimately observe empty
 results because nothing has been posted yet. To distinguish "not
-posted yet" (keep polling) from "not configured" (legitimately skip
-the wait), the supervisor runs two one-shot presence checks **once at
-loop entry**, before the first poll:
+posted yet" (keep waiting) from "not configured" (legitimately skip
+the wait), `flow-ci-check` re-runs both presence checks on **every**
+call, not once at loop entry — each is cheap (one filesystem scan, one
+config read) and re-running them lets a workflow file or config change
+mid-wait take effect on the very next call instead of only at the
+original loop entry:
 
 ### CI workflows
 
@@ -109,7 +125,7 @@ among its triggers. Workflows with only `schedule:`, `push:`,
 ignored — they don't run on the in-flight PR, so waiting for their
 checks would be pointless. PR #152 is the historical incident:
 `cloudflare-pages-prune.yml` was a schedule-only workflow that caused
-`flow-ci-wait` to wait the full 20-minute cap before deciding
+the presence check to wait the full 20-minute cap before deciding
 `ci-hang` because the old presence check counted any `.yml` file in
 the directory.
 
@@ -123,20 +139,20 @@ A deselected `copilot` module means `flow-request-copilot` was never
 installed on PATH at all — the supervisor probes first (Step 7's
 "Copilot-module precheck"), and on a non-zero exit skips the entire
 request/classify subsection, treating the PR as declined (parallel to
-`flow-ci-wait`'s own `isCopilotModuleActive` self-guard, which collapses
+`flow-ci-check`'s own `isCopilotModuleActive` self-guard, which collapses
 the same wait a layer deeper):
 
 ```bash
 flow-module-status --check copilot >/dev/null 2>&1 || COPILOT_MODULE_INACTIVE=1
 ```
 
-Redirect the probe's own stderr away — `flow-ci-wait`'s own
+Redirect the probe's own stderr away — `flow-ci-check`'s own
 `isCopilotModuleActive` self-guard is the single canonical emitter of the
 deselected-copilot notice (it fires whether or not this precheck ran), so
 surfacing the notice here too would show the user the same line twice.
 When `$COPILOT_MODULE_INACTIVE` is set, the supervisor notes the skip
 quietly in the chat-summary prose (copilot not requested — module
-deselected) and skips straight to invoking `flow-ci-wait` with
+deselected) and skips straight to invoking `flow-ci-check` with
 `--copilot-not-requested`, which prints the one user-facing notice.
 
 ### Copilot reviewer
@@ -172,7 +188,7 @@ without ever populating `reviewRequests`. This is the failure observed
 on PR #78 / 2026-05-03 — the supervisor saw `COPILOT_REQUESTED=0`,
 proceeded straight through review, and merged before Copilot's review
 posted ~30s later. When `reviewRequests` does not include the configured
-login, `flow-ci-wait` falls back to scanning the last 5 merged PRs on
+login, `flow-ci-check` falls back to scanning the last 5 merged PRs on
 the current repo (`gh pr list --state merged --limit 5 --json number`,
 then per-PR `gh pr view --json reviews`); a single match by the
 configured login on any of those PRs flips `COPILOT_REQUESTED=1` and
@@ -203,7 +219,7 @@ above (in-flight `reviewRequests` + the historical-PR fallback) still
 resolve `copilotConfigured`, and the retrigger / claim-deadline /
 self-dismissal logic all apply unchanged.
 
-On the **decline** path the supervisor passes `flow-ci-wait
+On the **decline** path the supervisor passes `flow-ci-check
 --copilot-not-requested`, which hard-forces `copilotConfigured=false`
 _before_ the two-signal `||` is evaluated — so neither `reviewRequests`
 nor the historical-PR fallback can keep the bot wait alive. This is what
@@ -275,8 +291,9 @@ review with `commit.oid === headRefOid` is fresh and the existing
 "Copilot posted" exit fires unchanged.
 
 When the predicate is true AND CI has reached terminal AND the
-one-shot retrigger budget for this `flow-ci-wait` invocation is
-unused, the helper fires the re-request POST:
+one-shot retrigger budget for this `(pr, headSha)` cycle is unused
+(`ciWait.copilotRetriggered` in state.json), `flow-ci-check` fires the
+re-request POST:
 
 ```bash
 gh api -X POST repos/{owner}/{repo}/pulls/{n}/requested_reviewers \
@@ -289,14 +306,15 @@ The configured login is the same value read from
 section. The `{owner}/{repo}` template is `gh api`'s documented
 substitution, so no manual repo resolution is needed.
 
-The retrigger is **one-shot per `flow-ci-wait` invocation**, on
-purpose. The worst-case wait stays bounded at `existing 20-min cap +
-one 10-min Copilot timeout` rather than an unbounded retrigger loop
-on a fix that keeps landing while we wait. The supervisor's
-ci-fix-loop re-invocation grants a fresh retrigger budget per fix
-cycle — so a second fix on the same PR still gets exactly one
-re-request, just from the next `flow-ci-wait` invocation rather than
-the current one.
+The retrigger is **one-shot per `(pr, headSha)` cycle**, on purpose —
+persisted in `ciWait.copilotRetriggered` durably across `flow-ci-check`
+invocations (set BEFORE the POST result is acted on, so a crash between
+firing the POST and writing state can never re-fire it on the next
+call). The worst-case wait stays bounded at `existing 20-min cap + one
+10-min Copilot timeout` rather than an unbounded retrigger loop on a fix
+that keeps landing while we wait. A ci-fix commit advances `headRefOid`,
+which resets the whole `ciWait` cycle (including this flag) — so a
+second fix on the same PR still gets exactly one fresh re-request.
 
 The retrigger is **gated on CI terminal** (`isCiTerminal(...) ===
 true`). Re-requesting Copilot against a commit that may be
@@ -314,7 +332,7 @@ still observes the stale review.
   no-op POST burning the one-shot budget. Detected via
   `gh api repos/{owner}/{repo}/compare/<old>...<new> --jq .commits`
   returning commits whose `parents` arrays all have length >= 2; see
-  the `allMergeCommitsBetween` helper in `bin/flow-ci-wait.ts`. Fails
+  the `allMergeCommitsBetween` helper in `bin/lib/ci-observe.ts`. Fails
   open (any `gh` hiccup falls through to firing the retrigger) — the
   cheaper failure mode is one wasted POST per invocation; the
   expensive failure mode (skipping when a real fix exists) would
@@ -332,7 +350,7 @@ SMALL_FOLLOWUP_MAX_LOC` (15) AND distinct files touched is `<=
 SMALL_FOLLOWUP_MAX_FILES` (3). Detected via
   `gh api repos/{owner}/{repo}/compare/<old>...<new>` projecting
   `commits[].commit.message` and `files[]` additions/deletions/filename;
-  see the `isSmallFollowup` helper in `bin/flow-ci-wait.ts`. It is a
+  see the `isSmallFollowup` helper in `bin/lib/ci-observe.ts`. It is a
   sibling of the merge-only exclusion in the same retrigger gate.
   Fails open (any `gh` hiccup falls through to firing the retrigger)
   on the same conservative direction — one wasted POST is cheaper than
@@ -350,17 +368,22 @@ SMALL_FOLLOWUP_MAX_FILES` (3). Detected via
   - **Login present (queued confirmed):** today's behavior —
     `copilotRetriggered := true`, reset the Copilot-timeout window
     (`ciTerminalAt := elapsedSec`), and keep polling for the fresh
-    review.
+    review. (`flow-ci-check` persists both fields, plus a snapshot of the
+    pre-retrigger anchors, _before_ the POST fires — see the `bin/flow-ci-check.ts`
+    pre-mortem (d) note — so a one-shot process killed between the POST
+    and the state write can never re-fire the request on the next call.)
   - **Login absent (silent rejection):** write a `NOTICE` line to stderr
-    naming the silent rejection, leave `copilotRetriggered := false`, do
-    **not** reset `ciTerminalAt`, and immediately
-    `emitResult({ decision: "proceed-to-review-no-bot", copilotRetriggered: false })`
-    and return — in the same poll, elapsed well below the 600s timeout
-    (no 10-minute wait). This is an early emit at the retrigger call
-    site, not a new decision-matrix row; the pure decision matrix is
-    unchanged. The re-read only runs on the POST-ok path and is shared
-    with the per-poll `requested_reviewers` read (see "Per-poll
-    counter").
+    naming the silent rejection, restore the snapshotted pre-retrigger
+    anchors (`copilotRetriggered := false`, `ciTerminalAt` back to its
+    pre-retrigger value — a declined re-request never spends the
+    one-shot retrigger budget), and immediately decide
+    `proceed-to-review-no-bot` (`copilotRetriggered: false`) and return —
+    in the same poll, elapsed well below the 600s timeout (no 10-minute
+    wait). This is an early decision at the retrigger call site, not a
+    new decision-matrix row; the pure decision matrix is unchanged. The
+    re-read only runs on the POST-ok path and is shared with the
+    per-poll `requested_reviewers` signal (see "Per-poll
+    `requested_reviewers` in-progress signal").
 
 The **10-min Copilot timeout** branch in the decision matrix reuses
 the existing `copilotTimeout` constant; on retrigger, `ciTerminalAt`
@@ -390,7 +413,7 @@ within 10 min → exit `proceed-to-review-no-bot` with
 
 PR #161 is the historical incident: Copilot reviewed once at commit
 `1c59a70` at `2026-05-19T01:18:59Z`, the fix commit `91e18e8` was
-pushed at `~01:29Z` advancing `headRefOid`, and `flow-ci-wait`
+pushed at `~01:29Z` advancing `headRefOid`, and the wait
 short-circuited at poll 1 / elapsed 0s because `copilotConfigured=true`
 and a Copilot review existed against the stale commit. The PR's
 `requested_reviewers` was `[]` at the time of the short-circuit,
@@ -423,12 +446,12 @@ override (a positive integer), then `DEFAULT_CLAIM_DEADLINE_SEC`
   `headRefOid` (the bot has POSTED, even informally).
 
 The precondition list lives at `deriveCopilotSkipReason` in
-`bin/flow-ci-wait.ts`; future drift between this doc and the code
+`bin/lib/ci-decision.ts`; future drift between this doc and the code
 should be detected by the function-name anchor.
 
 Suppress entirely with `--wait-for-copilot` (per-pipeline via
 `flow feature create --wait-for-copilot "<desc>"`, or per-invocation directly on
-the helper). Suppressed → the existing 10-min copilot-timeout branch
+`flow-ci-check`). Suppressed → the existing 10-min copilot-timeout branch
 fires unchanged.
 
 #### Self-dismissal short-circuit
@@ -443,7 +466,7 @@ waiting the 10-min copilot timeout (or attempting a stale-review
 retrigger) burns budget for no gain.
 
 The detection lives at `deriveCopilotSkipReason` in
-`bin/flow-ci-wait.ts`. Same anchor as the claim-deadline subsection
+`bin/lib/ci-decision.ts`. Same anchor as the claim-deadline subsection
 above. Same `--wait-for-copilot` suppression rule.
 
 **Critical ordering.** The self-dismissal short-circuit runs **before**
@@ -464,7 +487,7 @@ The gate is **exact membership** on `mergeStateStatus` in
 `{CONFLICTING, DIRTY}` — `mergeStateStatus === UNKNOWN` (GitHub still
 computing mergeability) never fires it, and `BEHIND` / `BLOCKED` /
 `UNSTABLE` / `CLEAN` / `HAS_HOOKS` are not conflicts. The classifier
-lives at `deriveConflictState` in `bin/flow-ci-wait.ts`; future drift
+lives at `deriveConflictState` in `bin/lib/ci-decision.ts`; future drift
 between this doc and the code should be detected by the function-name
 anchor.
 
@@ -489,7 +512,7 @@ missing required review, CODEOWNERS, or a linear-history rule outside the
 decide `ci-hang`, just like a conflict. The helper instead emits
 `decision: 'pr-blocked'` when the PR is still `BLOCKED` at the point the
 loop would have proceeded to review. The classifier lives at
-`deriveBlockedState` in `bin/flow-ci-wait.ts` (mirroring
+`deriveBlockedState` in `bin/lib/ci-decision.ts` (mirroring
 `deriveConflictState`'s shape, including the `mergeable !== UNKNOWN`
 still-computing guard); future drift between this doc and the code should
 be detected by the function-name anchor.
@@ -554,7 +577,7 @@ and 'Self-dismissal short-circuit' above) are suppressed by two flags:
   and restores the full 10-min copilot timeout as the only Copilot
   exit branch. Per-pipeline via `flow feature create --wait-for-copilot
 "<desc>"` (the supervisor reads `waitForCopilot` from state.json
-  and appends the flag), or per-invocation directly on `flow-ci-wait`.
+  and appends the flag), or per-invocation directly on `flow-ci-check`.
 - `--claim-deadline-sec <n>` (positive integer) overrides the
   post-CI-terminal claim deadline with CLI flag → `~/.flow/config.json`
   `bots.copilotClaimDeadlineSec` (a positive integer) →
@@ -563,9 +586,9 @@ and 'Self-dismissal short-circuit' above) are suppressed by two flags:
 
 ## Per-poll commands
 
-Both are read-only and idempotent. The reviews call runs every
-iteration; the checks call is **skipped when `CI_CONFIGURED=0`** per
-the override rule above (no workflows on disk → nothing to poll for).
+Both are read-only and idempotent. The reviews call runs every call;
+the checks call is **skipped when `CI_CONFIGURED=0`** per the override
+rule above (no workflows on disk → nothing to poll for).
 
 ```bash
 # CI check status — terminal states are SUCCESS, FAILURE, CANCELLED,
@@ -574,8 +597,11 @@ the override rule above (no workflows on disk → nothing to poll for).
 # `conclusion` JSON field — `state` already encodes the verdict, and
 # requesting `conclusion` triggers an `Unknown JSON field` error from
 # `gh` (see `scripts/ci-wait.ts` for the same hard-won lesson).
+# `startedAt,completedAt` feed `flow-ci-check`'s `ciTerminalAt` anchor
+# (GitHub's own timestamp, preferred over observation time; absent on
+# older `gh` is tolerated — see `bin/lib/ci-observe.ts`'s `TimedCheck`).
 # Run only when CI_CONFIGURED=1.
-gh pr checks <pr> --json name,state
+gh pr checks <pr> --json name,state,startedAt,completedAt
 
 # Reviews from any source (Copilot, humans, other bots). Run every
 # iteration regardless of presence flags — review state is also where
@@ -662,32 +688,32 @@ doesn't define one, fall back to `copilot-pull-request-reviewer`.
 `scripts/ci-wait.ts` makes the same choice for the same reason — see
 its `DEFAULT_CONFIG.bots` and the rationale comment above it.
 
-## What "in one conversation turn" means for this loop
+## What this wait means for the harness-native wake
 
-The supervisor's polling loop is a Bash tool call followed by a
-`sleep`, looped inside the supervisor's _own_ turn — there is no
-separate "agent invocation" per poll. Every poll's tool result
-appends to the conversation, but the payloads are small (CI JSON +
-reviews JSON ≈ 1-2 KB each). Under the active ramp (30s × 5, 60s ×
-5, 90s thereafter, 20-min cap), the worst-case poll count is ~20,
-giving ~20 polls × 2-4 KB = ~40-80 KB of conversation growth in the
-worst case — roughly half what the pre-ramp 30s-fixed cadence
-(~40 polls, ~80-160 KB) produced. The ramp is the cost lever Item 19
-activated in response to Item 6 cost reporting; it bounds wait-phase
-token cost without sacrificing CI-failure detection latency
-(failures still surface within the first 30s tier).
+There is no in-conversation `sleep` loop anymore — waiting is
+harness-native. `flow-ci-check` is a single tool call that appends one
+small JSON verdict (~400 B) to the conversation per wake; the actual
+wait happens inside a backgrounded `flow-ci-wait` process (or a
+Monitor / `ScheduleWakeup` fallback), off the supervisor's own turn.
+Worst case ~20 wakes at the flat 60s cadence before the 20-min cap
+trips, giving ~20 × 400 B ≈ 8 KB of conversation growth — an order of
+magnitude below the old loop's ~40-80 KB (20 polls × 2-4 KB of raw CI and
+reviews JSON per poll). `gh` API call volume per wake is unchanged (3-4
+calls); only what lands in the conversation shrank.
 
-The legacy `ci-wait.ts` script ran in a separate process to keep the
-orchestrator stateless. The new design keeps state in the supervisor
-session; the trade-off is conversation growth, which the ramp now
-controls.
+The pre-split design kept all wait-phase state in the supervisor's own
+conversation session, trading conversation growth for statelessness
+elsewhere. The anchors-based design inverts that: state lives in
+`~/.flow/state/<slug>.json`, durable across a suspended session, a
+harness restart, or a supervisor `/clear` — the conversation carries
+only the verdict JSON, never the observation history.
 
 ## When to revisit this protocol
 
-- If post-Item-19 cost data shows the wait phase is still a
-  meaningful fraction of pipeline spend, raise the baseline tier
-  (e.g. 60s × 5 instead of 30s × 5) or shorten the 20-min cap.
-- If GitHub starts rate-limiting `gh pr checks` at 30s cadence
-  (currently fine), drop the first tier and start at 60s.
+- If wait-phase token cost is still material even at ~8 KB/pipeline,
+  investigate a longer flat cadence (e.g. 90s) or a wider `--max-sec`
+  on the waiter to reduce wake count further.
+- If GitHub starts rate-limiting `gh pr checks` at 60s cadence
+  (currently fine), raise the flat cadence.
 - If Copilot routinely takes > 10 min after CI terminal, raise the
   Copilot timeout. (Today it's well under 5 min on most repos.)

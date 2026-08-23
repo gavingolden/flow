@@ -11,7 +11,7 @@ import {
   type CopilotGlobs,
   type ReadConfigFile,
 } from "./lib/copilot-config";
-import type { GhRunner } from "./flow-ci-wait";
+import type { GhRunner } from "./lib/ci-observe";
 
 // `resolveCopilotConfigured` (reached from `run()`'s request path) consults
 // `bots.copilotAutoReview` via the default file-backed ReadConfigFile, which is

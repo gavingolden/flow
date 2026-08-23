@@ -793,6 +793,91 @@ describe("state", () => {
     expect(readState("reap-malformed", dir)).toBeNull();
   });
 
+  it("readState round-trips a valid ciWait record through writeState", () => {
+    const withCiWait: PipelineState = {
+      slug: "with-ci-wait",
+      phase: "ci-wait-pending",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      ciWait: {
+        pr: 123,
+        headSha: "abc123",
+        startedAt: "2026-05-17T00:00:00Z",
+        ciTerminalAt: "2026-05-17T00:05:00Z",
+        lastObservedAt: "2026-05-17T00:05:30Z",
+        checks: 3,
+        copilotRetriggered: false,
+      },
+    };
+    writeState(withCiWait, dir);
+    expect(readState("with-ci-wait", dir)).toEqual(withCiWait);
+  });
+
+  it("readState round-trips a ciWait record with null ciTerminalAt/lastObservedAt (not yet observed terminal)", () => {
+    const withCiWait: PipelineState = {
+      slug: "ci-wait-nulls",
+      phase: "ci-wait-pending",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      ciWait: {
+        pr: 123,
+        headSha: "abc123",
+        startedAt: "2026-05-17T00:00:00Z",
+        ciTerminalAt: null,
+        lastObservedAt: null,
+        checks: 0,
+        copilotRetriggered: false,
+      },
+    };
+    writeState(withCiWait, dir);
+    expect(readState("ci-wait-nulls", dir)).toEqual(withCiWait);
+  });
+
+  it("readState accepts an absent ciWait field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "ci-wait-absent.json"),
+      JSON.stringify({
+        slug: "ci-wait-absent",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    const got = readState("ci-wait-absent", dir);
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("ciWait");
+  });
+
+  it("readState returns null when the ciWait record is malformed (wrong-typed startedAt)", () => {
+    // ciWait must be { pr, headSha, startedAt, ciTerminalAt, lastObservedAt,
+    // checks, copilotRetriggered, copilotRetriggeredAt? }. A record with a
+    // non-string startedAt makes readState reject the WHOLE state file
+    // (returns null), degrading every reader (flow-state-update,
+    // flow-stop-guard, flow-resume-decide) to state-missing on resume — same
+    // whole-file-rejection discipline as a malformed reap record.
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "ci-wait-malformed.json"),
+      JSON.stringify({
+        slug: "ci-wait-malformed",
+        phase: "ci-wait-pending",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        ciWait: {
+          pr: 123,
+          headSha: "abc123",
+          startedAt: 12345,
+          ciTerminalAt: null,
+          lastObservedAt: null,
+          checks: 0,
+          copilotRetriggered: false,
+        },
+      }),
+    );
+    expect(readState("ci-wait-malformed", dir)).toBeNull();
+  });
+
   it("readState round-trips a valid untracked list through writeState", () => {
     const withUntracked: PipelineState = {
       slug: "with-untracked",

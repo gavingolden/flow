@@ -300,7 +300,7 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
     // reminder — assert the breadcrumb directly via nextStepLabel rather than
     // via the exit-2 reminder loop above.
     expect(nextStepLabel("ci-wait-pending")).toBe(
-      "step 7 (ci-wait) — re-read the flow-ci-wait verdict and branch on .decision",
+      "step 7 (ci-wait) — run flow-ci-check and branch on .status/.decision",
     );
   });
 
