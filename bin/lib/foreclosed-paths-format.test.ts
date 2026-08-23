@@ -4,6 +4,7 @@ import {
   formatMarkdown,
   formatPlainText,
   isEmpty,
+  summarizeEntries,
   FORECLOSED_HEADING,
 } from "./foreclosed-paths-format";
 import { upsertPrBodySection } from "./pr-body-upsert";
@@ -181,6 +182,82 @@ describe("collectForeclosedEntries — shared core", () => {
         }),
       ),
     ).toBe(true);
+  });
+});
+
+describe("summarizeEntries", () => {
+  it("counts rejected, anti-patterns, and consolidator-string notes separately", () => {
+    const inputs = { fixApplierRaw: fixApplier, consolidatorRaw: consolidator };
+    const entries = collectForeclosedEntries(inputs);
+    expect(summarizeEntries(entries)).toEqual({
+      rejected: 1,
+      antiPatterns: 2,
+      notes: 2,
+    });
+  });
+
+  it("excludes unreadable/skipped residual markers from every count", () => {
+    const entries = collectForeclosedEntries({
+      fixApplierRaw: "{not json",
+      consolidatorRaw: "",
+    });
+    expect(summarizeEntries(entries)).toEqual({
+      rejected: 0,
+      antiPatterns: 0,
+      notes: 0,
+    });
+  });
+
+  it("is all-zero for an empty entry list", () => {
+    expect(summarizeEntries([])).toEqual({
+      rejected: 0,
+      antiPatterns: 0,
+      notes: 0,
+    });
+  });
+});
+
+describe("formatMarkdown <details> wrapper", () => {
+  it("wraps the bullets: heading, blank, summary line, blank, bullets, blank, closing tag", () => {
+    const inputs = { fixApplierRaw: fixApplier, consolidatorRaw: consolidator };
+    const md = formatMarkdown(inputs);
+    expect(md[0]).toBe(FORECLOSED_HEADING);
+    expect(md[1]).toBe("");
+    expect(md[2]).toBe(
+      "<details><summary>1 rejected alternatives, 2 anti-patterns, 2 reviewer notes</summary>",
+    );
+    expect(md[3]).toBe("");
+    expect(md[md.length - 2]).toBe("");
+    expect(md[md.length - 1]).toBe("</details>");
+  });
+
+  it("stays idempotent through a re-upsert (normalizeDetailsBlocks no-op)", () => {
+    const inputs = { fixApplierRaw: fixApplier, consolidatorRaw: consolidator };
+    const section = formatMarkdown(inputs).join("\n");
+    const once = upsertPrBodySection("", FORECLOSED_HEADING, section);
+    const twice = upsertPrBodySection(once, FORECLOSED_HEADING, section);
+    expect(twice).toBe(once);
+  });
+
+  it("parity: the entry set inside the <details> wrapper equals the plain-text entry set, including the partial-degradation path", () => {
+    const inputs = {
+      fixApplierRaw: fixApplierOneBadEntry,
+      consolidatorRaw: consolidator,
+    };
+    const bullets = formatMarkdown(inputs).filter(
+      (l) =>
+        l !== FORECLOSED_HEADING &&
+        l !== "" &&
+        !l.startsWith("<details>") &&
+        l !== "</details>",
+    );
+    const pt = formatPlainText(inputs);
+    // Same prose tokens, same count of lines rendered per entry.
+    expect(bullets.length).toBe(pt.length);
+    expect(bullets.join("\n")).toContain("memoize the parser");
+    expect(pt.join("\n")).toContain("memoize the parser");
+    expect(bullets.join("\n")).toContain("(1 unreadable)");
+    expect(pt.join("\n")).toContain("(1 unreadable)");
   });
 });
 
@@ -422,7 +499,12 @@ describe("degraded artifacts", () => {
     // isEmpty is false: the skipped marker entry is still pushed, so the
     // section must NOT collapse to `none` at the render surface.
     expect(isEmpty(collectForeclosedEntries(inputs))).toBe(false);
-    for (const surface of [formatMarkdown(inputs), formatPlainText(inputs)]) {
+    // The formatMarkdown `<summary>` line legitimately says "anti-patterns"
+    // (a count label, not a leaked prose token) — exclude it and check the
+    // bullet lines only. formatPlainText has no summary line to strip.
+    const md = formatMarkdown(inputs).filter((l) => !l.startsWith("<details>"));
+    const pt = formatPlainText(inputs);
+    for (const surface of [md, pt]) {
       const joined = surface.join("\n");
       expect(joined).toContain("(4 unreadable)");
       // Marker-only: no whole-source (unreadable) degradation, no prose.

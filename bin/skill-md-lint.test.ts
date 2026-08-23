@@ -4519,12 +4519,22 @@ describe("pr-review include-by-reference structure", () => {
     // the monolith they replace moved to `references/checklists/*.md`, not
     // this file. File lands at 1804 lines — 1820 leaves 16 lines of genuine
     // headroom, not round-number headroom for future growth.
+    //
+    // Bumped 1820 → 1860 (PM-lens supervisor wiring, Task 10): 11a's
+    // Structure Check gains a `Deviations from plan` bullet, 11d gains the
+    // Q5-class-deviation routing paragraph, and Step 13 gains the two
+    // mechanical `flow-untracked add` seed blocks (fix-applier `deferred[]`
+    // with no `tracker_entry_url`, and `anti_patterns_found[]` with
+    // `introduced_by_this_pr: false`) — genuine load-bearing content for
+    // this PR's own contract, not regrowth. File lands at 1851 lines — 1860
+    // leaves 9 lines of genuine headroom, not round-number headroom for
+    // future growth.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1820 lines. Material regrowth past this ceiling would ` +
+        `budget of 1860 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1820);
+    ).toBeLessThan(1860);
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
@@ -4606,12 +4616,23 @@ describe("pr-review include-by-reference structure", () => {
     // fixing a mid-interview data-loss bug, not incidental bloat. File
     // lands at 2845 lines — raised the ceiling to 2860 (15 lines of
     // genuine headroom), same discipline as the precedents above.
+    // PM-lens supervisor wiring (Task 9): every terminal-state
+    // `flow-gate-summary` / `flow-pipeline-summary` / `flow-notify` call
+    // site across steps 3, 7, 9, 10, 11, and the resume/cancel paths
+    // gained `--tldr`/`--lens`/`--untracked-file`/`--counts-line`
+    // wiring, plus the six-slot pause-block templates and the `file #N`
+    // / `drop #N` reply-verb documentation at three sites — this is the
+    // feature's own mechanical breadth, not incidental bloat, and there
+    // is no references/ file that would not just relocate the same
+    // per-site wiring away from the site it documents. File lands at
+    // 2904 lines — raised the ceiling to 2920 (16 lines of genuine
+    // headroom), same discipline as the precedents above.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2860 lines. Material regrowth past this ceiling would ` +
+        `budget of 2920 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2860);
+    ).toBeLessThan(2920);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -6357,10 +6378,20 @@ describe("terminal-state reap wiring lint", () => {
   }
 
   it("every wired terminal flow-gate-summary occurrence in SKILL.md has its own preceding reap call", () => {
-    // 7 deliberately unwired: 4 step-10 merge-resolution escalations that
+    // 8 deliberately unwired: 5 step-10 merge-resolution escalations that
     // delegate to the (already-wired) `# Failure paths` chain, and 3
-    // elliptical resume-path back-references.
-    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 7);
+    // elliptical resume-path back-references. Was pinned at 7 before the
+    // PM-lens TLDR/--lens sweep (Task 9): the step-10 conflict-class
+    // "On retry failure" escalation's `flow-gate-summary --status
+    // needs-human` text originally wrapped `--status` and `needs-human`
+    // onto separate lines, which made TERMINAL_STATUS_RE silently miss it
+    // — a pre-existing formatting fluke, not a deliberate gap. Adding the
+    // `--tldr`/`--lens` flags there reflowed the paragraph so the two
+    // words landed on one line, making the site newly visible to this
+    // lint (still correctly unwired — it delegates to the same `#
+    // Failure paths` chain as its siblings). Bumped 7 → 8 to reflect the
+    // true count, not to loosen the check.
+    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 8);
   });
 
   it("every wired terminal flow-gate-summary occurrence in the reference docs has its own preceding reap call", () => {
@@ -7624,10 +7655,11 @@ describe("pause-output contract wiring lint", () => {
     "pause-output-contract.md",
   );
   const SLOT_LABELS = [
-    "**Went wrong:**",
-    "**Remaining:**",
-    "**Needs your review:**",
-    "**Notes:**",
+    "**TLDR:**",
+    "**Unsolved:**",
+    "**Needs attention:**",
+    "**Manual action:**",
+    "**Untracked:**",
     "**Next action:**",
   ];
   // Enumerated by NAME, not a directory glob (scout PLAN-DEVIATION:
@@ -7646,7 +7678,7 @@ describe("pause-output contract wiring lint", () => {
     "skills/universal/flow-ui-ux/SKILL.md",
   ];
 
-  it("the contract file exists and carries the five literal slot labels", () => {
+  it("the contract file exists and carries the six literal slot labels", () => {
     const c = fs.readFileSync(CONTRACT_PATH, "utf8");
     for (const label of SLOT_LABELS) {
       expect(
@@ -7654,6 +7686,69 @@ describe("pause-output contract wiring lint", () => {
         `pause-output-contract.md must define the literal slot label ${label}`,
       ).toBe(true);
     }
+  });
+
+  it("pause-output-contract.md carries the Ceiling section", () => {
+    const c = fs.readFileSync(CONTRACT_PATH, "utf8");
+    expect(c).toMatch(/^## Ceiling$/m);
+    expect(c).toMatch(/~12\s*lines?/);
+    expect(c).toContain("≤2 bullets per slot");
+  });
+
+  it("pause-output-contract.md carries the four Definitions", () => {
+    const c = fs.readFileSync(CONTRACT_PATH, "utf8");
+    expect(c).toMatch(/^## Definitions$/m);
+    expect(c).toContain("**Meaningful deviation**");
+    expect(c).toContain("**High-stakes decision**");
+    expect(c).toContain("**Untracked**");
+    expect(c).toContain("**Count line**");
+    expect(c).toContain("**Manual action split**");
+    expect(c).toContain('**"Give me the technical version"**');
+    expect(c).toContain("**Q&A answers live above the block**");
+  });
+
+  it("no legacy pause slot label survives under skills/ or references/", () => {
+    // Extend-on-add rule: this is the mechanical form of Task 2's
+    // acceptance grep (`! grep -rnE '**(Went wrong|Remaining|Needs your
+    // review|Notes):**' skills references`) — an fs walk over every
+    // `.md` under skills/**/*.md and references/*.md, so CI catches a
+    // reintroduced legacy label without needing the shell one-liner.
+    const LEGACY_LABELS = [
+      "**Went wrong:**",
+      "**Remaining:**",
+      "**Needs your review:**",
+      "**Notes:**",
+    ];
+    function walk(dir: string): string[] {
+      const out: string[] = [];
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) out.push(...walk(full));
+        else if (entry.name.endsWith(".md")) out.push(full);
+      }
+      return out;
+    }
+    const roots = [
+      path.join(REPO_ROOT, "skills"),
+      path.join(REPO_ROOT, "references"),
+    ];
+    const offenders: string[] = [];
+    for (const root of roots) {
+      for (const file of walk(root)) {
+        const c = fs.readFileSync(file, "utf8");
+        for (const label of LEGACY_LABELS) {
+          if (c.includes(label)) {
+            offenders.push(`${path.relative(REPO_ROOT, file)}: ${label}`);
+          }
+        }
+      }
+    }
+    expect(
+      offenders,
+      `Legacy pause slot labels survive: ${JSON.stringify(offenders)}. ` +
+        "Replace with the six-slot vocabulary (TLDR/Unsolved/Needs " +
+        "attention/Manual action/Untracked/Next action).",
+    ).toEqual([]);
   });
 
   it("flow-pipeline/SKILL.md references pause-output-contract.md at ≥9 pause sites", () => {
@@ -8213,6 +8308,143 @@ describe("pause-output contract wiring lint", () => {
         `(docs/consumer-review-patterns.md). Never split a lens file into ` +
         `sub-files, and never delete a load-bearing pattern just for length.`,
     ).toEqual([]);
+  });
+});
+
+describe("PM-lens supervisor wiring lint (Tasks 9/10)", () => {
+  const REPO_ROOT = path.resolve(HERE, "..");
+
+  it("every flow-gate-summary --status (merged|gated|needs-human|cancelled) invocation in flow-pipeline SKILL.md carries --tldr", () => {
+    const c = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    const stripped = c.replace(/<!--[\s\S]*?-->/g, "");
+    const lines = stripped.split("\n");
+    const offenders: string[] = [];
+    const STATUS_RE =
+      /flow-gate-summary --status (merged|gated|needs-human|cancelled)/;
+    for (let i = 0; i < lines.length; i++) {
+      if (!STATUS_RE.test(lines[i])) continue;
+      // A fenced-bash invocation continues via a trailing backslash; a
+      // hard-wrapped prose invocation continues as long as the paragraph
+      // does (non-blank lines, not starting a new `|`-table row or list
+      // item) — scan forward under either continuation rule until neither
+      // applies.
+      let j = i;
+      let block = lines[j];
+      for (;;) {
+        const backslashContinuation = /\\\s*$/.test(lines[j]);
+        const nextExists = j < lines.length - 1;
+        const nextIsParagraphContinuation =
+          nextExists &&
+          lines[j + 1].trim() !== "" &&
+          !/^\s*\|/.test(lines[j + 1]) &&
+          !/^```/.test(lines[j + 1]);
+        if (
+          !nextExists ||
+          (!backslashContinuation && !nextIsParagraphContinuation)
+        ) {
+          break;
+        }
+        j++;
+        block += "\n" + lines[j];
+      }
+      if (!block.includes("--tldr")) {
+        offenders.push(`line ${i + 1}: ${lines[i].trim()}`);
+      }
+    }
+    expect(
+      offenders,
+      `Every flow-gate-summary --status merged|gated|needs-human|cancelled ` +
+        `invocation must pass --tldr. Offenders: ${JSON.stringify(offenders)}`,
+    ).toEqual([]);
+  });
+
+  it("step-3 plan-summary template states task titles and file lists are not echoed", () => {
+    const c = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    expect(c).toContain("task titles and file lists are not echoed");
+  });
+
+  it("`file #N` / `drop #N` reply verbs appear at the three named sites", () => {
+    const skillC = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    const matches = skillC.match(/file #N/g) ?? [];
+    expect(
+      matches.length,
+      "flow-pipeline/SKILL.md must offer the `file #N` reply verb at " +
+        "plan-pending-review, gated feedback mode, and the resume terminal " +
+        `row (≥3 sites). Found ${matches.length}.`,
+    ).toBeGreaterThanOrEqual(3);
+    expect(skillC).toContain("drop #N");
+    const redirectC = fs.readFileSync(REDIRECT_HANDLING_PATH, "utf8");
+    expect(redirectC).toContain("file #N");
+  });
+
+  it("`## Deviations from plan` docs-sync anchor appears at the four sites", () => {
+    const sites: Array<[string, string]> = [
+      ["pr-description-authoring.md", PR_DESCRIPTION_AUTHORING_PATH],
+      ["discovery-instructions.md", DISCOVERY_INSTRUCTIONS_PATH],
+      ["flow-pr-review/SKILL.md", PR_REVIEW_SKILL_MD_PATH],
+      ["AGENTS.md", AGENTS_MD_PATH],
+    ];
+    for (const [label, p] of sites) {
+      const c = fs.readFileSync(p, "utf8");
+      expect(
+        c.includes("Deviations from plan"),
+        `${label} must reference 'Deviations from plan'`,
+      ).toBe(true);
+    }
+    // The authoring template and discovery draft mirror carry the real
+    // `## ` heading (source of truth); pr-review 11a and AGENTS.md name
+    // it in prose/bullet form, not as a standalone heading.
+    expect(fs.readFileSync(PR_DESCRIPTION_AUTHORING_PATH, "utf8")).toContain(
+      "## Deviations from plan",
+    );
+    expect(fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8")).toContain(
+      "## Deviations from plan",
+    );
+  });
+
+  it("flow-pr-review/SKILL.md Step 13 carries the two mechanical flow-untracked add seeds", () => {
+    const c = fs.readFileSync(PR_REVIEW_SKILL_MD_PATH, "utf8");
+    const idx = c.indexOf("## 13. Register Local Follow-ups");
+    expect(idx, "Step 13 heading must exist").toBeGreaterThan(-1);
+    const section = c.slice(idx, idx + 4000);
+    expect(section).toContain("flow-untracked add");
+    expect(section).toContain("tracker_entry_url");
+    expect(section).toContain("introduced_by_this_pr");
+  });
+
+  it("failure-recovery.md's flow-gate-summary blocks and needs-human flow-notify calls carry --tldr/--reason", () => {
+    const c = fs.readFileSync(FAILURE_RECOVERY_PATH, "utf8");
+    const gateBlocks = c.match(/flow-gate-summary --status[^\n]*/g) ?? [];
+    for (const block of gateBlocks) {
+      // A multi-line invocation is validated at the containing paragraph
+      // level below; the single-line form must self-carry --tldr.
+      if (!/\\\s*$/.test(block)) {
+        expect(
+          block.includes("--tldr") || c.includes("--tldr"),
+          `failure-recovery.md flow-gate-summary line must be near a --tldr flag: ${block}`,
+        ).toBe(true);
+      }
+    }
+    expect(c).toContain("--tldr");
+    const notifyBlocks =
+      c.match(/flow-notify --status needs-human[^\n]*/g) ?? [];
+    expect(
+      notifyBlocks.length,
+      "failure-recovery.md must carry 3 flow-notify --status needs-human calls",
+    ).toBeGreaterThanOrEqual(3);
+    expect(c).toContain("--reason");
+  });
+
+  it("redirect-handling.md's Phase × input action matrix carries a file #N / drop #N row", () => {
+    const c = fs.readFileSync(REDIRECT_HANDLING_PATH, "utf8");
+    const idx = c.indexOf("## Phase × input action matrix");
+    expect(idx).toBeGreaterThan(-1);
+    const nextHeadingIdx = c.indexOf("\n## ", idx + 1);
+    const section = c.slice(
+      idx,
+      nextHeadingIdx === -1 ? undefined : nextHeadingIdx,
+    );
+    expect(section).toContain("file #N");
   });
 });
 

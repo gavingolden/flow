@@ -89,11 +89,12 @@ bind`; record an out-of-band completion with `flow epic bind --external`;
 escalate-only` surface or an `escalate-on-exhaustion` stop — ends in a
   pause block per the cross-skill
   `flow-pipeline/references/pause-output-contract.md` (labeled slots, no
-  open prose). Compact template:
+  open prose, ≤12 lines). Compact template:
 
   > ### ⚠ Escalation — <feature id> will not progress
   >
-  > **Went wrong:** <why it is gated / exhausted, with evidence>
+  > **TLDR:** <the one-sentence user-visible consequence>
+  > **Unsolved:** <why it is gated / exhausted, with evidence>
   > **Next action:** <the single most useful human action>.
 
 You spawn **no Task/Agent sub-agent** and fire **no AskUserQuestion form** — the
