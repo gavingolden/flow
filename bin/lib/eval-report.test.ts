@@ -285,6 +285,18 @@ describe("compareReports", () => {
     expect(cmp.warnings.some((w) => w.includes("runner mismatch"))).toBe(true);
   });
 
+  it("flags environmentMismatch and pushes a warning on effort drift", () => {
+    const base = makeReport({ runner: { ...runner, effort: "medium" } });
+    const cand = makeReport({ runner: { ...runner, effort: "high" } });
+    const cmp = compareReports(base, cand);
+    expect(cmp.environmentMismatch).toBe(true);
+    expect(
+      cmp.warnings.some(
+        (w) => w.includes("runner mismatch") && w.includes("effort"),
+      ),
+    ).toBe(true);
+  });
+
   it("regresses on any candidate score drop", () => {
     const base = makeReport({ scenarios: [scenarioWith(1, [1000])] });
     const cand = makeReport({

@@ -130,6 +130,7 @@ export type ScenarioSpec = {
   env?: { flowSlug?: boolean };
   allowedTools?: string[];
   model?: string;
+  effort?: string;
   maxBudgetUsd?: number;
   timeoutSec?: number;
   runs?: number;
@@ -146,7 +147,12 @@ export type SuiteSpec = {
   defaults?: Partial<
     Pick<
       ScenarioSpec,
-      "runs" | "maxBudgetUsd" | "timeoutSec" | "allowedTools" | "model"
+      | "runs"
+      | "maxBudgetUsd"
+      | "timeoutSec"
+      | "allowedTools"
+      | "model"
+      | "effort"
     >
   >;
 };
@@ -362,6 +368,9 @@ export function validateScenarioSpec(
   if (o.model !== undefined && !isString(o.model)) {
     return err("'model' must be a string");
   }
+  if (o.effort !== undefined && !isString(o.effort)) {
+    return err("'effort' must be a string");
+  }
   if (o.maxBudgetUsd !== undefined && !isNumber(o.maxBudgetUsd)) {
     return err("'maxBudgetUsd' must be a number");
   }
@@ -421,6 +430,9 @@ export function validateSuiteSpec(o: unknown): ValidationResult<SuiteSpec> {
     }
     if (d.model !== undefined && !isString(d.model)) {
       return err("'defaults.model' must be a string");
+    }
+    if (d.effort !== undefined && !isString(d.effort)) {
+      return err("'defaults.effort' must be a string");
     }
   }
   return { ok: true, value: o as unknown as SuiteSpec };
@@ -493,6 +505,7 @@ function resolveScenario(
   const allowedTools = spec.allowedTools ??
     suiteDefaults?.allowedTools ?? [...SCENARIO_DEFAULTS.allowedTools];
   const model = spec.model ?? suiteDefaults?.model;
+  const effort = spec.effort ?? suiteDefaults?.effort;
 
   // Every file the scenario references is resolved relative to the
   // scenario dir and must exist — `shims` may climb out via `../` (shared
@@ -580,6 +593,7 @@ function resolveScenario(
       timeoutSec,
       allowedTools,
       model,
+      effort,
       dir: scenarioDir,
     },
   };

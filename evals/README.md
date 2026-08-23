@@ -40,9 +40,17 @@ evals/
 ```
 
 `defaults` may set any of `runs`, `maxBudgetUsd`, `timeoutSec`,
-`allowedTools`, `model`. Resolution order for each scenario field is
+`allowedTools`, `model`, `effort`. Resolution order for each scenario field is
 scenario value, then `suite.defaults`, then the built-in
-`SCENARIO_DEFAULTS` in `bin/lib/eval-suite.ts`.
+`SCENARIO_DEFAULTS` in `bin/lib/eval-suite.ts` (there is no built-in default
+for `model`/`effort` — an unset value stays `undefined` and the child
+inherits whatever `claude -p` resolves on its own).
+
+Pin `effort` per suite alongside `model` when a suite's cost/behaviour
+sensitivity warrants it: the harness passes it through as `claude -p
+--effort <level>`, records it in the report's `runner.effort`, and
+`flow-eval compare` warns on drift between a base and candidate report's
+`runner.effort` the same way it already does for `runner.model`.
 
 ## case.json (one per scenario directory)
 
@@ -69,6 +77,7 @@ scenario value, then `suite.defaults`, then the built-in
   "env": { "flowSlug": true },
   "allowedTools": ["Bash", "Read"],
   "model": "haiku",
+  "effort": "medium",
   "maxBudgetUsd": 4,
   "timeoutSec": 900,
   "runs": 2,

@@ -61,6 +61,15 @@ describe("validateSuiteSpec", () => {
     });
     expect(result.ok).toBe(false);
   });
+
+  it("rejects a non-string defaults.effort", () => {
+    const result = validateSuiteSpec({
+      ...validSuite,
+      defaults: { effort: 5 },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/defaults\.effort/);
+  });
 });
 
 describe("validateScenarioSpec", () => {
@@ -191,6 +200,12 @@ describe("validateScenarioSpec", () => {
     const bad = validateScenarioSpec({ ...validScenario, promptSeed: "nope" });
     expect(bad.ok).toBe(false);
   });
+
+  it("rejects a non-string effort", () => {
+    const result = validateScenarioSpec({ ...validScenario, effort: 5 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/effort/);
+  });
 });
 
 describe("evalSlug", () => {
@@ -249,6 +264,44 @@ describe("loadSuite", () => {
     expect(result.value.scenarios[1].timeoutSec).toBe(
       SCENARIO_DEFAULTS.timeoutSec,
     );
+  });
+
+  it("resolves effort in scenario > suite.defaults > undefined order", () => {
+    const deps = memDeps({
+      "/e/s/suite.json": JSON.stringify({
+        schemaVersion: 1,
+        id: "s",
+        candidate: "c",
+        description: "d",
+        scenarios: ["scenario-a", "scenario-b"],
+        defaults: { effort: "medium" },
+      }),
+      "/e/s/scenario-a/case.json": JSON.stringify({
+        id: "scenario-a",
+        title: "A",
+        provenance: "test",
+        prompt: "prompt.md",
+        effort: "high",
+        graders: [{ id: "g1", kind: "file", file: "out.txt", exists: true }],
+      }),
+      "/e/s/scenario-a/prompt.md": "hi",
+      "/e/s/scenario-a/out.txt": "hi",
+      "/e/s/scenario-b/case.json": JSON.stringify({
+        id: "scenario-b",
+        title: "B",
+        provenance: "test",
+        prompt: "prompt.md",
+        graders: [{ id: "g1", kind: "file", file: "out.txt", exists: true }],
+      }),
+      "/e/s/scenario-b/prompt.md": "hi",
+      "/e/s/scenario-b/out.txt": "hi",
+    });
+
+    const result = loadSuite("/e/s", deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.scenarios[0].effort).toBe("high"); // scenario override wins
+    expect(result.value.scenarios[1].effort).toBe("medium"); // suite.defaults wins
   });
 
   it("fails when a referenced file is missing", () => {

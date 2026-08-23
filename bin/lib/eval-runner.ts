@@ -182,6 +182,7 @@ export function buildChildArgv(
     prompt: string;
     resultSchema?: unknown;
     model?: string;
+    effort?: string;
     keepSessions?: boolean;
   },
 ): string[] {
@@ -219,6 +220,7 @@ export function buildChildArgv(
       ? ["--json-schema", JSON.stringify(opts.resultSchema)]
       : []),
     ...(opts.model ? ["--model", opts.model] : []),
+    ...(opts.effort ? ["--effort", opts.effort] : []),
   ];
 }
 
@@ -311,6 +313,7 @@ export async function runScenarioOnce(
     sessionId: string;
     resultSchema?: unknown;
     model?: string;
+    effort?: string;
     keepSessions?: boolean;
     spawn?: SpawnFn;
     readFile?: (p: string) => string;
@@ -329,6 +332,7 @@ export async function runScenarioOnce(
     prompt,
     resultSchema: opts.resultSchema,
     model: opts.model,
+    effort: opts.effort,
     keepSessions: opts.keepSessions,
   });
   const env = buildChildEnv(scenario, fixture, process.env);

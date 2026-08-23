@@ -154,6 +154,21 @@ describe("parseArgs", () => {
     expect(all).toMatchObject({ suites: "all" });
   });
 
+  it("--model and --effort parse into args.model/args.effort", () => {
+    const parsed = parseArgs([
+      "run",
+      "--suite",
+      "a",
+      "--out",
+      "x",
+      "--model",
+      "sonnet",
+      "--effort",
+      "medium",
+    ]);
+    expect(parsed).toMatchObject({ model: "sonnet", effort: "medium" });
+  });
+
   it("parses compare defaults (tolerance 0.10) and validate positional paths", () => {
     const cmp = parseArgs([
       "compare",

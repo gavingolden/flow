@@ -230,6 +230,7 @@ async function runOneScenarioRun(
           )
         : undefined,
       model: args.model ?? scenario.model,
+      effort: args.effort ?? scenario.effort,
       keepSessions: args.keepSessions,
     });
     const transcript = transcriptMetrics(outcome.events, outcome.result);
@@ -333,6 +334,7 @@ async function runSuite(
     runner: {
       name: "flow-eval-headless",
       model: args.model,
+      effort: args.effort,
       claudeVersion: availability.ok ? availability.version : undefined,
     },
     tree: { gitHead: deps.gitHead(), dirty: deps.gitDirty() },

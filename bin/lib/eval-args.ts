@@ -12,6 +12,7 @@ export type RunArgs = {
   out: string;
   runs?: number;
   model?: string;
+  effort?: string;
   dryRun: boolean;
   claudeBin: string;
   evalsDir: string;
@@ -137,6 +138,7 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
   let out: string | undefined;
   let runs: number | undefined;
   let model: string | undefined;
+  let effort: string | undefined;
   let dryRun = false;
   let claudeBin = DEFAULTS.claudeBin;
   let evalsDir = DEFAULTS.evalsDir;
@@ -193,6 +195,9 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
       case "--model":
         model = v;
         break;
+      case "--effort":
+        effort = v;
+        break;
       case "--claude-bin":
         claudeBin = v;
         break;
@@ -232,6 +237,7 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
     out,
     runs,
     model,
+    effort,
     dryRun,
     claudeBin,
     evalsDir,

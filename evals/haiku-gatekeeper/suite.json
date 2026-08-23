@@ -10,5 +10,6 @@
     "s4-closed-first-match",
     "s5-proceed-normal",
     "s6-no-new-commits-skip"
-  ]
+  ],
+  "defaults": { "effort": "high" }
 }

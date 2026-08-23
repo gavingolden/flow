@@ -61,6 +61,7 @@ export type EvalReport = {
     name: "flow-eval-headless";
     claudeVersion?: string;
     model?: string;
+    effort?: string;
     notes?: string[];
   };
   tree: { gitHead: string; dirty: boolean };
@@ -382,7 +383,7 @@ export function renderSummary(r: EvalReport): string {
   const lines: string[] = [
     `# flow-eval — ${r.suite}`,
     "",
-    `Candidate: \`${r.candidate}\` · Tree: \`${r.tree.gitHead.slice(0, 12)}\`${r.tree.dirty ? " (dirty)" : ""} · Model: \`${r.runner.model ?? "n/a"}\``,
+    `Candidate: \`${r.candidate}\` · Tree: \`${r.tree.gitHead.slice(0, 12)}\`${r.tree.dirty ? " (dirty)" : ""} · Model: \`${r.runner.model ?? "n/a"}\` · Effort: \`${r.runner.effort ?? "n/a"}\``,
     "",
     "| Scenario | Status | Score | Runs | finalContextTokens | costUsd | numTurns | subagentsSpawned | durationMs |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
@@ -417,8 +418,8 @@ export type MetricDelta = {
 
 export type Comparison = {
   suite: string;
-  base: { gitHead: string; model?: string };
-  candidate: { gitHead: string; model?: string };
+  base: { gitHead: string; model?: string; effort?: string };
+  candidate: { gitHead: string; model?: string; effort?: string };
   scenarios: Array<{
     id: string;
     baseScore: number;
@@ -466,10 +467,11 @@ export function compareReports(
 
   const environmentMismatch =
     base.runner.model !== cand.runner.model ||
+    base.runner.effort !== cand.runner.effort ||
     base.runner.claudeVersion !== cand.runner.claudeVersion;
   if (environmentMismatch) {
     warnings.push(
-      `runner mismatch: model ${base.runner.model ?? "n/a"} -> ${cand.runner.model ?? "n/a"}, claudeVersion ${base.runner.claudeVersion ?? "n/a"} -> ${cand.runner.claudeVersion ?? "n/a"}`,
+      `runner mismatch: model ${base.runner.model ?? "n/a"} -> ${cand.runner.model ?? "n/a"}, effort ${base.runner.effort ?? "n/a"} -> ${cand.runner.effort ?? "n/a"}, claudeVersion ${base.runner.claudeVersion ?? "n/a"} -> ${cand.runner.claudeVersion ?? "n/a"}`,
     );
   }
 
@@ -524,8 +526,16 @@ export function compareReports(
 
   return {
     suite: cand.suite,
-    base: { gitHead: base.tree.gitHead, model: base.runner.model },
-    candidate: { gitHead: cand.tree.gitHead, model: cand.runner.model },
+    base: {
+      gitHead: base.tree.gitHead,
+      model: base.runner.model,
+      effort: base.runner.effort,
+    },
+    candidate: {
+      gitHead: cand.tree.gitHead,
+      model: cand.runner.model,
+      effort: cand.runner.effort,
+    },
     scenarios,
     regressions,
     warnings,
@@ -536,7 +546,7 @@ export function compareReports(
 export function renderComparison(c: Comparison): string {
   const lines: string[] = [`# flow-eval compare — ${c.suite}`, ""];
   lines.push(
-    `Base: \`${c.base.gitHead.slice(0, 12)}\` (${c.base.model ?? "n/a"}) vs Candidate: \`${c.candidate.gitHead.slice(0, 12)}\` (${c.candidate.model ?? "n/a"})`,
+    `Base: \`${c.base.gitHead.slice(0, 12)}\` (${c.base.model ?? "n/a"}/${c.base.effort ?? "n/a"}) vs Candidate: \`${c.candidate.gitHead.slice(0, 12)}\` (${c.candidate.model ?? "n/a"}/${c.candidate.effort ?? "n/a"})`,
   );
   lines.push("");
   for (const s of c.scenarios) {

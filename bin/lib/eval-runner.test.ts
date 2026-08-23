@@ -159,6 +159,29 @@ describe("buildChildArgv", () => {
     );
     expect(argv.slice(-2)).toEqual(["--model", "haiku"]);
   });
+
+  it("adds --effort when opts.effort is set", () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const argv = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+      effort: "medium",
+    });
+    expect(argv.slice(-2)).toEqual(["--effort", "medium"]);
+  });
+
+  it("omits --effort when opts.effort is unset", () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const argv = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    expect(argv).not.toContain("--effort");
+  });
 });
 
 describe("buildChildEnv", () => {

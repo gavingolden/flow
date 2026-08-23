@@ -7,5 +7,6 @@
     "s1-resume-step5-addendum",
     "s2-resume-gated-feedback",
     "s3-terminal-orientation"
-  ]
+  ],
+  "defaults": { "effort": "high" }
 }

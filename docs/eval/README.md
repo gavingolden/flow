@@ -66,10 +66,10 @@ bun bin/flow-eval.ts compare --base docs/eval/baseline/verify-loop-isolation.rep
 diffs two reports scenario-by-scenario and metric-by-metric: `worse` /
 `better` / `same` / `noisy` (base-spread-exceeds-tolerance) verdicts,
 direction-aware (`lower`/`higher`-is-better), plus an
-`environmentMismatch` warning when `runner.model`/`runner.claudeVersion`
-differ between the two reports. `--fail-on-regression` exits 1 on any
-regression; `--json` prints the raw `Comparison` object instead of the
-markdown table.
+`environmentMismatch` warning when `runner.model`/`runner.effort`/
+`runner.claudeVersion` differ between the two reports. `--fail-on-regression`
+exits 1 on any regression; `--json` prints the raw `Comparison` object
+instead of the markdown table.
 
 ## Recording a baseline
 
