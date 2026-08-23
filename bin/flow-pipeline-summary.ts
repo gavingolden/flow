@@ -49,6 +49,21 @@
  *                         [--followups-block-file <path>] [--followups-jsonl <path>]
  *                         [--filed-issues-file <path>] [--intent-resolution <path>]
  *                         [--post-comment <PR>]
+ *                         [--lens <pm|dev>] [--scout-file <path>]
+ *                         [--untracked-file <path>] [--counts-line]
+ *
+ * `--lens` (flag > `output.lens` config > `pm`) switches the scrollback
+ * render and the posted comment's top-level fenced block between `pm`
+ * (CHANGES / REVIEW counts / DEVIATIONS / UNTRACKED [/ MANUAL STEPS for the
+ * scrollback]) and `dev` (today's seven-section scrollback plus a trailing
+ * DEVIATIONS section). The posted comment ALWAYS carries both — `pm` at the
+ * top level, `dev` collapsed under `<details><summary>Developer
+ * detail</summary>`. `--scout-file` feeds `DEVIATIONS:`'s `PLAN-DEVIATION:`
+ * bullets; `--untracked-file` feeds `UNTRACKED:` (pre-rendered by
+ * `flow-untracked render --format markdown --unfiled-only`). `--counts-line`
+ * is a standalone mode: prints ONLY the composed count line (e.g. "12
+ * findings fixed, 2 deferred") to stdout and exits — the supervisor
+ * captures it and threads it into `flow-gate-summary --counts-line`.
  *
  * Exit codes: 0 — block rendered to stdout. 2 — bad CLI args.
  */
@@ -66,6 +81,9 @@ import {
   renderManualSteps,
   renderComment,
   renderIntent,
+  renderReviewCounts,
+  renderDeviations,
+  composeCountsLine,
 } from "./lib/pipeline-summary-sources";
 import { renderEchoRecap } from "./lib/echo-recap";
 import { collectFixApplierTolerant } from "./lib/fix-applier-tolerant";
@@ -73,6 +91,7 @@ import {
   normalizeParsedFindings,
   validateConsolidatorResult,
 } from "./lib/agent-finding-schema";
+import { resolveLens, type OutputLens } from "./lib/output-lens";
 
 /** Single-line HTML-comment dedup key for the persisted snapshot comment.
  *  Stable across releases (hence the -v1 suffix); it is the lookup key for
@@ -111,6 +130,11 @@ export type SummaryInputs = {
   planFile?: string;
   prTitle?: string;
   branch?: string;
+  lens?: string;
+  scoutFile?: string;
+  untrackedFile?: string;
+  /** Prints ONLY the composed count line to stdout and exits 0. */
+  countsLine?: boolean;
 };
 
 const VALID_STATUSES: ReadonlySet<string> = new Set([
@@ -129,6 +153,10 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     // value-required guard so it doesn't consume the next token.
     if (flag === "--echo-prose") {
       out.echoProse = true;
+      continue;
+    }
+    if (flag === "--counts-line") {
+      out.countsLine = true;
       continue;
     }
     const value = argv[i + 1];
@@ -189,6 +217,15 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--branch":
         out.branch = value;
         break;
+      case "--lens":
+        out.lens = value;
+        break;
+      case "--scout-file":
+        out.scoutFile = value;
+        break;
+      case "--untracked-file":
+        out.untrackedFile = value;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -203,7 +240,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
  * path, which readState owns) and produces the snapshot block. The block's
  * last line is NEVER a stop-guard sentinel — that is gate-summary's job.
  */
-export function render(inputs: {
+export type RenderInputs = {
   prChangesRaw: string;
   phaseLog: Array<{ phase: string; outcome?: string; at: string }> | null;
   prReviewRaw: string;
@@ -214,10 +251,59 @@ export function render(inputs: {
   fixApplierForIssues: string;
   manualStepsBlock: string;
   intentResolutionRaw?: string;
-}): string {
+  /**
+   * Optional and defaults to `"dev"` at this pure-function layer — same
+   * discipline as `bin/flow-gate-summary.ts`'s `GateSummaryInputs.lens`.
+   * `run()` always resolves and passes a concrete lens; only a direct
+   * `render()` call that omits it (every pre-existing test) falls back to
+   * `dev`, reproducing today's seven-section shape unchanged.
+   */
+  lens?: OutputLens;
+  /** scout.md raw text, for `DEVIATIONS:`' `PLAN-DEVIATION:` bullets. */
+  scoutRaw?: string;
+  /** Pre-rendered `flow-untracked render --format markdown --unfiled-only` lines. */
+  untrackedBlock?: string;
+};
+
+/**
+ * Pure render: takes the already-read source contents (and the state-file
+ * path, which readState owns) and produces the snapshot block. The block's
+ * last line is NEVER a stop-guard sentinel — that is gate-summary's job.
+ *
+ * `pm`: CHANGES / REVIEW (counts) / DEVIATIONS / UNTRACKED / MANUAL STEPS
+ * only. `dev`: today's seven sections plus a trailing DEVIATIONS section.
+ */
+export function render(inputs: RenderInputs): string {
+  const pm = (inputs.lens ?? "dev") === "pm";
+  const deviationsInputs = {
+    intentResolutionRaw: inputs.intentResolutionRaw ?? "",
+    fixApplierRaw: inputs.fixApplierRaw,
+    scoutRaw: inputs.scoutRaw ?? "",
+  };
   const lines: string[] = ["## PIPELINE SNAPSHOT"];
   lines.push("CHANGES:");
   for (const ln of renderChanges(inputs.prChangesRaw)) lines.push(`  ${ln}`);
+  if (pm) {
+    lines.push("REVIEW:");
+    for (const ln of renderReviewCounts({
+      prReviewRaw: inputs.prReviewRaw,
+      fixApplierRaw: inputs.fixApplierRaw,
+      ciWaitRaw: inputs.ciWaitRaw,
+    })) {
+      lines.push(`  ${ln}`);
+    }
+    lines.push("DEVIATIONS:");
+    for (const ln of renderDeviations(deviationsInputs)) lines.push(`  ${ln}`);
+    lines.push("UNTRACKED:");
+    for (const ln of renderManualSteps(inputs.untrackedBlock ?? "")) {
+      lines.push(`  ${ln}`);
+    }
+    lines.push("MANUAL STEPS:");
+    for (const ln of renderManualSteps(inputs.manualStepsBlock)) {
+      lines.push(`  ${ln}`);
+    }
+    return lines.join("\n");
+  }
   lines.push("PHASES:");
   for (const ln of renderPhases(inputs.phaseLog)) lines.push(`  ${ln}`);
   lines.push("INTENT:");
@@ -251,6 +337,8 @@ export function render(inputs: {
   for (const ln of renderManualSteps(inputs.manualStepsBlock)) {
     lines.push(`  ${ln}`);
   }
+  lines.push("DEVIATIONS:");
+  for (const ln of renderDeviations(deviationsInputs)) lines.push(`  ${ln}`);
   return lines.join("\n");
 }
 
@@ -263,13 +351,27 @@ function readFileOrEmpty(filePath: string | undefined): string {
   }
 }
 
-/** The posted comment body wraps the block in a ```text code fence and
- *  appends the dedup marker AFTER the closing fence (so the marker stays
- *  outside the fenced region — findMarkedCommentId still substring-matches
- *  it). The marker is appended ONLY here — the block written to stdout stays
- *  clean (no fence, no marker). */
-export function buildCommentBody(block: string): string {
-  return "```text\n" + block + "\n```\n\n" + SNAPSHOT_MARKER;
+/** The posted comment body: the `pm` block fenced at the top level, then
+ *  the `dev` block (full review narrative, `consolidator:` line, `rejected:`
+ *  reasoning) collapsed under `<details><summary>Developer detail</summary>`
+ *  so both stay readable but only the pm block is visible by default. The
+ *  dedup marker sits AFTER the closing `</details>` (outside both fences and
+ *  the wrapper — `findMarkedCommentId` still substring-matches it). Blank
+ *  lines after `<summary>` and after `</details>` match
+ *  `normalizeDetailsBlocks`'s spacing requirement. Fences/wrapper/marker
+ *  live ONLY in the posted comment body, never in stdout. */
+export function buildCommentBody(pm: string, dev: string): string {
+  return (
+    "```text\n" +
+    pm +
+    "\n```\n\n" +
+    "<details><summary>Developer detail</summary>\n\n" +
+    "```text\n" +
+    dev +
+    "\n```\n\n" +
+    "</details>\n\n" +
+    SNAPSHOT_MARKER
+  );
 }
 
 /** Scans a `gh api .../issues/<pr>/comments` list response for the first
@@ -315,7 +417,8 @@ export type SnapshotCommentResult =
  *  a top-level summary comment, consistent with /flow-pr-review's convention. */
 export function postSnapshotComment(
   prNumber: number,
-  block: string,
+  pm: string,
+  dev: string,
   gh: GhRunner,
 ): SnapshotCommentResult {
   const list = gh([
@@ -330,7 +433,7 @@ export function postSnapshotComment(
       error: list.stderr.trim() || `gh api list failed (${list.exitCode})`,
     };
   }
-  const body = buildCommentBody(block);
+  const body = buildCommentBody(pm, dev);
   const existingId = findMarkedCommentId(list.stdout);
   if (existingId !== null) {
     const r = gh([
@@ -445,7 +548,10 @@ function parseJsonOrUndefined(raw: string): unknown | undefined {
   }
 }
 
-export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
+export function run(
+  argv: string[],
+  deps: { gh?: GhRunner; read?: Parameters<typeof resolveLens>[1] } = {},
+): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     process.stderr.write(`flow-pipeline-summary: ${parsed.error}\n`);
@@ -458,7 +564,9 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
         "                             [--filed-issues-file <path>] [--intent-resolution <path>]\n" +
         "                             [--post-comment <PR>]\n" +
         "                             [--echo-prose] [--pr-url <url>] [--plan-file <path>]\n" +
-        "                             [--pr-title <title>] [--branch <name>]\n",
+        "                             [--pr-title <title>] [--branch <name>]\n" +
+        "                             [--lens <pm|dev>] [--scout-file <path>]\n" +
+        "                             [--untracked-file <path>] [--counts-line]\n",
     );
     return 2;
   }
@@ -475,6 +583,18 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
   const ciWaitRaw = readFileOrEmpty(parsed.ciWaitResult);
   const filedIssuesRaw = readFileOrEmpty(parsed.filedIssuesFile);
   const intentResolutionRaw = readFileOrEmpty(parsed.intentResolutionFile);
+
+  // --counts-line: prints ONLY the composed count line and exits — the
+  // supervisor captures it and threads it into `flow-gate-summary
+  // --counts-line`. No other section is read/rendered.
+  if (parsed.countsLine) {
+    process.stdout.write(composeCountsLine(fixApplierRaw) + "\n");
+    return 0;
+  }
+
+  const lens = resolveLens(parsed.lens, deps.read);
+  const scoutRaw = readFileOrEmpty(parsed.scoutFile);
+  const untrackedBlock = readFileOrEmpty(parsed.untrackedFile);
   // MANUAL STEPS prefers the already-rendered block (preserves ran/failed
   // results captured by `flow-followups run` on the MERGED path). A
   // note-only JSONL re-read would lose them, so the block-file wins.
@@ -494,6 +614,9 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
     fixApplierForIssues: fixApplierRaw,
     manualStepsBlock,
     intentResolutionRaw,
+    lens,
+    scoutRaw,
+    untrackedBlock,
   });
   // With --echo-prose, PREPEND the delimited recap block (a new top section of
   // this SAME stdout write — never a separate invocation, so the
@@ -540,8 +663,15 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
         ciWaitRaw,
         filedIssuesRaw,
         intentResolutionRaw,
+        scoutRaw,
+        untrackedBlock,
       });
-      const result = postSnapshotComment(prNumber, commentBlock, gh);
+      const result = postSnapshotComment(
+        prNumber,
+        commentBlock.pm,
+        commentBlock.dev,
+        gh,
+      );
       if (result.action === "failed") {
         process.stderr.write(
           `flow-pipeline-summary: snapshot comment post failed: ${result.error}\n`,

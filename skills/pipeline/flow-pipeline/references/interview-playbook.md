@@ -249,13 +249,14 @@ re-entry, `plan-pending-interview` → step-3 re-entry via
 
 Every interview round that ends a turn follows
 `references/pause-output-contract.md` — the status heading plus the
-labeled-slot grammar, never open prose. The recommended slot mapping for
-an interview round:
+labeled-slot grammar, never open prose, ≤12 lines with overflow behind
+the artifact path when a battery runs long. The recommended slot
+mapping for an interview round:
 
 ```
 ### ❓ A few questions before I start
 
-**Needs your review:**
+**Needs attention:**
 <category heading>
 Q<n>. <Title>
 <body>

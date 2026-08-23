@@ -123,6 +123,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-plan-lint",
       "flow-create-issue",
       "flow-followups",
+      "flow-untracked",
       "flow-foreclosed-paths",
       "flow-notify",
       "flow-browser-teardown",

@@ -878,6 +878,105 @@ describe("state", () => {
     expect(readState("ci-wait-malformed", dir)).toBeNull();
   });
 
+  it("readState round-trips a valid untracked list through writeState", () => {
+    const withUntracked: PipelineState = {
+      slug: "with-untracked",
+      phase: "gated",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      untracked: [
+        {
+          id: 1,
+          title: "found a dead code path",
+          source: "pr-review",
+          at: "2026-05-17T00:01:00Z",
+        },
+        {
+          id: 2,
+          title: "flaky test",
+          body: "reproduce with -t flag",
+          source: "verify",
+          at: "2026-05-17T00:02:00Z",
+          filedAs: "https://github.com/gavingolden/flow/issues/999",
+          droppedAt: "2026-05-17T00:03:00Z",
+        },
+      ],
+    };
+    writeState(withUntracked, dir);
+    expect(readState("with-untracked", dir)).toEqual(withUntracked);
+  });
+
+  it("readState accepts an absent untracked field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "untracked-absent.json"),
+      JSON.stringify({
+        slug: "untracked-absent",
+        phase: "gated",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    const got = readState("untracked-absent", dir);
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("untracked");
+  });
+
+  it("readState returns null when untracked is not an array", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "untracked-not-array.json"),
+      JSON.stringify({
+        slug: "untracked-not-array",
+        phase: "gated",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        untracked: { id: 1, title: "x", source: "y", at: "z" },
+      }),
+    );
+    expect(readState("untracked-not-array", dir)).toBeNull();
+  });
+
+  it("readState returns null when an untracked entry is missing a required field", () => {
+    for (const missing of ["id", "title", "source", "at"] as const) {
+      const entry: Record<string, unknown> = {
+        id: 1,
+        title: "x",
+        source: "y",
+        at: "2026-05-17T00:00:00Z",
+      };
+      delete entry[missing];
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, `untracked-missing-${missing}.json`);
+      fs.writeFileSync(
+        file,
+        JSON.stringify({
+          slug: `untracked-missing-${missing}`,
+          phase: "gated",
+          repo: "/tmp/repo",
+          updatedAt: "2026-05-17T00:00:00Z",
+          untracked: [entry],
+        }),
+      );
+      expect(readState(`untracked-missing-${missing}`, dir)).toBeNull();
+    }
+  });
+
+  it("readState returns null when an untracked entry has a wrong-typed field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "untracked-wrong-type.json"),
+      JSON.stringify({
+        slug: "untracked-wrong-type",
+        phase: "gated",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        untracked: [{ id: "1", title: "x", source: "y", at: "z" }],
+      }),
+    );
+    expect(readState("untracked-wrong-type", dir)).toBeNull();
+  });
+
   it("readState round-trips valid pid and procStartedAt through writeState", () => {
     const withLiveness: PipelineState = {
       slug: "with-liveness",
