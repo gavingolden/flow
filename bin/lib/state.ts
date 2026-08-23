@@ -260,6 +260,7 @@ export type PipelineState = {
    * itself has been alive. Reset whenever `(pr, headSha)` changes.
    */
   ciWait?: CiWaitRecord;
+  /**
    * Discovered-but-not-in-plan work items, written by `bin/flow-untracked.ts`
    * (`add` / `file` / `drop`). Persisted in state.json (not the worktree —
    * `flow-followups`'s pattern — so unfiled items survive to the terminal
@@ -300,6 +301,9 @@ export type CiWaitRecord = {
   checks: number;
   copilotRetriggered: boolean;
   copilotRetriggeredAt?: string;
+};
+
+/**
  * One discovered-but-not-in-plan work item. `filedAs` is set once
  * `flow-untracked file <id>` has run `flow-create-issue` for it (idempotent
  * — a second `file` call is a no-op); `droppedAt` is set once
