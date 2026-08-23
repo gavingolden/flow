@@ -74,11 +74,14 @@ export function buildManualAction(
   const beforeMerge: string[] = [];
   const whenever = (followupsBlock ?? "")
     .split("\n")
-    .map((l) => l.replace(/^ {2}/, "").replace(/\s+$/, ""))
+    .map((l) => l.trim())
     .filter((l) => l.length > 0)
     // Drop the header row ("LOCAL FOLLOW-UPS..." / "LOCAL FOLLOW-UPS
     // (deferred...)...") — this section owns its own "whenever:" label.
-    .filter((l) => !l.startsWith("LOCAL FOLLOW-UPS"));
+    .filter((l) => !l.startsWith("LOCAL FOLLOW-UPS"))
+    // The block's own bullets/checkboxes are re-bulleted by pushManualBucket;
+    // strip them so a follow-up never renders as `- - [ ] …`.
+    .map((l) => l.replace(/^[-*]\s+(\[[ x]\]\s+)?/, "").replace(/\s{2,}/g, " "));
   if (beforeMerge.length === 0 && whenever.length === 0) return [];
   const lines = ["MANUAL ACTION:"];
   pushManualBucket(lines, "before merge", beforeMerge);
