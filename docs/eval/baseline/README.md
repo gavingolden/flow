@@ -31,8 +31,9 @@ the two HTML-comment markers on every `--record-baseline` run — do not
 hand-edit inside the markers.
 
 <!-- flow-eval-baseline:start -->
-
-_No baseline has been recorded yet. Run `bun bin/flow-eval.ts run --all
---out .flow-tmp/eval --record-baseline` from a plain shell to populate this table._
-
+| Suite | Candidate | Score | Git Head | Recorded At |
+| --- | --- | --- | --- | --- |
+| checkpoint-pending-clear | checkpoint-pending-clear | 0.867 | 8afb9943bf93 | 2026-08-23T21:35:07.417Z |
+| haiku-gatekeeper | haiku-gatekeeper | 0.961 | 8afb9943bf93 | 2026-08-23T21:11:35.501Z |
+| verify-loop-isolation | verify-loop-subagent-isolation | 0.898 | 8afb9943bf93 | 2026-08-23T21:30:16.913Z |
 <!-- flow-eval-baseline:end -->
