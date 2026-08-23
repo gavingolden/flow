@@ -159,12 +159,9 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     killed = true;
     child.kill();
   };
-  // A signal is an explicit "stop now" — killing the child at any instant
-  // loses nothing (the supervisor simply re-arms it), so a signal must exit
-  // promptly rather than still sleeping out the --min-sec floor below.
-  // `once` (not `on`) is intentional: the first signal kills the child and
-  // skips the floor; a second signal during teardown falls through to the
-  // platform default.
+  // A signal is an explicit "stop now": kill the child and skip the
+  // --min-sec floor (the supervisor simply re-arms). `once`, not `on`:
+  // a second signal during teardown falls through to the platform default.
   let signaled = false;
   const onSignal = (): void => {
     signaled = true;
