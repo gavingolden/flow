@@ -436,7 +436,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     `CI check ${record.checks}, elapsed ${formatElapsed(startupElapsedSec)} of 20m (anchor ${record.startedAt})\n`,
   );
 
-  const prInfo = observePr(parsed.pr, gh, copilotConfigured);
+  const prInfo = observePr(parsed.pr, gh);
   if (!prInfo) {
     // Failed observation. Never fabricates a decision — see "The
     // transient-gh ci-hang path is removed, not preserved" (Architecture
@@ -510,14 +510,15 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     }
   }
 
-  // Per-poll requested_reviewers read. Re-read (not the loop-entry
-  // snapshot): GitHub auto-removes Copilot from requested_reviewers once
-  // it posts its review.
-  const copilotRequestedThisPoll = copilotConfigured
-    ? fetchRequestedReviewers(parsed.pr, gh).some((l) =>
-        matchesCopilot(l, copilotLogin),
-      )
-    : false;
+  // Per-invocation requested_reviewers signal, observability-only. Since
+  // PR #666 split flow-ci-wait into flow-ci-check (one invocation ==
+  // one poll), a second per-poll re-read inside this same invocation is
+  // redundant — cross-poll freshness against GitHub auto-removing
+  // Copilot after its first review comes from the NEXT process's own
+  // entry-snapshot read, not from re-reading here.
+  const copilotRequestedThisPoll =
+    copilotConfigured &&
+    requestedReviewersAtEntry.some((l) => matchesCopilot(l, copilotLogin));
 
   const checksList: TimedCheck[] = ciConfigured
     ? observeChecks(parsed.pr, gh)
@@ -552,7 +553,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
       elapsedSec,
       claimDeadlineSec,
       waitForCopilot,
-      requestedReviewers: prInfo.requestedReviewers,
+      requestedReviewers: requestedReviewersAtEntry,
     });
     if (skipReason !== null) {
       process.stderr.write(
@@ -676,7 +677,6 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     prUrl: prInfo.url,
     ci,
     copilotPosted,
-    copilotRequestedThisPoll,
     ciConfigured,
     copilotConfigured,
     maxElapsed,

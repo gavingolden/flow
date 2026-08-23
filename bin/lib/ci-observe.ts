@@ -273,29 +273,18 @@ export type PrObservation = {
   reviews: Review[];
   /** Current HEAD SHA of the PR branch. Empty string when `gh` omits it. */
   headRefOid: string;
-  /**
-   * Logins currently in `requested_reviewers` (lowercased). Re-projected
-   * per poll because GitHub auto-removes Copilot after its first review,
-   * so a loop-entry snapshot can stale during the wait. Empty when `gh`
-   * omits `reviewRequests`. The REST union that recovers logins GraphQL
-   * drops only fires when `includeRestReviewers` is true — its sole
-   * consumer (`deriveCopilotSkipReason`) sits behind the `copilotConfigured`
-   * guard, so the extra REST subprocess is dead work otherwise.
-   */
-  requestedReviewers: string[];
 };
 
 export function observePr(
   prNumber: number,
   gh: GhRunner,
-  includeRestReviewers = true,
 ): PrObservation | null {
   const r = gh([
     "pr",
     "view",
     String(prNumber),
     "--json",
-    "state,url,reviews,headRefOid,reviewRequests",
+    "state,url,reviews,headRefOid",
   ]);
   if (r.exitCode !== 0) return null;
   try {
@@ -308,7 +297,6 @@ export function observePr(
         commit?: { oid?: string } | null;
       }>;
       headRefOid?: string;
-      reviewRequests?: Array<{ login?: string }>;
     };
     if (
       typeof parsed.url !== "string" ||
@@ -341,19 +329,11 @@ export function observePr(
       }));
     const headRefOid =
       typeof parsed.headRefOid === "string" ? parsed.headRefOid : "";
-    const requestedReviewers = unionLogins(
-      (parsed.reviewRequests ?? [])
-        .map((rr) => rr.login)
-        .filter((l): l is string => typeof l === "string")
-        .map((l) => l.toLowerCase()),
-      includeRestReviewers ? fetchRequestedReviewersRest(prNumber, gh) : [],
-    );
     return {
       state: parsed.state,
       url: parsed.url,
       reviews,
       headRefOid,
-      requestedReviewers,
     };
   } catch {
     return null;

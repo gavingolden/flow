@@ -283,76 +283,43 @@ describe(fetchRequestedReviewers, () => {
 
 describe(observePr, () => {
   const PR = 100;
-  // Matcher-style gh stub recording every call so we can spy on whether the
-  // REST requested_reviewers endpoint was hit. `prView` is returned for the
-  // `gh pr view --json …` projection; `rest` for the REST union read.
-  function ghWith(opts: {
-    prView: { stdout: string; exitCode: number };
-    rest: { stdout: string; exitCode: number };
-  }): GhRunner & { calls: string[][] } {
-    const calls: string[][] = [];
-    const fn = ((argv: string[]) => {
-      calls.push(argv);
-      if (
-        argv[0] === "api" &&
-        typeof argv[1] === "string" &&
-        argv[1].endsWith("/requested_reviewers")
-      ) {
-        return {
-          stdout: opts.rest.stdout,
-          stderr: "",
-          exitCode: opts.rest.exitCode,
-        };
-      }
+
+  it("parses state/url/reviews/headRefOid and returns null on a non-zero exit", () => {
+    const okGh = ((argv: string[]) => {
+      void argv;
       return {
-        stdout: opts.prView.stdout,
+        stdout: JSON.stringify({
+          state: "OPEN",
+          url: "https://github.com/o/r/pull/100",
+          reviews: [
+            {
+              author: { login: "alice" },
+              state: "APPROVED",
+              commit: { oid: "c1" },
+            },
+          ],
+          headRefOid: "abc123",
+        }),
         stderr: "",
-        exitCode: opts.prView.exitCode,
+        exitCode: 0,
       };
-    }) as GhRunner & { calls: string[][] };
-    fn.calls = calls;
-    return fn;
-  }
-  const prViewResponse = (reviewRequests: string[]) =>
-    JSON.stringify({
+    }) as GhRunner;
+    const result = observePr(PR, okGh);
+    expect(result).toEqual({
       state: "OPEN",
       url: "https://github.com/o/r/pull/100",
-      reviews: [],
+      reviews: [
+        { author: { login: "alice" }, state: "APPROVED", commitOid: "c1" },
+      ],
       headRefOid: "abc123",
-      reviewRequests: reviewRequests.map((login) => ({ login })),
     });
 
-  it("unions a REST-only Copilot reviewer into requestedReviewers", () => {
-    const gh = ghWith({
-      prView: { stdout: prViewResponse([]), exitCode: 0 },
-      rest: { stdout: JSON.stringify(["Copilot"]), exitCode: 0 },
-    });
-    expect(observePr(PR, gh, true)!.requestedReviewers).toContain("copilot");
-  });
-
-  it("fails open to GraphQL-only logins when the REST union exits non-zero", () => {
-    const gh = ghWith({
-      prView: { stdout: prViewResponse(["alice"]), exitCode: 0 },
-      rest: { stdout: "", exitCode: 1 },
-    });
-    expect(observePr(PR, gh, true)!.requestedReviewers).toEqual(["alice"]);
-  });
-
-  it("skips the REST endpoint entirely when includeRestReviewers is false", () => {
-    const gh = ghWith({
-      prView: { stdout: prViewResponse(["alice"]), exitCode: 0 },
-      rest: { stdout: JSON.stringify(["Copilot"]), exitCode: 0 },
-    });
-    const result = observePr(PR, gh, false)!;
-    expect(result.requestedReviewers).toEqual(["alice"]);
-    expect(
-      gh.calls.some(
-        (argv) =>
-          argv[0] === "api" &&
-          typeof argv[1] === "string" &&
-          argv[1].endsWith("/requested_reviewers"),
-      ),
-    ).toBe(false);
+    const failingGh = (() => ({
+      stdout: "",
+      stderr: "boom",
+      exitCode: 1,
+    })) as GhRunner;
+    expect(observePr(PR, failingGh)).toBeNull();
   });
 });
 

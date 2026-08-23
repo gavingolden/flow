@@ -49,13 +49,6 @@ export type PollState = {
   ci: CheckState;
   /** Raw observation. The override (COPILOT_REQUESTED=0 → vacuously true) is applied inside decideOnPoll. */
   copilotPosted: boolean;
-  /**
-   * True iff the configured Copilot login was present in THIS poll's
-   * `requested_reviewers` read (re-read each poll, not cached — GitHub
-   * auto-removes Copilot once it posts its review). Informs the per-poll
-   * stderr distinction only; `decideOnPoll` does not branch on it.
-   */
-  copilotRequestedThisPoll: boolean;
   ciConfigured: boolean;
   copilotConfigured: boolean;
   /** Wall-clock cap in seconds. Default 1200 (20 min). */

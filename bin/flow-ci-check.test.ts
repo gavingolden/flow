@@ -154,8 +154,7 @@ const isPrView = (argv: string[]) =>
   argv[0] === "pr" &&
   argv[1] === "view" &&
   argv.includes("--json") &&
-  argv[argv.indexOf("--json") + 1] ===
-    "state,url,reviews,headRefOid,reviewRequests";
+  argv[argv.indexOf("--json") + 1] === "state,url,reviews,headRefOid";
 
 const isPrChecks = (argv: string[]) => argv[0] === "pr" && argv[1] === "checks";
 
@@ -527,7 +526,6 @@ describe("run() — decision matrix", () => {
         response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -593,7 +591,6 @@ describe("run() — decision matrix", () => {
         response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -942,10 +939,9 @@ describe("suspension immunity", () => {
     const gh2 = makeGhSequence([
       {
         matches: isReviewRequests,
-        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+        response: reviewRequestsResponse([]),
       },
       { matches: isPrView, response: prViewResponse("OPEN") },
-      perPollReviewRequests([]),
       {
         matches: isPrChecks,
         response: prChecksResponse([
@@ -956,7 +952,7 @@ describe("suspension immunity", () => {
     const cap2 = captureStreams();
     await run(
       ["100", "--state-dir", dir, "--copilot-timeout", "600"],
-      baseDeps(gh2, laterMs),
+      baseDeps(gh2, laterMs, { readHistoricalBotReview: () => true }),
     );
     cap2.restore();
     expect(readAnchors(dir, slug)?.ciTerminalAt).toBe(completedAt);
@@ -989,7 +985,6 @@ describe("run() — headSha-change reset", () => {
         matches: isPrView,
         response: prViewResponse("OPEN", staleCopilotReview(), "sha-1"),
       },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       {
         matches: isRequestedReviewersPost,
@@ -1103,7 +1098,6 @@ describe("run() — retrigger idempotency across invocations", () => {
           response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
         },
         { matches: isPrView, response: prViewResponse("OPEN", staleReview) },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
         {
           matches: isRequestedReviewersPost,
@@ -1141,7 +1135,6 @@ describe("run() — retrigger idempotency across invocations", () => {
           response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
         },
         { matches: isPrView, response: prViewResponse("OPEN", staleReview) },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       ],
       allCalls,
@@ -1180,21 +1173,20 @@ describe("run() — Copilot auto-detect short-circuit", () => {
     // Call 1: CI terminal at poll 1 (elapsedSec=0), no Copilot review,
     // Copilot not in per-poll reviewRequests.
     const gh1 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap1 = captureStreams();
     const exit1 = await run(
       ["100", "--state-dir", dir, "--claim-deadline-sec", "30"],
-      baseDeps(gh1, t0Ms, { readCopilotLogin: () => LOGIN }),
+      baseDeps(gh1, t0Ms, {
+        readCopilotLogin: () => LOGIN,
+        readHistoricalBotReview: () => true,
+      }),
     );
     cap1.restore();
     expect(exit1).toBe(0);
@@ -1203,21 +1195,20 @@ describe("run() — Copilot auto-detect short-circuit", () => {
 
     // Call 2, 30s later: same observation — the deadline has now elapsed.
     const gh2 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap2 = captureStreams();
     const exit2 = await run(
       ["100", "--state-dir", dir, "--claim-deadline-sec", "30"],
-      baseDeps(gh2, t0Ms + 30000, { readCopilotLogin: () => LOGIN }),
+      baseDeps(gh2, t0Ms + 30000, {
+        readCopilotLogin: () => LOGIN,
+        readHistoricalBotReview: () => true,
+      }),
     );
     cap2.restore();
     expect(exit2).toBe(0);
@@ -1239,9 +1230,8 @@ describe("run() — Copilot auto-detect short-circuit", () => {
       },
     ];
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       { matches: isPrView, response: prViewResponse("OPEN", dismissed) },
-      perPollReviewRequests([]),
       {
         matches: isPrChecks,
         response: prChecksResponse([{ name: "t", state: "IN_PROGRESS" }]),
@@ -1250,7 +1240,10 @@ describe("run() — Copilot auto-detect short-circuit", () => {
     const cap = captureStreams();
     const exit = await run(
       ["100"],
-      baseDeps(gh, 0, { readCopilotLogin: () => LOGIN }),
+      baseDeps(gh, 0, {
+        readCopilotLogin: () => LOGIN,
+        readHistoricalBotReview: () => true,
+      }),
     );
     cap.restore();
     expect(exit).toBe(0);
@@ -1261,18 +1254,20 @@ describe("run() — Copilot auto-detect short-circuit", () => {
 
   it("--wait-for-copilot suppresses both auto-detect skips", async () => {
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
       },
-      perPollReviewRequests([]),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
     const exit = await run(
       ["100", "--wait-for-copilot", "--claim-deadline-sec", "1"],
-      baseDeps(gh, 0, { readCopilotLogin: () => LOGIN }),
+      baseDeps(gh, 0, {
+        readCopilotLogin: () => LOGIN,
+        readHistoricalBotReview: () => true,
+      }),
     );
     cap.restore();
     expect(exit).toBe(0);
@@ -1490,7 +1485,6 @@ describe("run() integration (ported)", () => {
         ]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
-      perPollReviewRequests(["copilot-pull-request-reviewer[bot]"]),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -1524,7 +1518,6 @@ describe("run() integration (ported)", () => {
         matches: isPrView,
         response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD),
       },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap1 = captureStreams();
@@ -1541,7 +1534,6 @@ describe("run() integration (ported)", () => {
         matches: isPrView,
         response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD),
       },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap2 = captureStreams();
@@ -1611,7 +1603,6 @@ describe("run() integration (ported)", () => {
         response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
-      perPollReviewRequests(),
     ]);
     const cap = captureStreams();
     const exit = await run(
@@ -1738,7 +1729,6 @@ describe("run() integration (ported)", () => {
         matches: isPrView,
         response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD),
       },
-      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap1 = captureStreams();
@@ -1758,7 +1748,6 @@ describe("run() integration (ported)", () => {
         matches: isPrView,
         response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD),
       },
-      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap2 = captureStreams();
@@ -1801,7 +1790,6 @@ describe("run() integration (ported)", () => {
         response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     let fallbackCalls = 0;
@@ -2005,7 +1993,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", stale, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
         {
           matches: isRequestedReviewersPost,
@@ -2035,7 +2022,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", fresh, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       ],
       allCalls,
@@ -2078,7 +2064,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", stale, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
         {
           matches: isRequestedReviewersPost,
@@ -2103,7 +2088,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", stale, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       ],
       allCalls,
@@ -2130,7 +2114,6 @@ describe("run() — Copilot retrigger (ported)", () => {
         response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2173,7 +2156,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", stale, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(PENDING_CHECKS) },
       ],
       allCalls,
@@ -2193,7 +2175,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", stale, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(PENDING_CHECKS) },
       ],
       allCalls,
@@ -2213,7 +2194,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", stale, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
         {
           matches: isRequestedReviewersPost,
@@ -2238,7 +2218,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", fresh, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       ],
       allCalls,
@@ -2281,7 +2260,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", stale, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
         {
           matches: isRequestedReviewersPost,
@@ -2311,7 +2289,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", stale, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       ],
       allCalls,
@@ -2338,7 +2315,6 @@ describe("run() — Copilot retrigger (ported)", () => {
         response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2381,7 +2357,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", stale, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
         {
           matches: isRequestedReviewersPost,
@@ -2405,7 +2380,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", fresh, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       ],
       allCalls,
@@ -2431,7 +2405,6 @@ describe("run() — Copilot retrigger (ported)", () => {
         response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2475,7 +2448,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", stale, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
         {
           matches: isRequestedReviewersPost,
@@ -2499,7 +2471,6 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", fresh, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       ],
       allCalls,
@@ -2533,7 +2504,6 @@ describe("run() — per-poll requested_reviewers signal (ported)", () => {
         response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", []) },
-      perPollReviewRequests(COPILOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2545,11 +2515,16 @@ describe("run() — per-poll requested_reviewers signal (ported)", () => {
     expect(err).not.toContain("no Copilot review yet");
   });
 
+  // A2 (rethread) regression anchor: entry reviewRequests is empty but
+  // readHistoricalBotReview forces copilotConfigured=true, so this only
+  // logs "no Copilot review yet" (rather than "queued") if the stderr
+  // distinction is driven by the loop-entry snapshot rethreaded into
+  // deriveCopilotSkipReason/copilotRequestedThisPoll — not a second,
+  // now-removed per-poll re-read.
   it("logs 'no Copilot review yet' when Copilot is absent from requested_reviewers (CI terminal, no review)", async () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       { matches: isPrView, response: prViewResponse("OPEN", []) },
-      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2562,6 +2537,22 @@ describe("run() — per-poll requested_reviewers signal (ported)", () => {
     const err = cap.stderr.join("");
     expect(err).toContain("no Copilot review yet");
     expect(err).not.toContain("Copilot queued, still waiting");
+  });
+
+  it("reads requested_reviewers exactly once per copilot-configured OPEN poll (no redundant mid-poll re-read)", async () => {
+    const gh = makeGhSequence([
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], baseDeps(gh, 0));
+    cap.restore();
+    expect(exit).toBe(0);
+    expect(gh.calls.filter(isReviewRequests)).toHaveLength(1);
   });
 });
 
@@ -2590,7 +2581,6 @@ describe("run() — post-POST verification, item 2 (ported)", () => {
         response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       {
         matches: isRequestedReviewersPost,
@@ -2608,7 +2598,6 @@ describe("run() — post-POST verification, item 2 (ported)", () => {
         response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap2 = captureStreams();
@@ -2644,7 +2633,6 @@ describe("run() — post-POST verification, item 2 (ported)", () => {
         response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       {
         matches: isRequestedReviewersPost,
@@ -2704,7 +2692,6 @@ describe("run() — post-POST verification, item 2 (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", stale, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
         {
           matches: isRequestedReviewersPost,
@@ -2733,7 +2720,6 @@ describe("run() — post-POST verification, item 2 (ported)", () => {
           matches: isPrView,
           response: prViewResponse("OPEN", stale, HEAD_SHA),
         },
-        perPollReviewRequests(),
         { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       ],
       allCalls,
@@ -2773,17 +2759,17 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
     seedState(dir, slug);
     process.env.FLOW_SLUG = slug;
     const t0Ms = Date.parse("2026-06-02T00:00:00.000Z");
-    const deps = { readCopilotLogin: () => LOGIN, readClaimDeadline: () => 30 };
+    const deps = {
+      readCopilotLogin: () => LOGIN,
+      readClaimDeadline: () => 30,
+      readHistoricalBotReview: () => true,
+    };
 
     const gh1 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2792,14 +2778,10 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
     cap1.restore();
 
     const gh2 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2827,17 +2809,14 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
     const deps = {
       readCopilotLogin: () => LOGIN,
       readClaimDeadline: () => 5000,
+      readHistoricalBotReview: () => true,
     };
 
     const gh1 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2849,14 +2828,10 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
     cap1.restore();
 
     const gh2 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2882,17 +2857,14 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
     const deps = {
       readCopilotLogin: () => LOGIN,
       readClaimDeadline: () => undefined,
+      readHistoricalBotReview: () => true,
     };
 
     const gh1 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2901,14 +2873,10 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
     cap1.restore();
 
     const gh2 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2934,14 +2902,10 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       },
     ];
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2952,6 +2916,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
         readCopilotLogin: () => LOGIN,
         readCommitsAreAllMerges: () => false,
         readIsSmallFollowup: () => false,
+        readHistoricalBotReview: () => true,
       }),
     );
     cap.restore();
@@ -2983,15 +2948,15 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       readCopilotLogin: () => LOGIN,
       readCommitsAreAllMerges: () => false,
       readIsSmallFollowup: () => false,
+      readHistoricalBotReview: () => true,
     };
 
     const gh1 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []),
       },
-      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap1 = captureStreams();
@@ -3003,12 +2968,11 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
 
     const laterMs = t0Ms + 600 * 1000;
     const gh2 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []),
       },
-      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap2 = captureStreams();
@@ -3043,15 +3007,15 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       readCopilotLogin: () => LOGIN,
       readCommitsAreAllMerges: () => false,
       readIsSmallFollowup: () => false,
+      readHistoricalBotReview: () => true,
     };
 
     const gh1 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", pending, STABLE_HEAD_SHA, []),
       },
-      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap1 = captureStreams();
@@ -3070,12 +3034,11 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
 
     const laterMs = t0Ms + 600 * 1000;
     const gh2 = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", pending, STABLE_HEAD_SHA, []),
       },
-      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap2 = captureStreams();
@@ -3101,14 +3064,10 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
   it("ci-failed wins over 'unclaimed-after-deadline' (regression: short-circuit must not bypass ci-failed)", async () => {
     const failed: Check[] = [{ name: "lint", state: "FAILURE" }];
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(failed) },
     ]);
@@ -3119,6 +3078,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
         readCopilotLogin: () => LOGIN,
         readCommitsAreAllMerges: () => false,
         readIsSmallFollowup: () => false,
+        readHistoricalBotReview: () => true,
       }),
     );
     cap.restore();
@@ -3139,14 +3099,10 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       },
     ];
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(failed) },
     ]);
@@ -3157,6 +3113,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
         readCopilotLogin: () => LOGIN,
         readCommitsAreAllMerges: () => false,
         readIsSmallFollowup: () => false,
+        readHistoricalBotReview: () => true,
       }),
     );
     cap.restore();
@@ -3176,14 +3133,10 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       },
     ];
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("MERGED", dismissed, STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -3194,6 +3147,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
         readCopilotLogin: () => LOGIN,
         readCommitsAreAllMerges: () => false,
         readIsSmallFollowup: () => false,
+        readHistoricalBotReview: () => true,
       }),
     );
     cap.restore();
@@ -3213,14 +3167,10 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       },
     ];
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
         response: prViewResponse("CLOSED", dismissed, STABLE_HEAD_SHA, []),
-      },
-      {
-        matches: isReviewRequests,
-        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -3231,6 +3181,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
         readCopilotLogin: () => LOGIN,
         readCommitsAreAllMerges: () => false,
         readIsSmallFollowup: () => false,
+        readHistoricalBotReview: () => true,
       }),
     );
     cap.restore();
@@ -3638,7 +3589,6 @@ describe("run() — branch-protection short-circuit (ported)", () => {
         matches: isPrView,
         response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD),
       },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap1 = captureStreams();
@@ -3658,7 +3608,6 @@ describe("run() — branch-protection short-circuit (ported)", () => {
         matches: isPrView,
         response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD),
       },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap2 = captureStreams();
@@ -3707,7 +3656,6 @@ describe("run() — workflow trigger filesystem behavior (ported)", () => {
     const gh1 = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       { matches: isPrView, response: prViewResponse("OPEN", []) },
-      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse([]) },
     ]);
     const cap1 = captureStreams();
@@ -3718,7 +3666,6 @@ describe("run() — workflow trigger filesystem behavior (ported)", () => {
     const gh2 = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       { matches: isPrView, response: prViewResponse("OPEN", []) },
-      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse([]) },
     ]);
     const cap2 = captureStreams();
@@ -3729,7 +3676,6 @@ describe("run() — workflow trigger filesystem behavior (ported)", () => {
     const gh3 = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
-      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap3 = captureStreams();
@@ -3786,7 +3732,6 @@ describe("run() — verdict persistence (ported)", () => {
         response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
       },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
-      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
