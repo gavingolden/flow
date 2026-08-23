@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "epicId": "modernize-flow-s-supervisor-architecture",
+  "features": {
+    "f1-eval-harness": {
+      "status": "not-started"
+    },
+    "f2-scaffold-stress-test": {
+      "status": "not-started"
+    },
+    "f3-ci-check-split": {
+      "status": "merged",
+      "pr": 666
+    },
+    "f4-env-state-identity": {
+      "status": "not-started"
+    },
+    "f5-workflow-spike": {
+      "status": "not-started"
+    },
+    "f6-workflow-port": {
+      "status": "not-started"
+    }
+  }
+}
