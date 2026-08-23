@@ -182,7 +182,9 @@ function reviewRequestsResponse(logins: string[]) {
 
 const COPILOT_QUEUED = ["copilot-pull-request-reviewer"];
 const COPILOT_NOT_QUEUED: string[] = [];
-const perPollReviewRequests = (logins: string[] = COPILOT_QUEUED): GhStep => ({
+const postRetriggerReviewRequests = (
+  logins: string[] = COPILOT_QUEUED,
+): GhStep => ({
   matches: isReviewRequests,
   response: reviewRequestsResponse(logins),
 });
@@ -191,7 +193,6 @@ function prViewResponse(
   state: "OPEN" | "MERGED" | "CLOSED",
   reviews: Review[] = [],
   headRefOid: string = STABLE_HEAD_SHA,
-  reviewRequests: string[] = [],
 ) {
   const wireReviews = reviews.map((r) => ({
     author: r.author,
@@ -204,7 +205,6 @@ function prViewResponse(
       url: PR_URL,
       reviews: wireReviews,
       headRefOid,
-      reviewRequests: reviewRequests.map((login) => ({ login })),
     }),
     stderr: "",
     exitCode: 0,
@@ -990,7 +990,7 @@ describe("run() — headSha-change reset", () => {
         matches: isRequestedReviewersPost,
         response: { stdout: "", stderr: "", exitCode: 0 },
       },
-      perPollReviewRequests(),
+      postRetriggerReviewRequests(),
     ]);
     const cap1 = captureStreams();
     await run(
@@ -1103,7 +1103,7 @@ describe("run() — retrigger idempotency across invocations", () => {
           matches: isRequestedReviewersPost,
           response: { stdout: "", stderr: "", exitCode: 0 },
         },
-        perPollReviewRequests(),
+        postRetriggerReviewRequests(),
       ],
       allCalls,
     );
@@ -1176,7 +1176,7 @@ describe("run() — Copilot auto-detect short-circuit", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -1198,7 +1198,7 @@ describe("run() — Copilot auto-detect short-circuit", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -1257,7 +1257,7 @@ describe("run() — Copilot auto-detect short-circuit", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -1560,8 +1560,7 @@ describe("run() integration (ported)", () => {
         return { stdout: JSON.stringify([LOGIN]), stderr: "", exitCode: 0 };
       }
       if (isReviewRequests(argv)) return reviewRequestsResponse([]);
-      if (isPrView(argv))
-        return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
+      if (isPrView(argv)) return prViewResponse("OPEN", [], STABLE_HEAD_SHA);
       if (isPrChecks(argv)) return prChecksResponse(ALL_PASSED);
       return { stdout: "", stderr: "", exitCode: 1 };
     };
@@ -1865,8 +1864,7 @@ describe("readHistoricalBotReview default wiring (ported)", () => {
           exitCode: 0,
         };
       }
-      if (isPrView(argv))
-        return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
+      if (isPrView(argv)) return prViewResponse("OPEN", [], STABLE_HEAD_SHA);
       if (isReviewRequests(argv)) return reviewRequestsResponse([]);
       if (isPrChecks(argv)) return prChecksResponse(ALL_PASSED);
       if (argv[0] === "pr" && argv[1] === "view") {
@@ -1908,8 +1906,7 @@ describe("readHistoricalBotReview default wiring (ported)", () => {
         };
       }
       if (isReviewRequests(argv)) return reviewRequestsResponse([]);
-      if (isPrView(argv))
-        return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
+      if (isPrView(argv)) return prViewResponse("OPEN", [], STABLE_HEAD_SHA);
       if (isPrChecks(argv)) return prChecksResponse(ALL_PASSED);
       return { stdout: "", stderr: "", exitCode: 1 };
     };
@@ -1943,8 +1940,7 @@ describe("readHistoricalBotReview default wiring (ported)", () => {
         };
       }
       if (isReviewRequests(argv)) return reviewRequestsResponse([]);
-      if (isPrView(argv))
-        return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
+      if (isPrView(argv)) return prViewResponse("OPEN", [], STABLE_HEAD_SHA);
       if (isPrChecks(argv)) return prChecksResponse(ALL_PASSED);
       return { stdout: "", stderr: "", exitCode: 1 };
     };
@@ -1998,7 +1994,7 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isRequestedReviewersPost,
           response: { stdout: "", stderr: "", exitCode: 0 },
         },
-        perPollReviewRequests(COPILOT_QUEUED),
+        postRetriggerReviewRequests(COPILOT_QUEUED),
       ],
       allCalls,
     );
@@ -2069,7 +2065,7 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isRequestedReviewersPost,
           response: { stdout: "", stderr: "", exitCode: 0 },
         },
-        perPollReviewRequests(COPILOT_QUEUED),
+        postRetriggerReviewRequests(COPILOT_QUEUED),
       ],
       allCalls,
     );
@@ -2199,7 +2195,7 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isRequestedReviewersPost,
           response: { stdout: "", stderr: "", exitCode: 0 },
         },
-        perPollReviewRequests(COPILOT_QUEUED),
+        postRetriggerReviewRequests(COPILOT_QUEUED),
       ],
       allCalls,
     );
@@ -2362,7 +2358,7 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isRequestedReviewersPost,
           response: { stdout: "", stderr: "", exitCode: 0 },
         },
-        perPollReviewRequests(COPILOT_QUEUED),
+        postRetriggerReviewRequests(COPILOT_QUEUED),
       ],
       allCalls,
     );
@@ -2453,7 +2449,7 @@ describe("run() — Copilot retrigger (ported)", () => {
           matches: isRequestedReviewersPost,
           response: { stdout: "", stderr: "", exitCode: 0 },
         },
-        perPollReviewRequests(COPILOT_QUEUED),
+        postRetriggerReviewRequests(COPILOT_QUEUED),
       ],
       allCalls,
     );
@@ -2553,6 +2549,7 @@ describe("run() — per-poll requested_reviewers signal (ported)", () => {
     cap.restore();
     expect(exit).toBe(0);
     expect(gh.calls.filter(isReviewRequests)).toHaveLength(1);
+    expect(gh.calls.filter(isRequestedReviewersRest)).toHaveLength(1);
   });
 });
 
@@ -2586,7 +2583,7 @@ describe("run() — post-POST verification, item 2 (ported)", () => {
         matches: isRequestedReviewersPost,
         response: { stdout: "", stderr: "", exitCode: 0 },
       },
-      perPollReviewRequests(COPILOT_QUEUED),
+      postRetriggerReviewRequests(COPILOT_QUEUED),
     ]);
     const cap1 = captureStreams();
     await run(["100", "--state-dir", dir], baseDeps(gh1, t0Ms, deps));
@@ -2638,7 +2635,7 @@ describe("run() — post-POST verification, item 2 (ported)", () => {
         matches: isRequestedReviewersPost,
         response: { stdout: "", stderr: "", exitCode: 0 },
       },
-      perPollReviewRequests(COPILOT_NOT_QUEUED),
+      postRetriggerReviewRequests(COPILOT_NOT_QUEUED),
       // No further steps: the invocation must short-circuit and return.
     ]);
     const cap = captureStreams();
@@ -2769,7 +2766,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2781,7 +2778,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2816,7 +2813,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2831,7 +2828,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2864,7 +2861,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2876,7 +2873,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2905,7 +2902,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2955,7 +2952,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2971,7 +2968,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -3014,7 +3011,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", pending, STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", pending, STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -3037,7 +3034,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", pending, STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", pending, STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -3067,7 +3064,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(failed) },
     ]);
@@ -3102,7 +3099,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []),
+        response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(failed) },
     ]);
@@ -3136,7 +3133,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("MERGED", dismissed, STABLE_HEAD_SHA, []),
+        response: prViewResponse("MERGED", dismissed, STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -3156,6 +3153,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
     expect(result.decision).toBe("merged-externally");
     expect(result.copilotSkipReason).toBeNull();
     expect(result.prState).toBe("MERGED");
+    expect(result.copilotConfigured).toBe(true);
   });
 
   it("pr-closed wins over 'self-dismissed' (regression: short-circuit must not bypass pr-state)", async () => {
@@ -3170,7 +3168,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       {
         matches: isPrView,
-        response: prViewResponse("CLOSED", dismissed, STABLE_HEAD_SHA, []),
+        response: prViewResponse("CLOSED", dismissed, STABLE_HEAD_SHA),
       },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -3190,6 +3188,7 @@ describe("run() — Copilot auto-detect short-circuit (ported)", () => {
     expect(result.decision).toBe("pr-closed");
     expect(result.copilotSkipReason).toBeNull();
     expect(result.prState).toBe("CLOSED");
+    expect(result.copilotConfigured).toBe(true);
   });
 });
 

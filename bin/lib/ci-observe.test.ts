@@ -285,8 +285,9 @@ describe(observePr, () => {
   const PR = 100;
 
   it("parses state/url/reviews/headRefOid and returns null on a non-zero exit", () => {
+    const calls: string[][] = [];
     const okGh = ((argv: string[]) => {
-      void argv;
+      calls.push(argv);
       return {
         stdout: JSON.stringify({
           state: "OPEN",
@@ -313,6 +314,11 @@ describe(observePr, () => {
       ],
       headRefOid: "abc123",
     });
+    // Regression guard: exactly one gh call, no REST requested_reviewers
+    // leg re-added inside observePr.
+    expect(calls).toEqual([
+      ["pr", "view", String(PR), "--json", "state,url,reviews,headRefOid"],
+    ]);
 
     const failingGh = (() => ({
       stdout: "",

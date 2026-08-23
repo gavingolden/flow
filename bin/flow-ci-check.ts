@@ -481,8 +481,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   };
 
   // Branch-conflict short-circuit. GitHub cannot build the pull_request
-  // merge ref, so CI never starts — fires at poll entry, before the
-  // requested_reviewers / observeChecks reads.
+  // merge ref, so CI never starts — fires after the entry
+  // requested_reviewers reads (above), before the `gh pr checks` read.
   let mergeState: { mergeable: string; mergeStateStatus: string } | null = null;
   if (prInfo.state === "OPEN") {
     mergeState = readMergeState();

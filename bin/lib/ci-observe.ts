@@ -121,7 +121,7 @@ export function registrySelfCheck(
   return `running inside pipeline '${slug}' with no process-registry row for pid ${pid} — likely launched without the flow-spawn wrapper`;
 }
 
-/** Fetches the PR's requested-reviewers list (used at loop entry, per-poll, and for post-POST verification). Returns lowercased logins. */
+/** Fetches the PR's requested-reviewers list (used at loop entry and for post-POST retrigger verification). Returns lowercased logins. */
 export function fetchRequestedReviewers(
   prNumber: number,
   gh: GhRunner,

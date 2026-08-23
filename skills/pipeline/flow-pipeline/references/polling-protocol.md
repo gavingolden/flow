@@ -440,7 +440,7 @@ the `~/.flow/config.json` `bots.copilotClaimDeadlineSec` global
 override (a positive integer), then `DEFAULT_CLAIM_DEADLINE_SEC`
 (60 seconds). "Claimed" means **any** of:
 
-- The per-poll `gh pr view --json reviewRequests` projection includes
+- The loop-entry `gh pr view --json reviewRequests` projection includes
   the configured Copilot login (the bot is still in
   `requested_reviewers`).
 - A PENDING Copilot review exists on the current `headRefOid` (the
@@ -497,9 +497,11 @@ anchor.
 The check runs **per poll** because a conflict can appear at loop entry
 (poll 1) or mid-wait (a later poll once base advances), and it runs
 **after** the entry `requested_reviewers` / PR-view reads but **before**
-the `gh pr checks` read — a conflicted PR still pays the two entry
-spawns (there is no per-poll re-read left to skip after the collapse
-described in "Per-invocation `requested_reviewers` in-progress signal"),
+the `gh pr checks` read — a conflicted PR still pays the three entry
+spawns (`fetchRequestedReviewers`'s GraphQL + REST union, plus the
+`observePr` PR-view read; there is no per-poll re-read left to skip
+after the collapse described in "Per-invocation `requested_reviewers`
+in-progress signal"),
 but it short-circuits before the checks-list call. The OPEN-state guard
 preserves MERGED/CLOSED precedence: a PR that is MERGED or CLOSED falls
 through to the decision matrix and routes to `merged-externally` /
@@ -615,13 +617,11 @@ gh pr checks <pr> --json name,state,startedAt,completedAt
 # `pr_state` (OPEN/MERGED/CLOSED) is sourced from, which the decision
 # matrix needs even for repos with no CI configured. `headRefOid` is
 # the PR's current HEAD SHA, needed by the stale-Copilot-review
-# retrigger branch under "## Copilot reviewer" below. `reviewRequests`
-# is the per-poll requested-reviewers projection (lowercased before
-# matching), consumed by the Copilot auto-detect short-circuits
-# ('Claim-deadline auto-detect' and 'Self-dismissal short-circuit')
-# under "## Copilot reviewer". Re-projected per poll because GitHub
-# auto-removes Copilot after its first review.
-gh pr view <pr> --json reviews,state,headRefOid,reviewRequests
+# retrigger branch under "## Copilot reviewer" below. `url` is included
+# for readability in ad-hoc debugging output only. `reviewRequests` is
+# read separately at loop entry only (see `fetchRequestedReviewers`),
+# not re-projected here every poll.
+gh pr view <pr> --json state,url,reviews,headRefOid
 
 # Mergeability projection. Read every iteration on an OPEN PR to detect a
 # branch conflict with base — `mergeStateStatus` is the primary signal (it is
