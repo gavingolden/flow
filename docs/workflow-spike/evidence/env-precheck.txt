@@ -1,0 +1,6 @@
+CLAUDE_CODE_SUBAGENT_MODEL=<unset>
+FLOW_SLUG=f5-workflow-spike
+claude=2.1.243 (Claude Code)
+flow-gate-decide=/Users/gavingolden/.local/bin/flow-gate-decide
+flow-state-update=/Users/gavingolden/.local/bin/flow-state-update
+date=2026-08-25T01:04:39Z

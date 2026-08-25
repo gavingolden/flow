@@ -1,0 +1,76 @@
+{
+  "launch": "probe-resume.workflow.js (resumed run)",
+  "runId": "wf_75366da3-a8c",
+  "resumeFromRunId": "wf_75366da3-a8c",
+  "taskId": "w2947r0b8",
+  "durationMs": 29224,
+  "agents": {
+    "count": 4,
+    "done": 4,
+    "error": 0,
+    "emptyResult": 1
+  },
+  "subagentTokens": 81923,
+  "releaseMarkerWrittenAt": "2026-08-25T01:18:20Z",
+  "result": {
+    "phaseLog": [
+      {
+        "phase": "verifying",
+        "at": "2026-08-25T01:17:31.122Z"
+      },
+      {
+        "phase": "ci-wait",
+        "at": "2026-08-25T01:18:25.439Z"
+      }
+    ],
+    "ran": {
+      "a": true,
+      "b": true
+    },
+    "wroteVia": {
+      "a": "flow-state-update",
+      "b": "flow-state-update"
+    },
+    "waitedSeconds": 8,
+    "nonce": "f5spike-20260825T010439Z"
+  },
+  "journalAfterResume": [
+    {
+      "type": "started",
+      "agentId": "a2c5570593e711478"
+    },
+    {
+      "type": "result",
+      "agentId": "a2c5570593e711478"
+    },
+    {
+      "type": "started",
+      "agentId": "a63f41cbc72d54fd8"
+    },
+    {
+      "type": "result",
+      "agentId": "a63f41cbc72d54fd8"
+    },
+    {
+      "type": "started",
+      "agentId": "ad793fda3d0862842"
+    },
+    {
+      "type": "started",
+      "agentId": "ac8060a826d427f5a"
+    },
+    {
+      "type": "result",
+      "agentId": "ac8060a826d427f5a"
+    },
+    {
+      "type": "started",
+      "agentId": "acb881652193d9efe"
+    },
+    {
+      "type": "result",
+      "agentId": "acb881652193d9efe"
+    }
+  ],
+  "observation": "agents a2c5570593e711478 (Read state) and a63f41cbc72d54fd8 (Phase A) have no second started entry — replayed from cache; ad793fda3d0862842 (Phase B, interrupted) has started but no result; ac8060a826d427f5a (Phase B re-run) and acb881652193d9efe (Phase C) are the only live agents on resume"
+}

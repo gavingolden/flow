@@ -1,0 +1,11 @@
+{
+  "launch": "probe-invalid-agent.workflow.js",
+  "runId": "wf_0c9ace42-4bb",
+  "taskId": "wma8hwnv0",
+  "durationMs": 1496,
+  "agentsError": 1,
+  "result": {
+    "invalidTypeError": "agent({agentType}): agent type 'flow-module-core:no-such-agent' not found. Available agents: claude, claude-code-guide, Explore, flow-module-core:flow-backlog-verifier, flow-module-core:flow-consolidator, flow-module-core:flow-discovery, flow-module-core:flow-edit-applier, flow-module-core:flow-fix-applier, flow-module-core:flow-gatekeeper, flow-module-core:flow-merge-resolver, flow-module-core:flow-review-bug-detection, flow-module-core:flow-review-intent-guess, flow-module-core:flow-review-pattern-consistency, flow-module-core:flow-review-performance, flow-module-core:flow-review-security, flow-module-core:flow-review-supply-chain, flow-module-core:flow-review-test-coverage, flow-module-core:flow-scout, flow-module-core:flow-verify, general-purpose, Plan, statusline-setup",
+    "nonce": "f5spike-20260825T010439Z"
+  }
+}

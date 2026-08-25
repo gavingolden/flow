@@ -1,0 +1,28 @@
+{
+  "launch": "probe-capabilities.workflow.js",
+  "runId": "wf_de7e7d14-351",
+  "taskId": "wxvhxyrfr",
+  "durationMs": 32357,
+  "agents": { "count": 6, "done": 6, "error": 0 },
+  "subagentTokens": 179353,
+  "result": {
+    "verdict": "stop",
+    "decision": "gated",
+    "prState": "OPEN",
+    "prUrl": "https://github.com/gavingolden/flow/pull/674",
+    "autoMerge": true,
+    "models": {
+      "gatekeeper": { "model": "claude-haiku-4-5-20251001", "done": true },
+      "fixApplier": { "model": "claude-fable-5", "done": true },
+      "control": { "model": "claude-fable-5", "done": true }
+    },
+    "toolsProbe": { "bashAvailable": false, "error": null },
+    "preflight": {
+      "subagentModelEnv": null,
+      "gateDecidePath": "/Users/gavingolden/.local/bin/flow-gate-decide",
+      "stateUpdatePath": "/Users/gavingolden/.local/bin/flow-state-update",
+      "flowSlugEnv": "f5-workflow-spike"
+    },
+    "nonce": "f5spike-20260825T010439Z"
+  }
+}
