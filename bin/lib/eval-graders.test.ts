@@ -73,6 +73,12 @@ describe("matchValue", () => {
     );
     expect(matchValue({ contains: "flow" }, ["a", "flow"]).pass).toBe(true);
     expect(matchValue({ contains: "flow" }, ["a", "b"]).pass).toBe(false);
+    expect(
+      matchValue({ contains: "Test Step 2" }, [
+        "Test Step 2 (screenshot reviewed)",
+      ]).pass,
+    ).toBe(true);
+    expect(matchValue({ contains: "2" }, [2]).pass).toBe(false);
   });
   it("matches/notMatches run a regex over String(actual)", () => {
     expect(matchValue({ matches: "^ok" }, "okay").pass).toBe(true);

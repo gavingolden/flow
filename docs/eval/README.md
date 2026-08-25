@@ -77,12 +77,35 @@ One command, from a **plain shell** — never inside a flow session window
 (AGENTS.md forbids a nested `claude -p` from a supervisor; baseline
 recording is a maintainer-initiated action, not a pipeline step):
 
+Before recording, confirm
+`~/.flow/claude-home/.claude/skills/flow-module-core/agents/` carries
+every agent definition the suites you're about to run spawn (notably
+`flow-verify.md`) — `probeFlowInstall` only stats the agents
+**directory**, never individual definitions, so a partial install still
+passes the precondition check and instead reaches
+`NOTICE — agent-fallback:` at run time, scoring as a red on the
+no-agent-fallback grader rather than a named skip.
+
 ```sh
 bun bin/flow-eval.ts run --all --out .flow-tmp/eval --record-baseline
 git add docs/eval/baseline
 git commit -m "chore: record flow-eval baseline"
 git push
 ```
+
+To re-record only a subset, repeat `--suite` (accepts multiple) instead
+of `--all`:
+
+```sh
+bun bin/flow-eval.ts run --suite checkpoint-pending-clear \
+  --suite verify-loop-isolation --runs 5 \
+  --out .flow-tmp/eval --record-baseline
+```
+
+`bin/lib/eval-baseline.ts`'s README-table writer merges each unlisted
+suite's existing row from `docs/eval/baseline/` alongside the freshly
+recorded ones, so a subset run never drops another suite's baseline
+from the table.
 
 `--record-baseline` refuses (exit 2) on a dirty tree unless
 `--allow-dirty` is also passed — a baseline is a measurement of a
