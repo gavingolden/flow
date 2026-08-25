@@ -53,6 +53,11 @@ const tmuxMock = vi.hoisted(() => ({
   setPaneKind: vi.fn<
     (slug: string, kind: string) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
+  // Best-effort epic tree-view self-publish (OQ-1) — defaults to ok so the
+  // happy paths pass without per-test setup.
+  setWindowEpic: vi.fn<
+    (slug: string, epicSlug: string) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
   FLOW_SESSION: "flow",
 }));
 vi.mock("./tmux", () => tmuxMock);

@@ -811,6 +811,20 @@ export function readState(
   try {
     const raw = fs.readFileSync(file, "utf8");
     const parsed: unknown = JSON.parse(raw);
+    // Normalize a literal `epic: null` to absent BEFORE validation —
+    // isPipelineState's epic-membership check rejects null, and a JSON
+    // round-trip (e.g. `flow-state-update` re-serializing an object with
+    // `epic: undefined`) can produce a literal null. Absent ≡ not
+    // epic-launched (state.ts:169), so this is a normalization, not a
+    // widening of the PipelineState.epic type.
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      "epic" in parsed &&
+      (parsed as { epic: unknown }).epic === null
+    ) {
+      delete (parsed as { epic?: unknown }).epic;
+    }
     return isPipelineState(parsed) ? parsed : null;
   } catch {
     return null;

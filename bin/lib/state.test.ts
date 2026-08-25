@@ -221,6 +221,23 @@ describe("state", () => {
     expect(readState("epic-absent", dir)).not.toHaveProperty("epic");
   });
 
+  it("readState normalizes a literal epic: null to absent", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "epic-null.json"),
+      JSON.stringify({
+        slug: "epic-null",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        epic: null,
+      }),
+    );
+    const result = readState("epic-null", dir);
+    expect(result).not.toBeNull();
+    expect(result).not.toHaveProperty("epic");
+  });
+
   it.each([
     ["missing featureId", { slug: "major-refactor" }],
     ["missing slug", { featureId: "f3" }],

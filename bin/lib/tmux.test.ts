@@ -19,6 +19,7 @@ import {
   respawnWindowVerified,
   seedWindowOptions,
   setPaneKind,
+  setWindowEpic,
   setWindowPhase,
   type SpawnResult,
   type TmuxWindow,
@@ -1269,6 +1270,50 @@ describe(setWindowPhase, () => {
       exitCode: 1,
     });
     const result = setWindowPhase("csv-export", "merging", {
+      spawnTmux,
+      listWindowsFn: () => windows,
+    });
+    expect(result).toEqual({ ok: false, stderr: "nope" });
+  });
+});
+
+describe(setWindowEpic, () => {
+  const windows: TmuxWindow[] = [
+    { id: "@2", name: "renamed by user", slug: "csv-export", activity: 0 },
+  ];
+
+  it("resolves the window by @flow-slug and sets @flow-epic on its id (rename-safe), single set-option", () => {
+    // Unlike setWindowPhase, there is no compact-form companion mirror —
+    // exactly one set-option call.
+    const { calls, spawnTmux } = fakeSpawn();
+    const result = setWindowEpic("csv-export", "checkout-revamp", {
+      spawnTmux,
+      listWindowsFn: () => windows,
+    });
+    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(calls).toEqual([
+      ["set-option", "-w", "-t", "@2", "@flow-epic", "checkout-revamp"],
+    ]);
+  });
+
+  it("soft-fails without throwing or spawning when no window owns the slug", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    const result = setWindowEpic("missing", "checkout-revamp", {
+      spawnTmux,
+      listWindowsFn: () => windows,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.stderr).toContain("missing");
+    expect(calls).toEqual([]); // never shelled out
+  });
+
+  it("returns ok:false when the set-option exits non-zero (tmux hiccup)", () => {
+    const { spawnTmux } = fakeSpawn({
+      stdout: "",
+      stderr: "nope",
+      exitCode: 1,
+    });
+    const result = setWindowEpic("csv-export", "checkout-revamp", {
       spawnTmux,
       listWindowsFn: () => windows,
     });

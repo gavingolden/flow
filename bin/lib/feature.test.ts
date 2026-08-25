@@ -55,6 +55,11 @@ const tmuxMock = vi.hoisted(() => ({
   // fake pid keeps every pre-existing launch-path test passing unmodified —
   // panePid is a genuinely new call site those tests never anticipated.
   panePid: vi.fn<(slug: string) => number | null>(() => 4242),
+  // Best-effort epic tree-view publish (OQ-1) — defaults to ok so the
+  // happy paths pass without per-test setup.
+  setWindowEpic: vi.fn<
+    (slug: string, epicSlug: string) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
   FLOW_SESSION: "flow",
 }));
 vi.mock("./tmux", () => tmuxMock);

@@ -244,7 +244,8 @@ Read-only: reports routing, not spend — see 'flow ls --cost' for realized cost
 
   ls: `flow ls — list active pipelines
 
-Lists each pipeline with its repository, phase, PR, and last activity.
+Lists each pipeline with its repository, epic (— when not epic-launched),
+phase, PR, and last activity.
 
 Usage:
   flow ls [--cost [--detail]]
