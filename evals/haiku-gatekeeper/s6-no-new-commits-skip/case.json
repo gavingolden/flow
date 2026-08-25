@@ -1,0 +1,88 @@
+{
+  "id": "s6-no-new-commits-skip",
+  "title": "Gatekeeper skips a PR whose head SHA hasn't moved since a prior clean run",
+  "provenance": "Synthetic PR (211) authored for this scenario per the plan's PLAN-DEVIATION correction: the prior artifact + last-sha marker precondition (gatekeeper-spawn-prompt.md step 2, 'No new commits since prior clean run') isn't representable by the bin/fixtures/model-bench/c10-gatekeeper PRs, which carry no `.commits[].oid` field. Ground truth: state OPEN, isDraft false, 55 lines changed, commit headline does not match a trivial-diff pattern \u2014 every earlier rule falls through. fixture/flow-tmp/pr-review-result.json (renamed to .flow-tmp/ at materialization) carries status:'clean', and the sibling pr-review-last-sha marker's contents match .commits[-1].oid exactly, so the 'no new commits since prior clean run' rule fires.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture",
+    "shims": ["../../_shims/gh"]
+  },
+  "model": "haiku",
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "decision-matches-truth",
+      "kind": "structured",
+      "path": "decision",
+      "equals": "skip"
+    },
+    {
+      "id": "skip-kind-matches-truth",
+      "kind": "structured",
+      "path": "skip_kind",
+      "equals": "no-new-commits"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE \u2014 agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core"
+    },
+    {
+      "id": "gatekeeper-result-decision",
+      "kind": "json-file",
+      "gate": false,
+      "file": "$REPO/.flow-tmp/gatekeeper-result.json",
+      "path": "decision",
+      "equals": "skip"
+    },
+    {
+      "id": "gatekeeper-result-exists",
+      "kind": "file",
+      "gate": false,
+      "file": "$REPO/.flow-tmp/gatekeeper-result.json",
+      "exists": true
+    },
+    {
+      "id": "transcript.modelShare.haiku",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.modelShare.haiku",
+      "direction": "higher"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.subagentsSpawned",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.subagentsSpawned",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    }
+  ]
+}

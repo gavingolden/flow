@@ -55,6 +55,7 @@ const MAINTAINER_ONLY = new Set([
   "flow-model-bench",
   "flow-plugin-probe",
   "flow-plugin-contract-lint",
+  "flow-eval",
 ]);
 
 /**

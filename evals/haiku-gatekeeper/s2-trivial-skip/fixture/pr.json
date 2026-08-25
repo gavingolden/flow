@@ -1,0 +1,17 @@
+[
+  {
+    "number": 203,
+    "title": "chore: regenerate lockfile",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 4,
+    "deletions": 2,
+    "commits": [{ "messageHeadline": "chore: regenerate lockfile" }],
+    "files": ["package-lock.json"],
+    "reviews": [],
+    "author": { "login": "dependabot" },
+    "body": "## Why\n\nRoutine lockfile regeneration.\n\n## What\n\nNo source changes.",
+    "url": "https://github.com/example-org/example-repo/pull/203"
+  }
+]

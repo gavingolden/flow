@@ -1,0 +1,20 @@
+[
+  {
+    "number": 206,
+    "title": "feat: bulk discount tiers for cart pricing",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 40,
+    "deletions": 10,
+    "commits": [
+      { "messageHeadline": "feat: add applyBulkDiscount pricing tier" },
+      { "messageHeadline": "test: cover bulk discount edge cases" }
+    ],
+    "files": ["src/pricing.ts", "src/pricing.test.ts"],
+    "reviews": [{ "state": "APPROVED", "author": { "login": "copilot-pull-request-reviewer" } }],
+    "author": { "login": "contributor-e" },
+    "body": "## Why\n\nSpend-based bulk discount tiers were requested by sales.\n\n## What\n\nAdds `applyBulkDiscount` and tests.",
+    "url": "https://github.com/example-org/example-repo/pull/206"
+  }
+]

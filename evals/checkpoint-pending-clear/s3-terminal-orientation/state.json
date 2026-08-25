@@ -1,0 +1,13 @@
+{
+  "phase": "merged",
+  "pr": 305,
+  "launcher": "plain",
+  "phaseLog": [
+    { "phase": "triage", "at": "2026-01-01T00:00:00.000Z" },
+    { "phase": "implementing", "at": "2026-01-01T00:10:00.000Z" },
+    { "phase": "verifying", "at": "2026-01-01T00:20:00.000Z" },
+    { "phase": "gated", "at": "2026-01-01T00:40:00.000Z" },
+    { "phase": "merging", "at": "2026-01-01T00:45:00.000Z" },
+    { "phase": "merged", "at": "2026-01-01T00:50:00.000Z" }
+  ]
+}

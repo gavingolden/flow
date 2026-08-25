@@ -1,0 +1,22 @@
+[
+  {
+    "number": 211,
+    "title": "feat: add rate-limit backoff jitter",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "additions": 40,
+    "deletions": 15,
+    "commits": [
+      {
+        "messageHeadline": "feat: add rate-limit backoff jitter",
+        "oid": "9f8e7d6c5b4a392837465564738291abcdef012"
+      }
+    ],
+    "files": ["bin/lib/rate-limit.ts"],
+    "reviews": [{ "state": "APPROVED", "author": { "login": "reviewer-a" } }],
+    "author": { "login": "contributor-i" },
+    "body": "## Why\n\nRetries clustered at the same wall-clock offset and thundered the API.\n\n## What\n\nAdds jitter to the backoff interval.",
+    "url": "https://github.com/example-org/example-repo/pull/211"
+  }
+]

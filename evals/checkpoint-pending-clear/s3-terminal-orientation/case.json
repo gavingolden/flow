@@ -1,0 +1,75 @@
+{
+  "id": "s3-terminal-orientation",
+  "title": "Post-/clear orientation turn on a finished (merged) pipeline",
+  "provenance": "Synthetic fixture authored against bin/flow-session-start-hook.ts's terminalCarryOver/terminalContinueSeed (PR #640's orientation turn) and the WORKTREE_REMOVED_PHASE_SET (merged + cancelled).",
+  "prompt": "prompt.md",
+  "promptSeed": "terminal",
+  "fixture": {
+    "repo": "fixture",
+    "state": "state.json",
+    "checkpoint": {
+      "body": "checkpoint.md",
+      "site": "terminal",
+      "armed": true
+    },
+    "shims": ["../../_shims/gh"]
+  },
+  "env": { "flowSlug": true },
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "action-matches-orient",
+      "kind": "structured",
+      "path": "action",
+      "equals": "orient"
+    },
+    {
+      "id": "state-phase-merged",
+      "kind": "json-file",
+      "file": "$STATE",
+      "path": "phase",
+      "equals": "merged"
+    },
+    { "id": "worktree-clean", "kind": "git-clean", "cwd": "$REPO" },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core"
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "id": "s1-resume-step5-addendum",
+  "title": "Resume re-enters at Step 5 (implement) and carries the plan-approval addendum",
+  "provenance": "Synthetic fixture authored against bin/flow-resume-decide.ts's decision tree (POST_APPROVAL_PHASES row 5, 'no PR for branch' -> step-5) and bin/flow-checkpoint.ts's arm/consume contract.",
+  "prompt": "prompt.md",
+  "promptSeed": "resume",
+  "fixture": {
+    "repo": "fixture",
+    "state": "state.json",
+    "checkpoint": {
+      "body": "checkpoint.md",
+      "site": "plan-approval",
+      "armed": true
+    },
+    "shims": ["../../_shims/gh"]
+  },
+  "env": { "flowSlug": true },
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "resumed-step-matches",
+      "kind": "structured",
+      "path": "resumed_step",
+      "equals": 5
+    },
+    {
+      "id": "addenda-carries-skip-task-3",
+      "kind": "structured",
+      "path": "addenda",
+      "contains": "skip Task 3"
+    },
+    {
+      "id": "state-phase-implementing-or-pending-clear",
+      "kind": "json-file",
+      "file": "$STATE",
+      "path": "phase",
+      "oneOf": ["implementing", "checkpoint-pending-clear"]
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core"
+    },
+    {
+      "id": "checkpoint-consumed",
+      "kind": "file",
+      "gate": false,
+      "file": "$CHECKPOINTS/checkpoint.consumed.md",
+      "exists": true
+    },
+    {
+      "id": "state-checkpoint-cleared",
+      "kind": "json-file",
+      "gate": false,
+      "file": "$STATE",
+      "path": "checkpoint",
+      "exists": false
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

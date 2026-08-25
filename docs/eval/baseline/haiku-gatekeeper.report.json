@@ -1,0 +1,3398 @@
+{
+  "schemaVersion": 1,
+  "runner": {
+    "name": "flow-eval-headless",
+    "claudeVersion": "2.1.241"
+  },
+  "tree": {
+    "gitHead": "8afb9943bf932d5d8e9eb316d91ec0f86bc96d45",
+    "dirty": false
+  },
+  "suite": "haiku-gatekeeper",
+  "candidate": "haiku-gatekeeper",
+  "startedAt": "2026-08-23T20:27:57.322Z",
+  "finishedAt": "2026-08-23T21:11:35.501Z",
+  "scenarios": [
+    {
+      "id": "s1-merged-skip",
+      "title": "Gatekeeper skips a MERGED PR (closed-or-merged, first rule)",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.23812305,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 6344,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 73484,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "f97a6775-3692-440a-b42a-43278a9490e1",
+          "costUsd": 0.23812305,
+          "durationMs": 6344,
+          "numTurns": 3
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.16250710000000002,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 53558,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 66980,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "73a3b11f-147c-4bc1-abcf-2a008bde638c",
+          "costUsd": 0.16250710000000002,
+          "durationMs": 53558,
+          "numTurns": 10
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.2052607,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 83818,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 71688,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "e10b8a4d-749b-465c-85a8-a3906c2a6613",
+          "costUsd": 0.2052607,
+          "durationMs": 83818,
+          "numTurns": 10
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.21693659999999998,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 102163,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 73828,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "9160b9b0-ae57-4931-8b50-7ecf1cb96c11",
+          "costUsd": 0.21693659999999998,
+          "durationMs": 102163,
+          "numTurns": 12
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.18687595,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 81969,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 68302,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "610d0baa-0475-4db0-beb2-f337a3f81a75",
+          "costUsd": 0.18687595,
+          "durationMs": 81969,
+          "numTurns": 10
+        }
+      ],
+      "metrics": {
+        "transcript.modelShare.haiku": {
+          "median": 1,
+          "min": 1,
+          "max": 1,
+          "direction": "higher",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 0.2052607,
+          "min": 0.16250710000000002,
+          "max": 0.23812305,
+          "direction": "lower",
+          "values": [
+            0.23812305,
+            0.16250710000000002,
+            0.2052607,
+            0.21693659999999998,
+            0.18687595
+          ]
+        },
+        "result.duration_ms": {
+          "median": 81969,
+          "min": 6344,
+          "max": 102163,
+          "direction": "lower",
+          "values": [
+            6344,
+            53558,
+            83818,
+            102163,
+            81969
+          ]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 1,
+          "min": 0,
+          "max": 1,
+          "direction": "lower",
+          "values": [
+            1,
+            0,
+            1,
+            1,
+            1
+          ]
+        },
+        "transcript.finalContextTokens": {
+          "median": 71688,
+          "min": 66980,
+          "max": 73828,
+          "direction": "lower",
+          "values": [
+            73484,
+            66980,
+            71688,
+            73828,
+            68302
+          ]
+        }
+      }
+    },
+    {
+      "id": "s2-trivial-skip",
+      "title": "Gatekeeper skips a trivial lockfile-regen PR (trivial-diff)",
+      "status": "fail",
+      "score": 0.9,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.22917645,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 7969,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 72229,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "426b7ae0-1247-4783-866b-c1d3b414fbcf",
+          "costUsd": 0.22917645,
+          "durationMs": 7969,
+          "numTurns": 3
+        },
+        {
+          "run": 2,
+          "status": "fail",
+          "score": 0.5,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": false,
+              "expected": "skip",
+              "actual": "proceed"
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": false,
+              "expected": "trivial-diff"
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": false,
+              "expected": "skip",
+              "actual": "proceed"
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.15859015,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 55229,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 66213,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "d57d60de-d004-4176-8cfa-d4936ec968cb",
+          "costUsd": 0.15859015,
+          "durationMs": 55229,
+          "numTurns": 9
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.16068714999999997,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 62819,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 66401,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "dee3326d-0e3d-481d-a9e5-95d50884f40d",
+          "costUsd": 0.16068714999999997,
+          "durationMs": 62819,
+          "numTurns": 8
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.251701,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 128681,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 74165,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "ae6350df-4ca7-4b3b-9e18-88adfdd970ba",
+          "costUsd": 0.251701,
+          "durationMs": 128681,
+          "numTurns": 11
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.17763920000000002,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 65193,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 66845,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "d4973e43-7949-489a-99d8-9213c0f3f1ec",
+          "costUsd": 0.17763920000000002,
+          "durationMs": 65193,
+          "numTurns": 9
+        }
+      ],
+      "metrics": {
+        "transcript.modelShare.haiku": {
+          "median": 1,
+          "min": 1,
+          "max": 1,
+          "direction": "higher",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 0.17763920000000002,
+          "min": 0.15859015,
+          "max": 0.251701,
+          "direction": "lower",
+          "values": [
+            0.22917645,
+            0.15859015,
+            0.16068714999999997,
+            0.251701,
+            0.17763920000000002
+          ]
+        },
+        "result.duration_ms": {
+          "median": 62819,
+          "min": 7969,
+          "max": 128681,
+          "direction": "lower",
+          "values": [
+            7969,
+            55229,
+            62819,
+            128681,
+            65193
+          ]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 1,
+          "min": 1,
+          "max": 1,
+          "direction": "lower",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "transcript.finalContextTokens": {
+          "median": 66845,
+          "min": 66213,
+          "max": 74165,
+          "direction": "lower",
+          "values": [
+            72229,
+            66213,
+            66401,
+            74165,
+            66845
+          ]
+        }
+      }
+    },
+    {
+      "id": "s3-small-but-proceed",
+      "title": "Gatekeeper proceeds on a small diff whose commit headline doesn't match a trivial-diff pattern",
+      "status": "fail",
+      "score": 0.9333333333333332,
+      "runs": [
+        {
+          "run": 1,
+          "status": "fail",
+          "score": 0.6666666666666666,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": false,
+              "expected": "proceed",
+              "actual": "skip"
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": false,
+              "expected": "proceed",
+              "actual": "skip"
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.16686935,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 73495,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 66312,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "4b386e2a-c1e1-4101-bc4b-4ccdf28d0d3b",
+          "costUsd": 0.16686935,
+          "durationMs": 73495,
+          "numTurns": 8
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.17856465,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 69009,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 67405,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "8e215054-44ed-408b-ac02-4d45fa9dacb0",
+          "costUsd": 0.17856465,
+          "durationMs": 69009,
+          "numTurns": 9
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.20305550000000006,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 89397,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 71059,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "412c7b11-854f-4c1a-8335-807061736a36",
+          "costUsd": 0.20305550000000006,
+          "durationMs": 89397,
+          "numTurns": 10
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.18906769999999995,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 80977,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 69769,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "71b771a1-633c-4549-81d5-bba18fa97556",
+          "costUsd": 0.18906769999999995,
+          "durationMs": 80977,
+          "numTurns": 9
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.20284680000000002,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 91383,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 70543,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "a209124e-8a9e-48fc-9949-ebb3a562307c",
+          "costUsd": 0.20284680000000002,
+          "durationMs": 91383,
+          "numTurns": 10
+        }
+      ],
+      "metrics": {
+        "transcript.modelShare.haiku": {
+          "median": 1,
+          "min": 1,
+          "max": 1,
+          "direction": "higher",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 0.18906769999999995,
+          "min": 0.16686935,
+          "max": 0.20305550000000006,
+          "direction": "lower",
+          "values": [
+            0.16686935,
+            0.17856465,
+            0.20305550000000006,
+            0.18906769999999995,
+            0.20284680000000002
+          ]
+        },
+        "result.duration_ms": {
+          "median": 80977,
+          "min": 69009,
+          "max": 91383,
+          "direction": "lower",
+          "values": [
+            73495,
+            69009,
+            89397,
+            80977,
+            91383
+          ]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 1,
+          "min": 1,
+          "max": 1,
+          "direction": "lower",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "transcript.finalContextTokens": {
+          "median": 69769,
+          "min": 66312,
+          "max": 71059,
+          "direction": "lower",
+          "values": [
+            66312,
+            67405,
+            71059,
+            69769,
+            70543
+          ]
+        }
+      }
+    },
+    {
+      "id": "s4-closed-first-match",
+      "title": "Gatekeeper applies first-match-wins: closed-or-merged over draft and trivial-diff",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.21120600000000006,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 87812,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 71924,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "32c95c23-9973-4ede-a302-f205d812383c",
+          "costUsd": 0.21120600000000006,
+          "durationMs": 87812,
+          "numTurns": 11
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.19023110000000004,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 84245,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 70208,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "ea684184-02ae-4102-804d-7ce0408b71b1",
+          "costUsd": 0.19023110000000004,
+          "durationMs": 84245,
+          "numTurns": 9
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.18884955000000003,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 82254,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 70293,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "a8451b60-a7ab-4179-9773-8c781ce4cb6b",
+          "costUsd": 0.18884955000000003,
+          "durationMs": 82254,
+          "numTurns": 10
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.19398584999999996,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 100176,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 71178,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "f976bd2e-3ea3-406e-9054-b7cd42885d2b",
+          "costUsd": 0.19398584999999996,
+          "durationMs": 100176,
+          "numTurns": 9
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.1922855,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 68114,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 70177,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "4b884f39-fe5e-4179-88bd-046308c7e6c3",
+          "costUsd": 0.1922855,
+          "durationMs": 68114,
+          "numTurns": 9
+        }
+      ],
+      "metrics": {
+        "transcript.modelShare.haiku": {
+          "median": 1,
+          "min": 1,
+          "max": 1,
+          "direction": "higher",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 0.1922855,
+          "min": 0.18884955000000003,
+          "max": 0.21120600000000006,
+          "direction": "lower",
+          "values": [
+            0.21120600000000006,
+            0.19023110000000004,
+            0.18884955000000003,
+            0.19398584999999996,
+            0.1922855
+          ]
+        },
+        "result.duration_ms": {
+          "median": 84245,
+          "min": 68114,
+          "max": 100176,
+          "direction": "lower",
+          "values": [
+            87812,
+            84245,
+            82254,
+            100176,
+            68114
+          ]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 1,
+          "min": 1,
+          "max": 1,
+          "direction": "lower",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "transcript.finalContextTokens": {
+          "median": 70293,
+          "min": 70177,
+          "max": 71924,
+          "direction": "lower",
+          "values": [
+            71924,
+            70208,
+            70293,
+            71178,
+            70177
+          ]
+        }
+      }
+    },
+    {
+      "id": "s5-proceed-normal",
+      "title": "Gatekeeper proceeds on a normal-sized PR; an existing APPROVED review must not change the verdict",
+      "status": "fail",
+      "score": 0.9333333333333332,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.20462640000000004,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 100319,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 71503,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "d01cb49c-a87f-4688-842f-692a9719e854",
+          "costUsd": 0.20462640000000004,
+          "durationMs": 100319,
+          "numTurns": 10
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.20012135,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 89654,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 70198,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "26ea3845-eca9-4395-8145-fb795f4785ab",
+          "costUsd": 0.20012135,
+          "durationMs": 89654,
+          "numTurns": 10
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.28145655,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 89494,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 77772,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "0f0bb120-f05b-4349-893c-d18d665331d7",
+          "costUsd": 0.28145655,
+          "durationMs": 89494,
+          "numTurns": 16
+        },
+        {
+          "run": 4,
+          "status": "fail",
+          "score": 0.6666666666666666,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": false,
+              "expected": "proceed",
+              "actual": "skip"
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": false,
+              "expected": "proceed",
+              "actual": "skip"
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.27736484999999994,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 90608,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 99854,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "3d292c47-7115-4a42-9e2c-4860b68ac525",
+          "costUsd": 0.27736484999999994,
+          "durationMs": 90608,
+          "numTurns": 12
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.20518245000000007,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 12089,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 68915,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "9a473199-fb83-402c-964b-c0f276f6ea73",
+          "costUsd": 0.20518245000000007,
+          "durationMs": 12089,
+          "numTurns": 3
+        }
+      ],
+      "metrics": {
+        "transcript.modelShare.haiku": {
+          "median": 1,
+          "min": 1,
+          "max": 1,
+          "direction": "higher",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 0.20518245000000007,
+          "min": 0.20012135,
+          "max": 0.28145655,
+          "direction": "lower",
+          "values": [
+            0.20462640000000004,
+            0.20012135,
+            0.28145655,
+            0.27736484999999994,
+            0.20518245000000007
+          ]
+        },
+        "result.duration_ms": {
+          "median": 89654,
+          "min": 12089,
+          "max": 100319,
+          "direction": "lower",
+          "values": [
+            100319,
+            89654,
+            89494,
+            90608,
+            12089
+          ]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 1,
+          "min": 1,
+          "max": 1,
+          "direction": "lower",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "transcript.finalContextTokens": {
+          "median": 71503,
+          "min": 68915,
+          "max": 99854,
+          "direction": "lower",
+          "values": [
+            71503,
+            70198,
+            77772,
+            99854,
+            68915
+          ]
+        }
+      }
+    },
+    {
+      "id": "s6-no-new-commits-skip",
+      "title": "Gatekeeper skips a PR whose head SHA hasn't moved since a prior clean run",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.2741699,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 6215,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 74496,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "f0e663a5-9e5c-4291-b0f9-eb99d42bc27d",
+          "costUsd": 0.2741699,
+          "durationMs": 6215,
+          "numTurns": 3
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.21888,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 88661,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 71501,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "9ae37c0e-93de-456a-b7c1-fbd4c0600928",
+          "costUsd": 0.21888,
+          "durationMs": 88661,
+          "numTurns": 10
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.21466895000000003,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 110187,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 71796,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "1d3e2a56-6d2a-4254-957f-a28b99c22af4",
+          "costUsd": 0.21466895000000003,
+          "durationMs": 110187,
+          "numTurns": 10
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.19464305,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 76242,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 67644,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "66ea1b7c-3f18-4c74-beff-bc440079624b",
+          "costUsd": 0.19464305,
+          "durationMs": 76242,
+          "numTurns": 11
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "decision-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "skip-kind-matches-truth",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-decision",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "gatekeeper-result-exists",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.modelShare.haiku",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.modelShare.haiku": {
+              "value": 1,
+              "direction": "higher"
+            },
+            "result.total_cost_usd": {
+              "value": 0.23317909999999997,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 100913,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 72679,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "147b51be-31b5-4603-87f1-d23fc4e85b35",
+          "costUsd": 0.23317909999999997,
+          "durationMs": 100913,
+          "numTurns": 13
+        }
+      ],
+      "metrics": {
+        "transcript.modelShare.haiku": {
+          "median": 1,
+          "min": 1,
+          "max": 1,
+          "direction": "higher",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 0.21888,
+          "min": 0.19464305,
+          "max": 0.2741699,
+          "direction": "lower",
+          "values": [
+            0.2741699,
+            0.21888,
+            0.21466895000000003,
+            0.19464305,
+            0.23317909999999997
+          ]
+        },
+        "result.duration_ms": {
+          "median": 88661,
+          "min": 6215,
+          "max": 110187,
+          "direction": "lower",
+          "values": [
+            6215,
+            88661,
+            110187,
+            76242,
+            100913
+          ]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 1,
+          "min": 1,
+          "max": 1,
+          "direction": "lower",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "transcript.finalContextTokens": {
+          "median": 71796,
+          "min": 67644,
+          "max": 74496,
+          "direction": "lower",
+          "values": [
+            74496,
+            71501,
+            71796,
+            67644,
+            72679
+          ]
+        }
+      }
+    }
+  ],
+  "summary": {
+    "score": 0.9611111111111111,
+    "scenarios": 6,
+    "passed": 3,
+    "failed": 3,
+    "errored": 0,
+    "costUsd": 6.20875195
+  }
+}

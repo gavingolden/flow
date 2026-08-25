@@ -1,0 +1,82 @@
+#!/usr/bin/env bun
+/**
+ * Hermetic `gh` shim shared by every eval scenario that needs a PR view
+ * without a real GitHub call. Reads `$FLOW_EVAL_FIXTURE/pr.json` — either
+ * an array of PR objects or an object keyed by PR number — and answers
+ * `pr view <n|branch> --json a,b,c` from it. `null` for any requested
+ * top-level key the object doesn't carry (never a crash — the real `gh`
+ * also emits `null` for a field a PR genuinely has no value for). `pr
+ * checks <n>` may exit 1 with a short stderr, matching a PR with no CI
+ * runs yet; the real Step-1.5 `probeCi` tolerates that. Any other
+ * subcommand is unsupported and loud, not silently swallowed.
+ */
+
+type PrRecord = Record<string, unknown>;
+
+function loadPrs(fixtureDir: string): PrRecord[] {
+  const path = `${fixtureDir}/pr.json`;
+  const raw = require("node:fs").readFileSync(path, "utf8");
+  const parsed = JSON.parse(raw);
+  if (Array.isArray(parsed)) return parsed as PrRecord[];
+  if (parsed && typeof parsed === "object") {
+    return Object.values(parsed) as PrRecord[];
+  }
+  return [];
+}
+
+function findPr(prs: PrRecord[], selector: string): PrRecord | undefined {
+  const asNumber = Number(selector);
+  if (Number.isInteger(asNumber)) {
+    const byNumber = prs.find((p) => p.number === asNumber);
+    if (byNumber) return byNumber;
+  }
+  return prs.find((p) => p.headRefName === selector || p.branch === selector);
+}
+
+function main(): number {
+  const argv = process.argv.slice(2);
+  const [verb, sub, ...rest] = argv;
+
+  if (verb === "pr" && sub === "view") {
+    const selector = rest[0];
+    const jsonFlagIdx = rest.indexOf("--json");
+    if (selector === undefined || jsonFlagIdx === -1 || rest[jsonFlagIdx + 1] === undefined) {
+      process.stderr.write(`flow-eval gh shim: unsupported: ${JSON.stringify(argv)}\n`);
+      return 1;
+    }
+    const fields = rest[jsonFlagIdx + 1].split(",").map((f) => f.trim());
+    const fixtureDir = process.env.FLOW_EVAL_FIXTURE;
+    if (!fixtureDir) {
+      process.stderr.write("flow-eval gh shim: FLOW_EVAL_FIXTURE is not set\n");
+      return 1;
+    }
+    let prs: PrRecord[];
+    try {
+      prs = loadPrs(fixtureDir);
+    } catch (e) {
+      process.stderr.write(`flow-eval gh shim: could not read pr.json: ${e instanceof Error ? e.message : String(e)}\n`);
+      return 1;
+    }
+    const pr = findPr(prs, selector);
+    if (!pr) {
+      process.stderr.write(`flow-eval gh shim: no PR matching '${selector}' in pr.json\n`);
+      return 1;
+    }
+    const out: PrRecord = {};
+    for (const field of fields) {
+      out[field] = Object.prototype.hasOwnProperty.call(pr, field) ? pr[field] : null;
+    }
+    process.stdout.write(JSON.stringify(out) + "\n");
+    return 0;
+  }
+
+  if (verb === "pr" && sub === "checks") {
+    process.stderr.write("flow-eval gh shim: no checks reported (hermetic fixture)\n");
+    return 1;
+  }
+
+  process.stderr.write(`flow-eval gh shim: unsupported: ${JSON.stringify(argv)}\n`);
+  return 1;
+}
+
+process.exit(main());

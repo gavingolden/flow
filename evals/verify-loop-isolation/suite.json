@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "verify-loop-isolation",
+  "candidate": "verify-loop-subagent-isolation",
+  "description": "Measures the /flow-pipeline Step 6 verify-retry-loop subagent's cost/context/turn footprint against a hermetic fixture with a planted defect, so a future scaffold removal can show a before/after delta.",
+  "scenarios": ["s1-single-fix", "s2-test-and-typecheck"],
+  "defaults": { "maxBudgetUsd": 10, "model": "sonnet", "effort": "medium" }
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "haiku-gatekeeper",
+  "candidate": "haiku-gatekeeper",
+  "description": "Measures /flow-pr-review Step 1.5's haiku-pinned Gatekeeper Subagent's cost-routing accuracy and cost/context footprint against six PR-metadata scenarios covering every documented skip rule and first-match-wins ordering.",
+  "scenarios": [
+    "s1-merged-skip",
+    "s2-trivial-skip",
+    "s3-small-but-proceed",
+    "s4-closed-first-match",
+    "s5-proceed-normal",
+    "s6-no-new-commits-skip"
+  ],
+  "defaults": { "effort": "high" }
+}
