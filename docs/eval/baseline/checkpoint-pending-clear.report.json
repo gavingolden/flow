@@ -5,13 +5,13 @@
     "claudeVersion": "2.1.241"
   },
   "tree": {
-    "gitHead": "8afb9943bf932d5d8e9eb316d91ec0f86bc96d45",
+    "gitHead": "a30b6d8c7b0cef3c69672b6d570eff886f2a6aa7",
     "dirty": false
   },
   "suite": "checkpoint-pending-clear",
   "candidate": "checkpoint-pending-clear",
-  "startedAt": "2026-08-23T21:30:16.914Z",
-  "finishedAt": "2026-08-23T21:35:07.417Z",
+  "startedAt": "2026-08-26T01:28:38.644Z",
+  "finishedAt": "2026-08-26T01:33:35.572Z",
   "scenarios": [
     {
       "id": "s1-resume-step5-addendum",
@@ -93,26 +93,26 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 102399,
+              "value": 110313,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 1.2248595000000002,
+              "value": 1.3734769999999998,
               "direction": "lower"
             },
             "result.num_turns": {
-              "value": 7,
+              "value": 8,
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 20520,
+              "value": 22530,
               "direction": "lower"
             }
           },
-          "sessionId": "82a2fa8a-27cb-4829-aaf5-63f4bdc2d012",
-          "costUsd": 1.2248595000000002,
-          "durationMs": 20520,
-          "numTurns": 7
+          "sessionId": "fcbbbfc9-f0b2-4095-9736-dd83bcd5caa8",
+          "costUsd": 1.3734769999999998,
+          "durationMs": 22530,
+          "numTurns": 8
         },
         {
           "run": 2,
@@ -188,11 +188,11 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 103008,
+              "value": 110306,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 1.1258065,
+              "value": 1.2033050000000003,
               "direction": "lower"
             },
             "result.num_turns": {
@@ -200,13 +200,13 @@
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 26445,
+              "value": 21750,
               "direction": "lower"
             }
           },
-          "sessionId": "d5f169c5-d229-4e08-abe2-e62e0107aa09",
-          "costUsd": 1.1258065,
-          "durationMs": 26445,
+          "sessionId": "089feffe-80c1-4d0c-ba8b-01070959cec4",
+          "costUsd": 1.2033050000000003,
+          "durationMs": 21750,
           "numTurns": 8
         },
         {
@@ -261,7 +261,7 @@
               "actual": {
                 "site": "plan-approval",
                 "phase": "checkpoint-pending-clear",
-                "armedAt": "2026-08-23T21:31:06.221Z"
+                "armedAt": "2026-08-26T01:29:25.803Z"
               }
             },
             {
@@ -291,11 +291,11 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 101640,
+              "value": 109384,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 0.9983354999999998,
+              "value": 1.0837995,
               "direction": "lower"
             },
             "result.num_turns": {
@@ -303,13 +303,13 @@
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 20382,
+              "value": 19710,
               "direction": "lower"
             }
           },
-          "sessionId": "26f9c861-2b64-47b5-9edb-01b22fe0c244",
-          "costUsd": 0.9983354999999998,
-          "durationMs": 20382,
+          "sessionId": "3c5db85f-0769-42f2-bf6b-6e50267deb55",
+          "costUsd": 1.0837995,
+          "durationMs": 19710,
           "numTurns": 6
         },
         {
@@ -351,21 +351,13 @@
               "id": "checkpoint-consumed",
               "kind": "file",
               "gate": false,
-              "pass": false,
-              "expected": true,
-              "actual": false
+              "pass": true
             },
             {
               "id": "state-checkpoint-cleared",
               "kind": "json-file",
               "gate": false,
-              "pass": false,
-              "expected": "exists === false",
-              "actual": {
-                "site": "plan-approval",
-                "phase": "checkpoint-pending-clear",
-                "armedAt": "2026-08-23T21:31:27.775Z"
-              }
+              "pass": true
             },
             {
               "id": "transcript.finalContextTokens",
@@ -394,26 +386,26 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 101845,
+              "value": 110317,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 0.9893679999999999,
+              "value": 1.1530905,
               "direction": "lower"
             },
             "result.num_turns": {
-              "value": 6,
+              "value": 7,
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 15853,
+              "value": 24397,
               "direction": "lower"
             }
           },
-          "sessionId": "781233fe-089d-4114-8845-ac77cd9103fe",
-          "costUsd": 0.9893679999999999,
-          "durationMs": 15853,
-          "numTurns": 6
+          "sessionId": "b37cd85d-e5bb-47fb-9c68-41dce7319e1a",
+          "costUsd": 1.1530905,
+          "durationMs": 24397,
+          "numTurns": 7
         },
         {
           "run": 5,
@@ -489,11 +481,11 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 102520,
+              "value": 109782,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 1.0603775,
+              "value": 1.1351445,
               "direction": "lower"
             },
             "result.num_turns": {
@@ -501,41 +493,41 @@
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 24803,
+              "value": 16586,
               "direction": "lower"
             }
           },
-          "sessionId": "68a4abb5-5bd6-42d9-b6cf-4510c78cdd5f",
-          "costUsd": 1.0603775,
-          "durationMs": 24803,
+          "sessionId": "45c84024-6e75-4b92-ba78-5fd15cf56fcc",
+          "costUsd": 1.1351445,
+          "durationMs": 16586,
           "numTurns": 7
         }
       ],
       "metrics": {
         "transcript.finalContextTokens": {
-          "median": 102399,
-          "min": 101640,
-          "max": 103008,
+          "median": 110306,
+          "min": 109384,
+          "max": 110317,
           "direction": "lower",
           "values": [
-            102399,
-            103008,
-            101640,
-            101845,
-            102520
+            110313,
+            110306,
+            109384,
+            110317,
+            109782
           ]
         },
         "result.total_cost_usd": {
-          "median": 1.0603775,
-          "min": 0.9893679999999999,
-          "max": 1.2248595000000002,
+          "median": 1.1530905,
+          "min": 1.0837995,
+          "max": 1.3734769999999998,
           "direction": "lower",
           "values": [
-            1.2248595000000002,
-            1.1258065,
-            0.9983354999999998,
-            0.9893679999999999,
-            1.0603775
+            1.3734769999999998,
+            1.2033050000000003,
+            1.0837995,
+            1.1530905,
+            1.1351445
           ]
         },
         "result.num_turns": {
@@ -544,24 +536,24 @@
           "max": 8,
           "direction": "lower",
           "values": [
-            7,
+            8,
             8,
             6,
-            6,
+            7,
             7
           ]
         },
         "result.duration_ms": {
-          "median": 20520,
-          "min": 15853,
-          "max": 26445,
+          "median": 21750,
+          "min": 16586,
+          "max": 24397,
           "direction": "lower",
           "values": [
-            20520,
-            26445,
-            20382,
-            15853,
-            24803
+            22530,
+            21750,
+            19710,
+            24397,
+            16586
           ]
         }
       }
@@ -569,31 +561,31 @@
     {
       "id": "s2-resume-gated-feedback",
       "title": "Resume re-enters gated-feedback mode and carries the cleared manual Test Step",
-      "status": "fail",
-      "score": 0.6,
+      "status": "pass",
+      "score": 1,
       "runs": [
         {
           "run": 1,
-          "status": "fail",
-          "score": 0.6,
+          "status": "pass",
+          "score": 1,
           "grades": [
             {
-              "id": "resumed-step-matches",
+              "id": "resumed-step-null-on-gated-feedback",
               "kind": "structured",
               "gate": true,
-              "pass": false,
-              "expected": 9,
-              "actual": null
+              "pass": true
+            },
+            {
+              "id": "action-matches-resume",
+              "kind": "structured",
+              "gate": false,
+              "pass": true
             },
             {
               "id": "cleared-items-carries-test-step-2",
               "kind": "structured",
               "gate": true,
-              "pass": false,
-              "expected": "contains \"Test Step 2\"",
-              "actual": [
-                "Test Step 2 (screenshot reviewed)"
-              ]
+              "pass": true
             },
             {
               "id": "state-phase-still-gated",
@@ -640,11 +632,11 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 101783,
+              "value": 109628,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 0.9885179999999999,
+              "value": 1.1008825,
               "direction": "lower"
             },
             "result.num_turns": {
@@ -652,37 +644,37 @@
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 14221,
+              "value": 27063,
               "direction": "lower"
             }
           },
-          "sessionId": "064b08e5-7b21-44bf-a2e3-49c89457070c",
-          "costUsd": 0.9885179999999999,
-          "durationMs": 14221,
+          "sessionId": "7dd2de8d-22d5-4f2b-92fb-23aff7a80bd7",
+          "costUsd": 1.1008825,
+          "durationMs": 27063,
           "numTurns": 6
         },
         {
           "run": 2,
-          "status": "fail",
-          "score": 0.6,
+          "status": "pass",
+          "score": 1,
           "grades": [
             {
-              "id": "resumed-step-matches",
+              "id": "resumed-step-null-on-gated-feedback",
               "kind": "structured",
               "gate": true,
-              "pass": false,
-              "expected": 9,
-              "actual": null
+              "pass": true
+            },
+            {
+              "id": "action-matches-resume",
+              "kind": "structured",
+              "gate": false,
+              "pass": true
             },
             {
               "id": "cleared-items-carries-test-step-2",
               "kind": "structured",
               "gate": true,
-              "pass": false,
-              "expected": "contains \"Test Step 2\"",
-              "actual": [
-                "manual Test Step 2 (screenshot reviewed)"
-              ]
+              "pass": true
             },
             {
               "id": "state-phase-still-gated",
@@ -729,100 +721,11 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 103972,
+              "value": 109323,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 1.110451,
-              "direction": "lower"
-            },
-            "result.num_turns": {
-              "value": 7,
-              "direction": "lower"
-            },
-            "result.duration_ms": {
-              "value": 38798,
-              "direction": "lower"
-            }
-          },
-          "sessionId": "e7a14060-ab31-4be8-ba59-5933b55fb1ff",
-          "costUsd": 1.110451,
-          "durationMs": 38798,
-          "numTurns": 7
-        },
-        {
-          "run": 3,
-          "status": "fail",
-          "score": 0.6,
-          "grades": [
-            {
-              "id": "resumed-step-matches",
-              "kind": "structured",
-              "gate": true,
-              "pass": false,
-              "expected": 9,
-              "actual": null
-            },
-            {
-              "id": "cleared-items-carries-test-step-2",
-              "kind": "structured",
-              "gate": true,
-              "pass": false,
-              "expected": "contains \"Test Step 2\"",
-              "actual": [
-                "manual Test Step 2 (screenshot reviewed)"
-              ]
-            },
-            {
-              "id": "state-phase-still-gated",
-              "kind": "json-file",
-              "gate": true,
-              "pass": true
-            },
-            {
-              "id": "no-agent-fallback",
-              "kind": "file",
-              "gate": true,
-              "pass": true
-            },
-            {
-              "id": "plugin-loaded",
-              "kind": "file",
-              "gate": true,
-              "pass": true
-            },
-            {
-              "id": "transcript.finalContextTokens",
-              "kind": "metric",
-              "gate": false,
-              "pass": true
-            },
-            {
-              "id": "result.total_cost_usd",
-              "kind": "metric",
-              "gate": false,
-              "pass": true
-            },
-            {
-              "id": "result.num_turns",
-              "kind": "metric",
-              "gate": false,
-              "pass": true
-            },
-            {
-              "id": "result.duration_ms",
-              "kind": "metric",
-              "gate": false,
-              "pass": true
-            }
-          ],
-          "metrics": {
-            "transcript.finalContextTokens": {
-              "value": 101848,
-              "direction": "lower"
-            },
-            "result.total_cost_usd": {
-              "value": 1.003325,
+              "value": 1.077767,
               "direction": "lower"
             },
             "result.num_turns": {
@@ -830,37 +733,126 @@
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 21109,
+              "value": 17052,
               "direction": "lower"
             }
           },
-          "sessionId": "39c5a8ce-2981-4529-bf03-8e826c17cdb3",
-          "costUsd": 1.003325,
-          "durationMs": 21109,
+          "sessionId": "a6c0e71d-dd15-4178-b4f7-be07394d6c99",
+          "costUsd": 1.077767,
+          "durationMs": 17052,
+          "numTurns": 6
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "resumed-step-null-on-gated-feedback",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "action-matches-resume",
+              "kind": "structured",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "cleared-items-carries-test-step-2",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-still-gated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 109333,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.0921555,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 25300,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "cd3180a5-caf2-42b4-b0b1-0389d34b788b",
+          "costUsd": 1.0921555,
+          "durationMs": 25300,
           "numTurns": 6
         },
         {
           "run": 4,
-          "status": "fail",
-          "score": 0.6,
+          "status": "pass",
+          "score": 1,
           "grades": [
             {
-              "id": "resumed-step-matches",
+              "id": "resumed-step-null-on-gated-feedback",
               "kind": "structured",
               "gate": true,
-              "pass": false,
-              "expected": 9,
-              "actual": null
+              "pass": true
+            },
+            {
+              "id": "action-matches-resume",
+              "kind": "structured",
+              "gate": false,
+              "pass": true
             },
             {
               "id": "cleared-items-carries-test-step-2",
               "kind": "structured",
               "gate": true,
-              "pass": false,
-              "expected": "contains \"Test Step 2\"",
-              "actual": [
-                "manual Test Step 2 (screenshot reviewed)"
-              ]
+              "pass": true
             },
             {
               "id": "state-phase-still-gated",
@@ -907,11 +899,11 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 101836,
+              "value": 109500,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 1.00249,
+              "value": 1.086798,
               "direction": "lower"
             },
             "result.num_turns": {
@@ -919,37 +911,37 @@
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 20582,
+              "value": 26162,
               "direction": "lower"
             }
           },
-          "sessionId": "876c1b07-9f7f-4305-9a3b-5775d7d0bfd0",
-          "costUsd": 1.00249,
-          "durationMs": 20582,
+          "sessionId": "11d11814-39cf-4429-bd8e-a58cd6270b03",
+          "costUsd": 1.086798,
+          "durationMs": 26162,
           "numTurns": 6
         },
         {
           "run": 5,
-          "status": "fail",
-          "score": 0.6,
+          "status": "pass",
+          "score": 1,
           "grades": [
             {
-              "id": "resumed-step-matches",
+              "id": "resumed-step-null-on-gated-feedback",
               "kind": "structured",
               "gate": true,
-              "pass": false,
-              "expected": 9,
-              "actual": null
+              "pass": true
+            },
+            {
+              "id": "action-matches-resume",
+              "kind": "structured",
+              "gate": false,
+              "pass": true
             },
             {
               "id": "cleared-items-carries-test-step-2",
               "kind": "structured",
               "gate": true,
-              "pass": false,
-              "expected": "contains \"Test Step 2\"",
-              "actual": [
-                "manual Test Step 2 (screenshot reviewed)"
-              ]
+              "pass": true
             },
             {
               "id": "state-phase-still-gated",
@@ -996,11 +988,11 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 102015,
+              "value": 110327,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 1.0551854999999999,
+              "value": 1.1037024999999998,
               "direction": "lower"
             },
             "result.num_turns": {
@@ -1008,41 +1000,41 @@
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 20856,
+              "value": 24897,
               "direction": "lower"
             }
           },
-          "sessionId": "1670f9f4-089f-48ba-b187-c3fe6e2ae2c2",
-          "costUsd": 1.0551854999999999,
-          "durationMs": 20856,
+          "sessionId": "a5ccc4fd-a68b-46c7-9255-2dbf37955d3f",
+          "costUsd": 1.1037024999999998,
+          "durationMs": 24897,
           "numTurns": 7
         }
       ],
       "metrics": {
         "transcript.finalContextTokens": {
-          "median": 101848,
-          "min": 101783,
-          "max": 103972,
+          "median": 109500,
+          "min": 109323,
+          "max": 110327,
           "direction": "lower",
           "values": [
-            101783,
-            103972,
-            101848,
-            101836,
-            102015
+            109628,
+            109323,
+            109333,
+            109500,
+            110327
           ]
         },
         "result.total_cost_usd": {
-          "median": 1.003325,
-          "min": 0.9885179999999999,
-          "max": 1.110451,
+          "median": 1.0921555,
+          "min": 1.077767,
+          "max": 1.1037024999999998,
           "direction": "lower",
           "values": [
-            0.9885179999999999,
-            1.110451,
-            1.003325,
-            1.00249,
-            1.0551854999999999
+            1.1008825,
+            1.077767,
+            1.0921555,
+            1.086798,
+            1.1037024999999998
           ]
         },
         "result.num_turns": {
@@ -1052,23 +1044,23 @@
           "direction": "lower",
           "values": [
             6,
-            7,
+            6,
             6,
             6,
             7
           ]
         },
         "result.duration_ms": {
-          "median": 20856,
-          "min": 14221,
-          "max": 38798,
+          "median": 25300,
+          "min": 17052,
+          "max": 27063,
           "direction": "lower",
           "values": [
-            14221,
-            38798,
-            21109,
-            20582,
-            20856
+            27063,
+            17052,
+            25300,
+            26162,
+            24897
           ]
         }
       }
@@ -1141,11 +1133,11 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 29314,
+              "value": 29316,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 0.14545299999999997,
+              "value": 0.13852799999999998,
               "direction": "lower"
             },
             "result.num_turns": {
@@ -1153,13 +1145,13 @@
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 11761,
+              "value": 7189,
               "direction": "lower"
             }
           },
-          "sessionId": "ebc7caad-edb5-489d-967c-b087fd2b863f",
-          "costUsd": 0.14545299999999997,
-          "durationMs": 11761,
+          "sessionId": "0ac60208-b566-4733-8324-9ac8e886b1f9",
+          "costUsd": 0.13852799999999998,
+          "durationMs": 7189,
           "numTurns": 2
         },
         {
@@ -1224,11 +1216,11 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 29321,
+              "value": 29317,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 0.144729,
+              "value": 0.14313399999999998,
               "direction": "lower"
             },
             "result.num_turns": {
@@ -1236,13 +1228,13 @@
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 10216,
+              "value": 9904,
               "direction": "lower"
             }
           },
-          "sessionId": "5a917f2a-8592-401e-b9e4-ed03138ffcbc",
-          "costUsd": 0.144729,
-          "durationMs": 10216,
+          "sessionId": "620f8472-0981-4963-9c27-be3bb9c029f1",
+          "costUsd": 0.14313399999999998,
+          "durationMs": 9904,
           "numTurns": 2
         },
         {
@@ -1307,11 +1299,11 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 29317,
+              "value": 29318,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 0.132888,
+              "value": 0.143819,
               "direction": "lower"
             },
             "result.num_turns": {
@@ -1319,13 +1311,13 @@
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 4412,
+              "value": 9969,
               "direction": "lower"
             }
           },
-          "sessionId": "abb73c8a-1dae-4666-9de9-614c94688335",
-          "costUsd": 0.132888,
-          "durationMs": 4412,
+          "sessionId": "668a7d90-d7ad-471a-a908-2d918fd26f33",
+          "costUsd": 0.143819,
+          "durationMs": 9969,
           "numTurns": 2
         },
         {
@@ -1390,11 +1382,11 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 29325,
+              "value": 29317,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 0.144996,
+              "value": 0.141078,
               "direction": "lower"
             },
             "result.num_turns": {
@@ -1402,13 +1394,13 @@
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 10598,
+              "value": 8581,
               "direction": "lower"
             }
           },
-          "sessionId": "9b8c8a7e-cd2e-42cd-aa04-4ad5833bdee5",
-          "costUsd": 0.144996,
-          "durationMs": 10598,
+          "sessionId": "6c33bbe9-8aaf-439e-bad0-b1bbc5687d46",
+          "costUsd": 0.141078,
+          "durationMs": 8581,
           "numTurns": 2
         },
         {
@@ -1473,11 +1465,11 @@
           ],
           "metrics": {
             "transcript.finalContextTokens": {
-              "value": 29316,
+              "value": 29314,
               "direction": "lower"
             },
             "result.total_cost_usd": {
-              "value": 0.145948,
+              "value": 0.14883299999999997,
               "direction": "lower"
             },
             "result.num_turns": {
@@ -1485,13 +1477,13 @@
               "direction": "lower"
             },
             "result.duration_ms": {
-              "value": 11418,
+              "value": 14309,
               "direction": "lower"
             }
           },
-          "sessionId": "488b1635-38d1-4cfd-ac05-f0cb3838eb68",
-          "costUsd": 0.145948,
-          "durationMs": 11418,
+          "sessionId": "ba199e11-04e6-41e4-bf43-e510802e4bc2",
+          "costUsd": 0.14883299999999997,
+          "durationMs": 14309,
           "numTurns": 2
         }
       ],
@@ -1499,27 +1491,27 @@
         "transcript.finalContextTokens": {
           "median": 29317,
           "min": 29314,
-          "max": 29325,
+          "max": 29318,
           "direction": "lower",
           "values": [
-            29314,
-            29321,
+            29316,
             29317,
-            29325,
-            29316
+            29318,
+            29317,
+            29314
           ]
         },
         "result.total_cost_usd": {
-          "median": 0.144996,
-          "min": 0.132888,
-          "max": 0.145948,
+          "median": 0.14313399999999998,
+          "min": 0.13852799999999998,
+          "max": 0.14883299999999997,
           "direction": "lower",
           "values": [
-            0.14545299999999997,
-            0.144729,
-            0.132888,
-            0.144996,
-            0.145948
+            0.13852799999999998,
+            0.14313399999999998,
+            0.143819,
+            0.141078,
+            0.14883299999999997
           ]
         },
         "result.num_turns": {
@@ -1536,27 +1528,27 @@
           ]
         },
         "result.duration_ms": {
-          "median": 10598,
-          "min": 4412,
-          "max": 11761,
+          "median": 9904,
+          "min": 7189,
+          "max": 14309,
           "direction": "lower",
           "values": [
-            11761,
-            10216,
-            4412,
-            10598,
-            11418
+            7189,
+            9904,
+            9969,
+            8581,
+            14309
           ]
         }
       }
     }
   ],
   "summary": {
-    "score": 0.8666666666666667,
+    "score": 1,
     "scenarios": 3,
-    "passed": 2,
-    "failed": 1,
+    "passed": 3,
+    "failed": 0,
     "errored": 0,
-    "costUsd": 11.2727305
+    "costUsd": 12.125513999999999
   }
 }
