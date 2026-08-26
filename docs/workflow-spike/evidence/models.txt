@@ -22,3 +22,6 @@ workflow-subagent | agent-a8e3c45b992bcd2de.jsonl | "model":"claude-fable-5"  | 
 "isSidechain":true,"agentId":"a34df56de584cc84d","message":{"model":"claude-haiku-4-5-20251001","id":"msg_011CeNanrQB9rgfBrJbjMuiB","ty
 # where the effort field lives (json path):
 {"type":"assistant","effort":"low","model":"claude-fable-5"}
+
+# meta.json (gatekeeper agent a34df56de584cc84d, run wf_de7e7d14-351):
+{"agentType":"flow-module-core:flow-gatekeeper","spawnDepth":1}

@@ -44,6 +44,17 @@ const RESUME_SCHEMA = {
   },
 };
 
+const PHASE_B_SCHEMA = {
+  type: "object",
+  required: ["exitCode", "wroteVia", "waitedSeconds", "released"],
+  properties: {
+    exitCode: { type: "number" },
+    wroteVia: { type: "string", enum: ["flow-state-update", "jq", "skipped"] },
+    waitedSeconds: { type: "number" },
+    released: { type: "boolean" },
+  },
+};
+
 phase("Phase A");
 
 let a = null;
@@ -69,19 +80,11 @@ if (hasB) {
   log("phase B already logged — skipping");
 } else {
   b = await agent(
-    `Nonce: ${args.nonce}. Using the Bash tool (set the tool call's own timeout to 600000 ms): 1) first wait for the supervisor's release marker with exactly this loop: n=0; until [ -f ${args.worktree}/.flow-tmp/spike-release-b ]; do sleep 2; n=$((n+2)); [ $n -ge 540 ] && break; done; echo waited=$n — record the printed waitedSeconds value. 2) then run exactly \`FLOW_SLUG=${args.scratchSlug} flow-state-update --slug ${args.scratchSlug} --phase ci-wait\`; if it exits non-zero, fall back to running exactly \`jq --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.phaseLog += [{phase:"ci-wait", at:$at}]' ${STATE} > ${STATE}.tmp && mv ${STATE}.tmp ${STATE}\` and report wroteVia "jq"; otherwise report wroteVia "flow-state-update". Report exitCode, wroteVia, and waitedSeconds. Do nothing else.`,
+    `Nonce: ${args.nonce}. Using the Bash tool (set the tool call's own timeout to 600000 ms): 1) first wait for the supervisor's release marker with exactly this loop: n=0; until [ -f ${args.worktree}/.flow-tmp/spike-release-b ]; do sleep 2; n=$((n+2)); [ $n -ge 540 ] && break; done; echo waited=$n released=$([ -f ${args.worktree}/.flow-tmp/spike-release-b ] && echo true || echo false) — record the printed waitedSeconds and released values. 2) If released is false, report exitCode -1, wroteVia "skipped", the waitedSeconds, and released false, and do nothing else — do NOT run flow-state-update or the jq fallback. 3) Otherwise run exactly \`FLOW_SLUG=${args.scratchSlug} flow-state-update --slug ${args.scratchSlug} --phase ci-wait\`; if it exits non-zero, fall back to running exactly \`jq --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.phaseLog += [{phase:"ci-wait", at:$at}]' ${STATE} > ${STATE}.tmp && mv ${STATE}.tmp ${STATE}\` and report wroteVia "jq"; otherwise report wroteVia "flow-state-update". Report exitCode, wroteVia, waitedSeconds, and released true. Do nothing else.`,
     {
       label: "phase-b-write",
       phase: "Phase B",
-      schema: {
-        type: "object",
-        required: ["exitCode", "wroteVia", "waitedSeconds"],
-        properties: {
-          exitCode: { type: "number" },
-          wroteVia: { type: "string", enum: ["flow-state-update", "jq"] },
-          waitedSeconds: { type: "number" },
-        },
-      },
+      schema: PHASE_B_SCHEMA,
     },
   );
 }
@@ -108,5 +111,6 @@ return {
   ran: { a: !hasA, b: !hasB },
   wroteVia: { a: a?.wroteVia ?? "skipped", b: b?.wroteVia ?? "skipped" },
   waitedSeconds: b?.waitedSeconds ?? null,
+  released: b?.released ?? null,
   nonce: args.nonce,
 };

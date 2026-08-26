@@ -5,8 +5,8 @@ Throwaway spike for epic `modernize-flow-s-supervisor-architecture` feature
 (`f6`) depends on against the Claude Code dynamic-workflow runtime (docs:
 https://code.claude.com/docs/en/workflows.md), and the verdict is recorded in
 the ADR at `docs/workflow-spike/adr.md`. Nothing under this directory is
-installed or shipped — `flow install` only discovers `bin/*.ts`; `docs/` is
-never scanned.
+installed or shipped — `flow install` materializes `bin/`, `skills/`, and
+`agents/`; `docs/` is never scanned.
 
 ## Files
 
@@ -48,7 +48,7 @@ never scanned.
    record its before-state:
 
    ```sh
-   gh pr view 674 --json state,mergedAt > docs/workflow-spike/evidence/gate-before-after.txt
+   { echo "# before (PR 674)"; gh pr view 674 --json headRefOid,mergedAt,state; } > docs/workflow-spike/evidence/gate-before-after.txt
    ```
 
 6. Reset the marker files:
@@ -99,7 +99,10 @@ Each launch's `Workflow` tool input has the shape:
    - Once it is running, `touch <worktree>/.flow-tmp/spike-release-b`.
    - Capture the completion as `evidence/run-2-resume.json` and the phaseLog
      as `afterRun2Resume`. Expect exactly ONE `verifying` entry (phase A
-     served from cache, never re-executed) and one `ci-wait` entry.
+     served from cache, never re-executed) and one `ci-wait` entry. Phase B's
+     agent polls for the marker up to a 540 s cap; past the cap it reports
+     `released:false` and skips the `flow-state-update`/`jq` write rather than
+     logging a `ci-wait` phase that never actually happened.
 4. **`probe-resume` again, WITHOUT `resumeFromRunId`** (a fresh run).
    Capture the completion as `evidence/run-3-fresh.json`; expect
    `ran: {a:false,b:false}` and the phaseLog unchanged (`afterRun3`) — the
@@ -120,7 +123,7 @@ different layout). For each transcript file:
 - `grep -o '"name":"[A-Za-z_]*"' <file> | sort | uniq -c` (tool_use names)
 
 Write one line per transcript into `evidence/models.txt`:
-`<label> <file basename> <model> <effort-field-or-none> <tools>`.
+`<agentType> | <transcript> | <model> | <effort> | <tools>`.
 
 Expected: the gatekeeper probe resolves to a haiku model id, the control
 resolves to the session model, the fix-applier probe resolves to the session
@@ -129,9 +132,10 @@ model, and the bug-detection transcript shows no `Bash` tool_use.
 ## Teardown
 
 ```sh
+jq -c . ~/.flow/state/zz-spike-wf-scratch.json > docs/workflow-spike/evidence/scratch-state-final.json
 rm -f ~/.flow/state/zz-spike-wf-scratch.json
 rm -f <worktree>/.flow-tmp/spike-phase-a.done <worktree>/.flow-tmp/spike-release-b
-gh pr view 674 --json state,mergedAt >> docs/workflow-spike/evidence/gate-before-after.txt
+{ echo "# after (PR 674)"; gh pr view 674 --json headRefOid,mergedAt,state; } >> docs/workflow-spike/evidence/gate-before-after.txt
 npx prettier --write docs/workflow-spike/evidence
 test ! -e ~/.flow/state/zz-spike-wf-scratch.json
 ```
@@ -147,15 +151,16 @@ directory in `~/.claude/projects/`, not in the worktree. If a
 
 ## Evidence files
 
-| File                       | Holds                                                        |
-| -------------------------- | ------------------------------------------------------------ |
-| `run-1-capabilities.json`  | `probe-capabilities`'s return value.                         |
-| `run-2-interrupt.json`     | The `TaskStop` result, task id, and run id.                  |
-| `run-2-resume.json`        | The resumed `probe-resume` run's completion.                 |
-| `run-3-fresh.json`         | The fresh (non-resumed) `probe-resume` run's completion.     |
-| `run-4-invalid-agent.json` | `probe-invalid-agent`'s return value.                        |
-| `models.txt`               | Per-transcript model/effort/tool_use greps.                  |
-| `phaselog.json`            | `{ afterRun2Interrupt, afterRun2Resume, afterRun3 }`.        |
-| `gate-before-after.txt`    | `gh pr view` output before and after the spike (must match). |
-| `env-precheck.txt`         | The Preconditions env checks (subagent model, helper paths). |
-| `script-path.txt`          | The script path the `Workflow` tool reported for launch 2.   |
+| File                       | Holds                                                                                                                                          |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run-1-capabilities.json`  | `probe-capabilities`'s return value.                                                                                                           |
+| `run-2-interrupt.json`     | The `TaskStop` result, task id, and run id.                                                                                                    |
+| `run-2-resume.json`        | The resumed `probe-resume` run's completion.                                                                                                   |
+| `run-3-fresh.json`         | The fresh (non-resumed) `probe-resume` run's completion.                                                                                       |
+| `run-4-invalid-agent.json` | `probe-invalid-agent`'s return value.                                                                                                          |
+| `models.txt`               | Per-transcript model/effort/tool_use greps.                                                                                                    |
+| `phaselog.json`            | `{ afterRun2Interrupt, afterRun2Resume, afterRun3 }`.                                                                                          |
+| `gate-before-after.txt`    | `gh pr view` output before and after the spike (must match).                                                                                   |
+| `env-precheck.txt`         | The Preconditions env checks (subagent model, helper paths).                                                                                   |
+| `script-path.txt`          | The script path the `Workflow` tool reported for launch 1 (`probe-invalid-agent`), plus per-launch run ids / transcript dirs for launches 2–4. |
+| `scratch-state-final.json` | The scratch state's `jq -c .` snapshot captured immediately before teardown's `rm -f` (post-run 4, `phase: "ci-wait"`).                        |
