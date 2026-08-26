@@ -125,9 +125,14 @@ it to show up as a compared metric.
 
 Matchers (exactly one required for `structured`/`json-file`/`file`):
 `equals` (deep-equal), `oneOf` (deep-equal against any member), `contains`
-(substring or array membership), `matches`/`notMatches` (regex over
-`String(actual)`), `exists` (boolean presence check — for `file`, this is
-a real filesystem existence check, not a "field is defined" check).
+(substring match — against the whole string for a string `actual`, or
+against any string element for an array `actual`), `matches`/`notMatches`
+(regex over `String(actual)`), `exists` (boolean presence check — for
+`file`, this is a real filesystem existence check, not a "field is
+defined" check). `matches`/`notMatches` stringify an array `actual` via
+`String(actual)` (comma-joined), so a pattern can span element
+boundaries — prefer `contains` when you mean "one element has this
+substring".
 
 ## Placeholders
 

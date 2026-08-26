@@ -33,7 +33,7 @@ hand-edit inside the markers.
 <!-- flow-eval-baseline:start -->
 | Suite | Candidate | Score | Git Head | Recorded At |
 | --- | --- | --- | --- | --- |
-| checkpoint-pending-clear | checkpoint-pending-clear | 0.867 | 8afb9943bf93 | 2026-08-23T21:35:07.417Z |
+| checkpoint-pending-clear | checkpoint-pending-clear | 1.000 | a30b6d8c7b0c | 2026-08-26T01:33:35.572Z |
 | haiku-gatekeeper | haiku-gatekeeper | 0.961 | 8afb9943bf93 | 2026-08-23T21:11:35.501Z |
-| verify-loop-isolation | verify-loop-subagent-isolation | 0.898 | 8afb9943bf93 | 2026-08-23T21:30:16.913Z |
+| verify-loop-isolation | verify-loop-subagent-isolation | 0.949 | a30b6d8c7b0c | 2026-08-26T01:50:00.836Z |
 <!-- flow-eval-baseline:end -->
