@@ -1,0 +1,53 @@
+{
+  "launch": "probe-resume.workflow.js (fresh relaunch, no resumeFromRunId)",
+  "runId": "wf_6e91de0c-69a",
+  "taskId": "w015dtz71",
+  "durationMs": 12701,
+  "agents": {
+    "count": 2,
+    "done": 2,
+    "error": 0
+  },
+  "subagentTokens": 81217,
+  "result": {
+    "phaseLog": [
+      {
+        "phase": "verifying",
+        "at": "2026-08-25T01:17:31.122Z"
+      },
+      {
+        "phase": "ci-wait",
+        "at": "2026-08-25T01:18:25.439Z"
+      }
+    ],
+    "ran": {
+      "a": false,
+      "b": false
+    },
+    "wroteVia": {
+      "a": "skipped",
+      "b": "skipped"
+    },
+    "waitedSeconds": null,
+    "nonce": "f5spike-20260825T010439Z"
+  },
+  "journal": [
+    {
+      "type": "started",
+      "agentId": "a38b83e3f5c48e761"
+    },
+    {
+      "type": "result",
+      "agentId": "a38b83e3f5c48e761"
+    },
+    {
+      "type": "started",
+      "agentId": "a034047bb07165e6f"
+    },
+    {
+      "type": "result",
+      "agentId": "a034047bb07165e6f"
+    }
+  ],
+  "observation": "only Read state and Phase C agents ran; A and B skipped on the phaseLog read — no cache involved (new runId)"
+}

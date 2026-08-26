@@ -1,0 +1,43 @@
+{
+  "launch": "probe-resume.workflow.js (interrupt run)",
+  "runId": "wf_75366da3-a8c",
+  "taskId": "wez1jexhr",
+  "taskStop": {
+    "message": "Successfully stopped task: wez1jexhr",
+    "task_type": "local_workflow"
+  },
+  "stoppedDuring": "Phase B (agent blocked on .flow-tmp/spike-release-b; release marker never written)",
+  "journalAtStop": [
+    {
+      "type": "started",
+      "agentId": "a2c5570593e711478",
+      "key": "v2:ca4babe8a6747b0482bbcde1ba38bcc4b5da5f9e499a80e44565d96f3"
+    },
+    {
+      "type": "result",
+      "agentId": "a2c5570593e711478",
+      "key": "v2:ca4babe8a6747b0482bbcde1ba38bcc4b5da5f9e499a80e44565d96f3"
+    },
+    {
+      "type": "started",
+      "agentId": "a63f41cbc72d54fd8",
+      "key": "v2:a42466fef4529152f96020694ea138fa4ee8475731a6c80b320564528"
+    },
+    {
+      "type": "result",
+      "agentId": "a63f41cbc72d54fd8",
+      "key": "v2:a42466fef4529152f96020694ea138fa4ee8475731a6c80b320564528"
+    },
+    {
+      "type": "started",
+      "agentId": "ad793fda3d0862842",
+      "key": "v2:f234586f46ce7bf346e53c70e3232488cdc78a260394f571c2d50991b"
+    }
+  ],
+  "phaseLogAtStop": [
+    {
+      "phase": "verifying",
+      "at": "2026-08-25T01:17:31.122Z"
+    }
+  ]
+}

@@ -157,6 +157,8 @@ The verdict is now recorded: see
 [ADR — distribution end-state verdict (p6-distribution-eval)](#adr--distribution-end-state-verdict-p6-distribution-eval)
 at the end of the Phase 6 section below.
 
+A second evidence-backed ADR from the follow-on epic lives beside its spike: [ADR — workflow-port go/no-go verdict (f5-workflow-spike)](workflow-spike/adr.md) records the go/no-go for porting pipeline steps 5–10 to a dynamic-workflow script.
+
 ---
 
 ## Gap analysis

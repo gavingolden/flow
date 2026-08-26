@@ -1,0 +1,5 @@
+/Users/gavingolden/.claude/projects/-Users-gavingolden-code-me-flow/5f74b1ca-4216-4257-a37f-4606fc10e828/subagents/workflows/wf_0c9ace42-4bb
+probe-invalid-agent: script file reported at /Users/gavingolden/code/me/flow-f5-workflow-spike/docs/workflow-spike/probe-invalid-agent.workflow.js (run wf_0c9ace42-4bb, transcript dir /Users/gavingolden/.claude/projects/-Users-gavingolden-code-me-flow/5f74b1ca-4216-4257-a37f-4606fc10e828/subagents/workflows/wf_0c9ace42-4bb)
+probe-capabilities: run wf_de7e7d14-351, transcript dir /Users/gavingolden/.claude/projects/-Users-gavingolden-code-me-flow/5f74b1ca-4216-4257-a37f-4606fc10e828/subagents/workflows/wf_de7e7d14-351
+probe-resume launch 3 (interrupt run): run wf_75366da3-a8c, transcript dir /Users/gavingolden/.claude/projects/-Users-gavingolden-code-me-flow/5f74b1ca-4216-4257-a37f-4606fc10e828/subagents/workflows/wf_75366da3-a8c
+probe-resume launch 4 (fresh relaunch, no resumeFromRunId): run wf_6e91de0c-69a, transcript dir /Users/gavingolden/.claude/projects/-Users-gavingolden-code-me-flow/5f74b1ca-4216-4257-a37f-4606fc10e828/subagents/workflows/wf_6e91de0c-69a
