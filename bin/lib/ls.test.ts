@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildRows as buildRowsImpl,
   formatCostCell,
+  formatEpicCell,
   formatNameCell,
   formatRepoCell,
   printOrphanRecovery,
@@ -101,6 +102,26 @@ describe(buildRows, () => {
     expect(rows[0].annotation).toBe("(no state)");
     expect(rows[0].phase).toBe("—");
     expect(rows[0].pr).toBe("—");
+    expect(rows[0].epic).toBe("");
+  });
+
+  it("pulls the epic slug from state.epic for an epic-launched pipeline", async () => {
+    const rows = await buildRows(
+      [
+        state({
+          slug: "csv-export",
+          epic: { slug: "checkout-revamp", featureId: "csv-export" },
+        }),
+      ],
+      [window({ name: "csv-export" })],
+      NOW,
+    );
+    expect(rows[0].epic).toBe("checkout-revamp");
+  });
+
+  it("renders an empty epic field for a non-epic pipeline", async () => {
+    const rows = await buildRows([state({ slug: "csv-export" })], [], NOW);
+    expect(rows[0].epic).toBe("");
   });
 
   it("falls back to tmux activity for (no state) rows", async () => {
@@ -593,6 +614,16 @@ describe(formatRepoCell, () => {
   });
 });
 
+describe(formatEpicCell, () => {
+  it("renders — for a pipeline that isn't epic-launched", () => {
+    expect(formatEpicCell("")).toBe("—");
+  });
+
+  it("renders the epic slug verbatim for an epic-launched pipeline", () => {
+    expect(formatEpicCell("checkout-revamp")).toBe("checkout-revamp");
+  });
+});
+
 describe("runLsCli (--help / -h short-circuit)", () => {
   // The help check must precede every state read and tmux query so the
   // shim is safe to invoke even when ~/.flow/state/ is unreadable.
@@ -641,6 +672,29 @@ describe("runLs empty state (Story 5 cross-verb voice)", () => {
     expect(code).toBe(0);
     expect(log).toHaveBeenCalledTimes(1);
     expect(String(log.mock.calls[0][0])).toBe("flow ls: no active pipelines");
+  });
+});
+
+describe("runLs — printed table header", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("the header row includes an EPIC column (unit-automates PR Test Steps item 4: `bun bin/flow ls | head -1 | grep -q 'EPIC'`)", async () => {
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "some-pipeline", phase: "verifying", repo: "/repo" }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+
+    expect(code).toBe(0);
+    const headerLine = String(log.mock.calls[0][0]);
+    expect(headerLine).toContain("EPIC");
   });
 });
 
@@ -765,6 +819,7 @@ describe("runLs — orphan recovery footnote", () => {
     const falseFlagCrashed: Row = {
       name: "false-flag",
       repo: "/repo",
+      epic: "",
       phase: "merged",
       pr: "—",
       lastActivity: "—",
@@ -775,6 +830,7 @@ describe("runLs — orphan recovery footnote", () => {
     const trueFlagHealthyLooking: Row = {
       name: "true-flag",
       repo: "/repo",
+      epic: "",
       phase: "verifying",
       pr: "—",
       lastActivity: "—",

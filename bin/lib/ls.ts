@@ -71,6 +71,8 @@ export type LsOptions = {
 export type Row = {
   name: string;
   repo: string;
+  /** Epic slug from state.epic, or "" when this pipeline isn't epic-launched. */
+  epic: string;
   phase: string;
   pr: string;
   lastActivity: string;
@@ -251,6 +253,7 @@ export async function buildRows(
     rows.push({
       name: state.slug,
       repo: path.basename(state.repo),
+      epic: state.epic?.slug ?? "",
       phase: state.phase || "—",
       pr: state.pr ? `#${state.pr}` : "—",
       lastActivity: lastActivityFrom(state.updatedAt, nowMs),
@@ -270,6 +273,7 @@ export async function buildRows(
     rows.push({
       name: window.name,
       repo: "",
+      epic: "",
       phase: "—",
       pr: "—",
       lastActivity:
@@ -306,6 +310,12 @@ export function formatRepoCell(repo: string): string {
   return repo || "—";
 }
 
+/** Renders the EPIC column cell — empty when this pipeline isn't
+ * epic-launched (never derived from tmux; state.json is the source). */
+export function formatEpicCell(epic: string): string {
+  return epic || "—";
+}
+
 /** Composes the NAME cell: base name, then any drift annotation, then a
  * `(wait-copilot)` marker — the two coexist rather than excluding each other. */
 export function formatNameCell(row: Row): string {
@@ -320,6 +330,7 @@ function printTable(rows: Row[], opts: LsOptions): void {
   const cols: Col[] = [
     { header: "NAME", get: (r) => formatNameCell(r) },
     { header: "REPO", get: (r) => formatRepoCell(r.repo) },
+    { header: "EPIC", get: (r) => formatEpicCell(r.epic) },
     { header: "PHASE", get: (r) => r.phase },
     { header: "PR", get: (r) => r.pr },
     { header: "LAST ACTIVITY", get: (r) => r.lastActivity },

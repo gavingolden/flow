@@ -77,6 +77,7 @@ import {
   createWindowVerified,
   respawnWindowVerified,
   setPaneKind,
+  setWindowEpic,
   windowExists,
   isPaneAlive,
   FLOW_SESSION,
@@ -621,6 +622,10 @@ PR → review checkpoint), and writes initial epic state under
   // pane id. Read by the SessionStart:clear hook to pick the right resume
   // seed and to bypass the terminal guard for a real epic-run window.
   setPaneKind(slug, "epic-design");
+  // Best-effort self-publish (OQ-1): an epic-design window's own slug IS the
+  // epic slug, so it groups with its feature windows in tree-view formats
+  // binding #{@flow-epic}. Never changes this command's exit code.
+  setWindowEpic(slug, slug);
 
   // State was written up front and survived verification; the /flow-epic-create
   // supervisor overwrites worktree + phase + pr at each transition from here.
@@ -744,6 +749,10 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // survive from the wrong supervisor kind. Best-effort; never changes the
   // exit code.
   setPaneKind(slug, "epic-design");
+  // Best-effort self-publish (OQ-1), mirrors runCreate — respawnWindowVerified
+  // reuses the pane and never re-seeds window options, so a resumed epic-design
+  // window needs this republish too. Never changes this command's exit code.
+  setWindowEpic(slug, slug);
 
   // Phase + worktree + pr stay as the crash left them. The supervisor's first
   // real transition is what updates state.json.
@@ -1005,6 +1014,10 @@ function spawnEpicRunSupervisor(
   // window even though `state.phase` (shared with the design supervisor)
   // sits at the terminal `epic-approved`.
   setPaneKind(slug, "epic-run");
+  // Best-effort self-publish (OQ-1): an epic-run window's own slug IS the
+  // epic slug, so it groups with its feature windows in tree-view formats
+  // binding #{@flow-epic}. Never changes this command's exit code.
+  setWindowEpic(slug, slug);
 
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);

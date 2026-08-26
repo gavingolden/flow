@@ -248,7 +248,7 @@ three-layer resolution table, and the manifest/foundation fields — is at
   artifacts — the plain shell is the DEFAULT launcher and tmux is
   opt-in, so a bare install has no pane/window options at all. flow's
   tmux options (`@flow-slug`, `@flow-phase`, `@flow-repo`,
-  `@flow-phase-short`, `@flow-kind`) are additive, publish-only
+  `@flow-phase-short`, `@flow-kind`, `@flow-epic`) are additive, publish-only
   convenience mirrors. Exception: a surface that is ALREADY tmux-only by
   an independent hard constraint (epic orchestration, which refuses a
   non-tmux backend) may read a pane option, but only when the tmux-only

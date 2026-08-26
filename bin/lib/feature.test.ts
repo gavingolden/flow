@@ -55,6 +55,11 @@ const tmuxMock = vi.hoisted(() => ({
   // fake pid keeps every pre-existing launch-path test passing unmodified —
   // panePid is a genuinely new call site those tests never anticipated.
   panePid: vi.fn<(slug: string) => number | null>(() => 4242),
+  // Best-effort epic tree-view publish (OQ-1) — defaults to ok so the
+  // happy paths pass without per-test setup.
+  setWindowEpic: vi.fn<
+    (slug: string, epicSlug: string) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
   FLOW_SESSION: "flow",
 }));
 vi.mock("./tmux", () => tmuxMock);
@@ -386,6 +391,44 @@ describe("runNew --resume", () => {
     expect(logs[1]).toBe(
       "flow feature resume: resumed — attach with `flow attach crashed`",
     );
+  });
+
+  it("republishes @flow-epic on resume of an epic-launched pipeline (setWindowEpic called with preResume.epic.slug)", () => {
+    writeState(
+      {
+        slug: "epic-resume",
+        phase: "verifying",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+        epic: { slug: "my-epic", featureId: "feature-a" },
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const code = runNew("epic-resume", {
+      resume: true,
+      stateDir,
+      launchSettingsPath: path.join(stateDir, "launch-settings.json"),
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.setWindowEpic).toHaveBeenCalledWith(
+      "epic-resume",
+      "my-epic",
+    );
+  });
+
+  it("does NOT publish @flow-epic on resume of a non-epic pipeline", () => {
+    seedState("crashed-no-epic");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const code = runNew("crashed-no-epic", {
+      resume: true,
+      stateDir,
+      launchSettingsPath: path.join(stateDir, "launch-settings.json"),
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.setWindowEpic).not.toHaveBeenCalled();
   });
 
   it("recreates the window when tmux has lost it (no window, dead pane)", () => {
@@ -2854,6 +2897,9 @@ describe("runFresh — --epic <epic-slug>/<feature-id> (Task 7 / Story 8)", () =
     expect(seed).toBe(
       "[pipeline-slug: some-desc]\nUse the /flow-pipeline skill for: some desc",
     );
+    // Best-effort epic tree-view publish (OQ-1): runFresh self-publishes
+    // @flow-epic on the epic-launched window once the launch is confirmed live.
+    expect(tmuxMock.setWindowEpic).toHaveBeenCalledWith("some-desc", "my-epic");
   });
 
   it("combines with an explicit --slug (order-independent) without collision", () => {
@@ -2891,6 +2937,8 @@ describe("runFresh — --epic <epic-slug>/<feature-id> (Task 7 / Story 8)", () =
       fs.readFileSync(path.join(stateDir, "some-desc.json"), "utf8"),
     );
     expect(state.epic).toBeUndefined();
+    // No --epic ⇒ no @flow-epic publish call at all.
+    expect(tmuxMock.setWindowEpic).not.toHaveBeenCalled();
   });
 
   it.each([

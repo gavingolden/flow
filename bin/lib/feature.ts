@@ -28,6 +28,7 @@ import {
   isPaneAlive,
   panePid,
   FLOW_SESSION,
+  setWindowEpic,
   type VerifiedLaunchResult,
 } from "./tmux";
 import { livenessOf, pidStartEpoch } from "./liveness";
@@ -980,6 +981,13 @@ function runFresh(
     return 1;
   }
 
+  // Best-effort epic tree-view badge (OQ-1): publish @flow-epic once the
+  // launch is confirmed live. Failures are ignored — @flow-epic is a
+  // publish-only tmux mirror, never load-bearing state.
+  if (options.epic) {
+    setWindowEpic(slug, options.epic.slug);
+  }
+
   // Launch breadcrumb: fold attempts/outcome into the CURRENT on-disk state
   // (re-read after withLaunchSlot returned — never baseState; the final
   // attempt count doesn't exist inside the per-attempt closure, and a
@@ -1245,6 +1253,14 @@ function runResume(
     );
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 1;
+  }
+
+  // Best-effort epic tree-view badge (OQ-1), mirroring runFresh: publish
+  // @flow-epic once the (re)launch is confirmed live. respawnWindowVerified
+  // never re-seeds window options, so this republish is the only place a
+  // resumed epic window's @flow-epic gets (re)set.
+  if (preResume?.epic) {
+    setWindowEpic(slug, preResume.epic.slug);
   }
 
   // Launch breadcrumb, mirroring runFresh: fold attempts/outcome into the

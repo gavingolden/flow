@@ -53,6 +53,11 @@ const tmuxMock = vi.hoisted(() => ({
   setPaneKind: vi.fn<
     (slug: string, kind: string) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
+  // Best-effort epic tree-view self-publish (OQ-1) — defaults to ok so the
+  // happy paths pass without per-test setup.
+  setWindowEpic: vi.fn<
+    (slug: string, epicSlug: string) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
   FLOW_SESSION: "flow",
 }));
 vi.mock("./tmux", () => tmuxMock);
@@ -259,6 +264,13 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(
       command.some((a) => a.includes("Use the /flow-epic-create skill")),
     ).toBe(false);
+    // Best-effort self-publish (OQ-1): an epic-design window's own slug IS
+    // the epic slug, so it groups with its feature windows in tree-view
+    // formats binding #{@flow-epic}.
+    expect(tmuxMock.setWindowEpic).toHaveBeenCalledWith(
+      "add-watchlist-feature",
+      "add-watchlist-feature",
+    );
   });
 
   it("does NOT merge or launch any feature window (no respawn on a fresh create)", () => {
@@ -1104,6 +1116,13 @@ describe("runEpicCli create --resume", () => {
       command.some((a) => a.includes("Use the /flow-epic-create skill")),
     ).toBe(false);
     expect(logs[0]).toBe("flow:crashed-epic");
+    // Best-effort self-publish (OQ-1), mirrors runCreate: respawnWindowVerified
+    // reuses the pane and never re-seeds window options, so the resumed
+    // epic-design window needs this republish too.
+    expect(tmuxMock.setWindowEpic).toHaveBeenCalledWith(
+      "crashed-epic",
+      "crashed-epic",
+    );
   });
 
   it("publishes @flow-kind=epic-design AFTER the respawn — this is the site that overwrites a stale epic-run left by respawn-window -k", () => {
@@ -1413,6 +1432,13 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(code).toBe(0);
     expect(tmuxMock.setPaneKind).toHaveBeenCalledWith("spawn-epic", "epic-run");
     expect(tmuxMock.createWindowVerified).toHaveBeenCalled();
+    // Best-effort self-publish (OQ-1): an epic-run window's own slug IS the
+    // epic slug, so it groups with its feature windows in tree-view formats
+    // binding #{@flow-epic}.
+    expect(tmuxMock.setWindowEpic).toHaveBeenCalledWith(
+      "spawn-epic",
+      "spawn-epic",
+    );
   });
 
   it("a failing setPaneKind never changes the run command's exit code (best-effort; return value ignored)", () => {
