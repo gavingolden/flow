@@ -82,9 +82,13 @@ Before recording, confirm
 every agent definition the suites you're about to run spawn (notably
 `flow-verify.md`) — `probeFlowInstall` only stats the agents
 **directory**, never individual definitions, so a partial install still
-passes the precondition check and instead reaches
-`NOTICE — agent-fallback:` at run time, scoring as a red on the
-no-agent-fallback grader rather than a named skip.
+passes the precondition check and silently degrades to `general-purpose`
+at run time (losing the agent's tool allowlist). This is worse than a
+red, not better: the `no-agent-fallback` grader reads `notMatches` over
+`$ASSISTANT_TEXT`, which excludes tool-result output, so the `echo`'d
+`NOTICE — agent-fallback:` line only turns it red if the supervisor
+happens to restate it in assistant-role prose — not guaranteed. Treat
+this as a manual pre-flight check, not a grader-enforced one.
 
 ```sh
 bun bin/flow-eval.ts run --all --out .flow-tmp/eval --record-baseline

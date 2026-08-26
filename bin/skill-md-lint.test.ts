@@ -2355,6 +2355,22 @@ describe("Compact Instructions + verify-loop-instructions structural anchors", (
       ).toBe(true);
     }
   });
+
+  it("flow-pipeline SKILL.md step 6 writes the verifying phase INSIDE the spawn-prep fence", () => {
+    const step6 = content.slice(content.indexOf("## Step 6 — Local verify"));
+    const fenceStart = step6.indexOf("```bash");
+    const fence = step6.slice(fenceStart, step6.indexOf("```", fenceStart + 7));
+    expect(
+      fence.includes("flow-state-update --phase verifying"),
+      "step 6's phase write must live inside the spawn-prep bash fence, not a " +
+        "standalone block — measured at 7/10 skipped when it stood alone.",
+    ).toBe(true);
+    expect(
+      /```bash\n#[^`]*?\nflow-state-update --phase verifying/.test(step6),
+      "the phase write must be the fence's first command so skipping it means " +
+        "skipping the spawn setup.",
+    ).toBe(true);
+  });
 });
 
 describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md ↔ flow-coder/SKILL.md)", () => {

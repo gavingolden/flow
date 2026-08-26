@@ -74,6 +74,9 @@ function deepEqual(a: unknown, b: unknown): boolean {
  * against any string element of an array `actual`;
  * `matches`/`notMatches` — regex over `String(actual)`; `exists` —
  * `actual !== undefined` (compared against the expected boolean).
+ * A literal `null` is a usable `equals` expected value (it deep-equals an
+ * `actual` of `null`), but an omitted/`undefined` `actual` never matches
+ * it — use this to assert a required field is present-but-null.
  */
 export function matchValue(
   m: Matcher,
