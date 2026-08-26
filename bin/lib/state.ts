@@ -167,7 +167,9 @@ export type PipelineState = {
    * discovery spawn prompt — the primary epic-detection signal (the
    * description pointer and manifest scan are fallbacks). Optional-additive:
    * absent ≡ not epic-launched; no migration (AGENTS.md: no back-compat
-   * shims).
+   * shims) for fresh writes — `readState` still normalizes a literal
+   * `epic: null` (from a legacy or hand-edited state file) to absent before
+   * validation, since a fresh JSON.stringify can never emit that shape.
    */
   epic?: { slug: string; featureId: string };
   /**
@@ -812,11 +814,12 @@ export function readState(
     const raw = fs.readFileSync(file, "utf8");
     const parsed: unknown = JSON.parse(raw);
     // Normalize a literal `epic: null` to absent BEFORE validation —
-    // isPipelineState's epic-membership check rejects null, and a JSON
-    // round-trip (e.g. `flow-state-update` re-serializing an object with
-    // `epic: undefined`) can produce a literal null. Absent ≡ not
-    // epic-launched (state.ts:169), so this is a normalization, not a
-    // widening of the PipelineState.epic type.
+    // isPipelineState's epic-membership check rejects null. JSON.stringify
+    // omits an `epic: undefined` key entirely, so a fresh `flow-state-update`
+    // write can never produce a literal null; the real producer is a legacy
+    // or hand-edited state file written with an explicit `"epic": null`.
+    // Absent ≡ not epic-launched (state.ts:169), so this is a
+    // normalization, not a widening of the PipelineState.epic type.
     if (
       parsed !== null &&
       typeof parsed === "object" &&

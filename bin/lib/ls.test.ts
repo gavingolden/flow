@@ -675,6 +675,29 @@ describe("runLs empty state (Story 5 cross-verb voice)", () => {
   });
 });
 
+describe("runLs — printed table header", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("the header row includes an EPIC column (unit-automates PR Test Steps item 4: `bun bin/flow ls | head -1 | grep -q 'EPIC'`)", async () => {
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "some-pipeline", phase: "verifying", repo: "/repo" }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+
+    expect(code).toBe(0);
+    const headerLine = String(log.mock.calls[0][0]);
+    expect(headerLine).toContain("EPIC");
+  });
+});
+
 describe("runLs — orphan recovery footnote", () => {
   afterEach(() => {
     vi.restoreAllMocks();

@@ -39,12 +39,16 @@ export const FLOW_PHASE_OPTION = "@flow-phase";
 export const FLOW_REPO_OPTION = "@flow-repo";
 /**
  * Window option holding the epic slug when this pipeline was launched as
- * part of an epic (`flow epic run` / `flow epic design`). Same
- * additive/opt-in/publish-only contract as `@flow-phase` / `@flow-repo`:
- * flow sets it on its own windows so a status-bar format or a tree-view
- * layout can group windows by binding `#{@flow-epic}`, never writing the
- * user's tmux config. Best-effort — a non-zero `set-option` exit is
- * swallowed and never blocks window creation.
+ * part of an epic (`flow epic run` / `flow epic design`), or self-published
+ * on a directly-launched epic feature window (`flow feature create --epic
+ * <slug>/<feature-id>`). Same additive/opt-in/publish-only contract as
+ * `@flow-phase` / `@flow-repo`: flow sets it so a status-bar format or a
+ * tree-view layout can group windows by binding `#{@flow-epic}`, never
+ * writing the user's tmux config. Best-effort — a non-zero `set-option`
+ * exit is swallowed and never blocks a launch or resume. Note: for an
+ * epic-launched FEATURE window this option is published post-launch (once
+ * `setWindowEpic` runs against the freshly-created window), not at the
+ * moment of window creation itself.
  */
 export const FLOW_EPIC_OPTION = "@flow-epic";
 /**
