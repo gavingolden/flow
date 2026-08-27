@@ -193,6 +193,27 @@ export type PipelineState = {
    */
   seedIngestedAt?: string;
   /**
+   * The exact seed text this launch attempt intended to deliver, recorded by
+   * every tmux launch/resume path (`feature.ts`, `epic.ts`,
+   * `flow-session-start-hook.ts`) BEFORE delivery. On a `seedCorrupted()`
+   * failure, the launcher reads this field back and prints it directly in
+   * the CLI error output — this state file is reaped by `flow ls`'s lazy
+   * orphan sweep shortly after (~60s), so it is not a durable recovery
+   * source on its own. Also gives `flow-seed-ingested-hook` something to
+   * compare the UserPromptSubmit payload against. Additive — no migration
+   * (AGENTS.md: no back-compat shims).
+   */
+  seed?: string;
+  /**
+   * Recorded by `flow-seed-ingested-hook` when the UserPromptSubmit payload
+   * does not contain `state.seed` intact — the observable signature of a
+   * corrupted/truncated seed delivery. Presence (without a paired
+   * `seedIngestedAt`) is what `tmux.ts`'s `seedCorrupted()` predicate treats
+   * as a hard launch failure. Kept to exactly a timestamp plus two byte
+   * counts — no diff, chunk index, or retry history.
+   */
+  seedMismatch?: { at: string; expectedBytes: number; submittedBytes: number };
+  /**
    * Crash-safe liveness signal: the OS-level PID of the pane's foreground
    * process at launch time (see `tmux.panePid`), paired with `procStartedAt`
    * below. Together they let `livenessOf` (`bin/lib/liveness.ts`)
@@ -706,6 +727,17 @@ function isPhaseLog(
   return true;
 }
 
+function isSeedMismatch(
+  v: unknown,
+): v is NonNullable<PipelineState["seedMismatch"]> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  if (typeof o.at !== "string") return false;
+  if (typeof o.expectedBytes !== "number") return false;
+  if (typeof o.submittedBytes !== "number") return false;
+  return true;
+}
+
 function isUntrackedList(x: unknown): x is UntrackedItem[] {
   if (!Array.isArray(x)) return false;
   for (const e of x) {
@@ -785,6 +817,9 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.untracked !== undefined && !isUntrackedList(o.untracked)) return false;
   if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
     return false;
+  if (o.seed !== undefined && typeof o.seed !== "string") return false;
+  if (o.seedMismatch !== undefined && !isSeedMismatch(o.seedMismatch))
+    return false;
   if (o.pid !== undefined && typeof o.pid !== "number") return false;
   if (o.procStartedAt !== undefined && typeof o.procStartedAt !== "number")
     return false;
@@ -835,10 +870,17 @@ export function readState(
 }
 
 export function writeState(state: PipelineState, dir = FLOW_STATE_DIR): void {
-  fs.mkdirSync(dir, { recursive: true });
+  // 0o700 / 0o600: `state.seed` now persists the verbatim launch prompt, the
+  // same data class `proc-registry.ts` already restricts for the same reason
+  // (argv/prompt text routinely carries secrets passed as flags). `mode` only
+  // applies at creation time — an already-existing world-readable dir/file
+  // from before this change is not retroactively tightened; same limitation
+  // `proc-registry.ts` already accepts.
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(
     statePath(state.slug, dir),
     JSON.stringify(state, null, 2) + "\n",
+    { mode: 0o600 },
   );
 }
 

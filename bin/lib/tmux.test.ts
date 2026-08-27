@@ -17,6 +17,7 @@ import {
   resolveKindFromPane,
   resolveSlugFromPane,
   respawnWindowVerified,
+  SEED_CORRUPTED_STDERR,
   seedWindowOptions,
   setPaneKind,
   setWindowEpic,
@@ -426,6 +427,59 @@ describe(createWindowVerified, () => {
   });
 
   it("Case B: create ok, pane ready (non-empty), seed delivered + consumed → status 'started' and never kills", () => {
+    const kill = vi.fn(() => true);
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      SEED,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill,
+        sleep: noopSleep,
+        readPane,
+        consumed,
+        sendKeys,
+        ...budget,
+      },
+    );
+    expect(result).toEqual({ status: "started", stderr: "" });
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("Case B2: a recorded seedMismatch (seedCorrupted() true) after an otherwise-successful consume poll → status 'failed' with SEED_CORRUPTED_STDERR AND kills the window", () => {
+    // Same setup as Case B (pane ready, seed delivered, consumed() flips true),
+    // but the caller's seedCorrupted() predicate reports a recorded mismatch —
+    // this must override the successful consume result, not merely add to it.
+    const kill = vi.fn(() => true);
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      SEED,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill,
+        sleep: noopSleep,
+        readPane,
+        consumed,
+        sendKeys,
+        seedCorrupted: () => true,
+        ...budget,
+      },
+    );
+    expect(result).toEqual({ status: "failed", stderr: SEED_CORRUPTED_STDERR });
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(kill).toHaveBeenCalledWith("csv-export", "flow");
+  });
+
+  it("default-absent seedCorrupted leaves a successful launch untouched", () => {
+    // No seedCorrupted passed at all — every existing caller/spec must be
+    // unaffected by the new deps field defaulting to () => false.
     const kill = vi.fn(() => true);
     const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
     const result = createWindowVerified(
@@ -1003,6 +1057,50 @@ describe(respawnWindowVerified, () => {
   const budget = { readyAttempts: 3, consumeAttempts: 3 };
 
   it("respawn ok, pane ready, seed delivered + consumed → status 'started'", () => {
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
+    const result = respawnWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      SEED,
+      {
+        respawn: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        sleep: noopSleep,
+        readPane,
+        consumed,
+        sendKeys,
+        ...budget,
+      },
+    );
+    expect(result).toEqual({ status: "started", stderr: "" });
+  });
+
+  it("a recorded seedMismatch (seedCorrupted() true) after an otherwise-successful consume poll → status 'failed' with SEED_CORRUPTED_STDERR, and NEVER kills (resume stays non-destructive)", () => {
+    const kill = vi.fn(() => true);
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
+    const result = respawnWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      SEED,
+      {
+        respawn: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        sleep: noopSleep,
+        readPane,
+        consumed,
+        sendKeys,
+        seedCorrupted: () => true,
+        ...budget,
+        kill,
+      } as Parameters<typeof respawnWindowVerified>[4],
+    );
+    expect(result).toEqual({ status: "failed", stderr: SEED_CORRUPTED_STDERR });
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("default-absent seedCorrupted leaves a successful resume untouched", () => {
     const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
     const result = respawnWindowVerified(
       "csv-export",

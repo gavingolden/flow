@@ -21,6 +21,7 @@ function makeDeps(opts: {
   slug?: string;
   flowSlugEnv?: string;
   state?: PipelineState | null;
+  readStdin?: () => Promise<string>;
 }): { deps: Deps; saveState: ReturnType<typeof vi.fn> } {
   const saveState = vi.fn();
   const deps: Deps = {
@@ -30,37 +31,41 @@ function makeDeps(opts: {
     loadState: () => opts.state ?? null,
     saveState,
     nowIso: () => FROZEN_NOW,
+    // Default: benign empty payload. Every existing test's state carries no
+    // `seed`, so the no-seed early-exit means this is never actually invoked
+    // unless a test explicitly overrides it to exercise the comparison path.
+    readStdin: opts.readStdin ?? (async () => ""),
   };
   return { deps, saveState };
 }
 
 describe("flow-seed-ingested-hook", () => {
-  it("stamps seedIngestedAt given a flow-session env", () => {
+  it("stamps seedIngestedAt given a flow-session env", async () => {
     const { deps, saveState } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState(),
     });
-    expect(run(deps)).toBe(0);
+    await expect(run(deps)).resolves.toBe(0);
     expect(saveState).toHaveBeenCalledTimes(1);
     expect(saveState).toHaveBeenCalledWith(
       expect.objectContaining({ slug: "demo", seedIngestedAt: FROZEN_NOW }),
     );
   });
 
-  it("stamps via FLOW_SLUG with no pane at all (plain launcher)", () => {
+  it("stamps via FLOW_SLUG with no pane at all (plain launcher)", async () => {
     const { deps, saveState } = makeDeps({
       pane: undefined,
       flowSlugEnv: "demo",
       state: fakeState(),
     });
-    expect(run(deps)).toBe(0);
+    await expect(run(deps)).resolves.toBe(0);
     expect(saveState).toHaveBeenCalledWith(
       expect.objectContaining({ slug: "demo", seedIngestedAt: FROZEN_NOW }),
     );
   });
 
-  it("ignores a shape-invalid FLOW_SLUG and falls back to the pane", () => {
+  it("ignores a shape-invalid FLOW_SLUG and falls back to the pane", async () => {
     const loadCalls: string[] = [];
     const saveState = vi.fn();
     const deps: Deps = {
@@ -73,58 +78,59 @@ describe("flow-seed-ingested-hook", () => {
       },
       saveState,
       nowIso: () => FROZEN_NOW,
+      readStdin: async () => "",
     };
-    expect(run(deps)).toBe(0);
+    await expect(run(deps)).resolves.toBe(0);
     expect(loadCalls).toEqual(["pane-slug"]);
   });
 
-  it("no-ops when not in tmux (pane undefined)", () => {
+  it("no-ops when not in tmux (pane undefined)", async () => {
     const { deps, saveState } = makeDeps({
       pane: undefined,
       slug: "demo",
       state: fakeState(),
     });
-    expect(run(deps)).toBe(0);
+    await expect(run(deps)).resolves.toBe(0);
     expect(saveState).not.toHaveBeenCalled();
   });
 
-  it("no-ops when @flow-slug is empty (not a flow window)", () => {
+  it("no-ops when @flow-slug is empty (not a flow window)", async () => {
     const { deps, saveState } = makeDeps({
       pane: "%1",
       slug: "",
       state: fakeState(),
     });
-    expect(run(deps)).toBe(0);
+    await expect(run(deps)).resolves.toBe(0);
     expect(saveState).not.toHaveBeenCalled();
   });
 
-  it("no-ops when state.json is missing for the slug", () => {
+  it("no-ops when state.json is missing for the slug", async () => {
     const { deps, saveState } = makeDeps({
       pane: "%1",
       slug: "ghost",
       state: null,
     });
-    expect(run(deps)).toBe(0);
+    await expect(run(deps)).resolves.toBe(0);
     expect(saveState).not.toHaveBeenCalled();
   });
 
-  it("is idempotent: does not re-stamp a state that already has the marker", () => {
+  it("is idempotent: does not re-stamp a state that already has the marker", async () => {
     const { deps, saveState } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState({ seedIngestedAt: "2026-06-27T12:00:00.000Z" }),
     });
-    expect(run(deps)).toBe(0);
+    await expect(run(deps)).resolves.toBe(0);
     expect(saveState).not.toHaveBeenCalled();
   });
 
-  it("preserves the rest of the state when stamping (spread, not replace)", () => {
+  it("preserves the rest of the state when stamping (spread, not replace)", async () => {
     const { deps, saveState } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState({ phase: "starting", pr: 7, effort: "high" }),
     });
-    run(deps);
+    await run(deps);
     expect(saveState).toHaveBeenCalledWith(
       expect.objectContaining({
         slug: "demo",
@@ -134,6 +140,128 @@ describe("flow-seed-ingested-hook", () => {
         seedIngestedAt: FROZEN_NOW,
       }),
     );
+  });
+
+  describe("seed integrity comparison (state.seed present)", () => {
+    const SEED =
+      "[pipeline-slug: demo]\nUse the /flow-pipeline skill for: csv export";
+
+    it("stamps seedIngestedAt (never seedMismatch) when the submitted prompt contains the seed intact", async () => {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed: SEED }),
+        readStdin: async () =>
+          JSON.stringify({ hook_event_name: "UserPromptSubmit", prompt: SEED }),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledWith(
+        expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
+      );
+      const written = saveState.mock.calls[0]![0] as PipelineState;
+      expect(written.seedMismatch).toBeUndefined();
+    });
+
+    it("a supervisor preamble/trailing note around the intact seed still counts (containment, not equality)", async () => {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed: SEED }),
+        readStdin: async () =>
+          JSON.stringify({
+            hook_event_name: "UserPromptSubmit",
+            prompt: `note: resuming\n${SEED}\n(auto-submitted)`,
+          }),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledWith(
+        expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
+      );
+    });
+
+    it("writes seedMismatch (and does NOT stamp seedIngestedAt) when the submitted prompt has the seed's MIDDLE removed — the observed truncation failure shape", async () => {
+      // This is RED on main: the pre-Task-3 hook ignores stdin entirely and
+      // always stamps seedIngestedAt regardless of what actually landed.
+      const truncated = SEED.slice(0, 10) + SEED.slice(-10); // drop the middle
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed: SEED }),
+        readStdin: async () =>
+          JSON.stringify({
+            hook_event_name: "UserPromptSubmit",
+            prompt: truncated,
+          }),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledTimes(1);
+      const written = saveState.mock.calls[0]![0] as PipelineState;
+      expect(written.seedIngestedAt).toBeUndefined();
+      expect(written.seedMismatch).toEqual({
+        at: FROZEN_NOW,
+        expectedBytes: Buffer.byteLength(SEED, "utf8"),
+        submittedBytes: Buffer.byteLength(truncated, "utf8"),
+      });
+    });
+
+    it("behaves exactly as today (stamps, no comparison) when state.seed is absent, never invoking readStdin", async () => {
+      const readStdin = vi.fn(async () => {
+        throw new Error("must not be called when state.seed is absent");
+      });
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState(),
+        readStdin,
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(readStdin).not.toHaveBeenCalled();
+      expect(saveState).toHaveBeenCalledWith(
+        expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
+      );
+    });
+
+    it("behaves exactly as today (stamps, exits 0) when stdin is unreadable", async () => {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed: SEED }),
+        readStdin: async () => {
+          throw new Error("pipe closed");
+        },
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledWith(
+        expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
+      );
+    });
+
+    it("behaves exactly as today (stamps, exits 0) when stdin is malformed JSON", async () => {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed: SEED }),
+        readStdin: async () => "{not json",
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledWith(
+        expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
+      );
+    });
+
+    it("behaves exactly as today (stamps, exits 0) when the payload has no `prompt` field", async () => {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed: SEED }),
+        readStdin: async () =>
+          JSON.stringify({ hook_event_name: "UserPromptSubmit" }),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledWith(
+        expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
+      );
+    });
   });
 });
 

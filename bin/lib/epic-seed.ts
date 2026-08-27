@@ -40,7 +40,13 @@ export function epicCreateSeed(
   epicDir: string,
   skillDir: string,
 ): string {
-  return `Use the /flow-epic-create skill for: ${prompt}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
+  // The leading line is capture-verified against a visible-pane-only
+  // `capture-pane -p` (see seed-delivery.ts) — an unbounded prompt on line 1
+  // can never match once it exceeds the pane height, so the leading line
+  // stays short and prompt-free and the prompt itself rides the remainder
+  // (paced + integrity-checked, never capture-verified — see
+  // seed-delivery.ts / flow-seed-ingested-hook.ts).
+  return `Use the /flow-epic-create skill for the prompt below.\n${prompt}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
 }
 
 export function epicResumeSeed(

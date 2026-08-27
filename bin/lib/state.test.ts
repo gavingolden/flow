@@ -810,6 +810,74 @@ describe("state", () => {
     expect(readState("reap-malformed", dir)).toBeNull();
   });
 
+  it("readState round-trips a valid seed and seedMismatch through writeState", () => {
+    const withSeedMismatch: PipelineState = {
+      slug: "with-seed-mismatch",
+      phase: "starting",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      seed: "[pipeline-slug: with-seed-mismatch]\nUse the /flow-pipeline skill for: x",
+      seedMismatch: {
+        at: "2026-05-17T00:01:00Z",
+        expectedBytes: 72,
+        submittedBytes: 40,
+      },
+    };
+    writeState(withSeedMismatch, dir);
+    expect(readState("with-seed-mismatch", dir)).toEqual(withSeedMismatch);
+  });
+
+  it("readState accepts absent seed and seedMismatch fields", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "seed-absent.json"),
+      JSON.stringify({
+        slug: "seed-absent",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    const got = readState("seed-absent", dir);
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("seed");
+    expect(got).not.toHaveProperty("seedMismatch");
+  });
+
+  it("readState returns null when seed is not a string", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "seed-bad-type.json"),
+      JSON.stringify({
+        slug: "seed-bad-type",
+        phase: "starting",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        seed: 12345,
+      }),
+    );
+    expect(readState("seed-bad-type", dir)).toBeNull();
+  });
+
+  it("readState returns null when seedMismatch is malformed", () => {
+    // seedMismatch must be { at, expectedBytes, submittedBytes }. A record
+    // missing submittedBytes makes readState reject the WHOLE state file
+    // (returns null), same whole-file-rejection discipline as the other
+    // record-shaped optional fields (reap, ciWait, checkpoint).
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "seed-mismatch-malformed.json"),
+      JSON.stringify({
+        slug: "seed-mismatch-malformed",
+        phase: "starting",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        seedMismatch: { at: "2026-05-17T00:01:00Z", expectedBytes: 72 },
+      }),
+    );
+    expect(readState("seed-mismatch-malformed", dir)).toBeNull();
+  });
+
   it("readState round-trips a valid ciWait record through writeState", () => {
     const withCiWait: PipelineState = {
       slug: "with-ci-wait",
