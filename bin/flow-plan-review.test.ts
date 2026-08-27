@@ -1235,6 +1235,91 @@ describe("run — deep tier reviewer engagement demotion", () => {
   });
 });
 
+describe("run — deep tier near-cap demotion (durationMs fallback)", () => {
+  // Reviewer 2's configured cap is 900s (REVIEWER_2_TIMEOUT = "15m"). A
+  // fanout entry whose pool-observed durationMs lands within
+  // NEAR_CAP_SLACK_SEC (10s) of that cap must be treated as
+  // reviewer-timeout even on a clean exit:0 non-engaging demotion — the
+  // exact "killed agy exits 0 with a partial" case this fallback exists
+  // for. `durationSeconds` is deliberately absent from both entries below:
+  // this module never sets `outputFormat: "json"` on its manifest, so
+  // flow-delegate never lifts a `durationSeconds` field in production —
+  // pinning the fixture on `durationSeconds` would assert a branch that
+  // can never fire.
+  const NON_ENGAGING_PROSE =
+    "This plan looks fine overall and I have nothing further to add here.";
+
+  it("maps a near-cap exit-0 demotion to reviewer-timeout even without an agy-timeout skipReason", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        const artifactPath0 = `${input.outPath}.artifact.0.md`;
+        const artifactPath1 = `${input.outPath}.artifact.1.md`;
+        deps.files.set(artifactPath0, AGY_PROSE);
+        deps.files.set(artifactPath1, NON_ENGAGING_PROSE);
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath: artifactPath0,
+              durationMs: 100_000,
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ran: true,
+              artifactPath: artifactPath1,
+              durationMs: 895_000, // 895s: within the 10s slack of the 900s cap
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.reviewers[1].skipReason).toBe("reviewer-timeout");
+  });
+
+  it("does NOT demote to reviewer-timeout when the observed duration is well under the cap", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        const artifactPath0 = `${input.outPath}.artifact.0.md`;
+        const artifactPath1 = `${input.outPath}.artifact.1.md`;
+        deps.files.set(artifactPath0, AGY_PROSE);
+        deps.files.set(artifactPath1, NON_ENGAGING_PROSE);
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath: artifactPath0,
+              durationMs: 100_000,
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ran: true,
+              artifactPath: artifactPath1,
+              durationMs: 100_000, // 100s: nowhere near the 900s cap
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.reviewers[1].skipReason).toBe("reviewer-not-engaged");
+  });
+});
+
 describe("run — deep tier scratch lifecycle", () => {
   it("removes the manifest + fanout aggregate + per-reviewer artifacts on the ran path", () => {
     const deps = makeDeps();

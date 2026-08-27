@@ -126,6 +126,7 @@ import { FLOW_STATE_DIR } from "./lib/paths";
 import { isLive, pidStartEpoch } from "./lib/liveness";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { stderrTail as redactedStderrTail } from "./flow-delegate";
+import { forwardSignal } from "./flow-spawn";
 
 export { extractGoalLine };
 
@@ -515,6 +516,7 @@ export type FanoutAggregate = {
     artifactPath?: string;
     skipReason?: string;
     durationSeconds?: number;
+    durationMs?: number;
     stderrTail?: string;
   }>;
   anyRan?: boolean;
@@ -643,18 +645,19 @@ export function mapReviewerSkipReason(
 // `--print-timeout` kill cancelled its subagents, wrote a partial, and
 // exited 0 — under which `looksTimedOut` never fires because there is no
 // non-zero exit to inspect). Mitigation: treat a demotion as
-// `reviewer-timeout` whenever the entry's own `durationSeconds` lands
-// within this many seconds of the reviewer's configured cap, independent
-// of exit code.
+// `reviewer-timeout` whenever the entry's observed duration lands within
+// this many seconds of the reviewer's configured cap, independent of exit
+// code. Reads `durationMs` (the fanout POOL's wall-clock timing, always
+// populated) rather than `durationSeconds` (the model's own self-reported
+// timing, lifted only when the manifest entry sets `outputFormat: "json"` —
+// which this module's manifest builder never does, so `durationSeconds` is
+// permanently undefined on this path and would make every branch below
+// dead code).
 const NEAR_CAP_SLACK_SEC = 10;
 
-function isNearCap(
-  durationSeconds: number | undefined,
-  capSec: number,
-): boolean {
+function isNearCap(durationMs: number | undefined, capSec: number): boolean {
   return (
-    durationSeconds !== undefined &&
-    capSec - durationSeconds <= NEAR_CAP_SLACK_SEC
+    durationMs !== undefined && capSec - durationMs / 1000 <= NEAR_CAP_SLACK_SEC
   );
 }
 
@@ -674,7 +677,7 @@ function resolveReviewer(
 ): ReviewerStatus {
   if (!entry || entry.ran !== true) {
     const mapped = mapReviewerSkipReason(entry?.skipReason);
-    const skipReason = isNearCap(entry?.durationSeconds, capSec)
+    const skipReason = isNearCap(entry?.durationMs, capSec)
       ? "reviewer-timeout"
       : mapped;
     return {
@@ -689,7 +692,7 @@ function resolveReviewer(
     const prose = deps.readFile(entry.artifactPath ?? "");
     const result = classifyEngagement(prose);
     if (!result.engaged) {
-      const skipReason = isNearCap(entry.durationSeconds, capSec)
+      const skipReason = isNearCap(entry.durationMs, capSec)
         ? "reviewer-timeout"
         : result.reason;
       return {
@@ -703,7 +706,7 @@ function resolveReviewer(
     }
     return { model, ran: true, prose, lensesEngaged: result.lensesEngaged };
   } catch {
-    const skipReason = isNearCap(entry.durationSeconds, capSec)
+    const skipReason = isNearCap(entry.durationMs, capSec)
       ? "reviewer-timeout"
       : "plan-output-unreadable";
     return {
@@ -813,6 +816,17 @@ function runStart(deps: Deps, args: Args): number {
       deps.removeFile(priorRecord.stderrPath);
     }
   }
+
+  // Unconditionally clear any stale run-record file before spawning, not
+  // only on the alive-and-superseded branch above. The common revision-pass
+  // path is matches===false && alive===false (the prior worker already
+  // finished and exited on its own): without this, --check would read the
+  // PREVIOUS cycle's envelope out of runRecordPath and hand the supervisor a
+  // stale `decided` verdict for a review that never ran on the revised plan
+  // — and additionally kill the freshly spawned worker below because it
+  // sees a result already present alongside a live pid.
+  deps.removeFile(runRecordPath);
+  deps.removeFile(`${runRecordPath}.tmp`);
 
   const spawned = deps.spawnDetached([
     "flow-spawn",
@@ -1492,11 +1506,15 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     killWorker:
       o?.killWorker ??
       ((pid) => {
-        try {
-          process.kill(pid, "SIGTERM");
-        } catch {
-          // best-effort — already dead, or never existed.
-        }
+        // A detached worker is its own process-group leader (flow-spawn.ts
+        // records pgid: args.pid), and the quota-burning descendant is
+        // several hops down (flow-delegate-fanout -> flow-delegate -> agy),
+        // not the worker shell itself. SIGTERM to the bare pid only kills
+        // the shell blocked in Bun.spawnSync, leaving the wedged agy
+        // session reparented to init and running to its own --print-timeout
+        // — exactly the "two concurrent agy sessions" contention this call
+        // site exists to prevent. Signal the whole group first.
+        forwardSignal(pid, pid, "SIGTERM");
       }),
     now: o?.now ?? (() => new Date()),
     env: o?.env ?? process.env,
