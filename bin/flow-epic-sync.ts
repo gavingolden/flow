@@ -42,6 +42,13 @@ import {
 import { slugify } from "./lib/slug";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { defaultGh, type GhRunner } from "./lib/resume-probes";
+import {
+  commitEpicStatus,
+  pushEpicStatusFromWrittenPath,
+  type CommitSkipReason,
+  type PushSkipReason,
+  type GitRunner,
+} from "./lib/epic-metadata-commit";
 
 // --- Manifest loading (read-only, tolerant) ---------------------------------
 
@@ -193,6 +200,8 @@ type ParsedArgs = {
   json: boolean;
   help: boolean;
   rederive: boolean;
+  commit: boolean;
+  push: boolean;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -201,6 +210,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     json: false,
     help: false,
     rederive: false,
+    commit: false,
+    push: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -227,6 +238,13 @@ function parseArgs(argv: string[]): ParsedArgs {
       out.json = true;
     } else if (a === "--rederive") {
       out.rederive = true;
+    } else if (a === "--commit") {
+      out.commit = true;
+    } else if (a === "--push") {
+      // --push IMPLIES --commit: --push alone can never mean "push
+      // something I did not commit".
+      out.push = true;
+      out.commit = true;
     } else {
       // Warn-and-continue, not exit-2 (the repo-standard shape elsewhere
       // under bin/): this helper's never-block-the-caller contract (see
@@ -240,12 +258,14 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 const USAGE =
-  "usage: flow-epic-sync [--slug <feature-slug>] [--epic-slug <epic>] [--epic-feature <id>] [--check] [--json] [--rederive]\n" +
+  "usage: flow-epic-sync [--slug <feature-slug>] [--epic-slug <epic>] [--epic-feature <id>] [--check] [--json] [--rederive] [--commit] [--push]\n" +
   "  --epic-feature <id>  override the self-mark feature id when it can't be\n" +
   "                       derived from state (paired with --epic-slug; the\n" +
   "                       ambient --slug path derives it from state.epic.featureId)\n" +
   "  --rederive           rebuild the board from GitHub, ignoring committed rows\n" +
-  "                       (repairs a wrong row instead of hand-editing status.json)";
+  "                       (repairs a wrong row instead of hand-editing status.json)\n" +
+  "  --commit  commit the written status board (base-branch-safe via the guard allowlist)\n" +
+  "  --push    also push that commit to its existing remote branch (implies --commit; never forces, never creates a branch)";
 
 type Deps = {
   gh?: GhRunner;
@@ -253,6 +273,7 @@ type Deps = {
   stateDir?: string;
   epicsDir?: string;
   env?: NodeJS.ProcessEnv;
+  git?: GitRunner;
 };
 
 type SyncEnvelope = {
@@ -262,21 +283,69 @@ type SyncEnvelope = {
   features: Record<string, CommittedFeatureRow>;
   rederive: boolean;
   regressed: string[];
+  committed: boolean;
+  commitSkipReason?: CommitSkipReason;
+  pushed: boolean;
+  pushSkipReason?: PushSkipReason;
 };
 
-function syncEnvelope(
-  epicSlug: string,
-  derived: boolean,
-  written: boolean,
-  features: Record<string, CommittedFeatureRow>,
-  rederive: boolean,
-  regressed: string[],
-): SyncEnvelope {
-  return { epicSlug, derived, written, features, rederive, regressed };
+function syncEnvelope(input: {
+  epicSlug: string;
+  derived: boolean;
+  written: boolean;
+  features: Record<string, CommittedFeatureRow>;
+  rederive: boolean;
+  regressed: string[];
+  committed?: boolean;
+  commitSkipReason?: CommitSkipReason;
+  pushed?: boolean;
+  pushSkipReason?: PushSkipReason;
+}): SyncEnvelope {
+  return {
+    epicSlug: input.epicSlug,
+    derived: input.derived,
+    written: input.written,
+    features: input.features,
+    rederive: input.rederive,
+    regressed: input.regressed,
+    committed: input.committed ?? false,
+    commitSkipReason: input.commitSkipReason,
+    pushed: input.pushed ?? false,
+    pushSkipReason: input.pushSkipReason,
+  };
 }
 
 function emptyEnvelope(epicSlug: string, rederive: boolean): SyncEnvelope {
-  return syncEnvelope(epicSlug, false, false, {}, rederive, []);
+  return syncEnvelope({
+    epicSlug,
+    derived: false,
+    written: false,
+    features: {},
+    rederive,
+    regressed: [],
+  });
+}
+
+/** Names the fix for a push failure the caller should surface, never retry blindly. */
+function remedyFor(reason: PushSkipReason): string {
+  switch (reason) {
+    case "non-fast-forward":
+      return "Run `git pull --rebase` and re-run with --push.";
+    case "not-committed":
+      return "The board was not committed, so nothing was pushed.";
+    case "detached-head":
+      return "HEAD is detached; check out a branch and re-run with --push.";
+    case "not-base-branch":
+      return "Not on the repo's default branch; --push only publishes from there.";
+    case "no-remote":
+      return "No `origin` remote configured.";
+    case "no-remote-branch":
+      return "The branch does not exist on origin yet; push it first.";
+    case "push-failed":
+      return "Re-run with --push after investigating the git error.";
+    case "extra-local-commits":
+      return "HEAD carries commits beyond the board; push manually after review.";
+  }
 }
 
 export function main(argv: string[], deps: Deps = {}): number {
@@ -369,19 +438,26 @@ export function main(argv: string[], deps: Deps = {}): number {
   const serialized = serializeEpicStatus(file);
 
   if (parsed.check) {
+    // --check never writes, so --commit/--push (which act on a write) are
+    // no-ops here — warn once rather than silently ignoring the flags.
+    if (parsed.commit || parsed.push) {
+      console.error(
+        "warn: --commit/--push are no-ops under --check (--check never writes)",
+      );
+    }
     const onDisk = existing ? serializeEpicStatus(existing) : null;
     const inSync = onDisk === serialized;
     if (parsed.json) {
       console.log(
         JSON.stringify(
-          syncEnvelope(
+          syncEnvelope({
             epicSlug,
-            true,
-            false,
-            file.features,
-            parsed.rederive,
+            derived: true,
+            written: false,
+            features: file.features,
+            rederive: parsed.rederive,
             regressed,
-          ),
+          }),
         ),
       );
     }
@@ -400,9 +476,14 @@ export function main(argv: string[], deps: Deps = {}): number {
 
   const onDisk = existing ? serializeEpicStatus(existing) : null;
   const written = onDisk !== serialized;
+  let committed = false;
+  let commitSkipReason: CommitSkipReason | undefined;
+  let pushed = false;
+  let pushSkipReason: PushSkipReason | undefined;
+  const writtenPath = path.join(epicDirAbs, EPIC_STATUS_FILENAME);
   if (written) {
     fs.mkdirSync(epicDirAbs, { recursive: true });
-    fs.writeFileSync(path.join(epicDirAbs, EPIC_STATUS_FILENAME), serialized);
+    fs.writeFileSync(writtenPath, serialized);
     if (regressed.length > 0) {
       console.error(
         `warn: --rederive regressed ${regressed.length} row(s): ${regressed.join(", ")}`,
@@ -410,17 +491,62 @@ export function main(argv: string[], deps: Deps = {}): number {
     }
   }
 
+  // Gate on `parsed.commit`, NOT on `written`: `written` only means "differs
+  // from what's on disk", but `readCommittedStatus` reads the WORKING TREE,
+  // not `git show HEAD:` — so a board that's already correct on disk but
+  // still UNCOMMITTED makes `written` false and would otherwise silently
+  // strand it (the exact incident this command exists to fix). When the file
+  // is on disk (either just written, or already there and byte-identical),
+  // `commitEpicStatus` still runs and short-circuits to `nothing-staged` via
+  // its own `git status --porcelain` probe if the tree really is clean.
+  if (parsed.commit && fs.existsSync(writtenPath)) {
+    const commitResult = commitEpicStatus({
+      writtenPath,
+      epicSlug,
+      git: deps.git,
+    });
+    committed = commitResult.committed;
+    commitSkipReason = commitResult.reason;
+    if (!committed) {
+      console.error(
+        `warn: --commit did not commit the status board (${commitResult.reason}${commitResult.detail ? `: ${commitResult.detail}` : ""})`,
+      );
+    }
+  }
+
+  if (parsed.push) {
+    if (!committed) {
+      pushSkipReason = "not-committed";
+    } else {
+      const pushResult = pushEpicStatusFromWrittenPath({
+        writtenPath,
+        git: deps.git,
+      });
+      pushed = pushResult.pushed;
+      pushSkipReason = pushResult.reason;
+    }
+    if (!pushed && pushSkipReason) {
+      console.error(
+        `warn: --push did not push the status board (${pushSkipReason}). ${remedyFor(pushSkipReason)}`,
+      );
+    }
+  }
+
   if (parsed.json) {
     console.log(
       JSON.stringify(
-        syncEnvelope(
+        syncEnvelope({
           epicSlug,
-          true,
+          derived: true,
           written,
-          file.features,
-          parsed.rederive,
+          features: file.features,
+          rederive: parsed.rederive,
           regressed,
-        ),
+          committed,
+          commitSkipReason,
+          pushed,
+          pushSkipReason,
+        }),
       ),
     );
   }

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +15,7 @@ import {
   ensureGuardSidecar,
   foreignHookNotice,
   installBaseBranchGuard,
+  isCommittableOnBaseBranch,
 } from "./base-branch-guard";
 import { resolveHooksTarget } from "./hooks-target";
 
@@ -69,6 +70,114 @@ describe("baseBranchGuardDecision", () => {
         defaultBranch: "main",
       }),
     ).toBe("allow");
+  });
+
+  it("keeps refusing on the base branch when stagedPaths is omitted (no caller regression)", () => {
+    expect(
+      baseBranchGuardDecision({
+        sessionId: "sess-1",
+        flowSlug: "csv-export",
+        currentBranch: "main",
+        defaultBranch: "main",
+      }),
+    ).toBe("refuse");
+  });
+
+  it("ignores stagedPaths entirely when the session is not flow-marked", () => {
+    expect(
+      baseBranchGuardDecision({
+        currentBranch: "main",
+        defaultBranch: "main",
+        stagedPaths: ["bin/foo.ts"],
+      }),
+    ).toBe("allow");
+  });
+
+  it("ignores stagedPaths entirely when the branch is not the default branch", () => {
+    expect(
+      baseBranchGuardDecision({
+        sessionId: "sess-1",
+        flowSlug: "csv-export",
+        currentBranch: "feature/csv-export",
+        defaultBranch: "main",
+        stagedPaths: ["bin/foo.ts"],
+      }),
+    ).toBe("allow");
+  });
+});
+
+describe("status-board allowlist (base branch carve-out)", () => {
+  const decision = (stagedPaths: string[]) =>
+    baseBranchGuardDecision({
+      sessionId: "s",
+      flowSlug: "g",
+      currentBranch: "main",
+      defaultBranch: "main",
+      stagedPaths,
+    });
+
+  it("allows a lone epic status board", () => {
+    const paths = [".flow/epics/my-epic/status.json"];
+    expect(isCommittableOnBaseBranch(paths)).toBe(true);
+    expect(decision(paths)).toBe("allow");
+  });
+
+  it("allows two status boards from different epics", () => {
+    const paths = [
+      ".flow/epics/my-epic/status.json",
+      ".flow/epics/other-epic/status.json",
+    ];
+    expect(isCommittableOnBaseBranch(paths)).toBe(true);
+    expect(decision(paths)).toBe("allow");
+  });
+
+  it("refuses an empty staged set", () => {
+    expect(isCommittableOnBaseBranch([])).toBe(false);
+    expect(decision([])).toBe("refuse");
+  });
+
+  it("refuses manifest.json", () => {
+    const paths = [".flow/epics/my-epic/manifest.json"];
+    expect(isCommittableOnBaseBranch(paths)).toBe(false);
+    expect(decision(paths)).toBe("refuse");
+  });
+
+  it("refuses design.md", () => {
+    const paths = [".flow/epics/my-epic/design.md"];
+    expect(isCommittableOnBaseBranch(paths)).toBe(false);
+    expect(decision(paths)).toBe("refuse");
+  });
+
+  it("refuses a code file", () => {
+    const paths = ["bin/foo.ts"];
+    expect(isCommittableOnBaseBranch(paths)).toBe(false);
+    expect(decision(paths)).toBe("refuse");
+  });
+
+  it("refuses a mixed set (the load-bearing case)", () => {
+    const paths = [".flow/epics/my-epic/status.json", "bin/foo.ts"];
+    expect(isCommittableOnBaseBranch(paths)).toBe(false);
+    expect(decision(paths)).toBe("refuse");
+  });
+
+  it("refuses a nested epic-slug segment (the char class must not match a slash)", () => {
+    const paths = [".flow/epics/a/b/status.json"];
+    // ".flow/epics/a/b/status.json" has a slash inside the [^/]+ epic-slug
+    // segment, so it does NOT match the allowlist regex — refused.
+    expect(isCommittableOnBaseBranch(paths)).toBe(false);
+    expect(decision(paths)).toBe("refuse");
+  });
+
+  it("refuses a traversal-ish path", () => {
+    const paths = [".flow/epics/../../etc/status.json"];
+    expect(isCommittableOnBaseBranch(paths)).toBe(false);
+    expect(decision(paths)).toBe("refuse");
+  });
+
+  it("refuses a path not anchored at repo root", () => {
+    const paths = ["x/.flow/epics/e/status.json"];
+    expect(isCommittableOnBaseBranch(paths)).toBe(false);
+    expect(decision(paths)).toBe("refuse");
   });
 });
 
@@ -537,6 +646,37 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
     }
   };
 
+  // Sibling to tryCommit: commits a SINGLE relative path directly (no `git
+  // add`), mirroring the path-scoped commit the epic-status carve-out relies
+  // on. The file must already be written to disk (and staged, if the caller
+  // wants an unrelated-file-stays-staged assertion) before calling this.
+  const tryPathScopedCommit = (
+    env: Env,
+    relPath: string,
+    contents: string,
+  ): { ok: boolean; stderr: string } => {
+    const abs = path.join(repoDir, relPath);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, contents, "utf8");
+    // `git commit -- <path>` alone refuses a brand-new UNTRACKED path
+    // ("pathspec did not match any files known to git"); a path-scoped
+    // `git add -- <path>` first (never a bare, whole-index `git add`) makes
+    // both the first-ever write and a later modification commit the same
+    // way, without touching any OTHER staged path.
+    execFileSync("git", ["add", "--", relPath], { cwd: repoDir });
+    try {
+      execFileSync("git", ["commit", "-m", `sync ${relPath}`, "--", relPath], {
+        cwd: repoDir,
+        encoding: "utf8",
+        env: env as NodeJS.ProcessEnv,
+      });
+      return { ok: true, stderr: "" };
+    } catch (err) {
+      const e = err as { stderr?: Buffer | string };
+      return { ok: false, stderr: String(e.stderr ?? "") };
+    }
+  };
+
   beforeEach(() => {
     repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-bbg-hook-"));
     shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-bbg-shim-"));
@@ -714,6 +854,183 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
     } finally {
       fs.rmSync(masterRepo, { recursive: true, force: true });
     }
+  });
+
+  it("allows a path-scoped commit of a lone epic status board on the base branch inside a flow session", () => {
+    writeTmuxShim("csv-export");
+    const env = {
+      ...baseEnv(),
+      CLAUDE_CODE_SESSION_ID: "sess-1",
+      TMUX_PANE: "%1",
+    };
+    const r = tryPathScopedCommit(
+      env,
+      ".flow/epics/e1/status.json",
+      '{"version":1}\n',
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  const hasJq =
+    spawnSync("command", ["-v", "jq"], { shell: "/bin/sh" }).status === 0;
+
+  (hasJq ? it : it.skip)(
+    "refuses a staged epic status board that is not valid JSON (jq-gated content check)",
+    () => {
+      writeTmuxShim("csv-export");
+      const env = {
+        ...baseEnv(),
+        CLAUDE_CODE_SESSION_ID: "sess-1",
+        TMUX_PANE: "%1",
+      };
+      const r = tryPathScopedCommit(
+        env,
+        ".flow/epics/e1/status.json",
+        "{not valid json\n",
+      );
+      expect(r.ok).toBe(false);
+      expect(r.stderr).toMatch(
+        /refusing to commit a malformed epic status board/,
+      );
+    },
+  );
+
+  it("refuses a path-scoped commit of manifest.json on the base branch inside a flow session", () => {
+    writeTmuxShim("csv-export");
+    const env = {
+      ...baseEnv(),
+      CLAUDE_CODE_SESSION_ID: "sess-1",
+      TMUX_PANE: "%1",
+    };
+    const r = tryPathScopedCommit(
+      env,
+      ".flow/epics/e1/manifest.json",
+      '{"version":1}\n',
+    );
+    expect(r.ok).toBe(false);
+    expect(r.stderr).toMatch(/refusing to commit on the base branch/);
+  });
+
+  it("leaves an unrelated staged file out of the path-scoped board commit, still staged afterwards", () => {
+    writeTmuxShim("csv-export");
+    const env = {
+      ...baseEnv(),
+      CLAUDE_CODE_SESSION_ID: "sess-1",
+      TMUX_PANE: "%1",
+    };
+    // Stage an unrelated file WITHOUT committing it.
+    fs.writeFileSync(
+      path.join(repoDir, "unrelated.txt"),
+      "unrelated\n",
+      "utf8",
+    );
+    execFileSync("git", ["add", "unrelated.txt"], { cwd: repoDir });
+
+    const r = tryPathScopedCommit(
+      env,
+      ".flow/epics/e1/status.json",
+      '{"version":1}\n',
+    );
+    expect(r.ok).toBe(true);
+
+    const status = execFileSync("git", ["status", "--porcelain"], {
+      cwd: repoDir,
+      encoding: "utf8",
+    });
+    // unrelated.txt must remain staged (index "A"), NOT swept into the
+    // just-made commit — this pins the git behaviour the whole design rests
+    // on: `git commit -- <path>` builds a temporary index for that path only.
+    expect(status).toMatch(/^A\s+unrelated\.txt$/m);
+  });
+
+  it("refuses a `git mv` from manifest.json to status.json — --no-renames closes the rename-detection allowlist escape", () => {
+    // Without `--no-renames` on the staged-name probe, `git diff --cached
+    // --name-only` prints ONLY the destination path for a detected rename,
+    // so this rename would show a single allowlisted `status.json` line and
+    // pass the check while committing a DELETION of manifest.json.
+    writeTmuxShim("csv-export");
+    const env = {
+      ...baseEnv(),
+      CLAUDE_CODE_SESSION_ID: "sess-1",
+      TMUX_PANE: "%1",
+    };
+    const manifestAbs = path.join(repoDir, ".flow/epics/e1/manifest.json");
+    fs.mkdirSync(path.dirname(manifestAbs), { recursive: true });
+    fs.writeFileSync(manifestAbs, '{"version":1}\n', "utf8");
+    execFileSync("git", ["add", "--", ".flow/epics/e1/manifest.json"], {
+      cwd: repoDir,
+    });
+    execFileSync("git", ["commit", "-m", "seed manifest"], {
+      cwd: repoDir,
+      env: baseEnv() as NodeJS.ProcessEnv,
+    });
+
+    execFileSync(
+      "git",
+      ["mv", ".flow/epics/e1/manifest.json", ".flow/epics/e1/status.json"],
+      { cwd: repoDir },
+    );
+    let ok = true;
+    let stderr = "";
+    try {
+      execFileSync("git", ["commit", "-m", "rename manifest to status"], {
+        cwd: repoDir,
+        encoding: "utf8",
+        env: env as NodeJS.ProcessEnv,
+      });
+    } catch (err) {
+      ok = false;
+      const e = err as { stderr?: Buffer | string };
+      stderr = String(e.stderr ?? "");
+    }
+    expect(ok).toBe(false);
+    expect(stderr).toMatch(/refusing to commit on the base branch/);
+  });
+
+  it("the TS mirror (baseBranchGuardDecision) and the real-git sh hook AGREE on a mixed-staged-set (board + unrelated file)", () => {
+    writeTmuxShim("csv-export");
+    const env = {
+      ...baseEnv(),
+      CLAUDE_CODE_SESSION_ID: "sess-1",
+      TMUX_PANE: "%1",
+    };
+    const boardAbs = path.join(repoDir, ".flow/epics/e1/status.json");
+    fs.mkdirSync(path.dirname(boardAbs), { recursive: true });
+    fs.writeFileSync(boardAbs, '{"version":1}\n', "utf8");
+    fs.writeFileSync(
+      path.join(repoDir, "unrelated.txt"),
+      "unrelated\n",
+      "utf8",
+    );
+    execFileSync("git", ["add", "--", ".flow/epics/e1/status.json"], {
+      cwd: repoDir,
+    });
+    execFileSync("git", ["add", "--", "unrelated.txt"], { cwd: repoDir });
+
+    let ok = true;
+    try {
+      execFileSync("git", ["commit", "-m", "mixed set"], {
+        cwd: repoDir,
+        encoding: "utf8",
+        env: env as NodeJS.ProcessEnv,
+      });
+    } catch {
+      ok = false;
+    }
+
+    const mirrorDecision = baseBranchGuardDecision({
+      sessionId: "sess-1",
+      flowSlug: "csv-export",
+      currentBranch: "main",
+      defaultBranch: "main",
+      stagedPaths: [".flow/epics/e1/status.json", "unrelated.txt"],
+    });
+
+    // The real hook refuses a whole-index commit that mixes the board with
+    // an unrelated file (only a PATH-SCOPED commit is exempt), and the TS
+    // mirror must agree on this same staged set.
+    expect(ok).toBe(false);
+    expect(mirrorDecision).toBe("refuse");
   });
 });
 
