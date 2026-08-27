@@ -480,7 +480,9 @@ the subagent returns:
 
 ## 2. Fetch and Pre-Flight
 
-Run the fetch helper:
+Run the fetch helper (also emits the owning pipeline's `reviewing`
+phase as a side effect when `state.pr` matches — a silent no-op on a
+standalone review or a Step 1.5 gatekeeper `skip`):
 
 ```bash
 flow-fetch-pr-review $ARGUMENTS

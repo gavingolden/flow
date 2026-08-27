@@ -32,6 +32,8 @@ import { runUpdate } from "./flow-state-update";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { type GitRunner, defaultGit } from "./lib/resume-probes";
 import { normalizeDetailsBlocks } from "./lib/md-block-structure";
+import { advancePhase } from "./lib/phase-advance";
+import { FLOW_STATE_DIR } from "./lib/paths";
 
 type Args = {
   /** undefined when omitted — caller falls back to resolveSlugAmbient(). */
@@ -215,12 +217,18 @@ export type Deps = {
    * `--session-id` write.
    */
   sessionId?: string;
+  /** Test seam mirroring `bin/flow-gate-decide.ts`'s `Deps.stateDir` — lets the
+   * tmp-`stateDir` test harness observe the `advancePhase` write instead of
+   * the developer's real `~/.flow/state`. */
+  stateDir?: string;
 };
 
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const git = deps.git ?? defaultGit;
-  const updater = deps.updater ?? runUpdate;
+  const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
+  const updater =
+    deps.updater ?? ((updateArgv: string[]) => runUpdate(updateArgv, stateDir));
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
   const sessionId = deps.sessionId ?? process.env.CLAUDE_CODE_SESSION_ID;
 
@@ -340,6 +348,13 @@ export function run(argv: string[], deps: Deps = {}): number {
     updateArgv.push("--session-id", validSessionId);
   const updateExit = updater(updateArgv);
   if (updateExit !== 0) return updateExit;
+
+  // No `expectPr` guard here, unlike the other four `advancePhase` call
+  // sites: `state.pr` is legitimately null at this moment because THIS
+  // helper is what sets it (via the `updater` call above). Do not "fix"
+  // this asymmetry by adding a guard — there is nothing yet to match
+  // against (plan.md Q4).
+  advancePhase("implementing", { slug, dir: stateDir });
 
   console.log(pr.url);
   return 0;

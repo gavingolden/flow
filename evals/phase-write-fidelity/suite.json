@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "phase-write-fidelity",
+  "candidate": "phase-write-side-effect",
+  "description": "Measures whether /flow-pipeline's Steps 7-10 leave state.phase at the value the step's helper wrote as a side effect (ci-wait, reviewing, gating, merging), each scenario bounding the supervisor to one step's entry so the write is what's under test, not the whole step.",
+  "scenarios": [
+    "s1-step7-ci-wait",
+    "s2-step8-reviewing",
+    "s3-step9-gating",
+    "s4-step10-merging"
+  ],
+  "defaults": {
+    "model": "sonnet",
+    "effort": "medium",
+    "maxBudgetUsd": 4,
+    "runs": 5
+  }
+}

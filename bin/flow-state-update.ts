@@ -56,6 +56,7 @@ import {
   readState,
   writeState,
   nowIso,
+  appendPhaseLog,
   type PipelineState,
 } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
@@ -239,20 +240,13 @@ export function applyUpdate(
   // A --phase write is a real transition event: append it to the
   // append-only phaseLog (creating the array when absent) so the snapshot
   // has an authoritative trace. A no---phase update (e.g. --pr only) leaves
-  // phaseLog untouched. Omit the outcome key entirely when --phase-outcome
-  // is absent — never write `outcome: undefined`.
+  // phaseLog untouched. appendPhaseLog omits the outcome key entirely when
+  // --phase-outcome is absent — never write `outcome: undefined`. Shared
+  // with `bin/lib/phase-advance.ts`'s `advancePhase` so the two write paths
+  // cannot drift on phaseLog[] shape.
   const phaseLog =
     args.phase !== undefined
-      ? [
-          ...(existing.phaseLog ?? []),
-          {
-            phase: args.phase,
-            at: nowIso(),
-            ...(args.phaseOutcome !== undefined
-              ? { outcome: args.phaseOutcome }
-              : {}),
-          },
-        ]
+      ? appendPhaseLog(existing, args.phase, args.phaseOutcome)
       : existing.phaseLog;
   const resolvedPhase = args.phase ?? existing.phase;
   // A stale reap record (recorded at a PRIOR terminal state) must not

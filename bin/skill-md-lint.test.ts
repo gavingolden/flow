@@ -6,6 +6,7 @@ import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
 import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { CHECKPOINT_SITES } from "./flow-checkpoint";
+import { PHASE_EMITTERS } from "./lib/phase-advance";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -333,6 +334,14 @@ const UI_VALIDATION_SCHEMA_PATH = path.resolve(
 );
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
+// `flow-verify-prep.ts` (plan.md Task 10) now owns the VERIFY_MODEL /
+// VERIFY_SUBAGENT resolution that used to be inline prose in Step 6's
+// spawn-prep fence — several lints below assert against its SOURCE
+// instead of SKILL.md text for exactly that reason.
+const verifyPrepContent = fs.readFileSync(
+  path.resolve(HERE, "flow-verify-prep.ts"),
+  "utf8",
+);
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
 const exemptionContractsContent = fs.readFileSync(
   EXEMPTION_CONTRACTS_PATH,
@@ -1297,16 +1306,21 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "flow-pipeline SKILL.md step-6 spawn must use `subagent_type: $VERIFY_SUBAGENT` " +
         "so the resolved low-effort agent (or the general-purpose fallback) is passed.",
     ).toBe(true);
+    // The VERIFY_SUBAGENT resolution itself moved into `bin/flow-verify-prep.ts`
+    // (plan.md Task 10) — SKILL.md now only consumes `$VERIFY_SUBAGENT` from
+    // the helper's JSON, so these two assertions read the helper's source.
     expect(
-      content.includes("VERIFY_SUBAGENT=flow-module-core:flow-verify"),
-      "flow-pipeline SKILL.md must resolve VERIFY_SUBAGENT to " +
+      verifyPrepContent.includes(
+        'verifySubagent = "flow-module-core:flow-verify"',
+      ),
+      "bin/flow-verify-prep.ts must resolve VERIFY_SUBAGENT to " +
         "`flow-module-core:flow-verify` — the agents/flow-verify.md definition " +
         "that pins effort: low (plugin-qualified resolution asserted in full " +
         "by the SITES it.each below).",
     ).toBe(true);
     expect(
-      /VERIFY_SUBAGENT=general-purpose/.test(content),
-      "flow-pipeline SKILL.md verify site must fall back to `general-purpose` when " +
+      /verifySubagent = "general-purpose"/.test(verifyPrepContent),
+      "bin/flow-verify-prep.ts must fall back to `general-purpose` when " +
         "the flow-verify definition is not symlinked, so the spawn never fails on an " +
         "unknown agent type.",
     ).toBe(true);
@@ -1676,9 +1690,12 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ).toBe(true);
     }
     expect(
-      content.includes("agent-fallback: flow-verify → general-purpose"),
-      "flow-pipeline SKILL.md step-6 verify guard must emit the named agent-fallback " +
-        "notice on its general-purpose fallback branch.",
+      verifyPrepContent.includes(
+        "agent-fallback: flow-verify → general-purpose",
+      ),
+      "bin/flow-verify-prep.ts must emit the named agent-fallback notice on " +
+        "its general-purpose fallback branch (moved from SKILL.md prose by " +
+        "plan.md Task 10).",
     ).toBe(true);
     expect(
       content.includes("agent-fallback: flow-merge-resolver → general-purpose"),
@@ -2356,20 +2373,27 @@ describe("Compact Instructions + verify-loop-instructions structural anchors", (
     }
   });
 
-  it("flow-pipeline SKILL.md step 6 writes the verifying phase INSIDE the spawn-prep fence", () => {
+  it("flow-pipeline SKILL.md step 6 resolves everything via flow-verify-prep, not a standalone phase write", () => {
+    // Superseded by `bin/lib/phase-advance.ts`'s PHASE_EMITTERS lint below:
+    // the former spawn-prep fence's OWN `flow-state-update --phase verifying`
+    // (measured 7/10, then 4/10, skipped even when folded into this fence)
+    // is now `flow-verify-prep`'s side effect, not a command in this file at
+    // all — this test pins the fence's first command is the helper call, not
+    // that a since-removed phase-write line still lives here.
     const step6 = content.slice(content.indexOf("## Step 6 — Local verify"));
     const fenceStart = step6.indexOf("```bash");
     const fence = step6.slice(fenceStart, step6.indexOf("```", fenceStart + 7));
     expect(
-      fence.includes("flow-state-update --phase verifying"),
-      "step 6's phase write must live inside the spawn-prep bash fence, not a " +
-        "standalone block — measured at 7/10 skipped when it stood alone.",
+      /```bash\nVERIFY_JSON=\$\(flow-verify-prep /.test(step6),
+      "step 6's spawn-prep fence must call flow-verify-prep as its first " +
+        "command — the phase write is the helper's side effect, so skipping " +
+        "the call means skipping the values needed to spawn at all.",
     ).toBe(true);
     expect(
-      /```bash\n#[^`]*?\nflow-state-update --phase verifying/.test(step6),
-      "the phase write must be the fence's first command so skipping it means " +
-        "skipping the spawn setup.",
-    ).toBe(true);
+      fence.includes("flow-state-update --phase verifying"),
+      "the phase write must not reappear as a standalone command in step 6's " +
+        "fence — it is flow-verify-prep's side effect now.",
+    ).toBe(false);
   });
 });
 
@@ -4545,12 +4569,18 @@ describe("pr-review include-by-reference structure", () => {
     // this PR's own contract, not regrowth. File lands at 1851 lines — 1860
     // leaves 9 lines of genuine headroom, not round-number headroom for
     // future growth.
+    //
+    // Bumped 1860 → 1865 (phase-write side-effect wiring, issue #679): Step 2's
+    // fetch-helper fence gains a one-line parenthetical naming the `reviewing`
+    // phase it now emits as a side effect (`flow-fetch-pr-review` — plan.md
+    // Task 4) — 2 net lines, genuine load-bearing content for this PR's own
+    // contract, not regrowth.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1860 lines. Material regrowth past this ceiling would ` +
+        `budget of 1865 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1860);
+    ).toBeLessThan(1865);
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
@@ -8719,6 +8749,70 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
           `but BODY_EDIT_SITES enumerates ${enumeratedCount} site(s) for this file — ` +
           `a recipe was added or removed without updating BODY_EDIT_SITES.`,
       ).toBe(enumeratedCount);
+    }
+  });
+});
+
+describe("phase-write emitter lint (bin/lib/phase-advance.ts's PHASE_EMITTERS)", () => {
+  // Precedent idiom: `content.indexOf("## Step N — …")` slicing (:2360),
+  // NOT `findStepHeadings` (:459) — it returns heading *lines*, not
+  // offsets, so a section slice built on it would silently grade the
+  // whole document (plan.md Contract adjustment #5).
+  const STEP_HEADING_BY_PHASE: Record<string, string> = {
+    implementing: "## Step 5 — Implement",
+    "ci-wait": "## Step 7 — CI + Copilot wait",
+    reviewing: "## Step 8 — Review",
+    gating: "## Step 9 — Auto-merge gate",
+    merging: "## Step 10 — Merge",
+  };
+
+  function sliceStepSection(heading: string): string {
+    const start = content.indexOf(heading);
+    expect(start >= 0, `heading not found in SKILL.md: '${heading}'`).toBe(
+      true,
+    );
+    const afterHeading = start + heading.length;
+    const nextOffset = content.slice(afterHeading).search(/\n## Step /);
+    const end = nextOffset === -1 ? content.length : afterHeading + nextOffset;
+    return content.slice(start, end);
+  }
+
+  it.each(Object.entries(PHASE_EMITTERS))(
+    "%s carries no standalone `--phase %s` fence and its step section names the emitting helper (%s)",
+    (phase, helper) => {
+      // Word-boundary anchored so the legitimate `--phase ci-wait-pending`
+      // yield write (SKILL.md ~1714-1715, wrapped across lines today) can
+      // never trip this — and stays safe even if that paragraph is
+      // re-flowed onto one line later (plan.md Contract adjustment #6).
+      const standaloneWrite = new RegExp(`--phase ${phase}(?![-\\w])`);
+      expect(
+        standaloneWrite.test(content),
+        `flow-pipeline SKILL.md must carry no standalone '--phase ${phase}' ` +
+          `write — it is ${helper}'s side effect now, not a documented ` +
+          "pipeline-step instruction.",
+      ).toBe(false);
+
+      const heading = STEP_HEADING_BY_PHASE[phase];
+      const section = sliceStepSection(heading);
+      expect(
+        section.includes(helper),
+        `the '${heading}' section must name its emitting helper ('${helper}') ` +
+          "so a maintainer editing this step can find the write.",
+      ).toBe(true);
+    },
+  );
+
+  it("every PHASE_EMITTERS key is a STEP_PHASES member, and every named emitter resolves to an existing bin/<name>.ts", () => {
+    for (const [phase, helper] of Object.entries(PHASE_EMITTERS)) {
+      expect(
+        (STEP_PHASES as readonly string[]).includes(phase),
+        `PHASE_EMITTERS key '${phase}' must be a STEP_PHASES member.`,
+      ).toBe(true);
+      const helperPath = path.resolve(HERE, `${helper}.ts`);
+      expect(
+        fs.existsSync(helperPath),
+        `PHASE_EMITTERS['${phase}'] names '${helper}', but bin/${helper}.ts does not exist.`,
+      ).toBe(true);
     }
   });
 });

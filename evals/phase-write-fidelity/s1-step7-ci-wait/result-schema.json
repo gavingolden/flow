@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "properties": {
+    "decision": {},
+    "status": { "type": "string" }
+  },
+  "required": []
+}

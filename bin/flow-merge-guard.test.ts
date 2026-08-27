@@ -217,7 +217,7 @@ describe("run() check mode", () => {
   }
 
   it("exits 0 with decision clear when the section has no unchecked items", () => {
-    seedState("alpha");
+    seedState("alpha", { pr: 5 });
     const cap = captureStdout();
     const exit = run(["5", "--slug", "alpha"], {
       gh: ghBody(NO_UNCHECKED),
@@ -232,7 +232,7 @@ describe("run() check mode", () => {
   });
 
   it("exits 1 with decision blocked when unchecked items remain and no token", () => {
-    seedState("beta");
+    seedState("beta", { pr: 5 });
     const cap = captureStdout();
     const exit = run(["5", "--slug", "beta"], {
       gh: ghBody(HAS_UNCHECKED),
@@ -247,7 +247,7 @@ describe("run() check mode", () => {
   });
 
   it("exits 0 when unchecked items remain but a fresh override token clears them", () => {
-    seedState("gamma", { gateOverride: freshOverride(5) });
+    seedState("gamma", { gateOverride: freshOverride(5), pr: 5 });
     const cap = captureStdout();
     const exit = run(["5", "--slug", "gamma"], {
       gh: ghBody(HAS_UNCHECKED),
@@ -349,7 +349,7 @@ describe("run() record mode", () => {
   it("a recorded token then clears the same PR in a subsequent check", () => {
     // End-to-end: record-override writes the token, check mode reads it back
     // and clears the merge for that PR.
-    seedState("eta");
+    seedState("eta", { pr: 9 });
     const recCap = captureStdout();
     run(["9", "--slug", "eta", "--record-override"], {
       stateDir,
@@ -373,5 +373,66 @@ describe("run() record mode", () => {
     const result = JSON.parse(chkCap.writes.join("")) as GuardResult;
     expect(result.decision).toBe("clear");
     expect(result.overrideApplied).toBe(true);
+  });
+});
+
+// --- phase advance -----------------------------------------------------
+
+describe("run() — phase advance", () => {
+  function readWritten(slug: string): Record<string, unknown> {
+    return JSON.parse(
+      fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"),
+    );
+  }
+
+  function ghBody(body: string, state = "OPEN") {
+    return vi.fn(() => ({
+      stdout: JSON.stringify({ body, state, url: "https://x/y/pull/5" }),
+      stderr: "",
+      exitCode: 0,
+    }));
+  }
+
+  it("checkGuard advances a reviewing pipeline to merging as part of the guard check", () => {
+    seedState("iota", { phase: "gating", pr: 5 });
+    const exit = run(["5", "--slug", "iota"], {
+      gh: ghBody(NO_UNCHECKED),
+      stateDir,
+      now: () => NOW,
+    });
+    expect(exit).toBe(0);
+    const written = readWritten("iota");
+    expect(written.phase).toBe("merging");
+    expect((written.phaseLog as unknown[]) ?? []).toHaveLength(1);
+  });
+
+  it("does not advance on the gated terminal phase (the --record-override override path is the only way out)", () => {
+    seedState("kappa", { phase: "gated", pr: 5 });
+    const exit = run(["5", "--slug", "kappa"], {
+      gh: ghBody(NO_UNCHECKED),
+      stateDir,
+      now: () => NOW,
+    });
+    expect(exit).toBe(0);
+    expect(readWritten("kappa").phase).toBe("gated");
+  });
+
+  it("recordOverrideToken does NOT advance the phase, and the recorded token round-trips unchanged", () => {
+    seedState("lambda", { phase: "gating", pr: 5 });
+    const cap = captureStdout();
+    const exit = run(["5", "--slug", "lambda", "--record-override"], {
+      stateDir,
+      now: () => NOW,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const written = readWritten("lambda");
+    // The override path leaves phase untouched — it is a fresh-confirmation
+    // recording, not a pipeline transition (plan.md Contract adjustment #1).
+    expect(written.phase).toBe("gating");
+    expect(written.gateOverride).toEqual({
+      pr: 5,
+      confirmedAt: new Date(NOW).toISOString(),
+    });
   });
 });

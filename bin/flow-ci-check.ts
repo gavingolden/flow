@@ -91,6 +91,7 @@ import { isModuleActive, noticeLine } from "./lib/module-status";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { readState, writeState, type CiWaitRecord } from "./lib/state";
+import { advancePhase } from "./lib/phase-advance";
 
 const HELP =
   "usage: flow-ci-check <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>] [--out <path>] [--max-elapsed <s>] [--copilot-timeout <s>] [--state-dir <dir>] [--now <iso>]\n" +
@@ -376,10 +377,21 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
       ? priorState.ciWait
       : freshRecord(parsed.pr, nowMs);
 
+  // Advances `state.phase` to `ci-wait` as a side effect of this call —
+  // BEFORE any `persistRecord()` fires below. `persistRecord` must always
+  // re-read state (not reuse the `priorState` snapshot captured above) or
+  // it would clobber this advance back to the pre-advance phase on its
+  // next write; see the corrected Task 2 contract (plan.md "Contract
+  // adjustments (post-scout)" #3). The `stateless` branch skips this
+  // entirely — there is no slug to advance.
+  if (!stateless) {
+    advancePhase("ci-wait", { slug, expectPr: parsed.pr, dir: stateDir });
+  }
+
   let stateMissingWarned = false;
   const persistRecord = (): void => {
     if (stateless) return;
-    const base = priorState ?? readState(slug, stateDir);
+    const base = readState(slug, stateDir);
     if (base === null) {
       if (!stateMissingWarned) {
         stateMissingWarned = true;

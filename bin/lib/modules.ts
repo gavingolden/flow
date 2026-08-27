@@ -131,6 +131,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-checkpoint",
       "flow-ci-wait",
       "flow-ci-check",
+      "flow-verify-prep",
       "flow-fetch-pr-review",
       "flow-reply-pr-comments",
       "flow-fetch-intent-comments",

@@ -1,0 +1,32 @@
+[
+  {
+    "number": 1,
+    "title": "feat: add cart bulk-discount tier",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "url": "https://github.com/example-org/example-repo/pull/1",
+    "headRefName": "feature-1",
+    "headRefOid": "sha-head-1",
+    "additions": 40,
+    "deletions": 10,
+    "changed_files": 2,
+    "commits": [
+      { "messageHeadline": "feat: add applyBulkDiscount pricing tier" },
+      { "messageHeadline": "test: cover bulk discount edge cases" }
+    ],
+    "files": ["src/pricing.ts", "src/pricing.test.ts"],
+    "reviews": [],
+    "apiReviews": [
+      {
+        "body": "Looks good, one nit.",
+        "state": "COMMENTED",
+        "user": { "login": "reviewer-a" },
+        "html_url": "https://github.com/example-org/example-repo/pull/1#review-1"
+      }
+    ],
+    "apiComments": [],
+    "author": { "login": "contributor-a" },
+    "body": "## Why\n\nSpend-based bulk discount tiers were requested by sales.\n\n## What\n\nAdds the pricing tier and tests.\n\n## Test Steps\n\n- [x] Run `npm run test` — all specs pass.\n"
+  }
+]
