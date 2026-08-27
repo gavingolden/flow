@@ -397,6 +397,11 @@ export function main(argv: string[], deps: Deps = {}): number {
   //    to resolve and silently no-ops (`--check` always exits 1).
   const isWriteInvocation = parsed.commit || parsed.push;
   let manifestPath: string | null = null;
+  // The cwd-preference probe has to LOAD the candidate to know whether it
+  // wins (a present-but-malformed cwd-local manifest must fall through to
+  // the cached path, not short-circuit the run) — so keep what it loaded
+  // rather than parsing and schema-validating the same file again below.
+  let manifest: EpicManifest | null = null;
   if (isWriteInvocation) {
     const cwdRepoRoot = resolveRepoRoot(cwd);
     if (cwdRepoRoot) {
@@ -405,8 +410,10 @@ export function main(argv: string[], deps: Deps = {}): number {
         epicDirRelative(epicSlug),
         EPIC_MANIFEST_FILENAME,
       );
-      if (loadManifest(cwdCandidate) !== null) {
+      const cwdManifest = loadManifest(cwdCandidate);
+      if (cwdManifest !== null) {
         manifestPath = cwdCandidate;
+        manifest = cwdManifest;
       }
     }
   }
@@ -424,7 +431,7 @@ export function main(argv: string[], deps: Deps = {}): number {
     }
   }
 
-  const manifest = manifestPath ? loadManifest(manifestPath) : null;
+  if (!manifest) manifest = manifestPath ? loadManifest(manifestPath) : null;
   if (!manifest || !manifestPath) {
     // Manifest unreadable — never block the caller. `--check` DOES exit 1
     // here (unlike the gh-failure branch below): an unreadable manifest is
