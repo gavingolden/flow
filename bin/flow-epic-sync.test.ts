@@ -12,7 +12,7 @@ import {
 } from "./lib/epic-status-schema";
 import type { EpicManifest } from "./lib/epic-manifest-schema";
 import type { GhRunner } from "./lib/resume-probes";
-import type { GitRunner } from "./lib/epic-metadata-commit";
+import { epicStatusLockPath, type GitRunner } from "./lib/epic-metadata-commit";
 import { slugify } from "./lib/slug";
 
 type GitResp = { stdout?: string; stderr?: string; exitCode?: number };
@@ -1042,6 +1042,144 @@ describe("main — CLI epic resolution + write disposition", () => {
       expect(Object.keys(printed.features).length).toBeGreaterThan(0);
     } finally {
       logSpy.mockRestore();
+    }
+  });
+});
+
+describe("main — epic-status lock serialization", () => {
+  let stateDir: string;
+  let epicsDir: string;
+  let repoDir: string;
+  let manifestPath: string;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-sync-lock-state-"),
+    );
+    epicsDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-sync-lock-epics-"),
+    );
+    repoDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-sync-lock-repo-"),
+    );
+    spawnSync("git", ["init", "-q"], { cwd: repoDir });
+    const epicDir = path.join(repoDir, ".flow", "epics", "watchlist");
+    fs.mkdirSync(epicDir, { recursive: true });
+    manifestPath = path.join(epicDir, "manifest.json");
+    fs.writeFileSync(manifestPath, JSON.stringify(MANIFEST));
+  });
+
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(epicsDir, { recursive: true, force: true });
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  function seedRunState(): void {
+    const rs: EpicRunState = {
+      epicSlug: "watchlist",
+      repo: repoDir,
+      manifestPath,
+      manifestSha: "deadbeef",
+      createdAt: ISO,
+      updatedAt: ISO,
+      features: {},
+    };
+    writeEpicRunState(rs, epicsDir);
+  }
+
+  it("a held lock drives --commit/--push to the lock-timeout skip: exit 0, warn emitted, nothing written", () => {
+    seedRunState();
+    const lockPath = epicStatusLockPath({
+      repoRoot: repoDir,
+      epicSlug: "watchlist",
+    });
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    // A live PID (this test process itself) — reclaimIfStale must NOT
+    // reclaim it, so the lock stays genuinely held for the whole call.
+    fs.writeFileSync(lockPath, String(process.pid));
+    try {
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const gh = ghForHeads({ "feature-a": 101 });
+      const exit = main(["--epic-slug", "watchlist", "--commit", "--push"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+        lockTimeoutMs: 200,
+      });
+      expect(exit).toBe(0);
+      expect(
+        errSpy.mock.calls.some((c) => String(c[0]).includes("lock-timeout")),
+      ).toBe(true);
+      // Nothing written: the board never reached the on-disk write, let
+      // alone a commit.
+      expect(
+        fs.existsSync(path.join(repoDir, ".flow/epics/watchlist/status.json")),
+      ).toBe(false);
+      errSpy.mockRestore();
+    } finally {
+      fs.rmSync(lockPath, { force: true });
+    }
+  });
+
+  it("--check never acquires the lock (no lock file left behind, no lock-timeout even when one is held)", () => {
+    seedRunState();
+    const lockPath = epicStatusLockPath({
+      repoRoot: repoDir,
+      epicSlug: "watchlist",
+    });
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    fs.writeFileSync(lockPath, String(process.pid));
+    try {
+      const gh = ghForHeads({ "feature-a": 101 });
+      const exit = main(["--epic-slug", "watchlist", "--check"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+        lockTimeoutMs: 200,
+      });
+      // No committed board exists yet, so --check reports drift (exit 1) —
+      // the point under test is that it did so WITHOUT ever contending for
+      // (or waiting on) the lock this test is holding.
+      expect(exit).toBe(1);
+    } finally {
+      fs.rmSync(lockPath, { force: true });
+    }
+  });
+
+  it("a written path outside any repo skips locking rather than throwing", () => {
+    const outside = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-sync-lock-norepo-"),
+    );
+    try {
+      const noRepoEpicsDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "flow-epic-sync-lock-norepo-epics-"),
+      );
+      const epicDir = path.join(outside, ".flow", "epics", "watchlist");
+      fs.mkdirSync(epicDir, { recursive: true });
+      const noRepoManifestPath = path.join(epicDir, "manifest.json");
+      fs.writeFileSync(noRepoManifestPath, JSON.stringify(MANIFEST));
+      const rs: EpicRunState = {
+        epicSlug: "watchlist",
+        repo: outside,
+        manifestPath: noRepoManifestPath,
+        manifestSha: "deadbeef",
+        createdAt: ISO,
+        updatedAt: ISO,
+        features: {},
+      };
+      writeEpicRunState(rs, noRepoEpicsDir);
+      const gh = ghForHeads({ "feature-a": 101 });
+      expect(() =>
+        main(["--epic-slug", "watchlist"], {
+          gh,
+          epicsDir: noRepoEpicsDir,
+          cwd: outside,
+        }),
+      ).not.toThrow();
+      fs.rmSync(noRepoEpicsDir, { recursive: true, force: true });
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
     }
   });
 });

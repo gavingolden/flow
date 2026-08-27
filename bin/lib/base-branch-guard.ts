@@ -95,7 +95,7 @@ fi
 exit 0
 `;
 
-function extractMarkerVersion(contents: string): number | null {
+export function extractMarkerVersion(contents: string): number | null {
   const idx = contents.indexOf(BASE_BRANCH_GUARD_MARKER);
   if (idx === -1) return null;
   const after = contents.slice(idx + BASE_BRANCH_GUARD_MARKER.length);
@@ -275,6 +275,121 @@ export function installBaseBranchGuard(
   }
 
   return installForeign(target, hookPath);
+}
+
+export const EPIC_STATUS_ALLOWLIST_MIN_VERSION = 4;
+
+/**
+ * True only when `contents` is BYTE-IDENTICAL to a body flow has ever
+ * shipped (`LEGACY_HOOK_BODIES["base-branch"]` or the current
+ * `BASE_BRANCH_GUARD_HOOK`). A marker alone is not proof of ownership of
+ * the BODY — a marker-intact hook with hand-appended lines classifies
+ * `own-outdated`/`own-legacy` on the marker/legacy-body match alone, but is
+ * NOT a known body, so callers that gate a self-heal (or a promise that one
+ * will succeed) on this predicate never overwrite — or promise to
+ * overwrite — a hand-edited hook.
+ */
+export function isKnownFlowHookBody(contents: string): boolean {
+  return (
+    LEGACY_HOOK_BODIES["base-branch"].includes(contents) ||
+    contents === BASE_BRANCH_GUARD_HOOK
+  );
+}
+
+export type GuardCapability = {
+  allowsStatusBoard: boolean;
+  selfHealable: boolean;
+  classification: PreCommitHookClass;
+  version: number | null;
+  hookPath: string;
+};
+
+/**
+ * Reports whether the pre-commit hook ACTUALLY INSTALLED in `repoDir` honors
+ * the status.json base-branch allowlist, and whether flow may safely
+ * self-heal it in place. Reuses `installBaseBranchGuard`'s own preamble
+ * (resolveHooksTarget -> husky short-circuit -> read+classify), so there is
+ * one reading idiom for the hook on disk; the whole body is wrapped in one
+ * try/catch so a resolution failure never throws — callers get the fail-safe
+ * {allowsStatusBoard:false, selfHealable:false} instead of an unhandled
+ * exception, so no unverified route is ever promised.
+ */
+export function installedGuardCapability(repoDir: string): GuardCapability {
+  try {
+    const target = resolveHooksTarget(repoDir);
+    const hookPath = path.join(target.hooksDir, "pre-commit");
+
+    if (target.manager === "husky") {
+      return {
+        allowsStatusBoard: false,
+        selfHealable: false,
+        classification: "foreign",
+        version: null,
+        hookPath,
+      };
+    }
+
+    const existing = fs.existsSync(hookPath)
+      ? fs.readFileSync(hookPath, "utf8")
+      : null;
+    const classification = classifyPreCommitHook(existing);
+    const version = existing ? extractMarkerVersion(existing) : null;
+
+    switch (classification) {
+      case "absent":
+        return {
+          allowsStatusBoard: true,
+          selfHealable: false,
+          classification,
+          version,
+          hookPath,
+        };
+      case "own-current":
+      case "own-newer":
+        return {
+          allowsStatusBoard:
+            (version ?? 0) >= EPIC_STATUS_ALLOWLIST_MIN_VERSION,
+          selfHealable: false,
+          classification,
+          version,
+          hookPath,
+        };
+      case "own-outdated":
+        return {
+          allowsStatusBoard:
+            (version ?? 0) >= EPIC_STATUS_ALLOWLIST_MIN_VERSION,
+          selfHealable: existing !== null && isKnownFlowHookBody(existing),
+          classification,
+          version,
+          hookPath,
+        };
+      case "own-legacy":
+        return {
+          allowsStatusBoard: false,
+          selfHealable: existing !== null && isKnownFlowHookBody(existing),
+          classification,
+          version,
+          hookPath,
+        };
+      case "foreign":
+      default:
+        return {
+          allowsStatusBoard: false,
+          selfHealable: false,
+          classification,
+          version,
+          hookPath,
+        };
+    }
+  } catch {
+    return {
+      allowsStatusBoard: false,
+      selfHealable: false,
+      classification: "foreign",
+      version: null,
+      hookPath: "",
+    };
+  }
 }
 
 const EPIC_STATUS_ALLOWLIST = /^\.flow\/epics\/[^/]+\/status\.json$/;

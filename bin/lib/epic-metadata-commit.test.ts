@@ -13,6 +13,11 @@ import {
   resolveContainedRepoRoot,
   type GitRunner,
 } from "./epic-metadata-commit";
+import {
+  BASE_BRANCH_GUARD_HOOK,
+  BASE_BRANCH_GUARD_VERSION,
+  LEGACY_HOOK_BODIES,
+} from "./base-branch-guard";
 
 type Resp = { stdout?: string; stderr?: string; exitCode?: number };
 
@@ -123,8 +128,14 @@ describe("commitEpicStatus", () => {
       expect(commitCall).toContain(".flow/epics/e1/status.json");
       // Exact call sequence — NOT just "for each add call, it's scoped",
       // which iterates zero times (and passes vacuously) if `git add` were
-      // ever deleted from production.
-      expect(calls.map((c) => c[0])).toEqual(["status", "add", "commit"]);
+      // ever deleted from production. `cat-file` is Task 2's post-commit
+      // HEAD-verify probe (never removed, never loosened to `.some()`).
+      expect(calls.map((c) => c[0])).toEqual([
+        "status",
+        "add",
+        "commit",
+        "cat-file",
+      ]);
       expect(calls[1]).toContain(".flow/epics/e1/status.json");
     });
   });
@@ -254,6 +265,112 @@ describe("commitEpicStatus", () => {
     } finally {
       fs.rmSync(sibling, { recursive: true, force: true });
     }
+  });
+});
+
+// Task 2's self-heal + board-vanished coverage. Per the header comment
+// above: `commitEpicStatus` resolves the repo root via REAL git, and
+// `installedGuardCapability`/`installBaseBranchGuard`/`resolveHooksTarget`
+// all use the module-level `git()` from `bin/lib/git.ts` plus real `fs` — a
+// fake `GitRunner` will NOT intercept them, so these tests stand up a real
+// repo and a real hook file and call `commitEpicStatus` with NO injected
+// `git` (falling back to the real `defaultGit`).
+describe("commitEpicStatus — self-heal", () => {
+  const hookPath = (repoRoot: string) =>
+    path.join(repoRoot, ".git", "hooks", "pre-commit");
+
+  const writeRealHook = (repoRoot: string, contents: string) => {
+    fs.mkdirSync(path.dirname(hookPath(repoRoot)), { recursive: true });
+    fs.writeFileSync(hookPath(repoRoot), contents, "utf8");
+    fs.chmodSync(hookPath(repoRoot), 0o755);
+  };
+
+  // Both flow-session markers must be SET for the real hook to actually
+  // refuse/allow a base-branch commit (see base-branch-guard.ts's
+  // BASE_BRANCH_GUARD_HOOK doc comment) — set-and-restore around each test
+  // so a leak can't affect a sibling file (a known cross-file flake source
+  // in this repo).
+  const withSessionMarkers = <T>(fn: () => T): T => {
+    const prevSession = process.env.CLAUDE_CODE_SESSION_ID;
+    const prevSlug = process.env.FLOW_SLUG;
+    process.env.CLAUDE_CODE_SESSION_ID = "sess-emc-heal-test";
+    process.env.FLOW_SLUG = "emc-heal-test";
+    try {
+      return fn();
+    } finally {
+      if (prevSession === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
+      else process.env.CLAUDE_CODE_SESSION_ID = prevSession;
+      if (prevSlug === undefined) delete process.env.FLOW_SLUG;
+      else process.env.FLOW_SLUG = prevSlug;
+    }
+  };
+
+  it("heals a real v3 hook in place and commits a session-marked board on main", () => {
+    withTempRepo((repoRoot) => {
+      writeRealHook(repoRoot, LEGACY_HOOK_BODIES["base-branch"][2]);
+      const writtenPath = path.join(repoRoot, ".flow/epics/e1/status.json");
+
+      const result = withSessionMarkers(() =>
+        commitEpicStatus({ writtenPath, epicSlug: "e1", cwd: repoRoot }),
+      );
+
+      expect(result.committed).toBe(true);
+      expect(result.healedHook).toEqual({
+        from: 3,
+        to: BASE_BRANCH_GUARD_VERSION,
+      });
+      expect(fs.readFileSync(hookPath(repoRoot), "utf8")).toBe(
+        BASE_BRANCH_GUARD_HOOK,
+      );
+    });
+  });
+
+  it("declines a hand-edited v3 hook (marker intact, custom lines appended) and leaves it byte-for-byte unchanged", () => {
+    withTempRepo((repoRoot) => {
+      const handEdited = `${LEGACY_HOOK_BODIES["base-branch"][2]}# custom line 1\n# custom line 2\n`;
+      writeRealHook(repoRoot, handEdited);
+      const writtenPath = path.join(repoRoot, ".flow/epics/e1/status.json");
+
+      const result = withSessionMarkers(() =>
+        commitEpicStatus({ writtenPath, epicSlug: "e1", cwd: repoRoot }),
+      );
+
+      // v3 has no status.json carve-out, so with both session markers set on
+      // the default branch the hand-edited hook still refuses the commit —
+      // proof the decline left the hook's actual behaviour untouched, not
+      // just its bytes.
+      expect(result.committed).toBe(false);
+      expect(result.reason).toBe("commit-refused");
+      expect(result.healedHook).toBeUndefined();
+      expect(fs.readFileSync(hookPath(repoRoot), "utf8")).toBe(handEdited);
+    });
+  });
+
+  it("never heals an absent hook (no pre-commit file at all)", () => {
+    withTempRepo((repoRoot) => {
+      const writtenPath = path.join(repoRoot, ".flow/epics/e1/status.json");
+      const result = commitEpicStatus({
+        writtenPath,
+        epicSlug: "e1",
+        cwd: repoRoot,
+      });
+      expect(result.committed).toBe(true);
+      expect(result.healedHook).toBeUndefined();
+      expect(fs.existsSync(hookPath(repoRoot))).toBe(false);
+    });
+  });
+
+  it("board-vanished when the board is absent from both HEAD and disk", () => {
+    withTempRepo((repoRoot) => {
+      const writtenPath = path.join(repoRoot, ".flow/epics/e1/status.json");
+      fs.rmSync(writtenPath); // simulate a stale run-state cache pointing at a since-removed board
+      const result = commitEpicStatus({
+        writtenPath,
+        epicSlug: "e1",
+        cwd: repoRoot,
+      });
+      expect(result).toEqual({ committed: false, reason: "board-vanished" });
+    });
   });
 });
 
@@ -549,6 +666,7 @@ describe("forbidden argv pin", () => {
         "-f",
         "-u",
         "--set-upstream",
+        "--no-verify",
       ];
       for (const argv of allCalls) {
         for (const flag of forbidden) {

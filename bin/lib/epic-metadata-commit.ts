@@ -7,6 +7,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { type GitRunner, defaultGit } from "./resume-probes";
 import {
@@ -15,7 +16,14 @@ import {
   epicDirRelative,
 } from "./epic-manifest-schema";
 import { resolveRepoRoot, resolveGitCommonDir } from "./repo-root";
-import { isCommittableOnBaseBranch } from "./base-branch-guard";
+import {
+  BASE_BRANCH_GUARD_VERSION,
+  installBaseBranchGuard,
+  installedGuardCapability,
+  isCommittableOnBaseBranch,
+  isKnownFlowHookBody,
+} from "./base-branch-guard";
+import { epicStatusLockDir } from "./paths";
 export { isCommittableOnBaseBranch } from "./base-branch-guard";
 
 export type { GitRunner };
@@ -25,7 +33,9 @@ export type CommitSkipReason =
   | "foreign-repo"
   | "nothing-staged"
   | "commit-refused"
-  | "git-error";
+  | "git-error"
+  | "board-vanished"
+  | "lock-timeout";
 
 export type PushSkipReason =
   | "not-committed"
@@ -42,6 +52,36 @@ export type RepoState = "clean" | "rebase" | "merge" | "detached";
 
 export function epicStatusRelPath(epicSlug: string): string {
   return `${epicDirRelative(epicSlug)}/${EPIC_STATUS_FILENAME}`;
+}
+
+/**
+ * Derives the per-board lock path both board writers (`flow-epic-sync.ts`,
+ * `epic.ts`) serialize behind. Keyed on `sha256(<key> + '\0' + epicSlug)`
+ * under `epicStatusLockDir()`, where `<key>` is `resolveGitCommonDir
+ * (repoRoot)` when non-null — shared across a main checkout and its linked
+ * worktrees, so sibling worktrees of one repo contend for the same lock
+ * (they share the board) — else the realpath'd `repoRoot`, so two unrelated
+ * non-repo callers never collide by both hashing the literal string
+ * `"null"`.
+ */
+export function epicStatusLockPath(input: {
+  repoRoot: string;
+  epicSlug: string;
+}): string {
+  const commonDir = resolveGitCommonDir(input.repoRoot);
+  const key = commonDir ?? realpathOrSelf(input.repoRoot);
+  const digest = createHash("sha256")
+    .update(`${key}\0${input.epicSlug}`)
+    .digest("hex");
+  return path.join(epicStatusLockDir(), digest);
+}
+
+function realpathOrSelf(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
 }
 
 function toRel(repoRoot: string, absPath: string): string | null {
@@ -104,13 +144,96 @@ export function resolveContainedRepoRoot(input: {
  * point cross-repo, and a recomputed path would then be a DIFFERENT file:
  * the commit would report `nothing-staged` while the real edit stayed dirty.
  */
+/**
+ * Resolves the checked-out branch name via the same idiom the sh hook uses
+ * (`git symbolic-ref`, falling back to `git rev-parse --abbrev-ref HEAD`).
+ * Returns null on a detached HEAD or any git failure — never throws.
+ */
+function currentBranch(repoRoot: string, git: GitRunner): string | null {
+  const symbolic = git(
+    ["symbolic-ref", "--quiet", "--short", "HEAD"],
+    repoRoot,
+  );
+  if (symbolic.exitCode === 0 && symbolic.stdout.trim()) {
+    return symbolic.stdout.trim();
+  }
+  const abbrev = git(["rev-parse", "--abbrev-ref", "HEAD"], repoRoot);
+  if (
+    abbrev.exitCode === 0 &&
+    abbrev.stdout.trim() &&
+    abbrev.stdout.trim() !== "HEAD"
+  ) {
+    return abbrev.stdout.trim();
+  }
+  return null;
+}
+
+/**
+ * Best-effort self-heal of an outdated flow-owned `pre-commit` hook, run
+ * before the commit attempt below. Every precondition is load-bearing:
+ *   - `capability.selfHealable && !capability.allowsStatusBoard` — an
+ *     `absent` hook is NEVER self-healable (see `installedGuardCapability`'s
+ *     mapping), so this alone keeps the heal off every hookless temp repo.
+ *   - HEAD on the default branch — the guard (and this heal) only matters
+ *     there; healing off-branch would be a no-op upgrade with no safety
+ *     payoff and an unnecessary write.
+ *   - the staged set (just `rel`, since the commit below is path-scoped) is
+ *     itself allowlisted — mirrors the sh hook's own carve-out check.
+ *   - the installed hook body is BYTE-IDENTICAL to a known flow body —
+ *     `capability.selfHealable` already requires this
+ *     (`installedGuardCapability`'s own `isKnownFlowHookBody` gate), so a
+ *     hook with an intact marker but hand-appended lines classifies
+ *     `own-outdated`/`own-legacy` yet reports `selfHealable: false` and
+ *     never reaches here. Re-verified against a FRESH read below (not just
+ *     `capability`'s cached read) to close the TOCTOU window between the
+ *     capability probe and this heal actually installing the guard. This is
+ *     the load-bearing safety property: a marker alone is not proof of
+ *     ownership of the BODY.
+ * Any failure anywhere in this function is swallowed; the commit attempt
+ * proceeds and, if the hook still refuses it, surfaces as the pre-existing
+ * `commit-refused` path.
+ */
+function attemptSelfHeal(
+  repoRoot: string,
+  rel: string,
+  git: GitRunner,
+): { from: number | null; to: number } | undefined {
+  try {
+    const capability = installedGuardCapability(repoRoot);
+    if (!capability.selfHealable || capability.allowsStatusBoard) {
+      return undefined;
+    }
+    const branch = currentBranch(repoRoot, git);
+    if (!branch || branch !== resolveDefaultBranch(repoRoot, git)) {
+      return undefined;
+    }
+    if (!isCommittableOnBaseBranch([rel])) return undefined;
+    if (!capability.hookPath || !fs.existsSync(capability.hookPath)) {
+      return undefined;
+    }
+    const contents = fs.readFileSync(capability.hookPath, "utf8");
+    if (!isKnownFlowHookBody(contents)) return undefined;
+
+    const from = capability.version;
+    installBaseBranchGuard(repoRoot);
+    return { from, to: BASE_BRANCH_GUARD_VERSION };
+  } catch {
+    return undefined;
+  }
+}
+
 export function commitEpicStatus(input: {
   writtenPath: string;
   epicSlug: string;
   message?: string;
   cwd?: string;
   git?: GitRunner;
-}): { committed: boolean; reason?: CommitSkipReason; detail?: string } {
+}): {
+  committed: boolean;
+  reason?: CommitSkipReason;
+  detail?: string;
+  healedHook?: { from: number | null; to: number };
+} {
   const git = input.git ?? defaultGit;
   try {
     const containment = resolveContainedRepoRoot({
@@ -129,12 +252,37 @@ export function commitEpicStatus(input: {
     // resolves symlinks in its answer (e.g. macOS's /var -> /private/var);
     // realpath-normalize writtenPath too, or a symlinked tmpdir-style path
     // would false-negative into "not-a-repo" even though it IS inside repoRoot.
-    const realWritten = fs.realpathSync(input.writtenPath);
+    // A vanished board (file removed after being written) makes a direct
+    // realpathSync throw ENOENT — fall back to realpath-normalizing just the
+    // DIRNAME (which still exists) so a genuinely vanished board still
+    // resolves a usable `rel` instead of falling into the generic
+    // `git-error` catch below and masking `board-vanished`.
+    let realWritten: string;
+    try {
+      realWritten = fs.realpathSync(input.writtenPath);
+    } catch {
+      try {
+        realWritten = path.join(
+          fs.realpathSync(path.dirname(input.writtenPath)),
+          path.basename(input.writtenPath),
+        );
+      } catch {
+        realWritten = input.writtenPath;
+      }
+    }
     const rel = toRel(repoRoot, realWritten);
     if (!rel) return { committed: false, reason: "not-a-repo" };
 
+    const healedHook = attemptSelfHeal(repoRoot, rel, git);
+
     const status = git(["status", "--porcelain", "--", rel], repoRoot);
     if (status.stdout.trim().length === 0) {
+      const headHasIt =
+        git(["cat-file", "-e", `HEAD:${rel}`], repoRoot).exitCode === 0;
+      const existsOnDisk = fs.existsSync(path.join(repoRoot, rel));
+      if (!headHasIt && !existsOnDisk) {
+        return { committed: false, reason: "board-vanished" };
+      }
       return { committed: false, reason: "nothing-staged" };
     }
     const message =
@@ -161,7 +309,15 @@ export function commitEpicStatus(input: {
         detail: firstLine(committed.stderr),
       };
     }
-    return { committed: true };
+    const verify = git(["cat-file", "-e", `HEAD:${rel}`], repoRoot);
+    if (verify.exitCode !== 0) {
+      return {
+        committed: false,
+        reason: "git-error",
+        detail: "board absent from HEAD after a reported-successful commit",
+      };
+    }
+    return healedHook ? { committed: true, healedHook } : { committed: true };
   } catch (err) {
     return {
       committed: false,

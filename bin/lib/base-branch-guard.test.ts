@@ -8,14 +8,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BASE_BRANCH_GUARD_HOOK,
   BASE_BRANCH_GUARD_VERSION,
+  EPIC_STATUS_ALLOWLIST_MIN_VERSION,
   LEGACY_HOOK_BODIES,
   baseBranchGuardDecision,
   baseBranchGuardSidecarPath,
   classifyPreCommitHook,
   ensureGuardSidecar,
+  extractMarkerVersion,
   foreignHookNotice,
   installBaseBranchGuard,
+  installedGuardCapability,
   isCommittableOnBaseBranch,
+  isKnownFlowHookBody,
 } from "./base-branch-guard";
 import { resolveHooksTarget } from "./hooks-target";
 
@@ -530,6 +534,170 @@ describe("classifyPreCommitHook", () => {
   it("treats a marker with no trailing integer as foreign", () => {
     const bare = "#!/bin/sh\n# flow:base-branch-guard v\nexit 0\n";
     expect(classifyPreCommitHook(bare)).toBe("foreign");
+  });
+});
+
+describe("isKnownFlowHookBody", () => {
+  it("is true for the current body and every registered legacy body", () => {
+    expect(isKnownFlowHookBody(BASE_BRANCH_GUARD_HOOK)).toBe(true);
+    for (const body of LEGACY_HOOK_BODIES["base-branch"]) {
+      expect(isKnownFlowHookBody(body)).toBe(true);
+    }
+  });
+
+  it("is false for a marker-intact body with hand-appended lines", () => {
+    expect(isKnownFlowHookBody(`${BASE_BRANCH_GUARD_HOOK}# custom\n`)).toBe(
+      false,
+    );
+  });
+
+  it("is false for an unrelated body", () => {
+    expect(isKnownFlowHookBody("#!/bin/sh\nexit 1\n")).toBe(false);
+  });
+});
+
+describe("extractMarkerVersion (promoted export)", () => {
+  it("reads the marker version out of the current hook body", () => {
+    expect(extractMarkerVersion(BASE_BRANCH_GUARD_HOOK)).toBe(
+      BASE_BRANCH_GUARD_VERSION,
+    );
+  });
+
+  it("returns null when no marker is present", () => {
+    expect(extractMarkerVersion(LEGACY_HOOK_BODIES["base-branch"][0])).toBe(
+      null,
+    );
+  });
+});
+
+describe("installedGuardCapability", () => {
+  let repoDir!: string;
+
+  beforeEach(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-bbg-cap-"));
+    execFileSync("git", ["init", "-b", "main"], { cwd: repoDir });
+  });
+
+  afterEach(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  const hookPath = () => path.join(repoDir, ".git", "hooks", "pre-commit");
+
+  const writeHook = (contents: string) => {
+    fs.mkdirSync(path.dirname(hookPath()), { recursive: true });
+    fs.writeFileSync(hookPath(), contents, "utf8");
+  };
+
+  it("absent: allows the status board, is never self-healable", () => {
+    const cap = installedGuardCapability(repoDir);
+    expect(cap).toMatchObject({
+      allowsStatusBoard: true,
+      selfHealable: false,
+      classification: "absent",
+      version: null,
+    });
+  });
+
+  it("own-current (v4): allows the status board, is never self-healable", () => {
+    writeHook(BASE_BRANCH_GUARD_HOOK);
+    const cap = installedGuardCapability(repoDir);
+    expect(cap).toMatchObject({
+      allowsStatusBoard: true,
+      selfHealable: false,
+      classification: "own-current",
+      version: BASE_BRANCH_GUARD_VERSION,
+    });
+  });
+
+  it("own-outdated (v3): disallows but is self-healable", () => {
+    writeHook(LEGACY_HOOK_BODIES["base-branch"][2]);
+    const cap = installedGuardCapability(repoDir);
+    expect(cap.classification).toBe("own-outdated");
+    expect(cap.version).toBe(3);
+    expect(cap.version).toBeLessThan(EPIC_STATUS_ALLOWLIST_MIN_VERSION);
+    expect(cap.allowsStatusBoard).toBe(false);
+    expect(cap.selfHealable).toBe(true);
+  });
+
+  // The dangerous case a marker-only check would miss: the marker says v3
+  // (own-outdated) but the BODY has been hand-edited, so it is NOT a body
+  // flow ever shipped. `selfHealable` must be false here — an
+  // optimistic `true` would let `flow-stop-guard.ts` promise a
+  // `flow-epic-sync --commit` route that `commitEpicStatus`'s own
+  // byte-identity gate then declines, exactly the over-promised-route bug
+  // this PR exists to close.
+  it("own-outdated (v3) with hand-appended lines: disallows AND is NOT self-healable", () => {
+    writeHook(
+      `${LEGACY_HOOK_BODIES["base-branch"][2]}# custom line 1\n# custom line 2\n`,
+    );
+    const cap = installedGuardCapability(repoDir);
+    expect(cap.classification).toBe("own-outdated");
+    expect(cap.version).toBe(3);
+    expect(cap.allowsStatusBoard).toBe(false);
+    expect(cap.selfHealable).toBe(false);
+  });
+
+  it("own-legacy (v1/v2, pre-marker): disallows but is self-healable", () => {
+    writeHook(LEGACY_HOOK_BODIES["base-branch"][0]);
+    const cap = installedGuardCapability(repoDir);
+    expect(cap).toMatchObject({
+      allowsStatusBoard: false,
+      selfHealable: true,
+      classification: "own-legacy",
+      version: null,
+    });
+  });
+
+  it("foreign: disallows and is never self-healable", () => {
+    writeHook("#!/bin/sh\n# a hand-rolled hook\nexit 0\n");
+    const cap = installedGuardCapability(repoDir);
+    expect(cap).toMatchObject({
+      allowsStatusBoard: false,
+      selfHealable: false,
+      classification: "foreign",
+    });
+  });
+
+  it("husky: classifies as foreign (no dedicated enum member) and is never self-healable", () => {
+    const huskyDir = path.join(repoDir, ".husky", "_");
+    fs.mkdirSync(huskyDir, { recursive: true });
+    fs.writeFileSync(path.join(huskyDir, "husky.sh"), "# husky\n", "utf8");
+    execFileSync(
+      "git",
+      ["config", "core.hooksPath", path.join(".husky", "_")],
+      { cwd: repoDir },
+    );
+
+    const cap = installedGuardCapability(repoDir);
+    expect(cap).toMatchObject({
+      allowsStatusBoard: false,
+      selfHealable: false,
+      classification: "foreign",
+    });
+  });
+
+  it("never throws: an unreadable hook resolves to the fail-safe capability", () => {
+    // Real OS-level unreadable file (chmod 0), not a `vi.spyOn(fs, ...)` —
+    // `node:fs`'s named exports aren't reconfigurable under vitest's ESM
+    // interop, so a spy throws "Cannot redefine property" before the
+    // assertion under test even runs.
+    if (process.getuid && process.getuid() === 0) {
+      // root ignores file-mode read restrictions; skip rather than false-fail.
+      return;
+    }
+    writeHook(BASE_BRANCH_GUARD_HOOK);
+    fs.chmodSync(hookPath(), 0o000);
+
+    let cap: ReturnType<typeof installedGuardCapability> | undefined;
+    expect(() => {
+      cap = installedGuardCapability(repoDir);
+    }).not.toThrow();
+    expect(cap?.allowsStatusBoard).toBe(false);
+    expect(cap?.selfHealable).toBe(false);
+
+    fs.chmodSync(hookPath(), 0o755); // restore so afterEach's rmSync succeeds
   });
 });
 

@@ -44,12 +44,14 @@ import { resolveSlugFromEnv } from "./lib/session-identity";
 import { defaultGh, type GhRunner } from "./lib/resume-probes";
 import {
   commitEpicStatus,
+  epicStatusLockPath,
   pushEpicStatusFromWrittenPath,
   resolveContainedRepoRoot,
   type CommitSkipReason,
   type PushSkipReason,
   type GitRunner,
 } from "./lib/epic-metadata-commit";
+import { LockTimeoutError, withFileLockSync } from "./lib/lock";
 
 // --- Manifest loading (read-only, tolerant) ---------------------------------
 
@@ -275,6 +277,8 @@ type Deps = {
   epicsDir?: string;
   env?: NodeJS.ProcessEnv;
   git?: GitRunner;
+  /** Test seam only — production always uses the 60s default. */
+  lockTimeoutMs?: number;
 };
 
 type SyncEnvelope = {
@@ -519,118 +523,184 @@ export function main(argv: string[], deps: Deps = {}): number {
     return inSync ? 0 : 1;
   }
 
-  const onDisk = existing ? serializeEpicStatus(existing) : null;
-  let written = onDisk !== serialized;
-  let committed = false;
-  let commitSkipReason: CommitSkipReason | undefined;
-  let pushed = false;
-  let pushSkipReason: PushSkipReason | undefined;
-  const writtenPath = path.join(epicDirAbs, EPIC_STATUS_FILENAME);
+  // Everything from here through the end of the function is the WRITE
+  // WINDOW: it may write the on-disk board, commit it, and push it. Two
+  // sessions racing this window can destroy each other's board (a
+  // partially-written file from one clobbered by the other's read-modify-
+  // write), so it runs under a per-board lock, keyed the same way on both
+  // writers (see `epicStatusLockPath`) — the `--check` path above never
+  // reaches here and so never holds the lock.
+  const runWriteWindow = (): number => {
+    const onDisk = existing ? serializeEpicStatus(existing) : null;
+    let written = onDisk !== serialized;
+    let committed = false;
+    let commitSkipReason: CommitSkipReason | undefined;
+    let pushed = false;
+    let pushSkipReason: PushSkipReason | undefined;
+    const writtenPath = path.join(epicDirAbs, EPIC_STATUS_FILENAME);
 
-  // Containment must be checked BEFORE the write, not just before the
-  // commit/push below: on the cwd-preference fallback (operator's own repo
-  // carries no such epic, so resolution falls back to a stale cached path
-  // in a foreign checkout) a commit-only gate still dirtied the foreign
-  // working tree and then refused only the commit/push, leaving an
-  // untracked file behind in a repo we'd just declared foreign. Skip the
-  // write entirely and report the same containment reason the commit/push
-  // gate would have reported, so the envelope stays accurate without ever
-  // touching the foreign tree.
-  //
-  // Scoped to a WRITE invocation (`--commit`/`--push`) only: a bare/`--json`
-  // invocation with neither flag always writes the derived board next to
-  // whatever manifest it resolved (cached-first, no cwd preference) — that
-  // on-disk cache write is unconditional pre-existing behaviour, independent
-  // of which repo it lands in, and is never followed by a commit/push this
-  // gate would otherwise need to pre-empt.
-  const preWriteContainment =
-    written && isWriteInvocation
-      ? resolveContainedRepoRoot({ writtenPath, cwd })
-      : null;
-  const containmentBlocked = !!(preWriteContainment && !preWriteContainment.ok);
-  if (containmentBlocked && preWriteContainment) {
-    written = false;
-    commitSkipReason = preWriteContainment.reason;
-    console.error(
-      `warn: skipping status board write (${preWriteContainment.reason}${preWriteContainment.detail ? `: ${preWriteContainment.detail}` : ""})`,
+    // Containment must be checked BEFORE the write, not just before the
+    // commit/push below: on the cwd-preference fallback (operator's own repo
+    // carries no such epic, so resolution falls back to a stale cached path
+    // in a foreign checkout) a commit-only gate still dirtied the foreign
+    // working tree and then refused only the commit/push, leaving an
+    // untracked file behind in a repo we'd just declared foreign. Skip the
+    // write entirely and report the same containment reason the commit/push
+    // gate would have reported, so the envelope stays accurate without ever
+    // touching the foreign tree.
+    //
+    // Scoped to a WRITE invocation (`--commit`/`--push`) only: a bare/`--json`
+    // invocation with neither flag always writes the derived board next to
+    // whatever manifest it resolved (cached-first, no cwd preference) — that
+    // on-disk cache write is unconditional pre-existing behaviour, independent
+    // of which repo it lands in, and is never followed by a commit/push this
+    // gate would otherwise need to pre-empt.
+    const preWriteContainment =
+      written && isWriteInvocation
+        ? resolveContainedRepoRoot({ writtenPath, cwd })
+        : null;
+    const containmentBlocked = !!(
+      preWriteContainment && !preWriteContainment.ok
     );
-  } else if (written) {
-    fs.mkdirSync(epicDirAbs, { recursive: true });
-    fs.writeFileSync(writtenPath, serialized);
-    if (regressed.length > 0) {
+    if (containmentBlocked && preWriteContainment) {
+      written = false;
+      commitSkipReason = preWriteContainment.reason;
       console.error(
-        `warn: --rederive regressed ${regressed.length} row(s): ${regressed.join(", ")}`,
+        `warn: skipping status board write (${preWriteContainment.reason}${preWriteContainment.detail ? `: ${preWriteContainment.detail}` : ""})`,
       );
+    } else if (written) {
+      fs.mkdirSync(epicDirAbs, { recursive: true });
+      fs.writeFileSync(writtenPath, serialized);
+      if (regressed.length > 0) {
+        console.error(
+          `warn: --rederive regressed ${regressed.length} row(s): ${regressed.join(", ")}`,
+        );
+      }
     }
-  }
 
-  // Gate on `parsed.commit`, NOT on `written`: `written` only means "differs
-  // from what's on disk", but `readCommittedStatus` reads the WORKING TREE,
-  // not `git show HEAD:` — so a board that's already correct on disk but
-  // still UNCOMMITTED makes `written` false and would otherwise silently
-  // strand it (the exact incident this command exists to fix). When the file
-  // is on disk (either just written, or already there and byte-identical),
-  // `commitEpicStatus` still runs and short-circuits to `nothing-staged` via
-  // its own `git status --porcelain` probe if the tree really is clean.
-  if (!containmentBlocked && parsed.commit && fs.existsSync(writtenPath)) {
-    const commitResult = commitEpicStatus({
-      writtenPath,
-      epicSlug,
-      cwd,
-      git: deps.git,
-    });
-    committed = commitResult.committed;
-    commitSkipReason = commitResult.reason;
-    if (!committed) {
-      console.error(
-        `warn: --commit did not commit the status board (${commitResult.reason}${commitResult.detail ? `: ${commitResult.detail}` : ""})`,
-      );
-    }
-  }
-
-  if (parsed.push) {
-    if (!committed) {
-      pushSkipReason =
-        commitSkipReason === "foreign-repo"
-          ? "foreign-repo"
-          : commitSkipReason === "not-a-repo"
-            ? "push-failed"
-            : "not-committed";
-    } else {
-      const pushResult = pushEpicStatusFromWrittenPath({
+    // Gate on `parsed.commit`, NOT on `written`: `written` only means "differs
+    // from what's on disk", but `readCommittedStatus` reads the WORKING TREE,
+    // not `git show HEAD:` — so a board that's already correct on disk but
+    // still UNCOMMITTED makes `written` false and would otherwise silently
+    // strand it (the exact incident this command exists to fix). When the file
+    // is on disk (either just written, or already there and byte-identical),
+    // `commitEpicStatus` still runs and short-circuits to `nothing-staged` via
+    // its own `git status --porcelain` probe if the tree really is clean.
+    if (!containmentBlocked && parsed.commit && fs.existsSync(writtenPath)) {
+      const commitResult = commitEpicStatus({
         writtenPath,
+        epicSlug,
         cwd,
         git: deps.git,
       });
-      pushed = pushResult.pushed;
-      pushSkipReason = pushResult.reason;
+      committed = commitResult.committed;
+      commitSkipReason = commitResult.reason;
+      if (!committed) {
+        console.error(
+          `warn: --commit did not commit the status board (${commitResult.reason}${commitResult.detail ? `: ${commitResult.detail}` : ""})`,
+        );
+      }
     }
-    if (!pushed && pushSkipReason) {
-      console.error(
-        `warn: --push did not push the status board (${pushSkipReason}). ${remedyFor(pushSkipReason)}`,
+
+    if (parsed.push) {
+      if (!committed) {
+        pushSkipReason =
+          commitSkipReason === "foreign-repo"
+            ? "foreign-repo"
+            : commitSkipReason === "not-a-repo"
+              ? "push-failed"
+              : "not-committed";
+      } else {
+        const pushResult = pushEpicStatusFromWrittenPath({
+          writtenPath,
+          cwd,
+          git: deps.git,
+        });
+        pushed = pushResult.pushed;
+        pushSkipReason = pushResult.reason;
+      }
+      if (!pushed && pushSkipReason) {
+        console.error(
+          `warn: --push did not push the status board (${pushSkipReason}). ${remedyFor(pushSkipReason)}`,
+        );
+      }
+    }
+
+    if (parsed.json) {
+      console.log(
+        JSON.stringify(
+          syncEnvelope({
+            epicSlug,
+            derived: true,
+            written,
+            features: file.features,
+            rederive: parsed.rederive,
+            regressed,
+            committed,
+            commitSkipReason,
+            pushed,
+            pushSkipReason,
+          }),
+        ),
       );
     }
-  }
+    return 0;
+  };
 
-  if (parsed.json) {
-    console.log(
-      JSON.stringify(
-        syncEnvelope({
-          epicSlug,
-          derived: true,
-          written,
-          features: file.features,
-          rederive: parsed.rederive,
-          regressed,
-          committed,
-          commitSkipReason,
-          pushed,
-          pushSkipReason,
-        }),
-      ),
+  // `main()` has no `repoRoot` in scope up to this point — derive it the
+  // same way `resolveContainedRepoRoot` does. A null repoRoot (writtenPath
+  // resolves outside any repo) skips the lock rather than throwing,
+  // matching this module's never-throw posture; the write below still runs
+  // unlocked, exactly as it did before this PR.
+  let lockRepoRoot: string | null;
+  try {
+    lockRepoRoot = resolveRepoRoot(epicDirAbs);
+  } catch {
+    lockRepoRoot = null;
+  }
+  if (!lockRepoRoot) return runWriteWindow();
+
+  const lockPath = epicStatusLockPath({ repoRoot: lockRepoRoot, epicSlug });
+  if (fs.existsSync(lockPath)) {
+    // `withFileLockSync`'s wait is `Atomics.wait` (see sleep.ts) — the CLI
+    // process is fully frozen with no output while it waits, so this line,
+    // emitted BEFORE the wait rather than after the first poll, is the only
+    // thing that distinguishes a contended-but-fine 60s wait from a hang.
+    console.error(
+      `flow-epic-sync: waiting up to 60s for the epic-status lock on "${epicSlug}" — another flow session appears to be syncing this board.`,
     );
   }
-  return 0;
+  try {
+    return withFileLockSync(lockPath, runWriteWindow, {
+      timeoutMs: deps.lockTimeoutMs ?? 60_000,
+    });
+  } catch (err) {
+    if (err instanceof LockTimeoutError) {
+      console.error(
+        `warn: --commit/--push skipped (lock-timeout): another flow session is syncing this board (epic ${epicSlug})`,
+      );
+      if (parsed.json) {
+        console.log(
+          JSON.stringify(
+            syncEnvelope({
+              epicSlug,
+              derived: true,
+              written: false,
+              features: file.features,
+              rederive: parsed.rederive,
+              regressed,
+              committed: false,
+              commitSkipReason: "lock-timeout",
+              pushed: false,
+              pushSkipReason: undefined,
+            }),
+          ),
+        );
+      }
+      return 0;
+    }
+    throw err;
+  }
 }
 
 if (import.meta.main) {

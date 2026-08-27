@@ -284,8 +284,9 @@ three-layer resolution table, and the manifest/foundation fields — is at
     itself the user's explicit instruction to commit and push the
     review-fix commit in the same run. Named and narrow — no other skill
     is authorised to bypass the default.
-  - **Auto-commit exemption: `flow-epic-sync --commit`.** One
-    status.json path, base-branch-legal via the v4 allowlist.
+  - **Auto-commit exemption: `flow-epic-sync --commit`.** One status.json
+    path, base-branch-legal via the installed guard's status.json allowlist
+    (self-healed in place when outdated).
   - **Auto-push exemption: `flow-epic-sync --push`** (and `flow epic
     done`'s heal): that one commit, never forced. Both contracts:
     [git-workflow.md](references/git-workflow.md).

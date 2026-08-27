@@ -143,11 +143,25 @@ purpose — they are not meant to be unified.
 
 ### Auto-commit exemption: flow-epic-sync --commit
 
-The v4 base-branch guard allowlist carves out exactly one narrow shape: a
-commit whose entire staged set matches `.flow/epics/<epic>/status.json`
-is let through on the base branch inside a flow session, mirrored in TS by
-`isCommittableOnBaseBranch` (`bin/lib/base-branch-guard.ts`) and re-exported
-from `bin/lib/epic-metadata-commit.ts`. The board qualifies where
+The v4+ base-branch guard allowlist carves out exactly one narrow shape,
+CONDITIONAL on the hook actually installed in the repo: a commit whose
+entire staged set matches `.flow/epics/<epic>/status.json` is let through
+on the base branch inside a flow session only when the installed hook is
+v4-or-newer, mirrored in TS by `isCommittableOnBaseBranch`
+(`bin/lib/base-branch-guard.ts`) and re-exported from
+`bin/lib/epic-metadata-commit.ts`. `installedGuardCapability` (same file)
+is the SINGLE producer both `bin/flow-stop-guard.ts` (route-naming) and
+`commitEpicStatus` (the actual commit, including its self-heal of an
+outdated flow-owned hook) read — the guard's promise and the helper's
+outcome cannot diverge, because there is exactly one source of truth for
+"does the installed hook honor this allowlist." An outdated flow-owned
+hook (v1–v3, or a marker-bearing-but-unbumped intermediate) is upgraded
+in place at commit time, gated on the on-disk body being byte-identical
+to a body flow has ever shipped — a hand-edited hook is left untouched
+and the commit falls through to `commit-refused` instead. A foreign or
+husky-managed hook is never touched, and the stop guard downgrades to a
+diagnostic (exit 0) rather than naming an unsatisfiable route. The board
+qualifies where
 `manifest.json` does not: it is machine-derived (`deriveBoard` in
 `bin/flow-epic-sync.ts`, never hand-authored), one-way-latched
 (`advanceStatus` — a shipped row never regresses), canonically serialized

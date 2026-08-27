@@ -31,7 +31,11 @@
 
 import { spawnSync } from "node:child_process";
 import { resolveSlugFromEnv } from "./lib/session-identity";
-import { isCommittableOnBaseBranch } from "./lib/base-branch-guard";
+import {
+  installedGuardCapability,
+  isCommittableOnBaseBranch,
+  type GuardCapability,
+} from "./lib/base-branch-guard";
 import { isValidSlug } from "./lib/slug";
 import {
   isLegitimateEndPhase,
@@ -71,6 +75,8 @@ export type Deps = {
   dirtyEpicPaths: (repoRoot: string) => string[];
   /** Repo commit-state probe (test seam; production: epic-metadata-commit.ts). */
   repoCommitState: (repoRoot: string) => RepoState;
+  /** Installed pre-commit hook capability probe (test seam; production: base-branch-guard.ts). */
+  guardCapability: (repoRoot: string) => GuardCapability;
 };
 
 function dedupe(items: string[]): string[] {
@@ -90,17 +96,30 @@ function dedupe(items: string[]): string[] {
  */
 export function buildEpicMetadataReminder(
   entries: { root: string; path: string }[],
-  ctx: { onBaseBranch: boolean },
+  ctx: {
+    onBaseBranch: boolean;
+    /** Whether root's INSTALLED pre-commit hook actually honors the
+     * status.json base-branch allowlist (allows it outright, or can be
+     * self-healed into allowing it). REQUIRED, never optional-defaulting-
+     * true — an optional default would silently reintroduce the optimistic
+     * assumption this predicate exists to kill. */
+    statusRouteWorks: (root: string) => boolean;
+  },
 ): string[] {
   const lines = [
     `flow-stop-guard: uncommitted .flow/epics/** metadata: ${entries.map((e) => e.path).join(", ")}.`,
     "This must never leave the epic — commit it THIS TURN via the sanctioned route below, then continue.",
   ];
+  let namedSyncRoute = false;
   for (const { root, path: p } of entries) {
     // Route on the shared allowlist predicate, not a re-encoded regex, so
     // this can never drift from what the base-branch-guard hook actually
-    // allows (`bin/lib/base-branch-guard.ts`'s EPIC_STATUS_ALLOWLIST).
-    if (isCommittableOnBaseBranch([p])) {
+    // allows (`bin/lib/base-branch-guard.ts`'s EPIC_STATUS_ALLOWLIST) — AND
+    // on whether root's INSTALLED hook actually honors it. Naming the
+    // flow-epic-sync route when the installed hook would just refuse it
+    // (a foreign hook, or an un-self-healable legacy one) would name a
+    // route the session cannot execute in this turn.
+    if (isCommittableOnBaseBranch([p]) && ctx.statusRouteWorks(root)) {
       const epicMatch = p.match(/^\.flow\/epics\/([^/]+)\/status\.json$/);
       const slug = epicMatch?.[1];
       // Root-anchored: these commands must always operate on `root`, never
@@ -115,6 +134,7 @@ export function buildEpicMetadataReminder(
           `  ${p}: run \`(cd ${root} && flow-epic-sync --commit --push)\` (slug omitted — path did not resolve to a valid epic slug).`,
         );
       }
+      namedSyncRoute = true;
     } else {
       const epicMatch = p.match(/^\.flow\/epics\/([^/]+)\//);
       const epic =
@@ -124,14 +144,39 @@ export function buildEpicMetadataReminder(
           `then \`git -C ${root} switch -\` to return that checkout to the base branch — ` +
           "the base-branch guard refuses this path on the base branch directly.",
       );
+      if (isCommittableOnBaseBranch([p])) {
+        // The status.json route WOULD apply on content grounds, but root's
+        // installed hook cannot honor it (foreign/husky, or a legacy hook
+        // flow cannot self-heal) — name the upgrade path rather than a
+        // route that would just be refused.
+        lines.push(
+          `  ${p}: the installed pre-commit hook at ${root} does not allow this route yet — run \`flow install --upgrade\` in that repo to install/upgrade the flow base-branch guard.`,
+        );
+      }
     }
   }
-  if (ctx.onBaseBranch) {
+  if (ctx.onBaseBranch && namedSyncRoute) {
     lines.push(
       "(the repo is currently on the base branch — the status.json route above applies directly there)",
     );
   }
   return lines;
+}
+
+/**
+ * False only when EVERY entry is an allowlisted status.json path whose
+ * root's installed hook cannot honor it — i.e. no route in
+ * `buildEpicMetadataReminder`'s output is actually executable this turn.
+ * Any non-status.json entry keeps the block satisfiable regardless of hook
+ * capability: the `switch -c` route never depends on the installed hook.
+ */
+export function epicMetadataBlockIsSatisfiable(
+  entries: { root: string; path: string }[],
+  statusRouteWorks: (root: string) => boolean,
+): boolean {
+  return entries.some(
+    (e) => !isCommittableOnBaseBranch([e.path]) || statusRouteWorks(e.root),
+  );
 }
 
 export async function run(deps: Deps): Promise<number> {
@@ -191,12 +236,33 @@ export async function run(deps: Deps): Promise<number> {
     r.paths.map((path) => ({ root: r.root, path })),
   );
   if (dirty.length > 0) {
-    // ZERO-COST GUARANTEE: repoCommitState is called ONLY here, inside the
-    // dirty-detected branch, so a clean/non-epic repo spawns nothing extra.
+    // ZERO-COST GUARANTEE: repoCommitState (and guardCapability, below) are
+    // called ONLY here, inside the dirty-detected branch, so a clean/
+    // non-epic repo spawns nothing extra. guardCapability alone can spawn
+    // up to 3 `git rev-parse` calls via resolveHooksTarget, so hoisting
+    // this closure out of the branch would put that cost on every turn-end
+    // of every non-epic session.
     const repoState = deps.repoCommitState(state.repo);
     if (repoState !== "clean") {
       deps.writeErr(
         `flow-stop-guard: .flow/epics/** is dirty (${dirty.join(", ")}) but the repo is mid-${repoState}; not safe to commit this turn. Resolve the ${repoState} first.\n`,
+      );
+      return 0; // diagnostic only — no block slot consumed
+    }
+    const statusRouteWorks = (root: string): boolean => {
+      const capability = deps.guardCapability(root);
+      return capability.allowsStatusBoard || capability.selfHealable;
+    };
+    if (!epicMetadataBlockIsSatisfiable(dirtyEntries, statusRouteWorks)) {
+      const affectedRoots = dedupe(dirtyEntries.map((e) => e.root));
+      const hookSummary = affectedRoots
+        .map((root) => {
+          const capability = deps.guardCapability(root);
+          return `${root}: ${capability.classification}${capability.hookPath ? ` (${capability.hookPath})` : ""}`;
+        })
+        .join("; ");
+      deps.writeErr(
+        `flow-stop-guard: .flow/epics/** is dirty (${dirty.join(", ")}) but the installed pre-commit hook cannot honor the status.json base-branch allowlist and cannot be self-healed — ${hookSummary}. Not blocking: run \`flow install --upgrade\` in the affected repo to install/upgrade the flow base-branch guard, or commit via a feature branch.\n`,
       );
       return 0; // diagnostic only — no block slot consumed
     }
@@ -222,8 +288,10 @@ export async function run(deps: Deps): Promise<number> {
       (r) => r.root === state.repo && r.paths.length > 0,
     );
     deps.writeErr(
-      buildEpicMetadataReminder(dirtyEntries, { onBaseBranch }).join("\n") +
-        "\n",
+      buildEpicMetadataReminder(dirtyEntries, {
+        onBaseBranch,
+        statusRouteWorks,
+      }).join("\n") + "\n",
     );
     return 2;
   }
@@ -364,5 +432,6 @@ if (import.meta.main) {
     nowIso: defaultNowIso,
     dirtyEpicPaths: (repoRoot) => defaultDirtyEpicPaths({ repoRoot }),
     repoCommitState: (repoRoot) => defaultRepoCommitState({ repoRoot }),
+    guardCapability: (repoRoot) => installedGuardCapability(repoRoot),
   }).then((code) => process.exit(code));
 }

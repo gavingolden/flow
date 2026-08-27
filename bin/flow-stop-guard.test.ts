@@ -3,6 +3,7 @@ import {
   buildEpicMetadataReminder,
   buildReminder,
   buildStagnationReminder,
+  epicMetadataBlockIsSatisfiable,
   nextStepLabel,
   run,
   type Deps,
@@ -15,8 +16,20 @@ import {
 } from "./lib/state";
 import { TURN_BLOCK_LIMIT, type TurnTracking } from "./lib/stop-turn-tracking";
 import type { RepoState } from "./lib/epic-metadata-commit";
+import type { GuardCapability } from "./lib/base-branch-guard";
 
 const FROZEN_NOW = "2026-05-17T00:00:00.000Z";
+
+/** Default test capability: always allows the status.json route, matching
+ * pre-Task-3 behaviour, so existing tests that name the sync route don't
+ * each need to opt in individually. */
+const ALWAYS_ALLOWS_CAPABILITY: GuardCapability = {
+  allowsStatusBoard: true,
+  selfHealable: false,
+  classification: "own-current",
+  version: 4,
+  hookPath: "/fake/.git/hooks/pre-commit",
+};
 
 type Stub = {
   deps: Deps;
@@ -37,6 +50,7 @@ function makeDeps(opts: {
   nowIso?: string;
   dirtyEpicPaths?: (repoRoot: string) => string[];
   repoCommitState?: (repoRoot: string) => RepoState;
+  guardCapability?: (repoRoot: string) => GuardCapability;
 }): Stub {
   const errLines: string[] = [];
   const loadCalls: string[] = [];
@@ -62,6 +76,7 @@ function makeDeps(opts: {
     nowIso: () => opts.nowIso ?? FROZEN_NOW,
     dirtyEpicPaths: opts.dirtyEpicPaths ?? (() => []),
     repoCommitState: repoCommitStateSpy,
+    guardCapability: opts.guardCapability ?? (() => ALWAYS_ALLOWS_CAPABILITY),
   };
   return { deps, errLines, loadCalls, writeTurn, readTurn, repoCommitStateSpy };
 }
@@ -655,13 +670,60 @@ describe("per-turn tracking", () => {
       expect.objectContaining({ blockCount: 1 }),
     );
   });
+
+  it("UNSATISFIABLE BLOCK (foreign hook): exit 0, diagnostic on stderr, no block slot consumed", async () => {
+    const { deps, errLines, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: true }),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("verifying"),
+      turnTracking: fakeTracking({ blockCount: 0 }),
+      dirtyEpicPaths: () => [".flow/epics/e1/status.json"],
+      guardCapability: () => ({
+        allowsStatusBoard: false,
+        selfHealable: false,
+        classification: "foreign",
+        version: null,
+        hookPath: "/tmp/repo/.git/hooks/pre-commit",
+      }),
+    });
+    expect(await run(deps)).toBe(0);
+    expect(errLines.join("")).toContain("cannot be self-healed");
+    expect(errLines.join("")).toContain("foreign");
+    expect(errLines.join("")).toContain("flow install --upgrade");
+    expect(writeTurn).not.toHaveBeenCalledWith(
+      expect.objectContaining({ blockCount: 1 }),
+    );
+  });
+
+  it("SELF-HEALABLE (own-outdated) still names the flow-epic-sync route and blocks (exit 2)", async () => {
+    const { deps, errLines } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: true }),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("verifying"),
+      turnTracking: fakeTracking({ blockCount: 0 }),
+      dirtyEpicPaths: () => [".flow/epics/e1/status.json"],
+      guardCapability: () => ({
+        allowsStatusBoard: false,
+        selfHealable: true,
+        classification: "own-outdated",
+        version: 3,
+        hookPath: "/tmp/repo/.git/hooks/pre-commit",
+      }),
+    });
+    expect(await run(deps)).toBe(2);
+    expect(errLines.join("")).toContain(
+      "flow-epic-sync --epic-slug e1 --commit --push",
+    );
+  });
 });
 
 describe("buildEpicMetadataReminder", () => {
   it("names the executable flow-epic-sync route for a status.json path, root-anchored", () => {
     const lines = buildEpicMetadataReminder(
       [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
-      { onBaseBranch: true },
+      { onBaseBranch: true, statusRouteWorks: () => true },
     );
     expect(lines.join("\n")).toContain(
       "(cd /repo && flow-epic-sync --epic-slug e1 --commit --push)",
@@ -671,7 +733,7 @@ describe("buildEpicMetadataReminder", () => {
   it("names the full switch-commit-switch-back sequence for any other path, root-anchored, never just 'open a PR'", () => {
     const lines = buildEpicMetadataReminder(
       [{ root: "/repo", path: ".flow/epics/e1/design.md" }],
-      { onBaseBranch: true },
+      { onBaseBranch: true, statusRouteWorks: () => true },
     );
     const joined = lines.join("\n");
     expect(joined).toContain("git -C /repo switch -c flow-epic-amend/e1");
@@ -682,9 +744,72 @@ describe("buildEpicMetadataReminder", () => {
   it("falls back to the generic route when the slug segment fails isValidSlug", () => {
     const lines = buildEpicMetadataReminder(
       [{ root: "/repo", path: ".flow/epics/../status.json" }],
-      { onBaseBranch: true },
+      { onBaseBranch: true, statusRouteWorks: () => true },
     );
     const joined = lines.join("\n");
     expect(joined).not.toContain("--epic-slug ..");
+  });
+
+  it("names the upgrade path instead of the sync route when the installed hook cannot honor it", () => {
+    const lines = buildEpicMetadataReminder(
+      [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
+      { onBaseBranch: true, statusRouteWorks: () => false },
+    );
+    const joined = lines.join("\n");
+    expect(joined).not.toContain("flow-epic-sync --epic-slug e1");
+    expect(joined).toContain("flow install --upgrade");
+    expect(joined).toContain("git -C /repo switch -c flow-epic-amend/e1");
+  });
+
+  it("omits the base-branch note when no entry actually took the sync route", () => {
+    const lines = buildEpicMetadataReminder(
+      [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
+      { onBaseBranch: true, statusRouteWorks: () => false },
+    );
+    expect(lines.join("\n")).not.toContain(
+      "the status.json route above applies directly there",
+    );
+  });
+
+  it("includes the base-branch note when at least one entry took the sync route", () => {
+    const lines = buildEpicMetadataReminder(
+      [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
+      { onBaseBranch: true, statusRouteWorks: () => true },
+    );
+    expect(lines.join("\n")).toContain(
+      "the status.json route above applies directly there",
+    );
+  });
+});
+
+describe("epicMetadataBlockIsSatisfiable", () => {
+  it("is false only when every entry is an allowlisted status.json whose root's route does not work", () => {
+    expect(
+      epicMetadataBlockIsSatisfiable(
+        [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
+        () => false,
+      ),
+    ).toBe(false);
+  });
+
+  it("is true when the status.json route works", () => {
+    expect(
+      epicMetadataBlockIsSatisfiable(
+        [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
+        () => true,
+      ),
+    ).toBe(true);
+  });
+
+  it("is true when any entry is a non-status.json path, regardless of route capability (the switch-branch route never depends on the hook)", () => {
+    expect(
+      epicMetadataBlockIsSatisfiable(
+        [
+          { root: "/repo", path: ".flow/epics/e1/status.json" },
+          { root: "/repo", path: ".flow/epics/e1/design.md" },
+        ],
+        () => false,
+      ),
+    ).toBe(true);
   });
 });
