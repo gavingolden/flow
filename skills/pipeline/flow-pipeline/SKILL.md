@@ -1461,11 +1461,11 @@ independently of the spawn this block leads into. Then make exactly
 **one** Task call:
 
 ```bash
-VERIFY_JSON=$(flow-verify-prep --worktree "$WORKTREE" --skill-dir "$SKILL_DIR")
-ARTIFACT_PATH=$(echo "$VERIFY_JSON" | jq -r '.artifactPath')
-INSTRUCTIONS_PATH=$(echo "$VERIFY_JSON" | jq -r '.instructionsPath')
-VERIFY_MODEL=$(echo "$VERIFY_JSON" | jq -r '.verifyModel')
-VERIFY_SUBAGENT=$(echo "$VERIFY_JSON" | jq -r '.verifySubagent')
+VERIFY_JSON=$(flow-verify-prep --worktree "${WORKTREE:?WORKTREE not set}" --skill-dir "${SKILL_DIR:?SKILL_DIR not set}" --pr "$PR") || { echo "NEEDS HUMAN: flow-verify-prep exited non-zero"; exit 2; }
+ARTIFACT_PATH=$(printf '%s' "$VERIFY_JSON" | jq -r '.artifactPath')
+INSTRUCTIONS_PATH=$(printf '%s' "$VERIFY_JSON" | jq -r '.instructionsPath')
+VERIFY_MODEL=$(printf '%s' "$VERIFY_JSON" | jq -r '.verifyModel')
+VERIFY_SUBAGENT=$(printf '%s' "$VERIFY_JSON" | jq -r '.verifySubagent')
 ```
 
 Spawn-prompt template (fill the `{{...}}` placeholders before passing to

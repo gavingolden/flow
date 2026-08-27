@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { git } from "./git";
 
 /** Filename of the worktree-local branch marker, read by flow-state-update's guard. */
@@ -59,4 +60,62 @@ export function ensureFlowExcludes(worktreeDir: string): void {
     existing + trailingNewline + toAdd.join("\n") + "\n",
     "utf8",
   );
+}
+
+/**
+ * Result of the worktree-branch guard:
+ *   - "ok"      — guard passed (or skipped: no worktree path, dir missing, marker missing).
+ *   - "mismatch" — worktree on a different branch than the marker says. Caller
+ *                  should refuse to write state and escalate `NEEDS HUMAN: branch-mismatch`.
+ */
+export type WorktreeBranchGuardResult =
+  | { kind: "ok" }
+  | { kind: "mismatch"; expected: string; actual: string };
+
+/**
+ * Asserts that the worktree's current branch matches the marker file written by
+ * `flow-new-worktree`. Best-effort: if the worktree directory is gone or the
+ * marker file is missing (e.g. created by an older flow-new-worktree), logs a
+ * one-line warning and returns ok. Only an *active* mismatch returns mismatch.
+ *
+ * Lives in `bin/lib/` (not `bin/flow-state-update.ts`, its original home) so
+ * `bin/lib/phase-advance.ts` can call it too — a `bin/lib/` module cannot
+ * import from a `bin/*.ts` module. `flow-state-update.ts` re-exports this
+ * under its original name for back-compat.
+ */
+export function checkWorktreeBranch(
+  worktreePath: string | undefined,
+): WorktreeBranchGuardResult {
+  if (!worktreePath) return { kind: "ok" };
+  if (!fs.existsSync(worktreePath)) {
+    console.error(
+      `flow: worktree path '${worktreePath}' does not exist; skipping branch guard`,
+    );
+    return { kind: "ok" };
+  }
+  const markerPath = path.join(worktreePath, BRANCH_MARKER_FILENAME);
+  if (!fs.existsSync(markerPath)) {
+    console.error(
+      `flow: ${BRANCH_MARKER_FILENAME} missing in '${worktreePath}'; skipping branch guard ` +
+        `(worktree predates the branch-marker fix or was created externally)`,
+    );
+    return { kind: "ok" };
+  }
+  const expected = fs.readFileSync(markerPath, "utf8").trim();
+  const result = spawnSync(
+    "git",
+    ["-C", worktreePath, "branch", "--show-current"],
+    {
+      encoding: "utf8",
+    },
+  );
+  if (result.status !== 0) {
+    console.error(
+      `flow: 'git branch --show-current' failed in '${worktreePath}'; skipping branch guard`,
+    );
+    return { kind: "ok" };
+  }
+  const actual = result.stdout.trim();
+  if (actual !== expected) return { kind: "mismatch", expected, actual };
+  return { kind: "ok" };
 }

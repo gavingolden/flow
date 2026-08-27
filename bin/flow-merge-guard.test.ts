@@ -417,6 +417,37 @@ describe("run() — phase advance", () => {
     expect(readWritten("kappa").phase).toBe("gated");
   });
 
+  it("advances phase to merging even when the decision is blocked (unchecked items present)", () => {
+    seedState("lambda", { phase: "gating", pr: 5 });
+    const exit = run(["5", "--slug", "lambda"], {
+      gh: ghBody(HAS_UNCHECKED),
+      stateDir,
+      now: () => NOW,
+    });
+    expect(exit).toBe(1);
+    expect(readWritten("lambda").phase).toBe("merging");
+  });
+
+  it("does not advance the phase on a gh fetch error (exit 2)", () => {
+    seedState("mu", { phase: "gating", pr: 5 });
+    const gh = vi.fn(() => ({ stdout: "", stderr: "boom", exitCode: 1 }));
+    const cap = captureStdout();
+    const exit = run(["5", "--slug", "mu"], { gh, stateDir, now: () => NOW });
+    cap.restore();
+    expect(exit).toBe(2);
+    expect(readWritten("mu").phase).toBe("gating");
+  });
+
+  it("does not advance the phase when the PR is non-OPEN (defer-clear)", () => {
+    seedState("nu", { phase: "gating", pr: 5 });
+    const gh = ghBody(NO_UNCHECKED, "MERGED");
+    const cap = captureStdout();
+    const exit = run(["5", "--slug", "nu"], { gh, stateDir, now: () => NOW });
+    cap.restore();
+    expect(exit).toBe(0);
+    expect(readWritten("nu").phase).toBe("gating");
+  });
+
   it("recordOverrideToken does NOT advance the phase, and the recorded token round-trips unchanged", () => {
     seedState("lambda", { phase: "gating", pr: 5 });
     const cap = captureStdout();

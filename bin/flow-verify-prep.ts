@@ -21,7 +21,7 @@
  * pane) instead.
  *
  * Usage:
- *   flow-verify-prep [--worktree <path>] [--skill-dir <path>]
+ *   flow-verify-prep [--worktree <path>] [--skill-dir <path>] [--pr <n>]
  *
  * `--worktree` falls back to `state.worktree` when omitted. `--skill-dir`
  * degrades to the global plugin root
@@ -74,11 +74,14 @@ export type VerifyPrepResult = {
   verifySubagent: string;
 };
 
-type ParsedArgs = { worktree?: string; skillDir?: string } | { error: string };
+type ParsedArgs =
+  | { worktree?: string; skillDir?: string; pr?: number }
+  | { error: string };
 
 export function parseArgs(argv: string[]): ParsedArgs {
   let worktree: string | undefined;
   let skillDir: string | undefined;
+  let pr: number | undefined;
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === "--worktree") {
@@ -89,11 +92,19 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const v = argv[++i];
       if (v === undefined) return { error: "--skill-dir requires a value" };
       skillDir = v;
+    } else if (flag === "--pr") {
+      const v = argv[++i];
+      if (v === undefined) return { error: "--pr requires a value" };
+      const parsed = Number(v);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        return { error: `--pr must be a positive integer, got '${v}'` };
+      }
+      pr = parsed;
     } else {
       return { error: `unknown flag: ${flag}` };
     }
   }
-  return { worktree, skillDir };
+  return { worktree, skillDir, pr };
 }
 
 function defaultExists(p: string): boolean {
@@ -119,7 +130,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   if ("error" in parsed) {
     console.error(`flow-verify-prep: ${parsed.error}`);
     console.error(
-      "usage: flow-verify-prep [--worktree <path>] [--skill-dir <path>]",
+      "usage: flow-verify-prep [--worktree <path>] [--skill-dir <path>] [--pr <n>]",
     );
     return 2;
   }
@@ -143,14 +154,17 @@ export function run(argv: string[], deps: Deps = {}): number {
   const slug = resolveSlug();
   const state = slug ? readState(slug, stateDir) : null;
 
-  const worktree = parsed.worktree ?? state?.worktree;
+  const worktree = parsed.worktree || state?.worktree;
   if (!worktree) {
     console.error(
       "flow-verify-prep: no --worktree given and state.worktree is not set; pass --worktree <path>.",
     );
     return 2;
   }
-  const skillDir = parsed.skillDir ?? DEFAULT_SKILL_DIR;
+  // `||`, not `??` — an explicit `--skill-dir ""` (e.g. an unset
+  // $SKILL_DIR expanding to empty in the caller's shell) must fall back
+  // to the global plugin root too, not collapse to a broken empty path.
+  const skillDir = parsed.skillDir || DEFAULT_SKILL_DIR;
 
   const artifactPath = path.join(
     worktree,
@@ -189,7 +203,15 @@ export function run(argv: string[], deps: Deps = {}): number {
 
   // Side effect: advances state.phase to "verifying". The supervisor
   // cannot obtain the JSON below without this call running first.
-  advancePhase("verifying", { slug, dir: stateDir, resolveSlug });
+  // Second `expectPr`-guarded call site alongside flow-fetch-pr-review /
+  // flow-gate-decide / flow-merge-guard / flow-ci-check — `state.pr` IS
+  // populated by the time Step 6 runs, so an unguarded write here can
+  // silently advance the wrong pipeline's phase when `--pr` is passed.
+  advancePhase("verifying", {
+    slug,
+    expectPr: parsed.pr ?? null,
+    dir: stateDir,
+  });
 
   const result: VerifyPrepResult = {
     artifactPath,

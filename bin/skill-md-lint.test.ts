@@ -8754,12 +8754,13 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
 });
 
 describe("phase-write emitter lint (bin/lib/phase-advance.ts's PHASE_EMITTERS)", () => {
-  // Precedent idiom: `content.indexOf("## Step N — …")` slicing (:2360),
-  // NOT `findStepHeadings` (:459) — it returns heading *lines*, not
+  // Precedent idiom: `content.indexOf("## Step N — …")` slicing (:2383),
+  // NOT `findStepHeadings` (:467) — it returns heading *lines*, not
   // offsets, so a section slice built on it would silently grade the
   // whole document (plan.md Contract adjustment #5).
   const STEP_HEADING_BY_PHASE: Record<string, string> = {
     implementing: "## Step 5 — Implement",
+    verifying: "## Step 6 — Local verify",
     "ci-wait": "## Step 7 — CI + Copilot wait",
     reviewing: "## Step 8 — Review",
     gating: "## Step 9 — Auto-merge gate",

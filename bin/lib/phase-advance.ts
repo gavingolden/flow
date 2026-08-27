@@ -28,6 +28,7 @@ import {
 } from "./state";
 import { resolveSlugAmbient } from "./session-identity";
 import { FLOW_STATE_DIR } from "./paths";
+import { checkWorktreeBranch } from "./worktree-marker";
 
 export type PhaseAdvanceReason =
   | "advanced"
@@ -36,7 +37,8 @@ export type PhaseAdvanceReason =
   | "already-at-or-past"
   | "terminal"
   | "epic-phase"
-  | "pr-mismatch";
+  | "pr-mismatch"
+  | "branch-mismatch";
 
 export type PhaseAdvanceResult = {
   advanced: boolean;
@@ -72,16 +74,23 @@ export const PENDING_PHASE_ANCHOR: Readonly<Record<string, string>> = {
 /**
  * Phase → emitting-helper map. Consumed by `bin/skill-md-lint.test.ts` to
  * assert SKILL.md names the right helper at each site and carries no
- * standalone `flow-state-update --phase <phase>` fence for these six.
+ * standalone `flow-state-update --phase <phase>` fence for these six
+ * (was five; `verifying` was missing here despite being emitted below).
  * Must not contradict `bin/flow-stop-guard.ts`'s `NEXT_STEP_BY_PHASE`.
  */
 export const PHASE_EMITTERS: Readonly<
   Record<
-    "implementing" | "ci-wait" | "reviewing" | "gating" | "merging",
+    | "implementing"
+    | "verifying"
+    | "ci-wait"
+    | "reviewing"
+    | "gating"
+    | "merging",
     string
   >
 > = {
   implementing: "flow-open-pr",
+  verifying: "flow-verify-prep",
   "ci-wait": "flow-ci-check",
   reviewing: "flow-fetch-pr-review",
   gating: "flow-gate-decide",
@@ -149,6 +158,28 @@ export function advancePhase(
     return {
       advanced: false,
       reason: "already-at-or-past",
+      from: state.phase,
+      to: target,
+    };
+  }
+
+  // Mechanical defense against the 2026-05-01 worktree-contamination
+  // failure mode: a peer pipeline renames this worktree's branch and the
+  // next phase write would land commits on the wrong ref. Mirrors
+  // `flow-state-update`'s guard (bin/lib/state.ts's "checkWorktreeBranch
+  // still runs on every write" claim) — refuse the write and let the
+  // caller escalate `NEEDS HUMAN: branch-mismatch` instead of continuing.
+  const guard = checkWorktreeBranch(state.worktree);
+  if (guard.kind === "mismatch") {
+    console.error(
+      `phase-advance: branch-mismatch in worktree '${state.worktree}'\n` +
+        `  expected: ${guard.expected}\n` +
+        `  actual (git branch --show-current): ${guard.actual}\n` +
+        `  Refusing to advance phase to '${target}'.`,
+    );
+    return {
+      advanced: false,
+      reason: "branch-mismatch",
       from: state.phase,
       to: target,
     };

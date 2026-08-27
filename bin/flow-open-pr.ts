@@ -349,7 +349,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   const updateExit = updater(updateArgv);
   if (updateExit !== 0) return updateExit;
 
-  // No `expectPr` guard here, unlike the other four `advancePhase` call
+  // No `expectPr` guard here, unlike the other five `advancePhase` call
   // sites: `state.pr` is legitimately null at this moment because THIS
   // helper is what sets it (via the `updater` call above). Do not "fix"
   // this asymmetry by adding a guard — there is nothing yet to match

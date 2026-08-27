@@ -7,6 +7,7 @@ import {
   PENDING_PHASE_ANCHOR,
   PHASE_EMITTERS,
 } from "./phase-advance";
+import { spawnSync } from "node:child_process";
 import { readState } from "./state";
 
 let stateDir!: string;
@@ -153,12 +154,80 @@ describe("advancePhase", () => {
     });
     expect(result.advanced).toBe(true);
   });
+
+  it("refuses to advance and returns branch-mismatch when the worktree is on the wrong branch", () => {
+    // Real single-worktree git repo on "actual-branch", with a
+    // `.flow-branch` marker claiming "expected-branch" — mirrors
+    // flow-state-update.test.ts's makeWorktreeFixture.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "phase-advance-guard-"));
+    const worktree = path.join(root, "wt");
+    fs.mkdirSync(worktree);
+    spawnSync("git", ["init", "-b", "actual-branch"], { cwd: worktree });
+    spawnSync("git", ["config", "user.email", "test@example.com"], {
+      cwd: worktree,
+    });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: worktree });
+    spawnSync("git", ["commit", "--allow-empty", "-m", "initial"], {
+      cwd: worktree,
+    });
+    fs.writeFileSync(path.join(worktree, ".flow-branch"), "expected-branch\n");
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      seedState("s9", "implementing", { worktree });
+      const result = advancePhase("ci-wait", {
+        slug: "s9",
+        dir: stateDir,
+        resolveSlug: () => null,
+      });
+      expect(result).toEqual({
+        advanced: false,
+        reason: "branch-mismatch",
+        from: "implementing",
+        to: "ci-wait",
+      });
+      expect(readState("s9", stateDir)?.phase).toBe("implementing");
+    } finally {
+      errSpy.mockRestore();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("advances normally when the worktree branch matches the marker", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "phase-advance-guard-ok-"),
+    );
+    const worktree = path.join(root, "wt");
+    fs.mkdirSync(worktree);
+    spawnSync("git", ["init", "-b", "matching-branch"], { cwd: worktree });
+    spawnSync("git", ["config", "user.email", "test@example.com"], {
+      cwd: worktree,
+    });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: worktree });
+    spawnSync("git", ["commit", "--allow-empty", "-m", "initial"], {
+      cwd: worktree,
+    });
+    fs.writeFileSync(path.join(worktree, ".flow-branch"), "matching-branch\n");
+
+    try {
+      seedState("s10", "implementing", { worktree });
+      const result = advancePhase("ci-wait", {
+        slug: "s10",
+        dir: stateDir,
+        resolveSlug: () => null,
+      });
+      expect(result.advanced).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("PHASE_EMITTERS", () => {
   it("maps every emitted phase to its owning helper and does not contradict flow-stop-guard's phase set", () => {
     expect(PHASE_EMITTERS).toEqual({
       implementing: "flow-open-pr",
+      verifying: "flow-verify-prep",
       "ci-wait": "flow-ci-check",
       reviewing: "flow-fetch-pr-review",
       gating: "flow-gate-decide",
