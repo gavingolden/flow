@@ -1122,6 +1122,65 @@ describe("main — epic-status lock serialization", () => {
     }
   });
 
+  it("re-derives the board UNDER the lock, so a row committed by a racing session between the pre-lock read and lock acquisition is not silently discarded", () => {
+    // REGRESSION (lost-update race). The lock only serializes the WRITE. If
+    // the derivation feeding that write is the pre-lock one, two sessions
+    // both derive from the same stale board and the second write silently
+    // discards the first session's rows — the exact loss this lock exists
+    // to prevent, just moved one step earlier.
+    //
+    // The gh stub is the injection point: it is called by `deriveBoard`,
+    // which runs AFTER `main()`'s pre-lock `readCommittedStatus`. Writing a
+    // competing board from the first gh call therefore lands in precisely
+    // the window between the pre-lock read (which sees no file) and lock
+    // acquisition — simulating another session that committed feature-c's
+    // row while this one was deriving.
+    seedRunState();
+    const statusPath = path.join(repoDir, ".flow/epics/watchlist/status.json");
+    const inner = ghForHeads({ "feature-a": 101 });
+    let raced = false;
+    const gh: GhRunner = (argv) => {
+      if (!raced) {
+        raced = true;
+        fs.writeFileSync(
+          statusPath,
+          JSON.stringify({
+            version: 1,
+            epicId: "watchlist",
+            // A one-way-latched row: `merged` + a `pr` is preserved verbatim
+            // by deriveBoard and is NOT re-queried from gh, so it can only
+            // reach the output if the derivation actually read this file.
+            features: { "feature-c": { status: "merged", pr: 303 } },
+          }) + "\n",
+        );
+      }
+      return inner(argv);
+    };
+
+    const exit = main(["--epic-slug", "watchlist"], {
+      gh,
+      epicsDir,
+      cwd: repoDir,
+    });
+
+    expect(exit).toBe(0);
+    expect(raced).toBe(true);
+    const written = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+    // The racing session's row survives: the write was derived from a board
+    // read while holding the lock. Before the fix this was
+    // `{ status: "not-started" }` — feature-c's committed PR silently lost.
+    expect(written.features["feature-c"]).toEqual({
+      status: "merged",
+      pr: 303,
+    });
+    // And this session's own derivation is still present, so the re-derive
+    // merges rather than replacing.
+    expect(written.features["feature-a"]).toEqual({
+      status: "merged",
+      pr: 101,
+    });
+  });
+
   it("--check never acquires the lock (no lock file left behind, no lock-timeout even when one is held)", () => {
     seedRunState();
     const lockPath = epicStatusLockPath({

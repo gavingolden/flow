@@ -530,8 +530,44 @@ export function main(argv: string[], deps: Deps = {}): number {
   // write), so it runs under a per-board lock, keyed the same way on both
   // writers (see `epicStatusLockPath`) — the `--check` path above never
   // reaches here and so never holds the lock.
+  // Narrowing helper: `manifest` is a `let`, so TS drops the non-null
+  // narrowing established above once it is captured in the closure below.
+  const lockedManifest = manifest;
   const runWriteWindow = (): number => {
-    const onDisk = existing ? serializeEpicStatus(existing) : null;
+    // RE-READ AND RE-DERIVE UNDER THE LOCK. The `existing` / `serialized`
+    // computed above were observed BEFORE the lock was held, so using them
+    // here would leave the lost-update race this lock exists to close wide
+    // open: two sessions both read the same board, both derive from it,
+    // then serialize their writes — and the second silently discards the
+    // first session's rows. Only a derivation based on state observed while
+    // holding the lock is safe to write. `deriveBoard` is pure (no disk, no
+    // network — see its header), and `gh` is an already-fetched snapshot, so
+    // re-deriving costs one working-tree read and no round-trips.
+    const lockedExisting = readCommittedStatus(epicDirAbs);
+    const lockedDerivation = deriveBoard({
+      manifest: lockedManifest,
+      existing: lockedExisting,
+      gh,
+      selfFeatureId,
+      rederive: parsed.rederive,
+    });
+    // A re-derivation that comes back underived (gh snapshot unusable for
+    // the freshly-read base) must NOT fall back to the pre-lock derivation —
+    // that is exactly the stale write this guard exists to prevent. Keep the
+    // pre-lock `file`/`serialized` only when the locked re-derivation
+    // succeeded; otherwise skip the write and report it.
+    const file = lockedDerivation.derived ? lockedDerivation.file : null;
+    const regressed = lockedDerivation.regressed;
+    if (!file) {
+      console.error(
+        "warn: skipping status board write (rederive-under-lock-failed): the board was re-derived under the per-board lock and came back empty; nothing was written",
+      );
+      if (parsed.json)
+        console.log(JSON.stringify(emptyEnvelope(epicSlug, parsed.rederive)));
+      return 0;
+    }
+    const serialized = serializeEpicStatus(file);
+    const onDisk = lockedExisting ? serializeEpicStatus(lockedExisting) : null;
     let written = onDisk !== serialized;
     let committed = false;
     let commitSkipReason: CommitSkipReason | undefined;
