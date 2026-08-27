@@ -18,6 +18,7 @@ import {
   type SeedMode,
 } from "./flow-session-start-hook";
 import { flowPipelineResumeSeed } from "./lib/feature";
+import { REMAINDER_CHUNK_BYTES } from "./lib/seed-delivery";
 import { TERMINAL_PHASES, type PipelineState } from "./lib/state";
 
 type Stub = {
@@ -340,15 +341,26 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
       },
       sleep: () => {},
       attempts: 20,
+      readState: () => null,
+      writeState: () => {},
     };
     expect(deliverResumeSeed("demo", seams, "epic-design", "resume")).toBe(
       true,
     );
-    expect(sends).toEqual([
-      { text: lead, literal: true },
-      { text: remainder, literal: true },
-      { text: "Enter", literal: false },
-    ]);
+    // Remainder length depends on the host checkout's absolute SKILL_DIR path,
+    // so (unlike the fixed-size RESUME_REMAINDER elsewhere in this file) it can
+    // exceed the 128-byte remainder chunk size — bound + rejoin, not an exact
+    // single-chunk shape.
+    const literals = sends.filter((s) => s.literal);
+    const [leadSend, ...remainderChunks] = literals;
+    expect(leadSend).toEqual({ text: lead, literal: true });
+    for (const c of remainderChunks) {
+      expect(Buffer.byteLength(c.text, "utf8")).toBeLessThanOrEqual(
+        REMAINDER_CHUNK_BYTES,
+      );
+    }
+    expect(remainderChunks.map((c) => c.text).join("")).toBe(remainder);
+    expect(sends[sends.length - 1]).toEqual({ text: "Enter", literal: false });
     expect(lead).toBe(
       "Use the /flow-epic-create skill in --resume mode for: demo",
     );
@@ -478,6 +490,8 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
       },
       sleep: () => {},
       attempts: 20,
+      readState: () => null,
+      writeState: () => {},
     };
     expect(deliverResumeSeed("demo", seams, "epic-run", "resume")).toBe(true);
     expect(sends).toEqual([
@@ -818,6 +832,11 @@ function makeSeams(
     },
     sleep: () => {},
     attempts,
+    // Never touch the real ~/.flow/state during a unit test: the pre-delivery
+    // seed record (Task 4b) reads+writes state unconditionally, so every seam
+    // needs an explicit stub even when the test doesn't care about it.
+    readState: () => null,
+    writeState: () => {},
   };
   return { seams, sends };
 }
@@ -879,6 +898,8 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
       },
       sleep: () => {},
       attempts: 20,
+      readState: () => null,
+      writeState: () => {},
     };
     expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(false);
     // The leading-line literal send failed, so delivery stops and the separate
@@ -1198,6 +1219,96 @@ describe("terminalContinueSeed — the terminal orientation turn", () => {
   });
 });
 
+describe("deliverResumeSeed — cross-path seed recording (Task 4b)", () => {
+  // Regression: this path delivers a resume/terminal-continue seed that is
+  // NOT the create-time seed feature.ts/epic.ts recorded. Once those launch
+  // paths clear seedIngestedAt on their own resume attempts,
+  // flow-seed-ingested-hook would otherwise compare THIS path's prompt
+  // against a stale create-time seed and record a false seedMismatch.
+  it("resume mode overwrites state.seed with the delivered resume seed, clearing seedIngestedAt/seedMismatch", () => {
+    const capture = frames([
+      "old pre-clear prompt",
+      "fresh",
+      "fresh",
+      "fresh",
+      "fresh",
+    ]);
+    const { seams } = makeSeams(capture);
+    const staleState: PipelineState = {
+      slug: "demo",
+      phase: "verifying",
+      repo: "/tmp/repo",
+      updatedAt: "2026-06-30T00:00:00Z",
+      seed: "[pipeline-slug: demo]\nUse the /flow-pipeline skill for: STALE create-time text",
+      seedIngestedAt: "2026-06-29T00:00:00Z",
+      seedMismatch: {
+        at: "2026-06-29T00:00:01Z",
+        expectedBytes: 5,
+        submittedBytes: 3,
+      },
+    };
+    const written: PipelineState[] = [];
+    const ok = deliverResumeSeed(
+      "demo",
+      {
+        ...seams,
+        readState: () => staleState,
+        writeState: (s) => written.push(s),
+      },
+      "feature",
+      "resume",
+    );
+    expect(ok).toBe(true);
+    expect(written).toHaveLength(1);
+    expect(written[0]).toEqual({
+      ...staleState,
+      seed: flowPipelineResumeSeed("demo"),
+      seedIngestedAt: undefined,
+      seedMismatch: undefined,
+    });
+  });
+
+  it("terminal mode overwrites state.seed with the delivered terminal-continue seed, clearing seedIngestedAt/seedMismatch", () => {
+    const capture = frames(["old pre-clear prompt", "fresh", "fresh", "fresh"]);
+    const { seams } = makeSeams(capture);
+    const state: PipelineState = {
+      slug: "demo",
+      phase: "merged",
+      repo: "/tmp/repo",
+      worktree: "/tmp/wt",
+      pr: 42,
+      updatedAt: "2026-06-30T00:00:00Z",
+      seed: "[pipeline-slug: demo]\nUse the /flow-pipeline skill for: STALE create-time text",
+      seedIngestedAt: "2026-06-29T00:00:00Z",
+    };
+    const expectedSeed = terminalContinueSeed(
+      "demo",
+      "merged",
+      "feature",
+      state,
+    );
+    const written: PipelineState[] = [];
+    const ok = deliverResumeSeed(
+      "demo",
+      {
+        ...seams,
+        readState: () => state,
+        writeState: (s) => written.push(s),
+      },
+      "feature",
+      "terminal",
+    );
+    expect(ok).toBe(true);
+    expect(written).toHaveLength(1);
+    expect(written[0]).toEqual({
+      ...state,
+      seed: expectedSeed,
+      seedIngestedAt: undefined,
+      seedMismatch: undefined,
+    });
+  });
+});
+
 describe("deliverResumeSeed — terminal mode", () => {
   it("types the orientation seed, using the same leading-line handshake as a resume seed", () => {
     const capture = frames(["old pre-clear prompt", "fresh", "fresh", "fresh"]);
@@ -1219,11 +1330,22 @@ describe("deliverResumeSeed — terminal mode", () => {
         "terminal",
       ),
     ).toBe(true);
-    expect(sends).toEqual([
-      { text: RESUME_LEAD, literal: true },
-      { text: seed.slice(RESUME_LEAD.length), literal: true },
-      { text: "Enter", literal: false },
-    ]);
+    // The terminal-continue orientation note is long-form prose, so (unlike
+    // the fixed-size RESUME_REMAINDER seeds elsewhere in this file) its
+    // remainder exceeds the 128-byte remainder chunk size — bound + rejoin,
+    // not an exact single-chunk shape.
+    const literals = sends.filter((s) => s.literal);
+    const [leadSend, ...remainderChunks] = literals;
+    expect(leadSend).toEqual({ text: RESUME_LEAD, literal: true });
+    for (const c of remainderChunks) {
+      expect(Buffer.byteLength(c.text, "utf8")).toBeLessThanOrEqual(
+        REMAINDER_CHUNK_BYTES,
+      );
+    }
+    expect(remainderChunks.map((c) => c.text).join("")).toBe(
+      seed.slice(RESUME_LEAD.length),
+    );
+    expect(sends[sends.length - 1]).toEqual({ text: "Enter", literal: false });
   });
 
   it("SKIPS the delivery and returns false when the slug's state is unreadable", () => {

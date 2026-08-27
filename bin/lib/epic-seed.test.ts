@@ -9,7 +9,11 @@ import { resolveFlowSource } from "./paths";
 import * as path from "node:path";
 
 describe("epicCreateSeed", () => {
-  it("is byte-exact (Task-2 behavior-preserving regression anchor)", () => {
+  it("is byte-exact: a short, prompt-free leading line, then the prompt on the remainder (Task 5 reshape)", () => {
+    // The leading line must stay bounded/prompt-free — it's capture-verified
+    // against a visible-pane-only `capture-pane -p`, so an unbounded prompt on
+    // line 1 could never match once it exceeds the pane height. The prompt now
+    // rides the remainder instead (paced + integrity-checked).
     expect(
       epicCreateSeed(
         "Add dark mode",
@@ -17,7 +21,7 @@ describe("epicCreateSeed", () => {
         "/flow/skills/flow-product-planning",
       ),
     ).toBe(
-      "Use the /flow-epic-create skill for: Add dark mode\n\nEPIC_DIR: .flow/epics/add-dark-mode\n\nSKILL_DIR: /flow/skills/flow-product-planning",
+      "Use the /flow-epic-create skill for the prompt below.\nAdd dark mode\n\nEPIC_DIR: .flow/epics/add-dark-mode\n\nSKILL_DIR: /flow/skills/flow-product-planning",
     );
   });
 });

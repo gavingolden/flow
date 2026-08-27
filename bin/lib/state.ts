@@ -193,6 +193,25 @@ export type PipelineState = {
    */
   seedIngestedAt?: string;
   /**
+   * The exact seed text this launch attempt intended to deliver, recorded by
+   * every tmux launch/resume path (`feature.ts`, `epic.ts`,
+   * `flow-session-start-hook.ts`) BEFORE delivery. Lets a corrupted delivery
+   * be recovered manually (`jq -r .seed ~/.flow/state/<slug>.json`) and gives
+   * `flow-seed-ingested-hook` something to compare the UserPromptSubmit
+   * payload against. Additive — no migration (AGENTS.md: no back-compat
+   * shims).
+   */
+  seed?: string;
+  /**
+   * Recorded by `flow-seed-ingested-hook` when the UserPromptSubmit payload
+   * does not contain `state.seed` intact — the observable signature of a
+   * corrupted/truncated seed delivery. Presence (without a paired
+   * `seedIngestedAt`) is what `tmux.ts`'s `seedCorrupted()` predicate treats
+   * as a hard launch failure. Kept to exactly a timestamp plus two byte
+   * counts — no diff, chunk index, or retry history.
+   */
+  seedMismatch?: { at: string; expectedBytes: number; submittedBytes: number };
+  /**
    * Crash-safe liveness signal: the OS-level PID of the pane's foreground
    * process at launch time (see `tmux.panePid`), paired with `procStartedAt`
    * below. Together they let `livenessOf` (`bin/lib/liveness.ts`)
@@ -706,6 +725,17 @@ function isPhaseLog(
   return true;
 }
 
+function isSeedMismatch(
+  v: unknown,
+): v is NonNullable<PipelineState["seedMismatch"]> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  if (typeof o.at !== "string") return false;
+  if (typeof o.expectedBytes !== "number") return false;
+  if (typeof o.submittedBytes !== "number") return false;
+  return true;
+}
+
 function isUntrackedList(x: unknown): x is UntrackedItem[] {
   if (!Array.isArray(x)) return false;
   for (const e of x) {
@@ -784,6 +814,9 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.ciWait !== undefined && !isCiWaitRecord(o.ciWait)) return false;
   if (o.untracked !== undefined && !isUntrackedList(o.untracked)) return false;
   if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
+    return false;
+  if (o.seed !== undefined && typeof o.seed !== "string") return false;
+  if (o.seedMismatch !== undefined && !isSeedMismatch(o.seedMismatch))
     return false;
   if (o.pid !== undefined && typeof o.pid !== "number") return false;
   if (o.procStartedAt !== undefined && typeof o.procStartedAt !== "number")

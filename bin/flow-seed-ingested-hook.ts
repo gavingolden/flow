@@ -11,6 +11,18 @@
  * launcher's `consumed()` predicate wants: success can latch the moment the
  * seed is ingested rather than waiting for the supervisor's first phase write.
  *
+ * Integrity check: when `state.seed` is recorded (every tmux launch/resume
+ * path records it before delivery — see `bin/lib/feature.ts` /
+ * `bin/lib/epic.ts` / `bin/flow-session-start-hook.ts`), this hook compares
+ * the submitted prompt against it (whitespace-squashed CONTAINMENT, never
+ * equality — a supervisor preamble or trailing note is expected). On a match
+ * it stamps `seedIngestedAt` as before. On a mismatch it records
+ * `seedMismatch` instead and does NOT stamp `seedIngestedAt`, so a corrupted
+ * delivery never latches as "consumed". This hook RECORDS and always exits 0
+ * — it never blocks the prompt (exit 2) even on a detected mismatch;
+ * `bin/lib/tmux.ts`'s `seedCorrupted()` predicate is what turns a recorded
+ * mismatch into a launch failure, on the NEXT retry attempt, not this turn.
+ *
  * Self-detection: exits 0 cleanly when no flow slug resolves (no `FLOW_SLUG`,
  * and no pane carrying `@flow-slug` — a normal coding session), or when
  * state.json is missing — making it safe to register in a flow-scoped settings file passed
@@ -22,6 +34,7 @@
 
 import { spawnSync } from "node:child_process";
 import { resolveSlugFromEnv } from "./lib/session-identity";
+import { squash } from "./lib/seed-delivery";
 import {
   nowIso as defaultNowIso,
   readState,
@@ -37,9 +50,21 @@ export type Deps = {
   loadState: (slug: string) => PipelineState | null;
   saveState: (state: PipelineState) => void;
   nowIso: () => string;
+  /** UserPromptSubmit payload JSON on stdin. Drained lazily — see `run`. */
+  readStdin: () => Promise<string>;
 };
 
-export function run(deps: Deps): number {
+/** Delegates to seed-delivery's private normalisation so the two can't drift. */
+export function squashPrompt(s: string): string {
+  return squash(s);
+}
+
+/** Containment, never equality — a supervisor preamble/trailing note is expected. */
+export function seedIntact(expected: string, submitted: string): boolean {
+  return squashPrompt(submitted).includes(squashPrompt(expected));
+}
+
+export async function run(deps: Deps): Promise<number> {
   // Env-first slug resolution: FLOW_SLUG (shape-validated) wins; the tmux
   // pane option is the fallback for tmux-launched sessions.
   let slug =
@@ -58,7 +83,54 @@ export function run(deps: Deps): number {
   // same session are a no-op (the launch-time ingestion signal is already set).
   if (state.seedIngestedAt) return 0;
 
-  deps.saveState({ ...state, seedIngestedAt: deps.nowIso() });
+  // No recorded seed (old-format state, or a launch path that predates this
+  // field) — behave exactly as today: stamp unconditionally, no comparison.
+  if (state.seed == null) {
+    deps.saveState({ ...state, seedIngestedAt: deps.nowIso() });
+    return 0;
+  }
+
+  // Drain stdin LAZILY — only once a comparison is actually needed. This hook
+  // fires on every prompt in a flow session; draining unconditionally would
+  // add latency to every supervisor turn for the (common) already-ingested
+  // and no-seed early-exits above.
+  let raw = "";
+  try {
+    raw = await deps.readStdin();
+  } catch {
+    // A stdin read hiccup must never block the prompt; behave as today.
+  }
+
+  let prompt: string | undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed !== null && typeof parsed === "object" && "prompt" in parsed) {
+      const p = (parsed as { prompt?: unknown }).prompt;
+      if (typeof p === "string") prompt = p;
+    }
+  } catch {
+    // Malformed/empty stdin: behave as today (no comparison possible).
+  }
+
+  // Unreadable/malformed stdin, or a payload with no `prompt` — behave
+  // exactly as today: stamp unconditionally, no comparison.
+  if (prompt === undefined) {
+    deps.saveState({ ...state, seedIngestedAt: deps.nowIso() });
+    return 0;
+  }
+
+  if (seedIntact(state.seed, prompt)) {
+    deps.saveState({ ...state, seedIngestedAt: deps.nowIso() });
+  } else {
+    deps.saveState({
+      ...state,
+      seedMismatch: {
+        at: deps.nowIso(),
+        expectedBytes: Buffer.byteLength(state.seed, "utf8"),
+        submittedBytes: Buffer.byteLength(prompt, "utf8"),
+      },
+    });
+  }
   return 0;
 }
 
@@ -72,15 +144,37 @@ export function defaultShowFlowSlug(pane: string): string {
   return r.stdout ?? "";
 }
 
+// Copied from bin/flow-session-start-hook.ts (bin/flow-stop-guard.ts carries
+// the second copy) — a third small, self-contained copy is acceptable rather
+// than introducing a shared module for a ~15-line timeout-guarded stdin drain.
+async function defaultReadStdin(): Promise<string> {
+  // Bun.stdin reads to EOF; on a TTY (no piped input) this can hang, so the
+  // helper bails after a short wait. Claude Code always pipes JSON when
+  // invoking a UserPromptSubmit hook, so the hang case is only hit when a
+  // developer runs the helper by hand.
+  return new Promise((resolve) => {
+    const chunks: Uint8Array[] = [];
+    let resolved = false;
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    };
+    process.stdin.on("data", (c) => chunks.push(c as Uint8Array));
+    process.stdin.on("end", finish);
+    process.stdin.on("error", finish);
+    setTimeout(finish, 250);
+  });
+}
+
 if (import.meta.main) {
-  process.exit(
-    run({
-      flowSlugEnv: process.env.FLOW_SLUG,
-      tmuxPane: process.env.TMUX_PANE,
-      showFlowSlug: defaultShowFlowSlug,
-      loadState: (slug) => readState(slug),
-      saveState: (state) => writeState(state),
-      nowIso: defaultNowIso,
-    }),
-  );
+  run({
+    flowSlugEnv: process.env.FLOW_SLUG,
+    tmuxPane: process.env.TMUX_PANE,
+    showFlowSlug: defaultShowFlowSlug,
+    loadState: (slug) => readState(slug),
+    saveState: (state) => writeState(state),
+    nowIso: defaultNowIso,
+    readStdin: defaultReadStdin,
+  }).then((code) => process.exit(code));
 }

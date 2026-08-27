@@ -33,7 +33,45 @@ real launches.
 | #386    | 8114015 | 2026-06-28 | Wide readiness budget, increasing backoff, launch semaphore, non-destructive timeout                 |
 | #425    | 8af4894 | 2026-07-12 | Self-verifying seed delivery                                                                         |
 | #457    | 4f467c9 | 2026-07-17 | Plain-shell default backend (tmux opt-in)                                                            |
-| this PR | —       | —          | Install-time `claude --version` runnable check (`flow install` warns, never fails) + this launch log |
+| #477    | 3b64e79 | 2026-07-22 | Durable launch breadcrumb + install-time `claude --version` runnable check + `--tmux` launcher docs  |
+| this PR | —       | —          | Paced remainder delivery + UserPromptSubmit seed-integrity check + reshaped epic-create leading line |
+
+## Seed integrity
+
+The leading-line handshake (`bin/lib/seed-delivery.ts`) only ever verifies the
+FIRST line of a seed in-pane — a long paste collapses into
+`[Pasted text #N +M lines]` chips, so the remainder can never be
+capture-verified once the body is present. Two changes close that gap without
+touching the capture-verify design:
+
+- **Paced remainder.** The remainder is chunked to `REMAINDER_CHUNK_BYTES`
+  (128 bytes) with a `REMAINDER_SETTLE_MS` (50 ms) sleep between consecutive
+  chunks, rather than one large literal `send-keys` blast — reducing the odds
+  of tmux/claude dropping bytes under load. This is still fire-and-trust, not
+  a verification: pacing lowers the failure rate, it doesn't detect a failure.
+- **Out-of-band integrity check.** Every tmux launch/resume path
+  (`bin/lib/feature.ts`, `bin/lib/epic.ts`, `bin/flow-session-start-hook.ts`)
+  records the exact seed it is about to deliver as `state.seed` before
+  sending it. `bin/flow-seed-ingested-hook.ts` — a Claude Code
+  UserPromptSubmit hook — compares the submitted prompt against `state.seed`
+  (whitespace-squashed containment, not equality) the instant a prompt is
+  accepted. A match stamps `seedIngestedAt` as before; a mismatch records
+  `state.seedMismatch` instead and does NOT stamp `seedIngestedAt`, so
+  `bin/lib/tmux.ts`'s `seedCorrupted()` predicate turns a recorded mismatch
+  into a hard `failed` launch outcome — the existing kill + `launchWithRetry`
+  re-launch apply for free.
+
+A truncated or corrupted delivery is recoverable without retyping the
+original request:
+
+```sh
+jq -r .seed ~/.flow/state/<slug>.json
+```
+
+The seed-corruption failure path deliberately skips the generic
+persist-then-delete-on-failure cleanup so this file survives long enough to
+recover from — `flow reap` / `flow done` remain the generic backstop for the
+one abandoned `phase: starting` state file this leaves behind.
 
 ## Why the TTY / trust-dialog hypothesis was not pursued
 

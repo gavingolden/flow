@@ -59,6 +59,8 @@ const tmuxMock = vi.hoisted(() => ({
     (slug: string, epicSlug: string) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
   FLOW_SESSION: "flow",
+  SEED_CORRUPTED_STDERR:
+    "seed delivery corrupted — the launch prompt did not arrive intact",
 }));
 vi.mock("./tmux", () => tmuxMock);
 
@@ -239,8 +241,11 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     // re-derives the path nor imports bin/lib.
     const [, cwd, command, seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(cwd).toBe(fs.realpathSync(repoDir));
+    // Task 5 reshape: the leading line is short/prompt-free (capture-verified
+    // against a visible-pane-only capture-pane), and the prompt rides the
+    // remainder on the next line instead.
     expect(seed).toContain(
-      "Use the /flow-epic-create skill for: add a watchlist feature",
+      "Use the /flow-epic-create skill for the prompt below.\nadd a watchlist feature",
     );
     expect(seed).toContain(".flow/epics/add-watchlist-feature");
     // The seed also embeds the resolved product-planning SKILL_DIR (R1) so the
@@ -271,6 +276,26 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       "add-watchlist-feature",
       "add-watchlist-feature",
     );
+  });
+
+  it("records the seed it intends to deliver in state on a fresh launch attempt", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(["create", "add a watchlist feature"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({}),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(
+        path.join(stateDir, "add-watchlist-feature.json"),
+        "utf8",
+      ),
+    );
+    const [, , , deliveredSeed] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(typeof raw.seed).toBe("string");
+    expect(raw.seed).toBe(deliveredSeed);
   });
 
   it("does NOT merge or launch any feature window (no respawn on a fresh create)", () => {
@@ -311,6 +336,28 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(code).toBe(2);
     expect(fs.readdirSync(stateDir)).toEqual([]);
     expect(errors.join("\n")).toMatch(/claude exited immediately after launch/);
+  });
+
+  it("an all-attempts seed-mismatch launch exits 2 (not 1), prints no 'created' line, and keeps the state file for recovery", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "failed",
+      stderr:
+        "seed delivery corrupted — the launch prompt did not arrive intact",
+    });
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      retrySleepMs: 0,
+    });
+    expect(code).toBe(2);
+    expect(logs.join("\n")).not.toMatch(/created/);
+    expect(errors.join("\n")).toMatch(/seed delivery corrupted/);
+    expect(errors.join("\n")).toMatch(/~\/\.flow\/state\/design-thing\.json/);
+    // Unlike the generic dead-window failure above (which writes no state),
+    // the seed-corruption failure deliberately keeps the state file around so
+    // `jq -r .seed` can recover the original epic prompt.
+    expect(fs.existsSync(path.join(stateDir, "design-thing.json"))).toBe(true);
   });
 
   it("writes epic state(phase=starting) BEFORE the verified launch (supervisor needs a file to advance)", () => {
@@ -922,7 +969,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
     // The seed is delivered via send-keys (the 4th arg), NOT a positional argv.
     const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(seed).toContain(
-      "Use the /flow-epic-create skill for: design the thing",
+      "Use the /flow-epic-create skill for the prompt below.\ndesign the thing",
     );
     expect(seed).not.toContain("--model");
     expect(seed).not.toContain("--effort");
@@ -1192,19 +1239,26 @@ describe("runEpicCli create --resume", () => {
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
-  it("does not rewrite state.json on entry (the supervisor's first transition does)", () => {
+  it("does not touch phase/repo/updatedAt on entry, but DOES record this resume attempt's own seed (Task 4b)", () => {
+    // Was a byte-identical before/after pin; Task 4b's cross-path hazard fix
+    // now records this resume's own seed BEFORE the baseline read (so
+    // flow-seed-ingested-hook compares like against like instead of a stale
+    // create-time seed), so the file is no longer byte-identical — only
+    // unchanged in every field the supervisor owns.
     seedEpicState("preserve-epic");
     tmuxMock.windowExists.mockReturnValue(true);
-    const before = fs.readFileSync(
-      path.join(stateDir, "preserve-epic.json"),
-      "utf8",
+    const before = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "preserve-epic.json"), "utf8"),
     );
     runEpicCli(["create", "--resume", "preserve-epic"], { stateDir });
-    const after = fs.readFileSync(
-      path.join(stateDir, "preserve-epic.json"),
-      "utf8",
+    const after = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "preserve-epic.json"), "utf8"),
     );
-    expect(after).toBe(before);
+    const deliveredSeed =
+      tmuxMock.respawnWindowVerified.mock.calls[0]?.[3] ??
+      tmuxMock.createWindowVerified.mock.calls[0]?.[3];
+    expect(typeof deliveredSeed).toBe("string");
+    expect(after).toEqual({ ...before, seed: deliveredSeed });
   });
 
   it("rejects a slug that is not already a valid slug", () => {
@@ -1302,11 +1356,10 @@ describe("runEpicCli create --resume", () => {
     expect(consumedFn!()).toBe(true);
   });
 
-  it("resume launcher timeout leaves epic state byte-unchanged and never deletes it (symmetry)", () => {
+  it("resume launcher timeout leaves phase/repo/updatedAt unchanged and never deletes state, but records this attempt's own seed (Task 4b symmetry)", () => {
     seedEpicState("resume-timeout-epic");
-    const before = fs.readFileSync(
-      path.join(stateDir, "resume-timeout-epic.json"),
-      "utf8",
+    const before = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "resume-timeout-epic.json"), "utf8"),
     );
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.isPaneAlive.mockReturnValue(false);
@@ -1322,11 +1375,12 @@ describe("runEpicCli create --resume", () => {
     expect(fs.existsSync(path.join(stateDir, "resume-timeout-epic.json"))).toBe(
       true,
     );
-    const after = fs.readFileSync(
-      path.join(stateDir, "resume-timeout-epic.json"),
-      "utf8",
+    const after = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "resume-timeout-epic.json"), "utf8"),
     );
-    expect(after).toBe(before);
+    const deliveredSeed = tmuxMock.respawnWindowVerified.mock.calls[0]?.[3];
+    expect(typeof deliveredSeed).toBe("string");
+    expect(after).toEqual({ ...before, seed: deliveredSeed });
   });
 });
 

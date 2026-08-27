@@ -81,6 +81,7 @@ import {
   windowExists,
   isPaneAlive,
   FLOW_SESSION,
+  SEED_CORRUPTED_STDERR,
   type VerifiedLaunchResult,
 } from "./tmux";
 import {
@@ -553,6 +554,10 @@ PR → review checkpoint), and writes initial epic state under
   // consumption to THAT attempt; a retry only fires after a killed/dead window,
   // so no live supervisor races this rewrite.
   const launch = () => {
+    // A fresh literal (not a spread of `existing`) already omits
+    // seedIngestedAt/seedMismatch, so adding `seed` here is sufficient to
+    // "clear" both on every launch attempt — there is nothing to explicitly
+    // unset.
     writeState(
       {
         slug,
@@ -562,6 +567,7 @@ PR → review checkpoint), and writes initial epic state under
         effort,
         model: sessionModel,
         modelPlanning,
+        seed,
         updatedAt: nowIso(),
       },
       options.stateDir,
@@ -575,13 +581,19 @@ PR → review checkpoint), and writes initial epic state under
       // Marker-aware consumed(): the seed-ingested hook stamping `seedIngestedAt`
       // confirms ingestion at launch time; absent the marker, fall back to the
       // phase advancing past `starting`. (consumed() is only probed while the
-      // pane is alive, so "marker present" already implies a live pane.)
+      // pane is alive, so "marker present" already implies a live pane.) A
+      // recorded seedMismatch is checked FIRST so it always beats the
+      // phase-advance fallback — a corrupted delivery must never latch as
+      // consumed just because some other write happened to advance the phase.
       consumed: () => {
         const s = readState(slug, options.stateDir);
         if (s == null) return false;
+        if (s.seedMismatch != null) return false;
         if (s.seedIngestedAt != null) return true;
         return s.phase !== "starting";
       },
+      seedCorrupted: () =>
+        readState(slug, options.stateDir)?.seedMismatch != null,
     });
   };
   const result = withLaunchSlot(
@@ -589,13 +601,29 @@ PR → review checkpoint), and writes initial epic state under
     options,
   );
   if (result.status === "failed") {
-    deleteState(slug, options.stateDir);
-    console.error(
-      "flow epic create: claude exited immediately after launch — the tmux window did not stay up.",
-    );
-    console.error(
-      "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
-    );
+    const seedCorrupted = result.stderr === SEED_CORRUPTED_STDERR;
+    // Mirrors feature.ts runFresh: the seed-corruption failure deliberately
+    // SKIPS the no-orphan delete — state.seed is the only surviving copy of
+    // the original epic prompt, so wiping it here would make the recovery
+    // hint below a lie. `flow reap`/`flow done` remain the generic backstop.
+    if (!seedCorrupted) {
+      deleteState(slug, options.stateDir);
+    }
+    if (seedCorrupted) {
+      console.error(
+        "flow epic create: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
+      );
+      console.error(
+        `  the original epic prompt is recorded in ~/.flow/state/${slug}.json — recover it with \`jq -r .seed ~/.flow/state/${slug}.json\`.`,
+      );
+    } else {
+      console.error(
+        "flow epic create: claude exited immediately after launch — the tmux window did not stay up.",
+      );
+      console.error(
+        "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
+      );
+    }
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 2;
   }
@@ -698,21 +726,42 @@ function runEpicResume(name: string, options: EpicOptions): number {
       state.model,
       options.pluginRootsScan,
     );
+  // Record THIS resume's own seed and clear any earlier hook markers before
+  // capturing the consumption baseline below (mirrors feature.ts runResume;
+  // Task 4b cross-path hazard fix). Two reasons this must happen HERE, before
+  // the baseline read: (1) the marker baseline captured immediately below must
+  // reflect a clean slate, so any post-resume stamp is unambiguously fresh,
+  // never a leftover from a prior launch/resume; (2) flow-seed-ingested-hook
+  // short-circuits on `if (state.seedIngestedAt) return 0;` — without this
+  // clear the hook never performs its integrity comparison on a resume
+  // attempt at all. It ALSO fixes a false-positive: this path's own resume
+  // seed is NOT the create-time seed `runCreate` recorded, so without
+  // recording it here the hook would compare this delivery's prompt against
+  // that stale create-time seed and record a false seedMismatch.
+  {
+    const preClear = readState(slug, options.stateDir);
+    if (preClear != null) {
+      writeState(
+        {
+          ...preClear,
+          seed,
+          seedIngestedAt: undefined,
+          seedMismatch: undefined,
+        },
+        options.stateDir,
+      );
+    }
+  }
   // Resume consumption baseline (mirrors feature.ts runResume): on resume the phase
   // is already past `starting` (`epic-designing`), so consumption is "the
   // resumed session RE-STAMPED the seed-ingested marker OR the resumed
   // supervisor bumped `updatedAt` past this pre-respawn value". BOTH baselines
   // are captured ONCE before the retry loop (not per-attempt): paired with the
   // non-destructive launched-not-confirmed timeout, a late advance no longer
-  // respawn-kills a live session. The marker baseline is load-bearing — the
-  // original fresh launch stamped `seedIngestedAt` and `runEpicResume` never
-  // clears it (writeState is not called here), so a bare `seedIngestedAt != null`
-  // check would short-circuit `consumed()` true on the FIRST probe off the STALE
-  // marker, skip the resume-seed send-keys (the double-submit guard), and latch a
-  // false-success resume that never delivered the seed. Requiring `seedIngestedAt`
-  // to DIFFER from the pre-resume value means only a fresh re-stamp counts. This
-  // path never writes or deletes state — the window pre-existed the resume — so
-  // the read is non-mutating.
+  // respawn-kills a live session. The marker baseline is now ALWAYS undefined
+  // immediately after the clear above, so any post-resume stamp is
+  // unambiguously fresh. This path otherwise never writes/deletes state — the
+  // window pre-existed the resume — the clear above is the one exception.
   const preResume = readState(slug, options.stateDir);
   const baseline = preResume?.updatedAt;
   const markerBaseline = preResume?.seedIngestedAt;
@@ -957,6 +1006,27 @@ function spawnEpicRunSupervisor(
   const worktree = deriveWorktreePath(repo, slug);
   const epicDir = epicDirRelative(slug);
   const seed = epicRunSeed(slug, epicDir);
+  // Record THIS run's own seed and clear any earlier hook markers, mirroring
+  // the resume paths above (Task 4b cross-path hazard fix). This window
+  // reuses the epic's existing slug/state.json (from `runCreate`), but
+  // `epicRunSeed` is a DIFFERENT prompt than whatever create/resume seed is
+  // already recorded there — without this write, flow-seed-ingested-hook
+  // would compare this window's prompt against that stale seed and record a
+  // false seedMismatch.
+  {
+    const current = readState(slug, options.stateDir);
+    if (current != null) {
+      writeState(
+        {
+          ...current,
+          seed,
+          seedIngestedAt: undefined,
+          seedMismatch: undefined,
+        },
+        options.stateDir,
+      );
+    }
+  }
   // Mirror runCreate's launch: resolve the flow-scoped settings file and build
   // the verified-launch argv through the shared builder. The supervisor session
   // model is `--model > config.models.default > inherited` (parity with
