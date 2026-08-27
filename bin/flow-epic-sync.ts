@@ -45,6 +45,7 @@ import { defaultGh, type GhRunner } from "./lib/resume-probes";
 import {
   commitEpicStatus,
   pushEpicStatusFromWrittenPath,
+  resolveContainedRepoRoot,
   type CommitSkipReason,
   type PushSkipReason,
   type GitRunner,
@@ -345,6 +346,8 @@ function remedyFor(reason: PushSkipReason): string {
       return "Re-run with --push after investigating the git error.";
     case "extra-local-commits":
       return "HEAD carries commits beyond the board; push manually after review.";
+    case "foreign-repo":
+      return "The resolved status board is in a different repository checkout than the current directory — cd into that checkout, or re-run from the repo that owns this epic.";
   }
 }
 
@@ -374,19 +377,61 @@ export function main(argv: string[], deps: Deps = {}): number {
   }
 
   const runState = readEpicRunState(epicSlug, epicsDir);
-  let manifestPath = runState?.manifestPath ?? null;
+  // Two distinct behaviours, easy to conflate:
+  //
+  // 1. cwd-PREFERENCE: on a WRITE invocation only, a cwd-local manifest that
+  //    actually loads wins OVER an existing cached manifestPath — a stale
+  //    cached path must never redirect the WRITE away from the epic the
+  //    operator's OWN repo carries. Gated on `isWriteInvocation`: the
+  //    read-only paths (--check / --json / a bare derive) keep resolving
+  //    cached-first, preserving the documented "usable from any cwd"
+  //    property (bin/lib/epic.ts's readEpicRunState contract) that
+  //    flow-epic-membership and flow epic status also rely on. Without this
+  //    gate the inversion would silently change which board a read reports
+  //    whenever the operator's own repo happens to carry the same epic slug.
+  // 2. cwd-FALLBACK: unconditional, for EVERY invocation type (read or
+  //    write), when there is no cached manifestPath at all — e.g. after
+  //    `flow epic done` archives the run-state, on a second machine, or a
+  //    bare `flow-epic-sync` that was never preceded by `flow epic run`.
+  //    Without this fallback a read with no cached manifestPath has nothing
+  //    to resolve and silently no-ops (`--check` always exits 1).
+  const isWriteInvocation = parsed.commit || parsed.push;
+  let manifestPath: string | null = null;
+  // The cwd-preference probe has to LOAD the candidate to know whether it
+  // wins (a present-but-malformed cwd-local manifest must fall through to
+  // the cached path, not short-circuit the run) — so keep what it loaded
+  // rather than parsing and schema-validating the same file again below.
+  let manifest: EpicManifest | null = null;
+  if (isWriteInvocation) {
+    const cwdRepoRoot = resolveRepoRoot(cwd);
+    if (cwdRepoRoot) {
+      const cwdCandidate = path.join(
+        cwdRepoRoot,
+        epicDirRelative(epicSlug),
+        EPIC_MANIFEST_FILENAME,
+      );
+      const cwdManifest = loadManifest(cwdCandidate);
+      if (cwdManifest !== null) {
+        manifestPath = cwdCandidate;
+        manifest = cwdManifest;
+      }
+    }
+  }
   if (!manifestPath) {
-    const repoRoot = resolveRepoRoot(cwd);
-    if (repoRoot) {
+    manifestPath = runState?.manifestPath ?? null;
+  }
+  if (!manifestPath) {
+    const cwdRepoRoot = resolveRepoRoot(cwd);
+    if (cwdRepoRoot) {
       manifestPath = path.join(
-        repoRoot,
+        cwdRepoRoot,
         epicDirRelative(epicSlug),
         EPIC_MANIFEST_FILENAME,
       );
     }
   }
 
-  const manifest = manifestPath ? loadManifest(manifestPath) : null;
+  if (!manifest) manifest = manifestPath ? loadManifest(manifestPath) : null;
   if (!manifest || !manifestPath) {
     // Manifest unreadable — never block the caller. `--check` DOES exit 1
     // here (unlike the gh-failure branch below): an unreadable manifest is
@@ -475,13 +520,41 @@ export function main(argv: string[], deps: Deps = {}): number {
   }
 
   const onDisk = existing ? serializeEpicStatus(existing) : null;
-  const written = onDisk !== serialized;
+  let written = onDisk !== serialized;
   let committed = false;
   let commitSkipReason: CommitSkipReason | undefined;
   let pushed = false;
   let pushSkipReason: PushSkipReason | undefined;
   const writtenPath = path.join(epicDirAbs, EPIC_STATUS_FILENAME);
-  if (written) {
+
+  // Containment must be checked BEFORE the write, not just before the
+  // commit/push below: on the cwd-preference fallback (operator's own repo
+  // carries no such epic, so resolution falls back to a stale cached path
+  // in a foreign checkout) a commit-only gate still dirtied the foreign
+  // working tree and then refused only the commit/push, leaving an
+  // untracked file behind in a repo we'd just declared foreign. Skip the
+  // write entirely and report the same containment reason the commit/push
+  // gate would have reported, so the envelope stays accurate without ever
+  // touching the foreign tree.
+  //
+  // Scoped to a WRITE invocation (`--commit`/`--push`) only: a bare/`--json`
+  // invocation with neither flag always writes the derived board next to
+  // whatever manifest it resolved (cached-first, no cwd preference) — that
+  // on-disk cache write is unconditional pre-existing behaviour, independent
+  // of which repo it lands in, and is never followed by a commit/push this
+  // gate would otherwise need to pre-empt.
+  const preWriteContainment =
+    written && isWriteInvocation
+      ? resolveContainedRepoRoot({ writtenPath, cwd })
+      : null;
+  const containmentBlocked = !!(preWriteContainment && !preWriteContainment.ok);
+  if (containmentBlocked && preWriteContainment) {
+    written = false;
+    commitSkipReason = preWriteContainment.reason;
+    console.error(
+      `warn: skipping status board write (${preWriteContainment.reason}${preWriteContainment.detail ? `: ${preWriteContainment.detail}` : ""})`,
+    );
+  } else if (written) {
     fs.mkdirSync(epicDirAbs, { recursive: true });
     fs.writeFileSync(writtenPath, serialized);
     if (regressed.length > 0) {
@@ -499,10 +572,11 @@ export function main(argv: string[], deps: Deps = {}): number {
   // is on disk (either just written, or already there and byte-identical),
   // `commitEpicStatus` still runs and short-circuits to `nothing-staged` via
   // its own `git status --porcelain` probe if the tree really is clean.
-  if (parsed.commit && fs.existsSync(writtenPath)) {
+  if (!containmentBlocked && parsed.commit && fs.existsSync(writtenPath)) {
     const commitResult = commitEpicStatus({
       writtenPath,
       epicSlug,
+      cwd,
       git: deps.git,
     });
     committed = commitResult.committed;
@@ -516,10 +590,16 @@ export function main(argv: string[], deps: Deps = {}): number {
 
   if (parsed.push) {
     if (!committed) {
-      pushSkipReason = "not-committed";
+      pushSkipReason =
+        commitSkipReason === "foreign-repo"
+          ? "foreign-repo"
+          : commitSkipReason === "not-a-repo"
+            ? "push-failed"
+            : "not-committed";
     } else {
       const pushResult = pushEpicStatusFromWrittenPath({
         writtenPath,
+        cwd,
         git: deps.git,
       });
       pushed = pushResult.pushed;

@@ -2664,6 +2664,7 @@ describe("runEpicCli done", () => {
   }));
 
   it("writes the corrected status.json BEFORE deleting run.json", () => {
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
     const manifestPath = writeHealManifest("healed");
     seedRunWithManifest("healed", manifestPath);
     const statusPath = path.join(path.dirname(manifestPath), "status.json");
@@ -2707,6 +2708,7 @@ describe("runEpicCli done", () => {
   });
 
   it("a failing gh still completes the archive and reports the failure on stderr", () => {
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
     const manifestPath = writeHealManifest("heal-gh-down");
     seedRunWithManifest("heal-gh-down", manifestPath);
 
@@ -2880,6 +2882,48 @@ describe("runEpicCli done", () => {
     expect(calls.some((c) => c[0] === "status")).toBe(true);
     expect(calls.some((c) => c[0] === "commit")).toBe(true);
     expect(logs.join("\n")).toMatch(/epic status board: wrote .*\(committed/);
+  });
+
+  it("foreign-repo: heal skips cleanly without writing into a foreign checkout, and the archive still completes", () => {
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
+    const foreignRepo = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-foreign-"),
+    );
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: foreignRepo });
+    try {
+      const dir = path.join(foreignRepo, ".flow", "epics", "heal-foreign");
+      fs.mkdirSync(dir, { recursive: true });
+      const manifestPath = path.join(dir, "manifest.json");
+      fs.writeFileSync(
+        manifestPath,
+        JSON.stringify({
+          epicId: "heal-foreign",
+          prompt: "p",
+          createdAt: "2026-06-28",
+          features: [
+            { id: "a", title: "A", description: "build a", dependsOn: [] },
+          ],
+        }),
+      );
+      seedRunWithManifest("heal-foreign", manifestPath);
+      const statusPath = path.join(dir, "status.json");
+
+      const code = runEpicCli(["done", "heal-foreign", "--yes"], {
+        stateDir,
+        epicsDir,
+        cwd: repoDir,
+        gh: ghOk,
+      });
+
+      expect(code).toBe(0);
+      expect(fs.existsSync(statusPath)).toBe(false);
+      expect(fs.existsSync(path.join(epicsDir, "heal-foreign"))).toBe(false);
+      expect(errors.join("\n")).toMatch(
+        /epic status board: skipped \(foreign-repo:/,
+      );
+    } finally {
+      fs.rmSync(foreignRepo, { recursive: true, force: true });
+    }
   });
 });
 

@@ -170,6 +170,27 @@ never reach, let alone block, the common non-flow commit path. Every other
 `.flow/epics/**` path — and every path outside `.flow/epics/` entirely —
 still hits the verbatim two-line refusal unchanged.
 
+Which board a `--commit`/`--push` invocation acts on is resolved
+cwd-PREFERRED, not cached-only: `flow-epic-sync.ts` tries a manifest inside
+the operator's OWN cwd repo first (falling through to the cached
+`manifestPath` when the cwd carries no such epic, and finally to an
+unconditional cwd-derived path when there is no cached `manifestPath` at
+all) — a stale cached path can then only ever be the write target when the
+operator's own repo has nothing to offer, and the pre-write containment
+gate below still refuses that fallback if it lands outside the operator's
+repository. Read-only invocations (`--check`/`--json`/a bare derive) skip
+the cwd preference and resolve cached-first, unconditionally falling back
+to the cwd-derived path only when no cached `manifestPath` exists.
+
+The write itself, and the commit and push that follow it, all refuse with
+`foreign-repo` when the resolved board path is not inside the current
+directory's repository, so a stale absolute `manifestPath` cached in
+`~/.flow/epics/<slug>/run.json` can never write, commit, or push into
+another checkout. Containment compares `git rev-parse --git-common-dir`
+(`resolveGitCommonDir` in `bin/lib/repo-root.ts`), not `--show-toplevel`,
+so sibling git worktrees of the same repository are NOT foreign — only a
+genuinely different repository is refused.
+
 ### Auto-push exemption: flow-epic-sync --push (and flow epic done's board heal)
 
 Narrower than the `pr-review` auto-push exemption above: `--push` targets
@@ -193,8 +214,9 @@ before pushing — if that local-vs-remote delta carries anything beyond
 the allowlisted board path, the push bails with `extra-local-commits`
 rather than publishing it.
 
-Every failure mode (`detached-head`, `not-base-branch`, `no-remote`,
-`no-remote-branch`, `non-fast-forward`, `push-failed`, `extra-local-commits`)
+Every failure mode (`not-committed`, `detached-head`, `not-base-branch`,
+`no-remote`, `no-remote-branch`, `non-fast-forward`, `push-failed`,
+`extra-local-commits`, `foreign-repo`)
 is a stderr warning plus an envelope field — never a retry, and never a
 forced push. A
 `non-fast-forward` is reported with the exact remedy `flow-epic-sync`

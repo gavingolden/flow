@@ -14,7 +14,7 @@ import {
   EPICS_DIR_RELATIVE,
   epicDirRelative,
 } from "./epic-manifest-schema";
-import { resolveRepoRoot } from "./repo-root";
+import { resolveRepoRoot, resolveGitCommonDir } from "./repo-root";
 import { isCommittableOnBaseBranch } from "./base-branch-guard";
 export { isCommittableOnBaseBranch } from "./base-branch-guard";
 
@@ -22,12 +22,14 @@ export type { GitRunner };
 
 export type CommitSkipReason =
   | "not-a-repo"
+  | "foreign-repo"
   | "nothing-staged"
   | "commit-refused"
   | "git-error";
 
 export type PushSkipReason =
   | "not-committed"
+  | "foreign-repo"
   | "detached-head"
   | "not-base-branch"
   | "no-remote"
@@ -51,6 +53,50 @@ function firstLine(s: string): string {
   return (s.split("\n")[0] ?? "").slice(0, 200);
 }
 
+export type ContainmentResult =
+  | { ok: true; repoRoot: string }
+  | { ok: false; reason: "not-a-repo" | "foreign-repo"; detail?: string };
+
+/**
+ * Refuses a write when the board's repository and the operator's cwd
+ * repository differ. Ordering is load-bearing: the board side is resolved
+ * FIRST via `resolveRepoRoot`, so a board outside any repo still reports
+ * `not-a-repo` rather than `foreign-repo`. Containment itself compares
+ * `resolveGitCommonDir` (shared across a main checkout and its linked
+ * worktrees), not `resolveRepoRoot` (which differs per worktree) — a
+ * sibling worktree of the same repository is NOT foreign. Fails closed:
+ * an unresolvable cwd side (not in any repo) is treated as foreign, since
+ * this predicate only ever guards a write path.
+ */
+export function resolveContainedRepoRoot(input: {
+  writtenPath: string;
+  cwd?: string;
+}): ContainmentResult {
+  const boardDir = path.dirname(input.writtenPath);
+  const repoRoot = resolveRepoRoot(boardDir);
+  if (!repoRoot) return { ok: false, reason: "not-a-repo" };
+
+  const cwd = input.cwd ?? process.cwd();
+  const boardCommon = resolveGitCommonDir(boardDir);
+  const cwdCommon = resolveGitCommonDir(cwd);
+  if (!cwdCommon || boardCommon !== cwdCommon) {
+    // Report the cwd's own repo root when it has one, so both halves of the
+    // message are `git rev-parse --show-toplevel` answers and a symlinked
+    // tmpdir (macOS /var -> /private/var) cannot make a genuine mismatch
+    // read as a path-normalization artifact. Falls back to the raw cwd when
+    // it is in no repo at all, which is itself the useful diagnostic.
+    const cwdRoot = resolveRepoRoot(cwd);
+    return {
+      ok: false,
+      reason: "foreign-repo",
+      detail: cwdRoot
+        ? `epic status board is in ${repoRoot}, current directory is in ${cwdRoot}`
+        : `epic status board is in ${repoRoot}, current directory ${cwd} is not inside a git repository`,
+    };
+  }
+  return { ok: true, repoRoot };
+}
+
 /**
  * Commits EXACTLY the board just written. Takes the ABSOLUTE path that was
  * just written (not a recomputed repoRoot+slug path) — both writers derive
@@ -62,12 +108,23 @@ export function commitEpicStatus(input: {
   writtenPath: string;
   epicSlug: string;
   message?: string;
+  cwd?: string;
   git?: GitRunner;
 }): { committed: boolean; reason?: CommitSkipReason; detail?: string } {
   const git = input.git ?? defaultGit;
   try {
-    const repoRoot = resolveRepoRoot(path.dirname(input.writtenPath));
-    if (!repoRoot) return { committed: false, reason: "not-a-repo" };
+    const containment = resolveContainedRepoRoot({
+      writtenPath: input.writtenPath,
+      cwd: input.cwd,
+    });
+    if (!containment.ok) {
+      return {
+        committed: false,
+        reason: containment.reason,
+        detail: containment.detail,
+      };
+    }
+    const repoRoot = containment.repoRoot;
     // `resolveRepoRoot` shells out to `git rev-parse --show-toplevel`, which
     // resolves symlinks in its answer (e.g. macOS's /var -> /private/var);
     // realpath-normalize writtenPath too, or a symlinked tmpdir-style path
@@ -237,18 +294,30 @@ export function pushEpicStatus(input: { repoRoot: string; git?: GitRunner }): {
 
 /**
  * Shared seam for the two writers (`flow-epic-sync.ts`, `epic.ts`): resolves
- * the repo root from a written board path and pushes, collapsing to
- * `push-failed` when the root can't be resolved — without this both
- * writers duplicated the identical resolve+fallback.
+ * the repo root from a written board path and pushes. Forwards the
+ * containment reason as-is for `foreign-repo`; `PushSkipReason` has no
+ * `not-a-repo` member, so that case collapses to the pre-existing
+ * `push-failed` (its pre-PR behaviour) — without this both writers
+ * duplicated the identical resolve+fallback.
  */
 export function pushEpicStatusFromWrittenPath(input: {
   writtenPath: string;
+  cwd?: string;
   git?: GitRunner;
 }): { pushed: boolean; reason?: PushSkipReason; detail?: string } {
-  const repoRoot = resolveRepoRoot(path.dirname(input.writtenPath));
-  return repoRoot
-    ? pushEpicStatus({ repoRoot, git: input.git })
-    : { pushed: false, reason: "push-failed" };
+  const containment = resolveContainedRepoRoot({
+    writtenPath: input.writtenPath,
+    cwd: input.cwd,
+  });
+  if (!containment.ok) {
+    return {
+      pushed: false,
+      reason:
+        containment.reason === "foreign-repo" ? "foreign-repo" : "push-failed",
+      detail: containment.detail,
+    };
+  }
+  return pushEpicStatus({ repoRoot: containment.repoRoot, git: input.git });
 }
 
 function parsePorcelainPath(line: string): string {
