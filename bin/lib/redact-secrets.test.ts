@@ -22,6 +22,37 @@ describe("redactSecrets", () => {
     expect(redactSecrets("password=hunter2extra")).toBe("password=[REDACTED]");
   });
 
+  it("masks an underscore-prefixed env-var-shaped key=value assignment", () => {
+    // \b never matches between `_` (a \w char) and the following letter, so
+    // a bare \b anchor silently never engages on these — the common shape
+    // for env-var-style credential names.
+    expect(redactSecrets("GITHUB_TOKEN=hunter2secretpw")).toBe(
+      "GITHUB_TOKEN=[REDACTED]",
+    );
+    expect(redactSecrets("client_secret=abc123def456")).toBe(
+      "client_secret=[REDACTED]",
+    );
+    expect(redactSecrets("access_token: 0123456789abcdef")).toBe(
+      "access_token: [REDACTED]",
+    );
+  });
+
+  it("masks a Basic auth header alongside Bearer", () => {
+    expect(
+      redactSecrets(
+        "Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQxMjM0NTY3ODkw",
+      ),
+    ).toBe("Authorization: [REDACTED]");
+  });
+
+  it("masks a standard-base64 opaque run (with +, /, = padding)", () => {
+    // The canonical AWS secret access key shape: standard base64, not
+    // base64url — a base64url-only character class fragments this at every
+    // `+`/`/`, and each fragment then falls under the 32-char floor.
+    const secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+    expect(redactSecrets(`aws_secret=${secret}`)).toBe("aws_secret=[REDACTED]");
+  });
+
   it("masks a standalone opaque 32+ char run", () => {
     const opaque = "sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
     expect(opaque.length).toBeGreaterThanOrEqual(32);
