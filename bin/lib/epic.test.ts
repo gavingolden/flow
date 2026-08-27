@@ -83,6 +83,7 @@ import {
   parseRunArgs,
   type EpicOptions,
 } from "./epic";
+import type { GitRunner } from "./epic-metadata-commit";
 
 // Epic orchestration is tmux-only and the launcher backend now defaults to
 // plain, so this file's create specs opt in via the per-run `--tmux` override
@@ -2693,6 +2694,155 @@ describe("runEpicCli done", () => {
     expect(code).toBe(0);
     expect(fs.existsSync(path.join(epicsDir, "heal-gh-down"))).toBe(false);
     expect(errors.join("\n")).toMatch(/epic status board: skipped/);
+  });
+
+  // ── close-out heal: commit + push (Task 4) ──────────────────────────────
+
+  const ghOk: GhRunner = () => ({
+    exitCode: 0,
+    stdout: JSON.stringify([{ number: 11 }]),
+    stderr: "",
+  });
+
+  function makeGit(
+    respond: (argv: string[]) => Partial<{
+      stdout: string;
+      stderr: string;
+      exitCode: number;
+    }>,
+  ) {
+    const calls: string[][] = [];
+    const git: GitRunner = (argv) => {
+      calls.push(argv);
+      const r = respond(argv) ?? {};
+      return {
+        stdout: r.stdout ?? "",
+        stderr: r.stderr ?? "",
+        exitCode: r.exitCode ?? 0,
+      };
+    };
+    return { git, calls };
+  }
+
+  it("write succeeds, commit succeeds, push succeeds: message ends (committed, pushed), ok:true", () => {
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
+    const manifestPath = writeHealManifest("heal-push-ok");
+    seedRunWithManifest("heal-push-ok", manifestPath);
+    const { git } = makeGit((argv) => {
+      if (argv[0] === "status") return { stdout: " M status.json\n" };
+      if (argv[0] === "rev-parse") return { stdout: "main\n" };
+      if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+      return { exitCode: 0 };
+    });
+
+    const code = runEpicCli(["done", "heal-push-ok", "--yes"], {
+      stateDir,
+      epicsDir,
+      cwd: repoDir,
+      gh: ghOk,
+      git,
+    });
+
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toMatch(
+      /epic status board: wrote .*\(committed, pushed\)/,
+    );
+    expect(errors.join("\n")).not.toMatch(/epic status board/);
+  });
+
+  it("write succeeds, commit succeeds, push fails: message ends (committed, NOT pushed: <reason>), ok STILL true", () => {
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
+    const manifestPath = writeHealManifest("heal-push-fail");
+    seedRunWithManifest("heal-push-fail", manifestPath);
+    const { git } = makeGit((argv) => {
+      if (argv[0] === "status") return { stdout: " M status.json\n" };
+      if (argv[0] === "rev-parse") return { stdout: "feat/x\n" };
+      if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+      return { exitCode: 0 };
+    });
+
+    const code = runEpicCli(["done", "heal-push-fail", "--yes"], {
+      stateDir,
+      epicsDir,
+      cwd: repoDir,
+      gh: ghOk,
+      git,
+    });
+
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toMatch(
+      /epic status board: wrote .*\(committed, NOT pushed: not-base-branch\)/,
+    );
+    expect(errors.join("\n")).not.toMatch(/epic status board/);
+  });
+
+  it("write succeeds, commit fails: message ends (NOT committed: <reason>), ok STILL true, no push argv", () => {
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
+    const manifestPath = writeHealManifest("heal-commit-fail");
+    seedRunWithManifest("heal-commit-fail", manifestPath);
+    const { git, calls } = makeGit((argv) => {
+      if (argv[0] === "status") return { stdout: " M status.json\n" };
+      if (argv[0] === "add") return { exitCode: 0 };
+      if (argv[0] === "commit") {
+        return { exitCode: 1, stderr: "refusing to commit\n" };
+      }
+      return { exitCode: 0 };
+    });
+
+    const code = runEpicCli(["done", "heal-commit-fail", "--yes"], {
+      stateDir,
+      epicsDir,
+      cwd: repoDir,
+      gh: ghOk,
+      git,
+    });
+
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toMatch(
+      /epic status board: wrote .*\(NOT committed: commit-refused\)/,
+    );
+    expect(errors.join("\n")).not.toMatch(/epic status board/);
+    expect(calls.some((c) => c.includes("push"))).toBe(false);
+  });
+
+  it("board already in sync: unchanged message, NO git argv emitted at all", () => {
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
+    const manifestPath = writeHealManifest("heal-in-sync");
+    const statusPath = path.join(path.dirname(manifestPath), "status.json");
+
+    // First run writes the board (no injected git, so commit/push both
+    // bail as not-a-repo against the real, uncommitted repoDir — harmless,
+    // since only the write disposition matters for this fixture).
+    seedRunWithManifest("heal-in-sync", manifestPath);
+    runEpicCli(["done", "heal-in-sync", "--yes"], {
+      stateDir,
+      epicsDir,
+      cwd: repoDir,
+      gh: ghOk,
+    });
+    expect(fs.existsSync(statusPath)).toBe(true);
+
+    // Second run: same manifest + same gh answer, so the derived board is
+    // byte-identical to what's already on disk.
+    logs = [];
+    errors = [];
+    seedRunWithManifest("heal-in-sync", manifestPath);
+    const { git, calls } = makeGit(() => ({ exitCode: 0 }));
+    const code = runEpicCli(["done", "heal-in-sync", "--yes"], {
+      stateDir,
+      epicsDir,
+      cwd: repoDir,
+      gh: ghOk,
+      git,
+    });
+
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toMatch(
+      new RegExp(
+        `epic status board: already in sync \\(${statusPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`,
+      ),
+    );
+    expect(calls.length).toBe(0);
   });
 });
 

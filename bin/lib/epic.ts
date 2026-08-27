@@ -67,6 +67,11 @@ import {
 } from "./epic-status-schema";
 import { deriveBoard } from "../flow-epic-sync";
 import { defaultGh, type GhRunner } from "./resume-probes";
+import {
+  commitEpicStatus,
+  pushEpicStatus,
+  type GitRunner,
+} from "./epic-metadata-commit";
 import { validateDag } from "../flow-epic-dag";
 import {
   deriveWorktreePath,
@@ -261,6 +266,11 @@ export type EpicOptions = {
    * production uses `resume-probes.ts`'s `defaultGh`).
    */
   gh?: GhRunner;
+  /**
+   * git seam for `runEpicDone`'s close-out status-board heal commit + push
+   * (test only; production uses `epic-metadata-commit.ts`'s defaults).
+   */
+  git?: GitRunner;
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
@@ -1647,6 +1657,7 @@ function healCommittedStatusBeforeArchive(
   epicsDir: string,
   cwd: string,
   gh: GhRunner,
+  git?: GitRunner,
 ): { ok: boolean; message: string } {
   try {
     const runState = readEpicRunState(slug, epicsDir);
@@ -1698,7 +1709,36 @@ function healCommittedStatusBeforeArchive(
     }
     fs.mkdirSync(epicDirAbs, { recursive: true });
     fs.writeFileSync(statusPath, serialized);
-    return { ok: true, message: `epic status board: wrote ${statusPath}` };
+
+    // Push is UNCONDITIONAL here, by decision, not by flag: `flow epic done`
+    // is a human-typed verb — invoking it is the instruction — and it is the
+    // last moment anyone looks at this board before deleteEpicRunState drops
+    // the run-state cache. Neither step can block the archive.
+    const commitResult = commitEpicStatus({
+      writtenPath: statusPath,
+      epicSlug: slug,
+      git,
+    });
+    if (!commitResult.committed) {
+      return {
+        ok: true,
+        message: `epic status board: wrote ${statusPath} (NOT committed: ${commitResult.reason})`,
+      };
+    }
+    const repoRoot = resolveRepoRoot(path.dirname(statusPath));
+    const pushResult = repoRoot
+      ? pushEpicStatus({ repoRoot, git })
+      : { pushed: false, reason: "push-failed" as const };
+    if (!pushResult.pushed) {
+      return {
+        ok: true,
+        message: `epic status board: wrote ${statusPath} (committed, NOT pushed: ${pushResult.reason})`,
+      };
+    }
+    return {
+      ok: true,
+      message: `epic status board: wrote ${statusPath} (committed, pushed)`,
+    };
   } catch (e) {
     return {
       ok: false,
@@ -1772,13 +1812,16 @@ Options:
   // run-state is about to be deleted) and the last chance to catch an
   // out-of-band merge before the per-machine cache this heal reads from is
   // gone. NEVER blocks the archive — a gh failure or thrown error is
-  // reported on stderr only; the write is best-effort and committing it
-  // stays the user's call (no auto-commit on a base branch).
+  // reported on stderr only. The heal now commits the board through the
+  // base-branch guard's status-board allowlist and best-effort pushes it
+  // (see AGENTS.md "Auto-push exemption: flow-epic-sync --push (and
+  // flow epic done's heal)"); neither step can block the archive.
   const heal = healCommittedStatusBeforeArchive(
     slug,
     epicsDir,
     options.cwd ?? process.cwd(),
     options.gh ?? defaultGh,
+    options.git,
   );
   if (heal.ok) {
     console.log(heal.message);

@@ -6830,6 +6830,65 @@ describe("/flow-epic-run playbook SKILL.md literal anchors", () => {
   });
 });
 
+describe("epic-metadata auto-commit/auto-push exemption doc wiring (Task 6)", () => {
+  // The base-branch guard's v4 status-board allowlist gets a documented
+  // --commit --push route in the epic-run playbook, and a lean pointer in
+  // AGENTS.md's ## Don'ts — both must land, and the old
+  // bare-invocation-plus-hand-commit instruction must be gone so the
+  // playbook can't drift back into instructing an action the guard refuses.
+  const EPIC_RUN_SKILL_MD_PATH = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "flow-epic-run",
+    "SKILL.md",
+  );
+  const epicRunSyncContent = fs.readFileSync(EPIC_RUN_SKILL_MD_PATH, "utf8");
+
+  it("flow-epic-run/SKILL.md's reconcile recipe uses the --commit --push route", () => {
+    expect(
+      epicRunSyncContent.includes(
+        "flow-epic-sync --epic-slug <slug> --commit --push",
+      ),
+      "flow-epic-run/SKILL.md's reconcile-drift recipe must invoke " +
+        "`flow-epic-sync --epic-slug <slug> --commit --push` — the base-branch " +
+        "guard's v4 status-board allowlist makes this legal on the base branch.",
+    ).toBe(true);
+  });
+
+  it("flow-epic-run/SKILL.md no longer instructs a bare-invocation-plus-hand-commit for the board", () => {
+    expect(
+      /flow-epic-sync --epic-slug <slug>`\s*\n\s*\(writes/.test(
+        epicRunSyncContent,
+      ),
+      "flow-epic-run/SKILL.md must not still carry the pre-Task-6 " +
+        "bare-invocation-then-hand-commit sentence for the status board — the " +
+        "guard refuses that shape on the base branch; use --commit --push instead.",
+    ).toBe(false);
+  });
+
+  it("flow-epic-run/SKILL.md's amend-manifest step names the switch-branch route, not a base-branch commit", () => {
+    expect(
+      epicRunSyncContent.includes("git switch -c flow-epic-amend/"),
+      "flow-epic-run/SKILL.md's amend-manifest step must name the " +
+        "`git switch -c flow-epic-amend/<epic>` route — the base-branch guard " +
+        "refuses a manifest.json commit on the base branch directly.",
+    ).toBe(true);
+  });
+
+  it("AGENTS.md names both the auto-commit and auto-push epic-sync exemptions", () => {
+    expect(
+      agentsContent.includes("Auto-commit exemption"),
+      "AGENTS.md ## Don'ts must name the 'Auto-commit exemption' for flow-epic-sync --commit.",
+    ).toBe(true);
+    expect(
+      agentsContent.includes("flow-epic-sync --push"),
+      "AGENTS.md ## Don'ts must name 'flow-epic-sync --push' as the auto-push exemption.",
+    ).toBe(true);
+  });
+});
+
 describe("per-phase model-routing wiring lint (feature: per-phase model selection)", () => {
   // Each named Task-spawn site that gained a `model:` override must name its
   // resolution field + precedence + reference the central model-routing doc, so

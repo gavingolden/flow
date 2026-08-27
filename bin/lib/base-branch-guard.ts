@@ -37,7 +37,7 @@ export { LEGACY_HOOK_BODIES } from "./base-branch-guard-legacy";
  * ownership detection moved off a byte-exact compare.
  */
 export const BASE_BRANCH_GUARD_MARKER = "# flow:base-branch-guard v";
-export const BASE_BRANCH_GUARD_VERSION = 3;
+export const BASE_BRANCH_GUARD_VERSION = 4;
 
 export const BASE_BRANCH_GUARD_HOOK = `#!/bin/sh
 ${BASE_BRANCH_GUARD_MARKER}${BASE_BRANCH_GUARD_VERSION}
@@ -67,6 +67,22 @@ fi
 current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null)
 
 if [ "$current_branch" = "$default_branch" ]; then
+  # Narrow carve-out: a machine-derived epic status board is committable here.
+  # See AGENTS.md "Auto-commit exemption: flow-epic-sync --commit".
+  staged=$(git diff --cached --name-only)
+  if [ -n "$staged" ] && ! printf '%s\n' "$staged" | grep -qvE '^\\.flow/epics/[^/]+/status\\.json$'; then
+    # jq-gated staged-content sanity check, allow-path only, fail-open when
+    # jq is absent — this must never reach the common non-flow commit path.
+    if command -v jq >/dev/null 2>&1; then
+      for p in $staged; do
+        if ! git show ":$p" | jq -e . >/dev/null 2>&1; then
+          echo "flow: refusing to commit a malformed epic status board '$p'." >&2
+          exit 1
+        fi
+      done
+    fi
+    exit 0
+  fi
   echo "flow: refusing to commit on the base branch '$default_branch' inside a flow session." >&2
   echo "flow: pipeline work belongs on a per-pipeline worktree behind a PR, not the base branch." >&2
   exit 1
@@ -256,19 +272,36 @@ export function installBaseBranchGuard(
   return installForeign(target, hookPath);
 }
 
+const EPIC_STATUS_ALLOWLIST = /^\.flow\/epics\/[^/]+\/status\.json$/;
+
+/**
+ * TS mirror of the sh allowlist in BASE_BRANCH_GUARD_HOOK. True only when the
+ * staged set is non-empty AND every path is a machine-derived epic status
+ * board. Any other path — manifest.json, design.md, code — makes it false.
+ */
+export function isCommittableOnBaseBranch(stagedPaths: string[]): boolean {
+  if (stagedPaths.length === 0) return false;
+  return stagedPaths.every((p) => EPIC_STATUS_ALLOWLIST.test(p));
+}
+
 /**
  * Pure refuse/allow decision mirrored by the sh hook above, factored out so the
  * branching logic is unit-testable without spawning a real commit. Refuses ONLY
- * when both flow-session markers are present AND HEAD is the default branch.
+ * when both flow-session markers are present AND HEAD is the default branch —
+ * unless every staged path is a machine-derived epic status board.
  */
 export function baseBranchGuardDecision(input: {
   sessionId?: string;
   flowSlug?: string;
   currentBranch: string;
   defaultBranch: string;
+  stagedPaths?: string[];
 }): "refuse" | "allow" {
   const sessionMarked = Boolean(input.sessionId) && Boolean(input.flowSlug);
   if (sessionMarked && input.currentBranch === input.defaultBranch) {
+    if (input.stagedPaths && isCommittableOnBaseBranch(input.stagedPaths)) {
+      return "allow";
+    }
     return "refuse";
   }
   return "allow";

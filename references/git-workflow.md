@@ -140,6 +140,67 @@ base branch's own checkout regardless of which worktree
 `flow feature create` runs from. The two installers look symmetric on
 purpose — they are not meant to be unified.
 
+### Auto-commit exemption: flow-epic-sync --commit
+
+The v4 base-branch guard allowlist carves out exactly one narrow shape: a
+commit whose entire staged set matches `.flow/epics/<epic>/status.json`
+is let through on the base branch inside a flow session, mirrored in TS by
+`isCommittableOnBaseBranch` (`bin/lib/base-branch-guard.ts`) and re-exported
+from `bin/lib/epic-metadata-commit.ts`. The board qualifies where
+`manifest.json` does not: it is machine-derived (`deriveBoard` in
+`bin/flow-epic-sync.ts`, never hand-authored), one-way-latched
+(`advanceStatus` — a shipped row never regresses), canonically serialized
+(`serializeEpicStatus` — a byte-stable diff), and fully re-derivable with
+`--rederive` — so a wrong commit is mechanically repairable, not a
+judgment call that deserves review. `manifest.json`, `design.md`, and every
+other epic-metadata path stay on the authored-scope side: they deserve
+review, so they keep the branch-and-PR route (see `flow-epic-run`'s
+amend-manifest recipe).
+
+The commit itself is PATH-SCOPED — `bin/lib/epic-metadata-commit.ts`'s
+`commitEpicStatus` runs `git add -- <path>` then `git commit -m <msg> --
+<path>`, never a bare, whole-index `git add` followed by a bare
+`git commit` — so an unrelated file some other actor left staged can never
+join the board commit and get swept through the allowlist alongside it.
+The rendered sh hook additionally runs a jq-gated staged-content sanity
+check on the allow path only (parses each staged board with `jq -e .`,
+refusing a malformed one), fail-open when `jq` is absent — this check must
+never reach, let alone block, the common non-flow commit path. Every other
+`.flow/epics/**` path — and every path outside `.flow/epics/` entirely —
+still hits the verbatim two-line refusal unchanged.
+
+### Auto-push exemption: flow-epic-sync --push (and flow epic done's board heal)
+
+Narrower than the `pr-review` auto-push exemption above: exactly the one
+status-board commit `--commit` just made, pushed to a branch that ALREADY
+EXISTS on origin (`bin/lib/epic-metadata-commit.ts`'s `pushEpicStatus`
+gates on `git ls-remote --exit-code --heads origin <branch>` before ever
+pushing), never `--force`/`--force-with-lease`/`-f`, never
+`-u`/`--set-upstream`, never creating a remote ref, and never opening a
+GitHub object of any kind.
+
+The base-branch-only gate is not a style preference: `git push origin
+HEAD:<branch>` publishes **every** local commit on that branch, not just
+the board commit, so from a mid-implementation feature-pipeline worktree —
+where the branch already exists on origin, so the no-remote-branch gate
+does not catch it — an ungated `--push` would publish unverified code past
+the pipeline's own verify/CI gate. `--push` therefore only ever runs when
+the current branch equals the repo's resolved default branch.
+
+Every failure mode (`detached-head`, `not-base-branch`, `no-remote`,
+`no-remote-branch`, `non-fast-forward`, `push-failed`) is a stderr warning
+plus an envelope field — never a retry, and never a forced push. A
+`non-fast-forward` is reported with the exact remedy `flow-epic-sync`
+names on stderr: run `git pull --rebase` and re-run with `--push`; the
+caller then abandons the attempt rather than looping. `flow epic done`'s
+close-out heal (`healCommittedStatusBeforeArchive` in `bin/lib/epic.ts`)
+pushes its board write unconditionally — no `--push` flag gates it —
+because `flow epic done` is a human-typed verb: invoking it **is** the
+instruction, and it runs at the last moment anyone looks at this board
+before `deleteEpicRunState` drops the per-machine run-state cache that
+both writers depend on. Neither the commit nor the push can block the
+archive; only the reported message degrades.
+
 ## Inline intent annotations
 
 Review-time-scoped per-hunk rationale from `/flow-new-feature` Step 5b as
