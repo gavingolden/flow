@@ -858,10 +858,9 @@ envelope (`.status` stripped) exactly as below; `waiting` goes to (3).
 **(3)** background the waiter — `flow-spawn --class default --
 flow-plan-review-wait "$WORKTREE/.flow-tmp/plan-review.md.run.json"
 --max-sec 540` — its completion notification re-runs (2), never a resumed
-loop. **(4)** fallback on a missed wake: a bounded Monitor `until` loop or
-`ScheduleWakeup` ending in the same `--check` call; if neither fires
-before turn-end, yield-and-resume — `flow-state-update --phase
-plan-review-pending` — and re-run (2) on re-invocation.
+loop. **(4)** on a missed wake: a bounded Monitor `until` loop or
+`ScheduleWakeup` ending in the same `--check`; if neither fires before
+turn-end, `flow-state-update --phase plan-review-pending` and re-run (2).
 Branch on the `{ran}` envelope
 (never the exit code): `ran:false` records `skipReason` and proceeds
 unchanged. `skipReason` splits into two classes: an environment skip (e.g.
@@ -869,11 +868,11 @@ unchanged. `skipReason` splits into two classes: an environment skip (e.g.
 `reviewer-not-engaged` / `reviewer-timeout` mean the review RAN and
 produced nothing usable — surface those three distinctly in the chat
 summary (never folded into "agy unavailable" prose), naming
-`partialArtifactPath`/`stderrTail` when present. `review-timed-out`
-(`--check`'s give-up cap fired) and `reviewer-worker-died` (the detached
-worker vanished with no result) are the other two terminal skips, distinct
-from `reviewer-timeout` (envelope survived; one reviewer's agy call was
-killed). `ran:true` weighs each
+`partialArtifactPath`/`stderrTail` when present. The other two terminal
+skips are `review-timed-out` (`--check`'s give-up cap fired) and
+`reviewer-worker-died` (detached worker vanished, no result); both differ
+from `reviewer-timeout`, where the envelope survived one killed agy call.
+`ran:true` weighs each
 material AGY point as INPUT (never a verdict), revises plan.md **once**
 where warranted, and appends a `### Cross-model review (AGY)` subsection
 recording each point **accepted** or **overridden** — also record the
