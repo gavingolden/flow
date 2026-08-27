@@ -38,6 +38,17 @@ export function flowConfigPath(): string {
 }
 
 /**
+ * Host-wide epic-status lock directory, resolved at call time — same
+ * rationale as `flowConfigPath()` above: `HOME` is captured at import time,
+ * before vitest's setup file swaps `$HOME` for a sandbox, so an eager const
+ * (the `SETUP_LOCK_PATH` pattern below) would leak the developer's real
+ * `~/.flow` into every test that acquires an epic-status lock.
+ */
+export function epicStatusLockDir(): string {
+  return path.join(os.homedir(), ".flow", "locks", "epic-status");
+}
+
+/**
  * Resolves `~/.local/bin/<name>` at call time, same rationale as
  * `flowConfigPath()` above: `HOME` is captured at import time, before
  * vitest's setup file swaps `$HOME` for a sandbox, so an eager

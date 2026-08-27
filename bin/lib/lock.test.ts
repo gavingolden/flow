@@ -6,6 +6,7 @@ import {
   LockTimeoutError,
   resolveLaunchConcurrency,
   withFileLock,
+  withFileLockSync,
   withTestSemaphore,
 } from "./lock";
 
@@ -149,6 +150,62 @@ describe(withFileLock, () => {
     expect(result).toBe("first");
     expect(order).toEqual(["start", "end"]);
     expect(fs.existsSync(lockPath)).toBe(false);
+  });
+});
+
+describe(withFileLockSync, () => {
+  it("runs fn and releases the lock so a second call can acquire it", () => {
+    let runs = 0;
+    const r1 = withFileLockSync(lockPath, () => {
+      runs++;
+      expect(fs.existsSync(lockPath)).toBe(true);
+      return "first";
+    });
+    expect(fs.existsSync(lockPath)).toBe(false);
+    const r2 = withFileLockSync(lockPath, () => {
+      runs++;
+      return "second";
+    });
+    expect(r1).toBe("first");
+    expect(r2).toBe("second");
+    expect(runs).toBe(2);
+  });
+
+  it("releases the lock even when fn throws", () => {
+    expect(() =>
+      withFileLockSync(lockPath, () => {
+        throw new Error("boom");
+      }),
+    ).toThrow("boom");
+    expect(fs.existsSync(lockPath)).toBe(false);
+  });
+
+  it("times out when another live process holds the lock", () => {
+    fs.writeFileSync(lockPath, String(process.pid));
+    expect(() =>
+      withFileLockSync(lockPath, () => undefined, {
+        timeoutMs: 200,
+        pollMs: 50,
+      }),
+    ).toThrow(LockTimeoutError);
+    fs.unlinkSync(lockPath);
+  });
+
+  it("reclaims a stale lock left by a dead process", () => {
+    const deadPid = pickDeadPid();
+    fs.writeFileSync(lockPath, String(deadPid));
+    let ran = false;
+    withFileLockSync(lockPath, () => {
+      ran = true;
+    });
+    expect(ran).toBe(true);
+    expect(fs.existsSync(lockPath)).toBe(false);
+  });
+
+  it("creates the parent directory if it does not exist", () => {
+    const nested = path.join(scratch, "sync-a", "b", "c", "deep.lock");
+    withFileLockSync(nested, () => undefined);
+    expect(fs.existsSync(path.dirname(nested))).toBe(true);
   });
 });
 

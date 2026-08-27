@@ -69,6 +69,7 @@ import { deriveBoard } from "../flow-epic-sync";
 import { defaultGh, type GhRunner } from "./resume-probes";
 import {
   commitEpicStatus,
+  epicStatusLockPath,
   pushEpicStatusFromWrittenPath,
   resolveContainedRepoRoot,
   type GitRunner,
@@ -107,7 +108,12 @@ import {
 } from "./models-config";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
-import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
+import {
+  LockTimeoutError,
+  resolveLaunchConcurrency,
+  withFileLockSync,
+  withTestSemaphore,
+} from "./lock";
 import {
   reconcile,
   classifyEvent,
@@ -1812,63 +1818,102 @@ function healCommittedStatusBeforeArchive(
         message: `epic status board: skipped (${containment.reason}: ${epicDirAbs})`,
       };
     }
-    const existing = readCommittedStatus(epicDirAbs);
-    const { file, derived } = deriveBoard({
-      manifest: loaded.manifest,
-      existing,
-      gh,
-    });
-    if (!derived) {
-      return {
-        ok: false,
-        message: "epic status board: skipped (gh unavailable)",
-      };
-    }
-    const serialized = serializeEpicStatus(file);
-    const statusPath = path.join(epicDirAbs, EPIC_STATUS_FILENAME);
-    const onDisk = existing ? serializeEpicStatus(existing) : null;
-    // Do NOT early-return here on `onDisk === serialized` alone: `existing`
-    // comes from `readCommittedStatus`, a WORKING-TREE read, not `git show
-    // HEAD:`. A board that is byte-identical to the derivation on disk but
-    // still uncommitted must still fall through to `commitEpicStatus` below,
-    // which itself short-circuits to `nothing-staged` when the tree really
-    // is clean — this is the rescue path for a board stranded uncommitted.
-    if (onDisk !== serialized) {
-      fs.mkdirSync(epicDirAbs, { recursive: true });
-      fs.writeFileSync(statusPath, serialized);
-    }
+    // From here through the push below is the WRITE WINDOW: it can write
+    // the on-disk board, commit it, and push it. Wrapped in the same
+    // per-board lock `flow-epic-sync.ts`'s write window uses (same
+    // `epicStatusLockPath` key) so the two writers can never race each
+    // other into destroying the board — and the archive itself is NEVER
+    // blocked by a contended lock (see the LockTimeoutError catch below).
+    const runWriteWindow = (): { ok: boolean; message: string } => {
+      const existing = readCommittedStatus(epicDirAbs);
+      const { file, derived } = deriveBoard({
+        manifest: loaded.manifest,
+        existing,
+        gh,
+      });
+      if (!derived) {
+        return {
+          ok: false,
+          message: "epic status board: skipped (gh unavailable)",
+        };
+      }
+      const serialized = serializeEpicStatus(file);
+      const statusPath = path.join(epicDirAbs, EPIC_STATUS_FILENAME);
+      const onDisk = existing ? serializeEpicStatus(existing) : null;
+      // Do NOT early-return here on `onDisk === serialized` alone: `existing`
+      // comes from `readCommittedStatus`, a WORKING-TREE read, not `git show
+      // HEAD:`. A board that is byte-identical to the derivation on disk but
+      // still uncommitted must still fall through to `commitEpicStatus` below,
+      // which itself short-circuits to `nothing-staged` when the tree really
+      // is clean — this is the rescue path for a board stranded uncommitted.
+      if (onDisk !== serialized) {
+        fs.mkdirSync(epicDirAbs, { recursive: true });
+        fs.writeFileSync(statusPath, serialized);
+      }
 
-    // Push is UNCONDITIONAL here, by decision, not by flag: `flow epic done`
-    // is a human-typed verb — invoking it is the instruction — and it is the
-    // last moment anyone looks at this board before deleteEpicRunState drops
-    // the run-state cache. Neither step can block the archive.
-    const commitResult = commitEpicStatus({
-      writtenPath: statusPath,
-      epicSlug: slug,
-      cwd,
-      git,
-    });
-    if (!commitResult.committed) {
+      // Push is UNCONDITIONAL here, by decision, not by flag: `flow epic done`
+      // is a human-typed verb — invoking it is the instruction — and it is the
+      // last moment anyone looks at this board before deleteEpicRunState drops
+      // the run-state cache. Neither step can block the archive.
+      const commitResult = commitEpicStatus({
+        writtenPath: statusPath,
+        epicSlug: slug,
+        cwd,
+        git,
+      });
+      if (!commitResult.committed) {
+        return {
+          ok: true,
+          message: `epic status board: wrote ${statusPath} (NOT committed: ${commitResult.reason})`,
+        };
+      }
+      const pushResult = pushEpicStatusFromWrittenPath({
+        writtenPath: statusPath,
+        cwd,
+        git,
+      });
+      if (!pushResult.pushed) {
+        return {
+          ok: true,
+          message: `epic status board: wrote ${statusPath} (committed, NOT pushed: ${pushResult.reason})`,
+        };
+      }
       return {
         ok: true,
-        message: `epic status board: wrote ${statusPath} (NOT committed: ${commitResult.reason})`,
+        message: `epic status board: wrote ${statusPath} (committed, pushed)`,
       };
-    }
-    const pushResult = pushEpicStatusFromWrittenPath({
-      writtenPath: statusPath,
-      cwd,
-      git,
-    });
-    if (!pushResult.pushed) {
-      return {
-        ok: true,
-        message: `epic status board: wrote ${statusPath} (committed, NOT pushed: ${pushResult.reason})`,
-      };
-    }
-    return {
-      ok: true,
-      message: `epic status board: wrote ${statusPath} (committed, pushed)`,
     };
+
+    // `containment.repoRoot` is already in scope here (unlike
+    // flow-epic-sync.ts, which has to derive it) — see the containment
+    // check above.
+    const lockPath = epicStatusLockPath({
+      repoRoot: containment.repoRoot,
+      epicSlug: slug,
+    });
+    if (fs.existsSync(lockPath)) {
+      // `withFileLockSync`'s wait is `Atomics.wait` (see sleep.ts) — the CLI
+      // process is fully frozen with no output while it waits, so this
+      // line, emitted BEFORE the wait rather than after the first poll, is
+      // the only thing that distinguishes a contended-but-fine 60s wait
+      // from a hang.
+      console.error(
+        `flow epic done: waiting up to 60s for the epic-status lock on "${slug}" — another flow session appears to be syncing this board.`,
+      );
+    }
+    try {
+      return withFileLockSync(lockPath, runWriteWindow, { timeoutMs: 60_000 });
+    } catch (e) {
+      if (e instanceof LockTimeoutError) {
+        // NEVER block the archive on a contended lock.
+        return {
+          ok: true,
+          message:
+            "epic status board: skipped (lock-timeout: another flow session is syncing this board)",
+        };
+      }
+      throw e;
+    }
   } catch (e) {
     return {
       ok: false,
