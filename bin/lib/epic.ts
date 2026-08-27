@@ -70,6 +70,7 @@ import { defaultGh, type GhRunner } from "./resume-probes";
 import {
   commitEpicStatus,
   pushEpicStatusFromWrittenPath,
+  resolveContainedRepoRoot,
   type GitRunner,
 } from "./epic-metadata-commit";
 import { validateDag } from "../flow-epic-dag";
@@ -1699,6 +1700,16 @@ function healCommittedStatusBeforeArchive(
       };
     }
     const epicDirAbs = path.dirname(manifestPath);
+    const containment = resolveContainedRepoRoot({
+      writtenPath: path.join(epicDirAbs, EPIC_STATUS_FILENAME),
+      cwd,
+    });
+    if (!containment.ok) {
+      return {
+        ok: true,
+        message: `epic status board: skipped (${containment.reason}: ${epicDirAbs})`,
+      };
+    }
     const existing = readCommittedStatus(epicDirAbs);
     const { file, derived } = deriveBoard({
       manifest: loaded.manifest,
@@ -1732,6 +1743,7 @@ function healCommittedStatusBeforeArchive(
     const commitResult = commitEpicStatus({
       writtenPath: statusPath,
       epicSlug: slug,
+      cwd,
       git,
     });
     if (!commitResult.committed) {
@@ -1742,6 +1754,7 @@ function healCommittedStatusBeforeArchive(
     }
     const pushResult = pushEpicStatusFromWrittenPath({
       writtenPath: statusPath,
+      cwd,
       git,
     });
     if (!pushResult.pushed) {

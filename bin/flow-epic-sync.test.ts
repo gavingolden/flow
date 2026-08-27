@@ -1001,6 +1001,186 @@ describe("main — CLI epic resolution + write disposition", () => {
   });
 });
 
+describe("main — foreign-repo containment", () => {
+  let stateDir: string;
+  let epicsDir: string;
+  let repoA: string;
+  let repoB: string;
+  let manifestPath: string;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-sync-state-"));
+    epicsDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-sync-epics-"));
+    repoA = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-sync-repoA-"));
+    repoB = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-sync-repoB-"));
+    spawnSync("git", ["init", "-q"], { cwd: repoA });
+    spawnSync("git", ["init", "-q"], { cwd: repoB });
+    const epicDir = path.join(repoA, ".flow", "epics", "watchlist");
+    fs.mkdirSync(epicDir, { recursive: true });
+    manifestPath = path.join(epicDir, "manifest.json");
+    fs.writeFileSync(manifestPath, JSON.stringify(MANIFEST));
+  });
+
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(epicsDir, { recursive: true, force: true });
+    fs.rmSync(repoA, { recursive: true, force: true });
+    fs.rmSync(repoB, { recursive: true, force: true });
+  });
+
+  function seedRunState(overrides: Partial<EpicRunState> = {}): void {
+    const rs: EpicRunState = {
+      epicSlug: "watchlist",
+      repo: repoA,
+      manifestPath,
+      manifestSha: "deadbeef",
+      createdAt: ISO,
+      updatedAt: ISO,
+      features: {},
+      ...overrides,
+    };
+    writeEpicRunState(rs, epicsDir);
+  }
+
+  it("(a) cwd outside the epic's repo: --commit --push both skip foreign-repo, no git mutation argv", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const { git, calls } = makeGit(() => ({ exitCode: 0 }));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(
+        ["--epic-slug", "watchlist", "--commit", "--push", "--json"],
+        { gh, epicsDir, cwd: repoB, git },
+      );
+      expect(exit).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.committed).toBe(false);
+      expect(printed.commitSkipReason).toBe("foreign-repo");
+      expect(printed.pushed).toBe(false);
+      expect(printed.pushSkipReason).toBe("foreign-repo");
+      expect(
+        calls.some(
+          (c) => c[0] === "add" || c[0] === "commit" || c.includes("push"),
+        ),
+      ).toBe(false);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("(b) repoB independently carries the same epic slug: cwd-local board wins, write lands in repoB, commit proceeds", () => {
+    const epicDirB = path.join(repoB, ".flow", "epics", "watchlist");
+    fs.mkdirSync(epicDirB, { recursive: true });
+    fs.writeFileSync(
+      path.join(epicDirB, "manifest.json"),
+      JSON.stringify(MANIFEST),
+    );
+    seedRunState(); // cached manifestPath still points at repoA
+    const gh = ghForHeads({ "feature-a": 101 });
+    const { git, calls } = makeGit((argv) => {
+      if (argv[0] === "status")
+        return { stdout: " M .flow/epics/watchlist/status.json\n" };
+      return { exitCode: 0 };
+    });
+    const exit = main(["--epic-slug", "watchlist", "--commit"], {
+      gh,
+      epicsDir,
+      cwd: repoB,
+      git,
+    });
+    expect(exit).toBe(0);
+    expect(fs.existsSync(path.join(epicDirB, "status.json"))).toBe(true);
+    expect(
+      fs.existsSync(path.join(path.dirname(manifestPath), "status.json")),
+    ).toBe(false);
+    expect(calls.some((c) => c[0] === "commit")).toBe(true);
+  });
+
+  it("(c) repoB carries a MALFORMED cwd-local manifest.json: the WRITE falls through to the cached (repoA) path rather than short-circuiting", () => {
+    const epicDirB = path.join(repoB, ".flow", "epics", "watchlist");
+    fs.mkdirSync(epicDirB, { recursive: true });
+    fs.writeFileSync(path.join(epicDirB, "manifest.json"), "{ not valid json");
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const { git } = makeGit(() => ({ exitCode: 0 }));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      // --commit so the cwd-preference is actually consulted (it is gated on
+      // a write invocation); the malformed repoB candidate must NOT win.
+      const exit = main(["--epic-slug", "watchlist", "--commit", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoB,
+        git,
+      });
+      expect(exit).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      // Fell through to the cached (repoA) manifest -> real derivation,
+      // NOT the empty envelope's derived:false / features:{}.
+      expect(printed.derived).toBe(true);
+      expect(Object.keys(printed.features).length).toBeGreaterThan(0);
+      // And because it resolved to repoA while cwd is repoB, the containment
+      // gate fires — proving the malformed repoB candidate did not win.
+      expect(printed.commitSkipReason).toBe("foreign-repo");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("(e) READ-PATH PIN: --check/--json resolve cached-first even when the cwd repo carries the same epic slug", () => {
+    // The cwd-preferred resolution is deliberately gated on a WRITE
+    // invocation. Reads keep the documented "usable from any cwd" property:
+    // they must report the CACHED board (repoA), never silently switch to a
+    // same-slug board that happens to sit in the operator's own repo.
+    const epicDirB = path.join(repoB, ".flow", "epics", "watchlist");
+    fs.mkdirSync(epicDirB, { recursive: true });
+    fs.writeFileSync(
+      path.join(epicDirB, "manifest.json"),
+      JSON.stringify(MANIFEST),
+    );
+    seedRunState(); // cached manifestPath points at repoA
+    const gh = ghForHeads({ "feature-a": 101 });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoB,
+      });
+      expect(exit).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.derived).toBe(true);
+      // A read never writes, and never surfaces a containment reason.
+      expect(printed.commitSkipReason).toBeUndefined();
+      expect(printed.pushSkipReason).toBeUndefined();
+      // The read did not touch repoB's board.
+      expect(fs.existsSync(path.join(epicDirB, "status.json"))).toBe(false);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("(d) --check --json from a cwd outside the epic's repo still derives and reports as before, and never surfaces a foreign-repo reason (the read-path guard)", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    main(["--epic-slug", "watchlist"], { gh, epicsDir, cwd: repoA });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--check", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoB,
+      });
+      expect(exit).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.commitSkipReason).toBeUndefined();
+      expect(printed.pushSkipReason).toBeUndefined();
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+});
+
 describe("flow-epic-sync.ts is executable", () => {
   it("has the exec bit set", () => {
     const scriptPath = path.resolve(__dirname, "flow-epic-sync.ts");

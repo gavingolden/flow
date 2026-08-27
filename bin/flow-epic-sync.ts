@@ -345,6 +345,8 @@ function remedyFor(reason: PushSkipReason): string {
       return "Re-run with --push after investigating the git error.";
     case "extra-local-commits":
       return "HEAD carries commits beyond the board; push manually after review.";
+    case "foreign-repo":
+      return "The resolved status board is in a different repository checkout than the current directory — cd into that checkout, or re-run from the repo that owns this epic.";
   }
 }
 
@@ -374,16 +376,34 @@ export function main(argv: string[], deps: Deps = {}): number {
   }
 
   const runState = readEpicRunState(epicSlug, epicsDir);
-  let manifestPath = runState?.manifestPath ?? null;
-  if (!manifestPath) {
-    const repoRoot = resolveRepoRoot(cwd);
-    if (repoRoot) {
-      manifestPath = path.join(
-        repoRoot,
-        epicDirRelative(epicSlug),
-        EPIC_MANIFEST_FILENAME,
-      );
+  // cwd-preferred resolution: a stale cached manifestPath must never redirect
+  // the WRITE away from the epic the operator's OWN repo carries. Only use
+  // the cwd-local candidate when it actually loads — a present-but-malformed
+  // cwd-local manifest falls through to the cached path rather than
+  // short-circuiting the whole run to emptyEnvelope.
+  //
+  // Gated on a WRITE invocation. The read-only paths (--check / --json /
+  // a bare derive) keep resolving cached-first, preserving the documented
+  // "usable from any cwd" property (bin/lib/epic.ts's readEpicRunState
+  // contract) that flow-epic-membership and flow epic status also rely on.
+  // Without this gate the inversion would silently change which board a
+  // read reports whenever the operator's own repo happens to carry the
+  // same epic slug.
+  const isWriteInvocation = parsed.commit || parsed.push;
+  let manifestPath: string | null = null;
+  const cwdRepoRoot = isWriteInvocation ? resolveRepoRoot(cwd) : null;
+  if (cwdRepoRoot) {
+    const cwdCandidate = path.join(
+      cwdRepoRoot,
+      epicDirRelative(epicSlug),
+      EPIC_MANIFEST_FILENAME,
+    );
+    if (loadManifest(cwdCandidate) !== null) {
+      manifestPath = cwdCandidate;
     }
+  }
+  if (!manifestPath) {
+    manifestPath = runState?.manifestPath ?? null;
   }
 
   const manifest = manifestPath ? loadManifest(manifestPath) : null;
@@ -503,6 +523,7 @@ export function main(argv: string[], deps: Deps = {}): number {
     const commitResult = commitEpicStatus({
       writtenPath,
       epicSlug,
+      cwd,
       git: deps.git,
     });
     committed = commitResult.committed;
@@ -516,10 +537,12 @@ export function main(argv: string[], deps: Deps = {}): number {
 
   if (parsed.push) {
     if (!committed) {
-      pushSkipReason = "not-committed";
+      pushSkipReason =
+        commitSkipReason === "foreign-repo" ? "foreign-repo" : "not-committed";
     } else {
       const pushResult = pushEpicStatusFromWrittenPath({
         writtenPath,
+        cwd,
         git: deps.git,
       });
       pushed = pushResult.pushed;

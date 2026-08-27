@@ -170,6 +170,14 @@ never reach, let alone block, the common non-flow commit path. Every other
 `.flow/epics/**` path — and every path outside `.flow/epics/` entirely —
 still hits the verbatim two-line refusal unchanged.
 
+The commit and the push both refuse with `foreign-repo` when the resolved
+board path is not inside the current directory's repository, so a stale
+absolute `manifestPath` cached in `~/.flow/epics/<slug>/run.json` can never
+carry a commit or push into another checkout. Containment compares `git
+rev-parse --git-common-dir` (`resolveGitCommonDir` in `bin/lib/repo-root.ts`),
+not `--show-toplevel`, so sibling git worktrees of the same repository are
+NOT foreign — only a genuinely different repository is refused.
+
 ### Auto-push exemption: flow-epic-sync --push (and flow epic done's board heal)
 
 Narrower than the `pr-review` auto-push exemption above: `--push` targets
@@ -194,7 +202,8 @@ the allowlisted board path, the push bails with `extra-local-commits`
 rather than publishing it.
 
 Every failure mode (`detached-head`, `not-base-branch`, `no-remote`,
-`no-remote-branch`, `non-fast-forward`, `push-failed`, `extra-local-commits`)
+`no-remote-branch`, `non-fast-forward`, `push-failed`, `extra-local-commits`,
+`foreign-repo`)
 is a stderr warning plus an envelope field — never a retry, and never a
 forced push. A
 `non-fast-forward` is reported with the exact remedy `flow-epic-sync`

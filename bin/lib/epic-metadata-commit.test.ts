@@ -8,7 +8,9 @@ import {
   dirtyEpicMetadata,
   epicStatusRelPath,
   pushEpicStatus,
+  pushEpicStatusFromWrittenPath,
   repoCommitState,
+  resolveContainedRepoRoot,
   type GitRunner,
 } from "./epic-metadata-commit";
 
@@ -43,6 +45,39 @@ function withTempRepo<T>(run: (repoRoot: string) => T): T {
   }
 }
 
+function makeTempRepo(prefix: string): string {
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repoRoot });
+  spawnSync("git", ["config", "user.email", "t@example.com"], {
+    cwd: repoRoot,
+  });
+  spawnSync("git", ["config", "user.name", "Flow Test"], { cwd: repoRoot });
+  return repoRoot;
+}
+
+// Two independent real repos: repoA carries the board, repoB stands in for
+// the operator's current directory. Exercises resolveContainedRepoRoot and
+// the two writers it gates without duplicating withTempRepo's board-writing
+// setup for a single repo.
+function withTwoTempRepos<T>(run: (repoA: string, repoB: string) => T): T {
+  const repoA = makeTempRepo("flow-emc-repoA-");
+  const repoB = makeTempRepo("flow-emc-repoB-");
+  try {
+    fs.mkdirSync(path.join(repoA, ".flow", "epics", "e1"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoA, ".flow", "epics", "e1", "status.json"),
+      "{}\n",
+      "utf8",
+    );
+    return run(repoA, repoB);
+  } finally {
+    fs.rmSync(repoA, { recursive: true, force: true });
+    fs.rmSync(repoB, { recursive: true, force: true });
+  }
+}
+
 function makeGit(respond: (argv: string[]) => Resp | undefined) {
   const calls: string[][] = [];
   const git: GitRunner = (argv) => {
@@ -74,7 +109,12 @@ describe("commitEpicStatus", () => {
         return { exitCode: 0 };
       });
       const writtenPath = path.join(repoRoot, ".flow/epics/e1/status.json");
-      const result = commitEpicStatus({ writtenPath, epicSlug: "e1", git });
+      const result = commitEpicStatus({
+        writtenPath,
+        epicSlug: "e1",
+        cwd: repoRoot,
+        git,
+      });
       expect(result).toEqual({ committed: true });
 
       const commitCall = calls.find((c) => c[0] === "commit");
@@ -95,7 +135,11 @@ describe("commitEpicStatus", () => {
       fs.mkdirSync(untrackedDir, { recursive: true });
       const writtenPath = path.join(untrackedDir, "status.json");
       fs.writeFileSync(writtenPath, "{}\n", "utf8");
-      const result = commitEpicStatus({ writtenPath, epicSlug: "e2" });
+      const result = commitEpicStatus({
+        writtenPath,
+        epicSlug: "e2",
+        cwd: repoRoot,
+      });
       expect(result).toEqual({ committed: true });
       const log = spawnSync("git", ["log", "--oneline", "-1"], {
         cwd: repoRoot,
@@ -115,7 +159,12 @@ describe("commitEpicStatus", () => {
         return { exitCode: 0 };
       });
       const writtenPath = path.join(repoRoot, ".flow/epics/e1/status.json");
-      const result = commitEpicStatus({ writtenPath, epicSlug: "e1", git });
+      const result = commitEpicStatus({
+        writtenPath,
+        epicSlug: "e1",
+        cwd: repoRoot,
+        git,
+      });
       expect(result).toEqual({
         committed: false,
         reason: "git-error",
@@ -132,7 +181,12 @@ describe("commitEpicStatus", () => {
         return { exitCode: 0 };
       });
       const writtenPath = path.join(repoRoot, ".flow/epics/e1/status.json");
-      const result = commitEpicStatus({ writtenPath, epicSlug: "e1", git });
+      const result = commitEpicStatus({
+        writtenPath,
+        epicSlug: "e1",
+        cwd: repoRoot,
+        git,
+      });
       expect(result).toEqual({ committed: false, reason: "nothing-staged" });
       expect(calls.some((c) => c[0] === "commit")).toBe(false);
     });
@@ -153,7 +207,12 @@ describe("commitEpicStatus", () => {
         return { exitCode: 0 };
       });
       const writtenPath = path.join(repoRoot, ".flow/epics/e1/status.json");
-      const result = commitEpicStatus({ writtenPath, epicSlug: "e1", git });
+      const result = commitEpicStatus({
+        writtenPath,
+        epicSlug: "e1",
+        cwd: repoRoot,
+        git,
+      });
       expect(result.committed).toBe(false);
       expect(result.reason).toBe("commit-refused");
       expect(result.detail).toContain("refusing to commit on the base branch");
@@ -193,6 +252,112 @@ describe("commitEpicStatus", () => {
     } finally {
       fs.rmSync(sibling, { recursive: true, force: true });
     }
+  });
+});
+
+describe("resolveContainedRepoRoot / foreign-repo containment", () => {
+  it("commitEpicStatus refuses with foreign-repo and makes zero git calls when board and cwd are different repos", () => {
+    withTwoTempRepos((repoA, repoB) => {
+      const { git, calls } = makeGit(() => ({ exitCode: 0 }));
+      const writtenPath = path.join(repoA, ".flow/epics/e1/status.json");
+      const result = commitEpicStatus({
+        writtenPath,
+        epicSlug: "e1",
+        cwd: repoB,
+        git,
+      });
+      expect(result.committed).toBe(false);
+      expect(result.reason).toBe("foreign-repo");
+      expect(calls.some((c) => c[0] === "add" || c[0] === "commit")).toBe(
+        false,
+      );
+    });
+  });
+
+  it("accepts a sibling git worktree of the same repo as the operator cwd (Q1 property)", () => {
+    withTwoTempRepos((repoA, _repoB) => {
+      fs.writeFileSync(path.join(repoA, "README.md"), "hello\n");
+      spawnSync("git", ["add", "README.md"], { cwd: repoA });
+      spawnSync("git", ["commit", "-q", "-m", "init"], { cwd: repoA });
+      const worktreeDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "flow-emc-wt-"),
+      );
+      fs.rmSync(worktreeDir, { recursive: true, force: true });
+      spawnSync(
+        "git",
+        ["worktree", "add", "-b", "feature-branch", worktreeDir],
+        { cwd: repoA },
+      );
+      try {
+        const { git } = makeGit((argv) => {
+          if (argv[0] === "status")
+            return { stdout: " M .flow/epics/e1/status.json\n" };
+          return { exitCode: 0 };
+        });
+        const writtenPath = path.join(repoA, ".flow/epics/e1/status.json");
+        const result = commitEpicStatus({
+          writtenPath,
+          epicSlug: "e1",
+          cwd: worktreeDir,
+          git,
+        });
+        expect(result.committed).toBe(true);
+      } finally {
+        spawnSync("git", ["worktree", "remove", "--force", worktreeDir], {
+          cwd: repoA,
+        });
+        fs.rmSync(worktreeDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it("fails closed (foreign-repo) when cwd resolves to no repo at all", () => {
+    withTwoTempRepos((repoA) => {
+      const outside = fs.mkdtempSync(
+        path.join(os.tmpdir(), "flow-emc-norepo-cwd-"),
+      );
+      try {
+        const { git } = makeGit(() => ({ exitCode: 0 }));
+        const writtenPath = path.join(repoA, ".flow/epics/e1/status.json");
+        const result = resolveContainedRepoRoot({
+          writtenPath,
+          cwd: outside,
+        });
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).toBe("foreign-repo");
+
+        const committed = commitEpicStatus({
+          writtenPath,
+          epicSlug: "e1",
+          cwd: outside,
+          git,
+        });
+        expect(committed).toEqual({
+          committed: false,
+          reason: "foreign-repo",
+          detail: expect.any(String),
+        });
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it("pushEpicStatusFromWrittenPath collapses a foreign board to pushed:false, reason:foreign-repo", () => {
+    withTwoTempRepos((repoA, repoB) => {
+      const { git } = makeGit(() => ({ exitCode: 0 }));
+      const writtenPath = path.join(repoA, ".flow/epics/e1/status.json");
+      const result = pushEpicStatusFromWrittenPath({
+        writtenPath,
+        cwd: repoB,
+        git,
+      });
+      expect(result).toEqual({
+        pushed: false,
+        reason: "foreign-repo",
+        detail: expect.any(String),
+      });
+    });
   });
 });
 
@@ -365,6 +530,7 @@ describe("forbidden argv pin", () => {
       const commitResult = commitEpicStatus({
         writtenPath: path.join(repoRoot, ".flow/epics/e1/status.json"),
         epicSlug: "e1",
+        cwd: repoRoot,
         git,
       });
       // Prove this test is NOT vacuously green: commitEpicStatus must have

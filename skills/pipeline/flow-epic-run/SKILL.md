@@ -157,7 +157,9 @@ Reconcile the cache (run.json) against the truth (GitHub/git) BEFORE any launch.
 
    **No-retry rule:** an envelope reading `committed: true, pushed: false`
    is DONE FOR THIS TURN — report the `pushSkipReason` and its named
-   remedy to the human; never retry, never force.
+   remedy to the human; never retry, never force. A `foreign-repo` skip
+   means the epic's board lives in a different repository checkout — cd
+   into that checkout and re-run; never retry in place.
 
    If a `--check` failure can't be explained by a real merge, run
    `flow-epic-sync --epic-slug <slug> --rederive --check` to diagnose the
