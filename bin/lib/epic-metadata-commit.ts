@@ -294,9 +294,11 @@ export function pushEpicStatus(input: { repoRoot: string; git?: GitRunner }): {
 
 /**
  * Shared seam for the two writers (`flow-epic-sync.ts`, `epic.ts`): resolves
- * the repo root from a written board path and pushes, collapsing to
- * `push-failed` when the root can't be resolved — without this both
- * writers duplicated the identical resolve+fallback.
+ * the repo root from a written board path and pushes. Forwards the
+ * containment reason as-is for `foreign-repo`; `PushSkipReason` has no
+ * `not-a-repo` member, so that case collapses to the pre-existing
+ * `push-failed` (its pre-PR behaviour) — without this both writers
+ * duplicated the identical resolve+fallback.
  */
 export function pushEpicStatusFromWrittenPath(input: {
   writtenPath: string;
@@ -310,7 +312,8 @@ export function pushEpicStatusFromWrittenPath(input: {
   if (!containment.ok) {
     return {
       pushed: false,
-      reason: "foreign-repo",
+      reason:
+        containment.reason === "foreign-repo" ? "foreign-repo" : "push-failed",
       detail: containment.detail,
     };
   }

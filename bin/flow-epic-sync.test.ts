@@ -999,6 +999,51 @@ describe("main — CLI epic resolution + write disposition", () => {
       logSpy.mockRestore();
     }
   });
+
+  it("REGRESSION PIN: a read invocation with NO cached run-state still derives via the unconditional cwd fallback", () => {
+    // No seedRunState() call — this pins the cwd FALLBACK (unconditional,
+    // every invocation type), not the cwd PREFERENCE (write-only). A prior
+    // regression gated the fallback itself on isWriteInvocation, which
+    // silently broke every read with no run.json (post-`flow epic done`
+    // archive, a second machine, or a bare `flow-epic-sync` never preceded
+    // by `flow epic run`).
+    const gh = ghForHeads({ "feature-a": 101 });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+      });
+      expect(exit).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.derived).toBe(true);
+      expect(Object.keys(printed.features).length).toBeGreaterThan(0);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("REGRESSION PIN: --check with no cached run-state in a repo carrying the epic derives and diffs for real, instead of a blanket exit 1 from an unresolved manifest", () => {
+    const gh = ghForHeads({ "feature-a": 101 });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--check", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+      });
+      // No committed status.json yet, so this IS real drift (exit 1) — the
+      // regression this pins is a manifest that can't even be resolved
+      // (derived:false, features:{}), not a legitimate out-of-sync result.
+      expect(exit).toBe(1);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.derived).toBe(true);
+      expect(Object.keys(printed.features).length).toBeGreaterThan(0);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
 });
 
 describe("main — foreign-repo containment", () => {
@@ -1042,7 +1087,7 @@ describe("main — foreign-repo containment", () => {
     writeEpicRunState(rs, epicsDir);
   }
 
-  it("(a) cwd outside the epic's repo: --commit --push both skip foreign-repo, no git mutation argv", () => {
+  it("(a) cwd outside the epic's repo: --commit --push both skip foreign-repo, no git mutation argv, and the foreign tree is never written to", () => {
     seedRunState();
     const gh = ghForHeads({ "feature-a": 101 });
     const { git, calls } = makeGit(() => ({ exitCode: 0 }));
@@ -1062,6 +1107,11 @@ describe("main — foreign-repo containment", () => {
         calls.some(
           (c) => c[0] === "add" || c[0] === "commit" || c.includes("push"),
         ),
+      ).toBe(false);
+      // The containment gate must fire BEFORE the write, not just before
+      // the commit/push: repoA (the cached, foreign path) must stay clean.
+      expect(
+        fs.existsSync(path.join(path.dirname(manifestPath), "status.json")),
       ).toBe(false);
     } finally {
       logSpy.mockRestore();
@@ -1127,16 +1177,32 @@ describe("main — foreign-repo containment", () => {
     }
   });
 
-  it("(e) READ-PATH PIN: --check/--json resolve cached-first even when the cwd repo carries the same epic slug", () => {
+  it("(d) READ-PATH PIN: --check/--json resolve cached-first even when the cwd repo carries the same epic slug", () => {
     // The cwd-preferred resolution is deliberately gated on a WRITE
     // invocation. Reads keep the documented "usable from any cwd" property:
     // they must report the CACHED board (repoA), never silently switch to a
     // same-slug board that happens to sit in the operator's own repo.
+    // repoB's manifest is deliberately DISTINGUISHABLE from repoA's (an
+    // extra feature) — if the read ever preferred cwd it would derive a
+    // different feature set and this pin would catch it, instead of two
+    // byte-identical manifests silently passing either way.
     const epicDirB = path.join(repoB, ".flow", "epics", "watchlist");
     fs.mkdirSync(epicDirB, { recursive: true });
+    const manifestB: EpicManifest = {
+      ...MANIFEST,
+      features: [
+        ...MANIFEST.features,
+        {
+          id: "feature-repob-only",
+          title: "D",
+          description: "d",
+          dependsOn: [],
+        },
+      ],
+    };
     fs.writeFileSync(
       path.join(epicDirB, "manifest.json"),
-      JSON.stringify(MANIFEST),
+      JSON.stringify(manifestB),
     );
     seedRunState(); // cached manifestPath points at repoA
     const gh = ghForHeads({ "feature-a": 101 });
@@ -1150,6 +1216,8 @@ describe("main — foreign-repo containment", () => {
       expect(exit).toBe(0);
       const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
       expect(printed.derived).toBe(true);
+      // Reports the CACHED (repoA) board, not repoB's extra feature.
+      expect(printed.features["feature-repob-only"]).toBeUndefined();
       // A read never writes, and never surfaces a containment reason.
       expect(printed.commitSkipReason).toBeUndefined();
       expect(printed.pushSkipReason).toBeUndefined();
@@ -1160,10 +1228,11 @@ describe("main — foreign-repo containment", () => {
     }
   });
 
-  it("(d) --check --json from a cwd outside the epic's repo still derives and reports as before, and never surfaces a foreign-repo reason (the read-path guard)", () => {
+  it("(e) --check --json from a cwd outside the epic's repo still derives and reports as before, and never surfaces a foreign-repo reason (the read-path guard)", () => {
     seedRunState();
     const gh = ghForHeads({ "feature-a": 101 });
     main(["--epic-slug", "watchlist"], { gh, epicsDir, cwd: repoA });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       const exit = main(["--epic-slug", "watchlist", "--check", "--json"], {
@@ -1173,10 +1242,15 @@ describe("main — foreign-repo containment", () => {
       });
       expect(exit).toBe(0);
       const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
-      expect(printed.commitSkipReason).toBeUndefined();
-      expect(printed.pushSkipReason).toBeUndefined();
+      expect(printed.derived).toBe(true);
+      expect(printed.written).toBe(false);
+      // A --check invocation from a foreign cwd never touches, warns about,
+      // or errors on containment — the read-path guard applies before the
+      // gate is ever consulted.
+      expect(errorSpy.mock.calls.join("\n")).not.toMatch(/foreign-repo/);
     } finally {
       logSpy.mockRestore();
+      errorSpy.mockRestore();
     }
   });
 });

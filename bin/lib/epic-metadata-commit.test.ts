@@ -226,6 +226,7 @@ describe("commitEpicStatus", () => {
       const result = commitEpicStatus({
         writtenPath: path.join(outside, "status.json"),
         epicSlug: "e1",
+        cwd: outside,
         git,
       });
       expect(result).toEqual({ committed: false, reason: "not-a-repo" });
@@ -245,6 +246,7 @@ describe("commitEpicStatus", () => {
       const result = commitEpicStatus({
         writtenPath: path.join(sibling, ".flow/epics/e1/status.json"),
         epicSlug: "e1",
+        cwd: sibling,
         git,
       });
       expect(result).toEqual({ committed: false, reason: "not-a-repo" });

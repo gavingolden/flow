@@ -1706,7 +1706,7 @@ function healCommittedStatusBeforeArchive(
     });
     if (!containment.ok) {
       return {
-        ok: true,
+        ok: false,
         message: `epic status board: skipped (${containment.reason}: ${epicDirAbs})`,
       };
     }

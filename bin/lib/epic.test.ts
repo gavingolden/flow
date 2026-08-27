@@ -2918,10 +2918,9 @@ describe("runEpicCli done", () => {
       expect(code).toBe(0);
       expect(fs.existsSync(statusPath)).toBe(false);
       expect(fs.existsSync(path.join(epicsDir, "heal-foreign"))).toBe(false);
-      expect(logs.join("\n")).toMatch(
+      expect(errors.join("\n")).toMatch(
         /epic status board: skipped \(foreign-repo:/,
       );
-      expect(errors.join("\n")).not.toMatch(/epic status board/);
     } finally {
       fs.rmSync(foreignRepo, { recursive: true, force: true });
     }
