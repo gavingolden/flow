@@ -69,7 +69,7 @@ import { deriveBoard } from "../flow-epic-sync";
 import { defaultGh, type GhRunner } from "./resume-probes";
 import {
   commitEpicStatus,
-  pushEpicStatus,
+  pushEpicStatusFromWrittenPath,
   type GitRunner,
 } from "./epic-metadata-commit";
 import { validateDag } from "../flow-epic-dag";
@@ -1701,14 +1701,16 @@ function healCommittedStatusBeforeArchive(
     const serialized = serializeEpicStatus(file);
     const statusPath = path.join(epicDirAbs, EPIC_STATUS_FILENAME);
     const onDisk = existing ? serializeEpicStatus(existing) : null;
-    if (onDisk === serialized) {
-      return {
-        ok: true,
-        message: `epic status board: already in sync (${statusPath})`,
-      };
+    // Do NOT early-return here on `onDisk === serialized` alone: `existing`
+    // comes from `readCommittedStatus`, a WORKING-TREE read, not `git show
+    // HEAD:`. A board that is byte-identical to the derivation on disk but
+    // still uncommitted must still fall through to `commitEpicStatus` below,
+    // which itself short-circuits to `nothing-staged` when the tree really
+    // is clean — this is the rescue path for a board stranded uncommitted.
+    if (onDisk !== serialized) {
+      fs.mkdirSync(epicDirAbs, { recursive: true });
+      fs.writeFileSync(statusPath, serialized);
     }
-    fs.mkdirSync(epicDirAbs, { recursive: true });
-    fs.writeFileSync(statusPath, serialized);
 
     // Push is UNCONDITIONAL here, by decision, not by flag: `flow epic done`
     // is a human-typed verb — invoking it is the instruction — and it is the
@@ -1725,10 +1727,10 @@ function healCommittedStatusBeforeArchive(
         message: `epic status board: wrote ${statusPath} (NOT committed: ${commitResult.reason})`,
       };
     }
-    const repoRoot = resolveRepoRoot(path.dirname(statusPath));
-    const pushResult = repoRoot
-      ? pushEpicStatus({ repoRoot, git })
-      : { pushed: false, reason: "push-failed" as const };
+    const pushResult = pushEpicStatusFromWrittenPath({
+      writtenPath: statusPath,
+      git,
+    });
     if (!pushResult.pushed) {
       return {
         ok: true,

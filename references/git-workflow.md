@@ -107,8 +107,9 @@ marker, `# flow:base-branch-guard v<N>` (`BASE_BRANCH_GUARD_MARKER` +
 `BASE_BRANCH_GUARD_VERSION`), matched by substring-contains rather than a
 byte-exact compare — a byte-exact compare misclassified a still-installed
 older hook body as a foreign hook forever instead of upgrading it in
-place. Two pre-marker bodies (v1: tmux-only; v2: env-first `FLOW_SLUG`,
-pre-marker) are registered in `LEGACY_HOOK_BODIES` and still classify as
+place. Three prior bodies (v1: tmux-only, pre-marker; v2: env-first
+`FLOW_SLUG`, pre-marker; v3: marker-carrying, path-scoped epic-status
+carve-out) are registered in `LEGACY_HOOK_BODIES` and still classify as
 flow-owned. **Any edit to the hook body requires bumping
 `BASE_BRANCH_GUARD_VERSION` AND registering the prior body** in
 `LEGACY_HOOK_BODIES` plus a matching `bin/fixtures/<role>-guard-v<N>.sh`
@@ -171,11 +172,10 @@ still hits the verbatim two-line refusal unchanged.
 
 ### Auto-push exemption: flow-epic-sync --push (and flow epic done's board heal)
 
-Narrower than the `pr-review` auto-push exemption above: exactly the one
-status-board commit `--commit` just made, pushed to a branch that ALREADY
-EXISTS on origin (`bin/lib/epic-metadata-commit.ts`'s `pushEpicStatus`
-gates on `git ls-remote --exit-code --heads origin <branch>` before ever
-pushing), never `--force`/`--force-with-lease`/`-f`, never
+Narrower than the `pr-review` auto-push exemption above: `--push` targets
+only a branch that ALREADY EXISTS on origin (`bin/lib/epic-metadata-commit.ts`'s
+`pushEpicStatus` gates on `git ls-remote --exit-code --heads origin <branch>`
+before ever pushing), never `--force`/`--force-with-lease`/`-f`, never
 `-u`/`--set-upstream`, never creating a remote ref, and never opening a
 GitHub object of any kind.
 
@@ -185,11 +185,18 @@ the board commit, so from a mid-implementation feature-pipeline worktree —
 where the branch already exists on origin, so the no-remote-branch gate
 does not catch it — an ungated `--push` would publish unverified code past
 the pipeline's own verify/CI gate. `--push` therefore only ever runs when
-the current branch equals the repo's resolved default branch.
+the current branch equals the repo's resolved default branch, AND
+`pushEpicStatus` additionally diffs `<remote-sha>..HEAD` (via `git diff
+--no-renames --name-only`, `--no-renames` for the same allowlist-escape
+reason as the base-branch-guard hook) through `isCommittableOnBaseBranch`
+before pushing — if that local-vs-remote delta carries anything beyond
+the allowlisted board path, the push bails with `extra-local-commits`
+rather than publishing it.
 
 Every failure mode (`detached-head`, `not-base-branch`, `no-remote`,
-`no-remote-branch`, `non-fast-forward`, `push-failed`) is a stderr warning
-plus an envelope field — never a retry, and never a forced push. A
+`no-remote-branch`, `non-fast-forward`, `push-failed`, `extra-local-commits`)
+is a stderr warning plus an envelope field — never a retry, and never a
+forced push. A
 `non-fast-forward` is reported with the exact remedy `flow-epic-sync`
 names on stderr: run `git pull --rebase` and re-run with `--push`; the
 caller then abandons the attempt rather than looping. `flow epic done`'s

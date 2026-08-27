@@ -2805,7 +2805,12 @@ describe("runEpicCli done", () => {
     expect(calls.some((c) => c.includes("push"))).toBe(false);
   });
 
-  it("board already in sync: unchanged message, NO git argv emitted at all", () => {
+  it("board already in sync ON DISK but UNCOMMITTED: the rescue path still runs commitEpicStatus, not a silent no-op", () => {
+    // Regression lock for the stranded-board incident this PR fixes:
+    // `readCommittedStatus` reads the WORKING TREE, not `git show HEAD:`, so
+    // "byte-identical to derivation" must NOT be treated as "already
+    // committed" — the commit/push block must still run and let
+    // `commitEpicStatus`'s own `git status --porcelain` probe decide.
     spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
     const manifestPath = writeHealManifest("heal-in-sync");
     const statusPath = path.join(path.dirname(manifestPath), "status.json");
@@ -2823,11 +2828,17 @@ describe("runEpicCli done", () => {
     expect(fs.existsSync(statusPath)).toBe(true);
 
     // Second run: same manifest + same gh answer, so the derived board is
-    // byte-identical to what's already on disk.
+    // byte-identical to what's already on disk (onDisk === serialized), but
+    // the file is still UNCOMMITTED — the exact stranded state.
     logs = [];
     errors = [];
     seedRunWithManifest("heal-in-sync", manifestPath);
-    const { git, calls } = makeGit(() => ({ exitCode: 0 }));
+    const { git, calls } = makeGit((argv) => {
+      if (argv[0] === "status") return { stdout: " M status.json\n" };
+      if (argv[0] === "add") return { exitCode: 0 };
+      if (argv[0] === "commit") return { exitCode: 0 };
+      return { exitCode: 0 };
+    });
     const code = runEpicCli(["done", "heal-in-sync", "--yes"], {
       stateDir,
       epicsDir,
@@ -2837,12 +2848,12 @@ describe("runEpicCli done", () => {
     });
 
     expect(code).toBe(0);
-    expect(logs.join("\n")).toMatch(
-      new RegExp(
-        `epic status board: already in sync \\(${statusPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`,
-      ),
-    );
-    expect(calls.length).toBe(0);
+    // The rescue path actually ran `git status`/`add`/`commit` — it did NOT
+    // early-return with zero git argv on the "onDisk === serialized" check.
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.some((c) => c[0] === "status")).toBe(true);
+    expect(calls.some((c) => c[0] === "commit")).toBe(true);
+    expect(logs.join("\n")).toMatch(/epic status board: wrote .*\(committed/);
   });
 });
 

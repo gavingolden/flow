@@ -15,6 +15,7 @@ import {
   epicDirRelative,
 } from "./epic-manifest-schema";
 import { resolveRepoRoot } from "./repo-root";
+import { isCommittableOnBaseBranch } from "./base-branch-guard";
 export { isCommittableOnBaseBranch } from "./base-branch-guard";
 
 export type { GitRunner };
@@ -32,7 +33,8 @@ export type PushSkipReason =
   | "no-remote"
   | "no-remote-branch"
   | "non-fast-forward"
-  | "push-failed";
+  | "push-failed"
+  | "extra-local-commits";
 
 export type RepoState = "clean" | "rebase" | "merge" | "detached";
 
@@ -171,23 +173,49 @@ export function pushEpicStatus(input: { repoRoot: string; git?: GitRunner }): {
     if (git(["remote", "get-url", "origin"], repoRoot).exitCode !== 0) {
       return { pushed: false, reason: "no-remote" };
     }
-    if (
-      git(["ls-remote", "--exit-code", "--heads", "origin", branch], repoRoot)
-        .exitCode !== 0
-    ) {
-      return { pushed: false, reason: "no-remote-branch" };
-    }
-
-    const pushed = git(
+    const lsRemote = git(
       [
         "-c",
         "core.askPass=",
-        "-c",
-        "credential.helper=",
-        "push",
+        "ls-remote",
+        "--exit-code",
+        "--heads",
         "origin",
-        `HEAD:${branch}`,
+        branch,
       ],
+      repoRoot,
+    );
+    if (lsRemote.exitCode !== 0) {
+      return { pushed: false, reason: "no-remote-branch" };
+    }
+    const remoteSha = lsRemote.stdout.trim().split(/\s+/)[0];
+    if (remoteSha) {
+      const changed = git(
+        ["diff", "--no-renames", "--name-only", `${remoteSha}..HEAD`],
+        repoRoot,
+      );
+      if (changed.exitCode === 0) {
+        const changedPaths = changed.stdout
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0);
+        if (
+          changedPaths.length > 0 &&
+          !isCommittableOnBaseBranch(changedPaths)
+        ) {
+          return { pushed: false, reason: "extra-local-commits" };
+        }
+      }
+    }
+
+    // NOTE: `-c credential.helper=` is deliberately NOT set here — an empty
+    // value RESETS the helper list (gitcredentials(7)), so an HTTPS origin
+    // would have no credential source and the push could never succeed.
+    // `core.askPass=` alone prevents an askpass GUI hang; `GIT_TERMINAL_PROMPT:
+    // "0"` in defaultPushGit prevents a terminal prompt — a cached credential
+    // still works, an uncached one fails fast instead of hanging.
+    const pushed = git(
+      ["-c", "core.askPass=", "push", "origin", `HEAD:${branch}`],
       repoRoot,
     );
     if (pushed.exitCode !== 0) {
@@ -205,6 +233,22 @@ export function pushEpicStatus(input: { repoRoot: string; git?: GitRunner }): {
       detail: firstLine(String(err)),
     };
   }
+}
+
+/**
+ * Shared seam for the two writers (`flow-epic-sync.ts`, `epic.ts`): resolves
+ * the repo root from a written board path and pushes, collapsing to
+ * `push-failed` when the root can't be resolved — without this both
+ * writers duplicated the identical resolve+fallback.
+ */
+export function pushEpicStatusFromWrittenPath(input: {
+  writtenPath: string;
+  git?: GitRunner;
+}): { pushed: boolean; reason?: PushSkipReason; detail?: string } {
+  const repoRoot = resolveRepoRoot(path.dirname(input.writtenPath));
+  return repoRoot
+    ? pushEpicStatus({ repoRoot, git: input.git })
+    : { pushed: false, reason: "push-failed" };
 }
 
 function parsePorcelainPath(line: string): string {
@@ -228,8 +272,18 @@ export function dirtyEpicMetadata(input: {
     if (!input.repoRoot) return [];
     if (!fs.existsSync(path.join(input.repoRoot, EPICS_DIR_RELATIVE)))
       return [];
+    // --untracked-files=all: the default `normal` collapses a fresh
+    // untracked epic directory to one trailing-slash directory entry, which
+    // fails the per-file status.json regex downstream and mis-routes a
+    // brand-new epic to the heavier manifest branch.
     const result = git(
-      ["status", "--porcelain", "--", EPICS_DIR_RELATIVE],
+      [
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+        "--",
+        EPICS_DIR_RELATIVE,
+      ],
       input.repoRoot,
     );
     if (result.exitCode !== 0) return [];

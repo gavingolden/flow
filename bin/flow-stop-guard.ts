@@ -31,6 +31,8 @@
 
 import { spawnSync } from "node:child_process";
 import { resolveSlugFromEnv } from "./lib/session-identity";
+import { isCommittableOnBaseBranch } from "./lib/base-branch-guard";
+import { isValidSlug } from "./lib/slug";
 import {
   isLegitimateEndPhase,
   nowIso as defaultNowIso,
@@ -87,25 +89,39 @@ function dedupe(items: string[]): string[] {
  * base-branch assumption.
  */
 export function buildEpicMetadataReminder(
-  paths: string[],
-  ctx: { onBaseBranch: boolean; repoState: RepoState },
+  entries: { root: string; path: string }[],
+  ctx: { onBaseBranch: boolean },
 ): string[] {
   const lines = [
-    `flow-stop-guard: uncommitted .flow/epics/** metadata: ${paths.join(", ")}.`,
+    `flow-stop-guard: uncommitted .flow/epics/** metadata: ${entries.map((e) => e.path).join(", ")}.`,
     "This must never leave the epic — commit it THIS TURN via the sanctioned route below, then continue.",
   ];
-  for (const p of paths) {
-    const match = p.match(/^\.flow\/epics\/([^/]+)\/status\.json$/);
-    if (match) {
-      lines.push(
-        `  ${p}: run \`flow-epic-sync --epic-slug ${match[1]} --commit --push\`.`,
-      );
+  for (const { root, path: p } of entries) {
+    // Route on the shared allowlist predicate, not a re-encoded regex, so
+    // this can never drift from what the base-branch-guard hook actually
+    // allows (`bin/lib/base-branch-guard.ts`'s EPIC_STATUS_ALLOWLIST).
+    if (isCommittableOnBaseBranch([p])) {
+      const epicMatch = p.match(/^\.flow\/epics\/([^/]+)\/status\.json$/);
+      const slug = epicMatch?.[1];
+      // Root-anchored: these commands must always operate on `root`, never
+      // an ambient `cwd` — from a feature-pipeline worktree, resolving from
+      // `cwd` would write into the WRONG checkout.
+      if (slug && isValidSlug(slug)) {
+        lines.push(
+          `  ${p}: run \`(cd ${root} && flow-epic-sync --epic-slug ${slug} --commit --push)\`.`,
+        );
+      } else {
+        lines.push(
+          `  ${p}: run \`(cd ${root} && flow-epic-sync --commit --push)\` (slug omitted — path did not resolve to a valid epic slug).`,
+        );
+      }
     } else {
       const epicMatch = p.match(/^\.flow\/epics\/([^/]+)\//);
-      const epic = epicMatch ? epicMatch[1] : "the epic";
+      const epic =
+        epicMatch && isValidSlug(epicMatch[1]) ? epicMatch[1] : "the-epic";
       lines.push(
-        `  ${p}: run \`git switch -c flow-epic-amend/${epic}\`, commit it there, ` +
-          "then `git switch -` to return the checkout to the base branch — " +
+        `  ${p}: run \`git -C ${root} switch -c flow-epic-amend/${epic}\`, commit it there, ` +
+          `then \`git -C ${root} switch -\` to return that checkout to the base branch — ` +
           "the base-branch guard refuses this path on the base branch directly.",
       );
     }
@@ -171,6 +187,9 @@ export async function run(deps: Deps): Promise<number> {
     paths: deps.dirtyEpicPaths(r),
   }));
   const dirty = dedupe(dirtyByRoot.flatMap((r) => r.paths));
+  const dirtyEntries = dirtyByRoot.flatMap((r) =>
+    r.paths.map((path) => ({ root: r.root, path })),
+  );
   if (dirty.length > 0) {
     // ZERO-COST GUARANTEE: repoCommitState is called ONLY here, inside the
     // dirty-detected branch, so a clean/non-epic repo spawns nothing extra.
@@ -203,7 +222,7 @@ export async function run(deps: Deps): Promise<number> {
       (r) => r.root === state.repo && r.paths.length > 0,
     );
     deps.writeErr(
-      buildEpicMetadataReminder(dirty, { onBaseBranch, repoState }).join("\n") +
+      buildEpicMetadataReminder(dirtyEntries, { onBaseBranch }).join("\n") +
         "\n",
     );
     return 2;

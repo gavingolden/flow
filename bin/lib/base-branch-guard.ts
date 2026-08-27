@@ -69,7 +69,12 @@ current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || git rev-pa
 if [ "$current_branch" = "$default_branch" ]; then
   # Narrow carve-out: a machine-derived epic status board is committable here.
   # See AGENTS.md "Auto-commit exemption: flow-epic-sync --commit".
-  staged=$(git diff --cached --name-only)
+  # --no-renames: default rename detection prints only the destination path
+  # of a git-mv, so e.g. renaming .flow/epics/<e>/manifest.json to
+  # .flow/epics/<e>/status.json would show one allowlisted line and pass
+  # this check while committing a DELETION of manifest.json to the base
+  # branch.
+  staged=$(git diff --cached --no-renames --name-only)
   if [ -n "$staged" ] && ! printf '%s\n' "$staged" | grep -qvE '^\\.flow/epics/[^/]+/status\\.json$'; then
     # jq-gated staged-content sanity check, allow-path only, fail-open when
     # jq is absent — this must never reach the common non-flow commit path.

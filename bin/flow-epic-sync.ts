@@ -44,7 +44,7 @@ import { resolveSlugFromEnv } from "./lib/session-identity";
 import { defaultGh, type GhRunner } from "./lib/resume-probes";
 import {
   commitEpicStatus,
-  pushEpicStatus,
+  pushEpicStatusFromWrittenPath,
   type CommitSkipReason,
   type PushSkipReason,
   type GitRunner,
@@ -343,6 +343,8 @@ function remedyFor(reason: PushSkipReason): string {
       return "The branch does not exist on origin yet; push it first.";
     case "push-failed":
       return "Re-run with --push after investigating the git error.";
+    case "extra-local-commits":
+      return "HEAD carries commits beyond the board; push manually after review.";
   }
 }
 
@@ -487,38 +489,46 @@ export function main(argv: string[], deps: Deps = {}): number {
         `warn: --rederive regressed ${regressed.length} row(s): ${regressed.join(", ")}`,
       );
     }
+  }
 
-    if (parsed.commit) {
-      const commitResult = commitEpicStatus({
+  // Gate on `parsed.commit`, NOT on `written`: `written` only means "differs
+  // from what's on disk", but `readCommittedStatus` reads the WORKING TREE,
+  // not `git show HEAD:` — so a board that's already correct on disk but
+  // still UNCOMMITTED makes `written` false and would otherwise silently
+  // strand it (the exact incident this command exists to fix). When the file
+  // is on disk (either just written, or already there and byte-identical),
+  // `commitEpicStatus` still runs and short-circuits to `nothing-staged` via
+  // its own `git status --porcelain` probe if the tree really is clean.
+  if (parsed.commit && fs.existsSync(writtenPath)) {
+    const commitResult = commitEpicStatus({
+      writtenPath,
+      epicSlug,
+      git: deps.git,
+    });
+    committed = commitResult.committed;
+    commitSkipReason = commitResult.reason;
+    if (!committed) {
+      console.error(
+        `warn: --commit did not commit the status board (${commitResult.reason}${commitResult.detail ? `: ${commitResult.detail}` : ""})`,
+      );
+    }
+  }
+
+  if (parsed.push) {
+    if (!committed) {
+      pushSkipReason = "not-committed";
+    } else {
+      const pushResult = pushEpicStatusFromWrittenPath({
         writtenPath,
-        epicSlug,
         git: deps.git,
       });
-      committed = commitResult.committed;
-      commitSkipReason = commitResult.reason;
-      if (!committed) {
-        console.error(
-          `warn: --commit did not commit the status board (${commitResult.reason}${commitResult.detail ? `: ${commitResult.detail}` : ""})`,
-        );
-      }
+      pushed = pushResult.pushed;
+      pushSkipReason = pushResult.reason;
     }
-
-    if (parsed.push) {
-      if (!committed) {
-        pushSkipReason = "not-committed";
-      } else {
-        const repoRoot = resolveRepoRoot(path.dirname(writtenPath));
-        const pushResult = repoRoot
-          ? pushEpicStatus({ repoRoot, git: deps.git })
-          : { pushed: false, reason: "push-failed" as PushSkipReason };
-        pushed = pushResult.pushed;
-        pushSkipReason = pushResult.reason;
-      }
-      if (!pushed && pushSkipReason) {
-        console.error(
-          `warn: --push did not push the status board (${pushSkipReason}). ${remedyFor(pushSkipReason)}`,
-        );
-      }
+    if (!pushed && pushSkipReason) {
+      console.error(
+        `warn: --push did not push the status board (${pushSkipReason}). ${remedyFor(pushSkipReason)}`,
+      );
     }
   }
 

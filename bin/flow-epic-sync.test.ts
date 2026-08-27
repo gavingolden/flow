@@ -710,11 +710,43 @@ describe("main — CLI epic resolution + write disposition", () => {
     }
   });
 
-  it("--commit when nothing was written (board already in sync): no commit argv emitted, committed:false", () => {
+  it("--commit when the board is byte-identical on disk but UNCOMMITTED: the rescue path still runs, not a silent no-op", () => {
+    // Regression lock: `written` only means "differs from what's on disk";
+    // a board that is already correct on disk but still uncommitted must
+    // NOT skip the commit block, or the exact stranded-board incident this
+    // command exists to fix would recur silently.
     seedRunState();
     const gh = ghForHeads({ "feature-a": 101 });
     main(["--epic-slug", "watchlist"], { gh, epicsDir, cwd: repoDir });
-    const { git, calls } = makeGit(() => ({ exitCode: 0 }));
+    const { git, calls } = makeGit((argv) => {
+      if (argv[0] === "status")
+        return { stdout: " M .flow/epics/watchlist/status.json\n" };
+      if (argv[0] === "add") return { exitCode: 0 };
+      if (argv[0] === "commit") return { exitCode: 0 };
+      return { exitCode: 0 };
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--commit", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+        git,
+      });
+      expect(exit).toBe(0);
+      expect(calls.some((c) => c[0] === "commit")).toBe(true);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.committed).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("--commit when nothing is dirty at all: nothing-staged, committed:false", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    main(["--epic-slug", "watchlist"], { gh, epicsDir, cwd: repoDir });
+    const { git, calls } = makeGit(() => ({ exitCode: 0, stdout: "" }));
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       const exit = main(["--epic-slug", "watchlist", "--commit", "--json"], {
@@ -727,6 +759,7 @@ describe("main — CLI epic resolution + write disposition", () => {
       expect(calls.some((c) => c[0] === "commit")).toBe(false);
       const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
       expect(printed.committed).toBe(false);
+      expect(printed.commitSkipReason).toBe("nothing-staged");
     } finally {
       logSpy.mockRestore();
     }
@@ -756,8 +789,6 @@ describe("main — CLI epic resolution + write disposition", () => {
       expect(pushCall).toEqual([
         "-c",
         "core.askPass=",
-        "-c",
-        "credential.helper=",
         "push",
         "origin",
         "HEAD:main",
@@ -846,7 +877,7 @@ describe("main — CLI epic resolution + write disposition", () => {
         if (argv[0] === "rev-parse") return { stdout: "main\n" };
         if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
         if (argv[0] === "remote") return { exitCode: 0 };
-        if (argv[0] === "ls-remote") return { exitCode: 1 };
+        if (argv.includes("ls-remote")) return { exitCode: 1 };
         return { exitCode: 0 };
       });
       expect(exit).toBe(0);
@@ -862,7 +893,7 @@ describe("main — CLI epic resolution + write disposition", () => {
         if (argv[0] === "rev-parse") return { stdout: "main\n" };
         if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
         if (argv[0] === "remote") return { exitCode: 0 };
-        if (argv[0] === "ls-remote") return { exitCode: 0 };
+        if (argv.includes("ls-remote")) return { exitCode: 0 };
         if (argv.includes("push")) {
           return { exitCode: 1, stderr: "! [rejected] (non-fast-forward)\n" };
         }
@@ -880,7 +911,7 @@ describe("main — CLI epic resolution + write disposition", () => {
         if (argv[0] === "rev-parse") return { stdout: "main\n" };
         if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
         if (argv[0] === "remote") return { exitCode: 0 };
-        if (argv[0] === "ls-remote") return { exitCode: 0 };
+        if (argv.includes("ls-remote")) return { exitCode: 0 };
         if (argv.includes("push")) return { exitCode: 1, stderr: "fatal: x\n" };
         return { exitCode: 0 };
       });

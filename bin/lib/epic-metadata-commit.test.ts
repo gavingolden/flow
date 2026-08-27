@@ -22,6 +22,10 @@ function withTempRepo<T>(run: (repoRoot: string) => T): T {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "flow-emc-repo-"));
   try {
     spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repoRoot });
+    spawnSync("git", ["config", "user.email", "t@example.com"], {
+      cwd: repoRoot,
+    });
+    spawnSync("git", ["config", "user.name", "Flow Test"], { cwd: repoRoot });
     fs.mkdirSync(path.join(repoRoot, ".flow", "epics", "e1"), {
       recursive: true,
     });
@@ -77,11 +81,47 @@ describe("commitEpicStatus", () => {
       expect(commitCall).toBeDefined();
       expect(commitCall).toContain("--");
       expect(commitCall).toContain(".flow/epics/e1/status.json");
-      // Pins the path-scoped requirement: every "add" call in `calls` must
-      // be scoped to the rel path (never a bare whole-index `git add`).
-      for (const c of calls) {
-        if (c[0] === "add") expect(c).toContain(".flow/epics/e1/status.json");
-      }
+      // Exact call sequence — NOT just "for each add call, it's scoped",
+      // which iterates zero times (and passes vacuously) if `git add` were
+      // ever deleted from production.
+      expect(calls.map((c) => c[0])).toEqual(["status", "add", "commit"]);
+      expect(calls[1]).toContain(".flow/epics/e1/status.json");
+    });
+  });
+
+  it("real git: commits a brand-new UNTRACKED board (no injected git, no `add` guard)", () => {
+    withTempRepo((repoRoot) => {
+      const untrackedDir = path.join(repoRoot, ".flow", "epics", "e2");
+      fs.mkdirSync(untrackedDir, { recursive: true });
+      const writtenPath = path.join(untrackedDir, "status.json");
+      fs.writeFileSync(writtenPath, "{}\n", "utf8");
+      const result = commitEpicStatus({ writtenPath, epicSlug: "e2" });
+      expect(result).toEqual({ committed: true });
+      const log = spawnSync("git", ["log", "--oneline", "-1"], {
+        cwd: repoRoot,
+        encoding: "utf8",
+      });
+      expect(log.stdout).toContain("sync e2 status board");
+    });
+  });
+
+  it("git-error when `git add` itself fails", () => {
+    withTempRepo((repoRoot) => {
+      const { git, calls } = makeGit((argv) => {
+        if (argv[0] === "status")
+          return { stdout: " M .flow/epics/e1/status.json\n" };
+        if (argv[0] === "add")
+          return { exitCode: 1, stderr: "fatal: add failed\n" };
+        return { exitCode: 0 };
+      });
+      const writtenPath = path.join(repoRoot, ".flow/epics/e1/status.json");
+      const result = commitEpicStatus({ writtenPath, epicSlug: "e1", git });
+      expect(result).toEqual({
+        committed: false,
+        reason: "git-error",
+        detail: "fatal: add failed",
+      });
+      expect(calls.some((c) => c[0] === "commit")).toBe(false);
     });
   });
 
@@ -162,7 +202,7 @@ describe("pushEpicStatus", () => {
       if (argv[0] === "rev-parse") return { stdout: "main\n" };
       if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
       if (argv[0] === "remote") return { exitCode: 0 };
-      if (argv[0] === "ls-remote") return { exitCode: 0 };
+      if (argv.includes("ls-remote")) return { exitCode: 0 };
       if (argv.includes("push")) return { exitCode: 0 };
       return { exitCode: 0 };
     });
@@ -172,8 +212,6 @@ describe("pushEpicStatus", () => {
     expect(pushCall).toEqual([
       "-c",
       "core.askPass=",
-      "-c",
-      "credential.helper=",
       "push",
       "origin",
       "HEAD:main",
@@ -228,7 +266,7 @@ describe("pushEpicStatus", () => {
       if (argv[0] === "rev-parse") return { stdout: "main\n" };
       if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
       if (argv[0] === "remote") return { exitCode: 0 };
-      if (argv[0] === "ls-remote") return { exitCode: 1 };
+      if (argv.includes("ls-remote")) return { exitCode: 1 };
       return { exitCode: 0 };
     });
     const result = pushEpicStatus({ repoRoot: "/repo", git });
@@ -241,7 +279,7 @@ describe("pushEpicStatus", () => {
       if (argv[0] === "rev-parse") return { stdout: "main\n" };
       if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
       if (argv[0] === "remote") return { exitCode: 0 };
-      if (argv[0] === "ls-remote") return { exitCode: 0 };
+      if (argv.includes("ls-remote")) return { exitCode: 0 };
       if (argv.includes("push")) {
         return {
           exitCode: 1,
@@ -260,7 +298,7 @@ describe("pushEpicStatus", () => {
       if (argv[0] === "rev-parse") return { stdout: "main\n" };
       if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
       if (argv[0] === "remote") return { exitCode: 0 };
-      if (argv[0] === "ls-remote") return { exitCode: 0 };
+      if (argv.includes("ls-remote")) return { exitCode: 0 };
       if (argv.includes("push"))
         return { exitCode: 1, stderr: "fatal: unable to access\n" };
       return { exitCode: 0 };
@@ -269,47 +307,87 @@ describe("pushEpicStatus", () => {
     expect(result.pushed).toBe(false);
     expect(result.reason).toBe("push-failed");
   });
+
+  it("extra-local-commits when HEAD carries non-board changes beyond the remote SHA — never publishes them", () => {
+    const { git, calls } = makeGit((argv) => {
+      if (argv[0] === "rev-parse") return { stdout: "main\n" };
+      if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+      if (argv[0] === "remote") return { exitCode: 0 };
+      if (argv.includes("ls-remote"))
+        return { stdout: "abc123\trefs/heads/main\n", exitCode: 0 };
+      if (argv[0] === "diff")
+        return { stdout: "src/index.ts\n.flow/epics/e1/status.json\n" };
+      return { exitCode: 0 };
+    });
+    const result = pushEpicStatus({ repoRoot: "/repo", git });
+    expect(result).toEqual({ pushed: false, reason: "extra-local-commits" });
+    expect(calls.some((c) => c.includes("push"))).toBe(false);
+  });
+
+  it("pushes when HEAD's delta beyond the remote SHA is board-only", () => {
+    const { git, calls } = makeGit((argv) => {
+      if (argv[0] === "rev-parse") return { stdout: "main\n" };
+      if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+      if (argv[0] === "remote") return { exitCode: 0 };
+      if (argv.includes("ls-remote"))
+        return { stdout: "abc123\trefs/heads/main\n", exitCode: 0 };
+      if (argv[0] === "diff") return { stdout: ".flow/epics/e1/status.json\n" };
+      if (argv.includes("push")) return { exitCode: 0 };
+      return { exitCode: 0 };
+    });
+    const result = pushEpicStatus({ repoRoot: "/repo", git });
+    expect(result).toEqual({ pushed: true });
+    expect(calls.some((c) => c.includes("push"))).toBe(true);
+  });
 });
 
 describe("forbidden argv pin", () => {
-  it("no argv emitted by commitEpicStatus or pushEpicStatus ever contains a forcing/publishing flag", () => {
-    const allCalls: string[][] = [];
-    const record = (argv: string[]): Resp => {
-      allCalls.push(argv);
-      if (argv[0] === "status")
-        return { stdout: " M .flow/epics/e1/status.json\n" };
-      if (argv[0] === "rev-parse") return { stdout: "main\n" };
-      if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
-      return { exitCode: 0 };
-    };
-    const git: GitRunner = (argv) => {
-      const r = record(argv);
-      return {
-        stdout: r.stdout ?? "",
-        stderr: r.stderr ?? "",
-        exitCode: r.exitCode ?? 0,
+  it("no argv emitted by commitEpicStatus or pushEpicStatus ever contains a forcing/publishing flag — and the commit half is NOT vacuous", () => {
+    withTempRepo((repoRoot) => {
+      const allCalls: string[][] = [];
+      const record = (argv: string[]): Resp => {
+        allCalls.push(argv);
+        if (argv[0] === "status")
+          return { stdout: " M .flow/epics/e1/status.json\n" };
+        if (argv[0] === "rev-parse") return { stdout: "main\n" };
+        if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+        return { exitCode: 0 };
       };
-    };
+      const git: GitRunner = (argv) => {
+        const r = record(argv);
+        return {
+          stdout: r.stdout ?? "",
+          stderr: r.stderr ?? "",
+          exitCode: r.exitCode ?? 0,
+        };
+      };
 
-    commitEpicStatus({
-      writtenPath: path.join(process.cwd(), ".flow/epics/e1/status.json"),
-      epicSlug: "e1",
-      git,
-    });
-    pushEpicStatus({ repoRoot: "/repo", git });
+      const commitResult = commitEpicStatus({
+        writtenPath: path.join(repoRoot, ".flow/epics/e1/status.json"),
+        epicSlug: "e1",
+        git,
+      });
+      // Prove this test is NOT vacuously green: commitEpicStatus must have
+      // actually reached and recorded a commit call, not bailed early
+      // (e.g. "not-a-repo") before ever touching git.
+      expect(commitResult.committed).toBe(true);
+      expect(allCalls.some((c) => c[0] === "commit")).toBe(true);
 
-    const forbidden = [
-      "--force",
-      "--force-with-lease",
-      "-f",
-      "-u",
-      "--set-upstream",
-    ];
-    for (const argv of allCalls) {
-      for (const flag of forbidden) {
-        expect(argv).not.toContain(flag);
+      pushEpicStatus({ repoRoot: "/repo", git });
+
+      const forbidden = [
+        "--force",
+        "--force-with-lease",
+        "-f",
+        "-u",
+        "--set-upstream",
+      ];
+      for (const argv of allCalls) {
+        for (const flag of forbidden) {
+          expect(argv).not.toContain(flag);
+        }
       }
-    }
+    });
   });
 });
 
@@ -339,6 +417,45 @@ describe("dirtyEpicMetadata", () => {
         ".flow/epics/e3/status.json",
         ".flow/epics/e1/new.json",
       ]);
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("real git: a brand-new untracked epic directory reports per-file entries, not one collapsed directory line", () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "flow-emc-untr-"));
+    try {
+      spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repoRoot });
+      fs.writeFileSync(path.join(repoRoot, "README.md"), "x\n", "utf8");
+      spawnSync("git", ["add", "-A"], { cwd: repoRoot });
+      spawnSync("git", ["config", "user.email", "t@example.com"], {
+        cwd: repoRoot,
+      });
+      spawnSync("git", ["config", "user.name", "Flow Test"], {
+        cwd: repoRoot,
+      });
+      spawnSync("git", ["commit", "-q", "-m", "seed"], { cwd: repoRoot });
+      fs.mkdirSync(path.join(repoRoot, ".flow/epics/new-epic"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(repoRoot, ".flow/epics/new-epic/status.json"),
+        "{}\n",
+        "utf8",
+      );
+      fs.writeFileSync(
+        path.join(repoRoot, ".flow/epics/new-epic/manifest.json"),
+        "{}\n",
+        "utf8",
+      );
+      const result = dirtyEpicMetadata({ repoRoot });
+      expect(result).toEqual(
+        expect.arrayContaining([
+          ".flow/epics/new-epic/status.json",
+          ".flow/epics/new-epic/manifest.json",
+        ]),
+      );
+      expect(result).not.toContain(".flow/epics/new-epic/");
     } finally {
       fs.rmSync(repoRoot, { recursive: true, force: true });
     }

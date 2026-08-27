@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -871,6 +871,30 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
     expect(r.ok).toBe(true);
   });
 
+  const hasJq =
+    spawnSync("command", ["-v", "jq"], { shell: "/bin/sh" }).status === 0;
+
+  (hasJq ? it : it.skip)(
+    "refuses a staged epic status board that is not valid JSON (jq-gated content check)",
+    () => {
+      writeTmuxShim("csv-export");
+      const env = {
+        ...baseEnv(),
+        CLAUDE_CODE_SESSION_ID: "sess-1",
+        TMUX_PANE: "%1",
+      };
+      const r = tryPathScopedCommit(
+        env,
+        ".flow/epics/e1/status.json",
+        "{not valid json\n",
+      );
+      expect(r.ok).toBe(false);
+      expect(r.stderr).toMatch(
+        /refusing to commit a malformed epic status board/,
+      );
+    },
+  );
+
   it("refuses a path-scoped commit of manifest.json on the base branch inside a flow session", () => {
     writeTmuxShim("csv-export");
     const env = {
@@ -917,6 +941,96 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
     // just-made commit — this pins the git behaviour the whole design rests
     // on: `git commit -- <path>` builds a temporary index for that path only.
     expect(status).toMatch(/^A\s+unrelated\.txt$/m);
+  });
+
+  it("refuses a `git mv` from manifest.json to status.json — --no-renames closes the rename-detection allowlist escape", () => {
+    // Without `--no-renames` on the staged-name probe, `git diff --cached
+    // --name-only` prints ONLY the destination path for a detected rename,
+    // so this rename would show a single allowlisted `status.json` line and
+    // pass the check while committing a DELETION of manifest.json.
+    writeTmuxShim("csv-export");
+    const env = {
+      ...baseEnv(),
+      CLAUDE_CODE_SESSION_ID: "sess-1",
+      TMUX_PANE: "%1",
+    };
+    const manifestAbs = path.join(repoDir, ".flow/epics/e1/manifest.json");
+    fs.mkdirSync(path.dirname(manifestAbs), { recursive: true });
+    fs.writeFileSync(manifestAbs, '{"version":1}\n', "utf8");
+    execFileSync("git", ["add", "--", ".flow/epics/e1/manifest.json"], {
+      cwd: repoDir,
+    });
+    execFileSync("git", ["commit", "-m", "seed manifest"], {
+      cwd: repoDir,
+      env: baseEnv() as NodeJS.ProcessEnv,
+    });
+
+    execFileSync(
+      "git",
+      ["mv", ".flow/epics/e1/manifest.json", ".flow/epics/e1/status.json"],
+      { cwd: repoDir },
+    );
+    let ok = true;
+    let stderr = "";
+    try {
+      execFileSync("git", ["commit", "-m", "rename manifest to status"], {
+        cwd: repoDir,
+        encoding: "utf8",
+        env: env as NodeJS.ProcessEnv,
+      });
+    } catch (err) {
+      ok = false;
+      const e = err as { stderr?: Buffer | string };
+      stderr = String(e.stderr ?? "");
+    }
+    expect(ok).toBe(false);
+    expect(stderr).toMatch(/refusing to commit on the base branch/);
+  });
+
+  it("the TS mirror (baseBranchGuardDecision) and the real-git sh hook AGREE on a mixed-staged-set (board + unrelated file)", () => {
+    writeTmuxShim("csv-export");
+    const env = {
+      ...baseEnv(),
+      CLAUDE_CODE_SESSION_ID: "sess-1",
+      TMUX_PANE: "%1",
+    };
+    const boardAbs = path.join(repoDir, ".flow/epics/e1/status.json");
+    fs.mkdirSync(path.dirname(boardAbs), { recursive: true });
+    fs.writeFileSync(boardAbs, '{"version":1}\n', "utf8");
+    fs.writeFileSync(
+      path.join(repoDir, "unrelated.txt"),
+      "unrelated\n",
+      "utf8",
+    );
+    execFileSync("git", ["add", "--", ".flow/epics/e1/status.json"], {
+      cwd: repoDir,
+    });
+    execFileSync("git", ["add", "--", "unrelated.txt"], { cwd: repoDir });
+
+    let ok = true;
+    try {
+      execFileSync("git", ["commit", "-m", "mixed set"], {
+        cwd: repoDir,
+        encoding: "utf8",
+        env: env as NodeJS.ProcessEnv,
+      });
+    } catch {
+      ok = false;
+    }
+
+    const mirrorDecision = baseBranchGuardDecision({
+      sessionId: "sess-1",
+      flowSlug: "csv-export",
+      currentBranch: "main",
+      defaultBranch: "main",
+      stagedPaths: [".flow/epics/e1/status.json", "unrelated.txt"],
+    });
+
+    // The real hook refuses a whole-index commit that mixes the board with
+    // an unrelated file (only a PATH-SCOPED commit is exempt), and the TS
+    // mirror must agree on this same staged set.
+    expect(ok).toBe(false);
+    expect(mirrorDecision).toBe("refuse");
   });
 });
 

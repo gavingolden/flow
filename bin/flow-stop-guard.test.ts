@@ -560,8 +560,9 @@ describe("per-turn tracking", () => {
     });
     expect(await run(deps)).toBe(2);
     const joined = errLines.join("");
-    expect(joined).toContain("git switch -c flow-epic-amend/e1");
-    expect(joined).toContain("git switch -");
+    expect(joined).toContain("git -C");
+    expect(joined).toContain("switch -c flow-epic-amend/e1");
+    expect(joined).toContain("switch -");
   });
 
   it("DUAL PROBE: distinct dirty paths in state.repo and state.worktree both appear, deduped when roots are equal", async () => {
@@ -579,6 +580,14 @@ describe("per-turn tracking", () => {
     const joined = errLines.join("");
     expect(joined).toContain(".flow/epics/e1/status.json");
     expect(joined).toContain(".flow/epics/e2/status.json");
+    // Root-anchored: the e1 command must target state.repo, the e2 command
+    // must target state.worktree — never an ambient cwd.
+    expect(joined).toContain(
+      "(cd /tmp/repo && flow-epic-sync --epic-slug e1 --commit --push)",
+    );
+    expect(joined).toContain(
+      "(cd /tmp/worktree && flow-epic-sync --epic-slug e2 --commit --push)",
+    );
   });
 
   it("DUAL PROBE dedupes when state.repo === state.worktree (one dirtyEpicPaths call, not two)", async () => {
@@ -649,24 +658,33 @@ describe("per-turn tracking", () => {
 });
 
 describe("buildEpicMetadataReminder", () => {
-  it("names the executable flow-epic-sync route for a status.json path", () => {
-    const lines = buildEpicMetadataReminder([".flow/epics/e1/status.json"], {
-      onBaseBranch: true,
-      repoState: "clean",
-    });
+  it("names the executable flow-epic-sync route for a status.json path, root-anchored", () => {
+    const lines = buildEpicMetadataReminder(
+      [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
+      { onBaseBranch: true },
+    );
     expect(lines.join("\n")).toContain(
-      "flow-epic-sync --epic-slug e1 --commit --push",
+      "(cd /repo && flow-epic-sync --epic-slug e1 --commit --push)",
     );
   });
 
-  it("names the full switch-commit-switch-back sequence for any other path, never just 'open a PR'", () => {
-    const lines = buildEpicMetadataReminder([".flow/epics/e1/design.md"], {
-      onBaseBranch: true,
-      repoState: "clean",
-    });
+  it("names the full switch-commit-switch-back sequence for any other path, root-anchored, never just 'open a PR'", () => {
+    const lines = buildEpicMetadataReminder(
+      [{ root: "/repo", path: ".flow/epics/e1/design.md" }],
+      { onBaseBranch: true },
+    );
     const joined = lines.join("\n");
-    expect(joined).toContain("git switch -c flow-epic-amend/e1");
-    expect(joined).toContain("git switch -");
+    expect(joined).toContain("git -C /repo switch -c flow-epic-amend/e1");
+    expect(joined).toContain("git -C /repo switch -");
     expect(joined).not.toMatch(/^open a PR$/m);
+  });
+
+  it("falls back to the generic route when the slug segment fails isValidSlug", () => {
+    const lines = buildEpicMetadataReminder(
+      [{ root: "/repo", path: ".flow/epics/../status.json" }],
+      { onBaseBranch: true },
+    );
+    const joined = lines.join("\n");
+    expect(joined).not.toContain("--epic-slug ..");
   });
 });
