@@ -54,7 +54,7 @@ export type Deps = {
   readStdin: () => Promise<string>;
 };
 
-/** Delegates to seed-delivery's private normalisation so the two can't drift. */
+/** Delegates to seed-delivery's exported `squash` so the two can't drift. */
 export function squashPrompt(s: string): string {
   return squash(s);
 }
@@ -120,7 +120,16 @@ export async function run(deps: Deps): Promise<number> {
   }
 
   if (seedIntact(state.seed, prompt)) {
-    deps.saveState({ ...state, seedIngestedAt: deps.nowIso() });
+    // Clear any earlier seedMismatch: launchWithRetry reuses this closure
+    // across attempts, so a corrupted attempt 1 followed by an intact
+    // attempt 2 must not leave the stale mismatch latched — otherwise
+    // seedCorrupted() keeps reporting `failed` even though the retry
+    // delivered the seed intact.
+    deps.saveState({
+      ...state,
+      seedIngestedAt: deps.nowIso(),
+      seedMismatch: undefined,
+    });
   } else {
     deps.saveState({
       ...state,

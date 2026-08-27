@@ -109,7 +109,7 @@ const runEpicCli = (args: string[], options: EpicOptions = {}) =>
   );
 import { deriveWorktreePath } from "./feature";
 import { FLOW_CLAUDE_HOME } from "./paths";
-import { writeState } from "./state";
+import { readState, writeState } from "./state";
 import {
   writeEpicRunState,
   readEpicRunState,
@@ -353,10 +353,15 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(code).toBe(2);
     expect(logs.join("\n")).not.toMatch(/created/);
     expect(errors.join("\n")).toMatch(/seed delivery corrupted/);
-    expect(errors.join("\n")).toMatch(/~\/\.flow\/state\/design-thing\.json/);
+    // The recovery hint now prints the original prompt text directly (the
+    // state file it used to point at is reaped by `flow ls` within ~60s —
+    // see the seedCorrupted comment above), so assert on the printed prompt
+    // rather than a file-path hint.
+    expect(errors.join("\n")).toMatch(/design the thing/);
     // Unlike the generic dead-window failure above (which writes no state),
     // the seed-corruption failure deliberately keeps the state file around so
-    // `jq -r .seed` can recover the original epic prompt.
+    // the printed prompt can be cross-checked against it (best-effort, until
+    // the lazy reap sweeps it).
     expect(fs.existsSync(path.join(stateDir, "design-thing.json"))).toBe(true);
   });
 
@@ -1307,13 +1312,19 @@ describe("runEpicCli create --resume", () => {
     expect(consumedFn!()).toBe(true);
   });
 
-  it("resume consumed predicate ignores a STALE seedIngestedAt marker and requires a fresh re-stamp", () => {
-    // The seed-ingested hook stamps `seedIngestedAt` on the ORIGINAL fresh
-    // launch, and runEpicResume never clears it. A bare `seedIngestedAt != null`
-    // check would short-circuit consumed() true on the first probe off the stale
-    // marker — skipping the resume-seed send-keys and latching a false-success
-    // resume. consumed() must require the marker to DIFFER from the captured
-    // pre-resume value (a fresh re-stamp by the resumed session).
+  it("resume clears a pre-existing seedIngestedAt marker before the baseline read, so consumed() requires a fresh re-stamp", () => {
+    // Mirrors feature.test.ts's twin. Regression (pre-Task-2): the
+    // seed-ingested hook stamps `seedIngestedAt` on the ORIGINAL fresh
+    // launch, and a resume that never cleared it would let a bare
+    // `seedIngestedAt != null` check short-circuit consumed() true on the
+    // first probe off the stale marker — skipping the resume-seed send-keys
+    // and latching a false-success resume that never delivered the seed.
+    // The preClear block above now clears seedIngestedAt (and seedMismatch)
+    // BEFORE the baseline is captured, so the pre-existing value must not
+    // survive into the resume attempt at all — asserted directly below, not
+    // just inferred from consumed()'s later behaviour (which would otherwise
+    // pass for the coincidental reason that markerBaseline is now always
+    // undefined post-clear, silently no longer covering this regression).
     const baseline = new Date(Date.now() - 10_000).toISOString();
     const staleMarker = new Date(Date.now() - 9_000).toISOString();
     writeState(
@@ -1340,15 +1351,16 @@ describe("runEpicCli create --resume", () => {
     });
     expect(code).toBe(0);
     expect(consumedFn).toBeDefined();
-    // Stale marker unchanged + updatedAt unchanged → NOT consumed.
+    // The pre-existing marker must not survive into the resume's baseline.
+    expect(
+      readState("stale-marker-epic", stateDir)?.seedIngestedAt,
+    ).toBeUndefined();
+    // Cleared marker + unchanged updatedAt → NOT consumed.
     expect(consumedFn!()).toBe(false);
     // The resumed session's hook RE-STAMPS the marker with a new timestamp → flips.
     writeState(
       {
-        slug: "stale-marker-epic",
-        phase: "epic-designing",
-        repo: repoDir,
-        updatedAt: baseline,
+        ...readState("stale-marker-epic", stateDir)!,
         seedIngestedAt: new Date().toISOString(),
       },
       stateDir,
@@ -1440,7 +1452,11 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
 
   it("run: manifest missing → non-zero + 'manifest not found'", () => {
     gitInit();
-    const code = runEpicCli(["run", "ghost"], { cwd: repoDir, epicsDir });
+    const code = runEpicCli(["run", "ghost"], {
+      cwd: repoDir,
+      epicsDir,
+      stateDir,
+    });
     expect(code).toBe(2);
     expect(errors.join("\n")).toMatch(/manifest not found/);
   });
@@ -1451,7 +1467,11 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       { id: "a", dependsOn: ["b"] },
       { id: "b", dependsOn: ["a"] },
     ]);
-    const code = runEpicCli(["run", "cyclic"], { cwd: repoDir, epicsDir });
+    const code = runEpicCli(["run", "cyclic"], {
+      cwd: repoDir,
+      epicsDir,
+      stateDir,
+    });
     expect(code).toBe(2);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
     expect(errors.join("\n")).toMatch(/DAG|cycle/i);
@@ -1461,7 +1481,11 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     gitInit();
     writeManifest("spawn-epic", [{ id: "a" }]);
     freshWindowOk();
-    const code = runEpicCli(["run", "spawn-epic"], { cwd: repoDir, epicsDir });
+    const code = runEpicCli(["run", "spawn-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      stateDir,
+    });
     expect(code).toBe(0);
     expect(logs[0]).toBe("flow:spawn-epic");
     expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
@@ -1478,11 +1502,55 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(readEpicRunState("spawn-epic", epicsDir)).toBeNull();
   });
 
+  it("records this run's own seed and clears earlier hook markers on state.json, mirroring the resume paths (cross-path seed-recording coverage)", () => {
+    gitInit();
+    writeManifest("spawn-epic", [{ id: "a" }]);
+    freshWindowOk();
+    // Pre-seed the epic's state.json as if `flow epic create` already ran,
+    // carrying a stale seed + hook markers from that earlier launch — this
+    // is the only cross-path seed-recording site (session-start resume,
+    // terminal-continue, epic-resume each have a spec) that had no coverage.
+    writeState(
+      {
+        slug: "spawn-epic",
+        phase: "epic-approved",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+        seed: "stale create-time seed",
+        seedIngestedAt: "2026-01-01T00:00:00.000Z",
+        seedMismatch: {
+          at: "2026-01-01T00:00:00.000Z",
+          expectedBytes: 10,
+          submittedBytes: 5,
+        },
+      },
+      stateDir,
+    );
+    const code = runEpicCli(["run", "spawn-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      stateDir,
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "spawn-epic.json"), "utf8"),
+    );
+    const deliveredSeed = tmuxMock.createWindowVerified.mock.calls[0]?.[3];
+    expect(raw.seed).toBe(deliveredSeed);
+    expect(raw.seed).not.toBe("stale create-time seed");
+    expect(raw.seedIngestedAt).toBeUndefined();
+    expect(raw.seedMismatch).toBeUndefined();
+  });
+
   it("publishes @flow-kind=epic-run on the launched window after the launch confirms — the signal that lets the SessionStart:clear hook bypass the terminal guard", () => {
     gitInit();
     writeManifest("spawn-epic", [{ id: "a" }]);
     freshWindowOk();
-    const code = runEpicCli(["run", "spawn-epic"], { cwd: repoDir, epicsDir });
+    const code = runEpicCli(["run", "spawn-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      stateDir,
+    });
     expect(code).toBe(0);
     expect(tmuxMock.setPaneKind).toHaveBeenCalledWith("spawn-epic", "epic-run");
     expect(tmuxMock.createWindowVerified).toHaveBeenCalled();
@@ -1503,7 +1571,11 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       ok: false,
       stderr: "no such window",
     });
-    const code = runEpicCli(["run", "spawn-epic"], { cwd: repoDir, epicsDir });
+    const code = runEpicCli(["run", "spawn-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      stateDir,
+    });
     expect(code).toBe(0);
   });
 
@@ -1511,7 +1583,11 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     gitInit();
     writeManifest("dup-epic", [{ id: "a" }]);
     tmuxMock.windowExists.mockReturnValue(true);
-    const code = runEpicCli(["run", "dup-epic"], { cwd: repoDir, epicsDir });
+    const code = runEpicCli(["run", "dup-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      stateDir,
+    });
     expect(code).toBe(2);
     expect(errors.join("\n")).toMatch(/already exists/);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
@@ -1522,6 +1598,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     const code = runEpicCli(["run", "x", "--bogus"], {
       cwd: repoDir,
       epicsDir,
+      stateDir,
     });
     expect(code).toBe(2);
     expect(errors.join("\n")).toMatch(/unknown option/);
@@ -1540,6 +1617,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     const code = runEpicCli(["run", "removed-flags", flag], {
       cwd: repoDir,
       epicsDir,
+      stateDir,
     });
     expect(code).toBe(2);
     expect(errors.join("\n")).toMatch(/unknown option/);
@@ -1553,6 +1631,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     const code = runEpicCli(["run", "run-model-epic", "--model", "fable"], {
       cwd: repoDir,
       epicsDir,
+      stateDir,
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
@@ -1566,6 +1645,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     const code = runEpicCli(["run", "run-default-epic"], {
       cwd: repoDir,
       epicsDir,
+      stateDir,
       readConfig: () => ({ models: { default: "sonnet" } }),
     });
     expect(code).toBe(0);
@@ -1582,6 +1662,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       {
         cwd: repoDir,
         epicsDir,
+        stateDir,
         readConfig: () => ({ models: { default: "sonnet" } }),
       },
     );
@@ -1597,6 +1678,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     const code = runEpicCli(["run", "run-effort-epic", "--effort", "xhigh"], {
       cwd: repoDir,
       epicsDir,
+      stateDir,
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;

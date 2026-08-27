@@ -604,18 +604,30 @@ PR → review checkpoint), and writes initial epic state under
     const seedCorrupted = result.stderr === SEED_CORRUPTED_STDERR;
     // Mirrors feature.ts runFresh: the seed-corruption failure deliberately
     // SKIPS the no-orphan delete — state.seed is the only surviving copy of
-    // the original epic prompt, so wiping it here would make the recovery
-    // hint below a lie. `flow reap`/`flow done` remain the generic backstop.
+    // the original epic prompt. But this state file still satisfies
+    // `reapableStartingOrphans` (phase `starting`, no pid, no window), so
+    // `flow ls`'s lazy reap (REAP_GRACE_MS, ~60s) deletes it shortly after —
+    // pointing the user at the file path is a recovery hint that stops being
+    // true within a minute. Print the seed text directly below instead.
+    // `flow reap`/`flow done` remain the generic backstop.
     if (!seedCorrupted) {
       deleteState(slug, options.stateDir);
     }
     if (seedCorrupted) {
+      const corruptedState = readState(slug, options.stateDir);
       console.error(
         "flow epic create: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
       );
-      console.error(
-        `  the original epic prompt is recorded in ~/.flow/state/${slug}.json — recover it with \`jq -r .seed ~/.flow/state/${slug}.json\`.`,
-      );
+      if (corruptedState?.seed) {
+        console.error(
+          "  original epic prompt (recover it now — this state file is reaped within ~60s):",
+        );
+        console.error(corruptedState.seed);
+      } else {
+        console.error(
+          `  the original epic prompt was recorded in ~/.flow/state/${slug}.json but has already been reaped.`,
+        );
+      }
     } else {
       console.error(
         "flow epic create: claude exited immediately after launch — the tmux window did not stay up.",
@@ -768,19 +780,39 @@ function runEpicResume(name: string, options: EpicOptions): number {
   const consumed = () => {
     const s = readState(slug, options.stateDir);
     if (s == null) return false;
+    if (s.seedMismatch != null) return false;
     if (s.seedIngestedAt != null && s.seedIngestedAt !== markerBaseline)
       return true;
     return s.updatedAt !== baseline;
   };
+  // Wire seedCorrupted so a corrupted resume delivery is reported as a
+  // `failed` launch instead of falling through to the exit-0 "resumed"
+  // print below — without this, `docs/launch-reliability.md`'s claimed
+  // universal seed-integrity enforcement doesn't hold on this path.
+  const seedCorrupted = () =>
+    readState(slug, options.stateDir)?.seedMismatch != null;
   const launch = () =>
     exists
-      ? respawnWindowVerified(slug, repo, command, seed, { consumed })
-      : createWindowVerified(slug, repo, command, seed, { consumed });
+      ? respawnWindowVerified(slug, repo, command, seed, {
+          consumed,
+          seedCorrupted,
+        })
+      : createWindowVerified(slug, repo, command, seed, {
+          consumed,
+          seedCorrupted,
+        });
   const result = withLaunchSlot(
     () => launchWithRetry(launch, options.retrySleepMs, options.retrySleep),
     options,
   );
   if (result.status === "failed") {
+    if (result.stderr === SEED_CORRUPTED_STDERR) {
+      console.error(
+        "flow epic create --resume: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
+      );
+      console.error("  retry with `flow epic create --resume`.");
+      return 2;
+    }
     console.error(
       "flow epic create --resume: claude exited immediately after launch — the tmux window did not stay up.",
     );

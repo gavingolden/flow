@@ -965,20 +965,33 @@ function runFresh(
     const seedCorrupted = result.stderr === SEED_CORRUPTED_STDERR;
     // The seed-corruption failure deliberately SKIPS the no-orphan delete: the
     // pipeline never got far enough to write a plan/worktree, so state.seed is
-    // the ONLY surviving copy of the original request text. Deleting it here
-    // would make the recovery hint below a lie the moment it's printed. `flow
-    // reap`/`flow done` remain the generic backstop for this one abandoned
-    // `phase: starting` state file.
+    // the ONLY surviving copy of the original request text. But this state
+    // file still satisfies `reapableStartingOrphans` (phase `starting`, no
+    // pid, no window) — `flow ls`'s lazy reap (REAP_GRACE_MS, ~60s) deletes
+    // it shortly after, so pointing the user at the file path (as a prior
+    // version of this message did) is a recovery hint that stops being true
+    // within a minute. Print the seed text directly below instead, so
+    // recovery doesn't depend on the file surviving. `flow reap`/`flow done`
+    // remain the generic backstop for this one abandoned `phase: starting`
+    // state file.
     if (!seedCorrupted) {
       deleteState(slug, options.stateDir);
     }
     if (seedCorrupted) {
+      const corruptedState = readState(slug, options.stateDir);
       console.error(
         "flow feature create: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
       );
-      console.error(
-        `  the original request text is recorded in ~/.flow/state/${slug}.json — recover it with \`jq -r .seed ~/.flow/state/${slug}.json\`.`,
-      );
+      if (corruptedState?.seed) {
+        console.error(
+          "  original request text (recover it now — this state file is reaped within ~60s):",
+        );
+        console.error(corruptedState.seed);
+      } else {
+        console.error(
+          `  the original request text was recorded in ~/.flow/state/${slug}.json but has already been reaped.`,
+        );
+      }
     } else {
       console.error(
         "flow feature create: claude exited immediately after launch — the tmux window did not stay up.",

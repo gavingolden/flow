@@ -2598,10 +2598,12 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     expect(code).toBe(1);
     expect(logs.join("\n")).not.toMatch(/created/);
     expect(errors.join("\n")).toMatch(/seed delivery corrupted/);
-    expect(errors.join("\n")).toMatch(/~\/\.flow\/state\/csv-export\.json/);
+    // The recovery hint now prints the original prompt text directly (the
+    // state file it used to point at is reaped by `flow ls` within ~60s).
+    expect(errors.join("\n")).toMatch(/CSV export/);
     // Unlike the generic dead-window failure, the seed-corruption failure
-    // deliberately keeps the state file around so `jq -r .seed` can recover
-    // the original request text.
+    // deliberately keeps the state file around so the printed prompt can be
+    // cross-checked against it (best-effort, until the lazy reap sweeps it).
     expect(fs.existsSync(path.join(stateDir, "csv-export.json"))).toBe(true);
   });
 

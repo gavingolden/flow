@@ -195,11 +195,13 @@ export type PipelineState = {
   /**
    * The exact seed text this launch attempt intended to deliver, recorded by
    * every tmux launch/resume path (`feature.ts`, `epic.ts`,
-   * `flow-session-start-hook.ts`) BEFORE delivery. Lets a corrupted delivery
-   * be recovered manually (`jq -r .seed ~/.flow/state/<slug>.json`) and gives
-   * `flow-seed-ingested-hook` something to compare the UserPromptSubmit
-   * payload against. Additive — no migration (AGENTS.md: no back-compat
-   * shims).
+   * `flow-session-start-hook.ts`) BEFORE delivery. On a `seedCorrupted()`
+   * failure, the launcher reads this field back and prints it directly in
+   * the CLI error output — this state file is reaped by `flow ls`'s lazy
+   * orphan sweep shortly after (~60s), so it is not a durable recovery
+   * source on its own. Also gives `flow-seed-ingested-hook` something to
+   * compare the UserPromptSubmit payload against. Additive — no migration
+   * (AGENTS.md: no back-compat shims).
    */
   seed?: string;
   /**
@@ -868,10 +870,17 @@ export function readState(
 }
 
 export function writeState(state: PipelineState, dir = FLOW_STATE_DIR): void {
-  fs.mkdirSync(dir, { recursive: true });
+  // 0o700 / 0o600: `state.seed` now persists the verbatim launch prompt, the
+  // same data class `proc-registry.ts` already restricts for the same reason
+  // (argv/prompt text routinely carries secrets passed as flags). `mode` only
+  // applies at creation time — an already-existing world-readable dir/file
+  // from before this change is not retroactively tightened; same limitation
+  // `proc-registry.ts` already accepts.
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(
     statePath(state.slug, dir),
     JSON.stringify(state, null, 2) + "\n",
+    { mode: 0o600 },
   );
 }
 

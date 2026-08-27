@@ -55,23 +55,30 @@ touching the capture-verify design:
   sending it. `bin/flow-seed-ingested-hook.ts` — a Claude Code
   UserPromptSubmit hook — compares the submitted prompt against `state.seed`
   (whitespace-squashed containment, not equality) the instant a prompt is
-  accepted. A match stamps `seedIngestedAt` as before; a mismatch records
-  `state.seedMismatch` instead and does NOT stamp `seedIngestedAt`, so
-  `bin/lib/tmux.ts`'s `seedCorrupted()` predicate turns a recorded mismatch
-  into a hard `failed` launch outcome — the existing kill + `launchWithRetry`
-  re-launch apply for free.
+  accepted. A match stamps `seedIngestedAt` (and clears any earlier
+  `seedMismatch` — `launchWithRetry` reuses the same closure across
+  attempts, so a corrupted attempt followed by an intact one must not stay
+  latched as failed); a mismatch records `state.seedMismatch` instead and
+  does NOT stamp `seedIngestedAt`, so `bin/lib/tmux.ts`'s `seedCorrupted()`
+  predicate turns a recorded mismatch into a hard `failed` launch outcome —
+  the existing kill + `launchWithRetry` re-launch apply for free.
+
+  `seedCorrupted()` is wired on the paths where a corrupted delivery must
+  fail the command: `flow feature create` (fresh + resume) and
+  `flow epic create` (fresh + `--resume`). The `flow epic run` playbook
+  window (`spawnEpicRunSupervisor`) deliberately does NOT wire it — that
+  window is human-in-the-loop (the user attaches directly), so enforcement
+  is not yet universal across all six seed-recording sites, only these four.
 
 A truncated or corrupted delivery is recoverable without retyping the
-original request:
-
-```sh
-jq -r .seed ~/.flow/state/<slug>.json
-```
-
-The seed-corruption failure path deliberately skips the generic
-persist-then-delete-on-failure cleanup so this file survives long enough to
-recover from — `flow reap` / `flow done` remain the generic backstop for the
-one abandoned `phase: starting` state file this leaves behind.
+original request: on the wired paths, a `seedCorrupted()` failure prints the
+original prompt text directly in the CLI error output. It does NOT point at
+`~/.flow/state/<slug>.json` as a durable recovery source — that state file
+still has `phase: starting`, no `pid`, and no window, so it satisfies
+`reapableStartingOrphans` and `flow ls`'s lazy reap (`REAP_GRACE_MS`, ~60s)
+deletes it shortly after the message prints. `flow reap` / `flow done`
+remain the generic backstop for this one abandoned `phase: starting` state
+file, not a recovery path for the seed text itself.
 
 ## Why the TTY / trust-dialog hypothesis was not pursued
 
