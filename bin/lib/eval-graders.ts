@@ -70,9 +70,13 @@ function deepEqual(a: unknown, b: unknown): boolean {
 
 /**
  * `equals` — deep-equal; `oneOf` — deep-equal against any member;
- * `contains` — substring for a string `actual`, `.includes` for an array;
+ * `contains` — substring match, against a string `actual` directly or
+ * against any string element of an array `actual`;
  * `matches`/`notMatches` — regex over `String(actual)`; `exists` —
  * `actual !== undefined` (compared against the expected boolean).
+ * A literal `null` is a usable `equals` expected value (it deep-equals an
+ * `actual` of `null`), but an omitted/`undefined` `actual` never matches
+ * it — use this to assert a required field is present-but-null.
  */
 export function matchValue(
   m: Matcher,
@@ -88,10 +92,11 @@ export function matchValue(
     };
   }
   if (m.contains !== undefined) {
+    const needle = m.contains;
     const pass = Array.isArray(actual)
-      ? actual.includes(m.contains)
-      : typeof actual === "string" && actual.includes(m.contains);
-    return { pass, expected: `contains "${m.contains}"` };
+      ? actual.some((el) => typeof el === "string" && el.includes(needle))
+      : typeof actual === "string" && actual.includes(needle);
+    return { pass, expected: `contains "${needle}"` };
   }
   if (m.matches !== undefined) {
     return {

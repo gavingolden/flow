@@ -1,0 +1,10 @@
+{
+  "slug": "zz-spike-wf-scratch",
+  "phase": "ci-wait",
+  "repo": "/Users/gavingolden/code/me/flow",
+  "updatedAt": "2026-08-25T01:18:25.439Z",
+  "phaseLog": [
+    { "phase": "verifying", "at": "2026-08-25T01:17:31.122Z" },
+    { "phase": "ci-wait", "at": "2026-08-25T01:18:25.439Z" }
+  ]
+}

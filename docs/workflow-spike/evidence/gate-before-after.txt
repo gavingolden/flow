@@ -1,0 +1,4 @@
+# before (PR 674)
+{"headRefOid":"bd287e8f3d36babda292bd2ae6b8debfd15d7544","mergedAt":null,"state":"OPEN"}
+# after (PR 674)
+{"headRefOid":"bd287e8f3d36babda292bd2ae6b8debfd15d7544","mergedAt":null,"state":"OPEN"}

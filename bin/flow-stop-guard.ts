@@ -31,6 +31,8 @@
 
 import { spawnSync } from "node:child_process";
 import { resolveSlugFromEnv } from "./lib/session-identity";
+import { isCommittableOnBaseBranch } from "./lib/base-branch-guard";
+import { isValidSlug } from "./lib/slug";
 import {
   isLegitimateEndPhase,
   nowIso as defaultNowIso,
@@ -44,6 +46,11 @@ import {
   writeTurnTracking,
   type TurnTracking,
 } from "./lib/stop-turn-tracking";
+import {
+  dirtyEpicMetadata as defaultDirtyEpicPaths,
+  repoCommitState as defaultRepoCommitState,
+  type RepoState,
+} from "./lib/epic-metadata-commit";
 
 type HookInput = {
   stop_hook_active?: boolean;
@@ -60,7 +67,72 @@ export type Deps = {
   readTurn: (slug: string) => TurnTracking | null;
   writeTurn: (tracking: TurnTracking) => void;
   nowIso: () => string;
+  /** `.flow/epics/**` dirty-path probe (test seam; production: epic-metadata-commit.ts). */
+  dirtyEpicPaths: (repoRoot: string) => string[];
+  /** Repo commit-state probe (test seam; production: epic-metadata-commit.ts). */
+  repoCommitState: (repoRoot: string) => RepoState;
 };
+
+function dedupe(items: string[]): string[] {
+  return Array.from(new Set(items));
+}
+
+/**
+ * SATISFIABLE-ROUTE INVARIANT: may only name routes the session can execute
+ * IN THIS TURN. A status.json board is committable on the base branch via
+ * the v4 allowlist (`flow-epic-sync --commit --push`); any other
+ * `.flow/epics/**` path (manifest.json, design.md, ...) needs the full
+ * switch-commit-switch-back sequence — the base-branch guard refuses only
+ * when HEAD IS the default branch, so switching off it first makes the
+ * commit legal, and switching back is MANDATORY or the primary checkout is
+ * left parked on a feature branch, silently breaking every downstream
+ * base-branch assumption.
+ */
+export function buildEpicMetadataReminder(
+  entries: { root: string; path: string }[],
+  ctx: { onBaseBranch: boolean },
+): string[] {
+  const lines = [
+    `flow-stop-guard: uncommitted .flow/epics/** metadata: ${entries.map((e) => e.path).join(", ")}.`,
+    "This must never leave the epic — commit it THIS TURN via the sanctioned route below, then continue.",
+  ];
+  for (const { root, path: p } of entries) {
+    // Route on the shared allowlist predicate, not a re-encoded regex, so
+    // this can never drift from what the base-branch-guard hook actually
+    // allows (`bin/lib/base-branch-guard.ts`'s EPIC_STATUS_ALLOWLIST).
+    if (isCommittableOnBaseBranch([p])) {
+      const epicMatch = p.match(/^\.flow\/epics\/([^/]+)\/status\.json$/);
+      const slug = epicMatch?.[1];
+      // Root-anchored: these commands must always operate on `root`, never
+      // an ambient `cwd` — from a feature-pipeline worktree, resolving from
+      // `cwd` would write into the WRONG checkout.
+      if (slug && isValidSlug(slug)) {
+        lines.push(
+          `  ${p}: run \`(cd ${root} && flow-epic-sync --epic-slug ${slug} --commit --push)\`.`,
+        );
+      } else {
+        lines.push(
+          `  ${p}: run \`(cd ${root} && flow-epic-sync --commit --push)\` (slug omitted — path did not resolve to a valid epic slug).`,
+        );
+      }
+    } else {
+      const epicMatch = p.match(/^\.flow\/epics\/([^/]+)\//);
+      const epic =
+        epicMatch && isValidSlug(epicMatch[1]) ? epicMatch[1] : "the-epic";
+      lines.push(
+        `  ${p}: run \`git -C ${root} switch -c flow-epic-amend/${epic}\`, commit it there, ` +
+          `then \`git -C ${root} switch -\` to return that checkout to the base branch — ` +
+          "the base-branch guard refuses this path on the base branch directly.",
+      );
+    }
+  }
+  if (ctx.onBaseBranch) {
+    lines.push(
+      "(the repo is currently on the base branch — the status.json route above applies directly there)",
+    );
+  }
+  return lines;
+}
 
 export async function run(deps: Deps): Promise<number> {
   let input: HookInput = {};
@@ -100,6 +172,61 @@ export async function run(deps: Deps): Promise<number> {
     : prior!;
 
   if (turnBoundary) deps.writeTurn(tracking);
+
+  // Fires BEFORE the terminal-phase early return below — the epic-run
+  // window shares a state file whose phase is already terminal, so a check
+  // placed after that return would never fire for the exact session that
+  // produced this bug.
+  const repoRoots = dedupe(
+    [state.repo, state.worktree].filter(
+      (r): r is string => typeof r === "string" && r.length > 0,
+    ),
+  );
+  const dirtyByRoot = repoRoots.map((r) => ({
+    root: r,
+    paths: deps.dirtyEpicPaths(r),
+  }));
+  const dirty = dedupe(dirtyByRoot.flatMap((r) => r.paths));
+  const dirtyEntries = dirtyByRoot.flatMap((r) =>
+    r.paths.map((path) => ({ root: r.root, path })),
+  );
+  if (dirty.length > 0) {
+    // ZERO-COST GUARANTEE: repoCommitState is called ONLY here, inside the
+    // dirty-detected branch, so a clean/non-epic repo spawns nothing extra.
+    const repoState = deps.repoCommitState(state.repo);
+    if (repoState !== "clean") {
+      deps.writeErr(
+        `flow-stop-guard: .flow/epics/** is dirty (${dirty.join(", ")}) but the repo is mid-${repoState}; not safe to commit this turn. Resolve the ${repoState} first.\n`,
+      );
+      return 0; // diagnostic only — no block slot consumed
+    }
+    if (tracking.blockCount >= TURN_BLOCK_LIMIT) {
+      deps.writeErr(
+        `flow-stop-guard: loop-break consumed with .flow/epics/** still dirty (${dirty.join(", ")}); subsequent stops will exit 0. Continue per AGENTS.md "Auto-commit exemption: flow-epic-sync --commit".\n`,
+      );
+      tracking = { ...tracking, lastStopAt: now };
+      deps.writeTurn(tracking);
+      return 0;
+    }
+    tracking = {
+      ...tracking,
+      blockCount: tracking.blockCount + 1,
+      lastStopAt: now,
+    };
+    deps.writeTurn(tracking);
+    // state.repo is the canonical base-branch checkout in flow's
+    // architecture (state.worktree is the per-pipeline feature branch), so
+    // a dirty path reported against state.repo means the repo IS on (or
+    // very near) the base branch.
+    const onBaseBranch = dirtyByRoot.some(
+      (r) => r.root === state.repo && r.paths.length > 0,
+    );
+    deps.writeErr(
+      buildEpicMetadataReminder(dirtyEntries, { onBaseBranch }).join("\n") +
+        "\n",
+    );
+    return 2;
+  }
 
   if (isLegitimateEndPhase(state.phase)) {
     tracking = { ...tracking, lastStopAt: now };
@@ -239,5 +366,7 @@ if (import.meta.main) {
     readTurn: (slug) => readTurnTracking(slug),
     writeTurn: (t) => writeTurnTracking(t),
     nowIso: defaultNowIso,
+    dirtyEpicPaths: (repoRoot) => defaultDirtyEpicPaths({ repoRoot }),
+    repoCommitState: (repoRoot) => defaultRepoCommitState({ repoRoot }),
   }).then((code) => process.exit(code));
 }

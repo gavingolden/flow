@@ -14,10 +14,17 @@
   "resultSchema": "result-schema.json",
   "graders": [
     {
-      "id": "resumed-step-matches",
+      "id": "resumed-step-null-on-gated-feedback",
       "kind": "structured",
       "path": "resumed_step",
-      "equals": 9
+      "equals": null
+    },
+    {
+      "id": "action-matches-resume",
+      "kind": "structured",
+      "gate": false,
+      "path": "action",
+      "equals": "resume"
     },
     {
       "id": "cleared-items-carries-test-step-2",

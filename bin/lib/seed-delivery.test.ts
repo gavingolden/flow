@@ -3,6 +3,8 @@ import {
   chunkByBytes,
   deliverSeed,
   MAX_SEND_KEYS_BYTES,
+  REMAINDER_CHUNK_BYTES,
+  REMAINDER_SETTLE_MS,
   splitSeed,
   type DeliverSeedSeams,
 } from "./seed-delivery";
@@ -163,6 +165,11 @@ describe("deliverSeed — settle gate", () => {
 
 describe("deliverSeed — leading-line verification", () => {
   it("should send the leading line alone, then the remainder, then report delivered when the leading line echoes intact", () => {
+    // Pin: this remainder must stay under the 128-byte remainder chunk size
+    // for the single-chunk `sends` shape below to hold by design, not by luck.
+    expect(Buffer.byteLength(`\n${BODY}`, "utf8")).toBeLessThan(
+      REMAINDER_CHUNK_BYTES,
+    );
     const { seams, sends } = makeSeams(SEED);
     expect(deliverSeed(SEED, seams)).toEqual({ delivered: true, stderr: "" });
     expect(sends).toEqual([
@@ -179,6 +186,11 @@ describe("deliverSeed — leading-line verification", () => {
   });
 
   it("should send C-u and re-send only the leading line when the echo comes back with the leading characters dropped", () => {
+    // Pin: this remainder must stay under the 128-byte remainder chunk size
+    // for the single-chunk `sends` shape below to hold by design, not by luck.
+    expect(Buffer.byteLength(`\n${BODY}`, "utf8")).toBeLessThan(
+      REMAINDER_CHUNK_BYTES,
+    );
     const { seams, sends } = makeSeams(SEED, { dropLeadingEchoes: 1 });
     expect(deliverSeed(SEED, seams)).toEqual({ delivered: true, stderr: "" });
     expect(sends).toEqual([
@@ -277,17 +289,20 @@ describe("deliverSeed — send failures", () => {
 });
 
 describe("deliverSeed — oversized seeds", () => {
-  it("should send the remainder as multiple bounded literal chunks when the seed exceeds the send-keys byte cap", () => {
-    const body = "x".repeat(MAX_SEND_KEYS_BYTES + 800); // remainder > one chunk
+  it("should send the remainder as multiple chunks bounded by the remainder chunk size when the seed exceeds it", () => {
+    const body = "x".repeat(MAX_SEND_KEYS_BYTES + 800); // remainder >> one remainder chunk
     const seed = `${MARKER}\n${body}`;
     const { seams, sends } = makeSeams(seed);
     expect(deliverSeed(seed, seams)).toEqual({ delivered: true, stderr: "" });
     const literals = sends.filter((s) => s.literal);
-    // 1 leading chunk + 2 remainder chunks (the "\n"+body spans two chunks).
-    expect(literals).toHaveLength(3);
-    for (const s of literals) {
+    const [leadingSend, ...remainderChunks] = literals;
+    expect(leadingSend).toEqual({ text: MARKER, literal: true });
+    // A ~9 KB remainder paced at <=128 bytes/chunk is dozens of chunks, not 3 —
+    // the old literal-count pin (3) only held at the pre-pacing 8192-byte cap.
+    expect(remainderChunks.length).toBeGreaterThanOrEqual(16);
+    for (const s of remainderChunks) {
       expect(Buffer.byteLength(s.text, "utf8")).toBeLessThanOrEqual(
-        MAX_SEND_KEYS_BYTES,
+        REMAINDER_CHUNK_BYTES,
       );
     }
     // Reassembling the literal sends reproduces the seed exactly.
@@ -299,5 +314,58 @@ describe("deliverSeed — oversized seeds", () => {
     const { seams, sends } = makeSeams(seed);
     expect(deliverSeed(seed, seams)).toEqual({ delivered: true, stderr: "" });
     expect(sends).toEqual([{ text: seed, literal: true }]);
+  });
+});
+
+describe("deliverSeed — remainder pacing", () => {
+  it("should send a 2048-byte remainder in <=128-byte chunks with a sleep between consecutive chunks but not after the last", () => {
+    const body = "y".repeat(2048);
+    const seed = `${MARKER}\n${body}`;
+    const { remainder } = splitSeed(seed);
+    const { seams, sends } = makeSeams(seed);
+    const sleeps: number[] = [];
+    seams.sleep = (ms: number) => sleeps.push(ms);
+    expect(deliverSeed(seed, seams)).toEqual({ delivered: true, stderr: "" });
+    const remainderChunks = sends.filter((s) => s.literal).slice(1);
+    const expectedChunkCount = Math.ceil(
+      Buffer.byteLength(remainder, "utf8") / REMAINDER_CHUNK_BYTES,
+    );
+    expect(remainderChunks).toHaveLength(expectedChunkCount);
+    for (const s of remainderChunks) {
+      expect(Buffer.byteLength(s.text, "utf8")).toBeLessThanOrEqual(
+        REMAINDER_CHUNK_BYTES,
+      );
+    }
+    expect(remainderChunks.map((s) => s.text).join("")).toBe(remainder);
+    // One REMAINDER_SETTLE_MS sleep between each pair of consecutive remainder
+    // chunks, none after the last (settle-gate and leading-line-verify sleeps
+    // use different durations, so filtering on the exact value isolates these).
+    const remainderSleeps = sleeps.filter((ms) => ms === REMAINDER_SETTLE_MS);
+    expect(remainderSleeps).toHaveLength(remainderChunks.length - 1);
+  });
+
+  it("should honour remainderChunkBytes and remainderSettleMs overrides so tests never really sleep", () => {
+    const body = "z".repeat(50);
+    const seed = `${MARKER}\n${body}`;
+    const { remainder } = splitSeed(seed);
+    const { seams, sends } = makeSeams(seed);
+    const sleeps: number[] = [];
+    seams.sleep = (ms: number) => sleeps.push(ms);
+    const result = deliverSeed(seed, seams, {
+      remainderChunkBytes: 10,
+      remainderSettleMs: 5,
+    });
+    expect(result).toEqual({ delivered: true, stderr: "" });
+    const remainderChunks = sends.filter((s) => s.literal).slice(1);
+    const expectedChunkCount = Math.ceil(
+      Buffer.byteLength(remainder, "utf8") / 10,
+    );
+    expect(remainderChunks).toHaveLength(expectedChunkCount);
+    for (const s of remainderChunks) {
+      expect(Buffer.byteLength(s.text, "utf8")).toBeLessThanOrEqual(10);
+    }
+    expect(sleeps.filter((ms) => ms === 5)).toHaveLength(
+      remainderChunks.length - 1,
+    );
   });
 });

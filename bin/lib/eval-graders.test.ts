@@ -62,6 +62,8 @@ describe("matchValue", () => {
   it("equals does a deep-equal", () => {
     expect(matchValue({ equals: { a: 1 } }, { a: 1 }).pass).toBe(true);
     expect(matchValue({ equals: { a: 1 } }, { a: 2 }).pass).toBe(false);
+    expect(matchValue({ equals: null }, null).pass).toBe(true);
+    expect(matchValue({ equals: null }, undefined).pass).toBe(false); // absent !== null
   });
   it("oneOf checks membership by deep-equal", () => {
     expect(matchValue({ oneOf: ["a", "b"] }, "b").pass).toBe(true);
@@ -73,6 +75,12 @@ describe("matchValue", () => {
     );
     expect(matchValue({ contains: "flow" }, ["a", "flow"]).pass).toBe(true);
     expect(matchValue({ contains: "flow" }, ["a", "b"]).pass).toBe(false);
+    expect(
+      matchValue({ contains: "Test Step 2" }, [
+        "Test Step 2 (screenshot reviewed)",
+      ]).pass,
+    ).toBe(true);
+    expect(matchValue({ contains: "2" }, [2]).pass).toBe(false);
   });
   it("matches/notMatches run a regex over String(actual)", () => {
     expect(matchValue({ matches: "^ok" }, "okay").pass).toBe(true);

@@ -28,6 +28,7 @@ import {
   isPaneAlive,
   panePid,
   FLOW_SESSION,
+  SEED_CORRUPTED_STDERR,
   setWindowEpic,
   type VerifiedLaunchResult,
 } from "./tmux";
@@ -907,7 +908,7 @@ function runFresh(
   // per attempt scopes consumption to THAT attempt. A retry only fires after a
   // killed/dead window, so no live supervisor races this rewrite.
   const launch = () => {
-    writeState(makeBaseState("tmux"), options.stateDir);
+    writeState({ ...makeBaseState("tmux"), seed }, options.stateDir);
     // Verify the window's process actually stayed up AND consumed the seed (the
     // supervisor advanced state.json past `starting`) before keeping that
     // state. A bare `createWindow` only proves tmux forked the shell, and a
@@ -920,13 +921,19 @@ function runFresh(
       // Marker-aware consumed(): the seed-ingested hook stamping `seedIngestedAt`
       // confirms ingestion at launch time; absent the marker, fall back to the
       // phase advancing past `starting`. (consumed() is only probed while the
-      // pane is alive, so "marker present" already implies a live pane.)
+      // pane is alive, so "marker present" already implies a live pane.) A
+      // recorded seedMismatch is checked FIRST so it always beats the
+      // phase-advance fallback — a corrupted delivery must never latch as
+      // consumed just because some other write happened to advance the phase.
       consumed: () => {
         const s = readState(slug, options.stateDir);
         if (s == null) return false;
+        if (s.seedMismatch != null) return false;
         if (s.seedIngestedAt != null) return true;
         return s.phase !== "starting";
       },
+      seedCorrupted: () =>
+        readState(slug, options.stateDir)?.seedMismatch != null,
       onProgress: makeLaunchProgressWriter(),
     });
     // Crash-safe liveness signal: only once the window is confirmed up (never
@@ -955,13 +962,44 @@ function runFresh(
     options,
   );
   if (result.status === "failed") {
-    deleteState(slug, options.stateDir);
-    console.error(
-      "flow feature create: claude exited immediately after launch — the tmux window did not stay up.",
-    );
-    console.error(
-      "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
-    );
+    const seedCorrupted = result.stderr === SEED_CORRUPTED_STDERR;
+    // The seed-corruption failure deliberately SKIPS the no-orphan delete: the
+    // pipeline never got far enough to write a plan/worktree, so state.seed is
+    // the ONLY surviving copy of the original request text. But this state
+    // file still satisfies `reapableStartingOrphans` (phase `starting`, no
+    // pid, no window) — `flow ls`'s lazy reap (REAP_GRACE_MS, ~60s) deletes
+    // it shortly after, so pointing the user at the file path (as a prior
+    // version of this message did) is a recovery hint that stops being true
+    // within a minute. Print the seed text directly below instead, so
+    // recovery doesn't depend on the file surviving. `flow reap`/`flow done`
+    // remain the generic backstop for this one abandoned `phase: starting`
+    // state file.
+    if (!seedCorrupted) {
+      deleteState(slug, options.stateDir);
+    }
+    if (seedCorrupted) {
+      const corruptedState = readState(slug, options.stateDir);
+      console.error(
+        "flow feature create: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
+      );
+      if (corruptedState?.seed) {
+        console.error(
+          "  original request text (recover it now — this state file is reaped within ~60s):",
+        );
+        console.error(corruptedState.seed);
+      } else {
+        console.error(
+          `  the original request text was recorded in ~/.flow/state/${slug}.json but has already been reaped.`,
+        );
+      }
+    } else {
+      console.error(
+        "flow feature create: claude exited immediately after launch — the tmux window did not stay up.",
+      );
+      console.error(
+        "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
+      );
+    }
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 1;
   }
@@ -1038,6 +1076,9 @@ function runFresh(
         "flow feature create: launched; supervisor still starting — attach to verify",
       ),
     );
+    // Surface any delivery stderr (e.g. a failed/exhausted send) rather than
+    // silently dropping it — the failed branch above already does this.
+    if (result.stderr) console.error(dim(`  ${result.stderr}`));
   } else {
     console.log(
       dim(`flow feature create: created — attach with \`flow attach ${slug}\``),
@@ -1179,36 +1220,70 @@ function runResume(
   // self-heals; the timeout is non-destructive (a live-but-slow resume is
   // `launched-not-confirmed`, never respawn-killed).
   //
+  // Record THIS resume's own seed and clear any earlier hook markers before
+  // capturing the consumption baseline below. Two independent reasons this
+  // must happen HERE, before the baseline read:
+  //  (1) markerBaseline (below) must reflect the state a stale earlier
+  //      seedIngestedAt would otherwise poison — clearing it first means any
+  //      post-resume stamp is unambiguously a fresh re-stamp, never a leftover
+  //      from a prior launch/resume.
+  //  (2) flow-seed-ingested-hook short-circuits on `if (state.seedIngestedAt)
+  //      return 0;` — without this clear, the hook never performs the
+  //      integrity comparison on a resume attempt at all, regardless of the
+  //      markerBaseline logic below.
+  {
+    const preClear = readState(slug, options.stateDir);
+    if (preClear != null) {
+      writeState(
+        {
+          ...preClear,
+          seed,
+          seedIngestedAt: undefined,
+          seedMismatch: undefined,
+        },
+        options.stateDir,
+      );
+    }
+  }
   // Resume consumption baseline: on resume the phase is already past `starting`,
   // so consumption is "the resumed session RE-STAMPED the seed-ingested marker OR
   // the resumed supervisor bumped `updatedAt` past this pre-respawn value". BOTH
   // baselines are captured ONCE before the retry loop (not per-attempt): paired
   // with the non-destructive timeout, a late advance no longer respawn-kills a
-  // live session. The marker baseline is load-bearing — the original fresh launch
-  // stamped `seedIngestedAt` and `runResume` never clears it (writeState is not
-  // called here), so a bare `seedIngestedAt != null` check would short-circuit
-  // `consumed()` true on the FIRST probe off the STALE marker, skip the
-  // resume-seed send-keys (the double-submit guard), and latch a false-success
-  // resume that never delivered the seed. Requiring `seedIngestedAt` to DIFFER
-  // from the pre-resume value means only a fresh re-stamp by the resumed session
-  // counts. ACCEPTED rare trade-off: a dead-then-retried resume whose prior dead
-  // attempt bumped `updatedAt` reads "consumed" over the fresh respawn — but that
-  // only means the supervisor DID start at some point, and resume-over-it is the
-  // user's intent. This baseline read is non-mutating; the window pre-existed
-  // the resume. (`launch` below DOES now write once on success — see the
-  // pid/procStartedAt capture — but that write is unrelated to this baseline.)
+  // live session. The marker baseline is now ALWAYS undefined immediately after
+  // the clear above, so a bare `seedIngestedAt != null` check on its own would
+  // suffice — the explicit `!== markerBaseline` comparison is kept anyway so this
+  // predicate degrades safely if the clear above is ever skipped or reordered.
+  // ACCEPTED rare trade-off: a dead-then-retried resume whose prior dead attempt
+  // bumped `updatedAt` reads "consumed" over the fresh respawn — but that only
+  // means the supervisor DID start at some point, and resume-over-it is the
+  // user's intent. This baseline read now follows a MUTATING write immediately
+  // above (the seed/marker clear) — it is no longer non-mutating, and the write
+  // is required, not incidental. (`launch` below DOES also write once on
+  // success — see the pid/procStartedAt capture — but that write is unrelated
+  // to this baseline.)
   const preResume = readState(slug, options.stateDir);
   const baseline = preResume?.updatedAt;
   const markerBaseline = preResume?.seedIngestedAt;
   const consumed = () => {
     const s = readState(slug, options.stateDir);
     if (s == null) return false;
+    // A recorded seedMismatch is checked FIRST so it always beats the
+    // marker/updatedAt fallbacks — a corrupted delivery must never latch as
+    // consumed just because the marker or updatedAt happened to advance too.
+    if (s.seedMismatch != null) return false;
     if (s.seedIngestedAt != null && s.seedIngestedAt !== markerBaseline)
       return true;
     return s.updatedAt !== baseline;
   };
+  const seedCorrupted = () =>
+    readState(slug, options.stateDir)?.seedMismatch != null;
   const launch = () => {
-    const deps = { consumed, onProgress: makeLaunchProgressWriter() };
+    const deps = {
+      consumed,
+      seedCorrupted,
+      onProgress: makeLaunchProgressWriter(),
+    };
     const result = exists
       ? respawnWindowVerified(slug, repo, command, seed, deps)
       : createWindowVerified(slug, repo, command, seed, deps);
@@ -1245,12 +1320,21 @@ function runResume(
     options,
   );
   if (result.status === "failed") {
-    console.error(
-      "flow feature resume: claude exited immediately after launch — the tmux window did not stay up.",
-    );
-    console.error(
-      "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
-    );
+    if (result.stderr === SEED_CORRUPTED_STDERR) {
+      console.error(
+        "flow feature resume: the resume prompt did not arrive intact in the session — seed delivery is corrupted.",
+      );
+      console.error(
+        `  the resume seed is recorded in ~/.flow/state/${slug}.json — recover it with \`jq -r .seed ~/.flow/state/${slug}.json\`.`,
+      );
+    } else {
+      console.error(
+        "flow feature resume: claude exited immediately after launch — the tmux window did not stay up.",
+      );
+      console.error(
+        "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
+      );
+    }
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 1;
   }
@@ -1310,6 +1394,11 @@ function runResume(
         "flow feature resume: launched; supervisor still starting — attach to verify",
       ),
     );
+    // Surface any delivery stderr (e.g. a failed/exhausted send) rather than
+    // silently dropping it — the failed branch above already does this. The
+    // edit-set that introduced this bundled fix assumed the resume path
+    // already did this; on inspection it did not, so it's fixed here too.
+    if (result.stderr) console.error(dim(`  ${result.stderr}`));
   } else {
     console.log(
       dim(`flow feature resume: resumed — attach with \`flow attach ${slug}\``),

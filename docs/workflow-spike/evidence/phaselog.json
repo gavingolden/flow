@@ -1,0 +1,28 @@
+{
+  "afterRun2Interrupt": [
+    {
+      "phase": "verifying",
+      "at": "2026-08-25T01:17:31.122Z"
+    }
+  ],
+  "afterRun2Resume": [
+    {
+      "phase": "verifying",
+      "at": "2026-08-25T01:17:31.122Z"
+    },
+    {
+      "phase": "ci-wait",
+      "at": "2026-08-25T01:18:25.439Z"
+    }
+  ],
+  "afterRun3": [
+    {
+      "phase": "verifying",
+      "at": "2026-08-25T01:17:31.122Z"
+    },
+    {
+      "phase": "ci-wait",
+      "at": "2026-08-25T01:18:25.439Z"
+    }
+  ]
+}

@@ -1436,10 +1436,6 @@ visible.
 
 **Phase:** `verifying`
 
-```bash
-flow-state-update --phase verifying
-```
-
 The verify work runs inside one **Independent Verify-Retry-Loop
 Subagent** (the ninth named Task-tool exemption — see "Hard rules"
 above), not inline in the supervisor. The subagent owns the
@@ -1461,10 +1457,15 @@ and the terminal branch.
 
 **Load the Task tool before spawning** — i.e. before the Task call below. See [../flow-pr-review/references/task-tool-exemption-preamble.md](../flow-pr-review/references/task-tool-exemption-preamble.md) for the full rationale. On missing schema: escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-verify-loop` and exit (do not fall back to in-line execution).
 
+**Run this block before spawning — its first line is the phase write.**
 Resolve the inputs the subagent needs, then make exactly **one** Task
 call:
 
 ```bash
+# Phase write lives here, not a standalone block above, so it cannot be
+# skipped independently of the spawn this block leads into.
+flow-state-update --phase verifying
+
 ARTIFACT_PATH="$WORKTREE/.flow-tmp/verify-loop-result.json"
 INSTRUCTIONS_PATH="$SKILL_DIR/references/verify-loop-instructions.md"
 mkdir -p "$WORKTREE/.flow-tmp"

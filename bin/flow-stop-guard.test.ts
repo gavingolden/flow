@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildEpicMetadataReminder,
   buildReminder,
   buildStagnationReminder,
   nextStepLabel,
@@ -13,6 +14,7 @@ import {
   type PipelineState,
 } from "./lib/state";
 import { TURN_BLOCK_LIMIT, type TurnTracking } from "./lib/stop-turn-tracking";
+import type { RepoState } from "./lib/epic-metadata-commit";
 
 const FROZEN_NOW = "2026-05-17T00:00:00.000Z";
 
@@ -22,6 +24,7 @@ type Stub = {
   loadCalls: string[];
   writeTurn: ReturnType<typeof vi.fn>;
   readTurn: ReturnType<typeof vi.fn>;
+  repoCommitStateSpy: ReturnType<typeof vi.fn>;
 };
 
 function makeDeps(opts: {
@@ -32,11 +35,16 @@ function makeDeps(opts: {
   state?: PipelineState | null;
   turnTracking?: TurnTracking | null;
   nowIso?: string;
+  dirtyEpicPaths?: (repoRoot: string) => string[];
+  repoCommitState?: (repoRoot: string) => RepoState;
 }): Stub {
   const errLines: string[] = [];
   const loadCalls: string[] = [];
   const writeTurn = vi.fn();
   const readTurn = vi.fn(() => opts.turnTracking ?? null);
+  const repoCommitStateSpy = vi.fn(
+    opts.repoCommitState ?? (() => "clean" as RepoState),
+  );
   const deps: Deps = {
     readStdin: async () => opts.stdin ?? "",
     flowSlugEnv: opts.flowSlugEnv,
@@ -52,16 +60,22 @@ function makeDeps(opts: {
     readTurn,
     writeTurn,
     nowIso: () => opts.nowIso ?? FROZEN_NOW,
+    dirtyEpicPaths: opts.dirtyEpicPaths ?? (() => []),
+    repoCommitState: repoCommitStateSpy,
   };
-  return { deps, errLines, loadCalls, writeTurn, readTurn };
+  return { deps, errLines, loadCalls, writeTurn, readTurn, repoCommitStateSpy };
 }
 
-function fakeState(phase: string): PipelineState {
+function fakeState(
+  phase: string,
+  overrides: Partial<PipelineState> = {},
+): PipelineState {
   return {
     slug: "demo",
     phase,
     repo: "/tmp/repo",
     updatedAt: "2026-05-03T00:00:00Z",
+    ...overrides,
   };
 }
 
@@ -545,5 +559,184 @@ describe("per-turn tracking", () => {
     expect(await run(deps)).toBe(0);
     expect(writeTurn).not.toHaveBeenCalled();
     expect(errLines).toEqual([]);
+  });
+
+  it("ZERO COST: no dirty epic paths means repoCommitState is NEVER called, exit matches today's behaviour", async () => {
+    const { deps, errLines, repoCommitStateSpy } = makeDeps({
+      stdin: JSON.stringify({}),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("merged"),
+      dirtyEpicPaths: () => [],
+    });
+    expect(await run(deps)).toBe(0);
+    expect(repoCommitStateSpy).not.toHaveBeenCalled();
+    expect(errLines).toEqual([]);
+  });
+
+  it("BLOCK: one dirty status.json on a non-terminal phase means exit 2 with the executable route", async () => {
+    const { deps, errLines } = makeDeps({
+      stdin: JSON.stringify({}),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("verifying"),
+      dirtyEpicPaths: () => [".flow/epics/e1/status.json"],
+    });
+    expect(await run(deps)).toBe(2);
+    const joined = errLines.join("");
+    expect(joined).toContain(".flow/epics/e1/status.json");
+    expect(joined).toContain("flow-epic-sync --epic-slug e1 --commit --push");
+  });
+
+  it("BLOCK AT A TERMINAL PHASE: the same dirty path still exits 2 (fires before isLegitimateEndPhase)", async () => {
+    const { deps, errLines } = makeDeps({
+      stdin: JSON.stringify({}),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("merged"),
+      dirtyEpicPaths: () => [".flow/epics/e1/status.json"],
+    });
+    expect(await run(deps)).toBe(2);
+    expect(errLines.join("")).toContain(
+      "flow-epic-sync --epic-slug e1 --commit --push",
+    );
+  });
+
+  it("MANIFEST ROUTE: a dirty manifest.json exits 2 with a switch-commit-switch-back sequence, not just 'open a PR'", async () => {
+    const { deps, errLines } = makeDeps({
+      stdin: JSON.stringify({}),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("verifying"),
+      dirtyEpicPaths: () => [".flow/epics/e1/manifest.json"],
+    });
+    expect(await run(deps)).toBe(2);
+    const joined = errLines.join("");
+    expect(joined).toContain("git -C");
+    expect(joined).toContain("switch -c flow-epic-amend/e1");
+    expect(joined).toContain("switch -");
+  });
+
+  it("DUAL PROBE: distinct dirty paths in state.repo and state.worktree both appear, deduped when roots are equal", async () => {
+    const { deps, errLines } = makeDeps({
+      stdin: JSON.stringify({}),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("verifying", { worktree: "/tmp/worktree" }),
+      dirtyEpicPaths: (root) =>
+        root === "/tmp/repo"
+          ? [".flow/epics/e1/status.json"]
+          : [".flow/epics/e2/status.json"],
+    });
+    expect(await run(deps)).toBe(2);
+    const joined = errLines.join("");
+    expect(joined).toContain(".flow/epics/e1/status.json");
+    expect(joined).toContain(".flow/epics/e2/status.json");
+    // Root-anchored: the e1 command must target state.repo, the e2 command
+    // must target state.worktree — never an ambient cwd.
+    expect(joined).toContain(
+      "(cd /tmp/repo && flow-epic-sync --epic-slug e1 --commit --push)",
+    );
+    expect(joined).toContain(
+      "(cd /tmp/worktree && flow-epic-sync --epic-slug e2 --commit --push)",
+    );
+  });
+
+  it("DUAL PROBE dedupes when state.repo === state.worktree (one dirtyEpicPaths call, not two)", async () => {
+    const calls: string[] = [];
+    const { deps } = makeDeps({
+      stdin: JSON.stringify({}),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("verifying", { worktree: "/tmp/repo" }),
+      dirtyEpicPaths: (root) => {
+        calls.push(root);
+        return [".flow/epics/e1/status.json"];
+      },
+    });
+    await run(deps);
+    expect(calls).toEqual(["/tmp/repo"]);
+  });
+
+  it("LOOP BREAK: blockCount already at the limit with the path still dirty means exit 0, no further increment", async () => {
+    const { deps, errLines, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: true }),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("verifying"),
+      turnTracking: fakeTracking({ blockCount: TURN_BLOCK_LIMIT }),
+      dirtyEpicPaths: () => [".flow/epics/e1/status.json"],
+    });
+    expect(await run(deps)).toBe(0);
+    expect(errLines.join("")).toContain("loop-break consumed");
+    expect(writeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ blockCount: TURN_BLOCK_LIMIT }),
+    );
+  });
+
+  it("NON-COMMITTABLE STATE (rebase): exit 0, diagnostic on stderr, blockCount NOT incremented", async () => {
+    const { deps, errLines, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: true }),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("verifying"),
+      turnTracking: fakeTracking({ blockCount: 0 }),
+      dirtyEpicPaths: () => [".flow/epics/e1/status.json"],
+      repoCommitState: () => "rebase",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(errLines.join("")).toContain("rebase");
+    expect(writeTurn).not.toHaveBeenCalledWith(
+      expect.objectContaining({ blockCount: 1 }),
+    );
+  });
+
+  it("NON-COMMITTABLE STATE (detached): exit 0, diagnostic on stderr, blockCount NOT incremented", async () => {
+    const { deps, errLines, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: true }),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("verifying"),
+      turnTracking: fakeTracking({ blockCount: 0 }),
+      dirtyEpicPaths: () => [".flow/epics/e1/status.json"],
+      repoCommitState: () => "detached",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(errLines.join("")).toContain("detached");
+    expect(writeTurn).not.toHaveBeenCalledWith(
+      expect.objectContaining({ blockCount: 1 }),
+    );
+  });
+});
+
+describe("buildEpicMetadataReminder", () => {
+  it("names the executable flow-epic-sync route for a status.json path, root-anchored", () => {
+    const lines = buildEpicMetadataReminder(
+      [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
+      { onBaseBranch: true },
+    );
+    expect(lines.join("\n")).toContain(
+      "(cd /repo && flow-epic-sync --epic-slug e1 --commit --push)",
+    );
+  });
+
+  it("names the full switch-commit-switch-back sequence for any other path, root-anchored, never just 'open a PR'", () => {
+    const lines = buildEpicMetadataReminder(
+      [{ root: "/repo", path: ".flow/epics/e1/design.md" }],
+      { onBaseBranch: true },
+    );
+    const joined = lines.join("\n");
+    expect(joined).toContain("git -C /repo switch -c flow-epic-amend/e1");
+    expect(joined).toContain("git -C /repo switch -");
+    expect(joined).not.toMatch(/^open a PR$/m);
+  });
+
+  it("falls back to the generic route when the slug segment fails isValidSlug", () => {
+    const lines = buildEpicMetadataReminder(
+      [{ root: "/repo", path: ".flow/epics/../status.json" }],
+      { onBaseBranch: true },
+    );
+    const joined = lines.join("\n");
+    expect(joined).not.toContain("--epic-slug ..");
   });
 });

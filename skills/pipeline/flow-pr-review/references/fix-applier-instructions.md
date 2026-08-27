@@ -339,6 +339,12 @@ into the fix commit you are already making (steps 3–4 / 5a–5b). If it is
 the only change this run produced, use commit message `chore(epic): sync
 <epic-slug> status board (pr-review #$PR_NUMBER)`.
 
+This in-PR invocation deliberately passes NEITHER `--commit` NOR `--push`:
+the edit rides the fix commit, which `/flow-pr-review`'s own auto-push
+exemption already pushes — so this in-band route and the out-of-band
+`--commit --push` route (`/flow-epic-run`'s reconcile-drift recipe) can
+never be conflated or double-push the same change.
+
 ### 5e. Checklist-append from the retrospective
 
 When the wrapper's Step 5 retrospective hands you a drafted repo-specific pattern entry

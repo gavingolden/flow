@@ -45,7 +45,8 @@ the resolved **literal** product-planning `SKILL_DIR`, each on its own line in
 the seed prompt:
 
 ```
-Use the /flow-epic-create skill for: <prompt>
+Use the /flow-epic-create skill for the prompt below.
+<prompt>
 
 EPIC_DIR: .flow/epics/<slug>
 

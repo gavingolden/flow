@@ -215,7 +215,8 @@ vertical slice. Ids, titles, and edges match `manifest.json` exactly.
 - **Depends on:** nothing (evidence-gathering; runs in parallel with the
   measurement chain).
 - **Produces:** a committed ADR with a go/no-go verdict and per-capability
-  evidence; nothing user-shipping.
+  evidence; nothing user-shipping. Landed at `docs/workflow-spike/adr.md`
+  (verdict: **go**).
 
 ### f6-workflow-port · Port pipeline steps 5–10 to a deterministic workflow script — **[contingent]**
 
