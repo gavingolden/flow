@@ -895,6 +895,94 @@ describe("state", () => {
     expect(readState("ci-wait-malformed", dir)).toBeNull();
   });
 
+  it("readState round-trips a valid planReview record through writeState", () => {
+    const withPlanReview: PipelineState = {
+      slug: "with-plan-review",
+      phase: "plan-review-pending",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      planReview: {
+        planFile: ".flow-tmp/plan.md",
+        decisionHash: "abc123",
+        depth: "deep",
+        startedAt: "2026-05-17T00:00:00Z",
+        pid: 4242,
+        startEpoch: 1000,
+        resultPath: ".flow-tmp/plan-review.md.run.json",
+        stderrPath: ".flow-tmp/plan-review.md.worker-stderr.log",
+        lastObservedAt: null,
+        checks: 0,
+      },
+    };
+    writeState(withPlanReview, dir);
+    expect(readState("with-plan-review", dir)).toEqual(withPlanReview);
+  });
+
+  it("readState round-trips a planReview record with null startEpoch/lastObservedAt", () => {
+    const withPlanReview: PipelineState = {
+      slug: "plan-review-nulls",
+      phase: "plan-review-pending",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      planReview: {
+        planFile: ".flow-tmp/plan.md",
+        decisionHash: "abc123",
+        depth: "standard",
+        startedAt: "2026-05-17T00:00:00Z",
+        pid: 4242,
+        startEpoch: null,
+        resultPath: ".flow-tmp/plan-review.md.run.json",
+        stderrPath: ".flow-tmp/plan-review.md.worker-stderr.log",
+        lastObservedAt: null,
+        checks: 0,
+      },
+    };
+    writeState(withPlanReview, dir);
+    expect(readState("plan-review-nulls", dir)).toEqual(withPlanReview);
+  });
+
+  it("readState accepts an absent planReview field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plan-review-absent.json"),
+      JSON.stringify({
+        slug: "plan-review-absent",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    const got = readState("plan-review-absent", dir);
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("planReview");
+  });
+
+  it("readState returns null when the planReview record is malformed (wrong-typed depth)", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plan-review-malformed.json"),
+      JSON.stringify({
+        slug: "plan-review-malformed",
+        phase: "plan-review-pending",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        planReview: {
+          planFile: ".flow-tmp/plan.md",
+          decisionHash: "abc123",
+          depth: "shallow",
+          startedAt: "2026-05-17T00:00:00Z",
+          pid: 4242,
+          startEpoch: null,
+          resultPath: ".flow-tmp/plan-review.md.run.json",
+          stderrPath: ".flow-tmp/plan-review.md.worker-stderr.log",
+          lastObservedAt: null,
+          checks: 0,
+        },
+      }),
+    );
+    expect(readState("plan-review-malformed", dir)).toBeNull();
+  });
+
   it("readState round-trips a valid untracked list through writeState", () => {
     const withUntracked: PipelineState = {
       slug: "with-untracked",
@@ -1265,9 +1353,16 @@ describe("phase constants", () => {
       "epic-designing",
       "epic-validating",
       "epic-pr-open",
+      "epic-plan-review-pending",
       "epic-design-pending-review",
       "epic-approved",
     ]);
+  });
+
+  it("epic-plan-review-pending auto-joins EPIC_PHASES via the epic- prefix, keeping isEpicPhase's window-kind fallback correct", () => {
+    expect(EPIC_PHASES as readonly string[]).toContain(
+      "epic-plan-review-pending",
+    );
   });
 
   it("PIPELINE_KINDS is exactly the three supervisor kinds, and isPipelineKind agrees (drift-guard)", () => {
@@ -1378,9 +1473,11 @@ describe("shortPhase", () => {
     "epic-designing": "e-dsgn",
     "epic-validating": "e-val",
     "epic-pr-open": "e-pr",
+    "epic-plan-review-pending": "e-prvw?",
     "epic-design-pending-review": "e-rvw?",
     "epic-approved": "e-ok",
     "plan-pending-interview": "planq?",
+    "plan-review-pending": "prvw?",
   };
 
   it.each(PIPELINE_PHASES)("maps %s to its canonical abbreviation", (phase) => {

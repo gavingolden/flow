@@ -6,9 +6,11 @@ import {
   AGY_SAFETY_PREAMBLE,
   artifactPathFor,
   buildAgyArgv,
+  looksTimedOut,
   looksUnauthenticated,
   parseArgs,
   run,
+  stderrTail,
   withSafetyPreamble,
   type Args,
   type Deps,
@@ -304,6 +306,57 @@ describe("looksUnauthenticated", () => {
   });
 });
 
+describe("looksTimedOut", () => {
+  it("flags agy's verified --print-timeout stderr signature", () => {
+    expect(looksTimedOut("Error: timeout waiting for response")).toBe(true);
+  });
+
+  it("flags related timeout phrasing", () => {
+    expect(looksTimedOut("deadline exceeded")).toBe(true);
+    expect(looksTimedOut("context deadline exceeded")).toBe(true);
+  });
+
+  it("does not flag an auth-flavored error", () => {
+    expect(looksTimedOut("Please log in to continue")).toBe(false);
+  });
+
+  it("does not flag a generic error", () => {
+    expect(looksTimedOut("something went wrong")).toBe(false);
+  });
+});
+
+describe("stderrTail", () => {
+  it("returns '' for empty or whitespace-only input", () => {
+    expect(stderrTail("")).toBe("");
+    expect(stderrTail("   \n\t  ")).toBe("");
+  });
+
+  it("returns short text unchanged", () => {
+    expect(stderrTail("boom")).toBe("boom");
+  });
+
+  it("caps at the default 2000 bytes, tail-most", () => {
+    // Spaces every few chars keep this below the 32-char opaque-run
+    // redaction threshold, so the cap is exercised in isolation.
+    const long = Array.from({ length: 700 }, (_, i) => `w${i}`).join(" ");
+    const withMarker = `${long} END`;
+    const tail = stderrTail(withMarker);
+    expect(tail.length).toBe(2000);
+    expect(tail.endsWith("END")).toBe(true);
+  });
+
+  it("honors an explicit cap override", () => {
+    const long = "w1 w2 w3 w4 w5 w6 END";
+    expect(stderrTail(long, 10)).toBe(long.slice(long.length - 10));
+  });
+
+  it("redacts before capping", () => {
+    expect(stderrTail("token: sk-abcdefghijklmnopqrstuvwxyz012345")).toContain(
+      "[REDACTED]",
+    );
+  });
+});
+
 function makeDeps(overrides: Partial<Deps> = {}): Deps & {
   calls: {
     agy: Array<{ argv: string[]; outPath: string }>;
@@ -370,11 +423,77 @@ describe("run", () => {
   it("gracefully skips with skipReason agy-error on a nonzero agy exit", () => {
     const deps = makeDeps({ runAgy: () => ({ exitCode: 1, stderr: "boom" }) });
     expect(run(["--prompt", "hi"], deps)).toBe(0);
-    expect(envelope(deps)).toMatchObject({
+    expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-error",
+      task: "default",
+      exitCode: 1,
+      stderrTail: "boom",
+    });
+  });
+
+  it("maps a --print-timeout kill's stderr signature to agy-timeout, not agy-error", () => {
+    const deps = makeDeps({
+      runAgy: () => ({
+        exitCode: 1,
+        stderr: "Error: timeout waiting for response",
+      }),
+    });
+    expect(run(["--prompt", "hi"], deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "agy-timeout",
+      task: "default",
+      exitCode: 1,
+      stderrTail: "Error: timeout waiting for response",
+    });
+  });
+
+  it("omits stderrTail entirely when agy's stderr is empty", () => {
+    const deps = makeDeps({ runAgy: () => ({ exitCode: 1, stderr: "" }) });
+    run(["--prompt", "hi"], deps);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "agy-error",
+      task: "default",
       exitCode: 1,
     });
+  });
+
+  it("caps stderrTail at 2000 bytes, keeping the tail-most (not head-most) slice", () => {
+    // Spaces every few chars keep this below the 32-char opaque-run
+    // redaction threshold, so the cap is exercised in isolation.
+    const head = Array.from({ length: 700 }, (_, i) => `A${i}`).join(" ");
+    const long = `${head} TAIL-MARKER`;
+    const deps = makeDeps({ runAgy: () => ({ exitCode: 1, stderr: long }) });
+    run(["--prompt", "hi"], deps);
+    const env = envelope(deps);
+    expect(env.stderrTail.length).toBe(2000);
+    expect(env.stderrTail.endsWith("TAIL-MARKER")).toBe(true);
+    expect(env.stderrTail.startsWith("A0")).toBe(false);
+  });
+
+  it("redacts token-shaped substrings in stderrTail", () => {
+    const deps = makeDeps({
+      runAgy: () => ({
+        exitCode: 1,
+        stderr: "auth failed: api_key=sk-abcdefghijklmnopqrstuvwxyz012345",
+      }),
+    });
+    run(["--prompt", "hi"], deps);
+    expect(envelope(deps).stderrTail).not.toContain(
+      "sk-abcdefghijklmnopqrstuvwxyz012345",
+    );
+    expect(envelope(deps).stderrTail).toContain("[REDACTED]");
+  });
+
+  it("keeps stdout a single JSON.parse-able line even when stderr carries newlines", () => {
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 1, stderr: "line one\nline two\nboom" }),
+    });
+    run(["--prompt", "hi"], deps);
+    expect(deps.calls.out).toHaveLength(1);
+    expect(() => JSON.parse(deps.calls.out[0] as string)).not.toThrow();
   });
 
   it("returns 2 (usage error) when reading --prompt-file throws (EACCES/EISDIR)", () => {
@@ -408,9 +527,11 @@ describe("run", () => {
       },
     });
     expect(run(["--prompt", "hi"], deps)).toBe(0);
-    expect(envelope(deps)).toMatchObject({
+    expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-error",
+      task: "default",
+      stderrTail: "spawn agy ENOMEM",
     });
   });
 
@@ -419,9 +540,12 @@ describe("run", () => {
       runAgy: () => ({ exitCode: 1, stderr: "Please log in" }),
     });
     run(["--prompt", "hi"], deps);
-    expect(envelope(deps)).toMatchObject({
+    expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-not-authenticated",
+      task: "default",
+      exitCode: 1,
+      stderrTail: "Please log in",
     });
   });
 

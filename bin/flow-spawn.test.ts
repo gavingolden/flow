@@ -20,6 +20,7 @@ function baseArgs(overrides: Partial<SpawnCliArgs> = {}): SpawnCliArgs {
     procClass: "default",
     stdin: "ignore",
     command: ["sh", "-c", "exit 0"],
+    detach: false,
     ...overrides,
   };
 }
@@ -129,6 +130,65 @@ describe("parseCliArgs", () => {
     const args = parseCliArgs(["--", "sh", "-c", "true"]);
     expect(args.procClass).toBe("default");
     expect(args.stdin).toBe("ignore");
+  });
+
+  it("parses --detach with --stdout/--stderr", () => {
+    const args = parseCliArgs([
+      "--detach",
+      "--stdout",
+      "/tmp/out.log",
+      "--stderr",
+      "/tmp/err.log",
+      "--",
+      "sleep",
+      "900",
+    ]);
+    expect(args.usageError).toBeUndefined();
+    expect(args.detach).toBe(true);
+    expect(args.stdoutPath).toBe("/tmp/out.log");
+    expect(args.stderrPath).toBe("/tmp/err.log");
+    expect(args.command).toEqual(["sleep", "900"]);
+  });
+
+  it("defaults detach to false when unspecified", () => {
+    expect(parseCliArgs(["--", "sh", "-c", "true"]).detach).toBe(false);
+  });
+
+  it("rejects --detach without --stdout", () => {
+    const args = parseCliArgs([
+      "--detach",
+      "--stderr",
+      "/tmp/err.log",
+      "--",
+      "sleep",
+      "900",
+    ]);
+    expect(args.usageError).toBe(
+      "--detach requires both --stdout <path> and --stderr <path>",
+    );
+  });
+
+  it("rejects --detach without --stderr", () => {
+    const args = parseCliArgs([
+      "--detach",
+      "--stdout",
+      "/tmp/out.log",
+      "--",
+      "sleep",
+      "900",
+    ]);
+    expect(args.usageError).toBe(
+      "--detach requires both --stdout <path> and --stderr <path>",
+    );
+  });
+
+  it("rejects a --stdout/--stderr flag immediately followed by another flag (missing-value guard)", () => {
+    expect(parseCliArgs(["--stdout", "--stderr", "/x"]).usageError).toBe(
+      "--stdout requires a value",
+    );
+    expect(parseCliArgs(["--stdout", "/x", "--stderr"]).usageError).toBe(
+      "--stderr requires a value",
+    );
   });
 });
 
@@ -488,6 +548,124 @@ describe("bin/flow-spawn.ts exec bit", () => {
     });
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toMatch(/^100755\b/);
+  });
+});
+
+describe("runLaunch — --detach", () => {
+  function detachArgs(overrides: Partial<SpawnCliArgs> = {}): SpawnCliArgs {
+    return baseArgs({
+      detach: true,
+      stdoutPath: "/tmp/out.log",
+      stderrPath: "/tmp/err.log",
+      command: ["sleep", "900"],
+      ...overrides,
+    });
+  }
+
+  it("returns immediately (never awaits child.exited) and prints the pid", async () => {
+    const spawnDetached = vi
+      .fn()
+      .mockReturnValue({ pid: 4242, unref: vi.fn() });
+    const appendRow = vi.fn().mockReturnValue({ written: true });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const code = await runLaunch(detachArgs(), {
+      spawnDetached,
+      appendRow,
+      openAppendFd: vi.fn().mockReturnValue(9),
+      closeFd: vi.fn(),
+      env: { FLOW_SLUG: "csv-export" },
+      pidStartEpoch: () => 1,
+    });
+    expect(code).toBe(0);
+    expect(logSpy).toHaveBeenCalledWith("4242");
+  });
+
+  it("passes the command with numeric stdout/stderr fds, never 'inherit'", async () => {
+    const spawnDetached = vi.fn().mockReturnValue({ pid: 1, unref: vi.fn() });
+    const openAppendFd = vi
+      .fn()
+      .mockImplementation((p: string) => (p === "/tmp/out.log" ? 11 : 22));
+    await runLaunch(detachArgs(), {
+      spawnDetached,
+      openAppendFd,
+      closeFd: vi.fn(),
+      appendRow: vi.fn().mockReturnValue({ written: true }),
+      env: { FLOW_SLUG: "csv-export" },
+      pidStartEpoch: () => 1,
+    });
+    expect(openAppendFd).toHaveBeenCalledWith("/tmp/out.log");
+    expect(openAppendFd).toHaveBeenCalledWith("/tmp/err.log");
+    expect(spawnDetached).toHaveBeenCalledWith(["sleep", "900"], {
+      stdoutFd: 11,
+      stderrFd: 22,
+    });
+  });
+
+  it("writes the registry row (registry-recorded) before returning", async () => {
+    const spawnDetached = vi.fn().mockReturnValue({ pid: 555, unref: vi.fn() });
+    const appendRow = vi.fn().mockReturnValue({ written: true });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await runLaunch(detachArgs(), {
+      spawnDetached,
+      openAppendFd: vi.fn().mockReturnValue(9),
+      closeFd: vi.fn(),
+      appendRow,
+      env: { FLOW_SLUG: "csv-export" },
+      pidStartEpoch: () => 1,
+    });
+    expect(appendRow).toHaveBeenCalledTimes(1);
+    const row = appendRow.mock.calls[0]?.[0] as ProcRegistryRow;
+    expect(row.pid).toBe(555);
+    expect(row.pgid).toBe(555);
+  });
+
+  it("never installs SIGINT/SIGTERM forwarders (a detached child is not tied to this process's lifetime)", async () => {
+    const onSpy = vi.spyOn(process, "on");
+    const spawnDetached = vi.fn().mockReturnValue({ pid: 1, unref: vi.fn() });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const before = onSpy.mock.calls.length;
+    await runLaunch(detachArgs(), {
+      spawnDetached,
+      openAppendFd: vi.fn().mockReturnValue(9),
+      closeFd: vi.fn(),
+      appendRow: vi.fn().mockReturnValue({ written: true }),
+      env: { FLOW_SLUG: "csv-export" },
+      pidStartEpoch: () => 1,
+    });
+    expect(onSpy.mock.calls.length).toBe(before);
+  });
+
+  it("unref()s the child so this process does not wait on it", async () => {
+    const unref = vi.fn();
+    const spawnDetached = vi.fn().mockReturnValue({ pid: 1, unref });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await runLaunch(detachArgs(), {
+      spawnDetached,
+      openAppendFd: vi.fn().mockReturnValue(9),
+      closeFd: vi.fn(),
+      appendRow: vi.fn().mockReturnValue({ written: true }),
+      env: { FLOW_SLUG: "csv-export" },
+      pidStartEpoch: () => 1,
+    });
+    expect(unref).toHaveBeenCalled();
+  });
+
+  it("reports exit 127 when opening the --stdout/--stderr files throws", async () => {
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = await runLaunch(detachArgs(), {
+      openAppendFd: () => {
+        throw new Error("EACCES: permission denied");
+      },
+      appendRow: vi.fn(),
+      env: { FLOW_SLUG: "csv-export" },
+      pidStartEpoch: () => 1,
+    });
+    expect(code).toBe(127);
+    expect(
+      stderrSpy.mock.calls.some((c) => String(c[0]).includes("--stdout")),
+    ).toBe(true);
   });
 });
 
