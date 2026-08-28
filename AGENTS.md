@@ -383,7 +383,7 @@ three-layer resolution table, and the manifest/foundation fields — is at
     Feature and `route-to-step-4`
     pipelines curate the ticked set at plan review; step 3's
     `advance-to-step-5` route has no checkpoint, so its ticked
-    (bar-clearing) candidates and bundled tasks proceed as discovery authored them,
+    candidates and bundled tasks proceed as discovery authored them,
     disclosed post-hoc in the PR body and the terminal recap, with
     post-merge off-ramps as the correction path. Full detail at
     [references/git-workflow.md](references/git-workflow.md).
