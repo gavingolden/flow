@@ -78,7 +78,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 export type CandidateMeta = {
@@ -403,12 +403,12 @@ export type LintReport = {
 export function extractVerdict(details: string): string | null {
   const m = details.match(/\*\*Verdict:\*\*\s*(.+)/);
   if (!m) return null;
-  const v = m[1].trim();
+  const v = m[1].trim().replace(/^`/, "");
   return v || null;
 }
 
 const ANCHOR_RE =
-  /\[anchor:\s*`?([^\s\]:`]+\.[A-Za-z0-9]+)`?(?::\d+(?:,\d+)*)?/g;
+  /\[anchor:\s*`?([^\s\]:`]+\.[A-Za-z][A-Za-z0-9]*)`?(?::\d+(?:,\d+)*)?/g;
 
 /**
  * Extracts every `[anchor: path/to/file.ext[:line[,line...]]]` file-path
@@ -417,10 +417,16 @@ const ANCHOR_RE =
  * authors to write anchors bare, but a backticked one must not
  * false-positive as missing). Only file-shaped anchors are returned —
  * command/PR/issue/quote anchors are presence-only and not path-checked.
+ * The extension must start with a letter so a rubric-sanctioned measured
+ * number or version (`1.8s`, `0.7%`, `v2.1.234`) never looks like a file
+ * path. `~/`-prefixed anchors are dropped here too — they read as a
+ * repo-relative path to `resolve()` but can never exist under
+ * `repoRoot`, so keeping them would always false-positive as missing.
  */
 export function extractPathAnchors(details: string): string[] {
   const out: string[] = [];
   for (const m of details.matchAll(ANCHOR_RE)) {
+    if (m[1].startsWith("~/") || m[1] === "~") continue;
     out.push(m[1]);
   }
   return out;
@@ -500,7 +506,11 @@ export function lintFollowUpReferences(
         return;
       }
       for (const anchor of extractPathAnchors(it.details)) {
-        if (!existsSync(resolve(repoRoot, anchor))) {
+        const abs = resolve(repoRoot, anchor);
+        const rel = relative(repoRoot, abs);
+        const inRepo =
+          !isAbsolute(anchor) && rel !== "" && !rel.startsWith("..");
+        if (!inRepo || !existsSync(abs)) {
           barMisses.push({
             index: i + 1,
             title: c.title,
@@ -600,7 +610,7 @@ const OFFER_LINE =
 const DROP_OFFER_LINE =
   "To drop a candidate instead of filing it as an issue, reply `drop candidate #N`.";
 const TICK_RULE_NOTE =
-  "Ticked items file as issues post-merge unless dropped; unticked items are listed here but never filed.";
+  "Ticked items file as issues post-merge unless dropped; unticked items are listed here and file only if you reply `file candidate #N`.";
 const FILE_OFFER_LINE =
   "To file an unticked candidate as an issue post-merge, reply `file candidate #N`.";
 

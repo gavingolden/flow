@@ -85,11 +85,14 @@ blob.
 
 ### Not doing (kill list)
 
-Every REJECT verdict, with its one-sentence reasoning, plus every NOT
-REPRODUCIBLE IN CODE item flagged for the user to re-check. Each entry
-also carries `Verdict: below bar — <decisive line>` per `methodology.md`'s
-value-prop gate. This section is **required and non-empty** — a backlog
-that survives triage untouched is a triage failure, not a clean backlog.
+Every REJECT verdict, with its one-sentence reasoning, and every
+DO-LATER verdict, with its concrete promotion trigger, plus every NOT
+REPRODUCIBLE IN CODE item flagged for the user to re-check. Each REJECT
+and DO-LATER entry also carries `Verdict: below bar — <decisive line>`
+per `methodology.md`'s value-prop gate; a NOT REPRODUCIBLE IN CODE entry
+carries no Verdict line — methodology.md's gate does not require one for
+it. This section is **required and non-empty** — a backlog that survives
+triage untouched is a triage failure, not a clean backlog.
 
 Each GitHub-issue kill-list entry renders its drafted comment as a
 ready-to-run command:

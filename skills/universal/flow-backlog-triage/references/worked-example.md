@@ -185,10 +185,10 @@ Phase 3 bundle mechanics above:
   instead of silently dropping.
 - **Why it's worth it:**
   - **UX:** any user who leaves a tab idle past ~10 minutes gets force-
-    logged-out mid-session `[anchor: bin/lib/session.ts:88]`
+    logged-out mid-session [anchor: bin/lib/session.ts:88]
   - **Problem:** the session-refresh timer clears on tab-blur instead of
     surviving it, reintroducing the auth race PR #519 was meant to fix
-    `[anchor: bin/lib/session.ts:88]`
+    [anchor: bin/lib/session.ts:88]
   - **Stability/efficiency:** none
   - **Cost:** one file, one function, low risk (Bundle A, Small)
   - **If never done:** users keep hitting an unexplained forced logout

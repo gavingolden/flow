@@ -196,7 +196,8 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > the plan, ticked (`- [x]`) only when their value-prop block clears the
 > bar, and the plan-review checkpoint (step 3's `--details`
 > disclosure, step 4's `drop candidate #N` / `drop all candidates` /
-> `defer task #N` replies) is the single curation surface — a mechanical
+> `file candidate #N` / `defer task #N` replies) is the single curation
+> surface — a mechanical
 > reply-and-helper loop, never a form. Same narrow-and-named contract as
 > the Task-tool exemptions above: `AskUserQuestion` is a different
 > primitive (synchronous user prompt, not a sub-agent fan-out), but a

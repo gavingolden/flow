@@ -570,7 +570,7 @@ the machine-readable `- [ ]` checkbox list. Each checkbox is a single-line title
 
 - [x] OAuth refresh path leaks tokens — separate concern; needs a dedicated session.
   - **UX:** none
-  - **Problem:** refresh tokens are logged in plaintext on every retry [anchor: bin/flow-candidate-issues.ts:161]
+  - **Problem:** refresh tokens are logged in plaintext on every retry [anchor: src/auth/oauth-client.ts:88]
   - **Stability/efficiency:** none
   - **Cost:** one file, isolated to the OAuth client; needs its own security-review session
   - **If never done:** the leak persists in every future auth-touching PR

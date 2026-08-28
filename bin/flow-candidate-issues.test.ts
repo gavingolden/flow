@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -286,7 +287,7 @@ describe(renderDetails, () => {
       "To drop a candidate instead of filing it as an issue, reply `drop candidate #N`.",
     );
     expect(rendered).toContain(
-      "Ticked items file as issues post-merge unless dropped; unticked items are listed here but never filed.",
+      "Ticked items file as issues post-merge unless dropped; unticked items are listed here and file only if you reply `file candidate #N`.",
     );
     // alpha ranks before beta (High before Low).
     expect(rendered.indexOf("#1 [ ] alpha")).toBeLessThan(
@@ -519,9 +520,9 @@ describe(extractTicked, () => {
   });
 });
 
-// --- extractCandidateSection details capture --------------------------------
+// --- extractItemDetails (via enumerateCandidates) details capture ----------
 
-describe("extractCandidateSection details capture", () => {
+describe("extractItemDetails (via enumerateCandidates) details capture", () => {
   it("yields an empty string when a checkbox item has no indented continuation", () => {
     const r = enumerateCandidates(`${HEADING}\n\n- [ ] a — b\n`);
     expect(r.candidates[0].details).toBe("");
@@ -541,6 +542,23 @@ describe("extractCandidateSection details capture", () => {
     expect(r.candidates[0].details).toBe(
       "- **UX:** none\n- **Verdict:** clears bar — x",
     );
+  });
+
+  it("treats a leading tab as indentation and strips it", () => {
+    const body = `${HEADING}\n\n- [x] a — b\n\t- **UX:** none\n\t- **Verdict:** clears bar — x\n`;
+    expect(enumerateCandidates(body).candidates[0].details).toBe(
+      "- **UX:** none\n- **Verdict:** clears bar — x",
+    );
+  });
+
+  it("keeps an indented checkbox inside the block as details, not as a new candidate", () => {
+    const body = `${HEADING}\n\n- [x] a — b\n  - [ ] acceptance sub-item\n  - **Verdict:** clears bar — x\n- [ ] c — d\n`;
+    const r = enumerateCandidates(body);
+    expect(r.candidates).toHaveLength(2);
+    expect(r.candidates[0].details).toBe(
+      "- [ ] acceptance sub-item\n- **Verdict:** clears bar — x",
+    );
+    expect(tickCandidates(body, [2]).text.split("\n")).toContain("- [x] c — d");
   });
 
   it("skips an interior blank line without stopping the capture", () => {
@@ -593,6 +611,12 @@ describe(extractVerdict, () => {
   it("returns null on an empty Verdict value", () => {
     expect(extractVerdict("- **Verdict:**   ")).toBeNull();
   });
+
+  it("strips a leading backtick before testing the Verdict value", () => {
+    expect(
+      extractVerdict("- **Verdict:** `clears bar` — because reasons"),
+    ).toBe("clears bar` — because reasons");
+  });
 });
 
 describe(extractPathAnchors, () => {
@@ -625,6 +649,16 @@ describe(extractPathAnchors, () => {
     const details =
       "- **UX:** x [anchor: bin/a.ts:1]\n- **Problem:** y [anchor: bin/b.ts:2]";
     expect(extractPathAnchors(details)).toEqual(["bin/a.ts", "bin/b.ts"]);
+  });
+
+  it("does not treat a measured-number or version anchor as a file path", () => {
+    expect(extractPathAnchors("[anchor: 1.8s → 0.4s p95]")).toEqual([]);
+    expect(extractPathAnchors("[anchor: 0.7% flake rate]")).toEqual([]);
+    expect(extractPathAnchors("[anchor: v2.1.234 changelog]")).toEqual([]);
+  });
+
+  it("does not treat a `~/`-prefixed anchor as a repo-relative file path", () => {
+    expect(extractPathAnchors("[anchor: ~/.flow/config.json]")).toEqual([]);
   });
 });
 
@@ -753,6 +787,50 @@ describe(lintFollowUpReferences, () => {
       `  - **Verdict:** clears bar — because\n`;
     const r = lintFollowUpReferences(body);
     expect(r.barMisses).toEqual([]);
+  });
+
+  it("reports no-verdict for a ticked item whose Verdict is below bar", () => {
+    const body = `${HEADING}\n\n- [x] a — b\n  - **Verdict:** below bar — not worth it\n`;
+    expect(lintFollowUpReferences(body).barMisses).toEqual([
+      { index: 1, title: "a", reason: "no-verdict" },
+    ]);
+  });
+
+  it("accepts a capitalised Clears bar verdict", () => {
+    const body = `${HEADING}\n\n- [x] a — b\n  - **Verdict:** Clears bar — because\n`;
+    expect(lintFollowUpReferences(body).barMisses).toEqual([]);
+  });
+
+  it("flags an absolute-path anchor as anchor-missing even when the file exists on disk", () => {
+    const body =
+      `${HEADING}\n\n- [x] a — b\n` +
+      `  - **Problem:** x [anchor: /Users/me/.ssh/id_rsa.pub]\n` +
+      `  - **Verdict:** clears bar — because\n`;
+    const r = lintFollowUpReferences(body);
+    expect(r.barMisses).toEqual([
+      {
+        index: 1,
+        title: "a",
+        reason: "anchor-missing",
+        anchor: "/Users/me/.ssh/id_rsa.pub",
+      },
+    ]);
+  });
+
+  it("flags a `..`-escaping anchor as anchor-missing even when it resolves outside the repo to a real file", () => {
+    const body =
+      `${HEADING}\n\n- [x] a — b\n` +
+      `  - **Problem:** x [anchor: ../../.aws/credentials.json]\n` +
+      `  - **Verdict:** clears bar — because\n`;
+    const r = lintFollowUpReferences(body);
+    expect(r.barMisses).toEqual([
+      {
+        index: 1,
+        title: "a",
+        reason: "anchor-missing",
+        anchor: "../../.aws/credentials.json",
+      },
+    ]);
   });
 });
 
@@ -1119,6 +1197,33 @@ describe("run() integration", () => {
     expect(JSON.parse(out).barMisses).toEqual([]);
   });
 
+  it("--lint checks [anchor:] paths against the plan file's own repo root, not cwd", () => {
+    execFileSync("git", ["init", "-q"], { cwd: dir });
+    fs.mkdirSync(path.join(dir, "bin"));
+    fs.writeFileSync(path.join(dir, "bin", "x.ts"), "");
+    writePlan(
+      `${HEADING}\n\n- [x] a — b\n` +
+        `  - **UX:** x [anchor: bin/x.ts:1]\n` +
+        // exists relative to vitest's own cwd (this flow checkout), NOT
+        // relative to the plan file's own repo (`dir`) — the load-bearing
+        // case: it fails only if resolution is repo-root-based, not cwd.
+        `  - **Problem:** y [anchor: bin/flow-candidate-issues.ts:1]\n` +
+        `  - **Verdict:** clears bar — because\n`,
+    );
+    const { exit, out } = captureStdout(() =>
+      run(["--plan-md-file", planFile, "--lint"]),
+    );
+    expect(exit).toBe(1);
+    expect(JSON.parse(out).barMisses).toEqual([
+      {
+        index: 1,
+        title: "a",
+        reason: "anchor-missing",
+        anchor: "bin/flow-candidate-issues.ts",
+      },
+    ]);
+  });
+
   it("--details renders the ranked block for open candidates", () => {
     writePlan(`${HEADING}\n\n- [ ] alpha — first\n`);
     const { exit, out } = captureStdout(() =>
@@ -1139,7 +1244,7 @@ describe("run() integration", () => {
     expect(out).toContain("#1 [x] already done");
     expect(out).toContain("Already ticked");
     expect(out).toContain(
-      "Ticked items file as issues post-merge unless dropped; unticked items are listed here but never filed.",
+      "Ticked items file as issues post-merge unless dropped; unticked items are listed here and file only if you reply `file candidate #N`.",
     );
   });
 

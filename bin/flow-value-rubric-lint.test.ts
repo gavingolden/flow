@@ -18,8 +18,7 @@ import { fileURLToPath } from "node:url";
  * describe block, and the same sliced whitespace-normalized `includes()`
  * idiom as `bin/flow-backlog-triage-skill-lint.test.ts`.
  *
- * Also pins the prose-level consumer edits (Tasks 2–6 of the
- * flow-aggressively-files-candidate-follow plan): the tick-only-when-
+ * Also pins the prose-level consumer edits: the tick-only-when-
  * clears-bar rule replacing the old pre-ticked/file-by-default default,
  * the below-bar-deferral fix-applier path, the step-10 sweep's `.details`
  * call-site, and the repo-wide `file candidate #N` / no-more-`file-by-
@@ -36,14 +35,10 @@ function read(relPath: string): string {
 const RUBRIC_BLOCK_RE =
   /<!-- flow-value-rubric:begin -->\n([\s\S]*?)<!-- flow-value-rubric:end -->/;
 
-function extractRubricBlock(content: string, label: string): string {
+/** Returns the marker-delimited block, or null when the marker is absent. Never asserts — callers assert inside their own `it` so a missing marker surfaces as a named test failure, not a suite-collection error. */
+function extractRubricBlock(content: string): string | null {
   const m = content.match(RUBRIC_BLOCK_RE);
-  expect(
-    m,
-    `${label} must carry a <!-- flow-value-rubric:begin --> … ` +
-      "<!-- flow-value-rubric:end --> marker-delimited block.",
-  ).not.toBeNull();
-  return m ? m[1] : "";
+  return m ? m[1] : null;
 }
 
 const canonicalPath =
@@ -63,16 +58,28 @@ const CONSUMERS: { path: string; label: string }[] = [
   },
 ];
 
-const canonicalBlock = extractRubricBlock(
-  read(canonicalPath),
-  "value-rubric.md",
-);
+let canonicalBlock = "";
 
 describe("flow-value-rubric: canonical block drift", () => {
+  it("value-rubric.md carries the marker-delimited block", () => {
+    const block = extractRubricBlock(read(canonicalPath));
+    expect(
+      block,
+      "value-rubric.md must carry a <!-- flow-value-rubric:begin --> … " +
+        "<!-- flow-value-rubric:end --> marker-delimited block.",
+    ).not.toBeNull();
+    canonicalBlock = block ?? "";
+  });
+
   it.each(CONSUMERS)(
     "$label embeds the value-prop block byte-identical to value-rubric.md",
     ({ path: relPath, label }) => {
-      const block = extractRubricBlock(read(relPath), label);
+      const block = extractRubricBlock(read(relPath));
+      expect(
+        block,
+        `${label} must carry a <!-- flow-value-rubric:begin --> … ` +
+          "<!-- flow-value-rubric:end --> marker-delimited block.",
+      ).not.toBeNull();
       expect(
         block,
         `${label}'s <!-- flow-value-rubric --> block must be byte-identical ` +
@@ -108,7 +115,7 @@ describe("flow-value-rubric: canonical block drift", () => {
   );
 });
 
-describe("flow-value-rubric: Task 2 — discovery-instructions.md / prd-template.md / flow-new-feature/SKILL.md", () => {
+describe("flow-value-rubric: discovery tick-only-when-clears-bar rule", () => {
   const discoveryContent = read(
     "skills/pipeline/flow-product-planning/references/discovery-instructions.md",
   );
@@ -158,7 +165,7 @@ describe("flow-value-rubric: Task 2 — discovery-instructions.md / prd-template
   });
 });
 
-describe("flow-value-rubric: Task 3 — step-10 sweep call-site", () => {
+describe("flow-value-rubric: step-10 sweep carries .details", () => {
   it("flow-pipeline/SKILL.md's Post-merge follow-up sweep folds .details into the filed issue body", () => {
     const skill = read("skills/pipeline/flow-pipeline/SKILL.md");
     const start = skill.indexOf("### Post-merge follow-up sweep");
@@ -180,7 +187,7 @@ describe("flow-value-rubric: Task 3 — step-10 sweep call-site", () => {
   });
 });
 
-describe("flow-value-rubric: Task 4 — below-bar deferrals (fix-applier / pr-review)", () => {
+describe("flow-value-rubric: below-bar deferrals stay unfiled (fix-applier / pr-review)", () => {
   const fixApplierContent = read(
     "skills/pipeline/flow-pr-review/references/fix-applier-instructions.md",
   );
@@ -233,7 +240,7 @@ describe("flow-value-rubric: Task 4 — below-bar deferrals (fix-applier / pr-re
   });
 });
 
-describe("flow-value-rubric: Task 6 — repo-wide file-by-default / pre-ticked sweep", () => {
+describe("flow-value-rubric: no file-by-default / pre-ticked wording survives", () => {
   it("flow-pipeline/SKILL.md documents 'file candidate #N' at least twice and names --tick", () => {
     const skill = read("skills/pipeline/flow-pipeline/SKILL.md");
     const matches = skill.match(/file candidate #N/g) ?? [];
@@ -279,4 +286,33 @@ describe("flow-value-rubric: Task 6 — repo-wide file-by-default / pre-ticked s
       ).toBe(false);
     },
   );
+
+  // Durable tree-wide sweep, mirroring Test Step 7's shell-only
+  // `grep -rqn 'file-by-default' skills references AGENTS.md templates
+  // bin/flow-candidate-issues.ts` so a reintroduction in a file NOT on the
+  // NO_FILE_BY_DEFAULT allowlist above (e.g. a references/*.md under a
+  // different skill) is caught by `npm run test`, not only by someone
+  // re-running the shell line by hand.
+  function mdFilesUnder(rel: string): string[] {
+    const dirPath = path.join(REPO_ROOT, rel);
+    if (!fs.existsSync(dirPath)) return [];
+    return fs
+      .readdirSync(dirPath, { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile() && /\.(md|template)$/.test(d.name))
+      .map((d) =>
+        path.relative(REPO_ROOT, path.join(d.parentPath ?? d.path, d.name)),
+      );
+  }
+
+  const SWEEP = [
+    ...mdFilesUnder("skills"),
+    ...mdFilesUnder("references"),
+    ...mdFilesUnder("templates"),
+    "AGENTS.md",
+    "bin/flow-candidate-issues.ts",
+  ];
+
+  it.each(SWEEP)("%s no longer contains 'file-by-default'", (rel) => {
+    expect(read(rel).includes("file-by-default")).toBe(false);
+  });
 });
