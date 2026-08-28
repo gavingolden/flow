@@ -192,11 +192,12 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > the form is what makes a gate override a *fresh* confirmation,
 > putting the gate verdict in front of the user rather than letting the
 > supervisor infer authorisation from an earlier instruction). There is
-> no candidate-issues form: discovery bundles follow-up candidates into
-> the plan by default (pre-ticked `- [x]` items in `# Candidate
-> follow-up issues`), and the plan-review checkpoint (step 3's `--details`
+> no candidate-issues form: discovery lists follow-up candidates in
+> the plan, ticked (`- [x]`) only when their value-prop block clears the
+> bar, and the plan-review checkpoint (step 3's `--details`
 > disclosure, step 4's `drop candidate #N` / `drop all candidates` /
-> `defer task #N` replies) is the single curation surface — a mechanical
+> `file candidate #N` / `defer task #N` replies) is the single curation
+> surface — a mechanical
 > reply-and-helper loop, never a form. Same narrow-and-named contract as
 > the Task-tool exemptions above: `AskUserQuestion` is a different
 > primitive (synchronous user prompt, not a sub-agent fan-out), but a
@@ -891,10 +892,11 @@ normalized-diff re-fire detection) in
 - Intent is `feature` → write `phase: plan-pending-review`. Then,
   immediately before ending the turn:
 
-  **Candidate follow-up issues disclosure.** Discovery bundles
-  follow-up candidates into the plan by default (pre-ticked `- [x]`
-  items in `# Candidate follow-up issues` — see
-  `skills/pipeline/flow-product-planning/references/discovery-instructions.md`),
+  **Candidate follow-up issues disclosure.** Discovery lists
+  follow-up candidates in the plan, ticked (`- [x]`) only when their
+  value-prop block clears the bar, in `# Candidate follow-up issues` —
+  see
+  `skills/pipeline/flow-product-planning/references/discovery-instructions.md`,
   so there is no separate curation form here; the plan-review checkpoint
   below IS the curation checkpoint. Run `flow-candidate-issues
   --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --details` and, when its
@@ -911,7 +913,10 @@ normalized-diff re-fire detection) in
   mechanical untick, bulk form — read `flow-candidate-issues
   --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --json` and pass every
   1-based index whose `.candidates[].ticked` is `true` to a single
-  `--untick <indices>` call), and `defer task #N` (one or many task
+  `--untick <indices>` call), `file candidate #N` (mechanical:
+  `flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md"
+  --tick <N>`, confirm in one line, stay at `plan-pending-review`), and
+  `defer task #N` (one or many task
   numbers in one reply — batches ALL of them
   into ONE bounded revision pass back to step 3; see step 4's redirect
   classification below and `references/redirect-handling.md`).
@@ -1025,9 +1030,9 @@ normalized-diff re-fire detection) in
     user wasn't asked to ratify it — fall through to step 5 directly in
     the same turn, no candidate-issues checkpoint fires here (there is
     no turn-ending message to attach one to on this fully-autonomous
-    path). **Disclosure obligation:** any bundled tasks and pre-ticked
-    `# Candidate follow-up issues` items proceed exactly as discovery
-    authored them; disclose them in the PR body's `Bundled:` Key
+    path). **Disclosure obligation:** any bundled tasks and ticked
+    (bar-clearing) `# Candidate follow-up issues` items proceed exactly as
+    discovery authored them; disclose them in the PR body's `Bundled:` Key
     decisions bullets and in the terminal recap, so the user still sees
     what shipped even though nothing paused for their review.
 
@@ -1040,8 +1045,9 @@ normalized-diff re-fire detection) in
     non-empty, echo its output VERBATIM as assistant prose immediately
     before the AWAITING APPROVAL block, with the same reply-verb
     documentation (`pull #N into the plan`, `drop candidate #N`, `drop
-    all candidates`, `defer task #N`) — this branch also lands in step
-    4, so the user needs the same curation surface. Then render the
+    all candidates`, `file candidate #N`, `defer task #N`) — this branch
+    also lands in step 4, so the user needs the same curation surface.
+    Then render the
     AWAITING APPROVAL block via `flow-gate-summary` — same call shape
     as the feature-intent branch above, but with a Why string that
     names the tension flag:
@@ -1125,15 +1131,16 @@ typed something into the tmux chat. Classify the input using
   proceed straight to the auto-checkpoint sub-step below, which ends
   the turn at `checkpoint-pending-clear`; the user resumes into step 5
   by typing `continue` (same session) or `/clear` (fresh, auto-resumed
-  session). Bundled tasks and pre-ticked candidates proceed exactly as
+  session). Bundled tasks and ticked candidates proceed exactly as
   authored — the user had the full `--details` disclosure (step 3's End
   condition above) in front of them before replying Affirmative.
 - **Candidate curation reply** (`drop candidate #N`, `drop all
-  candidates`) → **mechanical, not a redirect and not a revision
-  pass.** Run `flow-candidate-issues --plan-md-file
+  candidates`, `file candidate #N`) → **mechanical, not a redirect and
+  not a revision pass.** Run `flow-candidate-issues --plan-md-file
   "$WORKTREE/.flow-tmp/plan.md" --untick <N>` (single index) or
   `--untick <every currently-ticked index>` (bulk `drop all candidates`
-  form), confirm the change in one line, and stay at
+  form) — or `--tick <N>` for `file candidate #N`, the mirror of drop —
+  confirm the change in one line, and stay at
   `plan-pending-review` awaiting the user's next reply (approve /
   redirect / cancel). Full classifier detail in
   `references/redirect-handling.md`.
@@ -1157,9 +1164,10 @@ typed something into the tmux chat. Classify the input using
     revision pass to exactly four surgical edits — remove the deferred
     task(s), renumber/repair the dependency table, update the Skills
     Summary if a removed task was its only user of a named skill, and
-    append the item as a pre-ticked (`- [x]`) candidate with a matching
-    ranking-table row — every other section of plan.md is preserved
-    byte-for-byte. **Batched-defer corruption guard:** step 3's
+    append the item as a ticked candidate with a matching ranking-table
+    row and a value-prop block whose Problem anchor is the user's
+    `defer task #N` instruction — every other section of plan.md is
+    preserved byte-for-byte. **Batched-defer corruption guard:** step 3's
     existing deterministic backstops (`flow-plan-lint`,
     `flow-candidate-issues --lint`) already re-validate the revised
     plan's structure on re-entry, so this drift guard adds zero new
@@ -1269,7 +1277,7 @@ supervisor's job, not the implement skill's** — the supervisor calls
 **Discharging the `advance-to-step-5` disclosure obligation:** if step 3
 took the `advance-to-step-5` route (see "Step 3 — Product planning" End
 condition above), the PR body's Key decisions section MUST include a
-`Bundled:` bullet naming any task-breakdown items and pre-ticked
+`Bundled:` bullet naming any task-breakdown items and ticked (bar-clearing)
 `# Candidate follow-up issues` items discovery authored without a
 plan-review checkpoint — this is where that obligation gets discharged,
 not just asserted.
@@ -2280,9 +2288,9 @@ if [ -f "$PLAN" ] && grep -q '^# Candidate follow-up issues' "$PLAN"; then
     ITEM=$(printf '%s' "$TICKED_JSON" | jq -c ".ticked[$i]")
     TITLE=$(printf '%s' "$ITEM" | jq -r '.title')
     BODY_FILE="$WORKTREE/.flow-tmp/sweep-$(echo "$TITLE" | tr ' /' '__').md"
-    # Body, then a Rationale/Relation line per non-null field, then the
-    # sweep attribution footer.
-    printf '%s' "$ITEM" | jq -r --arg pr "$PR" '[.body, (if .rationale then "\n**Rationale:** " + .rationale else empty end), (if .relation then "\n**Relation to current request:** " + .relation else empty end), "\nSurfaced by /flow-product-planning during the pipeline that landed PR #" + $pr + "."] | join("\n")' > "$BODY_FILE"
+    # Body, then the value-prop block (details), then a Rationale/Relation
+    # line per non-null field, then the sweep attribution footer.
+    printf '%s' "$ITEM" | jq -r --arg pr "$PR" '[.body, (if .details != "" then "\n" + .details else empty end), (if .rationale then "\n**Rationale:** " + .rationale else empty end), (if .relation then "\n**Relation to current request:** " + .relation else empty end), "\nSurfaced by /flow-product-planning during the pipeline that landed PR #" + $pr + "."] | join("\n")' > "$BODY_FILE"
     JSON=$(flow-create-issue \
       --title "$TITLE" \
       --body-file "$BODY_FILE" \

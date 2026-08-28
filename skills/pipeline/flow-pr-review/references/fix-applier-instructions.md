@@ -93,6 +93,13 @@ For each finding, classify it into one of:
 
   **Why deferred:** <bar criterion>
 
+  - **UX:** <who notices, what changes for them, how often / how much> `[anchor: …]` — or `none`
+  - **Problem:** <the concrete failure or friction this removes> `[anchor: …]` — or `none`
+  - **Stability/efficiency:** <crash / flake / cost / latency effect, with the reproduced or measured number> `[anchor: …]` — or `none`
+  - **Cost:** <files touched, blast radius, review load, regression risk>
+  - **If never done:** <what breaks, stays broken, or keeps costing — or `nothing`>
+  - **Verdict:** clears bar — <the decisive line>
+
   **Revisit trigger:** <concrete trigger>
 
   Surfaced by `/flow-pr-review` on PR #<n>.
@@ -136,6 +143,33 @@ For each finding, classify it into one of:
 Cosmetic edge cases, small bugs, and mechanical refactors do **not** clear
 this bar — fix them now. "I don't want to expand the PR" is not sufficient:
 a 5-line guard is not a PR-expansion concern.
+
+<!-- flow-value-rubric:begin -->
+
+**Value-prop block** — required before an item is ticked, filed, deferred, or verdicted DO / NEEDS-DECISION.
+
+- **UX:** <who notices, what changes for them, how often / how much> `[anchor: …]` — or `none`
+- **Problem:** <the concrete failure or friction this removes> `[anchor: …]` — or `none`
+- **Stability/efficiency:** <crash / flake / cost / latency effect, with the reproduced or measured number> `[anchor: …]` — or `none`
+- **Cost:** <files touched, blast radius, review load, regression risk>
+- **If never done:** <what breaks, stays broken, or keeps costing — or `nothing`>
+- **Verdict:** `clears bar` | `below bar` — <the decisive line, and why it outweighs (or fails to outweigh) Cost>
+
+**Anchor rule.** Every non-`none` UX / Problem / Stability line ends with `[anchor: …]` drawn from this closed list: a `file:line`; a reproduced behaviour (`command → observed output`); a command that fails today; a merged PR or commit; an issue number with its age; a measured number; the user's own words, quoted. A value line with no anchor is `unsubstantiated` and counts as `none`. Write file anchors bare (`[anchor: path/to/file.ts:42]`), never wrapped in backticks, so the lint can check the path exists.
+
+**Bar.** `clears bar` requires at least one substantiated value line, a one-line rationale that it outweighs the Cost line, and a non-`nothing` If-never-done line. Anything else — including unclear — is `below bar`.
+
+**Banned phrasing.** `nicer`, `cleaner`, `could improve`, `might`, `best practice`, `would be good to`, `likely`. An anchor the reader cannot open or run in seconds is worse than `none` — never invent one.
+
+<!-- flow-value-rubric:end -->
+
+**Below-bar deferrals are not filed.** A finding that clears the deferral bar above
+but whose value-prop block reads `**Verdict:** below bar` gets a `deferred[]` entry
+with `tracker_entry_url: ""` and a `reason` beginning `below bar — ` followed by the
+Verdict line; do not call `flow-create-issue` for it. This is distinct from the
+gh-failure fallback above (an attempted filing that failed): a below-bar entry was
+never attempted by design. Step 13 lists it via `flow-untracked` so the user can
+still `flow-untracked file <id>`.
 
 When deferring, the `deferred[]` entry must include:
 
@@ -490,7 +524,7 @@ The artifact MUST conform to this JSON schema:
       "finding_id": "<stable id>",
       "comment_ids": [<integer reviewer-comment ids this deferral covers, or [] when the deferral is finding-driven not comment-driven>],
       "tracker_entry_url": "<the flow-create-issue URL when an issue was filed; empty string otherwise>",
-      "reason": "<1-2 lines: what the issue is + which deferral-bar criterion applies>"
+      "reason": "<1-2 lines: what the issue is + which deferral-bar criterion applies; begins `below bar — ` when unfiled by the value bar>"
     }
   ],
   "rejected_alternatives": [

@@ -217,14 +217,21 @@ LINT_RC=0
 flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md" || LINT_RC=$?
 ```
 
-Exit 1 signals drift (the stdout JSON's `references[]` names each
-unresolved reference line); exit 0 is clean; exit 2 is a read error. This
+Exit 1 signals either a follow-up-reference drift (the stdout JSON's
+`references[]` names each unresolved reference line) OR a `barMisses`
+entry (a ticked candidate whose value-prop block has no `clears bar`
+Verdict, or whose `[anchor: …]` cites a file that does not exist —
+`barMisses[]` names each with a `reason` of `no-verdict` or
+`anchor-missing`); exit 0 is clean; exit 2 is a read error. This
 is **advisory and non-blocking** — on a non-zero exit, surface a one-line
-note in the plan-summary block (e.g. "follow-up-reference drift: plan
-prose references a follow-up missing from `# Candidate follow-up
-issues`") so the user can redirect at `plan-pending-review`; never block
-planning on it (the same "research/plan-review never block planning"
-invariant the cross-model review honors).
+note in the plan-summary block naming which cause fired (e.g.
+"follow-up-reference drift: plan prose references a follow-up missing
+from `# Candidate follow-up issues`", or "value-bar miss: candidate #N
+has no clears-bar Verdict" / "value-bar miss: candidate #N cites a
+missing anchor `<path>`") so the user can redirect at
+`plan-pending-review`; never block planning on it (the same
+"research/plan-review never block planning" invariant the cross-model
+review honors).
 
 ## Plan-shape backstop (advisory, deterministic)
 
