@@ -61,7 +61,12 @@ The `**why:** `-prefixed comments surfaced under `{{EXISTING_INTENT_COMMENTS}}` 
 
 ## Output Format
 
-Return a JSON array of findings. Each finding is an object:
+Return a single JSON object with three top-level keys: `findings`,
+`rejected_alternatives`, and `anti_patterns_found` — shape
+`{findings: [...], rejected_alternatives: [...], anti_patterns_found: [...]}`.
+`findings` is an array of finding objects, documented below; the two
+negative-findings arrays are documented in "Negative Findings (required)"
+further down this block. Each finding is an object:
 
 {
   "file": "src/lib/store.ts",
@@ -104,6 +109,30 @@ decoration.
 
 If you find nothing noteworthy, return an empty array: []
 
+## Negative Findings (required)
+
+Alongside `findings`, your output object carries two more top-level arrays
+that capture claims about **the reviewed code**, not about your review
+process:
+
+- `rejected_alternatives` — an approach you considered while reviewing a
+  hunk, and why the code as written is preferable (or why an alternative you
+  can see the author considered was rightly rejected). Each entry:
+  `{"considered_approach": "...", "why_rejected": "..."}`. Example:
+  `{"considered_approach": "Validating the input inline at the call site instead of centralizing it in the parser", "why_rejected": "The call site is one of six; centralizing keeps the validation rule in one place and matches the pattern used elsewhere in this module."}`
+- `anti_patterns_found` — an off-pattern you noticed in the reviewed code
+  that isn't itself a `findings` entry (not confident enough to surface as a
+  blocking issue, or out of scope for a single-line finding) but that the
+  next person touching this code should know about. Each entry:
+  `{"location": "file:line", "pattern": "...", "recommendation": "..."}`.
+  Example:
+  `{"location": "src/lib/cache.ts:88", "pattern": "Manual TTL bookkeeping duplicated across three call sites instead of the shared cache helper", "recommendation": "Route through bin/lib/cache-helper.ts once a fourth call site appears."}`
+
+**Silence is not the default.** If you genuinely considered no alternative
+and saw no off-pattern, write the true empty array `[]` for that key — but
+an **absent key is a contract violation**, not a synonym for none: always
+emit both keys.
+
 Include a `praise` finding only when you can name the specific behaviour,
 file:line, or pattern being praised — e.g. "the X path correctly handles the Y
 edge case", "the new pure helper at foo.ts:42 is straightforward to test". Do
@@ -134,6 +163,7 @@ a missed finding that a human reviewer will catch.
 - Do not flag hypothetical scenarios without a concrete, reachable code path.
 - Every issue or todo MUST include a concrete suggestion or code fix.
 - If you're unsure whether something is intentional, use the `question` label instead of `issue`.
+- `rejected_alternatives` and `anti_patterns_found` entries follow the same discipline as `findings`: scoped to lines this PR actually touches, and naming a concrete code path — never a hypothetical or a generic best-practice reminder untethered to this diff.
 
 ## Static Analysis Facts
 
@@ -661,10 +691,11 @@ worktree is the agy run's current directory, also passed via `--add-dir`).
 
 ### Output Format
 
-Mirror the Shared Context Block's `{findings: [...]}` schema and
-conventional-comments rules exactly:
+Mirror the Shared Context Block's three-key
+`{findings: [...], rejected_alternatives: [...], anti_patterns_found: [...]}`
+schema and conventional-comments rules exactly:
 
-- Output **ONLY a single JSON object** of shape `{"findings": [...]}` — **no
+- Output **ONLY a single JSON object** of that three-key shape — **no
   prose, no preamble, no markdown code fence**. The first output character
   must be `{` and the last `}`. (This is the explicit mitigation for Gemini
   prose-wrapping; the helper also pins a wire-level `--json-schema` and
@@ -683,8 +714,17 @@ subject, body}` per `bin/lib/agent-finding-schema.ts`.
   (a false positive that wastes a developer's time is worse than a missed
   finding a human reviewer will catch). Include `praise` only when you can
   name the specific behaviour/`file:line` being praised.
-- If nothing is noteworthy, return `{"findings": []}`.
+- `rejected_alternatives`: an array of `{considered_approach, why_rejected}`
+  entries — an approach you considered while reviewing and why the code as
+  written is preferable. `anti_patterns_found`: an array of
+  `{location, pattern, recommendation}` entries — an off-pattern in the
+  reviewed code that isn't itself a `findings` entry. Both are claims about
+  the reviewed code, not the review process. **Silence is not the default**:
+  a genuine none is the empty array `[]`; omitting either key is a contract
+  violation.
+- If nothing is noteworthy, return
+  `{"findings": [], "rejected_alternatives": [], "anti_patterns_found": []}`.
 
-The lens output carries **no `agent_source`** — it is a plain `{findings}`
+The lens output carries **no `agent_source`** — it is a plain three-key
 object identical to the six Claude agents. The consolidator assigns
 `agent_source: "gemini"` when it reads the seventh input at Step 3.5.

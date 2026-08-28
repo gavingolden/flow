@@ -39,12 +39,14 @@ tools allowlist plus the blindness contract — no PR title/body/plan/
 commit messages in its context, diff + file list only), resolved via
 the same two-tier file-exists-guard-with-fallback pattern. The fan-out itself
 emits no consolidated artifact — each of the six lens agents persists
-its own `$WORKTREE/.flow-tmp/agent-output-<lens>.json`, and the
+its own `$WORKTREE/.flow-tmp/agent-output-<lens>.json`, typed fields
+`findings`, `rejected_alternatives`, `anti_patterns_found`, and the
 intent-guess agent persists `$WORKTREE/.flow-tmp/intent-guess.json`
 (NOT a Consolidator-Validator input); the downstream
 Consolidator-Validator step (a separate exemption) produces
-`consolidator-result.json` from the six lens outputs only. All seven
-agents run inside the supervisor's own in-process Skill load
+`consolidator-result.json` from the six lens outputs plus the optional
+cross-model (Gemini) lens output when `review.gemini` is enabled. All
+seven agents run inside the supervisor's own in-process Skill load
 (`/flow-pr-review` has no `context: fork` directive).
 
 ## `/flow-product-planning` Independent Discovery Subagent

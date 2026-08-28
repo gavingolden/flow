@@ -226,9 +226,7 @@ reads the six per-agent JSON outputs at
 `flow-agent-finding-schema --validate`, merges +
 dedups + threshold-filters, runs a second-opinion validation pass on
 >=80-confidence non-praise survivors, and writes a structured artifact
-at `<worktree>/.flow-tmp/consolidator-result.json` with five top-level
-keys: `consolidated_findings`, `dropped_by_validation`,
-`rejected_alternatives`, `anti_patterns_found`, `summary`. The full
+at `<worktree>/.flow-tmp/consolidator-result.json` with five REQUIRED top-level keys (`consolidated_findings`, `dropped_by_validation`, `rejected_alternatives`, `anti_patterns_found`, `summary`) plus three OPTIONAL per-lens pass-through keys (`lens_rejected_alternatives`, `lens_anti_patterns_found`, `lens_negatives_missing`). The full
 prose, procedure, and prompt template live in
 [references/consolidator-instructions.md](references/consolidator-instructions.md).
 
@@ -632,9 +630,8 @@ resolved type) and the resolved
   "Return your findings via the Task tool result envelope AND write them to
   `$WORKTREE/.flow-tmp/agent-output-<lens>.json` before returning," `<lens>` being
   the kebab-case name from the table below. This is the Step 3.5 Consolidator's
-  input — without it there is nothing to merge. Shape: `{findings: [...]}`
-  (matching `bin/lib/agent-finding-schema.ts`); empty is correct when nothing
-  noteworthy was found.
+  input — without it there is nothing to merge. Shape: `{findings: [...], rejected_alternatives: [...], anti_patterns_found: [...]}`
+  (matching `bin/lib/agent-finding-schema.ts`); empty arrays are correct, an ABSENT negative-findings key is recorded (`lens_negatives_missing[]`), not escalated.
 
 The 6 agents:
 
@@ -649,8 +646,7 @@ The 6 agents:
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
 `decoration`, `confidence`, `subject`, `body`. The on-disk artifact at
-`$WORKTREE/.flow-tmp/agent-output-<lens>.json` wraps that array in
-`{findings: [...]}` per the per-agent schema validated at Step 3.5.
+`$WORKTREE/.flow-tmp/agent-output-<lens>.json` carries three top-level keys — `findings`, `rejected_alternatives`, `anti_patterns_found` — per the per-agent schema validated at Step 3.5.
 
 Wait for all 7 spawned agents to complete before proceeding — the six
 lenses plus the diff-only intent-guess agent (§ Diff-only intent-guess
@@ -1583,6 +1579,8 @@ artifact's `rejected_alternatives[]`), **Anti-Patterns Observed** (from the arti
 negative-findings sections surface what the Fix-Applier Subagent learned should NOT be
 done — render them as named report sections so a human reading the report sees the
 foreclosed paths alongside the fixes that landed.
+
+Both sections also render the Consolidator's pass-through `lens_rejected_alternatives[]` / `lens_anti_patterns_found[]` entries alongside the Fix-Applier's, attributed to their source lens, under the SAME headings (no separate lens-only section); `None` still covers a zero-entry section across both sources.
 
 Each `anti_patterns_found[]` entry carries `introduced_by_this_pr` alongside its
 `location` / `pattern` / `recommendation` (`true` = lives in code this PR added or
