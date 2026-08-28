@@ -90,7 +90,9 @@ table must carry exactly 6 rows.
 
   This comment is a ready-to-run command the kill list shows verbatim;
   the skill never runs it — the user running it themselves is the
-  confirmation.
+  confirmation. `Verdict: below bar — the CSV export in #533 already
+covers this use case; a second export button adds maintenance surface
+for no incremental user value.`
 
 - Bundle B (`#431` + `H3`) is a DO bundle with no fire-time parameter —
   queued directly:
@@ -181,9 +183,18 @@ Phase 3 bundle mechanics above:
 - **What changes / who notices:** Anyone who leaves a tab open and
   comes back after a short idle period; the session now survives it
   instead of silently dropping.
-- **Why it's worth it:** A random forced logout is the kind of thing a
-  user assumes is a bug in the whole product, not one code path —
-  small fix, outsized trust cost if left alone.
+- **Why it's worth it:**
+  - **UX:** any user who leaves a tab idle past ~10 minutes gets force-
+    logged-out mid-session `[anchor: bin/lib/session.ts:88]`
+  - **Problem:** the session-refresh timer clears on tab-blur instead of
+    surviving it, reintroducing the auth race PR #519 was meant to fix
+    `[anchor: bin/lib/session.ts:88]`
+  - **Stability/efficiency:** none
+  - **Cost:** one file, one function, low risk (Bundle A, Small)
+  - **If never done:** users keep hitting an unexplained forced logout
+    and read it as a whole-product bug, not one code path
+  - **Verdict:** clears bar — a reproducible forced logout is an
+    outsized trust cost for a small, contained fix
 - **Size:** S
 
 ---
@@ -240,8 +251,9 @@ won't-do — ..."` command shown verbatim, never run by the skill.
   assuming a default retention window.
 - **Outcome-first bundle cards** — the Decision Brief excerpt above
   renders both DO bundles by user-facing outcome rather than mechanism,
-  and keeps the jargon ban: no code paths, no file names, no issue
-  mechanics in the card text itself.
+  and keeps the jargon ban in the card prose itself: no issue mechanics
+  outside the value-prop block's `[anchor: …]` tails, the one sanctioned
+  checkable exception.
 - **Verbatim note attachment** — `H3`'s adhoc note, captured
   byte-for-byte at Phase 0, is posted onto its bundle issue (`#440`) at
   Phase 4 via `flow-verbatim-notes attach`, and the run reports it

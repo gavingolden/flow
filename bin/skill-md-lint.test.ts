@@ -7144,12 +7144,12 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
     ).toBe(true);
   });
 
-  it("prd-template.md carries the pre-ticked candidate sketch", () => {
+  it("prd-template.md carries a ticked (bar-clearing) candidate sketch", () => {
     const tpl = read("flow-product-planning/templates/prd-template.md");
     expect(
       tpl.includes("- [x]"),
-      "prd-template.md must sketch a pre-ticked `- [x]` candidate line — " +
-        "bundle-by-default triage means candidates ship ticked, not opt-in.",
+      "prd-template.md must sketch a ticked `- [x]` candidate line — a " +
+        "candidate ships ticked only once its value-prop block clears the bar.",
     ).toBe(true);
   });
 

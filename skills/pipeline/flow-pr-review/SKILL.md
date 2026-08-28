@@ -915,7 +915,7 @@ The deferral path's tracker-entry filing (a GitHub issue via
 has no GitHub Issues surface the deferral is surfaced loudly in the
 report with an empty `tracker_entry_url` rather than written to a file)
 is documented inside the subagent's instructions at
-`references/fix-applier-instructions.md`.
+`references/fix-applier-instructions.md`. A `reason` beginning `below bar — ` is a value-bar dismissal, not a tracker failure, and renders under its own `Below bar (not filed)` sub-list in the Step 12 report.
 
 ## 7. Address Each Review Comment
 
@@ -1601,7 +1601,7 @@ surfaced in Step 4 must appear in one of the two buckets — say "No findings de
 explicitly rather than leaving the reader guessing. Same rule for the negative-findings
 sections: write `None` under an empty `rejected_alternatives` / `anti_patterns_found`
 heading rather than omitting it — silence on negatives is the failure mode the slot
-exists to prevent.
+exists to prevent. Within the deferred bucket, a `deferred[]` entry whose `reason` begins `below bar — ` renders under its own `Below bar (not filed)` sub-list, separate from filed deferrals (a `tracker_entry_url`) and from tracker failures (an empty `tracker_entry_url` whose `reason` does not begin `below bar — `).
 
 The Fix-Applier Subagent already committed and pushed any code changes during its run
 (per the `Auto-push exemption: pr-review` clause); the wrapper does not re-commit here.
@@ -1715,7 +1715,7 @@ Both sources are read-only against the fix-applier artifact schema —
 no new field is added to it. Items seeded here are unfiled by default;
 they surface in the terminal block's `**Untracked:**` row and the
 reader files or drops them with `file #N` / `drop #N` at any later
-pause.
+pause. Below-bar deferrals (a `reason` beginning `below bar — `) arrive through source 1 by design — shown, not filed — so the user can `flow-untracked file <id>` any they disagree with.
 
 After Step 13 finishes (including its no-op-skipped branch), write the
 clean-completion result artifact at `<worktree>/.flow-tmp/pr-review-result.json`

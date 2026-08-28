@@ -261,11 +261,11 @@ by the step-10 backstop.
 This named form is the **only** authorised `AskUserQuestion`
 site, documented bidirectionally with
 `skills/pipeline/flow-pipeline/SKILL.md`. Candidate follow-up issues are
-no longer curated via a form: discovery bundles them into the plan by
-default (pre-ticked `- [x]` items in `# Candidate follow-up issues`),
+no longer curated via a form: discovery lists them in the plan, ticked
+only when the value-prop block clears the bar,
 and the user curates by replying `drop candidate #N` / `drop all
-candidates` / `defer task #N` at plan review (step 4) rather than
-answering a multi-select.
+candidates` / `file candidate #N` / `defer task #N` at plan review
+(step 4) rather than answering a multi-select.
 
 ## Auto-merge exemption detail (`/flow-pipeline` step 10)
 
@@ -301,11 +301,12 @@ stops at the gated state regardless of the gate verdict).
 10's post-merge sweep (`--label flow-agent,out-of-scope-discovery`, once
 per `- [x]` candidate in plan.md). Indiscriminate auto-creation pollutes
 backlogs and races on `gh` rate limits. Feature and `route-to-step-4`
-pipelines curate the ticked set at plan review (bundle-by-default
-candidates are pre-ticked, and the `--details` echo plus the `drop
-candidate #N` / `pull #N into the plan` reply verbs let the user drop or
+pipelines curate the ticked set at plan review (candidates are ticked
+only when their value-prop block clears the bar, and the `--details`
+echo plus the `drop candidate #N` / `file candidate #N` / `pull #N into
+the plan` reply verbs let the user drop, file, or
 defer any it doesn't want before approval); step 3's `advance-to-step-5`
-route has no plan-review checkpoint, so its pre-ticked candidates and
+route has no plan-review checkpoint, so its ticked candidates and
 bundled tasks proceed as discovery authored them, disclosed post-hoc in
 the PR body and the terminal recap, with post-merge off-ramps (revert a
 bundled line, close an unwanted issue) as the correction path. Documented

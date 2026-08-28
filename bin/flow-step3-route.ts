@@ -30,8 +30,8 @@
  *                            supervisor falls through to Step 5 in the
  *                            same turn — no candidate-issues checkpoint
  *                            fires on this fully-autonomous path;
- *                            pre-ticked candidates and bundled tasks
- *                            are disclosed post-hoc via the PR body and
+ *                            ticked (bar-clearing) candidates and
+ *                            bundled tasks are disclosed post-hoc via the PR body and
  *                            the terminal recap.
  *                            Surrounding backtick/bold decoration and
  *                            a trailing `. , ; :` punctuation run on

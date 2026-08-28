@@ -541,7 +541,7 @@ follow-up section ONLY under one of three named exclusions:
 **cumulatively**, not per-candidate: several individually-fine bundles can together
 roughly double the diff. Apply the test to the bundle set as a whole; on overflow,
 keep the highest-value bundles in the task breakdown and demote the rest to
-pre-ticked candidates.
+candidates, ticked only when their block clears the bar.
 
 For example: "the retry loop swallows the underlying error" is an objective bug —
 bundle it into the task breakdown. "Add a settings toggle to let users disable
@@ -558,8 +558,7 @@ the task breakdown, removing it from the candidate table.
 When (and only when) such ideas exist, add a top-level `# Candidate follow-up issues`
 section to `plan.md`, placed between `# PRD` and `# Task breakdown` (see step 8). The
 section has **two parts, in this order**: a value-vs-complexity **ranking table**, then
-the machine-readable `- [ ]` checkbox list. Each checkbox is a single-line entry with a
-title and one-line body:
+the machine-readable `- [ ]` checkbox list. Each checkbox is a single-line title-and-body entry followed by its indented value-prop block (the six labelled sub-bullets defined below):
 
 ```markdown
 # Candidate follow-up issues
@@ -570,7 +569,19 @@ title and one-line body:
 | Pin `gh-action-cache` to v4     | Low   | Trivial    | one-line CI bump, unblocks nothing    | unrelated to this feature   | No                       |
 
 - [x] OAuth refresh path leaks tokens — separate concern; needs a dedicated session.
-- [x] `gh-action-cache@v3` is deprecated — pin to v4 in CI.
+  - **UX:** none
+  - **Problem:** refresh tokens are logged in plaintext on every retry [anchor: bin/flow-candidate-issues.ts:161]
+  - **Stability/efficiency:** none
+  - **Cost:** one file, isolated to the OAuth client; needs its own security-review session
+  - **If never done:** the leak persists in every future auth-touching PR
+  - **Verdict:** clears bar — a live credential leak outweighs the cost of a dedicated session
+- [ ] `gh-action-cache@v3` is deprecated — pin to v4 in CI.
+  - **UX:** none
+  - **Problem:** none
+  - **Stability/efficiency:** none
+  - **Cost:** one line in CI config
+  - **If never done:** nothing — v3 keeps working until GitHub removes it
+  - **Verdict:** below bar — no observed failure or deprecation deadline, just a version bump
 ```
 
 **The ranking table is mandatory whenever the section is present** (it is not itself
@@ -606,13 +617,17 @@ in the econ-data run. After the plan lands, the supervisor runs
 `flow-candidate-issues --lint --plan-md-file <plan.md>` as a deterministic advisory
 backstop; author the section so that check passes (every referenced follow-up is listed).
 
-Author every remaining candidate pre-ticked (`- [x]`) — file-by-default, not opt-in.
+Tick (`- [x]`) only a candidate whose value-prop block reads `**Verdict:** clears bar`;
+author every other candidate unticked (`- [ ]`). Unticked candidates stay in the
+ranking table and the checkbox list and are shown by `--details`; they file only if
+the user replies `file candidate #N`. Unclear ⇒ unticked.
 No `AskUserQuestion` form fires anywhere in this flow; instead, the supervisor echoes
 `flow-candidate-issues --details` at plan presentation so the user sees the full
-candidate list inline. The user curates by replying with one of three verbs:
+candidate list inline. The user curates by replying with one of four verbs:
 `pull #N into the plan` (moves a candidate into this pipeline's task breakdown),
-`drop candidate #N` (unticks it, removing it from the file-on-merge set), or
-`defer task #N` (moves a task-breakdown item back out to a ticked candidate).
+`drop candidate #N` (unticks it, removing it from the file-on-merge set),
+`defer task #N` (moves a task-breakdown item back out to a ticked candidate), or
+`file candidate #N` (ticks it).
 Whatever stays ticked when the PR merges is what the step-10 post-merge sweep files
 via `flow-create-issue`.
 
@@ -632,6 +647,25 @@ AGENTS.md `## Output style` rule
 test is cohesion, not size; do not use this section as a hedge to defer cohesive
 in-scope work that fails all three exclusions. A backlog full of low-confidence
 candidates is still noise — when in doubt, bundle.
+
+<!-- flow-value-rubric:begin -->
+
+**Value-prop block** — required before an item is ticked, filed, deferred, or verdicted DO / NEEDS-DECISION.
+
+- **UX:** <who notices, what changes for them, how often / how much> `[anchor: …]` — or `none`
+- **Problem:** <the concrete failure or friction this removes> `[anchor: …]` — or `none`
+- **Stability/efficiency:** <crash / flake / cost / latency effect, with the reproduced or measured number> `[anchor: …]` — or `none`
+- **Cost:** <files touched, blast radius, review load, regression risk>
+- **If never done:** <what breaks, stays broken, or keeps costing — or `nothing`>
+- **Verdict:** `clears bar` | `below bar` — <the decisive line, and why it outweighs (or fails to outweigh) Cost>
+
+**Anchor rule.** Every non-`none` UX / Problem / Stability line ends with `[anchor: …]` drawn from this closed list: a `file:line`; a reproduced behaviour (`command → observed output`); a command that fails today; a merged PR or commit; an issue number with its age; a measured number; the user's own words, quoted. A value line with no anchor is `unsubstantiated` and counts as `none`. Write file anchors bare (`[anchor: path/to/file.ts:42]`), never wrapped in backticks, so the lint can check the path exists.
+
+**Bar.** `clears bar` requires at least one substantiated value line, a one-line rationale that it outweighs the Cost line, and a non-`nothing` If-never-done line. Anything else — including unclear — is `below bar`.
+
+**Banned phrasing.** `nicer`, `cleaner`, `could improve`, `might`, `best practice`, `would be good to`, `likely`. An anchor the reader cannot open or run in seconds is worse than `none` — never invent one.
+
+<!-- flow-value-rubric:end -->
 
 ### Visual Spec
 
@@ -1466,8 +1500,9 @@ Common failure modes during planning:
   at the absolute paths the wrapper passed you, with parent directory created on
   demand.
 - `# Candidate follow-up issues` section is omitted from `plan.md` when discovery
-  surfaced no orthogonal ideas; populated as one or more pre-ticked `- [x]` items
-  otherwise (never written as an empty heading).
+  surfaced no orthogonal ideas; otherwise populated as checkbox items each
+  carrying a value-prop block, ticked only when its Verdict is `clears bar`
+  (never written as an empty heading).
 - The PRD opens with a one-line `**Goal:**` directly under the title (never omitted).
 - `## Behavioral contrast` is present with `### User flow` / `### System flow` and
   closes with a `**Lost:**` line (`none` only on genuinely additive changes).
