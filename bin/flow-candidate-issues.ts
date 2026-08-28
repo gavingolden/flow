@@ -610,7 +610,7 @@ const OFFER_LINE =
 const DROP_OFFER_LINE =
   "To drop a candidate instead of filing it as an issue, reply `drop candidate #N`.";
 const TICK_RULE_NOTE =
-  "Ticked items file as issues post-merge unless dropped; unticked items are listed here and file only if you reply `file candidate #N`.";
+  "Ticked items file as issues post-merge unless dropped; unticked items are listed here and file only on request (see below).";
 const FILE_OFFER_LINE =
   "To file an unticked candidate as an issue post-merge, reply `file candidate #N`.";
 

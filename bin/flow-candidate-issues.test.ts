@@ -287,7 +287,7 @@ describe(renderDetails, () => {
       "To drop a candidate instead of filing it as an issue, reply `drop candidate #N`.",
     );
     expect(rendered).toContain(
-      "Ticked items file as issues post-merge unless dropped; unticked items are listed here and file only if you reply `file candidate #N`.",
+      "Ticked items file as issues post-merge unless dropped; unticked items are listed here and file only on request (see below).",
     );
     // alpha ranks before beta (High before Low).
     expect(rendered.indexOf("#1 [ ] alpha")).toBeLessThan(
@@ -1244,7 +1244,7 @@ describe("run() integration", () => {
     expect(out).toContain("#1 [x] already done");
     expect(out).toContain("Already ticked");
     expect(out).toContain(
-      "Ticked items file as issues post-merge unless dropped; unticked items are listed here and file only if you reply `file candidate #N`.",
+      "Ticked items file as issues post-merge unless dropped; unticked items are listed here and file only on request (see below).",
     );
   });
 
