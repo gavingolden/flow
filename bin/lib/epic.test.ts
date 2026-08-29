@@ -25,7 +25,11 @@ const tmuxMock = vi.hoisted(() => ({
       cwd: string,
       command: string[],
       seed?: string,
-      deps?: { consumed?: () => boolean; onProgress?: (ms: number) => void },
+      deps?: {
+        consumed?: () => boolean;
+        seedCorrupted?: () => boolean;
+        onProgress?: (ms: number) => void;
+      },
     ) => {
       status: "started" | "launched-not-confirmed" | "failed";
       stderr: string;
@@ -37,7 +41,11 @@ const tmuxMock = vi.hoisted(() => ({
       cwd: string,
       command: string[],
       seed?: string,
-      deps?: { consumed?: () => boolean; onProgress?: (ms: number) => void },
+      deps?: {
+        consumed?: () => boolean;
+        seedCorrupted?: () => boolean;
+        onProgress?: (ms: number) => void;
+      },
     ) => {
       status: "started" | "launched-not-confirmed" | "failed";
       stderr: string;
@@ -110,7 +118,7 @@ const runEpicCli = (args: string[], options: EpicOptions = {}) =>
   );
 import { deriveWorktreePath } from "./feature";
 import { FLOW_CLAUDE_HOME } from "./paths";
-import { readState, writeState } from "./state";
+import { readState, writeState, type PipelineState } from "./state";
 import {
   writeEpicRunState,
   readEpicRunState,
@@ -631,9 +639,9 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(fs.existsSync(settingsPath)).toBe(false);
   });
 
-  it("marker-aware fresh consumed(): true on seedIngestedAt, falls back to phase past starting", () => {
-    // The launch-time seed-ingested marker latches consumed() even before the
-    // supervisor advances the phase; absent the marker it falls back to the
+  it("record-aware fresh consumed(): true on a verified record, falls back to phase past starting for every other outcome", () => {
+    // A `verified` seedIngest record latches consumed() even before the
+    // supervisor advances the phase; every other outcome falls back to the
     // phase moving off `starting`.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
@@ -650,16 +658,32 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     });
     expect(code).toBe(0);
     expect(consumedFn).toBeDefined();
-    // Up-front state is `starting`, no marker → not consumed.
+    // Up-front state is `starting`, no record → not consumed.
     expect(consumedFn!()).toBe(false);
-    // Stamp the marker (phase still starting) → consumed via the marker.
+    const base = {
+      slug: "design-thing",
+      phase: "starting",
+      repo: fs.realpathSync(repoDir),
+      updatedAt: new Date().toISOString(),
+    } as const;
+    // An `unverified` record must NOT latch consumed.
     writeState(
       {
-        slug: "design-thing",
-        phase: "starting",
-        repo: fs.realpathSync(repoDir),
-        seedIngestedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        ...base,
+        seedIngest: {
+          at: new Date().toISOString(),
+          outcome: "unverified",
+          reason: "payload-unparsable",
+        },
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(false);
+    // A `verified` record (phase still starting) → consumed via the record.
+    writeState(
+      {
+        ...base,
+        seedIngest: { at: new Date().toISOString(), outcome: "verified" },
       },
       stateDir,
     );
@@ -1313,14 +1337,14 @@ describe("runEpicCli create --resume", () => {
     expect(consumedFn!()).toBe(true);
   });
 
-  it("resume clears a pre-existing seedIngestedAt marker before the baseline read, so consumed() requires a fresh re-stamp", () => {
+  it("resume clears a pre-existing seedIngest record before the baseline read, so consumed() requires a fresh verified record", () => {
     // Mirrors feature.test.ts's twin. Regression (pre-Task-2): the
-    // seed-ingested hook stamps `seedIngestedAt` on the ORIGINAL fresh
+    // seed-ingested hook records the ingestion on the ORIGINAL fresh
     // launch, and a resume that never cleared it would let a bare
-    // `seedIngestedAt != null` check short-circuit consumed() true on the
-    // first probe off the stale marker — skipping the resume-seed send-keys
+    // presence check short-circuit consumed() true on the
+    // first probe off the stale record — skipping the resume-seed send-keys
     // and latching a false-success resume that never delivered the seed.
-    // The preClear block above now clears seedIngestedAt (and seedMismatch)
+    // The preClear block above now clears `seedIngest` (a new epoch)
     // BEFORE the baseline is captured, so the pre-existing value must not
     // survive into the resume attempt at all — asserted directly below, not
     // just inferred from consumed()'s later behaviour (which would otherwise
@@ -1334,7 +1358,7 @@ describe("runEpicCli create --resume", () => {
         phase: "epic-designing",
         repo: repoDir,
         updatedAt: baseline,
-        seedIngestedAt: staleMarker,
+        seedIngest: { at: staleMarker, outcome: "verified" },
       },
       stateDir,
     );
@@ -1352,17 +1376,30 @@ describe("runEpicCli create --resume", () => {
     });
     expect(code).toBe(0);
     expect(consumedFn).toBeDefined();
-    // The pre-existing marker must not survive into the resume's baseline.
+    // The pre-existing record must not survive into the resume's baseline.
     expect(
-      readState("stale-marker-epic", stateDir)?.seedIngestedAt,
+      readState("stale-marker-epic", stateDir)?.seedIngest,
     ).toBeUndefined();
-    // Cleared marker + unchanged updatedAt → NOT consumed.
+    // Cleared record + unchanged updatedAt → NOT consumed.
     expect(consumedFn!()).toBe(false);
-    // The resumed session's hook RE-STAMPS the marker with a new timestamp → flips.
+    // A FRESH `unverified` record must NOT satisfy the baseline.
     writeState(
       {
         ...readState("stale-marker-epic", stateDir)!,
-        seedIngestedAt: new Date().toISOString(),
+        seedIngest: {
+          at: new Date().toISOString(),
+          outcome: "unverified",
+          reason: "stdin-timeout",
+        },
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(false);
+    // The resumed session's hook writes a FRESH `verified` record → flips.
+    writeState(
+      {
+        ...readState("stale-marker-epic", stateDir)!,
+        seedIngest: { at: new Date().toISOString(), outcome: "verified" },
       },
       stateDir,
     );
@@ -1518,9 +1555,9 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
         repo: repoDir,
         updatedAt: new Date().toISOString(),
         seed: "stale create-time seed",
-        seedIngestedAt: "2026-01-01T00:00:00.000Z",
-        seedMismatch: {
+        seedIngest: {
           at: "2026-01-01T00:00:00.000Z",
+          outcome: "corrupt",
           expectedBytes: 10,
           submittedBytes: 5,
         },
@@ -1539,8 +1576,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     const deliveredSeed = tmuxMock.createWindowVerified.mock.calls[0]?.[3];
     expect(raw.seed).toBe(deliveredSeed);
     expect(raw.seed).not.toBe("stale create-time seed");
-    expect(raw.seedIngestedAt).toBeUndefined();
-    expect(raw.seedMismatch).toBeUndefined();
+    expect(raw.seedIngest).toBeUndefined();
   });
 
   it("publishes @flow-kind=epic-run on the launched window after the launch confirms — the signal that lets the SessionStart:clear hook bypass the terminal guard", () => {
@@ -3100,5 +3136,194 @@ describe("epic create launcher guard (tmux-only)", () => {
     });
     // Passes the guard; downstream launch proceeds through the mocked tmux.
     expect(code).toBe(0);
+  });
+});
+
+describe("seedIngest — corrupt guard, seedCorrupted wiring, unverified warning", () => {
+  const CORRUPT = {
+    at: "2026-08-01T00:00:00.000Z",
+    outcome: "corrupt" as const,
+    expectedBytes: 100,
+    submittedBytes: 40,
+  };
+  const UNVERIFIED = {
+    at: "2026-08-01T00:00:00.000Z",
+    outcome: "unverified" as const,
+    reason: "stdin-timeout" as const,
+  };
+
+  /** Fold a seedIngest record onto the on-disk state, preserving everything else. */
+  function stampRecord(
+    slug: string,
+    seedIngest: NonNullable<PipelineState["seedIngest"]> | undefined,
+    extra: Partial<PipelineState> = {},
+  ): void {
+    const statePath = path.join(stateDir, `${slug}.json`);
+    const current = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({ ...current, ...extra, seedIngest }),
+    );
+  }
+
+  function seedResumeState(slug: string): void {
+    writeState(
+      {
+        slug,
+        phase: "epic-designing",
+        repo: repoDir,
+        updatedAt: new Date(Date.now() - 10_000).toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+  }
+
+  it("runCreate consumed() returns false while a corrupt record stands, even with the phase advanced past 'starting'", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let consumedResult: boolean | undefined;
+    tmuxMock.createWindowVerified.mockImplementation((name, ...rest) => {
+      const deps = rest[3];
+      stampRecord(name, CORRUPT, { phase: "epic-designing" });
+      consumedResult = deps!.consumed!();
+      return { status: "failed", stderr: "seed delivery corrupted" };
+    });
+    runEpicCli(["create", "design the thing"], { stateDir, cwd: repoDir });
+    // A recorded corruption must win over the phase-advance fallback.
+    expect(consumedResult).toBe(false);
+  });
+
+  it("runCreate wires a seedCorrupted closure that actually reads the corrupt record", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let captured: { seedCorrupted?: () => boolean } | undefined;
+    tmuxMock.createWindowVerified.mockImplementation((_n, ...rest) => {
+      captured = rest[3];
+      return { status: "started", stderr: "" };
+    });
+    expect(
+      runEpicCli(["create", "design the thing"], { stateDir, cwd: repoDir }),
+    ).toBe(0);
+    expect(typeof captured?.seedCorrupted).toBe("function");
+    expect(captured!.seedCorrupted!()).toBe(false);
+    stampRecord("design-thing", CORRUPT);
+    expect(captured!.seedCorrupted!()).toBe(true);
+  });
+
+  it("runEpicResume wires a seedCorrupted closure that actually reads the corrupt record", () => {
+    seedResumeState("resume-wiring-epic");
+    let captured: { seedCorrupted?: () => boolean } | undefined;
+    tmuxMock.respawnWindowVerified.mockImplementation((_n, ...rest) => {
+      captured = rest[3];
+      return { status: "started", stderr: "" };
+    });
+    expect(
+      runEpicCli(["create", "--resume", "resume-wiring-epic"], { stateDir }),
+    ).toBe(0);
+    expect(typeof captured?.seedCorrupted).toBe("function");
+    expect(captured!.seedCorrupted!()).toBe(false);
+    stampRecord("resume-wiring-epic", CORRUPT);
+    expect(captured!.seedCorrupted!()).toBe(true);
+  });
+
+  it("runCreate prints the unverified warning after a non-failed launch", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    tmuxMock.createWindowVerified.mockImplementation((name) => {
+      stampRecord(name, UNVERIFIED);
+      return { status: "started", stderr: "" };
+    });
+    expect(
+      runEpicCli(["create", "design the thing"], { stateDir, cwd: repoDir }),
+    ).toBe(0);
+    expect(errors.join("\n")).toContain(
+      "flow epic create: seed integrity NOT verified (stdin-timeout)",
+    );
+  });
+
+  it("runCreate prints NO warning on verified / not-applicable / corrupt / absent", () => {
+    const records: Array<NonNullable<PipelineState["seedIngest"]> | undefined> =
+      [
+        { at: UNVERIFIED.at, outcome: "verified" },
+        {
+          at: UNVERIFIED.at,
+          outcome: "not-applicable",
+          reason: "no-seed-recorded",
+        },
+        CORRUPT,
+        undefined,
+      ];
+    for (const rec of records) {
+      errors.length = 0;
+      fs.rmSync(path.join(stateDir, "design-thing.json"), { force: true });
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      freshWindowOk();
+      tmuxMock.createWindowVerified.mockImplementation((name) => {
+        stampRecord(name, rec);
+        return { status: "started", stderr: "" };
+      });
+      runEpicCli(["create", "design the thing"], { stateDir, cwd: repoDir });
+      expect(errors.join("\n")).not.toContain("seed integrity NOT verified");
+    }
+  });
+
+  it("runEpicResume prints the unverified warning after a non-failed launch", () => {
+    seedResumeState("resume-warn-epic");
+    tmuxMock.respawnWindowVerified.mockImplementation((name) => {
+      stampRecord(name, UNVERIFIED);
+      return { status: "started", stderr: "" };
+    });
+    expect(
+      runEpicCli(["create", "--resume", "resume-warn-epic"], { stateDir }),
+    ).toBe(0);
+    expect(errors.join("\n")).toContain(
+      "flow epic create --resume: seed integrity NOT verified (stdin-timeout)",
+    );
+  });
+
+  it("spawnEpicRunSupervisor leaks NO seed warning — the epic-run window stays deliberately unwired", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const dir = path.join(repoDir, ".flow", "epics", "unwired-epic");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "manifest.json"),
+      JSON.stringify({
+        epicId: "unwired-epic",
+        prompt: "p",
+        createdAt: "2026-06-28",
+        features: [
+          {
+            id: "a",
+            title: "A",
+            description: "build a",
+            dependsOn: [],
+            acceptance: ["x"],
+          },
+        ],
+      }),
+    );
+    freshWindowOk();
+    writeState(
+      {
+        slug: "unwired-epic",
+        phase: "epic-approved",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.createWindowVerified.mockImplementation((name) => {
+      // Even a hostile record on this path must produce no warning: the
+      // epic-run window passes neither `consumed` nor `seedCorrupted`, and
+      // must keep launch behaviour byte-identical.
+      stampRecord(name, UNVERIFIED);
+      return { status: "started", stderr: "" };
+    });
+    expect(
+      runEpicCli(["run", "unwired-epic"], { cwd: repoDir, epicsDir, stateDir }),
+    ).toBe(0);
+    expect(errors.join("\n")).not.toContain("seed integrity NOT verified");
   });
 });

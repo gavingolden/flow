@@ -1,7 +1,16 @@
 import * as fs from "node:fs";
+import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
-import { run, type Deps } from "./flow-seed-ingested-hook";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  STDIN_TIMEOUT_MS,
+  defaultReadStdin,
+  deliveryMarkerPresent,
+  run,
+  seedIntact,
+  squashPrompt,
+  type Deps,
+} from "./flow-seed-ingested-hook";
 import type { PipelineState } from "./lib/state";
 
 const FROZEN_NOW = "2026-06-28T00:00:00.000Z";
@@ -21,7 +30,7 @@ function makeDeps(opts: {
   slug?: string;
   flowSlugEnv?: string;
   state?: PipelineState | null;
-  readStdin?: () => Promise<string>;
+  readStdin?: () => Promise<{ text: string; complete: boolean }>;
 }): { deps: Deps; saveState: ReturnType<typeof vi.fn> } {
   const saveState = vi.fn();
   const deps: Deps = {
@@ -31,16 +40,16 @@ function makeDeps(opts: {
     loadState: () => opts.state ?? null,
     saveState,
     nowIso: () => FROZEN_NOW,
-    // Default: benign empty payload. Every existing test's state carries no
-    // `seed`, so the no-seed early-exit means this is never actually invoked
-    // unless a test explicitly overrides it to exercise the comparison path.
-    readStdin: opts.readStdin ?? (async () => ""),
+    // Default: benign empty payload. Every no-seed test hits the
+    // not-applicable early-exit, so this is never actually invoked unless a
+    // test explicitly overrides it to exercise the comparison path.
+    readStdin: opts.readStdin ?? (async () => ({ text: "", complete: true })),
   };
   return { deps, saveState };
 }
 
 describe("flow-seed-ingested-hook", () => {
-  it("stamps seedIngestedAt given a flow-session env", async () => {
+  it("records not-applicable given a flow-session env and no recorded seed", async () => {
     const { deps, saveState } = makeDeps({
       pane: "%1",
       slug: "demo",
@@ -49,11 +58,18 @@ describe("flow-seed-ingested-hook", () => {
     await expect(run(deps)).resolves.toBe(0);
     expect(saveState).toHaveBeenCalledTimes(1);
     expect(saveState).toHaveBeenCalledWith(
-      expect.objectContaining({ slug: "demo", seedIngestedAt: FROZEN_NOW }),
+      expect.objectContaining({
+        slug: "demo",
+        seedIngest: {
+          at: FROZEN_NOW,
+          outcome: "not-applicable",
+          reason: "no-seed-recorded",
+        },
+      }),
     );
   });
 
-  it("stamps via FLOW_SLUG with no pane at all (plain launcher)", async () => {
+  it("records via FLOW_SLUG with no pane at all (plain launcher)", async () => {
     const { deps, saveState } = makeDeps({
       pane: undefined,
       flowSlugEnv: "demo",
@@ -61,7 +77,10 @@ describe("flow-seed-ingested-hook", () => {
     });
     await expect(run(deps)).resolves.toBe(0);
     expect(saveState).toHaveBeenCalledWith(
-      expect.objectContaining({ slug: "demo", seedIngestedAt: FROZEN_NOW }),
+      expect.objectContaining({
+        slug: "demo",
+        seedIngest: expect.objectContaining({ outcome: "not-applicable" }),
+      }),
     );
   });
 
@@ -78,10 +97,10 @@ describe("flow-seed-ingested-hook", () => {
       },
       saveState,
       nowIso: () => FROZEN_NOW,
-      readStdin: async () => "",
+      readStdin: async () => ({ text: "", complete: true }),
     };
     await expect(run(deps)).resolves.toBe(0);
-    expect(loadCalls).toEqual(["pane-slug"]);
+    expect(loadCalls).toEqual(["pane-slug", "pane-slug"]);
   });
 
   it("no-ops when not in tmux (pane undefined)", async () => {
@@ -114,17 +133,26 @@ describe("flow-seed-ingested-hook", () => {
     expect(saveState).not.toHaveBeenCalled();
   });
 
-  it("is idempotent: does not re-stamp a state that already has the marker", async () => {
-    const { deps, saveState } = makeDeps({
-      pane: "%1",
-      slug: "demo",
-      state: fakeState({ seedIngestedAt: "2026-06-27T12:00:00.000Z" }),
-    });
-    await expect(run(deps)).resolves.toBe(0);
-    expect(saveState).not.toHaveBeenCalled();
+  it("short-circuits on the two TERMINAL outcomes without re-writing", async () => {
+    for (const seedIngest of [
+      { at: "2026-06-27T12:00:00.000Z", outcome: "verified" as const },
+      {
+        at: "2026-06-27T12:00:00.000Z",
+        outcome: "not-applicable" as const,
+        reason: "no-seed-recorded" as const,
+      },
+    ]) {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seedIngest }),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).not.toHaveBeenCalled();
+    }
   });
 
-  it("preserves the rest of the state when stamping (spread, not replace)", async () => {
+  it("preserves the rest of the state when recording (spread, not replace)", async () => {
     const { deps, saveState } = makeDeps({
       pane: "%1",
       slug: "demo",
@@ -137,29 +165,54 @@ describe("flow-seed-ingested-hook", () => {
         phase: "starting",
         pr: 7,
         effort: "high",
-        seedIngestedAt: FROZEN_NOW,
+        seedIngest: expect.objectContaining({ outcome: "not-applicable" }),
       }),
     );
+  });
+
+  it("records not-applicable for a whitespace-only seed (no vacuous pass)", async () => {
+    for (const seed of ["", "   \n\t "]) {
+      const readStdin = vi.fn(async () => ({ text: "", complete: true }));
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed }),
+        readStdin,
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(readStdin).not.toHaveBeenCalled();
+      expect(saveState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          seedIngest: {
+            at: FROZEN_NOW,
+            outcome: "not-applicable",
+            reason: "no-seed-recorded",
+          },
+        }),
+      );
+    }
   });
 
   describe("seed integrity comparison (state.seed present)", () => {
     const SEED =
       "[pipeline-slug: demo]\nUse the /flow-pipeline skill for: csv export";
+    const payload = (prompt: string) =>
+      JSON.stringify({ hook_event_name: "UserPromptSubmit", prompt });
+    const complete = (text: string) => async () => ({ text, complete: true });
 
-    it("stamps seedIngestedAt (never seedMismatch) when the submitted prompt contains the seed intact", async () => {
+    it("records verified when the submitted prompt contains the seed intact", async () => {
       const { deps, saveState } = makeDeps({
         pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
-        readStdin: async () =>
-          JSON.stringify({ hook_event_name: "UserPromptSubmit", prompt: SEED }),
+        readStdin: complete(payload(SEED)),
       });
       await expect(run(deps)).resolves.toBe(0);
       expect(saveState).toHaveBeenCalledWith(
-        expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
+        expect.objectContaining({
+          seedIngest: { at: FROZEN_NOW, outcome: "verified" },
+        }),
       );
-      const written = saveState.mock.calls[0]![0] as PipelineState;
-      expect(written.seedMismatch).toBeUndefined();
     });
 
     it("a supervisor preamble/trailing note around the intact seed still counts (containment, not equality)", async () => {
@@ -167,61 +220,106 @@ describe("flow-seed-ingested-hook", () => {
         pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
-        readStdin: async () =>
-          JSON.stringify({
-            hook_event_name: "UserPromptSubmit",
-            prompt: `note: resuming\n${SEED}\n(auto-submitted)`,
-          }),
+        readStdin: complete(
+          payload(`note: resuming\n${SEED}\n(auto-submitted)`),
+        ),
       });
       await expect(run(deps)).resolves.toBe(0);
       expect(saveState).toHaveBeenCalledWith(
-        expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
+        expect.objectContaining({
+          seedIngest: { at: FROZEN_NOW, outcome: "verified" },
+        }),
       );
     });
 
-    it("writes seedMismatch (and does NOT stamp seedIngestedAt) when the submitted prompt has the seed's MIDDLE removed — the observed truncation failure shape", async () => {
-      // This is RED on main: the pre-Task-3 hook ignores stdin entirely and
-      // always stamps seedIngestedAt regardless of what actually landed.
-      const truncated = SEED.slice(0, 10) + SEED.slice(-10); // drop the middle
+    it("records corrupt when the submitted prompt has the seed's MIDDLE removed — the observed truncation failure shape", async () => {
+      const truncated = SEED.slice(0, 30) + SEED.slice(-10); // drop the middle
       const { deps, saveState } = makeDeps({
         pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
-        readStdin: async () =>
-          JSON.stringify({
-            hook_event_name: "UserPromptSubmit",
-            prompt: truncated,
-          }),
+        readStdin: complete(payload(truncated)),
       });
       await expect(run(deps)).resolves.toBe(0);
       expect(saveState).toHaveBeenCalledTimes(1);
       const written = saveState.mock.calls[0]![0] as PipelineState;
-      expect(written.seedIngestedAt).toBeUndefined();
-      expect(written.seedMismatch).toEqual({
+      expect(written.seedIngest).toEqual({
         at: FROZEN_NOW,
+        outcome: "corrupt",
         expectedBytes: Buffer.byteLength(SEED, "utf8"),
         submittedBytes: Buffer.byteLength(truncated, "utf8"),
       });
     });
 
-    it("behaves exactly as today (stamps, no comparison) when state.seed is absent, never invoking readStdin", async () => {
-      const readStdin = vi.fn(async () => {
-        throw new Error("must not be called when state.seed is absent");
-      });
+    it("writes NOTHING for a foreign (user-typed) prompt carrying no delivery marker", async () => {
       const { deps, saveState } = makeDeps({
         pane: "%1",
         slug: "demo",
-        state: fakeState(),
-        readStdin,
+        state: fakeState({ seed: SEED }),
+        readStdin: complete(payload("what does this repo do?")),
       });
       await expect(run(deps)).resolves.toBe(0);
-      expect(readStdin).not.toHaveBeenCalled();
+      expect(saveState).not.toHaveBeenCalled();
+    });
+
+    it("a standing corrupt record survives a later foreign prompt (byte counts still describe the corrupted delivery)", async () => {
+      const standing = {
+        at: "2026-06-27T12:00:00.000Z",
+        outcome: "corrupt" as const,
+        expectedBytes: 999,
+        submittedBytes: 111,
+      };
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed: SEED, seedIngest: standing }),
+        readStdin: complete(payload("unrelated later chatter")),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).not.toHaveBeenCalled();
+    });
+
+    it("a standing corrupt record is never downgraded by an unverified outcome", async () => {
+      const standing = {
+        at: "2026-06-27T12:00:00.000Z",
+        outcome: "corrupt" as const,
+        expectedBytes: 999,
+        submittedBytes: 111,
+      };
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed: SEED, seedIngest: standing }),
+        readStdin: async () => ({ text: "", complete: false }),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).not.toHaveBeenCalled();
+    });
+
+    it("a standing corrupt record IS cleared by a later intact submission (PR #686 clear-on-intact-retry)", async () => {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({
+          seed: SEED,
+          seedIngest: {
+            at: "2026-06-27T12:00:00.000Z",
+            outcome: "corrupt",
+            expectedBytes: 999,
+            submittedBytes: 111,
+          },
+        }),
+        readStdin: complete(payload(SEED)),
+      });
+      await expect(run(deps)).resolves.toBe(0);
       expect(saveState).toHaveBeenCalledWith(
-        expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
+        expect.objectContaining({
+          seedIngest: { at: FROZEN_NOW, outcome: "verified" },
+        }),
       );
     });
 
-    it("behaves exactly as today (stamps, exits 0) when stdin is unreadable", async () => {
+    it("records unverified{stdin-error} when the stdin drain throws", async () => {
       const { deps, saveState } = makeDeps({
         pane: "%1",
         slug: "demo",
@@ -232,36 +330,186 @@ describe("flow-seed-ingested-hook", () => {
       });
       await expect(run(deps)).resolves.toBe(0);
       expect(saveState).toHaveBeenCalledWith(
-        expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
+        expect.objectContaining({
+          seedIngest: {
+            at: FROZEN_NOW,
+            outcome: "unverified",
+            reason: "stdin-error",
+          },
+        }),
       );
     });
 
-    it("behaves exactly as today (stamps, exits 0) when stdin is malformed JSON", async () => {
+    it("records unverified{stdin-timeout} when the drain came back incomplete", async () => {
       const { deps, saveState } = makeDeps({
         pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
-        readStdin: async () => "{not json",
+        readStdin: async () => ({ text: payload(SEED), complete: false }),
       });
       await expect(run(deps)).resolves.toBe(0);
       expect(saveState).toHaveBeenCalledWith(
-        expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
+        expect.objectContaining({
+          seedIngest: {
+            at: FROZEN_NOW,
+            outcome: "unverified",
+            reason: "stdin-timeout",
+          },
+        }),
       );
     });
 
-    it("behaves exactly as today (stamps, exits 0) when the payload has no `prompt` field", async () => {
+    it("records unverified{payload-unparsable} on malformed JSON", async () => {
       const { deps, saveState } = makeDeps({
         pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
-        readStdin: async () =>
+        readStdin: complete("{not json"),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          seedIngest: {
+            at: FROZEN_NOW,
+            outcome: "unverified",
+            reason: "payload-unparsable",
+          },
+        }),
+      );
+    });
+
+    it("records unverified{no-prompt-field} when the payload carries no prompt", async () => {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed: SEED }),
+        readStdin: complete(
           JSON.stringify({ hook_event_name: "UserPromptSubmit" }),
+        ),
       });
       await expect(run(deps)).resolves.toBe(0);
       expect(saveState).toHaveBeenCalledWith(
-        expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
+        expect.objectContaining({
+          seedIngest: {
+            at: FROZEN_NOW,
+            outcome: "unverified",
+            reason: "no-prompt-field",
+          },
+        }),
       );
     });
+
+    it("re-reads state immediately before writing, so a concurrent supervisor write is not clobbered", async () => {
+      const saveState = vi.fn();
+      let call = 0;
+      const deps: Deps = {
+        tmuxPane: "%1",
+        showFlowSlug: () => "demo",
+        // Second read (the pre-write re-read) sees the supervisor's advance.
+        loadState: () =>
+          ++call === 1
+            ? fakeState({ seed: SEED })
+            : fakeState({ seed: SEED, phase: "planning", pr: 42 }),
+        saveState,
+        nowIso: () => FROZEN_NOW,
+        readStdin: complete(payload(SEED)),
+      };
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledWith(
+        expect.objectContaining({ phase: "planning", pr: 42 }),
+      );
+    });
+  });
+});
+
+describe("squashPrompt / seedIntact / deliveryMarkerPresent", () => {
+  const SEED =
+    "[pipeline-slug: demo]\nUse the /flow-pipeline skill for: csv export";
+
+  it("squashPrompt strips ALL whitespace (an 80-column pane wrap still matches)", () => {
+    expect(squashPrompt(" a\n b\tc  ")).toBe("abc");
+    expect(squashPrompt("")).toBe("");
+  });
+
+  it("seedIntact is containment, not equality", () => {
+    expect(seedIntact(SEED, `preamble\n${SEED}\ntrailer`)).toBe(true);
+    expect(seedIntact(SEED, SEED)).toBe(true);
+  });
+
+  it("seedIntact ignores whitespace differences introduced by pane wrapping", () => {
+    expect(seedIntact(SEED, SEED.replace(/ /g, "\n  "))).toBe(true);
+  });
+
+  it("seedIntact is false when the seed's middle is missing", () => {
+    expect(seedIntact(SEED, SEED.slice(0, 30) + SEED.slice(-10))).toBe(false);
+  });
+
+  it("seedIntact('', anything) is false — an empty expectation never passes vacuously", () => {
+    expect(seedIntact("", "anything at all")).toBe(false);
+    expect(seedIntact("   \n ", "anything at all")).toBe(false);
+    expect(seedIntact("", "")).toBe(false);
+  });
+
+  it("deliveryMarkerPresent matches on the leading line alone", () => {
+    expect(
+      deliveryMarkerPresent(SEED, "[pipeline-slug: demo] and nothing else"),
+    ).toBe(true);
+    // The full seed obviously carries its own leading line.
+    expect(deliveryMarkerPresent(SEED, SEED)).toBe(true);
+  });
+
+  it("deliveryMarkerPresent is false for a user-typed prompt", () => {
+    expect(deliveryMarkerPresent(SEED, "what does this repo do?")).toBe(false);
+  });
+
+  it("deliveryMarkerPresent is false for a seed with no content", () => {
+    expect(deliveryMarkerPresent("", "anything")).toBe(false);
+  });
+});
+
+describe("defaultReadStdin", () => {
+  const realStdin = process.stdin;
+  afterEach(() => {
+    Object.defineProperty(process, "stdin", {
+      value: realStdin,
+      configurable: true,
+    });
+    vi.useRealTimers();
+  });
+
+  function stubStdin(): PassThrough {
+    const fake = new PassThrough();
+    Object.defineProperty(process, "stdin", {
+      value: fake,
+      configurable: true,
+    });
+    return fake;
+  }
+
+  it("resolves {complete:false} on the STDIN_TIMEOUT_MS backstop when the stream never ends", async () => {
+    vi.useFakeTimers();
+    stubStdin();
+    const p = defaultReadStdin();
+    vi.advanceTimersByTime(STDIN_TIMEOUT_MS);
+    await expect(p).resolves.toEqual({ text: "", complete: false });
+  });
+
+  it("resolves EARLY with {complete:true} once the accumulated buffer parses, without waiting for `end`", async () => {
+    const fake = stubStdin();
+    const text = JSON.stringify({ prompt: "hello" });
+    const p = defaultReadStdin();
+    fake.write(text);
+    // Deliberately never `end()` — an early resolve is the whole point.
+    await expect(p).resolves.toEqual({ text, complete: true });
+  });
+
+  it("keeps draining across a split payload and resolves at the chunk that completes the JSON", async () => {
+    const fake = stubStdin();
+    const text = JSON.stringify({ prompt: "hello world" });
+    const p = defaultReadStdin();
+    fake.write(text.slice(0, 10));
+    fake.write(text.slice(10));
+    await expect(p).resolves.toEqual({ text, complete: true });
   });
 });
 

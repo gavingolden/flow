@@ -12,6 +12,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { FLOW_STATE_DIR } from "./paths";
 import { CHECKPOINT_SITES } from "./checkpoint-freshness";
+import { isSeedIngest, type SeedIngest } from "./seed-ingest";
+
+/** Re-exported for consumer convenience — the type is owned by `./seed-ingest`. */
+export type { SeedIngest };
 
 /**
  * Reasoning-effort levels accepted by `claude --effort`. Single source of
@@ -183,15 +187,18 @@ export type PipelineState = {
    */
   phaseLog?: Array<{ phase: string; outcome?: string; at: string }>;
   /**
-   * Timestamp the `flow-seed-ingested-hook` (a Claude Code UserPromptSubmit
-   * hook) stamps the instant the seed prompt is accepted inside a flow
-   * session. The launcher's `consumed()` predicate treats its presence (plus a
-   * live pane) as launch-time confirmation the seed was ingested, upgrading the
-   * lazy orphan-reaper's eventual-consistency guarantee to a launch-time one;
-   * the reaper remains the fallback when the marker is absent (old sessions,
-   * hook-not-fired). Additive — no migration (AGENTS.md: no back-compat shims).
+   * Self-describing seed-integrity record written by `flow-seed-ingested-hook`
+   * (a Claude Code UserPromptSubmit hook) the instant a prompt is accepted
+   * inside a flow session. Replaces the old `seedIngestedAt`/`seedMismatch`
+   * pair, whose shared absent state could not distinguish "not yet ingested"
+   * from "ingested but unverifiable". See `./seed-ingest` for the five
+   * outcomes (four encoded, the fifth being this field's ABSENCE) and the
+   * monotone-latch rule every consumer's predicate ordering depends on.
+   * Additive — no migration (AGENTS.md: no back-compat shims); a legacy state
+   * file still carrying `seedIngestedAt` parses fine and degrades to
+   * not-yet-ingested.
    */
-  seedIngestedAt?: string;
+  seedIngest?: SeedIngest;
   /**
    * The exact seed text this launch attempt intended to deliver, recorded by
    * every tmux launch/resume path (`feature.ts`, `epic.ts`,
@@ -204,15 +211,6 @@ export type PipelineState = {
    * (AGENTS.md: no back-compat shims).
    */
   seed?: string;
-  /**
-   * Recorded by `flow-seed-ingested-hook` when the UserPromptSubmit payload
-   * does not contain `state.seed` intact — the observable signature of a
-   * corrupted/truncated seed delivery. Presence (without a paired
-   * `seedIngestedAt`) is what `tmux.ts`'s `seedCorrupted()` predicate treats
-   * as a hard launch failure. Kept to exactly a timestamp plus two byte
-   * counts — no diff, chunk index, or retry history.
-   */
-  seedMismatch?: { at: string; expectedBytes: number; submittedBytes: number };
   /**
    * Crash-safe liveness signal: the OS-level PID of the pane's foreground
    * process at launch time (see `tmux.panePid`), paired with `procStartedAt`
@@ -727,17 +725,6 @@ function isPhaseLog(
   return true;
 }
 
-function isSeedMismatch(
-  v: unknown,
-): v is NonNullable<PipelineState["seedMismatch"]> {
-  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
-  const o = v as Record<string, unknown>;
-  if (typeof o.at !== "string") return false;
-  if (typeof o.expectedBytes !== "number") return false;
-  if (typeof o.submittedBytes !== "number") return false;
-  return true;
-}
-
 function isUntrackedList(x: unknown): x is UntrackedItem[] {
   if (!Array.isArray(x)) return false;
   for (const e of x) {
@@ -815,11 +802,8 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.reap !== undefined && !isReapRecord(o.reap)) return false;
   if (o.ciWait !== undefined && !isCiWaitRecord(o.ciWait)) return false;
   if (o.untracked !== undefined && !isUntrackedList(o.untracked)) return false;
-  if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
-    return false;
   if (o.seed !== undefined && typeof o.seed !== "string") return false;
-  if (o.seedMismatch !== undefined && !isSeedMismatch(o.seedMismatch))
-    return false;
+  if (o.seedIngest !== undefined && !isSeedIngest(o.seedIngest)) return false;
   if (o.pid !== undefined && typeof o.pid !== "number") return false;
   if (o.procStartedAt !== undefined && typeof o.procStartedAt !== "number")
     return false;

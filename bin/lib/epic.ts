@@ -109,6 +109,11 @@ import {
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
 import {
+  seedIngestConfirmsDelivery,
+  seedIngestIsCorrupt,
+  unverifiedSeedWarning,
+} from "./seed-ingest";
+import {
   LockTimeoutError,
   resolveLaunchConcurrency,
   withFileLockSync,
@@ -572,9 +577,8 @@ PR → review checkpoint), and writes initial epic state under
   // so no live supervisor races this rewrite.
   const launch = () => {
     // A fresh literal (not a spread of `existing`) already omits
-    // seedIngestedAt/seedMismatch, so adding `seed` here is sufficient to
-    // "clear" both on every launch attempt — there is nothing to explicitly
-    // unset.
+    // `seedIngest`, so adding `seed` here is sufficient to "clear" the record
+    // on every launch attempt — there is nothing to explicitly unset.
     writeState(
       {
         slug,
@@ -595,22 +599,22 @@ PR → review checkpoint), and writes initial epic state under
     // seed delivery and kills its own half-created window on failure; the
     // delete-on-failure below removes the up-front state file.
     return createWindowVerified(slug, repo, command, seed, {
-      // Marker-aware consumed(): the seed-ingested hook stamping `seedIngestedAt`
-      // confirms ingestion at launch time; absent the marker, fall back to the
-      // phase advancing past `starting`. (consumed() is only probed while the
-      // pane is alive, so "marker present" already implies a live pane.) A
-      // recorded seedMismatch is checked FIRST so it always beats the
+      // Record-aware consumed() (mirrors feature.ts runFresh): a `verified`
+      // seedIngest record confirms ingestion at launch time; every OTHER
+      // outcome (unverified, not-applicable, absent) falls through to the
+      // phase advancing past `starting`, so an unrun check can never stand in
+      // for verification. `corrupt` is checked FIRST so it always beats the
       // phase-advance fallback — a corrupted delivery must never latch as
-      // consumed just because some other write happened to advance the phase.
+      // consumed just because some other write advanced the phase.
       consumed: () => {
         const s = readState(slug, options.stateDir);
         if (s == null) return false;
-        if (s.seedMismatch != null) return false;
-        if (s.seedIngestedAt != null) return true;
+        if (seedIngestIsCorrupt(s)) return false;
+        if (seedIngestConfirmsDelivery(s)) return true;
         return s.phase !== "starting";
       },
       seedCorrupted: () =>
-        readState(slug, options.stateDir)?.seedMismatch != null,
+        seedIngestIsCorrupt(readState(slug, options.stateDir)),
     });
   };
   const result = withLaunchSlot(
@@ -671,6 +675,17 @@ PR → review checkpoint), and writes initial epic state under
       "  retry `flow epic create`; if it persists, check tmux/claude health.",
     );
     return 2;
+  }
+
+  // Deliberately AFTER the Mode-2 backstop above: an `unverified` record on a
+  // launch that then reports the window vanished would print two contradictory
+  // messages for one launch. Warning only — the exit code is unchanged.
+  {
+    const w = unverifiedSeedWarning(
+      "flow epic create",
+      readState(slug, options.stateDir),
+    );
+    if (w) console.error(dim(w));
   }
 
   // Publish the pane kind AFTER the launch is confirmed live (best-effort;
@@ -761,12 +776,13 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // the baseline read: (1) the marker baseline captured immediately below must
   // reflect a clean slate, so any post-resume stamp is unambiguously fresh,
   // never a leftover from a prior launch/resume; (2) flow-seed-ingested-hook
-  // short-circuits on `if (state.seedIngestedAt) return 0;` — without this
-  // clear the hook never performs its integrity comparison on a resume
-  // attempt at all. It ALSO fixes a false-positive: this path's own resume
-  // seed is NOT the create-time seed `runCreate` recorded, so without
-  // recording it here the hook would compare this delivery's prompt against
-  // that stale create-time seed and record a false seedMismatch.
+  // short-circuits on the two TERMINAL outcomes (`verified`,
+  // `not-applicable`) — without this clear the hook never performs its
+  // integrity comparison on a resume attempt at all. It ALSO fixes a
+  // false-positive: this path's own resume seed is NOT the create-time seed
+  // `runCreate` recorded, so without recording it here the hook would compare
+  // this delivery's prompt against that stale create-time seed and record a
+  // false `corrupt` outcome.
   {
     const preClear = readState(slug, options.stateDir);
     if (preClear != null) {
@@ -774,8 +790,7 @@ function runEpicResume(name: string, options: EpicOptions): number {
         {
           ...preClear,
           seed,
-          seedIngestedAt: undefined,
-          seedMismatch: undefined,
+          seedIngest: undefined,
         },
         options.stateDir,
       );
@@ -793,12 +808,16 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // window pre-existed the resume — the clear above is the one exception.
   const preResume = readState(slug, options.stateDir);
   const baseline = preResume?.updatedAt;
-  const markerBaseline = preResume?.seedIngestedAt;
+  const markerBaseline = preResume?.seedIngest?.at;
   const consumed = () => {
     const s = readState(slug, options.stateDir);
     if (s == null) return false;
-    if (s.seedMismatch != null) return false;
-    if (s.seedIngestedAt != null && s.seedIngestedAt !== markerBaseline)
+    // PREDICATE ORDER IS LOAD-BEARING (mirrors feature.ts runResume): corrupt
+    // first, then verified-AND-fresh. `markerBaseline` is now also set by
+    // not-applicable and unverified records, so a FRESH unverified record must
+    // NOT satisfy the baseline; every other outcome falls through to updatedAt.
+    if (seedIngestIsCorrupt(s)) return false;
+    if (seedIngestConfirmsDelivery(s) && s.seedIngest?.at !== markerBaseline)
       return true;
     return s.updatedAt !== baseline;
   };
@@ -807,7 +826,7 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // print below — without this, `docs/launch-reliability.md`'s claimed
   // universal seed-integrity enforcement doesn't hold on this path.
   const seedCorrupted = () =>
-    readState(slug, options.stateDir)?.seedMismatch != null;
+    seedIngestIsCorrupt(readState(slug, options.stateDir));
   const launch = () =>
     exists
       ? respawnWindowVerified(slug, repo, command, seed, {
@@ -838,6 +857,17 @@ function runEpicResume(name: string, options: EpicOptions): number {
     );
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 2;
+  }
+
+  // Mirrors runCreate's warning. This site has no Mode-2 windowExists
+  // backstop, so the failed-launch block above is the only thing it must
+  // follow.
+  {
+    const w = unverifiedSeedWarning(
+      "flow epic create --resume",
+      readState(slug, options.stateDir),
+    );
+    if (w) console.error(dim(w));
   }
 
   // LOAD-BEARING: this site has no Mode-2 windowExists backstop (the pane may
@@ -1061,7 +1091,7 @@ function spawnEpicRunSupervisor(
   // `epicRunSeed` is a DIFFERENT prompt than whatever create/resume seed is
   // already recorded there — without this write, flow-seed-ingested-hook
   // would compare this window's prompt against that stale seed and record a
-  // false seedMismatch.
+  // false `corrupt` outcome.
   {
     const current = readState(slug, options.stateDir);
     if (current != null) {
@@ -1069,8 +1099,7 @@ function spawnEpicRunSupervisor(
         {
           ...current,
           seed,
-          seedIngestedAt: undefined,
-          seedMismatch: undefined,
+          seedIngest: undefined,
         },
         options.stateDir,
       );

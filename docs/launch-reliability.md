@@ -55,13 +55,34 @@ touching the capture-verify design:
   sending it. `bin/flow-seed-ingested-hook.ts` — a Claude Code
   UserPromptSubmit hook — compares the submitted prompt against `state.seed`
   (whitespace-squashed containment, not equality) the instant a prompt is
-  accepted. A match stamps `seedIngestedAt` (and clears any earlier
-  `seedMismatch` — `launchWithRetry` reuses the same closure across
-  attempts, so a corrupted attempt followed by an intact one must not stay
-  latched as failed); a mismatch records `state.seedMismatch` instead and
-  does NOT stamp `seedIngestedAt`, so `bin/lib/tmux.ts`'s `seedCorrupted()`
-  predicate turns a recorded mismatch into a hard `failed` launch outcome —
-  the existing kill + `launchWithRetry` re-launch apply for free.
+  accepted, and writes ONE self-describing `state.seedIngest` record
+  (`bin/lib/seed-ingest.ts`) saying what it could actually establish:
+
+  | `seedIngest.outcome` | Means                                                                                                                       | Launcher effect                                                                                                    |
+  | -------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+  | `verified`           | The prompt contained the recorded seed intact                                                                               | `consumed()` latches success at launch time                                                                        |
+  | `unverified`         | A prompt arrived but the comparison could not run (`stdin-timeout`, `stdin-error`, `payload-unparsable`, `no-prompt-field`) | NOT a pass — falls through to the phase/`updatedAt` signal, plus a loud stderr warning                             |
+  | `not-applicable`     | No seed was recorded (`no-seed-recorded`) — the plain backend, or a legacy state file                                       | Neither a pass nor a failure; the record's presence alone is what stops the plain backend's dead-on-arrival delete |
+  | `corrupt`            | The prompt carried the seed's leading-line marker but not the seed intact, with both byte counts                            | `seedCorrupted()` reports a hard `failed` launch — the existing kill + `launchWithRetry` re-launch apply for free  |
+  | ABSENT (no record)   | Not yet ingested                                                                                                            | Same as before the hook ever ran                                                                                   |
+
+  **Delivery-marker discriminator.** A prompt that does not even contain the
+  seed's leading line (the one `deliverSeed` types alone and capture-verifies
+  first) is FOREIGN — the human typed it — so the hook writes nothing at all
+  rather than recording a false `corrupt`, which separates a truncated
+  delivery from a user-typed prompt and stops later unrelated chatter from
+  rewriting a standing record.
+
+  **Monotone latch.** Within one epoch, `unverified` may be replaced by
+  `corrupt` or `verified`, `corrupt` may be replaced ONLY by `verified` (so a
+  corrupted attempt followed by an intact one is cleared, not stuck failed),
+  and `verified`/`not-applicable` are terminal; a resume path clearing
+  `seedIngest` starts a new epoch.
+
+  **Unverified warning.** `flow feature create`, `flow feature resume`,
+  `flow epic create`, and `flow epic create --resume` print one dim
+  `seed integrity NOT verified (<reason>)` line on stderr after an otherwise
+  successful launch — a warning only, never a change to the exit code.
 
   `seedCorrupted()` is wired on the paths where a corrupted delivery must
   fail the command: `flow feature create` (fresh + resume) and

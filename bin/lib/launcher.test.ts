@@ -153,7 +153,7 @@ describe("plainLaunch", () => {
     release(0);
   });
 
-  it("deletes state on fast-fail (exit with phase still starting, no seedIngestedAt)", async () => {
+  it("deletes state on fast-fail (exit with phase still starting, no seedIngest record)", async () => {
     seedState();
     const { spawn } = fakeSpawn({ exitCode: 1 });
     const result = await plainLaunch(
@@ -170,8 +170,8 @@ describe("plainLaunch", () => {
     expect(readState("my-feature", stateDir)).toBeNull();
   });
 
-  it("keeps state when the seed-ingested marker was stamped even at phase starting", async () => {
-    seedState({ seedIngestedAt: nowIso() });
+  it("keeps state when a seedIngest record was written even at phase starting", async () => {
+    seedState({ seedIngest: { at: nowIso(), outcome: "verified" } });
     const { spawn } = fakeSpawn({ exitCode: 0 });
     const result = await plainLaunch(
       {
@@ -228,8 +228,11 @@ describe("plainLaunch", () => {
     expect(readState("my-feature", stateDir)).toBeNull();
   });
 
-  it("does not delete state on the TTY guard when seedIngestedAt is already stamped (not an orphan)", async () => {
-    seedState({ phase: "starting", seedIngestedAt: nowIso() });
+  it("does not delete state on the TTY guard when a seedIngest record is already present (not an orphan)", async () => {
+    seedState({
+      phase: "starting",
+      seedIngest: { at: nowIso(), outcome: "verified" },
+    });
     const { spawn } = fakeSpawn({ exitCode: 0 });
     await plainLaunch(
       {
@@ -241,6 +244,34 @@ describe("plainLaunch", () => {
       },
       { spawn, isTTY: false },
     );
+    expect(readState("my-feature", stateDir)).not.toBeNull();
+  });
+
+  it("treats a not-applicable record as PRESENT — the DOA delete does not fire", async () => {
+    // The DOA rule is "any seedIngest record present => not an orphan", never
+    // "verified". makeBaseState("plain") records no seed, so a plain launch
+    // can only ever reach `not-applicable`; requiring `verified` here would
+    // delete every healthy plain launch's state file.
+    seedState({
+      phase: "starting",
+      seedIngest: {
+        at: nowIso(),
+        outcome: "not-applicable",
+        reason: "no-seed-recorded",
+      },
+    });
+    const { spawn } = fakeSpawn({ exitCode: 1 });
+    const result = await plainLaunch(
+      {
+        slug: "my-feature",
+        repo: "/repo",
+        command: ["claude"],
+        seed: "s",
+        stateDir,
+      },
+      { spawn, isTTY: true, pidStartEpoch: () => 1 },
+    );
+    expect(result.status).toBe("exited");
     expect(readState("my-feature", stateDir)).not.toBeNull();
   });
 

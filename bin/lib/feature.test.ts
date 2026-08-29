@@ -32,7 +32,11 @@ const tmuxMock = vi.hoisted(() => ({
       cwd: string,
       command: string[],
       seed: string,
-      deps?: { consumed?: () => boolean; onProgress?: (ms: number) => void },
+      deps?: {
+        consumed?: () => boolean;
+        seedCorrupted?: () => boolean;
+        onProgress?: (ms: number) => void;
+      },
     ) => {
       status: "started" | "launched-not-confirmed" | "failed";
       stderr: string;
@@ -44,7 +48,11 @@ const tmuxMock = vi.hoisted(() => ({
       cwd: string,
       command: string[],
       seed: string,
-      deps?: { consumed?: () => boolean; onProgress?: (ms: number) => void },
+      deps?: {
+        consumed?: () => boolean;
+        seedCorrupted?: () => boolean;
+        onProgress?: (ms: number) => void;
+      },
     ) => {
       status: "started" | "launched-not-confirmed" | "failed";
       stderr: string;
@@ -144,7 +152,12 @@ const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
     pluginRootsScan: () => [],
     ...options,
   });
-import { writeState, readState, PHASE_MODEL_FLAGS } from "./state";
+import {
+  writeState,
+  readState,
+  PHASE_MODEL_FLAGS,
+  type PipelineState,
+} from "./state";
 
 let stateDir!: string;
 let repoDir!: string;
@@ -542,14 +555,14 @@ describe("runNew --resume", () => {
     expect(consumedFn!()).toBe(true);
   });
 
-  it("resume clears a pre-existing seedIngestedAt marker before the baseline read, so consumed() requires a fresh re-stamp", () => {
-    // Regression (pre-Task-2): the seed-ingested hook stamps `seedIngestedAt` on
+  it("resume clears a pre-existing seedIngest record before the baseline read, so consumed() requires a fresh verified record", () => {
+    // Regression (pre-Task-2): the seed-ingested hook records the ingestion on
     // the ORIGINAL fresh launch, and a resume that never cleared it would let a
-    // bare `seedIngestedAt != null` check short-circuit consumed() true on the
-    // first probe off the stale marker — skipping the resume-seed send-keys (the
+    // bare presence check short-circuit consumed() true on the
+    // first probe off the stale record — skipping the resume-seed send-keys (the
     // double-submit guard) and latching a false-success resume that never
-    // delivered the seed. Task 2 now clears seedIngestedAt (and seedMismatch)
-    // BEFORE the baseline is captured, so the pre-existing value must not
+    // delivered the seed. runResume now clears `seedIngest` (starting a new
+    // epoch) BEFORE the baseline is captured, so the pre-existing value must not
     // survive into the resume attempt at all — asserted directly below, not
     // just inferred from consumed()'s later behaviour (which would otherwise
     // pass for the coincidental reason that markerBaseline is now always
@@ -562,7 +575,7 @@ describe("runNew --resume", () => {
         phase: "verifying",
         repo: repoDir,
         updatedAt: baseline,
-        seedIngestedAt: staleMarker,
+        seedIngest: { at: staleMarker, outcome: "verified" },
       },
       stateDir,
     );
@@ -578,15 +591,29 @@ describe("runNew --resume", () => {
     const code = runNew("stale-marker", { resume: true, stateDir });
     expect(code).toBe(0);
     expect(consumedFn).toBeDefined();
-    // The pre-existing marker must not survive into the resume's baseline.
-    expect(readState("stale-marker", stateDir)?.seedIngestedAt).toBeUndefined();
-    // Cleared marker + unchanged updatedAt → NOT consumed.
+    // The pre-existing record must not survive into the resume's baseline.
+    expect(readState("stale-marker", stateDir)?.seedIngest).toBeUndefined();
+    // Cleared record + unchanged updatedAt → NOT consumed.
     expect(consumedFn!()).toBe(false);
-    // The resumed session's hook RE-STAMPS the marker with a new timestamp → flips.
+    // An `unverified` record with a FRESH `at` must NOT satisfy the baseline —
+    // "the hook ran but could not compare" is not "the seed arrived".
     writeState(
       {
         ...readState("stale-marker", stateDir)!,
-        seedIngestedAt: new Date().toISOString(),
+        seedIngest: {
+          at: new Date().toISOString(),
+          outcome: "unverified",
+          reason: "stdin-timeout",
+        },
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(false);
+    // The resumed session's hook writes a FRESH `verified` record → flips.
+    writeState(
+      {
+        ...readState("stale-marker", stateDir)!,
+        seedIngest: { at: new Date().toISOString(), outcome: "verified" },
       },
       stateDir,
     );
@@ -1122,10 +1149,10 @@ describe("runNew (fresh)", () => {
     expect(sleeps).toEqual([1000, 2000]);
   });
 
-  it("marker-aware fresh consumed(): true on seedIngestedAt+alive, falls back to phase past starting", () => {
-    // Task 7: the launch-time seed-ingested marker latches consumed() even before
-    // the supervisor advances the phase; absent the marker it falls back to the
-    // phase moving off `starting`.
+  it("record-aware fresh consumed(): true on a verified record, falls back to phase past starting for every other outcome", () => {
+    // A `verified` seedIngest record latches consumed() even before the
+    // supervisor advances the phase; every other outcome (unverified,
+    // not-applicable, absent) falls back to the phase moving off `starting`.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
     let consumedFn: (() => boolean) | undefined;
@@ -1137,16 +1164,45 @@ describe("runNew (fresh)", () => {
     );
     runNew("CSV export", { stateDir, cwd: repoDir, command: ["true"] });
     expect(consumedFn).toBeDefined();
-    // Up-front state is `starting`, no marker → not consumed.
+    // Up-front state is `starting`, no record → not consumed.
     expect(consumedFn!()).toBe(false);
-    // Stamp the marker (phase still starting) → consumed via the marker.
+    // An `unverified` record (phase still starting) must NOT latch consumed.
+    const base = {
+      slug: "csv-export",
+      phase: "starting",
+      repo: fs.realpathSync(repoDir),
+      updatedAt: new Date().toISOString(),
+    } as const;
     writeState(
       {
-        slug: "csv-export",
-        phase: "starting",
-        repo: fs.realpathSync(repoDir),
-        seedIngestedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        ...base,
+        seedIngest: {
+          at: new Date().toISOString(),
+          outcome: "unverified",
+          reason: "payload-unparsable",
+        },
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(false);
+    // Nor does `not-applicable`.
+    writeState(
+      {
+        ...base,
+        seedIngest: {
+          at: new Date().toISOString(),
+          outcome: "not-applicable",
+          reason: "no-seed-recorded",
+        },
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(false);
+    // A `verified` record (phase still starting) → consumed via the record.
+    writeState(
+      {
+        ...base,
+        seedIngest: { at: new Date().toISOString(), outcome: "verified" },
       },
       stateDir,
     );
@@ -2143,8 +2199,8 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     // write must re-read the CURRENT on-disk state (as advanced by the
     // seed-ingested hook / supervisor during createWindowVerified's consume
     // window) rather than folding pid/procStartedAt into the stale
-    // up-front `baseState` — which would silently drop `seedIngestedAt`
-    // and could regress `phase` back to `starting`.
+    // up-front `baseState` — which would silently drop the `seedIngest`
+    // record and could regress `phase` back to `starting`.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
     tmuxMock.createWindowVerified.mockImplementation((name) => {
@@ -2155,7 +2211,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
         JSON.stringify({
           ...current,
           phase: "triaging",
-          seedIngestedAt: "2026-07-12T00:00:00.000Z",
+          seedIngest: { at: "2026-07-12T00:00:00.000Z", outcome: "verified" },
         }),
       );
       return { status: "started", stderr: "" };
@@ -2170,7 +2226,10 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
       fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"),
     );
     expect(written.phase).toBe("triaging");
-    expect(written.seedIngestedAt).toBe("2026-07-12T00:00:00.000Z");
+    expect(written.seedIngest).toEqual({
+      at: "2026-07-12T00:00:00.000Z",
+      outcome: "verified",
+    });
     expect(written.pid).toBe(4242);
     expect(written.procStartedAt).toBe(FAKE_PROC_STARTED_AT);
   });
@@ -2546,7 +2605,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     expect(consumedAtLaunch).toEqual([false, false]);
   });
 
-  it("consumed() returns false while state carries a seedMismatch, even if the phase has advanced past 'starting'", () => {
+  it("consumed() returns false while state carries a corrupt seedIngest record, even if the phase has advanced past 'starting'", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
     let consumedResult: boolean | undefined;
@@ -2559,8 +2618,9 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
           JSON.stringify({
             ...current,
             phase: "triaging",
-            seedMismatch: {
+            seedIngest: {
               at: new Date().toISOString(),
+              outcome: "corrupt",
               expectedBytes: 100,
               submittedBytes: 40,
             },
@@ -2577,7 +2637,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
       retrySleepMs: 0,
     });
     expect(code).toBe(1);
-    // A recorded mismatch must win over the phase-advance fallback.
+    // A recorded corruption must win over the phase-advance fallback.
     expect(consumedResult).toBe(false);
   });
 
@@ -3100,9 +3160,11 @@ describe("runFresh — --epic <epic-slug>/<feature-id> (Task 7 / Story 8)", () =
 });
 
 describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
-  // The fake child stamps `seedIngestedAt` the moment it "starts" (mirroring
-  // the UserPromptSubmit hook), so plainLaunch's delete-on-fast-fail doesn't
-  // classify the instant fixture exit as a dead-on-arrival launch.
+  // The fake child writes a `seedIngest` record the moment it "starts"
+  // (mirroring the UserPromptSubmit hook), so plainLaunch's delete-on-fast-fail
+  // doesn't classify the instant fixture exit as a dead-on-arrival launch. The
+  // plain backend records no seed, so `not-applicable` is the truthful record —
+  // and the DOA rule is "any record present", never "verified".
   function fakePlainSpawn(exitCode = 0, pid = 777) {
     const calls: Array<{
       argv: string[];
@@ -3119,7 +3181,14 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
         fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"),
       );
       writeState(
-        { ...raw, seedIngestedAt: new Date().toISOString() },
+        {
+          ...raw,
+          seedIngest: {
+            at: new Date().toISOString(),
+            outcome: "not-applicable",
+            reason: "no-seed-recorded",
+          },
+        },
         stateDir,
       );
       return { pid, exited: Promise.resolve(exitCode) };
@@ -3478,5 +3547,198 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     process.env.FLOW_SEED_HOOK_COMMAND = "";
     ensureLaunchSettings(settingsPath);
     expect(readRecordedCommand()).toBe(installedHookPath);
+  });
+});
+
+describe("seedIngest — corrupt guard, seedCorrupted wiring, unverified warning", () => {
+  const CORRUPT = {
+    at: "2026-08-01T00:00:00.000Z",
+    outcome: "corrupt" as const,
+    expectedBytes: 100,
+    submittedBytes: 40,
+  };
+  const UNVERIFIED = {
+    at: "2026-08-01T00:00:00.000Z",
+    outcome: "unverified" as const,
+    reason: "stdin-timeout" as const,
+  };
+
+  /** Fold a seedIngest record onto the on-disk state, preserving everything else. */
+  function stampRecord(
+    slug: string,
+    seedIngest: NonNullable<PipelineState["seedIngest"]> | undefined,
+    extra: Partial<PipelineState> = {},
+  ): void {
+    const statePath = path.join(stateDir, `${slug}.json`);
+    const current = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({ ...current, ...extra, seedIngest }),
+    );
+  }
+
+  it("runResume consumed() stays false while a corrupt record stands, even after updatedAt advances past the baseline", () => {
+    // Mirrors the runFresh corrupt-guard spec: deleting the corrupt-first
+    // check in runResume's consumed() would let the updatedAt fallback latch a
+    // corrupted delivery as consumed.
+    const baseline = new Date(Date.now() - 10_000).toISOString();
+    writeState(
+      {
+        slug: "resume-corrupt",
+        phase: "verifying",
+        repo: repoDir,
+        updatedAt: baseline,
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    let consumedFn: (() => boolean) | undefined;
+    tmuxMock.respawnWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        consumedFn = deps?.consumed;
+        return { status: "started", stderr: "" };
+      },
+    );
+    expect(runNew("resume-corrupt", { resume: true, stateDir })).toBe(0);
+    expect(consumedFn).toBeDefined();
+    // updatedAt advances past the baseline AND a corrupt record stands.
+    stampRecord("resume-corrupt", CORRUPT, {
+      updatedAt: new Date().toISOString(),
+    });
+    expect(consumedFn!()).toBe(false);
+    // Clear the corruption and the pre-existing updatedAt fallback applies.
+    stampRecord("resume-corrupt", undefined);
+    expect(consumedFn!()).toBe(true);
+  });
+
+  it("runFresh wires a seedCorrupted closure that actually reads the corrupt record", () => {
+    // Asserting presence alone would survive a stubbed-out `() => false`
+    // closure, so the spec drives the captured closure against real state.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let captured: { seedCorrupted?: () => boolean } | undefined;
+    tmuxMock.createWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        captured = deps;
+        return { status: "started", stderr: "" };
+      },
+    );
+    expect(
+      runNew("CSV export", { stateDir, cwd: repoDir, command: ["true"] }),
+    ).toBe(0);
+    expect(typeof captured?.seedCorrupted).toBe("function");
+    expect(captured!.seedCorrupted!()).toBe(false);
+    stampRecord("csv-export", CORRUPT);
+    expect(captured!.seedCorrupted!()).toBe(true);
+  });
+
+  it("runResume wires a seedCorrupted closure that actually reads the corrupt record", () => {
+    writeState(
+      {
+        slug: "resume-wiring",
+        phase: "verifying",
+        repo: repoDir,
+        updatedAt: new Date(Date.now() - 10_000).toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    let captured: { seedCorrupted?: () => boolean } | undefined;
+    tmuxMock.respawnWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        captured = deps;
+        return { status: "started", stderr: "" };
+      },
+    );
+    expect(runNew("resume-wiring", { resume: true, stateDir })).toBe(0);
+    expect(typeof captured?.seedCorrupted).toBe("function");
+    expect(captured!.seedCorrupted!()).toBe(false);
+    stampRecord("resume-wiring", CORRUPT);
+    expect(captured!.seedCorrupted!()).toBe(true);
+  });
+
+  it("runFresh prints the unverified warning after a non-failed launch", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    tmuxMock.createWindowVerified.mockImplementation((name) => {
+      stampRecord(name, UNVERIFIED);
+      return { status: "started", stderr: "" };
+    });
+    expect(
+      runNew("CSV export", { stateDir, cwd: repoDir, command: ["true"] }),
+    ).toBe(0);
+    expect(errors.join("\n")).toContain(
+      "flow feature create: seed integrity NOT verified (stdin-timeout)",
+    );
+  });
+
+  it("runFresh prints NO warning on verified / not-applicable / corrupt / absent", () => {
+    const records: Array<NonNullable<PipelineState["seedIngest"]> | undefined> =
+      [
+        { at: UNVERIFIED.at, outcome: "verified" },
+        {
+          at: UNVERIFIED.at,
+          outcome: "not-applicable",
+          reason: "no-seed-recorded",
+        },
+        CORRUPT,
+        undefined,
+      ];
+    for (const rec of records) {
+      errors.length = 0;
+      fs.rmSync(path.join(stateDir, "csv-export.json"), { force: true });
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      freshWindowOk();
+      tmuxMock.createWindowVerified.mockImplementation((name) => {
+        stampRecord(name, rec);
+        return { status: "started", stderr: "" };
+      });
+      runNew("CSV export", { stateDir, cwd: repoDir, command: ["true"] });
+      expect(errors.join("\n")).not.toContain("seed integrity NOT verified");
+    }
+  });
+
+  it("runResume prints the unverified warning after a non-failed launch", () => {
+    writeState(
+      {
+        slug: "resume-warn",
+        phase: "verifying",
+        repo: repoDir,
+        updatedAt: new Date(Date.now() - 10_000).toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    tmuxMock.respawnWindowVerified.mockImplementation((name) => {
+      stampRecord(name, UNVERIFIED);
+      return { status: "started", stderr: "" };
+    });
+    expect(runNew("resume-warn", { resume: true, stateDir })).toBe(0);
+    expect(errors.join("\n")).toContain(
+      "flow feature resume: seed integrity NOT verified (stdin-timeout)",
+    );
+  });
+
+  it("runResume prints NO warning when the record is verified", () => {
+    writeState(
+      {
+        slug: "resume-quiet",
+        phase: "verifying",
+        repo: repoDir,
+        updatedAt: new Date(Date.now() - 10_000).toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    tmuxMock.respawnWindowVerified.mockImplementation((name) => {
+      stampRecord(name, { at: UNVERIFIED.at, outcome: "verified" });
+      return { status: "started", stderr: "" };
+    });
+    expect(runNew("resume-quiet", { resume: true, stateDir })).toBe(0);
+    expect(errors.join("\n")).not.toContain("seed integrity NOT verified");
   });
 });

@@ -550,12 +550,12 @@ function seedForMode(
  * Cross-path hazard (fixed here): this path delivers a resume or
  * terminal-continue seed that is NOT the create-time seed `feature.ts` /
  * `epic.ts` recorded, and historically wrote no `state.seed` of its own. Once
- * those launch paths clear `seedIngestedAt` on their own resume attempts,
+ * those launch paths clear `seedIngest` on their own resume attempts,
  * `flow-seed-ingested-hook` would compare THIS path's prompt against that
- * stale create-time seed, record a false `seedMismatch`, and make
+ * stale create-time seed, record a false `corrupt` outcome, and make
  * `consumed()` return false forever. Fixed by recording this delivery's OWN
- * seed (and clearing any earlier marker/mismatch) immediately before sending
- * it, below.
+ * seed (and clearing any earlier `seedIngest` record — starting a new epoch)
+ * immediately before sending it, below.
  */
 export function deliverResumeSeed(
   slug: string,
@@ -585,8 +585,7 @@ export function deliverResumeSeed(
     writeStateForSeed({
       ...currentState,
       seed,
-      seedIngestedAt: undefined,
-      seedMismatch: undefined,
+      seedIngest: undefined,
     });
   }
 
