@@ -106,6 +106,16 @@ async function jsonlMatchesSlug(file: string, slug: string): Promise<boolean> {
 }
 
 export function seedMatchesSlug(seed: string, slug: string): boolean {
+  // First choice: the new single-line seed shape
+  // (`[pipeline-slug: <slug>] Use the /flow-pipeline skill. REQUEST_FILE: <path>`)
+  // carries the resolved slug directly — compare it as-is, never through
+  // slugify(), which would mangle an already-valid slug's dashes/casing.
+  const bracket = seed.match(/\[pipeline-slug:\s*([^\]]+)\]/);
+  if (bracket) return bracket[1].trim() === slug;
+  // Fallback: legacy transcripts recorded the old
+  // `/flow-pipeline ... : <description>` seed shape, which never carried the
+  // resolved slug — only the free-text description slugify() must derive it
+  // from.
   const match = seed.match(/\/flow-pipeline\b[^:]*:\s*([\s\S]+)/i);
   if (!match) return false;
   return slugify(match[1]) === slug;

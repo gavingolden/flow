@@ -144,7 +144,12 @@ const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
     pluginRootsScan: () => [],
     ...options,
   });
-import { writeState, readState, PHASE_MODEL_FLAGS } from "./state";
+import {
+  writeState,
+  readState,
+  requestFilePath,
+  PHASE_MODEL_FLAGS,
+} from "./state";
 
 let stateDir!: string;
 let repoDir!: string;
@@ -386,7 +391,7 @@ describe("runNew --resume", () => {
     // resume mode. SKILL.md hard-codes the literal string; if this assertion
     // ever fails, update both ends in lockstep. Delivered via send-keys (4th arg).
     expect(seed).toBe(
-      "[pipeline-slug: crashed]\nUse the /flow-pipeline skill in --resume mode for: crashed",
+      "[pipeline-slug: crashed] Use the /flow-pipeline skill in --resume mode for: crashed",
     );
     expect(logs[0]).toBe("flow:crashed");
     // Cross-verb voice: the second line uses the stable `flow feature resume:` prose
@@ -706,12 +711,12 @@ describe("runFeatureCli --resume (multi-slug)", () => {
     expect(launched).toContainEqual({
       name: "x",
       prompt:
-        "[pipeline-slug: x]\nUse the /flow-pipeline skill in --resume mode for: x",
+        "[pipeline-slug: x] Use the /flow-pipeline skill in --resume mode for: x",
     });
     expect(launched).toContainEqual({
       name: "y",
       prompt:
-        "[pipeline-slug: y]\nUse the /flow-pipeline skill in --resume mode for: y",
+        "[pipeline-slug: y] Use the /flow-pipeline skill in --resume mode for: y",
     });
   });
 
@@ -969,9 +974,11 @@ describe("runNew (fresh)", () => {
     expect(
       command.some((a) => a.includes("Use the /flow-pipeline skill")),
     ).toBe(false);
-    // The 4th arg is the seed delivered via send-keys.
+    // The 4th arg is the seed delivered via send-keys — a single
+    // control-char-free line carrying only a REQUEST_FILE pointer; the
+    // description no longer rides the seed itself.
     expect(seed).toBe(
-      "[pipeline-slug: csv-export]\nUse the /flow-pipeline skill for: CSV export",
+      `[pipeline-slug: csv-export] Use the /flow-pipeline skill. REQUEST_FILE: ${requestFilePath("csv-export", stateDir)}`,
     );
     // The supervisor marker lets leaf skills detect they run inside the pipeline.
     expect(command).toContain("FLOW_PIPELINE=1");
@@ -2069,10 +2076,13 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(code).toBe(0);
     // Slug derives from the description after `--`; exact form depends on
     // slugify's stop-word rules, but a state file must exist (the regression
-    // bug suppressed pipeline creation entirely).
+    // bug suppressed pipeline creation entirely). A sibling `.request.md`
+    // file is also expected now (writeRequestFile).
     const files = fs.readdirSync(stateDir);
-    expect(files).toHaveLength(1);
-    expect(files[0].endsWith(".json")).toBe(true);
+    const jsonFiles = files.filter((f) => f.endsWith(".json"));
+    const requestFiles = files.filter((f) => f.endsWith(".request.md"));
+    expect(jsonFiles).toHaveLength(1);
+    expect(requestFiles).toHaveLength(1);
     // Sanity-check no help text leaked to logs (would indicate intercept).
     expect(logs.join("\n")).not.toMatch(
       /^flow feature — start or resume a pipeline/m,
@@ -2581,7 +2591,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     expect(consumedResult).toBe(false);
   });
 
-  it("an all-attempts seed-mismatch launch exits non-zero, prints no 'created' line, and names the state path holding the original text", () => {
+  it("a seed-mismatch launch fails fast (ONE attempt), exits non-zero, prints no 'created' line, and names the surviving request file", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     tmuxMock.windowExists.mockReset().mockReturnValue(false);
     tmuxMock.createWindowVerified.mockReturnValue({
@@ -2598,13 +2608,27 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     expect(code).toBe(1);
     expect(logs.join("\n")).not.toMatch(/created/);
     expect(errors.join("\n")).toMatch(/seed delivery corrupted/);
-    // The recovery hint now prints the original prompt text directly (the
-    // state file it used to point at is reaped by `flow ls` within ~60s).
-    expect(errors.join("\n")).toMatch(/CSV export/);
+    // Deterministic corruption fails fast — no point burning the retry budget
+    // resending the exact same bytes through the same broken delivery path.
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
+    // The recovery hint now names the surviving request file (written before
+    // the launcher dispatch) rather than dumping the seed's pointer line —
+    // reapableStartingOrphans (reap-orphans.ts) skips a recorded
+    // seedMismatch, so this file is NOT reaped within ~60s the way the
+    // pre-migration state file was.
+    expect(errors.join("\n")).toMatch(
+      new RegExp(
+        requestFilePath("csv-export", stateDir).replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&",
+        ),
+      ),
+    );
     // Unlike the generic dead-window failure, the seed-corruption failure
-    // deliberately keeps the state file around so the printed prompt can be
-    // cross-checked against it (best-effort, until the lazy reap sweeps it).
+    // deliberately keeps the state file (and its sibling request file)
+    // around so the operator can recover the original prompt.
     expect(fs.existsSync(path.join(stateDir, "csv-export.json"))).toBe(true);
+    expect(fs.existsSync(requestFilePath("csv-export", stateDir))).toBe(true);
   });
 
   it("surfaces result.stderr on a launched-not-confirmed outcome instead of dropping it", () => {
@@ -2662,7 +2686,7 @@ describe("runFresh — slug auto-disambiguation + explicit --slug (Story 1-4)", 
     // resolved slug on the derived+suffixed path where derived≠resolved.
     const seed = tmuxMock.createWindowVerified.mock.calls[0]![3];
     expect(seed).toBe(
-      "[pipeline-slug: csv-export-2]\nUse the /flow-pipeline skill for: CSV export",
+      `[pipeline-slug: csv-export-2] Use the /flow-pipeline skill. REQUEST_FILE: ${requestFilePath("csv-export-2", stateDir)}`,
     );
   });
 
@@ -2786,7 +2810,7 @@ describe("runFresh — slug auto-disambiguation + explicit --slug (Story 1-4)", 
     // pipeline-slug marker uses the explicit slug (not slugify(description)).
     const seed = tmuxMock.createWindowVerified.mock.calls[0]![3];
     expect(seed).toBe(
-      "[pipeline-slug: my-explicit-slug]\nUse the /flow-pipeline skill for: some desc",
+      `[pipeline-slug: my-explicit-slug] Use the /flow-pipeline skill. REQUEST_FILE: ${requestFilePath("my-explicit-slug", stateDir)}`,
     );
   });
 
@@ -3006,7 +3030,7 @@ describe("runFresh — --epic <epic-slug>/<feature-id> (Task 7 / Story 8)", () =
     // The flag + its value are stripped from the description.
     const seed = tmuxMock.createWindowVerified.mock.calls[0]![3];
     expect(seed).toBe(
-      "[pipeline-slug: some-desc]\nUse the /flow-pipeline skill for: some desc",
+      `[pipeline-slug: some-desc] Use the /flow-pipeline skill. REQUEST_FILE: ${requestFilePath("some-desc", stateDir)}`,
     );
     // Best-effort epic tree-view publish (OQ-1): runFresh self-publishes
     // @flow-epic on the epic-launched window once the launch is confirmed live.
@@ -3163,6 +3187,12 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
     expect(calls[0]!.env.FLOW_SLUG).toBe("plain-thing");
     // contract line printed raw before handing over the terminal
     expect(logs[0]).toBe("flow:plain-thing");
+    // The request file is written BEFORE the launcher dispatch, so the plain
+    // (default) backend gets it too — not just the tmux closure.
+    expect(fs.existsSync(requestFilePath("plain-thing", stateDir))).toBe(true);
+    expect(
+      fs.readFileSync(requestFilePath("plain-thing", stateDir), "utf8"),
+    ).toBe("plain thing");
   });
 
   it("plain create refuses without a TTY (named notice), before spawning", async () => {

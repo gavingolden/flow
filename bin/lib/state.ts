@@ -691,6 +691,10 @@ export function statePath(slug: string, dir = FLOW_STATE_DIR): string {
   return path.join(dir, `${slug}.json`);
 }
 
+export function requestFilePath(slug: string, dir = FLOW_STATE_DIR): string {
+  return path.join(dir, `${slug}.request.md`);
+}
+
 function isGateOverride(x: unknown): x is { pr: number; confirmedAt: string } {
   if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
   const o = x as Record<string, unknown>;
@@ -946,7 +950,22 @@ export function writeState(state: PipelineState, dir = FLOW_STATE_DIR): void {
   );
 }
 
+export function writeRequestFile(
+  slug: string,
+  text: string,
+  dir = FLOW_STATE_DIR,
+): void {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(requestFilePath(slug, dir), text, { mode: 0o600 });
+}
+
 export function deleteState(slug: string, dir = FLOW_STATE_DIR): boolean {
+  try {
+    fs.unlinkSync(requestFilePath(slug, dir));
+  } catch {
+    // best-effort: the request file may not exist (pre-migration state, or
+    // a launch that never wrote one)
+  }
   try {
     fs.unlinkSync(statePath(slug, dir));
     return true;

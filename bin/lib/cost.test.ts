@@ -109,6 +109,28 @@ describe(seedMatchesSlug, () => {
       ),
     ).toBe(true);
   });
+
+  it("matches the new single-line REQUEST_FILE-bearing seed shape", () => {
+    // Post-migration seed: the description no longer rides the seed at all,
+    // so the old free-text-after-colon regex would capture the absolute
+    // REQUEST_FILE path and never equal the slug — the bracket must be
+    // matched directly.
+    expect(
+      seedMatchesSlug(
+        "[pipeline-slug: add-csv-export] Use the /flow-pipeline skill. REQUEST_FILE: /Users/test/.flow/state/add-csv-export.request.md",
+        "add-csv-export",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects the new seed shape when the bracketed slug differs", () => {
+    expect(
+      seedMatchesSlug(
+        "[pipeline-slug: something-else] Use the /flow-pipeline skill. REQUEST_FILE: /Users/test/.flow/state/something-else.request.md",
+        "add-csv-export",
+      ),
+    ).toBe(false);
+  });
 });
 
 describe(computeCost, () => {

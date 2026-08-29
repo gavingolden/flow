@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { reapableStartingOrphans, reapStartingOrphans } from "./reap-orphans";
 import {
   autoResumesAfterClear,
   AWAITING_HUMAN_PHASES,
@@ -22,11 +23,13 @@ import {
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
   readState,
+  requestFilePath,
   shortPhase,
   STEP_PHASES,
   TERMINAL_EXIT_TRANSITIONS,
   TERMINAL_PHASES,
   WORKTREE_REMOVED_PHASES,
+  writeRequestFile,
   writeState,
   type PipelineState,
 } from "./state";
@@ -1284,6 +1287,92 @@ describe("state", () => {
 
   it("deleteState returns false for missing slug", () => {
     expect(deleteState("missing", dir)).toBe(false);
+  });
+
+  it("requestFilePath returns <dir>/<slug>.request.md", () => {
+    expect(requestFilePath("csv-export", dir)).toBe(
+      path.join(dir, "csv-export.request.md"),
+    );
+  });
+
+  it("writeRequestFile writes the verbatim text with mode 0o600 inside the 0o700 state dir", () => {
+    const text = "Add CSV export to the reports page.\n";
+    writeRequestFile("csv-export", text, dir);
+    const file = requestFilePath("csv-export", dir);
+    expect(fs.readFileSync(file, "utf8")).toBe(text);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+  });
+
+  it("deleteState removes both the state file and the request file", () => {
+    writeState(fixture("csv-export"), dir);
+    writeRequestFile("csv-export", "Add CSV export.", dir);
+    expect(deleteState("csv-export", dir)).toBe(true);
+    expect(readState("csv-export", dir)).toBeNull();
+    expect(fs.existsSync(requestFilePath("csv-export", dir))).toBe(false);
+  });
+
+  it("deleteState still returns true when only the state file exists (no request file)", () => {
+    writeState(fixture("no-request"), dir);
+    expect(deleteState("no-request", dir)).toBe(true);
+    expect(readState("no-request", dir)).toBeNull();
+  });
+});
+
+describe("reap-orphans seedMismatch skip", () => {
+  // A recorded seedMismatch means the surviving request file is exactly
+  // what the corruption failure message tells the operator to read;
+  // reaping it ~60s later would destroy that recovery artifact.
+  it("reapableStartingOrphans skips a starting slug with a recorded seedMismatch", () => {
+    const now = Date.parse("2026-04-30T14:00:00Z");
+    const stale: PipelineState = fixture("corrupted", {
+      seedMismatch: {
+        at: "2026-04-30T12:00:00Z",
+        expectedBytes: 668,
+        submittedBytes: 677,
+      },
+    });
+    const reapable = reapableStartingOrphans([stale], [], now, 60 * 60 * 1000);
+    expect(reapable).toEqual([]);
+  });
+
+  it("reapStartingOrphans leaves the seedMismatch slug's state and request files on disk", () => {
+    const now = Date.parse("2026-04-30T14:00:00Z");
+    writeState(
+      fixture("corrupted", {
+        seedMismatch: {
+          at: "2026-04-30T12:00:00Z",
+          expectedBytes: 668,
+          submittedBytes: 677,
+        },
+      }),
+      dir,
+    );
+    writeRequestFile("corrupted", "Add CSV export.", dir);
+    const reaped = reapStartingOrphans(
+      [readState("corrupted", dir)!],
+      [],
+      now,
+      60 * 60 * 1000,
+      dir,
+    );
+    expect(reaped).toEqual([]);
+    expect(readState("corrupted", dir)).not.toBeNull();
+    expect(fs.existsSync(requestFilePath("corrupted", dir))).toBe(true);
+  });
+
+  it("reapStartingOrphans still reaps a starting slug with no seedMismatch", () => {
+    const now = Date.parse("2026-04-30T14:00:00Z");
+    writeState(fixture("plain-orphan"), dir);
+    const reaped = reapStartingOrphans(
+      [readState("plain-orphan", dir)!],
+      [],
+      now,
+      60 * 60 * 1000,
+      dir,
+    );
+    expect(reaped).toEqual(["plain-orphan"]);
+    expect(readState("plain-orphan", dir)).toBeNull();
   });
 });
 

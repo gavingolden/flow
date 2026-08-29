@@ -110,7 +110,7 @@ const runEpicCli = (args: string[], options: EpicOptions = {}) =>
   );
 import { deriveWorktreePath } from "./feature";
 import { FLOW_CLAUDE_HOME } from "./paths";
-import { readState, writeState } from "./state";
+import { readState, requestFilePath, writeState } from "./state";
 import {
   writeEpicRunState,
   readEpicRunState,
@@ -242,11 +242,13 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     // re-derives the path nor imports bin/lib.
     const [, cwd, command, seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(cwd).toBe(fs.realpathSync(repoDir));
-    // Task 5 reshape: the leading line is short/prompt-free (capture-verified
-    // against a visible-pane-only capture-pane), and the prompt rides the
-    // remainder on the next line instead.
+    // The seed is a single control-char-free line: the prompt no longer
+    // rides it at all — it is written to a request file BEFORE the launcher
+    // dispatch, and only REQUEST_FILE's resolved path travels here.
+    expect(seed).toContain("Use the /flow-epic-create skill.");
+    expect(seed).not.toContain("\n");
     expect(seed).toContain(
-      "Use the /flow-epic-create skill for the prompt below.\nadd a watchlist feature",
+      `REQUEST_FILE: ${requestFilePath("add-watchlist-feature", stateDir)}`,
     );
     expect(seed).toContain(".flow/epics/add-watchlist-feature");
     // The seed also embeds the resolved product-planning SKILL_DIR (R1) so the
@@ -255,6 +257,14 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     // to the live checkout under vitest.
     expect(seed).toContain("SKILL_DIR:");
     expect(seed).toContain("skills/pipeline/flow-product-planning");
+    // The request file itself was written before the launcher dispatch and
+    // carries the verbatim prompt.
+    expect(
+      fs.readFileSync(
+        requestFilePath("add-watchlist-feature", stateDir),
+        "utf8",
+      ),
+    ).toBe("add a watchlist feature");
     // The argv carries a leading `env FLOW_PIPELINE=1 FLOW_SLUG=<slug>`
     // prefix, then --add-dir <worktree> + --add-dir <claude-home> + trailing
     // --settings, NO positional seed (length 10).
@@ -339,7 +349,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(errors.join("\n")).toMatch(/claude exited immediately after launch/);
   });
 
-  it("an all-attempts seed-mismatch launch exits 2 (not 1), prints no 'created' line, and keeps the state file for recovery", () => {
+  it("a seed-mismatch launch fails fast (ONE attempt), exits 2 (not 1), prints no 'created' line, and names the surviving request file", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     tmuxMock.createWindowVerified.mockReturnValue({
       status: "failed",
@@ -354,16 +364,25 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(code).toBe(2);
     expect(logs.join("\n")).not.toMatch(/created/);
     expect(errors.join("\n")).toMatch(/seed delivery corrupted/);
-    // The recovery hint now prints the original prompt text directly (the
-    // state file it used to point at is reaped by `flow ls` within ~60s —
-    // see the seedCorrupted comment above), so assert on the printed prompt
-    // rather than a file-path hint.
-    expect(errors.join("\n")).toMatch(/design the thing/);
+    // Deterministic corruption fails fast — no point burning the retry budget
+    // resending the exact same bytes through the same broken delivery path.
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
+    // The recovery hint now names the surviving request file (written before
+    // the launcher dispatch) — reapableStartingOrphans (reap-orphans.ts)
+    // skips a recorded seedMismatch, so it is NOT reaped within ~60s.
+    expect(errors.join("\n")).toMatch(
+      new RegExp(
+        requestFilePath("design-thing", stateDir).replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&",
+        ),
+      ),
+    );
     // Unlike the generic dead-window failure above (which writes no state),
-    // the seed-corruption failure deliberately keeps the state file around so
-    // the printed prompt can be cross-checked against it (best-effort, until
-    // the lazy reap sweeps it).
+    // the seed-corruption failure deliberately keeps the state file (and its
+    // sibling request file) around for recovery.
     expect(fs.existsSync(path.join(stateDir, "design-thing.json"))).toBe(true);
+    expect(fs.existsSync(requestFilePath("design-thing", stateDir))).toBe(true);
   });
 
   it("writes epic state(phase=starting) BEFORE the verified launch (supervisor needs a file to advance)", () => {
@@ -973,12 +992,18 @@ describe("runEpicCli create — --effort / --model flags", () => {
     // Slug excludes the flag/value tokens: prompt was "design the thing".
     expect(fs.existsSync(path.join(stateDir, "design-thing.json"))).toBe(true);
     // The seed is delivered via send-keys (the 4th arg), NOT a positional argv.
+    // The prompt no longer rides the seed — only the REQUEST_FILE pointer.
     const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(seed).toContain(
-      "Use the /flow-epic-create skill for the prompt below.\ndesign the thing",
+      `REQUEST_FILE: ${requestFilePath("design-thing", stateDir)}`,
     );
+    expect(seed).not.toContain("design the thing");
     expect(seed).not.toContain("--model");
     expect(seed).not.toContain("--effort");
+    // The stripped prompt DOES land verbatim in the request file.
+    expect(
+      fs.readFileSync(requestFilePath("design-thing", stateDir), "utf8"),
+    ).toBe("design the thing");
   });
 
   // --- --model-planning (shared modelPlanning field, Task 4) --------------

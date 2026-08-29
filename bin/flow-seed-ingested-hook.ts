@@ -83,6 +83,16 @@ export async function run(deps: Deps): Promise<number> {
   // same session are a no-op (the launch-time ingestion signal is already set).
   if (state.seedIngestedAt) return 0;
 
+  // Launch-window scoped: once a mismatch is recorded for THIS launch, don't
+  // re-record against a later, unrelated prompt — every launch site already
+  // clears seedMismatch before each attempt (see the seedIntact branch
+  // below), so "at most one seedMismatch per launch" holds by construction.
+  // Deliberately NOT a `state.phase !== "starting"` gate: on resume the
+  // phase is already past `starting` (feature.ts/epic.ts both document
+  // this), so that gate would silently switch off the integrity check on
+  // both resume paths and on the SessionStart:clear delivery.
+  if (state.seedMismatch != null) return 0;
+
   // No recorded seed (old-format state, or a launch path that predates this
   // field) — behave exactly as today: stamp unconditionally, no comparison.
   if (state.seed == null) {
