@@ -252,7 +252,47 @@ function annotateIntroduced(introduced: boolean | undefined): string {
 // other source (fix-applier keeps its untagged rendering, consolidator
 // string entries never reach this helper).
 function lensTag(e: ForeclosedEntry): string {
-  return e.lens ? ` (lens: ${e.lens})` : "";
+  return e.lens ? ` (lens: ${neutralizeHeading(e.lens)})` : "";
+}
+
+// Mechanical cap on this section's markdown contribution, mirroring the
+// `flow-pr-diff` truncation-marker precedent and `flow-gate-summary`'s
+// `clampTldr`: GitHub's PR-body limit is 65,536 chars and this section is
+// only one of several `upsertPrBodySection` writes onto that same body, so
+// an uncapped section can push a `gh pr edit` call past the limit — reported
+// as a plain 422 by the caller, not escalated, so the section silently fails
+// to land on exactly the PRs where it's most valuable (lots of findings).
+// Bullet-boundary truncation only (never mid-bullet), markdown surface only
+// — the terminal plain-text surface (`formatPlainText`) has no GitHub body
+// constraint and stays uncapped.
+export const MARKDOWN_BULLET_CHAR_CAP = 20_000;
+
+/**
+ * Head-truncate `bullets` at a top-level `- ` boundary (never mid-entry —
+ * a "why:"/"recommendation:" continuation line always stays with its
+ * parent bullet) so the joined markdown stays under
+ * `MARKDOWN_BULLET_CHAR_CAP` chars. A no-op when already under the cap.
+ */
+function capBullets(bullets: string[]): string[] {
+  const joined = bullets.join("\n");
+  if (joined.length <= MARKDOWN_BULLET_CHAR_CAP) return bullets;
+  let charCount = 0;
+  let cutIndex = bullets.length;
+  for (let i = 0; i < bullets.length; i++) {
+    if (bullets[i]!.startsWith("- ") && charCount > MARKDOWN_BULLET_CHAR_CAP) {
+      cutIndex = i;
+      break;
+    }
+    charCount += bullets[i]!.length + 1;
+  }
+  const kept = bullets.slice(0, cutIndex);
+  const droppedEntries = bullets
+    .slice(cutIndex)
+    .filter((b) => b.startsWith("- ")).length;
+  return [
+    ...kept,
+    `- … ${droppedEntries} more entr${droppedEntries === 1 ? "y" : "ies"} truncated (PR-body size cap); see the terminal snapshot for the full list.`,
+  ];
 }
 
 /**
@@ -272,7 +312,7 @@ export function formatMarkdown(inputs: {
   for (const e of entries) {
     if (e.missing_lenses) {
       bullets.push(
-        `- lenses did not populate negative findings: ${e.missing_lenses.join(", ")}`,
+        `- lenses did not populate negative findings: ${neutralizeHeading(e.missing_lenses.join(", "))}`,
       );
       continue;
     }
@@ -303,12 +343,13 @@ export function formatMarkdown(inputs: {
       );
     }
   }
+  const cappedBullets = capBullets(bullets);
   return [
     FORECLOSED_HEADING,
     "",
     `<details><summary>${summary.rejected} rejected alternatives, ${summary.antiPatterns} anti-patterns, ${summary.notes} reviewer notes</summary>`,
     "",
-    ...bullets,
+    ...cappedBullets,
     "",
     "</details>",
   ];

@@ -790,6 +790,30 @@ describe("cross-surface parity — lens entries reach DECISIONS, markdown, and p
     expect(decisions).toContain("lens(security): validate inline");
   });
 
+  // Sibling of the rejected-alternative parity test above — the prior
+  // version of this file exercised parity only for
+  // `lens_rejected_alternatives`, leaving `lens_anti_patterns_found` parity
+  // unasserted even though `consolidatorWithLens` already carries a fixture
+  // for it. NOTE: this is deliberately a TWO-surface check, not three —
+  // DECISIONS (`renderComment().dev`) has no anti-patterns section at all
+  // (neither the fix-applier's own `anti_patterns_found[]` nor the lens
+  // pass-through `lens_anti_patterns_found[]` ever reach it; only
+  // `rejected_alternatives`/`lens_rejected_alternatives` do). That's a
+  // real asymmetry, recorded in this run's anti_patterns_found rather than
+  // fixed here — adding a DECISIONS anti-patterns section is a rendering
+  // contract change with its own design questions (heading text, ordering
+  // relative to `rejected:`, whether pm-lens's slimmed comment should ever
+  // see it), not a mechanical test-coverage gap.
+  it("surfaces the same lens anti-pattern token in both the markdown and plain-text surfaces", () => {
+    const inputs = { fixApplierRaw: "", consolidatorRaw: consolidatorWithLens };
+    const plainText = renderForeclosedPaths(inputs).join("\n");
+    const markdown = formatMarkdown(inputs).join("\n");
+
+    const lensToken = "manual TTL bookkeeping duplicated across call sites";
+    expect(plainText).toContain(lensToken);
+    expect(markdown).toContain(lensToken);
+  });
+
   it("renders no lens content in any of the three surfaces when the consolidator artifact omits the lens keys (regression guard)", () => {
     const inputs = { fixApplierRaw: "", consolidatorRaw: consolidator };
     const decisions = renderComment({

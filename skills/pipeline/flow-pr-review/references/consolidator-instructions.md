@@ -73,11 +73,15 @@ number,title,headRefName,baseRefName` JSON the wrapper saved to
 - The absolute artifact path to write
   (`$WORKTREE/.flow-tmp/consolidator-result.json`).
 
-No new input paths for the lens negative-findings channel — you read it off
-the per-lens `flow-agent-finding-schema --validate` stdout envelope you
-already invoke in step (a) below, which now reports a `negatives:
-{rejected_alternatives, anti_patterns_found}` tri-state (`"populated" |
-"empty" | "absent"`) alongside `{ok: true}` on the per-agent success path.
+No new input paths for the lens negative-findings channel. The tri-state
+(`"populated" | "empty" | "absent"`) comes off the per-lens
+`flow-agent-finding-schema --validate` stdout envelope you already invoke in
+step (a) below, which reports a `negatives: {rejected_alternatives,
+anti_patterns_found}` field alongside `{ok: true}` on the per-agent success
+path — but the envelope carries only that tri-state plus a cumulative
+`skipped` count, never the entries themselves. The entries you collect and
+tag with `lens: "<name>"` in step (b) are read directly from each per-lens
+artifact JSON file at the six/seven paths above, not from the envelope.
 
 ## 3. Procedure
 
@@ -104,6 +108,17 @@ artifact you write at step (e). This is **explicitly NOT an escalation**:
 an absent negative-findings key is a lens compliance gap you record, not a
 `consolidator-schema-failure` — the six per-agent success/failure
 escalation paths below are governed by shape validity of `findings` only.
+Also read the envelope's `skipped` count (entries dropped for failing the
+per-entry lens-negatives shape). If a lens's raw array was present
+(`"populated"` or `"empty"`, not `"absent"`) but `skipped` accounts for
+every entry in it — i.e. step (b) below collects zero valid entries from
+that lens for a slot the envelope reported non-absent — append
+`"<lens> (N unreadable)"` (substituting the lens name and the `skipped`
+count) to `lens_negatives_missing[]` too, mirroring the fix-applier's
+existing `(N unreadable)` residual-marker precedent. This keeps an
+all-malformed lens visible instead of silently reading as "lens said
+nothing" — the two failure modes look identical to a human reading the PR
+body otherwise.
 
 Exit-1 outcomes are split by source:
 
@@ -156,9 +171,9 @@ finding **identically** to a Claude finding (no special-casing). When the
 Gemini file is absent, proceed silently with the six Claude sources.
 
 Alongside the findings merge, collect each lens's valid
-`rejected_alternatives` and `anti_patterns_found` entries (the per-lens
-artifact's own two negative arrays, already read via step (a)'s validate
-call) and tag each entry with `lens: "<name>"`. Lens vocabulary is the six
+`rejected_alternatives` and `anti_patterns_found` entries (read directly
+from the per-lens artifact JSON, not the validate-call envelope — see
+step (a) above) and tag each entry with `lens: "<name>"`. Lens vocabulary is the six
 kebab-case names canonical in `flow-pr-review/SKILL.md`'s agent table
 (`bug-detection`, `security`, `pattern-consistency`, `performance`,
 `supply-chain`, `test-coverage`), matching the `agent-output-<lens>.json`
@@ -223,7 +238,7 @@ Write `consolidator-result.json` atomically:
 ```bash
 ARTIFACT_PATH="$WORKTREE/.flow-tmp/consolidator-result.json"
 
-cat > "$ARTIFACT_PATH.tmp" <<EOF
+cat > "$ARTIFACT_PATH.tmp" <<'EOF'
 {
   "consolidated_findings": [...],
   "dropped_by_validation": [...],

@@ -2858,13 +2858,24 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ re
   });
 
   it("flow-pr-review/references/agent-prompts.md instructs every review lens on the negative-findings slots", () => {
+    // Slice to the shared block every lens actually reads (everything before
+    // the per-lens sections starting at '## Bug Detection Agent') so this
+    // guard can't pass merely because the tokens survive somewhere ELSE in
+    // the file (e.g. the Gemini-only section) after the shared block itself
+    // is deleted.
+    const sharedBlockEnd = agentPromptsContent.indexOf(
+      "## Bug Detection Agent",
+    );
+    expect(sharedBlockEnd).toBeGreaterThan(-1);
+    const sharedBlock = agentPromptsContent.slice(0, sharedBlockEnd);
     const hasNegativeFindings =
-      agentPromptsContent.includes("rejected_alternatives") &&
-      agentPromptsContent.includes("anti_patterns_found") &&
-      /silence is not the default/i.test(agentPromptsContent);
+      sharedBlock.includes("rejected_alternatives") &&
+      sharedBlock.includes("anti_patterns_found") &&
+      /silence is not the default/i.test(sharedBlock);
     expect(
       hasNegativeFindings,
-      "flow-pr-review/references/agent-prompts.md must affirmatively instruct every review lens to " +
+      "flow-pr-review/references/agent-prompts.md's shared block (everything before " +
+        "'## Bug Detection Agent') must affirmatively instruct every review lens to " +
         "populate 'rejected_alternatives' and 'anti_patterns_found' (and warn that 'silence is " +
         "not the default'). Without this, a lens defaults to leaving the slots empty (or omitting " +
         "the keys entirely) and the Consolidator's lens-negatives pass-through channel is silently starved.",

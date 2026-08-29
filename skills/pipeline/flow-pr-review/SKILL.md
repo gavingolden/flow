@@ -660,12 +660,13 @@ exemption** — the nine-exemption count stays nine. It adds ONE additional
 reviewer on a genuinely different model family (Gemini, on the user's idle
 Google AI Ultra quota) so the review catches issues the six same-family
 Claude lenses share a blind spot on, at no Claude-credit cost, producing
-`agent-output-gemini.json` in the same `{findings: [...]}` shape (tagged
-`agent_source: gemini` consolidator-side) so Step 3.5 merges it with no
-special-casing. Purely additive: any failure (lens disabled, `agy`
-absent/logged out, unparseable output) is a **graceful skip** — record the
-`skipReason` for Step 12 and proceed with the six Claude lenses unchanged.
-It NEVER hard-fails the review.
+`agent-output-gemini.json` in the same three-key `{findings,
+rejected_alternatives, anti_patterns_found}` shape (tagged `agent_source:
+gemini` consolidator-side) so Step 3.5 merges it with no special-casing.
+Purely additive: any failure (lens disabled, `agy` absent/logged out,
+unparseable output) is a **graceful skip** — record the `skipReason` for
+Step 12 and proceed with the six Claude lenses unchanged. It NEVER
+hard-fails the review.
 
 1. **Gate** (default off, mirroring the F2 `research.discovery` precedent):
    run the lens only when this succeeds (exit 0) — an absent/malformed config
@@ -1582,9 +1583,10 @@ foreclosed paths alongside the fixes that landed.
 
 Both sections also render the Consolidator's pass-through `lens_rejected_alternatives[]` / `lens_anti_patterns_found[]` entries alongside the Fix-Applier's, attributed to their source lens, under the SAME headings (no separate lens-only section); `None` still covers a zero-entry section across both sources.
 
-Each `anti_patterns_found[]` entry carries `introduced_by_this_pr` alongside its
+Each Fix-Applier `anti_patterns_found[]` entry carries `introduced_by_this_pr` alongside its
 `location` / `pattern` / `recommendation` (`true` = lives in code this PR added or
-changed, which the fix-now bar requires fixed in-commit; `false` = pre-existing).
+changed, which the fix-now bar requires fixed in-commit; `false` = pre-existing) — the lens
+pass-through `lens_anti_patterns_found[]` entries above have no such flag (three fields plus `lens`, never four).
 Render the boolean in **Anti-Patterns Observed**, and append the new-file audit's
 WARNING lines (Step 9a above) so a misclassified introduced-in-PR entry stays visible.
 

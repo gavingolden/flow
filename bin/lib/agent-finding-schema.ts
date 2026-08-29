@@ -275,7 +275,7 @@ function err(reason: string, path?: string): ValidationErr {
   return { ok: false, reason, path };
 }
 
-// Local three-string-field checker for `LensRejectedAlternative`. Do NOT
+// Local two-string-field checker for `LensRejectedAlternative`. Do NOT
 // reach for fix-applier-schema.ts's `validateRejectedAlternativeEntry` here
 // — it requires a `finding_id` the lens shape deliberately omits.
 function isLensRejectedAlternative(v: unknown): v is LensRejectedAlternative {

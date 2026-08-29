@@ -1621,6 +1621,28 @@ describe("collectLensNegatives — tolerant per-entry collector", () => {
     expect(result.skipped).toBe(2);
   });
 
+  it("drops a non-object entry (string, null, array) in either array without throwing", () => {
+    const result = collectLensNegatives({
+      findings: [],
+      rejected_alternatives: [
+        "not an object",
+        null,
+        { considered_approach: "tried X", why_rejected: "X regressed Y" },
+      ],
+      anti_patterns_found: [
+        [1, 2, 3],
+        { location: "a.ts:1", pattern: "p", recommendation: "fix" },
+      ],
+    });
+    expect(result.rejected_alternatives).toEqual([
+      { considered_approach: "tried X", why_rejected: "X regressed Y" },
+    ]);
+    expect(result.anti_patterns_found).toEqual([
+      { location: "a.ts:1", pattern: "p", recommendation: "fix" },
+    ]);
+    expect(result.skipped).toBe(3);
+  });
+
   it("drops an entry with a wrong-typed field", () => {
     const result = collectLensNegatives({
       findings: [],

@@ -50,6 +50,7 @@ import { homedir } from "node:os";
 import {
   VALID_DECORATIONS,
   VALID_LABELS,
+  classifyLensNegatives,
   collectLensNegatives,
   normalizeParsedFindings,
   validateAgentFindings,
@@ -148,7 +149,12 @@ export function isGeminiLensEnabled(rawConfigText: string): boolean {
 export const AGENT_FINDINGS_JSON_SCHEMA: Record<string, unknown> = {
   type: "object",
   additionalProperties: false,
-  required: ["reasoning", "findings"],
+  required: [
+    "reasoning",
+    "findings",
+    "rejected_alternatives",
+    "anti_patterns_found",
+  ],
   properties: {
     reasoning: {
       type: "string",
@@ -439,18 +445,25 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     // a genuinely-broken payload; that path is for the whole artifact, not
     // one entry).
     const negatives = collectLensNegatives(decoded.value);
-    deps.writeFile(
-      parsed.out,
-      JSON.stringify(
-        {
-          findings: decoded.value.findings,
-          rejected_alternatives: negatives.rejected_alternatives,
-          anti_patterns_found: negatives.anti_patterns_found,
-        },
-        null,
-        2,
-      ),
-    );
+    const state = classifyLensNegatives(decoded.value);
+    const finalized: {
+      findings: unknown;
+      rejected_alternatives?: unknown;
+      anti_patterns_found?: unknown;
+    } = { findings: decoded.value.findings };
+    // Preserve genuine absence rather than laundering it into `[]`: the wire
+    // schema now REQUIRES both keys from agy, but decoded.value may still
+    // come from a salvage rung that never enforced that requirement. Only
+    // write the key when the source actually carried an array (populated or
+    // empty), so the consolidator's `classifyLensNegatives` can still tell
+    // "lens omitted this" from "lens explicitly reported none".
+    if (state.rejected_alternatives !== "absent") {
+      finalized.rejected_alternatives = negatives.rejected_alternatives;
+    }
+    if (state.anti_patterns_found !== "absent") {
+      finalized.anti_patterns_found = negatives.anti_patterns_found;
+    }
+    deps.writeFile(parsed.out, JSON.stringify(finalized, null, 2));
   } catch {
     return skip("gemini-finalize-failed");
   }

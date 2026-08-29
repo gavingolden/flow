@@ -6,6 +6,7 @@ import {
   isEmpty,
   summarizeEntries,
   FORECLOSED_HEADING,
+  MARKDOWN_BULLET_CHAR_CAP,
 } from "./foreclosed-paths-format";
 import { upsertPrBodySection } from "./pr-body-upsert";
 
@@ -321,6 +322,37 @@ describe("formatMarkdown <details> wrapper", () => {
     expect(bullets.join("\n")).toContain("(1 unreadable)");
     expect(pt.join("\n")).toContain("(1 unreadable)");
   });
+
+  it("caps the markdown surface at MARKDOWN_BULLET_CHAR_CAP with a bullet-boundary truncation marker; plain-text stays uncapped", () => {
+    const manyEntries = Array.from({ length: 400 }, (_, i) => ({
+      considered_approach: `approach number ${i} `.repeat(20),
+      why_rejected: `rejected reason ${i} `.repeat(20),
+      lens: "security",
+    }));
+    const injected = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+      lens_rejected_alternatives: manyEntries,
+    });
+    const inputs = { fixApplierRaw: "", consolidatorRaw: injected };
+    const md = formatMarkdown(inputs).join("\n");
+    const pt = formatPlainText(inputs).join("\n");
+    expect(md.length).toBeLessThan(MARKDOWN_BULLET_CHAR_CAP + 2000);
+    expect(md).toContain("truncated (PR-body size cap)");
+    // The truncation marker is always its own top-level `- ` bullet, never
+    // appended mid-entry after an indented "why:" continuation line.
+    const lines = md.split("\n");
+    const markerLine = lines.findIndex((l) =>
+      l.includes("truncated (PR-body size cap)"),
+    );
+    expect(lines[markerLine]!.startsWith("- ")).toBe(true);
+    // The uncapped terminal surface keeps every entry.
+    expect(pt).toContain("approach number 399");
+    expect(pt.length).toBeGreaterThan(md.length);
+  });
 });
 
 describe("both modes share one core", () => {
@@ -614,6 +646,29 @@ describe("markdown safety", () => {
       consolidatorRaw: injected,
     }).join("\n");
     expect(pt).toContain("## heading in considered_approach");
+  });
+
+  it("neutralizes an embedded heading in a lens tag and in missing_lenses so neither breaks the markdown splice", () => {
+    const injected = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+      lens_rejected_alternatives: [
+        {
+          considered_approach: "a",
+          why_rejected: "b",
+          lens: "security\n## heading in lens",
+        },
+      ],
+      lens_negatives_missing: ["bug-detection\n## heading in missing_lenses"],
+    });
+    const md = formatMarkdown({ fixApplierRaw: "", consolidatorRaw: injected });
+    expect(bareHeadingLines(md)).toEqual([FORECLOSED_HEADING]);
+    const joined = md.join("\n");
+    expect(joined).toContain("heading in lens");
+    expect(joined).toContain("heading in missing_lenses");
   });
 
   it("round-trips idempotently through upsertPrBodySection for embedded-heading payloads", () => {

@@ -278,12 +278,12 @@ describe("run — conformant output", () => {
     });
     const finalized = JSON.parse(deps.files.get(OUT)!);
     expect(validateAgentFindings(finalized).ok).toBe(true);
-    // MANDATORY re-projection: the finalized file is exactly {findings},
-    // never leaking a schema-supplied top-level `reasoning` key.
+    // MANDATORY re-projection: the finalized file carries only the keys the
+    // source actually populated, never leaking a schema-supplied top-level
+    // `reasoning` key. Neither negative array was present on the source, so
+    // both stay ABSENT here rather than being laundered into `[]`.
     expect(finalized).toEqual({
       findings: [VALID_FINDING],
-      rejected_alternatives: [],
-      anti_patterns_found: [],
     });
   });
 
@@ -301,8 +301,6 @@ describe("run — conformant output", () => {
     const finalized = JSON.parse(deps.files.get(OUT)!);
     expect(finalized).toEqual({
       findings: [VALID_FINDING],
-      rejected_alternatives: [],
-      anti_patterns_found: [],
     });
   });
 
@@ -389,6 +387,13 @@ describe("run — conformant output", () => {
     );
   });
 
+  it("requires both negative-findings arrays on the wire schema so agy cannot structurally omit them", () => {
+    const schema = AGENT_FINDINGS_JSON_SCHEMA as { required: string[] };
+    expect(schema.required).toEqual(
+      expect.arrayContaining(["rejected_alternatives", "anti_patterns_found"]),
+    );
+  });
+
   it("finalizes an empty {findings:[]} as valid (Gemini found nothing)", () => {
     const deps = makeDeps({
       runDelegate: (argv) => {
@@ -401,10 +406,10 @@ describe("run — conformant output", () => {
     expect(run(BASE_ARGV, deps)).toBe(0);
     expect(envelope(deps)).toMatchObject({ ran: true, findingCount: 0 });
     const finalized = JSON.parse(deps.files.get(OUT)!);
+    // Source carried neither negative array, so both stay ABSENT rather
+    // than being laundered into `[]`.
     expect(finalized).toEqual({
       findings: [],
-      rejected_alternatives: [],
-      anti_patterns_found: [],
     });
   });
 
@@ -624,8 +629,6 @@ describe("run — malformed payloads drop the lens, never throw, leave no valid 
     const finalized = JSON.parse(deps.files.get(OUT)!);
     expect(finalized).toEqual({
       findings: [VALID_FINDING],
-      rejected_alternatives: [],
-      anti_patterns_found: [],
     });
     expect(finalized).not.toHaveProperty("reasoning");
   });

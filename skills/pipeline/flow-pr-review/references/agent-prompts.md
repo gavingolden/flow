@@ -107,7 +107,7 @@ conventional-comments.md Rule 2, every finding except `praise` MUST have a
 decoration, and praise never blocks merge. All other labels require a
 decoration.
 
-If you find nothing noteworthy, return an empty array: []
+If you find nothing noteworthy, `findings` is an empty array (`[]`) inside the required three-key object below — never a bare array.
 
 ## Negative Findings (required)
 
