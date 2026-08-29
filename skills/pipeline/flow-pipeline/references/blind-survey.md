@@ -90,6 +90,12 @@ this leaves real margin). Branch on the stdout envelope's `{ran}` field,
   guard's target more carefully, strip the leaking phrase, and re-run.
   If the second attempt also fails, treat it as any other skip (print
   the skip line, proceed with no marker) — never a third attempt.
+- **`skipReason: "fanout-error"`.** The fanout call itself came back
+  empty — `flow-delegate-fanout` missing from `PATH`, a usage-error
+  exit, or an unparsable aggregate line — distinct from `agy-not-found`
+  (a per-judge `ran:false` entry that IS present in the aggregate).
+  Treat it as any other skip (print the skip line, proceed with no
+  marker); there is nothing brief-specific to re-author here.
 - **`ran:false`** (any other reason). Print `blind survey skipped —
 <skipReason>` to chat and proceed with no marker.
 - **`ran:true`.** Print `blind survey: A=<model> ran|skipped:<reason>,
@@ -124,6 +130,16 @@ directly rather than calling the helper (a feature intent already lands
 on `route-to-step-4` unconditionally, so no override is needed there).
 This is a degrade, not a hard stop: a `split`
 routes to `route-to-step-4` on a non-feature intent and never pauses.
+
+This backstop also has a mechanical half now: whenever the survey ran
+(a marker was threaded), pass `--survey-ran` to the plan-shape lint call
+`step3-threading.md`'s "Plan-shape backstop" already runs —
+`flow-plan-lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md"
+--survey-ran` — advisory and non-blocking, exactly like that existing
+backstop. With the flag set, a fully-missing `## Method selection`
+section becomes a named lint miss (`survey ran but plan.md has no '##
+Method selection' section`) surfaced in the same plan-summary note,
+instead of relying on prose-only detection here.
 
 ## Method-selection route
 

@@ -373,6 +373,30 @@ describe("run — fanout skip propagation", () => {
     expect(survey).toContain("_Judge B skipped: judge-timeout_");
   });
 
+  it("an empty entries array ⇒ fanout-error (fanout binary missing / usage-error / malformed aggregate, distinct from a per-entry agy-not-found)", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        deps.calls.fanout.push(input);
+        return { allSkipped: true, entries: [] } as FanoutAggregate;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({ ran: false, skipReason: "fanout-error" });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
+  it("an aggregate with no entries field at all ⇒ fanout-error", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        deps.calls.fanout.push(input);
+        return { allSkipped: true } as FanoutAggregate;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({ ran: false, skipReason: "fanout-error" });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
   it("an artifact under 40 chars ⇒ judge-empty", () => {
     const deps = makeDeps({
       runFanout: (input) => {
@@ -441,6 +465,70 @@ describe("run — scratch cleanup on skip", () => {
     expect(deps.files.has(OUT)).toBe(false);
     expect(deps.calls.removed).toContain(OUT);
   });
+
+  it("removes scratch siblings when the fanout aggregate comes back with no entries", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        deps.calls.fanout.push(input);
+        return { allSkipped: true, entries: [] } as FanoutAggregate;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(deps.files.has(`${OUT}.judge-a.prompt`)).toBe(false);
+    expect(deps.files.has(`${OUT}.judge-b.prompt`)).toBe(false);
+    expect(deps.files.has(`${OUT}.fanout-manifest.json`)).toBe(false);
+    expect(deps.files.has(`${OUT}.fanout.json`)).toBe(false);
+  });
+
+  it("mkdirp throwing before the fanout call ⇒ survey-prep-failed, no fanout call", () => {
+    const deps = makeDeps({
+      mkdirp: () => {
+        throw new Error("EACCES");
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "survey-prep-failed",
+    });
+    expect(deps.calls.fanout).toHaveLength(0);
+  });
+
+  it("a prompt-file write throwing before the fanout call ⇒ survey-prep-failed, no fanout call", () => {
+    const deps = makeDeps();
+    const realWriteFile = deps.writeFile;
+    deps.writeFile = (p, c) => {
+      if (p.endsWith(".prompt")) throw new Error("EACCES");
+      return realWriteFile(p, c);
+    };
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "survey-prep-failed",
+    });
+    expect(deps.calls.fanout).toHaveLength(0);
+  });
+
+  it("the final --out write throwing after both judges ran ⇒ survey-finalize-failed, and every scratch sibling (incl. the raw judge artifacts) is removed", () => {
+    const deps = makeDeps();
+    const realWriteFile = deps.writeFile;
+    deps.writeFile = (p, c) => {
+      if (p === OUT) throw new Error("EACCES");
+      return realWriteFile(p, c);
+    };
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "survey-finalize-failed",
+    });
+    expect(deps.files.has(`${OUT}.judge-a.prompt`)).toBe(false);
+    expect(deps.files.has(`${OUT}.judge-b.prompt`)).toBe(false);
+    expect(deps.files.has(`${OUT}.fanout-manifest.json`)).toBe(false);
+    expect(deps.files.has(`${OUT}.fanout.json`)).toBe(false);
+    expect(deps.files.has(`${OUT}.judge-a.md`)).toBe(false);
+    expect(deps.files.has(`${OUT}.judge-b.md`)).toBe(false);
+    expect(deps.files.has(OUT)).toBe(false);
+  });
 });
 
 describe("run — diversity guard", () => {
@@ -476,6 +564,27 @@ describe("run — diversity guard", () => {
     const manifest = JSON.parse(manifestWrite.contents);
     expect(manifest[1].model).not.toBe(manifest[0].model);
     expect(manifest[1].model).toBe(MODEL_B);
+    const warned = errSpy.mock.calls.some((c) =>
+      String(c[0]).includes("blindSurveySecond resolved equal to blindSurvey"),
+    );
+    expect(warned).toBe(true);
+  });
+
+  it("falls back to the other pinned default and warns when blindSurvey is pinned to the default second model (blindSurveySecond left unset)", () => {
+    fs.mkdirSync(path.join(tmp, ".flow"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, ".flow", "config.json"),
+      JSON.stringify({ delegate: { models: { blindSurvey: MODEL_B } } }),
+    );
+    const deps = makeDeps();
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    const manifestWrite = deps.calls.writes.find(
+      (w) => w.path === deps.calls.fanout[0]!.manifestPath,
+    )!;
+    const manifest = JSON.parse(manifestWrite.contents);
+    expect(manifest[0].model).toBe(MODEL_B);
+    expect(manifest[1].model).toBe(MODEL_A);
+    expect(manifest[1].model).not.toBe(manifest[0].model);
     const warned = errSpy.mock.calls.some((c) =>
       String(c[0]).includes("blindSurveySecond resolved equal to blindSurvey"),
     );

@@ -213,6 +213,55 @@ describe("decideStep3Route — Method-selection verdict × intent × --method-re
   });
 });
 
+// Every fixture above carries only ONE of the two sections
+// (`## Prompt interpretation` OR `## Method selection`), so rule 1
+// (pause-for-method) beating rule 2's tension arm, and rule 2's tension
+// arm beating rule 2's split arm, are never jointly observed. These
+// fixtures concatenate the existing per-section builders so both
+// sections are present on the same plan.md, pinning the documented
+// precedence (docstring above decideStep3Route): pause-for-method >
+// route-to-step-4 (feature | tension | non-feature split) > advance.
+describe("decideStep3Route — combined Prompt-interpretation tension + Method-selection verdict precedence", () => {
+  it("tension (relax target) + converge-against + bug, unresolved ⇒ pause-for-method (pause beats tension)", () => {
+    expect(
+      decideStep3Route(
+        "bug",
+        PLAN_RELAX_TARGET + PLAN_VERDICT_CONVERGE_AGAINST,
+      ),
+    ).toBe("pause-for-method");
+  });
+
+  it("tension (relax target) + converge-against + bug, --method-resolved ⇒ route-to-step-4 (tension still routes once the pause is resolved)", () => {
+    expect(
+      decideStep3Route(
+        "bug",
+        PLAN_RELAX_TARGET + PLAN_VERDICT_CONVERGE_AGAINST,
+        { methodResolved: true },
+      ),
+    ).toBe("route-to-step-4");
+  });
+
+  it("tension (relax target) + split + bug ⇒ route-to-step-4", () => {
+    expect(
+      decideStep3Route("bug", PLAN_RELAX_TARGET + PLAN_VERDICT_SPLIT),
+    ).toBe("route-to-step-4");
+  });
+
+  it("no tension + split + bug, --method-resolved ⇒ still route-to-step-4 (resolved never downgrades split)", () => {
+    expect(
+      decideStep3Route("bug", PLAN_METHODS_REACH + PLAN_VERDICT_SPLIT, {
+        methodResolved: true,
+      }),
+    ).toBe("route-to-step-4");
+  });
+
+  it("tension (relax target) + converge-with + docs ⇒ route-to-step-4", () => {
+    expect(
+      decideStep3Route("docs", PLAN_RELAX_TARGET + PLAN_VERDICT_CONVERGE_WITH),
+    ).toBe("route-to-step-4");
+  });
+});
+
 describe(extractSurveyVerdict, () => {
   it("returns null when the `## Method selection` heading is absent", () => {
     expect(extractSurveyVerdict(PLAN_WITHOUT_SECTION)).toBeNull();

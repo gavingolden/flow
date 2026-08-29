@@ -15,7 +15,12 @@
  * enforced — the caller decides whether to surface it in chat and move on.
  *
  * Usage:
- *   flow-plan-lint --plan-md-file <path>
+ *   flow-plan-lint --plan-md-file <path> [--survey-ran]
+ *
+ * `--survey-ran` is a valueless flag: it tells the linter the Step-3 blind
+ * method survey ran this pass, so an entirely absent `## Method selection`
+ * section becomes a named miss instead of the default silent skip (see
+ * checkMethodSelection below) — without it, behaviour is unchanged.
  *
  * Output (stdout): one named miss per line; nothing on a conforming plan.
  *
@@ -278,23 +283,39 @@ function checkPromptInterpretation(planText: string, misses: string[]): void {
 /**
  * Advisory check for the (omit-when-no-blind-survey) `## Method selection`
  * section discovery writes after the Step-3 blind method survey (see
- * skills/pipeline/flow-pipeline/references/blind-survey.md). Never fires
- * when the heading is absent — the survey did not run, or the plan
- * predates it. When present, checks:
+ * skills/pipeline/flow-pipeline/references/blind-survey.md). When the
+ * heading is absent, this is a named miss ONLY if `opts.surveyRan` is
+ * true (the caller confirmed the survey actually ran this pass — a plan
+ * predating the survey, or a pass where it never ran, stays silent, same
+ * as before this flag existed). When present, checks:
  *   1. a `- **Survey verdict:**` line that exact-matches one of
  *      `SURVEY_VERDICTS` (a paraphrase like "converge-against (single
  *      judge)" is a named miss, exactly the guard `extractSurveyVerdict`'s
  *      own docstring warns about);
  *   2. a `- **Chosen method:**` line;
- *   3. every non-`skipped:` `- **Judge A (...):**` / `- **Judge B (...):**`
+ *   3. a `- **Judge A (...):**` line and a `- **Judge B (...):**` line are
+ *      both present — a section with a verdict but zero judge lines loses
+ *      the whole point of the section: the verbatim-quote audit trail;
+ *   4. every non-`skipped:` `- **Judge A (...):**` / `- **Judge B (...):**`
  *      line opens its value with a double-quoted verbatim excerpt
  *      (`"…"`) before the ` — ` paraphrase, so the verdict stays
  *      auditable — a `skipped:` judge line is exempt (it has no
  *      recommendation to quote).
  */
-function checkMethodSelection(planText: string, misses: string[]): void {
+function checkMethodSelection(
+  planText: string,
+  misses: string[],
+  opts: { surveyRan?: boolean } = {},
+): void {
   const headingMatch = planText.match(/^## Method selection\s*$/m);
-  if (!headingMatch) return;
+  if (!headingMatch) {
+    if (opts.surveyRan) {
+      misses.push(
+        "survey ran but plan.md has no '## Method selection' section",
+      );
+    }
+    return;
+  }
   const body = sliceToNextHeading(
     planText,
     (headingMatch.index ?? 0) + headingMatch[0].length,
@@ -315,6 +336,15 @@ function checkMethodSelection(planText: string, misses: string[]): void {
     misses.push(
       "'## Method selection' is missing a '- **Chosen method:**' line",
     );
+  }
+
+  for (const label of ["Judge A", "Judge B"] as const) {
+    const labelRe = new RegExp(`^- \\*\\*${label} \\(`, "m");
+    if (!labelRe.test(body)) {
+      misses.push(
+        `'## Method selection' has no '${label} (...)' line — the verbatim-quote audit trail is incomplete`,
+      );
+    }
   }
 
   // The model name inside the parens can itself carry parens (e.g. no
@@ -470,7 +500,7 @@ function checkExcludedPathsMirror(
  */
 export function lintPlan(
   planText: string,
-  opts: { excludedPathsJson?: string } = {},
+  opts: { excludedPathsJson?: string; surveyRan?: boolean } = {},
 ): LintResult {
   const misses: string[] = [];
   try {
@@ -505,7 +535,7 @@ export function lintPlan(
     checkTaskContracts(planText, misses);
     checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);
-    checkMethodSelection(planText, misses);
+    checkMethodSelection(planText, misses, { surveyRan: opts.surveyRan });
     checkOpenQuestions(planText, misses);
     checkExcludedPathsMirror(planText, opts.excludedPathsJson, misses);
   } catch (e) {
@@ -518,10 +548,13 @@ export function lintPlan(
 
 // --- CLI ---
 
-export type ParsedArgs = { planMdFile: string } | { error: string };
+export type ParsedArgs =
+  | { planMdFile: string; surveyRan: boolean }
+  | { error: string };
 
 export function parseArgs(argv: string[]): ParsedArgs {
   let planMdFile: string | undefined;
+  let surveyRan = false;
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === "--plan-md-file") {
@@ -533,12 +566,16 @@ export function parseArgs(argv: string[]): ParsedArgs {
       i++;
       continue;
     }
+    if (flag === "--survey-ran") {
+      surveyRan = true;
+      continue;
+    }
     return { error: `unknown flag: ${flag}` };
   }
   if (planMdFile === undefined) {
     return { error: "missing required flag: --plan-md-file" };
   }
-  return { planMdFile };
+  return { planMdFile, surveyRan };
 }
 
 function readExcludedPathsBestEffort(planMdFile: string): string | undefined {
@@ -554,7 +591,9 @@ export function run(argv: string[]): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     process.stderr.write(`flow-plan-lint: ${parsed.error}\n`);
-    process.stderr.write("usage: flow-plan-lint --plan-md-file <path>\n");
+    process.stderr.write(
+      "usage: flow-plan-lint --plan-md-file <path> [--survey-ran]\n",
+    );
     return 2;
   }
 
@@ -570,7 +609,10 @@ export function run(argv: string[]): number {
   }
 
   const excludedPathsJson = readExcludedPathsBestEffort(parsed.planMdFile);
-  const { misses } = lintPlan(planText, { excludedPathsJson });
+  const { misses } = lintPlan(planText, {
+    excludedPathsJson,
+    surveyRan: parsed.surveyRan,
+  });
   if (misses.length === 0) return 0;
   for (const miss of misses) {
     process.stdout.write(miss + "\n");

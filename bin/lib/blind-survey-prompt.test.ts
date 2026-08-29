@@ -117,4 +117,52 @@ describe("briefLeaksCorpus", () => {
   it("returns false for an empty brief", () => {
     expect(briefLeaksCorpus("", corpus)).toBe(false);
   });
+
+  it("returns false for an empty corpus", () => {
+    expect(briefLeaksCorpus("anything at all here", "")).toBe(false);
+  });
+
+  describe("length-boundary cases (shingleWords default = 8)", () => {
+    it("an exactly-8-word corpus line copied verbatim ⇒ true (the shingle-loop branch, not the short-line branch)", () => {
+      const line = "run two pinned judges over a goal only";
+      const brief = "we should run two pinned judges over a goal only today";
+      expect(briefLeaksCorpus(brief, line)).toBe(true);
+    });
+
+    it("an exactly-7-word corpus line copied verbatim ⇒ true (short-line rule, >= 3 words)", () => {
+      const line = "ship a validator without any human review";
+      const brief =
+        "the plan is to ship a validator without any human review soon";
+      expect(briefLeaksCorpus(brief, line)).toBe(true);
+    });
+
+    it("an exactly-3-word corpus line copied verbatim ⇒ true (short-line floor)", () => {
+      const line = "ship a validator";
+      const brief = "we should ship a validator now";
+      expect(briefLeaksCorpus(brief, line)).toBe(true);
+    });
+
+    it("an exactly-2-word corpus line copied verbatim ⇒ false (below the short-line floor)", () => {
+      const line = "ship it";
+      const brief = "we should ship it now";
+      expect(briefLeaksCorpus(brief, line)).toBe(false);
+    });
+
+    it("a 9-word corpus line where the brief only carries 7 of its words contiguously ⇒ false (neither 8-word shingle window matches)", () => {
+      const line = "one two three four five six seven eight nine";
+      const brief = "we should go two three four five six seven eight tomorrow";
+      expect(briefLeaksCorpus(brief, line)).toBe(false);
+    });
+
+    it("a shingle split across two corpus lines never matches (per-line contract — shingles never span a newline)", () => {
+      const twoLineCorpus =
+        "the quick brown fox jumps over the lazy\n" +
+        "dog runs fast through the green forest today";
+      // Spans the line boundary: the last 4 words of line 1 plus the
+      // first 4 words of line 2, contiguous in the brief but never a
+      // shingle of either line on its own.
+      const brief = "she jumps over the lazy dog runs fast through the yard";
+      expect(briefLeaksCorpus(brief, twoLineCorpus)).toBe(false);
+    });
+  });
 });

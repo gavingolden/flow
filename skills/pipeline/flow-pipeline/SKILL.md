@@ -747,8 +747,10 @@ answers (NEVER the raw description or the user's method), and run
 call with `timeout: 600000`. Branch on `{ran}`, never the exit code; print
 one chat line either way (`blind survey: A=… B=…` or `blind survey
 skipped — <reason>`); on `ran:true`, thread a `SURVEY:` marker below. Runs
-once per pipeline — a revision pass reuses the existing survey file. Full
-gate/brief/run contract: [references/blind-survey.md](references/blind-survey.md).
+once per pipeline — a revision pass reuses the existing survey file. On a
+`ran:true` pass, the post-discovery plan-shape lint backstop also passes
+`--survey-ran` so a missing `## Method selection` section is a named miss.
+Full gate/brief/run contract: [references/blind-survey.md](references/blind-survey.md).
 
 **Invocation threading.** Before invoking `/flow-product-planning`, thread up
 to seven marker lines onto the same append channel as the inferred ultimate

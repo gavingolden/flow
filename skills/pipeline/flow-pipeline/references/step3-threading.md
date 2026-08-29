@@ -265,8 +265,9 @@ was skipped:
 
 ```bash
 LINT_RC=0
+SURVEY_RAN_FLAG=""; [ -f "$WORKTREE/.flow-tmp/blind-survey.md" ] && SURVEY_RAN_FLAG="--survey-ran"  # survey ran ⇒ a missing ## Method selection is a named miss (references/blind-survey.md)
 if command -v flow-plan-lint >/dev/null 2>&1; then
-  flow-plan-lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md" || LINT_RC=$?
+  flow-plan-lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md" $SURVEY_RAN_FLAG || LINT_RC=$?
 fi   # helper not on PATH — skip silently (tolerant), per the contract below
 ```
 

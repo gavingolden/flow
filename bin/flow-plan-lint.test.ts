@@ -495,6 +495,51 @@ describe("lintPlan — Method selection", () => {
       ),
     ).toBe(true);
   });
+
+  it("names a miss when the section has a verdict + chosen method but zero Judge A/Judge B lines (the audit trail is the whole point of the section)", () => {
+    const plan =
+      CONFORMING_PLAN +
+      "\n## Method selection\n\n" +
+      "- **Survey verdict:** converge-against\n" +
+      "- **Chosen method:** blind survey — rationale\n";
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) => m.includes("Method selection") && m.includes("Judge A"),
+      ),
+    ).toBe(true);
+    expect(
+      misses.some(
+        (m) => m.includes("Method selection") && m.includes("Judge B"),
+      ),
+    ).toBe(true);
+  });
+
+  it("an absent heading without opts.surveyRan is still silent (unchanged default)", () => {
+    const { misses } = lintPlan(CONFORMING_PLAN, { surveyRan: false });
+    expect(misses.some((m) => m.includes("Method selection"))).toBe(false);
+  });
+
+  it("an absent heading WITH surveyRan:true is a named miss", () => {
+    const { misses } = lintPlan(CONFORMING_PLAN, { surveyRan: true });
+    expect(
+      misses.some(
+        (m) => m.includes("survey ran") && m.includes("Method selection"),
+      ),
+    ).toBe(true);
+  });
+
+  it("a present, well-formed section with surveyRan:true still names no miss", () => {
+    const plan =
+      CONFORMING_PLAN +
+      "\n## Method selection\n\n" +
+      '- **Judge A (Gemini 3.1 Pro (High)):** "Add a supervisor-side blind survey before discovery drafts a plan." — a fan-out over two pinned judges\n' +
+      '- **Judge B (Claude Opus 4.6 (Thinking)):** "Run two model-pinned judges over a goal-only brief." — converges with judge A\n' +
+      "- **Survey verdict:** converge-against\n" +
+      "- **Chosen method:** blind survey — both judges independently converged away from the user's proposed method\n";
+    const { misses } = lintPlan(plan, { surveyRan: true });
+    expect(misses.some((m) => m.includes("Method selection"))).toBe(false);
+  });
 });
 
 describe("lintPlan — Goal-line length advisory", () => {
@@ -744,9 +789,18 @@ describe("lintPlan — excluded-paths.json cross-check", () => {
 });
 
 describe("parseArgs", () => {
-  it("parses --plan-md-file", () => {
+  it("parses --plan-md-file, defaulting surveyRan to false", () => {
     const parsed = parseArgs(["--plan-md-file", "/tmp/plan.md"]);
-    expect(parsed).toEqual({ planMdFile: "/tmp/plan.md" });
+    expect(parsed).toEqual({ planMdFile: "/tmp/plan.md", surveyRan: false });
+  });
+
+  it("parses --survey-ran as a valueless flag alongside --plan-md-file", () => {
+    const parsed = parseArgs([
+      "--plan-md-file",
+      "/tmp/plan.md",
+      "--survey-ran",
+    ]);
+    expect(parsed).toEqual({ planMdFile: "/tmp/plan.md", surveyRan: true });
   });
 
   it("errors when --plan-md-file is missing", () => {
@@ -756,6 +810,17 @@ describe("parseArgs", () => {
 
   it("errors on an unknown flag", () => {
     const parsed = parseArgs(["--bogus"]);
+    expect("error" in parsed).toBe(true);
+  });
+
+  it("errors on an unknown flag even alongside --survey-ran", () => {
+    const parsed = parseArgs([
+      "--plan-md-file",
+      "/tmp/plan.md",
+      "--survey-ran",
+      "--config",
+      "/c.json",
+    ]);
     expect("error" in parsed).toBe(true);
   });
 

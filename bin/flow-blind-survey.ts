@@ -22,14 +22,18 @@
  * Skip vocabulary: `brief-unreadable` / `description-unreadable` (the two
  * input files), `brief-not-blind` (the blindness guard fired — no fanout
  * call is made), `worktree-not-provided` / `worktree-not-found`,
- * `agy-not-found` / `agy-not-authenticated` / `agy-error` (propagated from
- * a `ran:false` fanout entry), `judge-timeout` (a fanout entry's
- * `agy-timeout`, mapped the way `flow-plan-review`'s
- * `mapReviewerSkipReason` maps its own reviewer-timeout), `judge-empty` (a
- * judge's artifact is missing or under 40 chars — too short to be a real
- * recommendation), and the local IO-throw defensive skips
- * `survey-prep-failed` / `survey-finalize-failed`. Branch on the envelope's
- * `ran` field, never the exit code — every non-usage path exits 0.
+ * `fanout-error` (the fanout call itself came back empty — binary missing,
+ * a usage-error exit, or an unparsable aggregate line — distinct from a
+ * per-entry failure because neither judge task even reached the
+ * aggregate), `agy-not-found` / `agy-not-authenticated` / `agy-error`
+ * (propagated from a `ran:false` fanout entry that IS present in the
+ * aggregate), `judge-timeout` (a fanout entry's `agy-timeout`, mapped the
+ * way `flow-plan-review`'s `mapReviewerSkipReason` maps its own
+ * reviewer-timeout), `judge-empty` (a judge's artifact is missing or under
+ * 40 chars — too short to be a real recommendation), and the local
+ * IO-throw defensive skips `survey-prep-failed` / `survey-finalize-failed`.
+ * Branch on the envelope's `ran` field, never the exit code — every
+ * non-usage path exits 0.
  */
 
 import {
@@ -70,6 +74,7 @@ export const SKIP_REASONS = [
   "brief-not-blind",
   "worktree-not-provided",
   "worktree-not-found",
+  "fanout-error",
   "agy-not-found",
   "agy-not-authenticated",
   "agy-error",
@@ -372,6 +377,18 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     concurrency: 1,
   });
   const entries = aggregate.entries ?? [];
+  // An empty aggregate means the fanout call itself never produced a
+  // per-task entry for either judge — the fanout binary is missing, it
+  // exited with a usage error, or its stdout line failed to parse (all
+  // three collapse into resolveDeps' default runFanout catch, which
+  // returns `{ allSkipped: true, entries: [] }`). That is a distinct
+  // failure from a non-empty aggregate carrying a `ran:false` entry with
+  // its own agy-* skipReason, so it gets its own vocabulary rather than
+  // being misattributed as `agy-not-found` via resolveJudge's per-entry
+  // `entry === undefined` fallback below.
+  if (entries.length === 0) {
+    return skip("fanout-error");
+  }
   const judgeA = resolveJudge(
     deps,
     entries.find((e) => e.task === manifest[0]!.task),
