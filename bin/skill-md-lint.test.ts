@@ -2777,8 +2777,13 @@ describe("cross-model plan review worktree + convergence pins", () => {
   ])(
     '%s\'s flow-plan-review call site threads --worktree "$WORKTREE"',
     (name, skillContent) => {
+      // `(?!-)` — not `\b` — so this anchors on the real `--start`/review
+      // invocation and can never match `flow-plan-review-wait`'s call
+      // instead (the waiter's invocation carries no --worktree flag at
+      // all, so a `\b`-anchored regex risked a false pass once the waiter
+      // was invoked at these sites).
       expect(
-        /flow-plan-review\b[\s\S]{0,200}?--worktree "\$WORKTREE"/.test(
+        /flow-plan-review(?!-)[\s\S]{0,200}?--worktree "\$WORKTREE"/.test(
           skillContent,
         ),
         `${name}'s flow-plan-review call site must pass --worktree "$WORKTREE" ` +
@@ -2786,7 +2791,8 @@ describe("cross-model plan review worktree + convergence pins", () => {
           "--add-dir, and an omitted flag is a wiring bug (worktree-not-provided). " +
           "This must be anchored to the flow-plan-review invocation itself, not " +
           "merely present anywhere in the file (e.g. on an unrelated " +
-          "flow-state-update call).",
+          "flow-state-update call), and must not accidentally match " +
+          "flow-plan-review-wait's invocation instead.",
       ).toBe(true);
     },
   );
@@ -2799,6 +2805,57 @@ describe("cross-model plan review worktree + convergence pins", () => {
         "(non-engaging/empty) reviewer must not count as a survivor for " +
         "the convergence rule.",
     ).toBe(true);
+  });
+
+  // Short shared-phrase pins for the async wake-ladder contract, mirroring
+  // the FANOUT_PHRASE precedent above — pinning a full sentence would turn
+  // every prose improvement into a two-site byte-exact chore.
+  const WAKE_LADDER_PHRASES = [
+    "flow-plan-review --start",
+    "flow-plan-review --check",
+    "flow-plan-review-wait",
+  ];
+
+  it.each(
+    WAKE_LADDER_PHRASES.flatMap((phrase) => [
+      ["flow-pipeline/SKILL.md", content, phrase] as const,
+      ["flow-epic-create/SKILL.md", epicCreateContent, phrase] as const,
+    ]),
+  )("%s carries the wake-ladder phrase %s", (name, skillContent, phrase) => {
+    expect(
+      skillContent.includes(phrase),
+      `${name} must carry the phrase "${phrase}" — both call sites migrate ` +
+        "to the async --start/--check/--wait wake ladder together, and a " +
+        "change at only one site must fail this pin.",
+    ).toBe(true);
+  });
+
+  it.each([
+    ["flow-pipeline/SKILL.md", content],
+    ["flow-epic-create/SKILL.md", epicCreateContent],
+  ])(
+    "%s no longer carries a timeout: 600000 override on a flow-plan-review call",
+    (name, skillContent) => {
+      expect(
+        /flow-plan-review\b[\s\S]{0,80}?timeout:\s*600000/.test(skillContent),
+        `${name} must not pass timeout: 600000 to a flow-plan-review Bash ` +
+          "call — --start and --check are both sub-second, so the ceiling " +
+          "override this PR removes must not reappear.",
+      ).toBe(false);
+    },
+  );
+
+  it("flow-pipeline/SKILL.md names its own pending phase (plan-review-pending)", () => {
+    expect(content.includes("plan-review-pending")).toBe(true);
+  });
+
+  it("flow-epic-create/SKILL.md names its own pending phase (epic-plan-review-pending)", () => {
+    expect(epicCreateContent.includes("epic-plan-review-pending")).toBe(true);
+  });
+
+  it("both SKILL.md sites name reviewer-timeout in the 'ran but produced nothing' class", () => {
+    expect(content.includes("reviewer-timeout")).toBe(true);
+    expect(epicCreateContent.includes("reviewer-timeout")).toBe(true);
   });
 });
 

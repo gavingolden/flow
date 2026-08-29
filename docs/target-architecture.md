@@ -385,6 +385,7 @@ gracefully — the existing agy graceful-skip generalized.
 | `flow-research-note`                               | research skip-note backstop                       |
 | `flow-research-cache`                              | host-wide research-synthesis cache                |
 | `flow-plan-review`                                 | cross-model (AGY) plan-decision review            |
+| `flow-plan-review-wait`                            | dumb bounded waiter for the async plan review     |
 | `flow-gemini-lens`                                 | cross-model (AGY / Gemini) PR-review lens         |
 
 > `flow-plan-review` and `flow-gemini-lens` are agy-dependent cross-model

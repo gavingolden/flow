@@ -191,12 +191,16 @@ review** of the epic decomposition's consequential forks, mirroring
 **no Task** (see the named-surface note above: a **Bash fan-out, not a tenth
 exemption**).
 
-It gets **no dedicated phase** — it rides within the `epic-validating` →
-`epic-pr-open` transition, so a crash mid-review resumes at `validate` (Step 4)
-and re-runs the idempotent validators + the idempotent `flow-plan-review` before
-Step 5. The Step-7 redirect path (re-spawn designer → re-validate → push a new
-commit) naturally re-traverses this step, so a redirect that changes the
-decomposition re-fires the review.
+It has a pending phase (`epic-plan-review-pending`) for the async wake
+ladder's yield rung, but no OTHER dedicated phase beyond that — it still
+rides within the `epic-validating` → `epic-pr-open` transition otherwise,
+so a crash mid-review resumes at `validate` (Step 4) and re-runs the
+idempotent validators + the idempotent `flow-plan-review` before Step 5. A
+crash between `--start` and a terminal `--check` re-attaches to the live
+worker via `--start`'s idempotent `(planFile, decisionHash)` check rather
+than re-spending agy quota. The Step-7 redirect path (re-spawn designer →
+re-validate → push a new commit) naturally re-traverses this step, so a
+redirect that changes the decomposition re-fires the review.
 
 Two-part gate, both human-readable:
 
@@ -212,17 +216,27 @@ means the designer found no genuinely-diverging decomposition fork, so there is
 nothing to cross-review. When **either** half fails, skip this step and proceed
 to Step 5 unchanged.
 
-When both fire, run ONE review and branch on the helper's `{ran}` envelope
-(NEVER the exit code):
+When both fire, run the review through the SAME async wake ladder
+`/flow-pipeline` Step 3 uses (see `skills/pipeline/flow-pipeline/SKILL.md`'s
+"Cross-model plan review" sub-step), with `--task epic-design-review --depth
+deep` on the `--start` call and `epic-plan-review-pending` at the yield
+rung:
 
-```bash
-flow-plan-review --plan-file "$WORKTREE/<EPIC_DIR>/design.md" \
-  --out "$WORKTREE/.flow-tmp/design-review.md" --worktree "$WORKTREE" \
-  --task epic-design-review --depth deep
-```
-
-The Bash tool call MUST pass an explicit `timeout: 600000`, since its own
-120000 ms default undercuts the helper's per-reviewer agy cap (the deep tier runs its two reviewers serially at an asymmetric 3m+6m=9m budget, sized to measured durations — never 10m, which would leave zero real margin under the ceiling). Treat a missing/unparseable envelope (the harness killed the Bash call before either reviewer finished) as `skipReason: "review-timed-out"` and proceed unchanged — this layer is advisory and must never block the gate.
+**(1)** `flow-plan-review --start --plan-file "$WORKTREE/<EPIC_DIR>/design.md"
+--out "$WORKTREE/.flow-tmp/design-review.md" --worktree "$WORKTREE" --task
+epic-design-review --depth deep` — a `ran` field in the response is
+today's gate-skip branch; a `status:"started"` response means a worker is
+live — go to (2). **(2)** `flow-plan-review --check --out
+"$WORKTREE/.flow-tmp/design-review.md"` — `decided` branches on the
+wrapped envelope below; `waiting` goes to (3). **(3)** background the
+waiter: `flow-spawn --class default -- flow-plan-review-wait
+"$WORKTREE/.flow-tmp/design-review.md.run.json" --max-sec 540`; its
+completion notification re-runs (2). **(4)** fallback: a bounded Monitor
+`until` loop or `ScheduleWakeup`, then `flow-state-update --phase
+epic-plan-review-pending` and a clean turn end; on re-invocation, re-run
+(2). Both new calls are sub-second, so no explicit `timeout:` override is
+needed anywhere in this ladder. Branch on the helper's `{ran}` envelope
+(NEVER the exit code).
 
 Always `--depth deep`: an epic decomposition is always consequential, and
 `auto` genuinely cannot fire deep here — `design.md` carries neither
@@ -234,7 +248,10 @@ required-headings contract) — the deep tier here is forced by this
 
 - `ran:false` → record the `skipReason` in scrollback and proceed to Step 5
   unchanged (a graceful no-op — e.g. `agy-not-found` when agy is absent or
-  logged out). No revision, no reconciliation subsection.
+  logged out; `reviewer-timeout` / `review-timed-out` / `reviewer-worker-died`
+  when a reviewer ran but produced nothing usable — name the envelope's
+  retained `partialArtifactPath` and redacted `stderrTail` when present). No
+  revision, no reconciliation subsection.
 - `ran:true` → read `design-review.md` and weigh EACH material AGY point against
   the codebase context you hold. AGY is a different model with less context —
   its output is **INPUT you weigh, NOT a verdict**. Also record each

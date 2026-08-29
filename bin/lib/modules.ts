@@ -217,6 +217,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-research-note",
       "flow-research-cache",
       "flow-plan-review",
+      "flow-plan-review-wait",
       "flow-gemini-lens",
       "flow-gemini-intent-guess",
     ],

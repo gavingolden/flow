@@ -320,16 +320,36 @@ a runtime skip); a `--worktree` pointing at a non-directory yields
 `bin/lib/plan-review-engagement.ts` against the six battery lenses. A
 reviewer whose prose is empty/near-empty is demoted with
 `reviewer-empty`; one that clears the substance floor but engages fewer
-than 2 of the 6 lenses is demoted with `reviewer-not-engaged`. Either
+than 2 of the 6 lenses is demoted with `reviewer-not-engaged`; one whose
+agy call was killed by a `--print-timeout` (or whose engagement-demotion
+duration lands within 10s of its configured cap — a killed agentic run can
+still exit 0 with a partial) is demoted with `reviewer-timeout`. Every
 demotion sets `ran:false` on that reviewer's `reviewers[]` entry — a
-demoted reviewer is NOT a survivor for the convergence rule below. The
-envelope's `lensesEngaged` field (N out of 6) is the truncation
-detector: a run cut short mid-battery still reports `ran:true` but with a
-low N, which the supervisor surfaces so the user can discount it even
-when the reviewer wasn't formally demoted. The deep-tier convergence rule
-therefore requires `reviewers[]` to hold exactly two `ran:true` entries —
-a single surviving (or single genuinely engaged) reviewer's points remain
-plain INPUT, same as the standard tier.
+demoted reviewer is NOT a survivor for the convergence rule below — and
+retains that reviewer's transcript on disk, naming it as
+`partialArtifactPath` (plus a redacted `stderrTail` when agy's own stderr
+carried one) rather than deleting it, so a timed-out reviewer's partial
+work stays diagnosable. The envelope's `lensesEngaged` field (N out of 6)
+is the truncation detector: a run cut short mid-battery still reports
+`ran:true` but with a low N, which the supervisor surfaces so the user can
+discount it even when the reviewer wasn't formally demoted. The deep-tier
+convergence rule therefore requires `reviewers[]` to hold exactly two
+`ran:true` entries — a single surviving (or single genuinely engaged)
+reviewer's points remain plain INPUT, same as the standard tier.
+
+**Async invocation (the wake ladder).** `flow-plan-review` no longer runs
+as one blocking Bash call. `--start` resolves every cheap gate
+synchronously and, on a pass, detaches the SAME synchronous review body
+above via `flow-spawn --detach` (registry-recorded), writing a durable
+`planReview` anchor to `~/.flow/state/<slug>.json`. `--check` is the
+one-shot decider that owns all state and all decisions, re-deriving
+elapsed time from `planReview.startedAt` (never from the calling
+process's own age, so a suspended `--check` can never fabricate a false
+`review-timed-out`). `flow-plan-review-wait` is the dumb bounded waiter —
+zero state, zero decisions, it only polls for the worker's result file.
+The pattern mirrors step 7's `flow-ci-check`/`flow-ci-wait` ladder exactly
+(see "Cross-model plan review" in `flow-pipeline/SKILL.md`'s Step 3), and
+both `/flow-pipeline` and `/flow-epic-create` migrate to it together.
 
 **Why `--print-hash`, not the envelope hash.** `flow-plan-review
 --print-hash --plan-file "$WORKTREE/.flow-tmp/plan.md"` must run on the

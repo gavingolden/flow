@@ -417,6 +417,35 @@ describe("run — aggregation + concurrency", () => {
     });
   });
 
+  it("projects stderrTail through runPool's allowlist so a failed entry's diagnostic tail survives (S9)", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+      runDelegate: async (entry) => ({
+        ran: false,
+        task: entry.task,
+        skipReason: "agy-timeout",
+        stderrTail: "Error: timeout waiting for response",
+      }),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    const entry = aggregate(deps).entries[0];
+    expect(entry.stderrTail).toBe("Error: timeout waiting for response");
+  });
+
+  it("omits stderrTail on the entry when the child envelope carries none", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+      runDelegate: async (entry) => ({
+        ran: true,
+        task: entry.task,
+        artifactPath: "/x.md",
+      }),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    const entry = aggregate(deps).entries[0];
+    expect(entry.stderrTail).toBeUndefined();
+  });
+
   it("keeps durationMs as pool wall-clock while durationSeconds is the child's model time — sourced differently", async () => {
     const deps = makeDeps({
       readFile: () => manifestOf([{ task: "a", prompt: "x" }]),

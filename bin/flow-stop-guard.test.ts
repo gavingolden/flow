@@ -355,6 +355,58 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
     expect(await run(active.deps)).toBe(2);
     expect(active.errLines.join("")).toContain("DO NOT END THE TURN");
   });
+
+  it("NEXT_STEP_BY_PHASE points plan-review-pending back at step 3 (the async plan review wake ladder)", () => {
+    expect(nextStepLabel("plan-review-pending")).toBe(
+      "step 3 (plan) — run flow-plan-review --check and branch on .status",
+    );
+  });
+
+  it("NEXT_STEP_BY_PHASE points epic-plan-review-pending back at /flow-epic-create step 4.5", () => {
+    expect(nextStepLabel("epic-plan-review-pending")).toBe(
+      "/flow-epic-create step 4.5 — run flow-plan-review --check and branch on .status",
+    );
+  });
+
+  it("exits 0 at the yielded plan-review-pending phase but still exits 2 at the active planning phase", async () => {
+    const pending = makeDeps({
+      stdin: "{}",
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("plan-review-pending"),
+    });
+    expect(await run(pending.deps)).toBe(0);
+    expect(pending.errLines).toEqual([]);
+
+    const active = makeDeps({
+      stdin: "{}",
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("planning"),
+    });
+    expect(await run(active.deps)).toBe(2);
+    expect(active.errLines.join("")).toContain("DO NOT END THE TURN");
+  });
+
+  it("exits 0 at the yielded epic-plan-review-pending phase but still exits 2 at the active epic-validating phase", async () => {
+    const pending = makeDeps({
+      stdin: "{}",
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("epic-plan-review-pending"),
+    });
+    expect(await run(pending.deps)).toBe(0);
+    expect(pending.errLines).toEqual([]);
+
+    const active = makeDeps({
+      stdin: "{}",
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("epic-validating"),
+    });
+    expect(await run(active.deps)).toBe(2);
+    expect(active.errLines.join("")).toContain("DO NOT END THE TURN");
+  });
 });
 
 describe("nextStepLabel + buildReminder", () => {

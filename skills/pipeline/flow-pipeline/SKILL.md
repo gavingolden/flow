@@ -845,19 +845,34 @@ in `~/.flow/config.json` (same key the Gemini lens uses), AND a non-empty
 `research` helper; the check emits its own named notice); when **any** part
 fails, record the reason in the chat summary and skip this sub-step unchanged.
 
-When all three fire, run `flow-plan-review --plan-file
+When all three fire, run the review through the async wake ladder below,
+mirroring step 7's `flow-ci-check`/`flow-ci-wait` ladder (both new calls
+are sub-second, so no explicit `timeout:` override is needed): **(1)**
+foreground `flow-plan-review --start --plan-file
 "$WORKTREE/.flow-tmp/plan.md" --out "$WORKTREE/.flow-tmp/plan-review.md"
---worktree "$WORKTREE"` (no `--depth` flag — relies on `auto`). The Bash
-tool call MUST pass an explicit `timeout: 600000`, since its own 120000 ms
-default undercuts the helper's per-reviewer agy cap (the deep tier runs its two reviewers serially at an asymmetric 3m+6m=9m budget, sized to measured durations — never 10m, which would leave zero real margin under the ceiling). Branch on the `{ran}` envelope
+--worktree "$WORKTREE"` — a `ran` field means today's gate-skip branch,
+proceed straight to the branching below with no further ladder steps;
+`status:"started"` (`reattached` true or false) means a worker is live, go
+to (2). **(2)** foreground `flow-plan-review --check --out
+"$WORKTREE/.flow-tmp/plan-review.md"` — `decided` branches on the wrapped
+envelope (`.status` stripped) exactly as below; `waiting` goes to (3).
+**(3)** background the waiter — `flow-spawn --class default --
+flow-plan-review-wait "$WORKTREE/.flow-tmp/plan-review.md.run.json"
+--max-sec 540` — its completion notification re-runs (2), never a resumed
+loop. **(4)** on a missed wake: a bounded Monitor `until` loop or
+`ScheduleWakeup` ending in the same `--check`; if neither fires before
+turn-end, `flow-state-update --phase plan-review-pending` and re-run (2).
+Branch on the `{ran}` envelope
 (never the exit code): `ran:false` records `skipReason` and proceeds
-unchanged. `skipReason` values split into two classes: an environment skip
-(e.g. `agy-not-found`) is a genuine no-op, but `reviewer-empty` /
-`reviewer-not-engaged` mean the review RAN and produced nothing usable —
-surface those two distinctly in the chat summary, never folded into
-"agy unavailable" prose. A missing/unparseable envelope (harness killed the
-Bash call) is treated the same as `skipReason: "review-timed-out"` and
-proceeds unchanged — this layer is advisory and must never block the gate.
+unchanged. `skipReason` splits into two classes: an environment skip (e.g.
+`agy-not-found`) is a genuine no-op, but `reviewer-empty` /
+`reviewer-not-engaged` / `reviewer-timeout` mean the review RAN and
+produced nothing usable — surface those three distinctly in the chat
+summary (never folded into "agy unavailable" prose), naming
+`partialArtifactPath`/`stderrTail` when present. The other two terminal
+skips are `review-timed-out` (`--check`'s give-up cap fired) and
+`reviewer-worker-died` (detached worker vanished, no result); both differ
+from `reviewer-timeout`, where the envelope survived one killed agy call.
 `ran:true` weighs each
 material AGY point as INPUT (never a verdict), revises plan.md **once**
 where warranted, and appends a `### Cross-model review (AGY)` subsection
@@ -870,11 +885,11 @@ ONLY when `reviewers[]` holds exactly two `ran:true` entries — a point
 BOTH raised independently is **presumptively accepted**, overriding it
 needs a named rationale in that subsection; otherwise (any reviewer
 demoted/skipped) every point stays single-reviewer INPUT, same as today.
-Then embed the marker hash — run `flow-plan-review --print-hash
---plan-file "$WORKTREE/.flow-tmp/plan.md"` on the FINAL revised plan
-(never the pre-revision envelope hash, which would falsely re-fire the
-next pass) and embed its stdout as
-`<!-- flow-plan-review-hash: <sha> -->` inside the appended subsection.
+Then embed the marker hash — run `flow-plan-review --print-hash --plan-file
+"$WORKTREE/.flow-tmp/plan.md"` on the FINAL revised plan (never the
+pre-revision envelope hash, which would falsely re-fire the next pass) and
+embed its stdout as `<!-- flow-plan-review-hash: <sha> -->` inside the
+appended subsection.
 
 This is a **bounded single-pass per step-3 pass** — at most one review
 and one revision, not an unbounded loop. On re-entry the helper re-fires

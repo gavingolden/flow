@@ -4,8 +4,11 @@ import {
   computeDepth,
   extractDecisionAnalysisBody,
   extractGoalLine,
+  godurToSec,
   hasDecisionAnalysis,
   isPlanReviewEnabled,
+  mapReviewerSkipReason,
+  maxElapsedSec,
   normalizeDecisionBody,
   parseArgs,
   readPriorHash,
@@ -149,10 +152,17 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     writes: Array<{ path: string; contents: string }>;
     removed: string[];
     out: string[];
+    spawnDetached: string[][];
+    killed: number[];
   };
   files: Map<string, string>;
+  stateRecords: Map<string, import("./lib/state").PlanReviewRecord>;
 } {
   const files = new Map<string, string>();
+  const stateRecords = new Map<
+    string,
+    import("./lib/state").PlanReviewRecord
+  >();
   const calls = {
     delegate: [] as string[][],
     fanout: [] as Array<{
@@ -163,6 +173,8 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     writes: [] as Array<{ path: string; contents: string }>,
     removed: [] as string[],
     out: [] as string[],
+    spawnDetached: [] as string[][],
+    killed: [] as number[],
   };
   const base: Deps = {
     readConfig: () => ENABLED,
@@ -210,13 +222,36 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
       calls.removed.push(p);
       files.delete(p);
     },
+    renameFile: (from, to) => {
+      const c = files.get(from);
+      if (c !== undefined) files.set(to, c);
+      files.delete(from);
+    },
     mkdirp: () => {},
     writeOut: (line) => calls.out.push(line),
     dirExists: () => true,
+    fileExists: (p) => files.has(p),
+
+    spawnDetached: (argv) => {
+      calls.spawnDetached.push(argv);
+      return { pid: 4242 };
+    },
+    probeStartEpoch: () => 1000,
+    readStateRecord: (slug) => stateRecords.get(slug),
+    writeStateRecord: (slug, rec) => {
+      stateRecords.set(slug, rec);
+    },
+    isAlive: () => false,
+    killWorker: (pid) => {
+      calls.killed.push(pid);
+    },
+    now: () => new Date("2026-08-27T00:00:00.000Z"),
+    env: { FLOW_SLUG: "test-slug" },
+    readWorkerStderrTail: (p) => files.get(p) ?? "",
   };
   // Seed the plan file the helper reads (with the gate section present).
   files.set(PLAN_FILE, PLAN_WITH_SECTION);
-  return Object.assign(base, overrides, { calls, files });
+  return Object.assign(base, overrides, { calls, files, stateRecords });
 }
 
 const envelope = (deps: { calls: { out: string[] } }) =>
@@ -968,7 +1003,7 @@ describe("run — deep tier happy path", () => {
     expect(out).toContain("Convergence rule");
   });
 
-  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's, with the asymmetric per-reviewer timeouts and addDirs threading the worktree", () => {
+  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's, with the asymmetric 3m/15m per-reviewer timeouts and addDirs threading the worktree", () => {
     // Reviewer 2 (SECOND_MODEL) is the same model family as the PRD's
     // author, so it must not receive the byte-identical "different model
     // family" prompt handed to reviewer 1.
@@ -987,10 +1022,10 @@ describe("run — deep tier happy path", () => {
     expect(manifest[0].out).toBe(`${OUT}.r1.md`);
     expect(manifest[1].out).toBe(`${OUT}.r2.md`);
     // Asymmetric split: reviewer 1 (fast, Gemini) 3m, reviewer 2 (slow,
-    // Opus) 6m — sum 9m, staying under the 10m Bash-tool ceiling instead of
-    // exactly equalling it.
+    // Opus) 15m — no sum constraint anymore (the async spine detaches the
+    // worker), so reviewer 2 gets the literal budget the user asked for.
     expect(manifest[0].timeout).toBe("3m");
-    expect(manifest[1].timeout).toBe("6m");
+    expect(manifest[1].timeout).toBe("15m");
     // addDirs = [parsed.worktree] on BOTH manifest entries — this is the
     // exact line this PR exists to fix (the reviewer must be granted repo
     // access, not left to review in a vacuum).
@@ -1140,13 +1175,20 @@ describe("run — deep tier reviewer engagement demotion", () => {
         ran: false,
         skipReason: "reviewer-not-engaged",
         lensesEngaged: 0,
+        // Task 7: the demoted reviewer's transcript is retained and named
+        // in its own reviewers[] entry, even though the WHOLE run still
+        // succeeds (partial deep success).
+        partialArtifactPath: `${OUT}.fanout.json.artifact.1.md`,
       },
     ]);
     expect(deps.files.get(OUT)).toBe(AGY_PROSE);
     expect(deps.files.get(OUT)).not.toContain("Convergence rule");
+    // The demoted reviewer's transcript is retained on disk, not deleted by
+    // the terminal cleanScratch() call.
+    expect(deps.files.has(`${OUT}.fanout.json.artifact.1.md`)).toBe(true);
   });
 
-  it("both demoted yields {ran:false, skipReason:'reviewer-empty'} carrying NO depth and NO reviewers fields", () => {
+  it("both demoted yields {ran:false, skipReason:'reviewer-empty'} carrying NO depth and NO reviewers fields (amended invariant: MAY carry partialArtifactPath)", () => {
     const deps = makeDeps({
       runFanout: (input) => {
         const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
@@ -1175,11 +1217,106 @@ describe("run — deep tier reviewer engagement demotion", () => {
       },
     });
     expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    // D2 / Task 7: the invariant is AMENDED, not relaxed — `depth` and
+    // `reviewers` still NEVER appear on a skip (that half is preserved
+    // verbatim), but a skip MAY now carry `partialArtifactPath` (the FIRST
+    // reviewer's retained transcript) when one exists. `toEqual`, not
+    // `toMatchObject` — this pins the WHOLE shape, including the absence of
+    // `depth`/`reviewers`.
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "reviewer-empty",
+      partialArtifactPath: `${OUT}.fanout.json.artifact.0.md`,
     });
     expect(deps.files.has(OUT)).toBe(false);
+    // Both reviewers' transcripts are retained on the both-skipped path too.
+    expect(deps.files.has(`${OUT}.fanout.json.artifact.0.md`)).toBe(true);
+    expect(deps.files.has(`${OUT}.fanout.json.artifact.1.md`)).toBe(true);
+  });
+});
+
+describe("run — deep tier near-cap demotion (durationMs fallback)", () => {
+  // Reviewer 2's configured cap is 900s (REVIEWER_2_TIMEOUT = "15m"). A
+  // fanout entry whose pool-observed durationMs lands within
+  // NEAR_CAP_SLACK_SEC (10s) of that cap must be treated as
+  // reviewer-timeout even on a clean exit:0 non-engaging demotion — the
+  // exact "killed agy exits 0 with a partial" case this fallback exists
+  // for. `durationSeconds` is deliberately absent from both entries below:
+  // this module never sets `outputFormat: "json"` on its manifest, so
+  // flow-delegate never lifts a `durationSeconds` field in production —
+  // pinning the fixture on `durationSeconds` would assert a branch that
+  // can never fire.
+  const NON_ENGAGING_PROSE =
+    "This plan looks fine overall and I have nothing further to add here.";
+
+  it("maps a near-cap exit-0 demotion to reviewer-timeout even without an agy-timeout skipReason", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        const artifactPath0 = `${input.outPath}.artifact.0.md`;
+        const artifactPath1 = `${input.outPath}.artifact.1.md`;
+        deps.files.set(artifactPath0, AGY_PROSE);
+        deps.files.set(artifactPath1, NON_ENGAGING_PROSE);
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath: artifactPath0,
+              durationMs: 100_000,
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ran: true,
+              artifactPath: artifactPath1,
+              durationMs: 895_000, // 895s: within the 10s slack of the 900s cap
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.reviewers[1].skipReason).toBe("reviewer-timeout");
+  });
+
+  it("does NOT demote to reviewer-timeout when the observed duration is well under the cap", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        const artifactPath0 = `${input.outPath}.artifact.0.md`;
+        const artifactPath1 = `${input.outPath}.artifact.1.md`;
+        deps.files.set(artifactPath0, AGY_PROSE);
+        deps.files.set(artifactPath1, NON_ENGAGING_PROSE);
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath: artifactPath0,
+              durationMs: 100_000,
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ran: true,
+              artifactPath: artifactPath1,
+              durationMs: 100_000, // 100s: nowhere near the 900s cap
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.reviewers[1].skipReason).toBe("reviewer-not-engaged");
   });
 });
 
@@ -1269,7 +1406,14 @@ describe("run — deep tier degrade branches (untested seams)", () => {
     expect(env.ran).toBe(true);
     expect(env.reviewers).toEqual([
       { model: MODEL_1, ran: true, lensesEngaged: 2 },
-      { model: MODEL_2, ran: false, skipReason: "plan-output-unreadable" },
+      {
+        model: MODEL_2,
+        ran: false,
+        skipReason: "plan-output-unreadable",
+        // resolveReviewer names the artifact path it FAILED to read too —
+        // "unreadable" is still a diagnostic, not a reason to omit it.
+        partialArtifactPath: "/nope.md",
+      },
     ]);
     expect(deps.files.get(OUT)).toBe(
       "Reviewer one prose, verbatim: judged against the stated goal, this structurally different alternative holds up well.",
@@ -1380,5 +1524,380 @@ describe("computeDecisionHash — widened content key", () => {
     expect(body).toContain("### D1 — format");
     expect(body).toContain("### D2 — pagination");
     expect(body).not.toContain("### Cross-model review (AGY)");
+  });
+});
+
+describe("godurToSec", () => {
+  it("parses minutes, seconds, and combined durations", () => {
+    expect(godurToSec("3m")).toBe(180);
+    expect(godurToSec("15m")).toBe(900);
+    expect(godurToSec("90s")).toBe(90);
+    expect(godurToSec("2m30s")).toBe(150);
+  });
+
+  it("throws on an unparseable duration", () => {
+    expect(() => godurToSec("")).toThrow();
+    expect(() => godurToSec("nope")).toThrow();
+    expect(() => godurToSec("3h")).toThrow();
+  });
+});
+
+describe("maxElapsedSec", () => {
+  it("derives the deep-tier cap from REVIEWER_1_TIMEOUT + REVIEWER_2_TIMEOUT + slack", () => {
+    // 3m (180) + 15m (900) + 300s slack = 1380s (23m).
+    expect(maxElapsedSec("deep")).toBe(1380);
+  });
+
+  it("derives the standard-tier cap from REVIEWER_1_TIMEOUT + slack only", () => {
+    // 3m (180) + 300s slack = 480s (8m).
+    expect(maxElapsedSec("standard")).toBe(480);
+  });
+});
+
+describe("mapReviewerSkipReason", () => {
+  it("maps flow-delegate's agy-timeout to this module's reviewer-timeout", () => {
+    expect(mapReviewerSkipReason("agy-timeout")).toBe("reviewer-timeout");
+  });
+
+  it("passes every other skipReason through unchanged", () => {
+    expect(mapReviewerSkipReason("agy-error")).toBe("agy-error");
+    expect(mapReviewerSkipReason("agy-not-authenticated")).toBe(
+      "agy-not-authenticated",
+    );
+  });
+
+  it("defaults an absent skipReason to agy-not-found (today's default)", () => {
+    expect(mapReviewerSkipReason(undefined)).toBe("agy-not-found");
+  });
+});
+
+describe("run --start", () => {
+  const START_ARGV = [
+    "--start",
+    "--plan-file",
+    PLAN_FILE,
+    "--out",
+    OUT,
+    "--worktree",
+    WORKTREE,
+  ];
+
+  it("emits today's byte-identical skip envelope and spawns nothing when the config gate is off", () => {
+    const deps = makeDeps({ readConfig: () => JSON.stringify({}) });
+    expect(run(START_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "plan-review-disabled",
+    });
+    expect(deps.calls.spawnDetached).toHaveLength(0);
+  });
+
+  it("emits plan-unreadable and spawns nothing when the plan file cannot be read", () => {
+    const deps = makeDeps();
+    deps.files.delete(PLAN_FILE);
+    expect(run(START_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "plan-unreadable",
+    });
+    expect(deps.calls.spawnDetached).toHaveLength(0);
+  });
+
+  it("emits no-decision-analysis and spawns nothing when the plan has no Decision analysis section", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_NO_SECTION);
+    expect(run(START_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "no-decision-analysis",
+    });
+    expect(deps.calls.spawnDetached).toHaveLength(0);
+  });
+
+  it("emits decision-analysis-unchanged and spawns nothing when the hash marker matches", () => {
+    const deps = makeDeps();
+    const hash = computeDecisionHash(PLAN_WITH_SECTION);
+    deps.files.set(
+      PLAN_FILE,
+      `${PLAN_WITH_SECTION}\n<!-- flow-plan-review-hash: ${hash} -->\n`,
+    );
+    expect(run(START_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "decision-analysis-unchanged",
+    });
+    expect(deps.calls.spawnDetached).toHaveLength(0);
+  });
+
+  it("emits worktree-not-provided and spawns nothing when --worktree is omitted", () => {
+    const deps = makeDeps();
+    expect(run(["--start", "--plan-file", PLAN_FILE, "--out", OUT], deps)).toBe(
+      0,
+    );
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "worktree-not-provided",
+    });
+    expect(deps.calls.spawnDetached).toHaveLength(0);
+  });
+
+  it("emits worktree-not-found and spawns nothing when --worktree is not a directory", () => {
+    const deps = makeDeps({ dirExists: () => false });
+    expect(run(START_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "worktree-not-found",
+    });
+    expect(deps.calls.spawnDetached).toHaveLength(0);
+  });
+
+  it("detaches a worker and writes a planReview state record on a gate-passing plan with no prior record", () => {
+    const deps = makeDeps();
+    expect(run(START_ARGV, deps)).toBe(0);
+    expect(deps.calls.spawnDetached).toHaveLength(1);
+    const argv = deps.calls.spawnDetached[0]!;
+    expect(argv[0]).toBe("flow-spawn");
+    expect(argv).toContain("--detach");
+    expect(argv).toContain("--stdout");
+    expect(argv).toContain("--stderr");
+    expect(argv).toContain("flow-plan-review");
+    expect(argv).toContain("--result-file");
+    const env = envelope(deps);
+    expect(env.status).toBe("started");
+    expect(env.reattached).toBe(false);
+    expect(env.pid).toBe(4242);
+    expect(env.depth).toBe("standard");
+    expect(env.resultPath).toBe(`${OUT}.run.json`);
+    expect(deps.stateRecords.get("test-slug")).toMatchObject({
+      planFile: PLAN_FILE,
+      pid: 4242,
+      resultPath: `${OUT}.run.json`,
+    });
+  });
+
+  it("re-attaches to a live matching cycle instead of spawning a second worker", () => {
+    const deps = makeDeps({ isAlive: (pid) => pid === 999 });
+    const decisionHash = computeDecisionHash(PLAN_WITH_SECTION);
+    deps.stateRecords.set("test-slug", {
+      planFile: PLAN_FILE,
+      decisionHash,
+      depth: "standard",
+      startedAt: "2026-08-26T23:00:00.000Z",
+      pid: 999,
+      startEpoch: 1000,
+      resultPath: `${OUT}.run.json`,
+      stderrPath: `${OUT}.worker-stderr.log`,
+      lastObservedAt: null,
+      checks: 0,
+    });
+    expect(run(START_ARGV, deps)).toBe(0);
+    expect(deps.calls.spawnDetached).toHaveLength(0);
+    expect(deps.calls.killed).toHaveLength(0);
+    const env = envelope(deps);
+    expect(env).toEqual({
+      status: "started",
+      reattached: true,
+      pid: 999,
+      depth: "standard",
+      resultPath: `${OUT}.run.json`,
+    });
+  });
+
+  it("kills a stale non-matching (plan-revision) worker BEFORE spawning its replacement", () => {
+    const deps = makeDeps({
+      isAlive: (pid) => pid === 777,
+    });
+    deps.stateRecords.set("test-slug", {
+      planFile: PLAN_FILE,
+      decisionHash: "stale-hash-from-a-prior-revision",
+      depth: "standard",
+      startedAt: "2026-08-26T23:00:00.000Z",
+      pid: 777,
+      startEpoch: 500,
+      resultPath: `${OUT}.run.json`,
+      stderrPath: `${OUT}.worker-stderr.log`,
+      lastObservedAt: null,
+      checks: 0,
+    });
+    deps.files.set(`${OUT}.run.json`, "stale content");
+    expect(run(START_ARGV, deps)).toBe(0);
+    expect(deps.calls.killed).toEqual([777]);
+    // The stale worker's scratch is cleared before the fresh spawn.
+    expect(deps.files.has(`${OUT}.run.json`)).toBe(false);
+    expect(deps.calls.spawnDetached).toHaveLength(1);
+    const env = envelope(deps);
+    expect(env.status).toBe("started");
+    expect(env.reattached).toBe(false);
+  });
+
+  it("spawns a fresh worker (no kill) when the prior record's worker is already dead", () => {
+    const deps = makeDeps({ isAlive: () => false });
+    deps.stateRecords.set("test-slug", {
+      planFile: PLAN_FILE,
+      decisionHash: "some-other-hash",
+      depth: "standard",
+      startedAt: "2026-08-26T23:00:00.000Z",
+      pid: 111,
+      startEpoch: 500,
+      resultPath: `${OUT}.run.json`,
+      stderrPath: `${OUT}.worker-stderr.log`,
+      lastObservedAt: null,
+      checks: 0,
+    });
+    expect(run(START_ARGV, deps)).toBe(0);
+    expect(deps.calls.killed).toHaveLength(0);
+    expect(deps.calls.spawnDetached).toHaveLength(1);
+  });
+});
+
+describe("run --check", () => {
+  const CHECK_ARGV = ["--check", "--out", OUT];
+
+  it("emits decided/plan-review-not-started when no planReview record exists", () => {
+    const deps = makeDeps();
+    expect(run(CHECK_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      status: "decided",
+      ran: false,
+      skipReason: "plan-review-not-started",
+    });
+  });
+
+  function seedRecord(deps: ReturnType<typeof makeDeps>, overrides = {}) {
+    deps.stateRecords.set("test-slug", {
+      planFile: PLAN_FILE,
+      decisionHash: "hash",
+      depth: "standard",
+      startedAt: "2026-08-26T23:00:00.000Z",
+      pid: 4242,
+      startEpoch: 1000,
+      resultPath: `${OUT}.run.json`,
+      stderrPath: `${OUT}.worker-stderr.log`,
+      lastObservedAt: null,
+      checks: 0,
+      ...overrides,
+    });
+  }
+
+  it("emits decided with the wrapped result envelope and kills a still-alive worker once the result file lands", () => {
+    const deps = makeDeps({ isAlive: () => true });
+    seedRecord(deps);
+    deps.files.set(
+      `${OUT}.run.json`,
+      JSON.stringify({ ran: true, feedbackPath: OUT, depth: "standard" }),
+    );
+    expect(run(CHECK_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      status: "decided",
+      ran: true,
+      feedbackPath: OUT,
+      depth: "standard",
+    });
+    expect(deps.calls.killed).toEqual([4242]);
+  });
+
+  it("emits waiting (suspension-immune: elapsedSec derives from startedAt, not process age) while the worker is alive", () => {
+    const deps = makeDeps({
+      isAlive: () => true,
+      now: () => new Date("2026-08-26T23:05:00.000Z"),
+    });
+    seedRecord(deps);
+    expect(run(CHECK_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      status: "waiting",
+      nextCheckSec: 60,
+      elapsedSec: 300,
+      pid: 4242,
+    });
+  });
+
+  it("treats a torn/partial result-file read as still-waiting for one cycle, not a terminal verdict", () => {
+    const deps = makeDeps({
+      isAlive: () => true,
+      now: () => new Date("2026-08-26T23:01:00.000Z"),
+    });
+    seedRecord(deps);
+    deps.files.set(`${OUT}.run.json`, "{not valid json");
+    expect(run(CHECK_ARGV, deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.status).toBe("waiting");
+  });
+
+  // The derived cap reclaims a worker past its budget in BOTH liveness
+  // states. Q9 specifies that on expiry --check "emits decided with
+  // skipReason review-timed-out and kills the worker" — killing only means
+  // anything for a LIVE worker, so an alive-but-hung one (agy's own
+  // --print-timeout failing to land on a wedged child) must be reclaimed
+  // here rather than reporting `waiting` forever. Within the cap, liveness
+  // still discriminates: alive => waiting, dead => reviewer-worker-died.
+  it("emits decided/review-timed-out and kills the worker once a DEAD worker's elapsed exceeds the derived cap", () => {
+    const deps = makeDeps({
+      isAlive: () => false,
+      now: () => new Date("2026-08-27T00:00:00.000Z"), // 3600s elapsed
+    });
+    seedRecord(deps, { depth: "standard" }); // cap = 480s
+    expect(run(CHECK_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      status: "decided",
+      ran: false,
+      skipReason: "review-timed-out",
+    });
+    expect(deps.calls.killed).toEqual([4242]);
+  });
+
+  it("emits decided/review-timed-out and kills the worker once a LIVE but hung worker's elapsed exceeds the derived cap", () => {
+    const deps = makeDeps({
+      isAlive: () => true,
+      now: () => new Date("2026-08-27T00:00:00.000Z"), // 3600s elapsed
+    });
+    seedRecord(deps, { depth: "standard" }); // cap = 480s
+    expect(run(CHECK_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      status: "decided",
+      ran: false,
+      skipReason: "review-timed-out",
+    });
+    expect(deps.calls.killed).toEqual([4242]);
+  });
+
+  it("keeps reporting waiting for a LIVE worker still inside the derived cap", () => {
+    const deps = makeDeps({
+      isAlive: () => true,
+      now: () => new Date("2026-08-26T23:00:10.000Z"), // 10s elapsed, cap 480s
+    });
+    seedRecord(deps, { depth: "standard" });
+    expect(run(CHECK_ARGV, deps)).toBe(0);
+    expect(envelope(deps).status).toBe("waiting");
+    expect(deps.calls.killed).toEqual([]);
+  });
+
+  it("emits decided/reviewer-worker-died when the worker is dead within the cap and no result file exists", () => {
+    const deps = makeDeps({
+      isAlive: () => false,
+      now: () => new Date("2026-08-26T23:00:10.000Z"), // 10s elapsed
+    });
+    seedRecord(deps);
+    expect(run(CHECK_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      status: "decided",
+      ran: false,
+      skipReason: "reviewer-worker-died",
+    });
+  });
+
+  it("degrades to stateless mode absent FLOW_SLUG: never fires the wall-clock cap", () => {
+    const deps = makeDeps({
+      env: {},
+      isAlive: () => false,
+    });
+    // No record can be read in stateless mode (readStateRecord is never
+    // consulted), so this always reports plan-review-not-started — the
+    // safe-by-construction degradation, never a fabricated timeout.
+    expect(run(CHECK_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      status: "decided",
+      ran: false,
+      skipReason: "plan-review-not-started",
+    });
   });
 });
