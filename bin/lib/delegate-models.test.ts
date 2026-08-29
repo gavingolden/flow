@@ -157,6 +157,15 @@ describe("resolveDelegateModel", () => {
     expect(planReviewSrc).toContain(
       'const SECOND_MODEL = resolveDelegateModel("planReviewSecond")',
     );
+
+    const blindSurveySrc = fs.readFileSync(
+      new URL("../flow-blind-survey.ts", import.meta.url),
+      "utf8",
+    );
+    expect(blindSurveySrc).toContain('resolveDelegateModel("blindSurvey")');
+    expect(blindSurveySrc).toContain(
+      'resolveDelegateModel("blindSurveySecond")',
+    );
   });
 
   it("every non-null default is a display-name form (ends in a parenthesised tier)", () => {
@@ -176,6 +185,12 @@ describe("resolveDelegateModel", () => {
   it("gather/refute defaults stay distinct (flow-research-run diversity guard would silently downgrade an equal pair)", () => {
     expect(DELEGATE_MODEL_DEFAULTS.researchGather).not.toBe(
       DELEGATE_MODEL_DEFAULTS.researchRefute,
+    );
+  });
+
+  it("blind-survey defaults stay distinct (flow-blind-survey diversity guard would silently downgrade an equal pair)", () => {
+    expect(DELEGATE_MODEL_DEFAULTS.blindSurvey).not.toBe(
+      DELEGATE_MODEL_DEFAULTS.blindSurveySecond,
     );
   });
 });

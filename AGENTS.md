@@ -361,11 +361,12 @@ three-layer resolution table, and the manifest/foundation fields — is at
     because inline application is a known-good fallback there — a
     sibling guard, not a tenth exemption.
   - The `/flow-pr-review` Gemini lens, the cross-model intent guess
-    (`flow-gemini-intent-guess`), and the `/flow-pipeline` Step-3
-    **cross-model plan review** are all a
+    (`flow-gemini-intent-guess`), the `/flow-pipeline` Step-3
+    **cross-model plan review**, and the Step-3
+    **blind method survey** are a
     **Bash fan-out, not a tenth exemption** —
-    `flow-delegate`/`flow-plan-review` calls, no Task, graceful skip
-    sans agy.
+    `flow-delegate`/`flow-plan-review`/`flow-blind-survey` calls, no
+    Task, graceful skip sans agy.
   - **AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override
     sub-step.** The single confirmation form fired when the user
     instructs the supervisor to merge a `gated` PR anyway — a *fresh*

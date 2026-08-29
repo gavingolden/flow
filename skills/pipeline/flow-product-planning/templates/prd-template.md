@@ -35,6 +35,23 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 - **Depends on:** [feature id — produced/consumed artifact] | none
 - **Downstream dependents:** [feature id — interface that must stay stable] | none
 
+## Method selection
+
+<!-- Omit-when-no-SURVEY-marker: include ONLY when the invocation carried a `SURVEY:`
+     marker (the Step-3 blind method survey ran); otherwise omit the heading entirely
+     (never an empty heading). Full contract: discovery-instructions.md step 1.8 and
+     the "Method selection" step-5 bullet — the single source of truth. -->
+
+- **User's method:** [the method the user's description proposed]
+- **Judge A ([model]):** "[its top recommendation's first sentence, verbatim]" — [paraphrase] | skipped: [reason]
+- **Judge B ([model]):** "[its top recommendation's first sentence, verbatim]" — [paraphrase] | skipped: [reason]
+- **Survey verdict:** converge-against | split | converge-with
+- **Chosen method:** [one line] — [why]
+
+| Before (user's method as asked) | After (chosen method) |
+| ------------------------------- | --------------------- |
+| [what the user proposed]        | [what the plan does]  |
+
 ## Scope Boundary
 
 <!-- State what's NOT in. Mention v2 only if it's likely. -->
