@@ -2914,6 +2914,31 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ re
     ).toBe(true);
   });
 
+  it("flow-pr-review/references/agent-prompts.md instructs every review lens on the negative-findings slots", () => {
+    // Slice to the shared block every lens actually reads (everything before
+    // the per-lens sections starting at '## Bug Detection Agent') so this
+    // guard can't pass merely because the tokens survive somewhere ELSE in
+    // the file (e.g. the Gemini-only section) after the shared block itself
+    // is deleted.
+    const sharedBlockEnd = agentPromptsContent.indexOf(
+      "## Bug Detection Agent",
+    );
+    expect(sharedBlockEnd).toBeGreaterThan(-1);
+    const sharedBlock = agentPromptsContent.slice(0, sharedBlockEnd);
+    const hasNegativeFindings =
+      sharedBlock.includes("rejected_alternatives") &&
+      sharedBlock.includes("anti_patterns_found") &&
+      /silence is not the default/i.test(sharedBlock);
+    expect(
+      hasNegativeFindings,
+      "flow-pr-review/references/agent-prompts.md's shared block (everything before " +
+        "'## Bug Detection Agent') must affirmatively instruct every review lens to " +
+        "populate 'rejected_alternatives' and 'anti_patterns_found' (and warn that 'silence is " +
+        "not the default'). Without this, a lens defaults to leaving the slots empty (or omitting " +
+        "the keys entirely) and the Consolidator's lens-negatives pass-through channel is silently starved.",
+    ).toBe(true);
+  });
+
   it("flow-pipeline/references/merge-resolver-spawn-prompt.md carries all nine spawn-prompt placeholders", () => {
     const placeholders = [
       "{{INSTRUCTIONS_PATH}}",
@@ -3159,18 +3184,23 @@ describe("Gatekeeper artifact JSON schema drift (flow-pr-review/SKILL.md)", () =
 
 describe("Consolidator artifact JSON schema drift (flow-pr-review/SKILL.md)", () => {
   // The Consolidator-Validator subagent's artifact at
-  // <worktree>/.flow-tmp/consolidator-result.json has five top-level keys.
-  // All five are required (no optional fields, unlike the Gatekeeper's
-  // skip_kind). The runtime validator at bin/lib/agent-finding-schema.ts
-  // enforces the same shape; this lint pins the prose contract in
-  // flow-pr-review/SKILL.md and references/consolidator-instructions.md so a
-  // field rename can't silently drift away from the runtime check.
+  // <worktree>/.flow-tmp/consolidator-result.json has five REQUIRED
+  // top-level keys, plus three OPTIONAL per-lens pass-through keys
+  // (`lens_rejected_alternatives`, `lens_anti_patterns_found`,
+  // `lens_negatives_missing`) — optional on the runtime validator, but
+  // still documented prose the Consolidator's instructions must name so a
+  // field rename in either direction can't silently drift the prose
+  // contract away from bin/lib/agent-finding-schema.ts. This array (kept
+  // under its original name for lint continuity) now pins all eight.
   const CONSOLIDATOR_REQUIRED_KEYS = [
     "consolidated_findings",
     "dropped_by_validation",
     "rejected_alternatives",
     "anti_patterns_found",
     "summary",
+    "lens_rejected_alternatives",
+    "lens_anti_patterns_found",
+    "lens_negatives_missing",
   ];
 
   const CONSOLIDATOR_INSTRUCTIONS_PATH = path.resolve(

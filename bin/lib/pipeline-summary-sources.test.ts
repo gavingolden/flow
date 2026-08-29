@@ -10,6 +10,7 @@ import {
   renderPhases,
   renderReviewCounts,
 } from "./pipeline-summary-sources";
+import { formatMarkdown } from "./foreclosed-paths-format";
 
 const iso = (s: number) =>
   new Date(Date.UTC(2026, 5, 17, 12, 0, s)).toISOString();
@@ -108,12 +109,41 @@ const fixApplier = JSON.stringify({
   summary: "s",
 });
 
+// This fixture omits the three optional lens_* keys — it doubles as the
+// lens-absent baseline for the cross-surface parity guard at the bottom of
+// this file (renders identically across DECISIONS, markdown, and
+// plain-text with no lens content).
 const consolidator = JSON.stringify({
   consolidated_findings: [],
   dropped_by_validation: [],
   rejected_alternatives: ["kept the two lenses separate"],
   anti_patterns_found: [],
   summary: "s",
+});
+
+// Same as `consolidator`, plus the two lens pass-through arrays populated,
+// for the cross-surface parity guard.
+const consolidatorWithLens = JSON.stringify({
+  consolidated_findings: [],
+  dropped_by_validation: [],
+  rejected_alternatives: ["kept the two lenses separate"],
+  anti_patterns_found: [],
+  summary: "s",
+  lens_rejected_alternatives: [
+    {
+      considered_approach: "validate inline at each call site",
+      why_rejected: "centralizing keeps the rule in one place",
+      lens: "security",
+    },
+  ],
+  lens_anti_patterns_found: [
+    {
+      location: "src/lib/cache.ts:88",
+      pattern: "manual TTL bookkeeping duplicated across call sites",
+      recommendation: "route through the shared cache helper",
+      lens: "bug-detection",
+    },
+  ],
 });
 
 describe("renderForeclosedPaths", () => {
@@ -726,5 +756,83 @@ describe("renderComment — pm lens", () => {
     expect(pm).toContain("DEVIATIONS:");
     expect(pm).toContain("UNTRACKED:");
     expect(dev).toContain("narrative text that must not leak into pm");
+  });
+});
+
+describe("cross-surface parity — lens entries reach DECISIONS, markdown, and plain-text identically", () => {
+  // The third rendered surface (DECISIONS, inside `renderComment`'s `dev`
+  // block) must never be fed a lens entry that the other two (the PR-body
+  // markdown `## Foreclosed Paths` section and the terminal-snapshot plain
+  // text) already render — and vice versa. `rejectedDecisionLines` is
+  // module-private, so DECISIONS is driven through `renderComment`, not a
+  // direct import.
+  it("surfaces the same lens rejected-alternative token in all three surfaces", () => {
+    const inputs = { fixApplierRaw: "", consolidatorRaw: consolidatorWithLens };
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorWithLens,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    const plainText = renderForeclosedPaths(inputs).join("\n");
+    const markdown = formatMarkdown(inputs).join("\n");
+
+    const lensToken = "validate inline at each call site";
+    // A lens entry present in two surfaces and absent from the third must
+    // fail this assertion — each surface is checked independently.
+    expect(decisions).toContain(lensToken);
+    expect(plainText).toContain(lensToken);
+    expect(markdown).toContain(lensToken);
+    // DECISIONS tags the entry with its source lens per the
+    // `lens(<name>): <considered_approach> - <why_rejected>` format.
+    expect(decisions).toContain("lens(security): validate inline");
+  });
+
+  // Sibling of the rejected-alternative parity test above — the prior
+  // version of this file exercised parity only for
+  // `lens_rejected_alternatives`, leaving `lens_anti_patterns_found` parity
+  // unasserted even though `consolidatorWithLens` already carries a fixture
+  // for it. NOTE: this is deliberately a TWO-surface check, not three —
+  // DECISIONS (`renderComment().dev`) has no anti-patterns section at all
+  // (neither the fix-applier's own `anti_patterns_found[]` nor the lens
+  // pass-through `lens_anti_patterns_found[]` ever reach it; only
+  // `rejected_alternatives`/`lens_rejected_alternatives` do). That's a
+  // real asymmetry, recorded in this run's anti_patterns_found rather than
+  // fixed here — adding a DECISIONS anti-patterns section is a rendering
+  // contract change with its own design questions (heading text, ordering
+  // relative to `rejected:`, whether pm-lens's slimmed comment should ever
+  // see it), not a mechanical test-coverage gap.
+  it("surfaces the same lens anti-pattern token in both the markdown and plain-text surfaces", () => {
+    const inputs = { fixApplierRaw: "", consolidatorRaw: consolidatorWithLens };
+    const plainText = renderForeclosedPaths(inputs).join("\n");
+    const markdown = formatMarkdown(inputs).join("\n");
+
+    const lensToken = "manual TTL bookkeeping duplicated across call sites";
+    expect(plainText).toContain(lensToken);
+    expect(markdown).toContain(lensToken);
+  });
+
+  it("renders no lens content in any of the three surfaces when the consolidator artifact omits the lens keys (regression guard)", () => {
+    const inputs = { fixApplierRaw: "", consolidatorRaw: consolidator };
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidator,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    const plainText = renderForeclosedPaths(inputs).join("\n");
+    const markdown = formatMarkdown(inputs).join("\n");
+    for (const surface of [decisions, plainText, markdown]) {
+      expect(surface).not.toContain("lens(");
+      expect(surface).not.toContain("lens:");
+    }
+    // The lens-absent baseline still renders its pre-existing content.
+    expect(decisions).toContain("kept the two lenses separate");
+    expect(plainText).toContain("kept the two lenses separate");
+    expect(markdown).toContain("kept the two lenses separate");
   });
 });

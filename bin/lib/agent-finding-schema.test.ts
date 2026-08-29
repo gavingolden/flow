@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  classifyLensNegatives,
+  collectLensNegatives,
   normalizeFinding,
   normalizeParsedFindings,
   validateAgentFindings,
@@ -1493,6 +1495,337 @@ describe("agent-finding-schema CLI — title/line drift recovery", () => {
       const parsed = JSON.parse(result.stdout.trim());
       expect(parsed.ok).toBe(true);
       expect(result.stderr).toBe("");
+    });
+  });
+});
+
+describe("classifyLensNegatives — tri-state read", () => {
+  it("classifies an absent key as 'absent'", () => {
+    expect(classifyLensNegatives({ findings: [] })).toEqual({
+      rejected_alternatives: "absent",
+      anti_patterns_found: "absent",
+    });
+  });
+
+  it("classifies an empty array as 'empty'", () => {
+    expect(
+      classifyLensNegatives({
+        findings: [],
+        rejected_alternatives: [],
+        anti_patterns_found: [],
+      }),
+    ).toEqual({ rejected_alternatives: "empty", anti_patterns_found: "empty" });
+  });
+
+  it("classifies a non-empty valid array as 'populated'", () => {
+    expect(
+      classifyLensNegatives({
+        findings: [],
+        rejected_alternatives: [
+          { considered_approach: "a", why_rejected: "b" },
+        ],
+        anti_patterns_found: [
+          { location: "x.ts:1", pattern: "p", recommendation: "r" },
+        ],
+      }),
+    ).toEqual({
+      rejected_alternatives: "populated",
+      anti_patterns_found: "populated",
+    });
+  });
+
+  it.each([
+    ["a string", "not-an-array"],
+    ["a number", 42],
+    ["null", null],
+    ["a plain object", { foo: "bar" }],
+  ])(
+    "classifies a present-but-non-array value (%s) as 'absent' without throwing",
+    (_label, value) => {
+      expect(() =>
+        classifyLensNegatives({
+          findings: [],
+          rejected_alternatives: value,
+          anti_patterns_found: value,
+        }),
+      ).not.toThrow();
+      expect(
+        classifyLensNegatives({
+          findings: [],
+          rejected_alternatives: value,
+          anti_patterns_found: value,
+        }),
+      ).toEqual({
+        rejected_alternatives: "absent",
+        anti_patterns_found: "absent",
+      });
+    },
+  );
+
+  it("classifies a non-object top-level input as absent on both slots without throwing", () => {
+    expect(() => classifyLensNegatives(null)).not.toThrow();
+    expect(classifyLensNegatives(null)).toEqual({
+      rejected_alternatives: "absent",
+      anti_patterns_found: "absent",
+    });
+    expect(classifyLensNegatives("not an object")).toEqual({
+      rejected_alternatives: "absent",
+      anti_patterns_found: "absent",
+    });
+  });
+});
+
+describe("collectLensNegatives — tolerant per-entry collector", () => {
+  it("keeps valid entries in both arrays and reports skipped: 0", () => {
+    const result = collectLensNegatives({
+      findings: [],
+      rejected_alternatives: [
+        { considered_approach: "tried X", why_rejected: "X regressed Y" },
+      ],
+      anti_patterns_found: [
+        {
+          location: "src/a.ts:10",
+          pattern: "off-pattern",
+          recommendation: "fix it",
+        },
+      ],
+    });
+    expect(result.rejected_alternatives).toEqual([
+      { considered_approach: "tried X", why_rejected: "X regressed Y" },
+    ]);
+    expect(result.anti_patterns_found).toEqual([
+      {
+        location: "src/a.ts:10",
+        pattern: "off-pattern",
+        recommendation: "fix it",
+      },
+    ]);
+    expect(result.skipped).toBe(0);
+  });
+
+  it("drops an entry missing a required string field and counts it as skipped", () => {
+    const result = collectLensNegatives({
+      findings: [],
+      rejected_alternatives: [
+        { considered_approach: "tried X" }, // missing why_rejected
+        { considered_approach: "tried Y", why_rejected: "Y broke Z" },
+      ],
+      anti_patterns_found: [
+        { location: "a.ts:1", pattern: "p" }, // missing recommendation
+      ],
+    });
+    expect(result.rejected_alternatives).toEqual([
+      { considered_approach: "tried Y", why_rejected: "Y broke Z" },
+    ]);
+    expect(result.anti_patterns_found).toEqual([]);
+    expect(result.skipped).toBe(2);
+  });
+
+  it("drops a non-object entry (string, null, array) in either array without throwing", () => {
+    const result = collectLensNegatives({
+      findings: [],
+      rejected_alternatives: [
+        "not an object",
+        null,
+        { considered_approach: "tried X", why_rejected: "X regressed Y" },
+      ],
+      anti_patterns_found: [
+        [1, 2, 3],
+        { location: "a.ts:1", pattern: "p", recommendation: "fix" },
+      ],
+    });
+    expect(result.rejected_alternatives).toEqual([
+      { considered_approach: "tried X", why_rejected: "X regressed Y" },
+    ]);
+    expect(result.anti_patterns_found).toEqual([
+      { location: "a.ts:1", pattern: "p", recommendation: "fix" },
+    ]);
+    expect(result.skipped).toBe(3);
+  });
+
+  it("drops an entry with a wrong-typed field", () => {
+    const result = collectLensNegatives({
+      findings: [],
+      rejected_alternatives: [{ considered_approach: 42, why_rejected: "x" }],
+      anti_patterns_found: [
+        { location: "a.ts:1", pattern: "p", recommendation: 7 },
+      ],
+    });
+    expect(result.rejected_alternatives).toEqual([]);
+    expect(result.anti_patterns_found).toEqual([]);
+    expect(result.skipped).toBe(2);
+  });
+
+  it("returns empty arrays and skipped: 0 when both keys are absent", () => {
+    const result = collectLensNegatives({ findings: [] });
+    expect(result).toEqual({
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      skipped: 0,
+    });
+  });
+
+  it("returns empty arrays without throwing on non-object input", () => {
+    expect(collectLensNegatives(null)).toEqual({
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      skipped: 0,
+    });
+  });
+});
+
+describe("validateAgentFindings — malformed negative keys never fail the artifact", () => {
+  it("still validates with a malformed rejected_alternatives array", () => {
+    const result = validateAgentFindings({
+      findings: [],
+      rejected_alternatives: [{ considered_approach: "missing why_rejected" }],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("still validates with a malformed anti_patterns_found array", () => {
+    const result = validateAgentFindings({
+      findings: [],
+      anti_patterns_found: ["not even an object"],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("still validates when both negative keys are present-but-non-array", () => {
+    const result = validateAgentFindings({
+      findings: [],
+      rejected_alternatives: "not an array",
+      anti_patterns_found: 42,
+    });
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("validateConsolidatorResult — optional lens pass-through keys", () => {
+  it("validates when all three lens keys are absent (regression guard for the optional-keys deviation)", () => {
+    const result = validateConsolidatorResult(VALID_CONSOLIDATOR_RESULT);
+    expect(result.ok).toBe(true);
+  });
+
+  it("validates when all three lens keys are present with valid entries", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
+    fixture.lens_rejected_alternatives = [
+      { considered_approach: "a", why_rejected: "b", lens: "security" },
+    ];
+    fixture.lens_anti_patterns_found = [
+      {
+        location: "src/a.ts:1",
+        pattern: "p",
+        recommendation: "r",
+        lens: "bug-detection",
+      },
+    ];
+    fixture.lens_negatives_missing = ["performance", "gemini"];
+    const result = validateConsolidatorResult(fixture);
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects a lens_rejected_alternatives entry missing the 'lens' tag", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
+    fixture.lens_rejected_alternatives = [
+      { considered_approach: "a", why_rejected: "b" },
+    ];
+    const result = validateConsolidatorResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.reason).toContain("lens_rejected_alternatives");
+  });
+
+  it("rejects a lens_anti_patterns_found entry with a structurally-wrong field", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
+    fixture.lens_anti_patterns_found = [
+      {
+        location: "src/a.ts:1",
+        pattern: "p",
+        recommendation: 7,
+        lens: "security",
+      },
+    ];
+    const result = validateConsolidatorResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("lens_anti_patterns_found");
+  });
+
+  it("rejects lens_negatives_missing when it contains a non-string entry", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
+    fixture.lens_negatives_missing = [42];
+    const result = validateConsolidatorResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("lens_negatives_missing");
+  });
+
+  it("rejects lens_rejected_alternatives when it is not an array", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
+    fixture.lens_rejected_alternatives = "not an array";
+    const result = validateConsolidatorResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.reason).toContain("lens_rejected_alternatives");
+  });
+});
+
+describe("agent-finding-schema CLI — widened per-agent success envelope", () => {
+  it("carries negatives and skipped on the per-agent success path", () => {
+    const artifact = {
+      findings: [],
+      rejected_alternatives: [
+        { considered_approach: "a", why_rejected: "b" },
+        { considered_approach: "missing field" },
+      ],
+      anti_patterns_found: [],
+    };
+    withTmpFile(JSON.stringify(artifact), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
+      expect(parsed.negatives).toEqual({
+        rejected_alternatives: "populated",
+        anti_patterns_found: "empty",
+      });
+      expect(parsed.skipped).toBe(1);
+    });
+  });
+
+  it("reports negatives: absent/absent and skipped: 0 when neither key is present", () => {
+    withTmpFile(JSON.stringify(VALID_AGENT_FINDINGS), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.negatives).toEqual({
+        rejected_alternatives: "absent",
+        anti_patterns_found: "absent",
+      });
+      expect(parsed.skipped).toBe(0);
+    });
+  });
+
+  it("leaves the consolidator-artifact envelope unchanged ({ok: true} only)", () => {
+    withTmpFile(JSON.stringify(VALID_CONSOLIDATOR_RESULT), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed).toEqual({ ok: true });
     });
   });
 });
