@@ -41,7 +41,7 @@ proceed exactly as before this feature existed: no marker, no
 
 ## Goal-only brief
 
-The supervisor writes two files before calling the helper:
+The supervisor writes one file before calling the helper:
 
 - **`$WORKTREE/.flow-tmp/blind-survey-brief.md`** — the GOAL-ONLY brief
   each judge reads. Built from the step-1 goal line plus goal-LEVEL
@@ -51,18 +51,19 @@ bar`. NEVER include the raw user description, NEVER a mechanism the
 trade-offs` digest answers — those name (or strongly imply) the
   user's own method, and leaking them into the brief is exactly what
   would un-blind the judges.
-- **the leak corpus** — `flow-blind-survey`'s `briefLeaksCorpus` guard
-  checks the brief against: the raw user description, followed by one
-  line per `Desired behavior` / `Constraints & trade-offs` digest
-  answer, PLUS the user's own proposed method itself. This is the file
-  the brief must NOT quote back verbatim (an 8-word shingle match, or a
-  whole short line, trips the guard). Write it OUTSIDE the worktree —
-  `$(mktemp -t blind-survey-desc.XXXXXX)` — never under
-  `$WORKTREE/.flow-tmp/`: `flow-blind-survey` passes `--add-dir
-"$WORKTREE"` to each judge's agy call (see "Run the survey" below),
-  so a corpus file living inside the worktree would be directly
-  readable by the very judges it exists to keep blind. Pass the mktemp
-  path as `--description-file`.
+
+The leak corpus — the raw user description, followed by one line per
+`Desired behavior` / `Constraints & trade-offs` digest answer, PLUS the
+user's own proposed method itself — is authored inside the "Run the
+survey" block below, in the SAME bash block as the helper call, not
+before it. This is the content the brief must NOT quote back verbatim
+(an 8-word shingle match, or a whole short line, trips
+`flow-blind-survey`'s `briefLeaksCorpus` guard). It is written OUTSIDE
+the worktree — `$(mktemp -t blind-survey-desc.XXXXXX)` — never under
+`$WORKTREE/.flow-tmp/`: `flow-blind-survey` passes `--add-dir
+"$WORKTREE"` to each judge's agy call, so a corpus file living inside
+the worktree would be directly readable by the very judges it exists to
+keep blind.
 
 Authoring the brief is a supervisor judgment call, not a mechanical
 extraction — read the goal-level digest answers and write a faithful,
@@ -73,11 +74,17 @@ user's proposed HOW.
 
 ```bash
 BLIND_SURVEY_DESC=$(mktemp -t blind-survey-desc.XXXXXX)
+cat > "$BLIND_SURVEY_DESC" <<'EOF'
+<raw user description>
+<one line per Desired behavior / Constraints & trade-offs digest answer>
+<the user's proposed method>
+EOF
 flow-blind-survey \
   --brief-file "$WORKTREE/.flow-tmp/blind-survey-brief.md" \
   --description-file "$BLIND_SURVEY_DESC" \
   --out "$WORKTREE/.flow-tmp/blind-survey.md" \
   --worktree "$WORKTREE"
+rm -f "$BLIND_SURVEY_DESC"
 ```
 
 Run this as a Bash tool call with `timeout: 600000` (10 minutes — the
@@ -117,6 +124,13 @@ SURVEY: <absolute path to .flow-tmp/blind-survey.md> (judges: A=<model> ran|skip
 `/flow-product-planning`'s `{{SURVEY_OVERRIDE}}` spawn-template
 placeholder forwards it to the Discovery Subagent, which runs
 `discovery-instructions.md` step 1.8 and authors `## Method selection`.
+
+On a re-entry where `blind-survey.md` already exists (the Gate part 2
+reuse path above) but no envelope is live in the current turn, derive
+the `(judges: …)` text from the survey file's own `Judges:` line — its
+fourth line, written by the helper — rather than the envelope:
+`sed -n 's/^Judges: //p' "$WORKTREE/.flow-tmp/blind-survey.md"`. Thread
+the marker exactly as on the first pass.
 
 **Post-discovery backstop.** When the survey ran (a marker was
 threaded) but the returned `plan.md` has no `## Method selection`
@@ -168,8 +182,7 @@ step 3 already performs (never a second read — see the "single read of
 the plan file" rule), also read `## Method selection` when present and
 append one `Needs attention:` line to the `plan-pending-review` summary:
 `Method: <user's> → <chosen> (survey: <verdict>)`, sourced from the
-section's `- **User's method:**` / `- **Chosen method:**` / `- **Survey
-verdict:**` lines.
+section's `- **User's method:**` / `- **Chosen method:**` / `- **Survey verdict:**` lines.
 
 On the non-feature `route-to-step-4` path (the `split`-verdict branch),
 `flow-gate-summary` never parses plan sections, so append the same text

@@ -297,6 +297,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   } catch {
     return skip("description-unreadable");
   }
+  if (corpus.trim() === "") {
+    return skip("description-unreadable");
+  }
 
   if (briefLeaksCorpus(brief, corpus)) {
     // No fanout call — the whole point of the guard is to never spend agy

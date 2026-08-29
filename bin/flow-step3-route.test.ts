@@ -289,6 +289,12 @@ describe(extractSurveyVerdict, () => {
     const plan = `## Method selection\n\n- **Survey verdict:** converge-with\n\n## Scope Boundary\n\n- **Survey verdict:** SHOULD-NOT-BE-PICKED-UP\n`;
     expect(extractSurveyVerdict(plan)).toBe("converge-with");
   });
+
+  it("returns null when the label lives only in a neighbouring section", () => {
+    const plan = `## Prompt interpretation\n\n- **Survey verdict:** converge-against\n\n## Method selection\n\nprose only\n\n## Scope Boundary\n\n- **Survey verdict:** split\n`;
+    expect(extractSurveyVerdict(plan)).toBeNull();
+    expect(decideStep3Route("bug", plan)).toBe("advance-to-step-5");
+  });
 });
 
 describe(extractRecommendedPath, () => {

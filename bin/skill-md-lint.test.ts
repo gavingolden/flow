@@ -6,6 +6,7 @@ import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
 import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { CHECKPOINT_SITES } from "./flow-checkpoint";
+import { SURVEY_VERDICTS } from "./flow-step3-route";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -535,7 +536,14 @@ describe("flow-pipeline SKILL.md structural lint", () => {
     // Regression guard for the hoist bug: the ROUTE=$(flow-step3-route ...)
     // call must run before the feature/non-feature intent split so a
     // pause-for-method survey verdict also pauses a feature-intent
-    // pipeline, not just a non-feature one.
+    // pipeline, not just a non-feature one. Asserting the gate phrase alone
+    // is too weak: a future edit could move the ROUTE= block back inside a
+    // branch while leaving the gate phrase in place and still pass. Assert
+    // ordering (the call precedes both gate phrases) and that there is
+    // exactly one call site, so a re-introduced per-branch call can't
+    // silently pass either.
+    const routeCallIdx = content.indexOf("ROUTE=$(flow-step3-route --intent");
+    const pauseIdx = content.indexOf("`$ROUTE` is `pause-for-method`");
     const featureRouteIndex = content.indexOf(
       "`$ROUTE` is `route-to-step-4` and intent is `feature`",
     );
@@ -546,6 +554,23 @@ describe("flow-pipeline SKILL.md structural lint", () => {
         "'Intent is `feature`' gate would skip the flow-step3-route call (and " +
         "its pause-for-method outcome) for feature intent entirely.",
     ).toBeGreaterThan(-1);
+    expect(routeCallIdx, "the ROUTE= call must exist").toBeGreaterThan(-1);
+    expect(
+      routeCallIdx,
+      "the ROUTE= call must precede the pause-for-method gate phrase (the hoist).",
+    ).toBeLessThan(pauseIdx);
+    expect(
+      routeCallIdx,
+      "the ROUTE= call must precede the feature-intent gate phrase (the hoist).",
+    ).toBeLessThan(featureRouteIndex);
+    expect(
+      content.match(/ROUTE=\$\(flow-step3-route/g),
+      "there must be exactly one ROUTE=$(flow-step3-route call site.",
+    ).toHaveLength(1);
+    expect(
+      content.includes("${METHOD_RESOLVED:+--method-resolved}"),
+      "the ROUTE= call must thread --method-resolved from the marker file.",
+    ).toBe(true);
   });
 
   it("documents the step-3 non-feature advance-to-step-5 route and its disclosure obligation", () => {
@@ -2736,26 +2761,27 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
    */
   const SURVEY_PHRASE = "blind method survey";
   const FANOUT_PHRASE = "Bash fan-out, not a tenth exemption";
+  // Co-anchor both phrases in one regex (bounded to ~400 chars apart) so a
+  // drift that leaves one phrase in place while moving/renaming the other
+  // into an unrelated paragraph can't silently pass two independent
+  // `.includes` checks.
+  const coAnchorRe = new RegExp(
+    `${SURVEY_PHRASE}[\\s\\S]{0,400}${FANOUT_PHRASE}|${FANOUT_PHRASE}[\\s\\S]{0,400}${SURVEY_PHRASE}`,
+  );
 
-  it("AGENTS.md names the blind method survey Bash-fan-out sibling note", () => {
+  it("AGENTS.md co-anchors the blind method survey phrase with the Bash-fan-out sibling note in the same Don'ts bullet", () => {
     expect(
-      agentsContent.includes(SURVEY_PHRASE),
-      `AGENTS.md ## Don'ts must name the '${SURVEY_PHRASE}'.`,
+      coAnchorRe.test(agentsContent),
+      "AGENTS.md must carry both phrases in the same Don'ts bullet.",
     ).toBe(true);
     expect(
-      agentsContent.includes(FANOUT_PHRASE),
-      `AGENTS.md must carry the shared '${FANOUT_PHRASE}' phrase for the blind-survey note.`,
+      agentsContent.includes(
+        "`flow-delegate`/`flow-plan-review`/`flow-blind-survey` calls",
+      ),
     ).toBe(true);
   });
 
   it("flow-pipeline/SKILL.md co-anchors the blind method survey phrase with the Bash-fan-out sibling note", () => {
-    // Co-anchor both phrases in one regex (bounded to ~400 chars apart) so a
-    // drift that leaves one phrase in place while moving/renaming the other
-    // into an unrelated paragraph can't silently pass two independent
-    // `.includes` checks.
-    const coAnchorRe = new RegExp(
-      `${SURVEY_PHRASE}[\\s\\S]{0,400}${FANOUT_PHRASE}|${FANOUT_PHRASE}[\\s\\S]{0,400}${SURVEY_PHRASE}`,
-    );
     expect(
       coAnchorRe.test(content),
       `flow-pipeline/SKILL.md must carry '${SURVEY_PHRASE}' and '${FANOUT_PHRASE}' ` +
@@ -2764,7 +2790,7 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
     ).toBe(true);
   });
 
-  it.each(["converge-against", "split", "converge-with"])(
+  it.each(SURVEY_VERDICTS)(
     "the survey-verdict enum value '%s' and the '- **Survey verdict:**' label appear in discovery-instructions.md, prd-template.md, and blind-survey.md",
     (verdict) => {
       for (const [name, text] of [
@@ -2776,13 +2802,19 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
           text.includes(verdict),
           `${name} must contain the verbatim survey-verdict enum value '${verdict}'.`,
         ).toBe(true);
+        expect(
+          text.includes("- **Survey verdict:**"),
+          `${name} must contain the '- **Survey verdict:**' label.`,
+        ).toBe(true);
       }
-      expect(
-        discoveryInstructionsContent.includes("- **Survey verdict:**"),
-        "discovery-instructions.md must contain the '- **Survey verdict:**' label.",
-      ).toBe(true);
     },
   );
+
+  it("prd-template.md's verdict line is exactly the code enum", () => {
+    expect(prdTemplateContent).toContain(
+      `- **Survey verdict:** ${SURVEY_VERDICTS.join(" | ")}`,
+    );
+  });
 });
 
 describe("cross-model design review doc symmetry (AGENTS.md ↔ flow-epic-create/SKILL.md)", () => {

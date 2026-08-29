@@ -303,8 +303,8 @@ bin/lib/*` — discovery runs in the consumer worktree, where flow's own source 
 4. Author `## Method selection` per the step-5 section list above. Each judge line opens
    with that judge's top recommendation quoted VERBATIM — its first sentence, in double
    quotes — before any paraphrase, so the user can audit the verdict both at the
-   `pause-for-method` checkpoint (feature intent, `converge-against`) and later at plan
-   review (every other cell). A skipped judge writes `skipped: <reason>` instead and
+   `pause-for-method` checkpoint (any intent, `converge-against`) and later at plan
+   review (every other verdict). A skipped judge writes `skipped: <reason>` instead and
    contributes nothing to the verdict.
 
 Proceed to step 2 once this step resolves (marker absent, or `## Method selection`

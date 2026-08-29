@@ -968,10 +968,10 @@ only and the helper exact-matches against them. The blind survey's
   <!-- any new pause site below must reference pause-output-contract.md -->
   render the `### ❓ Both blind judges recommend a different method`
   template per `references/pause-output-contract.md`, end the turn. On
-  reply: `--phase planning --interview-stdin`, then re-route with
-  `--method-resolved` (keep-mine: one `REVISION:` pass first). Full
-  protocol in [references/blind-survey.md](references/blind-survey.md)
-  "The method pause".
+  reply: `--phase planning --interview-stdin`, `touch "$WORKTREE/.flow-tmp/method-resolved"`
+  (marker `$METHOD_RESOLVED` derives from), then re-run the route block above
+  (keep-mine: one `REVISION:` pass first). Full protocol in
+  [references/blind-survey.md](references/blind-survey.md) "The method pause".
 
 - `$ROUTE` is `route-to-step-4` and intent is `feature` → write `phase: plan-pending-review`. Then,
   immediately before ending the turn:
@@ -1129,7 +1129,7 @@ only and the helper exact-matches against them. The blind survey's
     `Method:` line's only channel here):
 
     ```bash
-    SURVEY_VERDICT=$(sed -n 's/^- \*\*Survey verdict:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
+    SURVEY_VERDICT=$(sed -n 's/^- \*\*Survey verdict:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)  # colon form only; flow-step3-route.ts (authoritative) also tolerates drift; display only
     USER_METHOD=$(sed -n "s/^- \*\*User's method:\*\* *//p" "$WORKTREE/.flow-tmp/plan.md" | head -1)
     CHOSEN_METHOD=$(sed -n 's/^- \*\*Chosen method:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
     WHY="plan ready for review (intent=$INTENT, prompt-interpretation tension)"

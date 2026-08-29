@@ -207,15 +207,25 @@ describe("run — happy path", () => {
     const manifest = JSON.parse(manifestWrite.contents);
     expect(manifest).toHaveLength(2);
     expect(manifest[0]).toMatchObject({
+      task: "blind-survey-judge-a",
       model: MODEL_A,
       timeout: JUDGE_A_TIMEOUT,
       addDirs: [WORKTREE],
     });
     expect(manifest[1]).toMatchObject({
+      task: "blind-survey-judge-b",
       model: MODEL_B,
       timeout: JUDGE_B_TIMEOUT,
       addDirs: [WORKTREE],
     });
+    expect(manifest[0].promptFile).toEqual(expect.any(String));
+    expect(manifest[0].out).toEqual(expect.any(String));
+    expect(manifest[1].promptFile).toEqual(expect.any(String));
+    expect(manifest[1].out).toEqual(expect.any(String));
+    const written = deps.calls.writes.map((w) => w.path);
+    expect(written).toEqual(
+      expect.arrayContaining([manifest[0].promptFile, manifest[1].promptFile]),
+    );
   });
 
   it("writes a prompt file per judge containing the brief and BLIND_FRAMING, never the description text", () => {
@@ -314,6 +324,28 @@ describe("run — input files", () => {
       ran: false,
       skipReason: "description-unreadable",
     });
+  });
+
+  it("skips with description-unreadable when the description file is empty, with no fanout call", () => {
+    const deps = makeDeps();
+    deps.files.set(DESCRIPTION_FILE, "");
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "description-unreadable",
+    });
+    expect(deps.calls.fanout).toHaveLength(0);
+  });
+
+  it("skips with brief-unreadable when the brief file is whitespace-only, with no fanout call", () => {
+    const deps = makeDeps();
+    deps.files.set(BRIEF_FILE, "  \n\t\n");
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "brief-unreadable",
+    });
+    expect(deps.calls.fanout).toHaveLength(0);
   });
 });
 
@@ -421,6 +453,115 @@ describe("run — fanout skip propagation", () => {
     expect(run(BASE_ARGV, deps)).toBe(0);
     const env = envelope(deps);
     expect(env.judges[0].skipReason).toBe("judge-empty");
+  });
+
+  it("a ran:true entry with no artifactPath ⇒ judge-empty (missing artifact, not just short)", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        deps.calls.fanout.push(input);
+        let manifest: Array<{ task: string; model: string }> = [];
+        try {
+          manifest = JSON.parse(deps.files.get(input.manifestPath) ?? "[]");
+        } catch {
+          manifest = [];
+        }
+        const entries = manifest.map((m) => {
+          if (m.task === "blind-survey-judge-a") {
+            return { task: m.task, model: m.model, ran: true };
+          }
+          const artifactPath = `${input.outPath}.artifact.b.md`;
+          deps.files.set(artifactPath, JUDGE_PROSE);
+          return { task: m.task, model: m.model, ran: true, artifactPath };
+        });
+        return { entries, anyRan: true, allSkipped: false } as FanoutAggregate;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.judges[0].skipReason).toBe("judge-empty");
+  });
+
+  it("A agy-not-authenticated + B agy-error ⇒ A's reason wins (both-skipped precedence)", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        deps.calls.fanout.push(input);
+        let manifest: Array<{ task: string }> = [];
+        try {
+          manifest = JSON.parse(deps.files.get(input.manifestPath) ?? "[]");
+        } catch {
+          manifest = [];
+        }
+        const entries = manifest.map((m) => ({
+          task: m.task,
+          ran: false,
+          skipReason:
+            m.task === "blind-survey-judge-a"
+              ? "agy-not-authenticated"
+              : "agy-error",
+        }));
+        return { entries, allSkipped: true } as FanoutAggregate;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "agy-not-authenticated",
+    });
+  });
+
+  it("B agy-not-authenticated + A agy-error ⇒ A's reason (agy-error) wins regardless of order", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        deps.calls.fanout.push(input);
+        let manifest: Array<{ task: string }> = [];
+        try {
+          manifest = JSON.parse(deps.files.get(input.manifestPath) ?? "[]");
+        } catch {
+          manifest = [];
+        }
+        const entries = manifest.map((m) => ({
+          task: m.task,
+          ran: false,
+          skipReason:
+            m.task === "blind-survey-judge-a"
+              ? "agy-error"
+              : "agy-not-authenticated",
+        }));
+        return { entries, allSkipped: true } as FanoutAggregate;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({ ran: false, skipReason: "agy-error" });
+  });
+
+  it("judge A agy-timeout + judge B ok ⇒ ran:true, judges[0].skipReason judge-timeout, survey carries B's body (mirror of the B-skipped case)", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        deps.calls.fanout.push(input);
+        let manifest: Array<{ task: string; model: string; out?: string }> = [];
+        try {
+          manifest = JSON.parse(deps.files.get(input.manifestPath) ?? "[]");
+        } catch {
+          manifest = [];
+        }
+        const entries = manifest.map((m, i) => {
+          if (m.task === "blind-survey-judge-a") {
+            return { task: m.task, ran: false, skipReason: "agy-timeout" };
+          }
+          const artifactPath = m.out ?? `${input.outPath}.artifact.${i}.md`;
+          deps.files.set(artifactPath, JUDGE_PROSE);
+          return { task: m.task, model: m.model, ran: true, artifactPath };
+        });
+        return { entries, anyRan: true, allSkipped: false } as FanoutAggregate;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.ran).toBe(true);
+    expect(env.judges[0].skipReason).toBe("judge-timeout");
+    const survey = deps.files.get(OUT)!;
+    expect(survey).toContain(JUDGE_PROSE);
+    expect(survey).toContain("_Judge A skipped: judge-timeout_");
   });
 });
 

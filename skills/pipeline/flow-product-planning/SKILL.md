@@ -193,12 +193,12 @@ Read the full instructions at:
 
 User feature description (verbatim):
   {{USER_DESCRIPTION}}
-{{SURVEY_OVERRIDE}}
 {{RESEARCH_OVERRIDE}}
 {{REVISION_OVERRIDE}}
 {{EPIC_OVERRIDE}}
 {{PROMPT_SANITY_OVERRIDE}}
 {{INTERVIEW_OVERRIDE}}
+{{SURVEY_OVERRIDE}}
 Working directory (cd here before reading any project files):
   {{WORKTREE}}
 
@@ -396,7 +396,7 @@ single discovery Task call; it adds **no** new Task-tool spawn and
 
 `/flow-pipeline` step 3 runs the Step-3 blind method survey
 (`flow-blind-survey`) BEFORE forced research and before this discovery
-subagent is spawned — see `references/blind-survey.md` for the full
+subagent is spawned — see `skills/pipeline/flow-pipeline/references/blind-survey.md` for the full
 gate/brief/run contract. The survey itself is **no new fan-out, no new
 exemption** — it is a `flow-delegate-fanout` Bash fan-out from the
 supervisor, the same shape as the cross-model plan review and the intent

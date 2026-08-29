@@ -873,4 +873,25 @@ describe("run — CLI exit codes", () => {
     );
     expect(run(["--plan-md-file", planPath])).toBe(0);
   });
+
+  it("--survey-ran turns an absent '## Method selection' into exit 1 with the named miss", () => {
+    const dir = tmpDir();
+    const planPath = path.join(dir, "plan.md");
+    writeFileSync(planPath, CONFORMING_PLAN);
+    const out: string[] = [];
+    const orig = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      out.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      expect(run(["--plan-md-file", planPath])).toBe(0);
+      expect(run(["--plan-md-file", planPath, "--survey-ran"])).toBe(1);
+      expect(out.join("")).toContain(
+        "survey ran but plan.md has no '## Method selection' section",
+      );
+    } finally {
+      process.stdout.write = orig;
+    }
+  });
 });
