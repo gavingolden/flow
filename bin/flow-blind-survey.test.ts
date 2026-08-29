@@ -96,7 +96,6 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     mkdirp: () => {},
     writeOut: (line) => calls.out.push(line),
     dirExists: () => true,
-    fileExists: (p) => files.has(p),
   };
   files.set(BRIEF_FILE, BRIEF);
   files.set(DESCRIPTION_FILE, DESCRIPTION);

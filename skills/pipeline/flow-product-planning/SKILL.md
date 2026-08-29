@@ -177,8 +177,9 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 Fill in the `{{...}}` placeholders before passing to the Task tool. The
 `{{OUTPUT_PATHS}}` block is **mode-dependent** — substitute the feature-mode
 text by default, the epic-mode text under `MODE: epic` (both shown after the
-template). The `{{SURVEY_OVERRIDE}}`, `{{RESEARCH_OVERRIDE}}`, `{{REVISION_OVERRIDE}}`, `{{EPIC_OVERRIDE}}`,
-`{{PROMPT_SANITY_OVERRIDE}}`, and `{{INTERVIEW_OVERRIDE}}` blocks are all **omit-when-absent** (shown after the
+template). The `{{RESEARCH_OVERRIDE}}`, `{{REVISION_OVERRIDE}}`, `{{EPIC_OVERRIDE}}`,
+`{{PROMPT_SANITY_OVERRIDE}}`, `{{INTERVIEW_OVERRIDE}}`, and `{{SURVEY_OVERRIDE}}`
+blocks are all **omit-when-absent** (shown, in that section order, after the
 template). The other placeholders
 (`{{INSTRUCTIONS_PATH}}`, `{{USER_DESCRIPTION}}`, `{{WORKTREE}}`,
 `{{SKILL_DIR}}`) are mode-independent:

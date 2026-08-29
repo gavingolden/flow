@@ -202,6 +202,15 @@ const DISCOVERY_PLAYBOOK_PATH = path.resolve(
   "references",
   "discovery-playbook.md",
 );
+const BLIND_SURVEY_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-pipeline",
+  "references",
+  "blind-survey.md",
+);
 const PRD_TEMPLATE_PATH = path.resolve(
   HERE,
   "..",
@@ -394,6 +403,7 @@ const productPlanningTopContent = fs.readFileSync(
   "utf8",
 );
 const prdTemplateContent = fs.readFileSync(PRD_TEMPLATE_PATH, "utf8");
+const blindSurveyContent = fs.readFileSync(BLIND_SURVEY_PATH, "utf8");
 const examplePrdContent = fs.readFileSync(EXAMPLE_PRD_PATH, "utf8");
 const newFeatureContent = fs.readFileSync(NEW_FEATURE_SKILL_MD_PATH, "utf8");
 const scoutInstructionsContent = fs.readFileSync(
@@ -519,6 +529,23 @@ describe("flow-pipeline SKILL.md structural lint", () => {
         "so step 3/4's --details disclosure and step 10's post-merge sweep " +
         "stay anchored on the plan.md section name.",
     ).toBe(true);
+  });
+
+  it("step-3 feature-intent end condition routes through flow-step3-route", () => {
+    // Regression guard for the hoist bug: the ROUTE=$(flow-step3-route ...)
+    // call must run before the feature/non-feature intent split so a
+    // pause-for-method survey verdict also pauses a feature-intent
+    // pipeline, not just a non-feature one.
+    const featureRouteIndex = content.indexOf(
+      "`$ROUTE` is `route-to-step-4` and intent is `feature`",
+    );
+    expect(
+      featureRouteIndex,
+      "flow-pipeline SKILL.md's feature-intent End condition must be gated " +
+        "on '`$ROUTE` is `route-to-step-4` and intent is `feature`' — a bare " +
+        "'Intent is `feature`' gate would skip the flow-step3-route call (and " +
+        "its pause-for-method outcome) for feature intent entirely.",
+    ).toBeGreaterThan(-1);
   });
 
   it("documents the step-3 non-feature advance-to-step-5 route and its disclosure obligation", () => {
@@ -2721,16 +2748,41 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
     ).toBe(true);
   });
 
-  it("flow-pipeline/SKILL.md names the blind method survey Bash-fan-out sibling note", () => {
+  it("flow-pipeline/SKILL.md co-anchors the blind method survey phrase with the Bash-fan-out sibling note", () => {
+    // Co-anchor both phrases in one regex (bounded to ~400 chars apart) so a
+    // drift that leaves one phrase in place while moving/renaming the other
+    // into an unrelated paragraph can't silently pass two independent
+    // `.includes` checks.
+    const coAnchorRe = new RegExp(
+      `${SURVEY_PHRASE}[\\s\\S]{0,400}${FANOUT_PHRASE}|${FANOUT_PHRASE}[\\s\\S]{0,400}${SURVEY_PHRASE}`,
+    );
     expect(
-      content.includes(SURVEY_PHRASE),
-      `flow-pipeline/SKILL.md must name the '${SURVEY_PHRASE}'.`,
-    ).toBe(true);
-    expect(
-      content.includes(FANOUT_PHRASE),
-      `flow-pipeline/SKILL.md Hard rules must carry the shared '${FANOUT_PHRASE}' phrase for the blind-survey note.`,
+      coAnchorRe.test(content),
+      `flow-pipeline/SKILL.md must carry '${SURVEY_PHRASE}' and '${FANOUT_PHRASE}' ` +
+        `within ~400 chars of each other in the same note — two independently-true ` +
+        `.includes() checks can't catch one phrase drifting into an unrelated paragraph.`,
     ).toBe(true);
   });
+
+  it.each(["converge-against", "split", "converge-with"])(
+    "the survey-verdict enum value '%s' and the '- **Survey verdict:**' label appear in discovery-instructions.md, prd-template.md, and blind-survey.md",
+    (verdict) => {
+      for (const [name, text] of [
+        ["discovery-instructions.md", discoveryInstructionsContent],
+        ["prd-template.md", prdTemplateContent],
+        ["blind-survey.md", blindSurveyContent],
+      ] as const) {
+        expect(
+          text.includes(verdict),
+          `${name} must contain the verbatim survey-verdict enum value '${verdict}'.`,
+        ).toBe(true);
+      }
+      expect(
+        discoveryInstructionsContent.includes("- **Survey verdict:**"),
+        "discovery-instructions.md must contain the '- **Survey verdict:**' label.",
+      ).toBe(true);
+    },
+  );
 });
 
 describe("cross-model design review doc symmetry (AGENTS.md ↔ flow-epic-create/SKILL.md)", () => {

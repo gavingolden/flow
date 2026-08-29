@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 /**
- * Routes /flow-pipeline Step 3's non-feature-intent end-condition based
- * on whether plan.md's `## Prompt interpretation` section flags a
- * prescribed-methods-vs-target tension.
+ * Routes /flow-pipeline Step 3's end condition — for EVERY intent, not
+ * just non-feature — based on whether plan.md's `## Prompt interpretation`
+ * section flags a prescribed-methods-vs-target tension, and (when the
+ * blind method survey ran) its `## Method selection` verdict.
  *
  * Why: skills/pipeline/flow-pipeline/SKILL.md Step 3 needs a deterministic
  * decision between "advance-to-step-5" (existing non-feature behaviour)

@@ -228,8 +228,6 @@ export type Deps = {
   writeOut: (line: string) => void;
   // True when `path` exists and is a directory. Backs the worktree gate.
   dirExists: (path: string) => boolean;
-  // True when `path` exists (file or directory).
-  fileExists: (path: string) => boolean;
 };
 
 function emit(deps: Deps, envelope: Record<string, unknown>): number {
@@ -477,7 +475,6 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
     dirExists:
       o?.dirExists ?? ((p) => existsSync(p) && statSync(p).isDirectory()),
-    fileExists: o?.fileExists ?? ((p) => existsSync(p)),
   };
 }
 

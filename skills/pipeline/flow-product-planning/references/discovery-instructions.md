@@ -294,8 +294,7 @@ bin/lib/*` — discovery runs in the consumer worktree, where flow's own source 
 2. For each judge that ran, weigh its `### 2. Recommended method` against the user's own
    proposed method, grounded in cited codebase evidence (the same evidentiary bar the
    rest of this document holds discovery to elsewhere) — not a vibe comparison.
-3. Decide the verdict using these definitions VERBATIM from plan.md's own
-   `## Architecture Decisions` "Verdict semantics" row: `converge-against` = both judges
+3. Decide the verdict using these definitions: `converge-against` = both judges
    ran AND both top recommendations are materially different from the user's method (they
    need not agree with each other); `converge-with` = both materially the user's method;
    `split` = anything else, including a single-judge run. A single-judge run can therefore
@@ -512,7 +511,7 @@ effect on model comprehension either way) — never required.
   epic slug, this feature's id and rationale, its `dependsOn` edges with produced/consumed
   artifacts, and its downstream dependents. See the "Epic context" sub-section below.
 - **Method selection** (omit-when-no-`SURVEY:`-marker) — only when step 1.8's blind
-  method survey ran: six lines — `- **User's method:**`, `- **Judge A (<model>):** "<its
+  method survey ran: five bullet lines plus a table — `- **User's method:**`, `- **Judge A (<model>):** "<its
 top recommendation's first sentence, verbatim>" — <paraphrase>` (a skipped judge writes
   `- **Judge A (<model>):** skipped: <reason>`), `- **Judge B (<model>):** …` (same shape),
   `- **Survey verdict:** <converge-against | split | converge-with>` (bare, exact, one

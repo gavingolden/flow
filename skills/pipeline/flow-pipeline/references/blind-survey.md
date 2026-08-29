@@ -41,22 +41,28 @@ proceed exactly as before this feature existed: no marker, no
 
 ## Goal-only brief
 
-The supervisor writes two files under `$WORKTREE/.flow-tmp/` before
-calling the helper:
+The supervisor writes two files before calling the helper:
 
-- **`blind-survey-brief.md`** — the GOAL-ONLY brief each judge reads.
-  Built from the step-1 goal line plus goal-LEVEL interview digest
-  answers ONLY: `Intent/Goal`, `Non-goals`, `Quality bar`. NEVER include
-  the raw user description, NEVER a mechanism the user proposed, and
-  NEVER the `Desired behavior` or `Constraints & trade-offs` digest
-  answers — those name (or strongly imply) the user's own method, and
-  leaking them into the brief is exactly what would un-blind the judges.
-- **`blind-survey-description.txt`** — the leak corpus `flow-blind-
-survey`'s `briefLeaksCorpus` guard checks the brief against: the raw
-  user description, followed by one line per `Desired behavior` /
-  `Constraints & trade-offs` digest answer. This is the file the brief
-  must NOT quote back verbatim (an 8-word shingle match, or a whole
-  short line, trips the guard).
+- **`$WORKTREE/.flow-tmp/blind-survey-brief.md`** — the GOAL-ONLY brief
+  each judge reads. Built from the step-1 goal line plus goal-LEVEL
+  interview digest answers ONLY: `Intent/Goal`, `Non-goals`, `Quality
+bar`. NEVER include the raw user description, NEVER a mechanism the
+  user proposed, and NEVER the `Desired behavior` or `Constraints &
+trade-offs` digest answers — those name (or strongly imply) the
+  user's own method, and leaking them into the brief is exactly what
+  would un-blind the judges.
+- **the leak corpus** — `flow-blind-survey`'s `briefLeaksCorpus` guard
+  checks the brief against: the raw user description, followed by one
+  line per `Desired behavior` / `Constraints & trade-offs` digest
+  answer, PLUS the user's own proposed method itself. This is the file
+  the brief must NOT quote back verbatim (an 8-word shingle match, or a
+  whole short line, trips the guard). Write it OUTSIDE the worktree —
+  `$(mktemp -t blind-survey-desc.XXXXXX)` — never under
+  `$WORKTREE/.flow-tmp/`: `flow-blind-survey` passes `--add-dir
+"$WORKTREE"` to each judge's agy call (see "Run the survey" below),
+  so a corpus file living inside the worktree would be directly
+  readable by the very judges it exists to keep blind. Pass the mktemp
+  path as `--description-file`.
 
 Authoring the brief is a supervisor judgment call, not a mechanical
 extraction — read the goal-level digest answers and write a faithful,
@@ -66,9 +72,10 @@ user's proposed HOW.
 ## Run the survey
 
 ```bash
+BLIND_SURVEY_DESC=$(mktemp -t blind-survey-desc.XXXXXX)
 flow-blind-survey \
   --brief-file "$WORKTREE/.flow-tmp/blind-survey-brief.md" \
-  --description-file "$WORKTREE/.flow-tmp/blind-survey-description.txt" \
+  --description-file "$BLIND_SURVEY_DESC" \
   --out "$WORKTREE/.flow-tmp/blind-survey.md" \
   --worktree "$WORKTREE"
 ```
@@ -110,12 +117,22 @@ threaded) but the returned `plan.md` has no `## Method selection`
 section — discovery skipped it, e.g. a transient miss — print a chat
 note (`discovery did not author '## Method selection' despite a
 threaded SURVEY: marker`) and treat the verdict as `split` for the
-routing decision below. This is a degrade, not a hard stop: a `split`
+routing decision below — since `flow-step3-route` reads its verdict
+from `plan.md` itself and there is none to read on this backstop, the
+concrete override is: for a non-feature intent, set `ROUTE=route-to-step-4`
+directly rather than calling the helper (a feature intent already lands
+on `route-to-step-4` unconditionally, so no override is needed there).
+This is a degrade, not a hard stop: a `split`
 routes to `route-to-step-4` on a non-feature intent and never pauses.
 
 ## Method-selection route
 
+`$METHOD_RESOLVED` has no persisted source of its own — it is derived,
+in the same bash block as the `ROUTE=` call, from a marker file the
+supervisor writes at answer time ("The method pause" step below):
+
 ```bash
+METHOD_RESOLVED=$([ -f "$WORKTREE/.flow-tmp/method-resolved" ] && echo 1)
 ROUTE=$(flow-step3-route --intent "$INTENT" --plan-md-file "$WORKTREE/.flow-tmp/plan.md" ${METHOD_RESOLVED:+--method-resolved})
 ```
 
@@ -141,7 +158,16 @@ verdict:**` lines.
 On the non-feature `route-to-step-4` path (the `split`-verdict branch),
 `flow-gate-summary` never parses plan sections, so append the same text
 to that branch's `WHY=` string instead — the same mechanism the design-
-spec-INVALID case already uses.
+spec-INVALID case already uses. `$SURVEY_VERDICT` / `$USER_METHOD` /
+`$CHOSEN_METHOD` are likewise not persisted anywhere — derive them in
+the SAME bash block as the `WHY=` assignment, following the block's
+existing inline-assignment convention:
+
+```bash
+SURVEY_VERDICT=$(sed -n 's/^- \*\*Survey verdict:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
+USER_METHOD=$(sed -n "s/^- \*\*User's method:\*\* *//p" "$WORKTREE/.flow-tmp/plan.md" | head -1)
+CHOSEN_METHOD=$(sed -n 's/^- \*\*Chosen method:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
+```
 
 ## The method pause (plan-pending-interview, second use)
 
@@ -173,7 +199,9 @@ recommendation; cancel stops the pipeline.` End the turn here.
 ⇒ adopt the recommendation; `cancel` ⇒ ordinary pipeline-cancel; a vague
 answer ⇒ adopt, same as any other interview question). Write
 `flow-state-update --phase planning --interview-stdin` with the answer
-folded into the full digest. Then:
+folded into the full digest. Then, before either branch below, `touch
+"$WORKTREE/.flow-tmp/method-resolved"` — the marker `$METHOD_RESOLVED`
+derives from in the "Method-selection route" section above:
 
 - **Adopt.** Re-run the route with `--method-resolved` (`flow-step3-
 route` treats a resolved `converge-against` as `converge-with`) and
@@ -192,13 +220,16 @@ plan-pending-interview, method pause): use method <x>` plus
 supervisor-side method-pause write is a distinct, named second use of
 `plan-pending-interview` and never counts toward — or trips — discovery's
 own `NEEDS HUMAN: interview-loop` escalation. The method pause fires at
-most once per pipeline by construction (`decideStep3Route` never returns
-`pause-for-method` once `--method-resolved` is passed).
+most once per pipeline by construction: adopting or keeping the user's
+method both write the `$WORKTREE/.flow-tmp/method-resolved` marker before
+re-routing, and `decideStep3Route` never returns `pause-for-method` once
+`--method-resolved` is passed.
 
 ## Resume
 
-`flow-resume-decide`'s `plan-pending-interview` row
-(`bin/flow-resume-decide.ts:499`) is guarded on `!planExists` — and by
+`flow-resume-decide`'s `plan-pending-interview` row (the branch guarded
+on `!inputs.planExists`, identified by name rather than line number
+since the file reflows) is guarded on `!planExists` — and by
 the time the method pause can fire, `plan.md` already exists (discovery
 already drafted it before returning). So a crash mid-pause does NOT
 re-render the method question: `flow-resume-decide` falls through to

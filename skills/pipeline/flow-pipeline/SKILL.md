@@ -933,7 +933,45 @@ normalized-diff re-fire detection) in
 
 **End conditions:**
 
-- Intent is `feature` → write `phase: plan-pending-review`. Then,
+Before branching on intent, check `.flow-tmp/plan.md` for a
+prompt-vs-target tension flag and the blind survey's verdict via the
+`flow-step3-route` helper. This runs for EVERY intent, not just
+non-feature — without hoisting it above the split, a `converge-against`
+survey verdict would pause a non-feature pipeline but silently skip the
+pause for a feature-intent one, the exact prompt-vs-target-tension gap
+the AGENTS.md `## Output style` rule **Treat user prompts as evidence of
+intent, not exhaustive specifications.** exists to close:
+
+```bash
+METHOD_RESOLVED=$([ -f "$WORKTREE/.flow-tmp/method-resolved" ] && echo 1)
+ROUTE=$(flow-step3-route --intent "$INTENT" --plan-md-file "$WORKTREE/.flow-tmp/plan.md" ${METHOD_RESOLVED:+--method-resolved})
+```
+
+The helper at `bin/flow-step3-route.ts` returns one of three decisions.
+The four-cell Prompt-Interpretation matrix it implements (feature/non-feature
+× Prompt-Interpretation absent/`methods plausibly reach target`/any other
+Recommended path) is documented at
+`skills/pipeline/flow-product-planning/references/discovery-instructions.md`
+"Prompt interpretation (conditional)" — the four enum values live there
+only and the helper exact-matches against them. The blind survey's
+`## Method selection` verdict adds a second axis — full precedence in
+[references/blind-survey.md](references/blind-survey.md).
+
+- **`$ROUTE` is `pause-for-method`** (either intent) → both judges ran
+  and independently recommended a method materially different from the
+  user's (`- **Survey verdict:** converge-against`), unresolved this
+  pipeline. Write the question to `.flow-tmp/interview-questions.md`,
+  persist via `flow-state-update --phase plan-pending-interview
+  --interview-stdin`,
+  <!-- any new pause site below must reference pause-output-contract.md -->
+  render the `### ❓ Both blind judges recommend a different method`
+  template per `references/pause-output-contract.md`, end the turn. On
+  reply: `--phase planning --interview-stdin`, then re-route with
+  `--method-resolved` (keep-mine: one `REVISION:` pass first). Full
+  protocol in [references/blind-survey.md](references/blind-survey.md)
+  "The method pause".
+
+- `$ROUTE` is `route-to-step-4` and intent is `feature` → write `phase: plan-pending-review`. Then,
   immediately before ending the turn:
 
   **Candidate follow-up issues disclosure.** Discovery lists
@@ -1045,44 +1083,16 @@ normalized-diff re-fire detection) in
 
   Then end the turn. Wait for the user to attach and respond.
   The next turn re-enters at step 4.
-- Non-feature intent (`bug`/`refactor`/`docs`/`infra`/`chore`) →
-  before falling through to step 5, check `.flow-tmp/plan.md` for a
-  prompt-vs-target tension flag via the `flow-step3-route` helper.
-  This is the structural enforcement for the AGENTS.md `## Output
+- `$ROUTE` is `advance-to-step-5` or `route-to-step-4` and intent is
+  non-feature (`bug`/`refactor`/`docs`/`infra`/`chore`) → `$ROUTE` was
+  already computed above (either intent shares one `flow-step3-route`
+  call); this is the structural enforcement for the AGENTS.md `## Output
   style` rule **Treat user prompts as evidence of intent, not
-  exhaustive specifications.** for non-feature intents — without
-  this check, a non-feature prompt that names BOTH prescribed methods
-  AND a quantitative target would silently run to merge with no user
-  checkpoint, even when discovery flagged that the methods can't
-  reach the target.
-
-  ```bash
-  ROUTE=$(flow-step3-route --intent "$INTENT" --plan-md-file "$WORKTREE/.flow-tmp/plan.md" ${METHOD_RESOLVED:+--method-resolved})
-  ```
-
-  The helper at `bin/flow-step3-route.ts` returns one of three
-  decisions. The four-cell Prompt-Interpretation matrix it implements
-  (feature/non-feature × Prompt-Interpretation absent/`methods
-  plausibly reach target`/any other Recommended path) is documented at
-  `skills/pipeline/flow-product-planning/references/discovery-instructions.md`
-  "Prompt interpretation (conditional)" — the four enum values live
-  there only and the helper exact-matches against them. The blind
-  survey's `## Method selection` verdict adds a second axis — full
-  precedence in [references/blind-survey.md](references/blind-survey.md).
-
-  - **`pause-for-method`** → both judges ran and independently
-    recommended a method materially different from the user's
-    (`- **Survey verdict:** converge-against`), unresolved this
-    pipeline. Write the question to `.flow-tmp/interview-questions.md`,
-    persist via `flow-state-update --phase plan-pending-interview
-    --interview-stdin`,
-    <!-- any new pause site below must reference pause-output-contract.md -->
-    render the `### ❓ Both blind judges recommend a different method`
-    template per `references/pause-output-contract.md`, end the turn. On
-    reply: `--phase planning --interview-stdin`, then re-route with
-    `--method-resolved` (keep-mine: one `REVISION:` pass first). Full
-    protocol in [references/blind-survey.md](references/blind-survey.md)
-    "The method pause".
+  exhaustive specifications.** for non-feature intents — without this
+  check, a non-feature prompt that names BOTH prescribed methods AND a
+  quantitative target would silently run to merge with no user
+  checkpoint, even when discovery flagged that the methods can't reach
+  the target.
 
   - **`advance-to-step-5`** → no `## Prompt interpretation` section OR
     Recommended path `methods plausibly reach target`, AND (no survey
@@ -1117,6 +1127,9 @@ normalized-diff re-fire detection) in
     `Method:` line's only channel here):
 
     ```bash
+    SURVEY_VERDICT=$(sed -n 's/^- \*\*Survey verdict:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
+    USER_METHOD=$(sed -n "s/^- \*\*User's method:\*\* *//p" "$WORKTREE/.flow-tmp/plan.md" | head -1)
+    CHOSEN_METHOD=$(sed -n 's/^- \*\*Chosen method:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
     WHY="plan ready for review (intent=$INTENT, prompt-interpretation tension)"
     [ -n "$SURVEY_VERDICT" ] && WHY="$WHY; Method: $USER_METHOD -> $CHOSEN_METHOD (survey: $SURVEY_VERDICT)"
     [ "$SPEC_RC" != "0" ] && WHY="$WHY; design spec INVALID: $DESIGN_SPEC_REASON"
@@ -2656,7 +2669,7 @@ Branch on `.resumeAt`:
 |---|---|
 | `step-1` | Re-enter step 1's Intent interview (adaptive) sub-step. `.context.interview` carries `state.interview`'s persisted digest — re-render the frontier's `still-open` questions from it under their existing `Q<n>` ids (do NOT re-derive the frontier from scratch, and do NOT renumber) and continue the round protocol from `references/interview-playbook.md`. Step 1's ask-time write means a digest is present at every `triage-pending-interview` pause; an ABSENT one is a pre-fix state file (or a crash before the phase write landed), so re-derive the frontier from the original request and say so in the re-rendered round, rather than silently presenting renumbered questions as if they were the ones already on screen. |
 | `step-2` | Re-enter step 2 (worktree). Recreate via `flow-new-worktree`. |
-| `step-3` | Re-enter step 3 (plan). If `state.phase` was `plan-pending-interview`, re-render the battery from `.flow-tmp/interview-questions.md` on disk (the file, not `.context.interview`) instead of blindly re-invoking discovery; `.context.interview`, when present, carries only the prior triage-side digest as background context for framing the re-render, never the battery itself. Otherwise re-invoke `/flow-product-planning`. `!planExists`-guarded (`bin/flow-resume-decide.ts:499`), so this row is discovery's own question gate only — the method pause (`references/blind-survey.md`) fires AFTER `plan.md` exists and lands on `step-4` instead, a safe, lossy degrade. |
+| `step-3` | Re-enter step 3 (plan). If `state.phase` was `plan-pending-interview`, re-render the battery from `.flow-tmp/interview-questions.md` on disk (the file, not `.context.interview`) instead of blindly re-invoking discovery; `.context.interview`, when present, carries only the prior triage-side digest as background context for framing the re-render, never the battery itself. Otherwise re-invoke `/flow-product-planning`. `!inputs.planExists`-guarded (the `plan-pending-interview` row in `bin/flow-resume-decide.ts`, identified by name rather than line number since the file reflows), so this row is discovery's own question gate only — the method pause (`references/blind-survey.md`) fires AFTER `plan.md` exists and lands on `step-4` instead, a safe, lossy degrade. |
 | `step-4` | Re-enter step 4 (approval). Re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
 | `step-5` | Re-enter step 5 (implement). Re-invoke `/flow-new-feature`. |
 | `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow install --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |

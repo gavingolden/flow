@@ -390,10 +390,14 @@ gracefully — the existing agy graceful-skip generalized.
 | `flow-gemini-lens`                                 | cross-model (AGY / Gemini) PR-review lens                                                                |
 | `flow-blind-survey`                                | two model-pinned blind judges over a goal-only brief; `{ran, skipReason, surveyPath, judges[]}` envelope |
 
-> `flow-plan-review` and `flow-gemini-lens` are agy-dependent cross-model
-> reviewers, so they live with the agy stack in `research` rather than in
-> `core`; the `core` pipeline consumes them behind the `review.gemini` opt-in
-> and degrades gracefully when `research` is absent.
+> `flow-plan-review`, `flow-plan-review-wait`, and `flow-gemini-lens` are
+> agy-dependent cross-model reviewers, so they live with the agy stack in
+> `research` rather than in `core`; the `core` pipeline consumes them
+> behind the `review.gemini` opt-in and degrades gracefully when
+> `research` is absent. `flow-blind-survey` is the fourth agy-dependent
+> helper in this row — it lives here too, but the `core` pipeline gates
+> it on a non-empty `state.interview` (the step-1 intent interview's
+> persisted digest), not on `review.gemini`.
 
 ---
 
