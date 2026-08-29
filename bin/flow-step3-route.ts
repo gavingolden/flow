@@ -50,7 +50,23 @@
 
 import { readFileSync } from "node:fs";
 
-export type Decision = "advance-to-step-5" | "route-to-step-4";
+export type Decision =
+  | "advance-to-step-5"
+  | "route-to-step-4"
+  | "pause-for-method";
+
+// The Step-3 blind method survey's verdict enum, written by discovery into
+// plan.md's `## Method selection` section (`- **Survey verdict:**`). See
+// skills/pipeline/flow-pipeline/references/blind-survey.md for the full
+// gate/brief/run contract; this module only reads the verdict once it is
+// on disk.
+export type SurveyVerdict = "converge-against" | "split" | "converge-with";
+
+export const SURVEY_VERDICTS: readonly SurveyVerdict[] = [
+  "converge-against",
+  "split",
+  "converge-with",
+];
 
 export type Intent =
   | "feature"
@@ -92,80 +108,120 @@ const NO_TENSION_PATH = "methods plausibly reach target";
 export type RouteInputs = {
   intent: Intent;
   planMdFile: string;
+  // Valueless CLI flag (`--method-resolved`): the supervisor already ran
+  // the method pause and the user picked, so a `converge-against` verdict
+  // no longer pauses this pass — it behaves like `converge-with`.
+  methodResolved: boolean;
 };
 
 /**
  * Pure decision function. Tests hit this directly with inline plan
- * strings to enumerate the four-cell matrix without touching disk.
+ * strings to enumerate the matrix without touching disk.
+ *
+ * Precedence (highest first):
+ *   1. `pause-for-method` — plan.md's `## Method selection` carries an
+ *      EXACT-MATCH `converge-against` verdict AND the caller has not
+ *      already resolved the method pause (`opts.methodResolved`). A
+ *      paraphrased verdict (e.g. "converge-against (single judge)") is
+ *      NOT an exact match and never pauses. A resolved converge-against
+ *      behaves exactly like converge-with for the remaining rules below.
+ *   2. `route-to-step-4` — `intent` is `feature`, OR the existing
+ *      Prompt-interpretation tension rule fires, OR (non-feature AND the
+ *      survey verdict is `split`).
+ *   3. `advance-to-step-5` — otherwise.
  */
-export function decideStep3Route(intent: Intent, planMd: string): Decision {
+export function decideStep3Route(
+  intent: Intent,
+  planMd: string,
+  opts?: { methodResolved?: boolean },
+): Decision {
+  const methodResolved = opts?.methodResolved ?? false;
+  const verdict = extractSurveyVerdict(planMd);
+  const isKnownVerdict =
+    verdict !== null &&
+    (SURVEY_VERDICTS as readonly string[]).includes(verdict);
+
+  if (isKnownVerdict && verdict === "converge-against" && !methodResolved) {
+    return "pause-for-method";
+  }
+
   if (intent === "feature") {
     return "route-to-step-4";
   }
 
   const recommendedPath = extractRecommendedPath(planMd);
-  if (recommendedPath === null) {
-    return "advance-to-step-5";
+  const tensionFires =
+    recommendedPath !== null && recommendedPath !== NO_TENSION_PATH;
+  if (tensionFires) {
+    return "route-to-step-4";
   }
 
-  if (recommendedPath === NO_TENSION_PATH) {
-    return "advance-to-step-5";
+  if (isKnownVerdict && verdict === "split") {
+    return "route-to-step-4";
   }
 
-  return "route-to-step-4";
+  return "advance-to-step-5";
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
- * Extract the Recommended-path enum value from plan.md.
+ * Extract a `- **<label>:** <value>` (or drifted `- **<label>.**` /
+ * next-line) style labeled value from a named `## <heading>` section of
+ * plan.md. Generalised out of the original `extractRecommendedPath` so a
+ * second plan-artifact section (`## Method selection` / `Survey verdict`)
+ * can reuse the identical decoration-stripping, section-bounding, and
+ * drifted-label tolerance without a second hand-rolled parser drifting out
+ * of sync with the first.
  *
- * Returns null when the `## Prompt interpretation` heading is absent
- * (the omit-when-no-tension contract from discovery-instructions.md).
- * Returns the trimmed enum string when present; the caller decides
- * how to react to non-`methods plausibly reach target` values.
+ * Returns null when the `## <heading>` heading is absent, or when neither
+ * label shape is found within the section. Returns the trimmed value
+ * string when present; the caller decides how to react to it (exact-match
+ * against a known enum, or accept any string).
  *
- * Section shape (per discovery-instructions.md):
+ * Section shape:
  *
- *   ## Prompt interpretation
+ *   ## <heading>
  *
- *   - **Reading of prescribed methods:** ...
- *   - **Plausibility estimate:** ...
- *   - **Recommended path:** <enum value>
+ *   - **<label>:** <value>
  *
  * Heading-level detection is strict: only level-2 (`## `) counts.
- * Level-3 (`### `) is intentionally not recognised — the contract
- * specifies a top-level section, and a level-3 nested heading is
- * either a stale formatting choice or a different concept entirely.
+ * Level-3 (`### `) is intentionally not recognised.
  *
- * Section bound: the next level-1 or level-2 heading (whichever
- * appears first). A nested level-3 sub-heading inside the section
- * does NOT bound it.
+ * Section bound: the next level-1 or level-2 heading (whichever appears
+ * first). A nested level-3 sub-heading inside the section does NOT bound
+ * it.
  *
  * Value parsing tolerates bullet prefix (`- `), bolded label
- * (`**Recommended path:**`), surrounding markdown decoration
- * (any interleaving of bolding and backticks around the value
- * itself), and a trailing run of `. , ; :` punctuation. It does NOT
- * tolerate case variants or a trailing WORD (`...target eventually`)
- * — exact-string match against the canonical enum is the contract,
- * and a trailing word is a paraphrase, not decoration.
+ * (`**<label>:**`), surrounding markdown decoration (any interleaving of
+ * bolding and backticks around the value itself), and a trailing run of
+ * `. , ; :` punctuation. It does NOT tolerate case variants or a trailing
+ * WORD (`...target eventually`) — an exact-string match against a
+ * canonical enum is the contract callers build on top of this, and a
+ * trailing word is a paraphrase, not decoration.
  *
  * Two label shapes are accepted:
- *   1. Canonical colon-same-line — `- **Recommended path:** <value>` —
- *      with the value on the same line as the colon.
+ *   1. Canonical colon-same-line — `- **<label>:** <value>` — with the
+ *      value on the same line as the colon.
  *   2. Drifted bold-period/next-line — a label line of the form
- *      `- **Recommended path.**` (bold, trailing period, NO colon, NO
- *      same-line value) whose value is the next NON-BLANK line. This
- *      tolerates the period-form drift the discovery subagent can emit
- *      when copying the prose label punctuation as output.
+ *      `- **<label>.**` (bold, trailing period, NO colon, NO same-line
+ *      value) whose value is the next NON-BLANK line. This tolerates the
+ *      period-form drift an authoring agent can emit when copying the
+ *      prose label punctuation as output.
  * Both shapes feed the same decoration-stripping normalisation loop, so
  * the case/substring/trailing-word guards apply identically. Drifted-form
  * detection is bounded by the same section slice, so the next-line reader
- * never bleeds past the section boundary and never mis-fires on the
- * sibling `Reading of prescribed methods` / `Plausibility estimate`
- * bullets (those carry their own value on-line and are not period-form
- * Recommended-path labels).
+ * never bleeds past the section boundary.
  */
-export function extractRecommendedPath(planMd: string): string | null {
-  const sectionMatch = planMd.match(/^## Prompt interpretation\s*$/m);
+export function extractLabeledValue(
+  planMd: string,
+  heading: string,
+  label: string,
+): string | null {
+  const headingRe = new RegExp(`^## ${escapeRegExp(heading)}\\s*$`, "m");
+  const sectionMatch = planMd.match(headingRe);
   if (!sectionMatch) {
     return null;
   }
@@ -175,24 +231,29 @@ export function extractRecommendedPath(planMd: string): string | null {
   const nextSection = rest.search(/^#{1,2} /m);
   const sectionBody = nextSection === -1 ? rest : rest.slice(0, nextSection);
 
-  // Decoration around "Recommended path" can be bolding (**), backticks (`),
-  // or a mix on either side of the colon. The `[*\x60]*` class consumes any
-  // mix and the colon is required (the contract is `**Recommended path:**`,
-  // not `**Recommended path**` with no separator).
-  const pathMatch = sectionBody.match(
-    /^[\s-]*[*`]*Recommended path[*`]*:[*`]*\s*(.+?)\s*$/m,
+  const escapedLabel = escapeRegExp(label);
+
+  // Decoration around the label can be bolding (**), backticks (`), or a
+  // mix on either side of the colon. The `[*\x60]*` class consumes any mix
+  // and the colon is required (the contract is `**<label>:**`, not
+  // `**<label>**` with no separator).
+  const valueMatch = sectionBody.match(
+    new RegExp(`^[\\s-]*[*\`]*${escapedLabel}[*\`]*:[*\`]*\\s*(.+?)\\s*$`, "m"),
   );
 
   let raw: string;
-  if (pathMatch) {
-    raw = pathMatch[1].trim();
+  if (valueMatch) {
+    raw = valueMatch[1].trim();
   } else {
-    // Drifted shape: a bold-period label (`- **Recommended path.**`) with
-    // NO colon and NO same-line value; the value is the next non-blank
-    // line within the section. The label match is anchored to the line and
-    // forbids a colon, so it cannot collide with the colon-form above.
+    // Drifted shape: a bold-period label (`- **<label>.**`) with NO colon
+    // and NO same-line value; the value is the next non-blank line within
+    // the section. The label match is anchored to the line and forbids a
+    // colon, so it cannot collide with the colon-form above.
     const driftMatch = sectionBody.match(
-      /^[ \t-]*[*`]*Recommended path[*`]*\.[*`]*[ \t]*$([\s\S]*)/m,
+      new RegExp(
+        `^[ \\t-]*[*\`]*${escapedLabel}[*\`]*\\.[*\`]*[ \\t]*$([\\s\\S]*)`,
+        "m",
+      ),
     );
     if (!driftMatch) {
       return null;
@@ -204,13 +265,13 @@ export function extractRecommendedPath(planMd: string): string | null {
     raw = nextLineMatch[1].trim();
   }
 
-  // Normalise interleaved decoration to the bare enum string. Each
-  // pass strips ONE surrounding `**...**` pair, ONE surrounding
-  // `` `...` `` pair, OR a trailing `. , ; :` punctuation run, then
-  // loops; this collapses any ordering (e.g. backticks outside bold)
-  // and any trailing punctuation. Only decoration chars (* and
-  // backtick) and trailing `. , ; :` are stripped — never
-  // alphanumerics, never case-normalised, so a trailing word survives.
+  // Normalise interleaved decoration to the bare value string. Each pass
+  // strips ONE surrounding `**...**` pair, ONE surrounding `` `...` ``
+  // pair, OR a trailing `. , ; :` punctuation run, then loops; this
+  // collapses any ordering (e.g. backticks outside bold) and any trailing
+  // punctuation. Only decoration chars (* and backtick) and trailing
+  // `. , ; :` are stripped — never alphanumerics, never case-normalised,
+  // so a trailing word survives.
   let value = raw;
   for (;;) {
     let changed = false;
@@ -236,9 +297,38 @@ export function extractRecommendedPath(planMd: string): string | null {
   return value;
 }
 
+/**
+ * Extract the Recommended-path enum value from plan.md's
+ * `## Prompt interpretation` section. Thin wrapper over
+ * `extractLabeledValue` — kept as its own export (rather than inlining the
+ * call at every use site) so `flow-plan-lint.ts` and the existing test
+ * suite stay byte-stable across the generalisation.
+ */
+export function extractRecommendedPath(planMd: string): string | null {
+  return extractLabeledValue(
+    planMd,
+    "Prompt interpretation",
+    "Recommended path",
+  );
+}
+
+/**
+ * Extract the Survey-verdict value from plan.md's `## Method selection`
+ * section (written by discovery after the Step-3 blind method survey —
+ * see skills/pipeline/flow-pipeline/references/blind-survey.md). Returns
+ * the raw decoration-stripped string; the caller (`decideStep3Route`)
+ * decides whether it is one of `SURVEY_VERDICTS` — a paraphrase like
+ * "converge-against (single judge)" is returned verbatim here and is NOT
+ * a verdict match.
+ */
+export function extractSurveyVerdict(planMd: string): string | null {
+  return extractLabeledValue(planMd, "Method selection", "Survey verdict");
+}
+
 export function parseArgs(argv: string[]): RouteInputs | { error: string } {
   let intent: string | undefined;
   let planMdFile: string | undefined;
+  let methodResolved = false;
 
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -261,6 +351,10 @@ export function parseArgs(argv: string[]): RouteInputs | { error: string } {
         i++;
         continue;
       }
+      case "--method-resolved": {
+        methodResolved = true;
+        continue;
+      }
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -277,7 +371,7 @@ export function parseArgs(argv: string[]): RouteInputs | { error: string } {
     };
   }
 
-  return { intent: intent as Intent, planMdFile };
+  return { intent: intent as Intent, planMdFile, methodResolved };
 }
 
 export function run(argv: string[]): number {
@@ -285,7 +379,7 @@ export function run(argv: string[]): number {
   if ("error" in parsed) {
     process.stderr.write(`flow-step3-route: ${parsed.error}\n`);
     process.stderr.write(
-      "usage: flow-step3-route --intent <intent> --plan-md-file <path>\n",
+      "usage: flow-step3-route --intent <intent> --plan-md-file <path> [--method-resolved]\n",
     );
     return 2;
   }
@@ -301,7 +395,11 @@ export function run(argv: string[]): number {
     return 2;
   }
 
-  process.stdout.write(decideStep3Route(parsed.intent, planMd) + "\n");
+  process.stdout.write(
+    decideStep3Route(parsed.intent, planMd, {
+      methodResolved: parsed.methodResolved,
+    }) + "\n",
+  );
   return 0;
 }
 

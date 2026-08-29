@@ -409,6 +409,94 @@ describe("lintPlan — Prompt interpretation / Recommended path", () => {
   });
 });
 
+describe("lintPlan — Method selection", () => {
+  it("does not check Method selection when the heading is absent", () => {
+    const { misses } = lintPlan(CONFORMING_PLAN);
+    expect(misses.some((m) => m.includes("Method selection"))).toBe(false);
+  });
+
+  it("passes on a well-formed section (verdict + chosen method + quoted judge lines)", () => {
+    const plan =
+      CONFORMING_PLAN +
+      "\n## Method selection\n\n" +
+      "- **User's method:** a Task-tool judge sub-agent\n" +
+      '- **Judge A (Gemini 3.1 Pro (High)):** "Add a supervisor-side blind survey before discovery drafts a plan." — a fan-out over two pinned judges\n' +
+      '- **Judge B (Claude Opus 4.6 (Thinking)):** "Run two model-pinned judges over a goal-only brief." — converges with judge A\n' +
+      "- **Survey verdict:** converge-against\n" +
+      "- **Chosen method:** blind survey — both judges independently converged away from the user's proposed method\n";
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("Method selection"))).toBe(false);
+  });
+
+  it("names a miss when the verdict line is missing", () => {
+    const plan =
+      CONFORMING_PLAN +
+      "\n## Method selection\n\n" +
+      '- **Judge A (Gemini 3.1 Pro (High)):** "Add a blind survey." — recommendation\n' +
+      "- **Chosen method:** blind survey — rationale\n";
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) => m.includes("Method selection") && m.includes("Survey verdict"),
+      ),
+    ).toBe(true);
+  });
+
+  it("names a miss when the verdict is misspelled", () => {
+    const plan =
+      CONFORMING_PLAN +
+      "\n## Method selection\n\n" +
+      "- **Survey verdict:** converge-againstt\n" +
+      "- **Chosen method:** blind survey — rationale\n";
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) => m.includes("Method selection") && m.includes("Survey verdict"),
+      ),
+    ).toBe(true);
+  });
+
+  it("names a miss naming the judge when a non-skipped judge line has no quoted excerpt", () => {
+    const plan =
+      CONFORMING_PLAN +
+      "\n## Method selection\n\n" +
+      "- **Survey verdict:** split\n" +
+      "- **Judge A (Gemini 3.1 Pro (High)):** a blind survey with no quoted excerpt\n" +
+      "- **Chosen method:** blind survey — rationale\n";
+    const { misses } = lintPlan(plan);
+    const miss = misses.find(
+      (m) => m.includes("Method selection") && m.includes("Judge A"),
+    );
+    expect(miss).toBeDefined();
+  });
+
+  it("does not require a quoted excerpt on a skipped judge line", () => {
+    const plan =
+      CONFORMING_PLAN +
+      "\n## Method selection\n\n" +
+      "- **Survey verdict:** split\n" +
+      "- **Judge A (Gemini 3.1 Pro (High)):** skipped: agy-timeout\n" +
+      '- **Judge B (Claude Opus 4.6 (Thinking)):** "Run two model-pinned judges." — recommendation\n' +
+      "- **Chosen method:** blind survey — rationale\n";
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("Judge A"))).toBe(false);
+  });
+
+  it("names a miss when '- **Chosen method:**' is missing", () => {
+    const plan =
+      CONFORMING_PLAN +
+      "\n## Method selection\n\n" +
+      "- **Survey verdict:** converge-with\n" +
+      '- **Judge A (Gemini 3.1 Pro (High)):** "Add a blind survey." — recommendation\n';
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) => m.includes("Method selection") && m.includes("Chosen method"),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("lintPlan — Goal-line length advisory", () => {
   it("warns (advisory) when the Goal line exceeds 30 words", () => {
     const longGoal = Array.from({ length: 35 }, (_, i) => `word${i}`).join(" ");

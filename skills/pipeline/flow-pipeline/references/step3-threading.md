@@ -147,6 +147,29 @@ from "answers to THIS discovery run's own question gate"
 re-invocation that follows both a step-1 interview and a step-3 question
 gate.
 
+## Blind survey threading
+
+The seventh marker. The Step-3 blind method survey (`flow-blind-survey`)
+runs BEFORE forced research and before `/flow-product-planning` is
+invoked at all — see [blind-survey.md](blind-survey.md) for the full
+gate/brief/run contract (when it fires, the goal-only brief it builds,
+the helper call, and the chat one-liner). When the survey ran (with at
+least one judge), append a `SURVEY: <path>` marker line to the
+`/flow-product-planning` invocation through the same append channel as
+`MODEL_PLANNING:` / `RESEARCH:` / `REVISION:` / `EPIC:` /
+`PROMPT-SANITY:` / `INTERVIEW:` — a marker on the existing Discovery
+exemption, **no** new fan-out site:
+
+```
+SURVEY: <absolute path to .flow-tmp/blind-survey.md> (judges: A=<model> ran|skipped:<reason>, B=<model> ran|skipped:<reason>)
+```
+
+`/flow-product-planning`'s `{{SURVEY_OVERRIDE}}` spawn-template
+placeholder forwards it to the Discovery Subagent, which runs
+`discovery-instructions.md` step 1.8 and authors `## Method selection`.
+Absent (gate closed, or the survey's envelope came back `ran:false`) ≡
+no blind survey — append nothing.
+
 ## Deterministic forced research (mandatory on the forced path)
 
 The discovery subagent's own Step 1.5 was observed to skip the fan-out

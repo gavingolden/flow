@@ -263,13 +263,53 @@ epic, using this precedence — stop at the first layer that resolves:
    on conflict).
 
 When none of the three layers resolves, the feature is not epic-launched — proceed to
-step 2 with `## Epic context` omitted.
+step 1.8 with `## Epic context` omitted.
 
 **Source-traceability rule (MUST).** Whichever layer detected membership, you MUST read
 the epic's `.flow/epics/<slug>/design.md` and `.flow/epics/<slug>/manifest.json` before
 authoring `## Epic context` (step 5). Every claim in that section — the feature's
 rationale, its `dependsOn` edges, its downstream dependents — must be traceable to those
 two files; never infer epic context from the slug or the pointer sentence alone.
+
+## 1.8. Blind survey context → Method selection
+
+**Gate: the invocation carries a `SURVEY:` marker.** `/flow-pipeline` step 3 runs the
+blind method survey (`flow-blind-survey`) BEFORE forced research and this discovery pass
+— see `skills/pipeline/flow-pipeline/references/blind-survey.md` for the full
+gate/brief/run contract on the supervisor side. When the survey ran (with at least one
+judge), the spawn prompt carries a marker line:
+
+```
+SURVEY: <absolute path to blind-survey.md> (judges: A=<model> ran|skipped:<reason>, B=<model> ran|skipped:<reason>)
+```
+
+When this marker is absent, skip this step entirely — write no `## Method selection`
+section, and do not otherwise reference the survey.
+
+**When the gate fires:**
+
+1. Read the file at the marker's absolute path with the `Read` tool. NEVER `import
+bin/lib/*` — discovery runs in the consumer worktree, where flow's own source tree
+   does not exist (the same constraint step 1.5's research note relies on).
+2. For each judge that ran, weigh its `### 2. Recommended method` against the user's own
+   proposed method, grounded in cited codebase evidence (the same evidentiary bar the
+   rest of this document holds discovery to elsewhere) — not a vibe comparison.
+3. Decide the verdict using these definitions VERBATIM from plan.md's own
+   `## Architecture Decisions` "Verdict semantics" row: `converge-against` = both judges
+   ran AND both top recommendations are materially different from the user's method (they
+   need not agree with each other); `converge-with` = both materially the user's method;
+   `split` = anything else, including a single-judge run. A single-judge run can therefore
+   never yield `converge-against` — there is no second independent judgment to converge
+   against the user's method with.
+4. Author `## Method selection` per the step-5 section list above. Each judge line opens
+   with that judge's top recommendation quoted VERBATIM — its first sentence, in double
+   quotes — before any paraphrase, so the user can audit the verdict both at the
+   `pause-for-method` checkpoint (feature intent, `converge-against`) and later at plan
+   review (every other cell). A skipped judge writes `skipped: <reason>` instead and
+   contributes nothing to the verdict.
+
+Proceed to step 2 once this step resolves (marker absent, or `## Method selection`
+authored).
 
 ## 2. Scope Check
 
@@ -471,6 +511,15 @@ effect on model comprehension either way) — never required.
 - **Epic context** (omit-when-empty) — only when step 1.7 detects epic membership: the
   epic slug, this feature's id and rationale, its `dependsOn` edges with produced/consumed
   artifacts, and its downstream dependents. See the "Epic context" sub-section below.
+- **Method selection** (omit-when-no-`SURVEY:`-marker) — only when step 1.8's blind
+  method survey ran: six lines — `- **User's method:**`, `- **Judge A (<model>):** "<its
+top recommendation's first sentence, verbatim>" — <paraphrase>` (a skipped judge writes
+  `- **Judge A (<model>):** skipped: <reason>`), `- **Judge B (<model>):** …` (same shape),
+  `- **Survey verdict:** <converge-against | split | converge-with>` (bare, exact, one
+  line — the same machine-parsed contract `- **Recommended path:**` uses), `- **Chosen
+method:** <one line> — <why>` — followed by a `| Before (user's method as asked) | After
+(chosen method) |` table. See step 1.8 for how the verdict is decided. Omit the heading
+  entirely when the marker was absent from the invocation.
 - **Scope Boundary** — what's in and what's explicitly out.
 - **Behavioral contrast** — `### User flow` and `### System flow` before → after
   subsections (explicit `none` affirmation allowed), closing with a one-line `**Lost:**`
@@ -1445,7 +1494,12 @@ redirect did not touch and destroys embedded markers. Follow this contract:
    the plan (or in `.flow-tmp/research-findings.md`). The redirect is a scope/decision
    change, not a new research question — re-running the fan-out double-spends agy quota for
    no new signal. Reuse the prior findings as-is.
-5. **Extend, don't replace, `## Open Questions`.** Append the redirect's new questions;
+5. **Do NOT re-run the Step 1.8 blind survey.** Reuse the file the `SURVEY:` marker names
+   (the survey ran once, before the first discovery pass; a revision pass never re-fires
+   it). Update `## Method selection` only when the redirect changes the chosen method —
+   otherwise leave the section byte-for-byte as it was, same discipline as the embedded
+   markers above.
+6. **Extend, don't replace, `## Open Questions`.** Append the redirect's new questions;
    mark any prior question the redirect resolves with a short decision note (the same
    "mark resolved with a decision note" convention the section already uses) rather than
    deleting it, so the Q&A record of the plan's evolution stays intact across revisions.
@@ -1511,6 +1565,9 @@ Common failure modes during planning:
   `.flow-tmp/excluded-paths.json` mirrors it 1:1.
 - `## Epic context` is either omitted (not epic-launched) or every claim in it traces
   to a `design.md` / `manifest.json` read from step 1.7.
+- `## Method selection` is either omitted (no `SURVEY:` marker in the invocation) or
+  present with a `- **Survey verdict:**` line that is exactly one of `converge-against`,
+  `split`, `converge-with`.
 - A failed premise check surfaces as a `**Premise check:**` line in the Problem
   Statement and the `## Recommendation` verdict is non-`Proceed`; a sound premise
   carries no line.

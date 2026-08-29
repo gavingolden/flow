@@ -177,7 +177,7 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 Fill in the `{{...}}` placeholders before passing to the Task tool. The
 `{{OUTPUT_PATHS}}` block is **mode-dependent** — substitute the feature-mode
 text by default, the epic-mode text under `MODE: epic` (both shown after the
-template). The `{{RESEARCH_OVERRIDE}}`, `{{REVISION_OVERRIDE}}`, `{{EPIC_OVERRIDE}}`,
+template). The `{{SURVEY_OVERRIDE}}`, `{{RESEARCH_OVERRIDE}}`, `{{REVISION_OVERRIDE}}`, `{{EPIC_OVERRIDE}}`,
 `{{PROMPT_SANITY_OVERRIDE}}`, and `{{INTERVIEW_OVERRIDE}}` blocks are all **omit-when-absent** (shown after the
 template). The other placeholders
 (`{{INSTRUCTIONS_PATH}}`, `{{USER_DESCRIPTION}}`, `{{WORKTREE}}`,
@@ -192,6 +192,7 @@ Read the full instructions at:
 
 User feature description (verbatim):
   {{USER_DESCRIPTION}}
+{{SURVEY_OVERRIDE}}
 {{RESEARCH_OVERRIDE}}
 {{REVISION_OVERRIDE}}
 {{EPIC_OVERRIDE}}
@@ -389,6 +390,34 @@ the block entirely (consistent with `{{RESEARCH_OVERRIDE}}`,
 `{{PROMPT_SANITY_OVERRIDE}}` above). This passthrough rides the existing
 single discovery Task call; it adds **no** new Task-tool spawn and
 **no** new exemption.
+
+### `{{SURVEY_OVERRIDE}}` — optional blind-method-survey passthrough
+
+`/flow-pipeline` step 3 runs the Step-3 blind method survey
+(`flow-blind-survey`) BEFORE forced research and before this discovery
+subagent is spawned — see `references/blind-survey.md` for the full
+gate/brief/run contract. The survey itself is **no new fan-out, no new
+exemption** — it is a `flow-delegate-fanout` Bash fan-out from the
+supervisor, the same shape as the cross-model plan review and the intent
+guess. The discovery subagent cannot see the supervisor's state, so this
+block is the only way the survey result reaches it. When the survey ran
+(with at least one judge), substitute this block verbatim for
+`{{SURVEY_OVERRIDE}}`:
+
+```
+SURVEY: <absolute path> (judges: A=<model> ran|skipped:<reason>, B=<model> ran|skipped:<reason>)
+  Run discovery-instructions.md step 1.8: read the file at this absolute
+  path with the Read tool, weigh each judge's top recommendation against
+  the user's proposed method with cited codebase evidence, decide the
+  verdict, and author `## Method selection` per the step-5 section list.
+```
+
+When the survey did not run (gate closed, or `ran:false`), substitute the
+**empty string** — omit the block entirely (consistent with
+`{{RESEARCH_OVERRIDE}}`, `{{REVISION_OVERRIDE}}`, `{{EPIC_OVERRIDE}}`,
+`{{PROMPT_SANITY_OVERRIDE}}`, and `{{INTERVIEW_OVERRIDE}}` above). This
+passthrough rides the existing single discovery Task call; it adds **no**
+new Task-tool spawn and **no** new exemption.
 
 # Constraints
 

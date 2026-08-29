@@ -30,7 +30,11 @@
 
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
-import { extractRecommendedPath } from "./flow-step3-route";
+import {
+  extractRecommendedPath,
+  extractSurveyVerdict,
+  SURVEY_VERDICTS,
+} from "./flow-step3-route";
 
 export type LintResult = { misses: string[] };
 
@@ -272,6 +276,67 @@ function checkPromptInterpretation(planText: string, misses: string[]): void {
 }
 
 /**
+ * Advisory check for the (omit-when-no-blind-survey) `## Method selection`
+ * section discovery writes after the Step-3 blind method survey (see
+ * skills/pipeline/flow-pipeline/references/blind-survey.md). Never fires
+ * when the heading is absent — the survey did not run, or the plan
+ * predates it. When present, checks:
+ *   1. a `- **Survey verdict:**` line that exact-matches one of
+ *      `SURVEY_VERDICTS` (a paraphrase like "converge-against (single
+ *      judge)" is a named miss, exactly the guard `extractSurveyVerdict`'s
+ *      own docstring warns about);
+ *   2. a `- **Chosen method:**` line;
+ *   3. every non-`skipped:` `- **Judge A (...):**` / `- **Judge B (...):**`
+ *      line opens its value with a double-quoted verbatim excerpt
+ *      (`"…"`) before the ` — ` paraphrase, so the verdict stays
+ *      auditable — a `skipped:` judge line is exempt (it has no
+ *      recommendation to quote).
+ */
+function checkMethodSelection(planText: string, misses: string[]): void {
+  const headingMatch = planText.match(/^## Method selection\s*$/m);
+  if (!headingMatch) return;
+  const body = sliceToNextHeading(
+    planText,
+    (headingMatch.index ?? 0) + headingMatch[0].length,
+  );
+
+  const verdict = extractSurveyVerdict(planText);
+  if (
+    verdict === null ||
+    !(SURVEY_VERDICTS as readonly string[]).includes(verdict)
+  ) {
+    misses.push(
+      `'## Method selection' has no exact-match '- **Survey verdict:** <${SURVEY_VERDICTS.join(" | ")}>' line` +
+        (verdict === null ? "" : ` (got '${verdict}')`),
+    );
+  }
+
+  if (!/^- \*\*Chosen method:\*\*/m.test(body)) {
+    misses.push(
+      "'## Method selection' is missing a '- **Chosen method:**' line",
+    );
+  }
+
+  // The model name inside the parens can itself carry parens (e.g. no
+  // known case today, but agy display names are free-form strings) — a
+  // lazy `.*?` rather than a negated `[^)]*` class lets the match extend
+  // past an inner `)` to find the outer `):**` that actually closes the
+  // label.
+  const judgeLineRe = /^- \*\*(Judge [AB]) \(.*?\):\*\*\s*(.*)$/gm;
+  let judgeMatch: RegExpExecArray | null;
+  while ((judgeMatch = judgeLineRe.exec(body)) !== null) {
+    const judgeLabel = judgeMatch[1];
+    const rest = judgeMatch[2].trim();
+    if (/^skipped:/.test(rest)) continue;
+    if (!/^"[^"]+"/.test(rest)) {
+      misses.push(
+        `'## Method selection' ${judgeLabel} line is missing a double-quoted verbatim excerpt before its paraphrase`,
+      );
+    }
+  }
+}
+
+/**
  * Advisory resolution-first check for `## Open Questions`: every unchecked
  * `- [ ]` entry block must carry a `**Recommended:**` answer or a
  * `**Needs user input:**` escape (markers may sit on nested sub-bullets).
@@ -440,6 +505,7 @@ export function lintPlan(
     checkTaskContracts(planText, misses);
     checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);
+    checkMethodSelection(planText, misses);
     checkOpenQuestions(planText, misses);
     checkExcludedPathsMirror(planText, opts.excludedPathsJson, misses);
   } catch (e) {

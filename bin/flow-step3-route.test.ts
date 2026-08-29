@@ -6,8 +6,10 @@ import {
   ALLOWED_INTENTS,
   decideStep3Route,
   extractRecommendedPath,
+  extractSurveyVerdict,
   parseArgs,
   run,
+  SURVEY_VERDICTS,
   type Intent,
 } from "./flow-step3-route";
 
@@ -126,6 +128,117 @@ describe(decideStep3Route, () => {
         "route-to-step-4",
       );
     });
+  });
+});
+
+const PLAN_VERDICT_CONVERGE_AGAINST = `## Method selection\n\n- **Survey verdict:** converge-against\n`;
+const PLAN_VERDICT_SPLIT = `## Method selection\n\n- **Survey verdict:** split\n`;
+const PLAN_VERDICT_CONVERGE_WITH = `## Method selection\n\n- **Survey verdict:** converge-with\n`;
+const PLAN_VERDICT_PARAPHRASE = `## Method selection\n\n- **Survey verdict:** converge-against (single judge)\n`;
+
+describe("decideStep3Route — Method-selection verdict × intent × --method-resolved", () => {
+  it("converge-against + feature, no flag ⇒ pause-for-method", () => {
+    expect(decideStep3Route("feature", PLAN_VERDICT_CONVERGE_AGAINST)).toBe(
+      "pause-for-method",
+    );
+  });
+
+  it("converge-against + feature + --method-resolved ⇒ route-to-step-4", () => {
+    expect(
+      decideStep3Route("feature", PLAN_VERDICT_CONVERGE_AGAINST, {
+        methodResolved: true,
+      }),
+    ).toBe("route-to-step-4");
+  });
+
+  it("converge-against + docs + resolved + no tension ⇒ advance-to-step-5 (resolved converge-against behaves as converge-with)", () => {
+    expect(
+      decideStep3Route("docs", PLAN_VERDICT_CONVERGE_AGAINST, {
+        methodResolved: true,
+      }),
+    ).toBe("advance-to-step-5");
+  });
+
+  it("split + bug ⇒ route-to-step-4", () => {
+    expect(decideStep3Route("bug", PLAN_VERDICT_SPLIT)).toBe("route-to-step-4");
+  });
+
+  it("split + feature ⇒ route-to-step-4", () => {
+    expect(decideStep3Route("feature", PLAN_VERDICT_SPLIT)).toBe(
+      "route-to-step-4",
+    );
+  });
+
+  it("converge-with + bug ⇒ advance-to-step-5", () => {
+    expect(decideStep3Route("bug", PLAN_VERDICT_CONVERGE_WITH)).toBe(
+      "advance-to-step-5",
+    );
+  });
+
+  it("converge-against + bug, no flag ⇒ pause-for-method (pause beats the non-feature path)", () => {
+    expect(decideStep3Route("bug", PLAN_VERDICT_CONVERGE_AGAINST)).toBe(
+      "pause-for-method",
+    );
+  });
+
+  it("a paraphrased verdict is extracted verbatim but is not an exact SURVEY_VERDICTS match, so it never pauses", () => {
+    // extractSurveyVerdict is a thin wrapper over extractLabeledValue (same
+    // contract as extractRecommendedPath) — it returns the decoration-
+    // stripped string as-is; the exact-match-against-the-enum check lives
+    // in decideStep3Route, not in the extractor. "converge-against (single
+    // judge)" is therefore a non-null, non-enum string here.
+    expect(extractSurveyVerdict(PLAN_VERDICT_PARAPHRASE)).toBe(
+      "converge-against (single judge)",
+    );
+    expect(
+      (SURVEY_VERDICTS as readonly string[]).includes(
+        extractSurveyVerdict(PLAN_VERDICT_PARAPHRASE) as string,
+      ),
+    ).toBe(false);
+    expect(decideStep3Route("feature", PLAN_VERDICT_PARAPHRASE)).toBe(
+      "route-to-step-4",
+    );
+    expect(decideStep3Route("bug", PLAN_VERDICT_PARAPHRASE)).toBe(
+      "advance-to-step-5",
+    );
+  });
+
+  it("no `## Method selection` section leaves the existing 4-cell matrix unchanged", () => {
+    expect(decideStep3Route("bug", PLAN_WITHOUT_SECTION)).toBe(
+      "advance-to-step-5",
+    );
+    expect(decideStep3Route("feature", PLAN_WITHOUT_SECTION)).toBe(
+      "route-to-step-4",
+    );
+  });
+});
+
+describe(extractSurveyVerdict, () => {
+  it("returns null when the `## Method selection` heading is absent", () => {
+    expect(extractSurveyVerdict(PLAN_WITHOUT_SECTION)).toBeNull();
+    expect(extractSurveyVerdict("")).toBeNull();
+  });
+
+  it("extracts the colon-form value", () => {
+    expect(extractSurveyVerdict(PLAN_VERDICT_SPLIT)).toBe("split");
+  });
+
+  it("strips bold decoration and a trailing period", () => {
+    const plan = `## Method selection\n\n- **Survey verdict:** **\`converge-with\`**.\n`;
+    expect(extractSurveyVerdict(plan)).toBe("converge-with");
+  });
+
+  it.each(SURVEY_VERDICTS)(
+    "extracts '%s' from a drifted `- **Survey verdict.**` label with the value on the next line",
+    (verdict) => {
+      const plan = `## Method selection\n\n- **Survey verdict.**\n${verdict}\n`;
+      expect(extractSurveyVerdict(plan)).toBe(verdict);
+    },
+  );
+
+  it("does not bleed into the next ## section", () => {
+    const plan = `## Method selection\n\n- **Survey verdict:** converge-with\n\n## Scope Boundary\n\n- **Survey verdict:** SHOULD-NOT-BE-PICKED-UP\n`;
+    expect(extractSurveyVerdict(plan)).toBe("converge-with");
   });
 });
 
@@ -400,6 +513,34 @@ describe(parseArgs, () => {
       expect("error" in r).toBe(false);
     },
   );
+
+  it("accepts the valueless --method-resolved flag and threads it through", () => {
+    const r = parseArgs([
+      "--intent",
+      "bug",
+      "--plan-md-file",
+      "/tmp/x",
+      "--method-resolved",
+    ]);
+    expect(r).toMatchObject({ methodResolved: true });
+  });
+
+  it("defaults methodResolved to false when the flag is absent", () => {
+    const r = parseArgs(["--intent", "bug", "--plan-md-file", "/tmp/x"]);
+    expect(r).toMatchObject({ methodResolved: false });
+  });
+
+  it("still rejects unknown flags with --method-resolved present", () => {
+    const r = parseArgs([
+      "--intent",
+      "bug",
+      "--plan-md-file",
+      "/tmp/x",
+      "--method-resolved",
+      "--bogus",
+    ]);
+    expect("error" in r && r.error).toBe("unknown flag: --bogus");
+  });
 });
 
 describe(run, () => {
@@ -454,6 +595,58 @@ describe(run, () => {
       const rc = run(["--intent", "bug", "--plan-md-file", planFile]);
       expect(rc).toBe(0);
       expect(stdout.join("")).toBe("route-to-step-4\n");
+    } finally {
+      process.stdout.write = origStdoutWrite;
+    }
+  });
+
+  it("writes 'pause-for-method' for a converge-against verdict with no --method-resolved", () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), "flow-step3-route-"));
+    const planFile = path.join(tmpDir, "plan.md");
+    writeFileSync(planFile, PLAN_VERDICT_CONVERGE_AGAINST);
+
+    const stdout: string[] = [];
+    const origStdoutWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdout.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
+      );
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      const rc = run(["--intent", "bug", "--plan-md-file", planFile]);
+      expect(rc).toBe(0);
+      expect(stdout.join("")).toBe("pause-for-method\n");
+    } finally {
+      process.stdout.write = origStdoutWrite;
+    }
+  });
+
+  it("--method-resolved threads through to resolve the converge-against pause", () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), "flow-step3-route-"));
+    const planFile = path.join(tmpDir, "plan.md");
+    writeFileSync(planFile, PLAN_VERDICT_CONVERGE_AGAINST);
+
+    const stdout: string[] = [];
+    const origStdoutWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdout.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
+      );
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      const rc = run([
+        "--intent",
+        "bug",
+        "--plan-md-file",
+        planFile,
+        "--method-resolved",
+      ]);
+      expect(rc).toBe(0);
+      expect(stdout.join("")).toBe("advance-to-step-5\n");
     } finally {
       process.stdout.write = origStdoutWrite;
     }

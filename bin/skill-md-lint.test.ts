@@ -1239,9 +1239,18 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * (151 chars of headroom) matches the 136-202-char range the recent
    * precedents above landed with, rather than the tighter traps rejected
    * earlier in this history.
+   * Raised once more from 25_900 to 26_000 to fund extending the
+   * `## Don'ts` Bash-fan-out bullet to also name the Step-3 blind method
+   * survey (`flow-blind-survey`) as a `flow-delegate`/`flow-delegate-
+   * fanout` Bash fan-out, not a tenth exemption — the exact delta was
+   * measured at +56 chars (pre-edit 25_892, post-edit 25_948, both via
+   * String.prototype.length, not `wc -c` bytes); the budget goes to
+   * exactly that delta plus 44 chars of headroom (25_900 + 56 + 44 =
+   * 26_000) rather than the bare delta, matching the "don't land at a
+   * single-digit-headroom trap" discipline of every raise above.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 25_900;
+    const CHAR_BUDGET = 26_000;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -2684,6 +2693,42 @@ describe("cross-model plan review doc symmetry (AGENTS.md ↔ flow-pipeline/SKIL
     expect(
       content.includes(FANOUT_PHRASE),
       `flow-pipeline/SKILL.md Hard rules must carry the shared '${FANOUT_PHRASE}' phrase for the plan-review note.`,
+    ).toBe(true);
+  });
+});
+
+describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", () => {
+  /**
+   * The Step-3 blind method survey is a flow-delegate-fanout Bash fan-out
+   * (NOT a Task, NOT a tenth exemption). Its "not a tenth exemption"
+   * sibling note must appear in BOTH AGENTS.md `## Don'ts` and
+   * flow-pipeline/SKILL.md "Hard rules", using the SAME shared phrase as
+   * the Gemini-lens and cross-model-plan-review notes so a rename can't
+   * silently drift one doc out of sync. A separately-anchored guard — it
+   * does NOT touch the nine-exemption-count `.toBe`/only-nine lints.
+   */
+  const SURVEY_PHRASE = "blind method survey";
+  const FANOUT_PHRASE = "Bash fan-out, not a tenth exemption";
+
+  it("AGENTS.md names the blind method survey Bash-fan-out sibling note", () => {
+    expect(
+      agentsContent.includes(SURVEY_PHRASE),
+      `AGENTS.md ## Don'ts must name the '${SURVEY_PHRASE}'.`,
+    ).toBe(true);
+    expect(
+      agentsContent.includes(FANOUT_PHRASE),
+      `AGENTS.md must carry the shared '${FANOUT_PHRASE}' phrase for the blind-survey note.`,
+    ).toBe(true);
+  });
+
+  it("flow-pipeline/SKILL.md names the blind method survey Bash-fan-out sibling note", () => {
+    expect(
+      content.includes(SURVEY_PHRASE),
+      `flow-pipeline/SKILL.md must name the '${SURVEY_PHRASE}'.`,
+    ).toBe(true);
+    expect(
+      content.includes(FANOUT_PHRASE),
+      `flow-pipeline/SKILL.md Hard rules must carry the shared '${FANOUT_PHRASE}' phrase for the blind-survey note.`,
     ).toBe(true);
   });
 });
@@ -4704,12 +4749,24 @@ describe("pr-review include-by-reference structure", () => {
     // step-7 split (PR #666) lands the combined file at 2923 lines —
     // both sides' growth is feature-mechanical, so the ceiling moves to
     // 2940 (17 lines of headroom), same discipline as above.
+    // A later, unrelated merge to main (#704, the async plan-review
+    // spine) already landed the file at 2946 lines — 6 OVER the 2940
+    // ceiling — before this PR's own edits. The blind method survey
+    // (Task 8) is itself feature-mechanical (a Hard-rules sibling
+    // blockquote, a ~7-line opener sub-step pointing at
+    // references/blind-survey.md, one new `flow-step3-route` decision's
+    // routing bullets, one plan-summary line, one resume-row clause) and
+    // lands the combined file at 2998 lines. The ceiling moves to 3015
+    // (17 lines of genuine headroom over 2998), the same discipline as
+    // every raise above — it does NOT retroactively re-tighten for the
+    // pre-existing #704 overshoot, which is absorbed into this raise
+    // rather than fixed here (out of scope for this feature).
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2940 lines. Material regrowth past this ceiling would ` +
+        `budget of 3015 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2940);
+    ).toBeLessThan(3015);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -7907,11 +7964,36 @@ describe("pause-output contract wiring lint", () => {
     expect(
       matches.length,
       "flow-pipeline SKILL.md must reference `references/pause-output-contract.md` " +
-        "at each of its nine informal pause sites (triage clarification, plan " +
+        "at each of its ten informal pause sites (triage clarification, plan " +
         "summary, checkpoint nudge, approval clarification, gated feedback, " +
         "post-render QA, resume-mode terminal QA, step-1 intent interview, " +
-        "step-3 question-gate interview).",
-    ).toBeGreaterThanOrEqual(9);
+        "step-3 question-gate interview, and the tenth site — the Step-3 " +
+        "blind method survey's method pause).",
+    ).toBeGreaterThanOrEqual(10);
+  });
+
+  it("the 'At most one question-gate fire per pipeline' paragraph documents the per-source method-pause carve-out", () => {
+    const c = fs.readFileSync(
+      path.join(REPO_ROOT, "skills", "pipeline", "flow-pipeline", "SKILL.md"),
+      "utf8",
+    );
+    const m = c.match(
+      /\*\*At most one question-gate fire per pipeline\.\*\*[\s\S]*?(?=\n\n)/,
+    );
+    expect(
+      m,
+      "flow-pipeline/SKILL.md must carry the 'At most one question-gate " +
+        "fire per pipeline.' paragraph.",
+    ).not.toBeNull();
+    const paragraph = m ? m[0] : "";
+    expect(
+      paragraph.includes("method pause"),
+      "the question-gate-fire paragraph must name the 'method pause' as a distinct source.",
+    ).toBe(true);
+    expect(
+      paragraph.includes("per-source"),
+      "the question-gate-fire paragraph must state the counter is scoped 'per-source'.",
+    ).toBe(true);
   });
 
   it("each wired sibling SKILL.md references the contract via a resolvable cross-skill path", () => {
