@@ -52,10 +52,12 @@ export function epicCreateSeed(
   // `capture-pane -p` (see seed-delivery.ts). The prompt itself no longer
   // rides the seed — it is written to `requestFile` (state.ts:writeRequestFile)
   // by the caller BEFORE the launcher dispatch, and only its path travels
-  // here. Defensively sanitized even though it's discarded below, mirroring
-  // feature.ts's flowPipelineSeed.
-  sanitizeSeedLine(prompt);
-  return `Use the /flow-epic-create skill. REQUEST_FILE: ${requestFile} EPIC_DIR: ${epicDir} SKILL_DIR: ${skillDir}`;
+  // here. Sanitize the COMPOSED line, mirroring feature.ts's flowPipelineSeed —
+  // structural, not per-argument, so a future call site that inlines free-form
+  // text back into this template inherits the same guarantee.
+  return sanitizeSeedLine(
+    `Use the /flow-epic-create skill. REQUEST_FILE: ${requestFile} EPIC_DIR: ${epicDir} SKILL_DIR: ${skillDir}`,
+  );
 }
 
 export function epicResumeSeed(

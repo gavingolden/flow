@@ -63,12 +63,13 @@ it:
   remainder is empty for every one of these five seeds, so each goes
   through the capture-verified, `C-u`-retried leading-line handshake in
   full — the unverified-remainder path this section used to describe no
-  longer carries any of them. `flow-session-start-hook.ts`'s
-  resume/terminal-continue seeds are unaffected (still full-text, still
-  paced) — they carry no free-form user text either, only slug/phase-derived
-  prose, so the corruption risk this migration targets doesn't apply there.
-- **Paced remainder (unchanged, now only for the two unaffected seeds
-  above).** Still chunked to `REMAINDER_CHUNK_BYTES` (128 bytes) with a
+  longer carries any of them. `flow-session-start-hook.ts` delivers the
+  same three reshaped resume seeds (`flowPipelineResumeSeed`,
+  `epicResumeSeed`, `epicRunSeed`), so they are single-line too; only
+  `terminalContinueSeed` (genuine multi-line prose, no free-form user text)
+  still carries a remainder.
+- **Paced remainder (unchanged, now only for `terminalContinueSeed`).**
+  Still chunked to `REMAINDER_CHUNK_BYTES` (128 bytes) with a
   `REMAINDER_SETTLE_MS` (50 ms) sleep between consecutive chunks, rather
   than one large literal `send-keys` blast.
 - **Out-of-band integrity check + fail-fast retry.** Every tmux
@@ -93,8 +94,8 @@ it:
   window (`spawnEpicRunSupervisor`) deliberately does NOT wire it — that
   window is human-in-the-loop (the user attaches directly), so enforcement
   is not yet universal across all six seed-recording sites, only these
-  four; the pointer-seed migration above covers the same four (the fifth
-  and sixth are the resume/terminal-continue seeds, unaffected as noted).
+  four; the pointer-seed migration above covers five of the six (every
+  seed except `terminalContinueSeed`, which never carried free-form text).
 
 A truncated or corrupted delivery is recoverable without retyping the
 original request: on the wired paths, a `seedCorrupted()` failure now names

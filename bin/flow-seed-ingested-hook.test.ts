@@ -330,6 +330,36 @@ describe("flow-seed-ingested-hook", () => {
         submittedBytes: Buffer.byteLength(truncated, "utf8"),
       });
     });
+
+    it("clears a stale seedMismatch when a later prompt delivers the seed intact (resume self-heal)", async () => {
+      // Resume sites clear seed*/seedMismatch exactly once, BEFORE
+      // launchWithRetry's loop — so a dead-pane attempt 1 (recorded
+      // mismatch) followed by an intact attempt 2 must still clear the
+      // stale mismatch, not strand it. Regression guard for the bug the
+      // consolidator's bug-detection lens flagged.
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({
+          seed: SEED,
+          seedMismatch: {
+            at: "2026-06-27T23:00:00.000Z",
+            expectedBytes: 1,
+            submittedBytes: 2,
+          },
+        }),
+        readStdin: async () =>
+          JSON.stringify({
+            hook_event_name: "UserPromptSubmit",
+            prompt: SEED,
+          }),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledTimes(1);
+      const written = saveState.mock.calls[0]![0] as PipelineState;
+      expect(written.seedMismatch).toBeUndefined();
+      expect(written.seedIngestedAt).toBe(FROZEN_NOW);
+    });
   });
 });
 

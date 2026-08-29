@@ -651,6 +651,9 @@ PR → review checkpoint), and writes initial epic state under
       console.error(
         `  the original epic prompt survives at ${requestFilePath(slug, options.stateDir)} — recover it from there.`,
       );
+      console.error(
+        `  then clean up with \`flow done ${slug}\` (this pipeline is no longer auto-reaped).`,
+      );
     } else {
       console.error(
         "flow epic create: claude exited immediately after launch — the tmux window did not stay up.",

@@ -994,6 +994,9 @@ function runFresh(
       console.error(
         `  the original request text survives at ${requestFilePath(slug, options.stateDir)} — recover it from there.`,
       );
+      console.error(
+        `  then clean up with \`flow done ${slug}\` (this pipeline is no longer auto-reaped).`,
+      );
     } else {
       console.error(
         "flow feature create: claude exited immediately after launch — the tmux window did not stay up.",
@@ -1638,7 +1641,7 @@ export function ensureLaunchSettings(
 // corrupt delivery — the 2026-08-28 incident) — it is written to a request
 // file (state.ts:writeRequestFile) BEFORE the launcher dispatch, and the
 // seed carries only a REQUEST_FILE pointer to it.
-function flowPipelineSeed(
+export function flowPipelineSeed(
   slug: string,
   description: string,
   stateDir?: string,
@@ -1646,11 +1649,13 @@ function flowPipelineSeed(
   // The pipeline-slug marker must be the RESOLVED slug (an explicit --slug, or a
   // suffixed derived slug), not slugify(description) — otherwise the supervisor
   // reads a marker that mismatches its own window/state basename.
-  // Defensive sanitize even though description no longer rides the seed —
-  // any future call site that inlines it back in gets the same guarantee
-  // for free.
-  sanitizeSeedLine(description);
-  return `[pipeline-slug: ${slug}] Use the /flow-pipeline skill. REQUEST_FILE: ${requestFilePath(slug, stateDir)}`;
+  // Sanitize the COMPOSED line (not just `description`) so the guarantee is
+  // structural: any future call site that inlines `description` back into
+  // this template gets the same protection for free, because the return
+  // value itself is what's guaranteed control-char-free.
+  return sanitizeSeedLine(
+    `[pipeline-slug: ${slug}] Use the /flow-pipeline skill. REQUEST_FILE: ${requestFilePath(slug, stateDir)}`,
+  );
 }
 
 export function flowPipelineResumeSeed(slug: string): string {

@@ -83,16 +83,6 @@ export async function run(deps: Deps): Promise<number> {
   // same session are a no-op (the launch-time ingestion signal is already set).
   if (state.seedIngestedAt) return 0;
 
-  // Launch-window scoped: once a mismatch is recorded for THIS launch, don't
-  // re-record against a later, unrelated prompt — every launch site already
-  // clears seedMismatch before each attempt (see the seedIntact branch
-  // below), so "at most one seedMismatch per launch" holds by construction.
-  // Deliberately NOT a `state.phase !== "starting"` gate: on resume the
-  // phase is already past `starting` (feature.ts/epic.ts both document
-  // this), so that gate would silently switch off the integrity check on
-  // both resume paths and on the SessionStart:clear delivery.
-  if (state.seedMismatch != null) return 0;
-
   // No recorded seed (old-format state, or a launch path that predates this
   // field) — behave exactly as today: stamp unconditionally, no comparison.
   if (state.seed == null) {
@@ -131,16 +121,28 @@ export async function run(deps: Deps): Promise<number> {
 
   if (seedIntact(state.seed, prompt)) {
     // Clear any earlier seedMismatch: launchWithRetry reuses this closure
-    // across attempts, so a corrupted attempt 1 followed by an intact
-    // attempt 2 must not leave the stale mismatch latched — otherwise
-    // seedCorrupted() keeps reporting `failed` even though the retry
-    // delivered the seed intact.
+    // across attempts (the two fresh-create sites), and a resume retry can
+    // also self-heal across a dead-pane attempt 1 followed by an intact
+    // attempt 2 — a corrupted attempt 1 followed by an intact attempt 2 must
+    // not leave the stale mismatch latched, otherwise seedCorrupted() keeps
+    // reporting `failed` even though delivery ultimately succeeded.
     deps.saveState({
       ...state,
       seedIngestedAt: deps.nowIso(),
       seedMismatch: undefined,
     });
-  } else {
+  } else if (state.seedMismatch == null) {
+    // Launch-window scoped, moved into this branch (not a top-of-function
+    // early return): a mismatch already recorded for THIS launch is left
+    // alone rather than re-recorded against a later, unrelated prompt — but
+    // the comparison itself still runs every time, so an intact retry after
+    // a recorded mismatch reaches the branch above and clears it. The two
+    // fresh-create sites rewrite base state INSIDE launchWithRetry's loop;
+    // the two resume sites clear seed*/seedMismatch exactly once, BEFORE the
+    // loop — a top-of-function gate would strand a resume retry that
+    // delivered intact after a dead-pane attempt 1 (the dead-pane branch in
+    // tmux.ts's createWindowVerified precedes the seedCorrupted() check, so
+    // the fail-fast doesn't short-circuit that attempt).
     deps.saveState({
       ...state,
       seedMismatch: {

@@ -52,8 +52,12 @@ The prompt no longer rides the seed itself — a stray control character (a
 TAB, a newline) inside the free-form prompt used to reach the pane raw and
 corrupt delivery, so the CLI now writes the prompt to `REQUEST_FILE` before
 launching and the seed carries only a pointer to it. **Read `REQUEST_FILE`
-first and treat its full contents as the verbatim prompt.** If `REQUEST_FILE`
-is absent, escalate `NEEDS HUMAN: request-file-missing`.
+first and treat its full contents as the verbatim prompt.** This applies to
+the fresh-create seed above only — the `--resume` seed
+(`flow epic create --resume <slug>`) carries no `REQUEST_FILE`; see
+`# Resume mode` below, which is what governs that invocation instead. Only
+when a fresh-create seed's `REQUEST_FILE` is absent, escalate
+`NEEDS HUMAN: request-file-missing`.
 
 Capture the literal `EPIC_DIR` and use it verbatim for every path below
 (`<EPIC_DIR>/design.md`, `<EPIC_DIR>/manifest.json`). Likewise capture the

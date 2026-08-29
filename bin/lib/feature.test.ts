@@ -3195,6 +3195,31 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
     ).toBe("plain thing");
   });
 
+  it("automates the request-file round-trip half of the tab/600-char manual Test Step (plain backend)", async () => {
+    // The remaining manual half of that Test Step is "watch it land in a
+    // real pane" — needs a real Claude Code TUI, which is the surface the
+    // 2026-08-28 incident lives in. This half is deterministic: verbatim
+    // round-trip through the request file, and a control-char-free seed.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const { spawn, calls } = fakePlainSpawn();
+    const desc = `line one\twith a tab\n${"x".repeat(600)}`;
+    const code = await runFeatureCliReal(["create", desc], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({}),
+      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+    });
+    expect(code).toBe(0);
+    expect(calls).toHaveLength(1);
+    const slug = fs.readdirSync(stateDir).find((f) => f.endsWith(".json"));
+    expect(slug).toBeDefined();
+    const resolvedSlug = slug!.replace(/\.json$/, "");
+    expect(
+      fs.readFileSync(requestFilePath(resolvedSlug, stateDir), "utf8"),
+    ).toBe(desc);
+    expect(calls[0]!.argv.at(-1)).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
+
   it("plain create refuses without a TTY (named notice), before spawning", async () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const { spawn, calls } = fakePlainSpawn();

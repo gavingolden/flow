@@ -2,7 +2,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { epicCreateSeed, epicResumeSeed, epicRunSeed } from "./epic-seed";
-import { flowPipelineResumeSeed } from "./feature";
+import { flowPipelineResumeSeed, flowPipelineSeed } from "./feature";
 import {
   chunkByBytes,
   deliverSeed,
@@ -394,19 +394,15 @@ describe("supervisor launch seeds — no unverified remainder", () => {
     "flow-product-planning",
   );
 
-  // flowPipelineSeed (feature.ts) is deliberately module-private — unlike
-  // flowPipelineResumeSeed, no other module needs to build it, so it stays
-  // unexported (mirrors bin/lib/feature.test.ts's own literal-string
-  // assertions against the same contract). Reconstructed here byte-for-byte
-  // against its documented contract rather than widening its visibility
-  // just for this test.
-  const flowPipelineSeedLiteral = (s: string, description: string) =>
-    `[pipeline-slug: ${s}] Use the /flow-pipeline skill. REQUEST_FILE: ${requestFilePath(s, dir)}`;
-
+  // flowPipelineSeed is exported (mirroring flowPipelineResumeSeed on the
+  // very next line of feature.ts) so this table calls the real production
+  // builder instead of a hand-copied literal that can silently drift from
+  // it (a drifted mirror is exactly what made this it.each case
+  // constant-true before).
   const builders: Array<{ name: string; seed: string; maxBytes: number }> = [
     {
       name: "flowPipelineSeed",
-      seed: flowPipelineSeedLiteral(slug, "add CSV export"),
+      seed: flowPipelineSeed(slug, "add CSV export", dir),
       maxBytes: 320,
     },
     {
@@ -443,6 +439,61 @@ describe("supervisor launch seeds — no unverified remainder", () => {
       expect(Buffer.byteLength(seed, "utf8")).toBeLessThanOrEqual(maxBytes);
     },
   );
+
+  // The motivating worst case (block comment above, and the PR's
+  // "Deviations from plan" note) is a 60-char --slug (slug.ts's
+  // MAX_SLUG_LENGTH), not the 10-char "csv-export" every row above uses —
+  // exercise the bound at the cap it was actually sized for.
+  const capSlug = "a".repeat(60);
+  const capEpicDir = `.flow/epics/${capSlug}`;
+  const capSkillDir = path.join(
+    dir,
+    "skills",
+    "pipeline",
+    "flow-product-planning",
+  );
+
+  const buildersAtCap: Array<{ name: string; seed: string; maxBytes: number }> =
+    [
+      {
+        name: "flowPipelineSeed",
+        seed: flowPipelineSeed(capSlug, "add CSV export", dir),
+        maxBytes: 320,
+      },
+      {
+        name: "flowPipelineResumeSeed",
+        seed: flowPipelineResumeSeed(capSlug),
+        maxBytes: 320,
+      },
+      {
+        name: "epicCreateSeed",
+        seed: epicCreateSeed(
+          "add CSV export",
+          capEpicDir,
+          capSkillDir,
+          requestFilePath(capSlug, dir),
+        ),
+        maxBytes: 500,
+      },
+      {
+        name: "epicResumeSeed",
+        seed: epicResumeSeed(capSlug, capEpicDir, capSkillDir),
+        maxBytes: 500,
+      },
+      {
+        name: "epicRunSeed",
+        seed: epicRunSeed(capSlug, capEpicDir),
+        maxBytes: 500,
+      },
+    ];
+
+  it.each(buildersAtCap)(
+    "$name stays within its bound at the 60-char slug cap",
+    ({ seed, maxBytes }) => {
+      expect(splitSeed(seed).remainder).toBe("");
+      expect(Buffer.byteLength(seed, "utf8")).toBeLessThanOrEqual(maxBytes);
+    },
+  );
 });
 
 describe("sanitizeSeedLine", () => {
@@ -470,5 +521,19 @@ describe("sanitizeSeedLine", () => {
     expect(sanitizeSeedLine("plain text, no control chars")).toBe(
       "plain text, no control chars",
     );
+  });
+
+  it("a control-char-bearing description still yields a control-char-free seed", () => {
+    // Call-site assertion, not a pure-function one: with sanitizeSeedLine
+    // now applied to the COMPOSED line at both feature.ts's flowPipelineSeed
+    // and epic-seed.ts's epicCreateSeed, this is the guarantee those two
+    // module doc comments claim, exercised at the real production call site
+    // rather than at sanitizeSeedLine in isolation.
+    const seed = flowPipelineSeed(
+      "csv-export",
+      "a\tb\nc\x1bd",
+      path.join(os.tmpdir(), "flow-seed-bounds-fixture"),
+    );
+    expect(seed).not.toMatch(/[\x00-\x1f\x7f]/);
   });
 });

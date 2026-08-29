@@ -1,14 +1,19 @@
 /**
  * Per-pipeline $ spend, derived from Claude Code's per-session JSONL.
  *
- * Pipeline → JSONL match: `flow feature create <description>` slugifies the
- * description and seeds the supervisor with the literal prompt
- * `Use the /flow-pipeline skill for: <description>`. We scan
- * `~/.claude/projects/<encoded-cwd>/` for the supervisor's starting
+ * Pipeline → JSONL match: `flow feature create <description>` seeds the
+ * supervisor with a single control-char-free line carrying the RESOLVED
+ * slug directly — `[pipeline-slug: <slug>] Use the /flow-pipeline skill.
+ * REQUEST_FILE: <path>` (the description no longer rides the seed at all).
+ * We scan `~/.claude/projects/<encoded-cwd>/` for the supervisor's starting
  * cwd (state.repo) and pick every JSONL whose first user-message
- * extracts back to the same slug. Each pipeline's seed is unique by
- * construction (slugs are unique window names), so concurrent
- * pipelines don't alias.
+ * extracts back to the same slug — matched directly against the
+ * `[pipeline-slug: ...]` bracket, not a slugify(description) round-trip.
+ * Each pipeline's seed is unique by construction (slugs are unique window
+ * names), so concurrent pipelines don't alias. A legacy free-text
+ * `Use the /flow-pipeline skill for: <description>` seed (pre-migration
+ * transcripts) is still matched as a slugify(description) fallback — see
+ * `seedMatchesSlug` below.
  *
  * Why "every" not "first": `flow feature resume` spawns a fresh Claude
  * session — and therefore a fresh JSONL — that also seed-matches the
