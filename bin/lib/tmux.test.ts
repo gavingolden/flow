@@ -449,7 +449,7 @@ describe(createWindowVerified, () => {
     expect(kill).not.toHaveBeenCalled();
   });
 
-  it("Case B2: a recorded seedMismatch (seedCorrupted() true) after an otherwise-successful consume poll → status 'failed' with SEED_CORRUPTED_STDERR AND kills the window", () => {
+  it("Case B2: a recorded corrupt seedIngest outcome (seedCorrupted() true) after an otherwise-successful consume poll → status 'failed' with SEED_CORRUPTED_STDERR AND kills the window", () => {
     // Same setup as Case B (pane ready, seed delivered, consumed() flips true),
     // but the caller's seedCorrupted() predicate reports a recorded mismatch —
     // this must override the successful consume result, not merely add to it.
@@ -1076,7 +1076,7 @@ describe(respawnWindowVerified, () => {
     expect(result).toEqual({ status: "started", stderr: "" });
   });
 
-  it("a recorded seedMismatch (seedCorrupted() true) after an otherwise-successful consume poll → status 'failed' with SEED_CORRUPTED_STDERR, and NEVER kills (resume stays non-destructive)", () => {
+  it("a recorded corrupt seedIngest outcome (seedCorrupted() true) after an otherwise-successful consume poll → status 'failed' with SEED_CORRUPTED_STDERR, and NEVER kills (resume stays non-destructive)", () => {
     const kill = vi.fn(() => true);
     const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
     const result = respawnWindowVerified(

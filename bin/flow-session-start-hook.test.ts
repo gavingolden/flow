@@ -1233,10 +1233,10 @@ describe("terminalContinueSeed — the terminal orientation turn", () => {
 describe("deliverResumeSeed — cross-path seed recording (Task 4b)", () => {
   // Regression: this path delivers a resume/terminal-continue seed that is
   // NOT the create-time seed feature.ts/epic.ts recorded. Once those launch
-  // paths clear seedIngestedAt on their own resume attempts,
+  // paths clear seedIngest on their own resume attempts,
   // flow-seed-ingested-hook would otherwise compare THIS path's prompt
-  // against a stale create-time seed and record a false seedMismatch.
-  it("resume mode overwrites state.seed with the delivered resume seed, clearing seedIngestedAt/seedMismatch", () => {
+  // against a stale create-time seed and record a false `corrupt` outcome.
+  it("resume mode overwrites state.seed with the delivered resume seed, clearing seedIngest", () => {
     const capture = frames([
       "old pre-clear prompt",
       "fresh",
@@ -1251,9 +1251,9 @@ describe("deliverResumeSeed — cross-path seed recording (Task 4b)", () => {
       repo: "/tmp/repo",
       updatedAt: "2026-06-30T00:00:00Z",
       seed: "[pipeline-slug: demo]\nUse the /flow-pipeline skill for: STALE create-time text",
-      seedIngestedAt: "2026-06-29T00:00:00Z",
-      seedMismatch: {
+      seedIngest: {
         at: "2026-06-29T00:00:01Z",
+        outcome: "corrupt",
         expectedBytes: 5,
         submittedBytes: 3,
       },
@@ -1274,12 +1274,11 @@ describe("deliverResumeSeed — cross-path seed recording (Task 4b)", () => {
     expect(written[0]).toEqual({
       ...staleState,
       seed: flowPipelineResumeSeed("demo"),
-      seedIngestedAt: undefined,
-      seedMismatch: undefined,
+      seedIngest: undefined,
     });
   });
 
-  it("terminal mode overwrites state.seed with the delivered terminal-continue seed, clearing seedIngestedAt/seedMismatch", () => {
+  it("terminal mode overwrites state.seed with the delivered terminal-continue seed, clearing seedIngest", () => {
     const capture = frames(["old pre-clear prompt", "fresh", "fresh", "fresh"]);
     const { seams } = makeSeams(capture);
     const state: PipelineState = {
@@ -1290,7 +1289,7 @@ describe("deliverResumeSeed — cross-path seed recording (Task 4b)", () => {
       pr: 42,
       updatedAt: "2026-06-30T00:00:00Z",
       seed: "[pipeline-slug: demo]\nUse the /flow-pipeline skill for: STALE create-time text",
-      seedIngestedAt: "2026-06-29T00:00:00Z",
+      seedIngest: { at: "2026-06-29T00:00:00Z", outcome: "verified" },
     };
     const expectedSeed = terminalContinueSeed(
       "demo",
@@ -1314,8 +1313,7 @@ describe("deliverResumeSeed — cross-path seed recording (Task 4b)", () => {
     expect(written[0]).toEqual({
       ...state,
       seed: expectedSeed,
-      seedIngestedAt: undefined,
-      seedMismatch: undefined,
+      seedIngest: undefined,
     });
   });
 });

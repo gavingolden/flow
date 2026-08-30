@@ -311,7 +311,7 @@ export type VerifiedLaunchResult = {
 };
 /**
  * Stderr for the `failed` a `seedCorrupted()` predicate produces after the
- * consume poll — a recorded `state.seedMismatch` (flow-seed-ingested-hook's
+ * consume poll — a recorded `seedIngest` `corrupt` outcome (flow-seed-ingested-hook's
  * UserPromptSubmit comparison came back non-intact) reported as a hard launch
  * failure, mapped onto the existing `failed` status rather than a new enum
  * member so `createWindowVerified`'s kill + `launchWithRetry`'s re-launch
@@ -561,7 +561,7 @@ export type CreateWindowVerifiedDeps = {
    * Recorded-mismatch predicate, checked once after the consume poll. Defaults
    * to `() => false` so every existing caller/spec is unaffected. The caller
    * (`feature.ts` / `epic.ts`) injects a check against the on-disk
-   * `state.seedMismatch` field flow-seed-ingested-hook records on a corrupted
+   * `state.seedIngest` `corrupt` outcome flow-seed-ingested-hook records on a corrupted
    * UserPromptSubmit comparison — a hard launch failure, not a soft signal.
    */
   seedCorrupted?: () => boolean;
@@ -701,7 +701,7 @@ export function createWindowVerified(
         "tmux window created but claude died before the seed was confirmed consumed (pane not alive)",
     };
   }
-  // A recorded seedMismatch (flow-seed-ingested-hook's UserPromptSubmit
+  // A recorded `corrupt` outcome (flow-seed-ingested-hook's UserPromptSubmit
   // comparison came back non-intact) is a hard launch failure, checked AFTER
   // the consume poll so a corrupted-but-alive pane is still killed here
   // (mirrors the dead-pane branch above) rather than reported as success.
@@ -793,7 +793,7 @@ export function respawnWindowVerified(
     consumeAttempts,
     onProgress,
   );
-  // A recorded seedMismatch is a hard failure here too, but the resume path
+  // A recorded `corrupt` outcome is a hard failure here too, but the resume path
   // stays non-destructive on EVERY outcome (see the doc comment above) — no
   // kill/respawn, just report `failed` so the caller's retry logic applies.
   if (seedCorrupted()) {

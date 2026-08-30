@@ -812,24 +812,52 @@ describe("state", () => {
     expect(readState("reap-malformed", dir)).toBeNull();
   });
 
-  it("readState round-trips a valid seed and seedMismatch through writeState", () => {
-    const withSeedMismatch: PipelineState = {
-      slug: "with-seed-mismatch",
+  it("readState round-trips a valid seed and seedIngest through writeState", () => {
+    const withSeedIngest: PipelineState = {
+      slug: "with-seed-ingest",
       phase: "starting",
       repo: "/tmp/repo",
       updatedAt: "2026-05-17T00:00:00Z",
-      seed: "[pipeline-slug: with-seed-mismatch]\nUse the /flow-pipeline skill for: x",
-      seedMismatch: {
+      seed: "[pipeline-slug: with-seed-ingest]\nUse the /flow-pipeline skill for: x",
+      seedIngest: {
         at: "2026-05-17T00:01:00Z",
+        outcome: "corrupt",
         expectedBytes: 72,
         submittedBytes: 40,
       },
     };
-    writeState(withSeedMismatch, dir);
-    expect(readState("with-seed-mismatch", dir)).toEqual(withSeedMismatch);
+    writeState(withSeedIngest, dir);
+    expect(readState("with-seed-ingest", dir)).toEqual(withSeedIngest);
   });
 
-  it("readState accepts absent seed and seedMismatch fields", () => {
+  it("readState round-trips each non-corrupt seedIngest outcome", () => {
+    const outcomes: NonNullable<PipelineState["seedIngest"]>[] = [
+      { at: "2026-05-17T00:01:00Z", outcome: "verified" },
+      {
+        at: "2026-05-17T00:01:00Z",
+        outcome: "not-applicable",
+        reason: "no-seed-recorded",
+      },
+      {
+        at: "2026-05-17T00:01:00Z",
+        outcome: "unverified",
+        reason: "stdin-timeout",
+      },
+    ];
+    for (const [i, seedIngest] of outcomes.entries()) {
+      const st: PipelineState = {
+        slug: `seed-outcome-${i}`,
+        phase: "starting",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        seedIngest,
+      };
+      writeState(st, dir);
+      expect(readState(`seed-outcome-${i}`, dir)).toEqual(st);
+    }
+  });
+
+  it("readState accepts absent seed and seedIngest fields", () => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, "seed-absent.json"),
@@ -843,7 +871,7 @@ describe("state", () => {
     const got = readState("seed-absent", dir);
     expect(got).not.toBeNull();
     expect(got).not.toHaveProperty("seed");
-    expect(got).not.toHaveProperty("seedMismatch");
+    expect(got).not.toHaveProperty("seedIngest");
   });
 
   it("readState returns null when seed is not a string", () => {
@@ -861,23 +889,37 @@ describe("state", () => {
     expect(readState("seed-bad-type", dir)).toBeNull();
   });
 
-  it("readState returns null when seedMismatch is malformed", () => {
-    // seedMismatch must be { at, expectedBytes, submittedBytes }. A record
-    // missing submittedBytes makes readState reject the WHOLE state file
-    // (returns null), same whole-file-rejection discipline as the other
-    // record-shaped optional fields (reap, ciWait, checkpoint).
+  it("readState returns null when seedIngest is malformed", () => {
+    // A malformed seedIngest record makes readState reject the WHOLE state
+    // file (returns null), same whole-file-rejection discipline as the other
+    // record-shaped optional fields (reap, ciWait, checkpoint). One rejection
+    // case per outcome, so no variant's guard can regress unnoticed.
+    const malformed: Record<string, unknown>[] = [
+      // verified: missing `at`
+      { outcome: "verified" },
+      // not-applicable: non-string reason
+      { at: "2026-05-17T00:01:00Z", outcome: "not-applicable", reason: 3 },
+      // unverified: reason absent entirely
+      { at: "2026-05-17T00:01:00Z", outcome: "unverified" },
+      // corrupt: missing submittedBytes
+      { at: "2026-05-17T00:01:00Z", outcome: "corrupt", expectedBytes: 72 },
+      // unknown outcome
+      { at: "2026-05-17T00:01:00Z", outcome: "ingested" },
+    ];
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, "seed-mismatch-malformed.json"),
-      JSON.stringify({
-        slug: "seed-mismatch-malformed",
-        phase: "starting",
-        repo: "/tmp/repo",
-        updatedAt: "2026-05-17T00:00:00Z",
-        seedMismatch: { at: "2026-05-17T00:01:00Z", expectedBytes: 72 },
-      }),
-    );
-    expect(readState("seed-mismatch-malformed", dir)).toBeNull();
+    for (const [i, seedIngest] of malformed.entries()) {
+      fs.writeFileSync(
+        path.join(dir, `seed-ingest-malformed-${i}.json`),
+        JSON.stringify({
+          slug: `seed-ingest-malformed-${i}`,
+          phase: "starting",
+          repo: "/tmp/repo",
+          updatedAt: "2026-05-17T00:00:00Z",
+          seedIngest,
+        }),
+      );
+      expect(readState(`seed-ingest-malformed-${i}`, dir)).toBeNull();
+    }
   });
 
   it("readState round-trips a valid ciWait record through writeState", () => {

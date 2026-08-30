@@ -216,9 +216,9 @@ describe(reapStartingOrphans, () => {
   });
 });
 
-describe("seedMismatch skip", () => {
-  // A recorded seedMismatch means the surviving request file is exactly
-  // what the corruption failure message tells the operator to read;
+describe("corrupt seedIngest skip", () => {
+  // A `corrupt` seedIngest record means the surviving request file is
+  // exactly what the corruption failure message tells the operator to read;
   // reaping it ~60s later would destroy that recovery artifact.
   let stateDir!: string;
 
@@ -233,20 +233,21 @@ describe("seedMismatch skip", () => {
   const corrupted = () =>
     state({
       slug: "corrupted",
-      seedMismatch: {
+      seedIngest: {
         at: new Date(NOW - 2 * GRACE_MS).toISOString(),
+        outcome: "corrupt",
         expectedBytes: 668,
         submittedBytes: 677,
       },
     });
 
-  it("reapableStartingOrphans skips a starting slug with a recorded seedMismatch", () => {
+  it("reapableStartingOrphans skips a starting slug with a corrupt seedIngest record", () => {
     expect(reapableStartingOrphans([corrupted()], [], NOW, GRACE_MS)).toEqual(
       [],
     );
   });
 
-  it("reapStartingOrphans leaves the seedMismatch slug's state and request files on disk", () => {
+  it("reapStartingOrphans leaves the corrupted slug's state and request files on disk", () => {
     writeState(corrupted(), stateDir);
     writeRequestFile("corrupted", "Add CSV export.", stateDir);
 
@@ -263,7 +264,24 @@ describe("seedMismatch skip", () => {
     expect(fs.existsSync(requestFilePath("corrupted", stateDir))).toBe(true);
   });
 
-  it("reapStartingOrphans still reaps a starting slug with no seedMismatch", () => {
+  it("reapableStartingOrphans still reaps a starting slug recorded `unverified`", () => {
+    // Only `corrupt` names a recovery artifact. `unverified` means the check
+    // could not run — delivery may well have been fine — so it must not pin a
+    // dead orphan on disk forever.
+    const unverified = state({
+      slug: "unverified-orphan",
+      seedIngest: {
+        at: new Date(NOW - 2 * GRACE_MS).toISOString(),
+        outcome: "unverified",
+        reason: "stdin-timeout",
+      },
+    });
+    expect(reapableStartingOrphans([unverified], [], NOW, GRACE_MS)).toEqual([
+      "unverified-orphan",
+    ]);
+  });
+
+  it("reapStartingOrphans still reaps a starting slug with no corrupt record", () => {
     writeState(state({ slug: "plain-orphan" }), stateDir);
 
     const reaped = reapStartingOrphans(

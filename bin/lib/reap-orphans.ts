@@ -19,10 +19,10 @@ import { findWindowBySlug, type TmuxWindow } from "./tmux";
 
 /**
  * Pure: the slugs of never-started orphans safe to reap. A slug is reapable
- * iff phase === "starting" AND it carries no recorded `seedMismatch` (that
- * state's request file — see state.ts's `writeRequestFile` — is exactly what
- * a seedCorrupted() failure message tells the operator to read; reaping it
- * here would destroy the recovery artifact) AND its `updatedAt` is older
+ * iff phase === "starting" AND it carries no `corrupt` seedIngest record
+ * (that state's request file — see state.ts's `writeRequestFile` — is exactly
+ * what a seedCorrupted() failure message tells the operator to read; reaping
+ * it here would destroy the recovery artifact) AND its `updatedAt` is older
  * than `graceMs` AND either:
  *   - the file-signal liveness check (`livenessOf`) positively reports the
  *     recorded process dead/stale (a window can still be present — a live
@@ -44,11 +44,13 @@ export function reapableStartingOrphans(
   const reapable: string[] = [];
   for (const state of states) {
     if (state.phase !== "starting") continue;
-    // A recorded seedMismatch means the surviving request file is exactly
-    // what the corruption failure message tells the operator to read —
-    // deleteState (state.ts) now unlinks it too, so reaping here would
-    // destroy the recovery artifact ~60s after the launch failed.
-    if (state.seedMismatch != null) continue;
+    // A `corrupt` seedIngest record means the surviving request file is
+    // exactly what the corruption failure message tells the operator to read
+    // — deleteState (state.ts) unlinks it too, so reaping here would destroy
+    // the recovery artifact ~60s after the launch failed. Only `corrupt`
+    // gates the reap: `unverified` means the check could not run, not that
+    // delivery failed, so it leaves no recovery artifact worth preserving.
+    if (state.seedIngest?.outcome === "corrupt") continue;
     const verdict = livenessOf(state);
     if (verdict === "alive") continue;
     if (

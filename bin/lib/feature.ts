@@ -56,6 +56,11 @@ import { sleepSync } from "./sleep";
 import { sanitizeSeedLine } from "./seed-delivery";
 import { appendLaunchRecord } from "./launch-log";
 import { dim } from "./color";
+import {
+  seedIngestConfirmsDelivery,
+  seedIngestIsCorrupt,
+  unverifiedSeedWarning,
+} from "./seed-ingest";
 import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
 import {
   FLOW_CLAUDE_HOME,
@@ -931,22 +936,23 @@ function runFresh(
     // kills its own half-created window on failure, so an exhausted retry leaves
     // no window behind; the delete-on-failure below removes the up-front state.
     const result = createWindowVerified(slug, repo, command, seed, {
-      // Marker-aware consumed(): the seed-ingested hook stamping `seedIngestedAt`
-      // confirms ingestion at launch time; absent the marker, fall back to the
-      // phase advancing past `starting`. (consumed() is only probed while the
-      // pane is alive, so "marker present" already implies a live pane.) A
-      // recorded seedMismatch is checked FIRST so it always beats the
-      // phase-advance fallback — a corrupted delivery must never latch as
-      // consumed just because some other write happened to advance the phase.
+      // Record-aware consumed(): a `verified` seedIngest record confirms
+      // ingestion at launch time; every OTHER outcome (unverified,
+      // not-applicable, absent) falls through to the phase advancing past
+      // `starting`, so an unrun check can never stand in for verification.
+      // (consumed() is only probed while the pane is alive, so "verified"
+      // already implies a live pane.) `corrupt` is checked FIRST so it always
+      // beats the phase-advance fallback — a corrupted delivery must never
+      // latch as consumed just because some other write advanced the phase.
       consumed: () => {
         const s = readState(slug, options.stateDir);
         if (s == null) return false;
-        if (s.seedMismatch != null) return false;
-        if (s.seedIngestedAt != null) return true;
+        if (seedIngestIsCorrupt(s)) return false;
+        if (seedIngestConfirmsDelivery(s)) return true;
         return s.phase !== "starting";
       },
       seedCorrupted: () =>
-        readState(slug, options.stateDir)?.seedMismatch != null,
+        seedIngestIsCorrupt(readState(slug, options.stateDir)),
       onProgress: makeLaunchProgressWriter(),
     });
     // Crash-safe liveness signal: only once the window is confirmed up (never
@@ -980,7 +986,7 @@ function runFresh(
     // pipeline never got far enough to write a plan/worktree, and the request
     // file written above (before the launcher dispatch) is the recovery
     // artifact. reapableStartingOrphans (reap-orphans.ts) now skips any slug
-    // with a recorded seedMismatch, so — unlike before — `flow ls`'s lazy
+    // with a `corrupt` seedIngest record, so — unlike before — `flow ls`'s lazy
     // reap (REAP_GRACE_MS, ~60s) does NOT delete this state (or its sibling
     // request file) shortly after; both survive until the operator recovers
     // or explicitly `flow done`s the slug.
@@ -1022,6 +1028,18 @@ function runFresh(
       "  retry `flow feature create`; if it persists, check tmux/claude health.",
     );
     return 1;
+  }
+
+  // Deliberately AFTER the Mode-2 backstop above: an `unverified` record on a
+  // launch that then reports the window vanished would print two contradictory
+  // messages for one launch. Warning only — the exit code is unchanged, since
+  // "could not verify" is not "known bad".
+  {
+    const w = unverifiedSeedWarning(
+      "flow feature create",
+      readState(slug, options.stateDir),
+    );
+    if (w) console.error(dim(w));
   }
 
   // Best-effort epic tree-view badge (OQ-1): publish @flow-epic once the
@@ -1229,23 +1247,19 @@ function runResume(
   // capturing the consumption baseline below. Two independent reasons this
   // must happen HERE, before the baseline read:
   //  (1) markerBaseline (below) must reflect the state a stale earlier
-  //      seedIngestedAt would otherwise poison — clearing it first means any
-  //      post-resume stamp is unambiguously a fresh re-stamp, never a leftover
-  //      from a prior launch/resume.
-  //  (2) flow-seed-ingested-hook short-circuits on `if (state.seedIngestedAt)
-  //      return 0;` — without this clear, the hook never performs the
-  //      integrity comparison on a resume attempt at all, regardless of the
+  //      seedIngest record would otherwise poison — clearing it starts a NEW
+  //      epoch, so any post-resume record is unambiguously fresh, never a
+  //      leftover from a prior launch/resume.
+  //  (2) flow-seed-ingested-hook short-circuits on the two TERMINAL outcomes
+  //      (`verified`, `not-applicable`) — without this clear, the hook never
+  //      performs the integrity comparison on a resume attempt at all,
+  //      regardless of the
   //      markerBaseline logic below.
   {
     const preClear = readState(slug, options.stateDir);
     if (preClear != null) {
       writeState(
-        {
-          ...preClear,
-          seed,
-          seedIngestedAt: undefined,
-          seedMismatch: undefined,
-        },
+        { ...preClear, seed, seedIngest: undefined },
         options.stateDir,
       );
     }
@@ -1256,7 +1270,7 @@ function runResume(
   // baselines are captured ONCE before the retry loop (not per-attempt): paired
   // with the non-destructive timeout, a late advance no longer respawn-kills a
   // live session. The marker baseline is now ALWAYS undefined immediately after
-  // the clear above, so a bare `seedIngestedAt != null` check on its own would
+  // the clear above, so a bare `outcome === "verified"` check on its own would
   // suffice — the explicit `!== markerBaseline` comparison is kept anyway so this
   // predicate degrades safely if the clear above is ever skipped or reordered.
   // ACCEPTED rare trade-off: a dead-then-retried resume whose prior dead attempt
@@ -1269,20 +1283,24 @@ function runResume(
   // to this baseline.)
   const preResume = readState(slug, options.stateDir);
   const baseline = preResume?.updatedAt;
-  const markerBaseline = preResume?.seedIngestedAt;
+  const markerBaseline = preResume?.seedIngest?.at;
   const consumed = () => {
     const s = readState(slug, options.stateDir);
     if (s == null) return false;
-    // A recorded seedMismatch is checked FIRST so it always beats the
-    // marker/updatedAt fallbacks — a corrupted delivery must never latch as
-    // consumed just because the marker or updatedAt happened to advance too.
-    if (s.seedMismatch != null) return false;
-    if (s.seedIngestedAt != null && s.seedIngestedAt !== markerBaseline)
+    // PREDICATE ORDER IS LOAD-BEARING. `corrupt` is checked FIRST so it always
+    // beats the record/updatedAt fallbacks — a corrupted delivery must never
+    // latch as consumed just because the record or updatedAt advanced too. The
+    // `verified` check is second and is deliberately narrow: `markerBaseline`
+    // is now also set by not-applicable and unverified records, so a FRESH
+    // unverified record must NOT satisfy the baseline. Every other outcome
+    // falls through to updatedAt.
+    if (seedIngestIsCorrupt(s)) return false;
+    if (seedIngestConfirmsDelivery(s) && s.seedIngest?.at !== markerBaseline)
       return true;
     return s.updatedAt !== baseline;
   };
   const seedCorrupted = () =>
-    readState(slug, options.stateDir)?.seedMismatch != null;
+    seedIngestIsCorrupt(readState(slug, options.stateDir));
   const launch = () => {
     const deps = {
       consumed,
@@ -1298,7 +1316,7 @@ function runResume(
     // never the pre-resume `preResume` snapshot above, so a supervisor write
     // that landed during this (re)launch attempt (e.g. a phase advance) is
     // never clobbered. Deliberately does NOT touch `updatedAt` (unlike the
-    // fresh-launch closure's write): `updatedAt`/`seedIngestedAt` are the
+    // fresh-launch closure's write): `updatedAt`/`seedIngest.at` are the
     // `consumed` baseline this SAME closure gates the resume's own success
     // on, above — stamping a fresh `updatedAt` here would falsely satisfy
     // that baseline comparison for any caller that re-probes `consumed()`
@@ -1342,6 +1360,16 @@ function runResume(
     }
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 1;
+  }
+
+  // Mirrors runFresh's warning. This path has no Mode-2 windowExists backstop,
+  // so the failed-launch block above is the only thing it must follow.
+  {
+    const w = unverifiedSeedWarning(
+      "flow feature resume",
+      readState(slug, options.stateDir),
+    );
+    if (w) console.error(dim(w));
   }
 
   // Best-effort epic tree-view badge (OQ-1), mirroring runFresh: publish
