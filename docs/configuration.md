@@ -180,8 +180,9 @@ The plain shell stays the default launcher unless you opt in: per run with `flow
 
 `output.lens` (`bin/lib/output-lens.ts`) controls how much detail flow's
 terminal blocks and PR-facing renders show. `pm` (the default) hides
-phase timings, the full review narrative, `rejected:` reasoning, and the
-`## Foreclosed Paths` prose behind `<details>` or the `dev` lens, leaving
+phase timings, the full review narrative, `rejected:` / `anti-patterns:`
+reasoning, and the `## Foreclosed Paths` prose behind `<details>` or the
+`dev` lens, leaving
 only the six-slot decision surface (`pause-output-contract.md`). `dev`
 widens the same helper renders back toward today's fuller shape — the
 pause-block _slot set_ is identical under both lenses, but per-render-site

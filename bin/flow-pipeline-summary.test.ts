@@ -1517,14 +1517,16 @@ describe("renderComment — slim PR-comment block (dev)", () => {
     expect(block).toContain("dropped a duplicate security finding");
   });
 
-  it("renders the literal `none` for empty deferred and rejected parts", () => {
+  it("renders the literal `none` for empty deferred, rejected, and anti-pattern parts", () => {
     const block = renderComment(EMPTY_COMMENT_INPUTS).dev;
-    // Both DECISIONS sub-parts collapse to the explicit `none` discipline.
+    // All three DECISIONS sub-parts collapse to the explicit `none` discipline.
     expect(block).toContain("deferred:");
     expect(block).toContain("rejected:");
+    expect(block).toContain("anti-patterns:");
     // Each empty sub-part prints `none`.
     expect(block).toMatch(/deferred:\n\s+none/);
     expect(block).toMatch(/rejected:\n\s+none/);
+    expect(block).toMatch(/anti-patterns:\n\s+none/);
     // CHANGES and REVIEW also fall back to `none`.
     expect(block).toContain("CHANGES:");
     expect(block).toContain("REVIEW:");

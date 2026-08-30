@@ -18,6 +18,7 @@ import {
 import { formatDuration } from "./time";
 import {
   formatPlainText,
+  formatPlainTextEntries,
   collectForeclosedEntries,
   isEmpty,
 } from "./foreclosed-paths-format";
@@ -448,11 +449,34 @@ function rejectedDecisionLines(
 }
 
 /**
+ * Anti-pattern decisions for the slim PR comment's DECISIONS section,
+ * sourced from the shared `collectForeclosedEntries` collector (the same
+ * core the `## Foreclosed Paths` PR-body section and the `FORECLOSED PATHS`
+ * terminal snapshot render from) filtered to `category === "anti-pattern"`,
+ * plus any whole-source `unreadable` degradation marker (those are tagged
+ * `category: "rejected-alternative"` by the collector, so they need an
+ * explicit `|| e.unreadable` or a broken artifact would silently render
+ * `none` instead of `(unreadable)`, unlike its sibling surfaces).
+ * `none` when the filtered set is empty.
+ */
+function antiPatternDecisionLines(
+  fixApplierRaw: string,
+  consolidatorRaw: string,
+): string[] {
+  const lines = formatPlainTextEntries(
+    collectForeclosedEntries({ fixApplierRaw, consolidatorRaw }).filter(
+      (e) => e.category === "anti-pattern" || e.unreadable,
+    ),
+  );
+  return lines.length > 0 ? lines : NONE;
+}
+
+/**
  * Slimmed, un-fenced PR-comment block (NOT the scrollback block). A plain
  * `PIPELINE SNAPSHOT` title line (no `##`) over three 2-space-indented
  * labeled sections: CHANGES (the one-line diff summary, reusing
  * renderChanges), REVIEW (the review/findings disposition, reusing
- * renderFindings), and DECISIONS (deferred + rejected), plus a conditional
+ * renderFindings), and DECISIONS (deferred + rejected + anti-patterns), plus a conditional
  * INTENT section emitted only when the intent-resolution artifact is
  * present AND its verdict is non-`match` (an unparseable artifact drops the
  * section entirely rather than rendering `(unreadable)`, unlike `render()`).
@@ -535,15 +559,22 @@ function renderCommentDev(inputs: RenderCommentInputs): string {
   )) {
     lines.push(`    ${ln}`);
   }
+  lines.push("  anti-patterns:");
+  for (const ln of antiPatternDecisionLines(
+    inputs.fixApplierRaw,
+    inputs.consolidatorRaw,
+  )) {
+    lines.push(`    ${ln}`);
+  }
   return lines.join("\n");
 }
 
 /**
  * pm-lens PR-comment block: `CHANGES` / `REVIEW` (verdict + count line,
  * never the `review:` narrative) / `DEVIATIONS` / `UNTRACKED` only — the
- * developer detail (full review summary, `consolidator:` line, `rejected:`
- * reasoning) moves to `dev`, rendered inside a `<details>` wrapper by
- * `buildCommentBody`.
+ * developer detail (full review summary, `consolidator:` line, `rejected:` /
+ * `anti-patterns:` reasoning) moves to `dev`, rendered inside a `<details>`
+ * wrapper by `buildCommentBody`.
  */
 function renderCommentPm(inputs: RenderCommentInputs): string {
   const lines: string[] = ["PIPELINE SNAPSHOT"];
