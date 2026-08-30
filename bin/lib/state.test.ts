@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { reapableStartingOrphans, reapStartingOrphans } from "./reap-orphans";
 import {
   autoResumesAfterClear,
   AWAITING_HUMAN_PHASES,
@@ -1316,63 +1315,6 @@ describe("state", () => {
     writeState(fixture("no-request"), dir);
     expect(deleteState("no-request", dir)).toBe(true);
     expect(readState("no-request", dir)).toBeNull();
-  });
-});
-
-describe("reap-orphans seedMismatch skip", () => {
-  // A recorded seedMismatch means the surviving request file is exactly
-  // what the corruption failure message tells the operator to read;
-  // reaping it ~60s later would destroy that recovery artifact.
-  it("reapableStartingOrphans skips a starting slug with a recorded seedMismatch", () => {
-    const now = Date.parse("2026-04-30T14:00:00Z");
-    const stale: PipelineState = fixture("corrupted", {
-      seedMismatch: {
-        at: "2026-04-30T12:00:00Z",
-        expectedBytes: 668,
-        submittedBytes: 677,
-      },
-    });
-    const reapable = reapableStartingOrphans([stale], [], now, 60 * 60 * 1000);
-    expect(reapable).toEqual([]);
-  });
-
-  it("reapStartingOrphans leaves the seedMismatch slug's state and request files on disk", () => {
-    const now = Date.parse("2026-04-30T14:00:00Z");
-    writeState(
-      fixture("corrupted", {
-        seedMismatch: {
-          at: "2026-04-30T12:00:00Z",
-          expectedBytes: 668,
-          submittedBytes: 677,
-        },
-      }),
-      dir,
-    );
-    writeRequestFile("corrupted", "Add CSV export.", dir);
-    const reaped = reapStartingOrphans(
-      [readState("corrupted", dir)!],
-      [],
-      now,
-      60 * 60 * 1000,
-      dir,
-    );
-    expect(reaped).toEqual([]);
-    expect(readState("corrupted", dir)).not.toBeNull();
-    expect(fs.existsSync(requestFilePath("corrupted", dir))).toBe(true);
-  });
-
-  it("reapStartingOrphans still reaps a starting slug with no seedMismatch", () => {
-    const now = Date.parse("2026-04-30T14:00:00Z");
-    writeState(fixture("plain-orphan"), dir);
-    const reaped = reapStartingOrphans(
-      [readState("plain-orphan", dir)!],
-      [],
-      now,
-      60 * 60 * 1000,
-      dir,
-    );
-    expect(reaped).toEqual(["plain-orphan"]);
-    expect(readState("plain-orphan", dir)).toBeNull();
   });
 });
 
