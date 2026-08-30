@@ -2394,12 +2394,12 @@ else
   [ "${#WARN[@]}" -gt 0 ] && echo "WARN: no Issues surface for: ${WARN[*]}"
   [ "${#REJECTED[@]}" -gt 0 ] && echo "REJECTED (exit 3, needs repair): ${REJECTED[*]}"
   [ "${#FILED[@]}" -gt 0 ] && { echo "Filed ${#FILED[@]} follow-up issues:"; printf '  %s\n' "${FILED[@]}"; }; fi
-# Capture filed URLs + unfiled warnings to the flat file the ## PIPELINE
-# SNAPSHOT block reads as --filed-issues-file (filed\t<url> / unfiled\t<title>
-# lines; a bare http… line is also accepted on the resume path). Truncate first.
+# Capture filed/unfiled/rejected entries as filed\t<url> / unfiled\t<title>
+# / rejected\t<title> lines; ## PIPELINE SNAPSHOT reads this file. Truncate first.
 : > "$WORKTREE/.flow-tmp/filed-issues.txt"
 if [ "${#FILED[@]}" -gt 0 ]; then printf 'filed\t%s\n' "${FILED[@]}" >> "$WORKTREE/.flow-tmp/filed-issues.txt"; fi
 if [ "${#WARN[@]}" -gt 0 ]; then printf 'unfiled\t%s\n' "${WARN[@]}" >> "$WORKTREE/.flow-tmp/filed-issues.txt"; fi
+if [ "${#REJECTED[@]}" -gt 0 ]; then printf 'rejected\t%s\n' "${REJECTED[@]}" >> "$WORKTREE/.flow-tmp/filed-issues.txt"; fi
 ```
 
 The sweep is best-effort: per-call failure surfaces as a `WARN:` line

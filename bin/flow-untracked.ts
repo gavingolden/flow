@@ -141,13 +141,16 @@ export function normalizeSourceAnchor(
   id: number,
   slug: string,
 ): string {
-  const trimmed = (source ?? "").trim();
+  const trimmed = (source ?? "").replace(/\s*\n\s*/g, " ").trim();
   if (!trimmed) {
     return `[anchor: item #${id}, ${statePath(slug)}]`;
   }
   const repoRoot = resolveAnchorRepoRoot(undefined);
   const abs = path.resolve(repoRoot, trimmed);
-  if (fs.existsSync(abs)) {
+  const rel = path.relative(repoRoot, abs);
+  const inRepo =
+    !path.isAbsolute(trimmed) && rel !== "" && !rel.startsWith("..");
+  if (inRepo && fs.existsSync(abs)) {
     return `[anchor: ${trimmed}]`;
   }
   return `[anchor: "${trimmed}"]`;
@@ -162,7 +165,12 @@ export function normalizeSourceAnchor(
  */
 function buildShortFormBody(item: UntrackedItem, slug: string): string {
   const anchor = normalizeSourceAnchor(item.source, item.id, slug);
-  return `**Short form:** [V:2|C:Trivial|R:Low] ${item.title} ${anchor}`;
+  // The rubric's short-form regex only scans the Short-form line itself,
+  // so an embedded newline in a user-dictated title would push the
+  // anchor onto line 2, where the checker can't see it — collapse to a
+  // single line before composing.
+  const title = item.title.replace(/\s*\n\s*/g, " ").trim();
+  return `**Short form:** [V:2|C:Trivial|R:Low] ${title} ${anchor}`;
 }
 
 /**

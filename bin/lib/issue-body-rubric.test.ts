@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { checkIssueBody } from "./issue-body-rubric";
 
 const CONFORMING_FULL = `
@@ -65,6 +65,30 @@ describe("checkIssueBody: hard misses", () => {
       "- **Value rank:** 4 [anchor: bin/lib/session.ts:88]",
       "- **Value rank:** 4",
     );
+    expect(checkIssueBody(body).misses).toContain("invalid-value-rank");
+  });
+
+  it("rejects a bad Value rank even when the anchor suffix contains an in-range digit", () => {
+    const body = CONFORMING_FULL.replace(
+      "- **Value rank:** 4 [anchor: bin/lib/session.ts:88]",
+      "- **Value rank:** 9 [anchor: src/foo.ts:42]",
+    );
+    expect(checkIssueBody(body).misses).toContain("invalid-value-rank");
+  });
+
+  it("rejects a non-numeric Value rank even when the anchor suffix contains a digit", () => {
+    const body = CONFORMING_FULL.replace(
+      "- **Value rank:** 4 [anchor: bin/lib/session.ts:88]",
+      "- **Value rank:** abc [anchor: src/foo.ts:42]",
+    );
+    expect(checkIssueBody(body).misses).toContain("invalid-value-rank");
+  });
+
+  it("does not let a well-formed Short form bypass a malformed full block via the early return", () => {
+    const body = `${CONFORMING_SHORT_FORM}\n\n${CONFORMING_FULL.replace(
+      "- **Value rank:** 4 [anchor: bin/lib/session.ts:88]",
+      "- **Value rank:** 9 [anchor: bin/lib/session.ts:88]",
+    )}`;
     expect(checkIssueBody(body).misses).toContain("invalid-value-rank");
   });
 

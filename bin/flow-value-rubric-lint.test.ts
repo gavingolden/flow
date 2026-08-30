@@ -331,8 +331,8 @@ describe("flow-value-rubric: no stale Cost label survives", () => {
   // The label-only `grep -rq '- **Cost:**'` acceptance check is blind to
   // prose forms of the same idea (e.g. "the Cost line is …", "rendered as
   // six nested sub-bullets (… / Cost / …)"). This sweep catches both the
-  // label and the word "Cost line" tree-wide, mirroring the
-  // `mdFilesUnder`/`SWEEP` idiom above.
+  // label and the word "Cost line" tree-wide in a single pass over each
+  // file, mirroring the `mdFilesUnder`/`SWEEP` idiom above.
   function mdFilesUnder(rel: string): string[] {
     const dirPath = path.join(REPO_ROOT, rel);
     if (!fs.existsSync(dirPath)) return [];
@@ -350,11 +350,9 @@ describe("flow-value-rubric: no stale Cost label survives", () => {
     ...mdFilesUnder("templates"),
   ];
 
-  it.each(SWEEP)("%s no longer contains the '- **Cost:**' label", (rel) => {
-    expect(read(rel).includes("- **Cost:**")).toBe(false);
-  });
-
-  it.each(SWEEP)("%s no longer contains the prose form 'Cost line'", (rel) => {
-    expect(read(rel).includes("Cost line")).toBe(false);
+  it.each(SWEEP)("%s no longer contains a stale Cost reference", (rel) => {
+    const contents = read(rel);
+    expect(contents.includes("- **Cost:**")).toBe(false);
+    expect(contents.includes("Cost line")).toBe(false);
   });
 });

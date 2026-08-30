@@ -62,6 +62,10 @@ function hasLabel(body: string, label: string): boolean {
   return new RegExp(`-\\s*\\*\\*${escapeRegExp(label)}:\\*\\*`).test(body);
 }
 
+function stripLeadingBacktick(s: string): string {
+  return s.startsWith("`") ? s.slice(1) : s;
+}
+
 function isUnanchoredOrNone(line: string | null): boolean {
   if (line === null) return true;
   if (/^none\b/i.test(line)) return true;
@@ -74,7 +78,8 @@ function checkAnchorExistence(
   warnings: string[],
 ): void {
   if (!repoRoot) return;
-  for (const anchor of extractPathAnchors(text)) {
+  const seen = new Set(extractPathAnchors(text));
+  for (const anchor of seen) {
     const abs = resolve(repoRoot, anchor);
     const rel = relative(repoRoot, abs);
     const inRepo = !isAbsolute(anchor) && rel !== "" && !rel.startsWith("..");
@@ -116,8 +121,15 @@ export function checkIssueBody(
 
   checkBannedPhrasing(trimmed, warnings);
 
+  // A body carrying a Short form line is only treated as short-form when
+  // none of the full-block labels are also present — otherwise a
+  // malformed full block could hide behind a well-formed Short form line
+  // and slip past this early return unchecked.
   const shortFormMatch = trimmed.match(/\*\*Short form:\*\*\s*(.*)/);
-  if (shortFormMatch) {
+  const hasAnyFullBlockLabel = REQUIRED_LABELS.some((label) =>
+    hasLabel(trimmed, label),
+  );
+  if (shortFormMatch && !hasAnyFullBlockLabel) {
     const line = shortFormMatch[1];
     const tupleRe =
       /\[V:([1-5])\|C:(Trivial|Small|Medium|Large)\|R:(Low|Medium|High)\]/;
@@ -146,7 +158,7 @@ export function checkIssueBody(
 
   const rankLine = labelValueLine(trimmed, "Value rank");
   if (rankLine !== null) {
-    const rankMatch = rankLine.match(/`?([1-5])`?/);
+    const rankMatch = rankLine.match(/^`?([1-5])`?/);
     if (
       !rankMatch ||
       !VALUE_RANKS.includes(rankMatch[1] as (typeof VALUE_RANKS)[number])
@@ -160,14 +172,16 @@ export function checkIssueBody(
   const complexityLine = labelValueLine(trimmed, "Complexity");
   if (complexityLine !== null) {
     const found = COMPLEXITY_LEVELS.find((lvl) =>
-      complexityLine.startsWith(lvl),
+      stripLeadingBacktick(complexityLine).startsWith(lvl),
     );
     if (!found) misses.push("invalid-complexity");
   }
 
   const riskLine = labelValueLine(trimmed, "Risk");
   if (riskLine !== null) {
-    const found = RISK_LEVELS.find((lvl) => riskLine.startsWith(lvl));
+    const found = RISK_LEVELS.find((lvl) =>
+      stripLeadingBacktick(riskLine).startsWith(lvl),
+    );
     if (!found) misses.push("invalid-risk");
   }
 

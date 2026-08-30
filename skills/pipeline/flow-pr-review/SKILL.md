@@ -877,8 +877,8 @@ Otherwise, read the review comments from Step 2's fetch output. This is the self
      ```bash
      cat > "$WORKTREE/.flow-tmp/review-checklist-gap.md" <<'EOF'
      <drafted pattern entry, ready to paste into a lens file>
-     - **UX:** none — **Problem:** <finding class no checklist catches> `[anchor: X of Y independently caught]` — **Stability/efficiency:** none
-     - **Value rank:** <1-5> `[anchor: same]` — **Complexity:** <Trivial|Small|Medium|Large> — **Risk:** Low — **If never done:** keeps slipping past review — **Verdict:** clears bar — <decisive line>
+     - **UX:** none - **Problem:** <finding class no checklist catches> [anchor: X of Y independently caught] - **Stability/efficiency:** none
+     - **Value rank:** <1-5> [anchor: same] - **Complexity:** <Trivial|Small|Medium|Large> - **Risk:** Low - **If never done:** keeps slipping past review - **Verdict:** clears bar — <decisive line>
      EOF
      ISSUE_JSON=$(flow-create-issue --label review-checklist --title "<pattern class>" \
        --body-file "$WORKTREE/.flow-tmp/review-checklist-gap.md"); RC=$?

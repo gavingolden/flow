@@ -5,6 +5,7 @@ import {
   renderComment,
   renderDeviations,
   renderFindings,
+  renderFollowupIssues,
   renderForeclosedPaths,
   renderIntent,
   renderPhases,
@@ -834,5 +835,26 @@ describe("cross-surface parity — lens entries reach DECISIONS, markdown, and p
     expect(decisions).toContain("kept the two lenses separate");
     expect(plainText).toContain("kept the two lenses separate");
     expect(markdown).toContain("kept the two lenses separate");
+  });
+});
+
+describe(renderFollowupIssues, () => {
+  it("renders none when there are no filed lines and no deferrals", () => {
+    expect(renderFollowupIssues("", "")).toEqual(["none"]);
+  });
+
+  it("renders filed and unfiled lines from the sweep file", () => {
+    const filedIssuesRaw = "filed\thttps://x/1\nunfiled\tSome Title\n";
+    expect(renderFollowupIssues(filedIssuesRaw, "")).toEqual([
+      "filed: https://x/1",
+      "sweep failed (unfiled): Some Title",
+    ]);
+  });
+
+  it("renders rejected (exit-3) candidates distinctly from unfiled ones", () => {
+    const filedIssuesRaw = "rejected\tBad Candidate\n";
+    expect(renderFollowupIssues(filedIssuesRaw, "")).toEqual([
+      "rejected (needs repair): Bad Candidate",
+    ]);
   });
 });

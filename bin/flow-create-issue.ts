@@ -65,7 +65,8 @@ export type RejectionReason =
   | "invalid-risk"
   | "invalid-verdict"
   | "unsubstantiated"
-  | "short-form-unanchored";
+  | "short-form-unanchored"
+  | "short-form-missing-tuple";
 
 export type Rejection = {
   action: "rejected";
@@ -85,7 +86,7 @@ const SHORT_FORM_EXAMPLE =
  * the JSON envelope reports — the `misses[]` array still carries every
  * individual miss for a caller that wants the full detail.
  */
-function dominantReason(misses: string[]): RejectionReason {
+export function dominantReason(misses: string[]): RejectionReason {
   if (misses.includes("empty-body")) return "empty-body";
   if (
     misses.includes("missing-value-block") ||
@@ -98,11 +99,9 @@ function dominantReason(misses: string[]): RejectionReason {
   if (misses.includes("invalid-risk")) return "invalid-risk";
   if (misses.includes("invalid-verdict")) return "invalid-verdict";
   if (misses.includes("unsubstantiated")) return "unsubstantiated";
-  if (
-    misses.includes("short-form-unanchored") ||
-    misses.includes("short-form-missing-tuple")
-  ) {
-    return "short-form-unanchored";
+  if (misses.includes("short-form-unanchored")) return "short-form-unanchored";
+  if (misses.includes("short-form-missing-tuple")) {
+    return "short-form-missing-tuple";
   }
   return "missing-value-block";
 }

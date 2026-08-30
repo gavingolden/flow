@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  dominantReason,
   ensureLabels,
   parseArgs,
   probeExistingIssue,
@@ -39,6 +40,66 @@ function ghOk(stdout: string): ReturnType<GhRunner> {
 function ghErr(stderr: string, exitCode = 1): ReturnType<GhRunner> {
   return { stdout: "", stderr, exitCode };
 }
+
+describe(dominantReason, () => {
+  it("prioritizes empty-body over everything else", () => {
+    expect(dominantReason(["empty-body", "unsubstantiated"])).toBe(
+      "empty-body",
+    );
+  });
+
+  it("collapses missing-label:* misses into missing-value-block", () => {
+    expect(dominantReason(["missing-label:UX", "missing-label:Problem"])).toBe(
+      "missing-value-block",
+    );
+  });
+
+  it("reports missing-value-block directly", () => {
+    expect(dominantReason(["missing-value-block"])).toBe("missing-value-block");
+  });
+
+  it("reports invalid-value-rank", () => {
+    expect(dominantReason(["invalid-value-rank"])).toBe("invalid-value-rank");
+  });
+
+  it("reports invalid-complexity", () => {
+    expect(dominantReason(["invalid-complexity"])).toBe("invalid-complexity");
+  });
+
+  it("reports invalid-risk", () => {
+    expect(dominantReason(["invalid-risk"])).toBe("invalid-risk");
+  });
+
+  it("reports invalid-verdict", () => {
+    expect(dominantReason(["invalid-verdict"])).toBe("invalid-verdict");
+  });
+
+  it("reports unsubstantiated", () => {
+    expect(dominantReason(["unsubstantiated"])).toBe("unsubstantiated");
+  });
+
+  it("reports short-form-unanchored distinctly from short-form-missing-tuple", () => {
+    expect(dominantReason(["short-form-unanchored"])).toBe(
+      "short-form-unanchored",
+    );
+  });
+
+  it("reports short-form-missing-tuple when the tuple is missing but the anchor is present (the previously-mismatched branch)", () => {
+    expect(dominantReason(["short-form-missing-tuple"])).toBe(
+      "short-form-missing-tuple",
+    );
+  });
+
+  it("prefers short-form-unanchored when both short-form misses are present", () => {
+    expect(
+      dominantReason(["short-form-unanchored", "short-form-missing-tuple"]),
+    ).toBe("short-form-unanchored");
+  });
+
+  it("falls back to missing-value-block for an unrecognized miss", () => {
+    expect(dominantReason(["some-unknown-miss"])).toBe("missing-value-block");
+  });
+});
 
 describe(parseArgs, () => {
   it("parses required flags", () => {

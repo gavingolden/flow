@@ -23,6 +23,12 @@ import { spawnSync } from "node:child_process";
  * rubric-sanctioned measured number or version (`1.8s`, `0.7%`, `v2.1.234`)
  * never looks like a file path.
  */
+// Carries the `g` flag so `extractPathAnchors`'s `matchAll` finds every
+// anchor in a block, not just the first. Safe today because the only
+// consumer uses `matchAll` (which does not mutate `lastIndex` on a shared
+// reference the way repeated `.test()`/`.exec()` calls would) — a future
+// consumer that calls `ANCHOR_RE.test(...)` must first clone it
+// (`new RegExp(ANCHOR_RE)`) to avoid stateful `lastIndex` skips.
 export const ANCHOR_RE =
   /\[anchor:\s*`?([^\s\]:`]+\.[A-Za-z][A-Za-z0-9]*)`?(?::\d+(?:,\d+)*)?/g;
 

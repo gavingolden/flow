@@ -172,12 +172,15 @@ export function renderFollowupIssues(
   for (const raw of filedIssuesRaw.split("\n")) {
     const line = raw.trim();
     if (!line) continue;
-    // The step-10 sweep writes `filed\t<url>` and `unfiled\t<title>`; a bare
-    // `http…` line is also accepted as filed (resume / hand-authored files).
+    // The step-10 sweep writes `filed\t<url>`, `unfiled\t<title>`, and
+    // `rejected\t<title>`; a bare `http…` line is also accepted as filed
+    // (resume / hand-authored files).
     if (line.startsWith("filed\t")) {
       lines.push(`filed: ${line.slice("filed\t".length)}`);
     } else if (line.startsWith("unfiled\t")) {
       lines.push(`sweep failed (unfiled): ${line.slice("unfiled\t".length)}`);
+    } else if (line.startsWith("rejected\t")) {
+      lines.push(`rejected (needs repair): ${line.slice("rejected\t".length)}`);
     } else if (line.startsWith("http")) {
       lines.push(`filed: ${line}`);
     }

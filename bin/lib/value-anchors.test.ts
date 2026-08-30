@@ -80,6 +80,17 @@ describe("resolveAnchorRepoRoot", () => {
     expect(resolveAnchorRepoRoot(planFile)).toBe(repoRoot);
   });
 
+  it("resolves to a genuinely different root than process.cwd() for a plan file in a separate git repo", () => {
+    execFileSync("git", ["init", "-q"], { cwd: tmpDir });
+    const nestedDir = path.join(tmpDir, "nested");
+    fs.mkdirSync(nestedDir);
+    const planFile = path.join(nestedDir, "plan.md");
+    const resolvedRoot = fs.realpathSync(resolveAnchorRepoRoot(planFile));
+    const expectedRoot = fs.realpathSync(tmpDir);
+    expect(resolvedRoot).toBe(expectedRoot);
+    expect(resolvedRoot).not.toBe(fs.realpathSync(process.cwd()));
+  });
+
   it("falls back to process.cwd() outside a git repo", () => {
     const planFile = path.join(tmpDir, "plan.md");
     expect(resolveAnchorRepoRoot(planFile)).toBe(process.cwd());
