@@ -210,15 +210,17 @@ emits). Absent key = today's default for that surface; a present but
 wrong-typed value warns on stderr and falls back to the default; never
 throws.
 
-| surface            | what it drives                                                           | default today                             |
-| ------------------ | ------------------------------------------------------------------------ | ----------------------------------------- |
-| `intentGuess`      | `/flow-pr-review` cross-model intent guess                               | `Gemini 3.1 Pro (High)`                   |
-| `reviewLens`       | `/flow-pr-review` Gemini review lens                                     | `Gemini 3.1 Pro (High)`                   |
-| `researchGather`   | forced-research gather pass                                              | `Gemini 3.1 Pro (High)`                   |
-| `researchRefute`   | forced-research adversarial refute pass                                  | `Claude Opus 4.6 (Thinking)`              |
-| `planReview`       | `/flow-pipeline` step 3 plan review, reviewer 1                          | `Gemini 3.7 Flash (High)`                 |
-| `planReviewSecond` | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2                | `Claude Opus 4.6 (Thinking)`              |
-| `scout`            | reserved — not yet wired; scouting still spawns the Claude Task subagent | `null` (no effect on any code path today) |
+| surface             | what it drives                                                                                                                                | default today                             |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `intentGuess`       | `/flow-pr-review` cross-model intent guess                                                                                                    | `Gemini 3.1 Pro (High)`                   |
+| `reviewLens`        | `/flow-pr-review` Gemini review lens                                                                                                          | `Gemini 3.1 Pro (High)`                   |
+| `researchGather`    | forced-research gather pass                                                                                                                   | `Gemini 3.1 Pro (High)`                   |
+| `researchRefute`    | forced-research adversarial refute pass                                                                                                       | `Claude Opus 4.6 (Thinking)`              |
+| `planReview`        | `/flow-pipeline` step 3 plan review, reviewer 1                                                                                               | `Gemini 3.7 Flash (High)`                 |
+| `planReviewSecond`  | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2                                                                                     | `Claude Opus 4.6 (Thinking)`              |
+| `blindSurvey`       | `/flow-pipeline` step 3 blind method survey, judge A                                                                                          | `Gemini 3.1 Pro (High)`                   |
+| `blindSurveySecond` | `/flow-pipeline` step 3 blind method survey, judge B; when equal to `blindSurvey` the helper falls back to the other pinned default and warns | `Claude Opus 4.6 (Thinking)`              |
+| `scout`             | reserved — not yet wired; scouting still spawns the Claude Task subagent                                                                      | `null` (no effect on any code path today) |
 
 **Namespace disambiguation — `models.scout` vs `delegate.models.scout`:**
 these two keys share the `scout` suffix but mean opposite things and use

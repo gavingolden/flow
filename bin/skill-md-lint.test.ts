@@ -6,6 +6,7 @@ import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
 import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { CHECKPOINT_SITES } from "./flow-checkpoint";
+import { SURVEY_VERDICTS } from "./flow-step3-route";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -202,6 +203,15 @@ const DISCOVERY_PLAYBOOK_PATH = path.resolve(
   "references",
   "discovery-playbook.md",
 );
+const BLIND_SURVEY_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-pipeline",
+  "references",
+  "blind-survey.md",
+);
 const PRD_TEMPLATE_PATH = path.resolve(
   HERE,
   "..",
@@ -394,6 +404,7 @@ const productPlanningTopContent = fs.readFileSync(
   "utf8",
 );
 const prdTemplateContent = fs.readFileSync(PRD_TEMPLATE_PATH, "utf8");
+const blindSurveyContent = fs.readFileSync(BLIND_SURVEY_PATH, "utf8");
 const examplePrdContent = fs.readFileSync(EXAMPLE_PRD_PATH, "utf8");
 const newFeatureContent = fs.readFileSync(NEW_FEATURE_SKILL_MD_PATH, "utf8");
 const scoutInstructionsContent = fs.readFileSync(
@@ -518,6 +529,47 @@ describe("flow-pipeline SKILL.md structural lint", () => {
       "flow-pipeline SKILL.md must reference '# Candidate follow-up issues' " +
         "so step 3/4's --details disclosure and step 10's post-merge sweep " +
         "stay anchored on the plan.md section name.",
+    ).toBe(true);
+  });
+
+  it("step-3 feature-intent end condition routes through flow-step3-route", () => {
+    // Regression guard for the hoist bug: the ROUTE=$(flow-step3-route ...)
+    // call must run before the feature/non-feature intent split so a
+    // pause-for-method survey verdict also pauses a feature-intent
+    // pipeline, not just a non-feature one. Asserting the gate phrase alone
+    // is too weak: a future edit could move the ROUTE= block back inside a
+    // branch while leaving the gate phrase in place and still pass. Assert
+    // ordering (the call precedes both gate phrases) and that there is
+    // exactly one call site, so a re-introduced per-branch call can't
+    // silently pass either.
+    const routeCallIdx = content.indexOf("ROUTE=$(flow-step3-route --intent");
+    const pauseIdx = content.indexOf("`$ROUTE` is `pause-for-method`");
+    const featureRouteIndex = content.indexOf(
+      "`$ROUTE` is `route-to-step-4` and intent is `feature`",
+    );
+    expect(
+      featureRouteIndex,
+      "flow-pipeline SKILL.md's feature-intent End condition must be gated " +
+        "on '`$ROUTE` is `route-to-step-4` and intent is `feature`' — a bare " +
+        "'Intent is `feature`' gate would skip the flow-step3-route call (and " +
+        "its pause-for-method outcome) for feature intent entirely.",
+    ).toBeGreaterThan(-1);
+    expect(routeCallIdx, "the ROUTE= call must exist").toBeGreaterThan(-1);
+    expect(
+      routeCallIdx,
+      "the ROUTE= call must precede the pause-for-method gate phrase (the hoist).",
+    ).toBeLessThan(pauseIdx);
+    expect(
+      routeCallIdx,
+      "the ROUTE= call must precede the feature-intent gate phrase (the hoist).",
+    ).toBeLessThan(featureRouteIndex);
+    expect(
+      content.match(/ROUTE=\$\(flow-step3-route/g),
+      "there must be exactly one ROUTE=$(flow-step3-route call site.",
+    ).toHaveLength(1);
+    expect(
+      content.includes("${METHOD_RESOLVED:+--method-resolved}"),
+      "the ROUTE= call must thread --method-resolved from the marker file.",
     ).toBe(true);
   });
 
@@ -1239,9 +1291,18 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * (151 chars of headroom) matches the 136-202-char range the recent
    * precedents above landed with, rather than the tighter traps rejected
    * earlier in this history.
+   * Raised once more from 25_900 to 26_000 to fund extending the
+   * `## Don'ts` Bash-fan-out bullet to also name the Step-3 blind method
+   * survey (`flow-blind-survey`) as a `flow-delegate`/`flow-delegate-
+   * fanout` Bash fan-out, not a tenth exemption — the exact delta was
+   * measured at +56 chars (pre-edit 25_892, post-edit 25_948, both via
+   * String.prototype.length, not `wc -c` bytes); the budget goes to
+   * exactly that delta plus 44 chars of headroom (25_900 + 56 + 44 =
+   * 26_000) rather than the bare delta, matching the "don't land at a
+   * single-digit-headroom trap" discipline of every raise above.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 25_900;
+    const CHAR_BUDGET = 26_000;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -2685,6 +2746,74 @@ describe("cross-model plan review doc symmetry (AGENTS.md ↔ flow-pipeline/SKIL
       content.includes(FANOUT_PHRASE),
       `flow-pipeline/SKILL.md Hard rules must carry the shared '${FANOUT_PHRASE}' phrase for the plan-review note.`,
     ).toBe(true);
+  });
+});
+
+describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", () => {
+  /**
+   * The Step-3 blind method survey is a flow-delegate-fanout Bash fan-out
+   * (NOT a Task, NOT a tenth exemption). Its "not a tenth exemption"
+   * sibling note must appear in BOTH AGENTS.md `## Don'ts` and
+   * flow-pipeline/SKILL.md "Hard rules", using the SAME shared phrase as
+   * the Gemini-lens and cross-model-plan-review notes so a rename can't
+   * silently drift one doc out of sync. A separately-anchored guard — it
+   * does NOT touch the nine-exemption-count `.toBe`/only-nine lints.
+   */
+  const SURVEY_PHRASE = "blind method survey";
+  const FANOUT_PHRASE = "Bash fan-out, not a tenth exemption";
+  // Co-anchor both phrases in one regex (bounded to ~400 chars apart) so a
+  // drift that leaves one phrase in place while moving/renaming the other
+  // into an unrelated paragraph can't silently pass two independent
+  // `.includes` checks.
+  const coAnchorRe = new RegExp(
+    `${SURVEY_PHRASE}[\\s\\S]{0,400}${FANOUT_PHRASE}|${FANOUT_PHRASE}[\\s\\S]{0,400}${SURVEY_PHRASE}`,
+  );
+
+  it("AGENTS.md co-anchors the blind method survey phrase with the Bash-fan-out sibling note in the same Don'ts bullet", () => {
+    expect(
+      coAnchorRe.test(agentsContent),
+      "AGENTS.md must carry both phrases in the same Don'ts bullet.",
+    ).toBe(true);
+    expect(
+      agentsContent.includes(
+        "`flow-delegate`/`flow-plan-review`/`flow-blind-survey` calls",
+      ),
+    ).toBe(true);
+  });
+
+  it("flow-pipeline/SKILL.md co-anchors the blind method survey phrase with the Bash-fan-out sibling note", () => {
+    expect(
+      coAnchorRe.test(content),
+      `flow-pipeline/SKILL.md must carry '${SURVEY_PHRASE}' and '${FANOUT_PHRASE}' ` +
+        `within ~400 chars of each other in the same note — two independently-true ` +
+        `.includes() checks can't catch one phrase drifting into an unrelated paragraph.`,
+    ).toBe(true);
+  });
+
+  it.each(SURVEY_VERDICTS)(
+    "the survey-verdict enum value '%s' and the '- **Survey verdict:**' label appear in discovery-instructions.md, prd-template.md, and blind-survey.md",
+    (verdict) => {
+      for (const [name, text] of [
+        ["discovery-instructions.md", discoveryInstructionsContent],
+        ["prd-template.md", prdTemplateContent],
+        ["blind-survey.md", blindSurveyContent],
+      ] as const) {
+        expect(
+          text.includes(verdict),
+          `${name} must contain the verbatim survey-verdict enum value '${verdict}'.`,
+        ).toBe(true);
+        expect(
+          text.includes("- **Survey verdict:**"),
+          `${name} must contain the '- **Survey verdict:**' label.`,
+        ).toBe(true);
+      }
+    },
+  );
+
+  it("prd-template.md's verdict line is exactly the code enum", () => {
+    expect(prdTemplateContent).toContain(
+      `- **Survey verdict:** ${SURVEY_VERDICTS.join(" | ")}`,
+    );
   });
 });
 
@@ -4738,16 +4867,24 @@ describe("pr-review include-by-reference structure", () => {
     // Step 1's slug-extraction paragraph both gained the REQUEST_FILE
     // pointer + NEEDS HUMAN: request-file-missing escalation — genuine
     // correctness content for the single-line seed migration, not
-    // incidental bloat. This also folds in a pre-existing 6-line drift
-    // above the prior 2940 ceiling that a prior PR left unbumped. File
-    // lands at 2956 lines — the ceiling moves to 2970 (14 lines of
-    // headroom), same discipline as above.
+    // incidental bloat.
+    // Merged with the blind method survey from main (#720), which is
+    // itself feature-mechanical (a Hard-rules sibling blockquote, a
+    // ~7-line opener sub-step pointing at references/blind-survey.md,
+    // one new `flow-step3-route` decision's routing bullets, one
+    // plan-summary line, one resume-row clause) and had raised the
+    // ceiling to 3015. Both sides' growth is feature-mechanical and
+    // additive, and the combined file lands at 3024 lines, so the
+    // ceiling moves to 3040 (16 lines of genuine headroom), the same
+    // discipline as every raise above. This also absorbs — and does NOT
+    // retroactively re-tighten for — the pre-existing #704 overshoot
+    // already noted on the main side.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 2970 lines. Material regrowth past this ceiling would ` +
+        `budget of 3040 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2970);
+    ).toBeLessThan(3040);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -7949,11 +8086,36 @@ describe("pause-output contract wiring lint", () => {
     expect(
       matches.length,
       "flow-pipeline SKILL.md must reference `references/pause-output-contract.md` " +
-        "at each of its nine informal pause sites (triage clarification, plan " +
+        "at each of its ten informal pause sites (triage clarification, plan " +
         "summary, checkpoint nudge, approval clarification, gated feedback, " +
         "post-render QA, resume-mode terminal QA, step-1 intent interview, " +
-        "step-3 question-gate interview).",
-    ).toBeGreaterThanOrEqual(9);
+        "step-3 question-gate interview, and the tenth site — the Step-3 " +
+        "blind method survey's method pause).",
+    ).toBeGreaterThanOrEqual(10);
+  });
+
+  it("the 'At most one question-gate fire per pipeline' paragraph documents the per-source method-pause carve-out", () => {
+    const c = fs.readFileSync(
+      path.join(REPO_ROOT, "skills", "pipeline", "flow-pipeline", "SKILL.md"),
+      "utf8",
+    );
+    const m = c.match(
+      /\*\*At most one question-gate fire per pipeline\.\*\*[\s\S]*?(?=\n\n)/,
+    );
+    expect(
+      m,
+      "flow-pipeline/SKILL.md must carry the 'At most one question-gate " +
+        "fire per pipeline.' paragraph.",
+    ).not.toBeNull();
+    const paragraph = m ? m[0] : "";
+    expect(
+      paragraph.includes("method pause"),
+      "the question-gate-fire paragraph must name the 'method pause' as a distinct source.",
+    ).toBe(true);
+    expect(
+      paragraph.includes("per-source"),
+      "the question-gate-fire paragraph must state the counter is scoped 'per-source'.",
+    ).toBe(true);
   });
 
   it("each wired sibling SKILL.md references the contract via a resolvable cross-skill path", () => {
