@@ -60,6 +60,58 @@ describe(parseArgs, () => {
       error: "--worktree requires a value",
     });
   });
+
+  it("treats --pr 0 as 'no PR' rather than an error", () => {
+    // Regression: Step 6 runs before a PR exists (evals/verify-loop-isolation
+    // passes --pr "0" / "$PR" empty). `pr` stays undefined so the downstream
+    // `expectPr: parsed.pr ?? null` disables the pr-mismatch guard instead of
+    // escalating with a "positive integer" error.
+    expect(parseArgs(["--pr", "0"])).toEqual({
+      worktree: undefined,
+      skillDir: undefined,
+      pr: undefined,
+    });
+  });
+
+  it("treats --pr '' as 'no PR' rather than an error", () => {
+    expect(parseArgs(["--pr", ""])).toEqual({
+      worktree: undefined,
+      skillDir: undefined,
+      pr: undefined,
+    });
+  });
+
+  it("still rejects a non-numeric --pr value", () => {
+    expect(parseArgs(["--pr", "abc"])).toEqual({
+      error: "--pr must be a positive integer, got 'abc'",
+    });
+  });
+
+  it("still rejects a negative --pr value", () => {
+    expect(parseArgs(["--pr", "-1"])).toEqual({
+      error: "--pr must be a positive integer, got '-1'",
+    });
+  });
+
+  it("still rejects a non-integer --pr value", () => {
+    expect(parseArgs(["--pr", "1.5"])).toEqual({
+      error: "--pr must be a positive integer, got '1.5'",
+    });
+  });
+
+  it("still parses a valid positive --pr value", () => {
+    expect(parseArgs(["--pr", "42"])).toEqual({
+      worktree: undefined,
+      skillDir: undefined,
+      pr: 42,
+    });
+  });
+
+  it("errors when --pr has no value", () => {
+    expect(parseArgs(["--pr"])).toEqual({
+      error: "--pr requires a value",
+    });
+  });
 });
 
 describe("run()", () => {

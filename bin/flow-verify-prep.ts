@@ -27,6 +27,9 @@
  * degrades to the global plugin root
  * (`~/.flow/claude-home/.claude/skills/flow-module-core/skills/flow-pipeline`)
  * when omitted — a PATH-installed helper has no ambient `$SKILL_DIR`.
+ * `--pr` is optional; `0` or an empty value means "no PR yet" (Step 6
+ * runs before a PR exists) and skips the `state.pr` guard, same as
+ * omitting the flag entirely.
  *
  * Output: a single JSON object on stdout.
  *   {
@@ -95,11 +98,19 @@ export function parseArgs(argv: string[]): ParsedArgs {
     } else if (flag === "--pr") {
       const v = argv[++i];
       if (v === undefined) return { error: "--pr requires a value" };
-      const parsed = Number(v);
-      if (!Number.isInteger(parsed) || parsed <= 0) {
-        return { error: `--pr must be a positive integer, got '${v}'` };
+      // "0" and "" mean "no PR yet" (Step 6 runs before a PR is opened) —
+      // leave `pr` undefined so `expectPr: parsed.pr ?? null` downstream
+      // disables the guard, same as omitting --pr entirely. Still reject
+      // genuinely malformed values (non-numeric, negative, non-integer).
+      if (v === "" || v === "0") {
+        // pr stays undefined
+      } else {
+        const parsed = Number(v);
+        if (!Number.isInteger(parsed) || parsed <= 0) {
+          return { error: `--pr must be a positive integer, got '${v}'` };
+        }
+        pr = parsed;
       }
-      pr = parsed;
     } else {
       return { error: `unknown flag: ${flag}` };
     }
