@@ -28,7 +28,12 @@ export const REQUIRED_LABELS = [
 ] as const;
 
 export const VALUE_RANKS = ["1", "2", "3", "4", "5"] as const;
-export const COMPLEXITY_LEVELS = ["Trivial", "Small", "Medium", "Large"] as const;
+export const COMPLEXITY_LEVELS = [
+  "Trivial",
+  "Small",
+  "Medium",
+  "Large",
+] as const;
 export const RISK_LEVELS = ["Low", "Medium", "High"] as const;
 
 const BANNED_PHRASES = [
@@ -74,7 +79,9 @@ function checkAnchorExistence(
     const rel = relative(repoRoot, abs);
     const inRepo = !isAbsolute(anchor) && rel !== "" && !rel.startsWith("..");
     if (!inRepo || !existsSync(abs)) {
-      warnings.push(`anchor path does not resolve under the repo root: ${anchor}`);
+      warnings.push(
+        `anchor path does not resolve under the repo root: ${anchor}`,
+      );
     }
   }
 }
@@ -140,7 +147,10 @@ export function checkIssueBody(
   const rankLine = labelValueLine(trimmed, "Value rank");
   if (rankLine !== null) {
     const rankMatch = rankLine.match(/`?([1-5])`?/);
-    if (!rankMatch || !VALUE_RANKS.includes(rankMatch[1] as (typeof VALUE_RANKS)[number])) {
+    if (
+      !rankMatch ||
+      !VALUE_RANKS.includes(rankMatch[1] as (typeof VALUE_RANKS)[number])
+    ) {
       misses.push("invalid-value-rank");
     } else if (!rankLine.includes("[anchor:")) {
       misses.push("invalid-value-rank");
@@ -149,7 +159,9 @@ export function checkIssueBody(
 
   const complexityLine = labelValueLine(trimmed, "Complexity");
   if (complexityLine !== null) {
-    const found = COMPLEXITY_LEVELS.find((lvl) => complexityLine.startsWith(lvl));
+    const found = COMPLEXITY_LEVELS.find((lvl) =>
+      complexityLine.startsWith(lvl),
+    );
     if (!found) misses.push("invalid-complexity");
   }
 

@@ -276,8 +276,7 @@ function buildCreateArgv(args: Args): string[] {
 
 export type ReadBodyFile = (path: string) => string;
 
-const defaultReadBodyFile: ReadBodyFile = (path) =>
-  readFileSync(path, "utf8");
+const defaultReadBodyFile: ReadBodyFile = (path) => readFileSync(path, "utf8");
 
 export type Deps = {
   gh?: GhRunner;

@@ -3,7 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ANCHOR_RE, extractPathAnchors, resolveAnchorRepoRoot } from "./value-anchors";
+import {
+  ANCHOR_RE,
+  extractPathAnchors,
+  resolveAnchorRepoRoot,
+} from "./value-anchors";
 
 describe("extractPathAnchors", () => {
   it("extracts a bare file:line anchor's path (line suffix not part of the match)", () => {
@@ -13,15 +17,13 @@ describe("extractPathAnchors", () => {
   });
 
   it("extracts a backticked file anchor and strips the backticks", () => {
-    expect(
-      extractPathAnchors("[anchor: `bin/lib/repo-root.ts:10`]"),
-    ).toEqual(["bin/lib/repo-root.ts"]);
+    expect(extractPathAnchors("[anchor: `bin/lib/repo-root.ts:10`]")).toEqual([
+      "bin/lib/repo-root.ts",
+    ]);
   });
 
   it("does not treat a command->output anchor as a file anchor", () => {
-    expect(
-      extractPathAnchors("[anchor: `gh issue list` → 30]"),
-    ).toEqual([]);
+    expect(extractPathAnchors("[anchor: `gh issue list` → 30]")).toEqual([]);
   });
 
   it("does not treat a PR/issue reference anchor as a file anchor", () => {
@@ -46,9 +48,7 @@ describe("extractPathAnchors", () => {
 
   it("extracts multiple anchors from one block", () => {
     expect(
-      extractPathAnchors(
-        "[anchor: a/b.ts:1] some text [anchor: c/d.ts:2,3]",
-      ),
+      extractPathAnchors("[anchor: a/b.ts:1] some text [anchor: c/d.ts:2,3]"),
     ).toEqual(["a/b.ts", "c/d.ts"]);
   });
 

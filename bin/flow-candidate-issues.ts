@@ -79,10 +79,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import {
-  extractPathAnchors,
-  resolveAnchorRepoRoot,
-} from "./lib/value-anchors";
+import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 export type CandidateMeta = {
   value: string | null;

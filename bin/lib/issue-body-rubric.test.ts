@@ -107,7 +107,8 @@ describe("checkIssueBody: hard misses", () => {
   });
 
   it("rejects a short form lacking its [V:n|C:x|R:y] tuple", () => {
-    const body = "**Short form:** the README link is dead [anchor: README.md:41]";
+    const body =
+      "**Short form:** the README link is dead [anchor: README.md:41]";
     expect(checkIssueBody(body).misses).toContain("short-form-missing-tuple");
   });
 
@@ -134,9 +135,7 @@ describe("checkIssueBody: advisory warnings never reject", () => {
       repoRoot: process.cwd(),
     });
     expect(misses).toEqual([]);
-    expect(
-      warnings.some((w) => w.includes("bin/lib/session.ts")),
-    ).toBe(true);
+    expect(warnings.some((w) => w.includes("bin/lib/session.ts"))).toBe(true);
   });
 
   it("a body with a banned word and a dangling anchor path passes with warnings but zero misses", () => {
