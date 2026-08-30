@@ -355,12 +355,8 @@ export function formatMarkdown(inputs: {
   ];
 }
 
-/** Indented plain-text lines for the terminal snapshot (no markdown). */
-export function formatPlainText(inputs: {
-  fixApplierRaw: string;
-  consolidatorRaw: string;
-}): string[] {
-  const entries = collectForeclosedEntries(inputs);
+/** Indented plain-text lines for a given entry set (no markdown). */
+export function formatPlainTextEntries(entries: ForeclosedEntry[]): string[] {
   const lines: string[] = [];
   for (const e of entries) {
     if (e.missing_lenses) {
@@ -393,4 +389,12 @@ export function formatPlainText(inputs: {
     }
   }
   return lines;
+}
+
+/** Indented plain-text lines for the terminal snapshot (no markdown). */
+export function formatPlainText(inputs: {
+  fixApplierRaw: string;
+  consolidatorRaw: string;
+}): string[] {
+  return formatPlainTextEntries(collectForeclosedEntries(inputs));
 }

@@ -790,28 +790,24 @@ describe("cross-surface parity — lens entries reach DECISIONS, markdown, and p
     expect(decisions).toContain("lens(security): validate inline");
   });
 
-  // Sibling of the rejected-alternative parity test above — the prior
-  // version of this file exercised parity only for
-  // `lens_rejected_alternatives`, leaving `lens_anti_patterns_found` parity
-  // unasserted even though `consolidatorWithLens` already carries a fixture
-  // for it. NOTE: this is deliberately a TWO-surface check, not three —
-  // DECISIONS (`renderComment().dev`) has no anti-patterns section at all
-  // (neither the fix-applier's own `anti_patterns_found[]` nor the lens
-  // pass-through `lens_anti_patterns_found[]` ever reach it; only
-  // `rejected_alternatives`/`lens_rejected_alternatives` do). That's a
-  // real asymmetry, recorded in this run's anti_patterns_found rather than
-  // fixed here — adding a DECISIONS anti-patterns section is a rendering
-  // contract change with its own design questions (heading text, ordering
-  // relative to `rejected:`, whether pm-lens's slimmed comment should ever
-  // see it), not a mechanical test-coverage gap.
-  it("surfaces the same lens anti-pattern token in both the markdown and plain-text surfaces", () => {
+  it("surfaces the same lens anti-pattern token in all three surfaces", () => {
     const inputs = { fixApplierRaw: "", consolidatorRaw: consolidatorWithLens };
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorWithLens,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
     const plainText = renderForeclosedPaths(inputs).join("\n");
     const markdown = formatMarkdown(inputs).join("\n");
 
     const lensToken = "manual TTL bookkeeping duplicated across call sites";
+    expect(decisions).toContain(lensToken);
     expect(plainText).toContain(lensToken);
     expect(markdown).toContain(lensToken);
+    expect(decisions).toContain("(lens: bug-detection)");
   });
 
   it("renders no lens content in any of the three surfaces when the consolidator artifact omits the lens keys (regression guard)", () => {
@@ -834,5 +830,72 @@ describe("cross-surface parity — lens entries reach DECISIONS, markdown, and p
     expect(decisions).toContain("kept the two lenses separate");
     expect(plainText).toContain("kept the two lenses separate");
     expect(markdown).toContain("kept the two lenses separate");
+  });
+
+  it("renders a fix-applier anti-pattern under the DECISIONS anti-patterns sub-part", () => {
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: fixApplier,
+      consolidatorRaw: "",
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain("bin/lib/x.ts:42");
+    expect(decisions).toContain("swallowed error");
+    expect(decisions).toContain("log and rethrow");
+    expect(decisions).toContain(" (new)");
+  });
+
+  it("renders a consolidator string anti-pattern under the DECISIONS anti-patterns sub-part", () => {
+    const consolidatorWithAntiPattern = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: ["duplicated retry logic across two call sites"],
+      summary: "s",
+    });
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorWithAntiPattern,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain(
+      "consolidation: duplicated retry logic across two call sites",
+    );
+  });
+
+  it("renders an explicit `none` when no source contributes an anti-pattern", () => {
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidator,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain("  anti-patterns:\n    none");
+    // `rejected:` still renders exactly as before.
+    expect(decisions).toContain(
+      "  rejected:\n    kept the two lenses separate",
+    );
+  });
+
+  it("positions `anti-patterns:` after `rejected:` in DECISIONS", () => {
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: fixApplier,
+      consolidatorRaw: consolidator,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions.indexOf("  rejected:")).toBeGreaterThan(-1);
+    expect(decisions.indexOf("  anti-patterns:")).toBeGreaterThan(
+      decisions.indexOf("  rejected:"),
+    );
   });
 });
