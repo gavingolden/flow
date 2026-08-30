@@ -898,4 +898,68 @@ describe("cross-surface parity — lens entries reach DECISIONS, markdown, and p
       decisions.indexOf("  rejected:"),
     );
   });
+
+  it("renders `(unreadable)` under DECISIONS anti-patterns for a malformed fix-applier artifact, not `none`", () => {
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "{not json",
+      consolidatorRaw: "",
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain(
+      "  anti-patterns:\n    fix-applier: (unreadable)",
+    );
+  });
+
+  it("renders `(unreadable)` under DECISIONS anti-patterns for a malformed consolidator artifact, not `none`", () => {
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: "{not json",
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain(
+      "  anti-patterns:\n    consolidator: (unreadable)",
+    );
+  });
+
+  it("surfaces the fix-applier residual `(N unreadable)` marker under DECISIONS anti-patterns", () => {
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: fixApplierOneBadEntry,
+      consolidatorRaw: "",
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain(
+      "  anti-patterns:\n    fix-applier: (1 unreadable)",
+    );
+  });
+
+  it("surfaces the lens-missing marker under DECISIONS anti-patterns", () => {
+    const consolidatorWithMissingLenses = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+      lens_negatives_missing: ["performance"],
+    });
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorWithMissingLenses,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain(
+      "lenses did not populate negative findings: performance",
+    );
+  });
 });

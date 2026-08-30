@@ -452,7 +452,11 @@ function rejectedDecisionLines(
  * Anti-pattern decisions for the slim PR comment's DECISIONS section,
  * sourced from the shared `collectForeclosedEntries` collector (the same
  * core the `## Foreclosed Paths` PR-body section and the `FORECLOSED PATHS`
- * terminal snapshot render from) filtered to `category === "anti-pattern"`.
+ * terminal snapshot render from) filtered to `category === "anti-pattern"`,
+ * plus any whole-source `unreadable` degradation marker (those are tagged
+ * `category: "rejected-alternative"` by the collector, so they need an
+ * explicit `|| e.unreadable` or a broken artifact would silently render
+ * `none` instead of `(unreadable)`, unlike its sibling surfaces).
  * `none` when the filtered set is empty.
  */
 function antiPatternDecisionLines(
@@ -461,7 +465,7 @@ function antiPatternDecisionLines(
 ): string[] {
   const lines = formatPlainTextEntries(
     collectForeclosedEntries({ fixApplierRaw, consolidatorRaw }).filter(
-      (e) => e.category === "anti-pattern",
+      (e) => e.category === "anti-pattern" || e.unreadable,
     ),
   );
   return lines.length > 0 ? lines : NONE;

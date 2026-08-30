@@ -6,9 +6,10 @@
  * `lens_anti_patterns_found[]` + `lens_negatives_missing[]`, sourced from
  * the same consolidator artifact), and the consolidator's own
  * process-scoped `rejected_alternatives[]` / `anti_patterns_found[]` —
- * into an ordered, normalized entry list. Two thin wrappers —
- * `formatMarkdown` (PR body) and `formatPlainText` (terminal snapshot) —
- * derive from that same core so the two surfaces cannot drift.
+ * into an ordered, normalized entry list. Three surfaces derive from that
+ * same core — `formatMarkdown` (PR body), `formatPlainText` (terminal
+ * snapshot), and `formatPlainTextEntries` over a caller-filtered entry
+ * subset (the PR-comment DECISIONS section) — so they cannot drift.
  *
  * The two surfaces differ ONLY in output mode: the entry set and its order
  * are identical. A genuinely-broken fix-applier or consolidator artifact
@@ -263,8 +264,12 @@ function lensTag(e: ForeclosedEntry): string {
 // as a plain 422 by the caller, not escalated, so the section silently fails
 // to land on exactly the PRs where it's most valuable (lots of findings).
 // Bullet-boundary truncation only (never mid-bullet), markdown surface only
-// — the terminal plain-text surface (`formatPlainText`) has no GitHub body
-// constraint and stays uncapped.
+// — the terminal snapshot surface (`formatPlainText`) stays uncapped. The
+// PR-comment DECISIONS sub-part (`formatPlainTextEntries` over a
+// caller-filtered subset) also reaches a GitHub body via `buildCommentBody`,
+// but is deliberately left uncapped too, matching the sibling `rejected:`
+// sub-part; a single body-level clamp covering all three channels is
+// tracked separately rather than added here (see the filed follow-up issue).
 export const MARKDOWN_BULLET_CHAR_CAP = 20_000;
 
 /**
