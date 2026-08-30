@@ -190,7 +190,10 @@ Phase 3 bundle mechanics above:
     surviving it, reintroducing the auth race PR #519 was meant to fix
     [anchor: bin/lib/session.ts:88]
   - **Stability/efficiency:** none
-  - **Cost:** one file, one function, low risk (Bundle A, Small)
+  - **Value rank:** 4 — a user-visible failure recurring whenever a tab
+    sits idle past ~10 minutes [anchor: bin/lib/session.ts:88]
+  - **Complexity:** Small — one file, one function (Bundle A)
+  - **Risk:** Low — a contained, reviewable fix
   - **If never done:** users keep hitting an unexplained forced logout
     and read it as a whole-product bug, not one code path
   - **Verdict:** clears bar — a reproducible forced logout is an

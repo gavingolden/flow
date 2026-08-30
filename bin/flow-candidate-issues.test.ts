@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type CandidateMeta,
   enumerateCandidates,
-  extractPathAnchors,
   extractTicked,
   extractVerdict,
   FOLLOWUP_REFERENCE_RES,
@@ -19,6 +18,7 @@ import {
   tickCandidates,
   untickCandidates,
 } from "./flow-candidate-issues";
+import { extractPathAnchors } from "./lib/value-anchors";
 
 const HEADING = "# Candidate follow-up issues";
 

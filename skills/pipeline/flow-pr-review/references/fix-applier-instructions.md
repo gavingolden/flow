@@ -96,7 +96,9 @@ For each finding, classify it into one of:
   - **UX:** <who notices, what changes for them, how often / how much> `[anchor: …]` — or `none`
   - **Problem:** <the concrete failure or friction this removes> `[anchor: …]` — or `none`
   - **Stability/efficiency:** <crash / flake / cost / latency effect, with the reproduced or measured number> `[anchor: …]` — or `none`
-  - **Cost:** <files touched, blast radius, review load, regression risk>
+  - **Value rank:** <1-5> `[anchor: …]`
+  - **Complexity:** <Trivial|Small|Medium|Large> — <files touched, blast radius>
+  - **Risk:** <Low|Medium|High> — <review load, regression risk>
   - **If never done:** <what breaks, stays broken, or keeps costing — or `nothing`>
   - **Verdict:** clears bar — <the decisive line>
 
@@ -109,7 +111,8 @@ For each finding, classify it into one of:
     --title "<short finding subject>" \
     --body-file "$WORKTREE/.flow-tmp/deferred-body.md" \
     --label flow-agent,deferred-review)
-  ISSUE_URL=$(printf '%s' "$ISSUE_JSON" | jq -r '.url')
+  RC=$?
+  ISSUE_URL=$(printf '%s' "$ISSUE_JSON" | jq -r '.url // empty')
   ```
 
   Set `tracker_entry_url` to `$ISSUE_URL`. The helper files against the
@@ -118,15 +121,26 @@ For each finding, classify it into one of:
   the upstream project, leaving the user to mirror the issue upstream
   manually.
 
-  **Fallback path.** If `flow-create-issue` exits non-zero (e.g. `gh`
-  unavailable, no GH Issues surface for this repo), do NOT append to an
-  in-repo tracker file — most repos have none, and a flat file with no status
-  lifecycle is not a durable tracker. Instead, leave `tracker_entry_url` as an
-  empty string, put the full deferral context in `reason`, and let the wrapper
-  surface the deferral loudly in the Step 12 report so it is not lost. A GitHub
-  issue via `flow-create-issue` is the single canonical durable tracker — try
-  the helper first; loud surfacing is the degraded fallback when no Issues
-  surface exists, not a silent write to a file.
+  **Exit 3 — body rejected (fix and retry, never degrade).** `flow-create-issue`
+  returns exit 3 when the deferred-body.md heredoc's value-prop block fails the
+  flow-value-rubric contract; `$ISSUE_JSON` is then the rejection envelope
+  (`{"action":"rejected","reason":…,"misses":[…],"expected":[…],"shortFormExample":…}`),
+  not an issue URL. Repair the heredoc from `.misses`/`.expected` in that
+  envelope and retry once. This is distinct from every other non-zero exit
+  below — treating it as "no Issues surface" and setting `tracker_entry_url`
+  to an empty string would launder a rejected body and silently lose the
+  deferred finding.
+
+  **Fallback path.** If `flow-create-issue` exits non-zero AND `RC` is not
+  `3` (e.g. `gh` unavailable, no GH Issues surface for this repo), do NOT
+  append to an in-repo tracker file — most repos have none, and a flat file
+  with no status lifecycle is not a durable tracker. Instead, leave
+  `tracker_entry_url` as an empty string, put the full deferral context in
+  `reason`, and let the wrapper surface the deferral loudly in the Step 12
+  report so it is not lost. A GitHub issue via `flow-create-issue` is the
+  single canonical durable tracker — try the helper first; loud surfacing is
+  the degraded fallback when no Issues surface exists, not a silent write to
+  a file.
 
 **Bar for deferral — ALL must be true (otherwise fix it now):**
 
@@ -151,13 +165,17 @@ a 5-line guard is not a PR-expansion concern.
 - **UX:** <who notices, what changes for them, how often / how much> `[anchor: …]` — or `none`
 - **Problem:** <the concrete failure or friction this removes> `[anchor: …]` — or `none`
 - **Stability/efficiency:** <crash / flake / cost / latency effect, with the reproduced or measured number> `[anchor: …]` — or `none`
-- **Cost:** <files touched, blast radius, review load, regression risk>
+- **Value rank:** `1`-`5` `[anchor: …]` — the highest rank whose condition is met: `5` data loss, security exposure, or a broken path with no workaround; `4` a user-visible failure with a workaround recurring on a named cadence; `3` a measured inefficiency with a number; `2` a single-instance annoyance or an unfired latent risk; `1` cosmetic
+- **Complexity:** `Trivial` | `Small` | `Medium` | `Large` — <files touched, blast radius>
+- **Risk:** `Low` | `Medium` | `High` — <review load, regression risk>
 - **If never done:** <what breaks, stays broken, or keeps costing — or `nothing`>
-- **Verdict:** `clears bar` | `below bar` — <the decisive line, and why it outweighs (or fails to outweigh) Cost>
+- **Verdict:** `clears bar` | `below bar` — <the decisive line, and why it outweighs (or fails to outweigh) Complexity and Risk>
 
-**Anchor rule.** Every non-`none` UX / Problem / Stability line ends with `[anchor: …]` drawn from this closed list: a `file:line`; a reproduced behaviour (`command → observed output`); a command that fails today; a merged PR or commit; an issue number with its age; a measured number; the user's own words, quoted. A value line with no anchor is `unsubstantiated` and counts as `none`. Write file anchors bare (`[anchor: path/to/file.ts:42]`), never wrapped in backticks, so the lint can check the path exists.
+**Short form.** For a genuinely trivial item (a typo, a dead link), skip the full block and write one line instead: `**Short form:** [V:n|C:x|R:y] <one-line text> [anchor: …]`. The compact tuple keeps the item sortable — the short form drops the prose, never the rank.
 
-**Bar.** `clears bar` requires at least one substantiated value line, a one-line rationale that it outweighs the Cost line, and a non-`nothing` If-never-done line. Anything else — including unclear — is `below bar`.
+**Anchor rule.** Every non-`none` UX / Problem / Stability line, and the Value rank, ends with `[anchor: …]` drawn from this closed list: a `file:line`; a reproduced behaviour (`command → observed output`); a command that fails today; a merged PR or commit; an issue number with its age; a measured number; the user's own words, quoted. A value line with no anchor is `unsubstantiated` and counts as `none`; a rank with no anchor is invalid — it cannot be falsified by opening it. Write file anchors bare (`[anchor: path/to/file.ts:42]`), never wrapped in backticks, so the lint can check the path exists.
+
+**Bar.** `clears bar` requires at least one substantiated value line, a `Value rank` of `2` or higher, a one-line rationale that it outweighs Complexity and Risk, and a non-`nothing` If-never-done line. `Value rank: 2` is the normal clear-bar baseline, not a special case — most items that clear the bar clear it at `2`. Anything else — including unclear — is `below bar`.
 
 **Banned phrasing.** `nicer`, `cleaner`, `could improve`, `might`, `best practice`, `would be good to`, `likely`. An anchor the reader cannot open or run in seconds is worse than `none` — never invent one.
 

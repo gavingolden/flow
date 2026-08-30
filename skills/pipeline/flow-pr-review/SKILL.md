@@ -877,14 +877,14 @@ Otherwise, read the review comments from Step 2's fetch output. This is the self
      ```bash
      cat > "$WORKTREE/.flow-tmp/review-checklist-gap.md" <<'EOF'
      <drafted pattern entry, ready to paste into a lens file>
+     - **UX:** none — **Problem:** <finding class no checklist catches> `[anchor: X of Y independently caught]` — **Stability/efficiency:** none
+     - **Value rank:** <1-5> `[anchor: same]` — **Complexity:** <Trivial|Small|Medium|Large> — **Risk:** Low — **If never done:** keeps slipping past review — **Verdict:** clears bar — <decisive line>
      EOF
-     flow-create-issue --label review-checklist --title "<pattern class>" \
-       --body-file "$WORKTREE/.flow-tmp/review-checklist-gap.md"
+     ISSUE_JSON=$(flow-create-issue --label review-checklist --title "<pattern class>" \
+       --body-file "$WORKTREE/.flow-tmp/review-checklist-gap.md"); RC=$?
      ```
-
-     This is a `flow-create-issue` call, not an edit — **never edit files under
-     `SKILL_DIR`**; the lens checklists ship with flow and are only updated by a flow
-     maintainer landing a PR against the flow repo itself.
+     **Exit 3** = body rejected (`$ISSUE_JSON` is the rejection envelope, `.misses`/
+     `.expected`, not a URL) — repair and retry once, never drop the captured gap.
 
    **The retrospective must never edit files under SKILL_DIR.** The only write paths
    are the target repo's `.flow/review-checklist.md` (repo-specific) or a filed issue

@@ -22,9 +22,20 @@
  * Usage:
  *   flow-create-issue --title <title> --body-file <path>
  *                     [--label l1,l2,l3] [--dry-run]
+ *
+ * Exit codes:
+ *   0 — created / existing / would-create succeeded
+ *   1 — runtime failure: an unreadable/missing body file, `gh` failure, or
+ *       a malformed `gh` response
+ *   2 — bad CLI args (missing --title / --body-file, unknown flag)
+ *   3 — body rejected by the value-rubric contract (nothing filed); a
+ *       structured JSON envelope naming every miss is printed on stdout
  */
 
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { checkIssueBody, REQUIRED_LABELS } from "./lib/issue-body-rubric";
+import { resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 type Args = {
   title: string;
@@ -37,7 +48,7 @@ type GhResult = { stdout: string; stderr: string; exitCode: number };
 
 export type GhRunner = (argv: string[]) => GhResult;
 
-type Action = "created" | "existing" | "would-create";
+type Action = "created" | "existing" | "would-create" | "rejected";
 
 type Output = {
   action: Action;
@@ -45,6 +56,56 @@ type Output = {
   number: number;
   title: string;
 };
+
+export type RejectionReason =
+  | "empty-body"
+  | "missing-value-block"
+  | "invalid-value-rank"
+  | "invalid-complexity"
+  | "invalid-risk"
+  | "invalid-verdict"
+  | "unsubstantiated"
+  | "short-form-unanchored";
+
+export type Rejection = {
+  action: "rejected";
+  reason: RejectionReason;
+  misses: string[];
+  title: string;
+  expected: string[];
+  shortFormExample: string;
+};
+
+const SHORT_FORM_EXAMPLE =
+  "**Short form:** <one-line text> [V:2|C:Trivial|R:Low] [anchor: path/to/file.ts:1]";
+
+/**
+ * Collapses the checker's fine-grained miss strings (e.g. multiple
+ * `missing-label:<X>` entries) into the single dominant `RejectionReason`
+ * the JSON envelope reports — the `misses[]` array still carries every
+ * individual miss for a caller that wants the full detail.
+ */
+function dominantReason(misses: string[]): RejectionReason {
+  if (misses.includes("empty-body")) return "empty-body";
+  if (
+    misses.includes("missing-value-block") ||
+    misses.some((m) => m.startsWith("missing-label:"))
+  ) {
+    return "missing-value-block";
+  }
+  if (misses.includes("invalid-value-rank")) return "invalid-value-rank";
+  if (misses.includes("invalid-complexity")) return "invalid-complexity";
+  if (misses.includes("invalid-risk")) return "invalid-risk";
+  if (misses.includes("invalid-verdict")) return "invalid-verdict";
+  if (misses.includes("unsubstantiated")) return "unsubstantiated";
+  if (
+    misses.includes("short-form-unanchored") ||
+    misses.includes("short-form-missing-tuple")
+  ) {
+    return "short-form-unanchored";
+  }
+  return "missing-value-block";
+}
 
 const defaultGh: GhRunner = (argv) => {
   const r = spawnSync("gh", argv, { encoding: "utf8" });
@@ -213,12 +274,19 @@ function buildCreateArgv(args: Args): string[] {
   return out;
 }
 
+export type ReadBodyFile = (path: string) => string;
+
+const defaultReadBodyFile: ReadBodyFile = (path) =>
+  readFileSync(path, "utf8");
+
 export type Deps = {
   gh?: GhRunner;
+  readBodyFile?: ReadBodyFile;
 };
 
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
+  const readBodyFile = deps.readBodyFile ?? defaultReadBodyFile;
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -227,6 +295,37 @@ export function run(argv: string[], deps: Deps = {}): number {
       "usage: flow-create-issue --title <t> --body-file <p> [--label l1,l2] [--dry-run]",
     );
     return 2;
+  }
+
+  let bodyText: string;
+  try {
+    bodyText = readBodyFile(parsed.bodyFile);
+  } catch (e) {
+    console.error(
+      `flow-create-issue: could not read body file '${parsed.bodyFile}': ${(e as Error).message}`,
+    );
+    return 1;
+  }
+
+  const repoRoot = resolveAnchorRepoRoot(undefined);
+  const check = checkIssueBody(bodyText, { repoRoot });
+  for (const warning of check.warnings) {
+    console.error(`flow-create-issue: warning: ${warning}`);
+  }
+  if (check.misses.length > 0) {
+    const rejection: Rejection = {
+      action: "rejected",
+      reason: dominantReason(check.misses),
+      misses: check.misses,
+      title: parsed.title,
+      expected: REQUIRED_LABELS.map((label) => `- **${label}:**`),
+      shortFormExample: SHORT_FORM_EXAMPLE,
+    };
+    process.stdout.write(JSON.stringify(rejection) + "\n");
+    console.error(
+      `flow-create-issue: body rejected — ${check.misses.join(", ")}`,
+    );
+    return 3;
   }
 
   if (parsed.dryRun) {

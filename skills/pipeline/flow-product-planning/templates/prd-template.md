@@ -357,13 +357,17 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
   - **UX:** [who notices, what changes, how often] `[anchor: …]` — or `none`
   - **Problem:** [the concrete failure or friction this removes] `[anchor: …]` — or `none`
   - **Stability/efficiency:** [crash / flake / cost / latency effect] `[anchor: …]` — or `none`
-  - **Cost:** [files touched, blast radius, review load, regression risk]
+  - **Value rank:** [1-5] `[anchor: …]`
+  - **Complexity:** [Trivial/Small/Medium/Large] — [files touched, blast radius]
+  - **Risk:** [Low/Medium/High] — [review load, regression risk]
   - **If never done:** [what breaks, stays broken, or keeps costing] — or `nothing`
   - **Verdict:** clears bar — [the decisive line]
 - [ ] [orthogonal idea] — [one-line body; shown but never filed unless the user replies `file candidate #N`]
   - **UX:** [who notices, what changes, how often] `[anchor: …]` — or `none`
   - **Problem:** [the concrete failure or friction this removes] `[anchor: …]` — or `none`
   - **Stability/efficiency:** [crash / flake / cost / latency effect] `[anchor: …]` — or `none`
-  - **Cost:** [files touched, blast radius, review load, regression risk]
+  - **Value rank:** [1-5] `[anchor: …]`
+  - **Complexity:** [Trivial/Small/Medium/Large] — [files touched, blast radius]
+  - **Risk:** [Low/Medium/High] — [review load, regression risk]
   - **If never done:** [what breaks, stays broken, or keeps costing] — or `nothing`
   - **Verdict:** below bar — [the decisive line]

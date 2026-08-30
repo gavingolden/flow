@@ -7,11 +7,12 @@ import { fileURLToPath } from "node:url";
  * Drift + prose lint for the flow-value-rubric feature: the canonical
  * value-prop block at
  * `skills/universal/flow-backlog-triage/references/value-rubric.md` is
- * embedded verbatim (marker-delimited) in three consumer files —
+ * embedded verbatim (marker-delimited) in four consumer files —
  * `methodology.md`, `flow-product-planning/references/discovery-instructions.md`,
- * and `flow-pr-review/references/fix-applier-instructions.md`. There is no
+ * `flow-pr-review/references/fix-applier-instructions.md`, and
+ * `flow-file-issue/SKILL.md`. There is no
  * runtime read of the canonical file (sub-agents run in consumer worktrees
- * and can't reliably fetch a sibling skill file), so drift between the four
+ * and can't reliably fetch a sibling skill file), so drift between the five
  * copies is a silent authoring bug this lint exists to catch — same
  * cross-file byte-identity idiom as
  * `bin/skill-md-lint.test.ts`'s "Fix-Applier artifact JSON schema drift"
@@ -56,6 +57,10 @@ const CONSUMERS: { path: string; label: string }[] = [
     path: "skills/pipeline/flow-pr-review/references/fix-applier-instructions.md",
     label: "fix-applier-instructions.md",
   },
+  {
+    path: "skills/universal/flow-file-issue/SKILL.md",
+    label: "flow-file-issue/SKILL.md",
+  },
 ];
 
 let canonicalBlock = "";
@@ -94,13 +99,16 @@ describe("flow-value-rubric: canonical block drift", () => {
     "- **UX:**",
     "- **Problem:**",
     "- **Stability/efficiency:**",
-    "- **Cost:**",
+    "- **Value rank:**",
+    "- **Complexity:**",
+    "- **Risk:**",
     "- **If never done:**",
     "- **Verdict:**",
     "clears bar",
     "below bar",
     "[anchor:",
     "worse than `none`",
+    "Short form",
   ];
 
   it.each(REQUIRED_SUBSTRINGS)(
@@ -202,7 +210,7 @@ describe("flow-value-rubric: below-bar deferrals stay unfiled (fix-applier / pr-
     expect(fixApplierContent.includes("below bar — ")).toBe(true);
   });
 
-  it("fix-applier-instructions.md's deferred-body.md heredoc carries all six value-prop labels", () => {
+  it("fix-applier-instructions.md's deferred-body.md heredoc carries all eight value-prop labels", () => {
     const start = fixApplierContent.indexOf(
       'cat > "$WORKTREE/.flow-tmp/deferred-body.md"',
     );
@@ -222,7 +230,9 @@ describe("flow-value-rubric: below-bar deferrals stay unfiled (fix-applier / pr-
       "- **UX:**",
       "- **Problem:**",
       "- **Stability/efficiency:**",
-      "- **Cost:**",
+      "- **Value rank:**",
+      "- **Complexity:**",
+      "- **Risk:**",
       "- **If never done:**",
       "- **Verdict:**",
     ]) {
@@ -314,5 +324,37 @@ describe("flow-value-rubric: no file-by-default / pre-ticked wording survives", 
 
   it.each(SWEEP)("%s no longer contains 'file-by-default'", (rel) => {
     expect(read(rel).includes("file-by-default")).toBe(false);
+  });
+});
+
+describe("flow-value-rubric: no stale Cost label survives", () => {
+  // The label-only `grep -rq '- **Cost:**'` acceptance check is blind to
+  // prose forms of the same idea (e.g. "the Cost line is …", "rendered as
+  // six nested sub-bullets (… / Cost / …)"). This sweep catches both the
+  // label and the word "Cost line" tree-wide, mirroring the
+  // `mdFilesUnder`/`SWEEP` idiom above.
+  function mdFilesUnder(rel: string): string[] {
+    const dirPath = path.join(REPO_ROOT, rel);
+    if (!fs.existsSync(dirPath)) return [];
+    return fs
+      .readdirSync(dirPath, { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile() && /\.(md|template)$/.test(d.name))
+      .map((d) =>
+        path.relative(REPO_ROOT, path.join(d.parentPath ?? d.path, d.name)),
+      );
+  }
+
+  const SWEEP = [
+    ...mdFilesUnder("skills"),
+    ...mdFilesUnder("references"),
+    ...mdFilesUnder("templates"),
+  ];
+
+  it.each(SWEEP)("%s no longer contains the '- **Cost:**' label", (rel) => {
+    expect(read(rel).includes("- **Cost:**")).toBe(false);
+  });
+
+  it.each(SWEEP)("%s no longer contains the prose form 'Cost line'", (rel) => {
+    expect(read(rel).includes("Cost line")).toBe(false);
   });
 });

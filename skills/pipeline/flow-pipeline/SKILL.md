@@ -217,14 +217,15 @@ Stay in-process for skills; shell out for scripts; never delegate.
 
 > **You only auto-create GitHub issues from the named sites.**
 > `flow-create-issue` may fire only from (a) `/flow-pr-review`'s Step 6
-> deferral path (when a finding clears the deferral bar) and (b)
-> `/flow-pipeline`'s Step 10 post-merge sweep (one issue per `- [x]`
-> item in plan.md's `# Candidate follow-up issues` section). Adding a
-> new fire site requires a named exemption added to `AGENTS.md`
-> "Don'ts" first — same narrow-and-named contract as the auto-merge
-> and Task-tool exemptions. The constraint exists because indiscriminate
-> issue auto-creation pollutes user backlogs with low-confidence noise
-> and races on `gh` rate limits.
+> deferral path, (b) `/flow-pr-review`'s Step 5 retrospective generic-gap
+> capture, (c) `/flow-pipeline`'s Step 10 post-merge sweep (one issue per
+> `- [x]` item in plan.md's `# Candidate follow-up issues` section), (d) a
+> user-instructed `flow-untracked file <n>` reply, and (e) the
+> `/flow-file-issue` skill's hand-filed path. A new fire site needs a named
+> exemption in `AGENTS.md` "Don'ts" first — same narrow-and-named contract
+> as the auto-merge and Task-tool exemptions — because indiscriminate issue
+> auto-creation pollutes user backlogs with low-confidence noise and races
+> on `gh` rate limits.
 
 > **You never silently retry past the documented caps.** Verify: 3
 > outer attempts. CI-fix loop: 3 total. Review-fix loop: 2 total.
@@ -2361,6 +2362,7 @@ ticked items.
 PLAN="$WORKTREE/.flow-tmp/plan.md"
 FILED=()
 WARN=()
+REJECTED=()
 if [ -f "$PLAN" ] && grep -q '^# Candidate follow-up issues' "$PLAN"; then
   # `--ticked` owns the section parse + em-dash split; metadata fields
   # are `null` sans a matching ranking-table row.
@@ -2378,22 +2380,20 @@ if [ -f "$PLAN" ] && grep -q '^# Candidate follow-up issues' "$PLAN"; then
       --body-file "$BODY_FILE" \
       --label flow-agent,out-of-scope-discovery)
     RC=$?
-    if [ $RC -eq 0 ]; then
-      URL=$(printf '%s' "$JSON" | jq -r '.url')
-      FILED+=("$URL")
-    else
-      WARN+=("$TITLE")
-    fi
+    # RC=3 (REJECTED, distinct from a WARN gh/Issues-surface failure): the
+    # body was rejected by the value-rubric contract; `$JSON` is the
+    # rejection envelope, not a URL. Folding it into WARN would launder it.
+    if [ $RC -eq 0 ]; then FILED+=("$(printf '%s' "$JSON" | jq -r '.url')")
+    elif [ $RC -eq 3 ]; then REJECTED+=("$TITLE")
+    else WARN+=("$TITLE"); fi
   done
 fi
-if [ "${#FILED[@]}" -eq 0 ] && [ "${#WARN[@]}" -eq 0 ]; then
+if [ "${#FILED[@]}" -eq 0 ] && [ "${#WARN[@]}" -eq 0 ] && [ "${#REJECTED[@]}" -eq 0 ]; then
   echo "No follow-up issues filed"
-elif [ "${#WARN[@]}" -gt 0 ]; then
-  echo "WARN: filed ${#FILED[@]}/$((${#FILED[@]} + ${#WARN[@]})) follow-up issues; missing: ${WARN[*]}"
 else
-  echo "Filed ${#FILED[@]} follow-up issues:"
-  printf '  %s\n' "${FILED[@]}"
-fi
+  [ "${#WARN[@]}" -gt 0 ] && echo "WARN: no Issues surface for: ${WARN[*]}"
+  [ "${#REJECTED[@]}" -gt 0 ] && echo "REJECTED (exit 3, needs repair): ${REJECTED[*]}"
+  [ "${#FILED[@]}" -gt 0 ] && { echo "Filed ${#FILED[@]} follow-up issues:"; printf '  %s\n' "${FILED[@]}"; }; fi
 # Capture filed URLs + unfiled warnings to the flat file the ## PIPELINE
 # SNAPSHOT block reads as --filed-issues-file (filed\t<url> / unfiled\t<title>
 # lines; a bare http… line is also accepted on the resume path). Truncate first.

@@ -5,12 +5,32 @@ import {
   probeExistingIssue,
   run,
   type GhRunner,
+  type ReadBodyFile,
 } from "./flow-create-issue";
 
 const ISSUE_URL = "https://github.com/me/repo/issues/42";
 const FOUND_JSON = JSON.stringify([
   { number: 42, title: "exact title", url: ISSUE_URL },
 ]);
+
+// A body conforming to the flow-value-rubric contract — used by every
+// run() fixture below in place of the old `--body-file /dev/null` idiom,
+// which becomes an empty body and an exit-3 trap once validation lands
+// (bin/lib/issue-body-rubric.ts, wired in via `readBodyFile`).
+const CONFORMING_BODY = `
+- **UX:** none
+- **Problem:** none
+- **Stability/efficiency:** a measured 3s regression [anchor: bin/flow-pre-commit.ts:1]
+- **Value rank:** 3 [anchor: bin/flow-pre-commit.ts:1]
+- **Complexity:** Small — one file
+- **Risk:** Low — contained
+- **If never done:** nothing
+- **Verdict:** clears bar — a measured regression outweighs a small fix
+`;
+
+function conformingRead(): ReadBodyFile {
+  return () => CONFORMING_BODY;
+}
 
 function ghOk(stdout: string): ReturnType<GhRunner> {
   return { stdout, stderr: "", exitCode: 0 };
@@ -206,7 +226,7 @@ describe(run, () => {
       .mockImplementation(() => true);
     const code = run(
       ["--title", "t", "--body-file", "/dev/null", "--dry-run"],
-      { gh },
+      { gh, readBodyFile: conformingRead() },
     );
     expect(code).toBe(0);
     expect(gh).not.toHaveBeenCalled();
@@ -228,6 +248,7 @@ describe(run, () => {
       .mockImplementation(() => true);
     const code = run(["--title", "exact title", "--body-file", "/dev/null"], {
       gh,
+      readBodyFile: conformingRead(),
     });
     expect(code).toBe(0);
     expect(gh).toHaveBeenCalledOnce();
@@ -264,7 +285,7 @@ describe(run, () => {
         "--label",
         "flow-agent,deferred-review",
       ],
-      { gh },
+      { gh, readBodyFile: conformingRead() },
     );
     expect(code).toBe(0);
     expect(gh).toHaveBeenCalledTimes(4);
@@ -318,7 +339,7 @@ describe(run, () => {
         "flow-agent",
         "--dry-run",
       ],
-      { gh },
+      { gh, readBodyFile: conformingRead() },
     );
     expect(code).toBe(0);
     expect(gh).not.toHaveBeenCalled();
@@ -339,7 +360,7 @@ describe(run, () => {
         "--label",
         "flow-agent",
       ],
-      { gh },
+      { gh, readBodyFile: conformingRead() },
     );
     expect(code).toBe(0);
     // only the probe ran — no gh label create, no gh issue create
@@ -359,6 +380,7 @@ describe(run, () => {
       ["--title", "t", "--body-file", "/dev/null", "--label", "flow-agent"],
       {
         gh,
+        readBodyFile: conformingRead(),
       },
     );
     expect(code).toBe(1);
@@ -378,7 +400,10 @@ describe(run, () => {
     const stdout = vi
       .spyOn(process.stdout, "write")
       .mockImplementation(() => true);
-    const code = run(["--title", "t", "--body-file", "/dev/null"], { gh });
+    const code = run(["--title", "t", "--body-file", "/dev/null"], {
+      gh,
+      readBodyFile: conformingRead(),
+    });
     expect(code).toBe(0);
     expect(gh).toHaveBeenCalledTimes(2);
     expect(gh.mock.calls.some((c) => c[0][0] === "label")).toBe(false);
@@ -409,7 +434,10 @@ describe(run, () => {
     const stderr = vi
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);
-    const code = run(["--title", "t", "--body-file", "/dev/null"], { gh });
+    const code = run(["--title", "t", "--body-file", "/dev/null"], {
+      gh,
+      readBodyFile: conformingRead(),
+    });
     expect(code).toBe(1);
     stderr.mockRestore();
   });
@@ -421,8 +449,122 @@ describe(run, () => {
     const errors = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    const code = run(["--title", "t", "--body-file", "/dev/null"], { gh });
+    const code = run(["--title", "t", "--body-file", "/dev/null"], {
+      gh,
+      readBodyFile: conformingRead(),
+    });
     expect(code).toBe(1);
     errors.mockRestore();
+  });
+
+  describe("body-shape rejection (exit 3)", () => {
+    it("rejects an empty body with a structured JSON envelope on stdout", () => {
+      const gh = vi.fn();
+      const stdout = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(() => true);
+      const errors = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      const code = run(["--title", "t", "--body-file", "/dev/null"], {
+        gh,
+        readBodyFile: () => "",
+      });
+      expect(code).toBe(3);
+      expect(gh).not.toHaveBeenCalled();
+      const written = JSON.parse(String(stdout.mock.calls[0][0]));
+      expect(written.action).toBe("rejected");
+      expect(written.reason).toBe("empty-body");
+      expect(written.misses).toContain("empty-body");
+      expect(written.title).toBe("t");
+      expect(Array.isArray(written.expected)).toBe(true);
+      expect(written.expected.length).toBeGreaterThan(0);
+      expect(typeof written.shortFormExample).toBe("string");
+      stdout.mockRestore();
+      errors.mockRestore();
+    });
+
+    it("rejects a body missing the required value-prop labels", () => {
+      const gh = vi.fn();
+      const stdout = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(() => true);
+      const errors = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      const code = run(["--title", "t", "--body-file", "/dev/null"], {
+        gh,
+        readBodyFile: () => "just some prose",
+      });
+      expect(code).toBe(3);
+      expect(gh).not.toHaveBeenCalled();
+      const written = JSON.parse(String(stdout.mock.calls[0][0]));
+      expect(written.action).toBe("rejected");
+      expect(written.reason).toBe("missing-value-block");
+      stdout.mockRestore();
+      errors.mockRestore();
+    });
+
+    it("rejects on --dry-run too, before any gh call", () => {
+      const gh = vi.fn();
+      const stdout = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(() => true);
+      const errors = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      const code = run(
+        ["--title", "t", "--body-file", "/dev/null", "--dry-run"],
+        { gh, readBodyFile: () => "" },
+      );
+      expect(code).toBe(3);
+      expect(gh).not.toHaveBeenCalled();
+      const written = JSON.parse(String(stdout.mock.calls[0][0]));
+      expect(written.action).toBe("rejected");
+      stdout.mockRestore();
+      errors.mockRestore();
+    });
+
+    it("returns 1 (not 3) for an unreadable/missing body file", () => {
+      const gh = vi.fn();
+      const errors = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      const code = run(["--title", "t", "--body-file", "/no/such/file.md"], {
+        gh,
+        readBodyFile: () => {
+          throw new Error("ENOENT: no such file or directory");
+        },
+      });
+      expect(code).toBe(1);
+      expect(gh).not.toHaveBeenCalled();
+      errors.mockRestore();
+    });
+
+    it("warnings alone never block — a conforming body with banned phrasing still succeeds", () => {
+      const bannedButConforming = CONFORMING_BODY.replace(
+        "- **Problem:** none",
+        "- **Problem:** it might be nicer but nothing is broken [anchor: bin/flow-pre-commit.ts:1]",
+      );
+      const gh = vi
+        .fn()
+        .mockReturnValueOnce(ghOk("[]"))
+        .mockReturnValueOnce(ghOk("https://github.com/me/repo/issues/7\n"));
+      const stdout = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(() => true);
+      const errors = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      const code = run(["--title", "t", "--body-file", "/dev/null"], {
+        gh,
+        readBodyFile: () => bannedButConforming,
+      });
+      expect(code).toBe(0);
+      const written = JSON.parse(String(stdout.mock.calls[0][0]));
+      expect(written.action).toBe("created");
+      stdout.mockRestore();
+      errors.mockRestore();
+    });
   });
 });
