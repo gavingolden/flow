@@ -24,61 +24,92 @@ real launches.
 
 ## Hardening timeline
 
-| PR      | Commit  | Date       | Change                                                                                               |
-| ------- | ------- | ---------- | ---------------------------------------------------------------------------------------------------- |
-| #347    | c7a3cbc | 2026-06-23 | Verified liveness before persisting state + bounded retry                                            |
-| #355    | 7a10e05 | 2026-06-24 | send-keys seed delivery + consumption verification                                                   |
-| #363    | 077f50c | 2026-06-26 | Early-exit ready/consume polls                                                                       |
-| #364    | 0fbe422 | 2026-06-26 | State-phase consumption signal + persist-then-delete-on-failure                                      |
-| #386    | 8114015 | 2026-06-28 | Wide readiness budget, increasing backoff, launch semaphore, non-destructive timeout                 |
-| #425    | 8af4894 | 2026-07-12 | Self-verifying seed delivery                                                                         |
-| #457    | 4f467c9 | 2026-07-17 | Plain-shell default backend (tmux opt-in)                                                            |
-| #477    | 3b64e79 | 2026-07-22 | Durable launch breadcrumb + install-time `claude --version` runnable check + `--tmux` launcher docs  |
-| this PR | —       | —          | Paced remainder delivery + UserPromptSubmit seed-integrity check + reshaped epic-create leading line |
+| PR      | Commit  | Date       | Change                                                                                                                                                                                                               |
+| ------- | ------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #347    | c7a3cbc | 2026-06-23 | Verified liveness before persisting state + bounded retry                                                                                                                                                            |
+| #355    | 7a10e05 | 2026-06-24 | send-keys seed delivery + consumption verification                                                                                                                                                                   |
+| #363    | 077f50c | 2026-06-26 | Early-exit ready/consume polls                                                                                                                                                                                       |
+| #364    | 0fbe422 | 2026-06-26 | State-phase consumption signal + persist-then-delete-on-failure                                                                                                                                                      |
+| #386    | 8114015 | 2026-06-28 | Wide readiness budget, increasing backoff, launch semaphore, non-destructive timeout                                                                                                                                 |
+| #425    | 8af4894 | 2026-07-12 | Self-verifying seed delivery                                                                                                                                                                                         |
+| #457    | 4f467c9 | 2026-07-17 | Plain-shell default backend (tmux opt-in)                                                                                                                                                                            |
+| #477    | 3b64e79 | 2026-07-22 | Durable launch breadcrumb + install-time `claude --version` runnable check + `--tmux` launcher docs                                                                                                                  |
+| #686    | ae7fbaa | 2026-08-28 | Paced remainder delivery + UserPromptSubmit seed-integrity check + reshaped epic-create leading line                                                                                                                 |
+| this PR | —       | —          | Pointer seed (`REQUEST_FILE`) for the two free-form-text seeds, single-line reshape of all five supervisor seeds, fail-fast retry on deterministic corruption, and a reap-orphans skip for a recorded `seedMismatch` |
 
 ## Seed integrity
 
 The leading-line handshake (`bin/lib/seed-delivery.ts`) only ever verifies the
 FIRST line of a seed in-pane — a long paste collapses into
 `[Pasted text #N +M lines]` chips, so the remainder can never be
-capture-verified once the body is present. Two changes close that gap without
-touching the capture-verify design:
+capture-verified once the body is present. The 2026-08-28 incident (a
+3-byte in-pane transposition — `"agent to"` mangled to `"ageno"` plus a
+trailing `"t t"` — not whitespace) proved this gap is real for
+free-form user text riding the unverified remainder. Three changes close
+it:
 
-- **Paced remainder.** The remainder is chunked to `REMAINDER_CHUNK_BYTES`
-  (128 bytes) with a `REMAINDER_SETTLE_MS` (50 ms) sleep between consecutive
-  chunks, rather than one large literal `send-keys` blast — reducing the odds
-  of tmux/claude dropping bytes under load. This is still fire-and-trust, not
-  a verification: pacing lowers the failure rate, it doesn't detect a failure.
-- **Out-of-band integrity check.** Every tmux launch/resume path
-  (`bin/lib/feature.ts`, `bin/lib/epic.ts`, `bin/flow-session-start-hook.ts`)
-  records the exact seed it is about to deliver as `state.seed` before
-  sending it. `bin/flow-seed-ingested-hook.ts` — a Claude Code
-  UserPromptSubmit hook — compares the submitted prompt against `state.seed`
-  (whitespace-squashed containment, not equality) the instant a prompt is
-  accepted. A match stamps `seedIngestedAt` (and clears any earlier
-  `seedMismatch` — `launchWithRetry` reuses the same closure across
-  attempts, so a corrupted attempt followed by an intact one must not stay
-  latched as failed); a mismatch records `state.seedMismatch` instead and
-  does NOT stamp `seedIngestedAt`, so `bin/lib/tmux.ts`'s `seedCorrupted()`
-  predicate turns a recorded mismatch into a hard `failed` launch outcome —
-  the existing kill + `launchWithRetry` re-launch apply for free.
+- **Pointer seed, not payload — for the two seeds that carried free-form
+  text.** The `flow feature create` fresh-launch seed and the
+  `flow epic create` seed no longer put the verbatim request/prompt on
+  the seed at all. The launcher writes it to `~/.flow/state/<slug>.request.md`
+  (`bin/lib/state.ts`'s `writeRequestFile`, mode `0600`) BEFORE dispatch,
+  and the seed becomes a single control-char-free line ending
+  `REQUEST_FILE: <path>` (`sanitizeSeedLine` strips any stray control byte
+  defensively, even though free-form text no longer reaches the seed).
+  The other three supervisor seeds — `flow feature resume`'s,
+  `flow epic create --resume`'s, and `flow epic run`'s — never carried
+  free-form text (only the slug and CLI-resolved paths), but are reshaped
+  to a single line too, for a uniform contract across all five. `splitSeed`'s
+  remainder is empty for every one of these five seeds, so each goes
+  through the capture-verified, `C-u`-retried leading-line handshake in
+  full — the unverified-remainder path this section used to describe no
+  longer carries any of them. `flow-session-start-hook.ts` delivers the
+  same three reshaped resume seeds (`flowPipelineResumeSeed`,
+  `epicResumeSeed`, `epicRunSeed`), so they are single-line too; only
+  `terminalContinueSeed` (genuine multi-line prose, no free-form user text)
+  still carries a remainder.
+- **Paced remainder (unchanged, now only for `terminalContinueSeed`).**
+  Still chunked to `REMAINDER_CHUNK_BYTES` (128 bytes) with a
+  `REMAINDER_SETTLE_MS` (50 ms) sleep between consecutive chunks, rather
+  than one large literal `send-keys` blast.
+- **Out-of-band integrity check + fail-fast retry.** Every tmux
+  launch/resume path records the seed it is about to deliver as
+  `state.seed`. `bin/flow-seed-ingested-hook.ts` — a Claude Code
+  UserPromptSubmit hook — compares the submitted prompt against
+  `state.seed` (whitespace-squashed containment) the instant a prompt is
+  accepted, now gated to at most one recorded mismatch per launch window
+  (a second, unrelated prompt after a recorded `seedMismatch` no longer
+  re-fires the comparison — deliberately NOT a `phase !== "starting"` gate,
+  which would have silently disabled the check on both resume paths). A
+  match stamps `seedIngestedAt`; a mismatch records `state.seedMismatch`
+  and `bin/lib/tmux.ts`'s `seedCorrupted()` predicate turns it into a hard
+  `failed` outcome. `launchWithRetry` (`bin/lib/feature.ts`,
+  `bin/lib/epic.ts`) now fails fast on `SEED_CORRUPTED_STDERR` — ONE
+  attempt, not the full retry budget, since a deterministic corruption
+  just resends the same bytes through the same broken path.
 
   `seedCorrupted()` is wired on the paths where a corrupted delivery must
   fail the command: `flow feature create` (fresh + resume) and
   `flow epic create` (fresh + `--resume`). The `flow epic run` playbook
   window (`spawnEpicRunSupervisor`) deliberately does NOT wire it — that
   window is human-in-the-loop (the user attaches directly), so enforcement
-  is not yet universal across all six seed-recording sites, only these four.
+  is not yet universal across all six seed-recording sites, only these
+  four; the pointer-seed migration above covers five of the six (every
+  seed except `terminalContinueSeed`, which never carried free-form text).
 
 A truncated or corrupted delivery is recoverable without retyping the
-original request: on the wired paths, a `seedCorrupted()` failure prints the
-original prompt text directly in the CLI error output. It does NOT point at
-`~/.flow/state/<slug>.json` as a durable recovery source — that state file
-still has `phase: starting`, no `pid`, and no window, so it satisfies
-`reapableStartingOrphans` and `flow ls`'s lazy reap (`REAP_GRACE_MS`, ~60s)
-deletes it shortly after the message prints. `flow reap` / `flow done`
-remain the generic backstop for this one abandoned `phase: starting` state
-file, not a recovery path for the seed text itself.
+original request: on the wired paths, a `seedCorrupted()` failure now names
+`~/.flow/state/<slug>.request.md` — the file `writeRequestFile` wrote
+before dispatch — as the recovery source, rather than printing the seed
+text (which, post-migration, is only a pointer line and would print
+nothing useful). This file DOES survive `flow ls`'s lazy reap
+(`REAP_GRACE_MS`, ~60s): `reapableStartingOrphans`
+(`bin/lib/reap-orphans.ts`) now skips any `phase: starting` slug with a
+recorded `seedMismatch`, and `deleteState` unlinks the request file only
+alongside its state file — so the corrupted state (and its sibling request
+file) both survive until the operator recovers or explicitly `flow done`s
+the slug. `flow reap` / `flow done` remain the generic backstop once
+recovery is complete.
 
 ## Why the TTY / trust-dialog hypothesis was not pursued
 

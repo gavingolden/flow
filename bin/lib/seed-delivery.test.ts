@@ -1,13 +1,19 @@
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { epicCreateSeed, epicResumeSeed, epicRunSeed } from "./epic-seed";
+import { flowPipelineResumeSeed, flowPipelineSeed } from "./feature";
 import {
   chunkByBytes,
   deliverSeed,
   MAX_SEND_KEYS_BYTES,
   REMAINDER_CHUNK_BYTES,
   REMAINDER_SETTLE_MS,
+  sanitizeSeedLine,
   splitSeed,
   type DeliverSeedSeams,
 } from "./seed-delivery";
+import { requestFilePath } from "./state";
 
 const MARKER = "[pipeline-slug: csv-export]";
 const BODY = "Use the /flow-pipeline skill for: csv export";
@@ -367,5 +373,167 @@ describe("deliverSeed — remainder pacing", () => {
     expect(sleeps.filter((ms) => ms === 5)).toHaveLength(
       remainderChunks.length - 1,
     );
+  });
+});
+
+describe("supervisor launch seeds — no unverified remainder", () => {
+  // Fixed-length injected stateDir (never the real $HOME) so byte bounds stay
+  // machine-independent — a 60-char --slug (slug.ts's cap) with a real home
+  // dir pushes an absolute request-file path well past a flat bound. Built
+  // with a deterministic fixed-length path (not a real mkdtemp draw, which
+  // varies in length per OS/run) — these seeds are never written to disk,
+  // only string-built, so no real directory needs to exist.
+  const dir = path.join(os.tmpdir(), "flow-seed-bounds-fixture");
+
+  const slug = "csv-export";
+  const epicDir = ".flow/epics/csv-export";
+  const skillDir = path.join(
+    dir,
+    "skills",
+    "pipeline",
+    "flow-product-planning",
+  );
+
+  // flowPipelineSeed is exported (mirroring flowPipelineResumeSeed on the
+  // very next line of feature.ts) so this table calls the real production
+  // builder instead of a hand-copied literal that can silently drift from
+  // it (a drifted mirror is exactly what made this it.each case
+  // constant-true before).
+  const builders: Array<{ name: string; seed: string; maxBytes: number }> = [
+    {
+      name: "flowPipelineSeed",
+      seed: flowPipelineSeed(slug, "add CSV export", dir),
+      maxBytes: 320,
+    },
+    {
+      name: "flowPipelineResumeSeed",
+      seed: flowPipelineResumeSeed(slug),
+      maxBytes: 320,
+    },
+    {
+      name: "epicCreateSeed",
+      seed: epicCreateSeed(
+        "add CSV export",
+        epicDir,
+        skillDir,
+        requestFilePath(slug, dir),
+      ),
+      maxBytes: 500,
+    },
+    {
+      name: "epicResumeSeed",
+      seed: epicResumeSeed(slug, epicDir, skillDir),
+      maxBytes: 500,
+    },
+    {
+      name: "epicRunSeed",
+      seed: epicRunSeed(slug, epicDir),
+      maxBytes: 500,
+    },
+  ];
+
+  it.each(builders)(
+    "$name produces a single line with an empty splitSeed remainder",
+    ({ seed, maxBytes }) => {
+      expect(splitSeed(seed).remainder).toBe("");
+      expect(Buffer.byteLength(seed, "utf8")).toBeLessThanOrEqual(maxBytes);
+    },
+  );
+
+  // The motivating worst case (block comment above, and the PR's
+  // "Deviations from plan" note) is a 60-char --slug (slug.ts's
+  // MAX_SLUG_LENGTH), not the 10-char "csv-export" every row above uses —
+  // exercise the bound at the cap it was actually sized for.
+  const capSlug = "a".repeat(60);
+  const capEpicDir = `.flow/epics/${capSlug}`;
+  const capSkillDir = path.join(
+    dir,
+    "skills",
+    "pipeline",
+    "flow-product-planning",
+  );
+
+  const buildersAtCap: Array<{ name: string; seed: string; maxBytes: number }> =
+    [
+      {
+        name: "flowPipelineSeed",
+        seed: flowPipelineSeed(capSlug, "add CSV export", dir),
+        maxBytes: 320,
+      },
+      {
+        name: "flowPipelineResumeSeed",
+        seed: flowPipelineResumeSeed(capSlug),
+        maxBytes: 320,
+      },
+      {
+        name: "epicCreateSeed",
+        seed: epicCreateSeed(
+          "add CSV export",
+          capEpicDir,
+          capSkillDir,
+          requestFilePath(capSlug, dir),
+        ),
+        maxBytes: 500,
+      },
+      {
+        name: "epicResumeSeed",
+        seed: epicResumeSeed(capSlug, capEpicDir, capSkillDir),
+        maxBytes: 500,
+      },
+      {
+        name: "epicRunSeed",
+        seed: epicRunSeed(capSlug, capEpicDir),
+        maxBytes: 500,
+      },
+    ];
+
+  it.each(buildersAtCap)(
+    "$name stays within its bound at the 60-char slug cap",
+    ({ seed, maxBytes }) => {
+      expect(splitSeed(seed).remainder).toBe("");
+      expect(Buffer.byteLength(seed, "utf8")).toBeLessThanOrEqual(maxBytes);
+    },
+  );
+});
+
+describe("sanitizeSeedLine", () => {
+  it("maps TAB (0x09) to a single space", () => {
+    expect(sanitizeSeedLine("a\tb")).toBe("a b");
+  });
+
+  it("maps a newline to a single space", () => {
+    expect(sanitizeSeedLine("a\nb")).toBe("a b");
+  });
+
+  it("maps DEL (0x7f) to a single space", () => {
+    expect(sanitizeSeedLine("a\x7fb")).toBe("a b");
+  });
+
+  it("maps every other C0 control char to a single space", () => {
+    expect(sanitizeSeedLine("a\x01\x1fb")).toBe("a  b");
+  });
+
+  it("does not collapse ordinary whitespace (unlike squash)", () => {
+    expect(sanitizeSeedLine("a  b   c")).toBe("a  b   c");
+  });
+
+  it("leaves a control-char-free line untouched", () => {
+    expect(sanitizeSeedLine("plain text, no control chars")).toBe(
+      "plain text, no control chars",
+    );
+  });
+
+  it("a control-char-bearing description still yields a control-char-free seed", () => {
+    // Call-site assertion, not a pure-function one: with sanitizeSeedLine
+    // now applied to the COMPOSED line at both feature.ts's flowPipelineSeed
+    // and epic-seed.ts's epicCreateSeed, this is the guarantee those two
+    // module doc comments claim, exercised at the real production call site
+    // rather than at sanitizeSeedLine in isolation.
+    const seed = flowPipelineSeed(
+      "csv-export",
+      "a\tb\nc\x1bd",
+      path.join(os.tmpdir(), "flow-seed-bounds-fixture"),
+    );
+    expect(seed).not.toMatch(/[\x00-\x1f\x7f]/);
   });
 });

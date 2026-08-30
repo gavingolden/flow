@@ -37,23 +37,29 @@ The Step 4.5 **cross-model design review** is a
 **two named surfaces** (the clarification form + the `MODE: epic` designer
 fan-out) are unchanged; documented bidirectionally in `AGENTS.md` `## Don'ts`.
 
-## EPIC_DIR comes from the seed prompt (R1 — never import `bin/lib`)
+## EPIC_DIR and the prompt come from the seed (R1 — never import `bin/lib`)
 
 The CLI (`flow epic create`) is the SOLE evaluator of the epic path contract.
-It embeds the resolved **literal** `EPIC_DIR` (e.g. `.flow/epics/<slug>`) and
-the resolved **literal** product-planning `SKILL_DIR`, each on its own line in
-the seed prompt:
+The seed it delivers is a **single control-char-free line** carrying
+`REQUEST_FILE`, the resolved **literal** `EPIC_DIR` (e.g. `.flow/epics/<slug>`),
+and the resolved **literal** product-planning `SKILL_DIR`:
 
 ```
-Use the /flow-epic-create skill for the prompt below.
-<prompt>
-
-EPIC_DIR: .flow/epics/<slug>
-
-SKILL_DIR: <abs>/skills/pipeline/flow-product-planning
+Use the /flow-epic-create skill. REQUEST_FILE: <abs>/<slug>.request.md EPIC_DIR: .flow/epics/<slug> SKILL_DIR: <abs>/skills/pipeline/flow-product-planning
 ```
 
-Capture that literal `EPIC_DIR` and use it verbatim for every path below
+The prompt no longer rides the seed itself — a stray control character (a
+TAB, a newline) inside the free-form prompt used to reach the pane raw and
+corrupt delivery, so the CLI now writes the prompt to `REQUEST_FILE` before
+launching and the seed carries only a pointer to it. **Read `REQUEST_FILE`
+first and treat its full contents as the verbatim prompt.** This applies to
+the fresh-create seed above only — the `--resume` seed
+(`flow epic create --resume <slug>`) carries no `REQUEST_FILE`; see
+`# Resume mode` below, which is what governs that invocation instead. Only
+when a fresh-create seed's `REQUEST_FILE` is absent, escalate
+`NEEDS HUMAN: request-file-missing`.
+
+Capture the literal `EPIC_DIR` and use it verbatim for every path below
 (`<EPIC_DIR>/design.md`, `<EPIC_DIR>/manifest.json`). Likewise capture the
 literal `SKILL_DIR` and pass it verbatim into the Step 3 designer Task prompt
 (you cannot re-derive it — the in-process Skill-tool base-directory mechanism

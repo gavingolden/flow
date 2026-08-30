@@ -4863,24 +4863,28 @@ describe("pr-review include-by-reference structure", () => {
     // step-7 split (PR #666) lands the combined file at 2923 lines —
     // both sides' growth is feature-mechanical, so the ceiling moves to
     // 2940 (17 lines of headroom), same discipline as above.
-    // A later, unrelated merge to main (#704, the async plan-review
-    // spine) already landed the file at 2946 lines — 6 OVER the 2940
-    // ceiling — before this PR's own edits. The blind method survey
-    // (Task 8) is itself feature-mechanical (a Hard-rules sibling
-    // blockquote, a ~7-line opener sub-step pointing at
-    // references/blind-survey.md, one new `flow-step3-route` decision's
-    // routing bullets, one plan-summary line, one resume-row clause) and
-    // lands the combined file at 2998 lines. The ceiling moves to 3015
-    // (17 lines of genuine headroom over 2998), the same discipline as
-    // every raise above — it does NOT retroactively re-tighten for the
-    // pre-existing #704 overshoot, which is absorbed into this raise
-    // rather than fixed here (out of scope for this feature).
+    // Seed-integrity REQUEST_FILE contract: the "When to Use" bullet and
+    // Step 1's slug-extraction paragraph both gained the REQUEST_FILE
+    // pointer + NEEDS HUMAN: request-file-missing escalation — genuine
+    // correctness content for the single-line seed migration, not
+    // incidental bloat.
+    // Merged with the blind method survey from main (#720), which is
+    // itself feature-mechanical (a Hard-rules sibling blockquote, a
+    // ~7-line opener sub-step pointing at references/blind-survey.md,
+    // one new `flow-step3-route` decision's routing bullets, one
+    // plan-summary line, one resume-row clause) and had raised the
+    // ceiling to 3015. Both sides' growth is feature-mechanical and
+    // additive, and the combined file lands at 3024 lines, so the
+    // ceiling moves to 3040 (16 lines of genuine headroom), the same
+    // discipline as every raise above. This also absorbs — and does NOT
+    // retroactively re-tighten for — the pre-existing #704 overshoot
+    // already noted on the main side.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3015 lines. Material regrowth past this ceiling would ` +
+        `budget of 3040 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3015);
+    ).toBeLessThan(3040);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -6865,6 +6869,10 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
     [
       "task-tool-unavailable: epic-create-designer",
       "the escalate-on-Task-miss NEEDS HUMAN tag",
+    ],
+    [
+      "REQUEST_FILE",
+      "the request-file pointer the single-line seed now carries instead of the verbatim prompt",
     ],
     ["flow-open-pr", "the idempotent design-PR open"],
     ["flow-new-worktree", "the per-pipeline worktree creation"],
@@ -9033,4 +9041,57 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
       ).toBe(enumeratedCount);
     }
   });
+});
+
+describe("REQUEST_FILE seed-pointer contract — both supervisor SKILL.md files", () => {
+  // Drift guard: the launch seed is now a single control-char-free line
+  // carrying only a REQUEST_FILE pointer, never the verbatim request text —
+  // if either supervisor doc silently loses the instruction to read that
+  // file first, the supervisor would resume treating the seed's own text as
+  // the request, which no longer contains it. Reads flow-epic-create/SKILL.md
+  // fresh (rather than reusing the sibling describe block's `epicCreateContent`,
+  // which is scoped inside that block's own callback) to stay standalone.
+  const epicCreateContent = fs.readFileSync(
+    path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-epic-create",
+      "SKILL.md",
+    ),
+    "utf8",
+  );
+
+  const REQUIRED_LITERALS: Array<[string, string]> = [
+    ["REQUEST_FILE", "the request-file pointer carried on the launch seed"],
+    [
+      "request-file-missing",
+      "the NEEDS HUMAN escalation for an absent REQUEST_FILE",
+    ],
+  ];
+
+  it.each(REQUIRED_LITERALS)(
+    "flow-pipeline/SKILL.md contains the load-bearing literal %j (%s)",
+    (literal) => {
+      expect(
+        content.includes(literal),
+        `skills/pipeline/flow-pipeline/SKILL.md must contain '${literal}'. ` +
+          `Dropping it breaks the seed's REQUEST_FILE contract; restore it or ` +
+          `update this anchor in lockstep.`,
+      ).toBe(true);
+    },
+  );
+
+  it.each(REQUIRED_LITERALS)(
+    "flow-epic-create/SKILL.md contains the load-bearing literal %j (%s)",
+    (literal) => {
+      expect(
+        epicCreateContent.includes(literal),
+        `skills/pipeline/flow-epic-create/SKILL.md must contain '${literal}'. ` +
+          `Dropping it breaks the seed's REQUEST_FILE contract; restore it or ` +
+          `update this anchor in lockstep.`,
+      ).toBe(true);
+    },
+  );
 });

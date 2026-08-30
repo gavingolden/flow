@@ -33,9 +33,11 @@ Stay in-process for skills; shell out for scripts; never delegate.
 
 # When to Use
 
-- Invoked from `flow feature create`'s seed prompt: `Use the /flow-pipeline
-  skill for: <description>`.
-- Explicit user invocation: `/flow-pipeline "<description>"`.
+- Invoked from `flow feature create`'s seed prompt: a single line,
+  `[pipeline-slug: <slug>] Use the /flow-pipeline skill. REQUEST_FILE: <path>`
+  — the request lives at `REQUEST_FILE`, not the seed. See Step 1.
+- Explicit user invocation: `/flow-pipeline "<description>"` — no
+  `REQUEST_FILE`; the inline description IS the request.
 
 # When NOT to Use
 
@@ -467,11 +469,19 @@ state.json, and the PR are the state.
 **Phase:** `triaging`
 
 **First action of the supervisor.** Extract the pipeline slug from the
-first line of this seed prompt before any bash calls. The first line
-of every seed has the form `[pipeline-slug: <slug>]` — parse the
-literal `<slug>` value from it and embed it inline in the two calls
-below. The slug is a concrete string (e.g. `csv-export`), not a shell
-variable that persists across tool calls.
+seed prompt before any bash calls. The seed is a single line whose
+prefix has the form `[pipeline-slug: <slug>]` — parse the literal
+`<slug>` value from it and embed it inline in the two calls below. The
+slug is a concrete string (e.g. `csv-export`), not a shell variable
+that persists across tool calls.
+
+**The seed carries `REQUEST_FILE: <path>`; read that file first and
+treat its full contents as the verbatim request** (the description no
+longer rides the seed — a stray control char in free-form text used to
+corrupt delivery, so the launcher now writes it to this file first). If
+`REQUEST_FILE` is absent, escalate `NEEDS HUMAN: request-file-missing`.
+A hand-run `/flow-pipeline <description>` carries no `REQUEST_FILE` —
+the inline description IS the request, used exactly as before.
 
 Write the phase to state.json so `flow ls` immediately shows `triaging`
 instead of the stale `starting` from `flow feature create`. Pass `--slug <slug>`

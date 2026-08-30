@@ -1,8 +1,15 @@
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { run, type Deps } from "./flow-seed-ingested-hook";
+import { run, seedIntact, type Deps } from "./flow-seed-ingested-hook";
 import type { PipelineState } from "./lib/state";
+
+function readFixture(name: string): string {
+  return fs.readFileSync(
+    fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)),
+    "utf8",
+  );
+}
 
 const FROZEN_NOW = "2026-06-28T00:00:00.000Z";
 
@@ -261,6 +268,97 @@ describe("flow-seed-ingested-hook", () => {
       expect(saveState).toHaveBeenCalledWith(
         expect.objectContaining({ seedIngestedAt: FROZEN_NOW }),
       );
+    });
+
+    it("seedIntact reports the real 2026-08-28 corruption as NOT intact", () => {
+      // The recorded/submitted pair is a 3-byte transposition ("agent to" ->
+      // "ageno" plus a trailing "t t"), not whitespace — a squash-based
+      // comparison must still catch it.
+      const recorded = readFixture("seed-incident-2026-08-28.recorded.txt");
+      const submitted = readFixture("seed-incident-2026-08-28.submitted.txt");
+      expect(seedIntact(recorded, submitted)).toBe(false);
+    });
+  });
+
+  describe("launch-window seedMismatch gate", () => {
+    const SEED =
+      "[pipeline-slug: demo]\nUse the /flow-pipeline skill for: csv export";
+    const truncated = SEED.slice(0, 10) + SEED.slice(-10);
+
+    it("does not record a new seedMismatch when state.seedMismatch is already set", async () => {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({
+          seed: SEED,
+          seedMismatch: {
+            at: "2026-06-27T23:00:00.000Z",
+            expectedBytes: 1,
+            submittedBytes: 2,
+          },
+        }),
+        readStdin: async () =>
+          JSON.stringify({
+            hook_event_name: "UserPromptSubmit",
+            prompt: truncated,
+          }),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).not.toHaveBeenCalled();
+    });
+
+    it("still records a mismatch when phase has advanced past starting but seedMismatch is unset (resume-path regression guard)", async () => {
+      // The plan's originally-proposed gate (`phase !== "starting"`) would
+      // have silently switched off integrity checking here — resume states
+      // are already past `starting` by the time this hook fires again.
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed: SEED, phase: "triaging" }),
+        readStdin: async () =>
+          JSON.stringify({
+            hook_event_name: "UserPromptSubmit",
+            prompt: truncated,
+          }),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledTimes(1);
+      const written = saveState.mock.calls[0]![0] as PipelineState;
+      expect(written.seedMismatch).toEqual({
+        at: FROZEN_NOW,
+        expectedBytes: Buffer.byteLength(SEED, "utf8"),
+        submittedBytes: Buffer.byteLength(truncated, "utf8"),
+      });
+    });
+
+    it("clears a stale seedMismatch when a later prompt delivers the seed intact (resume self-heal)", async () => {
+      // Resume sites clear seed*/seedMismatch exactly once, BEFORE
+      // launchWithRetry's loop — so a dead-pane attempt 1 (recorded
+      // mismatch) followed by an intact attempt 2 must still clear the
+      // stale mismatch, not strand it. Regression guard for the bug the
+      // consolidator's bug-detection lens flagged.
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({
+          seed: SEED,
+          seedMismatch: {
+            at: "2026-06-27T23:00:00.000Z",
+            expectedBytes: 1,
+            submittedBytes: 2,
+          },
+        }),
+        readStdin: async () =>
+          JSON.stringify({
+            hook_event_name: "UserPromptSubmit",
+            prompt: SEED,
+          }),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledTimes(1);
+      const written = saveState.mock.calls[0]![0] as PipelineState;
+      expect(written.seedMismatch).toBeUndefined();
+      expect(written.seedIngestedAt).toBe(FROZEN_NOW);
     });
   });
 });
