@@ -45,21 +45,19 @@ You are invoked by the `flow epic run <slug>` seed prompt, which begins with the
 literal prefix:
 
 ```
-Use the /flow-epic-run skill for: <slug>
-
-EPIC_DIR: .flow/epics/<slug>
+Use the /flow-epic-run skill for: <slug> EPIC_DIR: .flow/epics/<slug>
 ```
 
-Capture the `<slug>` after `for:` and the literal `EPIC_DIR` on its own line.
-You are **also** directly invocable as `/flow-epic-run <slug>` inside any existing
+Capture the `<slug>` between `for:` and ` EPIC_DIR:`, and the literal `EPIC_DIR`
+after it. You are **also** directly invocable as `/flow-epic-run <slug>` inside any existing
 Claude session — the playbook is the same either way; the seed prompt just opens
 a dedicated window for it.
 
 ## EPIC_DIR comes from the seed prompt (R1 — never import `bin/lib`)
 
 The CLI (`flow epic run`) is the SOLE evaluator of the epic path contract. It
-embeds the resolved **literal** `EPIC_DIR` (e.g. `.flow/epics/<slug>`) on its
-own line. You run cwd'd in a **consumer worktree** where flow's `bin/lib/*` does
+embeds the resolved **literal** `EPIC_DIR` (e.g. `.flow/epics/<slug>`) in the
+single seed line. You run cwd'd in a **consumer worktree** where flow's `bin/lib/*` does
 NOT exist, so you must **never import `bin/lib`** — that import fails here.
 Consume the literal `EPIC_DIR` + the **bare-name PATH helpers** only.
 

@@ -226,9 +226,7 @@ reads the six per-agent JSON outputs at
 `flow-agent-finding-schema --validate`, merges +
 dedups + threshold-filters, runs a second-opinion validation pass on
 >=80-confidence non-praise survivors, and writes a structured artifact
-at `<worktree>/.flow-tmp/consolidator-result.json` with five top-level
-keys: `consolidated_findings`, `dropped_by_validation`,
-`rejected_alternatives`, `anti_patterns_found`, `summary`. The full
+at `<worktree>/.flow-tmp/consolidator-result.json` with five REQUIRED top-level keys (`consolidated_findings`, `dropped_by_validation`, `rejected_alternatives`, `anti_patterns_found`, `summary`) plus three OPTIONAL per-lens pass-through keys (`lens_rejected_alternatives`, `lens_anti_patterns_found`, `lens_negatives_missing`). The full
 prose, procedure, and prompt template live in
 [references/consolidator-instructions.md](references/consolidator-instructions.md).
 
@@ -632,9 +630,8 @@ resolved type) and the resolved
   "Return your findings via the Task tool result envelope AND write them to
   `$WORKTREE/.flow-tmp/agent-output-<lens>.json` before returning," `<lens>` being
   the kebab-case name from the table below. This is the Step 3.5 Consolidator's
-  input — without it there is nothing to merge. Shape: `{findings: [...]}`
-  (matching `bin/lib/agent-finding-schema.ts`); empty is correct when nothing
-  noteworthy was found.
+  input — without it there is nothing to merge. Shape: `{findings: [...], rejected_alternatives: [...], anti_patterns_found: [...]}`
+  (matching `bin/lib/agent-finding-schema.ts`); empty arrays are correct, an ABSENT negative-findings key is recorded (`lens_negatives_missing[]`), not escalated.
 
 The 6 agents:
 
@@ -649,8 +646,7 @@ The 6 agents:
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
 `decoration`, `confidence`, `subject`, `body`. The on-disk artifact at
-`$WORKTREE/.flow-tmp/agent-output-<lens>.json` wraps that array in
-`{findings: [...]}` per the per-agent schema validated at Step 3.5.
+`$WORKTREE/.flow-tmp/agent-output-<lens>.json` carries three top-level keys — `findings`, `rejected_alternatives`, `anti_patterns_found` — per the per-agent schema validated at Step 3.5.
 
 Wait for all 7 spawned agents to complete before proceeding — the six
 lenses plus the diff-only intent-guess agent (§ Diff-only intent-guess
@@ -664,12 +660,13 @@ exemption** — the nine-exemption count stays nine. It adds ONE additional
 reviewer on a genuinely different model family (Gemini, on the user's idle
 Google AI Ultra quota) so the review catches issues the six same-family
 Claude lenses share a blind spot on, at no Claude-credit cost, producing
-`agent-output-gemini.json` in the same `{findings: [...]}` shape (tagged
-`agent_source: gemini` consolidator-side) so Step 3.5 merges it with no
-special-casing. Purely additive: any failure (lens disabled, `agy`
-absent/logged out, unparseable output) is a **graceful skip** — record the
-`skipReason` for Step 12 and proceed with the six Claude lenses unchanged.
-It NEVER hard-fails the review.
+`agent-output-gemini.json` in the same three-key `{findings,
+rejected_alternatives, anti_patterns_found}` shape (tagged `agent_source:
+gemini` consolidator-side) so Step 3.5 merges it with no special-casing.
+Purely additive: any failure (lens disabled, `agy` absent/logged out,
+unparseable output) is a **graceful skip** — record the `skipReason` for
+Step 12 and proceed with the six Claude lenses unchanged. It NEVER
+hard-fails the review.
 
 1. **Gate** (default off, mirroring the F2 `research.discovery` precedent):
    run the lens only when this succeeds (exit 0) — an absent/malformed config
@@ -915,7 +912,7 @@ The deferral path's tracker-entry filing (a GitHub issue via
 has no GitHub Issues surface the deferral is surfaced loudly in the
 report with an empty `tracker_entry_url` rather than written to a file)
 is documented inside the subagent's instructions at
-`references/fix-applier-instructions.md`.
+`references/fix-applier-instructions.md`. A `reason` beginning `below bar — ` is a value-bar dismissal, not a tracker failure, and renders under its own `Below bar (not filed)` sub-list in the Step 12 report.
 
 ## 7. Address Each Review Comment
 
@@ -1584,9 +1581,12 @@ negative-findings sections surface what the Fix-Applier Subagent learned should 
 done — render them as named report sections so a human reading the report sees the
 foreclosed paths alongside the fixes that landed.
 
-Each `anti_patterns_found[]` entry carries `introduced_by_this_pr` alongside its
+Both sections also render the Consolidator's pass-through `lens_rejected_alternatives[]` / `lens_anti_patterns_found[]` entries alongside the Fix-Applier's, attributed to their source lens, under the SAME headings (no separate lens-only section); `None` still covers a zero-entry section across both sources.
+
+Each Fix-Applier `anti_patterns_found[]` entry carries `introduced_by_this_pr` alongside its
 `location` / `pattern` / `recommendation` (`true` = lives in code this PR added or
-changed, which the fix-now bar requires fixed in-commit; `false` = pre-existing).
+changed, which the fix-now bar requires fixed in-commit; `false` = pre-existing) — the lens
+pass-through `lens_anti_patterns_found[]` entries above have no such flag (three fields plus `lens`, never four).
 Render the boolean in **Anti-Patterns Observed**, and append the new-file audit's
 WARNING lines (Step 9a above) so a misclassified introduced-in-PR entry stays visible.
 
@@ -1601,7 +1601,7 @@ surfaced in Step 4 must appear in one of the two buckets — say "No findings de
 explicitly rather than leaving the reader guessing. Same rule for the negative-findings
 sections: write `None` under an empty `rejected_alternatives` / `anti_patterns_found`
 heading rather than omitting it — silence on negatives is the failure mode the slot
-exists to prevent.
+exists to prevent. Within the deferred bucket, a `deferred[]` entry whose `reason` begins `below bar — ` renders under its own `Below bar (not filed)` sub-list, separate from filed deferrals (a `tracker_entry_url`) and from tracker failures (an empty `tracker_entry_url` whose `reason` does not begin `below bar — `).
 
 The Fix-Applier Subagent already committed and pushed any code changes during its run
 (per the `Auto-push exemption: pr-review` clause); the wrapper does not re-commit here.
@@ -1715,7 +1715,7 @@ Both sources are read-only against the fix-applier artifact schema —
 no new field is added to it. Items seeded here are unfiled by default;
 they surface in the terminal block's `**Untracked:**` row and the
 reader files or drops them with `file #N` / `drop #N` at any later
-pause.
+pause. Below-bar deferrals (a `reason` beginning `below bar — `) arrive through source 1 by design — shown, not filed — so the user can `flow-untracked file <id>` any they disagree with.
 
 After Step 13 finishes (including its no-op-skipped branch), write the
 clean-completion result artifact at `<worktree>/.flow-tmp/pr-review-result.json`

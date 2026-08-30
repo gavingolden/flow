@@ -13,6 +13,13 @@ import {
 } from "./flow-seed-ingested-hook";
 import type { PipelineState } from "./lib/state";
 
+function readFixture(name: string): string {
+  return fs.readFileSync(
+    fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)),
+    "utf8",
+  );
+}
+
 const FROZEN_NOW = "2026-06-28T00:00:00.000Z";
 
 function fakeState(overrides: Partial<PipelineState> = {}): PipelineState {
@@ -319,6 +326,55 @@ describe("flow-seed-ingested-hook", () => {
       );
     });
 
+    it("a standing corrupt record is NOT re-recorded by a later marker-bearing corrupt prompt (launch-window scoped, PR #719)", async () => {
+      // #719's launch-window gate (a null-check on the removed mismatch
+      // field), in seedIngest terms: the
+      // comparison still runs on every prompt, but `record`'s
+      // neverOverCorrupt flag keeps the ORIGINAL corruption's byte counts —
+      // the ones the failure message points at — instead of overwriting them
+      // with a later, unrelated submission's.
+      const truncated = SEED.slice(0, 30) + SEED.slice(-10);
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({
+          seed: SEED,
+          seedIngest: {
+            at: "2026-06-27T12:00:00.000Z",
+            outcome: "corrupt",
+            expectedBytes: 999,
+            submittedBytes: 111,
+          },
+        }),
+        readStdin: complete(payload(truncated)),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).not.toHaveBeenCalled();
+    });
+
+    it("still records corrupt once phase has advanced past starting (resume-path regression guard, PR #719)", async () => {
+      // #719's plan originally proposed gating on `phase !== "starting"`,
+      // which would have silently switched integrity checking off on both
+      // resume paths — a resume state is already past `starting` by the time
+      // this hook fires again.
+      const truncated = SEED.slice(0, 30) + SEED.slice(-10);
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed: SEED, phase: "triaging" }),
+        readStdin: complete(payload(truncated)),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledTimes(1);
+      const written = saveState.mock.calls[0]![0] as PipelineState;
+      expect(written.seedIngest).toEqual({
+        at: FROZEN_NOW,
+        outcome: "corrupt",
+        expectedBytes: Buffer.byteLength(SEED, "utf8"),
+        submittedBytes: Buffer.byteLength(truncated, "utf8"),
+      });
+    });
+
     it("records unverified{stdin-error} when the stdin drain throws", async () => {
       const { deps, saveState } = makeDeps({
         pane: "%1",
@@ -442,6 +498,15 @@ describe("squashPrompt / seedIntact / deliveryMarkerPresent", () => {
 
   it("seedIntact is false when the seed's middle is missing", () => {
     expect(seedIntact(SEED, SEED.slice(0, 30) + SEED.slice(-10))).toBe(false);
+  });
+
+  it("seedIntact reports the real 2026-08-28 corruption as NOT intact", () => {
+    // The recorded/submitted pair is a 3-byte transposition ("agent to" ->
+    // "ageno" plus a trailing "t t"), not whitespace — a squash-based
+    // comparison must still catch it.
+    const recorded = readFixture("seed-incident-2026-08-28.recorded.txt");
+    const submitted = readFixture("seed-incident-2026-08-28.submitted.txt");
+    expect(seedIntact(recorded, submitted)).toBe(false);
   });
 
   it("seedIntact('', anything) is false — an empty expectation never passes vacuously", () => {

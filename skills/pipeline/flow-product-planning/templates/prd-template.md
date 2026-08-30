@@ -35,6 +35,23 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 - **Depends on:** [feature id — produced/consumed artifact] | none
 - **Downstream dependents:** [feature id — interface that must stay stable] | none
 
+## Method selection
+
+<!-- Omit-when-no-SURVEY-marker: include ONLY when the invocation carried a `SURVEY:`
+     marker (the Step-3 blind method survey ran); otherwise omit the heading entirely
+     (never an empty heading). Full contract: discovery-instructions.md step 1.8 and
+     the "Method selection" step-5 bullet — the single source of truth. -->
+
+- **User's method:** [the method the user's description proposed]
+- **Judge A ([model]):** "[its top recommendation's first sentence, verbatim]" — [paraphrase] | skipped: [reason]
+- **Judge B ([model]):** "[its top recommendation's first sentence, verbatim]" — [paraphrase] | skipped: [reason]
+- **Survey verdict:** converge-against | split | converge-with
+- **Chosen method:** [one line] — [why]
+
+| Before (user's method as asked) | After (chosen method) |
+| ------------------------------- | --------------------- |
+| [what the user proposed]        | [what the plan does]  |
+
 ## Scope Boundary
 
 <!-- State what's NOT in. Mention v2 only if it's likely. -->
@@ -321,7 +338,8 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      TOP-LEVEL `# Candidate follow-up issues` sibling of `# PRD` / `# Task breakdown`
      (h1) — the h2 here matches the template's rhythm. Two parts in order: a
      MANDATORY value-vs-complexity ranking table, then the machine-readable checkbox
-     list, authored pre-ticked (`- [x]`) — file-by-default, not opt-in
+     list, ticked (`- [x]`) only when the value-prop block's Verdict is `clears bar`,
+     otherwise `- [ ]`
      (flow-candidate-issues parses both `- [ ]` and `- [x]` lines). The `Pull into
      this pipeline?` column is plain Yes/No text, NEVER a checkbox. Full contract —
      ranking-table mandate, the exclusion-naming rule each Rationale cell must
@@ -336,3 +354,16 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 | [orthogonal idea] | [High/Medium/Low] | [Trivial/Small/Medium/Large] | [one-line why] | [how it relates]            | [Yes/No]                 |
 
 - [x] [orthogonal idea] — [one-line body; the machine-readable candidate the post-merge sweep files]
+  - **UX:** [who notices, what changes, how often] `[anchor: …]` — or `none`
+  - **Problem:** [the concrete failure or friction this removes] `[anchor: …]` — or `none`
+  - **Stability/efficiency:** [crash / flake / cost / latency effect] `[anchor: …]` — or `none`
+  - **Cost:** [files touched, blast radius, review load, regression risk]
+  - **If never done:** [what breaks, stays broken, or keeps costing] — or `nothing`
+  - **Verdict:** clears bar — [the decisive line]
+- [ ] [orthogonal idea] — [one-line body; shown but never filed unless the user replies `file candidate #N`]
+  - **UX:** [who notices, what changes, how often] `[anchor: …]` — or `none`
+  - **Problem:** [the concrete failure or friction this removes] `[anchor: …]` — or `none`
+  - **Stability/efficiency:** [crash / flake / cost / latency effect] `[anchor: …]` — or `none`
+  - **Cost:** [files touched, blast radius, review load, regression risk]
+  - **If never done:** [what breaks, stays broken, or keeps costing] — or `nothing`
+  - **Verdict:** below bar — [the decisive line]

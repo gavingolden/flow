@@ -348,8 +348,10 @@ scout report back; the artifact on disk is the record.
     silently skipped. That triage's cumulative bundle-size test applies to implementation-time
     bundles too, not only plan-time ones. Disclose each one as a `## Key decisions` line in the
     PR body of the exact form `Bundled during implementation: <item> — <why>`. An item that
-    hits one of the three named exclusions is instead recorded as a pre-ticked candidate for
-    the post-merge issue path, not bundled. **Plan stays source-of-truth:** when a late item is
+    hits one of the three named exclusions is instead recorded as a candidate for the
+    post-merge issue path — with a value-prop block per discovery-instructions.md's
+    `flow-value-rubric`, ticked only when it clears the bar — not bundled. **Plan
+    stays source-of-truth:** when a late item is
     bundled AND `.flow-tmp/plan.md` exists, also append a one-line `- **Bundled:** <item> —
 discovered during implementation` bullet to the relevant task (or a minimal new task entry)
     in plan.md, so `/flow-pr-review`'s plan-vs-diff comparison and its Step 3.6 intent-guess see

@@ -46,6 +46,8 @@ and the shell-safety contract's `'\''` form below MUST be reproduced
 literally, never paraphrased for readability. The Audit Appendix
 below, and the filed bundle issue each queued command points at, also
 keep the mechanism language; the opener and cards stay in outcomes.
+The `[anchor: …]` tail on a value line is the one sanctioned exception —
+it is what makes the line checkable.
 
 Group every DO bundle into one of these **recommendation tiers**,
 introduced here and used throughout the Launch queue below: **Fix now
@@ -56,27 +58,41 @@ it is simply omitted — but never introduce a fifth tier without saying
 why the four defaults didn't fit this backlog.
 
 Each DO bundle gets one card, each facet its own list item so the
-card renders as four lines, never one run-on paragraph:
+card renders as four facets — the value facet carrying its nested
+value-prop block — never one run-on paragraph:
 
 - **Outcome:** <one plain-language sentence — what a user or the
   business gets>
 - **What changes / who notices:** <who is affected and how>
-- **Why it's worth it:** <the value case — or the honest case
-  against, if it's marginal>
+- **Why it's worth it:** the value-prop block, rendered as six nested
+  sub-bullets (UX / Problem / Stability-efficiency / Cost / If never
+  done / Verdict) — or the honest case against, if it's marginal
+  - **UX:** <who notices, what changes, how often> `[anchor: …]` — or `none`
+  - **Problem:** <the concrete failure or friction this removes> `[anchor: …]` — or `none`
+  - **Stability/efficiency:** <crash / flake / cost / latency effect> `[anchor: …]` — or `none`
+  - **Cost:** <files touched, blast radius, review load, regression risk>
+  - **If never done:** <what breaks, stays broken, or keeps costing> — or `nothing`
+  - **Verdict:** clears bar — <the decisive line>
 - **Size:** S / M / L <sourced from Phase 3's Small/Medium/Large
   sizing>
 
-Keep the brief to at most two pages: one card per bundle, never per
-item — items collapse into their bundle's single card. Separate
+Keep the brief to at most two pages (a DO card's nested value-prop
+block counts toward that budget — trim prose, never the block): one
+card per bundle, never per item — items collapse into their bundle's
+single card. Separate
 consecutive cards with a blank line so they never merge into one
 blob.
 
 ### Not doing (kill list)
 
-Every REJECT verdict, with its one-sentence reasoning, plus every NOT
-REPRODUCIBLE IN CODE item flagged for the user to re-check. This section
-is **required and non-empty** — a backlog that survives triage untouched
-is a triage failure, not a clean backlog.
+Every REJECT verdict, with its one-sentence reasoning, and every
+DO-LATER verdict, with its concrete promotion trigger, plus every NOT
+REPRODUCIBLE IN CODE item flagged for the user to re-check. Each REJECT
+and DO-LATER entry also carries `Verdict: below bar — <decisive line>`
+per `methodology.md`'s value-prop gate; a NOT REPRODUCIBLE IN CODE entry
+carries no Verdict line — methodology.md's gate does not require one for
+it. This section is **required and non-empty** — a backlog that survives
+triage untouched is a triage failure, not a clean backlog.
 
 Each GitHub-issue kill-list entry renders its drafted comment as a
 ready-to-run command:
@@ -221,6 +237,8 @@ half of enforcement (a prose lint cannot police runtime behaviour):
 - Every attached issue reported with its envelope `action` (`created` /
   `updated` / `unchanged` / `skipped` with a named reason, or
   `would-create` / `would-update` on a dry run): YES/NO/N-A
+- Every DO / NEEDS-DECISION card carries a value-prop block with an
+  anchor on each non-`none` value line: YES/NO
 
 ## Chat summary shape
 

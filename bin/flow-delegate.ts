@@ -60,7 +60,9 @@
  *
  * stdout is always a one-line JSON envelope:
  *   success: {"ran":true,"task":..,"model":..,"artifactPath":..,"exitCode":0,"durationMs":..}
- *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-error",..}
+ *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-timeout"|"agy-error",..}
+ *            (every skip envelope may also carry a redacted, <=2000-byte
+ *            `stderrTail`, tail-most, when agy's stderr was non-empty)
  *
  * Exit codes:
  *   0 — delegated successfully, OR a quiet graceful skip (agy missing /
@@ -77,10 +79,27 @@ import {
   readFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import { redactSecrets } from "./lib/redact-secrets";
 import { parseStructured } from "./lib/structured-response";
 
 const DEFAULT_TIMEOUT = "5m";
 const DEFAULT_TASK = "default";
+const STDERR_TAIL_CAP = 2000;
+
+// Redacted, tail-most (not head-most — a crash's cause is at the end of the
+// stream) slice of agy's stderr, capped at `cap` bytes. Returns "" for
+// empty/whitespace-only input so callers can `if (tail)` before adding the
+// field to an envelope (omit-when-empty).
+export function stderrTail(
+  text: string,
+  cap: number = STDERR_TAIL_CAP,
+): string {
+  if (!text || !text.trim()) return "";
+  const redacted = redactSecrets(text);
+  return redacted.length > cap
+    ? redacted.slice(redacted.length - cap)
+    : redacted;
+}
 
 export type Args = {
   prompt?: string;
@@ -232,6 +251,17 @@ export function artifactPathFor(args: Args): string {
 // "the model run failed".
 export function looksUnauthenticated(text: string): boolean {
   return /unauthenticat|not authenticated|not logged in|please log\s?in|sign in|auth(?:entication)? (?:required|failed)|reauthenticate/i.test(
+    text,
+  );
+}
+
+// A `--print-timeout` kill is distinguishable from a genuine model error —
+// verified agy stderr signature: "Error: timeout waiting for response"
+// (agy 1.1.10/1.1.11, exit 1). Checked BEFORE looksUnauthenticated in the
+// non-zero-exit branch below (the two patterns do not overlap today;
+// ordering makes that robust to a future widening of the auth regex).
+export function looksTimedOut(text: string): boolean {
+  return /timeout waiting for response|print[- ]timeout|deadline exceeded|context deadline/i.test(
     text,
   );
 }
@@ -428,23 +458,30 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   let result: AgyResult;
   try {
     result = deps.runAgy(buildAgyArgv(parsed, prompt), outPath);
-  } catch {
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    const tail = stderrTail(message);
     return emit(deps, {
       ran: false,
       skipReason: "agy-error",
       task: parsed.task,
+      ...(tail ? { stderrTail: tail } : {}),
     });
   }
 
   if (result.exitCode !== 0) {
-    const skipReason = looksUnauthenticated(result.stderr)
-      ? "agy-not-authenticated"
-      : "agy-error";
+    const skipReason = looksTimedOut(result.stderr)
+      ? "agy-timeout"
+      : looksUnauthenticated(result.stderr)
+        ? "agy-not-authenticated"
+        : "agy-error";
+    const tail = stderrTail(result.stderr);
     return emit(deps, {
       ran: false,
       skipReason,
       task: parsed.task,
       exitCode: result.exitCode,
+      ...(tail ? { stderrTail: tail } : {}),
     });
   }
 

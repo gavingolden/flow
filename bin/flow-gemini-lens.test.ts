@@ -278,9 +278,13 @@ describe("run — conformant output", () => {
     });
     const finalized = JSON.parse(deps.files.get(OUT)!);
     expect(validateAgentFindings(finalized).ok).toBe(true);
-    // MANDATORY re-projection: the finalized file is exactly {findings},
-    // never leaking a schema-supplied top-level `reasoning` key.
-    expect(finalized).toEqual({ findings: [VALID_FINDING] });
+    // MANDATORY re-projection: the finalized file carries only the keys the
+    // source actually populated, never leaking a schema-supplied top-level
+    // `reasoning` key. Neither negative array was present on the source, so
+    // both stay ABSENT here rather than being laundered into `[]`.
+    expect(finalized).toEqual({
+      findings: [VALID_FINDING],
+    });
   });
 
   // S2: a plain-prose, non-envelope raw artifact (the pre-this-PR, non-json
@@ -295,7 +299,9 @@ describe("run — conformant output", () => {
       decodedVia: "response-parse",
     });
     const finalized = JSON.parse(deps.files.get(OUT)!);
-    expect(finalized).toEqual({ findings: [VALID_FINDING] });
+    expect(finalized).toEqual({
+      findings: [VALID_FINDING],
+    });
   });
 
   // S5: the wire-schema scratch file must never survive either exit path.
@@ -381,6 +387,13 @@ describe("run — conformant output", () => {
     );
   });
 
+  it("requires both negative-findings arrays on the wire schema so agy cannot structurally omit them", () => {
+    const schema = AGENT_FINDINGS_JSON_SCHEMA as { required: string[] };
+    expect(schema.required).toEqual(
+      expect.arrayContaining(["rejected_alternatives", "anti_patterns_found"]),
+    );
+  });
+
   it("finalizes an empty {findings:[]} as valid (Gemini found nothing)", () => {
     const deps = makeDeps({
       runDelegate: (argv) => {
@@ -392,6 +405,98 @@ describe("run — conformant output", () => {
     });
     expect(run(BASE_ARGV, deps)).toBe(0);
     expect(envelope(deps)).toMatchObject({ ran: true, findingCount: 0 });
+    const finalized = JSON.parse(deps.files.get(OUT)!);
+    // Source carried neither negative array, so both stay ABSENT rather
+    // than being laundered into `[]`.
+    expect(finalized).toEqual({
+      findings: [],
+    });
+  });
+
+  it("round-trips valid rejected_alternatives and anti_patterns_found arrays", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(
+          rawPath,
+          JSON.stringify({
+            findings: [VALID_FINDING],
+            rejected_alternatives: [
+              { considered_approach: "a", why_rejected: "b" },
+            ],
+            anti_patterns_found: [
+              { location: "src/x.ts:1", pattern: "p", recommendation: "r" },
+            ],
+          }),
+        );
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    const finalized = JSON.parse(deps.files.get(OUT)!);
+    expect(finalized).toEqual({
+      findings: [VALID_FINDING],
+      rejected_alternatives: [{ considered_approach: "a", why_rejected: "b" }],
+      anti_patterns_found: [
+        { location: "src/x.ts:1", pattern: "p", recommendation: "r" },
+      ],
+    });
+  });
+
+  it("drops one malformed negative entry and still finalizes successfully (does NOT skip with gemini-output-unparseable)", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(
+          rawPath,
+          JSON.stringify({
+            findings: [VALID_FINDING],
+            rejected_alternatives: [
+              { considered_approach: "missing why_rejected" },
+              { considered_approach: "a", why_rejected: "b" },
+            ],
+            anti_patterns_found: [],
+          }),
+        );
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({ ran: true });
+    const finalized = JSON.parse(deps.files.get(OUT)!);
+    expect(finalized.rejected_alternatives).toEqual([
+      { considered_approach: "a", why_rejected: "b" },
+    ]);
+    expect(finalized.findings).toEqual([VALID_FINDING]);
+  });
+
+  it("still strips the reasoning scratchpad key when negative arrays are present", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(
+          rawPath,
+          JSON.stringify({
+            reasoning: "scratchpad notes that must never reach --out",
+            findings: [VALID_FINDING],
+            rejected_alternatives: [],
+            anti_patterns_found: [],
+          }),
+        );
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    const finalized = JSON.parse(deps.files.get(OUT)!);
+    expect(finalized).toEqual({
+      findings: [VALID_FINDING],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+    });
+    expect(finalized).not.toHaveProperty("reasoning");
   });
 });
 
@@ -522,7 +627,9 @@ describe("run — malformed payloads drop the lens, never throw, leave no valid 
     });
     expect(run(BASE_ARGV, deps)).toBe(0);
     const finalized = JSON.parse(deps.files.get(OUT)!);
-    expect(finalized).toEqual({ findings: [VALID_FINDING] });
+    expect(finalized).toEqual({
+      findings: [VALID_FINDING],
+    });
     expect(finalized).not.toHaveProperty("reasoning");
   });
 });

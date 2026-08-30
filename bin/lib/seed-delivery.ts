@@ -117,6 +117,18 @@ export function squash(s: string): string {
 }
 
 /**
+ * Maps every C0 control char (including TAB, 0x09) and newline, plus DEL
+ * (0x7f), to a single space — for anything typed into a pane as a single
+ * line. Unlike `squash`, this does not collapse other whitespace: it only
+ * removes control characters that would otherwise be interpreted by the
+ * terminal (e.g. an in-pane TAB triggering shell completion) or split the
+ * seed across lines.
+ */
+export function sanitizeSeedLine(s: string): string {
+  return s.replace(/[\x00-\x1f\x7f]/g, " ");
+}
+
+/**
  * Send the leading line, verify it echoed intact, then send the remainder.
  * NEVER sends Enter — the caller submits, and only when `delivered` is true.
  */

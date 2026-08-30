@@ -406,7 +406,9 @@ export function renderDeviations(inputs: {
  * Rejected decisions for the slim PR comment's DECISIONS section: the
  * `rejected_alternatives[]` from BOTH the fix-applier artifact (objects with
  * `finding_id` / `considered_approach` / `why_rejected`) AND the consolidator
- * artifact (plain strings). `none` when neither artifact carries any.
+ * artifact (plain strings), PLUS the consolidator's pass-through
+ * `lens_rejected_alternatives[]` (code-scoped, tagged with the source lens).
+ * `none` when none of the three carries any.
  */
 function rejectedDecisionLines(
   fixApplierRaw: string,
@@ -434,6 +436,12 @@ function rejectedDecisionLines(
         : validateConsolidatorResult(normalizeParsedFindings(parsed));
     if (v && v.ok) {
       for (const r of v.value.rejected_alternatives) lines.push(r);
+      // Optional pass-through key — absent contributes nothing.
+      for (const r of v.value.lens_rejected_alternatives ?? []) {
+        lines.push(
+          `lens(${r.lens}): ${r.considered_approach} - ${r.why_rejected}`,
+        );
+      }
     }
   }
   return lines.length > 0 ? lines : NONE;

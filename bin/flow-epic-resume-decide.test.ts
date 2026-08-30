@@ -167,6 +167,17 @@ describe("decide() — design / validate / checkpoint", () => {
     expect(r.epicResumeAt).toBe("validate");
   });
 
+  it("resumes at 'validate' when phase is 'epic-plan-review-pending' (yielded mid async design review)", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "epic-plan-review-pending" }),
+        pr: { kind: "none" },
+      }),
+    );
+    expect(r.epicResumeAt).toBe("validate");
+    expect(r.epicResumeAt).not.toBe("design");
+  });
+
   it("resumes at 'checkpoint' when phase is 'epic-design-pending-review' (worktree + PR)", () => {
     const r = decide(makeInputs());
     expect(r.epicResumeAt).toBe("checkpoint");

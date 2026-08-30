@@ -18,9 +18,14 @@
  * - `validateConsolidatorResult(parsed)` — validates the Consolidator-
  *   Validator subagent's output artifact at
  *   `<worktree>/.flow-tmp/consolidator-result.json`. The input must be a
- *   JSON object with five top-level keys: `consolidated_findings`,
+ *   JSON object with five REQUIRED top-level keys: `consolidated_findings`,
  *   `dropped_by_validation`, `rejected_alternatives`,
- *   `anti_patterns_found`, `summary`.
+ *   `anti_patterns_found`, `summary` — plus three OPTIONAL pass-through
+ *   keys carrying the per-lens negative findings the consolidator collects
+ *   from the six review agents (and the optional cross-model Gemini lens):
+ *   `lens_rejected_alternatives`, `lens_anti_patterns_found`,
+ *   `lens_negatives_missing`. An absent optional key is valid; a present
+ *   one is validated per-entry.
  *
  * Strict on shape, permissive on string content. Labels and decorations
  * are enumerated per the agent-prompts.md spec; the body string content
@@ -56,7 +61,37 @@ export type Finding = {
 
 export type AgentFindings = {
   findings: Finding[];
+  rejected_alternatives?: LensRejectedAlternative[];
+  anti_patterns_found?: LensAntiPattern[];
 };
+
+// A review lens's code-scoped "considered but rejected" note. Deliberately
+// two fields only — no `finding_id` (a rejected alternative isn't always
+// tied to one specific finding).
+export type LensRejectedAlternative = {
+  considered_approach: string;
+  why_rejected: string;
+};
+
+// A review lens's code-scoped off-pattern observation. THREE string fields
+// only — deliberately drops the Fix-Applier artifact's
+// `introduced_by_this_pr` boolean (fix-applier-schema.ts's
+// `validateAntiPatternEntry` hard-requires it): a review lens has no
+// fix-time provenance context to report it accurately.
+export type LensAntiPattern = {
+  location: string;
+  pattern: string;
+  recommendation: string;
+};
+
+// Tri-state read of a per-lens negative-findings slot from a parsed
+// artifact: the key is absent (or present but not an array), present as an
+// empty array, or present as a non-empty array.
+export type NegativeSlotState = "populated" | "empty" | "absent";
+
+// A per-lens negative entry once the consolidator tags it with its source
+// lens (the six kebab-case review-agent names, or "gemini").
+export type LensNegativeEntry<T> = T & { lens: string };
 
 export type DroppedFinding = {
   finding_id: string;
@@ -70,6 +105,13 @@ export type ConsolidatorResult = {
   rejected_alternatives: string[];
   anti_patterns_found: string[];
   summary: string;
+  // Pass-through, code-scoped lens negatives. ALL OPTIONAL: the consolidator
+  // never authors these itself (it collects/tags them from the per-lens
+  // artifacts), so an absent key must stay valid rather than degrading the
+  // whole artifact.
+  lens_rejected_alternatives?: LensNegativeEntry<LensRejectedAlternative>[];
+  lens_anti_patterns_found?: LensNegativeEntry<LensAntiPattern>[];
+  lens_negatives_missing?: string[];
 };
 
 export type ValidationOk<T> = { ok: true; value: T };
@@ -231,6 +273,90 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 function err(reason: string, path?: string): ValidationErr {
   return { ok: false, reason, path };
+}
+
+// Local two-string-field checker for `LensRejectedAlternative`. Do NOT
+// reach for fix-applier-schema.ts's `validateRejectedAlternativeEntry` here
+// — it requires a `finding_id` the lens shape deliberately omits.
+function isLensRejectedAlternative(v: unknown): v is LensRejectedAlternative {
+  if (!isPlainObject(v)) return false;
+  return (
+    isNonEmptyString(v.considered_approach) && isNonEmptyString(v.why_rejected)
+  );
+}
+
+// Local three-string-field checker for `LensAntiPattern`. Do NOT reach for
+// fix-applier-schema.ts's `validateAntiPatternEntry` here — it hard-requires
+// an `introduced_by_this_pr` boolean the lens shape deliberately omits, and
+// would reject every lens entry.
+function isLensAntiPattern(v: unknown): v is LensAntiPattern {
+  if (!isPlainObject(v)) return false;
+  return (
+    isNonEmptyString(v.location) &&
+    isNonEmptyString(v.pattern) &&
+    isNonEmptyString(v.recommendation)
+  );
+}
+
+/**
+ * Tri-state read of the two negative-findings slots on a parsed per-lens
+ * artifact. Never throws: a present-but-non-array value (string, number,
+ * null, object) classifies as "absent", same as a missing key.
+ */
+export function classifyLensNegatives(parsed: unknown): {
+  rejected_alternatives: NegativeSlotState;
+  anti_patterns_found: NegativeSlotState;
+} {
+  const classify = (v: unknown): NegativeSlotState => {
+    if (!Array.isArray(v)) return "absent";
+    return v.length === 0 ? "empty" : "populated";
+  };
+  if (!isPlainObject(parsed)) {
+    return { rejected_alternatives: "absent", anti_patterns_found: "absent" };
+  }
+  return {
+    rejected_alternatives: classify(parsed.rejected_alternatives),
+    anti_patterns_found: classify(parsed.anti_patterns_found),
+  };
+}
+
+/**
+ * Tolerant collector for a per-lens artifact's two negative-findings arrays,
+ * mirroring the shape of `fix-applier-tolerant.ts`'s `collectFixApplierTolerant`
+ * / `collectValid` (that helper is module-private, so this copies the shape
+ * rather than importing it). Drops per-entry-invalid entries and counts
+ * them in `skipped`; never fabricates or defaults a missing field.
+ */
+export function collectLensNegatives(parsed: unknown): {
+  rejected_alternatives: LensRejectedAlternative[];
+  anti_patterns_found: LensAntiPattern[];
+  skipped: number;
+} {
+  const rejected_alternatives: LensRejectedAlternative[] = [];
+  const anti_patterns_found: LensAntiPattern[] = [];
+  let skipped = 0;
+  if (!isPlainObject(parsed)) {
+    return { rejected_alternatives, anti_patterns_found, skipped };
+  }
+  if (Array.isArray(parsed.rejected_alternatives)) {
+    for (const entry of parsed.rejected_alternatives) {
+      if (isLensRejectedAlternative(entry)) {
+        rejected_alternatives.push(entry);
+      } else {
+        skipped++;
+      }
+    }
+  }
+  if (Array.isArray(parsed.anti_patterns_found)) {
+    for (const entry of parsed.anti_patterns_found) {
+      if (isLensAntiPattern(entry)) {
+        anti_patterns_found.push(entry);
+      } else {
+        skipped++;
+      }
+    }
+  }
+  return { rejected_alternatives, anti_patterns_found, skipped };
 }
 
 function validateFinding(f: unknown, idx: number): ValidationResult<Finding> {
@@ -401,6 +527,54 @@ export function validateConsolidatorResult(
     return err("'summary' must be a non-empty string");
   }
 
+  // The three lens pass-through keys are OPTIONAL: the consolidator never
+  // authors them itself, so an absent key is valid. Validate per-entry only
+  // when the key is present, so one omission never degrades the artifact.
+  if (parsed.lens_rejected_alternatives !== undefined) {
+    if (!Array.isArray(parsed.lens_rejected_alternatives)) {
+      return err("'lens_rejected_alternatives' must be an array when present");
+    }
+    for (let i = 0; i < parsed.lens_rejected_alternatives.length; i++) {
+      const entry = parsed.lens_rejected_alternatives[i];
+      if (
+        !isLensRejectedAlternative(entry) ||
+        !isNonEmptyString((entry as Record<string, unknown>).lens)
+      ) {
+        return err(
+          `lens_rejected_alternatives[${i}] must be {considered_approach, why_rejected, lens} with all non-empty strings`,
+        );
+      }
+    }
+  }
+
+  if (parsed.lens_anti_patterns_found !== undefined) {
+    if (!Array.isArray(parsed.lens_anti_patterns_found)) {
+      return err("'lens_anti_patterns_found' must be an array when present");
+    }
+    for (let i = 0; i < parsed.lens_anti_patterns_found.length; i++) {
+      const entry = parsed.lens_anti_patterns_found[i];
+      if (
+        !isLensAntiPattern(entry) ||
+        !isNonEmptyString((entry as Record<string, unknown>).lens)
+      ) {
+        return err(
+          `lens_anti_patterns_found[${i}] must be {location, pattern, recommendation, lens} with all non-empty strings`,
+        );
+      }
+    }
+  }
+
+  if (parsed.lens_negatives_missing !== undefined) {
+    if (
+      !Array.isArray(parsed.lens_negatives_missing) ||
+      !isStringArray(parsed.lens_negatives_missing)
+    ) {
+      return err(
+        "'lens_negatives_missing' must be an array of strings when present",
+      );
+    }
+  }
+
   return { ok: true, value: parsed as ConsolidatorResult };
 }
 
@@ -457,7 +631,22 @@ async function cliMain(argv: string[]): Promise<number> {
     : validateAgentFindings(parsed);
 
   if (result.ok) {
-    process.stdout.write(JSON.stringify({ ok: true }) + "\n");
+    // Widen the envelope on the PER-AGENT success path only — the
+    // consolidator-artifact envelope stays `{ok: true}` unchanged. Safe:
+    // every documented consumer branches on exit code, never the stdout
+    // body.
+    if (isConsolidator) {
+      process.stdout.write(JSON.stringify({ ok: true }) + "\n");
+    } else {
+      const { skipped } = collectLensNegatives(parsed);
+      process.stdout.write(
+        JSON.stringify({
+          ok: true,
+          negatives: classifyLensNegatives(parsed),
+          skipped,
+        }) + "\n",
+      );
+    }
     return 0;
   }
   process.stderr.write(

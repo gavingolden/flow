@@ -357,6 +357,10 @@ export const NEXT_STEP_BY_PHASE: Record<string, string> = {
   "ci-wait": "step 8 (review)",
   "ci-wait-pending":
     "step 7 (ci-wait) — run flow-ci-check and branch on .status/.decision",
+  "plan-review-pending":
+    "step 3 (plan) — run flow-plan-review --check and branch on .status",
+  "epic-plan-review-pending":
+    "/flow-epic-create step 4.5 — run flow-plan-review --check and branch on .status",
   reviewing: "step 9 (gate)",
   gating: "step 10 (merge)",
   merging:

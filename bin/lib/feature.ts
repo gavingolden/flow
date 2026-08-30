@@ -37,6 +37,8 @@ import {
   readState,
   writeState,
   deleteState,
+  requestFilePath,
+  writeRequestFile,
   nowIso,
   EFFORT_LEVELS,
   type EffortLevel,
@@ -51,6 +53,7 @@ import {
   type ReadConfigFile,
 } from "./models-config";
 import { sleepSync } from "./sleep";
+import { sanitizeSeedLine } from "./seed-delivery";
 import { appendLaunchRecord } from "./launch-log";
 import { dim } from "./color";
 import {
@@ -128,6 +131,11 @@ function launchWithRetry(
     attempts = attempt + 1;
     last = launch();
     if (last.status !== "failed") return { ...last, attempts };
+    // Deterministic corruption, not a transient tmux/claude hiccup — the seed
+    // delivery mechanism itself mangled the prompt, so retrying resends the
+    // exact same bytes through the same broken path. Fail fast rather than
+    // burning the retry budget on a guaranteed-repeat failure.
+    if (last.stderr === SEED_CORRUPTED_STDERR) return { ...last, attempts };
   }
   return { ...last, attempts };
 }
@@ -806,7 +814,12 @@ function runFresh(
 
   const worktree = deriveWorktreePath(repo, slug);
   const settingsPath = launchSettingsPathFor(options);
-  const seed = flowPipelineSeed(slug, description);
+  const seed = flowPipelineSeed(slug, description, options.stateDir);
+  // Write the request file BEFORE the launcher dispatch below, so BOTH
+  // backends (plain, the default, dispatches a few lines down; tmux inside
+  // the `launch` closure further below) find it in place — the seed only
+  // carries a REQUEST_FILE pointer, never the verbatim text.
+  writeRequestFile(slug, description, options.stateDir);
 
   // Whole-session model, resolved at launch: the --model flag wins over the
   // config `models.default`; absent both, no --model reaches claude (its
@@ -970,34 +983,26 @@ function runFresh(
   if (result.status === "failed") {
     const seedCorrupted = result.stderr === SEED_CORRUPTED_STDERR;
     // The seed-corruption failure deliberately SKIPS the no-orphan delete: the
-    // pipeline never got far enough to write a plan/worktree, so state.seed is
-    // the ONLY surviving copy of the original request text. But this state
-    // file still satisfies `reapableStartingOrphans` (phase `starting`, no
-    // pid, no window) — `flow ls`'s lazy reap (REAP_GRACE_MS, ~60s) deletes
-    // it shortly after, so pointing the user at the file path (as a prior
-    // version of this message did) is a recovery hint that stops being true
-    // within a minute. Print the seed text directly below instead, so
-    // recovery doesn't depend on the file surviving. `flow reap`/`flow done`
-    // remain the generic backstop for this one abandoned `phase: starting`
-    // state file.
+    // pipeline never got far enough to write a plan/worktree, and the request
+    // file written above (before the launcher dispatch) is the recovery
+    // artifact. reapableStartingOrphans (reap-orphans.ts) now skips any slug
+    // with a `corrupt` seedIngest record, so — unlike before — `flow ls`'s lazy
+    // reap (REAP_GRACE_MS, ~60s) does NOT delete this state (or its sibling
+    // request file) shortly after; both survive until the operator recovers
+    // or explicitly `flow done`s the slug.
     if (!seedCorrupted) {
       deleteState(slug, options.stateDir);
     }
     if (seedCorrupted) {
-      const corruptedState = readState(slug, options.stateDir);
       console.error(
         "flow feature create: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
       );
-      if (corruptedState?.seed) {
-        console.error(
-          "  original request text (recover it now — this state file is reaped within ~60s):",
-        );
-        console.error(corruptedState.seed);
-      } else {
-        console.error(
-          `  the original request text was recorded in ~/.flow/state/${slug}.json but has already been reaped.`,
-        );
-      }
+      console.error(
+        `  the original request text survives at ${requestFilePath(slug, options.stateDir)} — recover it from there.`,
+      );
+      console.error(
+        `  then clean up with \`flow done ${slug}\` (this pipeline is no longer auto-reaped).`,
+      );
     } else {
       console.error(
         "flow feature create: claude exited immediately after launch — the tmux window did not stay up.",
@@ -1658,16 +1663,31 @@ export function ensureLaunchSettings(
 
 // The seed text is defined ONCE in these helpers and delivered ONLY via
 // send-keys by the verified launcher (no positional argv copy), so there is no
-// second definition to drift from.
-function flowPipelineSeed(slug: string, description: string): string {
+// second definition to drift from. The seed is a SINGLE control-char-free
+// line: the verbatim request text no longer rides the seed itself (a stray
+// TAB or newline inside the description used to reach the pane raw and
+// corrupt delivery — the 2026-08-28 incident) — it is written to a request
+// file (state.ts:writeRequestFile) BEFORE the launcher dispatch, and the
+// seed carries only a REQUEST_FILE pointer to it.
+export function flowPipelineSeed(
+  slug: string,
+  description: string,
+  stateDir?: string,
+): string {
   // The pipeline-slug marker must be the RESOLVED slug (an explicit --slug, or a
   // suffixed derived slug), not slugify(description) — otherwise the supervisor
   // reads a marker that mismatches its own window/state basename.
-  return `[pipeline-slug: ${slug}]\nUse the /flow-pipeline skill for: ${description}`;
+  // Sanitize the COMPOSED line (not just `description`) so the guarantee is
+  // structural: any future call site that inlines `description` back into
+  // this template gets the same protection for free, because the return
+  // value itself is what's guaranteed control-char-free.
+  return sanitizeSeedLine(
+    `[pipeline-slug: ${slug}] Use the /flow-pipeline skill. REQUEST_FILE: ${requestFilePath(slug, stateDir)}`,
+  );
 }
 
 export function flowPipelineResumeSeed(slug: string): string {
-  return `[pipeline-slug: ${slug}]\nUse the /flow-pipeline skill in --resume mode for: ${slug}`;
+  return `[pipeline-slug: ${slug}] Use the /flow-pipeline skill in --resume mode for: ${slug}`;
 }
 
 /**

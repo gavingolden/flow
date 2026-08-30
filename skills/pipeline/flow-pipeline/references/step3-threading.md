@@ -147,6 +147,29 @@ from "answers to THIS discovery run's own question gate"
 re-invocation that follows both a step-1 interview and a step-3 question
 gate.
 
+## Blind survey threading
+
+The seventh marker. The Step-3 blind method survey (`flow-blind-survey`)
+runs BEFORE forced research and before `/flow-product-planning` is
+invoked at all — see [blind-survey.md](blind-survey.md) for the full
+gate/brief/run contract (when it fires, the goal-only brief it builds,
+the helper call, and the chat one-liner). When the survey ran (with at
+least one judge), append a `SURVEY: <path>` marker line to the
+`/flow-product-planning` invocation through the same append channel as
+`MODEL_PLANNING:` / `RESEARCH:` / `REVISION:` / `EPIC:` /
+`PROMPT-SANITY:` / `INTERVIEW:` — a marker on the existing Discovery
+exemption, **no** new fan-out site:
+
+```
+SURVEY: <absolute path to .flow-tmp/blind-survey.md> (judges: A=<model> ran|skipped:<reason>, B=<model> ran|skipped:<reason>)
+```
+
+`/flow-product-planning`'s `{{SURVEY_OVERRIDE}}` spawn-template
+placeholder forwards it to the Discovery Subagent, which runs
+`discovery-instructions.md` step 1.8 and authors `## Method selection`.
+Absent (gate closed, or the survey's envelope came back `ran:false`) ≡
+no blind survey — append nothing.
+
 ## Deterministic forced research (mandatory on the forced path)
 
 The discovery subagent's own Step 1.5 was observed to skip the fan-out
@@ -217,14 +240,21 @@ LINT_RC=0
 flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md" || LINT_RC=$?
 ```
 
-Exit 1 signals drift (the stdout JSON's `references[]` names each
-unresolved reference line); exit 0 is clean; exit 2 is a read error. This
+Exit 1 signals either a follow-up-reference drift (the stdout JSON's
+`references[]` names each unresolved reference line) OR a `barMisses`
+entry (a ticked candidate whose value-prop block has no `clears bar`
+Verdict, or whose `[anchor: …]` cites a file that does not exist —
+`barMisses[]` names each with a `reason` of `no-verdict` or
+`anchor-missing`); exit 0 is clean; exit 2 is a read error. This
 is **advisory and non-blocking** — on a non-zero exit, surface a one-line
-note in the plan-summary block (e.g. "follow-up-reference drift: plan
-prose references a follow-up missing from `# Candidate follow-up
-issues`") so the user can redirect at `plan-pending-review`; never block
-planning on it (the same "research/plan-review never block planning"
-invariant the cross-model review honors).
+note in the plan-summary block naming which cause fired (e.g.
+"follow-up-reference drift: plan prose references a follow-up missing
+from `# Candidate follow-up issues`", or "value-bar miss: candidate #N
+has no clears-bar Verdict" / "value-bar miss: candidate #N cites a
+missing anchor `<path>`") so the user can redirect at
+`plan-pending-review`; never block planning on it (the same
+"research/plan-review never block planning" invariant the cross-model
+review honors).
 
 ## Plan-shape backstop (advisory, deterministic)
 
@@ -235,8 +265,9 @@ was skipped:
 
 ```bash
 LINT_RC=0
+SURVEY_RAN_FLAG=""; [ -f "$WORKTREE/.flow-tmp/blind-survey.md" ] && SURVEY_RAN_FLAG="--survey-ran"  # survey ran ⇒ a missing ## Method selection is a named miss (references/blind-survey.md)
 if command -v flow-plan-lint >/dev/null 2>&1; then
-  flow-plan-lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md" || LINT_RC=$?
+  flow-plan-lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md" $SURVEY_RAN_FLAG || LINT_RC=$?
 fi   # helper not on PATH — skip silently (tolerant), per the contract below
 ```
 
@@ -313,16 +344,36 @@ a runtime skip); a `--worktree` pointing at a non-directory yields
 `bin/lib/plan-review-engagement.ts` against the six battery lenses. A
 reviewer whose prose is empty/near-empty is demoted with
 `reviewer-empty`; one that clears the substance floor but engages fewer
-than 2 of the 6 lenses is demoted with `reviewer-not-engaged`. Either
+than 2 of the 6 lenses is demoted with `reviewer-not-engaged`; one whose
+agy call was killed by a `--print-timeout` (or whose engagement-demotion
+duration lands within 10s of its configured cap — a killed agentic run can
+still exit 0 with a partial) is demoted with `reviewer-timeout`. Every
 demotion sets `ran:false` on that reviewer's `reviewers[]` entry — a
-demoted reviewer is NOT a survivor for the convergence rule below. The
-envelope's `lensesEngaged` field (N out of 6) is the truncation
-detector: a run cut short mid-battery still reports `ran:true` but with a
-low N, which the supervisor surfaces so the user can discount it even
-when the reviewer wasn't formally demoted. The deep-tier convergence rule
-therefore requires `reviewers[]` to hold exactly two `ran:true` entries —
-a single surviving (or single genuinely engaged) reviewer's points remain
-plain INPUT, same as the standard tier.
+demoted reviewer is NOT a survivor for the convergence rule below — and
+retains that reviewer's transcript on disk, naming it as
+`partialArtifactPath` (plus a redacted `stderrTail` when agy's own stderr
+carried one) rather than deleting it, so a timed-out reviewer's partial
+work stays diagnosable. The envelope's `lensesEngaged` field (N out of 6)
+is the truncation detector: a run cut short mid-battery still reports
+`ran:true` but with a low N, which the supervisor surfaces so the user can
+discount it even when the reviewer wasn't formally demoted. The deep-tier
+convergence rule therefore requires `reviewers[]` to hold exactly two
+`ran:true` entries — a single surviving (or single genuinely engaged)
+reviewer's points remain plain INPUT, same as the standard tier.
+
+**Async invocation (the wake ladder).** `flow-plan-review` no longer runs
+as one blocking Bash call. `--start` resolves every cheap gate
+synchronously and, on a pass, detaches the SAME synchronous review body
+above via `flow-spawn --detach` (registry-recorded), writing a durable
+`planReview` anchor to `~/.flow/state/<slug>.json`. `--check` is the
+one-shot decider that owns all state and all decisions, re-deriving
+elapsed time from `planReview.startedAt` (never from the calling
+process's own age, so a suspended `--check` can never fabricate a false
+`review-timed-out`). `flow-plan-review-wait` is the dumb bounded waiter —
+zero state, zero decisions, it only polls for the worker's result file.
+The pattern mirrors step 7's `flow-ci-check`/`flow-ci-wait` ladder exactly
+(see "Cross-model plan review" in `flow-pipeline/SKILL.md`'s Step 3), and
+both `/flow-pipeline` and `/flow-epic-create` migrate to it together.
 
 **Why `--print-hash`, not the envelope hash.** `flow-plan-review
 --print-hash --plan-file "$WORKTREE/.flow-tmp/plan.md"` must run on the

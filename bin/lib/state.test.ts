@@ -22,11 +22,13 @@ import {
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
   readState,
+  requestFilePath,
   shortPhase,
   STEP_PHASES,
   TERMINAL_EXIT_TRANSITIONS,
   TERMINAL_PHASES,
   WORKTREE_REMOVED_PHASES,
+  writeRequestFile,
   writeState,
   type PipelineState,
 } from "./state";
@@ -1005,6 +1007,94 @@ describe("state", () => {
     expect(readState("ci-wait-malformed", dir)).toBeNull();
   });
 
+  it("readState round-trips a valid planReview record through writeState", () => {
+    const withPlanReview: PipelineState = {
+      slug: "with-plan-review",
+      phase: "plan-review-pending",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      planReview: {
+        planFile: ".flow-tmp/plan.md",
+        decisionHash: "abc123",
+        depth: "deep",
+        startedAt: "2026-05-17T00:00:00Z",
+        pid: 4242,
+        startEpoch: 1000,
+        resultPath: ".flow-tmp/plan-review.md.run.json",
+        stderrPath: ".flow-tmp/plan-review.md.worker-stderr.log",
+        lastObservedAt: null,
+        checks: 0,
+      },
+    };
+    writeState(withPlanReview, dir);
+    expect(readState("with-plan-review", dir)).toEqual(withPlanReview);
+  });
+
+  it("readState round-trips a planReview record with null startEpoch/lastObservedAt", () => {
+    const withPlanReview: PipelineState = {
+      slug: "plan-review-nulls",
+      phase: "plan-review-pending",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      planReview: {
+        planFile: ".flow-tmp/plan.md",
+        decisionHash: "abc123",
+        depth: "standard",
+        startedAt: "2026-05-17T00:00:00Z",
+        pid: 4242,
+        startEpoch: null,
+        resultPath: ".flow-tmp/plan-review.md.run.json",
+        stderrPath: ".flow-tmp/plan-review.md.worker-stderr.log",
+        lastObservedAt: null,
+        checks: 0,
+      },
+    };
+    writeState(withPlanReview, dir);
+    expect(readState("plan-review-nulls", dir)).toEqual(withPlanReview);
+  });
+
+  it("readState accepts an absent planReview field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plan-review-absent.json"),
+      JSON.stringify({
+        slug: "plan-review-absent",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    const got = readState("plan-review-absent", dir);
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("planReview");
+  });
+
+  it("readState returns null when the planReview record is malformed (wrong-typed depth)", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "plan-review-malformed.json"),
+      JSON.stringify({
+        slug: "plan-review-malformed",
+        phase: "plan-review-pending",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        planReview: {
+          planFile: ".flow-tmp/plan.md",
+          decisionHash: "abc123",
+          depth: "shallow",
+          startedAt: "2026-05-17T00:00:00Z",
+          pid: 4242,
+          startEpoch: null,
+          resultPath: ".flow-tmp/plan-review.md.run.json",
+          stderrPath: ".flow-tmp/plan-review.md.worker-stderr.log",
+          lastObservedAt: null,
+          checks: 0,
+        },
+      }),
+    );
+    expect(readState("plan-review-malformed", dir)).toBeNull();
+  });
+
   it("readState round-trips a valid untracked list through writeState", () => {
     const withUntracked: PipelineState = {
       slug: "with-untracked",
@@ -1239,6 +1329,35 @@ describe("state", () => {
   it("deleteState returns false for missing slug", () => {
     expect(deleteState("missing", dir)).toBe(false);
   });
+
+  it("requestFilePath returns <dir>/<slug>.request.md", () => {
+    expect(requestFilePath("csv-export", dir)).toBe(
+      path.join(dir, "csv-export.request.md"),
+    );
+  });
+
+  it("writeRequestFile writes the verbatim text with mode 0o600 inside the 0o700 state dir", () => {
+    const text = "Add CSV export to the reports page.\n";
+    writeRequestFile("csv-export", text, dir);
+    const file = requestFilePath("csv-export", dir);
+    expect(fs.readFileSync(file, "utf8")).toBe(text);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+  });
+
+  it("deleteState removes both the state file and the request file", () => {
+    writeState(fixture("csv-export"), dir);
+    writeRequestFile("csv-export", "Add CSV export.", dir);
+    expect(deleteState("csv-export", dir)).toBe(true);
+    expect(readState("csv-export", dir)).toBeNull();
+    expect(fs.existsSync(requestFilePath("csv-export", dir))).toBe(false);
+  });
+
+  it("deleteState still returns true when only the state file exists (no request file)", () => {
+    writeState(fixture("no-request"), dir);
+    expect(deleteState("no-request", dir)).toBe(true);
+    expect(readState("no-request", dir)).toBeNull();
+  });
 });
 
 describe("isMainStateFile", () => {
@@ -1375,9 +1494,16 @@ describe("phase constants", () => {
       "epic-designing",
       "epic-validating",
       "epic-pr-open",
+      "epic-plan-review-pending",
       "epic-design-pending-review",
       "epic-approved",
     ]);
+  });
+
+  it("epic-plan-review-pending auto-joins EPIC_PHASES via the epic- prefix, keeping isEpicPhase's window-kind fallback correct", () => {
+    expect(EPIC_PHASES as readonly string[]).toContain(
+      "epic-plan-review-pending",
+    );
   });
 
   it("PIPELINE_KINDS is exactly the three supervisor kinds, and isPipelineKind agrees (drift-guard)", () => {
@@ -1488,9 +1614,11 @@ describe("shortPhase", () => {
     "epic-designing": "e-dsgn",
     "epic-validating": "e-val",
     "epic-pr-open": "e-pr",
+    "epic-plan-review-pending": "e-prvw?",
     "epic-design-pending-review": "e-rvw?",
     "epic-approved": "e-ok",
     "plan-pending-interview": "planq?",
+    "plan-review-pending": "prvw?",
   };
 
   it.each(PIPELINE_PHASES)("maps %s to its canonical abbreviation", (phase) => {

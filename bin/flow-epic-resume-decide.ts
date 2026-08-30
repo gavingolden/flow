@@ -216,6 +216,18 @@ export function decide(inputs: Inputs): DecisionResult {
     };
   }
 
+  // epic-plan-review-pending: yielded while the async cross-model design
+  // review was in flight — re-enter Step 4.5's --check, never re-run the
+  // designer (which would overwrite design.md/manifest.json out from under
+  // a still-running detached agy worker that may still be reading them).
+  if (inputs.state.phase === "epic-plan-review-pending") {
+    return {
+      epicResumeAt: "validate",
+      reason: "awaiting-plan-review-check",
+      context: ctx,
+    };
+  }
+
   // epic-designing / starting (worktree present) — re-run the designer. The
   // designer is idempotent (it overwrites design.md + manifest.json), so a
   // re-spawn over the existing worktree is safe.

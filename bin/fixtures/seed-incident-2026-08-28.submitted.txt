@@ -1,0 +1,5 @@
+[pipeline-slug: flow-should-first-clarify-end]
+Use the /flow-pipeline skill for: Flow should first clarify the end goal (by itself and/or with user input). Then do a blind survey with other agent judges to see what they would recommend to accomplish the goal. Then weigh this against the user's suggestion to validate the appropriate solution
+    1) This would be beneficial on multiple fronts, namely that it forces the root ageno have a good understanding of the primary goal of the request. Without that then it's inevitable that the sub-agents' suggestions will be bad/irrelevant
+    2) What would this look like? Dog food it here
+    3) Do you agree with this approach?t t

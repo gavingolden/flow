@@ -478,6 +478,18 @@ describe("decide() — row 7 (ci-wait)", () => {
     );
     expect(r.resumeAt).toBe("step-7");
   });
+
+  it("resumes at step-3 when phase is 'plan-review-pending' (yielded while the async cross-model review was in flight)", () => {
+    // plan-review-pending implies plan.md is already drafted (planExists
+    // stays true), so a crash while yielded must resume at step-3 to
+    // re-check the review's status, not fall through to step-4's approval
+    // presentation — see the mechanical pre-check deviation in the
+    // implementer's return summary.
+    const r = decide(
+      makeInputs({ state: baseState({ phase: "plan-review-pending" }) }),
+    );
+    expect(r.resumeAt).toBe("step-3");
+  });
 });
 
 describe("decide() — row 8 (pr-review on HEAD)", () => {
@@ -585,6 +597,7 @@ describe("canonical phase-set parity", () => {
       "ci-wait-pending",
       "triage-pending-interview",
       "plan-pending-interview",
+      "plan-review-pending",
     ]) {
       expect(NO_INFLIGHT_WORK_PHASES.has(phase)).toBe(false);
     }

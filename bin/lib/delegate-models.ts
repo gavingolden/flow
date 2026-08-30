@@ -35,6 +35,8 @@ export type DelegateSurface =
   | "researchRefute"
   | "planReview"
   | "planReviewSecond"
+  | "blindSurvey"
+  | "blindSurveySecond"
   | "scout";
 
 // planReviewSecond corrects the plan's false claim that flow-plan-review.ts
@@ -81,6 +83,12 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // same-family reviewers would hollow that rule out. The clear is
   // recorded here; the diversity rationale governs the default.
   planReviewSecond: "Claude Opus 4.6 (Thinking)",
+  // Pinned judges for the Step-3 blind method survey (flow-blind-survey):
+  // the dogfood run's judge A rode the unpinned agy session default, so
+  // both surfaces are pinned here rather than left to whatever agy
+  // resolves at invocation time.
+  blindSurvey: "Gemini 3.1 Pro (High)",
+  blindSurveySecond: "Claude Opus 4.6 (Thinking)",
   // null means "use the Claude Task subagent" (today's behaviour) rather
   // than delegating scouting to an agy variant. Both bench candidates were
   // rejected on a real-defect regression (c2b, docs/model-bench/report.md,

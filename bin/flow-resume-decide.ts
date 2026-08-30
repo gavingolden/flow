@@ -515,6 +515,22 @@ export function decide(inputs: Inputs): DecisionResult {
     };
   }
 
+  // Step 3's async cross-model plan review (flow-plan-review --start/--check):
+  // plan.md is already drafted (planExists is true) when the review runs, so
+  // this phase would otherwise fall through the bare `!planExists` check
+  // above and land at Row 4's "predates approval" branch — surfacing the
+  // plan for human approval before the in-flight/decided review has been
+  // re-checked. Explicit branch, mirroring the plan-pending-interview one
+  // above, so a crash-resume re-enters step 3's `--check` rather than
+  // skipping straight to approval.
+  if (inputs.state.phase === "plan-review-pending") {
+    return {
+      resumeAt: "step-3",
+      reason: "awaiting-plan-review-check",
+      context: ctx,
+    };
+  }
+
   // Row 4 — approval reached; phase advanced past plan-pending-review.
   if (!POST_APPROVAL_PHASES.has(inputs.state.phase)) {
     return {

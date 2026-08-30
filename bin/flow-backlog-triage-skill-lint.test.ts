@@ -906,4 +906,66 @@ describe("flow-backlog-triage owner-verbatim attachment anchors", () => {
   it("SKILL.md links verbatim-attachment.md from its reference index", () => {
     expect(skillContent.includes("verbatim-attachment.md")).toBe(true);
   });
+
+  // Value-prop gate (flow-value-rubric)
+  it("methodology.md states the Value-prop gate and its unsubstantiated fallback", () => {
+    expect(
+      methodologyContent.includes("Value-prop gate"),
+      "methodology.md must name the **Value-prop gate** paragraph — DO / " +
+        "NEEDS-DECISION require a value-prop block whose Verdict clears " +
+        "the bar, and an unticked-candidate-style silent default must not " +
+        "creep back in.",
+    ).toBe(true);
+    expect(
+      methodologyContent.includes("unsubstantiated"),
+      "methodology.md's Value-prop gate must name 'unsubstantiated' as " +
+        "the reasoning an item with no substantiated value line gets — " +
+        "an anchor-free value line must not silently pass as evidence.",
+    ).toBe(true);
+  });
+
+  it("output-template.md's Decision Brief renders a checkable value-prop anchor", () => {
+    // Sliced to the brief, same idiom as the jargon-ban test above: the
+    // `[anchor: …]` tail is the one sanctioned exception to the jargon
+    // ban, and that carve-out sentence — plus the nested value-prop
+    // sub-bullets under the "Why it's worth it" facet — must live inside
+    // the Decision Brief slice, not merely somewhere in the file.
+    const briefStart = outputTemplateContent.indexOf("\n## Decision Brief\n");
+    const appendixStart = outputTemplateContent.indexOf(
+      "\n## Audit Appendix\n",
+    );
+    const brief = outputTemplateContent.slice(briefStart, appendixStart);
+    expect(
+      brief.includes("[anchor:"),
+      "output-template.md's Decision Brief must render a '[anchor: …]' " +
+        "value-prop tail — dropping it would make the card's value claims " +
+        "unfalsifiable again.",
+    ).toBe(true);
+  });
+
+  it("output-template.md's Self-check gains a value-prop-block check", () => {
+    const selfCheckStart = outputTemplateContent.search(/^#{2,3} Self-check$/m);
+    expect(
+      selfCheckStart,
+      "output-template.md must carry a Self-check heading to slice from.",
+    ).toBeGreaterThanOrEqual(0);
+    const selfCheck = outputTemplateContent.slice(selfCheckStart);
+    expect(
+      selfCheck.includes("value-prop block"),
+      "output-template.md's Self-check section must ask whether every DO " +
+        "/ NEEDS-DECISION card carries a value-prop block with an anchor " +
+        "on each non-'none' value line — the runtime-visible half of the " +
+        "value-prop gate must stay checkable at generation time.",
+    ).toBe(true);
+  });
+
+  it("worked-example.md carries a value-prop Verdict line", () => {
+    expect(
+      workedExampleContent.includes("**Verdict:**"),
+      "worked-example.md must demonstrate the value-prop block's Verdict " +
+        "line — the worked example is the shape a future run pattern-" +
+        "matches on, and an example with no Verdict line would teach the " +
+        "old, gate-free shape.",
+    ).toBe(true);
+  });
 });

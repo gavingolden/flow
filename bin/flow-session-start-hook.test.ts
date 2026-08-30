@@ -322,11 +322,13 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     );
   });
 
-  it("(d) deliverResumeSeed(slug, seams, 'epic-design', 'resume') sends the epic-create resume seed then a separate Enter", () => {
+  it("(d) deliverResumeSeed(slug, seams, 'epic-design', 'resume') sends the epic-create resume seed (a single line — no separate remainder) then a separate Enter", () => {
     const capture = frames(["old pre-clear prompt", "fresh", "fresh", "fresh"]);
     const seed = resumeSeedFor("demo", "epic-design");
-    const lead = seed.split("\n")[0]!;
-    const remainder = seed.slice(lead.length);
+    // epicResumeSeed is now a single control-char-free line — splitSeed's
+    // remainder is empty, so `lead` (deliverSeed's leading line) IS the
+    // whole seed.
+    const lead = seed;
     const sends: SendCall[] = [];
     let leadingSent = false;
     const seams: DeliverSeams = {
@@ -347,23 +349,16 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     expect(deliverResumeSeed("demo", seams, "epic-design", "resume")).toBe(
       true,
     );
-    // Remainder length depends on the host checkout's absolute SKILL_DIR path,
-    // so (unlike the fixed-size RESUME_REMAINDER elsewhere in this file) it can
-    // exceed the 128-byte remainder chunk size — bound + rejoin, not an exact
-    // single-chunk shape.
-    const literals = sends.filter((s) => s.literal);
-    const [leadSend, ...remainderChunks] = literals;
-    expect(leadSend).toEqual({ text: lead, literal: true });
-    for (const c of remainderChunks) {
-      expect(Buffer.byteLength(c.text, "utf8")).toBeLessThanOrEqual(
-        REMAINDER_CHUNK_BYTES,
-      );
-    }
-    expect(remainderChunks.map((c) => c.text).join("")).toBe(remainder);
-    expect(sends[sends.length - 1]).toEqual({ text: "Enter", literal: false });
-    expect(lead).toBe(
-      "Use the /flow-epic-create skill in --resume mode for: demo",
-    );
+    expect(sends).toEqual([
+      { text: lead, literal: true },
+      { text: "Enter", literal: false },
+    ]);
+    expect(seed).not.toContain("\n");
+    expect(
+      seed.startsWith(
+        "Use the /flow-epic-create skill in --resume mode for: demo",
+      ),
+    ).toBe(true);
     expect(seed).toContain("EPIC_DIR: .flow/epics/demo");
     expect(seed).toContain("SKILL_DIR: ");
   });
@@ -471,11 +466,12 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     expect(emitted).toEqual([]); // resumed, not declined — no advisory
   });
 
-  it("(h) deliverResumeSeed(slug, seams, 'epic-run', 'resume') sends the epic-run seed with NO SKILL_DIR line", () => {
+  it("(h) deliverResumeSeed(slug, seams, 'epic-run', 'resume') sends the epic-run seed (a single line — no separate remainder) with NO SKILL_DIR", () => {
     const capture = frames(["old pre-clear prompt", "fresh", "fresh", "fresh"]);
     const seed = resumeSeedFor("demo", "epic-run");
-    const lead = seed.split("\n")[0]!;
-    const remainder = seed.slice(lead.length);
+    // epicRunSeed is now a single control-char-free line — `lead` IS the
+    // whole seed.
+    const lead = seed;
     const sends: SendCall[] = [];
     let leadingSent = false;
     const seams: DeliverSeams = {
@@ -496,10 +492,11 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     expect(deliverResumeSeed("demo", seams, "epic-run", "resume")).toBe(true);
     expect(sends).toEqual([
       { text: lead, literal: true },
-      { text: remainder, literal: true },
       { text: "Enter", literal: false },
     ]);
-    expect(lead).toBe("Use the /flow-epic-run skill for: demo");
+    expect(lead).toBe(
+      "Use the /flow-epic-run skill for: demo EPIC_DIR: .flow/epics/demo",
+    );
     expect(seed).toContain("EPIC_DIR: .flow/epics/demo");
     expect(seed).not.toContain("SKILL_DIR:");
   });
@@ -791,12 +788,15 @@ function frames(seq: string[]): () => string {
 
 type SendCall = { text: string; literal: boolean };
 
-// The resume seed's leading line (before the first newline) and remainder — the
-// two chunks the shared deliverSeed handshake types before the submit Enter.
+// terminalContinueSeed (out of this migration's scope — genuine multi-line
+// prose) still splits at the marker as its leading line; RESUME_LEAD stays
+// the marker-only constant the "terminal mode" describe block below pins.
 const RESUME_LEAD = "[pipeline-slug: demo]";
-const RESUME_REMAINDER = flowPipelineResumeSeed("demo").slice(
-  RESUME_LEAD.length,
-);
+
+// The resume seed itself (flowPipelineResumeSeed) is now a SINGLE
+// control-char-free line — splitSeed's remainder is empty, so deliverSeed
+// sends it as ONE literal chunk (no separate remainder chunk) before Enter.
+const RESUME_SEED = flowPipelineResumeSeed("demo");
 
 /**
  * Wraps a `capturePane` frame generator with the delivery lifecycle deliverSeed
@@ -804,15 +804,20 @@ const RESUME_REMAINDER = flowPipelineResumeSeed("demo").slice(
  * once a literal chunk lands the capture echoes the leading line so the
  * leading-line verify passes. `dropLeadingEchoes` makes the first N post-send
  * captures echo a TRUNCATED leading line (dropped prefix) → C-u + resend branch.
+ * `leadEcho` is the text the capture echoes back as "the leading line" —
+ * defaults to the marker-only `RESUME_LEAD` (terminalContinueSeed's shape);
+ * the clear-aware resume-seed tests below override it to the full single-line
+ * `RESUME_SEED`, since that whole line IS the leading line now.
  */
 function makeSeams(
   capture: () => string,
   attempts = 20,
-  opts: { dropLeadingEchoes?: number } = {},
+  opts: { dropLeadingEchoes?: number; leadEcho?: string } = {},
 ): {
   seams: DeliverSeams;
   sends: SendCall[];
 } {
+  const leadEcho = opts.leadEcho ?? RESUME_LEAD;
   const sends: SendCall[] = [];
   let leadingSent = false;
   let echoChecks = 0;
@@ -821,9 +826,9 @@ function makeSeams(
       if (!leadingSent) return capture();
       echoChecks++;
       if (echoChecks <= (opts.dropLeadingEchoes ?? 0)) {
-        return `❯ ${RESUME_LEAD.slice(3)}`; // dropped prefix ⇒ no full match
+        return `❯ ${leadEcho.slice(3)}`; // dropped prefix ⇒ no full match
       }
-      return `❯ ${RESUME_LEAD}`;
+      return `❯ ${leadEcho}`;
     },
     sendKeys: (text, literal) => {
       sends.push({ text, literal });
@@ -842,7 +847,7 @@ function makeSeams(
 }
 
 describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
-  it("sends the literal seed then a SEPARATE Enter once the pane settles post-clear", () => {
+  it("sends the literal seed (a single chunk — no separate remainder) then a SEPARATE Enter once the pane settles post-clear", () => {
     // initial snapshot = pre-clear prompt; then it transitions to a fresh
     // prompt that stays stable → clear-aware ready.
     const capture = frames([
@@ -852,18 +857,18 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
       "fresh",
       "fresh",
     ]);
-    const { seams, sends } = makeSeams(capture);
+    const { seams, sends } = makeSeams(capture, 20, { leadEcho: RESUME_SEED });
     expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(true);
-    // Chunked delivery: leading line, then remainder, then a SEPARATE Enter.
+    // The resume seed is now a single control-char-free line — splitSeed's
+    // remainder is empty, so deliverSeed sends it as ONE literal chunk, then
+    // a SEPARATE Enter.
     expect(sends).toEqual([
-      { text: RESUME_LEAD, literal: true },
-      { text: RESUME_REMAINDER, literal: true },
+      { text: RESUME_SEED, literal: true },
       { text: "Enter", literal: false },
     ]);
-    // The remainder carries the reused resume-seed body, incl. its newline.
-    expect(sends[1]?.text).toContain("--resume mode for: demo");
-    expect(sends[1]?.text).toContain("\n");
-    expect(RESUME_LEAD + RESUME_REMAINDER).toBe(flowPipelineResumeSeed("demo"));
+    expect(RESUME_SEED).toContain("--resume mode for: demo");
+    expect(RESUME_SEED).not.toContain("\n");
+    expect(RESUME_SEED).toBe(flowPipelineResumeSeed("demo"));
   });
 
   it("does NOT fire into the stale pre-clear prompt (False-Positive-Poll guard)", () => {
@@ -872,7 +877,9 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     // treated as ready on the fast path (only the longer fallback would, and
     // here the budget ends before the clear ever completes).
     const capture = frames(["stale prompt"]); // never changes, never clears
-    const { seams, sends } = makeSeams(capture, /* attempts */ 3);
+    const { seams, sends } = makeSeams(capture, /* attempts */ 3, {
+      leadEcho: RESUME_SEED,
+    });
     // With 3 attempts and no transition, the fast path (needs a change) never
     // fires and the fallback (STABLE_PROBES + EXTRA = 6) is not reached → no send.
     expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(false);
@@ -882,7 +889,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
   it("returns false without sending when the pane never becomes ready", () => {
     // Alternating content never stabilises → never ready within budget.
     const capture = frames(["a", "b", "a", "b", "a", "b"]);
-    const { seams, sends } = makeSeams(capture, 6);
+    const { seams, sends } = makeSeams(capture, 6, { leadEcho: RESUME_SEED });
     expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(false);
     expect(sends).toEqual([]);
   });
@@ -904,7 +911,7 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(false);
     // The leading-line literal send failed, so delivery stops and the separate
     // Enter is guarded off — only the one (failed) send, never a partial submit.
-    expect(sends).toEqual([{ text: RESUME_LEAD, literal: true }]);
+    expect(sends).toEqual([{ text: RESUME_SEED, literal: true }]);
   });
 
   it("uses the fallback-settle path (no observable transition) to still deliver", () => {
@@ -915,11 +922,12 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     // (STABLE_PROBES + FALLBACK_EXTRA_PROBES consecutive identical captures)
     // must still return true and the seed must still be sent.
     const capture = () => "already-settled prompt";
-    const { seams, sends } = makeSeams(capture, /* attempts */ 10);
+    const { seams, sends } = makeSeams(capture, /* attempts */ 10, {
+      leadEcho: RESUME_SEED,
+    });
     expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(true);
     expect(sends).toEqual([
-      { text: RESUME_LEAD, literal: true },
-      { text: RESUME_REMAINDER, literal: true },
+      { text: RESUME_SEED, literal: true },
       { text: "Enter", literal: false },
     ]);
   });
@@ -945,29 +953,32 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
       "fresh",
       "fresh",
     ]);
-    const { seams, sends } = makeSeams(capture, /* attempts */ 6);
+    const { seams, sends } = makeSeams(capture, /* attempts */ 6, {
+      leadEcho: RESUME_SEED,
+    });
     expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(true);
     expect(sends).toEqual([
-      { text: RESUME_LEAD, literal: true },
-      { text: RESUME_REMAINDER, literal: true },
+      { text: RESUME_SEED, literal: true },
       { text: "Enter", literal: false },
     ]);
   });
 
-  it("dropped-leading-prefix: sends C-u and re-sends the leading line, then the remainder and Enter", () => {
+  it("dropped-leading-prefix: sends C-u and re-sends the (whole, single-line) seed, then Enter", () => {
     // The leading-line echo comes back truncated on the first check, so
-    // deliverSeed clears the single-line box (C-u) and re-sends the leading line
-    // before the remainder — the /clear-resume path inherits the same guarantee.
+    // deliverSeed clears the single-line box (C-u) and re-sends the leading
+    // line — the /clear-resume path inherits the same guarantee. With no
+    // separate remainder chunk (single-line seed), the re-sent leading line
+    // IS the whole seed.
     const capture = frames(["old pre-clear prompt", "fresh", "fresh", "fresh"]);
     const { seams, sends } = makeSeams(capture, /* attempts */ 20, {
       dropLeadingEchoes: 1,
+      leadEcho: RESUME_SEED,
     });
     expect(deliverResumeSeed("demo", seams, "feature", "resume")).toBe(true);
     expect(sends).toEqual([
-      { text: RESUME_LEAD, literal: true },
+      { text: RESUME_SEED, literal: true },
       { text: "C-u", literal: false },
-      { text: RESUME_LEAD, literal: true },
-      { text: RESUME_REMAINDER, literal: true },
+      { text: RESUME_SEED, literal: true },
       { text: "Enter", literal: false },
     ]);
   });
@@ -1233,7 +1244,7 @@ describe("deliverResumeSeed — cross-path seed recording (Task 4b)", () => {
       "fresh",
       "fresh",
     ]);
-    const { seams } = makeSeams(capture);
+    const { seams } = makeSeams(capture, 20, { leadEcho: RESUME_SEED });
     const staleState: PipelineState = {
       slug: "demo",
       phase: "verifying",

@@ -95,6 +95,8 @@ import {
   readState,
   writeState,
   deleteState,
+  requestFilePath,
+  writeRequestFile,
   nowIso,
   EFFORT_LEVELS,
   type EffortLevel,
@@ -187,6 +189,10 @@ function launchWithRetry(
     // `started` and `launched-not-confirmed` are both success (never kill/respawn
     // a live-but-slow pane); only `failed` (dead pane) is retryable.
     if (last.status !== "failed") return last;
+    // Deterministic corruption, not a transient hiccup — retrying resends the
+    // exact same bytes through the same broken delivery path. Fail fast
+    // rather than burning the retry budget on a guaranteed-repeat failure.
+    if (last.stderr === SEED_CORRUPTED_STDERR) return last;
   }
   return last;
 }
@@ -537,7 +543,17 @@ PR → review checkpoint), and writes initial epic state under
   // resolved LITERAL EPIC_DIR in the seed prompt so the spawned window (cwd'd
   // in a consumer worktree without bin/lib) consumes the literal, never an import.
   const epicDir = epicDirRelative(slug);
-  const seed = epicCreateSeed(prompt, epicDir, PRODUCT_PLANNING_SKILL_DIR);
+  const seed = epicCreateSeed(
+    prompt,
+    epicDir,
+    PRODUCT_PLANNING_SKILL_DIR,
+    requestFilePath(slug, options.stateDir),
+  );
+  // Write the request file BEFORE the launcher dispatch below — mirrors
+  // feature.ts's hoist. Epic orchestration is tmux-only (refused above), but
+  // this keeps the same "write before dispatch" invariant rather than tying
+  // it to a specific backend.
+  writeRequestFile(slug, prompt, options.stateDir);
   const settingsPath = launchSettingsPathFor(options);
 
   // Whole-session model resolved at launch: --model wins over config
@@ -624,31 +640,24 @@ PR → review checkpoint), and writes initial epic state under
   if (result.status === "failed") {
     const seedCorrupted = result.stderr === SEED_CORRUPTED_STDERR;
     // Mirrors feature.ts runFresh: the seed-corruption failure deliberately
-    // SKIPS the no-orphan delete — state.seed is the only surviving copy of
-    // the original epic prompt. But this state file still satisfies
-    // `reapableStartingOrphans` (phase `starting`, no pid, no window), so
-    // `flow ls`'s lazy reap (REAP_GRACE_MS, ~60s) deletes it shortly after —
-    // pointing the user at the file path is a recovery hint that stops being
-    // true within a minute. Print the seed text directly below instead.
-    // `flow reap`/`flow done` remain the generic backstop.
+    // SKIPS the no-orphan delete — the request file written above (before the
+    // launcher dispatch) is the recovery artifact. reapableStartingOrphans
+    // (reap-orphans.ts) now skips any slug with a `corrupt` seedIngest, so
+    // `flow ls`'s lazy reap (REAP_GRACE_MS, ~60s) does NOT delete this state
+    // (or its sibling request file) shortly after.
     if (!seedCorrupted) {
       deleteState(slug, options.stateDir);
     }
     if (seedCorrupted) {
-      const corruptedState = readState(slug, options.stateDir);
       console.error(
         "flow epic create: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
       );
-      if (corruptedState?.seed) {
-        console.error(
-          "  original epic prompt (recover it now — this state file is reaped within ~60s):",
-        );
-        console.error(corruptedState.seed);
-      } else {
-        console.error(
-          `  the original epic prompt was recorded in ~/.flow/state/${slug}.json but has already been reaped.`,
-        );
-      }
+      console.error(
+        `  the original epic prompt survives at ${requestFilePath(slug, options.stateDir)} — recover it from there.`,
+      );
+      console.error(
+        `  then clean up with \`flow done ${slug}\` (this pipeline is no longer auto-reaped).`,
+      );
     } else {
       console.error(
         "flow epic create: claude exited immediately after launch — the tmux window did not stay up.",

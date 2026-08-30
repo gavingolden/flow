@@ -37,23 +37,29 @@ The Step 4.5 **cross-model design review** is a
 **two named surfaces** (the clarification form + the `MODE: epic` designer
 fan-out) are unchanged; documented bidirectionally in `AGENTS.md` `## Don'ts`.
 
-## EPIC_DIR comes from the seed prompt (R1 — never import `bin/lib`)
+## EPIC_DIR and the prompt come from the seed (R1 — never import `bin/lib`)
 
 The CLI (`flow epic create`) is the SOLE evaluator of the epic path contract.
-It embeds the resolved **literal** `EPIC_DIR` (e.g. `.flow/epics/<slug>`) and
-the resolved **literal** product-planning `SKILL_DIR`, each on its own line in
-the seed prompt:
+The seed it delivers is a **single control-char-free line** carrying
+`REQUEST_FILE`, the resolved **literal** `EPIC_DIR` (e.g. `.flow/epics/<slug>`),
+and the resolved **literal** product-planning `SKILL_DIR`:
 
 ```
-Use the /flow-epic-create skill for the prompt below.
-<prompt>
-
-EPIC_DIR: .flow/epics/<slug>
-
-SKILL_DIR: <abs>/skills/pipeline/flow-product-planning
+Use the /flow-epic-create skill. REQUEST_FILE: <abs>/<slug>.request.md EPIC_DIR: .flow/epics/<slug> SKILL_DIR: <abs>/skills/pipeline/flow-product-planning
 ```
 
-Capture that literal `EPIC_DIR` and use it verbatim for every path below
+The prompt no longer rides the seed itself — a stray control character (a
+TAB, a newline) inside the free-form prompt used to reach the pane raw and
+corrupt delivery, so the CLI now writes the prompt to `REQUEST_FILE` before
+launching and the seed carries only a pointer to it. **Read `REQUEST_FILE`
+first and treat its full contents as the verbatim prompt.** This applies to
+the fresh-create seed above only — the `--resume` seed
+(`flow epic create --resume <slug>`) carries no `REQUEST_FILE`; see
+`# Resume mode` below, which is what governs that invocation instead. Only
+when a fresh-create seed's `REQUEST_FILE` is absent, escalate
+`NEEDS HUMAN: request-file-missing`.
+
+Capture the literal `EPIC_DIR` and use it verbatim for every path below
 (`<EPIC_DIR>/design.md`, `<EPIC_DIR>/manifest.json`). Likewise capture the
 literal `SKILL_DIR` and pass it verbatim into the Step 3 designer Task prompt
 (you cannot re-derive it — the in-process Skill-tool base-directory mechanism
@@ -191,12 +197,16 @@ review** of the epic decomposition's consequential forks, mirroring
 **no Task** (see the named-surface note above: a **Bash fan-out, not a tenth
 exemption**).
 
-It gets **no dedicated phase** — it rides within the `epic-validating` →
-`epic-pr-open` transition, so a crash mid-review resumes at `validate` (Step 4)
-and re-runs the idempotent validators + the idempotent `flow-plan-review` before
-Step 5. The Step-7 redirect path (re-spawn designer → re-validate → push a new
-commit) naturally re-traverses this step, so a redirect that changes the
-decomposition re-fires the review.
+It has a pending phase (`epic-plan-review-pending`) for the async wake
+ladder's yield rung, but no OTHER dedicated phase beyond that — it still
+rides within the `epic-validating` → `epic-pr-open` transition otherwise,
+so a crash mid-review resumes at `validate` (Step 4) and re-runs the
+idempotent validators + the idempotent `flow-plan-review` before Step 5. A
+crash between `--start` and a terminal `--check` re-attaches to the live
+worker via `--start`'s idempotent `(planFile, decisionHash)` check rather
+than re-spending agy quota. The Step-7 redirect path (re-spawn designer →
+re-validate → push a new commit) naturally re-traverses this step, so a
+redirect that changes the decomposition re-fires the review.
 
 Two-part gate, both human-readable:
 
@@ -212,17 +222,27 @@ means the designer found no genuinely-diverging decomposition fork, so there is
 nothing to cross-review. When **either** half fails, skip this step and proceed
 to Step 5 unchanged.
 
-When both fire, run ONE review and branch on the helper's `{ran}` envelope
-(NEVER the exit code):
+When both fire, run the review through the SAME async wake ladder
+`/flow-pipeline` Step 3 uses (see `skills/pipeline/flow-pipeline/SKILL.md`'s
+"Cross-model plan review" sub-step), with `--task epic-design-review --depth
+deep` on the `--start` call and `epic-plan-review-pending` at the yield
+rung:
 
-```bash
-flow-plan-review --plan-file "$WORKTREE/<EPIC_DIR>/design.md" \
-  --out "$WORKTREE/.flow-tmp/design-review.md" --worktree "$WORKTREE" \
-  --task epic-design-review --depth deep
-```
-
-The Bash tool call MUST pass an explicit `timeout: 600000`, since its own
-120000 ms default undercuts the helper's per-reviewer agy cap (the deep tier runs its two reviewers serially at an asymmetric 3m+6m=9m budget, sized to measured durations — never 10m, which would leave zero real margin under the ceiling). Treat a missing/unparseable envelope (the harness killed the Bash call before either reviewer finished) as `skipReason: "review-timed-out"` and proceed unchanged — this layer is advisory and must never block the gate.
+**(1)** `flow-plan-review --start --plan-file "$WORKTREE/<EPIC_DIR>/design.md"
+--out "$WORKTREE/.flow-tmp/design-review.md" --worktree "$WORKTREE" --task
+epic-design-review --depth deep` — a `ran` field in the response is
+today's gate-skip branch; a `status:"started"` response means a worker is
+live — go to (2). **(2)** `flow-plan-review --check --out
+"$WORKTREE/.flow-tmp/design-review.md"` — `decided` branches on the
+wrapped envelope below; `waiting` goes to (3). **(3)** background the
+waiter: `flow-spawn --class default -- flow-plan-review-wait
+"$WORKTREE/.flow-tmp/design-review.md.run.json" --max-sec 540`; its
+completion notification re-runs (2). **(4)** fallback: a bounded Monitor
+`until` loop or `ScheduleWakeup`, then `flow-state-update --phase
+epic-plan-review-pending` and a clean turn end; on re-invocation, re-run
+(2). Both new calls are sub-second, so no explicit `timeout:` override is
+needed anywhere in this ladder. Branch on the helper's `{ran}` envelope
+(NEVER the exit code).
 
 Always `--depth deep`: an epic decomposition is always consequential, and
 `auto` genuinely cannot fire deep here — `design.md` carries neither
@@ -234,7 +254,10 @@ required-headings contract) — the deep tier here is forced by this
 
 - `ran:false` → record the `skipReason` in scrollback and proceed to Step 5
   unchanged (a graceful no-op — e.g. `agy-not-found` when agy is absent or
-  logged out). No revision, no reconciliation subsection.
+  logged out; `reviewer-timeout` / `review-timed-out` / `reviewer-worker-died`
+  when a reviewer ran but produced nothing usable — name the envelope's
+  retained `partialArtifactPath` and redacted `stderrTail` when present). No
+  revision, no reconciliation subsection.
 - `ran:true` → read `design-review.md` and weigh EACH material AGY point against
   the codebase context you hold. AGY is a different model with less context —
   its output is **INPUT you weigh, NOT a verdict**. Also record each
