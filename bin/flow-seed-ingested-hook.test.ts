@@ -11,6 +11,16 @@ import {
   squashPrompt,
   type Deps,
 } from "./flow-seed-ingested-hook";
+import {
+  DELIVERY_MARKER_SQUASHED_CHARS,
+  deliveryMarker,
+  splitSeed,
+  squash,
+} from "./lib/seed-delivery";
+import {
+  assertSeedListExhaustive,
+  PRODUCTION_SEEDS,
+} from "./lib/seed-fixtures";
 import type { PipelineState } from "./lib/state";
 
 function readFixture(name: string): string {
@@ -201,8 +211,12 @@ describe("flow-seed-ingested-hook", () => {
   });
 
   describe("seed integrity comparison (state.seed present)", () => {
-    const SEED =
-      "[pipeline-slug: demo]\nUse the /flow-pipeline skill for: csv export";
+    // The real flowPipelineSeed production shape (bin/lib/seed-fixtures.ts) —
+    // a SINGLE control-char-free line — not a hand-written two-line literal
+    // no launcher actually produces.
+    const SEED = PRODUCTION_SEEDS.find(
+      (f) => f.name === "flowPipelineSeed",
+    )!.seed;
     const payload = (prompt: string) =>
       JSON.stringify({ hook_event_name: "UserPromptSubmit", prompt });
     const complete = (text: string) => async () => ({ text, complete: true });
@@ -478,9 +492,233 @@ describe("flow-seed-ingested-hook", () => {
   });
 });
 
+describe("production seed shapes", () => {
+  const payload = (prompt: string) =>
+    JSON.stringify({ hook_event_name: "UserPromptSubmit", prompt });
+  const complete = (text: string) => async () => ({ text, complete: true });
+
+  it("PRODUCTION_SEEDS is exhaustive over every *Seed builder in the three seed-owning modules (fails CI if a future builder ships without a fixture)", () => {
+    expect(() => assertSeedListExhaustive()).not.toThrow();
+  });
+
+  it("assertSeedListExhaustive throws for a *Seed export with no fixture", () => {
+    expect(() =>
+      assertSeedListExhaustive({ "fake.ts": { futureThingSeed: () => "" } }),
+    ).toThrow(/futureThingSeed/);
+  });
+
+  it("assertSeedListExhaustive ignores deliver*Seed delivery functions", () => {
+    expect(() =>
+      assertSeedListExhaustive({ "fake.ts": { deliverThingSeed: () => "" } }),
+    ).not.toThrow();
+  });
+
+  it.each(PRODUCTION_SEEDS)(
+    "$name contains no newline iff singleLine",
+    ({ seed, singleLine }) => {
+      if (singleLine) {
+        expect(seed).not.toContain("\n");
+      } else {
+        expect(seed).toContain("\n");
+      }
+    },
+  );
+
+  it.each(PRODUCTION_SEEDS)(
+    "$name squashes to at least twice the delivery-marker length",
+    ({ seed }) => {
+      expect(squashPrompt(seed).length).toBeGreaterThanOrEqual(
+        2 * DELIVERY_MARKER_SQUASHED_CHARS,
+      );
+    },
+  );
+
+  it.each(PRODUCTION_SEEDS)(
+    // deliveryMarker derives from the LEADING LINE, not the whole seed
+    // (squashPrompt above) — for terminalContinueSeed those differ by ~800
+    // chars, so a future builder with a genuinely short leading line could
+    // pass the whole-seed guard above on the strength of its remainder while
+    // collapsing the marker. Assert the leading-line squash directly too.
+    "$name's leading line squashes to a non-degenerate marker",
+    ({ seed }) => {
+      expect(squash(splitSeed(seed).leadingLine).length).toBeGreaterThanOrEqual(
+        16,
+      );
+    },
+  );
+
+  it.each(PRODUCTION_SEEDS)(
+    "$name: a head+tail truncation records corrupt with both byte counts",
+    async ({ seed }) => {
+      // Deliberately NOT a 'middle third removed' recipe: that drops the
+      // delivery marker entirely for flowPipelineResumeSeed and epicRunSeed
+      // (their leading lines run past a third of the seed), which would
+      // record FOREIGN instead of corrupt. Keeping 2x the squashed marker
+      // length of RAW head chars always keeps the marker intact (squashing
+      // only removes whitespace, so it can only shrink) while still
+      // dropping the rest of the seed.
+      const HEAD = 2 * DELIVERY_MARKER_SQUASHED_CHARS;
+      const truncated = seed.slice(0, HEAD) + seed.slice(-10);
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed }),
+        readStdin: complete(payload(truncated)),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledTimes(1);
+      const written = saveState.mock.calls[0]![0] as PipelineState;
+      expect(written.seedIngest).toEqual({
+        at: FROZEN_NOW,
+        outcome: "corrupt",
+        expectedBytes: Buffer.byteLength(seed, "utf8"),
+        submittedBytes: Buffer.byteLength(truncated, "utf8"),
+      });
+    },
+  );
+
+  it.each(PRODUCTION_SEEDS)(
+    "$name: an intact submission records verified",
+    async ({ seed }) => {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed }),
+        readStdin: complete(payload(seed)),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          seedIngest: { at: FROZEN_NOW, outcome: "verified" },
+        }),
+      );
+    },
+  );
+
+  it.each(
+    PRODUCTION_SEEDS.flatMap(({ name, seed }) =>
+      ["what does the seed hook do?", "Use the /flow-pipeline skill"].map(
+        (prompt) => ({ name, seed, prompt }),
+      ),
+    ),
+  )(
+    "$name: a genuinely foreign user-typed prompt ($prompt) writes nothing",
+    async ({ seed, prompt }) => {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed }),
+        readStdin: complete(payload(prompt)),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).not.toHaveBeenCalled();
+    },
+  );
+
+  it("records corrupt with both byte counts for the recorded 2026-08-28 incident pair", async () => {
+    const recorded = readFixture("seed-incident-2026-08-28.recorded.txt");
+    const submitted = readFixture("seed-incident-2026-08-28.submitted.txt");
+    const { deps, saveState } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState({ seed: recorded }),
+      readStdin: complete(payload(submitted)),
+    });
+    await expect(run(deps)).resolves.toBe(0);
+    expect(saveState).toHaveBeenCalledTimes(1);
+    const written = saveState.mock.calls[0]![0] as PipelineState;
+    expect(written.seedIngest).toEqual({
+      at: FROZEN_NOW,
+      outcome: "corrupt",
+      expectedBytes: Buffer.byteLength(recorded, "utf8"),
+      submittedBytes: Buffer.byteLength(submitted, "utf8"),
+    });
+  });
+
+  // KNOWN, BOUNDED RESIDUAL — regression-pinned, not desired behaviour. A
+  // user-typed flow skill-invocation phrase can share its first
+  // DELIVERY_MARKER_SQUASHED_CHARS squashed characters with an epic seed's
+  // marker (epicCreateSeed and epicResumeSeed both open "Use the
+  // /flow-epic-create skill", and epicRunSeed opens "Use the
+  // /flow-epic-run skill"), so the hook reads it as a truncated delivery
+  // ('corrupt') rather than FOREIGN. This is reachable only in a window
+  // whose seed already failed to arrive: the hook short-circuits before the
+  // stdin drain the moment a 'verified' outcome already stands (see the
+  // terminal-outcomes short-circuit in `run`), and a healthy launch latches
+  // 'verified' on the delivered first prompt — so a later, unrelated
+  // skill-invocation phrase can only ever reach this comparison in an
+  // already-corrupted window.
+  it("KNOWN RESIDUAL: a user-typed epic skill-invocation phrase shares a 24-char marker with the epic seeds", async () => {
+    const epicCreate = PRODUCTION_SEEDS.find(
+      (f) => f.name === "epicCreateSeed",
+    )!.seed;
+    const epicResume = PRODUCTION_SEEDS.find(
+      (f) => f.name === "epicResumeSeed",
+    )!.seed;
+    const epicRun = PRODUCTION_SEEDS.find(
+      (f) => f.name === "epicRunSeed",
+    )!.seed;
+
+    for (const seed of [epicCreate, epicResume]) {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed }),
+        readStdin: complete(payload("Use the /flow-epic-create skill")),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          seedIngest: expect.objectContaining({ outcome: "corrupt" }),
+        }),
+      );
+    }
+
+    const { deps, saveState } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState({ seed: epicRun }),
+      readStdin: complete(payload("Use the /flow-epic-run skill")),
+    });
+    await expect(run(deps)).resolves.toBe(0);
+    expect(saveState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        seedIngest: expect.objectContaining({ outcome: "corrupt" }),
+      }),
+    );
+  });
+
+  // KNOWN, BOUNDED RESIDUAL #1 — regression-pinned, not desired behaviour.
+  // Corruption landing entirely INSIDE the first DELIVERY_MARKER_SQUASHED_CHARS
+  // squashed characters strips the marker itself, so the hook cannot tell
+  // truncation from an unrelated, FOREIGN prompt and writes nothing at all —
+  // no 'corrupt' record, no recovery evidence. Bounded: that head region is
+  // exactly what `deliverSeed` types alone and capture-verifies (with three
+  // `C-u` retries) before the pane is ever handed to the operator, so a head
+  // corruption fails the launch there instead of reaching this hook.
+  it("KNOWN RESIDUAL: corruption inside the delivery marker reads FOREIGN and writes nothing", async () => {
+    const seed = PRODUCTION_SEEDS.find(
+      (f) => f.name === "flowPipelineSeed",
+    )!.seed;
+    const headCorrupted = `X${seed.slice(1)}`;
+    const { deps, saveState } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState({ seed }),
+      readStdin: complete(payload(headCorrupted)),
+    });
+    await expect(run(deps)).resolves.toBe(0);
+    expect(saveState).not.toHaveBeenCalled();
+  });
+});
+
 describe("squashPrompt / seedIntact / deliveryMarkerPresent", () => {
-  const SEED =
-    "[pipeline-slug: demo]\nUse the /flow-pipeline skill for: csv export";
+  // The real flowPipelineSeed production shape (bin/lib/seed-fixtures.ts) —
+  // a SINGLE control-char-free line — not a hand-written two-line literal no
+  // launcher actually produces.
+  const SEED = PRODUCTION_SEEDS.find(
+    (f) => f.name === "flowPipelineSeed",
+  )!.seed;
 
   it("squashPrompt strips ALL whitespace (an 80-column pane wrap still matches)", () => {
     expect(squashPrompt(" a\n b\tc  ")).toBe("abc");
@@ -515,11 +753,16 @@ describe("squashPrompt / seedIntact / deliveryMarkerPresent", () => {
     expect(seedIntact("", "")).toBe(false);
   });
 
-  it("deliveryMarkerPresent matches on the leading line alone", () => {
-    expect(
-      deliveryMarkerPresent(SEED, "[pipeline-slug: demo] and nothing else"),
-    ).toBe(true);
-    // The full seed obviously carries its own leading line.
+  it("deliveryMarkerPresent matches on the head-anchored delivery marker alone", () => {
+    // Under the head marker (the first DELIVERY_MARKER_SQUASHED_CHARS
+    // squashed characters of the leading line), a prompt carrying only the
+    // marker — not the whole leading line — still counts.
+    const marker = deliveryMarker(SEED);
+    expect(marker.length).toBe(DELIVERY_MARKER_SQUASHED_CHARS);
+    expect(deliveryMarkerPresent(SEED, `${marker} and nothing else`)).toBe(
+      true,
+    );
+    // The full seed obviously carries its own marker.
     expect(deliveryMarkerPresent(SEED, SEED)).toBe(true);
   });
 

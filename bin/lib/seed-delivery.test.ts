@@ -1,16 +1,20 @@
-import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { terminalContinueSeed } from "../flow-session-start-hook";
 import { epicCreateSeed, epicResumeSeed, epicRunSeed } from "./epic-seed";
 import { flowPipelineResumeSeed, flowPipelineSeed } from "./feature";
+import { FIXTURE_STATE_DIR, PRODUCTION_SEEDS } from "./seed-fixtures";
 import {
   chunkByBytes,
   deliverSeed,
+  DELIVERY_MARKER_SQUASHED_CHARS,
+  deliveryMarker,
   MAX_SEND_KEYS_BYTES,
   REMAINDER_CHUNK_BYTES,
   REMAINDER_SETTLE_MS,
   sanitizeSeedLine,
   splitSeed,
+  squash,
   type DeliverSeedSeams,
 } from "./seed-delivery";
 import { requestFilePath } from "./state";
@@ -376,74 +380,52 @@ describe("deliverSeed — remainder pacing", () => {
   });
 });
 
+// Per-fixture byte bound: 320 for the two feature-pipeline seeds and 500 for
+// the three epic seeds, matching the historical hand-written bounds (both are
+// generous headroom over the observed worst case, well under
+// MAX_SEND_KEYS_BYTES). terminalContinueSeed isn't slug-length-bound the same
+// way (it's mostly fixed prose typed after the pipeline finished, not a
+// REQUEST_FILE-path-carrying single line) — 1200 comfortably covers the
+// 818-char PRODUCTION_SEEDS fixture and the 874-byte 60-char-slug-cap variant
+// exercised below, while staying well under the 8192-byte hard cap.
+const MAX_BYTES_BY_NAME: Record<string, number> = {
+  flowPipelineSeed: 320,
+  flowPipelineResumeSeed: 320,
+  epicCreateSeed: 500,
+  epicResumeSeed: 500,
+  epicRunSeed: 500,
+  terminalContinueSeed: 1200,
+};
+
 describe("supervisor launch seeds — no unverified remainder", () => {
-  // Fixed-length injected stateDir (never the real $HOME) so byte bounds stay
-  // machine-independent — a 60-char --slug (slug.ts's cap) with a real home
-  // dir pushes an absolute request-file path well past a flat bound. Built
-  // with a deterministic fixed-length path (not a real mkdtemp draw, which
-  // varies in length per OS/run) — these seeds are never written to disk,
-  // only string-built, so no real directory needs to exist.
-  const dir = path.join(os.tmpdir(), "flow-seed-bounds-fixture");
-
-  const slug = "csv-export";
-  const epicDir = ".flow/epics/csv-export";
-  const skillDir = path.join(
-    dir,
-    "skills",
-    "pipeline",
-    "flow-product-planning",
-  );
-
-  // flowPipelineSeed is exported (mirroring flowPipelineResumeSeed on the
-  // very next line of feature.ts) so this table calls the real production
-  // builder instead of a hand-copied literal that can silently drift from
-  // it (a drifted mirror is exactly what made this it.each case
-  // constant-true before).
-  const builders: Array<{ name: string; seed: string; maxBytes: number }> = [
-    {
-      name: "flowPipelineSeed",
-      seed: flowPipelineSeed(slug, "add CSV export", dir),
-      maxBytes: 320,
-    },
-    {
-      name: "flowPipelineResumeSeed",
-      seed: flowPipelineResumeSeed(slug),
-      maxBytes: 320,
-    },
-    {
-      name: "epicCreateSeed",
-      seed: epicCreateSeed(
-        "add CSV export",
-        epicDir,
-        skillDir,
-        requestFilePath(slug, dir),
-      ),
-      maxBytes: 500,
-    },
-    {
-      name: "epicResumeSeed",
-      seed: epicResumeSeed(slug, epicDir, skillDir),
-      maxBytes: 500,
-    },
-    {
-      name: "epicRunSeed",
-      seed: epicRunSeed(slug, epicDir),
-      maxBytes: 500,
-    },
-  ];
-
-  it.each(builders)(
-    "$name produces a single line with an empty splitSeed remainder",
-    ({ seed, maxBytes }) => {
-      expect(splitSeed(seed).remainder).toBe("");
-      expect(Buffer.byteLength(seed, "utf8")).toBeLessThanOrEqual(maxBytes);
+  // PRODUCTION_SEEDS (bin/lib/seed-fixtures.ts) calls the real production
+  // builders instead of a hand-copied literal that can silently drift from
+  // them (a drifted mirror is exactly what made an earlier it.each case
+  // constant-true before). All six builders — including terminalContinueSeed,
+  // which .join("\n\n")s and so can never satisfy an empty splitSeed
+  // remainder — are exercised from this ONE canonical list.
+  it.each(PRODUCTION_SEEDS)(
+    "$name produces a byte-bound seed with an empty splitSeed remainder iff singleLine",
+    ({ name, seed, singleLine }) => {
+      if (singleLine) {
+        expect(splitSeed(seed).remainder).toBe("");
+      } else {
+        expect(splitSeed(seed).remainder).not.toBe("");
+      }
+      expect(Buffer.byteLength(seed, "utf8")).toBeLessThanOrEqual(
+        MAX_BYTES_BY_NAME[name]!,
+      );
     },
   );
 
-  // The motivating worst case (block comment above, and the PR's
-  // "Deviations from plan" note) is a 60-char --slug (slug.ts's
-  // MAX_SLUG_LENGTH), not the 10-char "csv-export" every row above uses —
-  // exercise the bound at the cap it was actually sized for.
+  // The motivating worst case (the PR's "Deviations from plan" note) is a
+  // 60-char --slug (slug.ts's MAX_SLUG_LENGTH), not the short "demo"/
+  // "csv-export" slugs PRODUCTION_SEEDS uses — exercise the bound at the cap
+  // it was actually sized for. PRODUCTION_SEEDS is a fixed list (one demo
+  // slug per builder), so it cannot represent this parametrized worst case;
+  // this table stays a bespoke, locally-built set of six real-builder calls
+  // rather than a re-draw from the canonical list.
+  const dir = FIXTURE_STATE_DIR;
   const capSlug = "a".repeat(60);
   const capEpicDir = `.flow/epics/${capSlug}`;
   const capSkillDir = path.join(
@@ -453,47 +435,72 @@ describe("supervisor launch seeds — no unverified remainder", () => {
     "flow-product-planning",
   );
 
-  const buildersAtCap: Array<{ name: string; seed: string; maxBytes: number }> =
-    [
-      {
-        name: "flowPipelineSeed",
-        seed: flowPipelineSeed(capSlug, "add CSV export", dir),
-        maxBytes: 320,
-      },
-      {
-        name: "flowPipelineResumeSeed",
-        seed: flowPipelineResumeSeed(capSlug),
-        maxBytes: 320,
-      },
-      {
-        name: "epicCreateSeed",
-        seed: epicCreateSeed(
-          "add CSV export",
-          capEpicDir,
-          capSkillDir,
-          requestFilePath(capSlug, dir),
-        ),
-        maxBytes: 500,
-      },
-      {
-        name: "epicResumeSeed",
-        seed: epicResumeSeed(capSlug, capEpicDir, capSkillDir),
-        maxBytes: 500,
-      },
-      {
-        name: "epicRunSeed",
-        seed: epicRunSeed(capSlug, capEpicDir),
-        maxBytes: 500,
-      },
-    ];
+  const buildersAtCap: Array<{
+    name: string;
+    seed: string;
+    singleLine: boolean;
+  }> = [
+    {
+      name: "flowPipelineSeed",
+      seed: flowPipelineSeed(capSlug, "add CSV export", dir),
+      singleLine: true,
+    },
+    {
+      name: "flowPipelineResumeSeed",
+      seed: flowPipelineResumeSeed(capSlug),
+      singleLine: true,
+    },
+    {
+      name: "epicCreateSeed",
+      seed: epicCreateSeed(
+        "add CSV export",
+        capEpicDir,
+        capSkillDir,
+        requestFilePath(capSlug, dir),
+      ),
+      singleLine: true,
+    },
+    {
+      name: "epicResumeSeed",
+      seed: epicResumeSeed(capSlug, capEpicDir, capSkillDir),
+      singleLine: true,
+    },
+    {
+      name: "epicRunSeed",
+      seed: epicRunSeed(capSlug, capEpicDir),
+      singleLine: true,
+    },
+    {
+      name: "terminalContinueSeed",
+      seed: terminalContinueSeed(capSlug, "merged", "feature", {
+        repo: "/tmp/repo",
+      }),
+      singleLine: false,
+    },
+  ];
 
   it.each(buildersAtCap)(
     "$name stays within its bound at the 60-char slug cap",
-    ({ seed, maxBytes }) => {
-      expect(splitSeed(seed).remainder).toBe("");
-      expect(Buffer.byteLength(seed, "utf8")).toBeLessThanOrEqual(maxBytes);
+    ({ seed, name, singleLine }) => {
+      if (singleLine) {
+        expect(splitSeed(seed).remainder).toBe("");
+      } else {
+        expect(splitSeed(seed).remainder).not.toBe("");
+      }
+      expect(Buffer.byteLength(seed, "utf8")).toBeLessThanOrEqual(
+        MAX_BYTES_BY_NAME[name]!,
+      );
     },
   );
+
+  it("the cap-slug table covers exactly the canonical builder set", () => {
+    // Binds this hand-written cap-slug table to PRODUCTION_SEEDS so a 7th
+    // builder (forced into PRODUCTION_SEEDS by assertSeedListExhaustive)
+    // can't silently escape the 60-char-slug-cap bound check here too.
+    expect(buildersAtCap.map((b) => b.name).sort()).toEqual(
+      PRODUCTION_SEEDS.map((f) => f.name).sort(),
+    );
+  });
 });
 
 describe("sanitizeSeedLine", () => {
@@ -523,17 +530,100 @@ describe("sanitizeSeedLine", () => {
     );
   });
 
-  it("a control-char-bearing description still yields a control-char-free seed", () => {
+  it("a control-char-bearing slug still yields a control-char-free seed", () => {
     // Call-site assertion, not a pure-function one: with sanitizeSeedLine
     // now applied to the COMPOSED line at both feature.ts's flowPipelineSeed
     // and epic-seed.ts's epicCreateSeed, this is the guarantee those two
     // module doc comments claim, exercised at the real production call site
-    // rather than at sanitizeSeedLine in isolation.
+    // rather than at sanitizeSeedLine in isolation. `slug` is the argument
+    // that actually reaches the composed line — flowPipelineSeed no longer
+    // interpolates `description` at all (PR #719 moved it out to the
+    // REQUEST_FILE pointer), so routing the control chars through
+    // `description` here would exercise nothing.
     const seed = flowPipelineSeed(
-      "csv-export",
       "a\tb\nc\x1bd",
-      path.join(os.tmpdir(), "flow-seed-bounds-fixture"),
+      "csv export",
+      FIXTURE_STATE_DIR,
     );
     expect(seed).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
+
+  it("a control-char-bearing slug still yields a control-char-free flowPipelineResumeSeed", () => {
+    // Same call-site discipline as the flowPipelineSeed case above, now that
+    // flowPipelineResumeSeed's composed line is also wrapped in
+    // sanitizeSeedLine — a slug carrying a newline or tab must still yield a
+    // seed containing no newline.
+    const seed = flowPipelineResumeSeed("a\tb\nc");
+    expect(seed).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
+
+  it("a control-char-bearing slug still yields a control-char-free epicResumeSeed", () => {
+    // Same call-site discipline: epicResumeSeed's composed line is also
+    // wrapped in sanitizeSeedLine as of this PR.
+    const seed = epicResumeSeed(
+      "a\tb\nc",
+      ".flow/epics/x\x1b",
+      "/tmp/skill\x7f",
+    );
+    expect(seed).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
+
+  it("a control-char-bearing slug still yields a control-char-free epicRunSeed", () => {
+    // Same call-site discipline: epicRunSeed's composed line is also
+    // wrapped in sanitizeSeedLine as of this PR.
+    const seed = epicRunSeed("a\tb\nc", ".flow/epics/x\x7f");
+    expect(seed).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
+});
+
+describe("deliveryMarker", () => {
+  it("is byte-identical to squash(leadingLine).slice(0, 24) for every single-line PRODUCTION_SEEDS fixture", () => {
+    for (const { seed, singleLine } of PRODUCTION_SEEDS) {
+      if (!singleLine) continue;
+      expect(deliveryMarker(seed)).toBe(
+        squash(splitSeed(seed).leadingLine).slice(
+          0,
+          DELIVERY_MARKER_SQUASHED_CHARS,
+        ),
+      );
+    }
+  });
+
+  it.each([
+    ["flowPipelineSeed", "[pipeline-slug:demo]Uset"],
+    ["flowPipelineResumeSeed", "[pipeline-slug:demo]Uset"],
+    ["epicCreateSeed", "Usethe/flow-epic-creates"],
+    ["epicResumeSeed", "Usethe/flow-epic-creates"],
+    ["epicRunSeed", "Usethe/flow-epic-runskil"],
+    ["terminalContinueSeed", "[pipeline-slug:demo]"],
+  ])(
+    // Golden values, not a re-derivation of deliveryMarker's own body (the
+    // test above asserts equivalence, which cannot discriminate the shipped
+    // clamped-to-leading-line marker from the rejected squash(seed).slice(0,
+    // 24) design for a single-line seed, since leadingLine === seed there).
+    // Also surfaces, in one table, that epicCreateSeed and epicResumeSeed
+    // are marker-indistinguishable — the documented residual #2.
+    "%s marker is exactly %s",
+    (name, expected) => {
+      expect(
+        deliveryMarker(PRODUCTION_SEEDS.find((f) => f.name === name)!.seed),
+      ).toBe(expected);
+    },
+  );
+
+  it("clamps to the leading line for terminalContinueSeed, with no straddle into the remainder", () => {
+    const fixture = PRODUCTION_SEEDS.find(
+      (f) => f.name === "terminalContinueSeed",
+    )!;
+    // The leading line alone squashes to 20 chars — under the 24-char clamp —
+    // so the marker is the whole leading line, never reaching into the
+    // never-verified multi-paragraph remainder.
+    expect(deliveryMarker(fixture.seed)).toBe("[pipeline-slug:demo]");
+    expect(deliveryMarker(fixture.seed).length).toBe(20);
+  });
+
+  it("returns '' for an empty or whitespace-only seed", () => {
+    expect(deliveryMarker("")).toBe("");
+    expect(deliveryMarker("   ")).toBe("");
   });
 });

@@ -1687,7 +1687,12 @@ export function flowPipelineSeed(
 }
 
 export function flowPipelineResumeSeed(slug: string): string {
-  return `[pipeline-slug: ${slug}] Use the /flow-pipeline skill in --resume mode for: ${slug}`;
+  // Sanitize the COMPOSED line, mirroring flowPipelineSeed above —
+  // structural, not per-argument, so a future call site inlining free-form
+  // text back into this template inherits the same guarantee.
+  return sanitizeSeedLine(
+    `[pipeline-slug: ${slug}] Use the /flow-pipeline skill in --resume mode for: ${slug}`,
+  );
 }
 
 /**

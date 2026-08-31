@@ -20,16 +20,18 @@
  * - `unverified` — a prompt arrived but the hook could not compare it: stdin
  *   timed out or errored, the payload did not parse, or it carried no
  *   `prompt` field. Deliberately NOT a pass; the CLI prints a loud warning.
- * - `corrupt` — the prompt carried the seed's leading-line DELIVERY MARKER but
- *   not the seed intact: a truncated/garbled delivery.
+ * - `corrupt` — the prompt carried the seed's head-anchored DELIVERY MARKER
+ *   (see `deliveryMarker` in `bin/lib/seed-delivery.ts`) but not the seed
+ *   intact: a truncated/garbled delivery.
  * - `verified` — the prompt contained the recorded seed intact.
  * - ABSENT — not yet ingested.
  *
  * The delivery-marker discriminator is what separates a truncated delivery
- * from a user-typed prompt: a prompt that does not even carry the seed's
- * leading line is FOREIGN (the human typed it), not corruption, so the hook
- * writes NOTHING at all rather than recording a false `corrupt` — which also
- * stops later unrelated chatter from rewriting a standing record.
+ * from a user-typed prompt: a prompt that does not even carry the first
+ * `DELIVERY_MARKER_SQUASHED_CHARS` squashed characters of the seed's leading
+ * line is FOREIGN (the human typed it), not corruption, so the hook writes
+ * NOTHING at all rather than recording a false `corrupt` — which also stops
+ * later unrelated chatter from rewriting a standing record.
  *
  * This hook RECORDS and always exits 0 — it never blocks the prompt (exit 2)
  * even on a detected corruption; `bin/lib/tmux.ts`'s `seedCorrupted()`
@@ -48,7 +50,7 @@
 
 import { spawnSync } from "node:child_process";
 import { resolveSlugFromEnv } from "./lib/session-identity";
-import { splitSeed, squash } from "./lib/seed-delivery";
+import { deliveryMarker, squash } from "./lib/seed-delivery";
 import { type SeedIngest } from "./lib/seed-ingest";
 import {
   nowIso as defaultNowIso,
@@ -91,16 +93,20 @@ export function seedIntact(expected: string, submitted: string): boolean {
 
 /**
  * Did this prompt come from flow's own seed delivery at all? Reuses
- * `seed-delivery`'s `splitSeed` so the hook and the delivery path cannot
- * disagree about what the leading line is — the leading line is exactly what
- * `deliverSeed` types alone and capture-verifies first, so its presence is
- * the strongest available evidence the prompt IS the delivery.
+ * `seed-delivery`'s `deliveryMarker` so the hook and the delivery path
+ * cannot disagree about what the marker is — the marker is a prefix of the
+ * leading line, exactly what `deliverSeed` types alone and capture-verifies
+ * first, so its presence is the strongest available evidence the prompt IS
+ * the delivery. `m.length > 0` guards the same vacuous-pass door
+ * `seedIntact` guards: an empty marker (empty/whitespace-only seed) must
+ * never read as a successful comparison.
  */
 export function deliveryMarkerPresent(
   seed: string,
   submitted: string,
 ): boolean {
-  return seedIntact(splitSeed(seed).leadingLine, submitted);
+  const m = deliveryMarker(seed);
+  return m.length > 0 && squashPrompt(submitted).includes(m);
 }
 
 /**
@@ -232,9 +238,9 @@ export async function run(deps: Deps): Promise<number> {
   }
 
   // FOREIGN PROMPT — write nothing. A prompt carrying none of the seed's
-  // leading line was typed by the human, not delivered by flow: recording it
-  // as `corrupt` would fail a healthy launch, and recording anything at all
-  // would let later unrelated chatter rewrite a standing record.
+  // delivery marker was typed by the human, not delivered by flow: recording
+  // it as `corrupt` would fail a healthy launch, and recording anything at
+  // all would let later unrelated chatter rewrite a standing record.
   if (!deliveryMarkerPresent(seed, prompt)) return 0;
 
   if (seedIntact(seed, prompt)) {

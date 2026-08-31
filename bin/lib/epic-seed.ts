@@ -66,8 +66,13 @@ export function epicResumeSeed(
   skillDir: string,
 ): string {
   // The supervisor parses this prefix to detect resume mode and walk its
-  // `# Resume mode` decision via flow-epic-resume-decide.
-  return `Use the /flow-epic-create skill in --resume mode for: ${slug} EPIC_DIR: ${epicDir} SKILL_DIR: ${skillDir}`;
+  // `# Resume mode` decision via flow-epic-resume-decide. Sanitize the
+  // COMPOSED line, mirroring epicCreateSeed above — structural, not
+  // per-argument, so this stays a single control-char-free line even if a
+  // future call site inlines free-form text back into the template.
+  return sanitizeSeedLine(
+    `Use the /flow-epic-create skill in --resume mode for: ${slug} EPIC_DIR: ${epicDir} SKILL_DIR: ${skillDir}`,
+  );
 }
 
 // The /flow-epic-run supervisor's seed. Mirrors epicCreateSeed: the slug after
@@ -77,5 +82,9 @@ export function epicResumeSeed(
 // lines — the playbook has no tick loop, no judgment sub-agent, and no
 // autonomous redirect to gate.
 export function epicRunSeed(slug: string, epicDir: string): string {
-  return `Use the /flow-epic-run skill for: ${slug} EPIC_DIR: ${epicDir}`;
+  // Sanitize the COMPOSED line, same discipline as epicCreateSeed /
+  // epicResumeSeed above — structural, not per-argument.
+  return sanitizeSeedLine(
+    `Use the /flow-epic-run skill for: ${slug} EPIC_DIR: ${epicDir}`,
+  );
 }
