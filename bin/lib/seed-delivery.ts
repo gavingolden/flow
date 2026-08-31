@@ -117,6 +117,33 @@ export function squash(s: string): string {
 }
 
 /**
+ * Squashed-character length of the delivery marker `deliveryMarker` derives.
+ * Clamped well under every builder's shortest leading-line squash (58 chars,
+ * `epicRunSeed`) so the marker never straddles into content the leading line
+ * doesn't carry.
+ */
+export const DELIVERY_MARKER_SQUASHED_CHARS = 24;
+
+/**
+ * The delivery marker: the first `DELIVERY_MARKER_SQUASHED_CHARS` characters
+ * of the squashed LEADING LINE, never the whole seed. Clamped to the leading
+ * line because that is the only region `deliverSeed` types alone and
+ * capture-verifies (see the capture-verify above, in `deliverSeed`) — a
+ * marker extending past it would be unverifiable in-pane. Some seeds
+ * (`terminalContinueSeed`) squash their leading line to as few as 20
+ * characters; slicing the WHOLE seed instead would straddle into the
+ * never-verified remainder for those. Returns `""` for an empty or
+ * whitespace-only seed — `squash` collapses an all-whitespace leading line to
+ * `""` already, so no separate guard is needed.
+ */
+export function deliveryMarker(seed: string): string {
+  return squash(splitSeed(seed).leadingLine).slice(
+    0,
+    DELIVERY_MARKER_SQUASHED_CHARS,
+  );
+}
+
+/**
  * Maps every C0 control char (including TAB, 0x09) and newline, plus DEL
  * (0x7f), to a single space — for anything typed into a pane as a single
  * line. Unlike `squash`, this does not collapse other whitespace: it only
