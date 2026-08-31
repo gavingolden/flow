@@ -732,6 +732,32 @@ describe(parseArgs, () => {
   it("accepts a single slug positional", () => {
     expect(parseArgs(["my-slug"])).toEqual({ slug: "my-slug" });
   });
+
+  it("accepts --slug as an alias for the positional slug", () => {
+    expect(parseArgs(["--slug", "s"])).toEqual({ slug: "s" });
+  });
+
+  it("rejects combining a positional slug with --slug", () => {
+    expect(parseArgs(["s", "--slug", "t"])).toEqual({
+      error: "cannot combine positional <slug> with --slug",
+    });
+  });
+
+  it("rejects --slug with a missing value", () => {
+    expect(parseArgs(["--slug"])).toEqual({
+      error: "--slug requires a value",
+    });
+  });
+
+  it("rejects --slug whose value looks like a flag", () => {
+    expect(parseArgs(["--slug", "--x"])).toEqual({
+      error: "--slug requires a value",
+    });
+  });
+
+  it("still returns the help sentinel for --help", () => {
+    expect(parseArgs(["--help"])).toEqual({ error: "help" });
+  });
 });
 
 // ---------------------------------------------------------------------------

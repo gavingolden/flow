@@ -106,6 +106,18 @@ describe(parseArgs, () => {
     };
     expect(r.error).toMatch(/--title requires a value/);
   });
+
+  it("accepts --slug as an alias for the positional slug", () => {
+    const r = parseArgs(["--slug", "s", "--body-file", "b.md"]);
+    expect(r).toEqual({ slug: "s", bodyFile: "b.md", draft: false });
+  });
+
+  it("rejects combining a positional slug with --slug", () => {
+    const r = parseArgs(["s", "--slug", "t", "--body-file", "/tmp/x.md"]) as {
+      error: string;
+    };
+    expect(r.error).toBe("cannot combine positional <slug> with --slug");
+  });
 });
 
 describe(readCurrentPr, () => {

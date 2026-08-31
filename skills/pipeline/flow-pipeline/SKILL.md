@@ -389,8 +389,11 @@ flow-notify --status <merged|gated|needs-human> \
 auto-resolves it env-first from the `FLOW_SLUG` env var (set in the
 launch env by both launcher backends), falling back to `$TMUX_PANE`'s
 durable `@flow-slug` window option (the per-Bash-call shell loses any
-`SLUG=…` between calls). Pass `--slug` explicitly only when invoking
-from outside the pipeline session.
+`SLUG=…` between calls). Pass `--slug <slug>` explicitly only when
+invoking from outside the pipeline session — space-separated; the
+`--slug=<slug>` equals form is not accepted by any flow helper.
+`bin/slug-flag-contract-lint.test.ts` enforces this list: every helper
+named above is asserted to parse `--slug` into the slug it names.
 
 - darwin-only; non-mac hosts and unset `FLOW_NOTIFY` both no-op.
 - Backend: `terminal-notifier` preferred (click-through to

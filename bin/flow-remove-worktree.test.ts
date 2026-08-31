@@ -13,6 +13,7 @@ import {
   isNotFullyMergedFailure,
   isRemovalPhaseFailure,
   matchWorktree,
+  parseArgs,
   parseWorktreeListOutput,
   removeWorktreeWithFallback,
   resolveInput,
@@ -97,6 +98,67 @@ describe(parseWorktreeListOutput, () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].path).toBe("/repo");
     expect(entries[0].branch).toBeUndefined();
+  });
+});
+
+// --- parseArgs ---------------------------------------------------------
+//
+// Unit-tests the exported parser only. Never spawn the binary here — a
+// flag-parsing bug in these cases has no business touching `git worktree
+// remove`; the spawn-based integration suites below cover the actual
+// removal paths.
+
+describe(parseArgs, () => {
+  it("treats empty argv as 'no slug given' (ambient fallback still fires)", () => {
+    expect(parseArgs([])).toEqual({ deleteBranch: false, help: false });
+  });
+
+  it("accepts a single slug positional", () => {
+    expect(parseArgs(["my-slug"])).toEqual({
+      slug: "my-slug",
+      deleteBranch: false,
+      help: false,
+    });
+  });
+
+  it("accepts --slug as an alias for the positional", () => {
+    expect(parseArgs(["--slug", "s"])).toEqual({
+      slug: "s",
+      deleteBranch: false,
+      help: false,
+    });
+  });
+
+  it("rejects combining a positional slug with --slug", () => {
+    expect(parseArgs(["s", "--slug", "t"])).toEqual({
+      error: "cannot combine positional <slug> with --slug",
+    });
+  });
+
+  it("rejects --slug with a missing value", () => {
+    expect(parseArgs(["--slug"])).toEqual({
+      error: "--slug requires a value",
+    });
+  });
+
+  it("rejects the --slug=<value> equals form instead of silently discarding it", () => {
+    // This is the destructive-regression guard: a silently-discarded flag
+    // here would leave zero positionals, fall through to the ambient
+    // $TMUX_PANE slug, and remove the CALLER's own worktree.
+    expect(parseArgs(["--slug=s"])).toEqual({
+      error: "unknown flag: --slug=s",
+    });
+  });
+
+  it("rejects an unrecognised flag instead of silently discarding it", () => {
+    expect(parseArgs(["--typo"])).toEqual({ error: "unknown flag: --typo" });
+  });
+
+  it("parses --delete-branch", () => {
+    expect(parseArgs(["--delete-branch"])).toEqual({
+      deleteBranch: true,
+      help: false,
+    });
   });
 });
 

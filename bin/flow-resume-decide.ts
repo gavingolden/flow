@@ -15,6 +15,7 @@
  *
  * Usage:
  *   flow-resume-decide <slug>
+ *   flow-resume-decide --slug <slug>
  *
  * Output: a single JSON object on stdout.
  *   {
@@ -721,12 +722,29 @@ export function parseArgs(
   for (const a of argv) {
     if (a === "--help" || a === "-h") return { error: "help" };
   }
-  const [first, ...rest] = argv;
-  if (first.startsWith("--")) return { error: `unknown flag: ${first}` };
-  for (const flag of rest) {
-    return { error: `unknown flag: ${flag}` };
+  let positionalSlug: string | undefined;
+  let flagSlug: string | undefined;
+  let i = 0;
+  while (i < argv.length) {
+    const a = argv[i];
+    if (a === "--slug") {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith("--")) {
+        return { error: "--slug requires a value" };
+      }
+      flagSlug = value;
+      i += 2;
+      continue;
+    }
+    if (a.startsWith("--")) return { error: `unknown flag: ${a}` };
+    if (positionalSlug !== undefined) return { error: `unknown flag: ${a}` };
+    positionalSlug = a;
+    i += 1;
   }
-  return { slug: first };
+  if (positionalSlug !== undefined && flagSlug !== undefined) {
+    return { error: "cannot combine positional <slug> with --slug" };
+  }
+  return { slug: positionalSlug ?? flagSlug };
 }
 
 /**
@@ -817,11 +835,11 @@ export function run(argv: string[], deps: Deps = {}): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     if (parsed.error === "help") {
-      console.log("usage: flow-resume-decide [<slug>]");
+      console.log("usage: flow-resume-decide [<slug>] [--slug <slug>]");
       return 0;
     }
     console.error(`flow-resume-decide: ${parsed.error}`);
-    console.error("usage: flow-resume-decide [<slug>]");
+    console.error("usage: flow-resume-decide [<slug>] [--slug <slug>]");
     return 2;
   }
 
