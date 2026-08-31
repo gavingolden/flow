@@ -40,6 +40,21 @@ function withTmpFile(contents: string, fn: (filePath: string) => void): void {
   }
 }
 
+function withTmpDir(
+  files: Record<string, unknown>,
+  fn: (dirPath: string) => void,
+): void {
+  const dir = mkdtempSync(path.join(tmpdir(), "agent-finding-schema-dir-"));
+  for (const [name, contents] of Object.entries(files)) {
+    writeFileSync(path.join(dir, name), JSON.stringify(contents), "utf8");
+  }
+  try {
+    fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /**
  * Contract tests for the per-agent finding artifact and the
  * Consolidator-Validator artifact. The Step 3.5 consolidator subagent
@@ -1621,7 +1636,7 @@ describe("collectLensNegatives — tolerant per-entry collector", () => {
     expect(result.skipped).toBe(2);
   });
 
-  it("drops a non-object entry (string, null, array) in either array without throwing", () => {
+  it("recovers a bare-string rejected entry via normalization, but still drops null/array entries in either array without throwing", () => {
     const result = collectLensNegatives({
       findings: [],
       rejected_alternatives: [
@@ -1634,13 +1649,23 @@ describe("collectLensNegatives — tolerant per-entry collector", () => {
         { location: "a.ts:1", pattern: "p", recommendation: "fix" },
       ],
     });
+    // A bare string in `rejected_alternatives` is recoverable —
+    // normalizeNegativeEntry maps it to
+    // {considered_approach: <string>, why_rejected: "(not stated by the lens)"}
+    // — so it now survives instead of counting as skipped.
     expect(result.rejected_alternatives).toEqual([
+      {
+        considered_approach: "not an object",
+        why_rejected: "(not stated by the lens)",
+      },
       { considered_approach: "tried X", why_rejected: "X regressed Y" },
     ]);
     expect(result.anti_patterns_found).toEqual([
       { location: "a.ts:1", pattern: "p", recommendation: "fix" },
     ]);
-    expect(result.skipped).toBe(3);
+    // null (rejected_alternatives) and [1,2,3] (anti_patterns_found) are
+    // still unrecoverable non-object/non-string entries.
+    expect(result.skipped).toBe(2);
   });
 
   it("drops an entry with a wrong-typed field", () => {
@@ -1826,6 +1851,132 @@ describe("agent-finding-schema CLI — widened per-agent success envelope", () =
       expect(result.status).toBe(0);
       const parsed = JSON.parse(result.stdout.trim());
       expect(parsed).toEqual({ ok: true });
+    });
+  });
+});
+
+describe("agent-finding-schema CLI — `--collect-lens-negatives <dir>`", () => {
+  it("happy path over all six canonical artifacts", () => {
+    const artifact = (n: number) => ({
+      findings: [],
+      rejected_alternatives: [
+        { considered_approach: `approach ${n}`, why_rejected: `reason ${n}` },
+      ],
+      anti_patterns_found: [
+        {
+          location: `f${n}.ts:1`,
+          pattern: `pattern ${n}`,
+          recommendation: `fix ${n}`,
+        },
+      ],
+    });
+    withTmpDir(
+      {
+        "agent-output-bug-detection.json": artifact(1),
+        "agent-output-security.json": artifact(2),
+        "agent-output-pattern-consistency.json": artifact(3),
+        "agent-output-performance.json": artifact(4),
+        "agent-output-supply-chain.json": artifact(5),
+        "agent-output-test-coverage.json": artifact(6),
+      },
+      (dir) => {
+        const result = runCli(["--collect-lens-negatives", dir]);
+        expect(result.status).toBe(0);
+        const parsed = JSON.parse(result.stdout.trim());
+        expect(parsed.lens_rejected_alternatives).toHaveLength(6);
+        expect(parsed.lens_anti_patterns_found).toHaveLength(6);
+        expect(parsed.lens_negatives_missing).toEqual([]);
+        for (const entry of parsed.lens_rejected_alternatives) {
+          expect(typeof entry.lens).toBe("string");
+          expect(entry.lens.length).toBeGreaterThan(0);
+        }
+      },
+    );
+  });
+
+  it("skips a missing artifact file silently", () => {
+    withTmpDir(
+      {
+        "agent-output-bug-detection.json": {
+          findings: [],
+          rejected_alternatives: [
+            { considered_approach: "a", why_rejected: "b" },
+          ],
+          anti_patterns_found: [],
+        },
+      },
+      (dir) => {
+        const result = runCli(["--collect-lens-negatives", dir]);
+        expect(result.status).toBe(0);
+        const parsed = JSON.parse(result.stdout.trim());
+        expect(parsed.lens_rejected_alternatives).toHaveLength(1);
+        // Only bug-detection's slots are non-absent; every other
+        // canonical lens file is simply absent from disk, which is
+        // skipped SILENTLY — it must not appear in lens_negatives_missing.
+        expect(parsed.lens_negatives_missing).toEqual([]);
+      },
+    );
+  });
+
+  it("appends '<lens> (N unreadable)' when a non-absent slot yields zero valid entries", () => {
+    withTmpDir(
+      {
+        "agent-output-security.json": {
+          findings: [],
+          rejected_alternatives: [{ considered_approach: "only one field" }],
+          anti_patterns_found: [],
+        },
+      },
+      (dir) => {
+        const result = runCli(["--collect-lens-negatives", dir]);
+        expect(result.status).toBe(0);
+        const parsed = JSON.parse(result.stdout.trim());
+        expect(parsed.lens_rejected_alternatives).toEqual([]);
+        expect(parsed.lens_negatives_missing).toEqual([
+          "security (1 unreadable)",
+        ]);
+      },
+    );
+  });
+
+  it("renders the valid entry AND omits the unreadable marker when a non-absent slot mixes one valid and one unmappable entry", () => {
+    // Regression for `anyEntries` gating in `accumulateLensFile`: a lens
+    // slot with >= 1 valid entry must render that entry AND must NOT also
+    // append a `(N unreadable)` residual marker — that marker is reserved
+    // for the all-skipped case (`!anyEntries && collected.skipped > 0`).
+    withTmpDir(
+      {
+        "agent-output-security.json": {
+          findings: [],
+          rejected_alternatives: [
+            { considered_approach: "used eval()", why_rejected: "RCE risk" },
+            { considered_approach: "only one field" },
+          ],
+          anti_patterns_found: [],
+        },
+      },
+      (dir) => {
+        const result = runCli(["--collect-lens-negatives", dir]);
+        expect(result.status).toBe(0);
+        const parsed = JSON.parse(result.stdout.trim());
+        expect(parsed.lens_rejected_alternatives).toEqual([
+          {
+            considered_approach: "used eval()",
+            why_rejected: "RCE risk",
+            lens: "security",
+          },
+        ]);
+        expect(parsed.lens_negatives_missing).toEqual([]);
+      },
+    );
+  });
+
+  it("still supports --validate envelopes unchanged alongside the new sub-mode", () => {
+    withTmpFile(JSON.stringify(VALID_AGENT_FINDINGS), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
     });
   });
 });

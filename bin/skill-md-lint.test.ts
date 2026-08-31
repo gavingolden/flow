@@ -9195,3 +9195,54 @@ describe("REQUEST_FILE seed-pointer contract — both supervisor SKILL.md files"
     },
   );
 });
+
+describe("Lens negative-findings entry shape", () => {
+  // Explicit six-path list, NEVER a readdir or a `flow-review-*.md` glob:
+  // the glob matches a SEVENTH file, flow-review-intent-guess.md, which
+  // emits a different artifact (the blind intent guess) and must not be
+  // pinned to this shape.
+  const LENS_AGENT_FILES = [
+    "flow-review-bug-detection.md",
+    "flow-review-security.md",
+    "flow-review-pattern-consistency.md",
+    "flow-review-performance.md",
+    "flow-review-supply-chain.md",
+    "flow-review-test-coverage.md",
+  ];
+
+  const CANONICAL_SHAPE_SENTENCE =
+    'Each `rejected_alternatives` entry is exactly `{"considered_approach": "...", "why_rejected": "..."}`; each `anti_patterns_found` entry is exactly `{"location": "file:line", "pattern": "...", "recommendation": "..."}` — these key names are the contract (`bin/lib/negative-findings-schema.ts`), not a paraphrase; an entry keyed any other way is DROPPED before it reaches the report.';
+
+  it.each(LENS_AGENT_FILES)(
+    "agents/core/%s pins the canonical negative-findings entry shape, byte-identical",
+    (file) => {
+      const content = fs.readFileSync(
+        path.resolve(HERE, "..", "agents", "core", file),
+        "utf8",
+      );
+      expect(
+        content.includes(CANONICAL_SHAPE_SENTENCE),
+        `agents/core/${file} must contain the byte-identical canonical-shape ` +
+          `sentence (matching bin/lib/negative-findings-schema.ts's field ` +
+          `names) immediately after its artifact-shape clause, so a lens ` +
+          `can't drift onto an off-contract vocabulary at spawn time. A ` +
+          `substring match, not a keyword check — a misspelled key name ` +
+          `must fail this test.`,
+      ).toBe(true);
+    },
+  );
+
+  it("agents/core/flow-review-intent-guess.md is NOT pinned to the lens negative-findings shape", () => {
+    const content = fs.readFileSync(
+      path.resolve(HERE, "..", "agents", "core", "flow-review-intent-guess.md"),
+      "utf8",
+    );
+    expect(
+      content.includes(CANONICAL_SHAPE_SENTENCE),
+      "flow-review-intent-guess.md emits the blind intent guess, not a " +
+        "lens findings file — pinning it to the negative-findings entry " +
+        "shape would put a contract into a prompt that never emits those " +
+        "keys.",
+    ).toBe(false);
+  });
+});

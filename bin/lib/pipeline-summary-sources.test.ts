@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   composeCountsLine,
   parsePlanDeviations,
@@ -962,6 +965,102 @@ describe("cross-surface parity — lens entries reach DECISIONS, markdown, and p
     expect(decisions).toContain(
       "lenses did not populate negative findings: performance",
     );
+  });
+});
+
+describe("renderComment DECISIONS — artifactDir disk-fallback threading", () => {
+  let tmpRoot!: string;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "pipeline-summary-sources-"),
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  function write(name: string, content: string): string {
+    const p = path.join(tmpRoot, name);
+    fs.writeFileSync(p, content);
+    return p;
+  }
+
+  it("threads artifactDir into `rejected:`, not just `anti-patterns:`, so a disk-rescued lens rejected-alternative doesn't render beside `rejected: none`", () => {
+    write(
+      "agent-output-security.json",
+      JSON.stringify({
+        rejected_alternatives: [
+          {
+            considered_approach: "store the token in localStorage",
+            why_rejected: "XSS-exposed; used an httpOnly cookie instead",
+          },
+        ],
+        anti_patterns_found: [],
+      }),
+    );
+    const consolidatorRaw = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+    });
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+      artifactDir: tmpRoot,
+    }).dev;
+    expect(decisions).toContain("store the token in localStorage");
+    expect(decisions).not.toContain("rejected:\n    none");
+  });
+
+  it("does NOT print the total-lens-drop warning under anti-patterns when the sibling rejected: sub-part just rendered a live lens entry", () => {
+    // The consolidator artifact directly carries a live
+    // `lens_rejected_alternatives` entry AND a non-empty
+    // `lens_negatives_missing` (one lens's negatives slot was absent, an
+    // entirely separate lens from the one that rendered live). Before the
+    // fix, `antiPatternDecisionLines` filtered to `category ===
+    // "anti-pattern"` BEFORE checking `isTotalLensDrop` — the
+    // missing-lenses marker survives that filter (it's tagged
+    // `category: "anti-pattern"`) while the live rejected-alternative does
+    // not, so the filtered view alone looked like a genuine total drop.
+    const consolidatorRaw = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+      lens_rejected_alternatives: [
+        {
+          considered_approach: "store the token in localStorage",
+          why_rejected: "XSS-exposed; used an httpOnly cookie instead",
+          lens: "security",
+        },
+      ],
+      lens_negatives_missing: ["performance"],
+    });
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain("store the token in localStorage");
+    expect(decisions).not.toContain("0 entries reached this report");
+    // The missing-lenses marker itself is suppressed in THIS sub-part when
+    // it isn't a genuine total drop — standalone under `anti-patterns:` (no
+    // `rejected:` entries visible from this sub-part's own vantage) it
+    // would misleadingly read as a total loss when `rejected:` above it
+    // just rendered a live entry.
+    expect(decisions).not.toContain("lenses did not populate");
   });
 });
 

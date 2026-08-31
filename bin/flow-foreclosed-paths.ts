@@ -152,9 +152,20 @@ export function runUpsert(argv: string[], deps: UpsertDeps = {}): number {
 
   const fixApplierRaw = readFileOrEmpty(fixApplierPath);
   const consolidatorRaw = readFileOrEmpty(consolidatorPath);
+  // Disk-fallback directory for the foreclosed-paths formatter's lens
+  // negatives: dirname of the already-resolved `consolidatorPath` (itself
+  // resolved from `tmpDir` when `--consolidator-result` is absent). Derived
+  // explicitly rather than defaulted separately so both the flagged and the
+  // bare-invocation call sites (e.g. SKILL.md's `pr-body-upsert "$PR"`) get
+  // the disk-fallback rescue, not just the explicitly-flagged one.
+  const artifactDir = path.dirname(consolidatorPath);
 
   // No-op contract: nothing to surface → exit 0 without touching the PR.
-  if (isEmpty(collectForeclosedEntries({ fixApplierRaw, consolidatorRaw }))) {
+  if (
+    isEmpty(
+      collectForeclosedEntries({ fixApplierRaw, consolidatorRaw, artifactDir }),
+    )
+  ) {
     return 0;
   }
 
@@ -176,7 +187,11 @@ export function runUpsert(argv: string[], deps: UpsertDeps = {}): number {
   }
 
   const currentBody = view.stdout;
-  const section = formatMarkdown({ fixApplierRaw, consolidatorRaw }).join("\n");
+  const section = formatMarkdown({
+    fixApplierRaw,
+    consolidatorRaw,
+    artifactDir,
+  }).join("\n");
   const newBody = upsertPrBodySection(currentBody, FORECLOSED_HEADING, section);
   if (newBody === currentBody) return 0;
 

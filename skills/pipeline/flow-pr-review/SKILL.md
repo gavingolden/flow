@@ -226,7 +226,7 @@ reads the six per-agent JSON outputs at
 `flow-agent-finding-schema --validate`, merges +
 dedups + threshold-filters, runs a second-opinion validation pass on
 >=80-confidence non-praise survivors, and writes a structured artifact
-at `<worktree>/.flow-tmp/consolidator-result.json` with five REQUIRED top-level keys (`consolidated_findings`, `dropped_by_validation`, `rejected_alternatives`, `anti_patterns_found`, `summary`) plus three OPTIONAL per-lens pass-through keys (`lens_rejected_alternatives`, `lens_anti_patterns_found`, `lens_negatives_missing`). The full
+at `<worktree>/.flow-tmp/consolidator-result.json` with five REQUIRED top-level keys (`consolidated_findings`, `dropped_by_validation`, `rejected_alternatives`, `anti_patterns_found`, `summary`) plus three OPTIONAL per-lens pass-through keys (`lens_rejected_alternatives`, `lens_anti_patterns_found`, `lens_negatives_missing`), the three OPTIONAL keys produced by `flow-agent-finding-schema --collect-lens-negatives` rather than hand-copied. The full
 prose, procedure, and prompt template live in
 [references/consolidator-instructions.md](references/consolidator-instructions.md).
 
@@ -1586,7 +1586,7 @@ Both sections also render the Consolidator's pass-through `lens_rejected_alterna
 Each Fix-Applier `anti_patterns_found[]` entry carries `introduced_by_this_pr` alongside its
 `location` / `pattern` / `recommendation` (`true` = lives in code this PR added or
 changed, which the fix-now bar requires fixed in-commit; `false` = pre-existing) — the lens
-pass-through `lens_anti_patterns_found[]` entries above have no such flag (three fields plus `lens`, never four).
+pass-through `lens_anti_patterns_found[]` entries above have no such flag (three fields plus `lens`, never four — the canonical shape lives in `bin/lib/negative-findings-schema.ts`).
 Render the boolean in **Anti-Patterns Observed**, and append the new-file audit's
 WARNING lines (Step 9a above) so a misclassified introduced-in-PR entry stays visible.
 

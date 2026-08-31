@@ -23,11 +23,19 @@
  * valid consolidator artifact — contributes nothing.
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import { collectFixApplierTolerant } from "./fix-applier-tolerant";
 import {
+  ALL_LENS_NAMES,
+  collectLensNegativesFromDirSync,
   normalizeParsedFindings,
   validateConsolidatorResult,
 } from "./agent-finding-schema";
+import {
+  isAntiPatternBase,
+  isRejectedAlternativeBase,
+  normalizeNegativeEntry,
+} from "./negative-findings-schema";
 
 export const FORECLOSED_HEADING = "## Foreclosed Paths";
 
@@ -63,6 +71,17 @@ export type ForeclosedEntry = {
    * every count, like `unreadable`/`skipped`.
    */
   missing_lenses?: string[];
+  /**
+   * Set on a `source: "lens"` entry that survived neither the nominal
+   * aliases nor the positional fallback in `normalizeNegativeEntry` — the
+   * compact JSON of the original, unmappable entry. Deliberately a
+   * SEPARATE field from `raw` (the consolidator's own process-scoped
+   * string[] entries): `raw` renders as `- consolidation: ...` and counts
+   * as a reviewer note in `summarizeEntries`, which would mis-attribute
+   * and mis-count a lens entry. Excluded from every count, like
+   * `unreadable`/`skipped`/`missing_lenses`.
+   */
+  rawEntry?: string;
 };
 
 function parseJson(raw: string): unknown | undefined {
@@ -73,6 +92,74 @@ function parseJson(raw: string): unknown | undefined {
   }
 }
 
+type RawLensEntry = { lens: string; raw: string };
+
+// Per-bullet clamp on `rawEntry` (the JSON.stringify of an arbitrary,
+// agent-authored object that survived neither the nominal-alias nor the
+// positional-fallback normalizer). Applied at construction — the earliest
+// point a single oversized raw entry becomes reachable — so ONE huge entry
+// can never alone blow the section past `MARKDOWN_BULLET_CHAR_CAP` and
+// silently 422 `gh pr edit` while `capBullets` has nothing to cut at a `- `
+// boundary inside a single bullet.
+const RAW_ENTRY_CHAR_CAP = 2_000;
+
+function clampRawEntry(raw: string): string {
+  if (raw.length <= RAW_ENTRY_CHAR_CAP) return raw;
+  return `${raw.slice(0, RAW_ENTRY_CHAR_CAP)}… (truncated, ${raw.length} chars)`;
+}
+
+/**
+ * Disk-only companion to `collectLensNegativesFromDirSync`: scans the same
+ * `agent-output-<lens>.json` files but, instead of discarding an entry that
+ * survives neither the nominal aliases nor the positional fallback, keeps
+ * its compact JSON so the caller can render it attributed rather than
+ * silently dropping it. Only reached from the disk-fallback path below —
+ * `artifactDir` is ALWAYS explicitly caller-supplied, never a cwd-relative
+ * implicit read.
+ */
+function scanDiskForRawLensEntries(artifactDir: string): {
+  rawRejected: RawLensEntry[];
+  rawAntiPatterns: RawLensEntry[];
+} {
+  const rawRejected: RawLensEntry[] = [];
+  const rawAntiPatterns: RawLensEntry[] = [];
+  for (const lens of ALL_LENS_NAMES) {
+    const filePath = `${artifactDir}/agent-output-${lens}.json`;
+    if (!existsSync(filePath)) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(filePath, "utf8"));
+    } catch {
+      continue;
+    }
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      continue;
+    }
+    const obj = parsed as Record<string, unknown>;
+    if (Array.isArray(obj.rejected_alternatives)) {
+      for (const entry of obj.rejected_alternatives) {
+        if (
+          !isRejectedAlternativeBase(normalizeNegativeEntry(entry, "rejected"))
+        ) {
+          rawRejected.push({ lens, raw: JSON.stringify(entry) });
+        }
+      }
+    }
+    if (Array.isArray(obj.anti_patterns_found)) {
+      for (const entry of obj.anti_patterns_found) {
+        if (!isAntiPatternBase(normalizeNegativeEntry(entry, "anti-pattern"))) {
+          rawAntiPatterns.push({ lens, raw: JSON.stringify(entry) });
+        }
+      }
+    }
+  }
+  return { rawRejected, rawAntiPatterns };
+}
+
 /**
  * Flatten both artifacts into an ordered entry list. Order is stable:
  * fix-applier rejected-alternatives, fix-applier anti-patterns, LENS
@@ -81,10 +168,19 @@ function parseJson(raw: string): unknown | undefined {
  * present-but-invalid artifact contributes a single `unreadable` entry for
  * its source (a broken consolidator artifact takes the lens entries down
  * with it, since they live on that same artifact).
+ *
+ * `artifactDir` is OPTIONAL: when the consolidator artifact yields NO lens
+ * negatives (the three `lens_*` keys absent, OR all three present but
+ * empty) and `artifactDir` is supplied and its `agent-output-<lens>.json`
+ * files DO yield entries, this falls back to reading those files directly
+ * — disk-yields-entries is the discriminator that keeps a genuinely-quiet
+ * lens set from being overridden. One stderr line records that the
+ * fallback fired.
  */
 export function collectForeclosedEntries(inputs: {
   fixApplierRaw: string;
   consolidatorRaw: string;
+  artifactDir?: string;
 }): ForeclosedEntry[] {
   const entries: ForeclosedEntry[] = [];
 
@@ -145,7 +241,39 @@ export function collectForeclosedEntries(inputs: {
       // LENS pass-through, sourced from the SAME consolidator artifact. All
       // three keys are OPTIONAL on ConsolidatorResult; an absent key
       // defaults to [] here and contributes nothing to the entry list.
-      for (const r of v.value.lens_rejected_alternatives ?? []) {
+      let lensRejected = v.value.lens_rejected_alternatives ?? [];
+      let lensAntiPatterns = v.value.lens_anti_patterns_found ?? [];
+      let lensMissing = v.value.lens_negatives_missing ?? [];
+      let rawRejected: RawLensEntry[] = [];
+      let rawAntiPatterns: RawLensEntry[] = [];
+
+      const artifactHasNoLensNegatives =
+        lensRejected.length === 0 && lensAntiPatterns.length === 0;
+      if (artifactHasNoLensNegatives && inputs.artifactDir) {
+        const disk = collectLensNegativesFromDirSync(inputs.artifactDir);
+        const diskRaw = scanDiskForRawLensEntries(inputs.artifactDir);
+        // "Disk yields entries" counts BOTH normalizer-valid entries and
+        // raw/unmappable ones — an all-unmappable lens file is exactly the
+        // case the raw-entry rendering below exists to surface, so it must
+        // still trip the fallback rather than being silently skipped.
+        const diskYieldsEntries =
+          disk.lens_rejected_alternatives.length > 0 ||
+          disk.lens_anti_patterns_found.length > 0 ||
+          diskRaw.rawRejected.length > 0 ||
+          diskRaw.rawAntiPatterns.length > 0;
+        if (diskYieldsEntries) {
+          process.stderr.write(
+            `foreclosed-paths: disk fallback fired for artifactDir=${inputs.artifactDir}\n`,
+          );
+          lensRejected = disk.lens_rejected_alternatives;
+          lensAntiPatterns = disk.lens_anti_patterns_found;
+          lensMissing = disk.lens_negatives_missing;
+          rawRejected = diskRaw.rawRejected;
+          rawAntiPatterns = diskRaw.rawAntiPatterns;
+        }
+      }
+
+      for (const r of lensRejected) {
         entries.push({
           source: "lens",
           category: "rejected-alternative",
@@ -154,7 +282,15 @@ export function collectForeclosedEntries(inputs: {
           lens: r.lens,
         });
       }
-      for (const a of v.value.lens_anti_patterns_found ?? []) {
+      for (const raw of rawRejected) {
+        entries.push({
+          source: "lens",
+          category: "rejected-alternative",
+          lens: raw.lens,
+          rawEntry: clampRawEntry(raw.raw),
+        });
+      }
+      for (const a of lensAntiPatterns) {
         entries.push({
           source: "lens",
           category: "anti-pattern",
@@ -164,12 +300,19 @@ export function collectForeclosedEntries(inputs: {
           lens: a.lens,
         });
       }
-      const missing = v.value.lens_negatives_missing ?? [];
-      if (missing.length > 0) {
+      for (const raw of rawAntiPatterns) {
         entries.push({
           source: "lens",
           category: "anti-pattern",
-          missing_lenses: missing,
+          lens: raw.lens,
+          rawEntry: clampRawEntry(raw.raw),
+        });
+      }
+      if (lensMissing.length > 0) {
+        entries.push({
+          source: "lens",
+          category: "anti-pattern",
+          missing_lenses: lensMissing,
         });
       }
 
@@ -219,7 +362,13 @@ export function summarizeEntries(
   let antiPatterns = 0;
   let notes = 0;
   for (const e of entries) {
-    if (e.unreadable || e.skipped || e.missing_lenses) continue;
+    if (
+      e.unreadable ||
+      e.skipped ||
+      e.missing_lenses ||
+      e.rawEntry !== undefined
+    )
+      continue;
     if (e.raw !== undefined) {
       notes++;
     } else if (e.category === "rejected-alternative") {
@@ -229,6 +378,48 @@ export function summarizeEntries(
     }
   }
   return { rejected, antiPatterns, notes };
+}
+
+/**
+ * True when at least one entry carries `missing_lenses` AND zero entries
+ * have `source: "lens"` with a populated `considered_approach`, `pattern`,
+ * OR `rawEntry` — a genuine total drop: every lens that reported anything
+ * came up empty. A raw/unmappable bullet is NOT a total drop; it is a
+ * (visible, attributed) entry.
+ */
+export function isTotalLensDrop(entries: ForeclosedEntry[]): boolean {
+  const hasMissing = entries.some((e) => e.missing_lenses !== undefined);
+  if (!hasMissing) return false;
+  const hasLiveLensEntry = entries.some(
+    (e) =>
+      e.source === "lens" &&
+      ((e.considered_approach !== undefined && e.considered_approach !== "") ||
+        (e.pattern !== undefined && e.pattern !== "") ||
+        e.rawEntry !== undefined),
+  );
+  return !hasLiveLensEntry;
+}
+
+/**
+ * Unprefixed warning body lines (no `[!WARNING]`/`>` markdown decoration) —
+ * the single source both `formatMarkdown` and `formatPlainTextEntries`
+ * render from, so they cannot drift (the module's own stated invariant
+ * above). Returns `null` when `isTotalLensDrop` is false — nothing to warn
+ * about. Never counted by `summarizeEntries`; it is not a finding.
+ */
+function totalLensDropWarningLines(
+  entries: ForeclosedEntry[],
+): string[] | null {
+  if (!isTotalLensDrop(entries)) return null;
+  const names = new Set<string>();
+  for (const e of entries) {
+    if (e.missing_lenses) for (const name of e.missing_lenses) names.add(name);
+  }
+  const sortedNames = Array.from(names).sort();
+  return [
+    "[!WARNING]",
+    `Lens negative findings: 0 entries reached this report; ${sortedNames.length} lens(es) unreadable or absent (${sortedNames.join(", ")}). See bin/lib/negative-findings-schema.ts for the canonical entry shape.`,
+  ];
 }
 
 /**
@@ -294,6 +485,12 @@ function capBullets(bullets: string[]): string[] {
   const droppedEntries = bullets
     .slice(cutIndex)
     .filter((b) => b.startsWith("- ")).length;
+  // Guard against printing "0 more entries truncated" while dropping
+  // nothing: the cutIndex loop only advances past `charCount >
+  // MARKDOWN_BULLET_CHAR_CAP`, so a run of continuation lines (which never
+  // start with `- `) between the cap and the next top-level bullet can
+  // leave `droppedEntries` at 0 even though `cutIndex < bullets.length`.
+  if (droppedEntries === 0) return bullets;
   return [
     ...kept,
     `- … ${droppedEntries} more entr${droppedEntries === 1 ? "y" : "ies"} truncated (PR-body size cap); see the terminal snapshot for the full list.`,
@@ -310,9 +507,11 @@ function capBullets(bullets: string[]): string[] {
 export function formatMarkdown(inputs: {
   fixApplierRaw: string;
   consolidatorRaw: string;
+  artifactDir?: string;
 }): string[] {
   const entries = collectForeclosedEntries(inputs);
   const summary = summarizeEntries(entries);
+  const warningLines = totalLensDropWarningLines(entries);
   const bullets: string[] = [];
   for (const e of entries) {
     if (e.missing_lenses) {
@@ -327,6 +526,14 @@ export function formatMarkdown(inputs: {
     }
     if (e.unreadable) {
       bullets.push(`- ${e.source}: (unreadable)`);
+      continue;
+    }
+    if (e.rawEntry !== undefined) {
+      const label =
+        e.category === "rejected-alternative" ? "rejected" : "anti-pattern";
+      bullets.push(
+        `- **${label} (lens: ${neutralizeHeading(e.lens ?? "")}, raw):** ${neutralizeHeading(e.rawEntry)}`,
+      );
       continue;
     }
     if (e.raw !== undefined) {
@@ -349,9 +556,13 @@ export function formatMarkdown(inputs: {
     }
   }
   const cappedBullets = capBullets(bullets);
+  const warningBlock = warningLines
+    ? [...warningLines.map((l) => `> ${l}`), ""]
+    : [];
   return [
     FORECLOSED_HEADING,
     "",
+    ...warningBlock,
     `<details><summary>${summary.rejected} rejected alternatives, ${summary.antiPatterns} anti-patterns, ${summary.notes} reviewer notes</summary>`,
     "",
     ...cappedBullets,
@@ -360,9 +571,17 @@ export function formatMarkdown(inputs: {
   ];
 }
 
-/** Indented plain-text lines for a given entry set (no markdown). */
+/**
+ * Indented plain-text lines for a given entry set (no markdown). Also the
+ * single source of the total-lens-drop warning: `formatPlainText` (below)
+ * reaches it via `collectForeclosedEntries`, and `formatMarkdown`'s own
+ * warning is the same `totalLensDropWarningLines` text with a `>` prefix
+ * — the module's own stated invariant that the two surfaces cannot drift.
+ */
 export function formatPlainTextEntries(entries: ForeclosedEntry[]): string[] {
   const lines: string[] = [];
+  const warningLines = totalLensDropWarningLines(entries);
+  if (warningLines) lines.push(...warningLines);
   for (const e of entries) {
     if (e.missing_lenses) {
       lines.push(
@@ -376,6 +595,12 @@ export function formatPlainTextEntries(entries: ForeclosedEntry[]): string[] {
     }
     if (e.unreadable) {
       lines.push(`${e.source}: (unreadable)`);
+      continue;
+    }
+    if (e.rawEntry !== undefined) {
+      const label =
+        e.category === "rejected-alternative" ? "rejected" : "anti-pattern";
+      lines.push(`${label} (lens: ${e.lens ?? ""}, raw): ${e.rawEntry}`);
       continue;
     }
     if (e.raw !== undefined) {
@@ -400,6 +625,7 @@ export function formatPlainTextEntries(entries: ForeclosedEntry[]): string[] {
 export function formatPlainText(inputs: {
   fixApplierRaw: string;
   consolidatorRaw: string;
+  artifactDir?: string;
 }): string[] {
   return formatPlainTextEntries(collectForeclosedEntries(inputs));
 }

@@ -1130,6 +1130,43 @@ describe("run — end-to-end", () => {
       without,
     );
   });
+
+  it("derives artifactDir from --consolidator-result so the FORECLOSED PATHS disk fallback fires end-to-end", () => {
+    // A consolidator artifact with no lens negatives, sitting alongside a
+    // lens agent-output file in the same dir. Regression coverage for the
+    // `artifactDir = parsed.consolidatorResult ? dirname(...) : undefined`
+    // derivation at this CLI entry point (mirrors flow-foreclosed-paths.ts's
+    // `runUpsert`, which had the equivalent derivation unreachable on a bare
+    // invocation until fixed for #716).
+    const consolidatorFile = write(
+      "consolidator-result.json",
+      JSON.stringify({
+        consolidated_findings: [],
+        dropped_by_validation: [],
+        rejected_alternatives: [],
+        anti_patterns_found: [],
+        summary: "s",
+      }),
+    );
+    write(
+      "agent-output-security.json",
+      JSON.stringify({
+        rejected_alternatives: [
+          {
+            considered_approach: "store the token in localStorage",
+            why_rejected: "XSS-exposed; used an httpOnly cookie instead",
+          },
+        ],
+        anti_patterns_found: [],
+      }),
+    );
+    const out = captureStdout(() => {
+      run(["--status", "gated", "--consolidator-result", consolidatorFile], {
+        read: DEV_LENS_READ,
+      });
+    });
+    expect(out).toContain("store the token in localStorage");
+  });
 });
 
 describe("run — --post-comment excludes the echo block", () => {
