@@ -331,11 +331,14 @@ stops at the gated state regardless of the gate verdict).
 
 ## Auto-issue-create exemption detail
 
-`flow-create-issue` may fire only from two named sites: (a)
-`/flow-pr-review` deferring a finding past the 3-criterion bar
-(`--label flow-agent,deferred-review`), and (b) `/flow-pipeline` step
-10's post-merge sweep (`--label flow-agent,out-of-scope-discovery`, once
-per `- [x]` candidate in plan.md). Indiscriminate auto-creation pollutes
+`flow-create-issue` may fire only from five named sites: (a)
+`/flow-pr-review`'s Step 6 deferral path (`--label
+flow-agent,deferred-review`), (b) `/flow-pr-review`'s Step 5
+retrospective generic-gap capture, (c) `/flow-pipeline`'s Step 10
+post-merge sweep (`--label flow-agent,out-of-scope-discovery`, once
+per `- [x]` candidate in plan.md), (d) a user-instructed
+`flow-untracked file <n>` reply, and (e) the `/flow-file-issue` skill's
+hand-filed path. Indiscriminate auto-creation pollutes
 backlogs and races on `gh` rate limits. Feature and `route-to-step-4`
 pipelines curate the ticked set at plan review (candidates are ticked
 only when their value-prop block clears the bar, and the `--details`

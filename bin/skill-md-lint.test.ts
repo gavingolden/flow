@@ -1315,6 +1315,106 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
   });
 });
 
+describe("auto-issue-create fire-site enumeration lint", () => {
+  /**
+   * Three documents independently enumerate the sites `flow-create-issue`
+   * may fire from, and nothing pinned them to each other. They drifted:
+   * AGENTS.md said four, references/git-workflow.md said two, and
+   * flow-pipeline/SKILL.md's own blockquote — the one an in-session
+   * supervisor actually reads — also said two.
+   *
+   * This pins all three to the same count and the same five sites, so the
+   * next fire site cannot land in one document and silently rot in the
+   * other two.
+   */
+  const GIT_WORKFLOW_PATH = path.resolve(
+    HERE,
+    "..",
+    "references",
+    "git-workflow.md",
+  );
+  const gitWorkflowContent = fs.readFileSync(GIT_WORKFLOW_PATH, "utf8");
+
+  /** One regex per named site, matched against each enumeration passage. */
+  const SITE_MARKERS: ReadonlyArray<readonly [string, RegExp]> = [
+    ["pr-review Step 6 deferral", /Step 6 deferral/],
+    ["pr-review Step 5 retrospective", /Step 5 retrospective/],
+    ["flow-pipeline Step 10 post-merge sweep", /Step 10 post-merge sweep/],
+    ["flow-untracked file <n>", /flow-untracked file `?<n>`?/],
+    ["flow-file-issue hand-filed path", /flow-file-issue/],
+  ];
+
+  /**
+   * Slice the enumeration passage out of a document: from the first mention
+   * of `flow-create-issue` firing through the end of that passage. Kept
+   * generous (1200 chars) so a reflow cannot push a site marker out of the
+   * window, but bounded so an unrelated later mention cannot satisfy it.
+   *
+   * The slice is whitespace-normalised — blockquote `>` prefixes and list
+   * indentation stripped, runs of whitespace collapsed to one space —
+   * because all three passages are hard-wrapped prose. Without this, a site
+   * name that happens to straddle a line break ("Step 6\n> deferral path")
+   * reads as absent and the lint fails on formatting rather than on drift.
+   */
+  function enumerationPassage(source: string, label: string): string {
+    const start = source.search(
+      /`flow-create-issue` (?:may )?fires? only from|Auto-issue-create exemption:/,
+    );
+    expect(
+      start,
+      `${label} must contain an auto-issue-create fire-site enumeration ` +
+        `(a "\`flow-create-issue\` fires only from …" sentence, or the ` +
+        `"Auto-issue-create exemption:" bullet). None found — if the wording ` +
+        `moved, update this lint alongside it rather than deleting it.`,
+    ).toBeGreaterThanOrEqual(0);
+    return source
+      .slice(start, start + 1200)
+      .replace(/^[ \t]*>?[ \t]*/gm, "")
+      .replace(/\s+/g, " ");
+  }
+
+  const PASSAGES: ReadonlyArray<readonly [string, string]> = [
+    ["AGENTS.md", enumerationPassage(agentsContent, "AGENTS.md")],
+    [
+      "references/git-workflow.md",
+      enumerationPassage(gitWorkflowContent, "references/git-workflow.md"),
+    ],
+    [
+      "skills/pipeline/flow-pipeline/SKILL.md",
+      enumerationPassage(content, "skills/pipeline/flow-pipeline/SKILL.md"),
+    ],
+  ];
+
+  it.each(PASSAGES)("%s names all five fire sites", (label, passage) => {
+    for (const [site, re] of SITE_MARKERS) {
+      expect(
+        re.test(passage),
+        `${label}'s auto-issue-create enumeration omits the "${site}" site. ` +
+          `All three enumerations (AGENTS.md, references/git-workflow.md, ` +
+          `skills/pipeline/flow-pipeline/SKILL.md) must name the same set — ` +
+          `they have drifted apart before.`,
+      ).toBe(true);
+    }
+  });
+
+  it.each(PASSAGES)("%s states the count as five", (label, passage) => {
+    // The three passages count differently: AGENTS.md spells it ("these
+    // five sites"), flow-pipeline/SKILL.md letters it ("(a) … (e)"), and
+    // git-workflow.md does both. Accept either form, and treat an "(f)"
+    // as drift — a sixth site must update every document, not just one.
+    const spelled = /\bfive\b/i.test(passage);
+    const lettered = /\(e\)/.test(passage) && !/\(f\)/.test(passage);
+    expect(
+      spelled || lettered,
+      `${label}'s auto-issue-create enumeration must state five sites — ` +
+        `either spelled ("five") or lettered through "(e)" with no "(f)". ` +
+        `A stale count is how this drifted last time: the prose listed the ` +
+        `sites correctly while the count still said two. When a sixth site ` +
+        `is added, update the count in all three documents and this lint.`,
+    ).toBe(true);
+  });
+});
+
 describe("low-effort fan-out subagent_type wiring lint", () => {
   // Pins the two always-cheap fan-out spawn sites to their low-effort agent
   // definitions (agents/flow-verify.md, agents/flow-fix-applier.md) with a

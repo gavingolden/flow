@@ -78,8 +78,8 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { isAbsolute, relative, resolve } from "node:path";
+import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 export type CandidateMeta = {
   value: string | null;
@@ -407,56 +407,6 @@ export function extractVerdict(details: string): string | null {
   return v || null;
 }
 
-const ANCHOR_RE =
-  /\[anchor:\s*`?([^\s\]:`]+\.[A-Za-z][A-Za-z0-9]*)`?(?::\d+(?:,\d+)*)?/g;
-
-/**
- * Extracts every `[anchor: path/to/file.ext[:line[,line...]]]` file-path
- * citation from a candidate's `details` block. A leading/trailing
- * backtick around the path is tolerated and stripped (the rubric asks
- * authors to write anchors bare, but a backticked one must not
- * false-positive as missing). Only file-shaped anchors are returned —
- * command/PR/issue/quote anchors are presence-only and not path-checked.
- * The extension must start with a letter so a rubric-sanctioned measured
- * number or version (`1.8s`, `0.7%`, `v2.1.234`) never looks like a file
- * path. `~/`-prefixed anchors are dropped here too — they read as a
- * repo-relative path to `resolve()` but can never exist under
- * `repoRoot`, so keeping them would always false-positive as missing.
- */
-export function extractPathAnchors(details: string): string[] {
-  const out: string[] = [];
-  for (const m of details.matchAll(ANCHOR_RE)) {
-    if (m[1].startsWith("~/") || m[1] === "~") continue;
-    out.push(m[1]);
-  }
-  return out;
-}
-
-/**
- * Resolves the repo root to check `[anchor: …]` file paths against:
- * `git rev-parse --show-toplevel` run from the plan file's directory,
- * stderr swallowed (a fixture plan living outside a git repo, as vitest's
- * `os.tmpdir()` fixtures do, must not leak "not a git repository" onto
- * the process's own stderr), falling back to `process.cwd()` on any
- * failure or when `planMdFile` is not supplied.
- */
-function resolveRepoRoot(planMdFile: string | undefined): string {
-  const cwd = planMdFile ? dirname(planMdFile) : process.cwd();
-  try {
-    const res = spawnSync("git", ["rev-parse", "--show-toplevel"], {
-      cwd,
-      stdio: ["ignore", "pipe", "ignore"],
-      encoding: "utf8",
-    });
-    if (res.status === 0 && res.stdout.trim()) {
-      return res.stdout.trim();
-    }
-  } catch {
-    // fall through to cwd fallback
-  }
-  return process.cwd();
-}
-
 /**
  * Pure follow-up-reference consistency check PLUS the flow-value-rubric
  * bar check. Scans plan.md line-by-line for any `FOLLOWUP_REFERENCE_RES`
@@ -474,7 +424,7 @@ function resolveRepoRoot(planMdFile: string | undefined): string {
  * that case, one dominant miss per item — otherwise one
  * `reason: "anchor-missing"` entry per `[anchor: …]` file path that does
  * not exist relative to the repo root (resolved via `planMdFile`, see
- * `resolveRepoRoot`). `--lint` exits 1 on drift OR any `barMisses` entry.
+ * `resolveAnchorRepoRoot`). `--lint` exits 1 on drift OR any `barMisses` entry.
  * Tolerant by construction — pure string/filesystem-existence work, never
  * throws, and performs no `gh` call or LLM judgement (the anchor check is
  * a deterministic existence check only).
@@ -496,7 +446,7 @@ export function lintFollowUpReferences(
 
   const barMisses: LintReport["barMisses"] = [];
   if (section) {
-    const repoRoot = resolveRepoRoot(planMdFile);
+    const repoRoot = resolveAnchorRepoRoot(planMdFile);
     section.items.forEach((it, i) => {
       if (!it.ticked) return;
       const c = splitCandidate(it.text);

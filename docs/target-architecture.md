@@ -261,6 +261,7 @@ the PATH-bound schema validators. Always installed.
 | `skills/universal/flow-ui-ux`                   | `flow-ui-ux`            | stack-agnostic UI/UX judgment                                              |
 | `skills/universal/flow-skill-creator`           | `flow-skill-creator`    | authoring new skills                                                       |
 | `skills/universal/flow-backlog-triage`          | `flow-backlog-triage`   | GitHub issue + notes backlog triage                                        |
+| `skills/universal/flow-file-issue`              | `flow-file-issue`       | hand-file a GitHub issue against the value-prop rubric                     |
 | `skills/universal/flow-testing` (generic split) | `flow-testing`          | framework-agnostic testing skill (the generic half of the `testing` split) |
 
 > **`testing` split is a Phase-2 materialization — the Phase-1 registry

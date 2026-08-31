@@ -379,15 +379,11 @@ three-layer resolution table, and the manifest/foundation fields — is at
     `skills/pipeline/flow-pipeline/references/interview-playbook.md`.
   - **Auto-issue-create exemption: `/flow-pr-review` Step 6 deferral path,
     `/flow-pr-review` Step 5 retrospective generic-gap capture,
-    `/flow-pipeline` Step 10 post-merge sweep, and a user-instructed
-    `flow-untracked file <n>` reply.** `flow-create-issue` fires only from
-    these four sites; `flow-untracked` only lists, never files itself.
-    Feature and `route-to-step-4`
-    pipelines curate the ticked set at plan review; step 3's
-    `advance-to-step-5` route has no checkpoint, so its ticked
-    candidates and bundled tasks proceed as discovery authored them,
-    disclosed post-hoc in the PR body and the terminal recap, with
-    post-merge off-ramps as the correction path. Full detail at
+    `/flow-pipeline` Step 10 post-merge sweep, a user-instructed
+    `flow-untracked file <n>` reply, and `/flow-file-issue`'s hand-filed
+    path.** `flow-create-issue` fires only from these five sites;
+    `flow-untracked` only lists, never files itself. Curation and the
+    checkpoint-free `advance-to-step-5` route are detailed at
     [references/git-workflow.md](references/git-workflow.md).
   - **`/flow-epic-create` is a separate sanctioned supervisor session.**
     `flow epic create` spawns a fresh top-level `/flow-epic-create` session, so

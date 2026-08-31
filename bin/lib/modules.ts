@@ -85,6 +85,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-skill-creator",
       "flow-testing",
       "flow-backlog-triage",
+      "flow-file-issue",
     ],
     agents: [
       "flow-backlog-verifier.md",
