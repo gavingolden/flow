@@ -282,7 +282,7 @@ describe("normalizeNegativeEntry", () => {
       });
       expect(spy).toHaveBeenCalledTimes(1);
       expect(spy.mock.calls[0][0]).toContain(
-        "negative-findings: positional map rejected foo,bar -> considered_approach,why_rejected",
+        'negative-findings: positional map rejected ["foo","bar"] -> ["considered_approach","why_rejected"]',
       );
     } finally {
       spy.mockRestore();
@@ -309,7 +309,7 @@ describe("normalizeNegativeEntry", () => {
       });
       expect(spy).toHaveBeenCalledTimes(1);
       expect(spy.mock.calls[0][0]).toContain(
-        "negative-findings: positional map anti-pattern a,b,c -> location,pattern,recommendation",
+        'negative-findings: positional map anti-pattern ["a","b","c"] -> ["location","pattern","recommendation"]',
       );
     } finally {
       spy.mockRestore();
@@ -332,6 +332,37 @@ describe("normalizeNegativeEntry", () => {
   it("is idempotent — normalizing twice equals normalizing once", () => {
     const once = normalizeNegativeEntry(
       { shape: "used a regex", why_rejected: "too brittle" },
+      "rejected",
+    );
+    const twice = normalizeNegativeEntry(once, "rejected");
+    expect(twice).toEqual(once);
+  });
+
+  it("is idempotent on the positional-fallback path (an unnamed two-property object)", () => {
+    const spy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    try {
+      const once = normalizeNegativeEntry(
+        { foo: "used a regex", bar: "too brittle" },
+        "rejected",
+      );
+      // The re-normalization pass must be a true no-op here: `once` already
+      // carries `considered_approach`/`why_rejected` alongside the original
+      // `foo`/`bar` keys, so a re-run must neither re-fire the positional
+      // fallback (double-logging the audit line) nor mutate the canonical
+      // fields it already recovered.
+      const twice = normalizeNegativeEntry(once, "rejected");
+      expect(twice).toEqual(once);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("is idempotent on the bare-string path (a plain string, not an object)", () => {
+    const once = normalizeNegativeEntry(
+      "kept the two lenses separate",
       "rejected",
     );
     const twice = normalizeNegativeEntry(once, "rejected");

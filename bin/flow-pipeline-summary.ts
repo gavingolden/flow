@@ -93,6 +93,7 @@ import {
   validateConsolidatorResult,
 } from "./lib/agent-finding-schema";
 import { resolveLens, type OutputLens } from "./lib/output-lens";
+import { pickFenceLength } from "./flow-inject-evidence";
 
 /** Single-line HTML-comment dedup key for the persisted snapshot comment.
  *  Stable across releases (hence the -v1 suffix); it is the lookup key for
@@ -370,14 +371,24 @@ function readFileOrEmpty(filePath: string | undefined): string {
  *  `normalizeDetailsBlocks`'s spacing requirement. Fences/wrapper/marker
  *  live ONLY in the posted comment body, never in stdout. */
 export function buildCommentBody(pm: string, dev: string): string {
+  // Lens-sourced prose (rejected alternatives / anti-pattern descriptions,
+  // now including raw-entry JSON per Task 5's disk fallback) is
+  // agent-authored, not flow-generated — a triple-backtick run inside it
+  // would close a hardcoded ```text fence early and corrupt the rest of
+  // the comment. Size each fence to the block it wraps via the same
+  // `pickFenceLength` `flow-inject-evidence.ts` uses for captured command
+  // output, rather than reusing one shared fence-length raw-entry prose
+  // could still break.
+  const pmFence = "`".repeat(pickFenceLength(pm));
+  const devFence = "`".repeat(pickFenceLength(dev));
   return (
-    "```text\n" +
+    `${pmFence}text\n` +
     pm +
-    "\n```\n\n" +
+    `\n${pmFence}\n\n` +
     "<details><summary>Developer detail</summary>\n\n" +
-    "```text\n" +
+    `${devFence}text\n` +
     dev +
-    "\n```\n\n" +
+    `\n${devFence}\n\n` +
     "</details>\n\n" +
     SNAPSHOT_MARKER
   );

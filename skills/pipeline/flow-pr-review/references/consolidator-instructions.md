@@ -175,8 +175,15 @@ Alongside the findings merge, collect each lens's valid
 deterministic helper rather than hand-copying six JSON files by eye:
 
 ```sh
-flow-agent-finding-schema --collect-lens-negatives <worktree>/.flow-tmp
+flow-agent-finding-schema --collect-lens-negatives <worktree>/.flow-tmp 2>/dev/null
 ```
+
+Redirect stderr (`2>/dev/null`): this helper's positional-map fallback
+writes an audit line to stderr for every off-contract entry it recovers
+(see `bin/lib/negative-findings-schema.ts`'s `logPositionalMap`), and you
+are told to embed the command's output verbatim into step (e)'s artifact —
+an unredirected audit line would corrupt that JSON the same way
+`flow-pr-static-analysis`'s progress lines once did.
 
 This normalizes and lens-tags every entry across the six canonical
 kebab-case lenses (`bug-detection`, `security`, `pattern-consistency`,
@@ -185,6 +192,14 @@ lens, and prints `{"lens_rejected_alternatives": [...],
 "lens_anti_patterns_found": [...], "lens_negatives_missing": [...]}` to
 stdout, exit 0. Embed its output verbatim into step (e)'s artifact — do
 not re-derive the three keys by hand.
+
+**Non-zero exit** (e.g. the PATH-installed `flow-agent-finding-schema`
+resolves to a canonical checkout that predates the `--collect-lens-
+negatives` flag and exits 2 on the unknown flag): do not fail the
+consolidator run. Pre-seed all three keys to `[]` — the same degrade this
+section already prescribes for an absent optional key at step (e) — and
+continue; a stale global install of this one flag is not a
+`consolidator-schema-failure`.
 
 ### (c) Filter and dedup
 

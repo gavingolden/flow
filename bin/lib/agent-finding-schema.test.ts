@@ -1939,6 +1939,38 @@ describe("agent-finding-schema CLI — `--collect-lens-negatives <dir>`", () => 
     );
   });
 
+  it("renders the valid entry AND omits the unreadable marker when a non-absent slot mixes one valid and one unmappable entry", () => {
+    // Regression for `anyEntries` gating in `accumulateLensFile`: a lens
+    // slot with >= 1 valid entry must render that entry AND must NOT also
+    // append a `(N unreadable)` residual marker — that marker is reserved
+    // for the all-skipped case (`!anyEntries && collected.skipped > 0`).
+    withTmpDir(
+      {
+        "agent-output-security.json": {
+          findings: [],
+          rejected_alternatives: [
+            { considered_approach: "used eval()", why_rejected: "RCE risk" },
+            { considered_approach: "only one field" },
+          ],
+          anti_patterns_found: [],
+        },
+      },
+      (dir) => {
+        const result = runCli(["--collect-lens-negatives", dir]);
+        expect(result.status).toBe(0);
+        const parsed = JSON.parse(result.stdout.trim());
+        expect(parsed.lens_rejected_alternatives).toEqual([
+          {
+            considered_approach: "used eval()",
+            why_rejected: "RCE risk",
+            lens: "security",
+          },
+        ]);
+        expect(parsed.lens_negatives_missing).toEqual([]);
+      },
+    );
+  });
+
   it("still supports --validate envelopes unchanged alongside the new sub-mode", () => {
     withTmpFile(JSON.stringify(VALID_AGENT_FINDINGS), (filePath) => {
       const result = runCli(["--validate", filePath]);

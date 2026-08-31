@@ -188,6 +188,56 @@ describe("runUpsert", () => {
     expect(captured).toEqual([]);
   });
 
+  it("derives artifactDir from tmpDir on a bare invocation (no --consolidator-result), so the disk fallback still fires — regression for the #716 failure mode where the PR-body surface never got the rescue", () => {
+    // Bare invocation: no --fix-applier-result / --consolidator-result flags,
+    // mirroring SKILL.md's `flow-foreclosed-paths pr-body-upsert "$PR"`.
+    // `resolveFlowTmpDir`'s cwd fallback appends `.flow-tmp`, so the fixture
+    // files must live under `<cwd>/.flow-tmp`, not `<cwd>` directly.
+    const cwdRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-foreclosed-bare-"),
+    );
+    const flowTmp = path.join(cwdRoot, ".flow-tmp");
+    fs.mkdirSync(flowTmp);
+    fs.writeFileSync(
+      path.join(flowTmp, "consolidator-result.json"),
+      JSON.stringify({
+        consolidated_findings: [],
+        dropped_by_validation: [],
+        rejected_alternatives: [],
+        anti_patterns_found: [],
+        summary: "s",
+      }),
+    );
+    fs.writeFileSync(
+      path.join(flowTmp, "agent-output-security.json"),
+      JSON.stringify({
+        rejected_alternatives: [
+          {
+            considered_approach: "store the token in localStorage",
+            why_rejected: "XSS-exposed; used an httpOnly cookie instead",
+          },
+        ],
+        anti_patterns_found: [],
+      }),
+    );
+    try {
+      const captured: GhCall[] = [];
+      const { gh, setBody } = makeGh(captured);
+      setBody("## Why\nbecause\n");
+      const code = runUpsert(["99"], {
+        gh,
+        resolve: { resolveSlug: () => null, cwd: () => cwdRoot },
+      });
+      expect(code).toBe(0);
+      const edit = captured.find((c) => c.argv[1] === "edit");
+      expect(edit?.bodyFileContent).toContain(
+        "store the token in localStorage",
+      );
+    } finally {
+      fs.rmSync(cwdRoot, { recursive: true, force: true });
+    }
+  });
+
   it("returns 1 on gh pr view failure", () => {
     const fa = write("fix-applier-result.json", fixApplier);
     const code = runUpsert(

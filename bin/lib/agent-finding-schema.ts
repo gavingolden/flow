@@ -655,8 +655,10 @@ function accumulateLensFile(
  * bare lens name to `lens_negatives_missing`, mirroring
  * consolidator-instructions.md's existing "absent state" prose. A lens
  * whose slot was non-absent but yielded zero valid entries appends
- * `"<lens> (N unreadable)"`, matching the existing marker text at
- * consolidator-instructions.md:117. A file that exists but fails to parse
+ * `"<lens> (N unreadable)"`, matching the `"<lens> (N unreadable)"`
+ * residual-marker precedent documented in consolidator-instructions.md's
+ * per-agent-envelope section (the paragraph on reading the `skipped`
+ * count). A file that exists but fails to parse
  * as JSON is treated the same as a missing file (skipped silently) — this
  * helper only reports on shape drift within a readable artifact, not on
  * malformed JSON, which the six-lens missing-artifact escalation already

@@ -153,12 +153,12 @@ export function runUpsert(argv: string[], deps: UpsertDeps = {}): number {
   const fixApplierRaw = readFileOrEmpty(fixApplierPath);
   const consolidatorRaw = readFileOrEmpty(consolidatorPath);
   // Disk-fallback directory for the foreclosed-paths formatter's lens
-  // negatives: dirname of the `--consolidator-result` path, when that flag
-  // was explicitly supplied. Omitted (not defaulted from tmpDir) when the
-  // flag is absent, per Task 5's contract.
-  const artifactDir = parsed.consolidatorResult
-    ? path.dirname(parsed.consolidatorResult)
-    : undefined;
+  // negatives: dirname of the already-resolved `consolidatorPath` (itself
+  // resolved from `tmpDir` when `--consolidator-result` is absent). Derived
+  // explicitly rather than defaulted separately so both the flagged and the
+  // bare-invocation call sites (e.g. SKILL.md's `pr-body-upsert "$PR"`) get
+  // the disk-fallback rescue, not just the explicitly-flagged one.
+  const artifactDir = path.dirname(consolidatorPath);
 
   // No-op contract: nothing to surface → exit 0 without touching the PR.
   if (

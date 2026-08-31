@@ -1,14 +1,18 @@
 /**
  * Single shared definition of the negative-findings field vocabulary
- * (`rejected_alternatives` / `anti_patterns_found`) that every subagent
- * artifact schema in this repo composes from, instead of holding its own
- * copy. Before this module existed, `bin/lib/agent-finding-schema.ts`
- * (the lens shape), `bin/lib/fix-applier-schema.ts` (the fix-applier
- * shape), and `bin/lib/coder-schema.ts` (the edit-applier shape) each
- * declared the same two/three-string-field vocabulary independently,
- * which is how PR #724's drift vocabularies (`shape`, `candidate`,
- * `observation`, `reason`, `reason_rejected`, `checked`, and bare
- * strings) slipped past every validator undetected.
+ * (`rejected_alternatives` / `anti_patterns_found`) that every REVIEW-LENS
+ * subagent artifact schema in this repo composes from, instead of holding
+ * its own copy. Before this module existed, `bin/lib/agent-finding-schema.ts`
+ * (the lens shape) and `bin/lib/fix-applier-schema.ts` (the fix-applier
+ * shape) each declared the same two/three-string-field vocabulary
+ * independently, which is how PR #724's drift vocabularies (`shape`,
+ * `candidate`, `observation`, `reason`, `reason_rejected`, `checked`, and
+ * bare strings) slipped past every validator undetected.
+ *
+ * `bin/lib/coder-schema.ts` (the `/flow-coder` edit-applier shape) is a
+ * deliberate exception, NOT composed from this module: it is a different
+ * subagent family (edit-applier, not a review lens) with its own contract
+ * evolution, and folding it in here is out of scope for this module.
  *
  * This module is the canonical source of truth the six
  * `agents/core/flow-review-*.md` lens definitions cite by path.
@@ -158,8 +162,12 @@ function logPositionalMap(
   // "negative-findings: positional map <lens> <kind> ...". Omitted, the
   // line is byte-identical to before this parameter existed.
   const prefix = auditPrefix ? `${auditPrefix} ` : "";
+  // `observedKeys` is agent-authored (arbitrary object keys from an
+  // off-contract artifact); a key containing a newline could otherwise
+  // forge a second audit line inside this stderr stream. JSON.stringify
+  // both key lists so embedded newlines/quotes render escaped, not literal.
   process.stderr.write(
-    `negative-findings: positional map ${prefix}${kind} ${observedKeys.join(",")} -> ${canonicalKeys.join(",")}\n`,
+    `negative-findings: positional map ${prefix}${kind} ${JSON.stringify(observedKeys)} -> ${JSON.stringify(canonicalKeys)}\n`,
   );
 }
 

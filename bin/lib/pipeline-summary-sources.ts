@@ -21,6 +21,7 @@ import {
   formatPlainTextEntries,
   collectForeclosedEntries,
   isEmpty,
+  isTotalLensDrop,
 } from "./foreclosed-paths-format";
 
 const NONE = ["none"];
@@ -419,11 +420,18 @@ export function renderDeviations(inputs: {
  * `finding_id` / `considered_approach` / `why_rejected`) AND the consolidator
  * artifact (plain strings), PLUS the consolidator's pass-through
  * `lens_rejected_alternatives[]` (code-scoped, tagged with the source lens).
+ * `artifactDir` mirrors `antiPatternDecisionLines`'s sibling disk-fallback
+ * parameter: when the consolidator artifact carries no lens negatives and
+ * `artifactDir` is supplied, `collectLensNegativesFromDirSync` rescues them
+ * from the raw `agent-output-<lens>.json` files — without this, a
+ * disk-rescued anti-pattern could render beside a `rejected: none` even
+ * though the same rescue would have surfaced a rejected-alternative too.
  * `none` when none of the three carries any.
  */
 function rejectedDecisionLines(
   fixApplierRaw: string,
   consolidatorRaw: string,
+  artifactDir?: string,
 ): string[] {
   const lines: string[] = [];
   if (fixApplierRaw.trim()) {
@@ -447,8 +455,31 @@ function rejectedDecisionLines(
         : validateConsolidatorResult(normalizeParsedFindings(parsed));
     if (v && v.ok) {
       for (const r of v.value.rejected_alternatives) lines.push(r);
-      // Optional pass-through key — absent contributes nothing.
-      for (const r of v.value.lens_rejected_alternatives ?? []) {
+      // Optional pass-through key — absent contributes nothing. Falls back
+      // to the shared disk-rescue collector (via collectForeclosedEntries)
+      // when the artifact itself carries no lens negatives, mirroring the
+      // anti-pattern sub-part below.
+      const lensRejected =
+        v.value.lens_rejected_alternatives &&
+        v.value.lens_rejected_alternatives.length > 0
+          ? v.value.lens_rejected_alternatives
+          : collectForeclosedEntries({
+              fixApplierRaw: "",
+              consolidatorRaw,
+              artifactDir,
+            })
+              .filter(
+                (e) =>
+                  e.source === "lens" &&
+                  e.category === "rejected-alternative" &&
+                  e.rawEntry === undefined,
+              )
+              .map((e) => ({
+                lens: e.lens ?? "",
+                considered_approach: e.considered_approach ?? "",
+                why_rejected: e.why_rejected ?? "",
+              }));
+      for (const r of lensRejected) {
         lines.push(
           `lens(${r.lens}): ${r.considered_approach} - ${r.why_rejected}`,
         );
@@ -467,6 +498,14 @@ function rejectedDecisionLines(
  * `category: "rejected-alternative"` by the collector, so they need an
  * explicit `|| e.unreadable` or a broken artifact would silently render
  * `none` instead of `(unreadable)`, unlike its sibling surfaces).
+ *
+ * `isTotalLensDrop` is evaluated over the FULL (unfiltered) entry set, not
+ * this sub-part's anti-pattern-only filtered subset: `missing_lenses`
+ * survives the filter (tagged `category: "anti-pattern"`) while a live lens
+ * rejected-alternative does not (it renders in the sibling `rejected:`
+ * sub-part instead), so filtering first would make an all-anti-pattern-lens
+ * view look like a total drop even when `rejected:` just rendered lens
+ * entries above it — the exact false alarm the warning exists to prevent.
  * `none` when the filtered set is empty.
  */
 function antiPatternDecisionLines(
@@ -474,13 +513,22 @@ function antiPatternDecisionLines(
   consolidatorRaw: string,
   artifactDir?: string,
 ): string[] {
-  const lines = formatPlainTextEntries(
-    collectForeclosedEntries({
-      fixApplierRaw,
-      consolidatorRaw,
-      artifactDir,
-    }).filter((e) => e.category === "anti-pattern" || e.unreadable),
+  const allEntries = collectForeclosedEntries({
+    fixApplierRaw,
+    consolidatorRaw,
+    artifactDir,
+  });
+  const genuineTotalDrop = isTotalLensDrop(allEntries);
+  const filtered = allEntries.filter((e) =>
+    e.category === "anti-pattern" || e.unreadable
+      ? // Suppress the `missing_lenses` marker entry itself when this
+        // isn't a genuine total drop — some other lens category (e.g.
+        // rejected-alternatives) DID populate, so the marker would be
+        // misleading standalone here.
+        e.missing_lenses === undefined || genuineTotalDrop
+      : false,
   );
+  const lines = formatPlainTextEntries(filtered);
   return lines.length > 0 ? lines : NONE;
 }
 
@@ -571,6 +619,7 @@ function renderCommentDev(inputs: RenderCommentInputs): string {
   for (const ln of rejectedDecisionLines(
     inputs.fixApplierRaw,
     inputs.consolidatorRaw,
+    inputs.artifactDir,
   )) {
     lines.push(`    ${ln}`);
   }

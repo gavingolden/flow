@@ -94,6 +94,20 @@ function parseJson(raw: string): unknown | undefined {
 
 type RawLensEntry = { lens: string; raw: string };
 
+// Per-bullet clamp on `rawEntry` (the JSON.stringify of an arbitrary,
+// agent-authored object that survived neither the nominal-alias nor the
+// positional-fallback normalizer). Applied at construction — the earliest
+// point a single oversized raw entry becomes reachable — so ONE huge entry
+// can never alone blow the section past `MARKDOWN_BULLET_CHAR_CAP` and
+// silently 422 `gh pr edit` while `capBullets` has nothing to cut at a `- `
+// boundary inside a single bullet.
+const RAW_ENTRY_CHAR_CAP = 2_000;
+
+function clampRawEntry(raw: string): string {
+  if (raw.length <= RAW_ENTRY_CHAR_CAP) return raw;
+  return `${raw.slice(0, RAW_ENTRY_CHAR_CAP)}… (truncated, ${raw.length} chars)`;
+}
+
 /**
  * Disk-only companion to `collectLensNegativesFromDirSync`: scans the same
  * `agent-output-<lens>.json` files but, instead of discarding an entry that
@@ -273,7 +287,7 @@ export function collectForeclosedEntries(inputs: {
           source: "lens",
           category: "rejected-alternative",
           lens: raw.lens,
-          rawEntry: raw.raw,
+          rawEntry: clampRawEntry(raw.raw),
         });
       }
       for (const a of lensAntiPatterns) {
@@ -291,7 +305,7 @@ export function collectForeclosedEntries(inputs: {
           source: "lens",
           category: "anti-pattern",
           lens: raw.lens,
-          rawEntry: raw.raw,
+          rawEntry: clampRawEntry(raw.raw),
         });
       }
       if (lensMissing.length > 0) {
@@ -471,6 +485,12 @@ function capBullets(bullets: string[]): string[] {
   const droppedEntries = bullets
     .slice(cutIndex)
     .filter((b) => b.startsWith("- ")).length;
+  // Guard against printing "0 more entries truncated" while dropping
+  // nothing: the cutIndex loop only advances past `charCount >
+  // MARKDOWN_BULLET_CHAR_CAP`, so a run of continuation lines (which never
+  // start with `- `) between the cap and the next top-level bullet can
+  // leave `droppedEntries` at 0 even though `cutIndex < bullets.length`.
+  if (droppedEntries === 0) return bullets;
   return [
     ...kept,
     `- … ${droppedEntries} more entr${droppedEntries === 1 ? "y" : "ies"} truncated (PR-body size cap); see the terminal snapshot for the full list.`,
