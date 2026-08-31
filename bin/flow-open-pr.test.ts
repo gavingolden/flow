@@ -55,6 +55,12 @@ function makeUpdater() {
 }
 
 describe(parseArgs, () => {
+  it("rejects a repeated --slug with its own message, not the positional one", () => {
+    expect(
+      parseArgs(["--slug", "alpha", "--slug", "beta", "--body-file", "b.md"]),
+    ).toEqual({ error: "--slug given more than once" });
+  });
+
   it("requires --body-file when no args are given", () => {
     const r = parseArgs([]) as { error: string };
     expect(r.error).toMatch(/--body-file is required/);

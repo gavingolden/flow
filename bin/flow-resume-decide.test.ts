@@ -715,6 +715,18 @@ describe(hasPrReviewCommit, () => {
 // ---------------------------------------------------------------------------
 
 describe(parseArgs, () => {
+  it("rejects a repeated --slug instead of silently last-wins", () => {
+    expect(parseArgs(["--slug", "alpha", "--slug", "beta"])).toEqual({
+      error: "--slug given more than once",
+    });
+  });
+
+  it("names a stray second positional as an argument, not a flag", () => {
+    expect(parseArgs(["a", "b"])).toEqual({
+      error: "unexpected extra argument: b",
+    });
+  });
+
   it("treats empty argv as 'slug omitted' (auto-resolve path)", () => {
     expect(parseArgs([])).toEqual({});
   });

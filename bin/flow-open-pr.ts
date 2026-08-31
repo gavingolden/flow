@@ -52,6 +52,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   // Same shape as flow-state-update's parseArgs.
   let rest: string[];
   const out: Args = { bodyFile: "", draft: false };
+  let sawSlugFlag = false;
   if (argv.length > 0 && !argv[0].startsWith("--")) {
     out.slug = argv[0];
     rest = argv.slice(1);
@@ -69,6 +70,10 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         if (value === undefined || value.startsWith("--")) {
           return { error: "--slug requires a value" };
         }
+        if (sawSlugFlag) {
+          return { error: "--slug given more than once" };
+        }
+        sawSlugFlag = true;
         if (out.slug !== undefined) {
           return { error: "cannot combine positional <slug> with --slug" };
         }

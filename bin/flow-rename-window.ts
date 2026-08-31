@@ -52,6 +52,12 @@ export function parseArgs(argv: string[]): ParseOk | ParseHelp | ParseErr {
 
   // Extract --slug <value> upfront so the remaining positional logic is unchanged.
   let slugFromFlag: string | undefined;
+  // Reject the `--slug=<value>` equals form explicitly. `indexOf("--slug")`
+  // never matches it, so without this it falls through to the positional
+  // grammar and is silently accepted as a slug or title — the same
+  // swallowed-flag-then-act-on-the-wrong-target shape gh#726 was about.
+  const equalsForm = argv.find((a) => a.startsWith("--slug="));
+  if (equalsForm !== undefined) return { error: `unknown flag: ${equalsForm}` };
   const slugIdx = argv.indexOf("--slug");
   let remaining: string[];
   if (slugIdx >= 0) {

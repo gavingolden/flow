@@ -13,6 +13,18 @@ function w(overrides: Partial<TmuxWindow>): TmuxWindow {
 }
 
 describe(parseArgs, () => {
+  it("rejects the --slug=<value> equals form instead of taking it as a positional", () => {
+    // Regression: indexOf("--slug") never matched the equals form, so the raw
+    // token fell through to the positional grammar and was accepted as a slug
+    // or title — silently retargeting the ambient window.
+    expect(parseArgs(["--slug=my-pipeline", "some title"])).toEqual({
+      error: "unknown flag: --slug=my-pipeline",
+    });
+    expect(parseArgs(["--slug=my-pipeline"])).toEqual({
+      error: "unknown flag: --slug=my-pipeline",
+    });
+  });
+
   it("parses <slug> <title>", () => {
     expect(parseArgs(["csv-export", "add CSV export"])).toEqual({
       slug: "csv-export",

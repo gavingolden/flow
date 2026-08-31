@@ -732,12 +732,17 @@ export function parseArgs(
       if (value === undefined || value.startsWith("--")) {
         return { error: "--slug requires a value" };
       }
+      if (flagSlug !== undefined) {
+        return { error: "--slug given more than once" };
+      }
       flagSlug = value;
       i += 2;
       continue;
     }
     if (a.startsWith("--")) return { error: `unknown flag: ${a}` };
-    if (positionalSlug !== undefined) return { error: `unknown flag: ${a}` };
+    if (positionalSlug !== undefined) {
+      return { error: `unexpected extra argument: ${a}` };
+    }
     positionalSlug = a;
     i += 1;
   }

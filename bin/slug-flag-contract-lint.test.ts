@@ -148,4 +148,35 @@ describe("slug-flag contract lint", () => {
       expect(parsed.slug).toBe(PROBE_SLUG);
     },
   );
+
+  // Negative direction. SKILL.md also claims the `--slug=<slug>` equals form
+  // is accepted by NO flow helper. That claim needs enforcing too: an
+  // unenforced universal claim is exactly the drift that produced gh#726,
+  // and `flow-rename-window` really did swallow the equals form as a
+  // positional until this PR — silently retargeting the ambient window.
+  it.each(Object.keys(PROBES))(
+    "%s rejects the --slug=<v> equals form",
+    (name) => {
+      // Swap the `--slug PROBE_SLUG` pair for the single equals token, leaving
+      // each helper's other required args in place.
+      const argv: string[] = [];
+      const orig = PROBES[name].argv;
+      for (let i = 0; i < orig.length; i++) {
+        if (orig[i] === "--slug" && orig[i + 1] === PROBE_SLUG) {
+          argv.push(`--slug=${PROBE_SLUG}`);
+          i++;
+          continue;
+        }
+        argv.push(orig[i]);
+      }
+      const parsed = PROBES[name].parse(argv) as Record<string, unknown>;
+      expect(
+        parsed,
+        `${name} did not reject --slug=${PROBE_SLUG}: ${JSON.stringify(parsed)}`,
+      ).toHaveProperty("error");
+      // Belt and braces: even on an error path it must never have bound the
+      // raw token as a value anywhere.
+      expect(Object.values(parsed)).not.toContain(`--slug=${PROBE_SLUG}`);
+    },
+  );
 });
