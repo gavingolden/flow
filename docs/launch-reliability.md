@@ -24,19 +24,20 @@ real launches.
 
 ## Hardening timeline
 
-| PR      | Commit  | Date       | Change                                                                                                                                                                                                                                                                            |
-| ------- | ------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #347    | c7a3cbc | 2026-06-23 | Verified liveness before persisting state + bounded retry                                                                                                                                                                                                                         |
-| #355    | 7a10e05 | 2026-06-24 | send-keys seed delivery + consumption verification                                                                                                                                                                                                                                |
-| #363    | 077f50c | 2026-06-26 | Early-exit ready/consume polls                                                                                                                                                                                                                                                    |
-| #364    | 0fbe422 | 2026-06-26 | State-phase consumption signal + persist-then-delete-on-failure                                                                                                                                                                                                                   |
-| #386    | 8114015 | 2026-06-28 | Wide readiness budget, increasing backoff, launch semaphore, non-destructive timeout                                                                                                                                                                                              |
-| #425    | 8af4894 | 2026-07-12 | Self-verifying seed delivery                                                                                                                                                                                                                                                      |
-| #457    | 4f467c9 | 2026-07-17 | Plain-shell default backend (tmux opt-in)                                                                                                                                                                                                                                         |
-| #477    | 3b64e79 | 2026-07-22 | Durable launch breadcrumb + install-time `claude --version` runnable check + `--tmux` launcher docs                                                                                                                                                                               |
-| #686    | ae7fbaa | 2026-08-28 | Paced remainder delivery + UserPromptSubmit seed-integrity check + reshaped epic-create leading line                                                                                                                                                                              |
-| #719    | 26306a9 | 2026-08-30 | Pointer seed (`REQUEST_FILE`) for the two free-form-text seeds, single-line reshape of all five supervisor seeds, fail-fast retry on deterministic corruption, and a reap-orphans skip for a `corrupt` seed-integrity record                                                      |
-| this PR | —       | —          | Leading-line-clamped head delivery marker (`deliveryMarker`) restoring the `corrupt` outcome for single-line seeds, builder-derived hook fixtures (`bin/lib/seed-fixtures.ts`) with an exhaustive-by-construction shape guard, and `sanitizeSeedLine` on every composed seed line |
+| PR      | Commit  | Date       | Change                                                                                                                                                                                                                                                                               |
+| ------- | ------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| #347    | c7a3cbc | 2026-06-23 | Verified liveness before persisting state + bounded retry                                                                                                                                                                                                                            |
+| #355    | 7a10e05 | 2026-06-24 | send-keys seed delivery + consumption verification                                                                                                                                                                                                                                   |
+| #363    | 077f50c | 2026-06-26 | Early-exit ready/consume polls                                                                                                                                                                                                                                                       |
+| #364    | 0fbe422 | 2026-06-26 | State-phase consumption signal + persist-then-delete-on-failure                                                                                                                                                                                                                      |
+| #386    | 8114015 | 2026-06-28 | Wide readiness budget, increasing backoff, launch semaphore, non-destructive timeout                                                                                                                                                                                                 |
+| #425    | 8af4894 | 2026-07-12 | Self-verifying seed delivery                                                                                                                                                                                                                                                         |
+| #457    | 4f467c9 | 2026-07-17 | Plain-shell default backend (tmux opt-in)                                                                                                                                                                                                                                            |
+| #477    | 3b64e79 | 2026-07-22 | Durable launch breadcrumb + install-time `claude --version` runnable check + `--tmux` launcher docs                                                                                                                                                                                  |
+| #686    | ae7fbaa | 2026-08-28 | Paced remainder delivery + UserPromptSubmit seed-integrity check + reshaped epic-create leading line                                                                                                                                                                                 |
+| #719    | 26306a9 | 2026-08-30 | Pointer seed (`REQUEST_FILE`) for the two free-form-text seeds, single-line reshape of all five supervisor seeds, fail-fast retry on deterministic corruption, and a reap-orphans skip for a `corrupt` seed-integrity record                                                         |
+| #718    | a410cd0 | 2026-08-30 | Self-describing `seedIngest` discriminated record replacing the two loose `seedIngestedAt`/`seedMismatch` fields                                                                                                                                                                     |
+| this PR | —       | —          | Leading-line-clamped head delivery marker (`deliveryMarker`) restoring the `corrupt` outcome for single-line seeds, builder-derived hook fixtures (`bin/lib/seed-fixtures.ts`) with an exhaustive-over-three-modules shape guard, and `sanitizeSeedLine` on every composed seed line |
 
 ## Seed integrity
 
@@ -104,15 +105,24 @@ it:
   five single-line builders, so the "carries the leading line" check
   collapsed onto the "carries the seed intact" check and a truncated
   delivery could only ever read as `verified` or FOREIGN, never `corrupt`.
-  **Residual (bounded).** Two gaps remain, both reachable only in a window
-  whose seed already failed to arrive — a healthy launch latches `verified`
-  on the delivered first prompt and short-circuits every later comparison,
-  so neither is reachable in a healthy session: corruption landing entirely
+  **Residual (bounded).** Two gaps remain: corruption landing entirely
   inside the 24-char marker still reads FOREIGN (the marker itself is
   missing, so the corrupt-vs-foreign check can't tell truncation from a
   human prompt), and a user-typed flow skill-invocation phrase (e.g. "Use
   the /flow-epic-create skill") shares its 24-char head with an epic seed's
-  marker.
+  marker. `run()` short-circuits only on `verified`/`not-applicable`
+  (`standing === "verified" || standing === "not-applicable"`); an
+  `unverified` outcome (e.g. the hook's own stdin-drain timeout on a
+  perfectly healthy delivery) does NOT short-circuit, so both gaps remain
+  live for later prompts in that window too — not only a window whose seed
+  already failed to arrive. The blast radius is bounded a different way:
+  `seedCorrupted()` is consulted exactly once per launch, right after the
+  consume poll (`bin/lib/tmux.ts`'s `createWindowVerified` and
+  `respawnWindowVerified`), and only `createWindowVerified` kills — a
+  window it created milliseconds earlier, never a pre-existing session the
+  user is working in. The residual consequence outside that narrow window
+  is a reap-skip (the state file and request file survive, unreaped), not a
+  killed session.
 
   **Monotone latch.** Within one epoch, `unverified` may be replaced by
   `corrupt` or `verified`, `corrupt` may be replaced ONLY by `verified` (so a

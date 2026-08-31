@@ -118,9 +118,10 @@ export function squash(s: string): string {
 
 /**
  * Squashed-character length of the delivery marker `deliveryMarker` derives.
- * Clamped well under every builder's shortest leading-line squash (58 chars,
- * `epicRunSeed`) so the marker never straddles into content the leading line
- * doesn't carry.
+ * Clamped well under the shortest SINGLE-LINE launch seed's leading-line
+ * squash (58 chars, `epicRunSeed`). `terminalContinueSeed`'s leading line
+ * squashes to only 20, so its marker is the whole leading line — `slice`
+ * clamps, so the marker still never straddles into the remainder.
  */
 export const DELIVERY_MARKER_SQUASHED_CHARS = 24;
 

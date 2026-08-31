@@ -14,6 +14,8 @@ import {
 import {
   DELIVERY_MARKER_SQUASHED_CHARS,
   deliveryMarker,
+  splitSeed,
+  squash,
 } from "./lib/seed-delivery";
 import {
   assertSeedListExhaustive,
@@ -495,8 +497,20 @@ describe("production seed shapes", () => {
     JSON.stringify({ hook_event_name: "UserPromptSubmit", prompt });
   const complete = (text: string) => async () => ({ text, complete: true });
 
-  it("PRODUCTION_SEEDS is exhaustive over every *Seed builder (fails CI if a future builder ships without a fixture)", () => {
+  it("PRODUCTION_SEEDS is exhaustive over every *Seed builder in the three seed-owning modules (fails CI if a future builder ships without a fixture)", () => {
     expect(() => assertSeedListExhaustive()).not.toThrow();
+  });
+
+  it("assertSeedListExhaustive throws for a *Seed export with no fixture", () => {
+    expect(() =>
+      assertSeedListExhaustive({ "fake.ts": { futureThingSeed: () => "" } }),
+    ).toThrow(/futureThingSeed/);
+  });
+
+  it("assertSeedListExhaustive ignores deliver*Seed delivery functions", () => {
+    expect(() =>
+      assertSeedListExhaustive({ "fake.ts": { deliverThingSeed: () => "" } }),
+    ).not.toThrow();
   });
 
   it.each(PRODUCTION_SEEDS)(
@@ -520,15 +534,31 @@ describe("production seed shapes", () => {
   );
 
   it.each(PRODUCTION_SEEDS)(
-    "$name: a first-30+last-10 truncation records corrupt with both byte counts",
+    // deliveryMarker derives from the LEADING LINE, not the whole seed
+    // (squashPrompt above) — for terminalContinueSeed those differ by ~800
+    // chars, so a future builder with a genuinely short leading line could
+    // pass the whole-seed guard above on the strength of its remainder while
+    // collapsing the marker. Assert the leading-line squash directly too.
+    "$name's leading line squashes to a non-degenerate marker",
+    ({ seed }) => {
+      expect(squash(splitSeed(seed).leadingLine).length).toBeGreaterThanOrEqual(
+        16,
+      );
+    },
+  );
+
+  it.each(PRODUCTION_SEEDS)(
+    "$name: a head+tail truncation records corrupt with both byte counts",
     async ({ seed }) => {
       // Deliberately NOT a 'middle third removed' recipe: that drops the
       // delivery marker entirely for flowPipelineResumeSeed and epicRunSeed
       // (their leading lines run past a third of the seed), which would
-      // record FOREIGN instead of corrupt. first-30+last-10 always keeps the
-      // marker (well within the first 30 chars for every builder here) while
-      // still dropping the rest of the seed.
-      const truncated = seed.slice(0, 30) + seed.slice(-10);
+      // record FOREIGN instead of corrupt. Keeping 2x the squashed marker
+      // length of RAW head chars always keeps the marker intact (squashing
+      // only removes whitespace, so it can only shrink) while still
+      // dropping the rest of the seed.
+      const HEAD = 2 * DELIVERY_MARKER_SQUASHED_CHARS;
+      const truncated = seed.slice(0, HEAD) + seed.slice(-10);
       const { deps, saveState } = makeDeps({
         pane: "%1",
         slug: "demo",
@@ -547,19 +577,41 @@ describe("production seed shapes", () => {
     },
   );
 
-  it.each(["what does the seed hook do?", "Use the /flow-pipeline skill"])(
-    "a genuinely foreign user-typed prompt (%s) writes nothing for every builder",
-    async (prompt) => {
-      for (const { seed } of PRODUCTION_SEEDS) {
-        const { deps, saveState } = makeDeps({
-          pane: "%1",
-          slug: "demo",
-          state: fakeState({ seed }),
-          readStdin: complete(payload(prompt)),
-        });
-        await expect(run(deps)).resolves.toBe(0);
-        expect(saveState).not.toHaveBeenCalled();
-      }
+  it.each(PRODUCTION_SEEDS)(
+    "$name: an intact submission records verified",
+    async ({ seed }) => {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed }),
+        readStdin: complete(payload(seed)),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          seedIngest: { at: FROZEN_NOW, outcome: "verified" },
+        }),
+      );
+    },
+  );
+
+  it.each(
+    PRODUCTION_SEEDS.flatMap(({ name, seed }) =>
+      ["what does the seed hook do?", "Use the /flow-pipeline skill"].map(
+        (prompt) => ({ name, seed, prompt }),
+      ),
+    ),
+  )(
+    "$name: a genuinely foreign user-typed prompt ($prompt) writes nothing",
+    async ({ seed, prompt }) => {
+      const { deps, saveState } = makeDeps({
+        pane: "%1",
+        slug: "demo",
+        state: fakeState({ seed }),
+        readStdin: complete(payload(prompt)),
+      });
+      await expect(run(deps)).resolves.toBe(0);
+      expect(saveState).not.toHaveBeenCalled();
     },
   );
 
@@ -634,6 +686,29 @@ describe("production seed shapes", () => {
         seedIngest: expect.objectContaining({ outcome: "corrupt" }),
       }),
     );
+  });
+
+  // KNOWN, BOUNDED RESIDUAL #1 — regression-pinned, not desired behaviour.
+  // Corruption landing entirely INSIDE the first DELIVERY_MARKER_SQUASHED_CHARS
+  // squashed characters strips the marker itself, so the hook cannot tell
+  // truncation from an unrelated, FOREIGN prompt and writes nothing at all —
+  // no 'corrupt' record, no recovery evidence. Bounded: that head region is
+  // exactly what `deliverSeed` types alone and capture-verifies (with three
+  // `C-u` retries) before the pane is ever handed to the operator, so a head
+  // corruption fails the launch there instead of reaching this hook.
+  it("KNOWN RESIDUAL: corruption inside the delivery marker reads FOREIGN and writes nothing", async () => {
+    const seed = PRODUCTION_SEEDS.find(
+      (f) => f.name === "flowPipelineSeed",
+    )!.seed;
+    const headCorrupted = `X${seed.slice(1)}`;
+    const { deps, saveState } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState({ seed }),
+      readStdin: complete(payload(headCorrupted)),
+    });
+    await expect(run(deps)).resolves.toBe(0);
+    expect(saveState).not.toHaveBeenCalled();
   });
 });
 

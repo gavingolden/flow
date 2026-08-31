@@ -424,9 +424,7 @@ describe("supervisor launch seeds — no unverified remainder", () => {
   // it was actually sized for. PRODUCTION_SEEDS is a fixed list (one demo
   // slug per builder), so it cannot represent this parametrized worst case;
   // this table stays a bespoke, locally-built set of six real-builder calls
-  // rather than a re-draw from the canonical list (see the coder-result
-  // artifact's rejected_alternatives for why folding it into PRODUCTION_SEEDS
-  // was rejected).
+  // rather than a re-draw from the canonical list.
   const dir = FIXTURE_STATE_DIR;
   const capSlug = "a".repeat(60);
   const capEpicDir = `.flow/epics/${capSlug}`;
@@ -494,6 +492,15 @@ describe("supervisor launch seeds — no unverified remainder", () => {
       );
     },
   );
+
+  it("the cap-slug table covers exactly the canonical builder set", () => {
+    // Binds this hand-written cap-slug table to PRODUCTION_SEEDS so a 7th
+    // builder (forced into PRODUCTION_SEEDS by assertSeedListExhaustive)
+    // can't silently escape the 60-char-slug-cap bound check here too.
+    expect(buildersAtCap.map((b) => b.name).sort()).toEqual(
+      PRODUCTION_SEEDS.map((f) => f.name).sort(),
+    );
+  });
 });
 
 describe("sanitizeSeedLine", () => {
@@ -523,15 +530,19 @@ describe("sanitizeSeedLine", () => {
     );
   });
 
-  it("a control-char-bearing description still yields a control-char-free seed", () => {
+  it("a control-char-bearing slug still yields a control-char-free seed", () => {
     // Call-site assertion, not a pure-function one: with sanitizeSeedLine
     // now applied to the COMPOSED line at both feature.ts's flowPipelineSeed
     // and epic-seed.ts's epicCreateSeed, this is the guarantee those two
     // module doc comments claim, exercised at the real production call site
-    // rather than at sanitizeSeedLine in isolation.
+    // rather than at sanitizeSeedLine in isolation. `slug` is the argument
+    // that actually reaches the composed line — flowPipelineSeed no longer
+    // interpolates `description` at all (PR #719 moved it out to the
+    // REQUEST_FILE pointer), so routing the control chars through
+    // `description` here would exercise nothing.
     const seed = flowPipelineSeed(
-      "csv-export",
       "a\tb\nc\x1bd",
+      "csv export",
       FIXTURE_STATE_DIR,
     );
     expect(seed).not.toMatch(/[\x00-\x1f\x7f]/);
@@ -543,6 +554,24 @@ describe("sanitizeSeedLine", () => {
     // sanitizeSeedLine — a slug carrying a newline or tab must still yield a
     // seed containing no newline.
     const seed = flowPipelineResumeSeed("a\tb\nc");
+    expect(seed).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
+
+  it("a control-char-bearing slug still yields a control-char-free epicResumeSeed", () => {
+    // Same call-site discipline: epicResumeSeed's composed line is also
+    // wrapped in sanitizeSeedLine as of this PR.
+    const seed = epicResumeSeed(
+      "a\tb\nc",
+      ".flow/epics/x\x1b",
+      "/tmp/skill\x7f",
+    );
+    expect(seed).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
+
+  it("a control-char-bearing slug still yields a control-char-free epicRunSeed", () => {
+    // Same call-site discipline: epicRunSeed's composed line is also
+    // wrapped in sanitizeSeedLine as of this PR.
+    const seed = epicRunSeed("a\tb\nc", ".flow/epics/x\x7f");
     expect(seed).not.toMatch(/[\x00-\x1f\x7f]/);
   });
 });
@@ -559,6 +588,28 @@ describe("deliveryMarker", () => {
       );
     }
   });
+
+  it.each([
+    ["flowPipelineSeed", "[pipeline-slug:demo]Uset"],
+    ["flowPipelineResumeSeed", "[pipeline-slug:demo]Uset"],
+    ["epicCreateSeed", "Usethe/flow-epic-creates"],
+    ["epicResumeSeed", "Usethe/flow-epic-creates"],
+    ["epicRunSeed", "Usethe/flow-epic-runskil"],
+    ["terminalContinueSeed", "[pipeline-slug:demo]"],
+  ])(
+    // Golden values, not a re-derivation of deliveryMarker's own body (the
+    // test above asserts equivalence, which cannot discriminate the shipped
+    // clamped-to-leading-line marker from the rejected squash(seed).slice(0,
+    // 24) design for a single-line seed, since leadingLine === seed there).
+    // Also surfaces, in one table, that epicCreateSeed and epicResumeSeed
+    // are marker-indistinguishable — the documented residual #2.
+    "%s marker is exactly %s",
+    (name, expected) => {
+      expect(
+        deliveryMarker(PRODUCTION_SEEDS.find((f) => f.name === name)!.seed),
+      ).toBe(expected);
+    },
+  );
 
   it("clamps to the leading line for terminalContinueSeed, with no straddle into the remainder", () => {
     const fixture = PRODUCTION_SEEDS.find(

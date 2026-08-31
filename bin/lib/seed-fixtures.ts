@@ -16,8 +16,6 @@
  * imported by test files, never executed directly.
  */
 
-import * as os from "node:os";
-import * as path from "node:path";
 import { epicCreateSeed, epicResumeSeed, epicRunSeed } from "./epic-seed";
 import * as epicSeedModule from "./epic-seed";
 import { flowPipelineResumeSeed, flowPipelineSeed } from "./feature";
@@ -31,17 +29,16 @@ export type SeedFixture = {
   singleLine: boolean;
 };
 
-// Fixed synthetic stateDir — never the real $HOME — so PRODUCTION_SEEDS stays
-// byte-identical across machines and CI runs. Exported so
-// bin/lib/seed-delivery.test.ts's cap-slug builder table (which needs a
-// 60-char slug PRODUCTION_SEEDS's fixed "demo" slug can't represent) reuses
-// this ONE definition instead of a second hand-copied literal; omitting a
-// fixed dir entirely would interpolate the real $HOME into flowPipelineSeed's
-// REQUEST_FILE segment.
-export const FIXTURE_STATE_DIR = path.join(
-  os.tmpdir(),
-  "flow-seed-bounds-fixture",
-);
+// Fixed synthetic stateDir — a literal, never a real machine path (os.tmpdir()
+// resolves to a per-user ~73-char /var/folders/... path on macOS vs 4-char
+// /tmp on Linux CI, which is not byte-identical) — so PRODUCTION_SEEDS stays
+// byte-identical across machines and CI runs. Nothing is written to disk: the
+// seeds are string-built only. Exported so bin/lib/seed-delivery.test.ts's
+// cap-slug builder table (which needs a 60-char slug PRODUCTION_SEEDS's fixed
+// "demo" slug can't represent) reuses this ONE definition instead of a second
+// hand-copied literal; omitting a fixed dir entirely would interpolate the
+// real $HOME into flowPipelineSeed's REQUEST_FILE segment.
+export const FIXTURE_STATE_DIR = "/tmp/flow-seed-bounds-fixture";
 
 /**
  * The six production seed shapes, built via the real builders (never
@@ -87,26 +84,37 @@ export const PRODUCTION_SEEDS: readonly SeedFixture[] = [
   },
 ];
 
+const REAL_SEED_MODULES: Record<string, Record<string, unknown>> = {
+  "bin/lib/feature.ts": featureModule as unknown as Record<string, unknown>,
+  "bin/lib/epic-seed.ts": epicSeedModule as unknown as Record<string, unknown>,
+  "bin/flow-session-start-hook.ts": sessionStartHookModule as unknown as Record<
+    string,
+    unknown
+  >,
+};
+
 /**
- * A future `*Seed` builder added to one of the three seed-owning modules
- * without a matching `PRODUCTION_SEEDS` fixture fails this assertion rather
- * than silently going unexercised by the shared fixture list. Excludes
- * `deliver*Seed` names (currently only `deliverResumeSeed`): those are
- * seams-taking delivery FUNCTIONS (they type/verify a seed into a live
- * pane), not string builders — the next `deliver*Seed` inherits the same
- * exclusion for the same reason.
+ * A future `*Seed` builder added to one of the three enumerated seed-owning
+ * modules without a matching `PRODUCTION_SEEDS` fixture fails this assertion
+ * rather than silently going unexercised by the shared fixture list. This is
+ * exhaustive over those three hand-listed modules only, not the whole
+ * repo — a `*Seed` builder shipped in a fourth module (e.g. a future
+ * `bin/lib/<x>-seed.ts`) is invisible to this guard. Excludes `deliver*Seed`
+ * names (currently only `deliverResumeSeed`): those are seams-taking
+ * delivery FUNCTIONS (they type/verify a seed into a live pane), not string
+ * builders — the next `deliver*Seed` inherits the same exclusion for the
+ * same reason. Note this filter would also exclude `splitSeed` if
+ * `bin/lib/seed-delivery.ts` were ever added to the module map — it ends
+ * with neither `Seed` nor is excluded by the `deliver` prefix, so it would
+ * need its own carve-out.
+ *
+ * `modules` is injectable (defaults to the real three modules) so this
+ * guard's own throw path can be exercised directly in tests.
  */
-export function assertSeedListExhaustive(): void {
+export function assertSeedListExhaustive(
+  modules: Record<string, Record<string, unknown>> = REAL_SEED_MODULES,
+): void {
   const known = new Set(PRODUCTION_SEEDS.map((f) => f.name));
-  const modules: Record<string, Record<string, unknown>> = {
-    "bin/lib/feature.ts": featureModule as unknown as Record<string, unknown>,
-    "bin/lib/epic-seed.ts": epicSeedModule as unknown as Record<
-      string,
-      unknown
-    >,
-    "bin/flow-session-start-hook.ts":
-      sessionStartHookModule as unknown as Record<string, unknown>,
-  };
   for (const [moduleName, mod] of Object.entries(modules)) {
     for (const key of Object.keys(mod)) {
       if (
