@@ -69,6 +69,7 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { readState } from "./lib/state";
 import { readEntries, runEntries, formatVerdict } from "./flow-followups";
 import { parsePrNumber } from "./flow-fetch-pr-review";
@@ -263,6 +264,13 @@ export type RenderInputs = {
   scoutRaw?: string;
   /** Pre-rendered `flow-untracked render --format markdown --unfiled-only` lines. */
   untrackedBlock?: string;
+  /**
+   * OPTIONAL disk-fallback directory for the FORECLOSED PATHS section's
+   * lens negatives (dirname of the `--consolidator-result` path). This is
+   * the surface that puts the total-lens-drop warning in the terminal
+   * gate summary for a headless auto-merge run.
+   */
+  artifactDir?: string;
 };
 
 /**
@@ -323,6 +331,7 @@ export function render(inputs: RenderInputs): string {
   for (const ln of renderForeclosedPaths({
     fixApplierRaw: inputs.fixApplierRaw,
     consolidatorRaw: inputs.consolidatorRaw,
+    artifactDir: inputs.artifactDir,
   })) {
     lines.push(`  ${ln}`);
   }
@@ -580,6 +589,13 @@ export function run(
   const prChangesRaw = readFileOrEmpty(parsed.prChangesFile);
   const prReviewRaw = readFileOrEmpty(parsed.prReviewResult);
   const consolidatorRaw = readFileOrEmpty(parsed.consolidatorResult);
+  // Disk-fallback directory for the FORECLOSED PATHS lens negatives:
+  // dirname of the `--consolidator-result` path, when that flag was
+  // explicitly supplied. Omitted (not defaulted) when the flag is absent,
+  // mirroring `flow-foreclosed-paths.ts`'s `runUpsert`.
+  const artifactDir = parsed.consolidatorResult
+    ? path.dirname(parsed.consolidatorResult)
+    : undefined;
   const ciWaitRaw = readFileOrEmpty(parsed.ciWaitResult);
   const filedIssuesRaw = readFileOrEmpty(parsed.filedIssuesFile);
   const intentResolutionRaw = readFileOrEmpty(parsed.intentResolutionFile);
@@ -617,6 +633,7 @@ export function run(
     lens,
     scoutRaw,
     untrackedBlock,
+    artifactDir,
   });
   // With --echo-prose, PREPEND the delimited recap block (a new top section of
   // this SAME stdout write — never a separate invocation, so the
@@ -665,6 +682,7 @@ export function run(
         intentResolutionRaw,
         scoutRaw,
         untrackedBlock,
+        artifactDir,
       });
       const result = postSnapshotComment(
         prNumber,

@@ -1,14 +1,34 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   collectForeclosedEntries,
   formatMarkdown,
   formatPlainText,
+  formatPlainTextEntries,
   isEmpty,
+  isTotalLensDrop,
   summarizeEntries,
   FORECLOSED_HEADING,
   MARKDOWN_BULLET_CHAR_CAP,
 } from "./foreclosed-paths-format";
 import { upsertPrBodySection } from "./pr-body-upsert";
+
+function withTmpDir(
+  files: Record<string, unknown>,
+  fn: (dirPath: string) => void,
+): void {
+  const dir = mkdtempSync(path.join(tmpdir(), "foreclosed-paths-fmt-test-"));
+  for (const [name, contents] of Object.entries(files)) {
+    writeFileSync(path.join(dir, name), JSON.stringify(contents), "utf8");
+  }
+  try {
+    fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 const fixApplier = JSON.stringify({
   commits: [],
@@ -762,5 +782,257 @@ describe("degraded artifacts", () => {
       expect(joined).not.toContain("anti-pattern");
       expect(joined).not.toContain("rejected:");
     }
+  });
+});
+
+describe("isTotalLensDrop", () => {
+  it("is false with no missing_lenses marker at all", () => {
+    expect(
+      isTotalLensDrop([
+        { source: "fix-applier", category: "rejected-alternative" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("is true when a missing_lenses marker exists and no lens entry has content", () => {
+    expect(
+      isTotalLensDrop([
+        {
+          source: "lens",
+          category: "anti-pattern",
+          missing_lenses: ["security", "gemini"],
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("is false when a populated rejected_alternative lens entry also exists", () => {
+    expect(
+      isTotalLensDrop([
+        {
+          source: "lens",
+          category: "anti-pattern",
+          missing_lenses: ["security"],
+        },
+        {
+          source: "lens",
+          category: "rejected-alternative",
+          considered_approach: "a",
+          why_rejected: "b",
+          lens: "bug-detection",
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("is false when only rawEntry bullets exist (a raw bullet is NOT a total drop)", () => {
+    expect(
+      isTotalLensDrop([
+        {
+          source: "lens",
+          category: "anti-pattern",
+          missing_lenses: ["security"],
+        },
+        {
+          source: "lens",
+          category: "rejected-alternative",
+          lens: "bug-detection",
+          rawEntry: '{"shape":"x"}',
+        },
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe("total-lens-drop warning", () => {
+  const consolidatorNoLensKeys = JSON.stringify({
+    consolidated_findings: [],
+    dropped_by_validation: [],
+    rejected_alternatives: [],
+    anti_patterns_found: [],
+    summary: "s",
+    lens_negatives_missing: ["security", "bug-detection"],
+  });
+
+  it("renders the warning at an index before the <details> line, and formatPlainText carries the same text", () => {
+    const inputs = {
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorNoLensKeys,
+    };
+    const md = formatMarkdown(inputs);
+    const detailsIdx = md.findIndex((l) => l.startsWith("<details>"));
+    const warningIdx = md.findIndex((l) => l.startsWith("> [!WARNING]"));
+    expect(warningIdx).toBeGreaterThanOrEqual(0);
+    expect(detailsIdx).toBeGreaterThan(warningIdx);
+    expect(
+      md.some((l) =>
+        l.startsWith(
+          "> Lens negative findings: 0 entries reached this report;",
+        ),
+      ),
+    ).toBe(true);
+
+    const pt = formatPlainText(inputs);
+    expect(pt[0]).toBe("[!WARNING]");
+    expect(pt[1]).toContain(
+      "Lens negative findings: 0 entries reached this report;",
+    );
+  });
+
+  it("summarizeEntries does not count the warning (it is not a finding)", () => {
+    const entries = collectForeclosedEntries({
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorNoLensKeys,
+    });
+    const summary = summarizeEntries(entries);
+    expect(summary).toEqual({ rejected: 0, antiPatterns: 0, notes: 0 });
+  });
+
+  it("does not render when at least one lens entry has content", () => {
+    const inputs = {
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorWithLens,
+    };
+    const md = formatMarkdown(inputs);
+    expect(md.some((l) => l.includes("[!WARNING]"))).toBe(false);
+  });
+});
+
+describe("disk fallback (artifactDir)", () => {
+  const bugDetectionFile = {
+    findings: [],
+    rejected_alternatives: [
+      { considered_approach: "used a cache", why_rejected: "stale reads" },
+    ],
+    anti_patterns_found: [],
+  };
+
+  it("fires when the consolidator artifact carries NO lens_* keys and disk yields entries", () => {
+    withTmpDir(
+      { "agent-output-bug-detection.json": bugDetectionFile },
+      (dir) => {
+        const noLensKeysConsolidator = JSON.stringify({
+          consolidated_findings: [],
+          dropped_by_validation: [],
+          rejected_alternatives: [],
+          anti_patterns_found: [],
+          summary: "s",
+        });
+        const entries = collectForeclosedEntries({
+          fixApplierRaw: "",
+          consolidatorRaw: noLensKeysConsolidator,
+          artifactDir: dir,
+        });
+        const lensEntries = entries.filter((e) => e.source === "lens");
+        expect(lensEntries).toEqual([
+          {
+            source: "lens",
+            category: "rejected-alternative",
+            considered_approach: "used a cache",
+            why_rejected: "stale reads",
+            lens: "bug-detection",
+          },
+        ]);
+      },
+    );
+  });
+
+  it("fires when the consolidator artifact carries all three lens_* keys present but empty", () => {
+    withTmpDir(
+      { "agent-output-bug-detection.json": bugDetectionFile },
+      (dir) => {
+        const emptyLensKeysConsolidator = JSON.stringify({
+          consolidated_findings: [],
+          dropped_by_validation: [],
+          rejected_alternatives: [],
+          anti_patterns_found: [],
+          summary: "s",
+          lens_rejected_alternatives: [],
+          lens_anti_patterns_found: [],
+          lens_negatives_missing: [],
+        });
+        const entries = collectForeclosedEntries({
+          fixApplierRaw: "",
+          consolidatorRaw: emptyLensKeysConsolidator,
+          artifactDir: dir,
+        });
+        const lensEntries = entries.filter((e) => e.source === "lens");
+        expect(lensEntries).toEqual([
+          {
+            source: "lens",
+            category: "rejected-alternative",
+            considered_approach: "used a cache",
+            why_rejected: "stale reads",
+            lens: "bug-detection",
+          },
+        ]);
+      },
+    );
+  });
+
+  it("does NOT fire when the consolidator artifact already carries lens entries, even with artifactDir supplied", () => {
+    withTmpDir(
+      { "agent-output-bug-detection.json": bugDetectionFile },
+      (dir) => {
+        const entries = collectForeclosedEntries({
+          fixApplierRaw: "",
+          consolidatorRaw: consolidatorWithLens,
+          artifactDir: dir,
+        });
+        const lensRejected = entries.filter(
+          (e) => e.source === "lens" && e.category === "rejected-alternative",
+        );
+        // consolidatorWithLens's own single lens_rejected_alternatives entry
+        // (lens: "security"), NOT the disk fixture's bug-detection entry.
+        expect(lensRejected).toEqual([
+          {
+            source: "lens",
+            category: "rejected-alternative",
+            considered_approach: "validate inline at each call site",
+            why_rejected: "centralizing keeps the rule in one place",
+            lens: "security",
+          },
+        ]);
+      },
+    );
+  });
+
+  it("an entry matching neither nominal alias nor positional fallback renders as a (lens: <name>, raw) bullet, attributed and not silently dropped", () => {
+    withTmpDir(
+      {
+        "agent-output-security.json": {
+          findings: [],
+          rejected_alternatives: [{ unmappable_single_key: "x" }],
+          anti_patterns_found: [],
+        },
+      },
+      (dir) => {
+        const noLensKeysConsolidator = JSON.stringify({
+          consolidated_findings: [],
+          dropped_by_validation: [],
+          rejected_alternatives: [],
+          anti_patterns_found: [],
+          summary: "s",
+        });
+        const inputs = {
+          fixApplierRaw: "",
+          consolidatorRaw: noLensKeysConsolidator,
+          artifactDir: dir,
+        };
+        const entries = collectForeclosedEntries(inputs);
+        const rawEntry = entries.find((e) => e.rawEntry !== undefined);
+        expect(rawEntry).toBeDefined();
+        expect(rawEntry?.lens).toBe("security");
+        expect(rawEntry?.rawEntry).toContain("unmappable_single_key");
+
+        const md = formatMarkdown(inputs);
+        expect(md.some((l) => l.includes("(lens: security, raw):"))).toBe(true);
+        const pt = formatPlainText(inputs);
+        expect(pt.some((l) => l.includes("(lens: security, raw):"))).toBe(true);
+
+        const summary = summarizeEntries(entries);
+        expect(summary).toEqual({ rejected: 0, antiPatterns: 0, notes: 0 });
+      },
+    );
   });
 });

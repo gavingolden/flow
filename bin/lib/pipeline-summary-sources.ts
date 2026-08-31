@@ -147,6 +147,13 @@ export function renderFindings(inputs: {
 export function renderForeclosedPaths(inputs: {
   fixApplierRaw: string;
   consolidatorRaw: string;
+  /**
+   * OPTIONAL disk-fallback directory for the foreclosed-paths formatter's
+   * lens negatives (dirname of the consolidator-result path, when the
+   * caller has one). This is the surface that puts the total-lens-drop
+   * warning in the terminal gate summary for a headless auto-merge run.
+   */
+  artifactDir?: string;
 }): string[] {
   if (isEmpty(collectForeclosedEntries(inputs))) return NONE;
   return formatPlainText(inputs);
@@ -465,11 +472,14 @@ function rejectedDecisionLines(
 function antiPatternDecisionLines(
   fixApplierRaw: string,
   consolidatorRaw: string,
+  artifactDir?: string,
 ): string[] {
   const lines = formatPlainTextEntries(
-    collectForeclosedEntries({ fixApplierRaw, consolidatorRaw }).filter(
-      (e) => e.category === "anti-pattern" || e.unreadable,
-    ),
+    collectForeclosedEntries({
+      fixApplierRaw,
+      consolidatorRaw,
+      artifactDir,
+    }).filter((e) => e.category === "anti-pattern" || e.unreadable),
   );
   return lines.length > 0 ? lines : NONE;
 }
@@ -498,6 +508,8 @@ export type RenderCommentInputs = {
   scoutRaw?: string;
   /** pm-lens only: pre-rendered `flow-untracked render --format markdown --unfiled-only` lines. */
   untrackedBlock?: string;
+  /** OPTIONAL disk-fallback directory for the anti-pattern DECISIONS section's lens negatives. */
+  artifactDir?: string;
 };
 
 function renderCommentDev(inputs: RenderCommentInputs): string {
@@ -566,6 +578,7 @@ function renderCommentDev(inputs: RenderCommentInputs): string {
   for (const ln of antiPatternDecisionLines(
     inputs.fixApplierRaw,
     inputs.consolidatorRaw,
+    inputs.artifactDir,
   )) {
     lines.push(`    ${ln}`);
   }

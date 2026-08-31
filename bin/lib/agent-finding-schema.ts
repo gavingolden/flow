@@ -48,6 +48,15 @@
  * `{ok: false, reason, path}` on stderr for shape-invalid input.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import {
+  type LensRejectedAlternative,
+  type LensAntiPattern,
+  isRejectedAlternativeBase,
+  isAntiPatternBase,
+  normalizeNegativeEntry,
+} from "./negative-findings-schema";
+
 export type Finding = {
   file: string;
   line: number;
@@ -65,24 +74,11 @@ export type AgentFindings = {
   anti_patterns_found?: LensAntiPattern[];
 };
 
-// A review lens's code-scoped "considered but rejected" note. Deliberately
-// two fields only — no `finding_id` (a rejected alternative isn't always
-// tied to one specific finding).
-export type LensRejectedAlternative = {
-  considered_approach: string;
-  why_rejected: string;
-};
-
-// A review lens's code-scoped off-pattern observation. THREE string fields
-// only — deliberately drops the Fix-Applier artifact's
-// `introduced_by_this_pr` boolean (fix-applier-schema.ts's
-// `validateAntiPatternEntry` hard-requires it): a review lens has no
-// fix-time provenance context to report it accurately.
-export type LensAntiPattern = {
-  location: string;
-  pattern: string;
-  recommendation: string;
-};
+// The lens negative-findings vocabulary (LensRejectedAlternative /
+// LensAntiPattern) now lives in bin/lib/negative-findings-schema.ts, the
+// single shared definition every artifact schema composes from; imported
+// above and re-exported here as TYPES for future consumers.
+export type { LensRejectedAlternative, LensAntiPattern };
 
 // Tri-state read of a per-lens negative-findings slot from a parsed
 // artifact: the key is absent (or present but not an array), present as an
@@ -275,27 +271,21 @@ function err(reason: string, path?: string): ValidationErr {
   return { ok: false, reason, path };
 }
 
-// Local two-string-field checker for `LensRejectedAlternative`. Do NOT
-// reach for fix-applier-schema.ts's `validateRejectedAlternativeEntry` here
-// — it requires a `finding_id` the lens shape deliberately omits.
+// Two-string-field checker for `LensRejectedAlternative`, delegated to the
+// shared base predicate in negative-findings-schema.ts. Do NOT reach for
+// fix-applier-schema.ts's `validateRejectedAlternativeEntry` here — it
+// requires a `finding_id` the lens shape deliberately omits.
 function isLensRejectedAlternative(v: unknown): v is LensRejectedAlternative {
-  if (!isPlainObject(v)) return false;
-  return (
-    isNonEmptyString(v.considered_approach) && isNonEmptyString(v.why_rejected)
-  );
+  return isRejectedAlternativeBase(v);
 }
 
-// Local three-string-field checker for `LensAntiPattern`. Do NOT reach for
+// Three-string-field checker for `LensAntiPattern`, delegated to the shared
+// base predicate in negative-findings-schema.ts. Do NOT reach for
 // fix-applier-schema.ts's `validateAntiPatternEntry` here — it hard-requires
 // an `introduced_by_this_pr` boolean the lens shape deliberately omits, and
 // would reject every lens entry.
 function isLensAntiPattern(v: unknown): v is LensAntiPattern {
-  if (!isPlainObject(v)) return false;
-  return (
-    isNonEmptyString(v.location) &&
-    isNonEmptyString(v.pattern) &&
-    isNonEmptyString(v.recommendation)
-  );
+  return isAntiPatternBase(v);
 }
 
 /**
@@ -324,10 +314,24 @@ export function classifyLensNegatives(parsed: unknown): {
  * Tolerant collector for a per-lens artifact's two negative-findings arrays,
  * mirroring the shape of `fix-applier-tolerant.ts`'s `collectFixApplierTolerant`
  * / `collectValid` (that helper is module-private, so this copies the shape
- * rather than importing it). Drops per-entry-invalid entries and counts
- * them in `skipped`; never fabricates or defaults a missing field.
+ * rather than importing it). Runs each entry through
+ * `normalizeNegativeEntry` before its shape check — same coerce-then-
+ * validate placement `normalizeFinding` uses above for labels — so a
+ * recoverable off-contract shape survives into the pass-through channel.
+ * Drops per-entry-unrecoverable entries and counts them in `skipped`;
+ * never fabricates or defaults a missing field beyond what the normalizer
+ * itself recovers.
+ *
+ * `lens` is OPTIONAL and purely cosmetic: this call depth has no lens name
+ * of its own, but the `--collect-lens-negatives` CLI layer
+ * (`collectLensNegativesFromDir`) does, and threads it through so the
+ * normalizer's positional-map stderr audit line is prefixed with it.
+ * Omitted, behaviour is byte-identical to before this parameter existed.
  */
-export function collectLensNegatives(parsed: unknown): {
+export function collectLensNegatives(
+  parsed: unknown,
+  lens?: string,
+): {
   rejected_alternatives: LensRejectedAlternative[];
   anti_patterns_found: LensAntiPattern[];
   skipped: number;
@@ -340,8 +344,9 @@ export function collectLensNegatives(parsed: unknown): {
   }
   if (Array.isArray(parsed.rejected_alternatives)) {
     for (const entry of parsed.rejected_alternatives) {
-      if (isLensRejectedAlternative(entry)) {
-        rejected_alternatives.push(entry);
+      const normalized = normalizeNegativeEntry(entry, "rejected", lens);
+      if (isLensRejectedAlternative(normalized)) {
+        rejected_alternatives.push(normalized);
       } else {
         skipped++;
       }
@@ -349,8 +354,9 @@ export function collectLensNegatives(parsed: unknown): {
   }
   if (Array.isArray(parsed.anti_patterns_found)) {
     for (const entry of parsed.anti_patterns_found) {
-      if (isLensAntiPattern(entry)) {
-        anti_patterns_found.push(entry);
+      const normalized = normalizeNegativeEntry(entry, "anti-pattern", lens);
+      if (isLensAntiPattern(normalized)) {
+        anti_patterns_found.push(normalized);
       } else {
         skipped++;
       }
@@ -578,7 +584,168 @@ export function validateConsolidatorResult(
   return { ok: true, value: parsed as ConsolidatorResult };
 }
 
+// The six canonical kebab-case review-agent names plus the optional
+// cross-model Gemini lens, matching agent-prompts.md and
+// consolidator-instructions.md.
+const CANONICAL_LENSES = [
+  "bug-detection",
+  "security",
+  "pattern-consistency",
+  "performance",
+  "supply-chain",
+  "test-coverage",
+] as const;
+const OPTIONAL_LENSES = ["gemini"] as const;
+
+export type CollectedLensNegatives = {
+  lens_rejected_alternatives: LensNegativeEntry<LensRejectedAlternative>[];
+  lens_anti_patterns_found: LensNegativeEntry<LensAntiPattern>[];
+  lens_negatives_missing: string[];
+};
+
+// The list this module scans for, shared by the async (Bun.file) and sync
+// (node:fs) directory scanners below.
+export const ALL_LENS_NAMES: readonly string[] = [
+  ...CANONICAL_LENSES,
+  ...OPTIONAL_LENSES,
+];
+
+function accumulateLensFile(
+  lens: string,
+  parsed: unknown,
+  acc: CollectedLensNegatives,
+): void {
+  const state = classifyLensNegatives(parsed);
+  const collected = collectLensNegatives(parsed, lens);
+
+  for (const entry of collected.rejected_alternatives) {
+    acc.lens_rejected_alternatives.push({ ...entry, lens });
+  }
+  for (const entry of collected.anti_patterns_found) {
+    acc.lens_anti_patterns_found.push({ ...entry, lens });
+  }
+
+  const anyEntries =
+    collected.rejected_alternatives.length > 0 ||
+    collected.anti_patterns_found.length > 0;
+  const anyAbsent =
+    state.rejected_alternatives === "absent" ||
+    state.anti_patterns_found === "absent";
+
+  if (anyAbsent) {
+    acc.lens_negatives_missing.push(lens);
+  } else if (!anyEntries && collected.skipped > 0) {
+    acc.lens_negatives_missing.push(
+      `${lens} (${collected.skipped} unreadable)`,
+    );
+  }
+}
+
+/**
+ * Deterministic replacement for the consolidator's hand-copy step (b):
+ * scans `dir` for `agent-output-<lens>.json` over the six canonical lenses
+ * plus the optional `gemini` lens, normalizes and lens-tags each entry via
+ * `collectLensNegatives`, and returns the three lens_* arrays ready to
+ * embed verbatim into the consolidator's artifact.
+ *
+ * A missing file is skipped SILENTLY — the six-lens missing-artifact
+ * escalation stays consolidator step (a)'s job, not this helper's. A file
+ * that reads and parses but has an absent negative-findings slot (neither
+ * `rejected_alternatives` nor `anti_patterns_found` present) appends the
+ * bare lens name to `lens_negatives_missing`, mirroring
+ * consolidator-instructions.md's existing "absent state" prose. A lens
+ * whose slot was non-absent but yielded zero valid entries appends
+ * `"<lens> (N unreadable)"`, matching the existing marker text at
+ * consolidator-instructions.md:117. A file that exists but fails to parse
+ * as JSON is treated the same as a missing file (skipped silently) — this
+ * helper only reports on shape drift within a readable artifact, not on
+ * malformed JSON, which the six-lens missing-artifact escalation already
+ * covers via the underlying findings-shape validation.
+ */
+export async function collectLensNegativesFromDir(
+  dir: string,
+): Promise<CollectedLensNegatives> {
+  const acc: CollectedLensNegatives = {
+    lens_rejected_alternatives: [],
+    lens_anti_patterns_found: [],
+    lens_negatives_missing: [],
+  };
+
+  for (const lens of ALL_LENS_NAMES) {
+    const file = Bun.file(`${dir}/agent-output-${lens}.json`);
+    let exists: boolean;
+    try {
+      exists = await file.exists();
+    } catch {
+      exists = false;
+    }
+    if (!exists) continue;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      continue;
+    }
+
+    accumulateLensFile(lens, parsed, acc);
+  }
+
+  return acc;
+}
+
+/**
+ * Synchronous sibling of `collectLensNegativesFromDir`, sharing the same
+ * per-lens accumulation logic (`accumulateLensFile`) and lens-name list —
+ * only the file-existence/read primitives differ (node:fs sync calls
+ * instead of `Bun.file`). Exists because `bin/lib/foreclosed-paths-format.ts`'s
+ * disk fallback (Task 5) is consumed by callers that are synchronous end
+ * to end (`bin/flow-foreclosed-paths.ts`'s `runUpsert`,
+ * `bin/lib/pipeline-summary-sources.ts`) and cannot be made async without
+ * a much larger ripple than an optional caller-supplied `artifactDir`
+ * input is meant to cost.
+ */
+export function collectLensNegativesFromDirSync(
+  dir: string,
+): CollectedLensNegatives {
+  const acc: CollectedLensNegatives = {
+    lens_rejected_alternatives: [],
+    lens_anti_patterns_found: [],
+    lens_negatives_missing: [],
+  };
+
+  for (const lens of ALL_LENS_NAMES) {
+    const filePath = `${dir}/agent-output-${lens}.json`;
+    if (!existsSync(filePath)) continue;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(filePath, "utf8"));
+    } catch {
+      continue;
+    }
+
+    accumulateLensFile(lens, parsed, acc);
+  }
+
+  return acc;
+}
+
 async function cliMain(argv: string[]): Promise<number> {
+  const collectIdx = argv.indexOf("--collect-lens-negatives");
+  if (collectIdx !== -1) {
+    if (collectIdx === argv.length - 1) {
+      process.stderr.write(
+        "usage: agent-finding-schema --collect-lens-negatives <dir>\n",
+      );
+      return 2;
+    }
+    const dir = argv[collectIdx + 1];
+    const result = await collectLensNegativesFromDir(dir);
+    process.stdout.write(JSON.stringify(result) + "\n");
+    return 0;
+  }
+
   const flagIdx = argv.indexOf("--validate");
   if (flagIdx === -1 || flagIdx === argv.length - 1) {
     process.stderr.write(

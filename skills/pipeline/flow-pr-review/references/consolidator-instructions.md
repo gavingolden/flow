@@ -171,14 +171,20 @@ finding **identically** to a Claude finding (no special-casing). When the
 Gemini file is absent, proceed silently with the six Claude sources.
 
 Alongside the findings merge, collect each lens's valid
-`rejected_alternatives` and `anti_patterns_found` entries (read directly
-from the per-lens artifact JSON, not the validate-call envelope — see
-step (a) above) and tag each entry with `lens: "<name>"`. Lens vocabulary is the six
-kebab-case names canonical in `flow-pr-review/SKILL.md`'s agent table
-(`bug-detection`, `security`, `pattern-consistency`, `performance`,
-`supply-chain`, `test-coverage`), matching the `agent-output-<lens>.json`
-filenames; the optional Gemini lens contributes as `lens: "gemini"` when its
-file is present and valid.
+`rejected_alternatives` and `anti_patterns_found` entries via the
+deterministic helper rather than hand-copying six JSON files by eye:
+
+```sh
+flow-agent-finding-schema --collect-lens-negatives <worktree>/.flow-tmp
+```
+
+This normalizes and lens-tags every entry across the six canonical
+kebab-case lenses (`bug-detection`, `security`, `pattern-consistency`,
+`performance`, `supply-chain`, `test-coverage`) plus the optional Gemini
+lens, and prints `{"lens_rejected_alternatives": [...],
+"lens_anti_patterns_found": [...], "lens_negatives_missing": [...]}` to
+stdout, exit 0. Embed its output verbatim into step (e)'s artifact — do
+not re-derive the three keys by hand.
 
 ### (c) Filter and dedup
 
@@ -266,7 +272,12 @@ The three `lens_*` keys are OPTIONAL on the validator — an absent key still
 validates. Pre-seed them to `[]` anyway rather than omitting them: the
 pre-seed is what makes the consolidator actually EMIT the pass-through
 channel (populated from step (b)'s collection, or left `[]` when no lens
-contributed anything) rather than silently rendering blank downstream.
+contributed anything) rather than silently rendering blank downstream. A
+pre-seeded-but-empty triple is exactly the case the foreclosed-paths
+formatter's disk fallback also rescues (it re-reads `agent-output-*.json`
+directly when the artifact's three keys are absent OR present-but-empty
+and the disk copies still yield entries) — so pre-seeding stays safe and
+required, never a way to accidentally suppress that fallback.
 
 The clean-exit write itself does NOT use the read-before-overwrite
 guard from
@@ -306,9 +317,9 @@ their types and one-line descriptions:
 | `rejected_alternatives`      | `Array<string>`                                                                               | **Process-scoped** consolidation-meta: strategies the consolidator itself considered and rolled back (e.g. "dropped dedup window from ±5 to ±2 lines because long functions clustered unrelated findings"). CONSOLIDATOR-AUTHORED — never confuse with the code-scoped `lens_rejected_alternatives` below.                                            |
 | `anti_patterns_found`        | `Array<string>`                                                                               | **Process-scoped** consolidation-meta: off-pattern observations about the consolidation run itself (e.g. "Pattern-Consistency and Performance agents both flagged the same `await`-in-loop; the lens-sharing rule worked but logged a clustering note"). CONSOLIDATOR-AUTHORED — never confuse with the code-scoped `lens_anti_patterns_found` below. |
 | `summary`                    | `string`                                                                                      | One-paragraph both-sides summary (≥1 positive, ≥1 negative).                                                                                                                                                                                                                                                                                          |
-| `lens_rejected_alternatives` | `Array<{considered_approach: string, why_rejected: string, lens: string}>` (optional)         | **Code-scoped**, PASS-THROUGH from the per-lens artifacts, tagged with the source `lens`. Never authored by the consolidator itself. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                                                                                               |
-| `lens_anti_patterns_found`   | `Array<{location: string, pattern: string, recommendation: string, lens: string}>` (optional) | **Code-scoped**, PASS-THROUGH from the per-lens artifacts, tagged with the source `lens`. Never authored by the consolidator itself. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                                                                                               |
-| `lens_negatives_missing`     | `Array<string>` (optional)                                                                    | Names of lenses whose per-agent envelope reported an `"absent"` negatives state on either array (see step (a)). Recorded, never escalated. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                                                                                         |
+| `lens_rejected_alternatives` | `Array<{considered_approach: string, why_rejected: string, lens: string}>` (optional)         | **Code-scoped**, PASS-THROUGH from the per-lens artifacts, tagged with the source `lens`. Produced by `flow-agent-finding-schema --collect-lens-negatives`; never authored by the consolidator itself. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                             |
+| `lens_anti_patterns_found`   | `Array<{location: string, pattern: string, recommendation: string, lens: string}>` (optional) | **Code-scoped**, PASS-THROUGH from the per-lens artifacts, tagged with the source `lens`. Produced by `flow-agent-finding-schema --collect-lens-negatives`; never authored by the consolidator itself. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                             |
+| `lens_negatives_missing`     | `Array<string>` (optional)                                                                    | Names of lenses whose per-agent envelope reported an `"absent"` negatives state on either array (see step (a)). Also produced by `flow-agent-finding-schema --collect-lens-negatives`. Recorded, never escalated. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                  |
 
 The validator at `bin/lib/agent-finding-schema.ts` is the runtime
 schema reference: `validateConsolidatorResult(parsed)` enforces the
