@@ -4,6 +4,7 @@
  *
  * Usage:
  *   flow-remove-worktree [<worktree-path-or-branch>]
+ *   flow-remove-worktree --slug <worktree-path-or-branch>
  *
  * The positional is optional when invoked from inside a flow tmux pane:
  * the slug auto-resolves from `$TMUX_PANE`'s `@flow-slug` window option
@@ -298,7 +299,7 @@ type WorktreeInfo = {
 
 function printHelp(): void {
   console.log(`
-Usage: flow-remove-worktree [<worktree-path-or-branch>]
+Usage: flow-remove-worktree [<worktree-path-or-branch>] [--slug <slug>]
 
 Removes a git worktree and optionally deletes the associated branch.
 
@@ -309,6 +310,7 @@ Arguments:
                             $TMUX_PANE's @flow-slug option.
 
 Options:
+  --slug <slug>               same as the positional argument
   --delete-branch            Also delete the branch after removing the worktree.
 
 Examples:
@@ -316,6 +318,88 @@ Examples:
   flow-remove-worktree agent/improve-tooltips --delete-branch
   flow-remove-worktree                # slug from \$TMUX_PANE
   `);
+}
+
+/**
+ * Parses argv into a slug (positional or `--slug <value>`), the
+ * `--delete-branch` flag, and a `--help`/`-h` marker. Fails closed: any
+ * unrecognised `--` token (including a bare `--slug=<value>` equals form,
+ * which this parser does not accept) is an error rather than a silently
+ * discarded flag — a discarded `--slug` would fall through to the ambient
+ * $TMUX_PANE slug and remove the CALLER's own worktree instead of the
+ * intended target.
+ */
+export function parseArgs(
+  argv: string[],
+): { slug?: string; deleteBranch: boolean; help: boolean } | { error: string } {
+  let positionalSlug: string | undefined;
+  let flagSlug: string | undefined;
+  let deleteBranch = false;
+  let help = false;
+  let i = 0;
+  while (i < argv.length) {
+    const a = argv[i];
+    if (a === "--help" || a === "-h") {
+      help = true;
+      i += 1;
+      continue;
+    }
+    if (a === "--delete-branch") {
+      deleteBranch = true;
+      i += 1;
+      continue;
+    }
+    if (a === "--slug") {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith("--")) {
+        return { error: "--slug requires a value" };
+      }
+      // Fail closed on a repeat rather than last-wins: silently discarding
+      // the first value is the same class of bug as the discarded flag this
+      // parser exists to reject, and here the wrong target is irreversible.
+      if (flagSlug !== undefined) {
+        return { error: "--slug given more than once" };
+      }
+      flagSlug = value;
+      i += 2;
+      continue;
+    }
+    if (a.startsWith("--")) return { error: `unknown flag: ${a}` };
+    if (positionalSlug !== undefined) {
+      return { error: `unexpected extra argument: ${a}` };
+    }
+    positionalSlug = a;
+    i += 1;
+  }
+  if (positionalSlug !== undefined && flagSlug !== undefined) {
+    return { error: "cannot combine positional <slug> with --slug" };
+  }
+  const slug = positionalSlug ?? flagSlug;
+  return slug === undefined
+    ? { deleteBranch, help }
+    : { slug, deleteBranch, help };
+}
+
+/**
+ * Wires parseArgs into resolveInput — the step where a discarded flag used to
+ * become a wrong-target removal. Exported so the wiring itself is testable
+ * without spawning the binary: the bug gh#726 exposed lived here, not in
+ * either function alone, so a test that only exercises parseArgs would not
+ * have been red before the fix.
+ */
+export function resolveTargetInput(
+  argv: string[],
+  resolveSlug: () => string | null,
+):
+  | { input: string | null; deleteBranch: boolean; help: boolean }
+  | { error: string } {
+  const parsed = parseArgs(argv);
+  if ("error" in parsed) return { error: parsed.error };
+  return {
+    input: resolveInput(parsed.slug, resolveSlug),
+    deleteBranch: parsed.deleteBranch,
+    help: parsed.help,
+  };
 }
 
 /**
@@ -502,19 +586,27 @@ function resolveWorktree(input: string): WorktreeInfo {
 function main(): void {
   const args = process.argv.slice(2);
 
-  if (args.includes("--help") || args.includes("-h")) {
+  // Single wiring path, exercised directly by tests via resolveTargetInput:
+  // parse, then resolve. The zero-arg path is the load-bearing supervisor case
+  // (`flow-remove-worktree` from inside a flow tmux pane resolves the slug from
+  // `$TMUX_PANE`'s `@flow-slug` option), so an absent slug falls through to the
+  // ambient resolver rather than printing help.
+  const resolved = resolveTargetInput(args, () => resolveSlugAmbient());
+  // `--help` wins over a parse error, so a user who mistypes a flag alongside
+  // --help still gets the help text. parseArgs is the single help detector;
+  // main() reads its `help` field rather than re-scanning argv.
+  if (!("error" in resolved) && resolved.help) {
     printHelp();
     process.exit(0);
   }
+  if ("error" in resolved) {
+    log.error(`flow-remove-worktree: ${resolved.error}`);
+    printHelp();
+    process.exit(2);
+  }
+  const deleteBranch = resolved.deleteBranch;
 
-  const positional = args.filter((a) => !a.startsWith("--"));
-  const flags = new Set(args.filter((a) => a.startsWith("--")));
-  const deleteBranch = flags.has("--delete-branch");
-
-  // Zero-arg path is the load-bearing supervisor case: `flow-remove-worktree`
-  // from inside a flow tmux pane resolves the slug from `$TMUX_PANE`'s
-  // `@flow-slug` option. Don't print help here — fall through to resolveInput().
-  const input = resolveInput(positional[0], () => resolveSlugAmbient());
+  const input = resolved.input;
   if (!input) {
     log.error("Missing required argument: worktree path or branch name.");
     log.info(

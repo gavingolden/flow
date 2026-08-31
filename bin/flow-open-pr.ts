@@ -13,6 +13,7 @@
  * Usage:
  *   flow-open-pr [<slug>] --body-file <path>
  *                         [--title <title>] [--draft] [--base <branch>]
+ *                         [--slug <slug>]
  *
  * The slug is optional when invoked from inside a flow tmux pane: it
  * auto-resolves from `$TMUX_PANE`'s `@flow-slug` window option.
@@ -51,6 +52,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   // Same shape as flow-state-update's parseArgs.
   let rest: string[];
   const out: Args = { bodyFile: "", draft: false };
+  let sawSlugFlag = false;
   if (argv.length > 0 && !argv[0].startsWith("--")) {
     out.slug = argv[0];
     rest = argv.slice(1);
@@ -63,6 +65,22 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--draft":
         out.draft = true;
         continue;
+      case "--slug": {
+        const value = rest[i + 1];
+        if (value === undefined || value.startsWith("--")) {
+          return { error: "--slug requires a value" };
+        }
+        if (sawSlugFlag) {
+          return { error: "--slug given more than once" };
+        }
+        sawSlugFlag = true;
+        if (out.slug !== undefined) {
+          return { error: "cannot combine positional <slug> with --slug" };
+        }
+        out.slug = value;
+        i++;
+        continue;
+      }
       case "--body-file":
       case "--title":
       case "--base": {
@@ -228,7 +246,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   if ("error" in parsed) {
     console.error(`flow-open-pr: ${parsed.error}`);
     console.error(
-      "usage: flow-open-pr [<slug>] --body-file <path> [--title <t>] [--draft] [--base <b>]",
+      "usage: flow-open-pr [<slug>] --body-file <path> [--title <t>] [--draft] [--base <b>] [--slug <slug>]",
     );
     return 2;
   }
