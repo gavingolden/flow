@@ -5009,12 +5009,18 @@ describe("pr-review include-by-reference structure", () => {
     // discipline as every raise above. This also absorbs — and does NOT
     // retroactively re-tighten for — the pre-existing #704 overshoot
     // already noted on the main side.
+    //
+    // Raised 3040 → 3060 by the graded-confidence PR (the step-3
+    // plan-summary template and the answer-sheet paragraph each grew by
+    // in-sentence extensions, +11 lines, landing the branch at 3037), which
+    // then absorbed #687's +8 on merge: the combined file measures 3044,
+    // so the ceiling moves to 3060 (16 lines of headroom, same discipline).
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3040 lines. Material regrowth past this ceiling would ` +
+        `budget of 3060 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3040);
+    ).toBeLessThan(3060);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
