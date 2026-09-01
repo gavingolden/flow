@@ -17,7 +17,9 @@ equivalent CLI overrides).
 
 Run AFTER item 4's static-analysis pre-digest (the gate rules read its
 `dependencies`/`security` signals for the never-skip-on-signal
-overrides):
+overrides). The supply-chain lens stays on for any of three triggers: a
+changed manifest/lockfile, a static-analysis npm-audit `dependencies`
+signal, or a new bare-specifier import added in the reviewed diff.
 
 ```bash
 flow-review-scope --pr "$PR_NUMBER" --worktree "$WORKTREE" \

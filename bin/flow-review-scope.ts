@@ -28,7 +28,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentName } from "./flow-pr-agent-lens";
 import { capDiff, DEFAULT_MAX_LINES, DEFAULT_MAX_TOTAL } from "./flow-pr-diff";
-import { evaluateGates, type GateVerdict } from "./lib/review-lens-gates";
+import {
+  evaluateGates,
+  hasNewBareImports,
+  type GateVerdict,
+} from "./lib/review-lens-gates";
 import type { AnalysisResult } from "./flow-pr-static-analysis/types";
 
 export const DELTA_RATIO_THRESHOLD = 0.75;
@@ -433,9 +437,13 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     }
   }
 
+  const diffRaw = resolved.scope === "delta" ? deltaDiffRaw : fullDiffRaw;
+  const newBareImports = hasNewBareImports(diffRaw);
+
   const gates = evaluateGates(scopeFiles, {
     enabled: gatesEnabled,
     staticAnalysis,
+    newBareImports,
   });
 
   const scope: ReviewScope = {
@@ -454,7 +462,6 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     forced_full: parsed.forceFull,
   };
 
-  const diffRaw = resolved.scope === "delta" ? deltaDiffRaw : fullDiffRaw;
   const cappedDiff = capDiff(
     diffRaw,
     DEFAULT_MAX_LINES,

@@ -24,9 +24,12 @@ export const MANIFEST_GLOBS: readonly string[] = [
   "package-lock.json",
   "bun.lock",
   "bun.lockb",
+  "bunfig.toml",
   "yarn.lock",
+  ".yarnrc.yml",
   "pnpm-lock.yaml",
   ".npmrc",
+  "**/.npmrc",
   "requirements*.txt",
   "pyproject.toml",
   "poetry.lock",
@@ -37,6 +40,8 @@ export const MANIFEST_GLOBS: readonly string[] = [
   "Gemfile",
   "Gemfile.lock",
   "Dockerfile*",
+  "**/Dockerfile*",
+  ".github/dependabot.yml",
   ".github/workflows/**",
 ];
 
@@ -129,9 +134,37 @@ export function isDocsOnly(files: readonly string[]): boolean {
   );
 }
 
+const BARE_IMPORT_RE =
+  /^\+(?!\+\+)(?:.*\bimport\s+(?:[\w*${}\s,]+\s+from\s+)?['"]([^'"]+)['"]|.*\brequire\(\s*['"]([^'"]+)['"]\s*\))/;
+
+/**
+ * True iff any ADDED diff line (`+` prefix, never the `+++ b/file` file
+ * header) introduces an `import`/`require` of a bare specifier — one that
+ * does not start with `.`, `/`, `node:`, `bun:`, or `#` (Node subpath
+ * imports). A new bare specifier signals a new runtime dependency even
+ * when no manifest file changed in the same diff (e.g. a monorepo
+ * workspace hoisting an existing root-level dependency).
+ */
+export function hasNewBareImports(diffText: string): boolean {
+  for (const line of diffText.split("\n")) {
+    if (!line.startsWith("+") || line.startsWith("+++")) continue;
+    const m = BARE_IMPORT_RE.exec(line);
+    if (!m) continue;
+    const specifier = m[1] ?? m[2];
+    if (!specifier) continue;
+    if (/^(\.|\/|node:|bun:|#)/.test(specifier)) continue;
+    return true;
+  }
+  return false;
+}
+
 export function evaluateGates(
   files: readonly string[],
-  opts: { enabled: boolean; staticAnalysis?: AnalysisResult },
+  opts: {
+    enabled: boolean;
+    staticAnalysis?: AnalysisResult;
+    newBareImports?: boolean;
+  },
 ): Record<AgentName, GateVerdict> {
   const out: Record<string, GateVerdict> = {};
 
@@ -153,12 +186,14 @@ export function evaluateGates(
   const hasSecuritySignal = (opts.staticAnalysis?.security?.length ?? 0) > 0;
 
   out["supply-chain"] =
-    hasManifest || hasDependencySignal
+    hasManifest || hasDependencySignal || opts.newBareImports
       ? {
           run: true,
           reason: hasManifest
             ? "manifest/lockfile changed"
-            : "static-analysis dependencies signal",
+            : hasDependencySignal
+              ? "static-analysis dependencies signal"
+              : "new bare-specifier import in diff",
         }
       : {
           run: false,

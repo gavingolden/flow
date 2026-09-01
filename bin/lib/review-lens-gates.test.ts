@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_LENS_MAP } from "../flow-pr-agent-lens";
 import type { AnalysisResult } from "../flow-pr-static-analysis/types";
-import { evaluateGates, isDocsOnly } from "./review-lens-gates";
+import {
+  evaluateGates,
+  hasNewBareImports,
+  isDocsOnly,
+} from "./review-lens-gates";
 
 const EMPTY_ANALYSIS: AnalysisResult = {
   security: [],
@@ -35,6 +39,20 @@ describe("evaluateGates", () => {
     expect(
       evaluateGates(["bun.lock"], { enabled: true })["supply-chain"].run,
     ).toBe(true);
+  });
+
+  it("runs supply-chain when bunfig.toml / .yarnrc.yml / a nested .npmrc / .github/dependabot.yml / a nested Dockerfile changed", () => {
+    for (const file of [
+      "bunfig.toml",
+      ".yarnrc.yml",
+      "apps/web/.npmrc",
+      ".github/dependabot.yml",
+      "docker/service/Dockerfile.prod",
+    ]) {
+      expect(evaluateGates([file], { enabled: true })["supply-chain"].run).toBe(
+        true,
+      );
+    }
   });
 
   it("runs supply-chain when staticAnalysis.dependencies is non-empty even with no manifest change", () => {
@@ -128,5 +146,38 @@ describe("evaluateGates", () => {
     expect(new Set(Object.keys(gates))).toEqual(
       new Set(Object.keys(AGENT_LENS_MAP)),
     );
+  });
+
+  it("runs supply-chain with reason 'new bare-specifier import in diff' when opts.newBareImports is true and no manifest changed", () => {
+    const gates = evaluateGates(["src/foo.ts"], {
+      enabled: true,
+      newBareImports: true,
+    });
+    expect(gates["supply-chain"]).toEqual({
+      run: true,
+      reason: "new bare-specifier import in diff",
+    });
+  });
+});
+
+describe("hasNewBareImports", () => {
+  it('returns true for an added `import x from "picomatch"` line', () => {
+    expect(hasNewBareImports('+import x from "picomatch";')).toBe(true);
+  });
+
+  it('returns true for an added `const y = require("chalk")` line', () => {
+    expect(hasNewBareImports('+const y = require("chalk");')).toBe(true);
+  });
+
+  it("returns false for relative, absolute, node:, and bun: specifiers", () => {
+    expect(hasNewBareImports('+import x from "./foo";')).toBe(false);
+    expect(hasNewBareImports('+import x from "/abs/foo";')).toBe(false);
+    expect(hasNewBareImports('+import fs from "node:fs";')).toBe(false);
+    expect(hasNewBareImports('+import { Bun } from "bun:test";')).toBe(false);
+  });
+
+  it("returns false for +++ file-header lines and for removed (-) lines", () => {
+    expect(hasNewBareImports("+++ b/file.ts")).toBe(false);
+    expect(hasNewBareImports('-import x from "picomatch";')).toBe(false);
   });
 });
