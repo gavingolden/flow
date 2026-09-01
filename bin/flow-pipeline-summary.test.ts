@@ -1167,6 +1167,96 @@ describe("run — end-to-end", () => {
     });
     expect(out).toContain("store the token in localStorage");
   });
+
+  it("should render LENSES from review-telemetry.json beside the consolidator result on --lens dev", () => {
+    const consolidatorFile = write(
+      "consolidator-result.json",
+      JSON.stringify({
+        consolidated_findings: [],
+        dropped_by_validation: [],
+        rejected_alternatives: [],
+        anti_patterns_found: [],
+        summary: "s",
+      }),
+    );
+    write(
+      "review-telemetry.json",
+      JSON.stringify({
+        version: 1,
+        run_id: "1:abc:t",
+        ts: "t",
+        repo: "flow",
+        slug: null,
+        pr: 1,
+        session_id: null,
+        scope: { kind: "delta", base_sha: "abc", head_sha: "def", delta_files: 1, delta_ratio: 0.1 },
+        widened: { value: false, reason: null },
+        lenses: {
+          "bug-detection": {
+            ran: true,
+            skip_reason: null,
+            model: null,
+            tokens: { total: 555 },
+            tokens_source: "task-notification",
+            findings_emitted: 1,
+            findings_survived: 1,
+            findings_dropped: 0,
+            findings_acted: 0,
+            findings_deferred: 0,
+          },
+        },
+      }),
+    );
+    const out = captureStdout(() => {
+      run(["--status", "gated", "--consolidator-result", consolidatorFile], {
+        read: DEV_LENS_READ,
+      });
+    });
+    expect(out).toContain("LENSES:");
+    expect(out).toContain("scope: delta (1 files)");
+    expect(out).toContain("bug-detection: ran · 555 tok · 1→1→0");
+  });
+
+  it("should render `lenses: none` / `LENSES:` + `none` when the sidecar is absent", () => {
+    const consolidatorFile = write(
+      "consolidator-result.json",
+      JSON.stringify({
+        consolidated_findings: [],
+        dropped_by_validation: [],
+        rejected_alternatives: [],
+        anti_patterns_found: [],
+        summary: "s",
+      }),
+    );
+    const out = captureStdout(() => {
+      run(["--status", "gated", "--consolidator-result", consolidatorFile], {
+        read: DEV_LENS_READ,
+      });
+    });
+    expect(out).toContain("LENSES:\n  none");
+  });
+});
+
+describe("render — pm lens LENSES line", () => {
+  it("should render a `lenses:` line under REVIEW on --lens pm", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      lens: "pm",
+      reviewTelemetryRaw: JSON.stringify({
+        scope: { kind: "full", delta_files: 0 },
+        widened: { value: false, reason: null },
+        lenses: {
+          "bug-detection": { ran: true, tokens: { total: 10 }, findings_emitted: 0, findings_survived: 0, findings_acted: 0 },
+        },
+      }),
+    });
+    expect(out).toContain("lenses: 1/1 ran, scope full, ~10 tokens");
+  });
+
+  it("should render `lenses: none` when the sidecar is absent", () => {
+    const out = render({ ...EMPTY_RENDER, lens: "pm" });
+    expect(out).toContain("lenses: none");
+  });
 });
 
 describe("run — --post-comment excludes the echo block", () => {
@@ -1608,6 +1698,21 @@ describe("renderComment — slim PR-comment block (dev)", () => {
     }).dev;
     expect(block).not.toContain("INTENT:");
   });
+
+  it("includes the LENSES section when reviewTelemetryRaw is supplied", () => {
+    const block = renderComment({
+      ...POPULATED_COMMENT_INPUTS,
+      reviewTelemetryRaw: JSON.stringify({
+        scope: { kind: "full", delta_files: 0 },
+        widened: { value: false, reason: null },
+        lenses: {
+          "bug-detection": { ran: true, tokens: { total: 5 }, findings_emitted: 0, findings_survived: 0, findings_acted: 0 },
+        },
+      }),
+    }).dev;
+    expect(block).toContain("LENSES:");
+    expect(block).toContain("bug-detection: ran · 5 tok · 0→0→0");
+  });
 });
 
 describe("renderComment — slim PR-comment block (pm)", () => {
@@ -1624,6 +1729,7 @@ describe("renderComment — slim PR-comment block (pm)", () => {
       "deferred → https://github.com/o/r/issues/2 (later)",
     );
     expect(block).toContain("UNTRACKED:");
+    expect(block).toContain("lenses: none");
     expect(block).not.toContain("DECISIONS:");
     expect(block).not.toContain("PHASES:");
     expect(block).not.toContain("MANUAL STEPS:");
