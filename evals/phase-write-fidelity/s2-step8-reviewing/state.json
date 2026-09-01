@@ -1,0 +1,12 @@
+{
+  "phase": "ci-wait",
+  "pr": 1,
+  "launcher": "plain",
+  "phaseLog": [
+    { "phase": "triage", "at": "2026-01-01T00:00:00.000Z" },
+    { "phase": "plan-pending-review", "at": "2026-01-01T00:05:00.000Z" },
+    { "phase": "implementing", "at": "2026-01-01T00:10:00.000Z" },
+    { "phase": "verifying", "at": "2026-01-01T00:20:00.000Z" },
+    { "phase": "ci-wait", "at": "2026-01-01T00:30:00.000Z" }
+  ]
+}

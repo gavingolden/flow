@@ -418,7 +418,7 @@ exist anymore).
 | Field | Set by | When |
 |---|---|---|
 | `slug`, `repo` | `flow feature create` | once at pipeline creation |
-| `phase` | you, via `flow-state-update --phase <p>` | at every transition |
+| `phase` | you via `flow-state-update --phase <p>`, or the step's emitting helper (see each step's **Phase:** line) | at every transition |
 | `worktree` | you, via `flow-state-update --worktree <path>` | once after step 2 (`flow-new-worktree` returns) |
 | `pr` | you, via `flow-state-update --pr <n>` | once after step 5 (the PR opens) |
 | `updatedAt` | `flow-state-update` | refreshed on every call |
@@ -451,9 +451,11 @@ pipeline:
 # so consumers like `flow done` can find the worktree.
 flow-state-update --phase worktree-create --worktree "$WORKTREE"
 
-# After step 5 (PR opens): record the PR number so flow ls shows
-# the #142 column.
-flow-state-update --phase implementing --pr "$PR"
+# After step 5 (PR opens): flow-open-pr owns BOTH fields — it records
+# the PR number (so flow ls shows the #142 column) AND advances the
+# phase to implementing in the same call. Do not also run a manual
+# flow-state-update for the phase here — that would be redundant with
+# the helper's own write, not complementary to it.
 ```
 
 After the PR is set, never overwrite it — subsequent transitions
@@ -1333,6 +1335,9 @@ it's a non-terminal phase the resume + hook machinery already handles).
 
 **Phase:** `implementing`
 
+Emitted by `flow-open-pr` as a side effect of returning the value this
+step branches on ($PR_URL); there is no separate phase-write command.
+
 Invoke `/flow-new-feature` in-process. On the first entry to this step,
 pass the user's request plus the approved plan's path:
 
@@ -1421,12 +1426,10 @@ closed: the previous three-call sequence stranded PRs in `pr: —`
 when the supervisor crashed between `gh pr create` and the state
 write.
 
-Then transition the phase (preserving the `pr` field the helper
-just wrote):
-
-```bash
-flow-state-update --phase implementing
-```
+The phase write is a side effect of `flow-open-pr` — it advances
+`phase` to `implementing` as it records `pr`, so obtaining `$PR_URL`
+and recording the phase are the same action. Do not write it
+separately.
 
 **Re-entry from a fix loop** (called from step 7 ci-red or step 8
 review-critical): pass mode=fix and the failure log:
@@ -1535,6 +1538,10 @@ visible.
 
 **Phase:** `verifying`
 
+Emitted by `flow-verify-prep` as a side effect of returning the values
+this step cannot spawn the verify subagent without; there is no
+separate phase-write command.
+
 The verify work runs inside one **Independent Verify-Retry-Loop
 Subagent** (the ninth named Task-tool exemption — see "Hard rules"
 above), not inline in the supervisor. The subagent owns the
@@ -1556,45 +1563,24 @@ and the terminal branch.
 
 **Load the Task tool before spawning** — i.e. before the Task call below. See [../flow-pr-review/references/task-tool-exemption-preamble.md](../flow-pr-review/references/task-tool-exemption-preamble.md) for the full rationale. On missing schema: escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-verify-loop` and exit (do not fall back to in-line execution).
 
-**Run this block before spawning — its first line is the phase write.**
-Resolve the inputs the subagent needs, then make exactly **one** Task
-call:
+**Run this block before spawning — it is what makes the phase write
+unskippable.** `flow-verify-prep` resolves every value the subagent
+needs (including the `VERIFY_MODEL` precedence —
+`state.modelVerify > config.models.verify > "sonnet"`, see
+[references/model-routing.md](references/model-routing.md) — and the
+two-tier `VERIFY_SUBAGENT` probe, with its `NOTICE — agent-fallback:`
+line on the fallback tier) and advances `phase` to `verifying` as a
+side effect of returning them — obtaining this JSON and writing the
+phase are the same action, so the write cannot be skipped
+independently of the spawn this block leads into. Then make exactly
+**one** Task call:
 
 ```bash
-# Phase write lives here, not a standalone block above, so it cannot be
-# skipped independently of the spawn this block leads into.
-flow-state-update --phase verifying
-
-ARTIFACT_PATH="$WORKTREE/.flow-tmp/verify-loop-result.json"
-INSTRUCTIONS_PATH="$SKILL_DIR/references/verify-loop-instructions.md"
-mkdir -p "$WORKTREE/.flow-tmp"
-rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior verify cycle
-
-# Per-phase model (verify) — resolution field: state.modelVerify.
-# Precedence (verify is the ONE asymmetry): --model-verify > config.models.verify
-# > "sonnet" — verify does NOT inherit the session model (a mechanical gate
-# rarely earns an expensive model). See references/model-routing.md.
-SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
-VERIFY_MODEL=$(jq -r '.modelVerify // empty' ~/.flow/state/"$SLUG".json)
-[ -z "$VERIFY_MODEL" ] && VERIFY_MODEL=$(jq -r '.models.verify // empty' ~/.flow/config.json 2>/dev/null)
-[ -z "$VERIFY_MODEL" ] && VERIFY_MODEL="sonnet"
-
-# Subagent type: the flow-verify definition (agents/flow-verify.md) pins
-# effort: low so this mechanical loop stops burning high-effort tokens.
-# Plugin-hosted agents are addressable ONLY by the plugin-qualified name
-# <pluginRootName>:<agentBasename> — a bare "flow-verify" subagent_type
-# fails Task-tool resolution outright (measured: "Agent type 'flow-scout'
-# not found"). Resolve in two tiers: (1) plugin-root definition present
-# → plugin-qualified name; (2) absent → fall back to general-purpose,
-# loudly, so the pipeline never fails on an unknown agent type. The
-# per-spawn model: below overrides the definition's model, so the verify
-# precedence is unchanged either way.
-VERIFY_SUBAGENT=general-purpose
-if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-verify.md ]; then
-  VERIFY_SUBAGENT=flow-module-core:flow-verify
-else
-  echo "NOTICE — agent-fallback: flow-verify → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."
-fi
+VERIFY_JSON=$(flow-verify-prep --worktree "${WORKTREE:?WORKTREE not set}" --skill-dir "${SKILL_DIR:?SKILL_DIR not set}" --pr "$PR") || { echo "NEEDS HUMAN: flow-verify-prep exited non-zero"; exit 2; }
+ARTIFACT_PATH=$(printf '%s' "$VERIFY_JSON" | jq -r '.artifactPath')
+INSTRUCTIONS_PATH=$(printf '%s' "$VERIFY_JSON" | jq -r '.instructionsPath')
+VERIFY_MODEL=$(printf '%s' "$VERIFY_JSON" | jq -r '.verifyModel')
+VERIFY_SUBAGENT=$(printf '%s' "$VERIFY_JSON" | jq -r '.verifySubagent')
 ```
 
 Spawn-prompt template (fill the `{{...}}` placeholders before passing to
@@ -1724,6 +1710,10 @@ Continue to step 7.
 ## Step 7 — CI + Copilot wait
 
 **Phase:** `ci-wait`
+
+Emitted by `flow-ci-check` as a side effect of returning the value
+this step branches on (`.decision`); there is no separate phase-write
+command.
 
 **Copilot-module precheck (before any of this).** Probe
 `flow-module-status --check copilot >/dev/null 2>&1` — non-zero means the
@@ -1906,6 +1896,15 @@ clean head. On `merged-externally`, run cleanup and end. On `pr-blocked`
 
 **Phase:** `reviewing`
 
+Emitted by `flow-fetch-pr-review` (via `/flow-pr-review` Step 2) as a
+side effect of returning the value this step branches on; there is no
+separate phase-write command. A gatekeeper `skip` short-circuit
+(Step 1.5, closed/merged/trivial PR) bypasses Step 2's fetch and so
+never writes `reviewing` — benign: `flow-gate-decide` advances straight
+to `gating` at Step 9, and monotonicity means the phase is never
+*behind* reality, only the `phaseLog[]` audit row for this step is
+missing.
+
 Invoke `/flow-pr-review` in-process with the PR number:
 
 ```
@@ -2026,6 +2025,10 @@ fails, escalate `NEEDS HUMAN: review-failed`.
 ## Step 9 — Auto-merge gate
 
 **Phase:** `gating`
+
+Emitted by `flow-gate-decide` as a side effect of returning the value
+this step branches on (`.decision`); there is no separate phase-write
+command.
 
 `flow-gate-decide` consolidates the rubric parse (heading-presence grep →
 section extract → HTML-comment strip → unchecked-`- [ ]`-count) and the
@@ -2154,6 +2157,10 @@ purely on the step 9 supervisor-prose decision path.
 ## Step 10 — Merge
 
 **Phase:** `merging`
+
+Emitted by `flow-merge-guard` as a side effect of returning the
+pass/block verdict this step cannot proceed without; there is no
+separate phase-write command.
 
 **Mechanical merge guard — run before every merge.** `flow-merge-guard`
 is the backstop that makes the merge path mechanically unreachable on a

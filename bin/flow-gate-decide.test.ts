@@ -22,7 +22,7 @@ afterEach(() => {
   fs.rmSync(stateDir, { recursive: true, force: true });
 });
 
-function seedState(slug: string, autoMerge?: boolean): void {
+function seedState(slug: string, autoMerge?: boolean, pr?: number): void {
   const state: Record<string, unknown> = {
     slug,
     phase: "gating",
@@ -30,6 +30,10 @@ function seedState(slug: string, autoMerge?: boolean): void {
     updatedAt: "2026-04-30T12:00:00Z",
   };
   if (autoMerge !== undefined) state.autoMerge = autoMerge;
+  // Matching the PR under test keeps `advancePhase`'s `expectPr` guard from
+  // spuriously firing its `pr-mismatch` NOTICE on every pre-existing test
+  // here — a real pipeline already has `state.pr` set by Step 5.
+  if (pr !== undefined) state.pr = pr;
   fs.writeFileSync(
     path.join(stateDir, `${slug}.json`),
     JSON.stringify(state) + "\n",
@@ -416,7 +420,7 @@ describe(parseArgs, () => {
 
 describe("run() integration", () => {
   it("emits a decision JSON on success", () => {
-    seedState("alpha", true);
+    seedState("alpha", true, 100);
     const gh = vi.fn(() => ({
       stdout: JSON.stringify({
         body: "## Test Steps\n\n<!-- empty -->\n",
@@ -442,7 +446,7 @@ describe("run() integration", () => {
   });
 
   it("respects autoMerge: false from state.json", () => {
-    seedState("beta", false);
+    seedState("beta", false, 1);
     const gh = vi.fn(() => ({
       stdout: JSON.stringify({
         body: "## Test Steps\n\n<!-- empty -->\n",
@@ -465,7 +469,7 @@ describe("run() integration", () => {
   });
 
   it("emits escalate-gh-error on gh failure, still exits 0 (caller branches on decision)", () => {
-    seedState("gamma", true);
+    seedState("gamma", true, 999);
     const gh = vi.fn(() => ({ stdout: "", stderr: "no such PR", exitCode: 1 }));
     const writes: string[] = [];
     vi.spyOn(process.stdout, "write").mockImplementation((s) => {
@@ -510,7 +514,7 @@ describe("run() integration", () => {
   });
 
   it("auto-resolves --slug from $TMUX_PANE when omitted", () => {
-    seedState("delta", false);
+    seedState("delta", false, 2);
     const gh = vi.fn(() => ({
       stdout: JSON.stringify({
         body: "## Test Steps\n\n<!-- empty -->\n",
@@ -539,8 +543,8 @@ describe("run() integration", () => {
   });
 
   it("prefers an explicit --slug over the pane resolver (back-compat)", () => {
-    seedState("epsilon", true);
-    seedState("other-pipeline", false);
+    seedState("epsilon", true, 3);
+    seedState("other-pipeline", false, 3);
     const gh = vi.fn(() => ({
       stdout: JSON.stringify({
         body: "## Test Steps\n\n<!-- empty -->\n",
@@ -578,6 +582,70 @@ describe("run() integration", () => {
     });
     expect(exit).toBe(2);
     expect(errSpy.mock.calls.flat().join("\n")).toContain("@flow-slug");
+    errSpy.mockRestore();
+  });
+});
+
+describe("run() — phase advance", () => {
+  function readWritten(slug: string): Record<string, unknown> {
+    return JSON.parse(
+      fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"),
+    );
+  }
+
+  function seedReviewing(slug: string, pr: number): void {
+    fs.writeFileSync(
+      path.join(stateDir, `${slug}.json`),
+      JSON.stringify({
+        slug,
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        pr,
+        updatedAt: "2026-04-30T12:00:00Z",
+      }) + "\n",
+    );
+  }
+
+  const gh = vi.fn(() => ({
+    stdout: JSON.stringify({
+      body: "## Test Steps\n\n<!-- empty -->\n",
+      state: "OPEN",
+      url: "https://x/y/pull/10",
+    }),
+    stderr: "",
+    exitCode: 0,
+  }));
+
+  it("advances once on a forward call", () => {
+    seedReviewing("zeta", 10);
+    const exit = run(["10", "--slug", "zeta"], { gh, stateDir });
+    expect(exit).toBe(0);
+    const written = readWritten("zeta");
+    expect(written.phase).toBe("gating");
+    expect((written.phaseLog as unknown[]) ?? []).toHaveLength(1);
+  });
+
+  it("no-ops on repeat (already at gating)", () => {
+    seedState("eta-gate", true, 10);
+    const exit = run(["10", "--slug", "eta-gate"], { gh, stateDir });
+    expect(exit).toBe(0);
+    const written = readWritten("eta-gate");
+    expect(written.phase).toBe("gating");
+    expect((written.phaseLog as unknown[]) ?? []).toHaveLength(0);
+  });
+
+  it("is a no-op with a stderr NOTICE when state.pr does not match the PR under review (FLOW_SLUG leak)", () => {
+    seedReviewing("theta", 999);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = run(["10", "--slug", "theta"], { gh, stateDir });
+    expect(exit).toBe(0);
+    const written = readWritten("theta");
+    expect(written.phase).toBe("reviewing");
+    // Assert on `.mock.calls` BEFORE `mockRestore()` — restore also clears
+    // recorded call history (it does everything `mockReset()` does).
+    expect(errSpy.mock.calls.flat().join("\n")).toContain(
+      "NOTICE — phase-advance",
+    );
     errSpy.mockRestore();
   });
 });

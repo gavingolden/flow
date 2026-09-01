@@ -2,7 +2,10 @@
  * Tests for flow-fetch-pr-review.ts
  */
 
-import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildReplyIndex,
   formatComment,
@@ -10,8 +13,11 @@ import {
   groupByFile,
   parseNdjson,
   parsePrNumber,
+  run,
+  type GhRunner,
   type ReviewComment,
 } from "./flow-fetch-pr-review";
+import { readState, writeState } from "./lib/state";
 
 // --- Factories ---
 
@@ -223,5 +229,106 @@ describe(formatComment, () => {
     expect(result).toContain("> **@bob:** Line one");
     expect(result).toContain("> Line two");
     expect(result).toContain("> Line three");
+  });
+});
+
+describe("run()", () => {
+  let stateDir!: string;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-fetch-pr-review-"));
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    logSpy.mockRestore();
+  });
+
+  function seedState(slug: string, phase: string, pr?: number): void {
+    writeState(
+      {
+        slug,
+        phase,
+        repo: "/tmp/repo",
+        ...(pr !== undefined ? { pr } : {}),
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+      stateDir,
+    );
+  }
+
+  /** A minimal hermetic `gh` runner satisfying every call `run()` makes:
+   * `fetchPr`, `fetchReviews`, `fetchComments`, `fetchChangedFiles`. */
+  function makeGh(prNumber: number): GhRunner {
+    const prJson = JSON.stringify({
+      title: "Fix bug",
+      html_url: `https://github.com/o/r/pull/${prNumber}`,
+      number: prNumber,
+      state: "OPEN",
+      body: "",
+      additions: 1,
+      deletions: 0,
+      changed_files: 1,
+      head: { ref: "feature" },
+    });
+    return (args: string[]) => {
+      if (args[0] === "pr" && args[1] === "diff") return "";
+      if (args[0] === "api" && args.includes("--paginate")) return "";
+      if (args[0] === "api") return prJson;
+      throw new Error(`unexpected gh call in test: gh ${args.join(" ")}`);
+    };
+  }
+
+  it("prints help and returns 0 without touching gh when no args are given", () => {
+    const gh = vi.fn(() => {
+      throw new Error("gh should not be called");
+    });
+    const exit = run([], { gh });
+    expect(exit).toBe(0);
+    expect(gh).not.toHaveBeenCalled();
+    expect(logSpy.mock.calls.flat().join("\n")).toContain(
+      "Usage: flow-fetch-pr-review",
+    );
+  });
+
+  it("advances a matching pipeline's phase to reviewing after a successful fetch", () => {
+    seedState("s1", "ci-wait", 100);
+    const exit = run(["100"], {
+      gh: makeGh(100),
+      resolveSlug: () => "s1",
+      stateDir,
+    });
+    expect(exit).toBe(0);
+    const state = readState("s1", stateDir);
+    expect(state?.phase).toBe("reviewing");
+    expect(state?.phaseLog).toHaveLength(1);
+  });
+
+  it("does not write when state.pr differs (the FLOW_SLUG-leak case)", () => {
+    seedState("s2", "ci-wait", 999);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = run(["100"], {
+      gh: makeGh(100),
+      resolveSlug: () => "s2",
+      stateDir,
+    });
+    expect(exit).toBe(0);
+    expect(readState("s2", stateDir)?.phase).toBe("ci-wait");
+    expect(errSpy.mock.calls.flat().join("\n")).toContain(
+      "NOTICE — phase-advance",
+    );
+    errSpy.mockRestore();
+  });
+
+  it("does not write and does not crash when no state file exists (standalone invocation)", () => {
+    const exit = run(["100"], {
+      gh: makeGh(100),
+      resolveSlug: () => "ghost-slug",
+      stateDir,
+    });
+    expect(exit).toBe(0);
+    expect(fs.readdirSync(stateDir)).toHaveLength(0);
   });
 });

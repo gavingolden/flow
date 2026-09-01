@@ -944,6 +944,28 @@ export function writeRequestFile(
   fs.writeFileSync(requestFilePath(slug, dir), text, { mode: 0o600 });
 }
 
+/**
+ * Append one entry to `state.phaseLog`, creating the array when absent.
+ * Shared by `flow-state-update`'s `applyUpdate` and `bin/lib/phase-advance.ts`'s
+ * `advancePhase` so the two write paths cannot drift on `phaseLog[]` shape.
+ * Omits the `outcome` key entirely when absent — never writes
+ * `outcome: undefined`.
+ */
+export function appendPhaseLog(
+  existing: PipelineState,
+  phase: string,
+  outcome?: string,
+): NonNullable<PipelineState["phaseLog"]> {
+  return [
+    ...(existing.phaseLog ?? []),
+    {
+      phase,
+      at: nowIso(),
+      ...(outcome !== undefined ? { outcome } : {}),
+    },
+  ];
+}
+
 export function deleteState(slug: string, dir = FLOW_STATE_DIR): boolean {
   try {
     fs.unlinkSync(requestFilePath(slug, dir));

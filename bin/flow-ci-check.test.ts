@@ -57,13 +57,18 @@ function makeStateDir(): string {
 /** Seeds a minimal pre-existing pipeline state file, mirroring the real
  * shape `flow feature create` already wrote by the time step 7 runs a
  * `flow-ci-check` call — `flow-ci-check` never fabricates a whole
- * pipeline state, only the `ciWait` sub-record. */
-function seedState(dir: string, slug: string): void {
+ * pipeline state, only the `ciWait` sub-record. `pr: 100` matches every
+ * call site in this file (`run(["100", ...])`) — real pipelines already
+ * have `state.pr` set by Step 5 (`flow-open-pr`) before Step 7 runs, so
+ * the `advancePhase` `expectPr` guard must see it match here too, or every
+ * test would spuriously trip the `pr-mismatch` NOTICE. */
+function seedState(dir: string, slug: string, phase = "ci-wait-pending"): void {
   writeState(
     {
       slug,
-      phase: "ci-wait-pending",
+      phase,
       repo: "/tmp/repo",
+      pr: 100,
       updatedAt: "2026-01-01T00:00:00Z",
     },
     dir,
@@ -3768,5 +3773,113 @@ describe("run() — verdict persistence (ported)", () => {
       fs.readFileSync(outPath, "utf8"),
     ) as RunResult;
     expect(fileResult.decision).toBe("pr-conflicted");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 13. `advancePhase("ci-wait", ...)` side effect (plan.md Task 2)
+// ---------------------------------------------------------------------------
+
+describe("run() — phase advance", () => {
+  it("advances a verifying pipeline to ci-wait, and the write survives persistRecord (not the priorState-cache regression)", async () => {
+    const dir = makeStateDir();
+    const slug = "flow-ci-check-phase-verifying";
+    seedState(dir, slug, "verifying");
+    process.env.FLOW_SLUG = slug;
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("MERGED") },
+    ]);
+    const cap = captureStreams();
+    // This path calls `decided()`, which calls `persistRecord()` exactly
+    // once — asserting the phase AFTER this call is the regression guard:
+    // if `persistRecord` still cached the pre-advance `priorState`, its
+    // `writeState({ ...base, ciWait })` would silently revert the phase
+    // this same `run()` call just advanced.
+    const exit = await run(
+      ["100", "--state-dir", dir],
+      baseDeps(gh, 0, { readWorkflowsDir: () => false }),
+    );
+    cap.restore();
+    expect(exit).toBe(0);
+    const state = readState(slug, dir);
+    expect(state?.phase).toBe("ci-wait");
+    expect(state?.phaseLog).toHaveLength(1);
+    expect(state?.phaseLog?.[0]?.phase).toBe("ci-wait");
+  });
+
+  it("does not regress a ci-wait-pending state (the Step-7 yield anchors at ci-wait's own index)", async () => {
+    const dir = makeStateDir();
+    const slug = "flow-ci-check-phase-pending";
+    seedState(dir, slug); // default phase: "ci-wait-pending"
+    process.env.FLOW_SLUG = slug;
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("MERGED") },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(
+      ["100", "--state-dir", dir],
+      baseDeps(gh, 0, { readWorkflowsDir: () => false }),
+    );
+    cap.restore();
+    expect(exit).toBe(0);
+    expect(readState(slug, dir)?.phase).toBe("ci-wait-pending");
+  });
+
+  it("adds no second phaseLog entry on a repeated poll", async () => {
+    const dir = makeStateDir();
+    const slug = "flow-ci-check-phase-repeat";
+    seedState(dir, slug, "verifying");
+    process.env.FLOW_SLUG = slug;
+
+    const gh1 = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN") },
+      {
+        matches: isPrChecks,
+        response: prChecksResponse([{ name: "t", state: "IN_PROGRESS" }]),
+      },
+    ]);
+    await run(["100", "--state-dir", dir], baseDeps(gh1, 0));
+    expect(readState(slug, dir)?.phase).toBe("ci-wait");
+    expect(readState(slug, dir)?.phaseLog).toHaveLength(1);
+
+    const gh2 = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN") },
+      {
+        matches: isPrChecks,
+        response: prChecksResponse([{ name: "t", state: "IN_PROGRESS" }]),
+      },
+    ]);
+    await run(["100", "--state-dir", dir], baseDeps(gh2, 60000));
+    const state = readState(slug, dir);
+    expect(state?.phase).toBe("ci-wait");
+    expect(state?.phaseLog).toHaveLength(1);
+  });
+
+  it("skips the advance entirely in stateless mode (no FLOW_SLUG resolves)", async () => {
+    const dir = makeStateDir();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("MERGED") },
+    ]);
+    const cap = captureStreams();
+    // No FLOW_SLUG set (beforeEach deletes it) — `--state-dir` is passed
+    // only so a stray write would land in this throwaway dir instead of
+    // the developer's real `~/.flow/state`, never so the stateless branch
+    // can find it (it can't: it never resolves a slug).
+    const exit = await run(
+      ["100", "--state-dir", dir],
+      baseDeps(gh, 0, { readWorkflowsDir: () => false }),
+    );
+    cap.restore();
+    expect(exit).toBe(0);
+    expect(fs.readdirSync(dir)).toHaveLength(0);
+    // No slug ⇒ no state directory was ever consulted; the absence of a
+    // `phase-advance` NOTICE (which only fires on a resolved-but-mismatched
+    // slug) confirms the stateless branch never even attempts the call.
+    expect(cap.stderr.join("")).not.toContain("phase-advance");
   });
 });

@@ -40,6 +40,7 @@ import { readState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { findUnterminatedHtmlBlockLines } from "./lib/md-block-structure";
+import { advancePhase } from "./lib/phase-advance";
 
 export type Decision =
   | "auto-merge"
@@ -377,6 +378,11 @@ export function run(argv: string[], deps: Deps = {}): number {
   // true (matches the documented happy-path default in lib/state.ts).
   const state = readState(slug, stateDir);
   const autoMerge = state?.autoMerge ?? true;
+
+  // Side effect: advances `state.phase` to `gating` before any `gh`
+  // round-trip, so the auto-merge gate verdict this call returns is what
+  // makes the write unskippable (plan.md Task 3).
+  advancePhase("gating", { slug, expectPr: parsed.pr, dir: stateDir });
 
   const fetched = fetchPrInputs(parsed.pr, gh);
   if (fetched.kind === "error") {

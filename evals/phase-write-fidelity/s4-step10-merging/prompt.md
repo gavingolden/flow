@@ -1,0 +1,1 @@
+Load the `flow-pipeline` skill. Execute ONLY `## Step 10 — Merge` for PR 1 with `WORKTREE=$REPO`, up to and including the `flow-merge-guard` call. When it returns, emit its verdict and end the turn — do not merge, do not proceed past Step 10.

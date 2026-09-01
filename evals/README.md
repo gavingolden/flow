@@ -26,6 +26,26 @@ evals/
       checkpoint.md             # optional, the checkpoint body when fixture.checkpoint is set
 ```
 
+**`_shims/gh`'s supported subcommands.** `pr view <n|branch> --json a,b,c`
+answers from `$FLOW_EVAL_FIXTURE/pr.json` (an array of PR objects, or an
+object keyed by PR number); an absent field on the matched record reads
+as `null`, never a crash. `pr checks <n> --json a,b,c` answers from an
+OPTIONAL sibling `checks.json` (an array of check records) — when that
+file is absent it exits 1 with a short stderr rather than a silent `[]`,
+so a scenario that meant to seed CI state and forgot the file fails
+loudly instead of passing vacuously. `gh api repos/{owner}/{repo}/pulls/<n>`
+(plus its `/reviews` and `/comments` suffixes, `--paginate` optional) and
+`pr diff <n> --name-only` answer `bin/flow-fetch-pr-review.ts`'s four
+fetch calls from the same `pr.json` record's `title`/`html_url`/`body`/
+`additions`/`deletions`/`changed_files`/`head.ref` fields plus two
+shim-specific arrays, `apiReviews` and `apiComments` (deliberately
+separate from the `pr view --json reviews` shape — the REST reviews/
+comments endpoints and the GraphQL `reviewRequests`/`reviews` projection
+are different shapes off the same PR). Every other subcommand is
+unsupported and loud (`flow-eval gh shim: unsupported: [...]` on stderr,
+exit 1), never a silent success — a fixture-authoring gap must read as a
+red run, not a green one that proved nothing.
+
 ## suite.json
 
 ```json

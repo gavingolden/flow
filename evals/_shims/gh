@@ -5,13 +5,48 @@
  * an array of PR objects or an object keyed by PR number — and answers
  * `pr view <n|branch> --json a,b,c` from it. `null` for any requested
  * top-level key the object doesn't carry (never a crash — the real `gh`
- * also emits `null` for a field a PR genuinely has no value for). `pr
- * checks <n>` may exit 1 with a short stderr, matching a PR with no CI
- * runs yet; the real Step-1.5 `probeCi` tolerates that. Any other
- * subcommand is unsupported and loud, not silently swallowed.
+ * also emits `null` for a field a PR genuinely has no value for).
+ *
+ * `pr checks <n> --json a,b,c` answers from an OPTIONAL sibling
+ * `$FLOW_EVAL_FIXTURE/checks.json` (an array of check records) when that
+ * file exists, filtering each record to the requested fields the same way
+ * `pr view` does. When `checks.json` is absent it exits 1 with a short
+ * stderr, matching a PR with no CI runs yet — the real Step-1.5 `probeCi`
+ * and `bin/lib/ci-observe.ts`'s `observeChecks` both tolerate that
+ * (`observeChecks` treats a non-zero exit as "no checks reported yet",
+ * i.e. `[]`). This branch must NEVER return `[]` on a missing
+ * `checks.json` itself — that would convert a fixture-authoring mistake
+ * (a scenario that meant to seed CI state and forgot the file) into a
+ * silently-passing eval run indistinguishable from "CI genuinely has no
+ * checks yet".
+ *
+ * `pr diff --name-only` for Step 7's Copilot classifier is deliberately
+ * NOT implemented as a general-purpose diff parser (plan.md Contract
+ * adjustment #10 / cut list): the `s1-step7-ci-wait` scenario seeds
+ * `--copilot-not-requested` in its prompt instead, so that call site never
+ * fires. It IS answered below for a DIFFERENT caller discovered while
+ * authoring `s2-step8-reviewing`: `bin/flow-fetch-pr-review.ts`'s
+ * `fetchChangedFiles` also shells out to `pr diff <n> --name-only`, and
+ * `run()` calls it unconditionally alongside three `gh api` reads
+ * (`fetchPr`, `fetchReviews`, `fetchComments`) that Task 7's original
+ * scope did not name — Task 4's extraction (this PR) introduced the
+ * dependency. Skipping these four would crash `flow-fetch-pr-review`'s
+ * `run()` before it ever reaches the `advancePhase` call under test, so
+ * they are answered here from `pr.json`'s `files` / `apiReviews` /
+ * `apiComments` arrays (deliberately separate field names from the
+ * `pr view --json reviews` shape the Step-1.5 gatekeeper also reads off
+ * the same fixture record — the two `reviews` shapes are NOT
+ * interchangeable). Any other subcommand is unsupported and loud, not
+ * silently swallowed.
  */
 
 type PrRecord = Record<string, unknown>;
+
+function loadJsonArray(path: string): PrRecord[] {
+  const raw = require("node:fs").readFileSync(path, "utf8");
+  const parsed = JSON.parse(raw);
+  return Array.isArray(parsed) ? (parsed as PrRecord[]) : [];
+}
 
 function loadPrs(fixtureDir: string): PrRecord[] {
   const path = `${fixtureDir}/pr.json`;
@@ -70,9 +105,129 @@ function main(): number {
     return 0;
   }
 
+  if (verb === "pr" && sub === "diff") {
+    const selector = rest[0];
+    if (selector === undefined || !rest.includes("--name-only")) {
+      process.stderr.write(`flow-eval gh shim: unsupported: ${JSON.stringify(argv)}\n`);
+      return 1;
+    }
+    const fixtureDir = process.env.FLOW_EVAL_FIXTURE;
+    if (!fixtureDir) {
+      process.stderr.write("flow-eval gh shim: FLOW_EVAL_FIXTURE is not set\n");
+      return 1;
+    }
+    let prs: PrRecord[];
+    try {
+      prs = loadPrs(fixtureDir);
+    } catch (e) {
+      process.stderr.write(`flow-eval gh shim: could not read pr.json: ${e instanceof Error ? e.message : String(e)}\n`);
+      return 1;
+    }
+    const pr = findPr(prs, selector);
+    if (!pr) {
+      process.stderr.write(`flow-eval gh shim: no PR matching '${selector}' in pr.json\n`);
+      return 1;
+    }
+    const files = Array.isArray(pr.files) ? (pr.files as unknown[]) : [];
+    process.stdout.write(files.map((f) => String(f)).join("\n") + (files.length > 0 ? "\n" : ""));
+    return 0;
+  }
+
+  // `gh api repos/{owner}/{repo}/pulls/<n>[/reviews|/comments]` —
+  // `bin/flow-fetch-pr-review.ts`'s three `gh api` reads. `--jq` is
+  // accepted but ignored: this shim answers the exact shape each of the
+  // three callers expects directly, rather than re-implementing jq.
+  if (verb === "api") {
+    // Resource-path position varies: `gh api repos/.../pulls/<n>` (no
+    // --paginate, fetchPr's shape) puts it right after "api"; `gh api
+    // --paginate repos/.../pulls/<n>/reviews` (fetchReviews/fetchComments)
+    // pushes it one slot over. Scan for the first argv element that looks
+    // like a REST path instead of assuming a fixed index.
+    const resource = argv.slice(1).find((a) => a.startsWith("repos/"));
+    const pullMatch = typeof resource === "string" && resource.match(/\/pulls\/(\d+)(\/reviews|\/comments)?$/);
+    if (!pullMatch) {
+      process.stderr.write(`flow-eval gh shim: unsupported: ${JSON.stringify(argv)}\n`);
+      return 1;
+    }
+    const fixtureDir = process.env.FLOW_EVAL_FIXTURE;
+    if (!fixtureDir) {
+      process.stderr.write("flow-eval gh shim: FLOW_EVAL_FIXTURE is not set\n");
+      return 1;
+    }
+    let prs: PrRecord[];
+    try {
+      prs = loadPrs(fixtureDir);
+    } catch (e) {
+      process.stderr.write(`flow-eval gh shim: could not read pr.json: ${e instanceof Error ? e.message : String(e)}\n`);
+      return 1;
+    }
+    const pr = findPr(prs, pullMatch[1]);
+    if (!pr) {
+      process.stderr.write(`flow-eval gh shim: no PR matching '${pullMatch[1]}' in pr.json\n`);
+      return 1;
+    }
+    const suffix = pullMatch[2];
+    if (suffix === "/reviews") {
+      const rows = Array.isArray(pr.apiReviews) ? (pr.apiReviews as unknown[]) : [];
+      process.stdout.write(rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length > 0 ? "\n" : ""));
+      return 0;
+    }
+    if (suffix === "/comments") {
+      const rows = Array.isArray(pr.apiComments) ? (pr.apiComments as unknown[]) : [];
+      process.stdout.write(rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length > 0 ? "\n" : ""));
+      return 0;
+    }
+    // Bare `pulls/<n>` — flow-fetch-pr-review.ts's fetchPr shape.
+    const headRef = (pr.head as PrRecord | undefined)?.ref ?? pr.headRefName ?? "";
+    process.stdout.write(
+      JSON.stringify({
+        title: pr.title ?? "",
+        html_url: pr.url ?? "",
+        number: pr.number ?? 0,
+        state: pr.state ?? "",
+        body: pr.body ?? "",
+        additions: pr.additions ?? 0,
+        deletions: pr.deletions ?? 0,
+        changed_files: pr.changed_files ?? 0,
+        head: { ref: headRef },
+      }) + "\n",
+    );
+    return 0;
+  }
+
   if (verb === "pr" && sub === "checks") {
-    process.stderr.write("flow-eval gh shim: no checks reported (hermetic fixture)\n");
-    return 1;
+    const fixtureDir = process.env.FLOW_EVAL_FIXTURE;
+    if (!fixtureDir) {
+      process.stderr.write("flow-eval gh shim: FLOW_EVAL_FIXTURE is not set\n");
+      return 1;
+    }
+    const checksPath = `${fixtureDir}/checks.json`;
+    if (!require("node:fs").existsSync(checksPath)) {
+      process.stderr.write("flow-eval gh shim: no checks reported (hermetic fixture)\n");
+      return 1;
+    }
+    let checks: PrRecord[];
+    try {
+      checks = loadJsonArray(checksPath);
+    } catch (e) {
+      process.stderr.write(`flow-eval gh shim: could not read checks.json: ${e instanceof Error ? e.message : String(e)}\n`);
+      return 1;
+    }
+    const jsonFlagIdx = rest.indexOf("--json");
+    if (jsonFlagIdx === -1 || rest[jsonFlagIdx + 1] === undefined) {
+      process.stderr.write(`flow-eval gh shim: unsupported: ${JSON.stringify(argv)}\n`);
+      return 1;
+    }
+    const fields = rest[jsonFlagIdx + 1].split(",").map((f) => f.trim());
+    const out = checks.map((check) => {
+      const row: PrRecord = {};
+      for (const field of fields) {
+        row[field] = Object.prototype.hasOwnProperty.call(check, field) ? check[field] : null;
+      }
+      return row;
+    });
+    process.stdout.write(JSON.stringify(out) + "\n");
+    return 0;
   }
 
   process.stderr.write(`flow-eval gh shim: unsupported: ${JSON.stringify(argv)}\n`);
