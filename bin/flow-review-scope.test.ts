@@ -301,6 +301,8 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       "utf8",
     );
     expect(diffText).toContain("export const b = 2;");
+    expect(diffText).not.toContain("filler line 0");
+    expect(diffText).not.toContain("diff --git a/other.ts");
     const artifact = JSON.parse(
       fs.readFileSync(
         path.join(dir, ".flow-tmp", "agent-output-supply-chain.json"),
@@ -374,6 +376,155 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
     for (const verdict of Object.values(scope.gates) as { run: boolean }[]) {
       expect(verdict.run).toBe(true);
     }
+  });
+
+  it("with review.lensGates:false and review.deltaScope:false in config.json falls back to full scope and disables every gate", async () => {
+    const dir = makeRepo();
+    fs.mkdirSync(path.join(dir, ".flow"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".flow", "config.json"),
+      JSON.stringify({ review: { lensGates: false, deltaScope: false } }),
+    );
+    const gh = (args: string[]) => {
+      if (args[0] === "pr" && args[1] === "view")
+        return { stdout: "a.ts\n", exitCode: 0 };
+      if (args[0] === "pr" && args[1] === "diff")
+        return { stdout: "", exitCode: 0 };
+      return { stdout: "", exitCode: 1 };
+    };
+    const git = (args: string[], cwd: string) => {
+      const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+      return { stdout: r.stdout ?? "", exitCode: r.status ?? 1 };
+    };
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      readFile: (p) => {
+        try {
+          return fs.readFileSync(p, "utf8");
+        } catch {
+          return null;
+        }
+      },
+      writeFile: (p, content) => {
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, content);
+      },
+      now: () => new Date(),
+      homeDir: dir,
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.scope).toBe("full");
+    expect(scope.reason).toBe("delta scope disabled");
+    for (const verdict of Object.values(scope.gates) as {
+      run: boolean;
+      reason: string;
+    }[]) {
+      expect(verdict.run).toBe(true);
+      expect(verdict.reason).toBe("gates disabled");
+    }
+  });
+
+  it("with review.lensGates:'no' (non-strict-false) keeps gates enabled — the tolerant read", async () => {
+    const dir = makeRepo();
+    fs.mkdirSync(path.join(dir, ".flow"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".flow", "config.json"),
+      JSON.stringify({ review: { lensGates: "no" } }),
+    );
+    const gh = (args: string[]) => {
+      if (args[0] === "pr" && args[1] === "view")
+        return { stdout: "a.ts\n", exitCode: 0 };
+      if (args[0] === "pr" && args[1] === "diff")
+        return { stdout: "", exitCode: 0 };
+      return { stdout: "", exitCode: 1 };
+    };
+    const git = (args: string[], cwd: string) => {
+      const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+      return { stdout: r.stdout ?? "", exitCode: r.status ?? 1 };
+    };
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      readFile: (p) => {
+        try {
+          return fs.readFileSync(p, "utf8");
+        } catch {
+          return null;
+        }
+      },
+      writeFile: (p, content) => {
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, content);
+      },
+      now: () => new Date(),
+      homeDir: dir,
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.gates["test-coverage"].reason).not.toBe("gates disabled");
+  });
+
+  it('runs supply-chain with the bare-import reason when the diff adds a bare `import x from "leftpad"` line and no manifest changed', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-review-scope-"));
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+    fs.writeFileSync(path.join(dir, "a.ts"), "export const a = 1;\n");
+    fs.mkdirSync(path.join(dir, ".flow-tmp"), { recursive: true });
+    gitc(dir, ["add", "-A"]);
+    gitc(dir, ["commit", "-q", "-m", "commit A"]);
+    scratchDirs.push(dir);
+    const fakeDiff = [
+      "diff --git a/a.ts b/a.ts",
+      "index 111..222 100644",
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1 +1,2 @@",
+      " export const a = 1;",
+      '+import x from "leftpad";',
+      "",
+    ].join("\n");
+    const gh = (args: string[]) => {
+      if (args[0] === "pr" && args[1] === "view")
+        return { stdout: "a.ts\n", exitCode: 0 };
+      if (args[0] === "pr" && args[1] === "diff")
+        return { stdout: fakeDiff, exitCode: 0 };
+      return { stdout: "", exitCode: 1 };
+    };
+    const git = (args: string[], cwd: string) => {
+      const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+      return { stdout: r.stdout ?? "", exitCode: r.status ?? 1 };
+    };
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      readFile: (p) => {
+        try {
+          return fs.readFileSync(p, "utf8");
+        } catch {
+          return null;
+        }
+      },
+      writeFile: (p, content) => {
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, content);
+      },
+      now: () => new Date(),
+      homeDir: dir,
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.scope).toBe("full");
+    expect(scope.gates["supply-chain"]).toEqual({
+      run: true,
+      reason: "new bare-specifier import in diff",
+    });
   });
 });
 

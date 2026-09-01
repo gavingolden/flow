@@ -187,6 +187,43 @@ describe("attributeTranscripts", () => {
     const out = await attributeTranscripts(dir, future);
     expect(out.performance).toBeUndefined();
   });
+
+  it("picks the newest transcript's usage/file when a widen re-pass produces two transcripts for the same lens", async () => {
+    const dir = makeSubagentsDir();
+    const since = new Date(Date.now() - 60_000);
+
+    fs.writeFileSync(
+      path.join(dir, "agent-old.meta.json"),
+      JSON.stringify({ agentType: "flow-review-bug-detection" }),
+    );
+    const oldJsonl = path.join(dir, "agent-old.jsonl");
+    writeUsageJsonl(oldJsonl, "claude-old");
+
+    fs.writeFileSync(
+      path.join(dir, "agent-new.meta.json"),
+      JSON.stringify({ agentType: "flow-review-bug-detection" }),
+    );
+    const newJsonl = path.join(dir, "agent-new.jsonl");
+    fs.writeFileSync(
+      newJsonl,
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          model: "claude-new",
+          usage: { input_tokens: 200, output_tokens: 100 },
+        },
+      }),
+    );
+
+    const now = Date.now() / 1000;
+    fs.utimesSync(oldJsonl, now - 120, now - 120);
+    fs.utimesSync(newJsonl, now, now);
+
+    const out = await attributeTranscripts(dir, since);
+    expect(out["bug-detection"].usage.total).toBe(300);
+    expect(out["bug-detection"].model).toBe("claude-new");
+    expect(out["bug-detection"].file).toBe(newJsonl);
+  });
 });
 
 describe("findSubagentsDir", () => {

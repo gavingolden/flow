@@ -152,6 +152,57 @@ describe("collect", () => {
     expect(telemetry.lenses["bug-detection"].findings_survived).toBe(0);
   });
 
+  it("appends exactly one JSONL line on the production run_id path (derived from review-scope.json's started_at) across two collect --append runs with different injected `now` values", async () => {
+    const dir = makeWorktree();
+    fs.writeFileSync(
+      path.join(dir, ".flow-tmp", "review-scope.json"),
+      JSON.stringify({
+        scope: "full",
+        base_sha: null,
+        head_sha: "deadbeef1234",
+        delta_files: [],
+        delta_ratio: null,
+        started_at: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    const jsonlPath = path.join(dir, "rt-prod.jsonl");
+    const deps1 = makeDeps({ now: () => new Date("2026-01-01T00:00:01.000Z") });
+    await run(
+      [
+        "collect",
+        "--worktree",
+        dir,
+        "--pr",
+        "10",
+        "--append",
+        "--jsonl",
+        jsonlPath,
+      ],
+      deps1,
+    );
+    const deps2 = makeDeps({ now: () => new Date("2026-01-01T01:00:00.000Z") });
+    await run(
+      [
+        "collect",
+        "--worktree",
+        dir,
+        "--pr",
+        "10",
+        "--append",
+        "--jsonl",
+        jsonlPath,
+      ],
+      deps2,
+    );
+    const lines = fs
+      .readFileSync(jsonlPath, "utf8")
+      .split("\n")
+      .filter(Boolean);
+    expect(lines.length).toBe(1);
+    const entry = JSON.parse(lines[0]);
+    expect(entry.run_id.endsWith("2026-01-01T00:00:00.000Z")).toBe(true);
+  });
+
   it("exits 2 without --pr or --worktree", async () => {
     const deps = makeDeps();
     expect(await run(["collect", "--worktree", "/tmp/x"], deps)).toBe(2);
