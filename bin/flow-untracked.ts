@@ -25,9 +25,12 @@
  * Exit codes:
  *   0 — success (including no-op cases like an empty/absent state file for
  *       `list`/`render`).
- *   1 — `flow-create-issue` failed during `file`.
+ *   1 — `flow-create-issue` failed during `file` for a reason other than a
+ *       body rejection (e.g. `gh` unavailable, no Issues surface).
  *   2 — bad CLI args, missing state file (for `add`/`file`/`drop`), or an
  *       unresolvable slug.
+ *   3 — `flow-create-issue` rejected the body (exit 3, mapped straight
+ *       through — see `CreateIssueError`).
  */
 
 import { spawnSync } from "node:child_process";
@@ -37,10 +40,12 @@ import * as path from "node:path";
 import {
   readState,
   writeState,
+  statePath,
   type PipelineState,
   type UntrackedItem,
 } from "./lib/state";
 import { resolveSlugAmbient } from "./lib/session-identity";
+import { resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 export const UNTRACKED_RENDER_CAP = 2;
 
@@ -106,6 +111,69 @@ export type CreateIssue = (
 ) => { url: string };
 
 /**
+ * Structural exit-code carrier for a `flow-create-issue` failure — a
+ * property on the thrown Error, not a message-string prefix. `runFile`
+ * routes on `.exitCode` rather than bolting a second
+ * `message.startsWith(...)` check onto the existing not-found routing.
+ */
+export class CreateIssueError extends Error {
+  constructor(
+    message: string,
+    public readonly exitCode: number,
+  ) {
+    super(message);
+    this.name = "CreateIssueError";
+  }
+}
+
+/**
+ * Normalizes an `UntrackedItem.source` into a rubric-conforming
+ * `[anchor: …]` by construction, so the short form `fileItem` composes
+ * below can never rejection-loop against its own output:
+ *   - a source that resolves as a repo path emits the bare form,
+ *   - any other non-empty source emits the quoted-text form,
+ *   - an absent or empty source (representable per `bin/lib/state.ts`'s
+ *     `isUntrackedList`, which only checks `typeof source === "string"`)
+ *     falls back to the item's own id plus the untracked state-file path.
+ */
+export function normalizeSourceAnchor(
+  source: string | undefined,
+  id: number,
+  slug: string,
+): string {
+  const trimmed = (source ?? "").replace(/\s*\n\s*/g, " ").trim();
+  if (!trimmed) {
+    return `[anchor: item #${id}, ${statePath(slug)}]`;
+  }
+  const repoRoot = resolveAnchorRepoRoot(undefined);
+  const abs = path.resolve(repoRoot, trimmed);
+  const rel = path.relative(repoRoot, abs);
+  const inRepo =
+    !path.isAbsolute(trimmed) && rel !== "" && !rel.startsWith("..");
+  if (inRepo && fs.existsSync(abs)) {
+    return `[anchor: ${trimmed}]`;
+  }
+  return `[anchor: "${trimmed}"]`;
+}
+
+/**
+ * Composes a `**Short form:**` body line for an item with no recorded
+ * body, satisfying the flow-value-rubric contract on its own (see
+ * `bin/lib/issue-body-rubric.ts`) — `Value:2/Complexity:Trivial/Risk:Low`
+ * is the deliberate baseline for a user-dictated note: genuinely a
+ * one-liner, not something worth a full eight-label block.
+ */
+function buildShortFormBody(item: UntrackedItem, slug: string): string {
+  const anchor = normalizeSourceAnchor(item.source, item.id, slug);
+  // The rubric's short-form regex only scans the Short-form line itself,
+  // so an embedded newline in a user-dictated title would push the
+  // anchor onto line 2, where the checker can't see it — collapse to a
+  // single line before composing.
+  const title = item.title.replace(/\s*\n\s*/g, " ").trim();
+  return `**Short form:** [V:2|C:Trivial|R:Low] ${title} ${anchor}`;
+}
+
+/**
  * Idempotent: a second `fileItem` call on an already-filed item returns
  * `state` unchanged without invoking `createIssue` again.
  */
@@ -121,7 +189,8 @@ export function fileItem(
   }
   const item = items[idx];
   if (item.filedAs !== undefined) return state;
-  const { url } = createIssue(item.title, item.body);
+  const body = item.body ?? buildShortFormBody(item, state.slug);
+  const { url } = createIssue(item.title, body);
   const next = [...items];
   next[idx] = { ...item, filedAs: url };
   return { ...state, untracked: next };
@@ -328,8 +397,9 @@ function defaultCreateIssue(): CreateIssue {
         { encoding: "utf8" },
       );
       if (r.status !== 0) {
-        throw new Error(
+        throw new CreateIssueError(
           `flow-create-issue exited ${r.status}: ${(r.stderr ?? "").trim()}`,
+          r.status ?? 1,
         );
       }
       const parsed = JSON.parse(r.stdout) as { url: string };
@@ -362,10 +432,16 @@ function runFile(argv: string[], deps: Deps): number {
     saveState(next, deps);
     return 0;
   } catch (e) {
+    console.error(`flow-untracked: ${(e as Error).message}`);
+    // A flow-create-issue failure carries its child exit code structurally
+    // (CreateIssueError.exitCode) rather than a message-string prefix — a
+    // rejected body (exit 3) is distinct from any other gh/Issues-surface
+    // failure (exit 1). Unknown id stays a bad-args case (exit 2, matching
+    // `drop`'s contract), routed on the plain-Error message prefix.
+    if (e instanceof CreateIssueError) {
+      return e.exitCode === 3 ? 3 : 1;
+    }
     const message = (e as Error).message;
-    console.error(`flow-untracked: ${message}`);
-    // Unknown id is a bad-args case (exit 2, matching `drop`'s contract);
-    // only a flow-create-issue failure gets the dedicated exit 1.
     return message.startsWith("no untracked item") ? 2 : 1;
   }
 }

@@ -67,6 +67,13 @@ import {
 } from "./epic-status-schema";
 import { deriveBoard } from "../flow-epic-sync";
 import { defaultGh, type GhRunner } from "./resume-probes";
+import {
+  commitEpicStatus,
+  epicStatusLockPath,
+  pushEpicStatusFromWrittenPath,
+  resolveContainedRepoRoot,
+  type GitRunner,
+} from "./epic-metadata-commit";
 import { validateDag } from "../flow-epic-dag";
 import {
   deriveWorktreePath,
@@ -81,12 +88,15 @@ import {
   windowExists,
   isPaneAlive,
   FLOW_SESSION,
+  SEED_CORRUPTED_STDERR,
   type VerifiedLaunchResult,
 } from "./tmux";
 import {
   readState,
   writeState,
   deleteState,
+  requestFilePath,
+  writeRequestFile,
   nowIso,
   EFFORT_LEVELS,
   type EffortLevel,
@@ -100,7 +110,17 @@ import {
 } from "./models-config";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
-import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
+import {
+  seedIngestConfirmsDelivery,
+  seedIngestIsCorrupt,
+  unverifiedSeedWarning,
+} from "./seed-ingest";
+import {
+  LockTimeoutError,
+  resolveLaunchConcurrency,
+  withFileLockSync,
+  withTestSemaphore,
+} from "./lock";
 import {
   reconcile,
   classifyEvent,
@@ -169,6 +189,10 @@ function launchWithRetry(
     // `started` and `launched-not-confirmed` are both success (never kill/respawn
     // a live-but-slow pane); only `failed` (dead pane) is retryable.
     if (last.status !== "failed") return last;
+    // Deterministic corruption, not a transient hiccup — retrying resends the
+    // exact same bytes through the same broken delivery path. Fail fast
+    // rather than burning the retry budget on a guaranteed-repeat failure.
+    if (last.stderr === SEED_CORRUPTED_STDERR) return last;
   }
   return last;
 }
@@ -262,6 +286,11 @@ export type EpicOptions = {
    * production uses `resume-probes.ts`'s `defaultGh`).
    */
   gh?: GhRunner;
+  /**
+   * git seam for `runEpicDone`'s close-out status-board heal commit + push
+   * (test only; production uses `epic-metadata-commit.ts`'s defaults).
+   */
+  git?: GitRunner;
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
@@ -514,7 +543,17 @@ PR → review checkpoint), and writes initial epic state under
   // resolved LITERAL EPIC_DIR in the seed prompt so the spawned window (cwd'd
   // in a consumer worktree without bin/lib) consumes the literal, never an import.
   const epicDir = epicDirRelative(slug);
-  const seed = epicCreateSeed(prompt, epicDir, PRODUCT_PLANNING_SKILL_DIR);
+  const seed = epicCreateSeed(
+    prompt,
+    epicDir,
+    PRODUCT_PLANNING_SKILL_DIR,
+    requestFilePath(slug, options.stateDir),
+  );
+  // Write the request file BEFORE the launcher dispatch below — mirrors
+  // feature.ts's hoist. Epic orchestration is tmux-only (refused above), but
+  // this keeps the same "write before dispatch" invariant rather than tying
+  // it to a specific backend.
+  writeRequestFile(slug, prompt, options.stateDir);
   const settingsPath = launchSettingsPathFor(options);
 
   // Whole-session model resolved at launch: --model wins over config
@@ -553,6 +592,9 @@ PR → review checkpoint), and writes initial epic state under
   // consumption to THAT attempt; a retry only fires after a killed/dead window,
   // so no live supervisor races this rewrite.
   const launch = () => {
+    // A fresh literal (not a spread of `existing`) already omits
+    // `seedIngest`, so adding `seed` here is sufficient to "clear" the record
+    // on every launch attempt — there is nothing to explicitly unset.
     writeState(
       {
         slug,
@@ -562,6 +604,7 @@ PR → review checkpoint), and writes initial epic state under
         effort,
         model: sessionModel,
         modelPlanning,
+        seed,
         updatedAt: nowIso(),
       },
       options.stateDir,
@@ -572,16 +615,22 @@ PR → review checkpoint), and writes initial epic state under
     // seed delivery and kills its own half-created window on failure; the
     // delete-on-failure below removes the up-front state file.
     return createWindowVerified(slug, repo, command, seed, {
-      // Marker-aware consumed(): the seed-ingested hook stamping `seedIngestedAt`
-      // confirms ingestion at launch time; absent the marker, fall back to the
-      // phase advancing past `starting`. (consumed() is only probed while the
-      // pane is alive, so "marker present" already implies a live pane.)
+      // Record-aware consumed() (mirrors feature.ts runFresh): a `verified`
+      // seedIngest record confirms ingestion at launch time; every OTHER
+      // outcome (unverified, not-applicable, absent) falls through to the
+      // phase advancing past `starting`, so an unrun check can never stand in
+      // for verification. `corrupt` is checked FIRST so it always beats the
+      // phase-advance fallback — a corrupted delivery must never latch as
+      // consumed just because some other write advanced the phase.
       consumed: () => {
         const s = readState(slug, options.stateDir);
         if (s == null) return false;
-        if (s.seedIngestedAt != null) return true;
+        if (seedIngestIsCorrupt(s)) return false;
+        if (seedIngestConfirmsDelivery(s)) return true;
         return s.phase !== "starting";
       },
+      seedCorrupted: () =>
+        seedIngestIsCorrupt(readState(slug, options.stateDir)),
     });
   };
   const result = withLaunchSlot(
@@ -589,13 +638,34 @@ PR → review checkpoint), and writes initial epic state under
     options,
   );
   if (result.status === "failed") {
-    deleteState(slug, options.stateDir);
-    console.error(
-      "flow epic create: claude exited immediately after launch — the tmux window did not stay up.",
-    );
-    console.error(
-      "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
-    );
+    const seedCorrupted = result.stderr === SEED_CORRUPTED_STDERR;
+    // Mirrors feature.ts runFresh: the seed-corruption failure deliberately
+    // SKIPS the no-orphan delete — the request file written above (before the
+    // launcher dispatch) is the recovery artifact. reapableStartingOrphans
+    // (reap-orphans.ts) now skips any slug with a `corrupt` seedIngest, so
+    // `flow ls`'s lazy reap (REAP_GRACE_MS, ~60s) does NOT delete this state
+    // (or its sibling request file) shortly after.
+    if (!seedCorrupted) {
+      deleteState(slug, options.stateDir);
+    }
+    if (seedCorrupted) {
+      console.error(
+        "flow epic create: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
+      );
+      console.error(
+        `  the original epic prompt survives at ${requestFilePath(slug, options.stateDir)} — recover it from there.`,
+      );
+      console.error(
+        `  then clean up with \`flow done ${slug}\` (this pipeline is no longer auto-reaped).`,
+      );
+    } else {
+      console.error(
+        "flow epic create: claude exited immediately after launch — the tmux window did not stay up.",
+      );
+      console.error(
+        "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
+      );
+    }
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 2;
   }
@@ -614,6 +684,17 @@ PR → review checkpoint), and writes initial epic state under
       "  retry `flow epic create`; if it persists, check tmux/claude health.",
     );
     return 2;
+  }
+
+  // Deliberately AFTER the Mode-2 backstop above: an `unverified` record on a
+  // launch that then reports the window vanished would print two contradictory
+  // messages for one launch. Warning only — the exit code is unchanged.
+  {
+    const w = unverifiedSeedWarning(
+      "flow epic create",
+      readState(slug, options.stateDir),
+    );
+    if (w) console.error(dim(w));
   }
 
   // Publish the pane kind AFTER the launch is confirmed live (best-effort;
@@ -698,40 +779,85 @@ function runEpicResume(name: string, options: EpicOptions): number {
       state.model,
       options.pluginRootsScan,
     );
+  // Record THIS resume's own seed and clear any earlier hook markers before
+  // capturing the consumption baseline below (mirrors feature.ts runResume;
+  // Task 4b cross-path hazard fix). Two reasons this must happen HERE, before
+  // the baseline read: (1) the marker baseline captured immediately below must
+  // reflect a clean slate, so any post-resume stamp is unambiguously fresh,
+  // never a leftover from a prior launch/resume; (2) flow-seed-ingested-hook
+  // short-circuits on the two TERMINAL outcomes (`verified`,
+  // `not-applicable`) — without this clear the hook never performs its
+  // integrity comparison on a resume attempt at all. It ALSO fixes a
+  // false-positive: this path's own resume seed is NOT the create-time seed
+  // `runCreate` recorded, so without recording it here the hook would compare
+  // this delivery's prompt against that stale create-time seed and record a
+  // false `corrupt` outcome.
+  {
+    const preClear = readState(slug, options.stateDir);
+    if (preClear != null) {
+      writeState(
+        {
+          ...preClear,
+          seed,
+          seedIngest: undefined,
+        },
+        options.stateDir,
+      );
+    }
+  }
   // Resume consumption baseline (mirrors feature.ts runResume): on resume the phase
   // is already past `starting` (`epic-designing`), so consumption is "the
   // resumed session RE-STAMPED the seed-ingested marker OR the resumed
   // supervisor bumped `updatedAt` past this pre-respawn value". BOTH baselines
   // are captured ONCE before the retry loop (not per-attempt): paired with the
   // non-destructive launched-not-confirmed timeout, a late advance no longer
-  // respawn-kills a live session. The marker baseline is load-bearing — the
-  // original fresh launch stamped `seedIngestedAt` and `runEpicResume` never
-  // clears it (writeState is not called here), so a bare `seedIngestedAt != null`
-  // check would short-circuit `consumed()` true on the FIRST probe off the STALE
-  // marker, skip the resume-seed send-keys (the double-submit guard), and latch a
-  // false-success resume that never delivered the seed. Requiring `seedIngestedAt`
-  // to DIFFER from the pre-resume value means only a fresh re-stamp counts. This
-  // path never writes or deletes state — the window pre-existed the resume — so
-  // the read is non-mutating.
+  // respawn-kills a live session. The marker baseline is now ALWAYS undefined
+  // immediately after the clear above, so any post-resume stamp is
+  // unambiguously fresh. This path otherwise never writes/deletes state — the
+  // window pre-existed the resume — the clear above is the one exception.
   const preResume = readState(slug, options.stateDir);
   const baseline = preResume?.updatedAt;
-  const markerBaseline = preResume?.seedIngestedAt;
+  const markerBaseline = preResume?.seedIngest?.at;
   const consumed = () => {
     const s = readState(slug, options.stateDir);
     if (s == null) return false;
-    if (s.seedIngestedAt != null && s.seedIngestedAt !== markerBaseline)
+    // PREDICATE ORDER IS LOAD-BEARING (mirrors feature.ts runResume): corrupt
+    // first, then verified-AND-fresh. `markerBaseline` is now also set by
+    // not-applicable and unverified records, so a FRESH unverified record must
+    // NOT satisfy the baseline; every other outcome falls through to updatedAt.
+    if (seedIngestIsCorrupt(s)) return false;
+    if (seedIngestConfirmsDelivery(s) && s.seedIngest?.at !== markerBaseline)
       return true;
     return s.updatedAt !== baseline;
   };
+  // Wire seedCorrupted so a corrupted resume delivery is reported as a
+  // `failed` launch instead of falling through to the exit-0 "resumed"
+  // print below — without this, `docs/launch-reliability.md`'s claimed
+  // universal seed-integrity enforcement doesn't hold on this path.
+  const seedCorrupted = () =>
+    seedIngestIsCorrupt(readState(slug, options.stateDir));
   const launch = () =>
     exists
-      ? respawnWindowVerified(slug, repo, command, seed, { consumed })
-      : createWindowVerified(slug, repo, command, seed, { consumed });
+      ? respawnWindowVerified(slug, repo, command, seed, {
+          consumed,
+          seedCorrupted,
+        })
+      : createWindowVerified(slug, repo, command, seed, {
+          consumed,
+          seedCorrupted,
+        });
   const result = withLaunchSlot(
     () => launchWithRetry(launch, options.retrySleepMs, options.retrySleep),
     options,
   );
   if (result.status === "failed") {
+    if (result.stderr === SEED_CORRUPTED_STDERR) {
+      console.error(
+        "flow epic create --resume: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
+      );
+      console.error("  retry with `flow epic create --resume`.");
+      return 2;
+    }
     console.error(
       "flow epic create --resume: claude exited immediately after launch — the tmux window did not stay up.",
     );
@@ -740,6 +866,17 @@ function runEpicResume(name: string, options: EpicOptions): number {
     );
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 2;
+  }
+
+  // Mirrors runCreate's warning. This site has no Mode-2 windowExists
+  // backstop, so the failed-launch block above is the only thing it must
+  // follow.
+  {
+    const w = unverifiedSeedWarning(
+      "flow epic create --resume",
+      readState(slug, options.stateDir),
+    );
+    if (w) console.error(dim(w));
   }
 
   // LOAD-BEARING: this site has no Mode-2 windowExists backstop (the pane may
@@ -957,6 +1094,26 @@ function spawnEpicRunSupervisor(
   const worktree = deriveWorktreePath(repo, slug);
   const epicDir = epicDirRelative(slug);
   const seed = epicRunSeed(slug, epicDir);
+  // Record THIS run's own seed and clear any earlier hook markers, mirroring
+  // the resume paths above (Task 4b cross-path hazard fix). This window
+  // reuses the epic's existing slug/state.json (from `runCreate`), but
+  // `epicRunSeed` is a DIFFERENT prompt than whatever create/resume seed is
+  // already recorded there — without this write, flow-seed-ingested-hook
+  // would compare this window's prompt against that stale seed and record a
+  // false `corrupt` outcome.
+  {
+    const current = readState(slug, options.stateDir);
+    if (current != null) {
+      writeState(
+        {
+          ...current,
+          seed,
+          seedIngest: undefined,
+        },
+        options.stateDir,
+      );
+    }
+  }
   // Mirror runCreate's launch: resolve the flow-scoped settings file and build
   // the verified-launch argv through the shared builder. The supervisor session
   // model is `--model > config.models.default > inherited` (parity with
@@ -1660,6 +1817,7 @@ function healCommittedStatusBeforeArchive(
   epicsDir: string,
   cwd: string,
   gh: GhRunner,
+  git?: GitRunner,
 ): { ok: boolean; message: string } {
   try {
     const runState = readEpicRunState(slug, epicsDir);
@@ -1688,30 +1846,112 @@ function healCommittedStatusBeforeArchive(
       };
     }
     const epicDirAbs = path.dirname(manifestPath);
-    const existing = readCommittedStatus(epicDirAbs);
-    const { file, derived } = deriveBoard({
-      manifest: loaded.manifest,
-      existing,
-      gh,
+    const containment = resolveContainedRepoRoot({
+      writtenPath: path.join(epicDirAbs, EPIC_STATUS_FILENAME),
+      cwd,
     });
-    if (!derived) {
+    if (!containment.ok) {
       return {
         ok: false,
-        message: "epic status board: skipped (gh unavailable)",
+        message: `epic status board: skipped (${containment.reason}: ${epicDirAbs})`,
       };
     }
-    const serialized = serializeEpicStatus(file);
-    const statusPath = path.join(epicDirAbs, EPIC_STATUS_FILENAME);
-    const onDisk = existing ? serializeEpicStatus(existing) : null;
-    if (onDisk === serialized) {
+    // From here through the push below is the WRITE WINDOW: it can write
+    // the on-disk board, commit it, and push it. Wrapped in the same
+    // per-board lock `flow-epic-sync.ts`'s write window uses (same
+    // `epicStatusLockPath` key) so the two writers can never race each
+    // other into destroying the board — and the archive itself is NEVER
+    // blocked by a contended lock (see the LockTimeoutError catch below).
+    const runWriteWindow = (): { ok: boolean; message: string } => {
+      const existing = readCommittedStatus(epicDirAbs);
+      const { file, derived } = deriveBoard({
+        manifest: loaded.manifest,
+        existing,
+        gh,
+      });
+      if (!derived) {
+        return {
+          ok: false,
+          message: "epic status board: skipped (gh unavailable)",
+        };
+      }
+      const serialized = serializeEpicStatus(file);
+      const statusPath = path.join(epicDirAbs, EPIC_STATUS_FILENAME);
+      const onDisk = existing ? serializeEpicStatus(existing) : null;
+      // Do NOT early-return here on `onDisk === serialized` alone: `existing`
+      // comes from `readCommittedStatus`, a WORKING-TREE read, not `git show
+      // HEAD:`. A board that is byte-identical to the derivation on disk but
+      // still uncommitted must still fall through to `commitEpicStatus` below,
+      // which itself short-circuits to `nothing-staged` when the tree really
+      // is clean — this is the rescue path for a board stranded uncommitted.
+      if (onDisk !== serialized) {
+        fs.mkdirSync(epicDirAbs, { recursive: true });
+        fs.writeFileSync(statusPath, serialized);
+      }
+
+      // Push is UNCONDITIONAL here, by decision, not by flag: `flow epic done`
+      // is a human-typed verb — invoking it is the instruction — and it is the
+      // last moment anyone looks at this board before deleteEpicRunState drops
+      // the run-state cache. Neither step can block the archive.
+      const commitResult = commitEpicStatus({
+        writtenPath: statusPath,
+        epicSlug: slug,
+        cwd,
+        git,
+      });
+      if (!commitResult.committed) {
+        return {
+          ok: true,
+          message: `epic status board: wrote ${statusPath} (NOT committed: ${commitResult.reason})`,
+        };
+      }
+      const pushResult = pushEpicStatusFromWrittenPath({
+        writtenPath: statusPath,
+        cwd,
+        git,
+      });
+      if (!pushResult.pushed) {
+        return {
+          ok: true,
+          message: `epic status board: wrote ${statusPath} (committed, NOT pushed: ${pushResult.reason})`,
+        };
+      }
       return {
         ok: true,
-        message: `epic status board: already in sync (${statusPath})`,
+        message: `epic status board: wrote ${statusPath} (committed, pushed)`,
       };
+    };
+
+    // `containment.repoRoot` is already in scope here (unlike
+    // flow-epic-sync.ts, which has to derive it) — see the containment
+    // check above.
+    const lockPath = epicStatusLockPath({
+      repoRoot: containment.repoRoot,
+      epicSlug: slug,
+    });
+    if (fs.existsSync(lockPath)) {
+      // `withFileLockSync`'s wait is `Atomics.wait` (see sleep.ts) — the CLI
+      // process is fully frozen with no output while it waits, so this
+      // line, emitted BEFORE the wait rather than after the first poll, is
+      // the only thing that distinguishes a contended-but-fine 60s wait
+      // from a hang.
+      console.error(
+        `flow epic done: waiting up to 60s for the epic-status lock on "${slug}" — another flow session appears to be syncing this board.`,
+      );
     }
-    fs.mkdirSync(epicDirAbs, { recursive: true });
-    fs.writeFileSync(statusPath, serialized);
-    return { ok: true, message: `epic status board: wrote ${statusPath}` };
+    try {
+      return withFileLockSync(lockPath, runWriteWindow, { timeoutMs: 60_000 });
+    } catch (e) {
+      if (e instanceof LockTimeoutError) {
+        // NEVER block the archive on a contended lock.
+        return {
+          ok: true,
+          message:
+            "epic status board: skipped (lock-timeout: another flow session is syncing this board)",
+        };
+      }
+      throw e;
+    }
   } catch (e) {
     return {
       ok: false,
@@ -1785,13 +2025,16 @@ Options:
   // run-state is about to be deleted) and the last chance to catch an
   // out-of-band merge before the per-machine cache this heal reads from is
   // gone. NEVER blocks the archive — a gh failure or thrown error is
-  // reported on stderr only; the write is best-effort and committing it
-  // stays the user's call (no auto-commit on a base branch).
+  // reported on stderr only. The heal now commits the board through the
+  // base-branch guard's status-board allowlist and best-effort pushes it
+  // (see AGENTS.md "Auto-push exemption: flow-epic-sync --push (and
+  // flow epic done's heal)"); neither step can block the archive.
   const heal = healCommittedStatusBeforeArchive(
     slug,
     epicsDir,
     options.cwd ?? process.cwd(),
     options.gh ?? defaultGh,
+    options.git,
   );
   if (heal.ok) {
     console.log(heal.message);

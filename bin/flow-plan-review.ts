@@ -40,23 +40,50 @@
  * floor — see `resolveReviewer` below), `agy-not-found` (propagated from a
  * `ran:false` delegate/fanout entry), `agy-error` (delegate output
  * unparseable), and the local IO-throw defensive skips `plan-prep-failed`,
- * `plan-output-unreadable`, `plan-finalize-failed`. A DEEP run where BOTH
- * reviewers skip (including both demoted for non-engagement) propagates the
- * FIRST reviewer's skip reason exactly as a standard-tier skip would — the
- * envelope shape for every skip path is unchanged from the single-reviewer
- * era; `depth`/`reviewers` are additive fields that appear on every
- * `ran:true` envelope — `depth:"standard"` with a single reviewer entry on
- * the standard tier, `depth:"deep"` with two on the deep tier (a partial
- * deep failure — one reviewer ran, one skipped/demoted — is also `ran:true`,
- * degraded to the surviving reviewer's prose, with the failed reviewer's
- * skip reason recorded in its `reviewers[]` entry, which also carries each
- * reviewer's `lensesEngaged` count out of 6). A `ran:false` skip carries
- * neither field, so every skip envelope stays byte-identical to the
- * single-reviewer era. Exit 2 only on a usage error.
+ * `plan-output-unreadable`, `plan-finalize-failed`. `reviewer-timeout` is a
+ * per-reviewer `agy-timeout` (a `--print-timeout` kill, distinct from a
+ * genuine `agy-error`) mapped by `mapReviewerSkipReason`, with a
+ * duration-based fallback in `resolveReviewer` for the case where a killed
+ * agentic run still exits 0 with a partial. `review-timed-out` (unchanged)
+ * is `--check`'s own give-up verdict when a still-alive worker outlives
+ * `maxElapsedSec()`; `reviewer-worker-died` is a dead worker with no result
+ * file; `plan-review-not-started` is `--check` run with no `planReview`
+ * record. A DEEP run where BOTH reviewers skip (including both demoted for
+ * non-engagement) propagates the FIRST reviewer's skip reason exactly as a
+ * standard-tier skip would — `depth`/`reviewers` are additive fields that
+ * appear ONLY on a `ran:true` envelope, NEVER on a skip — `depth:"standard"`
+ * with a single reviewer entry on the standard tier, `depth:"deep"` with two
+ * on the deep tier (a partial deep failure — one reviewer ran, one
+ * skipped/demoted — is also `ran:true`, degraded to the surviving
+ * reviewer's prose, with the failed reviewer's skip reason recorded in its
+ * `reviewers[]` entry, which also carries each reviewer's `lensesEngaged`
+ * count out of 6). AMENDED skip-envelope invariant (was: "every skip
+ * envelope stays byte-identical to the single-reviewer era"; per D2, this
+ * still holds for `depth`/`reviewers` — those two fields never appear on a
+ * skip — but a skip MAY now additionally carry `partialArtifactPath`
+ * (a retained reviewer transcript that `cleanScratch` was told not to
+ * delete) and/or `stderrTail` (a redacted, capped agy stderr excerpt),
+ * both omit-when-absent. Exit 2 only on a usage error.
  *
  * The convergence preamble (below) requires TWO GENUINELY ENGAGED reviewers
  * — see the `survivors` computation in the deep-tier branch for the
  * authoritative statement of that invariant.
+ *
+ * Invocation modes: default (no `--start`/`--check`) is the synchronous
+ * WORKER body — today's single-process review, unchanged, plus one
+ * addition: when `--result-file` is given, the final envelope is written to
+ * `${resultFile}.tmp` then renamed into place (atomic handoff) in addition
+ * to stdout. `--start` is the one-shot decider half of the async spine: it
+ * resolves every cheap gate synchronously and, on a pass, detaches this
+ * same worker body via `flow-spawn --detach` (registry-recorded) and writes
+ * a durable `planReview` anchor to `~/.flow/state/<slug>.json`. `--check` is
+ * the OTHER one-shot decider half: it owns all state and all decisions,
+ * re-deriving elapsed time from `planReview.startedAt` (never from this
+ * process's own age, so a suspended `--check` can never fabricate a false
+ * `review-timed-out`). The pattern — and the async spine's whole
+ * rationale — is copied from `bin/flow-ci-check.ts` / `bin/flow-ci-wait.ts`;
+ * `bin/flow-plan-review-wait.ts` is the dumb waiter half, mirroring
+ * `flow-ci-wait.ts`.
  *
  * Revision-pass re-fire: on a step-3 re-entry the supervisor re-runs this
  * helper unconditionally; the `decision-analysis-unchanged` skip is what makes
@@ -83,6 +110,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -93,32 +121,78 @@ import { createHash } from "node:crypto";
 import { buildBatteryPrompt, extractGoalLine } from "./lib/plan-review-prompt";
 import { classifyEngagement } from "./lib/plan-review-engagement";
 import { resolveDelegateModel } from "./lib/delegate-models";
+import { readState, writeState, type PlanReviewRecord } from "./lib/state";
+import { FLOW_STATE_DIR } from "./lib/paths";
+import { isLive, pidStartEpoch } from "./lib/liveness";
+import { resolveSlugFromEnv } from "./lib/session-identity";
+import { stderrTail as redactedStderrTail } from "./flow-delegate";
+import { forwardSignal } from "./flow-spawn";
 
 export { extractGoalLine };
 
 const DEFAULT_TASK = "plan-review";
 
 // Bounds each agy call explicitly rather than relying on flow-delegate's own
-// default: bounded ABOVE by the supervisor's 600000 ms (10m) Bash-tool
-// ceiling (the caller must pass an explicit `timeout: 600000` to the Bash
-// tool call that invokes this helper — see flow-pipeline/SKILL.md step 3),
-// and bounded BELOW by what an agentic six-lens run actually needs (measured
-// live against this repo: ~1m35-1m50 for Gemini/reviewer 1, ~4m30-4m50 for
-// Opus/reviewer 2).
+// default. `--start` (see the async spine below) detaches the worker that
+// makes these calls, so NEITHER cap is bounded above by any Bash-tool
+// ceiling anymore — each is bounded ONLY BELOW, by what an agentic six-lens
+// run actually needs (measured live against this repo: ~1m35-1m50 for
+// Gemini/reviewer 1, ~4m30-4m50 engaged for Opus/reviewer 2, with a full
+// 362s of pure unbounded verification observed on a ~550-line plan before
+// Task 1's battery-prompt bounds existed).
 //
-// The deep tier runs its two reviewers SERIALLY (see the fanout call's
-// `concurrency: 1` and the comment there), so the ceiling constrains the
-// SUM, not the max. A symmetric 2 x 5m = 10m split left ZERO real margin
-// once four bun startups and two agy spawns are counted — it exactly
-// equalled the ceiling, not stayed under it. Split ASYMMETRICALLY instead,
-// sized to the measured durations: reviewer 1 (Gemini, fast) gets 3m,
-// reviewer 2 (Opus, slow) gets 6m. INVARIANT: the sum must stay <= 9m,
-// never == 10m — leaving ~60s of real margin under the 600000 ms ceiling
-// while also raising Opus's own headroom from ~10s to ~70s. The standard
-// tier runs only reviewer 1 (MODEL, i.e. Gemini), so it uses the
+// REVIEWER_2_TIMEOUT is `15m`: ~3x the measured engaged run and ~2.5x the
+// observed unbounded-verification burn, so a bounded reviewer (Task 1) has
+// real writing headroom well past the point that killed the unbounded one.
+// REVIEWER_1_TIMEOUT stays `3m` — with the sum constraint gone, there is no
+// reason to haircut it below its measured ~1m50 margin.
+//
+// The deep tier still runs its two reviewers SERIALLY (see the fanout
+// call's `concurrency: 1` and the comment there), so 3m + 15m = 18m is
+// still the wall-clock SUM a live deep run can take — it is simply no
+// longer a call-lifetime ceiling anyone must budget under. It IS the give-up
+// cap `--check` must accommodate before declaring a still-alive worker
+// `review-timed-out`; that cap is DERIVED via `maxElapsedSec()` below
+// (REVIEWER_1_TIMEOUT + REVIEWER_2_TIMEOUT + slack), never restated as a
+// number here, so it can never drift from the constants it guards. The
+// standard tier runs only reviewer 1 (MODEL, i.e. Gemini), so it uses the
 // REVIEWER_1_TIMEOUT value.
 const REVIEWER_1_TIMEOUT = "3m";
-const REVIEWER_2_TIMEOUT = "6m";
+const REVIEWER_2_TIMEOUT = "15m";
+
+// Parses a "godur"-shaped duration string ("3m", "15m", "90s", "2m30s")
+// into whole seconds. Throws on anything else — callers only ever feed it
+// this module's own REVIEWER_*_TIMEOUT constants, so a throw here is a
+// programmer error, not a runtime input-validation path.
+export function godurToSec(value: string): number {
+  const m = /^(?:(\d+)m)?(?:(\d+)s)?$/.exec(value.trim());
+  if (!m || (m[1] === undefined && m[2] === undefined)) {
+    throw new Error(`invalid duration: "${value}"`);
+  }
+  const minutes = m[1] !== undefined ? parseInt(m[1], 10) : 0;
+  const seconds = m[2] !== undefined ? parseInt(m[2], 10) : 0;
+  return minutes * 60 + seconds;
+}
+
+// Slack added on top of the two reviewer caps to derive `--check`'s give-up
+// cap — covers bun startup, two agy spawns, and the fanout's own overhead,
+// none of which count against either reviewer's own timeout.
+const WORKER_SLACK_SEC = 300;
+
+/**
+ * The derived wall-clock cap `--check` gives a detached worker before
+ * declaring it `review-timed-out` and killing it. NEVER a hardcoded number
+ * — always re-derived from the live REVIEWER_*_TIMEOUT constants so it can
+ * never silently drift from the caps it is meant to guard (1380s / 23m
+ * deep, 480s / 8m standard, at today's `3m`/`15m` split).
+ */
+export function maxElapsedSec(depth: "standard" | "deep"): number {
+  return (
+    godurToSec(REVIEWER_1_TIMEOUT) +
+    (depth === "deep" ? godurToSec(REVIEWER_2_TIMEOUT) : 0) +
+    WORKER_SLACK_SEC
+  );
+}
 
 // The DEEP-tier combined --out preamble: names the convergence rule the
 // supervisor applies when reading a two-reviewer file (kept in sync with
@@ -141,16 +215,32 @@ export type Args = {
   // required-flag validator; the worktree gate is a run()-time behavioral
   // skip, not a CLI-shape error).
   worktree?: string;
+  // The async spine's two decider modes (see the file header's "Invocation
+  // modes" paragraph). Mutually exclusive with each other; both are
+  // valueless like --print-hash.
+  start: boolean;
+  check: boolean;
+  // Sibling-of-`--out` scratch path the WORKER writes its final envelope to
+  // (atomic tmp-then-rename) when set. Also the path `--check` reads.
+  resultFile?: string;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   const out: Partial<Args> = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
-    // --print-hash is a valueless boolean (compute-only mode); handle it before
-    // the value-required check every other flag falls through to.
+    // --print-hash/--start/--check are valueless booleans; handle them
+    // before the value-required check every other flag falls through to.
     if (flag === "--print-hash") {
       out.printHash = true;
+      continue;
+    }
+    if (flag === "--start") {
+      out.start = true;
+      continue;
+    }
+    if (flag === "--check") {
+      out.check = true;
       continue;
     }
     const value = argv[i + 1];
@@ -173,6 +263,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--worktree":
         out.worktree = value;
         break;
+      case "--result-file":
+        out.resultFile = value;
+        break;
       case "--depth":
         if (value !== "auto" && value !== "standard" && value !== "deep") {
           return {
@@ -186,19 +279,29 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     }
     i++;
   }
-  if (out.planFile === undefined) {
+  if (out.start && out.check) {
+    return { error: "--start and --check are mutually exclusive" };
+  }
+  // --check needs only --out — it never reads the plan file itself, only
+  // the durable planReview state record and the worker's result file.
+  if (!out.check && out.planFile === undefined) {
     return { error: "--plan-file is required" };
   }
-  // --out gates the review mode only; --print-hash needs just --plan-file.
+  // --out gates the review/start/check modes; --print-hash needs just
+  // --plan-file. --check derives its scratch paths as `${out}.run.json`
+  // etc, the same sibling-of-`--out` convention the worker uses.
   if (!out.printHash && out.out === undefined) {
     return { error: "--out is required" };
   }
   return {
-    planFile: out.planFile,
+    planFile: out.planFile ?? "",
     out: out.out ?? "",
     config: out.config ?? `${homedir()}/.flow/config.json`,
     task: out.task ?? DEFAULT_TASK,
     printHash: out.printHash ?? false,
+    start: out.start ?? false,
+    check: out.check ?? false,
+    resultFile: out.resultFile,
     depth: out.depth ?? "auto",
     worktree: out.worktree,
   };
@@ -373,7 +476,7 @@ export function computeDecisionHash(planText: string): string {
     extractDecisionAnalysisBody(planText),
   );
   const cutListBody = normalizeDecisionBody(extractCutListBody(planText));
-  const combined = [goalLine, decisionBody, cutListBody].join("\n \n");
+  const combined = [goalLine, decisionBody, cutListBody].join("\n\0\n");
   return createHash("sha256").update(combined).digest("hex");
 }
 
@@ -395,6 +498,10 @@ export type DelegateEnvelope = {
   ran?: boolean;
   skipReason?: string;
   artifactPath?: string;
+  // Redacted, tail-most, byte-capped agy stderr — projected straight from
+  // flow-delegate's own field (Task 2), through flow-delegate-fanout's
+  // allowlist projection on the deep tier.
+  stderrTail?: string;
 };
 
 // The one-line aggregate `flow-delegate-fanout` emits, as consumed here.
@@ -408,6 +515,9 @@ export type FanoutAggregate = {
     ran?: boolean;
     artifactPath?: string;
     skipReason?: string;
+    durationSeconds?: number;
+    durationMs?: number;
+    stderrTail?: string;
   }>;
   anyRan?: boolean;
   allSkipped?: boolean;
@@ -445,16 +555,62 @@ export type Deps = {
   readFile: (path: string) => string;
   writeFile: (path: string, contents: string) => void;
   removeFile: (path: string) => void;
+  renameFile: (from: string, to: string) => void;
   mkdirp: (dir: string) => void;
   writeOut: (line: string) => void;
   // True when `path` exists and is a directory. Backs the worktree gate
   // below; injectable like the other deps.
   dirExists: (path: string) => boolean;
+  // True when `path` exists (file or directory) — used only to decide
+  // whether a partial artifact is worth naming in a skip envelope.
+  fileExists: (path: string) => boolean;
+
+  // --- Async spine (--start / --check) ------------------------------------
+  // Launches the detached worker via `flow-spawn --detach ...` (argv
+  // includes "flow-spawn" itself, matching runDelegate/runFanout's
+  // Bun.spawnSync convention). Returns null on a spawn failure.
+  spawnDetached: (argv: string[]) => { pid: number } | null;
+  // Probes a freshly-spawned pid's start epoch (pairs with the pid to
+  // defeat pid recycling on a later liveness check). Mirrors
+  // bin/flow-spawn.ts's own buildRow-adjacent probe.
+  probeStartEpoch: (pid: number) => number | null;
+  readStateRecord: (slug: string) => PlanReviewRecord | undefined;
+  writeStateRecord: (slug: string, rec: PlanReviewRecord) => void;
+  isAlive: (pid: number, startEpoch: number | null) => boolean;
+  killWorker: (pid: number) => void;
+  now: () => Date;
+  env: NodeJS.ProcessEnv;
+  // Reads a worker stderr log (best-effort — "" on any read failure) and
+  // returns its redacted, tail-most, byte-capped excerpt (reuses
+  // flow-delegate's own stderrTail helper).
+  readWorkerStderrTail: (path: string) => string;
 };
 
 function emit(deps: Deps, envelope: Record<string, unknown>): number {
   deps.writeOut(JSON.stringify(envelope));
   return 0;
+}
+
+// Writes the WORKER's final envelope atomically (tmp-then-rename) to
+// `resultFile` when set, in addition to the normal stdout emit — so
+// `--check` and the waiter can never observe a half-written file. A write
+// failure here is best-effort: the stdout envelope (still emitted) remains
+// the authoritative record for a foreground run.
+function finalizeAndEmit(
+  deps: Deps,
+  envelope: Record<string, unknown>,
+  resultFile: string | undefined,
+): number {
+  if (resultFile) {
+    try {
+      const tmp = `${resultFile}.tmp`;
+      deps.writeFile(tmp, JSON.stringify(envelope));
+      deps.renameFile(tmp, resultFile);
+    } catch {
+      // best-effort — see docstring above.
+    }
+  }
+  return emit(deps, envelope);
 }
 
 type ReviewerStatus = {
@@ -463,43 +619,390 @@ type ReviewerStatus = {
   skipReason?: string;
   prose?: string;
   lensesEngaged?: number;
+  // Retained on any ran:false status when the underlying delegate/fanout
+  // entry named an artifact path or a redacted stderr tail — surfaced by
+  // the deep-tier branch as the reviewer's own `reviewers[]` diagnostics.
+  partialArtifactPath?: string;
+  stderrTail?: string;
 };
 
 type FanoutEntry = NonNullable<FanoutAggregate["entries"]>[number];
+
+// `flow-delegate`'s own `agy-timeout` (Task 2) is layer-correct for the
+// delegate helper's generic vocabulary; `flow-plan-review` owns the
+// `reviewer-`-prefixed vocabulary, so it maps here. Every other skipReason
+// (including undefined, preserving today's default) passes through
+// unchanged.
+export function mapReviewerSkipReason(
+  delegateSkipReason: string | undefined,
+): string {
+  if (delegateSkipReason === "agy-timeout") return "reviewer-timeout";
+  return delegateSkipReason ?? "agy-not-found";
+}
+
+// A killed agentic run can still exit 0 with a partial (a 2026-08-11
+// diagnosis of this same reviewer recorded exactly that: a long
+// `--print-timeout` kill cancelled its subagents, wrote a partial, and
+// exited 0 — under which `looksTimedOut` never fires because there is no
+// non-zero exit to inspect). Mitigation: treat a demotion as
+// `reviewer-timeout` whenever the entry's observed duration lands within
+// this many seconds of the reviewer's configured cap, independent of exit
+// code. Reads `durationMs` (the fanout POOL's wall-clock timing, always
+// populated) rather than `durationSeconds` (the model's own self-reported
+// timing, lifted only when the manifest entry sets `outputFormat: "json"` —
+// which this module's manifest builder never does, so `durationSeconds` is
+// permanently undefined on this path and would make every branch below
+// dead code).
+const NEAR_CAP_SLACK_SEC = 10;
+
+function isNearCap(durationMs: number | undefined, capSec: number): boolean {
+  return (
+    durationMs !== undefined && capSec - durationMs / 1000 <= NEAR_CAP_SLACK_SEC
+  );
+}
 
 // Resolves one deep-tier manifest entry's fanout result into a reviewer
 // status: a skipped/missing entry stays unread; a `ran:true` entry whose
 // artifact can't be read degrades to a skip rather than crashing the run;
 // a `ran:true` entry whose prose doesn't clear the engagement bar (empty or
 // non-engaging) is demoted to a skip too — a truncated/rubber-stamp run is
-// not a genuine survivor for the deep-tier convergence rule.
+// not a genuine survivor for the deep-tier convergence rule. `capSec` is
+// this reviewer's configured timeout (in seconds) — the near-cap mitigation
+// above needs it to compare against the entry's observed duration.
 function resolveReviewer(
   deps: Deps,
   entry: FanoutEntry | undefined,
   model: string,
+  capSec: number,
 ): ReviewerStatus {
   if (!entry || entry.ran !== true) {
+    const mapped = mapReviewerSkipReason(entry?.skipReason);
+    const skipReason = isNearCap(entry?.durationMs, capSec)
+      ? "reviewer-timeout"
+      : mapped;
     return {
       model,
       ran: false,
-      skipReason: entry?.skipReason ?? "agy-not-found",
+      skipReason,
+      partialArtifactPath: entry?.artifactPath,
+      stderrTail: entry?.stderrTail,
     };
   }
   try {
     const prose = deps.readFile(entry.artifactPath ?? "");
     const result = classifyEngagement(prose);
     if (!result.engaged) {
+      const skipReason = isNearCap(entry.durationMs, capSec)
+        ? "reviewer-timeout"
+        : result.reason;
       return {
         model,
         ran: false,
-        skipReason: result.reason,
+        skipReason,
         lensesEngaged: result.lensesEngaged,
+        partialArtifactPath: entry.artifactPath,
+        stderrTail: entry.stderrTail,
       };
     }
     return { model, ran: true, prose, lensesEngaged: result.lensesEngaged };
   } catch {
-    return { model, ran: false, skipReason: "plan-output-unreadable" };
+    const skipReason = isNearCap(entry.durationMs, capSec)
+      ? "reviewer-timeout"
+      : "plan-output-unreadable";
+    return {
+      model,
+      ran: false,
+      skipReason,
+      partialArtifactPath: entry.artifactPath,
+      stderrTail: entry.stderrTail,
+    };
   }
+}
+
+// --- Async spine (--start / --check) ----------------------------------------
+
+type CheapGateResult =
+  | { skip: true; skipReason: string }
+  | { skip: false; plan: string; depth: "standard" | "deep" };
+
+// Mirrors run()'s own default-mode cheap-gate sequence (config gate →
+// plan-unreadable → no-decision-analysis → decision-analysis-unchanged →
+// worktree-not-provided → worktree-not-found → depth), so --start's skip
+// envelope is byte-identical to the worker's own early skips (S4). Owns NO
+// scratch files — nothing has been written yet at this point, so there is
+// nothing to clean up on a skip.
+function evaluateStartGates(deps: Deps, args: Args): CheapGateResult {
+  let rawConfig = "";
+  try {
+    rawConfig = deps.readConfig(args.config);
+  } catch {
+    rawConfig = "";
+  }
+  if (!isPlanReviewEnabled(rawConfig)) {
+    return { skip: true, skipReason: "plan-review-disabled" };
+  }
+
+  let plan: string;
+  try {
+    plan = deps.readFile(args.planFile);
+  } catch {
+    return { skip: true, skipReason: "plan-unreadable" };
+  }
+  if (!hasDecisionAnalysis(plan)) {
+    return { skip: true, skipReason: "no-decision-analysis" };
+  }
+
+  const priorHash = readPriorHash(plan);
+  if (priorHash !== null && priorHash === computeDecisionHash(plan)) {
+    return { skip: true, skipReason: "decision-analysis-unchanged" };
+  }
+
+  if (!args.worktree) {
+    return { skip: true, skipReason: "worktree-not-provided" };
+  }
+  if (!deps.dirExists(args.worktree)) {
+    return { skip: true, skipReason: "worktree-not-found" };
+  }
+
+  const depth = args.depth === "auto" ? computeDepth(plan) : args.depth;
+  return { skip: false, plan, depth };
+}
+
+/**
+ * `--start`: resolves every cheap gate synchronously and, on a pass,
+ * detaches this same worker body via `flow-spawn --detach` (registry-
+ * recorded) and writes a durable `planReview` anchor. Idempotent by
+ * `(planFile, decisionHash)`: a live matching cycle re-attaches rather than
+ * spawning a second worker (the exact contention `concurrency: 1` exists to
+ * prevent); a live NON-matching cycle (a revision-pass redirect) is killed
+ * FIRST, so a plan revision never leaves two concurrent agy sessions.
+ */
+function runStart(deps: Deps, args: Args): number {
+  const gate = evaluateStartGates(deps, args);
+  if (gate.skip) {
+    return emit(deps, { ran: false, skipReason: gate.skipReason });
+  }
+  const { depth } = gate;
+
+  const slug = resolveSlugFromEnv(deps.env);
+  const decisionHash = computeDecisionHash(gate.plan);
+  const runRecordPath = `${args.out}.run.json`;
+  const workerStdoutPath = `${args.out}.worker-stdout.log`;
+  const workerStderrPath = `${args.out}.worker-stderr.log`;
+
+  const priorRecord = slug !== null ? deps.readStateRecord(slug) : undefined;
+  if (priorRecord) {
+    const matches =
+      priorRecord.planFile === args.planFile &&
+      priorRecord.decisionHash === decisionHash;
+    const alive = deps.isAlive(priorRecord.pid, priorRecord.startEpoch);
+    if (matches && alive) {
+      return emit(deps, {
+        status: "started",
+        reattached: true,
+        pid: priorRecord.pid,
+        depth: priorRecord.depth,
+        resultPath: priorRecord.resultPath,
+      });
+    }
+    if (!matches && alive) {
+      // Stale worker from a superseded plan revision — kill it FIRST. Left
+      // unfixed, a revision-pass redirect leaves the OLD worker alive and
+      // burning quota while the new one starts — two concurrent agy
+      // sessions, precisely the contention concurrency:1 is measured to
+      // lose a reviewer to.
+      deps.killWorker(priorRecord.pid);
+      deps.removeFile(priorRecord.resultPath);
+      deps.removeFile(priorRecord.stderrPath);
+    }
+  }
+
+  // Unconditionally clear any stale run-record file before spawning, not
+  // only on the alive-and-superseded branch above. The common revision-pass
+  // path is matches===false && alive===false (the prior worker already
+  // finished and exited on its own): without this, --check would read the
+  // PREVIOUS cycle's envelope out of runRecordPath and hand the supervisor a
+  // stale `decided` verdict for a review that never ran on the revised plan
+  // — and additionally kill the freshly spawned worker below because it
+  // sees a result already present alongside a live pid.
+  deps.removeFile(runRecordPath);
+  deps.removeFile(`${runRecordPath}.tmp`);
+
+  const spawned = deps.spawnDetached([
+    "flow-spawn",
+    "--detach",
+    "--class",
+    "default",
+    "--stdout",
+    workerStdoutPath,
+    "--stderr",
+    workerStderrPath,
+    "--",
+    "flow-plan-review",
+    "--plan-file",
+    args.planFile,
+    "--out",
+    args.out,
+    "--worktree",
+    args.worktree as string,
+    "--depth",
+    depth,
+    "--config",
+    args.config,
+    "--task",
+    args.task,
+    "--result-file",
+    runRecordPath,
+  ]);
+  if (spawned === null) {
+    return emit(deps, { ran: false, skipReason: "plan-review-spawn-failed" });
+  }
+
+  if (slug !== null) {
+    const record: PlanReviewRecord = {
+      planFile: args.planFile,
+      decisionHash,
+      depth,
+      startedAt: deps.now().toISOString(),
+      pid: spawned.pid,
+      startEpoch: deps.probeStartEpoch(spawned.pid),
+      resultPath: runRecordPath,
+      stderrPath: workerStderrPath,
+      lastObservedAt: null,
+      checks: 0,
+    };
+    deps.writeStateRecord(slug, record);
+  }
+
+  return emit(deps, {
+    status: "started",
+    reattached: false,
+    pid: spawned.pid,
+    depth,
+    resultPath: runRecordPath,
+  });
+}
+
+/**
+ * `--check`: the one-shot decider that owns ALL state and ALL decisions.
+ * `elapsedSec` always re-derives from `planReview.startedAt` (never from
+ * this process's own age), so a suspended `--check` invocation can never
+ * fabricate a false `review-timed-out`. Absent `FLOW_SLUG`, degrades to
+ * stateless mode exactly as `flow-ci-check` documents (Q8): anchors reset
+ * every call, the wall-clock cap can never fire, and the verdict rests
+ * purely on result-file presence and worker liveness.
+ */
+function runCheck(deps: Deps, args: Args): number {
+  const slug = resolveSlugFromEnv(deps.env);
+  const stateless = slug === null;
+  const record = stateless ? undefined : deps.readStateRecord(slug as string);
+
+  if (!record) {
+    return emit(deps, {
+      status: "decided",
+      ran: false,
+      skipReason: "plan-review-not-started",
+    });
+  }
+
+  // Result file present + parseable ⇒ decided, regardless of liveness — a
+  // torn/partial read (the worker's write is tmp-then-rename, but belt-and-
+  // braces here) is treated as still-waiting for one cycle rather than a
+  // terminal verdict.
+  let resultRaw: string | undefined;
+  try {
+    resultRaw = deps.readFile(record.resultPath);
+  } catch {
+    resultRaw = undefined;
+  }
+  if (resultRaw !== undefined) {
+    let resultEnvelope: Record<string, unknown> | undefined;
+    try {
+      resultEnvelope = JSON.parse(resultRaw) as Record<string, unknown>;
+    } catch {
+      resultEnvelope = undefined;
+    }
+    if (resultEnvelope !== undefined) {
+      if (deps.isAlive(record.pid, record.startEpoch)) {
+        deps.killWorker(record.pid);
+      }
+      return emit(deps, { status: "decided", ...resultEnvelope });
+    }
+  }
+
+  const alive = deps.isAlive(record.pid, record.startEpoch);
+  const elapsedSec = stateless
+    ? 0
+    : Math.max(
+        0,
+        Math.floor(
+          (deps.now().getTime() - Date.parse(record.startedAt)) / 1000,
+        ),
+      );
+
+  if (alive) {
+    // A live worker past the derived cap is exactly the hung-worker case the
+    // cap exists for: agy's own --print-timeout can fail to land on a wedged
+    // child, and without this branch --check reports `waiting` forever and the
+    // worker is never reclaimed. Guarded on !stateless because stateless mode
+    // has no durable anchor (elapsedSec is pinned at 0), so the cap must never
+    // fire there — waiting longer is always safer than fabricating a timeout.
+    if (!stateless && elapsedSec > maxElapsedSec(record.depth)) {
+      deps.killWorker(record.pid);
+      const hungTail = deps.readWorkerStderrTail(record.stderrPath);
+      return emit(deps, {
+        status: "decided",
+        ran: false,
+        skipReason: "review-timed-out",
+        ...(hungTail ? { stderrTail: hungTail } : {}),
+      });
+    }
+    if (!stateless) {
+      deps.writeStateRecord(slug as string, {
+        ...record,
+        checks: record.checks + 1,
+        lastObservedAt: deps.now().toISOString(),
+      });
+    }
+    return emit(deps, {
+      status: "waiting",
+      nextCheckSec: 60,
+      elapsedSec,
+      pid: record.pid,
+    });
+  }
+
+  // Stateless mode: never fires the wall-clock cap (there is no durable
+  // anchor to derive it from) — the failure mode is waiting longer, never
+  // fabricating a timeout.
+  if (stateless) {
+    return emit(deps, {
+      status: "waiting",
+      nextCheckSec: 60,
+      elapsedSec: 0,
+      pid: record.pid,
+    });
+  }
+
+  if (elapsedSec > maxElapsedSec(record.depth)) {
+    deps.killWorker(record.pid);
+    const tail = deps.readWorkerStderrTail(record.stderrPath);
+    return emit(deps, {
+      status: "decided",
+      ran: false,
+      skipReason: "review-timed-out",
+      ...(tail ? { stderrTail: tail } : {}),
+    });
+  }
+
+  // Worker dead, no result: a named skip, never a hang.
+  const tail = deps.readWorkerStderrTail(record.stderrPath);
+  return emit(deps, {
+    status: "decided",
+    ran: false,
+    skipReason: "reviewer-worker-died",
+    ...(tail ? { stderrTail: tail } : {}),
+  });
 }
 
 export function run(argv: string[], depsOverride?: Partial<Deps>): number {
@@ -508,10 +1011,21 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   if ("error" in parsed) {
     console.error(`flow-plan-review: ${parsed.error}`);
     console.error(
-      "usage: flow-plan-review --plan-file <path> --out <path> --worktree <dir> [--config <path>] [--task <name>] [--depth auto|standard|deep]",
+      "usage: flow-plan-review --plan-file <path> --out <path> --worktree <dir> [--config <path>] [--task <name>] [--depth auto|standard|deep] [--result-file <path>]",
     );
     console.error("       flow-plan-review --print-hash --plan-file <path>");
+    console.error(
+      "       flow-plan-review --start --plan-file <path> --out <path> --worktree <dir> [--config <path>] [--task <name>] [--depth auto|standard|deep]",
+    );
+    console.error("       flow-plan-review --check --out <path>");
     return 2;
+  }
+
+  if (parsed.start) {
+    return runStart(deps, parsed);
+  }
+  if (parsed.check) {
+    return runCheck(deps, parsed);
   }
 
   // Compute-only mode: print the current plan's widened content-key hash
@@ -564,18 +1078,42 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   const deepArtifactR1 = `${parsed.out}.r1.md`;
   const deepArtifactR2 = `${parsed.out}.r2.md`;
   deps.removeFile(parsed.out);
-  const cleanScratch = () => {
-    deps.removeFile(promptPath);
-    deps.removeFile(promptPathR2);
-    deps.removeFile(rawPath);
-    deps.removeFile(manifestPath);
-    deps.removeFile(fanoutOutPath);
-    deps.removeFile(deepArtifactR1);
-    deps.removeFile(deepArtifactR2);
+  // `runRecordPath`/`workerStderrPath` are NEVER part of this removal list
+  // — the worker owns the first (it is what --check reads) and --start owns
+  // the second, and both are diagnostics that outlive the run (they go with
+  // .flow-tmp/ at step 10), never scratch this module cleans up itself.
+  const cleanScratch = (retain: string[] = []) => {
+    const retainSet = new Set(retain);
+    for (const p of [
+      promptPath,
+      promptPathR2,
+      rawPath,
+      manifestPath,
+      fanoutOutPath,
+      deepArtifactR1,
+      deepArtifactR2,
+    ]) {
+      if (!retainSet.has(p)) deps.removeFile(p);
+    }
   };
-  const skip = (skipReason: string): number => {
-    cleanScratch();
-    return emit(deps, { ran: false, skipReason });
+  // Task 7 amends the skip-envelope invariant (see the file header): a skip
+  // MAY additionally carry `partialArtifactPath`/`stderrTail`, both
+  // omit-when-absent; `depth`/`reviewers` still NEVER appear on a skip.
+  const skip = (
+    skipReason: string,
+    opts?: {
+      retain?: string[];
+      partialArtifactPath?: string;
+      stderrTail?: string;
+    },
+  ): number => {
+    cleanScratch(opts?.retain ?? []);
+    const envelope: Record<string, unknown> = { ran: false, skipReason };
+    if (opts?.partialArtifactPath) {
+      envelope.partialArtifactPath = opts.partialArtifactPath;
+    }
+    if (opts?.stderrTail) envelope.stderrTail = opts.stderrTail;
+    return finalizeAndEmit(deps, envelope, parsed.resultFile);
   };
 
   let plan: string;
@@ -642,9 +1180,17 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     ]);
 
     // Branch on the `ran` field (NEVER the exit code): flow-delegate exits 0
-    // even on a graceful agy-absent skip, propagated verbatim.
+    // even on a graceful agy-absent skip, propagated verbatim. Mapped
+    // through mapReviewerSkipReason so a --print-timeout kill (agy-timeout)
+    // surfaces as this module's own reviewer-timeout vocabulary; the raw
+    // artifact is retained (when it exists) and named, and the delegate
+    // envelope's own redacted stderrTail is propagated.
     if (!envelope.ran) {
-      return skip(envelope.skipReason ?? "agy-not-found");
+      return skip(mapReviewerSkipReason(envelope.skipReason), {
+        retain: [rawPath],
+        partialArtifactPath: deps.fileExists(rawPath) ? rawPath : undefined,
+        stderrTail: envelope.stderrTail,
+      });
     }
 
     let raw: string;
@@ -680,20 +1226,24 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     // depth, so a standard run that omitted the field would be
     // indistinguishable from a pre-upgrade helper. Skip envelopes still carry
     // neither field — `ran:false` has no tier to report.
-    return emit(deps, {
-      ran: true,
-      feedbackPath: parsed.out,
-      skipReason: null,
-      depth: "standard",
-      reviewers: [
-        {
-          model: MODEL,
-          ran: true,
-          skipReason: null,
-          lensesEngaged: eng.lensesEngaged,
-        },
-      ],
-    });
+    return finalizeAndEmit(
+      deps,
+      {
+        ran: true,
+        feedbackPath: parsed.out,
+        skipReason: null,
+        depth: "standard",
+        reviewers: [
+          {
+            model: MODEL,
+            ran: true,
+            skipReason: null,
+            lensesEngaged: eng.lensesEngaged,
+          },
+        ],
+      },
+      parsed.resultFile,
+    );
   }
 
   // --- DEEP tier: two reviewers via flow-delegate-fanout ---------------------
@@ -770,11 +1320,13 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     deps,
     entries.find((e) => e.task === manifest[0]!.task),
     MODEL,
+    godurToSec(REVIEWER_1_TIMEOUT),
   );
   const r2 = resolveReviewer(
     deps,
     entries.find((e) => e.task === manifest[1]!.task),
     SECOND_MODEL,
+    godurToSec(REVIEWER_2_TIMEOUT),
   );
 
   // `survivors` is a resolveReviewer() output, and resolveReviewer() now
@@ -788,9 +1340,21 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   if (survivors.length === 0) {
     // Both reviewers skipped: propagate the FIRST reviewer's skip reason
     // exactly as a standard-tier skip would (same envelope shape — no
-    // `depth`/`reviewers` fields on a skip, ever).
-    return skip(r1.skipReason ?? r2.skipReason ?? "agy-not-found");
+    // `depth`/`reviewers` fields on a skip, ever), retaining both
+    // reviewers' artifacts and surfacing the FIRST reviewer's diagnostics.
+    return skip(r1.skipReason ?? r2.skipReason ?? "agy-not-found", {
+      retain: [deepArtifactR1, deepArtifactR2],
+      partialArtifactPath: r1.partialArtifactPath ?? r2.partialArtifactPath,
+      stderrTail: r1.stderrTail ?? r2.stderrTail,
+    });
   }
+
+  // A partial deep success (one reviewer ran, one skipped/demoted) still
+  // needs the failed reviewer's transcript retained — cleanScratch below is
+  // told about it, and its path/tail are added to that reviewer's
+  // `reviewers[]` entry.
+  const failedReviewer =
+    survivors.length === 1 ? (survivors[0] === r1 ? r2 : r1) : undefined;
 
   const combined =
     survivors.length === 2
@@ -813,27 +1377,43 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return skip("plan-finalize-failed");
   }
 
-  cleanScratch();
-  return emit(deps, {
-    ran: true,
-    feedbackPath: parsed.out,
-    skipReason: null,
-    depth: "deep",
-    reviewers: [
-      {
-        model: r1.model,
-        ran: r1.ran,
-        skipReason: r1.skipReason,
-        lensesEngaged: r1.lensesEngaged,
-      },
-      {
-        model: r2.model,
-        ran: r2.ran,
-        skipReason: r2.skipReason,
-        lensesEngaged: r2.lensesEngaged,
-      },
-    ],
-  });
+  cleanScratch(
+    failedReviewer?.partialArtifactPath
+      ? [failedReviewer.partialArtifactPath]
+      : [],
+  );
+  return finalizeAndEmit(
+    deps,
+    {
+      ran: true,
+      feedbackPath: parsed.out,
+      skipReason: null,
+      depth: "deep",
+      reviewers: [
+        {
+          model: r1.model,
+          ran: r1.ran,
+          skipReason: r1.skipReason,
+          lensesEngaged: r1.lensesEngaged,
+          ...(r1.partialArtifactPath
+            ? { partialArtifactPath: r1.partialArtifactPath }
+            : {}),
+          ...(r1.stderrTail ? { stderrTail: r1.stderrTail } : {}),
+        },
+        {
+          model: r2.model,
+          ran: r2.ran,
+          skipReason: r2.skipReason,
+          lensesEngaged: r2.lensesEngaged,
+          ...(r2.partialArtifactPath
+            ? { partialArtifactPath: r2.partialArtifactPath }
+            : {}),
+          ...(r2.stderrTail ? { stderrTail: r2.stderrTail } : {}),
+        },
+      ],
+    },
+    parsed.resultFile,
+  );
 }
 
 function resolveDeps(o?: Partial<Deps>): Deps {
@@ -881,10 +1461,72 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     readFile: o?.readFile ?? ((p) => readFileSync(p, "utf8")),
     writeFile: o?.writeFile ?? ((p, c) => writeFileSync(p, c)),
     removeFile: o?.removeFile ?? ((p) => void rmSync(p, { force: true })),
+    renameFile: o?.renameFile ?? ((from, to) => renameSync(from, to)),
     mkdirp: o?.mkdirp ?? ((d) => void mkdirSync(d, { recursive: true })),
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
     dirExists:
       o?.dirExists ?? ((p) => existsSync(p) && statSync(p).isDirectory()),
+    fileExists: o?.fileExists ?? ((p) => existsSync(p)),
+
+    spawnDetached:
+      o?.spawnDetached ??
+      ((argv) => {
+        try {
+          const r = Bun.spawnSync(argv, {
+            stdin: "ignore",
+            stdout: "pipe",
+            stderr: "ignore",
+          });
+          if (r.exitCode !== 0) return null;
+          const stdout = r.stdout ? new TextDecoder().decode(r.stdout) : "";
+          const pid = parseInt(stdout.trim(), 10);
+          return Number.isFinite(pid) ? { pid } : null;
+        } catch {
+          return null;
+        }
+      }),
+    probeStartEpoch: o?.probeStartEpoch ?? ((pid) => pidStartEpoch(pid)),
+    readStateRecord:
+      o?.readStateRecord ??
+      ((slug) => readState(slug, FLOW_STATE_DIR)?.planReview),
+    writeStateRecord:
+      o?.writeStateRecord ??
+      ((slug, rec) => {
+        const base = readState(slug, FLOW_STATE_DIR);
+        // Fail-open, mirroring flow-ci-check's persistRecord: no readable
+        // state file means this call's anchors simply do not persist —
+        // never a crash, never a fabricated state file.
+        if (base === null) return;
+        writeState({ ...base, planReview: rec }, FLOW_STATE_DIR);
+      }),
+    isAlive:
+      o?.isAlive ??
+      ((pid, startEpoch) =>
+        isLive({ pid, procStartedAt: startEpoch ?? undefined })),
+    killWorker:
+      o?.killWorker ??
+      ((pid) => {
+        // A detached worker is its own process-group leader (flow-spawn.ts
+        // records pgid: args.pid), and the quota-burning descendant is
+        // several hops down (flow-delegate-fanout -> flow-delegate -> agy),
+        // not the worker shell itself. SIGTERM to the bare pid only kills
+        // the shell blocked in Bun.spawnSync, leaving the wedged agy
+        // session reparented to init and running to its own --print-timeout
+        // — exactly the "two concurrent agy sessions" contention this call
+        // site exists to prevent. Signal the whole group first.
+        forwardSignal(pid, pid, "SIGTERM");
+      }),
+    now: o?.now ?? (() => new Date()),
+    env: o?.env ?? process.env,
+    readWorkerStderrTail:
+      o?.readWorkerStderrTail ??
+      ((p) => {
+        try {
+          return redactedStderrTail(readFileSync(p, "utf8"));
+        } catch {
+          return "";
+        }
+      }),
   };
 }
 

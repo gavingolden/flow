@@ -2,13 +2,20 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readState, writeState, type PipelineState } from "./lib/state";
+import {
+  readState,
+  statePath,
+  writeState,
+  type PipelineState,
+} from "./lib/state";
 import {
   UNTRACKED_RENDER_CAP,
   addItem,
   addItemDedup,
+  CreateIssueError,
   dropItem,
   fileItem,
+  normalizeSourceAnchor,
   renderGate,
   renderMarkdown,
   run,
@@ -132,6 +139,55 @@ describe("fileItem", () => {
 
   it("throws on an unknown id", () => {
     expect(() => fileItem(BASE, 99, () => ({ url: "x" }))).toThrow(/#99/);
+  });
+
+  it("composes a rubric-conforming short form when the item has no body", () => {
+    const s0 = addItem(BASE, { title: "a note", source: "user said x" }, now);
+    let sentBody: string | undefined;
+    fileItem(s0, 1, (_title, body) => {
+      sentBody = body;
+      return { url: "https://x/1" };
+    });
+    expect(sentBody).toMatch(/^\*\*Short form:\*\* \[V:2\|C:Trivial\|R:Low\]/);
+    expect(sentBody).toContain("a note");
+    expect(sentBody).toContain("[anchor:");
+  });
+
+  it("passes an item's recorded body through unchanged when present", () => {
+    const s0 = addItem(
+      BASE,
+      { title: "a", body: "a full value-prop block", source: "x" },
+      now,
+    );
+    let sentBody: string | undefined;
+    fileItem(s0, 1, (_title, body) => {
+      sentBody = body;
+      return { url: "https://x/1" };
+    });
+    expect(sentBody).toBe("a full value-prop block");
+  });
+});
+
+describe("normalizeSourceAnchor", () => {
+  it("emits the bare form when source resolves as a repo path", () => {
+    expect(normalizeSourceAnchor("package.json", 1, "s1")).toBe(
+      "[anchor: package.json]",
+    );
+  });
+
+  it("emits the quoted-text form for a non-path source", () => {
+    expect(normalizeSourceAnchor("the user said fix the typo", 1, "s1")).toBe(
+      '[anchor: "the user said fix the typo"]',
+    );
+  });
+
+  it("falls back to the item id plus the untracked state-file path for an absent/empty source", () => {
+    expect(normalizeSourceAnchor(undefined, 7, "s1")).toBe(
+      `[anchor: item #7, ${statePath("s1")}]`,
+    );
+    expect(normalizeSourceAnchor("   ", 7, "s1")).toBe(
+      `[anchor: item #7, ${statePath("s1")}]`,
+    );
   });
 });
 
@@ -296,6 +352,33 @@ describe("run", () => {
       },
     });
     expect(code).toBe(1);
+  });
+
+  it("file fails with exit 1 when createIssue throws a CreateIssueError with a non-3 exit code", () => {
+    seed(addItem(BASE, { title: "a", source: "x" }, now));
+    const code = run(["file", "1"], {
+      resolveSlug: () => "s1",
+      stateDir: dir,
+      createIssue: () => {
+        throw new CreateIssueError("flow-create-issue exited 1: no gh auth", 1);
+      },
+    });
+    expect(code).toBe(1);
+  });
+
+  it("file maps exit 3 distinctly from exit 1 when the body is rejected", () => {
+    seed(addItem(BASE, { title: "a", source: "x" }, now));
+    const code = run(["file", "1"], {
+      resolveSlug: () => "s1",
+      stateDir: dir,
+      createIssue: () => {
+        throw new CreateIssueError(
+          "flow-create-issue exited 3: body rejected",
+          3,
+        );
+      },
+    });
+    expect(code).toBe(3);
   });
 
   it("list (plain text) appends the filed/dropped suffix", () => {

@@ -9,6 +9,7 @@
  *
  * Usage:
  *   flow-spawn [--slug <s>] [--class default|mcp-server] [--stdin inherit|ignore] -- <cmd> [args...]
+ *   flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] -- <cmd> [args...]
  *   flow-spawn --list <slug> [--json]
  *
  * Fail-open discipline: a registry-write failure (unwritable ~/.flow, `ps`
@@ -16,6 +17,11 @@
  * never-break-a-caller rule `bin/flow-browser-teardown.ts`'s header
  * documents. The one deviation: flow-spawn's own exit code IS the child's,
  * so unlike that helper it cannot pin itself to 0 on the launch path.
+ * `--detach` is the exception to that exception: there is no child exit to
+ * report (the wrapper never awaits it), so it always exits 0 once the
+ * registry row is recorded, and the child's stdio is redirected to the
+ * caller-named `--stdout`/`--stderr` files precisely so the launching tool
+ * call is never held open by an inherited pipe.
  */
 
 import * as fs from "node:fs";
@@ -40,6 +46,9 @@ export type SpawnCliArgs = {
   stdin: "inherit" | "ignore";
   command: string[];
   usageError?: string;
+  detach: boolean;
+  stdoutPath?: string;
+  stderrPath?: string;
 };
 
 export function parseCliArgs(argv: string[]): SpawnCliArgs {
@@ -48,6 +57,7 @@ export function parseCliArgs(argv: string[]): SpawnCliArgs {
     procClass: "default",
     stdin: "ignore",
     command: [],
+    detach: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -63,6 +73,22 @@ export function parseCliArgs(argv: string[]): SpawnCliArgs {
       out.list = v;
     } else if (a === "--json") {
       out.json = true;
+    } else if (a === "--detach") {
+      out.detach = true;
+    } else if (a === "--stdout") {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith("--")) {
+        out.usageError = "--stdout requires a value";
+        return out;
+      }
+      out.stdoutPath = v;
+    } else if (a === "--stderr") {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith("--")) {
+        out.usageError = "--stderr requires a value";
+        return out;
+      }
+      out.stderrPath = v;
     } else if (a === "--slug") {
       const v = argv[++i];
       if (v === undefined) {
@@ -100,6 +126,17 @@ export function parseCliArgs(argv: string[]): SpawnCliArgs {
   if (out.list === undefined && out.command.length === 0) {
     out.usageError =
       "no command given — pass `-- <cmd> [args...]` or `--list <slug>`";
+    return out;
+  }
+  // An inherited pipe would keep the launching Bash tool call open until
+  // the detached child exits, defeating the whole point of --detach — see
+  // the header docstring's "Detached stdio must go to files" rationale.
+  if (
+    out.detach &&
+    (out.stdoutPath === undefined || out.stderrPath === undefined)
+  ) {
+    out.usageError =
+      "--detach requires both --stdout <path> and --stderr <path>";
   }
   return out;
 }
@@ -113,6 +150,18 @@ export type SpawnDeps = {
     exited: Promise<number>;
     signalCode?: NodeJS.Signals | null;
   };
+  // The --detach launch primitive: NO exited promise (never awaited) and NO
+  // signalCode — a detached child is deliberately not tied to this
+  // process's lifetime. `unref()` lets the Bun event loop exit without
+  // waiting on the child.
+  spawnDetached?: (
+    argv: string[],
+    opts: { stdoutFd: number; stderrFd: number },
+  ) => { pid: number; unref: () => void };
+  // Opens a file for the detached child's stdout/stderr redirect, append
+  // mode, 0o600. Injectable so tests never touch the real filesystem.
+  openAppendFd?: (path: string) => number;
+  closeFd?: (fd: number) => void;
   pidStartEpoch?: (pid: number) => number | null;
   appendRow?: typeof appendRow;
   readRows?: typeof readRows;
@@ -143,6 +192,28 @@ function defaultSpawn(
     get signalCode(): NodeJS.Signals | null {
       return child.signalCode;
     },
+  };
+}
+
+// Detached, file-redirected launch: stdin ignored, stdout/stderr point at
+// caller-named files (never inherited — an inherited pipe keeps the
+// launching Bash tool call open until the child exits, the exact footgun
+// --detach exists to avoid). `unref()` lets this process exit without
+// waiting on the child.
+function defaultSpawnDetached(
+  argv: string[],
+  opts: { stdoutFd: number; stderrFd: number },
+): { pid: number; unref: () => void } {
+  const child = Bun.spawn(argv, {
+    detached: true,
+    stdin: "ignore",
+    stdout: opts.stdoutFd,
+    stderr: opts.stderrFd,
+  });
+  child.unref();
+  return {
+    pid: child.pid,
+    unref: () => child.unref(),
   };
 }
 
@@ -257,6 +328,9 @@ export async function runLaunch(
   args: SpawnCliArgs,
   deps: SpawnDeps = {},
 ): Promise<number> {
+  if (args.detach) {
+    return runDetachedLaunch(args, deps);
+  }
   const spawn = deps.spawn ?? defaultSpawn;
   const doAppendRow = deps.appendRow ?? appendRow;
   const getStartEpoch = deps.pidStartEpoch ?? pidStartEpoch;
@@ -336,6 +410,110 @@ export async function runLaunch(
   }
 }
 
+/**
+ * The `--detach` launch mode. Preserves the same load-bearing ordering as
+ * `runLaunch` above (mkdir procs dir → spawn → appendRow immediately →
+ * …), but deliberately omits everything that ties this process's lifetime
+ * to the child's: no `await child.exited`, no `SIGINT`/`SIGTERM`
+ * forwarders. The child's stdio is redirected to caller-named files (never
+ * inherited), and the child is `unref()`'d so this process can exit the
+ * moment the registry row is written.
+ */
+async function runDetachedLaunch(
+  args: SpawnCliArgs,
+  deps: SpawnDeps = {},
+): Promise<number> {
+  const spawnDetached = deps.spawnDetached ?? defaultSpawnDetached;
+  const doAppendRow = deps.appendRow ?? appendRow;
+  const getStartEpoch = deps.pidStartEpoch ?? pidStartEpoch;
+  const selfPid = deps.selfPid ?? process.pid;
+  const openAppendFd =
+    deps.openAppendFd ?? ((p: string) => fs.openSync(p, "a", 0o600));
+  const closeFd = deps.closeFd ?? ((fd: number) => fs.closeSync(fd));
+
+  const { slug, synthetic, rejectedSlug } = resolveSlug(args, deps);
+  if (rejectedSlug !== undefined) {
+    process.stderr.write(
+      `flow-spawn: --slug "${rejectedSlug}" is not a valid slug (lowercase alphanumeric and hyphens, max 60 chars) — ignoring it\n`,
+    );
+  }
+  if (synthetic) {
+    process.stderr.write(
+      `flow-spawn: no slug resolved — recording this launch under the synthetic slug "${slug}"\n`,
+    );
+  }
+
+  const selfStartEpoch = getStartEpoch(selfPid);
+
+  let precomputedTarget: string | undefined;
+  try {
+    fs.mkdirSync(procsDir(deps.baseDir), { recursive: true, mode: 0o700 });
+    precomputedTarget = registryPath(slug, deps.baseDir);
+  } catch {
+    // best-effort — appendRow below still fails open and reports its own
+    // error, and recomputes the target itself when precomputedTarget is
+    // unset.
+  }
+
+  let stdoutFd: number;
+  let stderrFd: number;
+  try {
+    stdoutFd = openAppendFd(args.stdoutPath as string);
+    stderrFd = openAppendFd(args.stderrPath as string);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    process.stderr.write(
+      `flow-spawn: failed to open --stdout/--stderr file: ${msg}\n`,
+    );
+    return 127;
+  }
+
+  let child: ReturnType<typeof spawnDetached>;
+  try {
+    child = spawnDetached(args.command, { stdoutFd, stderrFd });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    process.stderr.write(
+      `flow-spawn: failed to launch ${JSON.stringify(args.command)}: ${msg}\n`,
+    );
+    return 127;
+  } finally {
+    // Bun.spawn dups the fds into the child; the parent's copies are no
+    // longer needed once spawn() has returned (or thrown).
+    try {
+      closeFd(stdoutFd);
+    } catch {
+      // best-effort
+    }
+    try {
+      closeFd(stderrFd);
+    } catch {
+      // best-effort
+    }
+  }
+
+  const row = buildRow(
+    {
+      pid: child.pid,
+      slug,
+      procClass: args.procClass,
+      argv: args.command,
+      selfStartEpoch,
+    },
+    deps,
+  );
+  const written = doAppendRow(row, deps.baseDir, precomputedTarget);
+  if (!written.written) {
+    process.stderr.write(
+      `flow-spawn: registry write skipped: ${written.error}\n`,
+    );
+  }
+
+  child.unref();
+  console.log(String(child.pid));
+  return 0;
+}
+
 export function runList(
   slug: string,
   json: boolean,
@@ -361,10 +539,14 @@ export function runList(
 export function usage(): string {
   return [
     "usage: flow-spawn [--slug <s>] [--class default|mcp-server] [--stdin inherit|ignore] -- <cmd> [args...]",
+    "       flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] -- <cmd> [args...]",
     "       flow-spawn --list <slug> [--json]",
     "",
     "Launches <cmd> in its own process group, records one row to",
     "~/.flow/state/procs/<slug>.jsonl, and passes through its stdio and exit code.",
+    "--detach launches without awaiting the child: stdio is redirected to",
+    "--stdout/--stderr files (never inherited), the pid is printed, and the",
+    "wrapper exits 0 immediately once the registry row is recorded.",
     "--list prints the rows recorded for <slug> (an unknown slug reports zero",
     "rows at exit 0, never an error).",
   ].join("\n");

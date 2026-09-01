@@ -261,6 +261,7 @@ the PATH-bound schema validators. Always installed.
 | `skills/universal/flow-ui-ux`                   | `flow-ui-ux`            | stack-agnostic UI/UX judgment                                              |
 | `skills/universal/flow-skill-creator`           | `flow-skill-creator`    | authoring new skills                                                       |
 | `skills/universal/flow-backlog-triage`          | `flow-backlog-triage`   | GitHub issue + notes backlog triage                                        |
+| `skills/universal/flow-file-issue`              | `flow-file-issue`       | hand-file a GitHub issue against the value-prop rubric                     |
 | `skills/universal/flow-testing` (generic split) | `flow-testing`          | framework-agnostic testing skill (the generic half of the `testing` split) |
 
 > **`testing` split is a Phase-2 materialization — the Phase-1 registry
@@ -372,25 +373,32 @@ deselected, the pipeline's Copilot request/wait path skips with a named notice
 ### `research`
 
 The Google-AI-Ultra (`agy`) delegation engine, the research helpers built on
-it, and the two agy-dependent cross-model reviewers. Everything here requires
+it, the agy-dependent cross-model reviewers, and the blind method survey's
+two judges. Everything here requires
 `agy`; when the module is deselected (or `agy` is absent) each path skips
 gracefully — the existing agy graceful-skip generalized.
 
-| Skill / helper                                     | Role                                              |
-| -------------------------------------------------- | ------------------------------------------------- |
-| `skills/universal/flow-research` → `flow-research` | deep multi-source fact-checked research           |
-| `flow-delegate`                                    | agy delegation primitive                          |
-| `flow-delegate-fanout`                             | multi-prompt agy fan-out (powers `flow-research`) |
-| `flow-research-run`                                | forced-research gather+refute run                 |
-| `flow-research-note`                               | research skip-note backstop                       |
-| `flow-research-cache`                              | host-wide research-synthesis cache                |
-| `flow-plan-review`                                 | cross-model (AGY) plan-decision review            |
-| `flow-gemini-lens`                                 | cross-model (AGY / Gemini) PR-review lens         |
+| Skill / helper                                     | Role                                                                                                     |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `skills/universal/flow-research` → `flow-research` | deep multi-source fact-checked research                                                                  |
+| `flow-delegate`                                    | agy delegation primitive                                                                                 |
+| `flow-delegate-fanout`                             | multi-prompt agy fan-out (powers `flow-research`)                                                        |
+| `flow-research-run`                                | forced-research gather+refute run                                                                        |
+| `flow-research-note`                               | research skip-note backstop                                                                              |
+| `flow-research-cache`                              | host-wide research-synthesis cache                                                                       |
+| `flow-plan-review`                                 | cross-model (AGY) plan-decision review                                                                   |
+| `flow-plan-review-wait`                            | dumb bounded waiter for the async plan review                                                            |
+| `flow-gemini-lens`                                 | cross-model (AGY / Gemini) PR-review lens                                                                |
+| `flow-blind-survey`                                | two model-pinned blind judges over a goal-only brief; `{ran, skipReason, surveyPath, judges[]}` envelope |
 
-> `flow-plan-review` and `flow-gemini-lens` are agy-dependent cross-model
-> reviewers, so they live with the agy stack in `research` rather than in
-> `core`; the `core` pipeline consumes them behind the `review.gemini` opt-in
-> and degrades gracefully when `research` is absent.
+> `flow-plan-review`, `flow-plan-review-wait`, and `flow-gemini-lens` are
+> agy-dependent cross-model reviewers, so they live with the agy stack in
+> `research` rather than in `core`; the `core` pipeline consumes them
+> behind the `review.gemini` opt-in and degrades gracefully when
+> `research` is absent. `flow-blind-survey` is the fourth agy-dependent
+> helper in this row — it lives here too, but the `core` pipeline gates
+> it on a non-empty `state.interview` (the step-1 intent interview's
+> persisted digest), not on `review.gemini`.
 
 ---
 

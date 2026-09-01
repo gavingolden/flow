@@ -263,13 +263,52 @@ epic, using this precedence — stop at the first layer that resolves:
    on conflict).
 
 When none of the three layers resolves, the feature is not epic-launched — proceed to
-step 2 with `## Epic context` omitted.
+step 1.8 with `## Epic context` omitted.
 
 **Source-traceability rule (MUST).** Whichever layer detected membership, you MUST read
 the epic's `.flow/epics/<slug>/design.md` and `.flow/epics/<slug>/manifest.json` before
 authoring `## Epic context` (step 5). Every claim in that section — the feature's
 rationale, its `dependsOn` edges, its downstream dependents — must be traceable to those
 two files; never infer epic context from the slug or the pointer sentence alone.
+
+## 1.8. Blind survey context → Method selection
+
+**Gate: the invocation carries a `SURVEY:` marker.** `/flow-pipeline` step 3 runs the
+blind method survey (`flow-blind-survey`) BEFORE forced research and this discovery pass
+— see `skills/pipeline/flow-pipeline/references/blind-survey.md` for the full
+gate/brief/run contract on the supervisor side. When the survey ran (with at least one
+judge), the spawn prompt carries a marker line:
+
+```
+SURVEY: <absolute path to blind-survey.md> (judges: A=<model> ran|skipped:<reason>, B=<model> ran|skipped:<reason>)
+```
+
+When this marker is absent, skip this step entirely — write no `## Method selection`
+section, and do not otherwise reference the survey.
+
+**When the gate fires:**
+
+1. Read the file at the marker's absolute path with the `Read` tool. NEVER `import
+bin/lib/*` — discovery runs in the consumer worktree, where flow's own source tree
+   does not exist (the same constraint step 1.5's research note relies on).
+2. For each judge that ran, weigh its `### 2. Recommended method` against the user's own
+   proposed method, grounded in cited codebase evidence (the same evidentiary bar the
+   rest of this document holds discovery to elsewhere) — not a vibe comparison.
+3. Decide the verdict using these definitions: `converge-against` = both judges
+   ran AND both top recommendations are materially different from the user's method (they
+   need not agree with each other); `converge-with` = both materially the user's method;
+   `split` = anything else, including a single-judge run. A single-judge run can therefore
+   never yield `converge-against` — there is no second independent judgment to converge
+   against the user's method with.
+4. Author `## Method selection` per the step-5 section list above. Each judge line opens
+   with that judge's top recommendation quoted VERBATIM — its first sentence, in double
+   quotes — before any paraphrase, so the user can audit the verdict both at the
+   `pause-for-method` checkpoint (any intent, `converge-against`) and later at plan
+   review (every other verdict). A skipped judge writes `skipped: <reason>` instead and
+   contributes nothing to the verdict.
+
+Proceed to step 2 once this step resolves (marker absent, or `## Method selection`
+authored).
 
 ## 2. Scope Check
 
@@ -471,6 +510,15 @@ effect on model comprehension either way) — never required.
 - **Epic context** (omit-when-empty) — only when step 1.7 detects epic membership: the
   epic slug, this feature's id and rationale, its `dependsOn` edges with produced/consumed
   artifacts, and its downstream dependents. See the "Epic context" sub-section below.
+- **Method selection** (omit-when-no-`SURVEY:`-marker) — only when step 1.8's blind
+  method survey ran: five bullet lines plus a table — `- **User's method:**`, `- **Judge A (<model>):** "<its
+top recommendation's first sentence, verbatim>" — <paraphrase>` (a skipped judge writes
+  `- **Judge A (<model>):** skipped: <reason>`), `- **Judge B (<model>):** …` (same shape),
+  `- **Survey verdict:** <converge-against | split | converge-with>` (bare, exact, one
+  line — the same machine-parsed contract `- **Recommended path:**` uses), `- **Chosen
+method:** <one line> — <why>` — followed by a `| Before (user's method as asked) | After
+(chosen method) |` table. See step 1.8 for how the verdict is decided. Omit the heading
+  entirely when the marker was absent from the invocation.
 - **Scope Boundary** — what's in and what's explicitly out.
 - **Behavioral contrast** — `### User flow` and `### System flow` before → after
   subsections (explicit `none` affirmation allowed), closing with a one-line `**Lost:**`
@@ -541,7 +589,7 @@ follow-up section ONLY under one of three named exclusions:
 **cumulatively**, not per-candidate: several individually-fine bundles can together
 roughly double the diff. Apply the test to the bundle set as a whole; on overflow,
 keep the highest-value bundles in the task breakdown and demote the rest to
-pre-ticked candidates.
+candidates, ticked only when their block clears the bar.
 
 For example: "the retry loop swallows the underlying error" is an objective bug —
 bundle it into the task breakdown. "Add a settings toggle to let users disable
@@ -558,8 +606,7 @@ the task breakdown, removing it from the candidate table.
 When (and only when) such ideas exist, add a top-level `# Candidate follow-up issues`
 section to `plan.md`, placed between `# PRD` and `# Task breakdown` (see step 8). The
 section has **two parts, in this order**: a value-vs-complexity **ranking table**, then
-the machine-readable `- [ ]` checkbox list. Each checkbox is a single-line entry with a
-title and one-line body:
+the machine-readable `- [ ]` checkbox list. Each checkbox is a single-line title-and-body entry followed by its indented value-prop block (the six labelled sub-bullets defined below):
 
 ```markdown
 # Candidate follow-up issues
@@ -570,7 +617,23 @@ title and one-line body:
 | Pin `gh-action-cache` to v4     | Low   | Trivial    | one-line CI bump, unblocks nothing    | unrelated to this feature   | No                       |
 
 - [x] OAuth refresh path leaks tokens — separate concern; needs a dedicated session.
-- [x] `gh-action-cache@v3` is deprecated — pin to v4 in CI.
+  - **UX:** none
+  - **Problem:** refresh tokens are logged in plaintext on every retry [anchor: src/auth/oauth-client.ts:88]
+  - **Stability/efficiency:** none
+  - **Value rank:** 5 — a live credential leak with no workaround [anchor: src/auth/oauth-client.ts:88]
+  - **Complexity:** Small — one file, isolated to the OAuth client
+  - **Risk:** High — needs its own security-review session
+  - **If never done:** the leak persists in every future auth-touching PR
+  - **Verdict:** clears bar — a live credential leak outweighs Complexity and Risk
+- [ ] `gh-action-cache@v3` is deprecated — pin to v4 in CI.
+  - **UX:** none
+  - **Problem:** none
+  - **Stability/efficiency:** none
+  - **Value rank:** 1 — cosmetic version bump, no observed failure or deprecation deadline [anchor: `gh-action-cache@v3` still passing in CI]
+  - **Complexity:** Trivial — one line in CI config
+  - **Risk:** Low
+  - **If never done:** nothing — v3 keeps working until GitHub removes it
+  - **Verdict:** below bar — no observed failure or deprecation deadline, just a version bump
 ```
 
 **The ranking table is mandatory whenever the section is present** (it is not itself
@@ -606,13 +669,17 @@ in the econ-data run. After the plan lands, the supervisor runs
 `flow-candidate-issues --lint --plan-md-file <plan.md>` as a deterministic advisory
 backstop; author the section so that check passes (every referenced follow-up is listed).
 
-Author every remaining candidate pre-ticked (`- [x]`) — file-by-default, not opt-in.
+Tick (`- [x]`) only a candidate whose value-prop block reads `**Verdict:** clears bar`;
+author every other candidate unticked (`- [ ]`). Unticked candidates stay in the
+ranking table and the checkbox list and are shown by `--details`; they file only if
+the user replies `file candidate #N`. Unclear ⇒ unticked.
 No `AskUserQuestion` form fires anywhere in this flow; instead, the supervisor echoes
 `flow-candidate-issues --details` at plan presentation so the user sees the full
-candidate list inline. The user curates by replying with one of three verbs:
+candidate list inline. The user curates by replying with one of four verbs:
 `pull #N into the plan` (moves a candidate into this pipeline's task breakdown),
-`drop candidate #N` (unticks it, removing it from the file-on-merge set), or
-`defer task #N` (moves a task-breakdown item back out to a ticked candidate).
+`drop candidate #N` (unticks it, removing it from the file-on-merge set),
+`defer task #N` (moves a task-breakdown item back out to a ticked candidate), or
+`file candidate #N` (ticks it).
 Whatever stays ticked when the PR merges is what the step-10 post-merge sweep files
 via `flow-create-issue`.
 
@@ -632,6 +699,29 @@ AGENTS.md `## Output style` rule
 test is cohesion, not size; do not use this section as a hedge to defer cohesive
 in-scope work that fails all three exclusions. A backlog full of low-confidence
 candidates is still noise — when in doubt, bundle.
+
+<!-- flow-value-rubric:begin -->
+
+**Value-prop block** — required before an item is ticked, filed, deferred, or verdicted DO / NEEDS-DECISION.
+
+- **UX:** <who notices, what changes for them, how often / how much> `[anchor: …]` — or `none`
+- **Problem:** <the concrete failure or friction this removes> `[anchor: …]` — or `none`
+- **Stability/efficiency:** <crash / flake / cost / latency effect, with the reproduced or measured number> `[anchor: …]` — or `none`
+- **Value rank:** `1`-`5` `[anchor: …]` — the highest rank whose condition is met: `5` data loss, security exposure, or a broken path with no workaround; `4` a user-visible failure with a workaround recurring on a named cadence; `3` a measured inefficiency with a number; `2` a single-instance annoyance or an unfired latent risk; `1` cosmetic
+- **Complexity:** `Trivial` | `Small` | `Medium` | `Large` — <files touched, blast radius>
+- **Risk:** `Low` | `Medium` | `High` — <review load, regression risk>
+- **If never done:** <what breaks, stays broken, or keeps costing — or `nothing`>
+- **Verdict:** `clears bar` | `below bar` — <the decisive line, and why it outweighs (or fails to outweigh) Complexity and Risk>
+
+**Short form.** For a genuinely trivial item (a typo, a dead link), skip the full block and write one line instead: `**Short form:** [V:n|C:x|R:y] <one-line text> [anchor: …]`. The compact tuple keeps the item sortable — the short form drops the prose, never the rank.
+
+**Anchor rule.** Every non-`none` UX / Problem / Stability line, and the Value rank, ends with `[anchor: …]` drawn from this closed list: a `file:line`; a reproduced behaviour (`command → observed output`); a command that fails today; a merged PR or commit; an issue number with its age; a measured number; the user's own words, quoted. A value line with no anchor is `unsubstantiated` and counts as `none`; a rank with no anchor is invalid — it cannot be falsified by opening it. Write file anchors bare (`[anchor: path/to/file.ts:42]`), never wrapped in backticks, so the lint can check the path exists.
+
+**Bar.** `clears bar` requires at least one substantiated value line, a `Value rank` of `2` or higher, a one-line rationale that it outweighs Complexity and Risk, and a non-`nothing` If-never-done line. `Value rank: 2` is the normal clear-bar baseline, not a special case — most items that clear the bar clear it at `2`. Anything else — including unclear — is `below bar`.
+
+**Banned phrasing.** `nicer`, `cleaner`, `could improve`, `might`, `best practice`, `would be good to`, `likely`. An anchor the reader cannot open or run in seconds is worse than `none` — never invent one.
+
+<!-- flow-value-rubric:end -->
 
 ### Visual Spec
 
@@ -1411,7 +1501,12 @@ redirect did not touch and destroys embedded markers. Follow this contract:
    the plan (or in `.flow-tmp/research-findings.md`). The redirect is a scope/decision
    change, not a new research question — re-running the fan-out double-spends agy quota for
    no new signal. Reuse the prior findings as-is.
-5. **Extend, don't replace, `## Open Questions`.** Append the redirect's new questions;
+5. **Do NOT re-run the Step 1.8 blind survey.** Reuse the file the `SURVEY:` marker names
+   (the survey ran once, before the first discovery pass; a revision pass never re-fires
+   it). Update `## Method selection` only when the redirect changes the chosen method —
+   otherwise leave the section byte-for-byte as it was, same discipline as the embedded
+   markers above.
+6. **Extend, don't replace, `## Open Questions`.** Append the redirect's new questions;
    mark any prior question the redirect resolves with a short decision note (the same
    "mark resolved with a decision note" convention the section already uses) rather than
    deleting it, so the Q&A record of the plan's evolution stays intact across revisions.
@@ -1466,8 +1561,9 @@ Common failure modes during planning:
   at the absolute paths the wrapper passed you, with parent directory created on
   demand.
 - `# Candidate follow-up issues` section is omitted from `plan.md` when discovery
-  surfaced no orthogonal ideas; populated as one or more pre-ticked `- [x]` items
-  otherwise (never written as an empty heading).
+  surfaced no orthogonal ideas; otherwise populated as checkbox items each
+  carrying a value-prop block, ticked only when its Verdict is `clears bar`
+  (never written as an empty heading).
 - The PRD opens with a one-line `**Goal:**` directly under the title (never omitted).
 - `## Behavioral contrast` is present with `### User flow` / `### System flow` and
   closes with a `**Lost:**` line (`none` only on genuinely additive changes).
@@ -1476,6 +1572,9 @@ Common failure modes during planning:
   `.flow-tmp/excluded-paths.json` mirrors it 1:1.
 - `## Epic context` is either omitted (not epic-launched) or every claim in it traces
   to a `design.md` / `manifest.json` read from step 1.7.
+- `## Method selection` is either omitted (no `SURVEY:` marker in the invocation) or
+  present with a `- **Survey verdict:**` line that is exactly one of `converge-against`,
+  `split`, `converge-with`.
 - A failed premise check surfaces as a `**Premise check:**` line in the Problem
   Statement and the `## Recommendation` verdict is non-`Proceed`; a sound premise
   carries no line.

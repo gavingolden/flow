@@ -66,6 +66,12 @@ function makeUpdater() {
 }
 
 describe(parseArgs, () => {
+  it("rejects a repeated --slug with its own message, not the positional one", () => {
+    expect(
+      parseArgs(["--slug", "alpha", "--slug", "beta", "--body-file", "b.md"]),
+    ).toEqual({ error: "--slug given more than once" });
+  });
+
   it("requires --body-file when no args are given", () => {
     const r = parseArgs([]) as { error: string };
     expect(r.error).toMatch(/--body-file is required/);
@@ -116,6 +122,18 @@ describe(parseArgs, () => {
       error: string;
     };
     expect(r.error).toMatch(/--title requires a value/);
+  });
+
+  it("accepts --slug as an alias for the positional slug", () => {
+    const r = parseArgs(["--slug", "s", "--body-file", "b.md"]);
+    expect(r).toEqual({ slug: "s", bodyFile: "b.md", draft: false });
+  });
+
+  it("rejects combining a positional slug with --slug", () => {
+    const r = parseArgs(["s", "--slug", "t", "--body-file", "/tmp/x.md"]) as {
+      error: string;
+    };
+    expect(r.error).toBe("cannot combine positional <slug> with --slug");
   });
 });
 

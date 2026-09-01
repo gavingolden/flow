@@ -37,6 +37,12 @@
  * but the validator can't enforce subjective populated-ness).
  */
 
+import {
+  type FixApplierRejectedAlternative,
+  type FixApplierAntiPattern,
+  firstMissingStringField,
+} from "./negative-findings-schema";
+
 export type FixApplierCommit = {
   sha: string;
   files: string[];
@@ -53,18 +59,11 @@ export type FixApplierDeferred = {
   reason: string;
 };
 
-export type FixApplierRejectedAlternative = {
-  finding_id: string;
-  considered_approach: string;
-  why_rejected: string;
-};
-
-export type FixApplierAntiPattern = {
-  location: string;
-  pattern: string;
-  recommendation: string;
-  introduced_by_this_pr: boolean;
-};
+// The fix-applier's two negative-findings shapes are the shared base
+// (bin/lib/negative-findings-schema.ts) plus fix-applier-specific fields;
+// re-exported here as TYPES for consumers that already import from this
+// module.
+export type { FixApplierRejectedAlternative, FixApplierAntiPattern };
 
 export type FixApplierResult = {
   commits: FixApplierCommit[];
@@ -164,11 +163,15 @@ export function validateRejectedAlternativeEntry(
   if (!isNonEmptyString(o.finding_id)) {
     return err(`'finding_id' must be a non-empty string`, path);
   }
-  if (!isNonEmptyString(o.considered_approach)) {
-    return err(`'considered_approach' must be a non-empty string`, path);
-  }
-  if (!isNonEmptyString(o.why_rejected)) {
-    return err(`'why_rejected' must be a non-empty string`, path);
+  // Delegate the shared two-field check to the base module; the returned
+  // field name reproduces the exact per-field message the direct checks
+  // used to emit.
+  const missing = firstMissingStringField(o, [
+    "considered_approach",
+    "why_rejected",
+  ]);
+  if (missing) {
+    return err(`'${missing}' must be a non-empty string`, path);
   }
   return null;
 }
@@ -181,14 +184,16 @@ export function validateAntiPatternEntry(
     return err(`expected object`, path);
   }
   const o = entry as Record<string, unknown>;
-  if (!isNonEmptyString(o.location)) {
-    return err(`'location' must be a non-empty string`, path);
-  }
-  if (!isNonEmptyString(o.pattern)) {
-    return err(`'pattern' must be a non-empty string`, path);
-  }
-  if (!isNonEmptyString(o.recommendation)) {
-    return err(`'recommendation' must be a non-empty string`, path);
+  // Delegate the shared three-field check to the base module; the returned
+  // field name reproduces the exact per-field message the direct checks
+  // used to emit.
+  const missing = firstMissingStringField(o, [
+    "location",
+    "pattern",
+    "recommendation",
+  ]);
+  if (missing) {
+    return err(`'${missing}' must be a non-empty string`, path);
   }
   if (typeof o.introduced_by_this_pr !== "boolean") {
     return err(`'introduced_by_this_pr' must be a boolean`, path);

@@ -30,8 +30,9 @@
  * `--json` (the default) emits the full enumeration on stdout:
  *   { candidates, untickedCount, tickedCount, rankedOrder }
  *   candidates: ALL section items, in document order, each { title, body,
- *     ticked } & CandidateMeta (CandidateMeta fields are null when the
- *     ranking table is absent or has no matching row)
+ *     details, ticked } & CandidateMeta (CandidateMeta fields are null when
+ *     the ranking table is absent or has no matching row; `details` is the
+ *     item's indented value-prop block text, `""` when it carries none)
  *   rankedOrder: 1-based indices into `candidates`, sorted High > Medium >
  *     Low > unknown value, tie-broken by document order — ticked and
  *     unticked items interleave here; `--details` is what groups by state
@@ -45,34 +46,40 @@
  * distinct { untickedIndices, untickedCount } shape — reusing the tick
  * fields on an untick would misreport the direction.
  *
- * `--ticked` emits { ticked: [{ title, body } & CandidateMeta] } — the
- * already-`- [x]` items (empty array when the section is absent or has
- * zero ticked items).
+ * `--ticked` emits { ticked: [{ title, body, details } & CandidateMeta] } —
+ * the already-`- [x]` items (empty array when the section is absent or
+ * has zero ticked items). `details` is the item's indented value-prop
+ * block text (raw, common-indent-stripped), `""` when the item carries none.
  *
  * `--lint` is the follow-up-reference consistency guard: it scans plan.md
  * for prose that references a follow-up ("tracked as a follow-up", etc.)
  * and flags DRIFT when such a reference exists but the
  * `# Candidate follow-up issues` section is absent or empty — the exact
- * inconsistency an external reviewer caught in the econ-data run. Emits
- * { references, candidateCount, drift } and exits 1 on drift, 0 clean.
- * Advisory-only: the supervisor surfaces drift in chat, never blocks
- * planning. Tolerant — never throws on malformed input.
+ * inconsistency an external reviewer caught in the econ-data run. It ALSO
+ * checks the flow-value-rubric bar: every ticked candidate must carry a
+ * value-prop block whose Verdict reads `clears bar`, and every `[anchor:
+ * path]` it cites must exist relative to the repo root. Emits
+ * { references, candidateCount, drift, barMisses } and exits 1 on drift
+ * OR any barMisses entry, 0 clean. Advisory-only: the supervisor surfaces
+ * both in chat, never blocks planning. Tolerant — never throws on
+ * malformed input.
  *
  * `--details` prints a human-legible block of ALL candidates, grouped by
  * checkbox state, for the supervisor to paste into chat: rank, checkbox
- * state, title, value, complexity, and a recommended marker for open
- * candidates. Closes with a note that pre-ticked items file as issues
- * post-merge unless dropped, and the two reply offers (`pull #N into the
- * plan`, `drop candidate #N`). Always exits 0; empty stdout when the
- * section has zero items.
+ * state, title, value, complexity, verdict, and a recommended marker for
+ * open candidates. Closes with the tick-rule note and the reply offers
+ * (`pull #N into the plan`, `drop candidate #N`, `file candidate #N`).
+ * Always exits 0; empty stdout when the section has zero items.
  *
  * Exit codes:
- *   0 — read / enumerate / tick / untick / ticked / lint(no-drift) / details succeeded
- *   1 — --lint detected follow-up-reference drift
+ *   0 — read / enumerate / tick / untick / ticked / lint(clean) / details succeeded
+ *   1 — --lint detected follow-up-reference drift or a value-bar miss (barMisses)
  *   2 — bad CLI args (file read failure, out-of-range tick/untick index, etc.)
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
+import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 export type CandidateMeta = {
   value: string | null;
@@ -85,6 +92,7 @@ export type CandidateMeta = {
 export type Candidate = {
   title: string;
   body: string;
+  details: string;
   ticked: boolean;
 } & CandidateMeta;
 
@@ -173,14 +181,58 @@ export function splitCandidate(text: string): { title: string; body: string } {
   return { title: text.slice(0, idx), body: text.slice(idx + " — ".length) };
 }
 
-type SectionItem = { lineIdx: number; ticked: boolean; text: string };
+type SectionItem = {
+  lineIdx: number;
+  ticked: boolean;
+  text: string;
+  details: string;
+};
+
+/**
+ * Captures the indented value-prop block (or any other indented
+ * continuation content) that follows a checkbox item, starting at `start`
+ * (the line after the checkbox) up to `end` (the section boundary).
+ * Stops at the next column-0 checkbox line, the next `^#` heading, the
+ * next `^\|` table row, or the first non-blank column-0 line that is not
+ * a checkbox — whichever comes first. Every kept line begins with ≥1
+ * space (a leading tab is treated as one space); interior blank lines are
+ * skipped from the output but do not themselves stop the scan. The common
+ * leading indent across kept lines is stripped before joining with "\n".
+ * Returns "" when nothing is captured.
+ */
+function extractItemDetails(
+  lines: string[],
+  start: number,
+  end: number,
+): string {
+  const kept: string[] = [];
+  for (let j = start; j < end; j++) {
+    const raw = lines[j];
+    if (raw.trim() === "") continue;
+    if (UNTICKED_RE.test(raw) || TICKED_RE.test(raw)) break;
+    if (/^#/.test(raw)) break;
+    if (/^\|/.test(raw)) break;
+    if (/^[ \t]/.test(raw)) {
+      kept.push(raw.replace(/\t/g, " "));
+      continue;
+    }
+    break;
+  }
+  if (kept.length === 0) return "";
+  const indent = Math.min(...kept.map((l) => l.length - l.trimStart().length));
+  return kept.map((l) => l.slice(indent)).join("\n");
+}
 
 /**
  * Extracts the `# Candidate follow-up issues` section's item lines,
  * bounded from the heading to the next top-level `^# ` heading or EOF
  * (matches the step-10 sweep's awk bounds). Returns null when the
  * heading is absent. `lines` is the file split on "\n" (returned so the
- * tick/untick paths can rewrite by index without re-splitting).
+ * tick/untick paths can rewrite by index without re-splitting). Each item
+ * also carries `details` — its indented value-prop block, captured by
+ * `extractItemDetails` as a continuation run so the column-0-anchored
+ * checkbox regexes never see (and never mis-match) the block's own
+ * `- **UX:**`-style nested lines.
  */
 export function extractCandidateSection(
   planMd: string,
@@ -201,12 +253,22 @@ export function extractCandidateSection(
   for (let i = startIdx + 1; i < endIdx; i++) {
     const unticked = lines[i].match(UNTICKED_RE);
     if (unticked) {
-      items.push({ lineIdx: i, ticked: false, text: unticked[1] });
+      items.push({
+        lineIdx: i,
+        ticked: false,
+        text: unticked[1],
+        details: extractItemDetails(lines, i + 1, endIdx),
+      });
       continue;
     }
     const ticked = lines[i].match(TICKED_RE);
     if (ticked) {
-      items.push({ lineIdx: i, ticked: true, text: ticked[1] });
+      items.push({
+        lineIdx: i,
+        ticked: true,
+        text: ticked[1],
+        details: extractItemDetails(lines, i + 1, endIdx),
+      });
     }
   }
   return { lines, items };
@@ -242,6 +304,7 @@ export function enumerateCandidates(planMd: string): Decision {
     const c = splitCandidate(it.text);
     return {
       ...c,
+      details: it.details,
       ticked: it.ticked,
       ...(meta.get(c.title.trim()) ?? EMPTY_META),
     };
@@ -270,16 +333,18 @@ function rankCandidates(candidates: CandidateMeta[]): number[] {
 }
 
 /**
- * Pure extraction of the already-`- [x]` items as { title, body } & CandidateMeta
- * entries, reusing the same section parse + first-` — `-split + ranking-table
- * join. Empty when the section is absent or has zero ticked items. Return
- * type is deliberately NOT `Candidate[]` — this is the step-10 post-merge
- * issue-filing contract's own `{ title, body } & CandidateMeta` shape and
- * must not gain a `ticked` field just because `Candidate` did.
+ * Pure extraction of the already-`- [x]` items as
+ * { title, body, details } & CandidateMeta entries, reusing the same
+ * section parse + first-` — `-split + ranking-table join. Empty when the
+ * section is absent or has zero ticked items. Return type is deliberately
+ * NOT `Candidate[]` — this is the step-10 post-merge issue-filing
+ * contract's own shape and must not gain a `ticked` field just because
+ * `Candidate` did. `details` is the item's indented value-prop block —
+ * the step-10 sweep folds it into the filed issue body.
  */
 export function extractTicked(
   planMd: string,
-): ({ title: string; body: string } & CandidateMeta)[] {
+): ({ title: string; body: string; details: string } & CandidateMeta)[] {
   const section = extractCandidateSection(planMd);
   if (!section) return [];
   const meta = parseRankingTable(planMd);
@@ -287,7 +352,11 @@ export function extractTicked(
     .filter((it) => it.ticked)
     .map((it) => {
       const c = splitCandidate(it.text);
-      return { ...c, ...(meta.get(c.title.trim()) ?? EMPTY_META) };
+      return {
+        ...c,
+        details: it.details,
+        ...(meta.get(c.title.trim()) ?? EMPTY_META),
+      };
     });
 }
 
@@ -318,20 +387,52 @@ export type LintReport = {
   references: { line: number; text: string }[];
   candidateCount: number;
   drift: boolean;
+  barMisses: {
+    index: number;
+    title: string;
+    reason: "no-verdict" | "anchor-missing";
+    anchor?: string;
+  }[];
 };
 
 /**
- * Pure follow-up-reference consistency check. Scans plan.md line-by-line
- * for any `FOLLOWUP_REFERENCE_RES` phrase (one reference recorded per
- * matching line, 1-based), counts candidate items via the same
- * `extractCandidateSection` parser the enumeration path uses, and reports
- * DRIFT when a reference exists but no candidate items do. Presence-check
- * only (not a semantic match of each reference to a specific candidate);
- * `drift` fires ONLY when `candidateCount === 0`, so a reference phrase
- * that appears inside a populated candidate section never trips it.
- * Tolerant by construction — pure string work, never throws.
+ * Extracts the value after `**Verdict:**` on its own line inside a
+ * candidate's `details` block, trimmed. `null` when no such line is
+ * present, or when the value is empty.
  */
-export function lintFollowUpReferences(planMd: string): LintReport {
+export function extractVerdict(details: string): string | null {
+  const m = details.match(/\*\*Verdict:\*\*\s*(.+)/);
+  if (!m) return null;
+  const v = m[1].trim().replace(/^`/, "");
+  return v || null;
+}
+
+/**
+ * Pure follow-up-reference consistency check PLUS the flow-value-rubric
+ * bar check. Scans plan.md line-by-line for any `FOLLOWUP_REFERENCE_RES`
+ * phrase (one reference recorded per matching line, 1-based), counts
+ * candidate items via the same `extractCandidateSection` parser the
+ * enumeration path uses, and reports DRIFT when a reference exists but no
+ * candidate items do. Presence-check only (not a semantic match of each
+ * reference to a specific candidate); `drift` fires ONLY when
+ * `candidateCount === 0`, so a reference phrase that appears inside a
+ * populated candidate section never trips it.
+ *
+ * `barMisses` covers every TICKED candidate: one entry with
+ * `reason: "no-verdict"` when its value-prop block's Verdict does not
+ * start with `clears bar` (case-insensitive) — anchors are not checked in
+ * that case, one dominant miss per item — otherwise one
+ * `reason: "anchor-missing"` entry per `[anchor: …]` file path that does
+ * not exist relative to the repo root (resolved via `planMdFile`, see
+ * `resolveAnchorRepoRoot`). `--lint` exits 1 on drift OR any `barMisses` entry.
+ * Tolerant by construction — pure string/filesystem-existence work, never
+ * throws, and performs no `gh` call or LLM judgement (the anchor check is
+ * a deterministic existence check only).
+ */
+export function lintFollowUpReferences(
+  planMd: string,
+  planMdFile?: string,
+): LintReport {
   const lines = planMd.split("\n");
   const references: { line: number; text: string }[] = [];
   for (let i = 0; i < lines.length; i++) {
@@ -342,7 +443,36 @@ export function lintFollowUpReferences(planMd: string): LintReport {
   const section = extractCandidateSection(planMd);
   const candidateCount = section ? section.items.length : 0;
   const drift = references.length > 0 && candidateCount === 0;
-  return { references, candidateCount, drift };
+
+  const barMisses: LintReport["barMisses"] = [];
+  if (section) {
+    const repoRoot = resolveAnchorRepoRoot(planMdFile);
+    section.items.forEach((it, i) => {
+      if (!it.ticked) return;
+      const c = splitCandidate(it.text);
+      const verdict = extractVerdict(it.details);
+      if (!verdict || !/^clears bar/i.test(verdict)) {
+        barMisses.push({ index: i + 1, title: c.title, reason: "no-verdict" });
+        return;
+      }
+      for (const anchor of extractPathAnchors(it.details)) {
+        const abs = resolve(repoRoot, anchor);
+        const rel = relative(repoRoot, abs);
+        const inRepo =
+          !isAbsolute(anchor) && rel !== "" && !rel.startsWith("..");
+        if (!inRepo || !existsSync(abs)) {
+          barMisses.push({
+            index: i + 1,
+            title: c.title,
+            reason: "anchor-missing",
+            anchor,
+          });
+        }
+      }
+    });
+  }
+
+  return { references, candidateCount, drift, barMisses };
 }
 
 export type TickResult = { tickedIndices: number[]; tickedCount: number };
@@ -429,8 +559,10 @@ const OFFER_LINE =
   "To fold a candidate into the current work instead of filing it, reply `pull #N into the plan`.";
 const DROP_OFFER_LINE =
   "To drop a candidate instead of filing it as an issue, reply `drop candidate #N`.";
-const FILE_BY_DEFAULT_NOTE =
-  "Pre-ticked items file as issues post-merge unless dropped.";
+const TICK_RULE_NOTE =
+  "Ticked items file as issues post-merge unless dropped; unticked items are listed here and file only on request (see below).";
+const FILE_OFFER_LINE =
+  "To file an unticked candidate as an issue post-merge, reply `file candidate #N`.";
 
 /**
  * Renders the `--details` plain-text block: every candidate in
@@ -438,9 +570,12 @@ const FILE_BY_DEFAULT_NOTE =
  * group — rather than printed in raw rank order. `rankedOrder` ranks
  * across BOTH states, so printing it flat would interleave items the
  * user already decided on with open ones; the grouping here is
- * deliberate, not inherited from `rankCandidates`. Closes with the
- * file-by-default note and both reply offers. Quiet no-op (empty string)
- * when the section has zero items at all.
+ * deliberate, not inherited from `rankCandidates`. Each item also prints
+ * its value-prop block's `verdict:` line (`(no value-prop block)` when
+ * absent), so a reader can see at a glance which ticked items actually
+ * clear the bar. Closes with the tick-rule note and all three reply
+ * offers. Quiet no-op (empty string) when the section has zero items at
+ * all.
  */
 export function renderDetails(decision: Decision): string {
   if (decision.candidates.length === 0) return "";
@@ -463,6 +598,9 @@ export function renderDetails(decision: Decision): string {
       lines.push(`#${idx} ${box} ${c.title} — ${value}/${complexity}`);
       lines.push(`  rationale: ${c.rationale ?? "(none)"}`);
       lines.push(`  relation: ${c.relation ?? "(none)"}`);
+      lines.push(
+        `  verdict: ${extractVerdict(c.details) ?? "(no value-prop block)"}`,
+      );
       if (!c.ticked) {
         const pull = (c.pull ?? "").toLowerCase();
         const recommended =
@@ -487,9 +625,10 @@ export function renderDetails(decision: Decision): string {
   }
 
   lines.push("");
-  lines.push(FILE_BY_DEFAULT_NOTE);
+  lines.push(TICK_RULE_NOTE);
   lines.push(OFFER_LINE);
   lines.push(DROP_OFFER_LINE);
+  lines.push(FILE_OFFER_LINE);
   return lines.join("\n");
 }
 
@@ -598,9 +737,9 @@ export function run(argv: string[]): number {
   }
 
   if (parsed.mode === "lint") {
-    const report = lintFollowUpReferences(planMd);
+    const report = lintFollowUpReferences(planMd, parsed.planMdFile);
     process.stdout.write(JSON.stringify(report) + "\n");
-    return report.drift ? 1 : 0;
+    return report.drift || report.barMisses.length > 0 ? 1 : 0;
   }
 
   if (parsed.mode === "details") {

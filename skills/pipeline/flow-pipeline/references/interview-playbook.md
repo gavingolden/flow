@@ -277,3 +277,33 @@ status heading `### ❓ A few questions before I plan this out` — the
 slot grammar and escape-verb `**Next action:**` line are shared verbatim
 between the two pause sites; only the heading text and the
 `--phase`/artifact-source pointer differ.
+
+A third pause site — the Step-3 blind method survey's method pause
+(`references/blind-survey.md`, a SECOND, distinct use of
+`plan-pending-interview`) — reuses the same slot grammar for its single
+question:
+
+```
+### ❓ Both blind judges recommend a different method
+
+**Needs attention:**
+Method — both blind judges independently recommended a different method
+from the one you proposed:
+- Judge A: "<its top recommendation's first sentence, verbatim>"
+- Judge B: "<its top recommendation's first sentence, verbatim>"
+Full before → after comparison: plan: <path to plan.md>#Method-selection
+
+Q<n>. Adopt the plan's chosen method?
+  a) adopt the plan's chosen method (recommended)
+  b) keep my method
+Recommended: a — both judges independently converged away from the
+proposed method
+
+**Next action:** Reply `answer: <n>a` to adopt the plan's method,
+`<n>b` to keep yours, or freeform; `proceed` accepts the
+recommendation; `cancel` stops the pipeline.
+```
+
+The status heading, slot grammar, and escape-verb `**Next action:**` line
+are shared verbatim across all three pause sites; only the heading text,
+the question body, and the `--phase`/artifact-source pointer differ.

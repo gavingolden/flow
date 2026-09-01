@@ -478,6 +478,18 @@ describe("decide() — row 7 (ci-wait)", () => {
     );
     expect(r.resumeAt).toBe("step-7");
   });
+
+  it("resumes at step-3 when phase is 'plan-review-pending' (yielded while the async cross-model review was in flight)", () => {
+    // plan-review-pending implies plan.md is already drafted (planExists
+    // stays true), so a crash while yielded must resume at step-3 to
+    // re-check the review's status, not fall through to step-4's approval
+    // presentation — see the mechanical pre-check deviation in the
+    // implementer's return summary.
+    const r = decide(
+      makeInputs({ state: baseState({ phase: "plan-review-pending" }) }),
+    );
+    expect(r.resumeAt).toBe("step-3");
+  });
 });
 
 describe("decide() — row 8 (pr-review on HEAD)", () => {
@@ -585,6 +597,7 @@ describe("canonical phase-set parity", () => {
       "ci-wait-pending",
       "triage-pending-interview",
       "plan-pending-interview",
+      "plan-review-pending",
     ]) {
       expect(NO_INFLIGHT_WORK_PHASES.has(phase)).toBe(false);
     }
@@ -702,6 +715,18 @@ describe(hasPrReviewCommit, () => {
 // ---------------------------------------------------------------------------
 
 describe(parseArgs, () => {
+  it("rejects a repeated --slug instead of silently last-wins", () => {
+    expect(parseArgs(["--slug", "alpha", "--slug", "beta"])).toEqual({
+      error: "--slug given more than once",
+    });
+  });
+
+  it("names a stray second positional as an argument, not a flag", () => {
+    expect(parseArgs(["a", "b"])).toEqual({
+      error: "unexpected extra argument: b",
+    });
+  });
+
   it("treats empty argv as 'slug omitted' (auto-resolve path)", () => {
     expect(parseArgs([])).toEqual({});
   });
@@ -718,6 +743,32 @@ describe(parseArgs, () => {
 
   it("accepts a single slug positional", () => {
     expect(parseArgs(["my-slug"])).toEqual({ slug: "my-slug" });
+  });
+
+  it("accepts --slug as an alias for the positional slug", () => {
+    expect(parseArgs(["--slug", "s"])).toEqual({ slug: "s" });
+  });
+
+  it("rejects combining a positional slug with --slug", () => {
+    expect(parseArgs(["s", "--slug", "t"])).toEqual({
+      error: "cannot combine positional <slug> with --slug",
+    });
+  });
+
+  it("rejects --slug with a missing value", () => {
+    expect(parseArgs(["--slug"])).toEqual({
+      error: "--slug requires a value",
+    });
+  });
+
+  it("rejects --slug whose value looks like a flag", () => {
+    expect(parseArgs(["--slug", "--x"])).toEqual({
+      error: "--slug requires a value",
+    });
+  });
+
+  it("still returns the help sentinel for --help", () => {
+    expect(parseArgs(["--help"])).toEqual({ error: "help" });
   });
 });
 

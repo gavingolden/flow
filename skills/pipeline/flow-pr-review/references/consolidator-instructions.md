@@ -73,6 +73,16 @@ number,title,headRefName,baseRefName` JSON the wrapper saved to
 - The absolute artifact path to write
   (`$WORKTREE/.flow-tmp/consolidator-result.json`).
 
+No new input paths for the lens negative-findings channel. The tri-state
+(`"populated" | "empty" | "absent"`) comes off the per-lens
+`flow-agent-finding-schema --validate` stdout envelope you already invoke in
+step (a) below, which reports a `negatives: {rejected_alternatives,
+anti_patterns_found}` field alongside `{ok: true}` on the per-agent success
+path — but the envelope carries only that tri-state plus a cumulative
+`skipped` count, never the entries themselves. The entries you collect and
+tag with `lens: "<name>"` in step (b) are read directly from each per-lens
+artifact JSON file at the six/seven paths above, not from the envelope.
+
 ## 3. Procedure
 
 ### (a) Read and validate each per-agent output
@@ -89,6 +99,26 @@ single surrounding-paren pair from `decoration`; maps lens-name / `add-a-test`
 `consolidator-schema-failure` fires only on genuinely-unparseable findings;
 `bin/lib/agent-finding-schema.ts` is the authoritative source for exactly what
 is and isn't coerced.
+
+On a success exit (`{ok: true, ...}` on stdout), also read the envelope's
+`negatives` field for that lens. An `"absent"` state on either
+`rejected_alternatives` or `anti_patterns_found` means the lens omitted the
+key entirely — append that lens's name to `lens_negatives_missing[]` in the
+artifact you write at step (e). This is **explicitly NOT an escalation**:
+an absent negative-findings key is a lens compliance gap you record, not a
+`consolidator-schema-failure` — the six per-agent success/failure
+escalation paths below are governed by shape validity of `findings` only.
+Also read the envelope's `skipped` count (entries dropped for failing the
+per-entry lens-negatives shape). If a lens's raw array was present
+(`"populated"` or `"empty"`, not `"absent"`) but `skipped` accounts for
+every entry in it — i.e. step (b) below collects zero valid entries from
+that lens for a slot the envelope reported non-absent — append
+`"<lens> (N unreadable)"` (substituting the lens name and the `skipped`
+count) to `lens_negatives_missing[]` too, mirroring the fix-applier's
+existing `(N unreadable)` residual-marker precedent. This keeps an
+all-malformed lens visible instead of silently reading as "lens said
+nothing" — the two failure modes look identical to a human reading the PR
+body otherwise.
 
 Exit-1 outcomes are split by source:
 
@@ -139,6 +169,37 @@ optional Gemini lens file is present and valid, tag its findings
 threshold, praise-specificity, and the second-opinion pass treat a Gemini
 finding **identically** to a Claude finding (no special-casing). When the
 Gemini file is absent, proceed silently with the six Claude sources.
+
+Alongside the findings merge, collect each lens's valid
+`rejected_alternatives` and `anti_patterns_found` entries via the
+deterministic helper rather than hand-copying six JSON files by eye:
+
+```sh
+flow-agent-finding-schema --collect-lens-negatives <worktree>/.flow-tmp 2>/dev/null
+```
+
+Redirect stderr (`2>/dev/null`): this helper's positional-map fallback
+writes an audit line to stderr for every off-contract entry it recovers
+(see `bin/lib/negative-findings-schema.ts`'s `logPositionalMap`), and you
+are told to embed the command's output verbatim into step (e)'s artifact —
+an unredirected audit line would corrupt that JSON the same way
+`flow-pr-static-analysis`'s progress lines once did.
+
+This normalizes and lens-tags every entry across the six canonical
+kebab-case lenses (`bug-detection`, `security`, `pattern-consistency`,
+`performance`, `supply-chain`, `test-coverage`) plus the optional Gemini
+lens, and prints `{"lens_rejected_alternatives": [...],
+"lens_anti_patterns_found": [...], "lens_negatives_missing": [...]}` to
+stdout, exit 0. Embed its output verbatim into step (e)'s artifact — do
+not re-derive the three keys by hand.
+
+**Non-zero exit** (e.g. the PATH-installed `flow-agent-finding-schema`
+resolves to a canonical checkout that predates the `--collect-lens-
+negatives` flag and exits 2 on the unknown flag): do not fail the
+consolidator run. Pre-seed all three keys to `[]` — the same degrade this
+section already prescribes for an absent optional key at step (e) — and
+continue; a stale global install of this one flag is not a
+`consolidator-schema-failure`.
 
 ### (c) Filter and dedup
 
@@ -198,13 +259,16 @@ Write `consolidator-result.json` atomically:
 ```bash
 ARTIFACT_PATH="$WORKTREE/.flow-tmp/consolidator-result.json"
 
-cat > "$ARTIFACT_PATH.tmp" <<EOF
+cat > "$ARTIFACT_PATH.tmp" <<'EOF'
 {
   "consolidated_findings": [...],
   "dropped_by_validation": [...],
   "rejected_alternatives": [...],
   "anti_patterns_found": [...],
-  "summary": "..."
+  "summary": "...",
+  "lens_rejected_alternatives": [],
+  "lens_anti_patterns_found": [],
+  "lens_negatives_missing": []
 }
 EOF
 
@@ -218,6 +282,17 @@ to `validateConsolidatorResult`. On validation failure, leave the
 `.tmp` file on disk for inspection and escalate
 `consolidator-schema-failure` per the recipe in
 [references/escalation-recipes.md](escalation-recipes.md).
+
+The three `lens_*` keys are OPTIONAL on the validator — an absent key still
+validates. Pre-seed them to `[]` anyway rather than omitting them: the
+pre-seed is what makes the consolidator actually EMIT the pass-through
+channel (populated from step (b)'s collection, or left `[]` when no lens
+contributed anything) rather than silently rendering blank downstream. A
+pre-seeded-but-empty triple is exactly the case the foreclosed-paths
+formatter's disk fallback also rescues (it re-reads `agent-output-*.json`
+directly when the artifact's three keys are absent OR present-but-empty
+and the disk copies still yield entries) — so pre-seeding stays safe and
+required, never a way to accidentally suppress that fallback.
 
 The clean-exit write itself does NOT use the read-before-overwrite
 guard from
@@ -247,15 +322,19 @@ A summary that names only positive findings fails the contract.
 
 ## 4. Artifact schema
 
-The five top-level keys, with their types and one-line descriptions:
+Five REQUIRED top-level keys plus three OPTIONAL pass-through keys, with
+their types and one-line descriptions:
 
-| Key                     | Type                                                                    | Description                                                                                                                                                                                                                                                                                              |
-| ----------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `consolidated_findings` | `Array<Finding>`                                                        | Per-agent findings that cleared the confidence threshold, dedup, praise specificity, and the second-opinion validation pass. Each carries `finding_id`, `agent_source`, and the standard per-agent finding fields (`file`, `line`, `end_line?`, `label`, `decoration`, `confidence`, `subject`, `body`). |
-| `dropped_by_validation` | `Array<{finding_id: string, original_finding: object, reason: string}>` | Findings the consolidator removed — duplicates, low-specificity praise, second-opinion false positives. The `reason` string names the rule that rejected each entry.                                                                                                                                     |
-| `rejected_alternatives` | `Array<string>`                                                         | Consolidation strategies considered and rolled back (e.g. "dropped dedup window from ±5 to ±2 lines because long functions clustered unrelated findings").                                                                                                                                               |
-| `anti_patterns_found`   | `Array<string>`                                                         | Off-pattern observations the next session should know about (e.g. "Pattern-Consistency and Performance agents both flagged the same `await`-in-loop; the lens-sharing rule worked but logged a clustering note").                                                                                        |
-| `summary`               | `string`                                                                | One-paragraph both-sides summary (≥1 positive, ≥1 negative).                                                                                                                                                                                                                                             |
+| Key                          | Type                                                                                          | Description                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `consolidated_findings`      | `Array<Finding>`                                                                              | Per-agent findings that cleared the confidence threshold, dedup, praise specificity, and the second-opinion validation pass. Each carries `finding_id`, `agent_source`, and the standard per-agent finding fields (`file`, `line`, `end_line?`, `label`, `decoration`, `confidence`, `subject`, `body`).                                              |
+| `dropped_by_validation`      | `Array<{finding_id: string, original_finding: object, reason: string}>`                       | Findings the consolidator removed — duplicates, low-specificity praise, second-opinion false positives. The `reason` string names the rule that rejected each entry.                                                                                                                                                                                  |
+| `rejected_alternatives`      | `Array<string>`                                                                               | **Process-scoped** consolidation-meta: strategies the consolidator itself considered and rolled back (e.g. "dropped dedup window from ±5 to ±2 lines because long functions clustered unrelated findings"). CONSOLIDATOR-AUTHORED — never confuse with the code-scoped `lens_rejected_alternatives` below.                                            |
+| `anti_patterns_found`        | `Array<string>`                                                                               | **Process-scoped** consolidation-meta: off-pattern observations about the consolidation run itself (e.g. "Pattern-Consistency and Performance agents both flagged the same `await`-in-loop; the lens-sharing rule worked but logged a clustering note"). CONSOLIDATOR-AUTHORED — never confuse with the code-scoped `lens_anti_patterns_found` below. |
+| `summary`                    | `string`                                                                                      | One-paragraph both-sides summary (≥1 positive, ≥1 negative).                                                                                                                                                                                                                                                                                          |
+| `lens_rejected_alternatives` | `Array<{considered_approach: string, why_rejected: string, lens: string}>` (optional)         | **Code-scoped**, PASS-THROUGH from the per-lens artifacts, tagged with the source `lens`. Produced by `flow-agent-finding-schema --collect-lens-negatives`; never authored by the consolidator itself. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                             |
+| `lens_anti_patterns_found`   | `Array<{location: string, pattern: string, recommendation: string, lens: string}>` (optional) | **Code-scoped**, PASS-THROUGH from the per-lens artifacts, tagged with the source `lens`. Produced by `flow-agent-finding-schema --collect-lens-negatives`; never authored by the consolidator itself. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                             |
+| `lens_negatives_missing`     | `Array<string>` (optional)                                                                    | Names of lenses whose per-agent envelope reported an `"absent"` negatives state on either array (see step (a)). Also produced by `flow-agent-finding-schema --collect-lens-negatives`. Recorded, never escalated. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                  |
 
 The validator at `bin/lib/agent-finding-schema.ts` is the runtime
 schema reference: `validateConsolidatorResult(parsed)` enforces the
@@ -303,6 +382,14 @@ the second-opinion drop rate) AND at least one negative (the top entry
 from `rejected_alternatives` or `anti_patterns_found`). A summary that
 names only positive findings fails the contract.
 
+`lens_rejected_alternatives[]`, `lens_anti_patterns_found[]`, and
+`lens_negatives_missing[]` are a **separate, PASS-THROUGH contract** — do
+not conflate them with the process-scoped negatives above. The consolidator
+never authors an entry in these three keys itself; it only collects,
+tags (`lens: "<name>"`), and forwards what the six per-lens artifacts (plus
+the optional Gemini lens) already produced, per step (a) and step (b)
+above.
+
 # Verification
 
 Before writing the artifact and returning, self-check:
@@ -320,3 +407,7 @@ Before writing the artifact and returning, self-check:
   before the `mv`.
 - The return summary is 3–5 sentences and surfaces both positive and
   negative findings.
+- `lens_rejected_alternatives`, `lens_anti_patterns_found`, and
+  `lens_negatives_missing` are present on the artifact (pre-seeded `[]` at
+  minimum), and no lens's `"absent"` negatives state was escalated as a
+  `consolidator-schema-failure`.

@@ -42,6 +42,16 @@ import {
 import { slugify } from "./lib/slug";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { defaultGh, type GhRunner } from "./lib/resume-probes";
+import {
+  commitEpicStatus,
+  epicStatusLockPath,
+  pushEpicStatusFromWrittenPath,
+  resolveContainedRepoRoot,
+  type CommitSkipReason,
+  type PushSkipReason,
+  type GitRunner,
+} from "./lib/epic-metadata-commit";
+import { LockTimeoutError, withFileLockSync } from "./lib/lock";
 
 // --- Manifest loading (read-only, tolerant) ---------------------------------
 
@@ -193,6 +203,8 @@ type ParsedArgs = {
   json: boolean;
   help: boolean;
   rederive: boolean;
+  commit: boolean;
+  push: boolean;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -201,6 +213,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     json: false,
     help: false,
     rederive: false,
+    commit: false,
+    push: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -227,6 +241,13 @@ function parseArgs(argv: string[]): ParsedArgs {
       out.json = true;
     } else if (a === "--rederive") {
       out.rederive = true;
+    } else if (a === "--commit") {
+      out.commit = true;
+    } else if (a === "--push") {
+      // --push IMPLIES --commit: --push alone can never mean "push
+      // something I did not commit".
+      out.push = true;
+      out.commit = true;
     } else {
       // Warn-and-continue, not exit-2 (the repo-standard shape elsewhere
       // under bin/): this helper's never-block-the-caller contract (see
@@ -240,12 +261,14 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 const USAGE =
-  "usage: flow-epic-sync [--slug <feature-slug>] [--epic-slug <epic>] [--epic-feature <id>] [--check] [--json] [--rederive]\n" +
+  "usage: flow-epic-sync [--slug <feature-slug>] [--epic-slug <epic>] [--epic-feature <id>] [--check] [--json] [--rederive] [--commit] [--push]\n" +
   "  --epic-feature <id>  override the self-mark feature id when it can't be\n" +
   "                       derived from state (paired with --epic-slug; the\n" +
   "                       ambient --slug path derives it from state.epic.featureId)\n" +
   "  --rederive           rebuild the board from GitHub, ignoring committed rows\n" +
-  "                       (repairs a wrong row instead of hand-editing status.json)";
+  "                       (repairs a wrong row instead of hand-editing status.json)\n" +
+  "  --commit  commit the written status board (base-branch-safe via the guard allowlist)\n" +
+  "  --push    also push that commit to its existing remote branch (implies --commit; never forces, never creates a branch)";
 
 type Deps = {
   gh?: GhRunner;
@@ -253,6 +276,9 @@ type Deps = {
   stateDir?: string;
   epicsDir?: string;
   env?: NodeJS.ProcessEnv;
+  git?: GitRunner;
+  /** Test seam only — production always uses the 60s default. */
+  lockTimeoutMs?: number;
 };
 
 type SyncEnvelope = {
@@ -262,21 +288,71 @@ type SyncEnvelope = {
   features: Record<string, CommittedFeatureRow>;
   rederive: boolean;
   regressed: string[];
+  committed: boolean;
+  commitSkipReason?: CommitSkipReason;
+  pushed: boolean;
+  pushSkipReason?: PushSkipReason;
 };
 
-function syncEnvelope(
-  epicSlug: string,
-  derived: boolean,
-  written: boolean,
-  features: Record<string, CommittedFeatureRow>,
-  rederive: boolean,
-  regressed: string[],
-): SyncEnvelope {
-  return { epicSlug, derived, written, features, rederive, regressed };
+function syncEnvelope(input: {
+  epicSlug: string;
+  derived: boolean;
+  written: boolean;
+  features: Record<string, CommittedFeatureRow>;
+  rederive: boolean;
+  regressed: string[];
+  committed?: boolean;
+  commitSkipReason?: CommitSkipReason;
+  pushed?: boolean;
+  pushSkipReason?: PushSkipReason;
+}): SyncEnvelope {
+  return {
+    epicSlug: input.epicSlug,
+    derived: input.derived,
+    written: input.written,
+    features: input.features,
+    rederive: input.rederive,
+    regressed: input.regressed,
+    committed: input.committed ?? false,
+    commitSkipReason: input.commitSkipReason,
+    pushed: input.pushed ?? false,
+    pushSkipReason: input.pushSkipReason,
+  };
 }
 
 function emptyEnvelope(epicSlug: string, rederive: boolean): SyncEnvelope {
-  return syncEnvelope(epicSlug, false, false, {}, rederive, []);
+  return syncEnvelope({
+    epicSlug,
+    derived: false,
+    written: false,
+    features: {},
+    rederive,
+    regressed: [],
+  });
+}
+
+/** Names the fix for a push failure the caller should surface, never retry blindly. */
+function remedyFor(reason: PushSkipReason): string {
+  switch (reason) {
+    case "non-fast-forward":
+      return "Run `git pull --rebase` and re-run with --push.";
+    case "not-committed":
+      return "The board was not committed, so nothing was pushed.";
+    case "detached-head":
+      return "HEAD is detached; check out a branch and re-run with --push.";
+    case "not-base-branch":
+      return "Not on the repo's default branch; --push only publishes from there.";
+    case "no-remote":
+      return "No `origin` remote configured.";
+    case "no-remote-branch":
+      return "The branch does not exist on origin yet; push it first.";
+    case "push-failed":
+      return "Re-run with --push after investigating the git error.";
+    case "extra-local-commits":
+      return "HEAD carries commits beyond the board; push manually after review.";
+    case "foreign-repo":
+      return "The resolved status board is in a different repository checkout than the current directory — cd into that checkout, or re-run from the repo that owns this epic.";
+  }
 }
 
 export function main(argv: string[], deps: Deps = {}): number {
@@ -305,19 +381,61 @@ export function main(argv: string[], deps: Deps = {}): number {
   }
 
   const runState = readEpicRunState(epicSlug, epicsDir);
-  let manifestPath = runState?.manifestPath ?? null;
+  // Two distinct behaviours, easy to conflate:
+  //
+  // 1. cwd-PREFERENCE: on a WRITE invocation only, a cwd-local manifest that
+  //    actually loads wins OVER an existing cached manifestPath — a stale
+  //    cached path must never redirect the WRITE away from the epic the
+  //    operator's OWN repo carries. Gated on `isWriteInvocation`: the
+  //    read-only paths (--check / --json / a bare derive) keep resolving
+  //    cached-first, preserving the documented "usable from any cwd"
+  //    property (bin/lib/epic.ts's readEpicRunState contract) that
+  //    flow-epic-membership and flow epic status also rely on. Without this
+  //    gate the inversion would silently change which board a read reports
+  //    whenever the operator's own repo happens to carry the same epic slug.
+  // 2. cwd-FALLBACK: unconditional, for EVERY invocation type (read or
+  //    write), when there is no cached manifestPath at all — e.g. after
+  //    `flow epic done` archives the run-state, on a second machine, or a
+  //    bare `flow-epic-sync` that was never preceded by `flow epic run`.
+  //    Without this fallback a read with no cached manifestPath has nothing
+  //    to resolve and silently no-ops (`--check` always exits 1).
+  const isWriteInvocation = parsed.commit || parsed.push;
+  let manifestPath: string | null = null;
+  // The cwd-preference probe has to LOAD the candidate to know whether it
+  // wins (a present-but-malformed cwd-local manifest must fall through to
+  // the cached path, not short-circuit the run) — so keep what it loaded
+  // rather than parsing and schema-validating the same file again below.
+  let manifest: EpicManifest | null = null;
+  if (isWriteInvocation) {
+    const cwdRepoRoot = resolveRepoRoot(cwd);
+    if (cwdRepoRoot) {
+      const cwdCandidate = path.join(
+        cwdRepoRoot,
+        epicDirRelative(epicSlug),
+        EPIC_MANIFEST_FILENAME,
+      );
+      const cwdManifest = loadManifest(cwdCandidate);
+      if (cwdManifest !== null) {
+        manifestPath = cwdCandidate;
+        manifest = cwdManifest;
+      }
+    }
+  }
   if (!manifestPath) {
-    const repoRoot = resolveRepoRoot(cwd);
-    if (repoRoot) {
+    manifestPath = runState?.manifestPath ?? null;
+  }
+  if (!manifestPath) {
+    const cwdRepoRoot = resolveRepoRoot(cwd);
+    if (cwdRepoRoot) {
       manifestPath = path.join(
-        repoRoot,
+        cwdRepoRoot,
         epicDirRelative(epicSlug),
         EPIC_MANIFEST_FILENAME,
       );
     }
   }
 
-  const manifest = manifestPath ? loadManifest(manifestPath) : null;
+  if (!manifest) manifest = manifestPath ? loadManifest(manifestPath) : null;
   if (!manifest || !manifestPath) {
     // Manifest unreadable — never block the caller. `--check` DOES exit 1
     // here (unlike the gh-failure branch below): an unreadable manifest is
@@ -369,19 +487,26 @@ export function main(argv: string[], deps: Deps = {}): number {
   const serialized = serializeEpicStatus(file);
 
   if (parsed.check) {
+    // --check never writes, so --commit/--push (which act on a write) are
+    // no-ops here — warn once rather than silently ignoring the flags.
+    if (parsed.commit || parsed.push) {
+      console.error(
+        "warn: --commit/--push are no-ops under --check (--check never writes)",
+      );
+    }
     const onDisk = existing ? serializeEpicStatus(existing) : null;
     const inSync = onDisk === serialized;
     if (parsed.json) {
       console.log(
         JSON.stringify(
-          syncEnvelope(
+          syncEnvelope({
             epicSlug,
-            true,
-            false,
-            file.features,
-            parsed.rederive,
+            derived: true,
+            written: false,
+            features: file.features,
+            rederive: parsed.rederive,
             regressed,
-          ),
+          }),
         ),
       );
     }
@@ -398,33 +523,220 @@ export function main(argv: string[], deps: Deps = {}): number {
     return inSync ? 0 : 1;
   }
 
-  const onDisk = existing ? serializeEpicStatus(existing) : null;
-  const written = onDisk !== serialized;
-  if (written) {
-    fs.mkdirSync(epicDirAbs, { recursive: true });
-    fs.writeFileSync(path.join(epicDirAbs, EPIC_STATUS_FILENAME), serialized);
-    if (regressed.length > 0) {
+  // Everything from here through the end of the function is the WRITE
+  // WINDOW: it may write the on-disk board, commit it, and push it. Two
+  // sessions racing this window can destroy each other's board (a
+  // partially-written file from one clobbered by the other's read-modify-
+  // write), so it runs under a per-board lock, keyed the same way on both
+  // writers (see `epicStatusLockPath`) — the `--check` path above never
+  // reaches here and so never holds the lock.
+  // Narrowing helper: `manifest` is a `let`, so TS drops the non-null
+  // narrowing established above once it is captured in the closure below.
+  const lockedManifest = manifest;
+  const runWriteWindow = (): number => {
+    // RE-READ AND RE-DERIVE UNDER THE LOCK. The `existing` / `serialized`
+    // computed above were observed BEFORE the lock was held, so using them
+    // here would leave the lost-update race this lock exists to close wide
+    // open: two sessions both read the same board, both derive from it,
+    // then serialize their writes — and the second silently discards the
+    // first session's rows. Only a derivation based on state observed while
+    // holding the lock is safe to write. `deriveBoard` is pure (no disk, no
+    // network — see its header), and `gh` is an already-fetched snapshot, so
+    // re-deriving costs one working-tree read and no round-trips.
+    const lockedExisting = readCommittedStatus(epicDirAbs);
+    const lockedDerivation = deriveBoard({
+      manifest: lockedManifest,
+      existing: lockedExisting,
+      gh,
+      selfFeatureId,
+      rederive: parsed.rederive,
+    });
+    // A re-derivation that comes back underived (gh snapshot unusable for
+    // the freshly-read base) must NOT fall back to the pre-lock derivation —
+    // that is exactly the stale write this guard exists to prevent. Keep the
+    // pre-lock `file`/`serialized` only when the locked re-derivation
+    // succeeded; otherwise skip the write and report it.
+    const file = lockedDerivation.derived ? lockedDerivation.file : null;
+    const regressed = lockedDerivation.regressed;
+    if (!file) {
       console.error(
-        `warn: --rederive regressed ${regressed.length} row(s): ${regressed.join(", ")}`,
+        "warn: skipping status board write (rederive-under-lock-failed): the board was re-derived under the per-board lock and came back empty; nothing was written",
+      );
+      if (parsed.json)
+        console.log(JSON.stringify(emptyEnvelope(epicSlug, parsed.rederive)));
+      return 0;
+    }
+    const serialized = serializeEpicStatus(file);
+    const onDisk = lockedExisting ? serializeEpicStatus(lockedExisting) : null;
+    let written = onDisk !== serialized;
+    let committed = false;
+    let commitSkipReason: CommitSkipReason | undefined;
+    let pushed = false;
+    let pushSkipReason: PushSkipReason | undefined;
+    const writtenPath = path.join(epicDirAbs, EPIC_STATUS_FILENAME);
+
+    // Containment must be checked BEFORE the write, not just before the
+    // commit/push below: on the cwd-preference fallback (operator's own repo
+    // carries no such epic, so resolution falls back to a stale cached path
+    // in a foreign checkout) a commit-only gate still dirtied the foreign
+    // working tree and then refused only the commit/push, leaving an
+    // untracked file behind in a repo we'd just declared foreign. Skip the
+    // write entirely and report the same containment reason the commit/push
+    // gate would have reported, so the envelope stays accurate without ever
+    // touching the foreign tree.
+    //
+    // Scoped to a WRITE invocation (`--commit`/`--push`) only: a bare/`--json`
+    // invocation with neither flag always writes the derived board next to
+    // whatever manifest it resolved (cached-first, no cwd preference) — that
+    // on-disk cache write is unconditional pre-existing behaviour, independent
+    // of which repo it lands in, and is never followed by a commit/push this
+    // gate would otherwise need to pre-empt.
+    const preWriteContainment =
+      written && isWriteInvocation
+        ? resolveContainedRepoRoot({ writtenPath, cwd })
+        : null;
+    const containmentBlocked = !!(
+      preWriteContainment && !preWriteContainment.ok
+    );
+    if (containmentBlocked && preWriteContainment) {
+      written = false;
+      commitSkipReason = preWriteContainment.reason;
+      console.error(
+        `warn: skipping status board write (${preWriteContainment.reason}${preWriteContainment.detail ? `: ${preWriteContainment.detail}` : ""})`,
+      );
+    } else if (written) {
+      fs.mkdirSync(epicDirAbs, { recursive: true });
+      fs.writeFileSync(writtenPath, serialized);
+      if (regressed.length > 0) {
+        console.error(
+          `warn: --rederive regressed ${regressed.length} row(s): ${regressed.join(", ")}`,
+        );
+      }
+    }
+
+    // Gate on `parsed.commit`, NOT on `written`: `written` only means "differs
+    // from what's on disk", but `readCommittedStatus` reads the WORKING TREE,
+    // not `git show HEAD:` — so a board that's already correct on disk but
+    // still UNCOMMITTED makes `written` false and would otherwise silently
+    // strand it (the exact incident this command exists to fix). When the file
+    // is on disk (either just written, or already there and byte-identical),
+    // `commitEpicStatus` still runs and short-circuits to `nothing-staged` via
+    // its own `git status --porcelain` probe if the tree really is clean.
+    if (!containmentBlocked && parsed.commit && fs.existsSync(writtenPath)) {
+      const commitResult = commitEpicStatus({
+        writtenPath,
+        epicSlug,
+        cwd,
+        git: deps.git,
+      });
+      committed = commitResult.committed;
+      commitSkipReason = commitResult.reason;
+      if (!committed) {
+        console.error(
+          `warn: --commit did not commit the status board (${commitResult.reason}${commitResult.detail ? `: ${commitResult.detail}` : ""})`,
+        );
+      }
+    }
+
+    if (parsed.push) {
+      if (!committed) {
+        pushSkipReason =
+          commitSkipReason === "foreign-repo"
+            ? "foreign-repo"
+            : commitSkipReason === "not-a-repo"
+              ? "push-failed"
+              : "not-committed";
+      } else {
+        const pushResult = pushEpicStatusFromWrittenPath({
+          writtenPath,
+          cwd,
+          git: deps.git,
+        });
+        pushed = pushResult.pushed;
+        pushSkipReason = pushResult.reason;
+      }
+      if (!pushed && pushSkipReason) {
+        console.error(
+          `warn: --push did not push the status board (${pushSkipReason}). ${remedyFor(pushSkipReason)}`,
+        );
+      }
+    }
+
+    if (parsed.json) {
+      console.log(
+        JSON.stringify(
+          syncEnvelope({
+            epicSlug,
+            derived: true,
+            written,
+            features: file.features,
+            rederive: parsed.rederive,
+            regressed,
+            committed,
+            commitSkipReason,
+            pushed,
+            pushSkipReason,
+          }),
+        ),
       );
     }
-  }
+    return 0;
+  };
 
-  if (parsed.json) {
-    console.log(
-      JSON.stringify(
-        syncEnvelope(
-          epicSlug,
-          true,
-          written,
-          file.features,
-          parsed.rederive,
-          regressed,
-        ),
-      ),
+  // `main()` has no `repoRoot` in scope up to this point — derive it the
+  // same way `resolveContainedRepoRoot` does. A null repoRoot (writtenPath
+  // resolves outside any repo) skips the lock rather than throwing,
+  // matching this module's never-throw posture; the write below still runs
+  // unlocked, exactly as it did before this PR.
+  let lockRepoRoot: string | null;
+  try {
+    lockRepoRoot = resolveRepoRoot(epicDirAbs);
+  } catch {
+    lockRepoRoot = null;
+  }
+  if (!lockRepoRoot) return runWriteWindow();
+
+  const lockPath = epicStatusLockPath({ repoRoot: lockRepoRoot, epicSlug });
+  if (fs.existsSync(lockPath)) {
+    // `withFileLockSync`'s wait is `Atomics.wait` (see sleep.ts) — the CLI
+    // process is fully frozen with no output while it waits, so this line,
+    // emitted BEFORE the wait rather than after the first poll, is the only
+    // thing that distinguishes a contended-but-fine 60s wait from a hang.
+    console.error(
+      `flow-epic-sync: waiting up to 60s for the epic-status lock on "${epicSlug}" — another flow session appears to be syncing this board.`,
     );
   }
-  return 0;
+  try {
+    return withFileLockSync(lockPath, runWriteWindow, {
+      timeoutMs: deps.lockTimeoutMs ?? 60_000,
+    });
+  } catch (err) {
+    if (err instanceof LockTimeoutError) {
+      console.error(
+        `warn: --commit/--push skipped (lock-timeout): another flow session is syncing this board (epic ${epicSlug})`,
+      );
+      if (parsed.json) {
+        console.log(
+          JSON.stringify(
+            syncEnvelope({
+              epicSlug,
+              derived: true,
+              written: false,
+              features: file.features,
+              rederive: parsed.rederive,
+              regressed,
+              committed: false,
+              commitSkipReason: "lock-timeout",
+              pushed: false,
+              pushSkipReason: undefined,
+            }),
+          ),
+        );
+      }
+      return 0;
+    }
+    throw err;
+  }
 }
 
 if (import.meta.main) {

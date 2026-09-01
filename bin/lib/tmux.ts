@@ -310,6 +310,16 @@ export type VerifiedLaunchResult = {
   stderr: string;
 };
 /**
+ * Stderr for the `failed` a `seedCorrupted()` predicate produces after the
+ * consume poll — a recorded `seedIngest` `corrupt` outcome (flow-seed-ingested-hook's
+ * UserPromptSubmit comparison came back non-intact) reported as a hard launch
+ * failure, mapped onto the existing `failed` status rather than a new enum
+ * member so `createWindowVerified`'s kill + `launchWithRetry`'s re-launch
+ * apply for free.
+ */
+export const SEED_CORRUPTED_STDERR =
+  "seed delivery corrupted — the launch prompt did not arrive intact";
+/**
  * Confirmation tail: number of consecutive alive probes required AFTER the
  * ready/consumed condition is first met before returning early. The tail is
  * what catches the alive-then-dies race — if the pane dies during those N
@@ -547,6 +557,14 @@ export type CreateWindowVerifiedDeps = {
     literal: boolean,
     session?: string,
   ) => { ok: boolean; stderr: string };
+  /**
+   * Recorded-mismatch predicate, checked once after the consume poll. Defaults
+   * to `() => false` so every existing caller/spec is unaffected. The caller
+   * (`feature.ts` / `epic.ts`) injects a check against the on-disk
+   * `state.seedIngest` `corrupt` outcome flow-seed-ingested-hook records on a corrupted
+   * UserPromptSubmit comparison — a hard launch failure, not a soft signal.
+   */
+  seedCorrupted?: () => boolean;
 };
 
 export type RespawnWindowVerifiedDeps = {
@@ -582,6 +600,8 @@ export type RespawnWindowVerifiedDeps = {
     literal: boolean,
     session?: string,
   ) => { ok: boolean; stderr: string };
+  /** Recorded-mismatch predicate — same contract as `CreateWindowVerifiedDeps.seedCorrupted`. */
+  seedCorrupted?: () => boolean;
 };
 
 /**
@@ -617,6 +637,7 @@ export function createWindowVerified(
   const onProgress = deps.onProgress;
   const readyAttempts = deps.readyAttempts ?? READY_POLL_ATTEMPTS;
   const consumeAttempts = deps.consumeAttempts ?? CONSUME_POLL_ATTEMPTS;
+  const seedCorrupted = deps.seedCorrupted ?? (() => false);
 
   const created = create(slug, cwd, command, session);
   if (!created.ok) return { status: "failed", stderr: created.stderr };
@@ -680,6 +701,14 @@ export function createWindowVerified(
         "tmux window created but claude died before the seed was confirmed consumed (pane not alive)",
     };
   }
+  // A recorded `corrupt` outcome (flow-seed-ingested-hook's UserPromptSubmit
+  // comparison came back non-intact) is a hard launch failure, checked AFTER
+  // the consume poll so a corrupted-but-alive pane is still killed here
+  // (mirrors the dead-pane branch above) rather than reported as success.
+  if (seedCorrupted()) {
+    kill(slug, session);
+    return { status: "failed", stderr: SEED_CORRUPTED_STDERR };
+  }
   return { status: consumeResult, stderr: deliverStderr };
 }
 
@@ -713,6 +742,7 @@ export function respawnWindowVerified(
   const onProgress = deps.onProgress;
   const readyAttempts = deps.readyAttempts ?? READY_POLL_ATTEMPTS;
   const consumeAttempts = deps.consumeAttempts ?? CONSUME_POLL_ATTEMPTS;
+  const seedCorrupted = deps.seedCorrupted ?? (() => false);
 
   const respawned = respawn(slug, cwd, command, session);
   if (!respawned.ok) return { status: "failed", stderr: respawned.stderr };
@@ -763,6 +793,12 @@ export function respawnWindowVerified(
     consumeAttempts,
     onProgress,
   );
+  // A recorded `corrupt` outcome is a hard failure here too, but the resume path
+  // stays non-destructive on EVERY outcome (see the doc comment above) — no
+  // kill/respawn, just report `failed` so the caller's retry logic applies.
+  if (seedCorrupted()) {
+    return { status: "failed", stderr: SEED_CORRUPTED_STDERR };
+  }
   // On a dead pane surface the fixed 'failed' string; otherwise surface any
   // delivery stderr (failed/exhausted send) so it isn't silently dropped.
   return {

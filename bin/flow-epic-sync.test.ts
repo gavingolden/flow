@@ -12,7 +12,25 @@ import {
 } from "./lib/epic-status-schema";
 import type { EpicManifest } from "./lib/epic-manifest-schema";
 import type { GhRunner } from "./lib/resume-probes";
+import { epicStatusLockPath, type GitRunner } from "./lib/epic-metadata-commit";
 import { slugify } from "./lib/slug";
+
+type GitResp = { stdout?: string; stderr?: string; exitCode?: number };
+
+/** Recording git fake — same shape as bin/lib/epic-metadata-commit.test.ts. */
+function makeGit(respond: (argv: string[]) => GitResp | undefined) {
+  const calls: string[][] = [];
+  const git: GitRunner = (argv) => {
+    calls.push(argv);
+    const r = respond(argv) ?? {};
+    return {
+      stdout: r.stdout ?? "",
+      stderr: r.stderr ?? "",
+      exitCode: r.exitCode ?? 0,
+    };
+  };
+  return { git, calls };
+}
 
 /**
  * Coverage for the `flow-epic-sync` PATH helper: `deriveBoard` (pure,
@@ -627,9 +645,809 @@ describe("main — CLI epic resolution + write disposition", () => {
         },
         rederive: false,
         regressed: [],
+        committed: false,
+        pushed: false,
       });
     } finally {
       logSpy.mockRestore();
+    }
+  });
+
+  it("--commit on a drifted board: writes AND emits a path-scoped commit argv, envelope committed:true", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const { git, calls } = makeGit((argv) => {
+      if (argv[0] === "status")
+        return { stdout: " M .flow/epics/watchlist/status.json\n" };
+      return { exitCode: 0 };
+    });
+    const exit = main(["--epic-slug", "watchlist", "--commit"], {
+      gh,
+      epicsDir,
+      cwd: repoDir,
+      git,
+    });
+    expect(exit).toBe(0);
+    expect(
+      fs.existsSync(path.join(path.dirname(manifestPath), "status.json")),
+    ).toBe(true);
+    const commitCall = calls.find((c) => c[0] === "commit");
+    expect(commitCall).toBeDefined();
+    expect(commitCall).toContain("--");
+    expect(commitCall).toContain(".flow/epics/watchlist/status.json");
+  });
+
+  it("--commit when the commit runner exits non-zero: exit 0, committed:false + commitSkipReason, stderr warns", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const { git } = makeGit((argv) => {
+      if (argv[0] === "status")
+        return { stdout: " M .flow/epics/watchlist/status.json\n" };
+      if (argv[0] === "add") return { exitCode: 0 };
+      if (argv[0] === "commit")
+        return { exitCode: 1, stderr: "refusing to commit\n" };
+      return { exitCode: 0 };
+    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--commit", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+        git,
+      });
+      expect(exit).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.committed).toBe(false);
+      expect(printed.commitSkipReason).toBe("commit-refused");
+      expect(
+        errSpy.mock.calls.some((c) => String(c[0]).includes("--commit")),
+      ).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
+  it("--commit when the board is byte-identical on disk but UNCOMMITTED: the rescue path still runs, not a silent no-op", () => {
+    // Regression lock: `written` only means "differs from what's on disk";
+    // a board that is already correct on disk but still uncommitted must
+    // NOT skip the commit block, or the exact stranded-board incident this
+    // command exists to fix would recur silently.
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    main(["--epic-slug", "watchlist"], { gh, epicsDir, cwd: repoDir });
+    const { git, calls } = makeGit((argv) => {
+      if (argv[0] === "status")
+        return { stdout: " M .flow/epics/watchlist/status.json\n" };
+      if (argv[0] === "add") return { exitCode: 0 };
+      if (argv[0] === "commit") return { exitCode: 0 };
+      return { exitCode: 0 };
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--commit", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+        git,
+      });
+      expect(exit).toBe(0);
+      expect(calls.some((c) => c[0] === "commit")).toBe(true);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.committed).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("--commit when nothing is dirty at all: nothing-staged, committed:false", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    main(["--epic-slug", "watchlist"], { gh, epicsDir, cwd: repoDir });
+    const { git, calls } = makeGit(() => ({ exitCode: 0, stdout: "" }));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--commit", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+        git,
+      });
+      expect(exit).toBe(0);
+      expect(calls.some((c) => c[0] === "commit")).toBe(false);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.committed).toBe(false);
+      expect(printed.commitSkipReason).toBe("nothing-staged");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("--push implies --commit: passing ONLY --push still emits the commit argv, then the push argv, committed:true pushed:true", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const { git, calls } = makeGit((argv) => {
+      if (argv[0] === "status")
+        return { stdout: " M .flow/epics/watchlist/status.json\n" };
+      if (argv[0] === "rev-parse") return { stdout: "main\n" };
+      if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+      return { exitCode: 0 };
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--push", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+        git,
+      });
+      expect(exit).toBe(0);
+      expect(calls.some((c) => c[0] === "commit")).toBe(true);
+      const pushCall = calls.find((c) => c.includes("push"));
+      expect(pushCall).toEqual([
+        "-c",
+        "core.askPass=",
+        "push",
+        "origin",
+        "HEAD:main",
+      ]);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.committed).toBe(true);
+      expect(printed.pushed).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("one case per PushSkipReason reachable from this level", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+
+    const runPush = (respond: (argv: string[]) => GitResp | undefined) => {
+      // Each sub-case must re-see the board as freshly written (`written:
+      // true`) so the commit/push block actually runs — remove any status.json
+      // left by a prior sub-case in this same test.
+      fs.rmSync(path.join(path.dirname(manifestPath), "status.json"), {
+        force: true,
+      });
+      const { git, calls } = makeGit(respond);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        const exit = main(["--epic-slug", "watchlist", "--push", "--json"], {
+          gh,
+          epicsDir,
+          cwd: repoDir,
+          git,
+        });
+        const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+        return { exit, printed, calls };
+      } finally {
+        logSpy.mockRestore();
+      }
+    };
+
+    // detached-head
+    {
+      const { exit, printed, calls } = runPush((argv) => {
+        if (argv[0] === "status") return { stdout: " M x\n" };
+        if (argv[0] === "rev-parse") return { stdout: "HEAD\n" };
+        return { exitCode: 0 };
+      });
+      expect(exit).toBe(0);
+      expect(printed.pushed).toBe(false);
+      expect(printed.pushSkipReason).toBe("detached-head");
+      expect(calls.some((c) => c.includes("push"))).toBe(false);
+    }
+
+    // not-base-branch
+    {
+      const { exit, printed, calls } = runPush((argv) => {
+        if (argv[0] === "status") return { stdout: " M x\n" };
+        if (argv[0] === "rev-parse") return { stdout: "feat/x\n" };
+        if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+        return { exitCode: 0 };
+      });
+      expect(exit).toBe(0);
+      expect(printed.pushed).toBe(false);
+      expect(printed.pushSkipReason).toBe("not-base-branch");
+      expect(calls.some((c) => c.includes("push"))).toBe(false);
+    }
+
+    // no-remote
+    {
+      const { exit, printed, calls } = runPush((argv) => {
+        if (argv[0] === "status") return { stdout: " M x\n" };
+        if (argv[0] === "rev-parse") return { stdout: "main\n" };
+        if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+        if (argv[0] === "remote") return { exitCode: 1 };
+        return { exitCode: 0 };
+      });
+      expect(exit).toBe(0);
+      expect(printed.pushed).toBe(false);
+      expect(printed.pushSkipReason).toBe("no-remote");
+      expect(calls.some((c) => c.includes("push"))).toBe(false);
+    }
+
+    // no-remote-branch
+    {
+      const { exit, printed, calls } = runPush((argv) => {
+        if (argv[0] === "status") return { stdout: " M x\n" };
+        if (argv[0] === "rev-parse") return { stdout: "main\n" };
+        if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+        if (argv[0] === "remote") return { exitCode: 0 };
+        if (argv.includes("ls-remote")) return { exitCode: 1 };
+        return { exitCode: 0 };
+      });
+      expect(exit).toBe(0);
+      expect(printed.pushed).toBe(false);
+      expect(printed.pushSkipReason).toBe("no-remote-branch");
+      expect(calls.some((c) => c.includes("push"))).toBe(false);
+    }
+
+    // non-fast-forward
+    {
+      const { exit, printed } = runPush((argv) => {
+        if (argv[0] === "status") return { stdout: " M x\n" };
+        if (argv[0] === "rev-parse") return { stdout: "main\n" };
+        if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+        if (argv[0] === "remote") return { exitCode: 0 };
+        if (argv.includes("ls-remote")) return { exitCode: 0 };
+        if (argv.includes("push")) {
+          return { exitCode: 1, stderr: "! [rejected] (non-fast-forward)\n" };
+        }
+        return { exitCode: 0 };
+      });
+      expect(exit).toBe(0);
+      expect(printed.pushed).toBe(false);
+      expect(printed.pushSkipReason).toBe("non-fast-forward");
+    }
+
+    // push-failed
+    {
+      const { exit, printed } = runPush((argv) => {
+        if (argv[0] === "status") return { stdout: " M x\n" };
+        if (argv[0] === "rev-parse") return { stdout: "main\n" };
+        if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+        if (argv[0] === "remote") return { exitCode: 0 };
+        if (argv.includes("ls-remote")) return { exitCode: 0 };
+        if (argv.includes("push")) return { exitCode: 1, stderr: "fatal: x\n" };
+        return { exitCode: 0 };
+      });
+      expect(exit).toBe(0);
+      expect(printed.pushed).toBe(false);
+      expect(printed.pushSkipReason).toBe("push-failed");
+    }
+
+    // not-committed: commit itself fails, so push is never attempted
+    {
+      fs.rmSync(path.join(path.dirname(manifestPath), "status.json"), {
+        force: true,
+      });
+      const { git, calls } = makeGit((argv) => {
+        if (argv[0] === "status") return { stdout: " M x\n" };
+        if (argv[0] === "add") return { exitCode: 0 };
+        if (argv[0] === "commit") return { exitCode: 1, stderr: "refused\n" };
+        return { exitCode: 0 };
+      });
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        const exit = main(["--epic-slug", "watchlist", "--push", "--json"], {
+          gh,
+          epicsDir,
+          cwd: repoDir,
+          git,
+        });
+        expect(exit).toBe(0);
+        const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+        expect(printed.committed).toBe(false);
+        expect(printed.pushed).toBe(false);
+        expect(printed.pushSkipReason).toBe("not-committed");
+        expect(calls.some((c) => c.includes("push"))).toBe(false);
+      } finally {
+        logSpy.mockRestore();
+      }
+    }
+  });
+
+  it("--check + --commit: no write, no commit argv, drift exit code preserved, no-op warning on stderr", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const { git, calls } = makeGit(() => ({ exitCode: 0 }));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--check", "--commit"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+        git,
+      });
+      expect(exit).toBe(1); // drift exit preserved
+      expect(calls.some((c) => c[0] === "commit")).toBe(false);
+      expect(
+        fs.existsSync(path.join(path.dirname(manifestPath), "status.json")),
+      ).toBe(false);
+      expect(
+        errSpy.mock.calls.some((c) =>
+          String(c[0]).includes("no-ops under --check"),
+        ),
+      ).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("REGRESSION PIN: a bare invocation emits NO git argv and committed:false, pushed:false", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const { git, calls } = makeGit(() => ({ exitCode: 0 }));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+        git,
+      });
+      expect(exit).toBe(0);
+      expect(calls.length).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.committed).toBe(false);
+      expect(printed.pushed).toBe(false);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("REGRESSION PIN: a read invocation with NO cached run-state still derives via the unconditional cwd fallback", () => {
+    // No seedRunState() call — this pins the cwd FALLBACK (unconditional,
+    // every invocation type), not the cwd PREFERENCE (write-only). A prior
+    // regression gated the fallback itself on isWriteInvocation, which
+    // silently broke every read with no run.json (post-`flow epic done`
+    // archive, a second machine, or a bare `flow-epic-sync` never preceded
+    // by `flow epic run`).
+    const gh = ghForHeads({ "feature-a": 101 });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+      });
+      expect(exit).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.derived).toBe(true);
+      expect(Object.keys(printed.features).length).toBeGreaterThan(0);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("REGRESSION PIN: --check with no cached run-state in a repo carrying the epic derives and diffs for real, instead of a blanket exit 1 from an unresolved manifest", () => {
+    const gh = ghForHeads({ "feature-a": 101 });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--check", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+      });
+      // No committed status.json yet, so this IS real drift (exit 1) — the
+      // regression this pins is a manifest that can't even be resolved
+      // (derived:false, features:{}), not a legitimate out-of-sync result.
+      expect(exit).toBe(1);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.derived).toBe(true);
+      expect(Object.keys(printed.features).length).toBeGreaterThan(0);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+});
+
+describe("main — epic-status lock serialization", () => {
+  let stateDir: string;
+  let epicsDir: string;
+  let repoDir: string;
+  let manifestPath: string;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-sync-lock-state-"),
+    );
+    epicsDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-sync-lock-epics-"),
+    );
+    repoDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-sync-lock-repo-"),
+    );
+    spawnSync("git", ["init", "-q"], { cwd: repoDir });
+    const epicDir = path.join(repoDir, ".flow", "epics", "watchlist");
+    fs.mkdirSync(epicDir, { recursive: true });
+    manifestPath = path.join(epicDir, "manifest.json");
+    fs.writeFileSync(manifestPath, JSON.stringify(MANIFEST));
+  });
+
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(epicsDir, { recursive: true, force: true });
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  function seedRunState(): void {
+    const rs: EpicRunState = {
+      epicSlug: "watchlist",
+      repo: repoDir,
+      manifestPath,
+      manifestSha: "deadbeef",
+      createdAt: ISO,
+      updatedAt: ISO,
+      features: {},
+    };
+    writeEpicRunState(rs, epicsDir);
+  }
+
+  it("a held lock drives --commit/--push to the lock-timeout skip: exit 0, warn emitted, nothing written", () => {
+    seedRunState();
+    const lockPath = epicStatusLockPath({
+      repoRoot: repoDir,
+      epicSlug: "watchlist",
+    });
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    // A live PID (this test process itself) — reclaimIfStale must NOT
+    // reclaim it, so the lock stays genuinely held for the whole call.
+    fs.writeFileSync(lockPath, String(process.pid));
+    try {
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const gh = ghForHeads({ "feature-a": 101 });
+      const exit = main(["--epic-slug", "watchlist", "--commit", "--push"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+        lockTimeoutMs: 200,
+      });
+      expect(exit).toBe(0);
+      expect(
+        errSpy.mock.calls.some((c) => String(c[0]).includes("lock-timeout")),
+      ).toBe(true);
+      // Nothing written: the board never reached the on-disk write, let
+      // alone a commit.
+      expect(
+        fs.existsSync(path.join(repoDir, ".flow/epics/watchlist/status.json")),
+      ).toBe(false);
+      errSpy.mockRestore();
+    } finally {
+      fs.rmSync(lockPath, { force: true });
+    }
+  });
+
+  it("re-derives the board UNDER the lock, so a row committed by a racing session between the pre-lock read and lock acquisition is not silently discarded", () => {
+    // REGRESSION (lost-update race). The lock only serializes the WRITE. If
+    // the derivation feeding that write is the pre-lock one, two sessions
+    // both derive from the same stale board and the second write silently
+    // discards the first session's rows — the exact loss this lock exists
+    // to prevent, just moved one step earlier.
+    //
+    // The gh stub is the injection point: it is called by `deriveBoard`,
+    // which runs AFTER `main()`'s pre-lock `readCommittedStatus`. Writing a
+    // competing board from the first gh call therefore lands in precisely
+    // the window between the pre-lock read (which sees no file) and lock
+    // acquisition — simulating another session that committed feature-c's
+    // row while this one was deriving.
+    seedRunState();
+    const statusPath = path.join(repoDir, ".flow/epics/watchlist/status.json");
+    const inner = ghForHeads({ "feature-a": 101 });
+    let raced = false;
+    const gh: GhRunner = (argv) => {
+      if (!raced) {
+        raced = true;
+        fs.writeFileSync(
+          statusPath,
+          JSON.stringify({
+            version: 1,
+            epicId: "watchlist",
+            // A one-way-latched row: `merged` + a `pr` is preserved verbatim
+            // by deriveBoard and is NOT re-queried from gh, so it can only
+            // reach the output if the derivation actually read this file.
+            features: { "feature-c": { status: "merged", pr: 303 } },
+          }) + "\n",
+        );
+      }
+      return inner(argv);
+    };
+
+    const exit = main(["--epic-slug", "watchlist"], {
+      gh,
+      epicsDir,
+      cwd: repoDir,
+    });
+
+    expect(exit).toBe(0);
+    expect(raced).toBe(true);
+    const written = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+    // The racing session's row survives: the write was derived from a board
+    // read while holding the lock. Before the fix this was
+    // `{ status: "not-started" }` — feature-c's committed PR silently lost.
+    expect(written.features["feature-c"]).toEqual({
+      status: "merged",
+      pr: 303,
+    });
+    // And this session's own derivation is still present, so the re-derive
+    // merges rather than replacing.
+    expect(written.features["feature-a"]).toEqual({
+      status: "merged",
+      pr: 101,
+    });
+  });
+
+  it("--check never acquires the lock (no lock file left behind, no lock-timeout even when one is held)", () => {
+    seedRunState();
+    const lockPath = epicStatusLockPath({
+      repoRoot: repoDir,
+      epicSlug: "watchlist",
+    });
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    fs.writeFileSync(lockPath, String(process.pid));
+    try {
+      const gh = ghForHeads({ "feature-a": 101 });
+      const exit = main(["--epic-slug", "watchlist", "--check"], {
+        gh,
+        epicsDir,
+        cwd: repoDir,
+        lockTimeoutMs: 200,
+      });
+      // No committed board exists yet, so --check reports drift (exit 1) —
+      // the point under test is that it did so WITHOUT ever contending for
+      // (or waiting on) the lock this test is holding.
+      expect(exit).toBe(1);
+    } finally {
+      fs.rmSync(lockPath, { force: true });
+    }
+  });
+
+  it("a written path outside any repo skips locking rather than throwing", () => {
+    const outside = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-sync-lock-norepo-"),
+    );
+    try {
+      const noRepoEpicsDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "flow-epic-sync-lock-norepo-epics-"),
+      );
+      const epicDir = path.join(outside, ".flow", "epics", "watchlist");
+      fs.mkdirSync(epicDir, { recursive: true });
+      const noRepoManifestPath = path.join(epicDir, "manifest.json");
+      fs.writeFileSync(noRepoManifestPath, JSON.stringify(MANIFEST));
+      const rs: EpicRunState = {
+        epicSlug: "watchlist",
+        repo: outside,
+        manifestPath: noRepoManifestPath,
+        manifestSha: "deadbeef",
+        createdAt: ISO,
+        updatedAt: ISO,
+        features: {},
+      };
+      writeEpicRunState(rs, noRepoEpicsDir);
+      const gh = ghForHeads({ "feature-a": 101 });
+      expect(() =>
+        main(["--epic-slug", "watchlist"], {
+          gh,
+          epicsDir: noRepoEpicsDir,
+          cwd: outside,
+        }),
+      ).not.toThrow();
+      fs.rmSync(noRepoEpicsDir, { recursive: true, force: true });
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("main — foreign-repo containment", () => {
+  let stateDir: string;
+  let epicsDir: string;
+  let repoA: string;
+  let repoB: string;
+  let manifestPath: string;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-sync-state-"));
+    epicsDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-sync-epics-"));
+    repoA = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-sync-repoA-"));
+    repoB = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-sync-repoB-"));
+    spawnSync("git", ["init", "-q"], { cwd: repoA });
+    spawnSync("git", ["init", "-q"], { cwd: repoB });
+    const epicDir = path.join(repoA, ".flow", "epics", "watchlist");
+    fs.mkdirSync(epicDir, { recursive: true });
+    manifestPath = path.join(epicDir, "manifest.json");
+    fs.writeFileSync(manifestPath, JSON.stringify(MANIFEST));
+  });
+
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(epicsDir, { recursive: true, force: true });
+    fs.rmSync(repoA, { recursive: true, force: true });
+    fs.rmSync(repoB, { recursive: true, force: true });
+  });
+
+  function seedRunState(overrides: Partial<EpicRunState> = {}): void {
+    const rs: EpicRunState = {
+      epicSlug: "watchlist",
+      repo: repoA,
+      manifestPath,
+      manifestSha: "deadbeef",
+      createdAt: ISO,
+      updatedAt: ISO,
+      features: {},
+      ...overrides,
+    };
+    writeEpicRunState(rs, epicsDir);
+  }
+
+  it("(a) cwd outside the epic's repo: --commit --push both skip foreign-repo, no git mutation argv, and the foreign tree is never written to", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const { git, calls } = makeGit(() => ({ exitCode: 0 }));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(
+        ["--epic-slug", "watchlist", "--commit", "--push", "--json"],
+        { gh, epicsDir, cwd: repoB, git },
+      );
+      expect(exit).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.committed).toBe(false);
+      expect(printed.commitSkipReason).toBe("foreign-repo");
+      expect(printed.pushed).toBe(false);
+      expect(printed.pushSkipReason).toBe("foreign-repo");
+      expect(
+        calls.some(
+          (c) => c[0] === "add" || c[0] === "commit" || c.includes("push"),
+        ),
+      ).toBe(false);
+      // The containment gate must fire BEFORE the write, not just before
+      // the commit/push: repoA (the cached, foreign path) must stay clean.
+      expect(
+        fs.existsSync(path.join(path.dirname(manifestPath), "status.json")),
+      ).toBe(false);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("(b) repoB independently carries the same epic slug: cwd-local board wins, write lands in repoB, commit proceeds", () => {
+    const epicDirB = path.join(repoB, ".flow", "epics", "watchlist");
+    fs.mkdirSync(epicDirB, { recursive: true });
+    fs.writeFileSync(
+      path.join(epicDirB, "manifest.json"),
+      JSON.stringify(MANIFEST),
+    );
+    seedRunState(); // cached manifestPath still points at repoA
+    const gh = ghForHeads({ "feature-a": 101 });
+    const { git, calls } = makeGit((argv) => {
+      if (argv[0] === "status")
+        return { stdout: " M .flow/epics/watchlist/status.json\n" };
+      return { exitCode: 0 };
+    });
+    const exit = main(["--epic-slug", "watchlist", "--commit"], {
+      gh,
+      epicsDir,
+      cwd: repoB,
+      git,
+    });
+    expect(exit).toBe(0);
+    expect(fs.existsSync(path.join(epicDirB, "status.json"))).toBe(true);
+    expect(
+      fs.existsSync(path.join(path.dirname(manifestPath), "status.json")),
+    ).toBe(false);
+    expect(calls.some((c) => c[0] === "commit")).toBe(true);
+  });
+
+  it("(c) repoB carries a MALFORMED cwd-local manifest.json: the WRITE falls through to the cached (repoA) path rather than short-circuiting", () => {
+    const epicDirB = path.join(repoB, ".flow", "epics", "watchlist");
+    fs.mkdirSync(epicDirB, { recursive: true });
+    fs.writeFileSync(path.join(epicDirB, "manifest.json"), "{ not valid json");
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    const { git } = makeGit(() => ({ exitCode: 0 }));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      // --commit so the cwd-preference is actually consulted (it is gated on
+      // a write invocation); the malformed repoB candidate must NOT win.
+      const exit = main(["--epic-slug", "watchlist", "--commit", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoB,
+        git,
+      });
+      expect(exit).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      // Fell through to the cached (repoA) manifest -> real derivation,
+      // NOT the empty envelope's derived:false / features:{}.
+      expect(printed.derived).toBe(true);
+      expect(Object.keys(printed.features).length).toBeGreaterThan(0);
+      // And because it resolved to repoA while cwd is repoB, the containment
+      // gate fires — proving the malformed repoB candidate did not win.
+      expect(printed.commitSkipReason).toBe("foreign-repo");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("(d) READ-PATH PIN: --check/--json resolve cached-first even when the cwd repo carries the same epic slug", () => {
+    // The cwd-preferred resolution is deliberately gated on a WRITE
+    // invocation. Reads keep the documented "usable from any cwd" property:
+    // they must report the CACHED board (repoA), never silently switch to a
+    // same-slug board that happens to sit in the operator's own repo.
+    // repoB's manifest is deliberately DISTINGUISHABLE from repoA's (an
+    // extra feature) — if the read ever preferred cwd it would derive a
+    // different feature set and this pin would catch it, instead of two
+    // byte-identical manifests silently passing either way.
+    const epicDirB = path.join(repoB, ".flow", "epics", "watchlist");
+    fs.mkdirSync(epicDirB, { recursive: true });
+    const manifestB: EpicManifest = {
+      ...MANIFEST,
+      features: [
+        ...MANIFEST.features,
+        {
+          id: "feature-repob-only",
+          title: "D",
+          description: "d",
+          dependsOn: [],
+        },
+      ],
+    };
+    fs.writeFileSync(
+      path.join(epicDirB, "manifest.json"),
+      JSON.stringify(manifestB),
+    );
+    seedRunState(); // cached manifestPath points at repoA
+    const gh = ghForHeads({ "feature-a": 101 });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoB,
+      });
+      expect(exit).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.derived).toBe(true);
+      // Reports the CACHED (repoA) board, not repoB's extra feature.
+      expect(printed.features["feature-repob-only"]).toBeUndefined();
+      // A read never writes, and never surfaces a containment reason.
+      expect(printed.commitSkipReason).toBeUndefined();
+      expect(printed.pushSkipReason).toBeUndefined();
+      // The read did not touch repoB's board.
+      expect(fs.existsSync(path.join(epicDirB, "status.json"))).toBe(false);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("(e) --check --json from a cwd outside the epic's repo still derives and reports as before, and never surfaces a foreign-repo reason (the read-path guard)", () => {
+    seedRunState();
+    const gh = ghForHeads({ "feature-a": 101 });
+    main(["--epic-slug", "watchlist"], { gh, epicsDir, cwd: repoA });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--check", "--json"], {
+        gh,
+        epicsDir,
+        cwd: repoB,
+      });
+      expect(exit).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.derived).toBe(true);
+      expect(printed.written).toBe(false);
+      // A --check invocation from a foreign cwd never touches, warns about,
+      // or errors on containment — the read-path guard applies before the
+      // gate is ever consulted.
+      expect(errorSpy.mock.calls.join("\n")).not.toMatch(/foreign-repo/);
+    } finally {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
     }
   });
 });

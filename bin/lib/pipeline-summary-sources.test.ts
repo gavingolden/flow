@@ -1,15 +1,20 @@
-import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   composeCountsLine,
   parsePlanDeviations,
   renderComment,
   renderDeviations,
   renderFindings,
+  renderFollowupIssues,
   renderForeclosedPaths,
   renderIntent,
   renderPhases,
   renderReviewCounts,
 } from "./pipeline-summary-sources";
+import { formatMarkdown } from "./foreclosed-paths-format";
 
 const iso = (s: number) =>
   new Date(Date.UTC(2026, 5, 17, 12, 0, s)).toISOString();
@@ -108,12 +113,41 @@ const fixApplier = JSON.stringify({
   summary: "s",
 });
 
+// This fixture omits the three optional lens_* keys — it doubles as the
+// lens-absent baseline for the cross-surface parity guard at the bottom of
+// this file (renders identically across DECISIONS, markdown, and
+// plain-text with no lens content).
 const consolidator = JSON.stringify({
   consolidated_findings: [],
   dropped_by_validation: [],
   rejected_alternatives: ["kept the two lenses separate"],
   anti_patterns_found: [],
   summary: "s",
+});
+
+// Same as `consolidator`, plus the two lens pass-through arrays populated,
+// for the cross-surface parity guard.
+const consolidatorWithLens = JSON.stringify({
+  consolidated_findings: [],
+  dropped_by_validation: [],
+  rejected_alternatives: ["kept the two lenses separate"],
+  anti_patterns_found: [],
+  summary: "s",
+  lens_rejected_alternatives: [
+    {
+      considered_approach: "validate inline at each call site",
+      why_rejected: "centralizing keeps the rule in one place",
+      lens: "security",
+    },
+  ],
+  lens_anti_patterns_found: [
+    {
+      location: "src/lib/cache.ts:88",
+      pattern: "manual TTL bookkeeping duplicated across call sites",
+      recommendation: "route through the shared cache helper",
+      lens: "bug-detection",
+    },
+  ],
 });
 
 describe("renderForeclosedPaths", () => {
@@ -726,5 +760,327 @@ describe("renderComment — pm lens", () => {
     expect(pm).toContain("DEVIATIONS:");
     expect(pm).toContain("UNTRACKED:");
     expect(dev).toContain("narrative text that must not leak into pm");
+  });
+});
+
+describe("cross-surface parity — lens entries reach DECISIONS, markdown, and plain-text identically", () => {
+  // The third rendered surface (DECISIONS, inside `renderComment`'s `dev`
+  // block) must never be fed a lens entry that the other two (the PR-body
+  // markdown `## Foreclosed Paths` section and the terminal-snapshot plain
+  // text) already render — and vice versa. `rejectedDecisionLines` is
+  // module-private, so DECISIONS is driven through `renderComment`, not a
+  // direct import.
+  it("surfaces the same lens rejected-alternative token in all three surfaces", () => {
+    const inputs = { fixApplierRaw: "", consolidatorRaw: consolidatorWithLens };
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorWithLens,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    const plainText = renderForeclosedPaths(inputs).join("\n");
+    const markdown = formatMarkdown(inputs).join("\n");
+
+    const lensToken = "validate inline at each call site";
+    // A lens entry present in two surfaces and absent from the third must
+    // fail this assertion — each surface is checked independently.
+    expect(decisions).toContain(lensToken);
+    expect(plainText).toContain(lensToken);
+    expect(markdown).toContain(lensToken);
+    // DECISIONS tags the entry with its source lens per the
+    // `lens(<name>): <considered_approach> - <why_rejected>` format.
+    expect(decisions).toContain("lens(security): validate inline");
+  });
+
+  it("surfaces the same lens anti-pattern token in all three surfaces", () => {
+    const inputs = { fixApplierRaw: "", consolidatorRaw: consolidatorWithLens };
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorWithLens,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    const plainText = renderForeclosedPaths(inputs).join("\n");
+    const markdown = formatMarkdown(inputs).join("\n");
+
+    const lensToken = "manual TTL bookkeeping duplicated across call sites";
+    expect(decisions).toContain(lensToken);
+    expect(plainText).toContain(lensToken);
+    expect(markdown).toContain(lensToken);
+    expect(decisions).toContain("(lens: bug-detection)");
+  });
+
+  it("renders no lens content in any of the three surfaces when the consolidator artifact omits the lens keys (regression guard)", () => {
+    const inputs = { fixApplierRaw: "", consolidatorRaw: consolidator };
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidator,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    const plainText = renderForeclosedPaths(inputs).join("\n");
+    const markdown = formatMarkdown(inputs).join("\n");
+    for (const surface of [decisions, plainText, markdown]) {
+      expect(surface).not.toContain("lens(");
+      expect(surface).not.toContain("lens:");
+    }
+    // The lens-absent baseline still renders its pre-existing content.
+    expect(decisions).toContain("kept the two lenses separate");
+    expect(plainText).toContain("kept the two lenses separate");
+    expect(markdown).toContain("kept the two lenses separate");
+  });
+
+  it("renders a fix-applier anti-pattern under the DECISIONS anti-patterns sub-part", () => {
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: fixApplier,
+      consolidatorRaw: "",
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain("bin/lib/x.ts:42");
+    expect(decisions).toContain("swallowed error");
+    expect(decisions).toContain("log and rethrow");
+    expect(decisions).toContain(" (new)");
+  });
+
+  it("renders a consolidator string anti-pattern under the DECISIONS anti-patterns sub-part", () => {
+    const consolidatorWithAntiPattern = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: ["duplicated retry logic across two call sites"],
+      summary: "s",
+    });
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorWithAntiPattern,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain(
+      "consolidation: duplicated retry logic across two call sites",
+    );
+  });
+
+  it("renders an explicit `none` when no source contributes an anti-pattern", () => {
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidator,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain("  anti-patterns:\n    none");
+    // `rejected:` still renders exactly as before.
+    expect(decisions).toContain(
+      "  rejected:\n    kept the two lenses separate",
+    );
+  });
+
+  it("positions `anti-patterns:` after `rejected:` in DECISIONS", () => {
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: fixApplier,
+      consolidatorRaw: consolidator,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions.indexOf("  rejected:")).toBeGreaterThan(-1);
+    expect(decisions.indexOf("  anti-patterns:")).toBeGreaterThan(
+      decisions.indexOf("  rejected:"),
+    );
+  });
+
+  it("renders `(unreadable)` under DECISIONS anti-patterns for a malformed fix-applier artifact, not `none`", () => {
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "{not json",
+      consolidatorRaw: "",
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain(
+      "  anti-patterns:\n    fix-applier: (unreadable)",
+    );
+  });
+
+  it("renders `(unreadable)` under DECISIONS anti-patterns for a malformed consolidator artifact, not `none`", () => {
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: "{not json",
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain(
+      "  anti-patterns:\n    consolidator: (unreadable)",
+    );
+  });
+
+  it("surfaces the fix-applier residual `(N unreadable)` marker under DECISIONS anti-patterns", () => {
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: fixApplierOneBadEntry,
+      consolidatorRaw: "",
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain(
+      "  anti-patterns:\n    fix-applier: (1 unreadable)",
+    );
+  });
+
+  it("surfaces the lens-missing marker under DECISIONS anti-patterns", () => {
+    const consolidatorWithMissingLenses = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+      lens_negatives_missing: ["performance"],
+    });
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorWithMissingLenses,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain(
+      "lenses did not populate negative findings: performance",
+    );
+  });
+});
+
+describe("renderComment DECISIONS — artifactDir disk-fallback threading", () => {
+  let tmpRoot!: string;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "pipeline-summary-sources-"),
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  function write(name: string, content: string): string {
+    const p = path.join(tmpRoot, name);
+    fs.writeFileSync(p, content);
+    return p;
+  }
+
+  it("threads artifactDir into `rejected:`, not just `anti-patterns:`, so a disk-rescued lens rejected-alternative doesn't render beside `rejected: none`", () => {
+    write(
+      "agent-output-security.json",
+      JSON.stringify({
+        rejected_alternatives: [
+          {
+            considered_approach: "store the token in localStorage",
+            why_rejected: "XSS-exposed; used an httpOnly cookie instead",
+          },
+        ],
+        anti_patterns_found: [],
+      }),
+    );
+    const consolidatorRaw = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+    });
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+      artifactDir: tmpRoot,
+    }).dev;
+    expect(decisions).toContain("store the token in localStorage");
+    expect(decisions).not.toContain("rejected:\n    none");
+  });
+
+  it("does NOT print the total-lens-drop warning under anti-patterns when the sibling rejected: sub-part just rendered a live lens entry", () => {
+    // The consolidator artifact directly carries a live
+    // `lens_rejected_alternatives` entry AND a non-empty
+    // `lens_negatives_missing` (one lens's negatives slot was absent, an
+    // entirely separate lens from the one that rendered live). Before the
+    // fix, `antiPatternDecisionLines` filtered to `category ===
+    // "anti-pattern"` BEFORE checking `isTotalLensDrop` — the
+    // missing-lenses marker survives that filter (it's tagged
+    // `category: "anti-pattern"`) while the live rejected-alternative does
+    // not, so the filtered view alone looked like a genuine total drop.
+    const consolidatorRaw = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+      lens_rejected_alternatives: [
+        {
+          considered_approach: "store the token in localStorage",
+          why_rejected: "XSS-exposed; used an httpOnly cookie instead",
+          lens: "security",
+        },
+      ],
+      lens_negatives_missing: ["performance"],
+    });
+    const decisions = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    }).dev;
+    expect(decisions).toContain("store the token in localStorage");
+    expect(decisions).not.toContain("0 entries reached this report");
+    // The missing-lenses marker itself is suppressed in THIS sub-part when
+    // it isn't a genuine total drop — standalone under `anti-patterns:` (no
+    // `rejected:` entries visible from this sub-part's own vantage) it
+    // would misleadingly read as a total loss when `rejected:` above it
+    // just rendered a live entry.
+    expect(decisions).not.toContain("lenses did not populate");
+  });
+});
+
+describe(renderFollowupIssues, () => {
+  it("renders none when there are no filed lines and no deferrals", () => {
+    expect(renderFollowupIssues("", "")).toEqual(["none"]);
+  });
+
+  it("renders filed and unfiled lines from the sweep file", () => {
+    const filedIssuesRaw = "filed\thttps://x/1\nunfiled\tSome Title\n";
+    expect(renderFollowupIssues(filedIssuesRaw, "")).toEqual([
+      "filed: https://x/1",
+      "sweep failed (unfiled): Some Title",
+    ]);
+  });
+
+  it("renders rejected (exit-3) candidates distinctly from unfiled ones", () => {
+    const filedIssuesRaw = "rejected\tBad Candidate\n";
+    expect(renderFollowupIssues(filedIssuesRaw, "")).toEqual([
+      "rejected (needs repair): Bad Candidate",
+    ]);
   });
 });

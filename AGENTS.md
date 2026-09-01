@@ -284,6 +284,12 @@ three-layer resolution table, and the manifest/foundation fields — is at
     itself the user's explicit instruction to commit and push the
     review-fix commit in the same run. Named and narrow — no other skill
     is authorised to bypass the default.
+  - **Auto-commit exemption: `flow-epic-sync --commit`.** One status.json
+    path, base-branch-legal via the installed guard's status.json allowlist
+    (self-healed in place when outdated).
+  - **Auto-push exemption: `flow-epic-sync --push`** (and `flow epic
+    done`'s heal): that one commit, never forced. Both contracts:
+    [git-workflow.md](references/git-workflow.md).
   - **Auto-merge exemption: `/flow-pipeline` step 10.** Exempt for one
     narrow, named operation: `gh pr merge --squash <PR>` inside step 10,
     only on an auto-merge gate verdict (`flow-gate-decide` returns
@@ -355,11 +361,12 @@ three-layer resolution table, and the manifest/foundation fields — is at
     because inline application is a known-good fallback there — a
     sibling guard, not a tenth exemption.
   - The `/flow-pr-review` Gemini lens, the cross-model intent guess
-    (`flow-gemini-intent-guess`), and the `/flow-pipeline` Step-3
-    **cross-model plan review** are all a
+    (`flow-gemini-intent-guess`), the `/flow-pipeline` Step-3
+    **cross-model plan review**, and the Step-3
+    **blind method survey** are a
     **Bash fan-out, not a tenth exemption** —
-    `flow-delegate`/`flow-plan-review` calls, no Task, graceful skip
-    sans agy.
+    `flow-delegate`/`flow-plan-review`/`flow-blind-survey` calls, no
+    Task, graceful skip sans agy.
   - **AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override
     sub-step.** The single confirmation form fired when the user
     instructs the supervisor to merge a `gated` PR anyway — a *fresh*
@@ -372,15 +379,11 @@ three-layer resolution table, and the manifest/foundation fields — is at
     `skills/pipeline/flow-pipeline/references/interview-playbook.md`.
   - **Auto-issue-create exemption: `/flow-pr-review` Step 6 deferral path,
     `/flow-pr-review` Step 5 retrospective generic-gap capture,
-    `/flow-pipeline` Step 10 post-merge sweep, and a user-instructed
-    `flow-untracked file <n>` reply.** `flow-create-issue` fires only from
-    these four sites; `flow-untracked` only lists, never files itself.
-    Feature and `route-to-step-4`
-    pipelines curate the ticked set at plan review; step 3's
-    `advance-to-step-5` route has no checkpoint, so its pre-ticked
-    candidates and bundled tasks proceed as discovery authored them,
-    disclosed post-hoc in the PR body and the terminal recap, with
-    post-merge off-ramps as the correction path. Full detail at
+    `/flow-pipeline` Step 10 post-merge sweep, a user-instructed
+    `flow-untracked file <n>` reply, and `/flow-file-issue`'s hand-filed
+    path.** `flow-create-issue` fires only from these five sites;
+    `flow-untracked` only lists, never files itself. Curation and the
+    checkpoint-free `advance-to-step-5` route are detailed at
     [references/git-workflow.md](references/git-workflow.md).
   - **`/flow-epic-create` is a separate sanctioned supervisor session.**
     `flow epic create` spawns a fresh top-level `/flow-epic-create` session, so

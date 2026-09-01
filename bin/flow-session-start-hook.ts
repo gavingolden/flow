@@ -65,6 +65,7 @@ import {
   isEpicPhase,
   isPipelineKind,
   readState,
+  writeState,
   WORKTREE_REMOVED_PHASE_SET,
   type PipelineKind,
   type PipelineState,
@@ -454,12 +455,19 @@ export type DeliverSeams = {
   /** Per-poll-pass attempt budget (injectable so tests run instantly). */
   attempts?: number;
   /**
-   * Reads the slug's state — needed only in `terminal` mode, where the seed
-   * names the repo / worktree / PR the finished pipeline left behind. Optional,
-   * defaulting to the real `readState`; injected in tests. The read lives in
-   * the detached child, never in the foreground hook.
+   * Reads the slug's state — needed in `terminal` mode (the seed names the
+   * repo / worktree / PR the finished pipeline left behind) AND, as of the
+   * pre-delivery seed record below, in EVERY mode. Optional, defaulting to the
+   * real `readState`; injected in tests. The read lives in the detached
+   * child, never in the foreground hook.
    */
   readState?: (slug: string) => PipelineState | null;
+  /**
+   * Records THIS delivery's own seed before it is sent — see the doc comment
+   * on `deliverResumeSeed`. Optional, defaulting to the real `writeState`;
+   * injected in tests.
+   */
+  writeState?: (state: PipelineState) => void;
 };
 
 const DELIVER_POLL_ATTEMPTS = 40; // ~40 × 150ms ≈ 6s budget per pass
@@ -538,6 +546,16 @@ function seedForMode(
  * `kind` and `mode` are both required — a defaulted `"feature"` / `"resume"`
  * would let a caller that forgot to thread them silently deliver the wrong
  * seed, which is the bug this hook exists to fix. Exported for unit testing.
+ *
+ * Cross-path hazard (fixed here): this path delivers a resume or
+ * terminal-continue seed that is NOT the create-time seed `feature.ts` /
+ * `epic.ts` recorded, and historically wrote no `state.seed` of its own. Once
+ * those launch paths clear `seedIngest` on their own resume attempts,
+ * `flow-seed-ingested-hook` would compare THIS path's prompt against that
+ * stale create-time seed, record a false `corrupt` outcome, and make
+ * `consumed()` return false forever. Fixed by recording this delivery's OWN
+ * seed (and clearing any earlier `seedIngest` record — starting a new epoch)
+ * immediately before sending it, below.
  */
 export function deliverResumeSeed(
   slug: string,
@@ -554,6 +572,23 @@ export function deliverResumeSeed(
   // foreground path before this child was ever spawned.
   const seed = seedForMode(slug, kind, mode, seams);
   if (seed === null) return false;
+
+  // Record THIS delivery's own seed before sending it, clearing any earlier
+  // marker/mismatch — see the cross-path hazard note above. Best-effort: an
+  // unreadable state here means there is nothing to update; delivery still
+  // proceeds (this is a SEPARATE lookup from seedForMode's terminal-mode read
+  // above, and its absence must never block delivery).
+  const readStateForSeed = seams.readState ?? readState;
+  const writeStateForSeed = seams.writeState ?? writeState;
+  const currentState = readStateForSeed(slug);
+  if (currentState) {
+    writeStateForSeed({
+      ...currentState,
+      seed,
+      seedIngest: undefined,
+    });
+  }
+
   const attempts = seams.attempts ?? DELIVER_POLL_ATTEMPTS;
   // paneClearedAndSettled owns the CLEAR-aware gate (its transitioned-away-from-
   // the-pre-clear-snapshot semantics are distinct from deliverSeed's generic

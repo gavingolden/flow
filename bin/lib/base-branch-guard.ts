@@ -37,7 +37,7 @@ export { LEGACY_HOOK_BODIES } from "./base-branch-guard-legacy";
  * ownership detection moved off a byte-exact compare.
  */
 export const BASE_BRANCH_GUARD_MARKER = "# flow:base-branch-guard v";
-export const BASE_BRANCH_GUARD_VERSION = 3;
+export const BASE_BRANCH_GUARD_VERSION = 4;
 
 export const BASE_BRANCH_GUARD_HOOK = `#!/bin/sh
 ${BASE_BRANCH_GUARD_MARKER}${BASE_BRANCH_GUARD_VERSION}
@@ -67,6 +67,27 @@ fi
 current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null)
 
 if [ "$current_branch" = "$default_branch" ]; then
+  # Narrow carve-out: a machine-derived epic status board is committable here.
+  # See AGENTS.md "Auto-commit exemption: flow-epic-sync --commit".
+  # --no-renames: default rename detection prints only the destination path
+  # of a git-mv, so e.g. renaming .flow/epics/<e>/manifest.json to
+  # .flow/epics/<e>/status.json would show one allowlisted line and pass
+  # this check while committing a DELETION of manifest.json to the base
+  # branch.
+  staged=$(git diff --cached --no-renames --name-only)
+  if [ -n "$staged" ] && ! printf '%s\n' "$staged" | grep -qvE '^\\.flow/epics/[^/]+/status\\.json$'; then
+    # jq-gated staged-content sanity check, allow-path only, fail-open when
+    # jq is absent — this must never reach the common non-flow commit path.
+    if command -v jq >/dev/null 2>&1; then
+      for p in $staged; do
+        if ! git show ":$p" | jq -e . >/dev/null 2>&1; then
+          echo "flow: refusing to commit a malformed epic status board '$p'." >&2
+          exit 1
+        fi
+      done
+    fi
+    exit 0
+  fi
   echo "flow: refusing to commit on the base branch '$default_branch' inside a flow session." >&2
   echo "flow: pipeline work belongs on a per-pipeline worktree behind a PR, not the base branch." >&2
   exit 1
@@ -74,7 +95,7 @@ fi
 exit 0
 `;
 
-function extractMarkerVersion(contents: string): number | null {
+export function extractMarkerVersion(contents: string): number | null {
   const idx = contents.indexOf(BASE_BRANCH_GUARD_MARKER);
   if (idx === -1) return null;
   const after = contents.slice(idx + BASE_BRANCH_GUARD_MARKER.length);
@@ -256,19 +277,151 @@ export function installBaseBranchGuard(
   return installForeign(target, hookPath);
 }
 
+export const EPIC_STATUS_ALLOWLIST_MIN_VERSION = 4;
+
+/**
+ * True only when `contents` is BYTE-IDENTICAL to a body flow has ever
+ * shipped (`LEGACY_HOOK_BODIES["base-branch"]` or the current
+ * `BASE_BRANCH_GUARD_HOOK`). A marker alone is not proof of ownership of
+ * the BODY — a marker-intact hook with hand-appended lines classifies
+ * `own-outdated`/`own-legacy` on the marker/legacy-body match alone, but is
+ * NOT a known body, so callers that gate a self-heal (or a promise that one
+ * will succeed) on this predicate never overwrite — or promise to
+ * overwrite — a hand-edited hook.
+ */
+export function isKnownFlowHookBody(contents: string): boolean {
+  return (
+    LEGACY_HOOK_BODIES["base-branch"].includes(contents) ||
+    contents === BASE_BRANCH_GUARD_HOOK
+  );
+}
+
+export type GuardCapability = {
+  allowsStatusBoard: boolean;
+  selfHealable: boolean;
+  classification: PreCommitHookClass;
+  version: number | null;
+  hookPath: string;
+};
+
+/**
+ * Reports whether the pre-commit hook ACTUALLY INSTALLED in `repoDir` honors
+ * the status.json base-branch allowlist, and whether flow may safely
+ * self-heal it in place. Reuses `installBaseBranchGuard`'s own preamble
+ * (resolveHooksTarget -> husky short-circuit -> read+classify), so there is
+ * one reading idiom for the hook on disk; the whole body is wrapped in one
+ * try/catch so a resolution failure never throws — callers get the fail-safe
+ * {allowsStatusBoard:false, selfHealable:false} instead of an unhandled
+ * exception, so no unverified route is ever promised.
+ */
+export function installedGuardCapability(repoDir: string): GuardCapability {
+  try {
+    const target = resolveHooksTarget(repoDir);
+    const hookPath = path.join(target.hooksDir, "pre-commit");
+
+    if (target.manager === "husky") {
+      return {
+        allowsStatusBoard: false,
+        selfHealable: false,
+        classification: "foreign",
+        version: null,
+        hookPath,
+      };
+    }
+
+    const existing = fs.existsSync(hookPath)
+      ? fs.readFileSync(hookPath, "utf8")
+      : null;
+    const classification = classifyPreCommitHook(existing);
+    const version = existing ? extractMarkerVersion(existing) : null;
+
+    switch (classification) {
+      case "absent":
+        return {
+          allowsStatusBoard: true,
+          selfHealable: false,
+          classification,
+          version,
+          hookPath,
+        };
+      case "own-current":
+      case "own-newer":
+        return {
+          allowsStatusBoard:
+            (version ?? 0) >= EPIC_STATUS_ALLOWLIST_MIN_VERSION,
+          selfHealable: false,
+          classification,
+          version,
+          hookPath,
+        };
+      case "own-outdated":
+        return {
+          allowsStatusBoard:
+            (version ?? 0) >= EPIC_STATUS_ALLOWLIST_MIN_VERSION,
+          selfHealable: existing !== null && isKnownFlowHookBody(existing),
+          classification,
+          version,
+          hookPath,
+        };
+      case "own-legacy":
+        return {
+          allowsStatusBoard: false,
+          selfHealable: existing !== null && isKnownFlowHookBody(existing),
+          classification,
+          version,
+          hookPath,
+        };
+      case "foreign":
+      default:
+        return {
+          allowsStatusBoard: false,
+          selfHealable: false,
+          classification,
+          version,
+          hookPath,
+        };
+    }
+  } catch {
+    return {
+      allowsStatusBoard: false,
+      selfHealable: false,
+      classification: "foreign",
+      version: null,
+      hookPath: "",
+    };
+  }
+}
+
+const EPIC_STATUS_ALLOWLIST = /^\.flow\/epics\/[^/]+\/status\.json$/;
+
+/**
+ * TS mirror of the sh allowlist in BASE_BRANCH_GUARD_HOOK. True only when the
+ * staged set is non-empty AND every path is a machine-derived epic status
+ * board. Any other path — manifest.json, design.md, code — makes it false.
+ */
+export function isCommittableOnBaseBranch(stagedPaths: string[]): boolean {
+  if (stagedPaths.length === 0) return false;
+  return stagedPaths.every((p) => EPIC_STATUS_ALLOWLIST.test(p));
+}
+
 /**
  * Pure refuse/allow decision mirrored by the sh hook above, factored out so the
  * branching logic is unit-testable without spawning a real commit. Refuses ONLY
- * when both flow-session markers are present AND HEAD is the default branch.
+ * when both flow-session markers are present AND HEAD is the default branch —
+ * unless every staged path is a machine-derived epic status board.
  */
 export function baseBranchGuardDecision(input: {
   sessionId?: string;
   flowSlug?: string;
   currentBranch: string;
   defaultBranch: string;
+  stagedPaths?: string[];
 }): "refuse" | "allow" {
   const sessionMarked = Boolean(input.sessionId) && Boolean(input.flowSlug);
   if (sessionMarked && input.currentBranch === input.defaultBranch) {
+    if (input.stagedPaths && isCommittableOnBaseBranch(input.stagedPaths)) {
+      return "allow";
+    }
     return "refuse";
   }
   return "allow";

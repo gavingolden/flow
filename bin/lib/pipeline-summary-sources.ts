@@ -18,8 +18,10 @@ import {
 import { formatDuration } from "./time";
 import {
   formatPlainText,
+  formatPlainTextEntries,
   collectForeclosedEntries,
   isEmpty,
+  isTotalLensDrop,
 } from "./foreclosed-paths-format";
 
 const NONE = ["none"];
@@ -146,6 +148,13 @@ export function renderFindings(inputs: {
 export function renderForeclosedPaths(inputs: {
   fixApplierRaw: string;
   consolidatorRaw: string;
+  /**
+   * OPTIONAL disk-fallback directory for the foreclosed-paths formatter's
+   * lens negatives (dirname of the consolidator-result path, when the
+   * caller has one). This is the surface that puts the total-lens-drop
+   * warning in the terminal gate summary for a headless auto-merge run.
+   */
+  artifactDir?: string;
 }): string[] {
   if (isEmpty(collectForeclosedEntries(inputs))) return NONE;
   return formatPlainText(inputs);
@@ -172,12 +181,15 @@ export function renderFollowupIssues(
   for (const raw of filedIssuesRaw.split("\n")) {
     const line = raw.trim();
     if (!line) continue;
-    // The step-10 sweep writes `filed\t<url>` and `unfiled\t<title>`; a bare
-    // `http…` line is also accepted as filed (resume / hand-authored files).
+    // The step-10 sweep writes `filed\t<url>`, `unfiled\t<title>`, and
+    // `rejected\t<title>`; a bare `http…` line is also accepted as filed
+    // (resume / hand-authored files).
     if (line.startsWith("filed\t")) {
       lines.push(`filed: ${line.slice("filed\t".length)}`);
     } else if (line.startsWith("unfiled\t")) {
       lines.push(`sweep failed (unfiled): ${line.slice("unfiled\t".length)}`);
+    } else if (line.startsWith("rejected\t")) {
+      lines.push(`rejected (needs repair): ${line.slice("rejected\t".length)}`);
     } else if (line.startsWith("http")) {
       lines.push(`filed: ${line}`);
     }
@@ -406,11 +418,20 @@ export function renderDeviations(inputs: {
  * Rejected decisions for the slim PR comment's DECISIONS section: the
  * `rejected_alternatives[]` from BOTH the fix-applier artifact (objects with
  * `finding_id` / `considered_approach` / `why_rejected`) AND the consolidator
- * artifact (plain strings). `none` when neither artifact carries any.
+ * artifact (plain strings), PLUS the consolidator's pass-through
+ * `lens_rejected_alternatives[]` (code-scoped, tagged with the source lens).
+ * `artifactDir` mirrors `antiPatternDecisionLines`'s sibling disk-fallback
+ * parameter: when the consolidator artifact carries no lens negatives and
+ * `artifactDir` is supplied, `collectLensNegativesFromDirSync` rescues them
+ * from the raw `agent-output-<lens>.json` files — without this, a
+ * disk-rescued anti-pattern could render beside a `rejected: none` even
+ * though the same rescue would have surfaced a rejected-alternative too.
+ * `none` when none of the three carries any.
  */
 function rejectedDecisionLines(
   fixApplierRaw: string,
   consolidatorRaw: string,
+  artifactDir?: string,
 ): string[] {
   const lines: string[] = [];
   if (fixApplierRaw.trim()) {
@@ -434,8 +455,80 @@ function rejectedDecisionLines(
         : validateConsolidatorResult(normalizeParsedFindings(parsed));
     if (v && v.ok) {
       for (const r of v.value.rejected_alternatives) lines.push(r);
+      // Optional pass-through key — absent contributes nothing. Falls back
+      // to the shared disk-rescue collector (via collectForeclosedEntries)
+      // when the artifact itself carries no lens negatives, mirroring the
+      // anti-pattern sub-part below.
+      const lensRejected =
+        v.value.lens_rejected_alternatives &&
+        v.value.lens_rejected_alternatives.length > 0
+          ? v.value.lens_rejected_alternatives
+          : collectForeclosedEntries({
+              fixApplierRaw: "",
+              consolidatorRaw,
+              artifactDir,
+            })
+              .filter(
+                (e) =>
+                  e.source === "lens" &&
+                  e.category === "rejected-alternative" &&
+                  e.rawEntry === undefined,
+              )
+              .map((e) => ({
+                lens: e.lens ?? "",
+                considered_approach: e.considered_approach ?? "",
+                why_rejected: e.why_rejected ?? "",
+              }));
+      for (const r of lensRejected) {
+        lines.push(
+          `lens(${r.lens}): ${r.considered_approach} - ${r.why_rejected}`,
+        );
+      }
     }
   }
+  return lines.length > 0 ? lines : NONE;
+}
+
+/**
+ * Anti-pattern decisions for the slim PR comment's DECISIONS section,
+ * sourced from the shared `collectForeclosedEntries` collector (the same
+ * core the `## Foreclosed Paths` PR-body section and the `FORECLOSED PATHS`
+ * terminal snapshot render from) filtered to `category === "anti-pattern"`,
+ * plus any whole-source `unreadable` degradation marker (those are tagged
+ * `category: "rejected-alternative"` by the collector, so they need an
+ * explicit `|| e.unreadable` or a broken artifact would silently render
+ * `none` instead of `(unreadable)`, unlike its sibling surfaces).
+ *
+ * `isTotalLensDrop` is evaluated over the FULL (unfiltered) entry set, not
+ * this sub-part's anti-pattern-only filtered subset: `missing_lenses`
+ * survives the filter (tagged `category: "anti-pattern"`) while a live lens
+ * rejected-alternative does not (it renders in the sibling `rejected:`
+ * sub-part instead), so filtering first would make an all-anti-pattern-lens
+ * view look like a total drop even when `rejected:` just rendered lens
+ * entries above it — the exact false alarm the warning exists to prevent.
+ * `none` when the filtered set is empty.
+ */
+function antiPatternDecisionLines(
+  fixApplierRaw: string,
+  consolidatorRaw: string,
+  artifactDir?: string,
+): string[] {
+  const allEntries = collectForeclosedEntries({
+    fixApplierRaw,
+    consolidatorRaw,
+    artifactDir,
+  });
+  const genuineTotalDrop = isTotalLensDrop(allEntries);
+  const filtered = allEntries.filter((e) =>
+    e.category === "anti-pattern" || e.unreadable
+      ? // Suppress the `missing_lenses` marker entry itself when this
+        // isn't a genuine total drop — some other lens category (e.g.
+        // rejected-alternatives) DID populate, so the marker would be
+        // misleading standalone here.
+        e.missing_lenses === undefined || genuineTotalDrop
+      : false,
+  );
+  const lines = formatPlainTextEntries(filtered);
   return lines.length > 0 ? lines : NONE;
 }
 
@@ -444,7 +537,7 @@ function rejectedDecisionLines(
  * `PIPELINE SNAPSHOT` title line (no `##`) over three 2-space-indented
  * labeled sections: CHANGES (the one-line diff summary, reusing
  * renderChanges), REVIEW (the review/findings disposition, reusing
- * renderFindings), and DECISIONS (deferred + rejected), plus a conditional
+ * renderFindings), and DECISIONS (deferred + rejected + anti-patterns), plus a conditional
  * INTENT section emitted only when the intent-resolution artifact is
  * present AND its verdict is non-`match` (an unparseable artifact drops the
  * section entirely rather than rendering `(unreadable)`, unlike `render()`).
@@ -463,6 +556,8 @@ export type RenderCommentInputs = {
   scoutRaw?: string;
   /** pm-lens only: pre-rendered `flow-untracked render --format markdown --unfiled-only` lines. */
   untrackedBlock?: string;
+  /** OPTIONAL disk-fallback directory for the anti-pattern DECISIONS section's lens negatives. */
+  artifactDir?: string;
 };
 
 function renderCommentDev(inputs: RenderCommentInputs): string {
@@ -524,6 +619,15 @@ function renderCommentDev(inputs: RenderCommentInputs): string {
   for (const ln of rejectedDecisionLines(
     inputs.fixApplierRaw,
     inputs.consolidatorRaw,
+    inputs.artifactDir,
+  )) {
+    lines.push(`    ${ln}`);
+  }
+  lines.push("  anti-patterns:");
+  for (const ln of antiPatternDecisionLines(
+    inputs.fixApplierRaw,
+    inputs.consolidatorRaw,
+    inputs.artifactDir,
   )) {
     lines.push(`    ${ln}`);
   }
@@ -533,9 +637,9 @@ function renderCommentDev(inputs: RenderCommentInputs): string {
 /**
  * pm-lens PR-comment block: `CHANGES` / `REVIEW` (verdict + count line,
  * never the `review:` narrative) / `DEVIATIONS` / `UNTRACKED` only — the
- * developer detail (full review summary, `consolidator:` line, `rejected:`
- * reasoning) moves to `dev`, rendered inside a `<details>` wrapper by
- * `buildCommentBody`.
+ * developer detail (full review summary, `consolidator:` line, `rejected:` /
+ * `anti-patterns:` reasoning) moves to `dev`, rendered inside a `<details>`
+ * wrapper by `buildCommentBody`.
  */
 function renderCommentPm(inputs: RenderCommentInputs): string {
   const lines: string[] = ["PIPELINE SNAPSHOT"];

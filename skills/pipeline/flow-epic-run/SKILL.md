@@ -45,21 +45,19 @@ You are invoked by the `flow epic run <slug>` seed prompt, which begins with the
 literal prefix:
 
 ```
-Use the /flow-epic-run skill for: <slug>
-
-EPIC_DIR: .flow/epics/<slug>
+Use the /flow-epic-run skill for: <slug> EPIC_DIR: .flow/epics/<slug>
 ```
 
-Capture the `<slug>` after `for:` and the literal `EPIC_DIR` on its own line.
-You are **also** directly invocable as `/flow-epic-run <slug>` inside any existing
+Capture the `<slug>` between `for:` and ` EPIC_DIR:`, and the literal `EPIC_DIR`
+after it. You are **also** directly invocable as `/flow-epic-run <slug>` inside any existing
 Claude session — the playbook is the same either way; the seed prompt just opens
 a dedicated window for it.
 
 ## EPIC_DIR comes from the seed prompt (R1 — never import `bin/lib`)
 
 The CLI (`flow epic run`) is the SOLE evaluator of the epic path contract. It
-embeds the resolved **literal** `EPIC_DIR` (e.g. `.flow/epics/<slug>`) on its
-own line. You run cwd'd in a **consumer worktree** where flow's `bin/lib/*` does
+embeds the resolved **literal** `EPIC_DIR` (e.g. `.flow/epics/<slug>`) in the
+single seed line. You run cwd'd in a **consumer worktree** where flow's `bin/lib/*` does
 NOT exist, so you must **never import `bin/lib`** — that import fails here.
 Consume the literal `EPIC_DIR` + the **bare-name PATH helpers** only.
 
@@ -117,7 +115,7 @@ session, and this one has zero named fan-out surfaces.
 | `flow epic launch <epic> <id> [--force]`                                   | Atomic manifest-read → `flow feature create` → binding recorded.                                                                                                                                                                                                                                                                                                |
 | `flow epic ls` / `flow epic done <slug>`                                   | List epics / remove the per-machine run.json cache.                                                                                                                                                                                                                                                                                                             |
 | `flow feature create "<desc>"` / `flow feature resume <slug> --force`      | Launch a fresh pipeline / clean-respawn a stalled one (the sanctioned retry actuator).                                                                                                                                                                                                                                                                          |
-| `flow-epic-sync --epic-slug <epic> [--check]`                              | Derive the whole epic's committed status board from GitHub; `--check` exits non-zero on drift. `--epic-slug` is required here — this session's `$FLOW_SLUG` is the epic-run window's own slug, not the epic's, so a bare invocation resolves nothing. Add `--rederive` to rebuild the board from GitHub ignoring committed rows, when a committed row is wrong. |
+| `flow-epic-sync --epic-slug <epic> [--check] [--commit] [--push]`          | Derive the whole epic's committed status board from GitHub; `--check` exits non-zero on drift. `--epic-slug` is required here — this session's `$FLOW_SLUG` is the epic-run window's own slug, not the epic's, so a bare invocation resolves nothing. Add `--rederive` to rebuild the board from GitHub ignoring committed rows, when a committed row is wrong. |
 | `gh`, `git`, `jq`                                                          | The truth probes + JSON extraction.                                                                                                                                                                                                                                                                                                                             |
 
 # The four recipes
@@ -146,18 +144,30 @@ Reconcile the cache (run.json) against the truth (GitHub/git) BEFORE any launch.
 4. If the manifest itself drifted from what shipped, run **amend-manifest**.
 5. Check the committed status board:
    `flow-epic-sync --epic-slug <slug> --check`. On a non-zero exit, run
-   `flow-epic-sync --epic-slug <slug>`
-   (writes `.flow/epics/<slug>/status.json`) and commit the correction with
-   a small, focused commit — same style as **amend-manifest** step 3.
+   `flow-epic-sync --epic-slug <slug> --commit --push`. The commit lands on
+   the base branch through the v4 base-branch guard's status-board
+   allowlist and is pushed straight to origin — no manual commit needed.
    `--epic-slug` must be passed explicitly: this session's `$FLOW_SLUG` is
    the epic-run window's own slug, and `flow-epic-sync` otherwise resolves
    the epic via `readState(slug).epic.slug`, a field only a
    `flow feature create --epic` FEATURE slug ever writes — a bare
-   invocation here silently checks nothing. If a `--check` failure can't be
-   explained by a real merge, run
+   invocation here silently checks nothing.
+
+   **No-retry rule:** an envelope reading `committed: true, pushed: false`
+   is DONE FOR THIS TURN — report the `pushSkipReason` and its named
+   remedy to the human; never retry, never force. A `foreign-repo` skip
+   means the epic's board lives in a different repository checkout — cd
+   into that checkout and re-run; never retry in place. In practice a
+   `foreign-repo` skip always shows up as `committed: false` (the
+   containment gate refuses the write itself before a commit is ever
+   possible), not the `committed: true, pushed: false` case above — same
+   no-retry, cd-and-re-run handling either way.
+
+   If a `--check` failure can't be explained by a real merge, run
    `flow-epic-sync --epic-slug <slug> --rederive --check` to diagnose the
-   drift, then `flow-epic-sync --epic-slug <slug> --rederive` to repair it,
-   and commit the rebuilt `status.json`.
+   drift, then `flow-epic-sync --epic-slug <slug> --rederive --commit
+--push` to repair it and commit + push the rebuilt `status.json` — same
+   no-retry rule on a `pushed: false` envelope.
 
 A `gated` feature surfaced here is **escalate-only** — tell the human; never
 clear it.
@@ -189,7 +199,12 @@ When scope changed and the committed manifest must change:
 1. Edit `.flow/epics/<slug>/manifest.json`.
 2. Validate: `flow-epic-manifest-schema --validate <manifest>` then
    `flow-epic-dag --validate <manifest>` (both must pass).
-3. Commit the change with a small, focused commit.
+3. The base-branch guard REFUSES a `manifest.json` commit on the base
+   branch — its status-board allowlist covers `status.json` only — so this
+   is the route, not a preference: `git switch -c flow-epic-amend/<epic>`,
+   commit the change there with a small, focused commit, then
+   `git switch -` to return the checkout to the base branch, then open a
+   PR by hand.
 
 ## delete-when-done
 

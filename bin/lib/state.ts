@@ -12,6 +12,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { FLOW_STATE_DIR } from "./paths";
 import { CHECKPOINT_SITES } from "./checkpoint-freshness";
+import { isSeedIngest, type SeedIngest } from "./seed-ingest";
+
+/** Re-exported for consumer convenience — the type is owned by `./seed-ingest`. */
+export type { SeedIngest };
 
 /**
  * Reasoning-effort levels accepted by `claude --effort`. Single source of
@@ -183,15 +187,31 @@ export type PipelineState = {
    */
   phaseLog?: Array<{ phase: string; outcome?: string; at: string }>;
   /**
-   * Timestamp the `flow-seed-ingested-hook` (a Claude Code UserPromptSubmit
-   * hook) stamps the instant the seed prompt is accepted inside a flow
-   * session. The launcher's `consumed()` predicate treats its presence (plus a
-   * live pane) as launch-time confirmation the seed was ingested, upgrading the
-   * lazy orphan-reaper's eventual-consistency guarantee to a launch-time one;
-   * the reaper remains the fallback when the marker is absent (old sessions,
-   * hook-not-fired). Additive — no migration (AGENTS.md: no back-compat shims).
+   * Self-describing seed-integrity record written by `flow-seed-ingested-hook`
+   * (a Claude Code UserPromptSubmit hook) the instant a prompt is accepted
+   * inside a flow session. Replaces the old `seedIngestedAt`/`seedMismatch`
+   * pair, whose shared absent state could not distinguish "not yet ingested"
+   * from "ingested but unverifiable". See `./seed-ingest` for the five
+   * outcomes (four encoded, the fifth being this field's ABSENCE) and the
+   * monotone-latch rule every consumer's predicate ordering depends on.
+   * Additive — no migration (AGENTS.md: no back-compat shims); a legacy state
+   * file still carrying `seedIngestedAt` parses fine and degrades to
+   * not-yet-ingested.
    */
-  seedIngestedAt?: string;
+  seedIngest?: SeedIngest;
+  /**
+   * The exact seed text this launch attempt intended to deliver, recorded by
+   * every tmux launch/resume path (`feature.ts`, `epic.ts`,
+   * `flow-session-start-hook.ts`) BEFORE delivery. Post-PR-#719 this is only
+   * a pointer line (`REQUEST_FILE: ...`), so a `seedCorrupted()` failure
+   * names the request file (`writeRequestFile`) as the recovery source
+   * rather than printing this field — and `reapableStartingOrphans` skips a
+   * `corrupt` seedIngest record so that file survives the ~60s lazy sweep.
+   * Its live job is giving `flow-seed-ingested-hook` something to compare
+   * the UserPromptSubmit payload against. Additive — no migration
+   * (AGENTS.md: no back-compat shims).
+   */
+  seed?: string;
   /**
    * Crash-safe liveness signal: the OS-level PID of the pane's foreground
    * process at launch time (see `tmux.panePid`), paired with `procStartedAt`
@@ -271,6 +291,18 @@ export type PipelineState = {
    * `flow done`, nothing accumulates across pipelines.
    */
   untracked?: UntrackedItem[];
+  /**
+   * Durable wall-clock anchors for one async cross-model plan-review cycle,
+   * written by `flow-plan-review --start` (`bin/flow-plan-review.ts`). A
+   * plain state write (like `ciWait` above), never a `flow-state-update`
+   * phase transition — `updatedAt` is deliberately NOT bumped by writing
+   * this field. Cycle identity is `(planFile, decisionHash)`: a plan
+   * revision resets the record, mirroring `ciWait`'s `(pr, headSha)`
+   * reset. `elapsedSec` always re-derives from `startedAt`, never from the
+   * calling process's own age, so a suspended `--check` invocation cannot
+   * fabricate a false `review-timed-out`.
+   */
+  planReview?: PlanReviewRecord;
   updatedAt: string;
 };
 
@@ -303,6 +335,26 @@ export type CiWaitRecord = {
   checks: number;
   copilotRetriggered: boolean;
   copilotRetriggeredAt?: string;
+};
+
+/**
+ * Durable anchors for one async cross-model plan-review cycle, written by
+ * `flow-plan-review --start`. Cycle identity is `(planFile, decisionHash)`:
+ * a plan revision (a changed `decisionHash`) resets the record exactly as
+ * `ciWait`'s `(pr, headSha)` reset does. `pid`/`startEpoch` pair to defeat
+ * pid recycling when `--check` probes worker liveness.
+ */
+export type PlanReviewRecord = {
+  planFile: string;
+  decisionHash: string;
+  depth: "standard" | "deep";
+  startedAt: string;
+  pid: number;
+  startEpoch: number | null;
+  resultPath: string;
+  stderrPath: string;
+  lastObservedAt: string | null;
+  checks: number;
 };
 
 /**
@@ -359,6 +411,10 @@ export const PENDING_PHASES = [
   // its sibling `plan-pending-review` (pipeline phases first, epic phases
   // last — order isn't load-bearing, but keeps the list readable).
   "plan-pending-interview",
+  // Step 3's async cross-model plan review wake ladder (flow-plan-review
+  // --start/--check + flow-plan-review-wait): a legitimate turn-end while
+  // the detached reviewer worker is still running. Resolves back to step 3.
+  "plan-review-pending",
   "triaged-no-change",
   "triage-pending-clarification",
   // Intent interview (adaptive), step 1. Distinct from
@@ -374,6 +430,11 @@ export const PENDING_PHASES = [
   // `flow-stop-guard` permits the yield. On resume it resolves to step-5
   // (implement).
   "checkpoint-pending-clear",
+  // /flow-epic-create step 4.5's async cross-model plan review wake ladder,
+  // the epic-window sibling of `plan-review-pending` above. Must start with
+  // `epic-` — EPIC_PHASES derives via startsWith("epic-") and
+  // isEpicPhase's window-kind fallback depends on that (AGENTS.md tmux rule).
+  "epic-plan-review-pending",
   // Epic-designer review checkpoint (the open design PR). `flow-stop-guard`
   // must permit ending the turn here, so it is a pending phase.
   "epic-design-pending-review",
@@ -595,6 +656,7 @@ export const PHASE_SHORT: Record<PipelinePhase, string> = {
   merging: "merge",
   "plan-pending-review": "plan?",
   "plan-pending-interview": "planq?",
+  "plan-review-pending": "prvw?",
   "triaged-no-change": "no-chg",
   "triage-pending-clarification": "triage?",
   "triage-pending-interview": "intq?",
@@ -608,6 +670,7 @@ export const PHASE_SHORT: Record<PipelinePhase, string> = {
   "epic-designing": "e-dsgn",
   "epic-validating": "e-val",
   "epic-pr-open": "e-pr",
+  "epic-plan-review-pending": "e-prvw?",
   "epic-design-pending-review": "e-rvw?",
   "epic-approved": "e-ok",
 };
@@ -625,6 +688,10 @@ export function shortPhase(phase: string): string {
 
 export function statePath(slug: string, dir = FLOW_STATE_DIR): string {
   return path.join(dir, `${slug}.json`);
+}
+
+export function requestFilePath(slug: string, dir = FLOW_STATE_DIR): string {
+  return path.join(dir, `${slug}.request.md`);
 }
 
 function isGateOverride(x: unknown): x is { pr: number; confirmedAt: string } {
@@ -689,6 +756,23 @@ export function isCiWaitRecord(x: unknown): x is CiWaitRecord {
     typeof o.copilotRetriggeredAt !== "string"
   )
     return false;
+  return true;
+}
+
+export function isPlanReviewRecord(x: unknown): x is PlanReviewRecord {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  if (typeof o.planFile !== "string") return false;
+  if (typeof o.decisionHash !== "string") return false;
+  if (o.depth !== "standard" && o.depth !== "deep") return false;
+  if (typeof o.startedAt !== "string") return false;
+  if (typeof o.pid !== "number") return false;
+  if (o.startEpoch !== null && typeof o.startEpoch !== "number") return false;
+  if (typeof o.resultPath !== "string") return false;
+  if (typeof o.stderrPath !== "string") return false;
+  if (o.lastObservedAt !== null && typeof o.lastObservedAt !== "string")
+    return false;
+  if (typeof o.checks !== "number") return false;
   return true;
 }
 
@@ -782,9 +866,11 @@ function isPipelineState(x: unknown): x is PipelineState {
     return false;
   if (o.reap !== undefined && !isReapRecord(o.reap)) return false;
   if (o.ciWait !== undefined && !isCiWaitRecord(o.ciWait)) return false;
-  if (o.untracked !== undefined && !isUntrackedList(o.untracked)) return false;
-  if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
+  if (o.planReview !== undefined && !isPlanReviewRecord(o.planReview))
     return false;
+  if (o.untracked !== undefined && !isUntrackedList(o.untracked)) return false;
+  if (o.seed !== undefined && typeof o.seed !== "string") return false;
+  if (o.seedIngest !== undefined && !isSeedIngest(o.seedIngest)) return false;
   if (o.pid !== undefined && typeof o.pid !== "number") return false;
   if (o.procStartedAt !== undefined && typeof o.procStartedAt !== "number")
     return false;
@@ -835,11 +921,27 @@ export function readState(
 }
 
 export function writeState(state: PipelineState, dir = FLOW_STATE_DIR): void {
-  fs.mkdirSync(dir, { recursive: true });
+  // 0o700 / 0o600: `state.seed` now persists the verbatim launch prompt, the
+  // same data class `proc-registry.ts` already restricts for the same reason
+  // (argv/prompt text routinely carries secrets passed as flags). `mode` only
+  // applies at creation time — an already-existing world-readable dir/file
+  // from before this change is not retroactively tightened; same limitation
+  // `proc-registry.ts` already accepts.
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(
     statePath(state.slug, dir),
     JSON.stringify(state, null, 2) + "\n",
+    { mode: 0o600 },
   );
+}
+
+export function writeRequestFile(
+  slug: string,
+  text: string,
+  dir = FLOW_STATE_DIR,
+): void {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(requestFilePath(slug, dir), text, { mode: 0o600 });
 }
 
 /**
@@ -865,6 +967,12 @@ export function appendPhaseLog(
 }
 
 export function deleteState(slug: string, dir = FLOW_STATE_DIR): boolean {
+  try {
+    fs.unlinkSync(requestFilePath(slug, dir));
+  } catch {
+    // best-effort: the request file may not exist (pre-migration state, or
+    // a launch that never wrote one)
+  }
   try {
     fs.unlinkSync(statePath(slug, dir));
     return true;

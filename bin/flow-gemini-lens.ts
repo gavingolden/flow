@@ -29,8 +29,12 @@
  *     (`validateAgentFindings`) at every rung. Any unusable output →
  *     dropped result + skipReason, NO consolidator-valid
  *     `agent-output-gemini.json` left behind (write-only-on-success).
- *  5. Valid → write the normalized `{findings:[...]}` to `--out` →
- *     `{ran:true,findingsPath,findingCount,decodedVia}`.
+ *  5. Valid → write the normalized
+ *     `{findings:[...], rejected_alternatives:[...], anti_patterns_found:[...]}`
+ *     to `--out` → `{ran:true,findingsPath,findingCount,decodedVia}`. The two
+ *     negative-findings arrays route through `collectLensNegatives`'s
+ *     tolerant per-entry collector — a malformed entry is dropped, never
+ *     sinks the whole artifact.
  *
  * Exit codes: 0 on every graceful path (callers branch on `ran`); 2 only
  * on a usage error (missing required flag).
@@ -46,6 +50,8 @@ import { homedir } from "node:os";
 import {
   VALID_DECORATIONS,
   VALID_LABELS,
+  classifyLensNegatives,
+  collectLensNegatives,
   normalizeParsedFindings,
   validateAgentFindings,
 } from "./lib/agent-finding-schema";
@@ -143,7 +149,12 @@ export function isGeminiLensEnabled(rawConfigText: string): boolean {
 export const AGENT_FINDINGS_JSON_SCHEMA: Record<string, unknown> = {
   type: "object",
   additionalProperties: false,
-  required: ["reasoning", "findings"],
+  required: [
+    "reasoning",
+    "findings",
+    "rejected_alternatives",
+    "anti_patterns_found",
+  ],
   properties: {
     reasoning: {
       type: "string",
@@ -191,6 +202,52 @@ export const AGENT_FINDINGS_JSON_SCHEMA: Record<string, unknown> = {
       },
       description: "The reviewer's findings, one entry per issue/praise/etc.",
     },
+    rejected_alternatives: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["considered_approach", "why_rejected"],
+        properties: {
+          considered_approach: {
+            type: "string",
+            description:
+              "An approach you considered while reviewing a hunk of the reviewed code.",
+          },
+          why_rejected: {
+            type: "string",
+            description:
+              "Why the code as written is preferable to the considered approach.",
+          },
+        },
+      },
+      description:
+        "Code-scoped claims about approaches you considered and rejected while reviewing. A genuine none is the empty array; do not omit this key.",
+    },
+    anti_patterns_found: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["location", "pattern", "recommendation"],
+        properties: {
+          location: {
+            type: "string",
+            description:
+              "The file:line of the off-pattern in the reviewed code.",
+          },
+          pattern: {
+            type: "string",
+            description:
+              "The off-pattern observed — not itself a findings entry.",
+          },
+          recommendation: {
+            type: "string",
+            description: "What the next person touching this code should do.",
+          },
+        },
+      },
+      description:
+        "Code-scoped off-patterns you noticed but didn't surface as a findings entry. A genuine none is the empty array; do not omit this key.",
+    },
   },
 };
 
@@ -201,7 +258,7 @@ Read the changed files in full for surrounding context — the working tree is y
 
 ## Output format (LOAD-BEARING)
 
-Output ONLY a single JSON object of shape {"findings": [...]} — no prose, no preamble, no markdown code fence. The very first character of your output must be '{' and the last must be '}'.
+Output ONLY a single JSON object of shape {"findings": [...], "rejected_alternatives": [...], "anti_patterns_found": [...]} — no prose, no preamble, no markdown code fence. The very first character of your output must be '{' and the last must be '}'.
 
 Each finding is an object:
 
@@ -223,7 +280,14 @@ Each finding is an object:
 - confidence: 0-100. Only emit findings you are >= 80% confident are real — a false positive that wastes a developer's time is worse than a missed finding a human reviewer will catch. When in doubt, rate lower and omit.
 - Include a praise finding only when you can name the specific behaviour/file:line being praised; never content-free openers.
 
-If you find nothing noteworthy, return {"findings": []}.
+Alongside "findings", also emit two more arrays that capture claims about the REVIEWED CODE, not about your review process:
+
+- "rejected_alternatives": an array of {"considered_approach": "...", "why_rejected": "..."} entries — an approach you considered while reviewing a hunk, and why the code as written is preferable.
+- "anti_patterns_found": an array of {"location": "file:line", "pattern": "...", "recommendation": "..."} entries — an off-pattern you noticed in the reviewed code that isn't itself a findings entry.
+
+Silence is not the default: if you genuinely considered no alternative and saw no off-pattern, write the true empty array [] for that key — but an absent key is a contract violation, not a synonym for none.
+
+If you find nothing noteworthy, return {"findings": [], "rejected_alternatives": [], "anti_patterns_found": []}.
 
 ## Diff
 
@@ -373,11 +437,33 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     // top-level keys and returns the input unmodified, so writing
     // decoded.value directly would leak a schema-supplied `reasoning` key
     // into agent-output-gemini.json and hand the consolidator a non-
-    // {findings} artifact. Re-project to exactly {findings}.
-    deps.writeFile(
-      parsed.out,
-      JSON.stringify({ findings: decoded.value.findings }, null, 2),
-    );
+    // {findings, rejected_alternatives, anti_patterns_found} artifact.
+    // Re-project to exactly those three keys. The two negative arrays route
+    // through the TOLERANT collectLensNegatives — a wire-schema violation on
+    // one malformed negative entry must never sink the whole cross-model
+    // review (this helper already skips with `gemini-output-unparseable` on
+    // a genuinely-broken payload; that path is for the whole artifact, not
+    // one entry).
+    const negatives = collectLensNegatives(decoded.value);
+    const state = classifyLensNegatives(decoded.value);
+    const finalized: {
+      findings: unknown;
+      rejected_alternatives?: unknown;
+      anti_patterns_found?: unknown;
+    } = { findings: decoded.value.findings };
+    // Preserve genuine absence rather than laundering it into `[]`: the wire
+    // schema now REQUIRES both keys from agy, but decoded.value may still
+    // come from a salvage rung that never enforced that requirement. Only
+    // write the key when the source actually carried an array (populated or
+    // empty), so the consolidator's `classifyLensNegatives` can still tell
+    // "lens omitted this" from "lens explicitly reported none".
+    if (state.rejected_alternatives !== "absent") {
+      finalized.rejected_alternatives = negatives.rejected_alternatives;
+    }
+    if (state.anti_patterns_found !== "absent") {
+      finalized.anti_patterns_found = negatives.anti_patterns_found;
+    }
+    deps.writeFile(parsed.out, JSON.stringify(finalized, null, 2));
   } catch {
     return skip("gemini-finalize-failed");
   }

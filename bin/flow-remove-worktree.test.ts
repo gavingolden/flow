@@ -13,12 +13,14 @@ import {
   isNotFullyMergedFailure,
   isRemovalPhaseFailure,
   matchWorktree,
+  parseArgs,
   parseWorktreeListOutput,
   removeWorktreeWithFallback,
   resolveInput,
   stateSlugForInput,
   type RemoveWorktreeDeps,
   type WorktreeListEntry,
+  resolveTargetInput,
 } from "./flow-remove-worktree";
 
 // --- parseWorktreeListOutput ---
@@ -97,6 +99,89 @@ describe(parseWorktreeListOutput, () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].path).toBe("/repo");
     expect(entries[0].branch).toBeUndefined();
+  });
+});
+
+// --- parseArgs ---------------------------------------------------------
+//
+// Unit-tests the exported parser only. Never spawn the binary here — a
+// flag-parsing bug in these cases has no business touching `git worktree
+// remove`; the spawn-based integration suites below cover the actual
+// removal paths.
+
+describe(parseArgs, () => {
+  it("rejects a repeated --slug instead of silently last-wins", () => {
+    // Regression: last-wins would discard `alpha` with no diagnostic and
+    // remove `beta` — a silent wrong-target removal on an irreversible path.
+    expect(parseArgs(["--slug", "alpha", "--slug", "beta"])).toEqual({
+      error: "--slug given more than once",
+    });
+  });
+
+  it("names a stray second positional as an argument, not a flag", () => {
+    expect(parseArgs(["../wt-a", "../wt-b"])).toEqual({
+      error: "unexpected extra argument: ../wt-b",
+    });
+  });
+
+  it("reports help for --help and -h", () => {
+    expect(parseArgs(["--help"])).toEqual({
+      deleteBranch: false,
+      help: true,
+    });
+    expect(parseArgs(["-h"])).toEqual({ deleteBranch: false, help: true });
+  });
+
+  it("treats empty argv as 'no slug given' (ambient fallback still fires)", () => {
+    expect(parseArgs([])).toEqual({ deleteBranch: false, help: false });
+  });
+
+  it("accepts a single slug positional", () => {
+    expect(parseArgs(["my-slug"])).toEqual({
+      slug: "my-slug",
+      deleteBranch: false,
+      help: false,
+    });
+  });
+
+  it("accepts --slug as an alias for the positional", () => {
+    expect(parseArgs(["--slug", "s"])).toEqual({
+      slug: "s",
+      deleteBranch: false,
+      help: false,
+    });
+  });
+
+  it("rejects combining a positional slug with --slug", () => {
+    expect(parseArgs(["s", "--slug", "t"])).toEqual({
+      error: "cannot combine positional <slug> with --slug",
+    });
+  });
+
+  it("rejects --slug with a missing value", () => {
+    expect(parseArgs(["--slug"])).toEqual({
+      error: "--slug requires a value",
+    });
+  });
+
+  it("rejects the --slug=<value> equals form instead of silently discarding it", () => {
+    // This is the destructive-regression guard: a silently-discarded flag
+    // here would leave zero positionals, fall through to the ambient
+    // $TMUX_PANE slug, and remove the CALLER's own worktree.
+    expect(parseArgs(["--slug=s"])).toEqual({
+      error: "unknown flag: --slug=s",
+    });
+  });
+
+  it("rejects an unrecognised flag instead of silently discarding it", () => {
+    expect(parseArgs(["--typo"])).toEqual({ error: "unknown flag: --typo" });
+  });
+
+  it("parses --delete-branch", () => {
+    expect(parseArgs(["--delete-branch"])).toEqual({
+      deleteBranch: true,
+      help: false,
+    });
   });
 });
 
@@ -1146,5 +1231,53 @@ describe("flow-remove-worktree (integration: collision auto-suffix safety)", () 
     const list = mustGit(["worktree", "list", "--porcelain"], fx.repoDir);
     expect(list).toContain(siblingDir);
     expect(list).not.toContain(ownDir);
+  });
+});
+
+describe(resolveTargetInput, () => {
+  // This is the wiring the gh#726 bug actually lived in: main() parsed argv,
+  // silently dropped the flag it did not recognise, and then let resolveInput
+  // fall through to the ambient slug. Neither parseArgs nor resolveInput alone
+  // is red before the fix — only their composition is, which is why this seam
+  // is exported and asserted here.
+  const AMBIENT = () => "ambient-pipeline";
+
+  it("targets the named slug rather than the ambient one", () => {
+    expect(resolveTargetInput(["--slug", "named-pipeline"], AMBIENT)).toEqual({
+      input: "named-pipeline",
+      deleteBranch: false,
+      help: false,
+    });
+  });
+
+  it("falls back to the ambient slug when none is given (supervisor path)", () => {
+    expect(resolveTargetInput([], AMBIENT)).toEqual({
+      input: "ambient-pipeline",
+      deleteBranch: false,
+      help: false,
+    });
+  });
+
+  it("errors on the equals form instead of resolving the ambient slug", () => {
+    // The exact destructive shape: pre-fix this discarded the flag and
+    // returned the CALLER's own worktree.
+    expect(resolveTargetInput(["--slug=other-pipeline"], AMBIENT)).toEqual({
+      error: "unknown flag: --slug=other-pipeline",
+    });
+  });
+
+  it("errors on any unrecognised flag instead of resolving the ambient slug", () => {
+    expect(resolveTargetInput(["--typo"], AMBIENT)).toEqual({
+      error: "unknown flag: --typo",
+    });
+  });
+
+  it("carries --delete-branch through alongside the resolved slug", () => {
+    expect(
+      resolveTargetInput(
+        ["--slug", "named-pipeline", "--delete-branch"],
+        AMBIENT,
+      ),
+    ).toEqual({ input: "named-pipeline", deleteBranch: true, help: false });
   });
 });

@@ -31,10 +31,22 @@ export interface DeliverSeedOpts {
   /** Skip the settle poll (e.g. a caller that already settled the pane itself). */
   settleAttempts?: number;
   maxSendBytes?: number;
+  /** Test seam: pace the remainder in smaller chunks. Production passes neither. */
+  remainderChunkBytes?: number;
+  /** Test seam: settle time between consecutive remainder chunks. */
+  remainderSettleMs?: number;
 }
 
 /** tmux rejects a single literal `send-keys` above ~16 KB; stay well under. */
 export const MAX_SEND_KEYS_BYTES = 8192;
+
+/**
+ * The remainder is fire-and-trust (never capture-verified — see below), so it
+ * is chunked much smaller than MAX_SEND_KEYS_BYTES and paced with a settle
+ * between chunks rather than sent as one big literal blast.
+ */
+export const REMAINDER_CHUNK_BYTES = 128;
+export const REMAINDER_SETTLE_MS = 50;
 
 const SETTLE_ATTEMPTS = 10;
 const SETTLE_INTERVAL_MS = 100;
@@ -100,8 +112,48 @@ function settleGate(
 }
 
 /** Strips all whitespace so a wrapped/indented pane capture still matches. */
-function squash(s: string): string {
+export function squash(s: string): string {
   return s.replace(/\s+/g, "");
+}
+
+/**
+ * Squashed-character length of the delivery marker `deliveryMarker` derives.
+ * Clamped well under the shortest SINGLE-LINE launch seed's leading-line
+ * squash (58 chars, `epicRunSeed`). `terminalContinueSeed`'s leading line
+ * squashes to only 20, so its marker is the whole leading line — `slice`
+ * clamps, so the marker still never straddles into the remainder.
+ */
+export const DELIVERY_MARKER_SQUASHED_CHARS = 24;
+
+/**
+ * The delivery marker: the first `DELIVERY_MARKER_SQUASHED_CHARS` characters
+ * of the squashed LEADING LINE, never the whole seed. Clamped to the leading
+ * line because that is the only region `deliverSeed` types alone and
+ * capture-verifies (see the capture-verify above, in `deliverSeed`) — a
+ * marker extending past it would be unverifiable in-pane. Some seeds
+ * (`terminalContinueSeed`) squash their leading line to as few as 20
+ * characters; slicing the WHOLE seed instead would straddle into the
+ * never-verified remainder for those. Returns `""` for an empty or
+ * whitespace-only seed — `squash` collapses an all-whitespace leading line to
+ * `""` already, so no separate guard is needed.
+ */
+export function deliveryMarker(seed: string): string {
+  return squash(splitSeed(seed).leadingLine).slice(
+    0,
+    DELIVERY_MARKER_SQUASHED_CHARS,
+  );
+}
+
+/**
+ * Maps every C0 control char (including TAB, 0x09) and newline, plus DEL
+ * (0x7f), to a single space — for anything typed into a pane as a single
+ * line. Unlike `squash`, this does not collapse other whitespace: it only
+ * removes control characters that would otherwise be interpreted by the
+ * terminal (e.g. an in-pane TAB triggering shell completion) or split the
+ * seed across lines.
+ */
+export function sanitizeSeedLine(s: string): string {
+  return s.replace(/[\x00-\x1f\x7f]/g, " ");
 }
 
 /**
@@ -152,12 +204,24 @@ export function deliverSeed(
     };
   }
 
-  // Remainder: fire-and-trust. Do NOT capture-and-verify here — a long paste
-  // collapses into chips, so the marker is unmatchable once the body is present.
+  // Remainder: paced, not capture-verified. A long paste collapses into chips
+  // once the body is present, so the marker is unmatchable in-pane — there is
+  // no in-band way to confirm the remainder landed intact here. Chunk it small
+  // and settle between chunks (rather than one big literal blast) to reduce
+  // the odds of tmux/claude dropping bytes under load; integrity itself is
+  // checked out of band, after the fact, by flow-seed-ingested-hook comparing
+  // the UserPromptSubmit payload against the recorded seed.
   if (remainder.length > 0) {
-    for (const chunk of chunkByBytes(remainder, maxSendBytes)) {
-      const r = seams.send(chunk, true);
+    const remainderChunkBytes = Math.min(
+      opts.remainderChunkBytes ?? REMAINDER_CHUNK_BYTES,
+      maxSendBytes,
+    );
+    const remainderSettleMs = opts.remainderSettleMs ?? REMAINDER_SETTLE_MS;
+    const chunks = chunkByBytes(remainder, remainderChunkBytes);
+    for (let i = 0; i < chunks.length; i++) {
+      const r = seams.send(chunks[i], true);
       if (!r.ok) return { delivered: false, stderr: r.stderr };
+      if (i < chunks.length - 1) seams.sleep(remainderSettleMs);
     }
   }
 

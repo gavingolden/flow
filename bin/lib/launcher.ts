@@ -97,7 +97,7 @@ async function runForeground(
       if (
         preSpawnState != null &&
         preSpawnState.phase === "starting" &&
-        preSpawnState.seedIngestedAt == null
+        preSpawnState.seedIngest == null
       ) {
         deleteState(req.slug, req.stateDir);
       }
@@ -140,7 +140,7 @@ async function runForeground(
       if (
         preSpawnState != null &&
         preSpawnState.phase === "starting" &&
-        preSpawnState.seedIngestedAt == null
+        preSpawnState.seedIngest == null
       ) {
         deleteState(req.slug, req.stateDir);
       }
@@ -166,15 +166,18 @@ async function runForeground(
 
   const exitCode = await child.exited;
 
-  // Delete-on-fast-fail: an exit that never got past `starting` and never
-  // stamped the seed-ingested marker is a dead-on-arrival launch — leave no
-  // orphaned state file behind (mirrors the tmux path's no-orphan ordering).
+  // Delete-on-fast-fail: an exit that never got past `starting` and carries NO
+  // seedIngest record at all is a dead-on-arrival launch — leave no orphaned
+  // state file behind (mirrors the tmux path's no-orphan ordering). The rule is
+  // "any record present => not an orphan", never "verified": `feature.ts`'s
+  // makeBaseState("plain") records no seed, so a plain launch is at best
+  // `not-applicable` and must not be mislabeled as a verified pass.
   const after = readState(req.slug, req.stateDir);
   if (
     verb === "create" &&
     after != null &&
     after.phase === "starting" &&
-    after.seedIngestedAt == null
+    after.seedIngest == null
   ) {
     deleteState(req.slug, req.stateDir);
     return { status: "failed", exitCode, stderr: "" };

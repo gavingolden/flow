@@ -4,7 +4,14 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as livenessModule from "./liveness";
 import { reapableStartingOrphans, reapStartingOrphans } from "./reap-orphans";
-import { writeState, statePath, type PipelineState } from "./state";
+import {
+  readState,
+  requestFilePath,
+  statePath,
+  writeRequestFile,
+  writeState,
+  type PipelineState,
+} from "./state";
 import type { TmuxWindow } from "./tmux";
 
 /**
@@ -206,5 +213,86 @@ describe(reapStartingOrphans, () => {
     expect(reaped).toEqual(["stale-start"]);
     expect(fs.existsSync(statePath("stale-start", stateDir))).toBe(false);
     expect(fs.existsSync(statePath("keep", stateDir))).toBe(true);
+  });
+});
+
+describe("corrupt seedIngest skip", () => {
+  // A `corrupt` seedIngest record means the surviving request file is
+  // exactly what the corruption failure message tells the operator to read;
+  // reaping it ~60s later would destroy that recovery artifact.
+  let stateDir!: string;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-reap-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  const corrupted = () =>
+    state({
+      slug: "corrupted",
+      seedIngest: {
+        at: new Date(NOW - 2 * GRACE_MS).toISOString(),
+        outcome: "corrupt",
+        expectedBytes: 668,
+        submittedBytes: 677,
+      },
+    });
+
+  it("reapableStartingOrphans skips a starting slug with a corrupt seedIngest record", () => {
+    expect(reapableStartingOrphans([corrupted()], [], NOW, GRACE_MS)).toEqual(
+      [],
+    );
+  });
+
+  it("reapStartingOrphans leaves the corrupted slug's state and request files on disk", () => {
+    writeState(corrupted(), stateDir);
+    writeRequestFile("corrupted", "Add CSV export.", stateDir);
+
+    const reaped = reapStartingOrphans(
+      [readState("corrupted", stateDir)!],
+      [],
+      NOW,
+      GRACE_MS,
+      stateDir,
+    );
+
+    expect(reaped).toEqual([]);
+    expect(readState("corrupted", stateDir)).not.toBeNull();
+    expect(fs.existsSync(requestFilePath("corrupted", stateDir))).toBe(true);
+  });
+
+  it("reapableStartingOrphans still reaps a starting slug recorded `unverified`", () => {
+    // Only `corrupt` names a recovery artifact. `unverified` means the check
+    // could not run — delivery may well have been fine — so it must not pin a
+    // dead orphan on disk forever.
+    const unverified = state({
+      slug: "unverified-orphan",
+      seedIngest: {
+        at: new Date(NOW - 2 * GRACE_MS).toISOString(),
+        outcome: "unverified",
+        reason: "stdin-timeout",
+      },
+    });
+    expect(reapableStartingOrphans([unverified], [], NOW, GRACE_MS)).toEqual([
+      "unverified-orphan",
+    ]);
+  });
+
+  it("reapStartingOrphans still reaps a starting slug with no corrupt record", () => {
+    writeState(state({ slug: "plain-orphan" }), stateDir);
+
+    const reaped = reapStartingOrphans(
+      [readState("plain-orphan", stateDir)!],
+      [],
+      NOW,
+      GRACE_MS,
+      stateDir,
+    );
+
+    expect(reaped).toEqual(["plain-orphan"]);
+    expect(readState("plain-orphan", stateDir)).toBeNull();
   });
 });

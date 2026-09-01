@@ -60,6 +60,44 @@ export async function withFileLock<T>(
 }
 
 /**
+ * Synchronous sibling of `withFileLock`, for callers whose entry point is
+ * itself synchronous (a CLI `main()` returning `number`, a plain-object
+ * return) and cannot afford to force `async` through every caller for one
+ * lock. Reuses the SAME primitives `withFileLock`/`withTestSemaphore`
+ * already share (`tryAcquire` / `release` / `reclaimIfStale` / `sleepSync`),
+ * and matches `withFileLock`'s throw-on-deadline contract exactly —
+ * `LockTimeoutError` on timeout, never a silent unthrottled run (that is
+ * `withTestSemaphore`'s distinct, opt-in behaviour).
+ */
+export function withFileLockSync<T>(
+  lockPath: string,
+  fn: () => T,
+  opts: LockOptions = {},
+): T {
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  const pollMs = opts.pollMs ?? 100;
+  const start = Date.now();
+
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+
+  while (true) {
+    const acquired = tryAcquire(lockPath);
+    if (acquired) {
+      try {
+        return fn();
+      } finally {
+        release(lockPath);
+      }
+    }
+    if (reclaimIfStale(lockPath)) continue;
+    if (Date.now() - start >= timeoutMs) {
+      throw new LockTimeoutError(lockPath, timeoutMs);
+    }
+    sleepSync(pollMs);
+  }
+}
+
+/**
  * Counting semaphore over K slot files in `dir`, built on the same
  * stale-PID-safe primitives as `withFileLock` (tryAcquire / release /
  * reclaimIfStale). Each slot is an independent lock file

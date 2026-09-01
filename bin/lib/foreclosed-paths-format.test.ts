@@ -1,13 +1,34 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   collectForeclosedEntries,
   formatMarkdown,
   formatPlainText,
+  formatPlainTextEntries,
   isEmpty,
+  isTotalLensDrop,
   summarizeEntries,
   FORECLOSED_HEADING,
+  MARKDOWN_BULLET_CHAR_CAP,
 } from "./foreclosed-paths-format";
 import { upsertPrBodySection } from "./pr-body-upsert";
+
+function withTmpDir(
+  files: Record<string, unknown>,
+  fn: (dirPath: string) => void,
+): void {
+  const dir = mkdtempSync(path.join(tmpdir(), "foreclosed-paths-fmt-test-"));
+  for (const [name, contents] of Object.entries(files)) {
+    writeFileSync(path.join(dir, name), JSON.stringify(contents), "utf8");
+  }
+  try {
+    fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 const fixApplier = JSON.stringify({
   commits: [],
@@ -44,6 +65,36 @@ const consolidator = JSON.stringify({
   ],
   anti_patterns_found: ["duplicated validation across three call sites"],
   summary: "s",
+});
+
+// Same consolidator artifact, PLUS the three optional lens pass-through keys
+// populated. Used to prove the lens source renders/orders/counts correctly
+// without disturbing every other fixture in this file (which stays on the
+// lens-absent `consolidator` fixture above as the regression guard).
+const consolidatorWithLens = JSON.stringify({
+  consolidated_findings: [],
+  dropped_by_validation: [],
+  rejected_alternatives: [
+    "considered collapsing two lenses; kept them separate",
+  ],
+  anti_patterns_found: ["duplicated validation across three call sites"],
+  summary: "s",
+  lens_rejected_alternatives: [
+    {
+      considered_approach: "validate inline at each call site",
+      why_rejected: "centralizing keeps the rule in one place",
+      lens: "security",
+    },
+  ],
+  lens_anti_patterns_found: [
+    {
+      location: "src/lib/cache.ts:88",
+      pattern: "manual TTL bookkeeping duplicated across call sites",
+      recommendation: "route through the shared cache helper",
+      lens: "bug-detection",
+    },
+  ],
+  lens_negatives_missing: ["performance", "gemini"],
 });
 
 // Valid commits/deferred/rejected_alternatives, but one anti_patterns_found
@@ -147,7 +198,7 @@ describe("collectForeclosedEntries — genuinely-malformed consolidator still de
 });
 
 describe("collectForeclosedEntries — shared core", () => {
-  it("flattens all four arrays in a stable order", () => {
+  it("flattens fix-applier and consolidator arrays in a stable order when no lens keys are present (regression guard)", () => {
     const entries = collectForeclosedEntries({
       fixApplierRaw: fixApplier,
       consolidatorRaw: consolidator,
@@ -156,6 +207,23 @@ describe("collectForeclosedEntries — shared core", () => {
       ["fix-applier", "rejected-alternative"],
       ["fix-applier", "anti-pattern"],
       ["fix-applier", "anti-pattern"],
+      ["consolidator", "rejected-alternative"],
+      ["consolidator", "anti-pattern"],
+    ]);
+  });
+
+  it("flattens fix-applier, LENS, and consolidator arrays in a stable order", () => {
+    const entries = collectForeclosedEntries({
+      fixApplierRaw: fixApplier,
+      consolidatorRaw: consolidatorWithLens,
+    });
+    expect(entries.map((e) => [e.source, e.category])).toEqual([
+      ["fix-applier", "rejected-alternative"],
+      ["fix-applier", "anti-pattern"],
+      ["fix-applier", "anti-pattern"],
+      ["lens", "rejected-alternative"],
+      ["lens", "anti-pattern"],
+      ["lens", "anti-pattern"], // the lens-missing marker
       ["consolidator", "rejected-alternative"],
       ["consolidator", "anti-pattern"],
     ]);
@@ -192,6 +260,21 @@ describe("summarizeEntries", () => {
     expect(summarizeEntries(entries)).toEqual({
       rejected: 1,
       antiPatterns: 2,
+      notes: 2,
+    });
+  });
+
+  it("counts lens rejected/anti-pattern entries into rejected/antiPatterns, excluding the lens-missing marker", () => {
+    const entries = collectForeclosedEntries({
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorWithLens,
+    });
+    // 1 lens rejected-alternative + 1 lens anti-pattern (non-raw, so counted
+    // directly); the two consolidator string[] entries count as notes; the
+    // lens-missing marker is excluded from every count.
+    expect(summarizeEntries(entries)).toEqual({
+      rejected: 1,
+      antiPatterns: 1,
       notes: 2,
     });
   });
@@ -259,6 +342,37 @@ describe("formatMarkdown <details> wrapper", () => {
     expect(bullets.join("\n")).toContain("(1 unreadable)");
     expect(pt.join("\n")).toContain("(1 unreadable)");
   });
+
+  it("caps the markdown surface at MARKDOWN_BULLET_CHAR_CAP with a bullet-boundary truncation marker; plain-text stays uncapped", () => {
+    const manyEntries = Array.from({ length: 400 }, (_, i) => ({
+      considered_approach: `approach number ${i} `.repeat(20),
+      why_rejected: `rejected reason ${i} `.repeat(20),
+      lens: "security",
+    }));
+    const injected = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+      lens_rejected_alternatives: manyEntries,
+    });
+    const inputs = { fixApplierRaw: "", consolidatorRaw: injected };
+    const md = formatMarkdown(inputs).join("\n");
+    const pt = formatPlainText(inputs).join("\n");
+    expect(md.length).toBeLessThan(MARKDOWN_BULLET_CHAR_CAP + 2000);
+    expect(md).toContain("truncated (PR-body size cap)");
+    // The truncation marker is always its own top-level `- ` bullet, never
+    // appended mid-entry after an indented "why:" continuation line.
+    const lines = md.split("\n");
+    const markerLine = lines.findIndex((l) =>
+      l.includes("truncated (PR-body size cap)"),
+    );
+    expect(lines[markerLine]!.startsWith("- ")).toBe(true);
+    // The uncapped terminal surface keeps every entry.
+    expect(pt).toContain("approach number 399");
+    expect(pt.length).toBeGreaterThan(md.length);
+  });
 });
 
 describe("both modes share one core", () => {
@@ -314,6 +428,36 @@ describe("both modes share one core", () => {
       ["consolidator", "anti-pattern", 0],
     ]);
   });
+
+  it("markdown and plaintext cover the identical entry set + order INCLUDING lens entries", () => {
+    const inputs = {
+      fixApplierRaw: fixApplier,
+      consolidatorRaw: consolidatorWithLens,
+    };
+    const entries = collectForeclosedEntries(inputs);
+    const md = formatMarkdown(inputs);
+    const pt = formatPlainText(inputs);
+    const lensConsidered = "validate inline at each call site";
+    const missingMarker = "lenses did not populate negative findings";
+    const lastConsolidator = "duplicated validation across three call sites";
+    for (const surface of [md.join("\n"), pt.join("\n")]) {
+      expect(surface).toContain(lensConsidered);
+      expect(surface).toContain(missingMarker);
+      expect(surface).toContain(lastConsolidator);
+    }
+    // Ordering: lens content precedes the missing-lenses marker, which
+    // precedes consolidator content, in BOTH surfaces.
+    for (const surface of [md, pt]) {
+      const lensIdx = surface.findIndex((l) => l.includes(lensConsidered));
+      const missingIdx = surface.findIndex((l) => l.includes(missingMarker));
+      const consolidatorIdx = surface.findIndex((l) =>
+        l.includes(lastConsolidator),
+      );
+      expect(lensIdx).toBeLessThan(missingIdx);
+      expect(missingIdx).toBeLessThan(consolidatorIdx);
+    }
+    expect(entries.length).toBeGreaterThan(0);
+  });
 });
 
 describe("full prose present", () => {
@@ -341,15 +485,77 @@ describe("full prose present", () => {
     expect(md).toContain("(new)");
   });
 
-  it("renders consolidator string[] entries verbatim", () => {
+  it("renders consolidator string[] entries prefixed with 'consolidation:'", () => {
     const md = formatMarkdown({
       fixApplierRaw: "",
       consolidatorRaw: consolidator,
     }).join("\n");
     expect(md).toContain(
-      "considered collapsing two lenses; kept them separate",
+      "- consolidation: considered collapsing two lenses; kept them separate",
     );
-    expect(md).toContain("duplicated validation across three call sites");
+    expect(md).toContain(
+      "- consolidation: duplicated validation across three call sites",
+    );
+    const pt = formatPlainText({
+      fixApplierRaw: "",
+      consolidatorRaw: consolidator,
+    }).join("\n");
+    expect(pt).toContain(
+      "consolidation: considered collapsing two lenses; kept them separate",
+    );
+    expect(pt).toContain(
+      "consolidation: duplicated validation across three call sites",
+    );
+  });
+
+  it("renders lens rejected/anti-pattern entries with lens: attribution in both modes", () => {
+    const inputs = { fixApplierRaw: "", consolidatorRaw: consolidatorWithLens };
+    const md = formatMarkdown(inputs).join("\n");
+    const pt = formatPlainText(inputs).join("\n");
+    expect(md).toContain("**rejected (lens: security):**");
+    expect(md).toContain("**anti-pattern (lens: bug-detection):**");
+    expect(pt).toContain("rejected (lens: security):");
+    expect(pt).toContain("anti-pattern (lens: bug-detection):");
+    for (const surface of [md, pt]) {
+      expect(surface).toContain("validate inline at each call site");
+      expect(surface).toContain("centralizing keeps the rule in one place");
+      expect(surface).toContain(
+        "manual TTL bookkeeping duplicated across call sites",
+      );
+      expect(surface).toContain("route through the shared cache helper");
+    }
+  });
+
+  it("renders the 'lenses did not populate negative findings' line from lens_negatives_missing[], excluded from summarizeEntries counts", () => {
+    const inputs = { fixApplierRaw: "", consolidatorRaw: consolidatorWithLens };
+    const md = formatMarkdown(inputs).join("\n");
+    const pt = formatPlainText(inputs).join("\n");
+    expect(md).toContain(
+      "- lenses did not populate negative findings: performance, gemini",
+    );
+    expect(pt).toContain(
+      "lenses did not populate negative findings: performance, gemini",
+    );
+  });
+
+  it("renders exactly as today when the consolidator artifact has the three lens keys ABSENT (optional-keys regression guard)", () => {
+    const withLens = formatMarkdown({
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorWithLens,
+    }).join("\n");
+    const withoutLens = formatMarkdown({
+      fixApplierRaw: "",
+      consolidatorRaw: consolidator,
+    }).join("\n");
+    // The lens-absent fixture renders none of the lens-only content.
+    expect(withoutLens).not.toContain("lens:");
+    expect(withoutLens).not.toContain(
+      "lenses did not populate negative findings",
+    );
+    // Sanity: the lens-present fixture DOES render that content (proves the
+    // assertion above is discriminating, not vacuous).
+    expect(withLens).toContain("lens: security");
+    expect(withLens).toContain("lenses did not populate negative findings");
   });
 });
 
@@ -420,6 +626,69 @@ describe("markdown safety", () => {
     expect(joined).toContain("marker in why_rejected");
     expect(joined).toContain("heading in pattern");
     expect(joined).toContain("heading in recommendation");
+  });
+
+  it("a lens prose field containing '## Heading' does not emit a bare heading line in markdown; plain text carries the content unneutralized", () => {
+    const injected = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+      lens_rejected_alternatives: [
+        {
+          considered_approach: "leading\n## heading in considered_approach",
+          why_rejected: "embedded ## marker in why_rejected",
+          lens: "security",
+        },
+      ],
+      lens_anti_patterns_found: [
+        {
+          location: "src/x.ts:1",
+          pattern: "trailing\n## heading in pattern",
+          recommendation: "## heading in recommendation",
+          lens: "bug-detection",
+        },
+      ],
+    });
+    const md = formatMarkdown({ fixApplierRaw: "", consolidatorRaw: injected });
+    expect(bareHeadingLines(md)).toEqual([FORECLOSED_HEADING]);
+    const joined = md.join("\n");
+    expect(joined).toContain("heading in considered_approach");
+    expect(joined).toContain("marker in why_rejected");
+    expect(joined).toContain("heading in pattern");
+    expect(joined).toContain("heading in recommendation");
+    // Plain text has no section-boundary concern, so lens prose is not routed
+    // through neutralizeHeading there — same asymmetry as the fix-applier
+    // case, which this file has never exercised through formatPlainText.
+    const pt = formatPlainText({
+      fixApplierRaw: "",
+      consolidatorRaw: injected,
+    }).join("\n");
+    expect(pt).toContain("## heading in considered_approach");
+  });
+
+  it("neutralizes an embedded heading in a lens tag and in missing_lenses so neither breaks the markdown splice", () => {
+    const injected = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+      lens_rejected_alternatives: [
+        {
+          considered_approach: "a",
+          why_rejected: "b",
+          lens: "security\n## heading in lens",
+        },
+      ],
+      lens_negatives_missing: ["bug-detection\n## heading in missing_lenses"],
+    });
+    const md = formatMarkdown({ fixApplierRaw: "", consolidatorRaw: injected });
+    expect(bareHeadingLines(md)).toEqual([FORECLOSED_HEADING]);
+    const joined = md.join("\n");
+    expect(joined).toContain("heading in lens");
+    expect(joined).toContain("heading in missing_lenses");
   });
 
   it("round-trips idempotently through upsertPrBodySection for embedded-heading payloads", () => {
@@ -513,5 +782,257 @@ describe("degraded artifacts", () => {
       expect(joined).not.toContain("anti-pattern");
       expect(joined).not.toContain("rejected:");
     }
+  });
+});
+
+describe("isTotalLensDrop", () => {
+  it("is false with no missing_lenses marker at all", () => {
+    expect(
+      isTotalLensDrop([
+        { source: "fix-applier", category: "rejected-alternative" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("is true when a missing_lenses marker exists and no lens entry has content", () => {
+    expect(
+      isTotalLensDrop([
+        {
+          source: "lens",
+          category: "anti-pattern",
+          missing_lenses: ["security", "gemini"],
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("is false when a populated rejected_alternative lens entry also exists", () => {
+    expect(
+      isTotalLensDrop([
+        {
+          source: "lens",
+          category: "anti-pattern",
+          missing_lenses: ["security"],
+        },
+        {
+          source: "lens",
+          category: "rejected-alternative",
+          considered_approach: "a",
+          why_rejected: "b",
+          lens: "bug-detection",
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("is false when only rawEntry bullets exist (a raw bullet is NOT a total drop)", () => {
+    expect(
+      isTotalLensDrop([
+        {
+          source: "lens",
+          category: "anti-pattern",
+          missing_lenses: ["security"],
+        },
+        {
+          source: "lens",
+          category: "rejected-alternative",
+          lens: "bug-detection",
+          rawEntry: '{"shape":"x"}',
+        },
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe("total-lens-drop warning", () => {
+  const consolidatorNoLensKeys = JSON.stringify({
+    consolidated_findings: [],
+    dropped_by_validation: [],
+    rejected_alternatives: [],
+    anti_patterns_found: [],
+    summary: "s",
+    lens_negatives_missing: ["security", "bug-detection"],
+  });
+
+  it("renders the warning at an index before the <details> line, and formatPlainText carries the same text", () => {
+    const inputs = {
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorNoLensKeys,
+    };
+    const md = formatMarkdown(inputs);
+    const detailsIdx = md.findIndex((l) => l.startsWith("<details>"));
+    const warningIdx = md.findIndex((l) => l.startsWith("> [!WARNING]"));
+    expect(warningIdx).toBeGreaterThanOrEqual(0);
+    expect(detailsIdx).toBeGreaterThan(warningIdx);
+    expect(
+      md.some((l) =>
+        l.startsWith(
+          "> Lens negative findings: 0 entries reached this report;",
+        ),
+      ),
+    ).toBe(true);
+
+    const pt = formatPlainText(inputs);
+    expect(pt[0]).toBe("[!WARNING]");
+    expect(pt[1]).toContain(
+      "Lens negative findings: 0 entries reached this report;",
+    );
+  });
+
+  it("summarizeEntries does not count the warning (it is not a finding)", () => {
+    const entries = collectForeclosedEntries({
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorNoLensKeys,
+    });
+    const summary = summarizeEntries(entries);
+    expect(summary).toEqual({ rejected: 0, antiPatterns: 0, notes: 0 });
+  });
+
+  it("does not render when at least one lens entry has content", () => {
+    const inputs = {
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorWithLens,
+    };
+    const md = formatMarkdown(inputs);
+    expect(md.some((l) => l.includes("[!WARNING]"))).toBe(false);
+  });
+});
+
+describe("disk fallback (artifactDir)", () => {
+  const bugDetectionFile = {
+    findings: [],
+    rejected_alternatives: [
+      { considered_approach: "used a cache", why_rejected: "stale reads" },
+    ],
+    anti_patterns_found: [],
+  };
+
+  it("fires when the consolidator artifact carries NO lens_* keys and disk yields entries", () => {
+    withTmpDir(
+      { "agent-output-bug-detection.json": bugDetectionFile },
+      (dir) => {
+        const noLensKeysConsolidator = JSON.stringify({
+          consolidated_findings: [],
+          dropped_by_validation: [],
+          rejected_alternatives: [],
+          anti_patterns_found: [],
+          summary: "s",
+        });
+        const entries = collectForeclosedEntries({
+          fixApplierRaw: "",
+          consolidatorRaw: noLensKeysConsolidator,
+          artifactDir: dir,
+        });
+        const lensEntries = entries.filter((e) => e.source === "lens");
+        expect(lensEntries).toEqual([
+          {
+            source: "lens",
+            category: "rejected-alternative",
+            considered_approach: "used a cache",
+            why_rejected: "stale reads",
+            lens: "bug-detection",
+          },
+        ]);
+      },
+    );
+  });
+
+  it("fires when the consolidator artifact carries all three lens_* keys present but empty", () => {
+    withTmpDir(
+      { "agent-output-bug-detection.json": bugDetectionFile },
+      (dir) => {
+        const emptyLensKeysConsolidator = JSON.stringify({
+          consolidated_findings: [],
+          dropped_by_validation: [],
+          rejected_alternatives: [],
+          anti_patterns_found: [],
+          summary: "s",
+          lens_rejected_alternatives: [],
+          lens_anti_patterns_found: [],
+          lens_negatives_missing: [],
+        });
+        const entries = collectForeclosedEntries({
+          fixApplierRaw: "",
+          consolidatorRaw: emptyLensKeysConsolidator,
+          artifactDir: dir,
+        });
+        const lensEntries = entries.filter((e) => e.source === "lens");
+        expect(lensEntries).toEqual([
+          {
+            source: "lens",
+            category: "rejected-alternative",
+            considered_approach: "used a cache",
+            why_rejected: "stale reads",
+            lens: "bug-detection",
+          },
+        ]);
+      },
+    );
+  });
+
+  it("does NOT fire when the consolidator artifact already carries lens entries, even with artifactDir supplied", () => {
+    withTmpDir(
+      { "agent-output-bug-detection.json": bugDetectionFile },
+      (dir) => {
+        const entries = collectForeclosedEntries({
+          fixApplierRaw: "",
+          consolidatorRaw: consolidatorWithLens,
+          artifactDir: dir,
+        });
+        const lensRejected = entries.filter(
+          (e) => e.source === "lens" && e.category === "rejected-alternative",
+        );
+        // consolidatorWithLens's own single lens_rejected_alternatives entry
+        // (lens: "security"), NOT the disk fixture's bug-detection entry.
+        expect(lensRejected).toEqual([
+          {
+            source: "lens",
+            category: "rejected-alternative",
+            considered_approach: "validate inline at each call site",
+            why_rejected: "centralizing keeps the rule in one place",
+            lens: "security",
+          },
+        ]);
+      },
+    );
+  });
+
+  it("an entry matching neither nominal alias nor positional fallback renders as a (lens: <name>, raw) bullet, attributed and not silently dropped", () => {
+    withTmpDir(
+      {
+        "agent-output-security.json": {
+          findings: [],
+          rejected_alternatives: [{ unmappable_single_key: "x" }],
+          anti_patterns_found: [],
+        },
+      },
+      (dir) => {
+        const noLensKeysConsolidator = JSON.stringify({
+          consolidated_findings: [],
+          dropped_by_validation: [],
+          rejected_alternatives: [],
+          anti_patterns_found: [],
+          summary: "s",
+        });
+        const inputs = {
+          fixApplierRaw: "",
+          consolidatorRaw: noLensKeysConsolidator,
+          artifactDir: dir,
+        };
+        const entries = collectForeclosedEntries(inputs);
+        const rawEntry = entries.find((e) => e.rawEntry !== undefined);
+        expect(rawEntry).toBeDefined();
+        expect(rawEntry?.lens).toBe("security");
+        expect(rawEntry?.rawEntry).toContain("unmappable_single_key");
+
+        const md = formatMarkdown(inputs);
+        expect(md.some((l) => l.includes("(lens: security, raw):"))).toBe(true);
+        const pt = formatPlainText(inputs);
+        expect(pt.some((l) => l.includes("(lens: security, raw):"))).toBe(true);
+
+        const summary = summarizeEntries(entries);
+        expect(summary).toEqual({ rejected: 0, antiPatterns: 0, notes: 0 });
+      },
+    );
   });
 });

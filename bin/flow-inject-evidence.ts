@@ -88,7 +88,7 @@ export function trimOutput(raw: string): string {
  * the output is shorter than the surrounding fence and cannot break
  * out — `npm test` printing a markdown ``` block is a real case.
  */
-function pickFenceLength(output: string): number {
+export function pickFenceLength(output: string): number {
   let longest = 0;
   for (const match of output.matchAll(/`+/g)) {
     if (match[0].length > longest) longest = match[0].length;
