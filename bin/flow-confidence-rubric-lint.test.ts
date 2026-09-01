@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { WEIGHING_FACTORS } from "./flow-plan-lint";
 
 /**
  * Drift + prose lint for the flow-confidence-rubric feature: the canonical
@@ -77,8 +78,14 @@ describe("flow-confidence-rubric: prose pins", () => {
     ).toBe(true);
   });
 
-  it("discovery-instructions.md's mechanical-floor sentence counts '[confidence: low]' items", () => {
-    expect(read(canonicalPath).includes("[confidence: low]")).toBe(true);
+  it("discovery-instructions.md's mechanical-floor bullet counts '[confidence: low]' items", () => {
+    const doc = read(canonicalPath);
+    const start = doc.indexOf("**Mechanical floor.**");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = doc.indexOf("\n\n", start);
+    expect(doc.slice(start, end === -1 ? undefined : end)).toContain(
+      "[confidence: low]",
+    );
   });
 
   it("pause-output-contract.md defines Crucial-and-uncertain", () => {
@@ -89,7 +96,13 @@ describe("flow-confidence-rubric: prose pins", () => {
     ).toBe(true);
   });
 
-  it("interview-playbook.md's '## 3' fenced Recommended line carries a confidence tag", () => {
-    expect(read(consumerPath).includes("[confidence:")).toBe(true);
+  it("interview-playbook.md's '## 3' fenced Recommended line carries the tag pair", () => {
+    expect(read(consumerPath)).toMatch(
+      /^Recommended: <letter> — <one-line rationale> \[confidence: high\|medium\|low\] \[anchor: <ref>\]$/m,
+    );
+  });
+
+  it("the canonical rubric block contains the WEIGHING_FACTORS closed list joined by ' | '", () => {
+    expect(canonicalBlock.includes(WEIGHING_FACTORS.join(" | "))).toBe(true);
   });
 });

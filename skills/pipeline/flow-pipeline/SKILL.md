@@ -830,8 +830,10 @@ attention:** <high-stakes decisions read from `## Decision analysis` +
 `## Architecture Decisions`, each stated as before→after (from
 `## Behavioral contrast`) plus the option chosen and why, plus every
 crucial-and-uncertain item (`[confidence: low]` or `**Needs user
-input:**`) as `Q<n> (low): <question> — default: <recommended>`, taking
-the ceiling first and collapsing to `+N more uncertain — plan:
+input:**`) as `Q<n> (low): <question> — default: <recommended>` (a
+`**Needs user input:**` item has no `**Recommended:**` line by
+contract, so it renders `default: none (needs your input)` instead),
+taking the ceiling first and collapsing to `+N more uncertain — plan:
 <path>#Open-Questions` above two, plus one
 `Method: <user's> → <chosen> (survey: <verdict>)` line when
 `## Method selection` is present, plus one

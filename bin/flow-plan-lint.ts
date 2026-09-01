@@ -43,7 +43,7 @@ import {
 import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 const CONFIDENCE_RE = /\[confidence:\s*(high|medium|low)\]/g;
-const WEIGHING_FACTORS = [
+export const WEIGHING_FACTORS = [
   "convention",
   "footprint",
   "risk",
@@ -378,6 +378,52 @@ function checkMethodSelection(
 }
 
 /**
+ * Joins a sub-bullet's soft-wrapped continuation lines into one logical
+ * line: starting at `startIndex` within `text`, consume lines up to (but
+ * not including) the next line that starts a new sub-bullet (`/^\s*- /`)
+ * or the end of the text, and join them with single spaces. Markdown in
+ * this repo is routinely soft-wrapped (see `example-prd.md`'s
+ * `**Recommended:**` and `## Recommendation` verdict entries), so matching
+ * only the first physical line misses a trailing tag pair that lands on a
+ * later wrapped line.
+ */
+function joinLogicalLine(text: string, startIndex: number): string {
+  const rest = text.slice(startIndex);
+  // Match a NEW bullet line, i.e. one preceded by a newline — `^` under the
+  // `m` flag also matches index 0 of `rest` (the current bullet's own start),
+  // which would end the join before it begins.
+  const nextBulletMatch = rest.match(/\n\s*- /);
+  const end =
+    nextBulletMatch && nextBulletMatch.index !== undefined
+      ? nextBulletMatch.index
+      : rest.length;
+  return rest
+    .slice(0, end)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join(" ");
+}
+
+/**
+ * Same join as `joinLogicalLine`, but bounded by the next blank line
+ * (paragraph break) instead of the next sub-bullet — used for `Verdict:` /
+ * `## Recommendation` lines, which are prose paragraphs rather than
+ * sub-bullets.
+ */
+function joinLogicalLineToBlankLine(text: string, startIndex: number): string {
+  const rest = text.slice(startIndex);
+  const blankMatch = rest.match(/\n\s*\n/);
+  const end = blankMatch ? (blankMatch.index ?? rest.length) : rest.length;
+  return rest
+    .slice(0, end)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join(" ");
+}
+
+/**
  * Slices `## Open Questions` into its top-level `- [ ]` / `- [x]` entry
  * blocks (each block runs up to, but not including, the next top-level
  * `- ` bullet — indented sub-bullets like `  - **Stakes:**` stay inside).
@@ -436,6 +482,35 @@ function checkOpenQuestions(planText: string, misses: string[]): void {
 }
 
 /**
+ * Local containment guard mirroring the one `bin/flow-candidate-issues.ts`
+ * (lines 459-463) and `bin/flow-untracked.ts` (lines 149-153) already use
+ * before trusting `existsSync` on a resolved anchor path — an absolute
+ * path or a `../`-escaping relative path resolves outside `root` and must
+ * never be treated as a valid in-repo anchor.
+ */
+function anchorExistsInRepo(root: string, anchor: string): boolean {
+  if (path.isAbsolute(anchor)) return false;
+  const abs = path.resolve(root, anchor);
+  const rel = path.relative(root, abs);
+  if (rel === "" || rel.startsWith("..")) return false;
+  return existsSync(abs);
+}
+
+/**
+ * Fallback for a `high`/`adjacent:` anchor that `extractPathAnchors` can't
+ * see because it has no `.ext` (by design — `ANCHOR_RE` requires an
+ * extension so presence-only anchors like a `weighing:`/`inference` factor
+ * don't get existence-checked). Extensionless precedents (`bin/flow`,
+ * `Makefile`, `LICENSE`) and bare directories are still legitimate `high`
+ * anchors — take the leading token up to the first whitespace, ` — `, or a
+ * `:<line>` suffix, and let the caller's `anchorExistsInRepo` decide.
+ */
+function extensionlessAnchorPath(anchorContent: string): string | undefined {
+  const token = anchorContent.match(/^[^\s:]+/)?.[0];
+  return token && token.length > 0 ? token : undefined;
+}
+
+/**
  * Advisory confidence-marker check for `## Open Questions`: every unchecked
  * entry with a `**Recommended:**` line must carry exactly one
  * `[confidence: high|medium|low]` and one `[anchor: …]`, and the anchor's
@@ -449,11 +524,22 @@ function checkConfidenceMarkers(
 ): void {
   const blocks = extractOpenQuestionsBlocks(planText);
   if (blocks === null) return;
+  // Resolve the repo root once per lintPlan call — `resolveAnchorRepoRoot`
+  // shells out to `git rev-parse --show-toplevel` and the result cannot
+  // change between anchors in the same plan (loop-invariant across
+  // Open Questions entries).
+  let cachedRoot: string | undefined;
+  const repoRoot = () => (cachedRoot ??= resolveAnchorRepoRoot(planMdFile));
   for (const { checked, block } of blocks) {
     if (checked) continue;
     const recLineMatch = block.match(/^.*\*\*Recommended:\*\*.*$/m);
     if (!recLineMatch) continue;
-    const recLine = recLineMatch[0];
+    // Treat the Recommended sub-bullet as a logical line: markdown here is
+    // routinely soft-wrapped (example-prd.md:188-191 wraps the rationale
+    // over three lines with the tag pair alone on the last), so matching
+    // only the first physical line false-positives on a correctly-tagged
+    // entry.
+    const recLine = joinLogicalLine(block, recLineMatch.index ?? 0);
     const entryLine = block.split("\n", 1)[0].slice(0, 60);
 
     // The tag pair is only meaningful when it TERMINATES the Recommended
@@ -469,7 +555,10 @@ function checkConfidenceMarkers(
       continue;
     }
     const endTagMatch = recLine.match(
-      /\[confidence:\s*(high|medium|low)\]\s*\[anchor:\s*([^\]]+)\]\s*\.?\s*$/,
+      // Anchor content is captured greedily (`.+`, not `[^\]]+`) — the
+      // pattern is anchored to end-of-line, so it can safely capture up to
+      // the FINAL `]`, including one embedded in a `user: "…[x]…"` quote.
+      /\[confidence:\s*(high|medium|low)\]\s*\[anchor:\s*(.+)\]\s*\.?\s*$/,
     );
     if (!endTagMatch) {
       if (allConfMatches.length === 0) {
@@ -489,16 +578,25 @@ function checkConfidenceMarkers(
     if (level === "high") {
       if (/^user:\s*"/.test(anchorContent)) continue;
       const paths = extractPathAnchors(`[anchor: ${anchorContent}]`);
-      if (paths.length === 0) {
+      let candidate = paths[0];
+      if (candidate === undefined) {
+        const fallback = extensionlessAnchorPath(anchorContent);
+        if (
+          fallback !== undefined &&
+          anchorExistsInRepo(repoRoot(), fallback)
+        ) {
+          candidate = fallback;
+        }
+      }
+      if (candidate === undefined) {
         misses.push(
           `high-anchor-form: '## Open Questions' entry '${entryLine}' is 'high' but its anchor '${anchorContent}' is neither a file path nor a 'user: "..."' quote`,
         );
         continue;
       }
-      const root = resolveAnchorRepoRoot(planMdFile ?? process.cwd());
-      if (!existsSync(path.resolve(root, paths[0]))) {
+      if (!anchorExistsInRepo(repoRoot(), candidate)) {
         misses.push(
-          `anchor-missing: '## Open Questions' entry '${entryLine}' is 'high' but its anchor path '${paths[0]}' does not exist under '${root}'`,
+          `anchor-missing: '## Open Questions' entry '${entryLine}' is 'high' but its anchor path '${candidate}' does not exist under '${repoRoot()}'`,
         );
       }
       continue;
@@ -508,16 +606,25 @@ function checkConfidenceMarkers(
       if (anchorContent.startsWith("adjacent: ")) {
         const remainder = anchorContent.slice("adjacent: ".length).trim();
         const paths = extractPathAnchors(`[anchor: ${remainder}]`);
-        if (paths.length === 0) {
+        let candidate = paths[0];
+        if (candidate === undefined) {
+          const fallback = extensionlessAnchorPath(remainder);
+          if (
+            fallback !== undefined &&
+            anchorExistsInRepo(repoRoot(), fallback)
+          ) {
+            candidate = fallback;
+          }
+        }
+        if (candidate === undefined) {
           misses.push(
             `medium-anchor-form: '## Open Questions' entry '${entryLine}' is 'medium' with an 'adjacent:' anchor that has no parseable file path`,
           );
           continue;
         }
-        const root = resolveAnchorRepoRoot(planMdFile ?? process.cwd());
-        if (!existsSync(path.resolve(root, paths[0]))) {
+        if (!anchorExistsInRepo(repoRoot(), candidate)) {
           misses.push(
-            `anchor-missing: '## Open Questions' entry '${entryLine}' is 'medium' but its 'adjacent:' anchor path '${paths[0]}' does not exist under '${root}'`,
+            `anchor-missing: '## Open Questions' entry '${entryLine}' is 'medium' but its 'adjacent:' anchor path '${candidate}' does not exist under '${repoRoot()}'`,
           );
         }
         continue;
@@ -589,7 +696,11 @@ function checkVerdictConfidence(planText: string, misses: string[]): void {
     const lineRe = /^.*Verdict:.*$/gm;
     let lm: RegExpExecArray | null;
     while ((lm = lineRe.exec(body)) !== null) {
-      if (!new RegExp(CONFIDENCE_RE).test(lm[0])) {
+      // Join to the next blank line (paragraph) before testing — a wrapped
+      // Verdict line can carry its tag pair on a later physical line (same
+      // rationale as the Recommended-line join above).
+      const logical = joinLogicalLineToBlankLine(body, lm.index ?? 0);
+      if (!new RegExp(CONFIDENCE_RE).test(logical)) {
         misses.push(
           `verdict-confidence-missing: '## Decision analysis' verdict line '${lm[0].slice(0, 60)}' has no '[confidence: …]' tag`,
         );
@@ -606,10 +717,11 @@ function checkVerdictConfidence(planText: string, misses: string[]): void {
     const verdictLineMatch = body.match(
       /^.*\*\*(Proceed|Reconsider scope|Defer|Reject — do nothing)\*\*.*$/m,
     );
-    if (
-      verdictLineMatch &&
-      !new RegExp(CONFIDENCE_RE).test(verdictLineMatch[0])
-    ) {
+    const verdictLogical =
+      verdictLineMatch !== null
+        ? joinLogicalLineToBlankLine(body, verdictLineMatch.index ?? 0)
+        : "";
+    if (verdictLineMatch && !new RegExp(CONFIDENCE_RE).test(verdictLogical)) {
       misses.push(
         `verdict-confidence-missing: '## Recommendation' verdict line '${verdictLineMatch[0].slice(0, 60)}' has no '[confidence: …]' tag`,
       );

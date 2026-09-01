@@ -147,7 +147,7 @@ Recommended: <letter> — <one-line rationale> [confidence: high|medium|low] [an
   concrete default to fall back to.
 - The body's "what the answer decides and why it matters" line opens
   with the lens tag `(system)` / `(user)` / `(both)`; chat renders show
-  only `[confidence: <level>]` on the `Recommended:` line — the anchor
+  only `(high)` / `(medium)` / `(low)` on the `Recommended:` line — the anchor
   stays in the on-disk artifact.
 - **Every question renders under a category heading.** The frontier is
   grouped and rendered under whichever of these five named headings
@@ -292,7 +292,7 @@ Q<n>. <Title>
 <body>
   a) <option A>
   b) <option B>
-Recommended: <letter> — <rationale> [confidence: high|medium|low]
+Recommended: <letter> — <rationale> (high|medium|low)
 
 (repeat per category / question)
 
@@ -327,7 +327,7 @@ Q<n>. Adopt the plan's chosen method?
   a) adopt the plan's chosen method (recommended)
   b) keep my method
 Recommended: a — both judges independently converged away from the
-proposed method [confidence: high]
+proposed method (high)
 
 **Next action:** Reply `answer: <n>a` to adopt the plan's method,
 `<n>b` to keep yours, or freeform; `proceed` accepts the

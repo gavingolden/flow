@@ -1,9 +1,19 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { lintPlan, parseArgs, run } from "./flow-plan-lint";
+
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
+const EXAMPLE_PRD_PATH = path.join(
+  REPO_ROOT,
+  "skills/pipeline/flow-product-planning/references/example-prd.md",
+);
 
 const CONFORMING_PLAN = `# PRD
 
@@ -701,6 +711,65 @@ describe("lintPlan — confidence + stakes markers", () => {
     expect(misses.some((m) => m.startsWith("confidence-missing"))).toBe(true);
   });
 
+  it("does not false-positive when a soft-wrapped Recommended entry carries the tag pair on its last line (example-prd.md's shape)", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        "- [ ] Should share links have an expiration date? — redirect adds a nullable\n" +
+          "      `expires_at` column + an expiry check to Task 1's RPC, no other task changes\n" +
+          "  - **Stakes:** system — an unrevocable, non-expiring link is a standing data-exposure\n" +
+          "    surface if the default is wrong\n" +
+          "  - **Recommended:** no expiration for v1, but the schema accommodates adding\n" +
+          "    `expires_at` later — the existing `is_active` toggle (see Architecture Decisions)\n" +
+          "    already gives O(1) revocation, so an expiry column is additive, not a redesign\n" +
+          '    [confidence: high] [anchor: user: "see architecture decisions"]',
+      ),
+    );
+    expect(
+      misses.some(
+        (m) =>
+          m.startsWith("confidence-missing") ||
+          m.startsWith("anchor-missing-tag"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not false-positive when a soft-wrapped '## Recommendation' verdict carries the tag pair on a later line (example-prd.md's shape)", () => {
+    const plan =
+      "## Recommendation\n\n" +
+      "**Proceed** — clear user value with a self-contained, low-risk scope; the read-only viewer\n" +
+      "follows the existing domain-module and route patterns, and the open questions are deferrable\n" +
+      'to v1+. [confidence: medium] [anchor: user: "ok"]\n';
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.startsWith("verdict-confidence-missing"))).toBe(
+      false,
+    );
+  });
+
+  it("the shipped example-prd.md's '## Open Questions' and '## Recommendation' sections never trip the soft-wrap checks (drift pin)", () => {
+    const planText = readFileSync(EXAMPLE_PRD_PATH, "utf8");
+    const oqStart = planText.indexOf("## Open Questions");
+    const altStart = planText.indexOf("## Alternatives considered");
+    const recStart = planText.indexOf("## Recommendation");
+    const planRisksStart = planText.indexOf("## Plan risks");
+    expect(oqStart).toBeGreaterThanOrEqual(0);
+    expect(altStart).toBeGreaterThan(oqStart);
+    expect(recStart).toBeGreaterThan(altStart);
+    expect(planRisksStart).toBeGreaterThan(recStart);
+    const snippet =
+      planText.slice(oqStart, altStart) +
+      "\n" +
+      planText.slice(recStart, planRisksStart);
+    const { misses } = lintPlan(snippet, { planMdFile: EXAMPLE_PRD_PATH });
+    expect(
+      misses.filter(
+        (m) =>
+          m.startsWith("confidence-missing") ||
+          m.startsWith("anchor-missing-tag") ||
+          m.startsWith("verdict-confidence-missing"),
+      ),
+    ).toEqual([]);
+  });
+
   it("names a miss when the Recommended line has a confidence tag but no anchor tag", () => {
     const { misses } = lintPlan(
       oqPlan(
@@ -760,6 +829,49 @@ describe("lintPlan — confidence + stakes markers", () => {
           m.startsWith("anchor-missing") || m.startsWith("high-anchor-form"),
       ),
     ).toBe(false);
+  });
+
+  it("names high-anchor-form for a 'high' entry whose anchor is a weighing or inference form", () => {
+    for (const anchor of [
+      "weighing: risk — feels safe",
+      "inference — rises to medium if a precedent surfaces",
+    ]) {
+      const { misses } = lintPlan(
+        oqPlan(
+          `- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: high] [anchor: ${anchor}]`,
+        ),
+      );
+      expect(misses.some((m) => m.startsWith("high-anchor-form"))).toBe(true);
+    }
+  });
+
+  it("does not false-positive when the rationale mentions the tag syntax mid-line and ends with a real tag pair", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        '- [ ] Q?\n  - **Stakes:** system — d\n  - **Recommended:** yes — write it as `[confidence: <level>] [anchor: <ref>]` per the rubric. [confidence: high] [anchor: user: "ok"]',
+      ),
+    );
+    expect(
+      misses.some(
+        (m) =>
+          m.startsWith("confidence-missing") ||
+          m.startsWith("anchor-missing-tag"),
+      ),
+    ).toBe(false);
+  });
+
+  it("names confidence-missing when the Recommended line carries two confidence tags", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        '- [ ] Q?\n  - **Stakes:** system — d\n  - **Recommended:** yes [confidence: medium] — because. [confidence: high] [anchor: user: "ok"]',
+      ),
+    );
+    expect(
+      misses.some(
+        (m) =>
+          m.startsWith("confidence-missing") && m.includes("more than one"),
+      ),
+    ).toBe(true);
   });
 
   it("names medium-anchor-form for a 'medium' entry with a bare path", () => {
