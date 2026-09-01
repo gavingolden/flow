@@ -20,6 +20,12 @@
  * silently-passing eval run indistinguishable from "CI genuinely has no
  * checks yet".
  *
+ * `pr view --json a,b,c` with NO selector token (mirroring real `gh`, which
+ * resolves the current branch's PR) is also supported: the shim resolves
+ * `git rev-parse --abbrev-ref HEAD` in the shim's own `cwd` and treats that
+ * as the selector. This is the call flow-open-pr's `probePr` actually makes
+ * (`bin/flow-open-pr.ts`'s `gh(["pr", "view", "--json", "number,url"])`).
+ *
  * `pr diff --name-only` for Step 7's Copilot classifier is deliberately
  * NOT implemented as a general-purpose diff parser (plan.md Contract
  * adjustment #10 / cut list): the `s1-step7-ci-wait` scenario seeds
@@ -68,12 +74,46 @@ function findPr(prs: PrRecord[], selector: string): PrRecord | undefined {
   return prs.find((p) => p.headRefName === selector || p.branch === selector);
 }
 
+/**
+ * Resolves the current git branch, mirroring what real `gh pr view` (with
+ * no selector) resolves against. Returns `undefined` on a non-zero
+ * `git rev-parse` exit (not a git repo) or a detached HEAD (the literal
+ * string "HEAD") rather than treating either as a usable selector.
+ */
+function currentBranch(): string | undefined {
+  const result = require("node:child_process").spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  if (result.status !== 0) return undefined;
+  const branch = String(result.stdout).trim();
+  if (!branch || branch === "HEAD") return undefined;
+  return branch;
+}
+
+/**
+ * Scans `rest` (the argv after `pr view`) for the first token that is
+ * neither a `--flag` nor the value immediately following `--json`, so
+ * `pr view 7 --json number,url` and `pr view --json number,url 7` resolve
+ * identically regardless of flag order. Falls back to `currentBranch()`
+ * when no such token exists, matching real `gh`'s selector-less form.
+ */
+function resolveSelector(rest: string[]): string | undefined {
+  const jsonFlagIdx = rest.indexOf("--json");
+  for (let i = 0; i < rest.length; i++) {
+    if (i === jsonFlagIdx + 1) continue;
+    if (rest[i].startsWith("--")) continue;
+    return rest[i];
+  }
+  return currentBranch();
+}
+
 function main(): number {
   const argv = process.argv.slice(2);
   const [verb, sub, ...rest] = argv;
 
   if (verb === "pr" && sub === "view") {
-    const selector = rest[0];
+    const selector = resolveSelector(rest);
     const jsonFlagIdx = rest.indexOf("--json");
     if (selector === undefined || jsonFlagIdx === -1 || rest[jsonFlagIdx + 1] === undefined) {
       process.stderr.write(`flow-eval gh shim: unsupported: ${JSON.stringify(argv)}\n`);

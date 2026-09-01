@@ -1,7 +1,7 @@
 {
-  "id": "s1-step7-ci-wait",
-  "title": "Step 7 entry advances state.phase to ci-wait",
-  "provenance": "Synthetic fixture authored against bin/flow-ci-check.ts's advancePhase wiring (plan.md Task 2) and skills/pipeline/flow-pipeline/SKILL.md's Step 7 — the four phases (ci-wait/reviewing/gating/merging) this suite measures had no eval coverage before this PR (issue #679).",
+  "id": "s5-open-pr-implementing",
+  "title": "Step 5's PR-open tail advances state.phase to implementing",
+  "provenance": "Issue #694: the phase-write-fidelity suite covered Steps 7-10's five helper-side advancePhase writes but not Step 5's, the earliest and PHASE_EMITTERS.implementing-mapped one (bin/lib/phase-advance.ts's PHASE_EMITTERS.implementing: \"flow-open-pr\"). This scenario closes that gap the same way s1-s4 cover their steps.",
   "prompt": "prompt.md",
   "fixture": {
     "repo": "fixture",
@@ -9,15 +9,28 @@
     "shims": ["../../_shims/gh"]
   },
   "env": { "flowSlug": true },
-  "ghCalls": [["pr", "view", "1", "--json", "state,url,reviews,headRefOid"]],
+  "ghCalls": [["pr", "view", "--json", "number,url"]],
   "resultSchema": "result-schema.json",
   "graders": [
     {
-      "id": "state-phase-ci-wait",
+      "id": "state-phase-implementing",
       "kind": "json-file",
       "file": "$STATE",
       "path": "phase",
-      "equals": "ci-wait"
+      "equals": "implementing"
+    },
+    {
+      "id": "state-pr-recorded",
+      "kind": "json-file",
+      "file": "$STATE",
+      "path": "pr",
+      "equals": 7
+    },
+    {
+      "id": "no-manual-phase-write",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "flow-state-update[^\\n]*--phase"
     },
     {
       "id": "no-agent-fallback",

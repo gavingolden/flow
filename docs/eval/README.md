@@ -11,10 +11,11 @@ running four committed suites, split by what each measures:
   instead of a prose argument.
 - One **correctness suite** (`phase-write-fidelity`, issue #679) —
   whether the supervisor's end-state `state.phase` lands where the step
-  it ran says it should, at Steps 7-10. It measures whether the
-  supervisor _calls_ the value-returning helper that writes the phase;
-  the helper _writing_ correctly is proved separately, by
-  `bin/lib/phase-advance.test.ts` and each helper's own unit spec.
+  it ran says it should, at Step 5's PR-open tail (issue #694) and Steps
+  7-10. It measures whether the supervisor _calls_ the value-returning
+  helper that writes the phase; the helper _writing_ correctly is proved
+  separately, by `bin/lib/phase-advance.test.ts` and each helper's own
+  unit spec.
 
 `bin/flow-eval.ts` is never installed onto a user's PATH (see
 `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow
