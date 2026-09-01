@@ -26,7 +26,7 @@ Multi-Agent Review" step, up to six review agents — content-gated by
 signals (see `flow-pr-review` `references/review-scope.md`) — PLUS one
 diff-only intent-guess agent (skipped on a delta re-entry with a prior
 `intent-resolution.json`) are spawned in parallel, in the same fan-out
-message, via the Task tool; the wrapper re-fans out at most once per
+message, via the Task tool; the fan-out is re-fanned at most once per
 invocation when the Consolidator-Validator's `scope_verdict.widen`
 requests a widen to the full PR diff, inside this same exemption (no new
 Task-tool exemption; the count stays nine). Each spawned lens names

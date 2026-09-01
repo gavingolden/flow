@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
 import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
+import { ALWAYS_ON_LENSES, evaluateGates } from "./lib/review-lens-gates";
 import { CHECKPOINT_SITES } from "./flow-checkpoint";
 import { PHASE_EMITTERS } from "./lib/phase-advance";
 import { SURVEY_VERDICTS } from "./flow-step3-route";
@@ -9339,5 +9340,116 @@ describe("Lens negative-findings entry shape", () => {
         "shape would put a contract into a prompt that never emits those " +
         "keys.",
     ).toBe(false);
+  });
+});
+
+describe("review scope, lens gates, telemetry pins", () => {
+  const REVIEW_SCOPE_REF_PATH = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "flow-pr-review",
+    "references",
+    "review-scope.md",
+  );
+  const DOCS_CONFIGURATION_PATH = path.resolve(HERE, "..", "docs", "configuration.md");
+  const FLOW_PIPELINE_SUMMARY_PATH = path.resolve(HERE, "flow-pipeline-summary.ts");
+
+  const reviewScopeRefContent = fs.readFileSync(REVIEW_SCOPE_REF_PATH, "utf8");
+  const docsConfigurationContent = fs.readFileSync(DOCS_CONFIGURATION_PATH, "utf8");
+  const flowPipelineSummaryContent = fs.readFileSync(
+    FLOW_PIPELINE_SUMMARY_PATH,
+    "utf8",
+  );
+
+  it("flow-pr-review/SKILL.md Step 3 runs flow-review-scope and references review-scope.md which echoes NOTICE — lens-gated lines", () => {
+    expect(
+      prReviewContent.includes("flow-review-scope"),
+      "flow-pr-review/SKILL.md Step 3 must run the flow-review-scope helper — " +
+        "without it, delta scoping and lens gating are never invoked.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("references/review-scope.md"),
+      "flow-pr-review/SKILL.md must point at references/review-scope.md for " +
+        "the full scope/gate procedure (offloaded to stay under the line budget).",
+    ).toBe(true);
+    expect(
+      reviewScopeRefContent.includes("NOTICE — lens-gated:"),
+      "references/review-scope.md must document the 'NOTICE — lens-gated:' " +
+        "line format the wrapper echoes for every gated lens.",
+    ).toBe(true);
+  });
+
+  it("pr-review-last-sha is written from local HEAD at Step 13 and read against local HEAD by the Gatekeeper", () => {
+    // Extends the existing paired-contract lint (both files must reference
+    // the literal 'pr-review-last-sha') with the local-HEAD sourcing that
+    // closes the GitHub head-sync stall: neither site may fall back to
+    // `gh pr view` for the marker comparison.
+    expect(gatekeeperSpawnPromptContent.includes("pr-review-last-sha")).toBe(
+      true,
+    );
+    expect(prReviewContent.includes("pr-review-last-sha")).toBe(true);
+
+    const step13Idx = prReviewContent.indexOf(
+      "## 13. Register Local Follow-ups (when applicable)",
+    );
+    expect(
+      step13Idx,
+      "flow-pr-review/SKILL.md must have a '## 13. Register Local Follow-ups' " +
+        "heading to slice the marker-write block from.",
+    ).toBeGreaterThan(-1);
+    const step13Slice = prReviewContent.slice(step13Idx, step13Idx + 6000);
+    expect(
+      step13Slice.includes("rev-parse HEAD"),
+      "flow-pr-review/SKILL.md Step 13's pr-review-last-sha write must " +
+        "source HEAD_SHA from local `git rev-parse HEAD`, not `gh pr view` — " +
+        "the GitHub PR object can lag the tree by hours (known head-sync stall).",
+    ).toBe(true);
+    expect(
+      gatekeeperSpawnPromptContent.includes("rev-parse HEAD"),
+      "flow-pr-review/references/gatekeeper-spawn-prompt.md's no-new-commits " +
+        "rule must compare the marker against local `git rev-parse HEAD`.",
+    ).toBe(true);
+  });
+
+  it("review-lens-gates ALWAYS_ON_LENSES and gate keys are a subset of AGENT_LENS_MAP", () => {
+    const lensMapKeys = new Set(Object.keys(AGENT_LENS_MAP));
+    for (const lens of ALWAYS_ON_LENSES as string[]) {
+      expect(
+        lensMapKeys.has(lens),
+        `ALWAYS_ON_LENSES entry '${lens}' must be a member of AGENT_LENS_MAP's ` +
+          `key set — the gate module must never name a lens the agent table ` +
+          `doesn't know about.`,
+      ).toBe(true);
+    }
+    const gateKeys = Object.keys(evaluateGates([], { enabled: true }));
+    expect(new Set(gateKeys)).toEqual(lensMapKeys);
+  });
+
+  it("widen is bounded: review-scope.md names widen-cap and exemption-contracts.md names the single re-fan-out", () => {
+    expect(
+      reviewScopeRefContent.includes("widen-cap"),
+      "references/review-scope.md must document the 'widen-cap' NOTICE that " +
+        "fires when the consolidator asks to widen a second time in the same " +
+        "invocation.",
+    ).toBe(true);
+    expect(
+      exemptionContractsContent.includes("re-fanned at most once"),
+      "references/exemption-contracts.md's Multi-Agent Review section must " +
+        "name the single-widen bound so the exemption's fan-out stays capped.",
+    ).toBe(true);
+  });
+
+  it("report-template.md and flow-pipeline-summary both name review-telemetry.json", () => {
+    expect(reportTemplateContent.includes("review-telemetry.json")).toBe(true);
+    expect(flowPipelineSummaryContent.includes("review-telemetry.json")).toBe(
+      true,
+    );
+  });
+
+  it("docs/configuration.md documents review.lensGates and review.deltaScope", () => {
+    expect(docsConfigurationContent.includes("review.lensGates")).toBe(true);
+    expect(docsConfigurationContent.includes("review.deltaScope")).toBe(true);
   });
 });
