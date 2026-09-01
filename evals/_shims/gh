@@ -101,7 +101,7 @@ function currentBranch(): string | undefined {
 function resolveSelector(rest: string[]): string | undefined {
   const jsonFlagIdx = rest.indexOf("--json");
   for (let i = 0; i < rest.length; i++) {
-    if (i === jsonFlagIdx + 1) continue;
+    if (jsonFlagIdx !== -1 && i === jsonFlagIdx + 1) continue;
     if (rest[i].startsWith("--")) continue;
     return rest[i];
   }

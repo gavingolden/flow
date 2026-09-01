@@ -56,6 +56,28 @@ describe.skipIf(!bunOnPath)("flow-open-pr against the hermetic gh shim", () => {
       );
     }
 
+    // Derive the expected phase/pr from the scenario's own $STATE graders
+    // rather than hard-coding "implementing"/7 — a hard-coded expectation
+    // here would stay green even if case.json's graders drifted away from
+    // this free spec's assertions, exactly the declaration-vs-reality drift
+    // `ghCalls` exists to close for gh argv.
+    const phaseGrader = scenario.graders.find(
+      (g) => g.id === "state-phase-implementing",
+    );
+    const prGrader = scenario.graders.find((g) => g.id === "state-pr-recorded");
+    if (
+      !phaseGrader ||
+      typeof phaseGrader.equals !== "string" ||
+      !prGrader ||
+      typeof prGrader.equals !== "number"
+    ) {
+      throw new Error(
+        "s5-open-pr-implementing is missing its 'state-phase-implementing'/'state-pr-recorded' $STATE graders",
+      );
+    }
+    const expectedPhase = phaseGrader.equals;
+    const expectedPr = prGrader.equals;
+
     // PLAN-DEVIATION correction, load-bearing: `bin/lib/paths.ts`
     // computes FLOW_STATE_DIR from `os.homedir()` at import time, and
     // `flow-open-pr` exposes no `--state-dir` flag to a spawned
@@ -113,8 +135,8 @@ describe.skipIf(!bunOnPath)("flow-open-pr against the hermetic gh shim", () => {
       const written = JSON.parse(
         fs.readFileSync(path.join(stateDir, `${fixture.slug}.json`), "utf8"),
       );
-      expect(written.phase).toBe("implementing");
-      expect(written.pr).toBe(7);
+      expect(written.phase).toBe(expectedPhase);
+      expect(written.pr).toBe(expectedPr);
     } finally {
       fixture.teardown();
       fs.rmSync(home, { recursive: true, force: true });

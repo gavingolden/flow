@@ -242,6 +242,15 @@ describe("validateScenarioSpec", () => {
     if (!result.ok) expect(result.reason).toMatch(/ghCalls/);
   });
 
+  it("rejects a ghCalls entry containing an empty-string element", () => {
+    const result = validateScenarioSpec({
+      ...validScenario,
+      ghCalls: [["pr", ""]],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/ghCalls/);
+  });
+
   it("rejects a scenario mounting the gh shim with ghCalls absent", () => {
     const result = validateScenarioSpec({
       ...validScenario,

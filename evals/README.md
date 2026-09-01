@@ -133,10 +133,11 @@ fails loudly (naming the scenario and the offending argv) if the shim
 cannot answer a declared call. **Required and non-empty** whenever
 `fixture.shims` mounts the gh shim — `bin/lib/eval-suite.ts`'s
 `loadSuite` rejects a suite where a gh-shim-mounting scenario declares no
-`ghCalls`. Keeping this field, the paragraph above, and `_shims/gh`'s own
-file-header comment in sync is what issue #695's cross-check exists to
-catch drift on — update all three together when the shim's supported-argv
-surface changes.
+`ghCalls`. Issue #695's cross-check only replays each declared argv against
+the real shim and fails loudly on a shape the shim can't answer — it does
+not diff this field, the paragraph above, and `_shims/gh`'s own file-header
+comment against each other. Keep all three in sync by hand when the shim's
+supported-argv surface changes.
 
 ## Grader kinds
 

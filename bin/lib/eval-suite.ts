@@ -158,6 +158,14 @@ export type SuiteSpec = {
   >;
 };
 
+// `ghCalls` is unconditionally defaulted to `[]` in resolveScenario below,
+// same as its four siblings in the `Required<Pick<...>>` list — but it is
+// deliberately left OUT of that list and stays optional here. Widening it
+// to Required would break `bin/lib/eval-runner.test.ts`'s scenario factory,
+// which builds fixtures via `overrides: Partial<ResolvedScenario> = {}`
+// and relies on `ghCalls` being omittable rather than defaulted per call
+// site. Normalize with `scenario.ghCalls ?? []` at each read site instead
+// of widening the type.
 export type ResolvedScenario = Required<
   Pick<ScenarioSpec, "runs" | "maxBudgetUsd" | "timeoutSec" | "allowedTools">
 > &

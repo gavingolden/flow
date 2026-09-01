@@ -22,7 +22,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import { loadSuite, type ResolvedScenario } from "./lib/eval-suite";
 
 const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
@@ -40,6 +48,23 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(fixtureDir, { recursive: true, force: true });
+});
+
+// Shared, read-only across every consumer below: every scenario/test that
+// needs a resolvable `currentBranch()` wants the byte-identical repo
+// (branch `eval`, one empty commit) and never mutates it — the shim only
+// ever `git rev-parse`s it. Building it once in a module-scope `beforeAll`
+// instead of per-test/per-scenario cuts ~70 of this file's ~85 `git`
+// subprocess spawns; nothing here weakens an assertion, since no consumer
+// writes to `sharedGitRepoDir`.
+let sharedGitRepoDir!: string;
+
+beforeAll(() => {
+  sharedGitRepoDir = makeGitRepo();
+});
+
+afterAll(() => {
+  fs.rmSync(sharedGitRepoDir, { recursive: true, force: true });
 });
 
 function writeJson(name: string, value: unknown): void {
@@ -68,8 +93,15 @@ function runShim(
  */
 function makeGitRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evals-gh-shim-repo-"));
-  const git = (args: string[]) =>
-    spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+  const git = (args: string[]) => {
+    const r = spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    if (r.status !== 0) {
+      throw new Error(
+        `makeGitRepo: git ${args.join(" ")} exited ${r.status}: ${r.stderr}`,
+      );
+    }
+    return r;
+  };
   git(["init", "-q"]);
   git(["config", "user.email", "eval@flow.local"]);
   git(["config", "user.name", "flow-eval"]);
@@ -116,6 +148,14 @@ it("discovers at least one committed scenario under evals/", () => {
   expect(discoveredScenarios.length).toBeGreaterThan(0);
 });
 
+// Un-gated, unlike the describe block below: if `bun` ever stops being
+// installed, this assertion is the loud failure rather than the whole
+// skipIf block silently reading green on zero executed assertions.
+// Mirrors bin/evals-phase-write-shim.test.ts's identical guard.
+it("bun is on PATH", () => {
+  expect(bunOnPath).toBe(true);
+});
+
 describe.skipIf(!bunOnPath)("evals/_shims/gh", () => {
   describe("pr view", () => {
     it("answers requested fields from pr.json, keyed by number", () => {
@@ -143,21 +183,15 @@ describe.skipIf(!bunOnPath)("evals/_shims/gh", () => {
     });
 
     describe("selector-less form (mirrors real gh's current-branch resolve)", () => {
-      let repoDir!: string;
-
-      beforeEach(() => {
-        repoDir = makeGitRepo();
-      });
-
-      afterEach(() => {
-        fs.rmSync(repoDir, { recursive: true, force: true });
-      });
-
       it("resolves a selector-less `pr view --json` call to the current branch", () => {
         writeJson("pr.json", [
           { number: 7, headRefName: "eval", url: "https://x/7" },
         ]);
-        const r = runShim(["pr", "view", "--json", "number,url"], {}, repoDir);
+        const r = runShim(
+          ["pr", "view", "--json", "number,url"],
+          {},
+          sharedGitRepoDir,
+        );
         expect(r.status).toBe(0);
         expect(JSON.parse(r.stdout)).toEqual({
           number: 7,
@@ -167,7 +201,11 @@ describe.skipIf(!bunOnPath)("evals/_shims/gh", () => {
 
       it("still exits 1 loudly when the current branch matches no PR", () => {
         writeJson("pr.json", []);
-        const r = runShim(["pr", "view", "--json", "number,url"], {}, repoDir);
+        const r = runShim(
+          ["pr", "view", "--json", "number,url"],
+          {},
+          sharedGitRepoDir,
+        );
         expect(r.status).toBe(1);
         expect(r.stderr).toContain("no PR matching");
       });
@@ -179,17 +217,17 @@ describe.skipIf(!bunOnPath)("evals/_shims/gh", () => {
         const explicitFirst = runShim(
           ["pr", "view", "7", "--json", "number,url"],
           {},
-          repoDir,
+          sharedGitRepoDir,
         );
         const jsonFirst = runShim(
           ["pr", "view", "--json", "number,url", "7"],
           {},
-          repoDir,
+          sharedGitRepoDir,
         );
         const selectorLess = runShim(
           ["pr", "view", "--json", "number,url"],
           {},
-          repoDir,
+          sharedGitRepoDir,
         );
         expect(explicitFirst.status).toBe(0);
         expect(jsonFirst.status).toBe(0);
@@ -198,6 +236,62 @@ describe.skipIf(!bunOnPath)("evals/_shims/gh", () => {
         expect(JSON.parse(explicitFirst.stdout)).toEqual(expected);
         expect(JSON.parse(jsonFirst.stdout)).toEqual(expected);
         expect(JSON.parse(selectorLess.stdout)).toEqual(expected);
+      });
+
+      it("still exits 1 loudly (never crashes) when cwd is not a git repo", () => {
+        const nonRepoDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), "evals-gh-shim-nonrepo-"),
+        );
+        try {
+          writeJson("pr.json", [
+            { number: 7, headRefName: "eval", url: "https://x/7" },
+          ]);
+          const r = runShim(
+            ["pr", "view", "--json", "number,url"],
+            {},
+            nonRepoDir,
+          );
+          // currentBranch()'s non-repo guard makes resolveSelector fall all
+          // the way through to `undefined`, which the shim treats as an
+          // unsupported call (no selector at all) rather than "no PR
+          // matching" (a resolved-but-unmatched selector).
+          expect(r.status).toBe(1);
+          expect(r.stderr).toContain("unsupported");
+        } finally {
+          fs.rmSync(nonRepoDir, { recursive: true, force: true });
+        }
+      });
+
+      it("still exits 1 loudly (never crashes) on a detached HEAD", () => {
+        const detachedRepoDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), "evals-gh-shim-detached-"),
+        );
+        try {
+          const git = (args: string[]) =>
+            spawnSync("git", args, { cwd: detachedRepoDir, encoding: "utf8" });
+          git(["init", "-q"]);
+          git(["config", "user.email", "eval@flow.local"]);
+          git(["config", "user.name", "flow-eval"]);
+          git(["commit", "-q", "-m", "init", "--allow-empty"]);
+          git(["checkout", "-q", "--detach", "HEAD"]);
+
+          writeJson("pr.json", [
+            { number: 7, headRefName: "eval", url: "https://x/7" },
+          ]);
+          const r = runShim(
+            ["pr", "view", "--json", "number,url"],
+            {},
+            detachedRepoDir,
+          );
+          // Same reasoning as the non-repo case above: currentBranch()
+          // treats the literal branch name "HEAD" as unresolved, so
+          // resolveSelector falls through to `undefined` and the shim
+          // reports "unsupported", not "no PR matching".
+          expect(r.status).toBe(1);
+          expect(r.stderr).toContain("unsupported");
+        } finally {
+          fs.rmSync(detachedRepoDir, { recursive: true, force: true });
+        }
       });
     });
   });
@@ -367,7 +461,6 @@ describe.skipIf(!bunOnPath)("evals/_shims/gh", () => {
         const seededFixtureDir = fs.mkdtempSync(
           path.join(os.tmpdir(), "evals-gh-shim-scenario-fixture-"),
         );
-        const repoDir = makeGitRepo();
         try {
           if (scenarioFixtureDir && fs.existsSync(scenarioFixtureDir)) {
             for (const name of fs.readdirSync(scenarioFixtureDir)) {
@@ -382,7 +475,7 @@ describe.skipIf(!bunOnPath)("evals/_shims/gh", () => {
             const r = runShim(
               argv,
               { FLOW_EVAL_FIXTURE: seededFixtureDir },
-              repoDir,
+              sharedGitRepoDir,
             );
             // PLAN-DEVIATION correction, load-bearing: NOT
             // `not.toContain("unsupported")` and NOT `status === 0`. A
@@ -393,19 +486,22 @@ describe.skipIf(!bunOnPath)("evals/_shims/gh", () => {
             // alternative below catches a flag being misread as a
             // positional selector, the whole class of that bug. A blanket
             // `status === 0` check is also wrong: it would turn two
-            // CORRECT scenarios red — phase-write-fidelity/s1-step7-ci-wait
-            // ships no checks.json by design, and
-            // checkpoint-pending-clear/s1's pr.json is `[]` by design, so
-            // both legitimately get a non-zero "not found" answer from the
-            // shim for their declared argv.
+            // CORRECT scenarios red — checkpoint-pending-clear/s1 and /s3
+            // both ship `pr.json: []` by design, so their declared
+            // `pr view` argv legitimately gets a non-zero "no PR matching"
+            // answer. The comma-bearing and pr.json-read alternatives
+            // below additionally catch a regressed `--json`-value skip
+            // (selector resolves to the field list, e.g. `number,url`)
+            // and a scenario whose fixture ships no `pr.json` at all.
             expect(
               r.stderr,
               `${suiteId}/${scenario.id} argv ${JSON.stringify(argv)}: ${r.stderr}`,
-            ).not.toMatch(/unsupported|no PR matching '--/);
+            ).not.toMatch(
+              /unsupported|no PR matching '(?:--|[^']*,)|could not read pr\.json|FLOW_EVAL_FIXTURE is not set/,
+            );
           }
         } finally {
           fs.rmSync(seededFixtureDir, { recursive: true, force: true });
-          fs.rmSync(repoDir, { recursive: true, force: true });
         }
       });
     },

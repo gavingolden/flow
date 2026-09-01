@@ -9,7 +9,10 @@
     "shims": ["../../_shims/gh"]
   },
   "env": { "flowSlug": true },
-  "ghCalls": [["pr", "view", "1", "--json", "state,url,reviews,headRefOid"]],
+  "ghCalls": [
+    ["pr", "view", "1", "--json", "state,url,reviews,headRefOid"],
+    ["pr", "view", "1", "--json", "mergeable,mergeStateStatus"]
+  ],
   "resultSchema": "result-schema.json",
   "graders": [
     {
