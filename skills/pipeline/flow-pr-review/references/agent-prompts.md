@@ -44,6 +44,14 @@ focus only on your domain and do it thoroughly.
 - Read `references/conventional-comments.md` for the output format
 - Read `AGENTS.md` (if it exists) for project conventions
 
+## Review scope
+
+{{REVIEW_SCOPE}}
+
+You have no Bash tool, so on a delta re-entry the full-read file list
+above is your only source for which files to Read in full — you cannot
+independently derive it via `git diff`.
+
 ## Using Commit Messages
 Commit bodies in this repo are expected to capture the **why** — motivation, non-obvious
 design choices, and approaches that were tried and rejected (per `AGENTS.md` Committing
@@ -197,7 +205,8 @@ Treat these as **deterministic input**:
 
 ## Diff
 
-The diff below may be per-file truncated (`flow-pr-diff` defaults to a 300 source-line
+The diff below is the full PR diff or a delta (see `## Review scope`
+above), per-file truncated (`flow-review-scope` caps at a 300 source-line
 budget per file; truncated files emit head 200 + a `... [truncated N lines] ...` marker
 + tail 100, so at most 301 lines per block, with the marker pointing at the full
 `gh pr diff <number>` output). Use the diff for a fast "what changed" pass; for any

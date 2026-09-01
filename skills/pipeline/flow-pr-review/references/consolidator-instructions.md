@@ -65,11 +65,15 @@ The wrapper passes you these inputs in its spawn prompt:
   `$WORKTREE/.flow-tmp/static-analysis.json` (for context only — you
   don't re-derive from it; the agents already absorbed it).
 - The PR diff path (`DIFF_PATH`, typically
-  `$WORKTREE/.flow-tmp/diff.txt` — `flow-pr-diff <number>` output)
+  `$WORKTREE/.flow-tmp/diff.txt` — `flow-review-scope`'s output, full or
+  delta)
   and the PR metadata (`PR_METADATA`, the `gh pr view --json
 number,title,headRefName,baseRefName` JSON the wrapper saved to
   scratch, or the same fields inlined). Both feed the second-opinion
   validation pass's in-scope-of-diff check below.
+- `REVIEW_SCOPE_PATH` (`$WORKTREE/.flow-tmp/review-scope.json`) — the
+  `flow-review-scope` verdict: `scope` (`full`|`delta`), `delta_files[]`,
+  and the lens gate verdicts. Feeds (d2) below.
 - The absolute artifact path to write
   (`$WORKTREE/.flow-tmp/consolidator-result.json`).
 
@@ -252,6 +256,21 @@ not false-negative recovery. A finding that doesn't appear in any
 agent's output stays absent — the consolidator does not invent new
 findings.
 
+### (d2) Scope widen judgment
+
+On a **delta** scope (`REVIEW_SCOPE_PATH`'s `.scope == "delta"`), apply
+one mechanical floor before writing the artifact: does any surviving
+finding cite a file outside `delta_files[]`, or does any lens's
+`rejected_alternatives`/`anti_patterns_found` name a cross-file contract
+break (e.g. "this signature change affects callers in file X")? If
+either holds, write `scope_verdict: {widen: true, reason: "<one-line
+cite>"}` — a REQUEST the wrapper honours (see
+[references/review-scope.md](review-scope.md) "Widen"), never a
+self-review of the wider diff (that stays the six lenses' job, per (d)'s
+"does not invent new findings"). On a **full** scope, or when the floor
+doesn't fire, OMIT `scope_verdict` entirely — it is not a `false`
+sentinel.
+
 ### (e) Write the artifact
 
 Write `consolidator-result.json` atomically:
@@ -335,6 +354,7 @@ their types and one-line descriptions:
 | `lens_rejected_alternatives` | `Array<{considered_approach: string, why_rejected: string, lens: string}>` (optional)         | **Code-scoped**, PASS-THROUGH from the per-lens artifacts, tagged with the source `lens`. Produced by `flow-agent-finding-schema --collect-lens-negatives`; never authored by the consolidator itself. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                             |
 | `lens_anti_patterns_found`   | `Array<{location: string, pattern: string, recommendation: string, lens: string}>` (optional) | **Code-scoped**, PASS-THROUGH from the per-lens artifacts, tagged with the source `lens`. Produced by `flow-agent-finding-schema --collect-lens-negatives`; never authored by the consolidator itself. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                             |
 | `lens_negatives_missing`     | `Array<string>` (optional)                                                                    | Names of lenses whose per-agent envelope reported an `"absent"` negatives state on either array (see step (a)). Also produced by `flow-agent-finding-schema --collect-lens-negatives`. Recorded, never escalated. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                  |
+| `scope_verdict`              | `{widen: boolean, reason: string}` (optional)                                                | Set only per step (d2)'s mechanical floor on a delta scope; omitted on full scope or when the floor doesn't fire — never a `false` sentinel.                                                                                                                                                                                                          |
 
 The validator at `bin/lib/agent-finding-schema.ts` is the runtime
 schema reference: `validateConsolidatorResult(parsed)` enforces the

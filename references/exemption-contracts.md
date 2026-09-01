@@ -21,9 +21,15 @@ openers — it is not duplicated here.
 ## `/flow-pr-review` Independent Multi-Agent Review
 
 `/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
-Multi-Agent Review" step, six review agents PLUS one diff-only
-intent-guess agent are spawned in parallel, in the same fan-out message,
-via the Task tool. Each of the six lens spawns names
+Multi-Agent Review" step, up to six review agents — content-gated by
+`flow-review-scope` against the changed-file set and static-analysis
+signals (see `flow-pr-review` `references/review-scope.md`) — PLUS one
+diff-only intent-guess agent (skipped on a delta re-entry with a prior
+`intent-resolution.json`) are spawned in parallel, in the same fan-out
+message, via the Task tool; the wrapper re-fans out at most once per
+invocation when the Consolidator-Validator's `scope_verdict.widen`
+requests a widen to the full PR diff, inside this same exemption (no new
+Task-tool exemption; the count stays nine). Each spawned lens names
 `subagent_type: $LENS_AGENT` (resolved per-lens against the
 `agents/flow-review-<lens>.md` definitions with a Read/Grep/Glob/Write
 `tools:` allowlist and no `effort:`/`model:` pins), resolved via a
