@@ -1,0 +1,1 @@
+Load the `flow-pipeline` skill. Execute ONLY `## Step 9 — Auto-merge gate` for PR 1 with `WORKTREE=$REPO`, up to and including the `flow-gate-decide` call. When it returns, emit the decision you got and end the turn — do not render the terminal block, do not proceed to Step 10.

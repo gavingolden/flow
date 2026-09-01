@@ -6,7 +6,8 @@ import {
   isValidSessionId,
   parseArgs,
   readCurrentPr,
-  run,
+  run as runOpenPr,
+  type Deps,
 } from "./flow-open-pr";
 import { runUpdate } from "./flow-state-update";
 
@@ -26,12 +27,12 @@ afterEach(() => {
   fs.rmSync(scratch, { recursive: true, force: true });
 });
 
-function seedState(slug: string): void {
+function seedState(slug: string, phase = "implementing"): void {
   fs.writeFileSync(
     path.join(stateDir, `${slug}.json`),
     JSON.stringify({
       slug,
-      phase: "implementing",
+      phase,
       repo: scratch,
       updatedAt: new Date().toISOString(),
     }) + "\n",
@@ -42,6 +43,16 @@ function readState(slug: string) {
   return JSON.parse(
     fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"),
   );
+}
+
+/**
+ * Wraps `flow-open-pr`'s `run()` to default `deps.stateDir` to this test's
+ * tmp `stateDir` — without it, the new `advancePhase("implementing", ...)`
+ * call inside `run()` would fall back to the developer's real
+ * `~/.flow/state` (plan.md Contract adjustment #2).
+ */
+function run(argv: string[], deps: Deps = {}) {
+  return runOpenPr(argv, { stateDir, ...deps });
 }
 
 /** A test updater that delegates to the real runUpdate but against the test stateDir. */
@@ -1001,6 +1012,66 @@ describe("flow-open-pr run()", () => {
     expect(gitCalls.some((c) => c[0] === "push")).toBe(false);
     expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(true);
     expect(readState("emptybranch").pr).toBe(54);
+  });
+
+  describe("phase advance", () => {
+    it("advances a plan-pending-review pipeline to implementing as it records pr", () => {
+      seedState("phase-advance", "plan-pending-review");
+      const { updater } = makeUpdater();
+      const prJson: GhResponse = {
+        stdout: JSON.stringify({
+          number: 201,
+          url: "https://github.com/x/y/pull/201",
+        }),
+        stderr: "",
+        exitCode: 0,
+      };
+      const { gh } = makeGhSequence([
+        { matches: isView, response: NO_PR },
+        {
+          matches: isCreate,
+          response: {
+            stdout: "https://github.com/x/y/pull/201\n",
+            stderr: "",
+            exitCode: 0,
+          },
+        },
+        { matches: isView, response: prJson },
+      ]);
+      const exit = run(["phase-advance", "--body-file", bodyFile], {
+        gh,
+        updater,
+        git: branchOnRemoteGit(),
+        sessionId: "",
+      });
+      expect(exit).toBe(0);
+      const written = readState("phase-advance");
+      expect(written.phase).toBe("implementing");
+      expect(written.phaseLog).toHaveLength(1);
+      expect(written.phaseLog[0].phase).toBe("implementing");
+    });
+
+    it("adds no second phaseLog entry on a second invocation (resume case, PR already exists)", () => {
+      seedState("phase-advance-resume", "implementing");
+      const { updater } = makeUpdater();
+      const prJson: GhResponse = {
+        stdout: JSON.stringify({
+          number: 202,
+          url: "https://github.com/x/y/pull/202",
+        }),
+        stderr: "",
+        exitCode: 0,
+      };
+      const { gh } = makeGhSequence([{ matches: isView, response: prJson }]);
+      const exit = run(["phase-advance-resume", "--body-file", bodyFile], {
+        gh,
+        updater,
+      });
+      expect(exit).toBe(0);
+      const written = readState("phase-advance-resume");
+      expect(written.phase).toBe("implementing");
+      expect(written.phaseLog ?? []).toHaveLength(0);
+    });
   });
 });
 

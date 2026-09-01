@@ -1,13 +1,24 @@
 # flow-eval — maintainer guide
 
 `flow-eval` is a maintainer-only, locally-runnable headless eval harness
-for the three supervisor context-isolation scaffolds (`verify-loop`,
-`haiku-gatekeeper`, `checkpoint-pending-clear`). It exists so a future
-scaffold-removal PR (epic `modernize-flow-s-supervisor-architecture`,
-feature `f2-scaffold-stress-test`) carries a recorded before/after delta
-instead of a prose argument. `bin/flow-eval.ts` is never installed onto a
-user's PATH (see `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it
-from a flow checkout.
+running four committed suites, split by what each measures:
+
+- Three **supervisor context-isolation scaffolds** (`verify-loop`,
+  `haiku-gatekeeper`, `checkpoint-pending-clear`) — cost/context/turn
+  footprint, so a future scaffold-removal PR (epic
+  `modernize-flow-s-supervisor-architecture`, feature
+  `f2-scaffold-stress-test`) carries a recorded before/after delta
+  instead of a prose argument.
+- One **correctness suite** (`phase-write-fidelity`, issue #679) —
+  whether the supervisor's end-state `state.phase` lands where the step
+  it ran says it should, at Steps 7-10. It measures whether the
+  supervisor _calls_ the value-returning helper that writes the phase;
+  the helper _writing_ correctly is proved separately, by
+  `bin/lib/phase-advance.test.ts` and each helper's own unit spec.
+
+`bin/flow-eval.ts` is never installed onto a user's PATH (see
+`bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow
+checkout.
 
 ## Security note: the child runs with your real account
 
@@ -119,6 +130,31 @@ correspondence a lie. It writes `<suite>.report.json` +
 the recorded-at table in `docs/eval/baseline/README.md` between the
 `<!-- flow-eval-baseline:start -->` / `<!-- flow-eval-baseline:end -->`
 markers.
+
+**Measuring an unmerged branch.** The eval child loads the plugin root
+from the GLOBAL install (`~/.flow/claude-home/.claude/skills/flow-module-core/`),
+not the worktree you're standing in — a recording taken without first
+pointing the global install at the branch under test measures the _old_
+skills/helpers and is worthless. Before recording:
+
+```sh
+flow install --upgrade --source "$PWD"
+flow install --upgrade --source "$PWD"   # twice — see below
+command -v flow-gate-decide flow-merge-guard   # confirm the symlinks moved
+```
+
+Run the `--source` install **twice**: the first invocation's registry
+fast-forward lands one invocation late, so a single run can leave a
+helper still symlinked to the canonical checkout
+(`project_flow_install_source_stale_registry`). After recording, restore
+the global install from the canonical `main` checkout — never leave it
+pointed at a worktree a merge is about to delete
+(`project_flow_setup_source_dangling_symlinks`):
+
+```sh
+cd <canonical-main-checkout>
+bun bin/flow.ts install --upgrade
+```
 
 ## The `claude plugin eval` forward check
 

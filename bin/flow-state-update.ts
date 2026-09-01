@@ -46,7 +46,6 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
 import {
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
@@ -56,12 +55,16 @@ import {
   readState,
   writeState,
   nowIso,
+  appendPhaseLog,
   type PipelineState,
 } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { setWindowPhase } from "./lib/tmux";
 import { resolveSlugAmbient } from "./lib/session-identity";
-import { BRANCH_MARKER_FILENAME } from "./lib/worktree-marker";
+import {
+  BRANCH_MARKER_FILENAME,
+  checkWorktreeBranch,
+} from "./lib/worktree-marker";
 
 type Args = {
   /** undefined when omitted — runUpdate falls back to resolveSlugAmbient(). */
@@ -83,57 +86,11 @@ type Args = {
 };
 
 /**
- * Result of the worktree-branch guard:
- *   - "ok"      — guard passed (or skipped: no worktree path, dir missing, marker missing).
- *   - "mismatch" — worktree on a different branch than the marker says. State.json is
- *                  NOT updated; supervisor escalates `NEEDS HUMAN: branch-mismatch`.
+ * Back-compat re-export: `checkWorktreeBranch` lives in
+ * `bin/lib/worktree-marker.ts` now, so `bin/lib/phase-advance.ts` can call
+ * it too — a `bin/lib/` module cannot import from a `bin/*.ts` module.
  */
-type GuardResult =
-  | { kind: "ok" }
-  | { kind: "mismatch"; expected: string; actual: string };
-
-/**
- * Asserts that the worktree's current branch matches the marker file written by
- * `flow-new-worktree`. Best-effort: if the worktree directory is gone or the
- * marker file is missing (e.g. created by an older flow-new-worktree), logs a
- * one-line warning and returns ok. Only an *active* mismatch returns mismatch.
- */
-export function checkWorktreeBranch(
-  worktreePath: string | undefined,
-): GuardResult {
-  if (!worktreePath) return { kind: "ok" };
-  if (!fs.existsSync(worktreePath)) {
-    console.error(
-      `flow-state-update: worktree path '${worktreePath}' does not exist; skipping branch guard`,
-    );
-    return { kind: "ok" };
-  }
-  const markerPath = path.join(worktreePath, BRANCH_MARKER_FILENAME);
-  if (!fs.existsSync(markerPath)) {
-    console.error(
-      `flow-state-update: ${BRANCH_MARKER_FILENAME} missing in '${worktreePath}'; skipping branch guard ` +
-        `(worktree predates the branch-marker fix or was created externally)`,
-    );
-    return { kind: "ok" };
-  }
-  const expected = fs.readFileSync(markerPath, "utf8").trim();
-  const result = spawnSync(
-    "git",
-    ["-C", worktreePath, "branch", "--show-current"],
-    {
-      encoding: "utf8",
-    },
-  );
-  if (result.status !== 0) {
-    console.error(
-      `flow-state-update: 'git branch --show-current' failed in '${worktreePath}'; skipping branch guard`,
-    );
-    return { kind: "ok" };
-  }
-  const actual = result.stdout.trim();
-  if (actual !== expected) return { kind: "mismatch", expected, actual };
-  return { kind: "ok" };
-}
+export { checkWorktreeBranch };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   // Slug is optional when present-but-leading-with-`--`: the supervisor
@@ -239,20 +196,13 @@ export function applyUpdate(
   // A --phase write is a real transition event: append it to the
   // append-only phaseLog (creating the array when absent) so the snapshot
   // has an authoritative trace. A no---phase update (e.g. --pr only) leaves
-  // phaseLog untouched. Omit the outcome key entirely when --phase-outcome
-  // is absent — never write `outcome: undefined`.
+  // phaseLog untouched. appendPhaseLog omits the outcome key entirely when
+  // --phase-outcome is absent — never write `outcome: undefined`. Shared
+  // with `bin/lib/phase-advance.ts`'s `advancePhase` so the two write paths
+  // cannot drift on phaseLog[] shape.
   const phaseLog =
     args.phase !== undefined
-      ? [
-          ...(existing.phaseLog ?? []),
-          {
-            phase: args.phase,
-            at: nowIso(),
-            ...(args.phaseOutcome !== undefined
-              ? { outcome: args.phaseOutcome }
-              : {}),
-          },
-        ]
+      ? appendPhaseLog(existing, args.phase, args.phaseOutcome)
       : existing.phaseLog;
   const resolvedPhase = args.phase ?? existing.phase;
   // A stale reap record (recorded at a PRIOR terminal state) must not

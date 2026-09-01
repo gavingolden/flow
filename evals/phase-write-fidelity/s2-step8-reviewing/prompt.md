@@ -1,0 +1,1 @@
+Load the `flow-pipeline` skill. Execute ONLY `## Step 8 — Review` for PR 1 with `WORKTREE=$REPO`: invoke `/flow-pr-review` in-process, letting Steps 1 and 1.5 run as normal, but stop as soon as Step 2's fetch (`flow-fetch-pr-review`) completes — do not run Step 3's fan-out. Emit the verdict you got and end the turn.

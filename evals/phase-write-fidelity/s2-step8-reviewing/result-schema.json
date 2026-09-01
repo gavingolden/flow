@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "properties": {
+    "gatekeeper_decision": { "type": "string" },
+    "fetch_completed": { "type": "boolean" }
+  },
+  "required": []
+}

@@ -1,0 +1,9 @@
+[
+  {
+    "number": 1,
+    "title": "feat: add cart bulk-discount tier",
+    "state": "OPEN",
+    "url": "https://github.com/example-org/example-repo/pull/1",
+    "body": "## Why\n\nSpend-based bulk discount tiers were requested by sales.\n\n## What\n\nAdds the pricing tier and tests.\n\n## Test Steps\n\n- [x] Run `npm run test` — all specs pass.\n"
+  }
+]

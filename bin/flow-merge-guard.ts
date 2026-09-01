@@ -59,6 +59,7 @@ import {
 import { readState, writeState, type PipelineState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
+import { advancePhase } from "./lib/phase-advance";
 
 /**
  * A recorded gate-override token is honoured only when it matches the PR
@@ -264,6 +265,14 @@ function checkGuard(
     return 0;
   }
   const state = readState(slug, stateDir);
+  // Side effect: advances `state.phase` to `merging` as part of the guard
+  // check itself, so Step 10's phase write rides the pass/block verdict
+  // the supervisor cannot proceed without (plan.md Task 3). Deliberately
+  // NOT wired into `recordOverrideToken` below — that function serves the
+  // `--record-override` fresh-confirmation path, not a pipeline
+  // transition, and its own `writeState` at the end of this file would
+  // clobber an advance recorded there.
+  advancePhase("merging", { slug, expectPr: pr, dir: stateDir });
   const result = evaluateMergeGuard(fetched.body, state, pr, now());
   process.stdout.write(JSON.stringify(result) + "\n");
   return result.decision === "clear" ? 0 : 1;

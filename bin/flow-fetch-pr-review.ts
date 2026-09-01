@@ -8,7 +8,18 @@
  * Examples:
  *   flow-fetch-pr-review 100
  *   flow-fetch-pr-review https://github.com/owner/repo/pull/100
+ *
+ * Side effect: advances the owning pipeline's `state.phase` to `reviewing`
+ * once the PR payload is fetched — `/flow-pr-review` Step 2's mandatory
+ * fetch is what makes Step 8's phase write unskippable (plan.md Task 4).
+ * A silent no-op when `state.pr` doesn't match (standalone review, or a
+ * leaked `FLOW_SLUG` from an unrelated flow window) or no state file
+ * exists at all — this helper is also invoked outside any pipeline.
  */
+
+import { resolveSlugAmbient } from "./lib/session-identity";
+import { advancePhase } from "./lib/phase-advance";
+import { FLOW_STATE_DIR } from "./lib/paths";
 
 // --- Types ---
 
@@ -47,8 +58,13 @@ type GroupedComments = Map<string, ReviewComment[]>;
 
 // --- Helpers ---
 
+/** Test seam: a `gh` runner mirroring every other helper's `GhRunner` shape,
+ * narrowed to this file's string-in/string-out contract (throws on
+ * non-zero exit, mirroring `defaultGh` below). */
+export type GhRunner = (args: string[]) => string;
+
 /** Runs `gh` CLI with the given args. Throws on non-zero exit. */
-function gh(args: string[]): string {
+function defaultGh(args: string[]): string {
   const result = Bun.spawnSync(["gh", ...args], {
     stdout: "pipe",
     stderr: "pipe",
@@ -79,7 +95,7 @@ export function parsePrNumber(input: string): number {
 
 // --- API ---
 
-function fetchPr(prNumber: number): PullRequest {
+function fetchPr(prNumber: number, gh: GhRunner = defaultGh): PullRequest {
   const json = gh([
     "api",
     `repos/{owner}/{repo}/pulls/${prNumber}`,
@@ -89,7 +105,10 @@ function fetchPr(prNumber: number): PullRequest {
   return JSON.parse(json) as PullRequest;
 }
 
-function fetchChangedFiles(prNumber: number): string[] {
+function fetchChangedFiles(
+  prNumber: number,
+  gh: GhRunner = defaultGh,
+): string[] {
   const output = gh(["pr", "diff", String(prNumber), "--name-only"]);
   return output.split("\n").filter(Boolean);
 }
@@ -102,7 +121,7 @@ export function parseNdjson<T>(output: string): T[] {
     .map((line) => JSON.parse(line) as T);
 }
 
-function fetchReviews(prNumber: number): Review[] {
+function fetchReviews(prNumber: number, gh: GhRunner = defaultGh): Review[] {
   const output = gh([
     "api",
     "--paginate",
@@ -113,7 +132,10 @@ function fetchReviews(prNumber: number): Review[] {
   return parseNdjson<Review>(output);
 }
 
-export function fetchComments(prNumber: number): ReviewComment[] {
+export function fetchComments(
+  prNumber: number,
+  gh: GhRunner = defaultGh,
+): ReviewComment[] {
   const output = gh([
     "api",
     "--paginate",
@@ -129,7 +151,10 @@ export function fetchComments(prNumber: number): ReviewComment[] {
  * enforce identity (only the author's `**why:** ` comments count as
  * intent annotations — defends against reviewer-injected lookalikes).
  */
-export function fetchPrAuthorLogin(prNumber: number): string {
+export function fetchPrAuthorLogin(
+  prNumber: number,
+  gh: GhRunner = defaultGh,
+): string {
   return gh([
     "pr",
     "view",
@@ -310,25 +335,52 @@ Examples:
   `);
 }
 
-function main(): void {
-  const args = process.argv.slice(2);
+export type Deps = {
+  gh?: GhRunner;
+  resolveSlug?: () => string | null;
+  stateDir?: string;
+};
 
-  if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
+/**
+ * Runs the fetch-and-format CLI. Extracted from the former bare `main()` so
+ * the phase-advance side effect has a seam to inject `gh` / `resolveSlug` /
+ * `stateDir` through in tests (plan.md Contract adjustment #4 — this file
+ * exported only pure formatters before; there was no runner to attach a
+ * dep to).
+ */
+export function run(argv: string[], deps: Deps = {}): number {
+  if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
     printHelp();
-    process.exit(0);
+    return 0;
   }
 
-  const prNumber = parsePrNumber(args[0]);
+  const gh = deps.gh ?? defaultGh;
+  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
+  const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
 
-  const pr = fetchPr(prNumber);
-  const reviews = fetchReviews(prNumber);
-  const comments = fetchComments(prNumber);
-  const changedFiles = fetchChangedFiles(prNumber);
+  const prNumber = parsePrNumber(argv[0]);
+
+  const pr = fetchPr(prNumber, gh);
+  const reviews = fetchReviews(prNumber, gh);
+  const comments = fetchComments(prNumber, gh);
+  const changedFiles = fetchChangedFiles(prNumber, gh);
+
+  // Never fail the fetch on an advance no-op — the return value is
+  // discarded except for the stderr NOTICE `advancePhase` emits itself on
+  // a pr-mismatch. Called before the fetch output reaches stdout so the
+  // phase write happens as part of the mandatory fetch, not after it.
+  advancePhase("reviewing", {
+    slug: resolveSlug(),
+    expectPr: prNumber,
+    dir: stateDir,
+  });
 
   console.log(formatOutput(pr, reviews, comments, changedFiles));
+
+  return 0;
 }
 
-// Only run main when executed directly (not when imported for testing)
+// Only run when executed directly (not when imported for testing)
 if (import.meta.main) {
-  main();
+  process.exit(run(process.argv.slice(2)));
 }

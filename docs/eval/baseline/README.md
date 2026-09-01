@@ -1,8 +1,10 @@
 # flow-eval — recorded baselines
 
 This directory holds the committed, before/after comparison surface for
-flow's three supervisor context-isolation scaffolds. Each suite under
-`evals/` gets two committed files here once a maintainer records it:
+flow's `flow-eval` suites — three supervisor context-isolation scaffolds
+plus `phase-write-fidelity` (a correctness suite; see `docs/eval/README.md`
+for the split). Each suite under `evals/` gets two committed files here
+once a maintainer records it:
 
 - `<suite>.report.json` — the full `EvalReport` (schemaVersion 1, see
   `bin/lib/eval-report.ts`) from the most recently recorded run.

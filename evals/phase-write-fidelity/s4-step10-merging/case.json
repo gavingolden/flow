@@ -1,0 +1,69 @@
+{
+  "id": "s4-step10-merging",
+  "title": "Step 10 entry advances state.phase to merging",
+  "provenance": "Synthetic fixture authored against bin/flow-merge-guard.ts's advancePhase wiring (plan.md Task 3, corrected call site inside checkGuard, not recordOverrideToken) and skills/pipeline/flow-pipeline/SKILL.md's Step 10.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture",
+    "state": "state.json",
+    "shims": ["../../_shims/gh"]
+  },
+  "env": { "flowSlug": true },
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "state-phase-merging",
+      "kind": "json-file",
+      "file": "$STATE",
+      "path": "phase",
+      "equals": "merging"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core"
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.subagentsSpawned",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.subagentsSpawned",
+      "direction": "lower"
+    }
+  ]
+}
