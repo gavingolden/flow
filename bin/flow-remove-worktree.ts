@@ -6,14 +6,14 @@
  *   flow-remove-worktree [<worktree-path-or-branch>]
  *   flow-remove-worktree --slug <worktree-path-or-branch>
  *
- * The positional is optional when invoked from inside a flow tmux pane:
- * the slug auto-resolves from `$TMUX_PANE`'s `@flow-slug` window option
- * and is fed into the same path/branch resolution logic.
+ * The positional is optional when a pipeline is live: the slug
+ * auto-resolves from `$FLOW_SLUG` and is fed into the same path/branch
+ * resolution logic.
  *
  * Examples:
  *   flow-remove-worktree ../flow-agent-improve-tooltips
  *   flow-remove-worktree agent/improve-tooltips
- *   flow-remove-worktree                            # slug from $TMUX_PANE
+ *   flow-remove-worktree                            # slug from $FLOW_SLUG
  */
 
 import * as fs from "fs";
@@ -305,9 +305,9 @@ Removes a git worktree and optionally deletes the associated branch.
 
 Arguments:
   worktree-path-or-branch   Path to the worktree directory, or the branch
-                            name used when creating it. Optional inside a
-                            flow tmux pane — the slug auto-resolves from
-                            $TMUX_PANE's @flow-slug option.
+                            name used when creating it. Optional when a
+                            pipeline is live — the slug auto-resolves from
+                            $FLOW_SLUG.
 
 Options:
   --slug <slug>               same as the positional argument
@@ -316,7 +316,7 @@ Options:
 Examples:
   flow-remove-worktree ../flow-agent-improve-tooltips
   flow-remove-worktree agent/improve-tooltips --delete-branch
-  flow-remove-worktree                # slug from \$TMUX_PANE
+  flow-remove-worktree                # slug from \$FLOW_SLUG
   `);
 }
 
@@ -326,7 +326,7 @@ Examples:
  * unrecognised `--` token (including a bare `--slug=<value>` equals form,
  * which this parser does not accept) is an error rather than a silently
  * discarded flag — a discarded `--slug` would fall through to the ambient
- * $TMUX_PANE slug and remove the CALLER's own worktree instead of the
+ * FLOW_SLUG and remove the CALLER's own worktree instead of the
  * intended target.
  */
 export function parseArgs(
@@ -492,8 +492,8 @@ export function stateSlugForInput(input: string): string | undefined {
  * entry wins OVER every slug-derived heuristic below.
  *
  * This is the cross-pipeline-safety guarantee. `flow-new-worktree` auto-suffixes
- * on a collision (`<slug>-2`, branch `<slug>-2`), but the pipeline slug /
- * `@flow-slug` / state-file name stay the un-suffixed `<slug>`. Re-deriving the
+ * on a collision (`<slug>-2`, branch `<slug>-2`), but the pipeline slug and
+ * state-file name stay the un-suffixed `<slug>`. Re-deriving the
  * worktree from the slug alone then matched a *sibling* pipeline's worktree by
  * its exact branch name (`w.branch === input`) — deleting the wrong branch and
  * leaking the real `-2` worktree. The recorded absolute path is the only value
@@ -588,9 +588,9 @@ function main(): void {
 
   // Single wiring path, exercised directly by tests via resolveTargetInput:
   // parse, then resolve. The zero-arg path is the load-bearing supervisor case
-  // (`flow-remove-worktree` from inside a flow tmux pane resolves the slug from
-  // `$TMUX_PANE`'s `@flow-slug` option), so an absent slug falls through to the
-  // ambient resolver rather than printing help.
+  // (`flow-remove-worktree` from inside a live pipeline resolves the slug from
+  // `$FLOW_SLUG`), so an absent slug falls through to the ambient resolver
+  // rather than printing help.
   const resolved = resolveTargetInput(args, () => resolveSlugAmbient());
   // `--help` wins over a parse error, so a user who mistypes a flag alongside
   // --help still gets the help text. parseArgs is the single help detector;
@@ -609,11 +609,9 @@ function main(): void {
   const input = resolved.input;
   if (!input) {
     log.error("Missing required argument: worktree path or branch name.");
+    log.info("  No slug given and no FLOW_SLUG in the environment.");
     log.info(
-      "  No slug given and could not resolve from $TMUX_PANE's @flow-slug option.",
-    );
-    log.info(
-      "  Pass <slug> explicitly, or run inside a tmux window created by `flow feature create`.",
+      "  Pass <slug> explicitly, or run inside a pipeline launched by `flow feature create`.",
     );
     process.exit(1);
   }

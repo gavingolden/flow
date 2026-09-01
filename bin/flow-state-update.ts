@@ -28,12 +28,11 @@
  * intent interview digest through `state.interview` instead of `state.answer`.
  *
  * - At least one update flag is required.
- * - The slug is optional when invoked from inside a flow tmux pane: it
- *   auto-resolves from `$TMUX_PANE`'s `@flow-slug` window option. The
- *   supervisor's per-call shell loses any `SLUG=…` it sets between
- *   Bash tool calls, so the auto-resolve path is the load-bearing one;
- *   the explicit positional stays for back-compat and for callers
- *   outside tmux.
+ * - The slug is optional when a pipeline is live: it auto-resolves from
+ *   `$FLOW_SLUG`. The supervisor's per-call shell loses any `SLUG=…` it
+ *   sets between Bash tool calls, so the auto-resolve path is the
+ *   load-bearing one; the explicit positional stays for callers with no
+ *   live pipeline.
  * - The slug must already have a state file (created by `flow feature create`).
  *   Refuses to invent state out of nowhere — that surfaces drift
  *   instead of papering over it.
@@ -281,8 +280,8 @@ export function runUpdate(
   const slug = parsed.slug ?? resolveSlug();
   if (!slug) {
     console.error(
-      "flow-state-update: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
-        "  pass <slug> explicitly, or run inside a tmux window created by `flow feature create`.",
+      "flow-state-update: no slug given and no FLOW_SLUG in the environment.\n" +
+        "  pass <slug> explicitly, or run inside a pipeline launched by `flow feature create`.",
     );
     return 2;
   }

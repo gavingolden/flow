@@ -242,22 +242,24 @@ three-layer resolution table, and the manifest/foundation fields — is at
   primary — it covers both registered rows left by a crashed session
   and shape-heuristic strays, and stays report-only without `--yes`.
   See `skills/pipeline/flow-pipeline/SKILL.md` "Resource cleanup".
-- **Don't make tmux pane/window state a load-bearing input.** Prefer
-  backend-agnostic signals, in order: the launch env (`FLOW_SLUG`, set by
-  both launcher backends), `~/.flow/state/<slug>.json`, then on-disk
-  artifacts — the plain shell is the DEFAULT launcher and tmux is
-  opt-in, so a bare install has no pane/window options at all. flow's
-  tmux options (`@flow-slug`, `@flow-phase`, `@flow-repo`,
-  `@flow-phase-short`, `@flow-kind`, `@flow-epic`) are additive, publish-only
-  convenience mirrors. Exception: a surface that is ALREADY tmux-only by
-  an independent hard constraint (epic orchestration, which refuses a
-  non-tmux backend) may read a pane option, but only when the tmux-only
-  precondition is named in a comment at BOTH the producing and consuming
-  site, and absence degrades to a CORRECT default, not a wrong one — an
-  absent pane option is indistinguishable from a legitimately-absent
-  value, so the fallback must be safe-by-construction, not merely
-  safe-today. See the env-first-then-pane resolver in
-  `bin/lib/session-identity.ts`.
+- **Don't make tmux pane/window state a load-bearing input.** Backend-agnostic
+  signals only, in order: the launch env (`FLOW_SLUG`, set by both launcher
+  backends), `~/.flow/state/<slug>.json`, then on-disk artifacts — the plain
+  shell is the DEFAULT launcher and tmux is opt-in, so a bare install has no
+  pane/window options at all. flow's tmux options (`@flow-slug`, `@flow-phase`,
+  `@flow-repo`, `@flow-phase-short`, `@flow-kind`, `@flow-epic`) are additive,
+  publish-only convenience mirrors. Exception: `@flow-kind`, the ONLY option
+  read as a load-bearing input, because epic orchestration is ALREADY
+  tmux-only by an independent hard constraint (it refuses a non-tmux
+  backend) — the tmux-only precondition is named in a comment at BOTH the
+  producing and consuming site, and absence degrades to a CORRECT default,
+  not a wrong one; an absent pane option is indistinguishable from a
+  legitimately-absent value, so the fallback must be safe-by-construction,
+  not merely safe-today. See `resolveSlugAmbient` (env-only) and
+  `resolveKindAmbient` (the `@flow-kind` exception) in
+  `bin/lib/session-identity.ts`. `bin/pane-read-lint.test.ts` enforces this
+  mechanically — it fails CI on any pane-option read outside the frozen
+  allowlist, in code or in skill prose.
 - **Don't write test-time port or URL overrides to a file.** Pass them
   inline to the launch subprocess (env vars / CLI flags); never write
   `.env.local`, `.env`, or any other config file. A gitignored override

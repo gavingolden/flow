@@ -17,7 +17,7 @@ on the two files the supervisor already reads for `autoMerge` / `copilotReview`
 / `waitForCopilot`:
 
 ```bash
-SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+SLUG="$FLOW_SLUG"
 STATE=~/.flow/state/"$SLUG".json
 # Per-phase override the user passed via `flow feature create --model-<phase>`:
 STATE_MODEL=$(jq -r '.model<Phase> // empty' "$STATE")

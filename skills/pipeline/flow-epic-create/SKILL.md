@@ -93,8 +93,8 @@ transition below uses the explicit `flow-state-update --phase <X>` command (the
 bare `phase: <X>` shorthand reads positionally as a slug and no-ops).
 
 Create / reuse the per-pipeline worktree via `flow-new-worktree` (call it
-**bare**, no positional — it auto-resolves the slug from the pane's
-`@flow-slug`, exactly as `/flow-pipeline` step 2 does). Capture the printed
+**bare**, no positional — it auto-resolves the slug from `$FLOW_SLUG`,
+exactly as `/flow-pipeline` step 2 does). Capture the printed
 absolute path as `$WORKTREE`:
 
 ```bash
@@ -149,7 +149,7 @@ forwards it to the Discovery Subagent's Task spawn as its per-spawn `model:`
 fan-out — **no** new fan-out site:
 
 ```bash
-SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+SLUG="$FLOW_SLUG"
 PLANNING_MODEL=$(jq -r '.modelPlanning // empty' ~/.flow/state/"$SLUG".json)
 [ -z "$PLANNING_MODEL" ] && PLANNING_MODEL=$(jq -r '.models.planning // empty' ~/.flow/config.json 2>/dev/null)
 ```
@@ -393,7 +393,7 @@ Use the /flow-epic-create skill in --resume mode for: <slug>
 
 `flow epic create --resume <slug>` writes that prompt; nothing else does. On
 detecting it, **do not** start at Step 1. Call `flow-epic-resume-decide`
-(bare-name PATH, R1 — auto-resolves the slug from `@flow-slug`) to walk the
+(bare-name PATH, R1 — auto-resolves the slug from `$FLOW_SLUG`) to walk the
 epic resume-from-disk decision:
 
 ```bash

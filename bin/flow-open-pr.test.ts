@@ -479,7 +479,7 @@ describe("flow-open-pr run()", () => {
       resolveSlug: () => null,
     });
     expect(exit).toBe(2);
-    expect(errSpy.mock.calls.flat().join("\n")).toContain("@flow-slug");
+    expect(errSpy.mock.calls.flat().join("\n")).toContain("FLOW_SLUG");
     errSpy.mockRestore();
   });
 

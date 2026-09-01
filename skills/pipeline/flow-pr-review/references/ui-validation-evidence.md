@@ -81,7 +81,7 @@ sentinel by hand on that path. Then, per visual item:
    on completion.
 1. Drive the browser via the manifest: open a per-pipeline isolated page first
    — `new_page` with `isolatedContext` set to the pipeline slug (read from
-   `@flow-slug` / `~/.flow/state/<slug>.json` / the worktree basename) so
+   `FLOW_SLUG` / `~/.flow/state/<slug>.json` / the worktree basename) so
    concurrent pipelines sharing one chrome-devtools MCP server do not share
    cookies/storage. **Login step (auth-gated apps).** When the manifest
    declares `loginUrl` and `credentialEnvVars` and both VALUES resolve from

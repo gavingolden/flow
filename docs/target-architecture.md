@@ -75,9 +75,10 @@ it crash-safe: a bare PID heartbeat goes stale and a recycled PID reads as a
 false-positive "alive"; pinning the start-time distinguishes the original
 process from an unrelated later one that inherited the number. Window existence
 is at most a tmux-mode nicety, never the source of truth. Session identity
-(the pipeline slug that ~17 helpers and the supervisor resolve today from the
-tmux `@flow-slug` window option) is threaded to the plain backend another way
-(e.g. a launcher-set env var), and the turn-end Stop guard covers the plain
+(the pipeline slug every helper and the supervisor resolve) is threaded to
+both launcher backends via `FLOW_SLUG`, set in the launch env — the sole
+carrier since the f4 migration (`bin/lib/session-identity.ts`'s
+`resolveSlugAmbient`) — and the turn-end Stop guard covers the plain
 backend, not just its existing outside-tmux no-op.
 
 ### 3. Three-tier progressive disclosure with session-scoped skill exposure

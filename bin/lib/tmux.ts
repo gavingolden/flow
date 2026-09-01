@@ -18,6 +18,15 @@ import { sleepSync } from "./sleep";
 import { deliverSeed } from "./seed-delivery";
 
 export const FLOW_SESSION = "flow";
+/**
+ * Window option carrying the pipeline's canonical slug — the ONE flow-side
+ * exception among the six options below: read back by `LIST_WINDOWS_FORMAT`
+ * (via `listWindows()` / `findWindowBySlug`) for the `flow ls` / `flow attach`
+ * / `flow done` window join. Not a slug-*resolution* input — ambient
+ * identity resolves from `FLOW_SLUG` alone (`resolveSlugAmbient` in
+ * `./session-identity`); this option is a write-then-read-back window
+ * lookup key on a tmux-only surface.
+ */
 const FLOW_SLUG_OPTION = "@flow-slug";
 /**
  * Window option mirroring the pipeline's current phase. Additive and
@@ -25,7 +34,8 @@ const FLOW_SLUG_OPTION = "@flow-slug";
  * never writes `~/.tmux.conf` and ships no theme. A user opts in by binding
  * `#{@flow-phase}` into their own status-bar format. `flow ls` stays the
  * canonical status surface; this is a convenience mirror, not a replacement.
- * Hyphenated to match `@flow-slug`.
+ * Hyphenated to match `@flow-slug`. No flow-side reader — see
+ * `docs/configuration.md`'s "tmux status-bar bindings" note.
  */
 export const FLOW_PHASE_OPTION = "@flow-phase";
 /**
@@ -35,6 +45,8 @@ export const FLOW_PHASE_OPTION = "@flow-phase";
  * own windows so a status-bar format can bind `#{@flow-repo}` into a compact
  * `[repo phase]` badge, never writing the user's tmux config. Best-effort — a
  * non-zero `set-option` exit is swallowed and never blocks window creation.
+ * No flow-side reader — see `docs/configuration.md`'s "tmux status-bar
+ * bindings" note.
  */
 export const FLOW_REPO_OPTION = "@flow-repo";
 /**
@@ -48,7 +60,8 @@ export const FLOW_REPO_OPTION = "@flow-repo";
  * exit is swallowed and never blocks a launch or resume. Note: for an
  * epic-launched FEATURE window this option is published post-launch (once
  * `setWindowEpic` runs against the freshly-created window), not at the
- * moment of window creation itself.
+ * moment of window creation itself. No flow-side reader — see
+ * `docs/configuration.md`'s "tmux status-bar bindings" note.
  */
 export const FLOW_EPIC_OPTION = "@flow-epic";
 /**
@@ -56,7 +69,8 @@ export const FLOW_EPIC_OPTION = "@flow-epic";
  * `shortPhase()` abbreviation of `@flow-phase` (see `PHASE_SHORT` in `./state`,
  * the single source of truth). Same additive/opt-in/publish-only/best-effort
  * contract as `@flow-phase`, which keeps emitting the raw phase string
- * unchanged; `@flow-phase-short` is strictly additive.
+ * unchanged; `@flow-phase-short` is strictly additive. No flow-side reader —
+ * see `docs/configuration.md`'s "tmux status-bar bindings" note.
  */
 export const FLOW_PHASE_SHORT_OPTION = "@flow-phase-short";
 /**
@@ -91,59 +105,6 @@ export type ResolveSlugDeps = {
   spawnTmux?: (args: string[]) => SpawnResult;
   listWindowsFn?: (session?: string) => TmuxWindow[];
 };
-
-/**
- * Resolves the supervisor's pipeline slug from the current tmux pane's
- * `@flow-slug` window option. Helpers that take a slug positionally or
- * via `--slug` use this as a fallback when the caller omits the arg —
- * the supervisor's per-call shell loses any `SLUG=…` between Bash tool
- * calls, but `$TMUX_PANE` and the `@flow-slug` option set by
- * `createWindow()` are immutable for the life of the window.
- *
- * Returns `null` when:
- *   - `$TMUX_PANE` is unset (helper invoked outside tmux),
- *   - `tmux show-options` fails (option unset on the window, which
- *     `-v` reports via non-zero exit, e.g. for non-flow windows), or
- *   - the resolved value is empty / whitespace.
- */
-export function resolveSlugFromPane(deps: ResolveSlugDeps = {}): string | null {
-  const env = deps.env ?? process.env;
-  const spawn = deps.spawnTmux ?? tmux;
-  const pane = env.TMUX_PANE;
-  if (!pane) return null;
-  const r = spawn(["show-options", "-t", pane, "-v", "-w", FLOW_SLUG_OPTION]);
-  if (r.exitCode !== 0) return null;
-  const slug = r.stdout.trim();
-  if (slug.length === 0) return null;
-
-  // Cross-check: verify the slug resolved from this pane's window option is
-  // actually owned by THIS pane's window — not a stale option from a prior
-  // pipeline whose window was reused. Detects ambient-pane races where two
-  // parallel pipelines share a tmux window id momentarily.
-  const paneWindowResult = spawn([
-    "display-message",
-    "-t",
-    pane,
-    "-p",
-    "#{window_id}",
-  ]);
-  if (paneWindowResult.exitCode !== 0) {
-    // Safe degradation: display-message unavailable → trust the slug as-is.
-    return slug;
-  }
-  const paneWindowId = paneWindowResult.stdout.trim();
-
-  const listFn = deps.listWindowsFn ?? listWindows;
-  const ownerWindow = listFn().find((w) => w.slug === slug);
-  if (ownerWindow !== undefined && ownerWindow.id !== paneWindowId) {
-    process.stderr.write(
-      `resolveSlugFromPane: warning: @flow-slug resolved to '${slug}' but that slug is owned by window ${ownerWindow.id}, not this pane's window ${paneWindowId} — returning null to avoid cross-pipeline write\n`,
-    );
-    return null;
-  }
-
-  return slug;
-}
 
 export type SpawnResult = { stdout: string; stderr: string; exitCode: number };
 
@@ -965,12 +926,10 @@ export function setPaneKind(
 }
 
 /**
- * Resolves the current pane's `@flow-kind` option, modeled on
- * `resolveSlugFromPane` MINUS its window cross-check — a pane option cannot
- * be stale-inherited across panes (verified against a live tmux 3.6a: a pane
- * split off the same window reads a hard non-zero exit, no bleed), so the
- * extra `display-message` round-trip that guards `resolveSlugFromPane`
- * against a reused-window race has nothing to protect here.
+ * Resolves the current pane's `@flow-kind` option. Unlike a window option, a
+ * pane option cannot be stale-inherited across panes (verified against a
+ * live tmux 3.6a: a pane split off the same window reads a hard non-zero
+ * exit, no bleed), so no cross-check round-trip is needed here.
  *
  * Returns `null` when:
  *   - `$TMUX_PANE` is unset (helper invoked outside tmux),

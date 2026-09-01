@@ -97,8 +97,8 @@ on `main`, per the original low-bar trigger.
 (`installBaseBranchGuard` in `bin/lib/base-branch-guard.ts`) that refuses
 a commit landing directly on the repo's default branch. It is narrowed by
 **two session gates**, both required: `CLAUDE_CODE_SESSION_ID` (set by
-Claude Code) AND a flow slug, resolved env-first from `FLOW_SLUG` and
-falling back to the tmux `@flow-slug` pane option. Without both, the
+Claude Code) AND a flow slug, resolved from `FLOW_SLUG` alone (the guard is
+env-only as of v5). Without both, the
 user's own hand-driven commits — including a manual commit on `main` — are
 never blocked; the guard only ever fires inside a flow-supervisor session.
 

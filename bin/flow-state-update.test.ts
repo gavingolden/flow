@@ -606,13 +606,13 @@ describe("runUpdate", () => {
     expect(readState("other-pipeline", dir)?.phase).toBe("starting");
   });
 
-  it("returns 2 with a clear error when no slug given and pane has none either", () => {
+  it("returns 2 with a clear error when no slug given and none resolves from FLOW_SLUG either", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const code = runUpdate(["--phase", "implementing"], dir, {
       resolveSlug: () => null,
     });
     expect(code).toBe(2);
-    expect(errSpy.mock.calls.flat().join("\n")).toContain("@flow-slug");
+    expect(errSpy.mock.calls.flat().join("\n")).toContain("FLOW_SLUG");
     errSpy.mockRestore();
   });
 

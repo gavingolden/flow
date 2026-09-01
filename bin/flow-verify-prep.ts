@@ -13,12 +13,12 @@
  * supervisor cannot obtain the values it needs to spawn the subagent
  * without also writing the phase.
  *
- * Also fixes a live "Don't make tmux pane/window state a load-bearing
- * input" violation: the block's `SLUG=$(tmux show-options -t "$TMUX_PANE"
- * -v -w @flow-slug)` returns empty under the default plain-shell launcher,
- * silently collapsing the whole `VERIFY_MODEL` precedence to `"sonnet"`.
- * This helper resolves the slug via `resolveSlugAmbient` (env-first, then
- * pane) instead.
+ * Also fixed a live "Don't make tmux pane/window state a load-bearing
+ * input" violation: the block used to shell out to `tmux show-options`
+ * for the pipeline slug, which returned empty under the default
+ * plain-shell launcher, silently collapsing the whole `VERIFY_MODEL`
+ * precedence to `"sonnet"`. This helper resolves the slug via
+ * `resolveSlugAmbient` (env-only, `FLOW_SLUG`) instead.
  *
  * Usage:
  *   flow-verify-prep [--worktree <path>] [--skill-dir <path>] [--pr <n>]

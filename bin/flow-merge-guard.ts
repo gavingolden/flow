@@ -41,8 +41,8 @@
  *       "Gate override". Emits `{ recorded: true, pr, confirmedAt }`,
  *       exit 0.
  *
- * `--slug` is optional inside a flow tmux pane: it auto-resolves from
- * `$TMUX_PANE`'s `@flow-slug` window option, same as `flow-gate-decide`.
+ * `--slug` is optional when a pipeline is live: it auto-resolves from
+ * `$FLOW_SLUG`, same as `flow-gate-decide`.
  *
  * Exit codes:
  *   0 — clear (check mode) / token recorded (record mode)
@@ -296,8 +296,8 @@ export function run(argv: string[], deps: Deps = {}): number {
   const slug = parsed.slug ?? resolveSlug();
   if (!slug) {
     console.error(
-      "flow-merge-guard: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
-        "  pass --slug <slug>, or run inside a tmux window created by `flow feature create`.",
+      "flow-merge-guard: no slug given and no FLOW_SLUG in the environment.\n" +
+        "  pass --slug <slug>, or run inside a pipeline launched by `flow feature create`.",
     );
     return 2;
   }

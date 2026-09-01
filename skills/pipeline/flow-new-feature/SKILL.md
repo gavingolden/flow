@@ -223,7 +223,7 @@ config.models.implement > inherited` (see
    config-only:
 
    ```bash
-   SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+   SLUG="$FLOW_SLUG"
    SCOUT_MODEL=$(jq -r '.models.scout // empty' ~/.flow/config.json 2>/dev/null)
    [ -z "$SCOUT_MODEL" ] && SCOUT_MODEL=$(jq -r '.modelImplement // empty' ~/.flow/state/"$SLUG".json)
    [ -z "$SCOUT_MODEL" ] && SCOUT_MODEL=$(jq -r '.models.implement // empty' ~/.flow/config.json 2>/dev/null)

@@ -144,8 +144,6 @@ async function driveRun(repoRoot: string, rel: string): Promise<number> {
   const deps: Deps = {
     readStdin: async () => JSON.stringify({ stop_hook_active: true }),
     flowSlugEnv: "parity-test",
-    tmuxPane: undefined,
-    showFlowSlug: () => "",
     loadState: (): PipelineState => ({
       slug: "parity-test",
       phase: "verifying",
