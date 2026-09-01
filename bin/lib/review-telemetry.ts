@@ -119,24 +119,30 @@ export function aggregateCounts(inputs: {
       ).length;
     }
 
-    const survived = inputs.consolidator
-      ? inputs.consolidator.consolidated_findings.filter(
+    const survived = Array.isArray(inputs.consolidator?.consolidated_findings)
+      ? inputs.consolidator!.consolidated_findings.filter(
           (f) => (f as Record<string, unknown>).agent_source === lens,
         ).length
       : 0;
-    const dropped = inputs.consolidator
-      ? inputs.consolidator.dropped_by_validation.filter((d) =>
-          d.finding_id.startsWith(`${lens}:`),
+    const dropped = Array.isArray(inputs.consolidator?.dropped_by_validation)
+      ? inputs.consolidator!.dropped_by_validation.filter(
+          (d) =>
+            typeof d?.finding_id === "string" &&
+            d.finding_id.startsWith(`${lens}:`),
         ).length
       : 0;
-    const acted = inputs.fixApplier
-      ? inputs.fixApplier.commits.filter((c) =>
-          c.finding_id.startsWith(`${lens}:`),
+    const acted = Array.isArray(inputs.fixApplier?.commits)
+      ? inputs.fixApplier!.commits.filter(
+          (c) =>
+            typeof c?.finding_id === "string" &&
+            c.finding_id.startsWith(`${lens}:`),
         ).length
       : 0;
-    const deferred = inputs.fixApplier
-      ? inputs.fixApplier.deferred.filter((d) =>
-          d.finding_id.startsWith(`${lens}:`),
+    const deferred = Array.isArray(inputs.fixApplier?.deferred)
+      ? inputs.fixApplier!.deferred.filter(
+          (d) =>
+            typeof d?.finding_id === "string" &&
+            d.finding_id.startsWith(`${lens}:`),
         ).length
       : 0;
 
@@ -215,8 +221,13 @@ export async function attributeTranscripts(
     }
   }
 
-  for (const [lens, { file }] of newestByLens) {
-    const usage = await sumTranscriptUsage(file);
+  const summed = await Promise.all(
+    [...newestByLens].map(
+      async ([lens, { file }]) =>
+        [lens, file, await sumTranscriptUsage(file)] as const,
+    ),
+  );
+  for (const [lens, file, usage] of summed) {
     out[lens] = {
       file,
       usage: {

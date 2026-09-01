@@ -107,6 +107,22 @@ describe("resolveScope", () => {
     expect(80 / 100).toBeGreaterThanOrEqual(DELTA_RATIO_THRESHOLD);
   });
 
+  it("returns full 'no PR files changed since marker' when the delta/PR-file intersection is empty", () => {
+    const r = resolveScope({
+      ...BASE_INPUT,
+      markerSha: "abc1234",
+      isAncestor: true,
+      priorStatus: "clean",
+      prFiles: ["a.ts"],
+      changedSinceMarker: ["unrelated.ts"],
+      fullDiffLines: 100,
+      deltaDiffLines: 0,
+    });
+    expect(r.scope).toBe("full");
+    expect(r.reason).toBe("no PR files changed since marker");
+    expect(r.delta_files).toEqual([]);
+  });
+
   it("returns delta with delta_files = intersection and delta_ratio otherwise", () => {
     const r = resolveScope({
       ...BASE_INPUT,

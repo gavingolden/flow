@@ -188,6 +188,18 @@ function safeParse<T>(raw: string | null): T | null {
   }
 }
 
+function redactRemote(url: string): string {
+  try {
+    const u = new URL(url);
+    u.username = "";
+    u.password = "";
+    return u.toString();
+  } catch {
+    // scp-style git@host:o/r.git has no userinfo to strip
+    return url;
+  }
+}
+
 async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
   const scopePath = path.join(args.worktree, ".flow-tmp", "review-scope.json");
   const scopeRaw = safeParse<{
@@ -247,7 +259,7 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
   let repo: string;
   const remoteResult = deps.git(["remote", "get-url", "origin"], args.worktree);
   if (remoteResult.exitCode === 0 && remoteResult.stdout.trim()) {
-    repo = remoteResult.stdout.trim();
+    repo = redactRemote(remoteResult.stdout.trim());
   } else {
     repo = path.basename(args.worktree);
   }
@@ -308,13 +320,8 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
       path.join(deps.homeDir, ".flow", "telemetry", "review-lenses.jsonl");
     deps.mkdir(path.dirname(jsonlPath));
     const existing = deps.readFile(jsonlPath) ?? "";
-    const alreadyPresent = existing
-      .split("\n")
-      .filter(Boolean)
-      .some((line) => {
-        const parsed = safeParse<{ run_id?: string }>(line);
-        return parsed?.run_id === telemetry.run_id;
-      });
+    const needle = `"run_id":${JSON.stringify(telemetry.run_id)}`;
+    const alreadyPresent = existing.includes(needle);
     if (!alreadyPresent) {
       deps.appendFile(jsonlPath, `${JSON.stringify(telemetry)}\n`);
     }

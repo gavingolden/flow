@@ -37,11 +37,9 @@ Helpers (installed globally by `flow install` and on PATH):
 
 - `flow-fetch-pr-review` — fetches PR metadata, description, changed files, review
   summaries, and inline comments from GitHub
-- `flow-pr-diff` — wraps `gh pr diff <number>` and per-file caps each block at 300
-  source lines (head 200 + tail 100 + one marker line), so a truncated block emits
-  at most 301 lines on the wire. Used at Step 3 so the six parallel review agents
-  don't each receive a 50–100 KB raw diff — they Read changed files in full for
-  surrounding context, so the diff is a hint, not the source of truth.
+- `flow-pr-diff` — wraps `gh pr diff <number>`, per-file caps each block at 300 source lines. `capDiff` is reused by `flow-review-scope`; direct use is now only the Gemini-lens fallback (L682) — agents Read changed files in full, so the diff is a hint, not the source of truth.
+- `flow-review-scope` — resolves Step 3's `full`/`delta` scope + per-lens gates, writes the capped diff and synthetic gated-lens artifacts.
+- `flow-review-telemetry` — `collect`/`print`: per-lens counts feeding the Step 12 `### Lens telemetry` section.
 - `flow-pr-static-analysis` — runs the consumer's installed static-analysis tools
   (semgrep, biome/eslint, tsc), parses each into a unified
   `{file, line, rule_id, confidence, severity, source}` shape filtered to PR-touched
@@ -610,8 +608,10 @@ has its own resolved type) and `model: "$REVIEW_MODEL"` when non-empty:
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
   `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`,
   `{{STATIC_ANALYSIS_FACTS}}`, `{{EXISTING_INTENT_COMMENTS}}` (from step 6's
-  `.flow-tmp/intent-comments.md`), and (Pattern & Consistency Agent only)
-  `{{PROMPT_INTERPRETATION_TENSION}}` from `$PROMPT_INTERPRETATION_TENSION`
+  `.flow-tmp/intent-comments.md`), `{{REVIEW_SCOPE}}` (per
+  `references/review-scope.md` "Spawn only the ungated lenses"), and
+  (Pattern & Consistency Agent only) `{{PROMPT_INTERPRETATION_TENSION}}` from
+  `$PROMPT_INTERPRETATION_TENSION`
   computed in step 5 above. For the static-analysis variable, substitute a single
   self-contained JSON object containing both the lens findings and the matching meta
   slice — agents are instructed to check `meta.<lens>.ran` so the substituted block
@@ -1594,7 +1594,7 @@ pass-through `lens_anti_patterns_found[]` entries above have no such flag (three
 Render the boolean in **Anti-Patterns Observed**, and append the new-file audit's
 WARNING lines (Step 9a above) so a misclassified introduced-in-PR entry stays visible.
 
-**Lens telemetry.** `flow-review-telemetry collect --worktree "$WORKTREE" --pr "$PR_NUMBER" --session-id "$CLAUDE_CODE_SESSION_ID" "${LENS_TOKENS[@]/#/--lens-tokens }" --append ${WIDEN_REASON:+--widened "$WIDEN_REASON"}` then `flow-review-telemetry print --in "$WORKTREE/.flow-tmp/review-telemetry.json"`; paste `print`'s stdout under the report's `### Lens telemetry` heading (`references/report-template.md`).
+**Lens telemetry.** Build `LENS_TOKEN_ARGS` per `references/review-scope.md` "Record lens tokens" (quoted `"${LENS_TOKENS[@]/#/--lens-tokens }"` glues each pair into one argv word and `parseArgs` rejects it), then run `flow-review-telemetry collect --worktree "$WORKTREE" --pr "$PR_NUMBER" --session-id "$CLAUDE_CODE_SESSION_ID" "${LENS_TOKEN_ARGS[@]}" --append ${WIDEN_REASON:+--widened "$WIDEN_REASON"}` then `flow-review-telemetry print --in "$WORKTREE/.flow-tmp/review-telemetry.json"`; paste `print`'s stdout under `### Lens telemetry` (`references/report-template.md`).
 
 **Agent-fallback notices.** When any spawn site's file-exists guard fired its
 `NOTICE — agent-fallback: ...` line during this run (gatekeeper, per-lens,

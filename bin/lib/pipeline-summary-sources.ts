@@ -394,6 +394,13 @@ export function renderLenses(raw: string | undefined): {
   let tokenTotal = 0;
   let anyTokens = false;
   for (const [lens, l] of Object.entries(lenses)) {
+    if (lens === "gemini" && l.skip_reason === "no artifact") {
+      // gemini is optional-by-default (review.gemini off), not a gated lens
+      // like the six mandatory ones — "not run" keeps it out of the ran/total
+      // ratio instead of masquerading as a real gate verdict.
+      devLines.push(`${lens}: not run`);
+      continue;
+    }
     totalCount++;
     if (l.ran) {
       ranCount++;

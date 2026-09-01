@@ -106,6 +106,9 @@ export function resolveScope(input: {
 
   const prFileSet = new Set(input.prFiles);
   const delta_files = input.changedSinceMarker.filter((f) => prFileSet.has(f));
+  if (delta_files.length === 0) {
+    return full("no PR files changed since marker", input.markerSha);
+  }
   return {
     scope: "delta",
     reason: "delta re-entry",
@@ -325,8 +328,10 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
 
   const markerPath = path.join(worktree, ".flow-tmp", "pr-review-last-sha");
   const markerRaw = deps.readFile(markerPath);
-  const markerSha =
-    markerRaw !== null && markerRaw.trim() ? markerRaw.trim() : null;
+  const markerTrimmed = markerRaw !== null ? markerRaw.trim() : "";
+  const markerSha = /^[0-9a-f]{7,40}$/.test(markerTrimmed)
+    ? markerTrimmed
+    : null;
 
   let isAncestor = false;
   if (markerSha) {
