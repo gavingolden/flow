@@ -119,6 +119,11 @@ describe("parseLensTokens", () => {
     ]);
     expect(out).toEqual({ "bug-detection": 123 });
   });
+
+  it("sums duplicate flags for the same lens (widen re-pass)", () => {
+    const out = parseLensTokens(["bug-detection=100", "bug-detection=50"]);
+    expect(out).toEqual({ "bug-detection": 150 });
+  });
 });
 
 const scratchDirs: string[] = [];

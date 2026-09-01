@@ -66,7 +66,7 @@ export function parseLensTokens(
     const lens = flag.slice(0, eq);
     const value = Number(flag.slice(eq + 1));
     if (!lens || !Number.isFinite(value)) continue;
-    out[lens] = value;
+    out[lens] = (out[lens] ?? 0) + value;
   }
   return out;
 }
