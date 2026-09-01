@@ -28,7 +28,10 @@ describe("aggregateCounts", () => {
   it("marks a lens ran:false with the gated reason when the artifact carries a gated key", () => {
     const counts = aggregateCounts({
       agentOutputs: {
-        performance: { findings: [], gated: { reason: "docs-only diff (1 files)" } },
+        performance: {
+          findings: [],
+          gated: { reason: "docs-only diff (1 files)" },
+        },
       },
       consolidator: null,
       fixApplier: null,
@@ -40,7 +43,10 @@ describe("aggregateCounts", () => {
   it("attributes survived findings by agent_source and dropped/acted/deferred by the `<lens>:` finding_id prefix", () => {
     const consolidator: ConsolidatorResult = {
       consolidated_findings: [
-        { finding_id: "bug-detection:a.ts:1:issue", agent_source: "bug-detection" },
+        {
+          finding_id: "bug-detection:a.ts:1:issue",
+          agent_source: "bug-detection",
+        },
       ],
       dropped_by_validation: [
         {
@@ -105,7 +111,12 @@ describe("aggregateCounts", () => {
 
 describe("parseLensTokens", () => {
   it("parses `bug-detection=123` pairs and ignores malformed entries", () => {
-    const out = parseLensTokens(["bug-detection=123", "malformed", "security=abc", "=99"]);
+    const out = parseLensTokens([
+      "bug-detection=123",
+      "malformed",
+      "security=abc",
+      "=99",
+    ]);
     expect(out).toEqual({ "bug-detection": 123 });
   });
 });
@@ -207,9 +218,21 @@ describe("mergeTelemetry", () => {
   it("should prefer --lens-tokens over transcript usage (tokens_source 'task-notification', tokens.total only)", () => {
     const t = mergeTelemetry({
       ...baseArgs,
-      counts: { "bug-detection": { ran: true, skip_reason: null, findings_emitted: 1, findings_survived: 1, findings_dropped: 0, findings_acted: 0, findings_deferred: 0 } },
+      counts: {
+        "bug-detection": {
+          ran: true,
+          skip_reason: null,
+          findings_emitted: 1,
+          findings_survived: 1,
+          findings_dropped: 0,
+          findings_acted: 0,
+          findings_deferred: 0,
+        },
+      },
       lensTokens: { "bug-detection": 12345 },
-      transcripts: { "bug-detection": { usage: { total: 999, input: 1 }, model: "claude-x" } },
+      transcripts: {
+        "bug-detection": { usage: { total: 999, input: 1 }, model: "claude-x" },
+      },
     });
     expect(t.lenses["bug-detection"].tokens).toEqual({ total: 12345 });
     expect(t.lenses["bug-detection"].tokens_source).toBe("task-notification");
@@ -220,20 +243,39 @@ describe("mergeTelemetry", () => {
       ...baseArgs,
       counts: {},
       lensTokens: {},
-      transcripts: { "bug-detection": { usage: { total: 50, input: 30, output: 20 }, model: "claude-x" } },
+      transcripts: {
+        "bug-detection": {
+          usage: { total: 50, input: 30, output: 20 },
+          model: "claude-x",
+        },
+      },
     });
-    expect(t.lenses["bug-detection"].tokens).toEqual({ total: 50, input: 30, output: 20 });
+    expect(t.lenses["bug-detection"].tokens).toEqual({
+      total: 50,
+      input: 30,
+      output: 20,
+    });
     expect(t.lenses["bug-detection"].tokens_source).toBe("subagent-transcript");
   });
 
   it("yields tokens null + 'unavailable' when neither exists", () => {
-    const t = mergeTelemetry({ ...baseArgs, counts: {}, lensTokens: {}, transcripts: {} });
+    const t = mergeTelemetry({
+      ...baseArgs,
+      counts: {},
+      lensTokens: {},
+      transcripts: {},
+    });
     expect(t.lenses["bug-detection"].tokens).toBeNull();
     expect(t.lenses["bug-detection"].tokens_source).toBe("unavailable");
   });
 
   it("builds run_id as `<pr>:<head_sha>:<started_at>`", () => {
-    const t = mergeTelemetry({ ...baseArgs, counts: {}, lensTokens: {}, transcripts: {} });
+    const t = mergeTelemetry({
+      ...baseArgs,
+      counts: {},
+      lensTokens: {},
+      transcripts: {},
+    });
     expect(t.run_id).toBe("42:def:2026-01-01T00:00:00.000Z");
   });
 });

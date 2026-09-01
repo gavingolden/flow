@@ -1820,7 +1820,10 @@ describe("validateConsolidatorResult — scope_verdict", () => {
       string,
       unknown
     >;
-    fixture.scope_verdict = { widen: true, reason: "cross-file contract break" };
+    fixture.scope_verdict = {
+      widen: true,
+      reason: "cross-file contract break",
+    };
     const result = validateConsolidatorResult(fixture);
     expect(result.ok).toBe(true);
   });

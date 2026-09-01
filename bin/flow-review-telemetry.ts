@@ -27,7 +27,10 @@ import {
   parseLensTokens,
   type ReviewTelemetry,
 } from "./lib/review-telemetry";
-import { ALL_LENS_NAMES, type ConsolidatorResult } from "./lib/agent-finding-schema";
+import {
+  ALL_LENS_NAMES,
+  type ConsolidatorResult,
+} from "./lib/agent-finding-schema";
 import type { FixApplierResult } from "./lib/fix-applier-schema";
 
 export type Deps = {
@@ -159,7 +162,17 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
     if (!worktree) return { error: "--worktree is required" };
     if (pr === undefined) return { error: "--pr is required" };
-    return { sub: "collect", worktree, pr, lensTokens, sessionId, out, append, jsonl, widened };
+    return {
+      sub: "collect",
+      worktree,
+      pr,
+      lensTokens,
+      sessionId,
+      out,
+      append,
+      jsonl,
+      widened,
+    };
   }
   return { error: "subcommand is required (collect | print)" };
 }
@@ -199,23 +212,36 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
     startedAt = scopeRaw.started_at;
   } else {
     const headResult = deps.git(["rev-parse", "HEAD"], args.worktree);
-    const headSha = headResult.exitCode === 0 ? headResult.stdout.trim() : "unknown";
+    const headSha =
+      headResult.exitCode === 0 ? headResult.stdout.trim() : "unknown";
     startedAt = deps.now().toISOString();
-    scope = { scope: "full", base_sha: null, head_sha: headSha, delta_files: [], delta_ratio: null };
+    scope = {
+      scope: "full",
+      base_sha: null,
+      head_sha: headSha,
+      delta_files: [],
+      delta_ratio: null,
+    };
   }
 
   const agentOutputs: Record<string, unknown | null> = {};
   for (const lens of ALL_LENS_NAMES) {
     agentOutputs[lens] = safeParse(
-      deps.readFile(path.join(args.worktree, ".flow-tmp", `agent-output-${lens}.json`)),
+      deps.readFile(
+        path.join(args.worktree, ".flow-tmp", `agent-output-${lens}.json`),
+      ),
     );
   }
 
   const consolidator = safeParse<ConsolidatorResult>(
-    deps.readFile(path.join(args.worktree, ".flow-tmp", "consolidator-result.json")),
+    deps.readFile(
+      path.join(args.worktree, ".flow-tmp", "consolidator-result.json"),
+    ),
   );
   const fixApplier = safeParse<FixApplierResult>(
-    deps.readFile(path.join(args.worktree, ".flow-tmp", "fix-applier-result.json")),
+    deps.readFile(
+      path.join(args.worktree, ".flow-tmp", "fix-applier-result.json"),
+    ),
   );
 
   let repo: string;
@@ -230,7 +256,9 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
   const flowSlug = deps.env.FLOW_SLUG;
   if (flowSlug) {
     const state = safeParse<{ repo?: string; slug?: string }>(
-      deps.readFile(path.join(deps.homeDir, ".flow", "state", `${flowSlug}.json`)),
+      deps.readFile(
+        path.join(deps.homeDir, ".flow", "state", `${flowSlug}.json`),
+      ),
     );
     if (state) {
       slug = state.slug ?? flowSlug;
@@ -242,7 +270,10 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
 
   const sessionId = args.sessionId ?? deps.env.CLAUDE_CODE_SESSION_ID ?? null;
 
-  let transcripts: Record<string, { usage: { total: number }; model: string | null }> = {};
+  let transcripts: Record<
+    string,
+    { usage: { total: number }; model: string | null }
+  > = {};
   if (sessionId) {
     const subagentsDir = findSubagentsDir(sessionId);
     if (subagentsDir) {
@@ -267,11 +298,14 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
     startedAt,
   });
 
-  const outPath = args.out ?? path.join(args.worktree, ".flow-tmp", "review-telemetry.json");
+  const outPath =
+    args.out ?? path.join(args.worktree, ".flow-tmp", "review-telemetry.json");
   deps.writeFile(outPath, JSON.stringify(telemetry));
 
   if (args.append) {
-    const jsonlPath = args.jsonl ?? path.join(deps.homeDir, ".flow", "telemetry", "review-lenses.jsonl");
+    const jsonlPath =
+      args.jsonl ??
+      path.join(deps.homeDir, ".flow", "telemetry", "review-lenses.jsonl");
     deps.mkdir(path.dirname(jsonlPath));
     const existing = deps.readFile(jsonlPath) ?? "";
     const alreadyPresent = existing
@@ -294,9 +328,13 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
 export function renderTable(t: ReviewTelemetry): string {
   const lines: string[] = [];
   const widenedSuffix = t.widened.value ? `, widened: ${t.widened.reason}` : "";
-  lines.push(`scope: ${t.scope.kind} (${t.scope.delta_files} files${widenedSuffix})`);
+  lines.push(
+    `scope: ${t.scope.kind} (${t.scope.delta_files} files${widenedSuffix})`,
+  );
   lines.push("");
-  lines.push("| Lens | Ran | Tokens | Emitted | Survived | Acted | Deferred | Skip reason |");
+  lines.push(
+    "| Lens | Ran | Tokens | Emitted | Survived | Acted | Deferred | Skip reason |",
+  );
   lines.push("| --- | --- | --- | --- | --- | --- | --- | --- |");
   let unavailableCount = 0;
   for (const [lens, l] of Object.entries(t.lenses)) {
@@ -325,7 +363,10 @@ async function runPrint(args: PrintArgs, deps: Deps): Promise<number> {
   return 0;
 }
 
-export async function run(argv: string[], deps: Deps = defaultDeps): Promise<number> {
+export async function run(
+  argv: string[],
+  deps: Deps = defaultDeps,
+): Promise<number> {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     process.stderr.write(`flow-review-telemetry: ${parsed.error}\n`);

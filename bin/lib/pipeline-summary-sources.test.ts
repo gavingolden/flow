@@ -1120,14 +1120,25 @@ describe(renderLenses, () => {
     const raw = JSON.stringify({
       scope: { kind: "full", delta_files: 0 },
       widened: { value: false, reason: null },
-      lenses: { "bug-detection": { ran: true, tokens: null, findings_emitted: 0, findings_survived: 0, findings_acted: 0 } },
+      lenses: {
+        "bug-detection": {
+          ran: true,
+          tokens: null,
+          findings_emitted: 0,
+          findings_survived: 0,
+          findings_acted: 0,
+        },
+      },
     });
     const { dev } = renderLenses(raw);
     expect(dev).toContain("bug-detection: ran · n/a tok · 0→0→0");
   });
 
   it("returns dev ['none'] / pm 'lenses: none' for undefined/empty raw", () => {
-    expect(renderLenses(undefined)).toEqual({ dev: ["none"], pm: "lenses: none" });
+    expect(renderLenses(undefined)).toEqual({
+      dev: ["none"],
+      pm: "lenses: none",
+    });
     expect(renderLenses("")).toEqual({ dev: ["none"], pm: "lenses: none" });
   });
 

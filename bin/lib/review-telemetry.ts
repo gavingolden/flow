@@ -10,7 +10,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { sumTranscriptUsage, defaultProjectsRoot } from "./cost";
-import { ALL_LENS_NAMES, type ConsolidatorResult } from "./agent-finding-schema";
+import {
+  ALL_LENS_NAMES,
+  type ConsolidatorResult,
+} from "./agent-finding-schema";
 import type { FixApplierResult } from "./fix-applier-schema";
 
 export type TokenUsage = {
@@ -53,7 +56,9 @@ export type ReviewTelemetry = {
   lenses: Record<string, LensTelemetry>;
 };
 
-export function parseLensTokens(flags: readonly string[]): Record<string, number> {
+export function parseLensTokens(
+  flags: readonly string[],
+): Record<string, number> {
   const out: Record<string, number> = {};
   for (const flag of flags) {
     const eq = flag.indexOf("=");
@@ -109,7 +114,9 @@ export function aggregateCounts(inputs: {
       typeof output === "object" &&
       Array.isArray((output as Record<string, unknown>).findings)
     ) {
-      findings_emitted = ((output as Record<string, unknown>).findings as unknown[]).length;
+      findings_emitted = (
+        (output as Record<string, unknown>).findings as unknown[]
+      ).length;
     }
 
     const survived = inputs.consolidator
@@ -123,10 +130,14 @@ export function aggregateCounts(inputs: {
         ).length
       : 0;
     const acted = inputs.fixApplier
-      ? inputs.fixApplier.commits.filter((c) => c.finding_id.startsWith(`${lens}:`)).length
+      ? inputs.fixApplier.commits.filter((c) =>
+          c.finding_id.startsWith(`${lens}:`),
+        ).length
       : 0;
     const deferred = inputs.fixApplier
-      ? inputs.fixApplier.deferred.filter((d) => d.finding_id.startsWith(`${lens}:`)).length
+      ? inputs.fixApplier.deferred.filter((d) =>
+          d.finding_id.startsWith(`${lens}:`),
+        ).length
       : 0;
 
     out[lens] = {
@@ -143,7 +154,11 @@ export function aggregateCounts(inputs: {
   return out;
 }
 
-type TranscriptEntry = { file: string; usage: TokenUsage; model: string | null };
+type TranscriptEntry = {
+  file: string;
+  usage: TokenUsage;
+  model: string | null;
+};
 
 function lensFromMeta(meta: {
   agentType?: unknown;

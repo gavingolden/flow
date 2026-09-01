@@ -148,12 +148,18 @@ export function evaluateGates(
 
   const docsOnly = isDocsOnly(files);
   const hasManifest = files.some((f) => matchesAny(f, MANIFEST_GLOBS));
-  const hasDependencySignal = (opts.staticAnalysis?.dependencies?.length ?? 0) > 0;
+  const hasDependencySignal =
+    (opts.staticAnalysis?.dependencies?.length ?? 0) > 0;
   const hasSecuritySignal = (opts.staticAnalysis?.security?.length ?? 0) > 0;
 
   out["supply-chain"] =
     hasManifest || hasDependencySignal
-      ? { run: true, reason: hasManifest ? "manifest/lockfile changed" : "static-analysis dependencies signal" }
+      ? {
+          run: true,
+          reason: hasManifest
+            ? "manifest/lockfile changed"
+            : "static-analysis dependencies signal",
+        }
       : {
           run: false,
           reason: `no manifest/lockfile among ${files.length} changed files`,
@@ -162,7 +168,12 @@ export function evaluateGates(
   out.security =
     docsOnly && !hasSecuritySignal
       ? { run: false, reason: `docs-only diff (${files.length} files)` }
-      : { run: true, reason: hasSecuritySignal ? "static-analysis security signal" : "not docs-only" };
+      : {
+          run: true,
+          reason: hasSecuritySignal
+            ? "static-analysis security signal"
+            : "not docs-only",
+        };
 
   out.performance = docsOnly
     ? { run: false, reason: `docs-only diff (${files.length} files)` }

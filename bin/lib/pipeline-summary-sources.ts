@@ -358,7 +358,9 @@ export function renderLenses(raw: string | undefined): {
   const scope = parsed.scope as
     | { kind?: string; delta_files?: number }
     | undefined;
-  const widened = parsed.widened as { value?: boolean; reason?: string } | undefined;
+  const widened = parsed.widened as
+    | { value?: boolean; reason?: string }
+    | undefined;
   const lenses = parsed.lenses as
     | Record<
         string,
@@ -372,7 +374,12 @@ export function renderLenses(raw: string | undefined): {
         }
       >
     | undefined;
-  if (!scope || typeof scope !== "object" || !lenses || typeof lenses !== "object") {
+  if (
+    !scope ||
+    typeof scope !== "object" ||
+    !lenses ||
+    typeof lenses !== "object"
+  ) {
     return { dev: ["(unreadable)"], pm: "lenses: (unreadable)" };
   }
 
@@ -390,7 +397,10 @@ export function renderLenses(raw: string | undefined): {
     totalCount++;
     if (l.ran) {
       ranCount++;
-      const tokStr = l.tokens && typeof l.tokens.total === "number" ? String(l.tokens.total) : "n/a";
+      const tokStr =
+        l.tokens && typeof l.tokens.total === "number"
+          ? String(l.tokens.total)
+          : "n/a";
       if (l.tokens && typeof l.tokens.total === "number") {
         tokenTotal += l.tokens.total;
         anyTokens = true;

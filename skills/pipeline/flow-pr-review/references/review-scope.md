@@ -92,5 +92,5 @@ WIDEN=$(jq -r '.scope_verdict.widen // false' "$WORKTREE/.flow-tmp/consolidator-
   (same exemption, same "Load the Task tool before spawning" preamble —
   not a new site), and re-run Step 3.5.
 - If `true` and `WIDENED == 1`: print `NOTICE — widen-cap: consolidator
-  asked to widen again; already widened once this invocation` and
+asked to widen again; already widened once this invocation` and
   proceed without re-spawning.

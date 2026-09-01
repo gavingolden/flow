@@ -23,7 +23,9 @@ describe("evaluateGates", () => {
   it("skips supply-chain when no changed file matches a manifest/lockfile", () => {
     const gates = evaluateGates(["src/foo.ts"], { enabled: true });
     expect(gates["supply-chain"].run).toBe(false);
-    expect(gates["supply-chain"].reason).toContain("no manifest/lockfile among");
+    expect(gates["supply-chain"].reason).toContain(
+      "no manifest/lockfile among",
+    );
   });
 
   it("runs supply-chain when package.json or bun.lock changed", () => {

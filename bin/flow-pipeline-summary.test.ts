@@ -1189,7 +1189,13 @@ describe("run — end-to-end", () => {
         slug: null,
         pr: 1,
         session_id: null,
-        scope: { kind: "delta", base_sha: "abc", head_sha: "def", delta_files: 1, delta_ratio: 0.1 },
+        scope: {
+          kind: "delta",
+          base_sha: "abc",
+          head_sha: "def",
+          delta_files: 1,
+          delta_ratio: 0.1,
+        },
         widened: { value: false, reason: null },
         lenses: {
           "bug-detection": {
@@ -1246,7 +1252,13 @@ describe("render — pm lens LENSES line", () => {
         scope: { kind: "full", delta_files: 0 },
         widened: { value: false, reason: null },
         lenses: {
-          "bug-detection": { ran: true, tokens: { total: 10 }, findings_emitted: 0, findings_survived: 0, findings_acted: 0 },
+          "bug-detection": {
+            ran: true,
+            tokens: { total: 10 },
+            findings_emitted: 0,
+            findings_survived: 0,
+            findings_acted: 0,
+          },
         },
       }),
     });
@@ -1706,7 +1718,13 @@ describe("renderComment — slim PR-comment block (dev)", () => {
         scope: { kind: "full", delta_files: 0 },
         widened: { value: false, reason: null },
         lenses: {
-          "bug-detection": { ran: true, tokens: { total: 5 }, findings_emitted: 0, findings_survived: 0, findings_acted: 0 },
+          "bug-detection": {
+            ran: true,
+            tokens: { total: 5 },
+            findings_emitted: 0,
+            findings_survived: 0,
+            findings_acted: 0,
+          },
         },
       }),
     }).dev;

@@ -2,7 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseArgs, renderTable, run, type Deps } from "./flow-review-telemetry";
+import {
+  parseArgs,
+  renderTable,
+  run,
+  type Deps,
+} from "./flow-review-telemetry";
 import type { ReviewTelemetry } from "./lib/review-telemetry";
 
 const scratchDirs: string[] = [];
@@ -40,7 +45,9 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps {
     git: () => ({ stdout: "deadbeef1234\n", exitCode: 0 }),
     env: {},
     now: () => new Date("2026-01-01T00:00:00.000Z"),
-    homeDir: fs.mkdtempSync(path.join(os.tmpdir(), "flow-review-telemetry-home-")),
+    homeDir: fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-review-telemetry-home-"),
+    ),
     stdout: () => {},
     ...overrides,
   };
@@ -57,7 +64,10 @@ describe("collect", () => {
     const code = await run(["collect", "--worktree", dir, "--pr", "10"], deps);
     expect(code).toBe(0);
     const telemetry: ReviewTelemetry = JSON.parse(
-      fs.readFileSync(path.join(dir, ".flow-tmp", "review-telemetry.json"), "utf8"),
+      fs.readFileSync(
+        path.join(dir, ".flow-tmp", "review-telemetry.json"),
+        "utf8",
+      ),
     );
     expect(telemetry.lenses["bug-detection"].findings_emitted).toBe(1);
     expect(Object.keys(telemetry.lenses).length).toBeGreaterThanOrEqual(6);
@@ -67,24 +77,64 @@ describe("collect", () => {
     const dir = makeWorktree();
     const deps = makeDeps();
     const code = await run(
-      ["collect", "--worktree", dir, "--pr", "10", "--lens-tokens", "bug-detection=999"],
+      [
+        "collect",
+        "--worktree",
+        dir,
+        "--pr",
+        "10",
+        "--lens-tokens",
+        "bug-detection=999",
+      ],
       deps,
     );
     expect(code).toBe(0);
     const telemetry: ReviewTelemetry = JSON.parse(
-      fs.readFileSync(path.join(dir, ".flow-tmp", "review-telemetry.json"), "utf8"),
+      fs.readFileSync(
+        path.join(dir, ".flow-tmp", "review-telemetry.json"),
+        "utf8",
+      ),
     );
     expect(telemetry.lenses["bug-detection"].tokens).toEqual({ total: 999 });
-    expect(telemetry.lenses["bug-detection"].tokens_source).toBe("task-notification");
+    expect(telemetry.lenses["bug-detection"].tokens_source).toBe(
+      "task-notification",
+    );
   });
 
   it("appends exactly one JSONL line with --append and does not duplicate it on a second run with the same run_id", async () => {
     const dir = makeWorktree();
     const jsonlPath = path.join(dir, "rt.jsonl");
     const deps = makeDeps();
-    await run(["collect", "--worktree", dir, "--pr", "10", "--append", "--jsonl", jsonlPath], deps);
-    await run(["collect", "--worktree", dir, "--pr", "10", "--append", "--jsonl", jsonlPath], deps);
-    const lines = fs.readFileSync(jsonlPath, "utf8").split("\n").filter(Boolean);
+    await run(
+      [
+        "collect",
+        "--worktree",
+        dir,
+        "--pr",
+        "10",
+        "--append",
+        "--jsonl",
+        jsonlPath,
+      ],
+      deps,
+    );
+    await run(
+      [
+        "collect",
+        "--worktree",
+        dir,
+        "--pr",
+        "10",
+        "--append",
+        "--jsonl",
+        jsonlPath,
+      ],
+      deps,
+    );
+    const lines = fs
+      .readFileSync(jsonlPath, "utf8")
+      .split("\n")
+      .filter(Boolean);
     expect(lines.length).toBe(1);
   });
 
@@ -94,7 +144,10 @@ describe("collect", () => {
     const code = await run(["collect", "--worktree", dir, "--pr", "10"], deps);
     expect(code).toBe(0);
     const telemetry: ReviewTelemetry = JSON.parse(
-      fs.readFileSync(path.join(dir, ".flow-tmp", "review-telemetry.json"), "utf8"),
+      fs.readFileSync(
+        path.join(dir, ".flow-tmp", "review-telemetry.json"),
+        "utf8",
+      ),
     );
     expect(telemetry.lenses["bug-detection"].findings_survived).toBe(0);
   });
@@ -107,7 +160,9 @@ describe("collect", () => {
 });
 
 describe("print", () => {
-  function fixtureTelemetry(overrides: Partial<ReviewTelemetry> = {}): ReviewTelemetry {
+  function fixtureTelemetry(
+    overrides: Partial<ReviewTelemetry> = {},
+  ): ReviewTelemetry {
     return {
       version: 1,
       run_id: "10:abc:2026",
@@ -116,7 +171,13 @@ describe("print", () => {
       slug: null,
       pr: 10,
       session_id: null,
-      scope: { kind: "delta", base_sha: "abc", head_sha: "def", delta_files: 1, delta_ratio: 0.1 },
+      scope: {
+        kind: "delta",
+        base_sha: "abc",
+        head_sha: "def",
+        delta_files: 1,
+        delta_ratio: 0.1,
+      },
       widened: { value: false, reason: null },
       lenses: {
         "bug-detection": {
@@ -179,7 +240,9 @@ describe("print", () => {
   });
 
   it("prints via the CLI", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-review-telemetry-print-"));
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-review-telemetry-print-"),
+    );
     scratchDirs.push(dir);
     const inPath = path.join(dir, "rt.json");
     fs.writeFileSync(inPath, JSON.stringify(fixtureTelemetry()));
@@ -193,7 +256,9 @@ describe("print", () => {
 
 describe("parseArgs", () => {
   it("errors when neither collect nor print is given", () => {
-    expect(parseArgs([])).toEqual({ error: "subcommand is required (collect | print)" });
+    expect(parseArgs([])).toEqual({
+      error: "subcommand is required (collect | print)",
+    });
   });
 });
 

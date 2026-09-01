@@ -60,11 +60,17 @@ export function resolveScope(input: {
   deltaDiffLines: number;
   deltaEnabled: boolean;
   forceFull: boolean;
-}): Pick<ReviewScope, "scope" | "reason" | "base_sha" | "delta_files" | "delta_ratio"> {
+}): Pick<
+  ReviewScope,
+  "scope" | "reason" | "base_sha" | "delta_files" | "delta_ratio"
+> {
   const full = (
     reason: string,
     base_sha: string | null = null,
-  ): Pick<ReviewScope, "scope" | "reason" | "base_sha" | "delta_files" | "delta_ratio"> => ({
+  ): Pick<
+    ReviewScope,
+    "scope" | "reason" | "base_sha" | "delta_files" | "delta_ratio"
+  > => ({
     scope: "full",
     reason,
     base_sha,
@@ -130,7 +136,8 @@ export function renderNotices(scope: ReviewScope): string[] {
   } else {
     const base7 = (scope.base_sha ?? "").slice(0, 7);
     const head7 = scope.head_sha.slice(0, 7);
-    const pct = scope.delta_ratio !== null ? Math.round(scope.delta_ratio * 100) : 0;
+    const pct =
+      scope.delta_ratio !== null ? Math.round(scope.delta_ratio * 100) : 0;
     notices.push(
       `NOTICE — review-scope: delta ${base7}..${head7} (${scope.delta_files.length} files, ${pct}% of PR diff)`,
     );
@@ -204,18 +211,21 @@ export function parseArgs(argv: string[]): ParsedArgs {
       case "--pr": {
         if (value === undefined) return { error: "--pr requires a value" };
         const n = Number.parseInt(value, 10);
-        if (Number.isNaN(n) || n <= 0) return { error: `invalid --pr value: ${value}` };
+        if (Number.isNaN(n) || n <= 0)
+          return { error: `invalid --pr value: ${value}` };
         pr = n;
         i++;
         break;
       }
       case "--worktree":
-        if (value === undefined) return { error: "--worktree requires a value" };
+        if (value === undefined)
+          return { error: "--worktree requires a value" };
         worktree = value;
         i++;
         break;
       case "--static-analysis":
-        if (value === undefined) return { error: "--static-analysis requires a value" };
+        if (value === undefined)
+          return { error: "--static-analysis requires a value" };
         staticAnalysis = value;
         i++;
         break;
@@ -225,7 +235,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
         i++;
         break;
       case "--diff-out":
-        if (value === undefined) return { error: "--diff-out requires a value" };
+        if (value === undefined)
+          return { error: "--diff-out requires a value" };
         diffOut = value;
         i++;
         break;
@@ -241,7 +252,17 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
   if (pr === undefined) return { error: "--pr is required" };
   if (worktree === undefined) return { error: "--worktree is required" };
-  return { pr, worktree, staticAnalysis, out, diffOut, noGates, forceFull, config, json };
+  return {
+    pr,
+    worktree,
+    staticAnalysis,
+    out,
+    diffOut,
+    noGates,
+    forceFull,
+    config,
+    json,
+  };
 }
 
 function countLines(diff: string): number {
@@ -280,9 +301,18 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
   }
 
   const worktree = parsed.worktree;
-  const configPath = parsed.config ?? path.join(deps.homeDir, ".flow", "config.json");
-  const gatesEnabledByConfig = readTolerantBool(deps.readFile, configPath, "lensGates");
-  const deltaEnabledByConfig = readTolerantBool(deps.readFile, configPath, "deltaScope");
+  const configPath =
+    parsed.config ?? path.join(deps.homeDir, ".flow", "config.json");
+  const gatesEnabledByConfig = readTolerantBool(
+    deps.readFile,
+    configPath,
+    "lensGates",
+  );
+  const deltaEnabledByConfig = readTolerantBool(
+    deps.readFile,
+    configPath,
+    "deltaScope",
+  );
   const gatesEnabled = !parsed.noGates && gatesEnabledByConfig;
   const deltaEnabled = deltaEnabledByConfig;
 
@@ -295,11 +325,15 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
 
   const markerPath = path.join(worktree, ".flow-tmp", "pr-review-last-sha");
   const markerRaw = deps.readFile(markerPath);
-  const markerSha = markerRaw !== null && markerRaw.trim() ? markerRaw.trim() : null;
+  const markerSha =
+    markerRaw !== null && markerRaw.trim() ? markerRaw.trim() : null;
 
   let isAncestor = false;
   if (markerSha) {
-    const r = deps.git(["merge-base", "--is-ancestor", markerSha, "HEAD"], worktree);
+    const r = deps.git(
+      ["merge-base", "--is-ancestor", markerSha, "HEAD"],
+      worktree,
+    );
     isAncestor = r.exitCode === 0;
   }
 
@@ -310,7 +344,8 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
   if (resultRaw !== null) {
     try {
       const parsedResult = JSON.parse(resultRaw);
-      priorStatus = typeof parsedResult?.status === "string" ? parsedResult.status : null;
+      priorStatus =
+        typeof parsedResult?.status === "string" ? parsedResult.status : null;
     } catch {
       priorStatus = null;
     }
@@ -351,7 +386,9 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
   const fullDiffLines = countLines(fullDiffRaw);
 
   const prFileSet = new Set(prFiles);
-  const deltaFileCandidates = changedSinceMarker.filter((f) => prFileSet.has(f));
+  const deltaFileCandidates = changedSinceMarker.filter((f) =>
+    prFileSet.has(f),
+  );
   let deltaDiffRaw = "";
   if (markerSha && deltaFileCandidates.length > 0) {
     const r = deps.git(
@@ -375,10 +412,12 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     forceFull: parsed.forceFull,
   });
 
-  const scopeFiles = resolved.scope === "delta" ? resolved.delta_files : prFiles;
+  const scopeFiles =
+    resolved.scope === "delta" ? resolved.delta_files : prFiles;
 
   const staticAnalysisPath =
-    parsed.staticAnalysis ?? path.join(worktree, ".flow-tmp", "static-analysis.json");
+    parsed.staticAnalysis ??
+    path.join(worktree, ".flow-tmp", "static-analysis.json");
   let staticAnalysis: AnalysisResult | undefined;
   const staticAnalysisRaw = deps.readFile(staticAnalysisPath);
   if (staticAnalysisRaw !== null) {
@@ -389,7 +428,10 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     }
   }
 
-  const gates = evaluateGates(scopeFiles, { enabled: gatesEnabled, staticAnalysis });
+  const gates = evaluateGates(scopeFiles, {
+    enabled: gatesEnabled,
+    staticAnalysis,
+  });
 
   const scope: ReviewScope = {
     version: 1,
@@ -408,18 +450,33 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
   };
 
   const diffRaw = resolved.scope === "delta" ? deltaDiffRaw : fullDiffRaw;
-  const cappedDiff = capDiff(diffRaw, DEFAULT_MAX_LINES, DEFAULT_MAX_TOTAL, parsed.pr);
-  const diffOutPath = parsed.diffOut ?? path.join(worktree, ".flow-tmp", "diff.txt");
+  const cappedDiff = capDiff(
+    diffRaw,
+    DEFAULT_MAX_LINES,
+    DEFAULT_MAX_TOTAL,
+    parsed.pr,
+  );
+  const diffOutPath =
+    parsed.diffOut ?? path.join(worktree, ".flow-tmp", "diff.txt");
   atomicWrite(deps, diffOutPath, cappedDiff);
 
   for (const [lens, verdict] of Object.entries(gates)) {
     if (!verdict.run) {
-      const artifactPath = path.join(worktree, ".flow-tmp", `agent-output-${lens}.json`);
-      atomicWrite(deps, artifactPath, JSON.stringify(syntheticGatedArtifact(verdict.reason)));
+      const artifactPath = path.join(
+        worktree,
+        ".flow-tmp",
+        `agent-output-${lens}.json`,
+      );
+      atomicWrite(
+        deps,
+        artifactPath,
+        JSON.stringify(syntheticGatedArtifact(verdict.reason)),
+      );
     }
   }
 
-  const outPath = parsed.out ?? path.join(worktree, ".flow-tmp", "review-scope.json");
+  const outPath =
+    parsed.out ?? path.join(worktree, ".flow-tmp", "review-scope.json");
   atomicWrite(deps, outPath, JSON.stringify(scope));
 
   const notices = renderNotices(scope);
@@ -435,7 +492,10 @@ const defaultGh: GhRunner = (args) => {
 };
 
 const defaultGit: GitRunner = (args, cwd) => {
-  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  const r = Bun.spawnSync(["git", "-C", cwd, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   return { stdout: r.stdout.toString(), exitCode: r.exitCode ?? 1 };
 };
 

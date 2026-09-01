@@ -9353,11 +9353,22 @@ describe("review scope, lens gates, telemetry pins", () => {
     "references",
     "review-scope.md",
   );
-  const DOCS_CONFIGURATION_PATH = path.resolve(HERE, "..", "docs", "configuration.md");
-  const FLOW_PIPELINE_SUMMARY_PATH = path.resolve(HERE, "flow-pipeline-summary.ts");
+  const DOCS_CONFIGURATION_PATH = path.resolve(
+    HERE,
+    "..",
+    "docs",
+    "configuration.md",
+  );
+  const FLOW_PIPELINE_SUMMARY_PATH = path.resolve(
+    HERE,
+    "flow-pipeline-summary.ts",
+  );
 
   const reviewScopeRefContent = fs.readFileSync(REVIEW_SCOPE_REF_PATH, "utf8");
-  const docsConfigurationContent = fs.readFileSync(DOCS_CONFIGURATION_PATH, "utf8");
+  const docsConfigurationContent = fs.readFileSync(
+    DOCS_CONFIGURATION_PATH,
+    "utf8",
+  );
   const flowPipelineSummaryContent = fs.readFileSync(
     FLOW_PIPELINE_SUMMARY_PATH,
     "utf8",

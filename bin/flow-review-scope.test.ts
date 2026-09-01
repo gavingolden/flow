@@ -16,7 +16,8 @@ import {
 
 const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
 const gitOnPath = spawnSync("git", ["--version"]).status === 0;
-const here = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+const here =
+  import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
 const SCRIPT_PATH = path.join(here, "flow-review-scope.ts");
 
 const BASE_INPUT = {
@@ -42,7 +43,9 @@ describe("resolveScope", () => {
   it("returns full 'marker equals HEAD (Gatekeeper owns the no-new-commits skip)' when marker === head", () => {
     const r = resolveScope({ ...BASE_INPUT, markerSha: "head1234" });
     expect(r.scope).toBe("full");
-    expect(r.reason).toBe("marker equals HEAD (Gatekeeper owns the no-new-commits skip)");
+    expect(r.reason).toBe(
+      "marker equals HEAD (Gatekeeper owns the no-new-commits skip)",
+    );
   });
 
   it("returns full 'marker not an ancestor of HEAD' when isAncestor is false", () => {
@@ -137,7 +140,10 @@ function scopeFixture(overrides: Partial<ReviewScope> = {}): ReviewScope {
       security: { run: true, reason: "not docs-only" },
       "pattern-consistency": { run: true, reason: "always-on lens" },
       performance: { run: false, reason: "docs-only diff (1 files)" },
-      "supply-chain": { run: false, reason: "no manifest/lockfile among 1 changed files" },
+      "supply-chain": {
+        run: false,
+        reason: "no manifest/lockfile among 1 changed files",
+      },
       "test-coverage": { run: false, reason: "docs-only diff (1 files)" },
     },
     gates_enabled: true,
@@ -150,7 +156,9 @@ function scopeFixture(overrides: Partial<ReviewScope> = {}): ReviewScope {
 describe("renderNotices", () => {
   it("emits the review-scope line first then one lens-gated line per gated lens", () => {
     const notices = renderNotices(scopeFixture());
-    expect(notices[0]).toMatch(/^NOTICE — review-scope: delta abcdefg\.\.1234567 /);
+    expect(notices[0]).toMatch(
+      /^NOTICE — review-scope: delta abcdefg\.\.1234567 /,
+    );
     const gated = notices.slice(1);
     expect(gated).toEqual([
       "NOTICE — lens-gated: performance skipped (docs-only diff (1 files))",
@@ -180,10 +188,14 @@ describe("parseArgs", () => {
 });
 
 function gitc(cwd: string, args: string[]) {
-  return spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
-    cwd,
-    encoding: "utf8",
-  });
+  return spawnSync(
+    "git",
+    ["-c", "user.email=t@t", "-c", "user.name=t", ...args],
+    {
+      cwd,
+      encoding: "utf8",
+    },
+  );
 }
 
 const scratchDirs: string[] = [];
@@ -268,10 +280,16 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
     );
     expect(scope.scope).toBe("delta");
-    const diffText = fs.readFileSync(path.join(dir, ".flow-tmp", "diff.txt"), "utf8");
+    const diffText = fs.readFileSync(
+      path.join(dir, ".flow-tmp", "diff.txt"),
+      "utf8",
+    );
     expect(diffText).toContain("export const b = 2;");
     const artifact = JSON.parse(
-      fs.readFileSync(path.join(dir, ".flow-tmp", "agent-output-supply-chain.json"), "utf8"),
+      fs.readFileSync(
+        path.join(dir, ".flow-tmp", "agent-output-supply-chain.json"),
+        "utf8",
+      ),
     );
     expect(artifact.gated).toBeDefined();
   });
@@ -292,7 +310,8 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
   it("with --no-gates marks every lens run:true", async () => {
     const dir = makeRepo();
     const gh = (args: string[]) => {
-      if (args[0] === "pr" && args[1] === "view") return { stdout: "a.ts\n", exitCode: 0 };
+      if (args[0] === "pr" && args[1] === "view")
+        return { stdout: "a.ts\n", exitCode: 0 };
       return { stdout: "", exitCode: 0 };
     };
     const git = (args: string[], cwd: string) => {
