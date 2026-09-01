@@ -60,8 +60,9 @@
 
 import * as fs from "node:fs";
 import { renderEchoRecap } from "./lib/echo-recap";
-import { readState, type ReapRecord } from "./lib/state";
+import { readState, type PipelinePhase, type ReapRecord } from "./lib/state";
 import { resolveSlugFromEnv } from "./lib/session-identity";
+import { finalizePhase } from "./lib/phase-advance";
 import { resolveLens, type OutputLens } from "./lib/output-lens";
 import {
   TLDR_MAX_WORDS,
@@ -128,6 +129,20 @@ const VALID_STATUSES: ReadonlySet<string> = new Set([
   "awaiting-approval",
   "cancelled",
 ]);
+
+/**
+ * Terminal-phase mapping for the write `run()` performs as a side effect
+ * of a successful render — see `TERMINAL_PHASE_EMITTERS` in
+ * `./lib/phase-advance`, of which this file is the sole emitter.
+ * `awaiting-approval` is not terminal, so it maps to `null` (no write).
+ */
+const TERMINAL_PHASE_BY_STATUS: Record<Status, PipelinePhase | null> = {
+  merged: "merged",
+  gated: "gated",
+  "needs-human": "needs-human",
+  "awaiting-approval": null,
+  cancelled: "cancelled",
+};
 
 // The fallback NEXT ACTION line used when --reason is omitted or maps
 // to an unknown tag. Surfaced in tests so a new escalation tag added
@@ -345,6 +360,7 @@ type Args = {
   lens?: string;
   untrackedFile?: string;
   countsLine?: string;
+  slug?: string;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
@@ -407,6 +423,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         break;
       case "--counts-line":
         out.countsLine = value;
+        break;
+      case "--slug":
+        out.slug = value;
         break;
       default:
         return { error: `unknown flag: ${flag}` };
@@ -831,7 +850,7 @@ export function run(
         "                         [--validation-items-file <path>] [--deferred-file <path>]\n" +
         "                         [--worktree <path>] [--plan-file <path>] [--echo-prose]\n" +
         "                         [--cleanup] [--lens <pm|dev>] [--untracked-file <path>]\n" +
-        "                         [--counts-line <text>]\n",
+        "                         [--counts-line <text>] [--slug <slug>]\n",
     );
     return 2;
   }
@@ -869,7 +888,29 @@ export function run(
     untrackedBlock,
     countsLine: parsed.countsLine,
   });
-  process.stdout.write(block + "\n");
+  try {
+    process.stdout.write(block + "\n");
+  } catch (err) {
+    // Broken pipe or other stdout write failure: the block (and its
+    // sentinel) never actually reached the reader, so do NOT finalize —
+    // finalizing here would leave state terminal with nothing printed,
+    // silencing flow-stop-guard's nudge on the exact failure the
+    // render-before-write safety property exists to catch.
+    process.stderr.write(
+      `flow-gate-summary: failed writing to stdout (${(err as Error).message}); not finalizing phase.\n`,
+    );
+    return 1;
+  }
+
+  const targetPhase = TERMINAL_PHASE_BY_STATUS[parsed.status];
+  if (targetPhase !== null) {
+    const prNumber = parsed.prUrl ? extractPrNumber(parsed.prUrl) : null;
+    finalizePhase(targetPhase, {
+      slug: parsed.slug ?? resolveSlugFromEnv(opts?.env ?? process.env),
+      expectPr: prNumber !== null ? Number(prNumber) : null,
+      dir: opts?.stateDir,
+    });
+  }
   return 0;
 }
 

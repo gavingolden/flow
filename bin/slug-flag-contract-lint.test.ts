@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseArgs as parseGateDecide } from "./flow-gate-decide";
+import { parseArgs as parseGateSummary } from "./flow-gate-summary";
 import { parseArgs as parseNotify } from "./flow-notify";
 import { parseArgs as parseOpenPr } from "./flow-open-pr";
 import { parseArgs as parseRemoveWorktree } from "./flow-remove-worktree";
@@ -78,6 +79,10 @@ const PROBES: Record<
   "flow-gate-decide": {
     argv: ["1", "--slug", PROBE_SLUG],
     parse: parseGateDecide,
+  },
+  "flow-gate-summary": {
+    argv: ["--status", "merged", "--slug", PROBE_SLUG],
+    parse: parseGateSummary,
   },
   "flow-remove-worktree": {
     argv: ["--slug", PROBE_SLUG],

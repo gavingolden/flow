@@ -87,12 +87,12 @@ needs-human --reason <tag> --cleanup` (carrying any inline context as
    `NEXT ACTION:` / `CLEANUP:` / optional `FOLLOW-UPS:` rows above the
    sentinel; the
    sentinel line itself (`NEEDS HUMAN: <reason>`) remains byte-identical
-   as the **final line** of the block.
-3. Run `flow-state-update "$SLUG" --phase needs-human` so `flow ls`
-   surfaces the stall.
-4. Leave the worktree intact. Leave the PR intact. **Do not** call
+   as the **final line** of the block. The helper records
+   `phase: needs-human` itself, only after the block reaches stdout, so
+   `flow ls` surfaces the stall.
+3. Leave the worktree intact. Leave the PR intact. **Do not** call
    `flow-remove-worktree`.
-5. End the supervisor's conversation turn. The user attaches and types
+4. End the supervisor's conversation turn. The user attaches and types
    a redirect (or runs `flow done <name>` to abandon).
 
 The helper maintains a per-reason `NEXT_ACTION_BY_REASON` mapping;
@@ -221,8 +221,7 @@ LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)
 flow-gate-summary --status needs-human --reason branch-mismatch \
   --why "<expected vs actual from stderr>" --cleanup \
   --tldr "$TLDR" --lens "$LENS" \
-  --untracked-file <(flow-untracked render --format gate --unfiled-only)  # render BEFORE the terminal state transition
-flow-state-update --phase needs-human  # may itself fail; that's ok, scrollback shows the cause
+  --untracked-file <(flow-untracked render --format gate --unfiled-only)  # records phase: needs-human itself, after the block reaches stdout
 flow-notify --status needs-human --reason "$TLDR" --tag branch-mismatch
 ```
 
@@ -257,8 +256,7 @@ LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)
 flow-gate-summary --status needs-human --reason terminal-regression \
   --why "<expected→actual from stderr>" --cleanup \
   --tldr "$TLDR" --lens "$LENS" \
-  --untracked-file <(flow-untracked render --format gate --unfiled-only)   # render BEFORE the terminal state transition
-flow-state-update --phase needs-human     # may itself fail; that's ok, scrollback shows the cause
+  --untracked-file <(flow-untracked render --format gate --unfiled-only)   # records phase: needs-human itself, after the block reaches stdout
 flow-notify --status needs-human --reason "$TLDR" --tag terminal-regression
 ```
 
@@ -303,8 +301,7 @@ flow-gate-summary --status needs-human \
   --cleanup \
   --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" \
   --tldr "$TLDR" --lens "$LENS" \
-  --untracked-file <(flow-untracked render --format gate --unfiled-only)   # render BEFORE the terminal state transition
-flow-state-update --phase needs-human
+  --untracked-file <(flow-untracked render --format gate --unfiled-only)   # records phase: needs-human itself, after the block reaches stdout
 flow-notify --status needs-human --reason "$TLDR" --tag "task-tool-unavailable: <exemption-name>"
 ```
 

@@ -3882,4 +3882,139 @@ describe("run() — phase advance", () => {
     // slug) confirms the stateless branch never even attempts the call.
     expect(cap.stderr.join("")).not.toContain("phase-advance");
   });
+
+  it("records phase: implementing when the decision is ci-failed, from ci-wait", async () => {
+    const dir = makeStateDir();
+    const slug = "flow-ci-check-phase-ci-failed";
+    seedState(dir, slug, "ci-wait");
+    process.env.FLOW_SLUG = slug;
+    const failed: Check[] = [{ name: "lint", state: "FAILURE" }];
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN") },
+      {
+        matches: isMergeState,
+        response: { stdout: "", stderr: "", exitCode: 0 },
+      },
+      { matches: isPrChecks, response: prChecksResponse(failed) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(
+      ["100", "--state-dir", dir],
+      baseDeps(gh, 0, { readMergeState: undefined }),
+    );
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("ci-failed");
+    const state = readState(slug, dir);
+    expect(state?.phase).toBe("implementing");
+    expect(state?.phaseLog).toHaveLength(1);
+    expect(state?.phaseLog?.[0]?.phase).toBe("implementing");
+  });
+
+  it("records phase: implementing when the decision is ci-failed, from the ci-wait-pending anchor (Step-7 yield-and-resume)", async () => {
+    const dir = makeStateDir();
+    const slug = "flow-ci-check-phase-ci-failed-pending";
+    seedState(dir, slug); // default phase: "ci-wait-pending"
+    process.env.FLOW_SLUG = slug;
+    const failed: Check[] = [{ name: "lint", state: "FAILURE" }];
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN") },
+      {
+        matches: isMergeState,
+        response: { stdout: "", stderr: "", exitCode: 0 },
+      },
+      { matches: isPrChecks, response: prChecksResponse(failed) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(
+      ["100", "--state-dir", dir],
+      baseDeps(gh, 0, { readMergeState: undefined }),
+    );
+    cap.restore();
+    expect(exit).toBe(0);
+    const state = readState(slug, dir);
+    expect(state?.phase).toBe("implementing");
+    expect(state?.phaseLog).toHaveLength(1);
+  });
+
+  it("skips the ci-failed phase write in stateless mode (no FLOW_SLUG resolves)", async () => {
+    const dir = makeStateDir();
+    const failed: Check[] = [{ name: "lint", state: "FAILURE" }];
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN") },
+      {
+        matches: isMergeState,
+        response: { stdout: "", stderr: "", exitCode: 0 },
+      },
+      { matches: isPrChecks, response: prChecksResponse(failed) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(
+      ["100", "--state-dir", dir],
+      baseDeps(gh, 0, { readMergeState: undefined }),
+    );
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("ci-failed");
+    expect(fs.readdirSync(dir)).toHaveLength(0);
+  });
+
+  it("a non-ci-failed decision at the final decided() site (proceed-to-review) leaves phase at ci-wait, never implementing", async () => {
+    const dir = makeStateDir();
+    const slug = "flow-ci-check-phase-proceed";
+    seedState(dir, slug, "verifying");
+    process.env.FLOW_SLUG = slug;
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN") },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(
+      ["100", "--state-dir", dir],
+      baseDeps(gh, 0, { readWorkflowsDir: () => false }),
+    );
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).not.toBe("ci-failed");
+    expect(readState(slug, dir)?.phase).toBe("ci-wait");
+  });
+
+  it("a pr-blocked decision (a decided() site upstream of the ci-failed insertion point, returns before it) never writes implementing", async () => {
+    const dir = makeStateDir();
+    const slug = "flow-ci-check-phase-pr-blocked";
+    seedState(dir, slug); // default phase: "ci-wait-pending"
+    process.env.FLOW_SLUG = slug;
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(
+      ["100", "--state-dir", dir],
+      baseDeps(gh, 0, {
+        readWorkflowsDir: () => false,
+        readMergeState: () => ({
+          mergeable: "MERGEABLE",
+          mergeStateStatus: "BLOCKED",
+        }),
+      }),
+    );
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("pr-blocked");
+    // The top-of-run advancePhase("ci-wait") call anchors ci-wait-pending
+    // at ci-wait's own index (equal phase, no-op) — see the
+    // "does not regress a ci-wait-pending state" spec above. This spec's
+    // job is only to prove the pr-blocked early-return never reaches
+    // implementing.
+    expect(readState(slug, dir)?.phase).toBe("ci-wait-pending");
+  });
 });

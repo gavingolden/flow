@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_NEXT_ACTION,
@@ -11,7 +12,7 @@ import {
   run,
   type CleanupInput,
 } from "./flow-gate-summary";
-import { writeState, type PipelineState } from "./lib/state";
+import { readState, writeState, type PipelineState } from "./lib/state";
 import {
   TLDR_MAX_WORDS,
   buildManualAction,
@@ -1166,6 +1167,13 @@ describe("parseArgs", () => {
     if ("error" in r) return;
     expect(r.cleanup).toBe(true);
   });
+
+  it("accepts --slug (space-separated), scoping the terminal-phase write", () => {
+    const r = parseArgs(["--status", "merged", "--slug", "some-slug"]);
+    expect("error" in r).toBe(false);
+    if ("error" in r) return;
+    expect(r.slug).toBe("some-slug");
+  });
 });
 
 describe("run (end-to-end CLI)", () => {
@@ -1180,18 +1188,30 @@ describe("run (end-to-end CLI)", () => {
       return true;
     }) as typeof process.stdout.write;
     try {
-      const rc = run([
-        "--status",
-        "gated",
-        "--pr-url",
-        "https://example/pr/1",
-        "--why",
-        "2 items remain",
-        "--validation-items-file",
-        itemsPath,
-        "--lens",
-        "dev",
-      ]);
+      const rc = run(
+        [
+          "--status",
+          "gated",
+          "--pr-url",
+          "https://example/pr/1",
+          "--why",
+          "2 items remain",
+          "--validation-items-file",
+          itemsPath,
+          "--lens",
+          "dev",
+          "--slug",
+          "gate-write-test-slug",
+        ],
+        // LOAD-BEARING TEST SAFETY: run() now finalizes phase as a side
+        // effect (bin/lib/phase-advance.ts's finalizePhase). Every spec
+        // that hits a real --status must thread an explicit stateDir +
+        // a scoped --slug, or a bare `npm run test` inside a flow pane
+        // (FLOW_SLUG set) would stamp phase: gated onto the developer's
+        // live pipeline state file. No seeded state exists for this
+        // slug, so the finalize is a harmless no-state no-op.
+        { stateDir: tmpRoot },
+      );
       expect(rc).toBe(0);
     } finally {
       process.stdout.write = original;
@@ -1209,16 +1229,22 @@ describe("run (end-to-end CLI)", () => {
       return true;
     }) as typeof process.stdout.write;
     try {
-      const rc = run([
-        "--status",
-        "merged",
-        "--pr-url",
-        "https://example/pr/1",
-        "--deferred-file",
-        "/this/path/does/not/exist.txt",
-        "--lens",
-        "dev",
-      ]);
+      const rc = run(
+        [
+          "--status",
+          "merged",
+          "--pr-url",
+          "https://example/pr/1",
+          "--deferred-file",
+          "/this/path/does/not/exist.txt",
+          "--lens",
+          "dev",
+          "--slug",
+          "merged-missing-deferred-slug",
+        ],
+        // See the LOAD-BEARING TEST SAFETY note above.
+        { stateDir: tmpRoot },
+      );
       expect(rc).toBe(0);
     } finally {
       process.stdout.write = original;
@@ -1237,16 +1263,21 @@ describe("run (end-to-end CLI)", () => {
       return true;
     }) as typeof process.stdout.write;
     try {
-      run([
-        "--status",
-        "merged",
-        "--pr-url",
-        "https://example/pr/1",
-        "--deferred-file",
-        emptyPath,
-        "--lens",
-        "dev",
-      ]);
+      run(
+        [
+          "--status",
+          "merged",
+          "--pr-url",
+          "https://example/pr/1",
+          "--deferred-file",
+          emptyPath,
+          "--lens",
+          "dev",
+          "--slug",
+          "merged-empty-deferred-slug",
+        ],
+        { stateDir: tmpRoot },
+      );
     } finally {
       process.stdout.write = original;
     }
@@ -1265,16 +1296,21 @@ describe("run (end-to-end CLI)", () => {
       return true;
     }) as typeof process.stdout.write;
     try {
-      const rc = run([
-        "--status",
-        "gated",
-        "--pr-url",
-        "https://example/pr/1",
-        "--validation-items-file",
-        "/this/path/does/not/exist.txt",
-        "--lens",
-        "dev",
-      ]);
+      const rc = run(
+        [
+          "--status",
+          "gated",
+          "--pr-url",
+          "https://example/pr/1",
+          "--validation-items-file",
+          "/this/path/does/not/exist.txt",
+          "--lens",
+          "dev",
+          "--slug",
+          "gated-missing-items-slug",
+        ],
+        { stateDir: tmpRoot },
+      );
       expect(rc).toBe(0);
     } finally {
       process.stdout.write = original;
@@ -1298,16 +1334,21 @@ describe("run (end-to-end CLI)", () => {
       return true;
     }) as typeof process.stdout.write;
     try {
-      const rc = run([
-        "--status",
-        "gated",
-        "--pr-url",
-        "https://example/pr/1",
-        "--validation-items-file",
-        emptyPath,
-        "--lens",
-        "dev",
-      ]);
+      const rc = run(
+        [
+          "--status",
+          "gated",
+          "--pr-url",
+          "https://example/pr/1",
+          "--validation-items-file",
+          emptyPath,
+          "--lens",
+          "dev",
+          "--slug",
+          "gated-empty-items-slug",
+        ],
+        { stateDir: tmpRoot },
+      );
       expect(rc).toBe(0);
     } finally {
       process.stdout.write = original;
@@ -1489,8 +1530,10 @@ describe("run (end-to-end CLI)", () => {
           untrackedPath,
           "--counts-line",
           "3 findings fixed, 1 deferred",
+          "--slug",
+          "lens-pm-slug",
         ],
-        { read: () => ({ output: { lens: "dev" } }) },
+        { read: () => ({ output: { lens: "dev" } }), stateDir: tmpRoot },
       ),
     );
     expect(rc).toBe(0);
@@ -1513,16 +1556,21 @@ describe("run (end-to-end CLI)", () => {
     let stdoutOut = "";
     try {
       const { rc, out } = captureStdout(() =>
-        run([
-          "--status",
-          "gated",
-          "--pr-url",
-          "https://example/pr/1",
-          "--tldr",
-          words.join(" "),
-          "--lens",
-          "dev",
-        ]),
+        run(
+          [
+            "--status",
+            "gated",
+            "--pr-url",
+            "https://example/pr/1",
+            "--tldr",
+            words.join(" "),
+            "--lens",
+            "dev",
+            "--slug",
+            "tldr-truncate-slug",
+          ],
+          { stateDir: tmpRoot },
+        ),
       );
       stdoutOut = out;
       expect(rc).toBe(0);
@@ -1542,13 +1590,173 @@ describe("run (end-to-end CLI)", () => {
     // AND the always-present UNTRACKED row) makes this a real proof of
     // lens divergence, not just a "didn't crash" smoke check.
     const { rc, out } = captureStdout(() =>
-      run(["--status", "gated", "--pr-url", "https://example/pr/1"], {
-        read: () => ({}),
-      }),
+      run(
+        [
+          "--status",
+          "gated",
+          "--pr-url",
+          "https://example/pr/1",
+          "--slug",
+          "default-lens-slug",
+        ],
+        { read: () => ({}), stateDir: tmpRoot },
+      ),
     );
     expect(rc).toBe(0);
     expect(out).toContain("NEXT ACTION: tick the items above, then:");
     expect(out).toContain("UNTRACKED: none");
     expect(out).not.toContain("NEXT ACTION: validate then run:");
+  });
+
+  describe("terminal phase finalize (bin/lib/phase-advance.ts's finalizePhase)", () => {
+    it.each(["merged", "gated", "needs-human", "cancelled"] as const)(
+      "records phase: %s in state.json after a successful render",
+      (status) => {
+        const slug = `finalize-${status}-slug`;
+        seedState(slug, { phase: "gating" });
+        const { rc } = captureStdout(() =>
+          run(["--status", status, "--slug", slug], { stateDir: tmpRoot }),
+        );
+        expect(rc).toBe(0);
+        const state = readState(slug, tmpRoot);
+        expect(state?.phase).toBe(status);
+        expect(state?.phaseLog).toHaveLength(1);
+      },
+    );
+
+    it("awaiting-approval records nothing (not a terminal status)", () => {
+      const slug = "finalize-awaiting-approval-slug";
+      seedState(slug, { phase: "gating" });
+      const { rc } = captureStdout(() =>
+        run(["--status", "awaiting-approval", "--slug", slug], {
+          stateDir: tmpRoot,
+        }),
+      );
+      expect(rc).toBe(0);
+      expect(readState(slug, tmpRoot)?.phase).toBe("gating");
+      expect(readState(slug, tmpRoot)?.phaseLog ?? []).toHaveLength(0);
+    });
+
+    it("an injected stdout write failure leaves the state file byte-identical and returns non-zero (render-before-write safety property)", () => {
+      const slug = "finalize-broken-pipe-slug";
+      seedState(slug, { phase: "gating" });
+      const statePath = path.join(tmpRoot, `${slug}.json`);
+      const before = fs.readFileSync(statePath, "utf8");
+      const original = process.stdout.write.bind(process.stdout);
+      process.stdout.write = (() => {
+        throw new Error("EPIPE: broken pipe");
+      }) as typeof process.stdout.write;
+      let rc: number;
+      try {
+        rc = run(["--status", "merged", "--slug", slug], {
+          stateDir: tmpRoot,
+        });
+      } finally {
+        process.stdout.write = original;
+      }
+      expect(rc).not.toBe(0);
+      const after = fs.readFileSync(statePath, "utf8");
+      expect(after).toBe(before);
+    });
+
+    it("a re-render on an already-terminal pipeline appends no second phaseLog entry (idempotent)", () => {
+      const slug = "finalize-idempotent-slug";
+      seedState(slug, {
+        phase: "merged",
+        phaseLog: [{ phase: "merged", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      const { rc } = captureStdout(() =>
+        run(["--status", "merged", "--slug", slug], { stateDir: tmpRoot }),
+      );
+      expect(rc).toBe(0);
+      expect(readState(slug, tmpRoot)?.phaseLog).toHaveLength(1);
+    });
+
+    it("--slug scoping: an explicit --slug wins over an ambient FLOW_SLUG env var", () => {
+      const explicitSlug = "finalize-explicit-slug";
+      const ambientSlug = "finalize-ambient-slug";
+      seedState(explicitSlug, { phase: "gating" });
+      seedState(ambientSlug, { phase: "gating" });
+      const { rc } = captureStdout(() =>
+        run(["--status", "merged", "--slug", explicitSlug], {
+          stateDir: tmpRoot,
+          env: { FLOW_SLUG: ambientSlug },
+        }),
+      );
+      expect(rc).toBe(0);
+      expect(readState(explicitSlug, tmpRoot)?.phase).toBe("merged");
+      expect(readState(ambientSlug, tmpRoot)?.phase).toBe("gating");
+    });
+
+    it("gated -> merged writes (gated is awaiting-human, not finished)", () => {
+      const slug = "finalize-gated-merged-slug";
+      seedState(slug, { phase: "gated" });
+      const { rc } = captureStdout(() =>
+        run(["--status", "merged", "--slug", slug], { stateDir: tmpRoot }),
+      );
+      expect(rc).toBe(0);
+      expect(readState(slug, tmpRoot)?.phase).toBe("merged");
+    });
+
+    it("merged -> gated is refused (merged is a finished phase)", () => {
+      const slug = "finalize-merged-gated-slug";
+      seedState(slug, { phase: "merged" });
+      const { rc } = captureStdout(() =>
+        run(["--status", "gated", "--slug", slug], { stateDir: tmpRoot }),
+      );
+      expect(rc).toBe(0);
+      expect(readState(slug, tmpRoot)?.phase).toBe("merged");
+    });
+
+    it("refuses a mismatched-PR finalize (FLOW_SLUG leak guard)", () => {
+      const slug = "finalize-pr-mismatch-slug";
+      seedState(slug, { phase: "gating", pr: 42 });
+      const { rc } = captureStdout(() =>
+        run(
+          [
+            "--status",
+            "merged",
+            "--pr-url",
+            "https://example/pr/99",
+            "--slug",
+            slug,
+          ],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      expect(readState(slug, tmpRoot)?.phase).toBe("gating");
+    });
+
+    it("refuses to finalize and leaves state unchanged when the worktree is on the wrong branch", () => {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "gate-summary-finalize-guard-"),
+      );
+      const worktree = path.join(root, "wt");
+      fs.mkdirSync(worktree);
+      spawnSync("git", ["init", "-b", "actual-branch"], { cwd: worktree });
+      spawnSync("git", ["config", "user.email", "test@example.com"], {
+        cwd: worktree,
+      });
+      spawnSync("git", ["config", "user.name", "Test"], { cwd: worktree });
+      spawnSync("git", ["commit", "--allow-empty", "-m", "initial"], {
+        cwd: worktree,
+      });
+      fs.writeFileSync(
+        path.join(worktree, ".flow-branch"),
+        "expected-branch\n",
+      );
+      try {
+        const slug = "finalize-branch-mismatch-slug";
+        seedState(slug, { phase: "gating", worktree });
+        const { rc } = captureStdout(() =>
+          run(["--status", "merged", "--slug", slug], { stateDir: tmpRoot }),
+        );
+        expect(rc).toBe(0);
+        expect(readState(slug, tmpRoot)?.phase).toBe("gating");
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
   });
 });
