@@ -342,6 +342,27 @@ describe("run()", () => {
     expect(state?.phase).toBe("verifying");
   });
 
+  // Regression: `path.resolve` alone does not follow symlinks, so on macOS
+  // the same directory reached as `/var/folders/...` (state.worktree) and
+  // `/private/var/folders/...` (the caller's `pwd`) compared unequal and the
+  // guard fired on a false positive -- measured on 1/5 live eval runs.
+  it("treats a symlinked spelling of the same directory as a match, not a mismatch", () => {
+    const realDir = fs.realpathSync(worktree);
+    // Only meaningful where the two spellings actually differ (macOS
+    // /var -> /private/var); elsewhere this degenerates to the equal case,
+    // which must also pass.
+    seedState("s13b", { worktree: realDir });
+    const exit = run(["--worktree", worktree], {
+      resolveSlug: () => "s13b",
+      stateDir,
+      exists: () => true,
+      readConfigFile: () => ({}),
+    });
+    expect(exit).toBe(0);
+    const state = readState("s13b", stateDir);
+    expect(state?.phase).toBe("verifying");
+  });
+
   it("still falls back to state.worktree when --worktree is omitted (no mismatch possible)", () => {
     seedState("s14", { worktree });
     const exit = run([], {

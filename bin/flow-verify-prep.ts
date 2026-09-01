@@ -141,6 +141,19 @@ export type Deps = {
   mkdir?: (p: string) => void;
 };
 
+/**
+ * Canonicalize a path for comparison: resolve symlinks when the path
+ * exists (macOS `/var` -> `/private/var` is the motivating case), else
+ * fall back to lexical resolution.
+ */
+function canonicalize(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
 export function run(argv: string[], deps: Deps = {}): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -186,13 +199,20 @@ export function run(argv: string[], deps: Deps = {}): number {
   // worktree while advancing that OTHER pipeline's phase is exactly the
   // worktree-contamination failure mode `phase-advance.ts`'s
   // `branch-mismatch` guard defends against one layer down — catch it
-  // here, before any file is touched, rather than after. `path.resolve`
-  // normalizes trailing slashes / relative-vs-absolute spellings so a
-  // cosmetic difference doesn't trip a false positive.
+  // here, before any file is touched, rather than after.
+  //
+  // Comparison canonicalizes via `realpathSync` and NOT `path.resolve`
+  // alone: `path.resolve` normalizes trailing slashes and relative
+  // spellings but does not follow symlinks, so on macOS the same
+  // directory reached as `/var/folders/...` and `/private/var/folders/...`
+  // compares unequal and the guard fires on a false positive (measured:
+  // 1/5 eval runs). Same `-P` canonicalization the pipeline's step-10
+  // `cd -P`/`pwd -P` already relies on. `realpathSync` throws on a
+  // not-yet-existing path, so fall back to `path.resolve` there.
   if (
     parsed.worktree &&
     state?.worktree &&
-    path.resolve(parsed.worktree) !== path.resolve(state.worktree)
+    canonicalize(parsed.worktree) !== canonicalize(state.worktree)
   ) {
     console.error(
       `flow-verify-prep: worktree-mismatch: --worktree '${parsed.worktree}' != state.worktree '${state.worktree}' for slug '${slug}'.\n` +
