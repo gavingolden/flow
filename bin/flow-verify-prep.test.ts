@@ -250,11 +250,14 @@ describe("run()", () => {
     expect(state?.phaseLog).toHaveLength(1);
   });
 
-  it("resolves --worktree over state.worktree when both are given", () => {
-    seedState("s10", { worktree: "/from-state" });
+  it("resolves --worktree over state.worktree when both are given and agree", () => {
+    // Precedence check with the paths equal (not merely "both non-empty") —
+    // a genuinely mismatched pair is now the worktree-mismatch guard's
+    // territory, covered below.
     const explicitWorktree = fs.mkdtempSync(
       path.join(os.tmpdir(), "flow-verify-prep-explicit-"),
     );
+    seedState("s10", { worktree: explicitWorktree });
     const exit = run(["--worktree", explicitWorktree], {
       resolveSlug: () => "s10",
       stateDir,
@@ -300,5 +303,68 @@ describe("run()", () => {
     const exit = run(["--bogus"], { resolveSlug: () => null, stateDir });
     expect(exit).toBe(2);
     errSpy.mockRestore();
+  });
+
+  it("rejects a --worktree that disagrees with state.worktree without advancing phase", () => {
+    // Regression: a stale or hand-set FLOW_SLUG (e.g. `export FLOW_SLUG=eval`,
+    // observed in a live eval trace) resolves to an unrelated pipeline's
+    // state, so `--worktree` (this fixture) and `state.worktree` (the
+    // unrelated pipeline) disagree. Without the guard, Step 6 would advance
+    // that OTHER pipeline's phase to "verifying" while writing artifacts
+    // into THIS worktree — silently stranding both pipelines.
+    seedState("s12", { worktree: "/other-pipeline-worktree" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = run(["--worktree", worktree], {
+      resolveSlug: () => "s12",
+      stateDir,
+      exists: () => true,
+      readConfigFile: () => ({}),
+    });
+    expect(exit).not.toBe(0);
+    const errOutput = errSpy.mock.calls.flat().join("\n");
+    expect(errOutput).toContain(worktree);
+    expect(errOutput).toContain("/other-pipeline-worktree");
+    const state = readState("s12", stateDir);
+    expect(state?.phase).toBe("installing-skills");
+    errSpy.mockRestore();
+  });
+
+  it("treats a trailing-slash-only difference between --worktree and state.worktree as a match", () => {
+    seedState("s13", { worktree: `${worktree}/` });
+    const exit = run(["--worktree", worktree], {
+      resolveSlug: () => "s13",
+      stateDir,
+      exists: () => true,
+      readConfigFile: () => ({}),
+    });
+    expect(exit).toBe(0);
+    const state = readState("s13", stateDir);
+    expect(state?.phase).toBe("verifying");
+  });
+
+  it("still falls back to state.worktree when --worktree is omitted (no mismatch possible)", () => {
+    seedState("s14", { worktree });
+    const exit = run([], {
+      resolveSlug: () => "s14",
+      stateDir,
+      exists: () => true,
+      readConfigFile: () => ({}),
+    });
+    expect(exit).toBe(0);
+    const state = readState("s14", stateDir);
+    expect(state?.phase).toBe("verifying");
+  });
+
+  it("does not false-positive when the slug resolves but has no state file", () => {
+    const exit = run(["--worktree", worktree], {
+      resolveSlug: () => "no-such-slug",
+      stateDir,
+      exists: () => true,
+      readConfigFile: () => ({}),
+    });
+    expect(exit).toBe(0);
+    expect(lastJson().artifactPath).toBe(
+      path.join(worktree, ".flow-tmp", "verify-loop-result.json"),
+    );
   });
 });

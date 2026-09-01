@@ -31,6 +31,11 @@
  * runs before a PR exists) and skips the `state.pr` guard, same as
  * omitting the flag entirely.
  *
+ * A `--worktree` that disagrees with the resolved slug's `state.worktree`
+ * is a hard error (exit 2, no phase write): advancing the phase there
+ * would move a different pipeline's state while writing artifacts into
+ * the passed-in worktree.
+ *
  * Output: a single JSON object on stdout.
  *   {
  *     "artifactPath": "<worktree>/.flow-tmp/verify-loop-result.json",
@@ -172,6 +177,31 @@ export function run(argv: string[], deps: Deps = {}): number {
     );
     return 2;
   }
+
+  // Worktree/slug consistency guard — the sibling of the `expectPr` guard
+  // above `advancePhase`'s call site. A stale or hand-set FLOW_SLUG (e.g.
+  // `export FLOW_SLUG=eval`, observed in a live eval trace) resolves to
+  // an unrelated pipeline's state, whose `worktree` then disagrees with
+  // the caller's explicit `--worktree`. Writing artifacts into the passed
+  // worktree while advancing that OTHER pipeline's phase is exactly the
+  // worktree-contamination failure mode `phase-advance.ts`'s
+  // `branch-mismatch` guard defends against one layer down — catch it
+  // here, before any file is touched, rather than after. `path.resolve`
+  // normalizes trailing slashes / relative-vs-absolute spellings so a
+  // cosmetic difference doesn't trip a false positive.
+  if (
+    parsed.worktree &&
+    state?.worktree &&
+    path.resolve(parsed.worktree) !== path.resolve(state.worktree)
+  ) {
+    console.error(
+      `flow-verify-prep: worktree-mismatch: --worktree '${parsed.worktree}' != state.worktree '${state.worktree}' for slug '${slug}'.\n` +
+        `  Advancing the phase here would move the '${slug}' pipeline while writing verify artifacts into a different worktree.\n` +
+        `  Re-run with no --worktree (state.worktree is used automatically), or fix the caller so --worktree matches state.worktree.`,
+    );
+    return 2;
+  }
+
   // `||`, not `??` — an explicit `--skill-dir ""` (e.g. an unset
   // $SKILL_DIR expanding to empty in the caller's shell) must fall back
   // to the global plugin root too, not collapse to a broken empty path.
