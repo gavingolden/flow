@@ -231,10 +231,19 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      answer leaves the plan unchanged is deleted, not written. Resolution-first:
      every unchecked entry carries a **Recommended:** answer or, when the decisive
      input is user-held/unverifiable (closed list), a **Needs user input:** escape —
-     full contract in discovery-instructions.md "Open Questions (resolution-first)". -->
+     full contract in discovery-instructions.md "Open Questions (resolution-first)".
+     Every unchecked entry also carries a **Stakes:** line (lens only:
+     system|user|both) naming what degrades if the default is wrong; a question
+     with no stakes is resolved and checked off, never asked. Every **Recommended:**
+     line ends with a `[confidence: high|medium|low] [anchor: …]` tag pair per the
+     Confidence + stakes rubric in discovery-instructions.md. -->
 
-- [ ] [Anything still unresolved before implementation — name what changes on redirect]
-  - **Recommended:** [answer] — [one-line rationale naming the decisive rubric factor(s)]
+- [ ] [question — what changes on redirect]
+  - **Stakes:** [system|user|both] — [what degrades, for whom, if the default is wrong]
+  - **Recommended:** [answer] — [rationale] [confidence: high|medium|low] [anchor: …]
+
+- [x] [zero-stakes question] — resolved without asking
+  - **Stakes:** none — resolved without asking
 
 ## Decision analysis
 
@@ -249,7 +258,7 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      "Decision analysis" — the single source of truth. Do NOT inline the contract
      here; this is a thin sketch. -->
 
-**Decision [X] — [the forking question]?** [illustrate each branch's downstream flow] [exclusive | complementary] Verdict: **[chosen branch]** — [one-line rationale].
+**Decision [X] — [the forking question]?** [illustrate each branch's downstream flow] [exclusive | complementary] Verdict: **[chosen branch]** — [one-line rationale] [confidence: high|medium|low] [anchor: …].
 
 ## Alternatives considered
 
@@ -272,7 +281,7 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      "Recommendation" — the single source of truth. Do NOT inline the enum
      gloss here; this is a thin sketch. -->
 
-**[Proceed | Reconsider scope | Defer | Reject — do nothing]** — [one-line rationale; reference an Open Question when the verdict is not Proceed]
+**[Proceed | Reconsider scope | Defer | Reject — do nothing]** — [one-line rationale; reference an Open Question when the verdict is not Proceed] [confidence: high|medium|low] [anchor: …]
 
 <!-- Always present. One line: cite the existing capability this request
      duplicates, or state none found. Full contract — the redundancy

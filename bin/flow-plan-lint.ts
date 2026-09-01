@@ -33,13 +33,24 @@
  * parse failure is reported as a named miss, not an uncaught exception.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import {
   extractRecommendedPath,
   extractSurveyVerdict,
   SURVEY_VERDICTS,
 } from "./flow-step3-route";
+import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
+
+const CONFIDENCE_RE = /\[confidence:\s*(high|medium|low)\]/g;
+const WEIGHING_FACTORS = [
+  "convention",
+  "footprint",
+  "risk",
+  "reversibility",
+  "effort",
+  "symmetry",
+];
 
 export type LintResult = { misses: string[] };
 
@@ -367,14 +378,16 @@ function checkMethodSelection(
 }
 
 /**
- * Advisory resolution-first check for `## Open Questions`: every unchecked
- * `- [ ]` entry block must carry a `**Recommended:**` answer or a
- * `**Needs user input:**` escape (markers may sit on nested sub-bullets).
- * Checked `- [x]` entries and an absent heading are exempt.
+ * Slices `## Open Questions` into its top-level `- [ ]` / `- [x]` entry
+ * blocks (each block runs up to, but not including, the next top-level
+ * `- ` bullet — indented sub-bullets like `  - **Stakes:**` stay inside).
+ * Returns `null` when the heading is absent (callers no-op in that case).
  */
-function checkOpenQuestions(planText: string, misses: string[]): void {
+function extractOpenQuestionsBlocks(
+  planText: string,
+): Array<{ checked: boolean; block: string }> | null {
   const headingMatch = planText.match(/^## Open Questions\s*$/m);
-  if (!headingMatch) return;
+  if (!headingMatch) return null;
   const body = sliceToNextHeading(
     planText,
     (headingMatch.index ?? 0) + headingMatch[0].length,
@@ -386,14 +399,30 @@ function checkOpenQuestions(planText: string, misses: string[]): void {
   while ((em = entryRe.exec(body)) !== null) {
     entries.push({ index: em.index, text: em[0] });
   }
+  const out: Array<{ checked: boolean; block: string }> = [];
   for (let i = 0; i < entries.length; i++) {
-    if (!/^- \[ \]/.test(entries[i].text)) continue; // checked entry — exempt
     const start = entries[i].index;
     const rest = body.slice(start + entries[i].text.length);
     const nextTopLevel = rest.search(/^- /m);
     const block =
       body.slice(start, start + entries[i].text.length) +
       (nextTopLevel === -1 ? rest : rest.slice(0, nextTopLevel));
+    out.push({ checked: /^- \[[xX]\]/.test(entries[i].text), block });
+  }
+  return out;
+}
+
+/**
+ * Advisory resolution-first check for `## Open Questions`: every unchecked
+ * `- [ ]` entry block must carry a `**Recommended:**` answer or a
+ * `**Needs user input:**` escape (markers may sit on nested sub-bullets).
+ * Checked `- [x]` entries and an absent heading are exempt.
+ */
+function checkOpenQuestions(planText: string, misses: string[]): void {
+  const blocks = extractOpenQuestionsBlocks(planText);
+  if (blocks === null) return;
+  for (const { checked, block } of blocks) {
+    if (checked) continue; // checked entry — exempt
     if (
       !/\*\*Recommended:\*\*/.test(block) &&
       !/\*\*Needs user input:\*\*/.test(block)
@@ -401,6 +430,188 @@ function checkOpenQuestions(planText: string, misses: string[]): void {
       const entryLine = block.split("\n", 1)[0].slice(0, 60);
       misses.push(
         `'## Open Questions' entry '${entryLine}' has neither a '**Recommended:**' answer nor a '**Needs user input:**' escape (resolution-first contract; see discovery-instructions.md)`,
+      );
+    }
+  }
+}
+
+/**
+ * Advisory confidence-marker check for `## Open Questions`: every unchecked
+ * entry with a `**Recommended:**` line must carry exactly one
+ * `[confidence: high|medium|low]` and one `[anchor: …]`, and the anchor's
+ * FORM must match the confidence level (see discovery-instructions.md's
+ * Confidence + stakes rubric). Advisory — never blocks planning.
+ */
+function checkConfidenceMarkers(
+  planText: string,
+  misses: string[],
+  planMdFile?: string,
+): void {
+  const blocks = extractOpenQuestionsBlocks(planText);
+  if (blocks === null) return;
+  for (const { checked, block } of blocks) {
+    if (checked) continue;
+    const recLineMatch = block.match(/^.*\*\*Recommended:\*\*.*$/m);
+    if (!recLineMatch) continue;
+    const recLine = recLineMatch[0];
+    const entryLine = block.split("\n", 1)[0].slice(0, 60);
+
+    // The tag pair is only meaningful when it TERMINATES the Recommended
+    // line (per the rubric's "ends with" contract) — a Recommended line
+    // may legitimately reference `[confidence: ...]` / `[anchor: ...]`
+    // syntax inline as prose (e.g. describing the rubric itself), which
+    // must not be mistaken for the real trailing tag pair.
+    const allConfMatches = [...recLine.matchAll(new RegExp(CONFIDENCE_RE))];
+    if (allConfMatches.length > 1) {
+      misses.push(
+        `confidence-missing: '## Open Questions' entry '${entryLine}' Recommended line carries more than one '[confidence: …]' tag`,
+      );
+      continue;
+    }
+    const endTagMatch = recLine.match(
+      /\[confidence:\s*(high|medium|low)\]\s*\[anchor:\s*([^\]]+)\]\s*\.?\s*$/,
+    );
+    if (!endTagMatch) {
+      if (allConfMatches.length === 0) {
+        misses.push(
+          `confidence-missing: '## Open Questions' entry '${entryLine}' Recommended line must end with '[confidence: high|medium|low] [anchor: …]'`,
+        );
+      } else {
+        misses.push(
+          `anchor-missing-tag: '## Open Questions' entry '${entryLine}' Recommended line has a confidence tag but no trailing '[anchor: …]' tag`,
+        );
+      }
+      continue;
+    }
+    const level = endTagMatch[1] as "high" | "medium" | "low";
+    const anchorContent = endTagMatch[2].trim();
+
+    if (level === "high") {
+      if (/^user:\s*"/.test(anchorContent)) continue;
+      const paths = extractPathAnchors(`[anchor: ${anchorContent}]`);
+      if (paths.length === 0) {
+        misses.push(
+          `high-anchor-form: '## Open Questions' entry '${entryLine}' is 'high' but its anchor '${anchorContent}' is neither a file path nor a 'user: "..."' quote`,
+        );
+        continue;
+      }
+      const root = resolveAnchorRepoRoot(planMdFile ?? process.cwd());
+      if (!existsSync(path.resolve(root, paths[0]))) {
+        misses.push(
+          `anchor-missing: '## Open Questions' entry '${entryLine}' is 'high' but its anchor path '${paths[0]}' does not exist under '${root}'`,
+        );
+      }
+      continue;
+    }
+
+    if (level === "medium") {
+      if (anchorContent.startsWith("adjacent: ")) {
+        const remainder = anchorContent.slice("adjacent: ".length).trim();
+        const paths = extractPathAnchors(`[anchor: ${remainder}]`);
+        if (paths.length === 0) {
+          misses.push(
+            `medium-anchor-form: '## Open Questions' entry '${entryLine}' is 'medium' with an 'adjacent:' anchor that has no parseable file path`,
+          );
+          continue;
+        }
+        const root = resolveAnchorRepoRoot(planMdFile ?? process.cwd());
+        if (!existsSync(path.resolve(root, paths[0]))) {
+          misses.push(
+            `anchor-missing: '## Open Questions' entry '${entryLine}' is 'medium' but its 'adjacent:' anchor path '${paths[0]}' does not exist under '${root}'`,
+          );
+        }
+        continue;
+      }
+      if (anchorContent.startsWith("weighing: ")) {
+        const factor = anchorContent
+          .slice("weighing: ".length)
+          .trim()
+          .split(/\s+/)[0];
+        if (!WEIGHING_FACTORS.includes(factor)) {
+          misses.push(
+            `medium-anchor-form: '## Open Questions' entry '${entryLine}' is 'medium' with a 'weighing:' anchor whose factor '${factor}' is not in the closed list (${WEIGHING_FACTORS.join(" | ")})`,
+          );
+        }
+        continue;
+      }
+      misses.push(
+        `medium-anchor-form: '## Open Questions' entry '${entryLine}' is 'medium' but its anchor '${anchorContent}' is neither 'adjacent: …' nor 'weighing: <factor> — …'`,
+      );
+      continue;
+    }
+
+    // level === "low"
+    if (!/^inference\b/.test(anchorContent)) {
+      misses.push(
+        `low-anchor-form: '## Open Questions' entry '${entryLine}' is 'low' but its anchor '${anchorContent}' does not start with 'inference'`,
+      );
+    }
+  }
+}
+
+/**
+ * Advisory stakes-line check for `## Open Questions`: every unchecked entry
+ * must carry a `**Stakes:**` line whose lens is `system`, `user`, or
+ * `both`. A checked `- [x]` entry is never inspected — `**Stakes:** none`
+ * is only valid there. Advisory — never blocks planning.
+ */
+function checkStakesLines(planText: string, misses: string[]): void {
+  const blocks = extractOpenQuestionsBlocks(planText);
+  if (blocks === null) return;
+  for (const { checked, block } of blocks) {
+    if (checked) continue;
+    const entryLine = block.split("\n", 1)[0].slice(0, 60);
+    const stakesMatch = block.match(/\*\*Stakes:\*\*\s*(\w+)/);
+    const lens = stakesMatch?.[1];
+    if (!lens || !["system", "user", "both"].includes(lens)) {
+      misses.push(
+        `stakes-missing: '## Open Questions' entry '${entryLine}' has no '**Stakes:** system|user|both' line — a zero-stakes question must be a checked resolved-without-asking entry`,
+      );
+    }
+  }
+}
+
+/**
+ * Advisory verdict-confidence check: every `Verdict:` line under
+ * `## Decision analysis`, and the first bold verdict line of
+ * `## Recommendation`, must carry a `[confidence: …]` tag. Absent
+ * headings no-op. Advisory — never blocks planning.
+ */
+function checkVerdictConfidence(planText: string, misses: string[]): void {
+  const daMatch = planText.match(
+    /^### Decision analysis\s*$|^## Decision analysis\s*$/m,
+  );
+  if (daMatch) {
+    const body = sliceToNextHeading(
+      planText,
+      (daMatch.index ?? 0) + daMatch[0].length,
+    );
+    const lineRe = /^.*Verdict:.*$/gm;
+    let lm: RegExpExecArray | null;
+    while ((lm = lineRe.exec(body)) !== null) {
+      if (!new RegExp(CONFIDENCE_RE).test(lm[0])) {
+        misses.push(
+          `verdict-confidence-missing: '## Decision analysis' verdict line '${lm[0].slice(0, 60)}' has no '[confidence: …]' tag`,
+        );
+      }
+    }
+  }
+
+  const recMatch = planText.match(/^## Recommendation\s*$/m);
+  if (recMatch) {
+    const body = sliceToNextHeading(
+      planText,
+      (recMatch.index ?? 0) + recMatch[0].length,
+    );
+    const verdictLineMatch = body.match(
+      /^.*\*\*(Proceed|Reconsider scope|Defer|Reject — do nothing)\*\*.*$/m,
+    );
+    if (
+      verdictLineMatch &&
+      !new RegExp(CONFIDENCE_RE).test(verdictLineMatch[0])
+    ) {
+      misses.push(
+        `verdict-confidence-missing: '## Recommendation' verdict line '${verdictLineMatch[0].slice(0, 60)}' has no '[confidence: …]' tag`,
       );
     }
   }
@@ -500,7 +711,11 @@ function checkExcludedPathsMirror(
  */
 export function lintPlan(
   planText: string,
-  opts: { excludedPathsJson?: string; surveyRan?: boolean } = {},
+  opts: {
+    excludedPathsJson?: string;
+    surveyRan?: boolean;
+    planMdFile?: string;
+  } = {},
 ): LintResult {
   const misses: string[] = [];
   try {
@@ -537,6 +752,9 @@ export function lintPlan(
     checkPromptInterpretation(planText, misses);
     checkMethodSelection(planText, misses, { surveyRan: opts.surveyRan });
     checkOpenQuestions(planText, misses);
+    checkConfidenceMarkers(planText, misses, opts.planMdFile);
+    checkStakesLines(planText, misses);
+    checkVerdictConfidence(planText, misses);
     checkExcludedPathsMirror(planText, opts.excludedPathsJson, misses);
   } catch (e) {
     misses.push(
@@ -612,6 +830,7 @@ export function run(argv: string[]): number {
   const { misses } = lintPlan(planText, {
     excludedPathsJson,
     surveyRan: parsed.surveyRan,
+    planMdFile: parsed.planMdFile,
   });
   if (misses.length === 0) return 0;
   for (const miss of misses) {

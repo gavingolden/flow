@@ -181,11 +181,19 @@ DEFINER` `get_shared_dashboard` RPC (Task 1) is the only anonymous read path, an
 
 ## Open Questions
 
-- [ ] Should share links have an expiration date? (Decided: no for v1, but the schema
-      should accommodate adding an `expires_at` column later — redirect adds a nullable
-      column + an expiry check to Task 1's RPC, no other task changes)
-- [ ] Should the shared view show a "Built with Stax Data" watermark? (Needs product
-      decision — redirect adds a watermark render to Task 4's page, no schema change)
+- [ ] Should share links have an expiration date? — redirect adds a nullable
+      `expires_at` column + an expiry check to Task 1's RPC, no other task changes
+  - **Stakes:** system — an unrevocable, non-expiring link is a standing data-exposure
+    surface if the default is wrong
+  - **Recommended:** no expiration for v1, but the schema accommodates adding
+    `expires_at` later — the existing `is_active` toggle (see Architecture Decisions)
+    already gives O(1) revocation, so an expiry column is additive, not a redesign
+    [confidence: high] [anchor: skills/pipeline/flow-product-planning/references/example-prd.md:74]
+- [ ] Should the shared view show a "Built with Stax Data" watermark? — redirect
+      adds a watermark render to Task 4's page, no schema change
+  - **Stakes:** user — the watermark is visible brand/UX taste with no system-side
+    consequence either way
+  - **Needs user input:** user-held preference or subjective taste
 
 ## Alternatives considered
 
@@ -202,7 +210,7 @@ DEFINER` `get_shared_dashboard` RPC (Task 1) is the only anonymous read path, an
 
 **Proceed** — clear user value with a self-contained, low-risk scope; the read-only viewer
 follows the existing domain-module and route patterns, and the open questions are deferrable
-to v1+.
+to v1+. [confidence: medium] [anchor: adjacent: skills/pipeline/flow-product-planning/references/example-prd.md:76]
 
 ## Plan risks
 

@@ -422,11 +422,12 @@ recommend would be a guess dressed as a decision.
   `### Decision analysis` and the resolution-first discipline exist
   for; the gate is reserved for forks that resist grounding entirely.
 - **Mechanical floor.** More than 3 unresolved `**Needs user input:**`
-  items (see "Open Questions (resolution-first)" below) forces the
-  gate regardless of judgment — a PRD with that many unresolved
-  user-only items is not a grounded recommendation, it's a
-  transcription of the ambiguity back at the user, so stop and ask
-  rather than ship it.
+  items PLUS `[confidence: low]` items, counted together (see "Open
+  Questions (resolution-first)" below), forces the gate regardless of
+  judgment — a PRD with that many combined unresolved user-only items
+  and low-confidence recommendations is not a grounded recommendation,
+  it's a transcription of the ambiguity back at the user, so stop and
+  ask rather than ship it.
 
 **On fire:** write `.flow-tmp/interview-questions.md` in the
 `../../flow-pipeline/references/interview-playbook.md` `## 3. Question format` shape —
@@ -849,6 +850,19 @@ factor(s)>` (per the Resolution rubric in discovery-playbook.md), OR
   list: a user-held preference or subjective taste; an external fact the agent
   cannot verify; credentials or production access.
 
+<!-- flow-confidence-rubric:begin -->
+
+**Confidence + stakes rubric.** Every unchecked `- [ ]` Open Questions entry carries a `**Stakes:**` sub-bullet, and every `**Recommended:**` line ends with `[confidence: <level>] [anchor: <ref>]`. The label is DERIVED from the anchor class — never asserted first and justified after.
+
+- **`**Stakes:** <system|user|both> — <what degrades, for whom, if the default is wrong>`** — the lens is the only closed enum. Judge through one of two lenses: does the answer change value for the **system** (a bug fix, stability, performance, reliability) or for the **user** (a bug fix, visual appeal / UX, content)? A question that moves NEITHER is never asked: resolve it with the recommended answer, write it as a checked `- [x]` entry with `**Stakes:** none — resolved without asking` at the END of `## Open Questions`, and never put it on the answer sheet.
+- **`high`** — a direct precedent the agent actually read and can cite: `[anchor: path[:line]]` (the same pattern, convention, or contract already in the repo), or a user statement `[anchor: user: "<quote>"]`. Checkable by opening the file.
+- **`medium`** — a DIFFERENT anchor form from `high`, so form is the discriminant: `[anchor: adjacent: path[:line]]` (a related precedent, not the same pattern), or `[anchor: weighing: <factor> — <one line>]` with the factor from the closed list `convention | footprint | risk | reversibility | effort | symmetry`. A bare `path[:line]` on `medium` is a miss.
+- **`low`** — `[anchor: inference — rises to <level> if <named evidence>]`: no in-repo anchor. When the decisive input is an unverifiable external fact, credentials/production access, or user taste, take the `**Needs user input:**` escape instead of tagging `low`.
+
+The label is derived from the anchor class, never asserted; a rationale whose only support is `likely`, `should be fine`, `standard practice`, `best practice`, or `probably` is a `low`. Chat renders show only `(high)` / `(medium)` / `(low)` — anchors stay in the on-disk artifact.
+
+<!-- flow-confidence-rubric:end -->
+
 **Relation to Decision analysis:** consequential questions whose branches genuinely
 diverge route to `### Decision analysis` (whose verdict feeds the Recommendation);
 everything else resolves here with a `**Recommended:**` marker or takes the
@@ -859,7 +873,8 @@ evidence the agent actually holds — codebase reading, a project convention, or
 rubric's value/effort/risk weighing. When the decisive input is an external fact the
 agent cannot verify, taking the `**Needs user input:**` escape is MANDATORY, not a
 stylistic choice: a confident wrong answer that looks right is worse than a bare
-question.
+question. The confidence label attached to a `**Recommended:**` line is derived
+from the anchor class per the Confidence + stakes rubric above, never asserted.
 
 **Answer-sheet numbering.** Every `**Needs user input:**` item (and every
 `## Decision analysis` fork left unresolved) carries a stable `Q<n>` id,
@@ -869,7 +884,10 @@ answer sheet above the AWAITING APPROVAL block, and the user's `answer:
 1a 2: <text>` reply is unambiguous only because the id it references
 never shifted underneath it. Assign the next unused `Q<n>` in document
 order the first time an item is written; a later revision pass that
-resolves `Q2` does not renumber `Q3` down to `Q2`.
+resolves `Q2` does not renumber `Q3` down to `Q2`. IDs are never renumbered
+by display order: at the pause, items render escaped and `[confidence: low]`
+first, then `medium`, then `high` — the display order is a rendering
+concern only.
 
 ### Decision analysis
 
@@ -881,7 +899,9 @@ downstream **end-user** flow (or, when a decision makes no user-visible differen
 enumerate and **rank** the viable combinations, and give a **verdict** that feeds the
 `## Recommendation`. This is the consequence-simulation counterpart to the risk-naming
 `## Plan risks`: `## Plan risks` names the single weakest assumption, while `## Decision analysis`
-walks the downstream consequences of the decisions the plan actually forks on.
+walks the downstream consequences of the decisions the plan actually forks on. Each decision's
+`Verdict:` line ends with `[confidence: <level>] [anchor: <ref>]` per the Confidence + stakes
+rubric above.
 
 **Relation to Open Questions.** Open Questions are assumptions to _confirm_; Decision analysis is
 the _simulated consequences_ of the consequential ones. A decision worth simulating here is usually
@@ -919,7 +939,9 @@ After weighing the options, the necessity check, and the trade-offs from step 3,
 in the PRD. Unlike `# Candidate follow-up issues` and `## Prompt interpretation` — which are
 omit-when-empty — a recommendation is always meaningful and cheap, so emit it on every PRD.
 
-The section is a single line: a verdict plus a one-line rationale. The verdict is one of:
+The section is a single line: a verdict plus a one-line rationale. The verdict line ends
+with the same `[confidence: <level>] [anchor: <ref>]` tag pair as a Decision analysis
+`Verdict:` line. The verdict is one of:
 
 - **Proceed** — build the request as scoped.
 - **Reconsider scope** — build, but with a named scope change (narrower, wider, or a
@@ -1456,7 +1478,8 @@ Your final message back to the wrapper should be 3–5 labeled bullets:
 tasks; `Candidates:` — the candidate follow-up issue count if non-zero
 (e.g. "3 candidate follow-up issues for the user to pick from"; omit the
 bullet when zero); `Top assumptions:` — the top one or two open questions
-or assumptions the user should pay attention to; `Research:` — **when
+or assumptions the user should pay attention to, listing any `**Needs user
+input:**` or `[confidence: low]` items first; `Research:` — **when
 Step 1.5's research path was active but no research ran, the one-line
 skip-note from (e)** (e.g. "Web-grounded research skipped — agy
 unavailable; force with `flow feature create --research`.") so it reaches
@@ -1542,6 +1565,14 @@ Common failure modes during planning:
 - Every assumption you made under ambiguity appears as an Open Question.
 - Every unchecked Open Questions entry carries a `**Recommended:**` answer or a
   `**Needs user input:**` escape (see "Open Questions (resolution-first)").
+- Every `**Recommended:**` line carries exactly one `[confidence: high|medium|low]`
+  and one `[anchor: …]` whose form matches the level (see the Confidence + stakes
+  rubric above).
+- Every unchecked Open Questions entry carries a `**Stakes:** system|user|both`
+  line, and zero-stakes questions are checked `- [x]` entries with
+  `**Stakes:** none`.
+- `[confidence: low]` items are counted at the question-gate mechanical floor
+  alongside unresolved `**Needs user input:**` items.
 - Task breakdown covers all PRD requirements with no gaps.
 - Each task has a recommended skill, inputs, outputs, and acceptance criteria.
 - Each task carries a `- **Contract:**` block (Files / Interfaces / Call-site
