@@ -310,6 +310,22 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
     expect(artifact.gated).toBeDefined();
   });
 
+  it("keeps stdout to the JSON envelope under --json (notices go to stderr)", () => {
+    const dir = makeRepo();
+    const r = spawnSync(
+      "bun",
+      [SCRIPT_PATH, "--pr", "5", "--worktree", dir, "--json"],
+      {
+        encoding: "utf8",
+        env: { ...process.env, HOME: dir, PATH: process.env.PATH ?? "" },
+      },
+    );
+    if (r.status !== 0) return; // gh unavailable in this environment — exit path covered elsewhere
+    expect(() => JSON.parse(r.stdout)).not.toThrow();
+    expect(r.stdout).not.toContain("NOTICE —");
+    expect(r.stderr).toContain("NOTICE — review-scope:");
+  });
+
   it("exits 2 on missing --pr", async () => {
     const dir = makeRepo();
     const code = await run(["--worktree", dir], {

@@ -484,8 +484,11 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     parsed.out ?? path.join(worktree, ".flow-tmp", "review-scope.json");
   atomicWrite(deps, outPath, JSON.stringify(scope));
 
+  // Under --json stdout is reserved for the envelope so callers can pipe it
+  // straight into jq; the human-readable notices move to stderr.
   const notices = renderNotices(scope);
-  for (const line of notices) process.stdout.write(`${line}\n`);
+  const noticeStream = parsed.json ? process.stderr : process.stdout;
+  for (const line of notices) noticeStream.write(`${line}\n`);
   if (parsed.json) process.stdout.write(`${JSON.stringify(scope)}\n`);
 
   return 0;
