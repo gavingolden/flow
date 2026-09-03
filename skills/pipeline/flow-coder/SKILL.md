@@ -51,7 +51,7 @@ Contract block — and `acceptance` — a runnable per-edit check. Today only
 `/flow-new-feature` step 5's plan-contract path composes them; `/flow-verify`,
 `/flow-refactoring`, and the redirect path keep composing bare triples, and the
 subagent treats an entry without them exactly as before (see
-`references/coder-instructions.md` for how `contract` is honored as a
+`flow-coder-instructions/SKILL.md` for how `contract` is honored as a
 strong prior via a mechanical pre-check).
 
 # When NOT to Use
@@ -177,7 +177,7 @@ spawn:
 2. Resolve the skill base directory absolutely. The Skill tool prints
    "Base directory for this skill" at the top of this SKILL.md when
    loaded — capture it as `SKILL_DIR`. Then derive:
-   - `INSTRUCTIONS_PATH = <SKILL_DIR>/references/coder-instructions.md`
+   - `INSTRUCTIONS_PATH = <SKILL_DIR>/../flow-coder-instructions/SKILL.md`
 
    The subagent reads its instructions via this absolute path. Pass
    `SKILL_DIR` so the subagent never has to resolve sibling references
@@ -237,8 +237,14 @@ config.models.implement > inherited` (see
    output. Do **not** read the artifact body in the wrapper — the caller
    (`/flow-new-feature`, `/flow-verify`, or `/flow-refactoring`) reads it once when it
    needs `verify_status` or per-edit dispositions, and reading it twice in
-   the same context erodes the context-cost win. The wrapper's only post-spawn
-   job is a cheap existence check (`test -s "$ARTIFACT_PATH"`); on missing
+   the same context erodes the context-cost win.
+
+   **Partial-result continuation.** If the Task result is marked partial
+   with an agent id and the artifact below is missing, send exactly one
+   `SendMessage` continuation per
+   `../flow-pipeline/references/partial-result-continuation.md` before treating it as a
+   miss. The wrapper's only post-spawn job otherwise is a cheap existence
+   check (`test -s "$ARTIFACT_PATH"`); on missing
    or empty artifact, surface the failure to the caller — the wrapper
    itself never retries.
 
@@ -272,7 +278,8 @@ reason) and implement the non-excluded alternative.
 You are the Independent Edit-Applier Subagent for `/flow-coder`. You run in an
 isolated context and return an artifact on disk plus a brief summary.
 
-Read the full instructions at:
+If the line `flow-instructions-sentinel: flow-coder-instructions` is NOT
+in your context, read the instructions at:
   {{INSTRUCTIONS_PATH}}
 
 Edit-set (verbatim, JSON-shaped):
@@ -296,7 +303,7 @@ path — they do not exist relative to {{WORKTREE}}):
 Write the structured artifact to (absolute path):
   {{ARTIFACT_PATH}}
 
-Follow the coder-instructions.md steps in order. You are one-shot — do not
+Follow the flow-coder-instructions steps in order. You are one-shot — do not
 ask the user clarifying questions. When the edit-set leaves something
 unspecified, make a defensible assumption based on the surrounding code
 and project conventions, and surface every assumption you made in the
@@ -326,7 +333,7 @@ back; the artifact on disk is the record.
 ```
 
 The artifact's JSON schema is documented verbatim in
-`references/coder-instructions.md` step 4. Both files declare the same
+`flow-coder-instructions/SKILL.md` step 4. Both files declare the same
 five top-level keys (`edits`, `verify_status`, `rejected_alternatives`,
 `anti_patterns_found`, `summary`); a structural lint at
 `bin/skill-md-lint.test.ts` enforces the schema-drift symmetry, and a

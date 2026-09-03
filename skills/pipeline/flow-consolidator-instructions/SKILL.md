@@ -1,3 +1,8 @@
+---
+name: flow-consolidator-instructions
+description: Preloaded instructions for the flow-consolidator subagent; not for direct invocation.
+---
+<!-- flow-instructions-sentinel: flow-consolidator-instructions -->
 # Consolidator-Validator instructions
 
 These instructions are read by the Consolidator-Validator subagent that

@@ -94,9 +94,8 @@ only `core/`), symlinked as ONE dir per module (`flow-module-<id>/agents`
 — Claude Code follows a symlinked dir, not a symlinked file). 15/16 carry
 `tools:` allowlists (flow-discovery: none); 2 mechanical roles pin
 `effort: low`, the gatekeeper pins `model: haiku`; per-spawn `model:`
-still wins. 2 carry `memory: local`, 4 `maxTurns:`, 4
-`experimental.cacheTtl: 1h`, 6 a `skills:` preload. In-process skills
-(`flow-checkpoint`) pin `effort:`, never `model:`.
+still wins. 2 carry `memory: local`, 4 `maxTurns:`, 4 `cacheTtl: 1h`, 6 a
+`skills:` preload. In-process skills pin `effort:`, never `model:`.
 
 Conventions for any script under `bin/`: `#!/usr/bin/env bun` + `chmod
 +x`; gate `main()` with `import.meta.main` (not an
@@ -270,7 +269,7 @@ three-layer resolution table, and the manifest/foundation fields — is at
   Post-commit, worktree == index == HEAD, so `git diff --check` /
   `git status --porcelain` report clean regardless of content — read the
   committed tree instead (`git grep ... HEAD`). See
-  `skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md`
+  `skills/pipeline/flow-merge-resolver-instructions/SKILL.md`
   Step 5 and `flow-conflict-marker-check`.
 - Don't auto-commit or auto-push outside an explicit user instruction —
   this default always holds on `main` (or any base branch). **On a
@@ -362,6 +361,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
     task-tool-unavailable` and degrades inline instead of escalating
     because inline application is a known-good fallback there — a
     sibling guard, not a tenth exemption.
+  - **A `SendMessage` continuation of a partial agent stays inside its
+    exemption — not a tenth site.**
   - The `/flow-pr-review` Gemini lens, the cross-model intent guess
     (`flow-gemini-intent-guess`), the `/flow-pipeline` Step-3
     **cross-model plan review**, and the Step-3

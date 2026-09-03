@@ -9,7 +9,7 @@ on the conflict-class merge branch and after the resolve-inputs Bash
 block, before the Task call fires, to pull the template body into the
 spawn invocation. The subagent's typed artifact shape
 (`merge-resolver-result.json`) is documented in
-[merge-resolver-instructions.md](merge-resolver-instructions.md), not
+[flow-merge-resolver-instructions](../../flow-merge-resolver-instructions/SKILL.md), not
 here.
 
 Fill in the nine `{{...}}` placeholders (`INSTRUCTIONS_PATH`, `PR`,
@@ -22,7 +22,7 @@ You are the Independent Merge-Conflict Resolver Subagent for /flow-pipeline
 step 10. You run in an isolated context and return an artifact on disk
 plus a brief summary.
 
-Read the full instructions at:
+If the line `flow-instructions-sentinel: flow-merge-resolver-instructions` is NOT in your context, read the instructions at:
   {{INSTRUCTIONS_PATH}}
 
 PR number:
@@ -53,7 +53,7 @@ Write the artifact to (absolute path):
 Step 5's post-commit marker check (`$MARKER_CHECK_CMD --committed`):
   MARKER_CHECK_CMD="{{MARKER_CHECK_CMD}}"
 
-Follow the merge-resolver-instructions.md steps in order. You are
+Follow the flow-merge-resolver-instructions steps in order. You are
 one-shot — do not ask the user clarifying questions. When a
 resolution requires judgment no defensible default exists for,
 record it in `ambiguous_resolutions` with the alternatives you

@@ -39,7 +39,7 @@
  * Output: a single JSON object on stdout.
  *   {
  *     "artifactPath": "<worktree>/.flow-tmp/verify-loop-result.json",
- *     "instructionsPath": "<skillDir>/references/verify-loop-instructions.md",
+ *     "instructionsPath": "<skillDir>/../flow-verify-loop-instructions/SKILL.md",
  *     "verifyModel": "sonnet" | <configured alias>,
  *     "verifySubagent": "flow-module-core:flow-verify" | "general-purpose"
  *   }
@@ -234,8 +234,9 @@ export function run(argv: string[], deps: Deps = {}): number {
   );
   const instructionsPath = path.join(
     skillDir,
-    "references",
-    "verify-loop-instructions.md",
+    "..",
+    "flow-verify-loop-instructions",
+    "SKILL.md",
   );
 
   mkdir(path.join(worktree, ".flow-tmp"));

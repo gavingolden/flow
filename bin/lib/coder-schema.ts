@@ -3,7 +3,7 @@
  * `<worktree>/.flow-tmp/coder-result.json`.
  *
  * The schema is documented prose-only in
- * `skills/pipeline/flow-coder/references/coder-instructions.md` step 4
+ * `skills/pipeline/flow-coder-instructions/SKILL.md` step 4
  * and `skills/pipeline/flow-coder/SKILL.md`'s spawn-prompt template, with a
  * top-level-keys lint at `bin/skill-md-lint.test.ts`. This module is the
  * runtime counterpart: a wrapper that has just received the artifact can

@@ -130,7 +130,7 @@ beyond the task's stated scope" targets unrequested feature creep, not a
 trivial edit that makes the PR's own change robust; deferral stays
 reserved for standalone or complex work. The full bar and its motivating
 incident live in `templates/AGENTS.md.template` and `/flow-pr-review`'s
-`references/fix-applier-instructions.md`.
+`skills/pipeline/flow-fix-applier-instructions/SKILL.md`.
 
 ## Treat every request as production-bound, not a hobby project
 

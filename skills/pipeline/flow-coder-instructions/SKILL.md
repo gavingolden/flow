@@ -1,3 +1,8 @@
+---
+name: flow-coder-instructions
+description: Preloaded instructions for the flow-edit-applier subagent; not for direct invocation.
+---
+<!-- flow-instructions-sentinel: flow-coder-instructions -->
 # Edit-applier instructions
 
 These instructions are read by the edit-applier subagent that `/flow-coder`'s

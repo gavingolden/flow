@@ -139,7 +139,7 @@ step 3 already uses), the Verify-Retry-Loop subagent spawns exactly one
 `flow-edit-applier` subagent per outer attempt — depth 3
 (supervisor → verify-loop → edit-applier) — rather than applying the
 fix inline. The spawn passes a JSON edit-set shaped per
-`skills/pipeline/flow-coder/references/coder-instructions.md`, and a
+`skills/pipeline/flow-coder-instructions/SKILL.md`, and a
 caller-passed absolute artifact path,
 `<worktree>/.flow-tmp/verify-coder-result.json` — deliberately distinct
 from the supervisor-path `coder-result.json` so a stale parent artifact
@@ -159,6 +159,6 @@ which escalate `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`
 because they have no inline fallback).
 
 The normative source for the full spawn contract is
-`skills/pipeline/flow-pipeline/references/verify-loop-instructions.md`;
+`skills/pipeline/flow-verify-loop-instructions/SKILL.md`;
 this document records the _rationale_ for adopting nesting there, not
 the mechanics.

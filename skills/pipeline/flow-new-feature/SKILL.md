@@ -120,7 +120,7 @@ when invoked from `/flow-pipeline`), use it; otherwise use `pwd`. Define:
   skip-scout path it still feeds Step 2's contract read and Step 5's
   edit-set composition. On the spawn path it additionally switches the
   spawned scout into verify-not-rederive mode (see
-  `references/scout-instructions.md`).
+  the preloaded `flow-scout-instructions` skill).
 
 Decide whether to spawn the scout subagent based on the **hybrid threshold**:
 
@@ -159,7 +159,7 @@ Decide whether to spawn the scout subagent based on the **hybrid threshold**:
 2. Resolve the skill base directory absolutely. The Skill tool prints
    the "Base directory for this skill" at the top of this SKILL.md when
    loaded — capture it as `SKILL_DIR`. Then derive:
-   - `INSTRUCTIONS_PATH = <SKILL_DIR>/references/scout-instructions.md`
+   - `INSTRUCTIONS_PATH = <SKILL_DIR>/../flow-scout-instructions/SKILL.md`
 
    The subagent reads its instructions via this absolute path. Pass
    `SKILL_DIR` so the subagent never has to resolve sibling references
@@ -249,7 +249,7 @@ Fill in the eight `{{...}}` placeholders before passing to the Task tool:
 You are the Independent Scout Subagent for `/flow-new-feature`. You run in an
 isolated context and return an artifact on disk plus a brief summary.
 
-Read the full instructions at:
+If the line `flow-instructions-sentinel: flow-scout-instructions` is NOT in your context, read the instructions at:
   {{INSTRUCTIONS_PATH}}
 
 User feature description (verbatim):
@@ -268,11 +268,11 @@ Write the scout report to (absolute path):
 
 Approved plan path (when not the literal `absent`, verify the plan's
 `# Task breakdown` contracts against the code instead of re-deriving —
-see scout-instructions.md "Verify-not-rederive"):
+see flow-scout-instructions "Verify-not-rederive"):
   {{PLAN_PATH}}
 
 {{EXCLUDED_PATHS}}
-Follow the scout-instructions.md steps in order. You are one-shot — do
+Follow the flow-scout-instructions steps in order. You are one-shot — do
 not ask the user clarifying questions. When the user description leaves
 something unspecified, make a defensible assumption based on the codebase
 and project conventions, and surface every assumption you made in the
@@ -322,7 +322,7 @@ scout report back; the artifact on disk is the record.
     trivial robustness fixes — for the fix-now-vs-defer bar (when a small,
     low-risk, in-scope fix must land in-PR rather than be deferred), see
     `templates/AGENTS.md.template` (`## Anti-Overengineering`) and `/flow-pr-review`'s
-    `references/fix-applier-instructions.md`.
+    `flow-fix-applier-instructions/SKILL.md`.
   - **Consider alternatives.** Propose at least one alternative approach if one exists.
     Briefly explain the trade-off. When the user's feature description is framed as a
     binary either/or choice (A or B), comparing only the two named poles is
@@ -553,7 +553,7 @@ Decide whether to delegate edits to `/flow-coder` based on the **hybrid threshol
    file's own `contract` slice). `acceptance` is task-grained, not
    file-grained: attach it only to the task's **final** entry (the
    `/flow-coder` edit-applier runs it once, after that last entry, not
-   per-edit — see `references/coder-instructions.md` step 4). Earlier
+   per-edit — see `flow-coder-instructions/SKILL.md` step 4). Earlier
    entries for the same task omit `acceptance` entirely.
 
    Both optional fields are absent on the no-plan fallback path —

@@ -27,6 +27,7 @@ import {
   checkPluginContract,
   dereferenceRoot,
   exitCodeFor,
+  resolveAgentPreloadSkills,
   type ContractLintPhase,
 } from "./flow-plugin-contract-lint";
 import { moduleIds } from "./lib/modules";
@@ -268,6 +269,77 @@ describe(checkPluginContract, () => {
     ).toBe(false);
   });
 
+  describe(resolveAgentPreloadSkills, () => {
+    let fixtureRoot!: string;
+
+    beforeEach(() => {
+      fixtureRoot = fs.mkdtempSync(
+        path.join(tmpRoot, "skills-resolve-fixture-"),
+      );
+    });
+
+    function writeAgent(name: string, skillsBlock: string): void {
+      fs.mkdirSync(path.join(fixtureRoot, "agents"), { recursive: true });
+      fs.writeFileSync(
+        path.join(fixtureRoot, "agents", `${name}.md`),
+        `---\nname: ${name}\ndescription: fixture\n${skillsBlock}---\nbody\n`,
+      );
+    }
+
+    function writeSkill(name: string): void {
+      const dir = path.join(fixtureRoot, "skills", name);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "SKILL.md"),
+        `---\nname: ${name}\ndescription: fixture\n---\nbody\n`,
+      );
+    }
+
+    it("resolves a bare skills: name to its SKILL.md and records it, with no failures", () => {
+      writeSkill("flow-fixture-instructions");
+      writeAgent(
+        "flow-fixture-agent",
+        "skills:\n  - flow-fixture-instructions\n",
+      );
+      const { resolved, failures } = resolveAgentPreloadSkills(fixtureRoot);
+      expect(resolved).toEqual([
+        "flow-fixture-agent.md:flow-fixture-instructions",
+      ]);
+      expect(failures).toEqual([]);
+    });
+
+    it("resolves a plugin-qualified skills: name by stripping the prefix", () => {
+      writeSkill("flow-fixture-instructions");
+      writeAgent(
+        "flow-fixture-agent",
+        "skills:\n  - flow-module-core:flow-fixture-instructions\n",
+      );
+      const { resolved, failures } = resolveAgentPreloadSkills(fixtureRoot);
+      expect(resolved).toEqual([
+        "flow-fixture-agent.md:flow-module-core:flow-fixture-instructions",
+      ]);
+      expect(failures).toEqual([]);
+    });
+
+    it("records a skills-resolve failure for a deliberately-wrong name (no SKILL.md on disk)", () => {
+      writeAgent(
+        "flow-fixture-agent",
+        "skills:\n  - flow-nonexistent-instructions\n",
+      );
+      const { resolved, failures } = resolveAgentPreloadSkills(fixtureRoot);
+      expect(resolved).toEqual([]);
+      expect(failures).toHaveLength(1);
+      expect(failures[0].phase).toBe("skills-resolve");
+      expect(failures[0].detail).toContain("flow-nonexistent-instructions");
+    });
+
+    it("returns empty arrays for a root with no agents/ directory", () => {
+      const { resolved, failures } = resolveAgentPreloadSkills(fixtureRoot);
+      expect(resolved).toEqual([]);
+      expect(failures).toEqual([]);
+    });
+  });
+
   describe(dereferenceRoot, () => {
     let unitTmpRoot!: string;
 
@@ -420,6 +492,7 @@ describe("CLI exit-code mapping", () => {
       derefValidatedRoots: [],
       shippedValidatedRoots: [],
       probedPluginDirRoots: [],
+      resolvedPreloadSkills: [],
     };
     expect(exitCodeFor(injectedResult)).toBe(1);
   });

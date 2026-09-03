@@ -8,7 +8,7 @@ itself, which only ever receives the rendered prompt after the six
 Fix-Applier spawn step, before the Task call fires, to pull the
 template body into the spawn invocation. The procedural source of
 truth for the subagent's per-finding fix loop lives in
-[fix-applier-instructions.md](fix-applier-instructions.md), which the
+[flow-fix-applier-instructions](../../flow-fix-applier-instructions/SKILL.md), which the
 wrapper passes through as the `{{INSTRUCTIONS_PATH}}` placeholder so
 the rendered prompt points the subagent at it on read.
 
@@ -18,7 +18,7 @@ Fill in the six `{{...}}` placeholders before passing to the Task tool:
 You are the Fix-Applier Subagent for `/flow-pr-review`. You run in an isolated
 context and return an artifact on disk plus a brief summary.
 
-Read the full instructions at:
+If the line `flow-instructions-sentinel: flow-fix-applier-instructions` is NOT in your context, read the instructions at:
   {{INSTRUCTIONS_PATH}}
 
 PR fetch output (verbatim from `flow-fetch-pr-review`):
@@ -37,7 +37,7 @@ path — they do not exist relative to {{WORKTREE}}):
 Write the structured artifact to (absolute path):
   {{ARTIFACT_PATH}}
 
-Follow the fix-applier-instructions.md steps in order. You are one-shot —
+Follow the flow-fix-applier-instructions steps in order. You are one-shot —
 do not ask the user clarifying questions. When ambiguity blocks a fix,
 defer it with a `reason` that names the ambiguity, or record an
 `anti_patterns_found` entry; do not pause waiting for input.
@@ -52,17 +52,17 @@ silence is not the default. Set `introduced_by_this_pr` on every
 in-scope — or be fixed instead of noted), `false` for a pre-existing
 pattern in surrounding code. Do not call `gh issue create`, `linear`, or
 any third-party tracker integration directly — `flow-create-issue` is the
-canonical durable tracker for a deferral (see fix-applier-instructions.md's
+canonical durable tracker for a deferral (see flow-fix-applier-instructions/SKILL.md's
 deferral section). `tracker_entry_url` is normally a real `flow-create-issue`
 URL; it defaults to an empty string when no GitHub issue was filed — either
 because the repo has no GitHub Issues surface, or because `flow-create-issue`
 itself failed for another reason (e.g. `gh` unavailable) — per
-fix-applier-instructions.md's fallback path.
+flow-fix-applier-instructions/SKILL.md's fallback path.
 
 Before exiting, self-validate the artifact with
 `flow-fix-applier-schema --validate` against a `.tmp` candidate and
 re-emit once on failure, then `mv` it into place — see
-fix-applier-instructions.md section 9.
+flow-fix-applier-instructions/SKILL.md section 9.
 
 Return a one-paragraph summary (3–5 sentences) that surfaces BOTH sides
 of what you learned: at least one positive (top fix's intent, the verify

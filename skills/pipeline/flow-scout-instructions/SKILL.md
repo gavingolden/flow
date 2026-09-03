@@ -1,3 +1,8 @@
+---
+name: flow-scout-instructions
+description: Preloaded instructions for the flow-scout subagent; not for direct invocation.
+---
+<!-- flow-instructions-sentinel: flow-scout-instructions -->
 # Scout instructions
 
 These instructions are read by the scout subagent that `/flow-new-feature`'s
