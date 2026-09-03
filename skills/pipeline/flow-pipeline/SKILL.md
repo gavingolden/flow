@@ -58,10 +58,11 @@ Stay in-process for skills; shell out for scripts; never delegate.
 
 > **You are never a sub-agent.** Never call the `Task` / `Agent`
 > tool from this skill — **except for the named exceptions below**.
-> Never spawn a separate `claude -p` subprocess. (This binds the
-> supervisor and its sub-agents and is NOT relaxed; a standalone leaf
-> skill like `/flow-research` run directly firing `claude -p` is a
-> separate context this rule never governed.) The supervisor's
+> Never spawn a raw `claude -p` subprocess — the only sanctioned
+> headless-Claude spawn is `flow-claude-headless` (a Bash fan-out, not a
+> tenth exemption; contract in `references/headless-claude.md`). A
+> standalone leaf skill like `/flow-research` run directly is a separate
+> context this rule never governed. The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
 > calls, and (c) the nine narrowly-named Task-tool exceptions that
 > follow.
@@ -187,6 +188,16 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > the two notes above, NOT a `#10` exemption. Gated on `state.interview`
 > non-empty; gracefully skips on any failure. Documented bidirectionally
 > in `AGENTS.md` `## Don'ts` and `references/blind-survey.md`.
+
+> **Headless Claude via `flow-claude-headless` is a Bash fan-out, not a
+> tenth exemption.** Any skill the supervisor loads — including
+> consumer-repo skills invoked during implement — may run a fixed-model,
+> fixed-effort `claude -p` ONLY through `flow-claude-headless`, which
+> allowlists the child env (`FLOW_SLUG`/`TMUX_PANE` never leak, issue
+> #618), caps spend, refuses to nest, and returns one envelope carrying
+> `total_cost_usd`. It spawns no Task, so the nine-exemption count is
+> unchanged. Documented bidirectionally in `AGENTS.md` `## Don'ts` and
+> `references/headless-claude.md`.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
@@ -3038,7 +3049,8 @@ After each phase transition:
   `/flow-pr-review`'s "Independent Consolidator-Validator Subagent",
   and step 6's "Verify-Retry-Loop Subagent".
   No other skill or step may call Task.
-- The supervisor never spawned a `claude -p` subprocess.
+- The supervisor never spawned a raw `claude -p` subprocess — only
+  `flow-claude-headless` calls.
 
 When the pipeline ends, scrollback contains exactly one of `MERGED`
 / `GATED: <url>` / `NEEDS HUMAN: <reason>` / `cancelled` on its own

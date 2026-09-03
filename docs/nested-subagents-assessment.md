@@ -81,6 +81,8 @@ Independent of any single site, nesting anywhere carries these costs:
   newer platform primitives for coordinating multi-agent work; this
   assessment does not adopt either — the nine-exemption model already
   covers flow's fan-out surface without them.
+- **Headless `claude -p` subprocesses are a Bash fan-out, not a nesting
+  depth** — see the "Headless `claude -p` assessment" section below.
 
 ## Verdict
 
@@ -162,3 +164,52 @@ The normative source for the full spawn contract is
 `skills/pipeline/flow-pipeline/references/verify-loop-instructions.md`;
 this document records the _rationale_ for adopting nesting there, not
 the mechanics.
+
+## Headless `claude -p` assessment
+
+**Question:** does the supervisor-level prohibition on spawning `claude -p`
+subprocesses help or hurt — should it be relaxed, kept, or given a narrow
+carve-out?
+
+| Rationale                    | Applies to headless `claude -p`?                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (1) Flat fan-out depth       | Does not apply. A subprocess has no Task depth and cannot nest past the helper's `FLOW_HEADLESS_DEPTH` guard — a nested `flow-claude-headless` call inside a `flow-claude-headless` child exits 2 with `headless-depth-exceeded` before spawning anything.                                                                                                                                                                                                                                                                                                                       |
+| (2) Supervisor context bloat | Does not apply. The parent sees exactly one JSON envelope line, never the child's own transcript.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Incident history             | The rule was authored as a design principle in the original supervisor PR (commit `f4b99fe`) with no incident behind it. The one real nearby incident is issue #618 — a nested `claude` session inheriting `FLOW_SLUG`/`TMUX_PANE` tripped `flow-stop-guard` against the parent pipeline and overwrote its `state.json`. That is an env-hygiene property of ANY unguarded child, not of `claude -p` per se, and is already solved in code for the eval harness's own child (`bin/lib/eval-runner.ts`'s `ENV_STRIP`) and now, independently, for the headless helper's allowlist. |
+| Observability                | Headless returns exact `total_cost_usd`, `session_id`, `num_turns`, `duration_ms`. An `Agent`-tool spawn itemises none of these.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Permissions                  | The child's tools run under its own `--permission-mode dontAsk` + `--allowedTools` + `FIXED_DENY_LIST`, not the parent's auto-mode classifier. An `Agent`-tool spawn was observed classifier-blocked mid-pipeline (2026-07-27 merge-resolver spawn; the documented `NEEDS HUMAN: merge-resolver-spawn-denied` path), while the helper's launching Bash call is still classifier-reviewed (observed allowed for short `flow-*` helper calls; not guaranteed).                                                                                                                     |
+| Safety cost                  | Non-bare loads the worktree's `CLAUDE.md`/hooks/MCP (no hook-disable flag on `claude` 2.1.259). Guards: the fixed headless preamble line, stdin closed, `--bare` escape (loses OAuth), and `--safe-mode` as a possible future opt-in.                                                                                                                                                                                                                                                                                                                                            |
+| Effort pinning               | `claude -p --effort` accepts `low`/`medium`/`high`/`xhigh`/`max`, verified live on 2.1.259; `--model` is set per call; `--max-turns` is hidden from `--help` but live.                                                                                                                                                                                                                                                                                                                                                                                                           |
+
+### Verdict
+
+NARROW. Never a RAW `claude -p`; `flow-claude-headless` is the single
+sanctioned site — a Bash fan-out, not a tenth Task-tool exemption (same
+framing as the Gemini lens, plan review, and blind survey).
+
+### Headless vs an Agent-tool agent definition
+
+YES: absent the rule, headless `claude -p` is the preferred primary
+mechanism for a fixed-model, fixed-effort reviewer. An `Agent`-tool agent
+definition is the right choice only when the reviewer needs the parent's
+MCP/tool surface, or must appear in the parent transcript. Consequence
+for econ-data's prompt-improve-loop: headless primary, agent-definition
+fallback.
+
+### Rejected alternatives
+
+- **Remove the rule outright.** #618 becomes reachable from every skill
+  again, with no spend cap and no depth guard.
+- **Keep the rule and add a leaf-skill-only prose carve-out.** A
+  hand-typed `env -u` recipe is exactly how #618 recurs — no mechanical
+  enforcement, just a convention someone eventually skips.
+- **A tenth Task-tool exemption.** The helper spawns no Task; folding it
+  into the nine-exemption count would be inaccurate and would force a
+  lint-pin rewrite for no reason.
+- **A `--backend claude` flag on `flow-delegate`.** `flow-delegate` ships
+  in the deselectable research module, so the implement-step path would
+  vanish on a core-only install, and its contract is agy-specific end to
+  end.
+
+Shipped contract:
+`skills/pipeline/flow-pipeline/references/headless-claude.md`.
