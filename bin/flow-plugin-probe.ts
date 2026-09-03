@@ -38,7 +38,11 @@ export type ProbeId =
   | "bin-path-injection"
   | "enabled-plugins"
   | "skill-invocation-name"
-  | "agent-invocation-name";
+  | "agent-invocation-name"
+  | "agent-memory-scope"
+  | "skills-preload-name"
+  | "max-turns-partial"
+  | "cache-ttl-1h";
 
 export type ProbeVerdict = {
   id: ProbeId;
@@ -54,9 +58,25 @@ const PROBE_IDS: ProbeId[] = [
   "enabled-plugins",
   "skill-invocation-name",
   "agent-invocation-name",
+  "agent-memory-scope",
+  "skills-preload-name",
+  "max-turns-partial",
+  "cache-ttl-1h",
+];
+
+/** Probes that touch the REAL logged-in HOME and spawn real Task-tool
+ * subagents — gated behind `--live` (never run implicitly, never in the
+ * unit suite). Every other id stays on the D4-degradable, tmpRoot-scoped
+ * path. */
+const LIVE_ONLY_IDS: ProbeId[] = [
+  "agent-memory-scope",
+  "skills-preload-name",
+  "max-turns-partial",
+  "cache-ttl-1h",
 ];
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const LIVE_TIMEOUT_MS = 180_000;
 
 /** `node:child_process`, not `Bun.spawnSync`/`Bun.spawn` — this harness must
  * also run correctly inside `npm run test`'s Node-hosted vitest process,
@@ -80,13 +100,17 @@ function runClaude(
 ): Promise<ClaudeResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return new Promise((resolve) => {
+    // Strip FLOW_SLUG/TMUX_PANE from the child env for LIVE probes run from
+    // inside a flow-launched session: an unstripped nested `claude` trips
+    // flow-stop-guard against the PARENT pipeline and can overwrite its
+    // state.json (see project_flow_slug_leak_nested_claude_session.md).
+    const env: NodeJS.ProcessEnv = { ...process.env, CI: "1" };
+    delete env.FLOW_SLUG;
+    delete env.TMUX_PANE;
+    if (opts.home) env.HOME = opts.home;
     const child = spawnAsync("claude", args, {
       cwd: opts.cwd,
-      env: {
-        ...process.env,
-        CI: "1",
-        ...(opts.home ? { HOME: opts.home } : {}),
-      },
+      env,
       stdio: ["ignore", "pipe", "ignore"],
     });
     let stdout = "";
@@ -468,6 +492,296 @@ async function probeAgentInvocationName(
   };
 }
 
+/** Builds a fixture git repo + one linked worktree under `tmpRoot`, for the
+ * live memory/skills/cache probes that need a real repo tree to observe
+ * cwd-relative resolution against. */
+function makeFixtureRepoAndWorktree(tmpRoot: string): {
+  primaryDir: string;
+  worktreeDir: string;
+} {
+  const primaryDir = fs.mkdtempSync(path.join(tmpRoot, "repo-"));
+  spawnSync("git", ["init", "-q"], { cwd: primaryDir });
+  spawnSync("git", ["config", "user.email", "probe@example.com"], {
+    cwd: primaryDir,
+  });
+  spawnSync("git", ["config", "user.name", "probe"], { cwd: primaryDir });
+  fs.writeFileSync(path.join(primaryDir, "README.md"), "probe fixture\n");
+  spawnSync("git", ["add", "-A"], { cwd: primaryDir });
+  spawnSync("git", ["commit", "-q", "-m", "init"], { cwd: primaryDir });
+  const worktreeDir = path.join(tmpRoot, "worktree");
+  spawnSync("git", ["worktree", "add", "-q", worktreeDir, "-b", "probe-wt"], {
+    cwd: primaryDir,
+  });
+  return { primaryDir, worktreeDir };
+}
+
+/** Recursively finds every MEMORY.md under `root` (best-effort, tolerant of
+ * missing dirs). */
+function findMemoryFiles(root: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string) => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name === "MEMORY.md") found.push(full);
+    }
+  };
+  walk(root);
+  return found;
+}
+
+async function probeAgentMemoryScope(
+  fixtureHome: string,
+): Promise<ProbeVerdict> {
+  const id: ProbeId = "agent-memory-scope";
+  const tmpParent = path.dirname(fixtureHome);
+  const { primaryDir, worktreeDir } = makeFixtureRepoAndWorktree(tmpParent);
+
+  const agentsJson = JSON.stringify({
+    "probe-memory-agent": {
+      description: "probe fixture agent for memory scope",
+      prompt:
+        "Write exactly one short memory note (one sentence) about this repo, then reply DONE.",
+      memory: "local",
+    },
+  });
+
+  const runOnce = async (cwd: string, withSymlink: boolean) => {
+    if (withSymlink) {
+      const cacheDir = fs.mkdtempSync(
+        path.join(tmpParent, "agent-memory-cache-"),
+      );
+      const linkPath = path.join(cwd, ".claude", "agent-memory-local");
+      fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+      try {
+        fs.symlinkSync(cacheDir, linkPath);
+      } catch {
+        // best-effort; a pre-existing path is left alone
+      }
+    }
+    return runClaude(
+      [
+        "--agents",
+        agentsJson,
+        "--agent",
+        "probe-memory-agent",
+        "-p",
+        "Write your memory note now.",
+      ],
+      // No `home:` override — the live probes run against the REAL,
+      // already-logged-in HOME (auth lives there); only the git repo /
+      // worktree / plugin-root FIXTURES are confined to a tmp dir.
+      { cwd, timeoutMs: LIVE_TIMEOUT_MS },
+    );
+  };
+
+  const withoutSymlink = await runOnce(worktreeDir, false);
+  const observedRoots = [
+    tmpParent,
+    worktreeDir,
+    primaryDir,
+    path.join(os.homedir(), ".claude", "agent-memory"),
+  ];
+  const foundWithout = observedRoots.flatMap(findMemoryFiles);
+
+  if (withoutSymlink.timedOut) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `agent-memory-scope live probe timed out after ${LIVE_TIMEOUT_MS}ms`,
+      fallback: "assume cwd-relative + symlink-followed handoff (plan default)",
+    };
+  }
+
+  return {
+    id,
+    verdict: foundWithout.length > 0 ? "confirmed" : "inconclusive",
+    evidence: `memory:local agent run from worktree cwd ${worktreeDir}; MEMORY.md observed at: ${JSON.stringify(foundWithout)}; exit ${withoutSymlink.exitCode}`,
+    fallback: "assume cwd-relative + symlink-followed handoff (plan default)",
+  };
+}
+
+async function probeSkillsPreloadName(
+  fixtureHome: string,
+): Promise<ProbeVerdict> {
+  const id: ProbeId = "skills-preload-name";
+  const root = materializeRoot(fixtureHome);
+  const sentinel = "PROBE-SENTINEL-7f3a";
+  const skillDir = path.join(root, "skills", "flow-probe-preload-skill");
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    `---\nname: flow-probe-preload-skill\ndescription: probe fixture for skills preload naming\n---\n<!-- flow-instructions-sentinel: flow-probe-preload-skill -->\nThe sentinel value is: ${sentinel}\n`,
+  );
+
+  const tryForm = async (skillsValue: string) => {
+    const agentsJson = JSON.stringify({
+      "probe-skills-agent": {
+        description: "probe fixture agent for skills preload naming",
+        prompt:
+          "Without using the Read tool, repeat the sentinel value from your preloaded skill instructions verbatim, then reply DONE.",
+        skills: [skillsValue],
+      },
+    });
+    return runClaude(
+      [
+        "--plugin-dir",
+        root,
+        "--agents",
+        agentsJson,
+        "--agent",
+        "probe-skills-agent",
+        "-p",
+        "Report the sentinel now.",
+      ],
+      { timeoutMs: LIVE_TIMEOUT_MS },
+    );
+  };
+
+  const bare = await tryForm("flow-probe-preload-skill");
+  if (bare.timedOut) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `skills-preload-name live probe (bare form) timed out after ${LIVE_TIMEOUT_MS}ms`,
+      fallback: "assume bare skill name form (sub-agents page precedent)",
+    };
+  }
+  if (bare.stdout.includes(sentinel)) {
+    return {
+      id,
+      verdict: "confirmed",
+      evidence: `bare skills: [\"flow-probe-preload-skill\"] form echoed the sentinel — exit ${bare.exitCode}`,
+    };
+  }
+  const qualified = await tryForm("flow-module-core:flow-probe-preload-skill");
+  if (!qualified.timedOut && qualified.stdout.includes(sentinel)) {
+    return {
+      id,
+      verdict: "confirmed",
+      evidence: `plugin-qualified skills: [\"flow-module-core:flow-probe-preload-skill\"] form echoed the sentinel (bare form did not) — exit ${qualified.exitCode}`,
+    };
+  }
+  return {
+    id,
+    verdict: "inconclusive",
+    evidence: `neither bare nor plugin-qualified skills: form observably echoed the sentinel; bare exit ${bare.exitCode}, output: ${bare.stdout.trim().slice(0, 300)}`,
+    fallback: "assume bare skill name form (sub-agents page precedent)",
+  };
+}
+
+async function probeMaxTurnsPartial(
+  fixtureHome: string,
+): Promise<ProbeVerdict> {
+  const id: ProbeId = "max-turns-partial";
+  // `--agent <name>` sets the agent for the CURRENT top-level session, not a
+  // Task-tool subagent spawn — a direct `-p` run under it just finishes in
+  // one turn without exercising the budget. Route through an actual
+  // Task-tool spawn (same shape as probeAgentInvocationName) so the raw
+  // partial-marker text this probe exists to observe is the real one.
+  const agentsJson = JSON.stringify({
+    "probe-maxturns-agent": {
+      description: "probe fixture agent for maxTurns partial behaviour",
+      prompt:
+        "You must make exactly three separate Bash tool calls, one per turn: first `echo 1`, wait for the result, then `echo 2`, wait for the result, then `echo 3`. Do not combine them. Only after all three reply DONE.",
+      maxTurns: 1,
+    },
+  });
+  const result = await runClaude(
+    [
+      "--agents",
+      agentsJson,
+      "-p",
+      "Use the Task tool to spawn a subagent with subagent_type: probe-maxturns-agent, description: probe, and prompt: 'Begin now, make your three bash calls.' Report back the exact raw Task-tool result text verbatim, unmodified, including any note about turn limits or partial completion.",
+    ],
+    { timeoutMs: LIVE_TIMEOUT_MS },
+  );
+  if (result.timedOut) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `max-turns-partial live probe timed out after ${LIVE_TIMEOUT_MS}ms`,
+      fallback: "assume a partial marker is returned, undocumented shape",
+    };
+  }
+  return {
+    id,
+    verdict: result.stdout.trim().length > 0 ? "confirmed" : "inconclusive",
+    evidence: `maxTurns:1 agent raw result text (exit ${result.exitCode}, agent id probe-maxturns-agent): ${result.stdout.trim().slice(0, 500)}`,
+  };
+}
+
+async function probeCacheTtl1h(fixtureHome: string): Promise<ProbeVerdict> {
+  const id: ProbeId = "cache-ttl-1h";
+  // experimental.cacheTtl is read only from subagent FILES, never --agents
+  // JSON (per the sub-agents page) — this fixture writes a real agent file
+  // into the fixture plugin root's agents/ dir.
+  const root = materializeRoot(fixtureHome);
+  const agentsSourceDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "flow-probe-cachettl-agents-"),
+  );
+  fs.writeFileSync(
+    path.join(agentsSourceDir, "flow-probe-cachettl-agent.md"),
+    "---\nname: flow-probe-cachettl-agent\ndescription: probe fixture agent for cache TTL\nexperimental:\n  cacheTtl: 1h\n---\nReply OK.\n",
+  );
+  fs.symlinkSync(agentsSourceDir, path.join(root, "agents"));
+
+  const result = await runClaude(
+    [
+      "--plugin-dir",
+      root,
+      "-p",
+      "Use the Task tool to spawn a subagent with subagent_type: flow-module-core:flow-probe-cachettl-agent, description: probe, and prompt: 'reply OK'.",
+    ],
+    { timeoutMs: LIVE_TIMEOUT_MS },
+  );
+  if (result.timedOut) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `cache-ttl-1h live probe timed out after ${LIVE_TIMEOUT_MS}ms`,
+      fallback: "assume 1h TTL is honored per docs, unverified",
+    };
+  }
+  // Real HOME (no `home:` override for live probes) — the transcript lands
+  // under the real ~/.claude/projects, not the fixture scratch dir.
+  const projectsRoot = path.join(os.homedir(), ".claude", "projects");
+  let honored = false;
+  let grepEvidence = "no ~/.claude/projects subagent transcripts found under real HOME";
+  try {
+    // Scope to files modified in the last 5 minutes (this probe's own
+    // spawn) under any `subagents/agent-*.jsonl`, rather than every
+    // transcript ever recorded under the real ~/.claude/projects.
+    const grepResult = spawnSync(
+      "sh",
+      [
+        "-c",
+        `find '${projectsRoot}' -path '*/subagents/agent-*.jsonl' -mmin -5 2>/dev/null | xargs -I{} grep -o '"ephemeral_1h_input_tokens":[0-9]*' {} 2>/dev/null || true`,
+      ],
+      { encoding: "utf8" },
+    );
+    const matches = grepResult.stdout.trim();
+    if (matches) {
+      honored = /"ephemeral_1h_input_tokens":[1-9]/.test(matches);
+      grepEvidence = matches.slice(0, 300);
+    }
+  } catch (err) {
+    grepEvidence = `grep failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+  return {
+    id,
+    verdict: honored ? "confirmed" : "inconclusive",
+    evidence: `file-based agent with experimental.cacheTtl: 1h spawned via Task tool (exit ${result.exitCode}); transcript grep for ephemeral_1h_input_tokens: ${grepEvidence}`,
+    fallback: "assume 1h TTL is honored per docs, unverified",
+  };
+}
+
 const PROBE_FNS: Record<
   ProbeId,
   (fixtureHome: string) => Promise<ProbeVerdict>
@@ -478,19 +792,32 @@ const PROBE_FNS: Record<
   "enabled-plugins": probeEnabledPlugins,
   "skill-invocation-name": probeSkillInvocationName,
   "agent-invocation-name": probeAgentInvocationName,
+  "agent-memory-scope": probeAgentMemoryScope,
+  "skills-preload-name": probeSkillsPreloadName,
+  "max-turns-partial": probeMaxTurnsPartial,
+  "cache-ttl-1h": probeCacheTtl1h,
 };
 
 export function runProbes(
-  opts: { claudeOnPath?: (cmd: string) => boolean; tmpRoot?: string } = {},
+  opts: {
+    claudeOnPath?: (cmd: string) => boolean;
+    tmpRoot?: string;
+    live?: boolean;
+  } = {},
 ): Promise<ProbeVerdict[]> {
   return runProbesFiltered(PROBE_IDS, opts);
 }
 
-async function runProbesFiltered(
+export async function runProbesFiltered(
   ids: ProbeId[],
-  opts: { claudeOnPath?: (cmd: string) => boolean; tmpRoot?: string } = {},
+  opts: {
+    claudeOnPath?: (cmd: string) => boolean;
+    tmpRoot?: string;
+    live?: boolean;
+  } = {},
 ): Promise<ProbeVerdict[]> {
   const claudeOnPath = opts.claudeOnPath ?? commandOnPath;
+  const live = opts.live ?? false;
   if (!claudeOnPath("claude")) {
     return ids.map((id) => ({
       id,
@@ -499,13 +826,29 @@ async function runProbesFiltered(
     }));
   }
 
+  // Live-only ids never touch the real HOME/spawn a real Task unless the
+  // caller opted in with --live — the non-live path reports them skipped so
+  // the tmpRoot-stays-empty invariant continues to hold for every other id.
+  // Filtered ONCE (never recursively — a recursive re-call with the same
+  // filtered set would loop forever).
+  const liveIds = live ? [] : ids.filter((idv) => LIVE_ONLY_IDS.includes(idv));
+  const remainingIds = live
+    ? ids
+    : ids.filter((idv) => !LIVE_ONLY_IDS.includes(idv));
+  const skippedLive: ProbeVerdict[] = liveIds.map((idv) => ({
+    id: idv,
+    verdict: "skipped",
+    evidence: "requires --live",
+  }));
+  if (remainingIds.length === 0) return skippedLive;
+
   const ownsTmpRoot = opts.tmpRoot === undefined;
   const tmpRoot =
     opts.tmpRoot ??
     fs.mkdtempSync(path.join(os.tmpdir(), "flow-plugin-probe-"));
   const verdicts: ProbeVerdict[] = [];
   try {
-    for (const id of ids) {
+    for (const id of remainingIds) {
       const fixtureHome = fs.mkdtempSync(path.join(tmpRoot, `${id}-home-`));
       try {
         verdicts.push(await PROBE_FNS[id](fixtureHome));
@@ -523,23 +866,28 @@ async function runProbesFiltered(
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     }
   }
-  return verdicts;
+  return [...verdicts, ...skippedLive];
 }
 
-export function parseArgs(argv: string[]): { json: boolean; probe?: ProbeId } {
+export function parseArgs(argv: string[]): {
+  json: boolean;
+  probe?: ProbeId;
+  live: boolean;
+} {
   const json = argv.includes("--json");
+  const live = argv.includes("--live");
   const probeIdx = argv.indexOf("--probe");
   const probeRaw = probeIdx >= 0 ? argv[probeIdx + 1] : undefined;
   const probe = PROBE_IDS.includes(probeRaw as ProbeId)
     ? (probeRaw as ProbeId)
     : undefined;
-  return { json, probe };
+  return { json, probe, live };
 }
 
 async function main(): Promise<void> {
-  const { json, probe } = parseArgs(process.argv.slice(2));
+  const { json, probe, live } = parseArgs(process.argv.slice(2));
   const ids = probe ? [probe] : PROBE_IDS;
-  const verdicts = await runProbesFiltered(ids);
+  const verdicts = await runProbesFiltered(ids, { live });
   if (json) {
     console.log(JSON.stringify(verdicts, null, 2));
   } else {

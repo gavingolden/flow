@@ -11,7 +11,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseArgs, runProbes, type ProbeId } from "./flow-plugin-probe";
+import {
+  parseArgs,
+  runProbes,
+  runProbesFiltered,
+  type ProbeId,
+} from "./flow-plugin-probe";
 
 const ALL_IDS: ProbeId[] = [
   "add-dir-discovery",
@@ -20,6 +25,17 @@ const ALL_IDS: ProbeId[] = [
   "enabled-plugins",
   "skill-invocation-name",
   "agent-invocation-name",
+  "agent-memory-scope",
+  "skills-preload-name",
+  "max-turns-partial",
+  "cache-ttl-1h",
+];
+
+const LIVE_ONLY_IDS: ProbeId[] = [
+  "agent-memory-scope",
+  "skills-preload-name",
+  "max-turns-partial",
+  "cache-ttl-1h",
 ];
 
 describe(runProbes, () => {
@@ -72,6 +88,33 @@ describe(runProbes, () => {
       expect(v.fallback).toBeUndefined();
     }
   });
+
+  it("without --live, the four live-only ids report skipped with '--live' named as the reason — scoped via runProbesFiltered so no real `claude` spawn is triggered by the other ids", async () => {
+    const verdicts = await runProbesFiltered(LIVE_ONLY_IDS, {
+      claudeOnPath: () => true,
+    });
+    expect(verdicts).toHaveLength(LIVE_ONLY_IDS.length);
+    for (const v of verdicts) {
+      expect(v.verdict).toBe("skipped");
+      expect(v.evidence).toContain("--live");
+      expect(v.fallback).toBeUndefined();
+    }
+  });
+
+  it("without --live, the tmpRoot invariant holds for the live-only subset even when claudeOnPath is true (never builds a fixture)", async () => {
+    const tmpRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-plugin-probe-test-live-gate-"),
+    );
+    try {
+      await runProbesFiltered(LIVE_ONLY_IDS, {
+        claudeOnPath: () => true,
+        tmpRoot,
+      });
+      expect(fs.readdirSync(tmpRoot)).toEqual([]);
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 describe(parseArgs, () => {
@@ -79,6 +122,7 @@ describe(parseArgs, () => {
     expect(parseArgs(["--probe", "enabled-plugins"])).toEqual({
       json: false,
       probe: "enabled-plugins",
+      live: false,
     });
   });
 
@@ -86,6 +130,7 @@ describe(parseArgs, () => {
     expect(parseArgs(["--json", "--probe", "bin-path-injection"])).toEqual({
       json: true,
       probe: "bin-path-injection",
+      live: false,
     });
   });
 
@@ -93,10 +138,19 @@ describe(parseArgs, () => {
     expect(parseArgs(["--probe", "not-a-real-probe"])).toEqual({
       json: false,
       probe: undefined,
+      live: false,
     });
   });
 
-  it("no flags at all: json:false, probe:undefined", () => {
-    expect(parseArgs([])).toEqual({ json: false, probe: undefined });
+  it("no flags at all: json:false, probe:undefined, live:false", () => {
+    expect(parseArgs([])).toEqual({ json: false, probe: undefined, live: false });
+  });
+
+  it("--live sets live:true independent of other flags", () => {
+    expect(parseArgs(["--live"])).toEqual({
+      json: false,
+      probe: undefined,
+      live: true,
+    });
   });
 });
