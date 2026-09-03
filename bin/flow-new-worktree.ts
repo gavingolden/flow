@@ -22,6 +22,7 @@ import { installCommitHook } from "./lib/worktree-commit-hook";
 import {
   detectDefaultBranch,
   getPrimaryDir,
+  linkAgentMemory,
   symlinkSharedFiles,
   validateReusable,
 } from "./lib/worktree-fs";
@@ -271,6 +272,7 @@ function main(): void {
   // have created the worktree without these.
   writeBranchMarker(chosen.worktreeDir, chosen.branchName);
   ensureFlowExcludes(chosen.worktreeDir);
+  linkAgentMemory(chosen.worktreeDir, primaryDir);
   // Best-effort: the session trailer is non-critical, so a config/hook-write
   // hiccup must not abort worktree creation (unlike the two calls above).
   try {

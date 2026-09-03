@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { git } from "./git";
+import { FLOW_CACHE_DIR, repoCacheKey } from "./paths";
 
 /** Files symlinked from the primary repo into each new worktree. */
 export const SYMLINK_FILES = [".env", ".claude/settings.local.json"];
@@ -91,5 +92,74 @@ export function symlinkSharedFiles(
     }
     fs.symlinkSync(source, target);
     log.success(`Symlinked ${relPath}`);
+  }
+}
+
+/**
+ * Symlinks `<worktreeDir>/.claude/agent-memory-local` to a per-repo cache
+ * dir under `cacheRoot` so `memory: local` agents (flow-discovery,
+ * flow-scout) get a handoff that survives worktree removal — confirmed
+ * cwd-relative resolution + symlink-followed writes via the live probe
+ * (`docs/subagent-features-probe.md`). Idempotent: a pre-existing symlink
+ * is left alone (assumed already pointing at the right cache dir); a
+ * pre-existing REAL directory is never replaced (mirrors
+ * `symlinkSharedFiles`'s own non-file/non-symlink skip — never widen scope
+ * to clobber a real directory).
+ */
+export function linkAgentMemory(
+  worktreeDir: string,
+  primaryDir: string,
+  cacheRoot: string = FLOW_CACHE_DIR,
+): void {
+  const target = path.join(worktreeDir, ".claude", "agent-memory-local");
+  if (fs.existsSync(target)) {
+    const stat = fs.lstatSync(target);
+    if (stat.isSymbolicLink()) return; // already linked, idempotent no-op
+    log.warn(
+      "Skipping agent-memory-local symlink: target exists and is a real directory",
+    );
+    return;
+  }
+  const cacheDir = path.join(
+    cacheRoot,
+    repoCacheKey(primaryDir),
+    "agent-memory-local",
+  );
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.symlinkSync(cacheDir, target);
+  log.success("Symlinked .claude/agent-memory-local");
+}
+
+/**
+ * Best-effort salvage of `<worktreeDir>/.claude/agent-memory-local` before
+ * the worktree is removed. A no-op when the path is a symlink (its target
+ * — the cache dir — already survives removal on its own) or absent; when
+ * it is a REAL directory (the symlink was never written through, or a
+ * caller wrote directly into it), copies its contents into the cache dir.
+ * Never throws — this runs on the removal path and must not block cleanup.
+ */
+export function salvageAgentMemory(
+  worktreeDir: string,
+  primaryDir: string,
+  cacheRoot: string = FLOW_CACHE_DIR,
+): void {
+  const target = path.join(worktreeDir, ".claude", "agent-memory-local");
+  try {
+    if (!fs.existsSync(target)) return;
+    const stat = fs.lstatSync(target);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return;
+    const cacheDir = path.join(
+      cacheRoot,
+      repoCacheKey(primaryDir),
+      "agent-memory-local",
+    );
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.cpSync(target, cacheDir, { recursive: true });
+    log.success("Salvaged agent-memory-local into the cache dir");
+  } catch (err) {
+    log.warn(
+      `Could not salvage agent-memory-local: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }

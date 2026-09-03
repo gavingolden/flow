@@ -22,6 +22,8 @@ import {
   type WorktreeListEntry,
   resolveTargetInput,
 } from "./flow-remove-worktree";
+import { salvageAgentMemory } from "./lib/worktree-fs";
+import { repoCacheKey } from "./lib/paths";
 
 // --- parseWorktreeListOutput ---
 
@@ -736,6 +738,60 @@ function runHelper(
     );
   });
 }
+
+describe(salvageAgentMemory, () => {
+  let scratchRoot: string;
+  beforeEach(() => {
+    scratchRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-remove-worktree-salvage-"),
+    );
+  });
+  afterEach(() => fs.rmSync(scratchRoot, { recursive: true, force: true }));
+
+  it("no-ops when the target is a symlink (the cache dir survives on its own)", () => {
+    const worktreeDir = path.join(scratchRoot, "wt");
+    const cacheRoot = path.join(scratchRoot, "cache");
+    const cacheDir = path.join(cacheRoot, "repo-abc12345", "agent-memory-local");
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.writeFileSync(path.join(cacheDir, "MEMORY.md"), "note\n");
+    const target = path.join(worktreeDir, ".claude", "agent-memory-local");
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.symlinkSync(cacheDir, target);
+    salvageAgentMemory(worktreeDir, scratchRoot, cacheRoot);
+    // Still a symlink — untouched — and the cache dir's own content is intact.
+    expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+    expect(fs.existsSync(path.join(cacheDir, "MEMORY.md"))).toBe(true);
+  });
+
+  it("no-ops when the target is absent", () => {
+    const worktreeDir = path.join(scratchRoot, "wt-absent");
+    fs.mkdirSync(worktreeDir, { recursive: true });
+    expect(() =>
+      salvageAgentMemory(worktreeDir, scratchRoot, path.join(scratchRoot, "cache")),
+    ).not.toThrow();
+  });
+
+  it("copies a real directory's contents into the cache dir", () => {
+    const worktreeDir = path.join(scratchRoot, "wt-real");
+    const cacheRoot = path.join(scratchRoot, "cache");
+    const target = path.join(worktreeDir, ".claude", "agent-memory-local");
+    fs.mkdirSync(path.join(target, "flow-scout"), { recursive: true });
+    fs.writeFileSync(
+      path.join(target, "flow-scout", "MEMORY.md"),
+      "real dir note\n",
+    );
+    salvageAgentMemory(worktreeDir, scratchRoot, cacheRoot);
+    const salvaged = path.join(
+      cacheRoot,
+      repoCacheKey(scratchRoot),
+      "agent-memory-local",
+      "flow-scout",
+      "MEMORY.md",
+    );
+    expect(fs.existsSync(salvaged)).toBe(true);
+    expect(fs.readFileSync(salvaged, "utf8")).toBe("real dir note\n");
+  });
+});
 
 describe("flow-remove-worktree (integration: scratch cleanup)", () => {
   let fx: Fixture;
