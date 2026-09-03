@@ -109,6 +109,10 @@ question).
   (a copy tweak, a default value) — if the user invokes an escape verb
   mid-round (`## 6`), the highest-leverage questions have already been
   answered.
+- **Confidence is a tie-break, not the order.** Among equally
+  plan-shaping questions, escaped and `low`-confidence render before
+  `medium`, before `high` — confidence never overrides plan-shaping
+  order.
 
 There is no numeric cap on frontier size, round count, or total
 question count anywhere in this protocol — the frontier is exactly as
@@ -126,7 +130,7 @@ Q<n>. <Title>
   b) <option B>
   c) <option C, if a third distinct option exists>
   (freeform also accepted)
-Recommended: <letter> — <one-line rationale>
+Recommended: <letter> — <one-line rationale> [confidence: high|medium|low] [anchor: <ref>]
 ```
 
 - **Numbered `Q<n>`, stable across rounds.** Once a question is
@@ -141,6 +145,15 @@ Recommended: <letter> — <one-line rationale>
   what makes the vague/non-committal answer path (`## 5`) and the
   `proceed` escape verb (`## 6`) well-defined: there is always a
   concrete default to fall back to.
+- **A genuinely open fork with no defensible lean still carries the tag
+  pair.** Write `Recommended: none — genuinely open [confidence: low]
+[anchor: inference — rises to <level> if <named evidence>]` rather than
+  omitting the mandatory `[confidence: …] [anchor: …]` tags — the "no
+  lean" case is a value, not an exemption from the format.
+- The body's "what the answer decides and why it matters" line opens
+  with the lens tag `(system)` / `(user)` / `(both)`; chat renders show
+  only `(high)` / `(medium)` / `(low)` on the `Recommended:` line — the anchor
+  stays in the on-disk artifact.
 - **Every question renders under a category heading.** The frontier is
   grouped and rendered under whichever of these five named headings
   apply — a round need not use every heading, but every question that
@@ -163,6 +176,19 @@ Recommended: <letter> — <one-line rationale>
   finalizing a round, check whether an unasked, well-formed question
   exists under any of the five headings, not just the ones already
   populated.
+
+<!-- flow-confidence-rubric:begin -->
+
+**Confidence + stakes rubric.** Every unchecked `- [ ]` Open Questions entry carries a `**Stakes:**` sub-bullet, and every `**Recommended:**` line ends with `[confidence: <level>] [anchor: <ref>]`. The label is DERIVED from the anchor class — never asserted first and justified after.
+
+- **`**Stakes:** <system|user|both> — <what degrades, for whom, if the default is wrong>`** — the lens is the only closed enum. Judge through one of two lenses: does the answer change value for the **system** (a bug fix, stability, performance, reliability) or for the **user** (a bug fix, visual appeal / UX, content)? A question that moves NEITHER is never asked: resolve it with the recommended answer, write it as a checked `- [x]` entry with `**Stakes:** none — resolved without asking` at the END of `## Open Questions`, and never put it on the answer sheet.
+- **`high`** — a direct precedent the agent actually read and can cite: `[anchor: path[:line]]` (the same pattern, convention, or contract already in the repo), or a user statement `[anchor: user: "<quote>"]`. Checkable by opening the file.
+- **`medium`** — a DIFFERENT anchor form from `high`, so form is the discriminant: `[anchor: adjacent: path[:line]]` (a related precedent, not the same pattern), or `[anchor: weighing: <factor> — <one line>]` with the factor from the closed list `convention | footprint | risk | reversibility | effort | symmetry`. A bare `path[:line]` on `medium` is a miss.
+- **`low`** — `[anchor: inference — rises to <level> if <named evidence>]`: no in-repo anchor. When the decisive input is an unverifiable external fact, credentials/production access, or user taste, take the `**Needs user input:**` escape instead of tagging `low`.
+
+The label is derived from the anchor class, never asserted; a rationale whose only support is `likely`, `should be fine`, `standard practice`, `best practice`, or `probably` is a `low`. Chat renders show only `(high)` / `(medium)` / `(low)` — anchors stay in the on-disk artifact.
+
+<!-- flow-confidence-rubric:end -->
 
 ## 4. Facts-vs-decisions rule
 
@@ -187,6 +213,11 @@ question:
    pattern is a fact, but whether to follow or diverge from it is a
    decision only the user can make, so it MAY be asked (not "look up
    the existing pattern and silently apply it").
+
+**Stakes filter.** A question whose every answer moves no system or
+user value is not asked: adopt the recommended answer and record it in
+the digest's trailing "Resolved without asking (no system/user
+stakes):" list instead of putting it on the frontier.
 
 ## 5. Answer parsing
 
@@ -233,6 +264,10 @@ flow-state-update --phase <triage-pending-interview|plan-pending-interview> --in
 EOF
 ```
 
+The digest also carries a trailing `Resolved without asking (no
+system/user stakes):` list — the Stakes-filter items from `## 4` that
+never reached the frontier.
+
 `--interview-stdin` mirrors `--answer-stdin`'s byte-verbatim transport
 (immune to shell expansion and a leading `--`) but writes
 `state.interview` instead of `state.answer` (`bin/flow-state-update.ts`).
@@ -262,7 +297,7 @@ Q<n>. <Title>
 <body>
   a) <option A>
   b) <option B>
-Recommended: <letter> — <rationale>
+Recommended: <letter> — <rationale> (high|medium|low)
 
 (repeat per category / question)
 
@@ -297,7 +332,7 @@ Q<n>. Adopt the plan's chosen method?
   a) adopt the plan's chosen method (recommended)
   b) keep my method
 Recommended: a — both judges independently converged away from the
-proposed method
+proposed method (high)
 
 **Next action:** Reply `answer: <n>a` to adopt the plan's method,
 `<n>b` to keep yours, or freeform; `proceed` accepts the
