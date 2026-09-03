@@ -5023,19 +5023,29 @@ describe("pr-review include-by-reference structure", () => {
     // discipline as every raise above. This also absorbs — and does NOT
     // retroactively re-tighten for — the pre-existing #704 overshoot
     // already noted on the main side.
+    //
+    // Raised 3040 → 3060 by the graded-confidence PR (the step-3
+    // plan-summary template and the answer-sheet paragraph each grew by
+    // in-sentence extensions, +11 lines, landing the branch at 3037), which
+    // then absorbed #687's +8 on merge: the combined file measures 3044,
+    // so the ceiling moves to 3060 (16 lines of headroom, same discipline).
     // Narrowing the `claude -p` prohibition to the sanctioned
     // `flow-claude-headless` Bash fan-out (Hard-rules rewrite + new F2
     // sibling blockquote + Verification bullet rewrite) is genuine
     // feature-mechanical content, not incidental bloat. Measured via
-    // `wc -l`: pre-edit 3035, post-edit 3047 — a +12-line delta. The
-    // ceiling moves to 3060 (13 lines of genuine headroom), the same
-    // discipline as every raise above.
+    // `wc -l`: pre-edit 3035, post-edit 3047 — a +12-line delta, which
+    // on its own had also targeted 3060. Merging it with the
+    // graded-confidence raise above lands the combined file at 3062
+    // `wc -l` lines (3063 as this test counts them), past the 3060 both
+    // sides had chosen independently, so the ceiling moves to 3080
+    // (17 lines of genuine headroom), the same discipline as every
+    // raise above.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3060 lines. Material regrowth past this ceiling would ` +
+        `budget of 3080 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3060);
+    ).toBeLessThan(3080);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
