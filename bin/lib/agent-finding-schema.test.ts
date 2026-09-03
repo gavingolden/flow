@@ -1809,6 +1809,53 @@ describe("validateConsolidatorResult — optional lens pass-through keys", () =>
   });
 });
 
+describe("validateConsolidatorResult — scope_verdict", () => {
+  it("accepts a consolidator result without scope_verdict", () => {
+    const result = validateConsolidatorResult(VALID_CONSOLIDATOR_RESULT);
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts scope_verdict {widen:true, reason:'...'}", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
+    fixture.scope_verdict = {
+      widen: true,
+      reason: "cross-file contract break",
+    };
+    const result = validateConsolidatorResult(fixture);
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects scope_verdict with a non-boolean widen or missing reason", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
+    fixture.scope_verdict = { widen: "yes", reason: "x" };
+    let result = validateConsolidatorResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("scope_verdict");
+
+    fixture.scope_verdict = { widen: true };
+    result = validateConsolidatorResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("scope_verdict");
+  });
+
+  it("accepts a synthetic gated agent artifact via validateAgentFindings", () => {
+    const artifact = {
+      findings: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      gated: { reason: "docs-only diff (1 files)" },
+    };
+    const result = validateAgentFindings(artifact);
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe("agent-finding-schema CLI — widened per-agent success envelope", () => {
   it("carries negatives and skipped on the per-agent success path", () => {
     const artifact = {

@@ -84,6 +84,7 @@ import {
   renderIntent,
   renderReviewCounts,
   renderDeviations,
+  renderLenses,
   composeCountsLine,
 } from "./lib/pipeline-summary-sources";
 import { renderEchoRecap } from "./lib/echo-recap";
@@ -272,6 +273,8 @@ export type RenderInputs = {
    * gate summary for a headless auto-merge run.
    */
   artifactDir?: string;
+  /** review-telemetry.json raw text, for the LENSES (dev) / lenses: (pm) sections. */
+  reviewTelemetryRaw?: string;
 };
 
 /**
@@ -301,6 +304,7 @@ export function render(inputs: RenderInputs): string {
     })) {
       lines.push(`  ${ln}`);
     }
+    lines.push(`  ${renderLenses(inputs.reviewTelemetryRaw).pm}`);
     lines.push("DEVIATIONS:");
     for (const ln of renderDeviations(deviationsInputs)) lines.push(`  ${ln}`);
     lines.push("UNTRACKED:");
@@ -326,6 +330,10 @@ export function render(inputs: RenderInputs): string {
     consolidatorRaw: inputs.consolidatorRaw,
     ciWaitRaw: inputs.ciWaitRaw,
   })) {
+    lines.push(`  ${ln}`);
+  }
+  lines.push("LENSES:");
+  for (const ln of renderLenses(inputs.reviewTelemetryRaw).dev) {
     lines.push(`  ${ln}`);
   }
   lines.push("FORECLOSED PATHS:");
@@ -607,6 +615,13 @@ export function run(
   const artifactDir = parsed.consolidatorResult
     ? path.dirname(parsed.consolidatorResult)
     : undefined;
+  // Sidecar file beside the consolidator result — the same artifactDir
+  // derivation the FORECLOSED PATHS disk fallback already uses (rejected
+  // alternative: a dedicated --review-telemetry flag, see excluded path
+  // pipeline-summary-new-flag — 12 SKILL.md call sites would need editing).
+  const reviewTelemetryRaw = artifactDir
+    ? readFileOrEmpty(path.join(artifactDir, "review-telemetry.json"))
+    : "";
   const ciWaitRaw = readFileOrEmpty(parsed.ciWaitResult);
   const filedIssuesRaw = readFileOrEmpty(parsed.filedIssuesFile);
   const intentResolutionRaw = readFileOrEmpty(parsed.intentResolutionFile);
@@ -645,6 +660,7 @@ export function run(
     scoutRaw,
     untrackedBlock,
     artifactDir,
+    reviewTelemetryRaw,
   });
   // With --echo-prose, PREPEND the delimited recap block (a new top section of
   // this SAME stdout write — never a separate invocation, so the
@@ -694,6 +710,7 @@ export function run(
         scoutRaw,
         untrackedBlock,
         artifactDir,
+        reviewTelemetryRaw,
       });
       const result = postSnapshotComment(
         prNumber,

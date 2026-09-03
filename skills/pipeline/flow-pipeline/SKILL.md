@@ -1897,6 +1897,11 @@ Invoke `/flow-pr-review` in-process with the PR number:
 /flow-pr-review <PR>
 ```
 
+Every entry — including fix-loop re-entries — is delta-scoped and
+lens-gated by `flow-review-scope` (`flow-pr-review`
+`references/review-scope.md`); opt-outs `review.deltaScope` /
+`review.lensGates` restore today's full-diff, all-six-lenses behaviour.
+
 When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are present, `/flow-pr-review` Step 8c runs the subjective visual-appearance pass against the browser-validation capability (opening each page in a per-pipeline `isolatedContext`): it drives each enumerated visual-appearance item, judges it via the `ui-ux` skill, captures an a11y snapshot as primary evidence (injected via `flow-inject-evidence`) plus a screenshot referenced by path under `.flow-tmp/ui-evidence/`, and ticks the box. This adds no new Task-tool exemption — Step 8c runs inside the already-exempt Fix-Applier surface. `/flow-pr-review` Step 3.6's intent-mismatch resolution sub-step also runs in this in-process review, comparing the diff-only intent-guess agent's blind guess against the actual request; it may escalate `NEEDS HUMAN: intent-drift` or append an unchecked `- [ ] SUBJECTIVE: confirm scope drift is intentional` item to the PR's Test Steps.
 
 `/flow-pr-review` itself spawns one **Fix-Applier Subagent** via the Task

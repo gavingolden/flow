@@ -75,7 +75,11 @@ Procedure:
    - **No new commits since prior clean run** (`<worktree>/.flow-tmp/
      pr-review-result.json` exists with `status: "clean"` AND a sibling
      `<worktree>/.flow-tmp/pr-review-last-sha` marker file exists AND its
-     contents match `.commits[-1].oid` from the metadata fetch) →
+     contents match `git -C "{{WORKTREE}}" rev-parse HEAD` — local HEAD,
+     not `.commits[-1].oid` from the metadata fetch, which can lag the
+     tree by hours on a stale GitHub PR object (known head-sync stall);
+     fall back to `.commits[-1].oid` only when the worktree itself is
+     unavailable) →
      `decision: "skip"`, `skip_kind: "no-new-commits"`, `reason: "PR head
      SHA <sha> unchanged since prior clean /flow-pr-review run"`. Without
      **both** the prior artifact AND the marker file, conservatively

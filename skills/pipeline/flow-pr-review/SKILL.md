@@ -37,11 +37,9 @@ Helpers (installed globally by `flow install` and on PATH):
 
 - `flow-fetch-pr-review` — fetches PR metadata, description, changed files, review
   summaries, and inline comments from GitHub
-- `flow-pr-diff` — wraps `gh pr diff <number>` and per-file caps each block at 300
-  source lines (head 200 + tail 100 + one marker line), so a truncated block emits
-  at most 301 lines on the wire. Used at Step 3 so the six parallel review agents
-  don't each receive a 50–100 KB raw diff — they Read changed files in full for
-  surrounding context, so the diff is a hint, not the source of truth.
+- `flow-pr-diff` — wraps `gh pr diff <number>`, per-file caps each block at 300 source lines. `capDiff` is reused by `flow-review-scope`; direct use is now only the Gemini-lens fallback (L682) — agents Read changed files in full, so the diff is a hint, not the source of truth.
+- `flow-review-scope` — resolves Step 3's `full`/`delta` scope + per-lens gates, writes the capped diff and synthetic gated-lens artifacts.
+- `flow-review-telemetry` — `collect`/`print`: per-lens counts feeding the Step 12 `### Lens telemetry` section.
 - `flow-pr-static-analysis` — runs the consumer's installed static-analysis tools
   (semgrep, biome/eslint, tsc), parses each into a unified
   `{file, line, rule_id, confidence, severity, source}` shape filtered to PR-touched
@@ -514,11 +512,9 @@ subagent rather than landing in the supervisor's transcript.
 1. Read the PR description and changed files list from the fetch output. DO NOT read
    the review comments section yet — reviewing before seeing others' feedback eliminates
    anchoring bias and lets you independently validate what reviewers found.
-2. Get the diff: `flow-pr-diff <number>`. Per-file capped unified diff (default budget
-   300 source lines/file; truncated files emit head 200 + a marker + tail 100, so at
-   most 301 lines/file on the wire, pointing at `gh pr diff <number>` for the full view).
-   Agents Read each changed file in full for surrounding context, so the cap just bounds
-   each agent's prompt when fanning out — it does not blind them.
+2. Resolve review scope, lens gates, and the diff for that scope: run
+   `flow-review-scope` AFTER item 4's static-analysis pre-digest. Full
+   procedure in [references/review-scope.md](references/review-scope.md).
 3. Get the commit history with full messages (not just subjects):
    `gh pr view <number> --json commits -q '.commits[] | "\(.oid[0:7]) \(.messageHeadline)\n\(.messageBody)\n---"'`
    Per `AGENTS.md`, commit bodies capture the **why**, design-choice rationale, and
@@ -601,20 +597,21 @@ lines above (the six review lenses plus `intent-guess`, resolved via the same
 `flow-review-<name>.md` / general-purpose fallback); use that printed per-lens
 value when spawning, never the loop variable's final value.
 
-**Spawn 7 agents in parallel** — the six lenses below plus
-`flow-review-intent-guess` (see "Diff-only intent-guess agent" below for its
-diff-only context and artifact) — each as a subagent with
-`subagent_type:` set to that lens's printed value from the mapping above
-(NOT a shared `$LENS_AGENT` variable — each of the seven spawns has its own
-resolved type) and the resolved
-`model: "$REVIEW_MODEL"` when non-empty. For each of the six lens agents:
+**Spawn the ungated lenses plus intent-guess in one parallel message** —
+see [references/review-scope.md](references/review-scope.md) "Spawn only
+the ungated lenses" for the gate filter and the delta-re-entry
+intent-guess skip. Each spawned agent gets `subagent_type:` set to that
+lens's printed value (NOT a shared `$LENS_AGENT` variable — each spawn
+has its own resolved type) and `model: "$REVIEW_MODEL"` when non-empty:
 
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
   `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`,
   `{{STATIC_ANALYSIS_FACTS}}`, `{{EXISTING_INTENT_COMMENTS}}` (from step 6's
-  `.flow-tmp/intent-comments.md`), and (Pattern & Consistency Agent only)
-  `{{PROMPT_INTERPRETATION_TENSION}}` from `$PROMPT_INTERPRETATION_TENSION`
+  `.flow-tmp/intent-comments.md`), `{{REVIEW_SCOPE}}` (per
+  `references/review-scope.md` "Spawn only the ungated lenses"), and
+  (Pattern & Consistency Agent only) `{{PROMPT_INTERPRETATION_TENSION}}` from
+  `$PROMPT_INTERPRETATION_TENSION`
   computed in step 5 above. For the static-analysis variable, substitute a single
   self-contained JSON object containing both the lens findings and the matching meta
   slice — agents are instructed to check `meta.<lens>.ran` so the substituted block
@@ -650,9 +647,9 @@ Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `l
 `decoration`, `confidence`, `subject`, `body`. The on-disk artifact at
 `$WORKTREE/.flow-tmp/agent-output-<lens>.json` carries three top-level keys — `findings`, `rejected_alternatives`, `anti_patterns_found` — per the per-agent schema validated at Step 3.5.
 
-Wait for all 7 spawned agents to complete before proceeding — the six
+Wait for all spawned agents to complete before proceeding — the ungated
 lenses plus the diff-only intent-guess agent (§ Diff-only intent-guess
-agent below), which rides the same fan-out message.
+agent below, unless skipped on delta re-entry), same fan-out message.
 
 ### Cross-model (Gemini) lens (optional, config-gated)
 
@@ -737,17 +734,16 @@ Before the Task call, also resolve `DIFF_PATH` and `PR_METADATA` from
 the wrapper's scratch state:
 
 ```bash
-DIFF_PATH="$WORKTREE/.flow-tmp/diff.txt"          # flow-pr-diff output captured at fetch time
+DIFF_PATH="$WORKTREE/.flow-tmp/diff.txt"          # written by flow-review-scope in Step 3 prep item 2 — never regenerate here
 PR_METADATA_PATH="$WORKTREE/.flow-tmp/pr-metadata.json"  # gh pr view --json ... output captured at fetch time
+REVIEW_SCOPE_PATH="$WORKTREE/.flow-tmp/review-scope.json"
 ```
 
-If those files don't already exist on the wrapper side, write them
-now so the subagent gets a stable absolute path for each:
-
-```bash
-flow-pr-diff "$PR_NUMBER" > "$DIFF_PATH"
-gh pr view "$PR_NUMBER" --json number,title,headRefName,baseRefName,headRefOid > "$PR_METADATA_PATH"
-```
+`DIFF_PATH` is always present by this point (Step 3 prep runs
+`flow-review-scope` before any spawn); an unconditional `flow-pr-diff
+"$PR_NUMBER" > "$DIFF_PATH"` here would clobber a delta scope with the
+full diff. Only `PR_METADATA_PATH` needs a fallback write when absent:
+`gh pr view "$PR_NUMBER" --json number,title,headRefName,baseRefName,headRefOid > "$PR_METADATA_PATH"`.
 
 **Per-phase model (consolidator) resolution.** Field `state.modelConsolidator`; precedence `--model-consolidator > config.models.consolidator > inherited` (see `../flow-pipeline/references/model-routing.md`). This spawn does **not** use a `model: "haiku"` pin (unlike the Gatekeeper) — the second-opinion validation needs the larger model. Resolve via `jq` (`SLUG="$FLOW_SLUG"; CONSOLIDATOR_MODEL=$(jq -r '.modelConsolidator // empty' ~/.flow/state/"$SLUG".json); [ -z "$CONSOLIDATOR_MODEL" ] && CONSOLIDATOR_MODEL=$(jq -r '.models.consolidator // empty' ~/.flow/config.json 2>/dev/null)`) and pass the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒ inherit).
 
@@ -783,11 +779,11 @@ the six Claude outputs and does NOT escalate `consolidator-missing-artifact`;
 that escalation stays scoped to the six mandatory Claude lenses), the
 static-analysis path at
 `$WORKTREE/.flow-tmp/static-analysis.json`, `$DIFF_PATH`,
-`$PR_METADATA_PATH`, and `$ARTIFACT_PATH`. `DIFF_PATH` and
-`PR_METADATA_PATH` feed the consolidator's second-opinion
-in-scope-of-diff check (see
-[references/consolidator-instructions.md](references/consolidator-instructions.md)
-§ Inputs).
+`$PR_METADATA_PATH`, `$REVIEW_SCOPE_PATH`, and `$ARTIFACT_PATH`.
+`DIFF_PATH`/`PR_METADATA_PATH` feed the second-opinion in-scope-of-diff
+check; `REVIEW_SCOPE_PATH` feeds the (d2) scope-widen judgment, which
+may write `scope_verdict` to `$ARTIFACT_PATH` (see
+[references/consolidator-instructions.md](references/consolidator-instructions.md) § Inputs).
 
 After the subagent returns:
 
@@ -803,6 +799,12 @@ After the subagent returns:
    [references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md)
    — if a more specific tag is already on disk, the wrapper's write is skipped.
 3. **Read once**, parse into a typed object, reuse across Steps 4–7.
+
+### Widen (consolidator authority, once)
+
+Check `scope_verdict.widen`; bounded to once per invocation via a
+`WIDENED` flag, re-spawning inside this same exemption — full mechanics
+in [references/review-scope.md](references/review-scope.md) "Widen".
 
 ## 3.6. Intent-mismatch resolution
 
@@ -1592,6 +1594,8 @@ pass-through `lens_anti_patterns_found[]` entries above have no such flag (three
 Render the boolean in **Anti-Patterns Observed**, and append the new-file audit's
 WARNING lines (Step 9a above) so a misclassified introduced-in-PR entry stays visible.
 
+**Lens telemetry.** Build `LENS_TOKEN_ARGS` per `references/review-scope.md` "Record lens tokens" (quoted `"${LENS_TOKENS[@]/#/--lens-tokens }"` glues each pair into one argv word and `parseArgs` rejects it), then run `flow-review-telemetry collect --worktree "$WORKTREE" --pr "$PR_NUMBER" --session-id "$CLAUDE_CODE_SESSION_ID" "${LENS_TOKEN_ARGS[@]}" --append ${WIDEN_REASON:+--widened "$WIDEN_REASON"}` then `flow-review-telemetry print --in "$WORKTREE/.flow-tmp/review-telemetry.json"`; paste `print`'s stdout under `### Lens telemetry` (`references/report-template.md`).
+
 **Agent-fallback notices.** When any spawn site's file-exists guard fired its
 `NOTICE — agent-fallback: ...` line during this run (gatekeeper, per-lens,
 consolidator, or fix-applier resolution), echo each fired line in the report's
@@ -1745,16 +1749,15 @@ whether to continue (`"clean"`) or branch into the partial-retry path
 (`"partial"`) or escalate verbatim (`"escalated"`).
 
 **Also write the `pr-review-last-sha` marker file on this clean-completion
-path.** The marker is the load-bearing input the Step 1.5 Gatekeeper's
-"no-new-commits" skip rule consults — without it, the most cost-effective
-skip rule is permanently unreachable and every subsequent `/flow-pr-review`
-invocation falls through to the full Sonnet fan-out even when the PR head
-SHA is unchanged. Capture the PR's current head SHA from
-`gh pr view --json commits` and write it atomically alongside the result
-artifact:
+path.** The marker is the load-bearing input both the Step 1.5
+Gatekeeper's "no-new-commits" skip rule and `flow-review-scope`'s delta
+base consult. Single write site, sourced from **local** `git rev-parse
+HEAD` rather than `gh pr view` — the GitHub PR object can hold a stale
+head SHA for hours (known head-sync stall); local HEAD cannot lag. Write
+it atomically alongside the result artifact:
 
 ```bash
-HEAD_SHA=$(gh pr view "$PR_NUMBER" --json commits --jq '.commits[-1].oid')
+HEAD_SHA=$(git -C "$WORKTREE" rev-parse HEAD)
 printf '%s\n' "$HEAD_SHA" > "$WORKTREE/.flow-tmp/pr-review-last-sha.tmp"
 mv "$WORKTREE/.flow-tmp/pr-review-last-sha.tmp" "$WORKTREE/.flow-tmp/pr-review-last-sha"
 ```

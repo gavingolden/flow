@@ -173,6 +173,13 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 | `interview.enabled`  | opt-in for the adaptive intent interview (default `true`), read by the supervisor via `jq` against `~/.flow/config.json` (never a `bin/lib` import — subagents run in the consumer worktree, where flow's own `bin/lib` isn't present); overridable per run with `flow feature create --interview` (force) or `--no-interview` (skip) |
 | `launcher`           | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell                                                                                                                                                                                                                            |
 | `output.lens`        | `"pm"` (default) or `"dev"` — see [Output lens](#output-lens) below                                                                                                                                                                                                                                                                   |
+| `review.gemini`      | opt-in for the cross-model Gemini review lens (default `false`); strict `true` enables                                                                                                                                                                                                                                                |
+| `review.lensGates`   | content-gates `/flow-pr-review`'s six lenses against the changed-file set, static-analysis signals, and a diff-content check for new bare-specifier imports/requires via `flow-review-scope` (default `true`); strict `false` disables — every lens always runs                                                                       |
+| `review.deltaScope`  | scopes a fix-loop re-entry's review to `last-reviewed..HEAD` when the prior run was clean and the marker is an ancestor of HEAD (default `true`); strict `false` disables — every entry reviews the full PR diff                                                                                                                      |
+
+Each `/flow-pr-review` run appends one JSON line to
+`~/.flow/telemetry/review-lenses.jsonl` (per-lens tokens/findings,
+jq-readable, no rotation in v1) — see `flow-review-telemetry`.
 
 The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher set tmux`.
 

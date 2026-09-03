@@ -35,7 +35,8 @@ hand-edit inside the markers.
 <!-- flow-eval-baseline:start -->
 | Suite | Candidate | Score | Git Head | Recorded At |
 | --- | --- | --- | --- | --- |
-| checkpoint-pending-clear | checkpoint-pending-clear | 1.000 | a30b6d8c7b0c | 2026-08-26T01:33:35.572Z |
-| haiku-gatekeeper | haiku-gatekeeper | 0.961 | 8afb9943bf93 | 2026-08-23T21:11:35.501Z |
-| verify-loop-isolation | verify-loop-subagent-isolation | 0.949 | a30b6d8c7b0c | 2026-08-26T01:50:00.836Z |
+| checkpoint-pending-clear | checkpoint-pending-clear | 0.967 | 98bba534b2a0 | 2026-09-01T04:11:01.424Z |
+| haiku-gatekeeper | haiku-gatekeeper | 0.972 | 98bba534b2a0 | 2026-09-01T04:03:42.838Z |
+| phase-write-fidelity | phase-write-side-effect | 1.000 | 98bba534b2a0 | 2026-09-01T04:19:50.146Z |
+| verify-loop-isolation | verify-loop-subagent-isolation | 1.000 | 98bba534b2a0 | 2026-09-01T04:09:14.219Z |
 <!-- flow-eval-baseline:end -->

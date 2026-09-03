@@ -40,8 +40,8 @@ The output is a valid unified diff with truncation markers emitted outside
 non-truncated files but is not meant to be re-applied as a whole. For an
 uncapped diff, use \`gh pr diff <number>\`.`;
 
-const DEFAULT_MAX_LINES = 300;
-const DEFAULT_MAX_TOTAL = 5000;
+export const DEFAULT_MAX_LINES = 300;
+export const DEFAULT_MAX_TOTAL = 5000;
 const HEAD_RATIO = 2 / 3;
 
 type ParseOk = {

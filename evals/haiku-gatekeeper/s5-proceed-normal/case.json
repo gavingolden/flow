@@ -7,6 +7,15 @@
     "repo": "fixture",
     "shims": ["../../_shims/gh"]
   },
+  "ghCalls": [
+    [
+      "pr",
+      "view",
+      "206",
+      "--json",
+      "state,isDraft,additions,deletions,commits,author,body"
+    ]
+  ],
   "model": "haiku",
   "resultSchema": "result-schema.json",
   "graders": [

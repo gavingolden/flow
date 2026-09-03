@@ -14,7 +14,8 @@
       "pr": 666
     },
     "f4-env-state-identity": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 739
     },
     "f5-workflow-spike": {
       "status": "merged",
