@@ -84,11 +84,16 @@ entry).
 **Crucial-and-uncertain** (feeds `**Needs attention:**`): an Open
 Questions item tagged `[confidence: low]` or carrying `**Needs user
 input:**` — stakes-bearing by construction, since zero-stakes questions
-are never asked (see the interview playbook's Stakes filter). Rendered
-as `Q<n> (low): <question> — default: <recommended>` with no anchor in
-chat; a `**Needs user input:**` item carries no `**Recommended:**` line
-by contract, so it renders as `Q<n> (low): <question> — default: none
-(needs your input)` instead of fabricating a recommendation. Ceiling allocation: crucial-and-uncertain items take the ≤2-bullet
+are never asked (see the interview playbook's Stakes filter). A
+`**Needs user input:**` escape is not a `low`-confidence recommendation —
+it deliberately carries neither a confidence tag nor necessarily a
+recommended default, so the two render distinctly. A genuine
+`[confidence: low]` recommendation renders as `Q<n> (low): <question> —
+default: <recommended>` with no anchor in chat. A `**Needs user
+input:**` item, which carries no `**Recommended:**` line by contract,
+renders instead as `Q<n> (needs input): <question> — default: none` —
+never tagged `(low)` and never fabricating a recommended default.
+Ceiling allocation: crucial-and-uncertain items take the ≤2-bullet
 ceiling FIRST, then high-stakes decisions; overflow collapses to one
 count line — `+N more uncertain — plan: <path>#Open-Questions` for
 uncertain items (a distinct collapse line from the existing high-stakes

@@ -236,7 +236,10 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      system|user|both) naming what degrades if the default is wrong; a question
      with no stakes is resolved and checked off, never asked. Every **Recommended:**
      line ends with a `[confidence: high|medium|low] [anchor: …]` tag pair per the
-     Confidence + stakes rubric in discovery-instructions.md. -->
+     Confidence + stakes rubric in discovery-instructions.md. Every unchecked
+     `[confidence: low]` entry also carries a stable `Q<n>` id (same numbering
+     rule as **Needs user input:** items) — it may be promoted into the
+     supervisor's Q<n> (low) rendering. -->
 
 - [ ] [question — what changes on redirect]
   - **Stakes:** [system|user|both] — [what degrades, for whom, if the default is wrong]

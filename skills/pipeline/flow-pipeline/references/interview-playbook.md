@@ -145,6 +145,11 @@ Recommended: <letter> — <one-line rationale> [confidence: high|medium|low] [an
   what makes the vague/non-committal answer path (`## 5`) and the
   `proceed` escape verb (`## 6`) well-defined: there is always a
   concrete default to fall back to.
+- **A genuinely open fork with no defensible lean still carries the tag
+  pair.** Write `Recommended: none — genuinely open [confidence: low]
+[anchor: inference — rises to <level> if <named evidence>]` rather than
+  omitting the mandatory `[confidence: …] [anchor: …]` tags — the "no
+  lean" case is a value, not an exemption from the format.
 - The body's "what the answer decides and why it matters" line opens
   with the lens tag `(system)` / `(user)` / `(both)`; chat renders show
   only `(high)` / `(medium)` / `(low)` on the `Recommended:` line — the anchor

@@ -433,12 +433,18 @@ recommend would be a guess dressed as a decision.
 `../../flow-pipeline/references/interview-playbook.md` `## 3. Question format` shape —
 stable `Q<n>` ids, category headings, lettered options where sensible,
 covering exactly the fork(s) that invalidated every plan branch (and, on
-the mechanical-floor path, the `**Needs user input:**` items that
-tripped it). Include a `Recommended:` line where a defensible lean
+the mechanical-floor path, both the `**Needs user input:**` items AND the
+`[confidence: low]` items that tripped the combined count — the floor
+counts them together, so the written frontier must too, or a run with
+four low items and no escapes fires the gate onto an empty page). Include
+a `Recommended:` line where a defensible lean
 exists among the options (even a genuinely-invalidating fork can have a
 lettered option that's marginally better-grounded than the others); a
 genuinely open fork with no defensible lean states `Recommended: none —
-genuinely open` instead of forcing a coin-flip pick. Do **NOT** write
+genuinely open [confidence: low] [anchor: inference — rises to <level> if
+<named evidence>]` instead of forcing a coin-flip pick — even the
+no-lean case carries the mandatory tag pair, per the interview
+playbook's `## 3` question format. Do **NOT** write
 `plan.md` or `pr-description-draft.md` on this path — the question gate
 is instead-of, not alongside. Return the `Questions:` summary variant
 (`## 9`) instead of the normal artifact-paths summary.
@@ -876,9 +882,12 @@ stylistic choice: a confident wrong answer that looks right is worse than a bare
 question. The confidence label attached to a `**Recommended:**` line is derived
 from the anchor class per the Confidence + stakes rubric above, never asserted.
 
-**Answer-sheet numbering.** Every `**Needs user input:**` item (and every
-`## Decision analysis` fork left unresolved) carries a stable `Q<n>` id,
+**Answer-sheet numbering.** Every `**Needs user input:**` item, every
+unchecked `[confidence: low]` Open Questions entry, and every
+`## Decision analysis` fork left unresolved carries a stable `Q<n>` id,
 assigned once and never renumbered across a redirect or revision pass —
+low-confidence entries need this id because they are promoted into the
+plan-summary's `**Needs attention:**` slot and rendered as `Q<n> (low)`.
 `/flow-pipeline` step 3's End condition renders these ids as a numbered
 answer sheet above the AWAITING APPROVAL block, and the user's `answer:
 1a 2: <text>` reply is unambiguous only because the id it references
