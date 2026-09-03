@@ -15,7 +15,6 @@ import {
   parsePanePid,
   parseWindowList,
   resolveKindFromPane,
-  resolveSlugFromPane,
   respawnWindowVerified,
   SEED_CORRUPTED_STDERR,
   seedWindowOptions,
@@ -249,8 +248,9 @@ describe(buildSetOptionArgs, () => {
   });
 
   it("emits the -w (window) form for @flow-slug WRITES (Story 4 regression)", () => {
-    // resolveSlugFromPane already pins the -w READ side; this pins the WRITE side
-    // so @flow-slug can never silently drift to a session/global option scope.
+    // @flow-slug's only READ side is LIST_WINDOWS_FORMAT (window-scoped); this
+    // pins the WRITE side so @flow-slug can never silently drift to a
+    // session/global option scope.
     expect(buildSetOptionArgs("@7", "@flow-slug", "csv-export")).toEqual([
       "set-option",
       "-w",
@@ -1507,195 +1507,6 @@ describe(findWindowBySlug, () => {
   it("returns undefined when neither slug nor name match", () => {
     const windows = [w({ id: "@1", name: "a", slug: "b" })];
     expect(findWindowBySlug(windows, "missing")).toBeUndefined();
-  });
-});
-
-describe(resolveSlugFromPane, () => {
-  function fakeSpawn(result: SpawnResult): {
-    calls: string[][];
-    spawnTmux: (args: string[]) => SpawnResult;
-  } {
-    const calls: string[][] = [];
-    return {
-      calls,
-      spawnTmux: (args) => {
-        calls.push(args);
-        return result;
-      },
-    };
-  }
-
-  /**
-   * Multi-result fake: returns successive results per call index. Useful for
-   * testing functions that make multiple sequential spawnTmux calls (e.g.
-   * show-options then display-message).
-   */
-  function fakeSpawnSequence(results: SpawnResult[]): {
-    calls: string[][];
-    spawnTmux: (args: string[]) => SpawnResult;
-  } {
-    const calls: string[][] = [];
-    let callIndex = 0;
-    return {
-      calls,
-      spawnTmux: (args) => {
-        calls.push(args);
-        const result = results[callIndex] ?? results[results.length - 1];
-        callIndex++;
-        return result;
-      },
-    };
-  }
-
-  it("returns null when $TMUX_PANE is unset (helper invoked outside tmux)", () => {
-    const { calls, spawnTmux } = fakeSpawn({
-      stdout: "",
-      stderr: "",
-      exitCode: 0,
-    });
-    expect(resolveSlugFromPane({ env: {}, spawnTmux })).toBeNull();
-    // Don't even shell out — short-circuit on the env miss.
-    expect(calls).toEqual([]);
-  });
-
-  it("returns null when tmux exits non-zero (option unset on the window)", () => {
-    const { spawnTmux } = fakeSpawn({
-      stdout: "",
-      stderr: "no such option",
-      exitCode: 1,
-    });
-    expect(
-      resolveSlugFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux }),
-    ).toBeNull();
-  });
-
-  it("returns null when the option resolves to an empty / whitespace string", () => {
-    const { spawnTmux } = fakeSpawn({
-      stdout: "  \n",
-      stderr: "",
-      exitCode: 0,
-    });
-    expect(
-      resolveSlugFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux }),
-    ).toBeNull();
-  });
-
-  it("returns the trimmed slug when the option is set on the window", () => {
-    // fakeSpawn returns the same result for both calls:
-    // 1) show-options → stdout "csv-export\n"
-    // 2) display-message → stdout "csv-export\n" (treated as pane window id,
-    //    but since listWindowsFn is absent → listWindows() → [] → no owner found
-    //    → safe-degradation → slug returned unchanged)
-    const { calls, spawnTmux } = fakeSpawn({
-      stdout: "csv-export\n",
-      stderr: "",
-      exitCode: 0,
-    });
-    expect(resolveSlugFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux })).toBe(
-      "csv-export",
-    );
-    // First call: the show-options lookup for @flow-slug.
-    expect(calls[0]).toEqual([
-      "show-options",
-      "-t",
-      "%42",
-      "-v",
-      "-w",
-      "@flow-slug",
-    ]);
-    // Second call: display-message for the cross-check.
-    expect(calls[1]).toEqual([
-      "display-message",
-      "-t",
-      "%42",
-      "-p",
-      "#{window_id}",
-    ]);
-  });
-
-  // Cross-check tests: the second spawnTmux call is display-message.
-  // A single spawnTmux mock returns different values per call index via
-  // fakeSpawnSequence.
-
-  it("cross-check: window-id match — returns the slug unchanged", () => {
-    const { calls, spawnTmux } = fakeSpawnSequence([
-      { stdout: "csv-export\n", stderr: "", exitCode: 0 }, // show-options
-      { stdout: "@7\n", stderr: "", exitCode: 0 }, // display-message
-    ]);
-    const windows: TmuxWindow[] = [
-      { id: "@7", name: "csv-export", slug: "csv-export", activity: 0 },
-    ];
-    const result = resolveSlugFromPane({
-      env: { TMUX_PANE: "%42" },
-      spawnTmux,
-      listWindowsFn: () => windows,
-    });
-    expect(result).toBe("csv-export");
-    expect(calls[0][0]).toBe("show-options");
-    expect(calls[1][0]).toBe("display-message");
-  });
-
-  it("cross-check: window-id mismatch — warns to stderr and returns null", () => {
-    const stderrChunks: string[] = [];
-    const origWrite = process.stderr.write.bind(process.stderr);
-    const writeStub = (chunk: string | Uint8Array): boolean => {
-      stderrChunks.push(String(chunk));
-      return true;
-    };
-    process.stderr.write = writeStub as typeof process.stderr.write;
-    const { spawnTmux } = fakeSpawnSequence([
-      { stdout: "csv-export\n", stderr: "", exitCode: 0 }, // show-options
-      { stdout: "@7\n", stderr: "", exitCode: 0 }, // display-message → pane is in @7
-    ]);
-    // But the slug is owned by @8, not @7 → mismatch
-    const windows: TmuxWindow[] = [
-      { id: "@8", name: "csv-export", slug: "csv-export", activity: 0 },
-    ];
-    const result = resolveSlugFromPane({
-      env: { TMUX_PANE: "%42" },
-      spawnTmux,
-      listWindowsFn: () => windows,
-    });
-    process.stderr.write = origWrite;
-    expect(result).toBeNull();
-    const warning = stderrChunks.join("");
-    expect(warning).toContain("csv-export");
-    expect(warning).toContain("@8");
-    expect(warning).toContain("@7");
-  });
-
-  it("cross-check: no window owns the slug — returns slug unchanged (no false negative)", () => {
-    const { spawnTmux } = fakeSpawnSequence([
-      { stdout: "csv-export\n", stderr: "", exitCode: 0 }, // show-options
-      { stdout: "@7\n", stderr: "", exitCode: 0 }, // display-message
-    ]);
-    // listWindowsFn returns windows with different slugs — no owner found
-    const windows: TmuxWindow[] = [
-      { id: "@3", name: "other", slug: "other-pipeline", activity: 0 },
-    ];
-    const result = resolveSlugFromPane({
-      env: { TMUX_PANE: "%42" },
-      spawnTmux,
-      listWindowsFn: () => windows,
-    });
-    expect(result).toBe("csv-export");
-  });
-
-  it("cross-check: display-message fails — returns slug unchanged (safe degradation)", () => {
-    const { spawnTmux } = fakeSpawnSequence([
-      { stdout: "csv-export\n", stderr: "", exitCode: 0 }, // show-options
-      { stdout: "", stderr: "no client", exitCode: 1 }, // display-message fails
-    ]);
-    const windows: TmuxWindow[] = [
-      { id: "@8", name: "csv-export", slug: "csv-export", activity: 0 },
-    ];
-    const result = resolveSlugFromPane({
-      env: { TMUX_PANE: "%42" },
-      spawnTmux,
-      listWindowsFn: () => windows,
-    });
-    // display-message failure → safe degradation, no cross-check, slug returned
-    expect(result).toBe("csv-export");
   });
 });
 

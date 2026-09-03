@@ -23,6 +23,7 @@ import { describe, expect, it } from "vitest";
 import {
   BASE_BRANCH_GUARD_HOOK,
   BASE_BRANCH_GUARD_MARKER,
+  BASE_BRANCH_GUARD_VERSION,
   LEGACY_HOOK_BODIES,
   installedGuardCapability,
 } from "./base-branch-guard";
@@ -37,7 +38,11 @@ type Fixture = {
 
 const FIXTURES: Fixture[] = [
   { name: "absent", hook: null },
-  { name: "v4", hook: BASE_BRANCH_GUARD_HOOK },
+  {
+    name: `v${BASE_BRANCH_GUARD_VERSION} (current)`,
+    hook: BASE_BRANCH_GUARD_HOOK,
+  },
+  { name: "v4", hook: LEGACY_HOOK_BODIES["base-branch"][3] },
   { name: "v3", hook: LEGACY_HOOK_BODIES["base-branch"][2] },
   { name: "legacy", hook: LEGACY_HOOK_BODIES["base-branch"][0] },
   { name: "foreign", hook: "#!/bin/sh\nexit 1\n" },
@@ -144,8 +149,6 @@ async function driveRun(repoRoot: string, rel: string): Promise<number> {
   const deps: Deps = {
     readStdin: async () => JSON.stringify({ stop_hook_active: true }),
     flowSlugEnv: "parity-test",
-    tmuxPane: undefined,
-    showFlowSlug: () => "",
     loadState: (): PipelineState => ({
       slug: "parity-test",
       phase: "verifying",

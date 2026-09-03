@@ -59,7 +59,7 @@
  */
 
 import * as fs from "node:fs";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
   autoResumesAfterClear,
   isEpicPhase,
@@ -282,10 +282,21 @@ export function terminalCarryOver(
 
 export type Deps = {
   readStdin: () => Promise<string>;
-  /** FLOW_SLUG env value (env-first ambient slug; both launcher backends set it). */
+  /** FLOW_SLUG env value (sole slug carrier; both launcher backends set it). */
   flowSlugEnv?: string | undefined;
-  tmuxPane: string | undefined;
-  showFlowSlug: (pane: string) => string;
+  /**
+   * TMUX_PANE env value, read for PRESENCE only (never parsed, never used to
+   * spawn a tmux subprocess to read a pane option) — an env-presence
+   * liveness check, not a pane-option read, so it neither violates this
+   * file's env-only invariant
+   * nor trips `bin/pane-read-lint.test.ts`. `state.launcher !== "plain"`
+   * answers "which backend created the pipeline?"; this answers the
+   * DIFFERENT question "is this clearing session actually inside a tmux pane
+   * right now?" — a `/clear` in a plain (non-tmux) session that inherited a
+   * tmux-launched pipeline's `FLOW_SLUG` must not send a real turn into a
+   * pane it cannot see.
+   */
+  tmuxPaneEnv?: string | undefined;
   /**
    * Plain-mode delivery: emit the SessionStart hookSpecificOutput JSON
    * carrying the resume seed as additionalContext. Default writes to stdout
@@ -333,21 +344,14 @@ export async function run(deps: Deps): Promise<number> {
     // A stdin read hiccup must never break session start; fall through.
   }
 
-  // Env-first slug resolution: FLOW_SLUG (shape-validated) wins; the tmux
-  // pane option is the fallback for tmux-launched sessions.
-  const pane = deps.tmuxPane;
-  let slug =
+  // Env-only slug resolution: FLOW_SLUG, shape-validated. `terminalAdvisory`
+  // interpolates the slug into stdout, which is the SessionStart JSON
+  // contract, so shape-validation still guards this sink even though the
+  // env var itself is trusted — every slug flow writes comes from
+  // `slugify()`, so this rejects nothing legitimate.
+  const slug =
     resolveSlugFromEnv({ FLOW_SLUG: deps.flowSlugEnv } as NodeJS.ProcessEnv) ??
     "";
-  if (slug.length === 0) {
-    if (!pane) return 0;
-    slug = deps.showFlowSlug(pane).trim();
-  }
-  // Shape-validate BOTH resolution paths, not just the env one. The pane
-  // option is the hook's last unguarded ambient input, and it now reaches a
-  // new sink: `terminalAdvisory` interpolates the slug into stdout, which is
-  // the SessionStart JSON contract. Every slug flow writes comes from
-  // `slugify()`, so this rejects nothing legitimate.
   if (slug.length === 0 || !isValidSlug(slug)) return 0;
 
   const state = deps.loadState(slug);
@@ -359,8 +363,8 @@ export async function run(deps: Deps): Promise<number> {
   // branches require it — the terminal branch's advisory is marker-gated and
   // the emit path returns early without one — so hoisting it keeps the common
   // case (a /clear in a flow window that was never checkpointed) from paying a
-  // `tmux show-options` subprocess in a hook that blocks session start on
-  // EVERY /clear on the machine. Worktree-independent: the marker lives in the
+  // tmux subprocess (the `@flow-kind` pane read) in a hook that blocks session
+  // start on EVERY /clear on the machine. Worktree-independent: the marker lives in the
   // state dir, keyed on slug alone, so a checkpointed window whose worktree
   // was already deleted (MERGED, cancelled) still reaches the terminal branch.
   if (!deps.markerExists(slug)) return 0;
@@ -412,21 +416,29 @@ export async function run(deps: Deps): Promise<number> {
     // failure returns from the catch above without ever waking the pane. Fires
     // on both sub-branches (carry-over and advisory) — the advisory case is
     // precisely where the user has no notes and the blank pane is most
-    // confusing. Same `pane && launcher !== "plain"` shape as the emit path
-    // below, reusing state the hook already holds: no `tmux show-options` read
-    // and no new filesystem probe, because this runs on EVERY /clear.
-    if (pane && state.launcher !== "plain") {
+    // confusing. Gated on BOTH `launcher !== "plain"` (which backend created
+    // the pipeline) AND live TMUX_PANE presence (is THIS clearing session
+    // actually inside a tmux pane right now) — a `/clear` in a genuinely
+    // plain session that inherited a tmux pipeline's FLOW_SLUG must degrade
+    // to the passive emit above, not send a real turn into a pane it cannot
+    // see. No tmux subprocess and no new filesystem probe either way — an
+    // env read, same cost class as the launcher check it joins.
+    if (state.launcher !== "plain" && Boolean(deps.tmuxPaneEnv)) {
       deps.dispatchResume(slug, kind, "terminal");
     }
     return 0;
   }
 
-  // Emit path. TMUX: deliver the resume seed as a real user turn (send-keys),
-  // fire-and-forget — dispatchResume returns at once (detached child), so the
-  // hook does not block session start. PLAIN (env-resolved slug, no pane):
-  // no send-keys surface exists, so degrade to passive additionalContext —
-  // the deliberate plain-mode fallback (see the header comment).
-  if (!pane || state.launcher === "plain") {
+  // Emit path. TMUX (both launcher-tagged AND a live TMUX_PANE): deliver the
+  // resume seed as a real user turn (send-keys), fire-and-forget —
+  // dispatchResume returns at once (detached child), so the hook does not
+  // block session start. PLAIN (env-resolved slug, no send-keys surface) OR
+  // a launcher-tagged session with no live TMUX_PANE (inherited FLOW_SLUG,
+  // not actually inside the pipeline's pane): degrade to passive
+  // additionalContext — the deliberate plain-mode fallback (see the header
+  // comment), now also covering the no-pane residual so a stray `/clear`
+  // never sends a turn into a window this session cannot see.
+  if (state.launcher === "plain" || !deps.tmuxPaneEnv) {
     deps.emitContext(resumeSeedFor(slug, kind));
     return 0;
   }
@@ -613,17 +625,6 @@ export function deliverResumeSeed(
   return submitted.ok;
 }
 
-/** Reads the window's `@flow-slug` user option — mirrors flow-stop-guard. */
-export function defaultShowFlowSlug(pane: string): string {
-  const r = spawnSync(
-    "tmux",
-    ["show-options", "-w", "-t", pane, "-q", "-v", "@flow-slug"],
-    { encoding: "utf8" },
-  );
-  if (r.status !== 0) return "";
-  return r.stdout ?? "";
-}
-
 /**
  * Builds the argv the detached `deliver` child is spawned with, and the ONE
  * shared source both the producer (`defaultDispatchResume`) and the consumer
@@ -747,11 +748,10 @@ if (import.meta.main) {
   run({
     readStdin: defaultReadStdin,
     flowSlugEnv: process.env.FLOW_SLUG,
-    tmuxPane: process.env.TMUX_PANE,
+    tmuxPaneEnv: process.env.TMUX_PANE,
     emitContext: (context) => {
       process.stdout.write(sessionStartOutput(context) + "\n");
     },
-    showFlowSlug: defaultShowFlowSlug,
     loadState: (slug) => readState(slug),
     markerExists: (slug) => {
       try {

@@ -242,3 +242,16 @@ default flip is gated on a benchmark clear that has not happened yet), so
 **setting it today is a silent no-op**: scouting keeps using the Claude
 Task subagent regardless of this key's value. Setting
 one has no effect on the other.
+
+## tmux status-bar bindings (opt-in)
+
+flow's `@flow-repo` / `@flow-phase` / `@flow-phase-short` / `@flow-epic`
+tmux window options are publish-only mirrors — flow writes them on its own
+windows, but no flow code reads them back; the only user is your own
+tmux status-bar format. Bind them yourself, e.g.:
+
+```sh
+set -g window-status-format '#{@flow-repo} #{@flow-phase-short}'
+```
+
+flow never writes `~/.tmux.conf` or any other part of your tmux config.

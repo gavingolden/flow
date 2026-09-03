@@ -272,7 +272,7 @@ describe("dispatch", () => {
     expect(deps.calls[0]?.args[1]).toContain("verify-exhausted");
   });
 
-  it("auto-resolves --slug from $TMUX_PANE when omitted", () => {
+  it("auto-resolves --slug from $FLOW_SLUG when omitted", () => {
     const deps = makeDeps({
       hasTerminalNotifier: () => true,
       resolveSlug: () => "csv-export",

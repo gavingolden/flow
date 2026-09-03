@@ -42,7 +42,7 @@ type Stub = {
 
 function makeDeps(opts: {
   stdin?: string;
-  pane?: string;
+  /** Convenience alias for flowSlugEnv, kept for call-site brevity across the suite. */
   slug?: string;
   flowSlugEnv?: string;
   state?: PipelineState | null;
@@ -61,9 +61,7 @@ function makeDeps(opts: {
   );
   const deps: Deps = {
     readStdin: async () => opts.stdin ?? "",
-    flowSlugEnv: opts.flowSlugEnv,
-    tmuxPane: opts.pane,
-    showFlowSlug: () => opts.slug ?? "",
+    flowSlugEnv: opts.flowSlugEnv ?? opts.slug,
     loadState: (slug) => {
       loadCalls.push(slug);
       return opts.state ?? null;
@@ -109,7 +107,6 @@ describe("flow-stop-guard short-circuits", () => {
   it("exits 0 when stop_hook_active is true and phase has advanced (loop-break consumed)", async () => {
     const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying"),
       turnTracking: fakeTracking({
@@ -124,10 +121,9 @@ describe("flow-stop-guard short-circuits", () => {
     );
   });
 
-  it("exits 0 when NO slug resolves (no FLOW_SLUG, no pane — not a flow session)", async () => {
+  it("exits 0 when NO slug resolves (no FLOW_SLUG — not a flow session)", async () => {
     const { deps, loadCalls, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({}),
-      pane: undefined,
       flowSlugEnv: undefined,
       state: fakeState("implementing"),
     });
@@ -137,10 +133,9 @@ describe("flow-stop-guard short-circuits", () => {
     expect(errLines).toEqual([]);
   });
 
-  it("blocks (exit 2) when FLOW_SLUG resolves with no pane at all — the plain-launcher guard", async () => {
+  it("blocks (exit 2) when FLOW_SLUG resolves — the plain-launcher guard", async () => {
     const { deps, loadCalls } = makeDeps({
       stdin: JSON.stringify({}),
-      pane: undefined,
       flowSlugEnv: "demo",
       state: fakeState("implementing"),
     });
@@ -148,45 +143,19 @@ describe("flow-stop-guard short-circuits", () => {
     expect(loadCalls).toEqual(["demo"]);
   });
 
-  it("permits (exit 0) at a terminal phase when the slug resolved via FLOW_SLUG/no-pane", async () => {
+  it("permits (exit 0) at a terminal phase when the slug resolved via FLOW_SLUG", async () => {
     const { deps } = makeDeps({
       stdin: JSON.stringify({}),
-      pane: undefined,
       flowSlugEnv: "demo",
       state: fakeState("merged"),
     });
     expect(await run(deps)).toBe(0);
   });
 
-  it("FLOW_SLUG wins over the pane option when both are set", async () => {
-    const { deps, loadCalls } = makeDeps({
-      stdin: JSON.stringify({}),
-      pane: "%1",
-      slug: "pane-slug",
-      flowSlugEnv: "env-slug",
-      state: fakeState("merged"),
-    });
-    expect(await run(deps)).toBe(0);
-    expect(loadCalls).toEqual(["env-slug"]);
-  });
-
-  it("a shape-invalid FLOW_SLUG is ignored and the pane fallback applies", async () => {
-    const { deps, loadCalls } = makeDeps({
-      stdin: JSON.stringify({}),
-      pane: "%1",
-      slug: "pane-slug",
-      flowSlugEnv: "NOT A SLUG",
-      state: fakeState("merged"),
-    });
-    expect(await run(deps)).toBe(0);
-    expect(loadCalls).toEqual(["pane-slug"]);
-  });
-
-  it("exits 0 when @flow-slug is empty (not a flow window)", async () => {
+  it("exits 0 when FLOW_SLUG is shape-invalid — env-only, no fallback", async () => {
     const { deps, loadCalls, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({}),
-      pane: "%1",
-      slug: "",
+      flowSlugEnv: "NOT A SLUG",
       state: fakeState("implementing"),
     });
     expect(await run(deps)).toBe(0);
@@ -198,7 +167,6 @@ describe("flow-stop-guard short-circuits", () => {
   it("exits 0 when state.json is missing for the slug", async () => {
     const { deps, errLines } = makeDeps({
       stdin: JSON.stringify({}),
-      pane: "%1",
       slug: "ghost",
       state: null,
     });
@@ -209,7 +177,6 @@ describe("flow-stop-guard short-circuits", () => {
   it("exits 0 when stdin is empty (no hook payload)", async () => {
     const { deps } = makeDeps({
       stdin: "",
-      pane: "%1",
       slug: "demo",
       state: fakeState("merged"),
     });
@@ -219,7 +186,6 @@ describe("flow-stop-guard short-circuits", () => {
   it("exits 0 when stdin is malformed JSON (treats as no input)", async () => {
     const { deps } = makeDeps({
       stdin: "{not json",
-      pane: "%1",
       slug: "demo",
       state: fakeState("merged"),
     });
@@ -233,7 +199,6 @@ describe("flow-stop-guard short-circuits", () => {
     // turn-ends would silently exit 0 whenever the harness sent garbage.
     const { deps, errLines } = makeDeps({
       stdin: "{not json",
-      pane: "%1",
       slug: "demo",
       state: fakeState("implementing"),
     });
@@ -248,7 +213,6 @@ describe("flow-stop-guard allows legitimate end phases", () => {
     async (phase) => {
       const { deps, errLines } = makeDeps({
         stdin: "{}",
-        pane: "%1",
         slug: "demo",
         state: fakeState(phase),
       });
@@ -260,7 +224,6 @@ describe("flow-stop-guard allows legitimate end phases", () => {
   it.each([...PENDING_PHASES])("exits 0 at pending phase %s", async (phase) => {
     const { deps, errLines } = makeDeps({
       stdin: "{}",
-      pane: "%1",
       slug: "demo",
       state: fakeState(phase),
     });
@@ -275,7 +238,6 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
   it.each([...blockable])("exits 2 at step phase %s", async (phase) => {
     const { deps, errLines } = makeDeps({
       stdin: "{}",
-      pane: "%1",
       slug: "demo",
       state: fakeState(phase),
     });
@@ -288,7 +250,6 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
   it("blocks at phase=starting and points back to step 1", async () => {
     const { deps, errLines } = makeDeps({
       stdin: "{}",
-      pane: "%1",
       slug: "demo",
       state: fakeState("starting"),
     });
@@ -315,7 +276,6 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
     for (const [phase, label] of expected) {
       const { deps, errLines } = makeDeps({
         stdin: "{}",
-        pane: "%1",
         slug: "demo",
         state: fakeState(phase),
       });
@@ -339,7 +299,6 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
     // stop, ci-wait-pending is a legitimate end-state.
     const pending = makeDeps({
       stdin: "{}",
-      pane: "%1",
       slug: "demo",
       state: fakeState("ci-wait-pending"),
     });
@@ -348,7 +307,6 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
 
     const active = makeDeps({
       stdin: "{}",
-      pane: "%1",
       slug: "demo",
       state: fakeState("ci-wait"),
     });
@@ -371,7 +329,6 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
   it("exits 0 at the yielded plan-review-pending phase but still exits 2 at the active planning phase", async () => {
     const pending = makeDeps({
       stdin: "{}",
-      pane: "%1",
       slug: "demo",
       state: fakeState("plan-review-pending"),
     });
@@ -380,7 +337,6 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
 
     const active = makeDeps({
       stdin: "{}",
-      pane: "%1",
       slug: "demo",
       state: fakeState("planning"),
     });
@@ -391,7 +347,6 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
   it("exits 0 at the yielded epic-plan-review-pending phase but still exits 2 at the active epic-validating phase", async () => {
     const pending = makeDeps({
       stdin: "{}",
-      pane: "%1",
       slug: "demo",
       state: fakeState("epic-plan-review-pending"),
     });
@@ -400,7 +355,6 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
 
     const active = makeDeps({
       stdin: "{}",
-      pane: "%1",
       slug: "demo",
       state: fakeState("epic-validating"),
     });
@@ -439,7 +393,6 @@ describe("per-turn tracking", () => {
   it("(1) legitimate pending exit does not consume budget", async () => {
     const { deps, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: false }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("plan-pending-review"),
       turnTracking: null,
@@ -461,7 +414,6 @@ describe("per-turn tracking", () => {
     // legitimate-end branch to win even when blockCount === TURN_BLOCK_LIMIT.
     const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("plan-pending-review"),
       turnTracking: fakeTracking({
@@ -479,7 +431,6 @@ describe("per-turn tracking", () => {
   it("(2) non-legitimate phase + no prior tracking → exit 2 + increment", async () => {
     const { deps, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: false }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying"),
       turnTracking: null,
@@ -493,7 +444,6 @@ describe("per-turn tracking", () => {
   it("(3) second stop same turn, phase unchanged → stagnation reminder", async () => {
     const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying"),
       turnTracking: fakeTracking({
@@ -511,7 +461,6 @@ describe("per-turn tracking", () => {
   it("(4) second stop same turn, phase advanced → exit 0 + breadcrumb", async () => {
     const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying"),
       turnTracking: fakeTracking({
@@ -532,7 +481,6 @@ describe("per-turn tracking", () => {
     const FRESH = "2026-05-17T12:34:56.789Z";
     const { deps, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: false }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("triaging"),
       turnTracking: fakeTracking({
@@ -552,23 +500,9 @@ describe("per-turn tracking", () => {
     );
   });
 
-  it("(6) out-of-tmux skips tracking I/O entirely", async () => {
+  it("(6) no FLOW_SLUG in the environment skips tracking I/O entirely", async () => {
     const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({}),
-      pane: "",
-      slug: "demo",
-      state: fakeState("implementing"),
-    });
-    expect(await run(deps)).toBe(0);
-    expect(writeTurn).not.toHaveBeenCalled();
-    expect(errLines).toEqual([]);
-  });
-
-  it("(7) non-flow window skips tracking I/O entirely", async () => {
-    const { deps, errLines, writeTurn } = makeDeps({
-      stdin: JSON.stringify({}),
-      pane: "%1",
-      slug: "",
       state: fakeState("implementing"),
     });
     expect(await run(deps)).toBe(0);
@@ -579,7 +513,6 @@ describe("per-turn tracking", () => {
   it("ZERO COST: no dirty epic paths means repoCommitState is NEVER called, exit matches today's behaviour", async () => {
     const { deps, errLines, repoCommitStateSpy } = makeDeps({
       stdin: JSON.stringify({}),
-      pane: "%1",
       slug: "demo",
       state: fakeState("merged"),
       dirtyEpicPaths: () => [],
@@ -592,7 +525,6 @@ describe("per-turn tracking", () => {
   it("BLOCK: one dirty status.json on a non-terminal phase means exit 2 with the executable route", async () => {
     const { deps, errLines } = makeDeps({
       stdin: JSON.stringify({}),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying"),
       dirtyEpicPaths: () => [".flow/epics/e1/status.json"],
@@ -606,7 +538,6 @@ describe("per-turn tracking", () => {
   it("BLOCK AT A TERMINAL PHASE: the same dirty path still exits 2 (fires before isLegitimateEndPhase)", async () => {
     const { deps, errLines } = makeDeps({
       stdin: JSON.stringify({}),
-      pane: "%1",
       slug: "demo",
       state: fakeState("merged"),
       dirtyEpicPaths: () => [".flow/epics/e1/status.json"],
@@ -620,7 +551,6 @@ describe("per-turn tracking", () => {
   it("MANIFEST ROUTE: a dirty manifest.json exits 2 with a switch-commit-switch-back sequence, not just 'open a PR'", async () => {
     const { deps, errLines } = makeDeps({
       stdin: JSON.stringify({}),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying"),
       dirtyEpicPaths: () => [".flow/epics/e1/manifest.json"],
@@ -635,7 +565,6 @@ describe("per-turn tracking", () => {
   it("DUAL PROBE: distinct dirty paths in state.repo and state.worktree both appear, deduped when roots are equal", async () => {
     const { deps, errLines } = makeDeps({
       stdin: JSON.stringify({}),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying", { worktree: "/tmp/worktree" }),
       dirtyEpicPaths: (root) =>
@@ -661,7 +590,6 @@ describe("per-turn tracking", () => {
     const calls: string[] = [];
     const { deps } = makeDeps({
       stdin: JSON.stringify({}),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying", { worktree: "/tmp/repo" }),
       dirtyEpicPaths: (root) => {
@@ -676,7 +604,6 @@ describe("per-turn tracking", () => {
   it("LOOP BREAK: blockCount already at the limit with the path still dirty means exit 0, no further increment", async () => {
     const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying"),
       turnTracking: fakeTracking({ blockCount: TURN_BLOCK_LIMIT }),
@@ -692,7 +619,6 @@ describe("per-turn tracking", () => {
   it("NON-COMMITTABLE STATE (rebase): exit 0, diagnostic on stderr, blockCount NOT incremented", async () => {
     const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying"),
       turnTracking: fakeTracking({ blockCount: 0 }),
@@ -709,7 +635,6 @@ describe("per-turn tracking", () => {
   it("NON-COMMITTABLE STATE (detached): exit 0, diagnostic on stderr, blockCount NOT incremented", async () => {
     const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying"),
       turnTracking: fakeTracking({ blockCount: 0 }),
@@ -726,7 +651,6 @@ describe("per-turn tracking", () => {
   it("UNSATISFIABLE BLOCK (foreign hook): exit 0, diagnostic on stderr, no block slot consumed", async () => {
     const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying"),
       turnTracking: fakeTracking({ blockCount: 0 }),
@@ -751,7 +675,6 @@ describe("per-turn tracking", () => {
   it("SELF-HEALABLE (own-outdated) still names the flow-epic-sync route and blocks (exit 2)", async () => {
     const { deps, errLines } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("verifying"),
       turnTracking: fakeTracking({ blockCount: 0 }),

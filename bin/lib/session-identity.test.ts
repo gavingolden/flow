@@ -30,37 +30,14 @@ describe("resolveSlugFromEnv", () => {
 });
 
 describe("resolveSlugAmbient", () => {
-  it("env wins when both FLOW_SLUG and a pane slug are available", () => {
-    const slug = resolveSlugAmbient({
-      env: { FLOW_SLUG: "env-slug", TMUX_PANE: "%1" },
-      spawnTmux: () => ok("pane-slug"),
-      listWindowsFn: () => [],
-    });
+  it("resolves a valid FLOW_SLUG", () => {
+    const slug = resolveSlugAmbient({ env: { FLOW_SLUG: "env-slug" } });
     expect(slug).toBe("env-slug");
   });
 
-  it("falls back to the pane when FLOW_SLUG is absent", () => {
-    const slug = resolveSlugAmbient({
-      env: { TMUX_PANE: "%1" },
-      spawnTmux: (args) =>
-        args[0] === "show-options" ? ok("pane-slug") : ok("@1"),
-      listWindowsFn: () => [],
-    });
-    expect(slug).toBe("pane-slug");
-  });
-
-  it("falls back to the pane when FLOW_SLUG is shape-invalid", () => {
-    const slug = resolveSlugAmbient({
-      env: { FLOW_SLUG: "NOT VALID", TMUX_PANE: "%1" },
-      spawnTmux: (args) =>
-        args[0] === "show-options" ? ok("pane-slug") : ok("@1"),
-      listWindowsFn: () => [],
-    });
-    expect(slug).toBe("pane-slug");
-  });
-
-  it("returns null when neither source resolves (parity with today)", () => {
+  it("returns null when FLOW_SLUG is absent or shape-invalid — env-only, no pane fallback", () => {
     expect(resolveSlugAmbient({ env: {} })).toBeNull();
+    expect(resolveSlugAmbient({ env: { FLOW_SLUG: "NOT VALID" } })).toBeNull();
   });
 });
 

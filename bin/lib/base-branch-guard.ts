@@ -25,29 +25,24 @@ export { LEGACY_HOOK_BODIES } from "./base-branch-guard-legacy";
  * sh here rather than shelling out to the TS `detectDefaultBranch`: a Bun/TS
  * spawn would add a per-commit interpreter start and a runtime dependency.
  *
- * BOTH session gates are load-bearing: `CLAUDE_CODE_SESSION_ID` alone is set
- * for the user's own hand-driven Claude Code commits, so the flow-session slug
- * — the `FLOW_SLUG` env var (either launcher backend), falling back to the
- * tmux `@flow-slug` pane option (tmux backend) — is what narrows the guard to
- * a flow-supervisor session; without it the hook would block the user's own
- * legitimate commits to the base branch.
+ * The session gate is load-bearing: `CLAUDE_CODE_SESSION_ID` alone is set
+ * for the user's own hand-driven Claude Code commits, so the flow-session
+ * slug — the `FLOW_SLUG` env var (set by both launcher backends) — is what
+ * narrows the guard to a flow-supervisor session; without it the hook would
+ * block the user's own legitimate commits to the base branch.
  *
  * Line 2 is a self-identifying marker (`# flow:base-branch-guard v<N>`), read
  * by `classifyPreCommitHook` below — see that function's doc comment for why
  * ownership detection moved off a byte-exact compare.
  */
 export const BASE_BRANCH_GUARD_MARKER = "# flow:base-branch-guard v";
-export const BASE_BRANCH_GUARD_VERSION = 4;
+export const BASE_BRANCH_GUARD_VERSION = 5;
 
 export const BASE_BRANCH_GUARD_HOOK = `#!/bin/sh
 ${BASE_BRANCH_GUARD_MARKER}${BASE_BRANCH_GUARD_VERSION}
 # managed by flow — edits are overwritten on the next \`flow feature create\`.
 [ -n "$CLAUDE_CODE_SESSION_ID" ] || exit 0
-flow_slug=\${FLOW_SLUG:-}
-if [ -z "$flow_slug" ] && [ -n "$TMUX_PANE" ]; then
-  flow_slug=$(tmux show-options -w -t "$TMUX_PANE" -q -v @flow-slug 2>/dev/null)
-fi
-[ -n "$flow_slug" ] || exit 0
+[ -n "$FLOW_SLUG" ] || exit 0
 
 # origin/HEAD is the source of truth for the default branch; the local
 # main/master fallback is load-bearing for repos with no origin/HEAD (a fresh

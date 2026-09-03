@@ -167,7 +167,7 @@ describe(parseArgs, () => {
   it("rejects the --slug=<value> equals form instead of silently discarding it", () => {
     // This is the destructive-regression guard: a silently-discarded flag
     // here would leave zero positionals, fall through to the ambient
-    // $TMUX_PANE slug, and remove the CALLER's own worktree.
+    // FLOW_SLUG, and remove the CALLER's own worktree.
     expect(parseArgs(["--slug=s"])).toEqual({
       error: "unknown flag: --slug=s",
     });
@@ -878,12 +878,12 @@ function makeFreshRepoFixture(): FreshRepoFixture {
 
 function runNewWorktree(args: string[], cwd: string): Promise<SpawnResult> {
   return new Promise((resolve) => {
-    // Strip TMUX_PANE so flow-new-worktree's resolveSlugFromPane() returns
+    // Strip FLOW_SLUG so flow-new-worktree's resolveSlugAmbient() returns
     // null — these integration tests pass literal positional slugs and
     // would otherwise hit the slug-mismatch guard when the runner itself
-    // lives inside a flow pipeline window.
+    // lives inside a flow pipeline.
     const env = { ...process.env };
-    delete env.TMUX_PANE;
+    delete env.FLOW_SLUG;
     const child = spawn("bun", ["run", FLOW_NEW_WORKTREE_BIN, ...args], {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
@@ -964,18 +964,20 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     expect(list).not.toContain(wtDir);
   });
 
-  it("zero-arg invocation outside a flow pane fails with the @flow-slug error (not the help banner)", async () => {
+  it("zero-arg invocation with no live pipeline fails with the FLOW_SLUG error (not the help banner)", async () => {
     // Regression: the supervisor calls `flow-remove-worktree` with zero
-    // args and expects the slug to resolve from $TMUX_PANE. The previous
+    // args and expects the slug to resolve from $FLOW_SLUG. The previous
     // `args.length === 0 → printHelp + exit 0` short-circuit silently
     // succeeded without removing the worktree. Now zero-args must fall
-    // through to resolveSlugFromPane(); when that returns null (TMUX_PANE
+    // through to resolveSlugAmbient(); when that returns null (FLOW_SLUG
     // unset), the helper exits non-zero with a slug-related error rather
     // than printing the help banner and exiting 0.
+    const env = { ...process.env };
+    delete env.FLOW_SLUG;
     const child = spawn("bun", ["run", FLOW_REMOVE_WORKTREE_BIN], {
       cwd: fx.repoDir,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, TMUX_PANE: "" },
+      env,
     });
     let stdout = "";
     let stderr = "";
@@ -985,7 +987,7 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
       child.on("close", (code) => resolve(code ?? -1)),
     );
     expect(exitCode, `stdout: ${stdout}\nstderr: ${stderr}`).not.toBe(0);
-    expect(`${stdout}${stderr}`).toContain("@flow-slug");
+    expect(`${stdout}${stderr}`).toContain("FLOW_SLUG");
   });
 
   it("legacy path: succeeds even when .flow-branch is NOT registered in info/exclude (rm fallback)", async () => {
@@ -1144,7 +1146,7 @@ describe("flow-remove-worktree (integration: auto-delete merged branches)", () =
 // --- Integration: collision auto-suffix cross-pipeline safety ----------------
 
 // Reproduces the reported hazard end-to-end: when flow-new-worktree auto-suffixes
-// on a collision (<slug>-2), the pipeline slug / @flow-slug / state.json filename
+// on a collision (<slug>-2), the pipeline slug and state.json filename
 // stay the un-suffixed <slug>. A bare `flow-remove-worktree --delete-branch`
 // resolving from the un-suffixed slug must remove THIS pipeline's own -2 worktree
 // (recorded in state.json) and delete branch <slug>-2 — never the sibling whose
@@ -1208,7 +1210,6 @@ describe("flow-remove-worktree (integration: collision auto-suffix safety)", () 
     const remove = await runHelper([slug, "--delete-branch"], fx.repoDir, {
       ...process.env,
       HOME: home,
-      TMUX_PANE: "",
     });
     expect(
       remove.exitCode,

@@ -398,7 +398,7 @@ describe(parseArgs, () => {
 
   it("treats --slug as optional (auto-resolve path) — parses PR-only", () => {
     // Previously rejected with '--slug is required'. The supervisor now
-    // relies on this form: the slug auto-resolves from $TMUX_PANE.
+    // relies on this form: the slug auto-resolves from $FLOW_SLUG.
     expect(parseArgs(["100"])).toEqual({ pr: 100 });
   });
 
@@ -513,7 +513,7 @@ describe("run() integration", () => {
     expect(exit).toBe(2);
   });
 
-  it("auto-resolves --slug from $TMUX_PANE when omitted", () => {
+  it("auto-resolves --slug from $FLOW_SLUG when omitted", () => {
     seedState("delta", false, 2);
     const gh = vi.fn(() => ({
       stdout: JSON.stringify({
@@ -581,7 +581,7 @@ describe("run() integration", () => {
       resolveSlug: () => null,
     });
     expect(exit).toBe(2);
-    expect(errSpy.mock.calls.flat().join("\n")).toContain("@flow-slug");
+    expect(errSpy.mock.calls.flat().join("\n")).toContain("FLOW_SLUG");
     errSpy.mockRestore();
   });
 });

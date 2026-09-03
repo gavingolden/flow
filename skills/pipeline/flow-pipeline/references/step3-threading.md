@@ -26,7 +26,7 @@ This adds **no** new fan-out site — it is a `model:` override on the
 existing Discovery exemption:
 
 ```bash
-SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+SLUG="$FLOW_SLUG"
 PLANNING_MODEL=$(jq -r '.modelPlanning // empty' ~/.flow/state/"$SLUG".json)
 [ -z "$PLANNING_MODEL" ] && PLANNING_MODEL=$(jq -r '.models.planning // empty' ~/.flow/config.json 2>/dev/null)
 # When non-empty, append `MODEL_PLANNING: $PLANNING_MODEL` to the invocation.
@@ -119,9 +119,7 @@ append an `INTERVIEW: <digest>` marker line to the
 new fan-out site:
 
 ```bash
-# Env-first, tmux-pane fallback — the plain shell launcher (the default)
-# never sets $TMUX_PANE, so $SLUG must resolve from $FLOW_SLUG first.
-SLUG=${FLOW_SLUG:-$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug 2>/dev/null)}
+SLUG="$FLOW_SLUG"
 INTERVIEW_DIGEST=$(jq -r '.interview // empty' ~/.flow/state/"$SLUG".json)
 # When non-empty, append `INTERVIEW: $INTERVIEW_DIGEST` to the invocation.
 ```

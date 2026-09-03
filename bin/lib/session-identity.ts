@@ -1,17 +1,12 @@
 /**
- * Ambient pipeline-slug resolution, env-first: the `FLOW_SLUG` env var (set
- * in the launch env by both launcher backends) wins over the tmux pane's
- * `@flow-slug` window option (`resolveSlugFromPane`, which stays exported
- * from `tmux.ts` for tmux-specific callers). Env-first because the env var
- * is backend-agnostic and immutable for the life of the session, while the
- * pane option only exists under the tmux launcher.
+ * Ambient pipeline-slug resolution, env-only: `FLOW_SLUG` (set in the launch
+ * env by both launcher backends) is the sole carrier. Per `AGENTS.md`'s
+ * signal order, `~/.flow/state/<slug>.json` and on-disk `.flow-tmp/*`
+ * artifacts remain the rungs for pipeline *facts* once the slug is known —
+ * they are not alternate slug sources.
  */
 
-import {
-  resolveKindFromPane,
-  resolveSlugFromPane,
-  type ResolveSlugDeps,
-} from "./tmux";
+import { resolveKindFromPane, type ResolveSlugDeps } from "./tmux";
 import { isValidSlug } from "./slug";
 import type { PipelineKind } from "./state";
 
@@ -28,25 +23,22 @@ export function resolveSlugFromEnv(
 }
 
 /**
- * Env-first ambient resolution: `FLOW_SLUG` when valid, else the tmux pane's
- * `@flow-slug` option, else null.
+ * Env-only ambient resolution: `FLOW_SLUG` when valid, else null.
  */
 export function resolveSlugAmbient(
-  deps: ResolveSlugDeps & { env?: NodeJS.ProcessEnv } = {},
+  deps: { env?: NodeJS.ProcessEnv } = {},
 ): string | null {
-  const fromEnv = resolveSlugFromEnv(deps.env ?? process.env);
-  if (fromEnv !== null) return fromEnv;
-  return resolveSlugFromPane(deps);
+  return resolveSlugFromEnv(deps.env ?? process.env);
 }
 
 /**
  * Ambient window-kind resolution: a thin pass-through to
  * `resolveKindFromPane`, deliberately WITHOUT an env-var arm. Unlike the
- * slug, the kind must stay per-pane: once the epic launch argv exports
- * `FLOW_SLUG` (Task 9), any shell the user `cd`s into from that pane
- * inherits it — a parallel `FLOW_KIND` env var would combine with that
- * inherited slug to make an arbitrary descendant shell look like a live
- * epic supervisor to the `SessionStart:clear` hook.
+ * slug, the kind must stay per-pane: the epic launch argv exports
+ * `FLOW_SLUG` (`bin/lib/epic.ts:2122`), so any shell the user `cd`s into
+ * from that pane inherits it — a parallel `FLOW_KIND` env var would combine
+ * with that inherited slug to make an arbitrary descendant shell look like a
+ * live epic supervisor to the `SessionStart:clear` hook.
  *
  * This pane-only signal is safe TODAY only because epic orchestration is
  * itself tmux-only: `runCreate` explicitly refuses a non-tmux launcher

@@ -1118,7 +1118,7 @@ describe("run() integration", () => {
     expect(exit).toBe(2);
   });
 
-  it("auto-resolves the slug from $TMUX_PANE when omitted", () => {
+  it("auto-resolves the slug from $FLOW_SLUG when omitted", () => {
     seedState("kappa", { phase: "merged" });
     const { writes, restore } = captureStdout();
     const exit = run([], {
@@ -1150,7 +1150,7 @@ describe("run() integration", () => {
     expect(result.context.slug).toBe("lambda");
   });
 
-  it("exits 2 with a clear error when no slug given and pane has none either", () => {
+  it("exits 2 with a clear error when no slug given and none resolves from FLOW_SLUG either", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const exit = run([], {
       stateDir,
@@ -1159,7 +1159,7 @@ describe("run() integration", () => {
       resolveSlug: () => null,
     });
     expect(exit).toBe(2);
-    expect(errSpy.mock.calls.flat().join("\n")).toContain("@flow-slug");
+    expect(errSpy.mock.calls.flat().join("\n")).toContain("FLOW_SLUG");
     errSpy.mockRestore();
   });
 });

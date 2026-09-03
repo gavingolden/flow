@@ -78,8 +78,8 @@ describe(pickBranchName, () => {
   });
 
   it("errors with slug-mismatch when the positional disagrees with the pane slug", () => {
-    // Mirrors PR #152's footgun: pane @flow-slug was the auto-derived value,
-    // supervisor passed a different reading of the same description.
+    // Mirrors PR #152's footgun: the ambient FLOW_SLUG was the auto-derived
+    // value, supervisor passed a different reading of the same description.
     const r = pickBranchName(
       "all-scopes-rename",
       "rename-valid-scopes-all-scopes",
@@ -195,14 +195,13 @@ type SpawnResult = { exitCode: number; stdout: string; stderr: string };
 
 function spawnHelper(args: string[], cwd: string): Promise<SpawnResult> {
   return new Promise((resolve) => {
-    // Strip TMUX_PANE so the helper's resolveSlugFromPane() returns null
+    // Strip FLOW_SLUG so the helper's resolveSlugAmbient() returns null
     // for these integration tests — the runner itself may live inside a
-    // flow pipeline window (@flow-slug set), which would otherwise
-    // trigger the new slug-mismatch guard against the test's literal
-    // positional. Unit tests below exercise the pane-slug path via the
-    // injectable seam.
+    // flow pipeline (FLOW_SLUG set), which would otherwise trigger the
+    // slug-mismatch guard against the test's literal positional. Unit
+    // tests below exercise the ambient-slug path via the injectable seam.
     const env = { ...process.env };
-    delete env.TMUX_PANE;
+    delete env.FLOW_SLUG;
     const child = spawn("bun", ["run", FLOW_NEW_WORKTREE_BIN, ...args], {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],

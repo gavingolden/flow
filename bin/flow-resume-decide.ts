@@ -720,7 +720,7 @@ export function probeCi(prNumber: number, gh: GhRunner): CiState {
 export function parseArgs(
   argv: string[],
 ): { slug?: string } | { error: string } {
-  // Slug is optional: when omitted, the caller resolves from $TMUX_PANE.
+  // Slug is optional: when omitted, the caller resolves from $FLOW_SLUG.
   // A leading flag is treated as "no slug given" (matches the auto-resolve
   // contract used by flow-state-update / flow-open-pr).
   if (argv.length === 0) return {};
@@ -856,8 +856,8 @@ export function run(argv: string[], deps: Deps = {}): number {
   const slug = parsed.slug ?? resolveSlug();
   if (!slug) {
     console.error(
-      "flow-resume-decide: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
-        "  pass <slug> explicitly, or run inside a tmux window created by `flow feature create`.",
+      "flow-resume-decide: no slug given and no FLOW_SLUG in the environment.\n" +
+        "  pass <slug> explicitly, or run inside a pipeline launched by `flow feature create`.",
     );
     return 2;
   }

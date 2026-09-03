@@ -19,12 +19,12 @@ Three parts, ALL of which must pass before the survey runs:
    from that digest's goal-level answers, see below):
 
    ```bash
-   SLUG=${FLOW_SLUG:-$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug 2>/dev/null)}
+   SLUG="$FLOW_SLUG"
    jq -r '.interview // empty' ~/.flow/state/"$SLUG".json
    ```
 
-   (the same env-first-then-pane idiom `step3-threading.md`'s Interview
-   threading section already uses.)
+   (the same idiom `step3-threading.md`'s Interview threading section
+   already uses.)
 
 2. `$WORKTREE/.flow-tmp/blind-survey.md` is ABSENT. Its presence means
    the survey already ran for this pipeline (a first pass, or an earlier

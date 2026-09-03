@@ -15,8 +15,8 @@
  *                         [--title <title>] [--draft] [--base <branch>]
  *                         [--slug <slug>]
  *
- * The slug is optional when invoked from inside a flow tmux pane: it
- * auto-resolves from `$TMUX_PANE`'s `@flow-slug` window option.
+ * The slug is optional when a pipeline is live: it auto-resolves from
+ * `$FLOW_SLUG`.
  *
  * When the `CLAUDE_CODE_SESSION_ID` env var is set (Claude Code harness),
  * a self-describing HTML-comment marker naming that session is appended
@@ -262,8 +262,8 @@ export function run(argv: string[], deps: Deps = {}): number {
   const slug = parsed.slug ?? resolveSlug();
   if (!slug) {
     console.error(
-      "flow-open-pr: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
-        "  pass <slug> explicitly, or run inside a tmux window created by `flow feature create`.",
+      "flow-open-pr: no slug given and no FLOW_SLUG in the environment.\n" +
+        "  pass <slug> explicitly, or run inside a pipeline launched by `flow feature create`.",
     );
     return 2;
   }
