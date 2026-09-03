@@ -751,7 +751,11 @@ describe(salvageAgentMemory, () => {
   it("no-ops when the target is a symlink (the cache dir survives on its own)", () => {
     const worktreeDir = path.join(scratchRoot, "wt");
     const cacheRoot = path.join(scratchRoot, "cache");
-    const cacheDir = path.join(cacheRoot, "repo-abc12345", "agent-memory-local");
+    const cacheDir = path.join(
+      cacheRoot,
+      "repo-abc12345",
+      "agent-memory-local",
+    );
     fs.mkdirSync(cacheDir, { recursive: true });
     fs.writeFileSync(path.join(cacheDir, "MEMORY.md"), "note\n");
     const target = path.join(worktreeDir, ".claude", "agent-memory-local");
@@ -767,7 +771,11 @@ describe(salvageAgentMemory, () => {
     const worktreeDir = path.join(scratchRoot, "wt-absent");
     fs.mkdirSync(worktreeDir, { recursive: true });
     expect(() =>
-      salvageAgentMemory(worktreeDir, scratchRoot, path.join(scratchRoot, "cache")),
+      salvageAgentMemory(
+        worktreeDir,
+        scratchRoot,
+        path.join(scratchRoot, "cache"),
+      ),
     ).not.toThrow();
   });
 

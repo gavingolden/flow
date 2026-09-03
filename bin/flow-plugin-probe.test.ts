@@ -143,7 +143,11 @@ describe(parseArgs, () => {
   });
 
   it("no flags at all: json:false, probe:undefined, live:false", () => {
-    expect(parseArgs([])).toEqual({ json: false, probe: undefined, live: false });
+    expect(parseArgs([])).toEqual({
+      json: false,
+      probe: undefined,
+      live: false,
+    });
   });
 
   it("--live sets live:true independent of other flags", () => {

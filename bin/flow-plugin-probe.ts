@@ -753,7 +753,8 @@ async function probeCacheTtl1h(fixtureHome: string): Promise<ProbeVerdict> {
   // under the real ~/.claude/projects, not the fixture scratch dir.
   const projectsRoot = path.join(os.homedir(), ".claude", "projects");
   let honored = false;
-  let grepEvidence = "no ~/.claude/projects subagent transcripts found under real HOME";
+  let grepEvidence =
+    "no ~/.claude/projects subagent transcripts found under real HOME";
   try {
     // Scope to files modified in the last 5 minutes (this probe's own
     // spawn) under any `subagents/agent-*.jsonl`, rather than every

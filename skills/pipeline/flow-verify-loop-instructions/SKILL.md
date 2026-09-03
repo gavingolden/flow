@@ -2,7 +2,9 @@
 name: flow-verify-loop-instructions
 description: Preloaded instructions for the flow-verify subagent; not for direct invocation.
 ---
+
 <!-- flow-instructions-sentinel: flow-verify-loop-instructions -->
+
 # Verify-retry-loop subagent instructions
 
 These instructions are read by the verify-retry-loop subagent that
@@ -139,6 +141,7 @@ expected_outcome}`), per
    send exactly one `SendMessage` continuation per
    `../flow-pipeline/references/partial-result-continuation.md` before falling through to
    the `coder_spawn: "artifact-missing"` inline fallback in step 5.
+
 3. Before spawning, clear any stale artifact:
    `rm -f ".flow-tmp/verify-coder-result.json"` (you already `cd`'d into
    the worktree in step 1 above — do not reference `$WORKTREE`, which is
@@ -230,7 +233,7 @@ Layer-3 commit is the only config write — zero-config auto-detect
 When the diff touches a meaningful UI surface (not only when a
 `.flow/ui-validation.json` manifest already exists), run the browser-driven
 UI-smoke pass as part of this step, following the shared procedure in
-[ui-smoke-pass.md](ui-smoke-pass.md): probe the `chrome-devtools` MCP →
+[ui-smoke-pass.md](../flow-pipeline/references/ui-smoke-pass.md): probe the `chrome-devtools` MCP →
 on missing schema run `flow-ui-validate --mcp-absent` (a quiet
 `ran:false` skip, never a failure) → otherwise run
 `flow-ui-validate --changed-files <diff>` and **branch on the helper

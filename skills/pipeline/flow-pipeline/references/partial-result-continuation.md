@@ -12,7 +12,7 @@ All three must hold:
 
 1. The Task result is marked **partial** — on Claude Code ≥ 2.1.246 a
    partial result carries the line `NOTE: this agent stopped at its
-   <N>-turn limit before finishing` and an `agentId: <id>` line (measured
+<N>-turn limit before finishing` and an `agentId: <id>` line (measured
    verdict recorded in `docs/subagent-features-probe.md`'s
    `max-turns-partial` probe).
 2. The result carries a recoverable **agent id** (the `agentId: <id>`

@@ -2244,7 +2244,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
     const negatedButMatchesTokenAndVerb = readAnchoredLine(
       "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
-      457,
+      459,
       "NEVER push to the base branch",
     );
     expect(
@@ -2256,7 +2256,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-verify-loop-instructions/SKILL.md",
-        400,
+        403,
         "NEVER touch the base branch",
       ],
       [
@@ -2266,7 +2266,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ],
       [
         "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
-        459,
+        461,
         "NEVER use `git push --force`",
       ],
     ];
@@ -2456,7 +2456,10 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
   it("the merge-resolver artifact field is push_status everywhere", () => {
     for (const [name, text] of [
-      ["flow-merge-resolver-instructions/SKILL.md", mergeResolverInstructionsContent],
+      [
+        "flow-merge-resolver-instructions/SKILL.md",
+        mergeResolverInstructionsContent,
+      ],
       ["flow-pipeline SKILL.md", content],
       ["references/exemption-contracts.md", exemptionContractsContent],
     ] as const) {

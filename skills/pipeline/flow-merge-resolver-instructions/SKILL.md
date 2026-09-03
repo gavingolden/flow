@@ -2,7 +2,9 @@
 name: flow-merge-resolver-instructions
 description: Preloaded instructions for the flow-merge-resolver subagent; not for direct invocation.
 ---
+
 <!-- flow-instructions-sentinel: flow-merge-resolver-instructions -->
+
 # Merge-conflict resolver instructions
 
 These instructions are read by the merge-conflict resolver subagent that

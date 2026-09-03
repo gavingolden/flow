@@ -72,7 +72,7 @@ paragraphs describe.
 
 - `experimental.cacheTtl` is read only from a subagent **file** (confirmed
   separately: `--agents` JSON has no `experimental` field in `claude
-  --help`'s documented shape) — a file-based fixture agent
+--help`'s documented shape) — a file-based fixture agent
   (`experimental:\n  cacheTtl: 1h` in its frontmatter) spawned via the Task
   tool produced a transcript under
   `~/.claude/projects/<project>/**/subagents/agent-*.jsonl` containing a

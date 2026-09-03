@@ -386,7 +386,8 @@ describe(ensureFlowExcludes, () => {
     expect(after2).toBe(after1);
     const tmpMatches = after2.match(/^\.flow-tmp\/$/gm) ?? [];
     const branchMatches = after2.match(/^\.flow-branch$/gm) ?? [];
-    const memoryMatches = after2.match(/^\.claude\/agent-memory-local$/gm) ?? [];
+    const memoryMatches =
+      after2.match(/^\.claude\/agent-memory-local$/gm) ?? [];
     expect(tmpMatches.length).toBe(1);
     expect(branchMatches.length).toBe(1);
     expect(memoryMatches.length).toBe(1);

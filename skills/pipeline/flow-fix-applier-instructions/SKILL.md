@@ -2,7 +2,9 @@
 name: flow-fix-applier-instructions
 description: Preloaded instructions for the flow-fix-applier subagent; not for direct invocation.
 ---
+
 <!-- flow-instructions-sentinel: flow-fix-applier-instructions -->
+
 # Fix-applier instructions
 
 These instructions are read by the fix-applier subagent that `/flow-pr-review`'s
@@ -576,7 +578,7 @@ runs AFTER this subagent has already written and returned this artifact and
 exited — the browser capture happens outside this subagent's session. The
 wrapper merges the captured paths into this same artifact file on disk
 before `/flow-pr-review` Step 9's single read (see
-[ui-validation-evidence.md](ui-validation-evidence.md)'s "Snapshot-primary,
+[ui-validation-evidence.md](../flow-pr-review/references/ui-validation-evidence.md)'s "Snapshot-primary,
 screenshot-by-reference" and "Merge-back into `fix-applier-result.json`"
 sections for the concrete recipe). Only set `ui_screenshots` yourself if a
 fix you applied in step 3 above itself captured a screenshot (rare);
