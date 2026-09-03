@@ -511,8 +511,8 @@ fall through to classifying or implementing inline on the base branch.
 Retry `flow-state-update --phase triaging --slug <slug>` a bounded ~3 times
 with a short backoff; if it still fails, escalate `NEEDS HUMAN:
 state-file-missing-on-start` and end the turn. The escalation's
-`flow-gate-summary` render may itself be unable to
-record `phase: needs-human` (there is no state file for it to update), so
+`flow-gate-summary` render may itself be unable to record `phase:
+needs-human` (there is no state file to update), so
 the supervisor prints the `NEEDS HUMAN: state-file-missing-on-start` line and
 ends — `flow-stop-guard` already no-ops when state.json is missing, so the
 turn-end is permitted. (`flow feature create` now writes `phase: starting` before it
@@ -1282,9 +1282,9 @@ typed something into the tmux chat. Classify the input using
   ~/.flow/config.json 2>/dev/null) flow-gate-summary --status cancelled
   --cleanup --why "user cancelled at plan-pending-review" --tldr "$TLDR"
   --lens "$LENS"` — which records `phase: cancelled` itself, after the
-  block reaches stdout (`checkWorktreeBranch` no-ops gracefully against
-  the already-deleted worktree path, so the earlier
-  `flow-remove-worktree` does not block the finalize). End.
+  block reaches stdout (`checkWorktreeBranch` no-ops gracefully against the
+  already-deleted worktree, so the earlier `flow-remove-worktree` does not
+  block the finalize). End.
 - **Ambiguous** → write `flow-state-update --phase
   approval-pending-clarification`, then ask the single clarifying
   question and end the turn. The next turn re-enters step 4 with
@@ -2070,8 +2070,7 @@ Branch on `.decision`. Resolve the render lens once for the whole table: `LENS=$
 
 **A `gated` verdict is terminal, not advisory.** When `flow-gate-decide`
 returns `gated`, the supervisor renders the GATED block via
-`flow-gate-summary`, which records `phase: gated` itself,
-and ends — full stop. The `gated` verdict is **not** an
+`flow-gate-summary` (which records `phase: gated` itself) and ends — full stop. The `gated` verdict is **not** an
 input the supervisor may weigh against its own judgment. The supervisor
 must **not** run `gh pr merge` on a `gated` PR on its own authority; must
 **not** reclassify the PR's unchecked Test Steps items (in particular, it
@@ -2271,9 +2270,8 @@ On non-zero exit, branch on the failure class:
   "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens
   "$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)"`
   (records `phase: needs-human` itself) → `flow-notify --status
-  needs-human --url "<pr-url>" --reason "$TLDR" --tag merge-failed`.
-  Leave the worktree intact. Do **not** spawn the resolver — it can't
-  help with non-conflict failures and would waste a Task call.
+  needs-human --url "<pr-url>" --reason "$TLDR" --tag merge-failed`. Leave the worktree intact. Do **not** spawn the resolver — it can't help with
+  non-conflict failures and would waste a Task call.
 
 ### Independent Merge-Conflict Resolver Subagent
 
@@ -2476,11 +2474,9 @@ For MERGED, run the helper here and finalize. **Ordering is
 load-bearing on two fronts:** (a) `flow-remove-worktree` deletes the
 worktree, so both the follow-ups capture and the `flow-gate-summary`
 render must happen BEFORE worktree removal; and (b) `flow-gate-summary`
-itself records `phase: merged` internally, only after its block reaches
-stdout — otherwise a render failure (bad args, missing helper, etc.)
-would leave state.json saying `merged` while the user never sees the
-rendered block in scrollback, and `flow-stop-guard` would read the
-legitimate terminal phase and stop nudging:
+records `phase: merged` internally, only after its block reaches stdout — so a render failure leaves state.json non-terminal and `flow-stop-guard`
+keeps nudging, rather than marking a pipeline merged whose block the user
+never saw:
 
 ```bash
 flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"  # executes auto-allowlisted entries; > captures the rendered block
