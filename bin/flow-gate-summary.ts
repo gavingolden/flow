@@ -60,8 +60,10 @@
 
 import * as fs from "node:fs";
 import { renderEchoRecap } from "./lib/echo-recap";
-import { readState, type ReapRecord } from "./lib/state";
+import { readState, type PipelinePhase, type ReapRecord } from "./lib/state";
 import { resolveSlugFromEnv } from "./lib/session-identity";
+import { finalizePhase } from "./lib/phase-advance";
+import { isValidSlug } from "./lib/slug";
 import { resolveLens, type OutputLens } from "./lib/output-lens";
 import {
   TLDR_MAX_WORDS,
@@ -128,6 +130,24 @@ const VALID_STATUSES: ReadonlySet<string> = new Set([
   "awaiting-approval",
   "cancelled",
 ]);
+
+/**
+ * Terminal-phase mapping for the write `run()` performs as a side effect
+ * of a successful render — see `TERMINAL_PHASE_EMITTERS` in
+ * `./lib/phase-advance`, which names this file as the emitter for every
+ * phase it tracks (`merged`/`gated`/`needs-human`/`cancelled`). The lint
+ * deliberately scopes to just those four phases: `flow-epic-create`
+ * legitimately writes `phase: cancelled` too, for epic-orchestration
+ * flows outside this map. `awaiting-approval` is not terminal, so it maps
+ * to `null` (no write).
+ */
+const TERMINAL_PHASE_BY_STATUS: Record<Status, PipelinePhase | null> = {
+  merged: "merged",
+  gated: "gated",
+  "needs-human": "needs-human",
+  "awaiting-approval": null,
+  cancelled: "cancelled",
+};
 
 // The fallback NEXT ACTION line used when --reason is omitted or maps
 // to an unknown tag. Surfaced in tests so a new escalation tag added
@@ -345,6 +365,7 @@ type Args = {
   lens?: string;
   untrackedFile?: string;
   countsLine?: string;
+  slug?: string;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
@@ -407,6 +428,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         break;
       case "--counts-line":
         out.countsLine = value;
+        break;
+      case "--slug":
+        if (!isValidSlug(value)) {
+          return {
+            error: `--slug requires a valid slug value (got: ${value})`,
+          };
+        }
+        out.slug = value;
         break;
       default:
         return { error: `unknown flag: ${flag}` };
@@ -662,13 +691,13 @@ function renderCancelled(inputs: GateSummaryInputs): string {
  * a strict no-op on that status, same discipline as --echo-prose being a
  * no-op elsewhere.
  *
- * KNOWN STALENESS GAP: the invariant "the phase write follows the render"
- * is false at three call sites — the Step-4 Cancel bullet and the
- * mid-flight Cancel bullet in SKILL.md both write `phase: cancelled`
- * BEFORE the render, and the closed-no-merge row writes no phase at all —
- * so `stale` can never fire there. Accepted deliberately: moving the phase
- * write would break the render-before-transition ordering that keeps
- * state non-terminal on a render failure.
+ * `run()` (below) now finalizes `phase` itself, driven by this same
+ * render call, so the render-before-write ordering holds for every
+ * status this module terminalizes: the block is written to stdout first,
+ * and `finalizePhase` only fires once that write succeeds (see the
+ * broken-pipe early-return above). `stale` still fires legitimately when
+ * `--cleanup`'s own snapshot (`state.reap.at`) predates `state.updatedAt`
+ * for an unrelated reason (e.g. a stale reap record from a prior run).
  */
 export function renderCleanup(cleanup: CleanupInput): string[] {
   const rerun = "  - re-run: flow-browser-teardown --reap --dry-run";
@@ -788,16 +817,17 @@ function parseValidationItems(raw: string): string[] {
 }
 
 /**
- * Resolves `--cleanup`'s `CleanupInput` from ambient session identity +
+ * Resolves `--cleanup`'s `CleanupInput` from the already-resolved run slug +
  * durable state. Both timestamp parses are guarded — an unparseable
  * timestamp on either side degrades to `record` (fresh), never to a false
- * stale alarm.
+ * stale alarm. Takes `slug` as an argument (rather than re-resolving it
+ * itself) so one `run()` invocation can never use two different slugs for
+ * `--cleanup` and the terminal phase write below.
  */
 function resolveCleanupInput(
-  env: NodeJS.ProcessEnv,
+  slug: string | null,
   stateDir: string | undefined,
 ): CleanupInput {
-  const slug = resolveSlugFromEnv(env);
   if (slug === null) return { kind: "no-state" };
   const state = readState(slug, stateDir);
   if (state === null) return { kind: "no-state" };
@@ -831,15 +861,21 @@ export function run(
         "                         [--validation-items-file <path>] [--deferred-file <path>]\n" +
         "                         [--worktree <path>] [--plan-file <path>] [--echo-prose]\n" +
         "                         [--cleanup] [--lens <pm|dev>] [--untracked-file <path>]\n" +
-        "                         [--counts-line <text>]\n",
+        "                         [--counts-line <text>] [--slug <slug>]\n",
     );
     return 2;
   }
+  // Resolved ONCE for the whole run — threaded into both --cleanup and the
+  // terminal phase write below, so a hand-run render from inside another
+  // pipeline's pane can't have --cleanup read one slug's state while the
+  // phase write targets a different one.
+  const resolvedSlug =
+    parsed.slug ?? resolveSlugFromEnv(opts?.env ?? process.env);
   const validationRaw = readFileOrEmpty(parsed.validationItemsFile);
   const validationItems = parseValidationItems(validationRaw);
   const deferredBlock = readFileOrEmpty(parsed.deferredFile);
   const cleanup = parsed.cleanup
-    ? resolveCleanupInput(opts?.env ?? process.env, opts?.stateDir)
+    ? resolveCleanupInput(resolvedSlug, opts?.stateDir)
     : undefined;
   const lens = resolveLens(parsed.lens, opts?.read);
   let tldr = parsed.tldr;
@@ -869,7 +905,42 @@ export function run(
     untrackedBlock,
     countsLine: parsed.countsLine,
   });
-  process.stdout.write(block + "\n");
+  try {
+    process.stdout.write(block + "\n");
+  } catch (err) {
+    // Broken pipe or other stdout write failure: the block (and its
+    // sentinel) never actually reached the reader, so do NOT finalize —
+    // finalizing here would leave state terminal with nothing printed,
+    // silencing flow-stop-guard's nudge on the exact failure the
+    // render-before-write safety property exists to catch.
+    process.stderr.write(
+      `flow-gate-summary: failed writing to stdout (${(err as Error).message}); not finalizing phase.\n`,
+    );
+    return 1;
+  }
+
+  const targetPhase = TERMINAL_PHASE_BY_STATUS[parsed.status];
+  if (targetPhase !== null) {
+    const prNumber = parsed.prUrl ? extractPrNumber(parsed.prUrl) : null;
+    // `resolveSlug: () => null` pins the fallback to "refuse" rather than
+    // "widen to the pane": an unresolvable `resolvedSlug` here (no --slug,
+    // no FLOW_SLUG) must never fall through to `resolveSlugAmbient()`'s
+    // tmux pane read, which could terminalize an unrelated pipeline's
+    // state from a hand-run render inside another pane. Mirrors the
+    // `!stateless` guard in `bin/flow-ci-check.ts` around its `advancePhase`
+    // call.
+    const result = finalizePhase(targetPhase, {
+      slug: resolvedSlug,
+      resolveSlug: () => null,
+      expectPr: prNumber !== null ? Number(prNumber) : null,
+      dir: opts?.stateDir,
+    });
+    if (!result.advanced) {
+      process.stderr.write(
+        `flow-gate-summary: not finalizing phase to '${targetPhase}' (${result.reason})\n`,
+      );
+    }
+  }
   return 0;
 }
 

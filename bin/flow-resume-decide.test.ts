@@ -8,6 +8,7 @@ import {
   gatherInputs,
   hasPrReviewCommit,
   parseArgs,
+  probeSkillAdditions,
   run,
   NO_INFLIGHT_WORK_PHASES,
   TERMINAL_PHASE_SET,
@@ -422,6 +423,29 @@ describe("decide() — row 5.5 (re-symlink)", () => {
     );
     expect(r.resumeAt).toBe("step-5.5");
     expect(r.context.hasSkillAdditions).toBe(true);
+  });
+});
+
+describe("probeSkillAdditions", () => {
+  it("passes --diff-filter=A so it agrees with step 5.5's own detection", () => {
+    const calls: string[][] = [];
+    const git: GitRunner = (argv) => {
+      calls.push(argv);
+      if (argv[0] === "symbolic-ref") {
+        return {
+          stdout: "refs/remotes/origin/main\n",
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (argv[0] === "diff") {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+      return { stdout: "", stderr: "", exitCode: 1 };
+    };
+    probeSkillAdditions("/tmp/wt", git);
+    const diffCall = calls.find((argv) => argv[0] === "diff");
+    expect(diffCall).toContain("--diff-filter=A");
   });
 });
 

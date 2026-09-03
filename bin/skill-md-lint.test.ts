@@ -7,7 +7,7 @@ import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { ALWAYS_ON_LENSES, evaluateGates } from "./lib/review-lens-gates";
 import { CHECKPOINT_SITES } from "./flow-checkpoint";
-import { PHASE_EMITTERS } from "./lib/phase-advance";
+import { PHASE_EMITTERS, TERMINAL_PHASE_EMITTERS } from "./lib/phase-advance";
 import { SURVEY_VERDICTS } from "./flow-step3-route";
 
 /**
@@ -669,17 +669,13 @@ describe("pipeline-snapshot wiring lint", () => {
     }
   });
 
-  it("the MERGED snapshot precedes the MERGED gate-summary, which precedes worktree removal + the phase transition", () => {
+  it("the MERGED snapshot precedes the MERGED gate-summary, which precedes worktree removal; no standalone --phase merged fence survives", () => {
     const snapIdx = content.indexOf("flow-pipeline-summary --status merged");
     const gateIdx = content.indexOf(
       "flow-gate-summary --status merged",
       snapIdx,
     );
     const removeIdx = content.indexOf("flow-remove-worktree", gateIdx);
-    const phaseIdx = content.indexOf(
-      "flow-state-update --phase merged",
-      gateIdx,
-    );
     expect(
       snapIdx,
       "flow-pipeline-summary --status merged is missing from the MERGED block",
@@ -694,12 +690,16 @@ describe("pipeline-snapshot wiring lint", () => {
       "flow-remove-worktree must appear AFTER the merged gate-summary render — " +
         "removing the worktree first deletes the artifacts the snapshot reads.",
     ).toBeGreaterThan(gateIdx);
+    // flow-gate-summary now records phase: merged itself (see the
+    // terminal-emitter lint below) — a standalone `--phase merged` fence
+    // would mean the write regressed to the skippable prose shape #687
+    // and this bundle exist to remove.
     expect(
-      phaseIdx,
-      "flow-state-update --phase merged must appear AFTER the merged gate-summary " +
-        "render — a render failure must leave state.json non-terminal so " +
-        "flow-stop-guard keeps nudging.",
-    ).toBeGreaterThan(gateIdx);
+      content.includes("--phase merged"),
+      "flow-pipeline SKILL.md must carry no standalone `--phase merged` " +
+        "fence — flow-gate-summary records the terminal phase itself, " +
+        "after its block reaches stdout, as a side effect of the render.",
+    ).toBe(false);
   });
 
   it("the step-10 sweep writes filed-issues.txt for the snapshot's FOLLOW-UP ISSUES source", () => {
@@ -9237,6 +9237,74 @@ describe("phase-write emitter lint (bin/lib/phase-advance.ts's PHASE_EMITTERS)",
       ).toBe(true);
     }
   });
+});
+
+describe("terminal phase-write emitter lint (bin/lib/phase-advance.ts's TERMINAL_PHASE_EMITTERS)", () => {
+  // Sibling of the `phase-write emitter lint` describe above, scoped to the
+  // four terminal phases — which are NOT STEP_PHASES members, so they can't
+  // live in PHASE_EMITTERS (its own parity test above requires every key to
+  // be a STEP_PHASES member). Deliberately scoped to flow-pipeline/SKILL.md
+  // only (this file's `content` const): a repo-wide grep would red on
+  // flow-epic-create/SKILL.md's legitimate `flow-state-update --phase
+  // cancelled` epic-designer cancel path, which `finalizePhase` refuses by
+  // design (the `epic-` prefix guard) and which renders no gate-summary.
+  // Also covers references/failure-recovery.md, which was de-fenced
+  // (`write \`phase: cancelled\`` removed, prose pointed at the helper's own
+  // side effect) in lockstep with SKILL.md — a prose-phrased write (not
+  // just a `--phase` flag) must be caught here too, in either document.
+  const failureRecoveryContent = fs.readFileSync(
+    path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pipeline",
+      "references",
+      "failure-recovery.md",
+    ),
+    "utf8",
+  );
+
+  it.each(Object.entries(TERMINAL_PHASE_EMITTERS))(
+    "%s carries no standalone `--phase %s` fence or prose-phrased write, and names the emitting helper",
+    (phase, helper) => {
+      // Same word-boundary anchoring as the PHASE_EMITTERS lint above, so
+      // e.g. `--phase needs-human` can never be confused with a longer
+      // token (there is none today, but the shape is load-bearing).
+      const standaloneWrite = new RegExp(`--phase ${phase}(?![-\\w])`);
+      const proseWrite = new RegExp(`write \`phase: ${phase}\``);
+      for (const [label, doc] of [
+        ["flow-pipeline SKILL.md", content],
+        ["failure-recovery.md", failureRecoveryContent],
+      ] as const) {
+        expect(
+          standaloneWrite.test(doc),
+          `${label} must carry no standalone '--phase ${phase}' ` +
+            `write — it is ${helper}'s side effect now, not a documented ` +
+            "instruction the supervisor may skip.",
+        ).toBe(false);
+        expect(
+          proseWrite.test(doc),
+          `${label} must carry no prose-phrased 'write \`phase: ${phase}\`' ` +
+            `instruction — it is ${helper}'s side effect now, not a documented ` +
+            "instruction the supervisor may skip.",
+        ).toBe(false);
+      }
+
+      const helperPath = path.resolve(HERE, `${helper}.ts`);
+      expect(
+        fs.existsSync(helperPath),
+        `TERMINAL_PHASE_EMITTERS['${phase}'] names '${helper}', but bin/${helper}.ts does not exist.`,
+      ).toBe(true);
+
+      expect(
+        content.includes(`flow-gate-summary --status ${phase}`),
+        `flow-pipeline SKILL.md must render 'flow-gate-summary --status ${phase}' ` +
+          `somewhere — the terminal render is the only site that can record ` +
+          `'phase: ${phase}'.`,
+      ).toBe(true);
+    },
+  );
 });
 
 describe("REQUEST_FILE seed-pointer contract — both supervisor SKILL.md files", () => {

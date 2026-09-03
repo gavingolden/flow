@@ -1,20 +1,29 @@
 /**
- * Monotonic phase-advance primitive.
+ * Phase-advance primitive: `advancePhase` (non-terminal, monotonic) and
+ * `finalizePhase` (terminal, permits the one legal `gated`/`needs-human`
+ * -> `merged` backward-looking transition).
  *
  * `flow-open-pr` / `flow-ci-check` / `flow-fetch-pr-review` /
  * `flow-gate-decide` / `flow-merge-guard` each call `advancePhase` as a
  * side effect of returning the value the supervisor cannot proceed
  * without — a PR URL, a CI decision, a review payload, a gate verdict, or
- * a guard exit code. The write can no longer be a skippable prompt
- * instruction: PR #676's baseline re-record measured the supervisor
- * partially executing a mandatory fenced block (running its third
- * statement, never its first), so the write is moved into code the
- * supervisor has no way to bypass and still obtain the value it needs.
+ * a guard exit code. `flow-gate-summary` calls `finalizePhase` as a side
+ * effect of a successful terminal-status render (`merged` / `gated` /
+ * `needs-human` / `cancelled` — see `TERMINAL_PHASE_EMITTERS` below). Both
+ * writes can no longer be a skippable prompt instruction: PR #676's
+ * baseline re-record measured the supervisor partially executing a
+ * mandatory fenced block (running its third statement, never its first),
+ * so each write is moved into code the supervisor has no way to bypass
+ * and still obtain the value it needs.
  *
- * Monotonicity (never moving `phase` backwards, no-oping on terminal /
- * epic-* phases) is `bin/lib/state.ts`'s `STEP_PHASES` ordering applied as
- * a guard — the one idea kept from the rejected "derive phase from
- * artifacts" alternative (see plan.md Decision D1, Branch C).
+ * `advancePhase`'s monotonicity (never moving `phase` backwards, no-oping
+ * on terminal / epic-* phases) is `bin/lib/state.ts`'s `STEP_PHASES`
+ * ordering applied as a guard — the one idea kept from the rejected
+ * "derive phase from artifacts" alternative (see plan.md Decision D1,
+ * Branch C). `finalizePhase` is the sanctioned exception: it permits the
+ * `gated` / `needs-human` -> `merged` edge (AWAITING_HUMAN_PHASES) that
+ * `advancePhase`'s STEP_PHASES ordering alone cannot express, while still
+ * refusing out of `FINISHED_PHASE_SET`.
  */
 
 import {
@@ -23,6 +32,7 @@ import {
   appendPhaseLog,
   STEP_PHASES,
   TERMINAL_PHASE_SET,
+  FINISHED_PHASE_SET,
   nowIso,
   type PipelinePhase,
 } from "./state";
@@ -32,10 +42,14 @@ import { checkWorktreeBranch } from "./worktree-marker";
 
 export type PhaseAdvanceReason =
   | "advanced"
+  | "reentered"
+  | "finalized"
   | "no-slug"
   | "no-state"
   | "already-at-or-past"
+  | "already-terminal"
   | "terminal"
+  | "finished"
   | "epic-phase"
   | "pr-mismatch"
   | "branch-mismatch";
@@ -70,6 +84,34 @@ export type AdvancePhaseOpts = {
 export const PENDING_PHASE_ANCHOR: Readonly<Record<string, string>> = {
   "ci-wait-pending": "ci-wait",
 };
+
+/**
+ * Named allowlist of the only two backward `advancePhase` writes
+ * permitted — the documented fix-loop re-entries, both emitted by
+ * `flow-ci-check`. Hand-listed, never derived, mirroring
+ * `bin/lib/state.ts:542`'s `TERMINAL_EXIT_TRANSITIONS` — a derived rule
+ * would silently auto-enroll a future phase. Each edge names the
+ * SKILL.md site it recovers:
+ *  - `ci-wait -> implementing`: step 7's `ci-failed` row loops back to
+ *    step 5 (implement) to fix CI.
+ *  - `reviewing -> ci-wait`: step 8's "return to step 7 (CI wait), not
+ *    directly to step 9" after a review-fix commit + push.
+ *
+ * The backward branch in `advancePhase` additionally requires a matched
+ * `expectPr` — this table alone is not sufficient to permit the write.
+ */
+export const FIX_LOOP_REENTRY_TRANSITIONS: Readonly<
+  Record<string, readonly PipelinePhase[]>
+> = {
+  "ci-wait": ["implementing"],
+  reviewing: ["ci-wait"],
+};
+
+export function isFixLoopReentry(from: string, to: string): boolean {
+  return Object.hasOwn(FIX_LOOP_REENTRY_TRANSITIONS, from)
+    ? (FIX_LOOP_REENTRY_TRANSITIONS[from] as readonly string[]).includes(to)
+    : false;
+}
 
 /**
  * Phase → emitting-helper map. Consumed by `bin/skill-md-lint.test.ts` to
@@ -154,13 +196,32 @@ export function advancePhase(
 
   const currentIndex = resolveIndex(state.phase);
   const targetIndex = resolveIndex(target);
+  let isReentry = false;
   if (currentIndex >= 0 && currentIndex >= targetIndex) {
-    return {
-      advanced: false,
-      reason: "already-at-or-past",
-      from: state.phase,
-      to: target,
-    };
+    // Equal phase is always refused. A strictly-backward move is refused
+    // too, UNLESS the caller supplied a matching `expectPr` (already
+    // verified above — the `pr-mismatch` check would have returned first
+    // on a mismatch) AND the anchored `(from, to)` pair is one of the two
+    // named fix-loop re-entries. Anchoring `state.phase` (not using it
+    // raw) matters: the commonest real case is the Step-7 yield-and-resume
+    // path, which leaves the live phase at `ci-wait-pending`, not
+    // `ci-wait` — see PENDING_PHASE_ANCHOR.
+    const isBackward = currentIndex > targetIndex;
+    const anchoredFrom = PENDING_PHASE_ANCHOR[state.phase] ?? state.phase;
+    const permitted =
+      isBackward &&
+      opts.expectPr !== undefined &&
+      opts.expectPr !== null &&
+      isFixLoopReentry(anchoredFrom, target);
+    if (!permitted) {
+      return {
+        advanced: false,
+        reason: "already-at-or-past",
+        from: state.phase,
+        to: target,
+      };
+    }
+    isReentry = true;
   }
 
   // Mechanical defense against the 2026-05-01 worktree-contamination
@@ -194,5 +255,132 @@ export function advancePhase(
     },
     dir,
   );
-  return { advanced: true, reason: "advanced", from: state.phase, to: target };
+  return {
+    advanced: true,
+    reason: isReentry ? "reentered" : "advanced",
+    from: state.phase,
+    to: target,
+  };
 }
+
+/**
+ * Terminal-phase write primitive. `advancePhase` cannot express this: a
+ * terminal phase is not in `STEP_PHASES`, so `resolveIndex` returns `-1`
+ * and every `advancePhase` call short-circuits to `already-at-or-past`.
+ * A sibling function keeps that guard chain untouched rather than
+ * widening `resolveIndex` to rank terminals, which would let all six
+ * existing forward `advancePhase` call sites terminalize a pipeline.
+ *
+ * Permits writes out of `gated` / `needs-human` (AWAITING_HUMAN_PHASES)
+ * so the real `gated -> merged` transition works, but refuses out of
+ * `FINISHED_PHASE_SET` (`merged`, `cancelled`, `epic-approved`) so
+ * `merged -> gated` does not. No-ops when `state.phase === target`
+ * (idempotent re-render), appending no second `phaseLog[]` entry.
+ */
+export function finalizePhase(
+  target: PipelinePhase,
+  opts: AdvancePhaseOpts = {},
+): PhaseAdvanceResult {
+  const dir = opts.dir ?? FLOW_STATE_DIR;
+  const resolveSlug = opts.resolveSlug ?? (() => resolveSlugAmbient());
+  const slug = opts.slug ?? resolveSlug();
+  if (!slug) {
+    return { advanced: false, reason: "no-slug", to: target };
+  }
+
+  const state = readState(slug, dir);
+  if (!state) {
+    return { advanced: false, reason: "no-state", to: target };
+  }
+
+  if (state.phase.startsWith("epic-")) {
+    return {
+      advanced: false,
+      reason: "epic-phase",
+      from: state.phase,
+      to: target,
+    };
+  }
+
+  if (state.phase === target) {
+    return {
+      advanced: false,
+      reason: "already-terminal",
+      from: state.phase,
+      to: target,
+    };
+  }
+
+  if (FINISHED_PHASE_SET.has(state.phase)) {
+    return {
+      advanced: false,
+      reason: "finished",
+      from: state.phase,
+      to: target,
+    };
+  }
+
+  if (
+    opts.expectPr !== undefined &&
+    opts.expectPr !== null &&
+    state.pr !== opts.expectPr
+  ) {
+    console.error(
+      `NOTICE — phase-advance: slug ${slug} is pipeline for PR #${state.pr}, not #${opts.expectPr}; not advancing.`,
+    );
+    return {
+      advanced: false,
+      reason: "pr-mismatch",
+      from: state.phase,
+      to: target,
+    };
+  }
+
+  const guard = checkWorktreeBranch(state.worktree);
+  if (guard.kind === "mismatch") {
+    console.error(
+      `phase-advance: branch-mismatch in worktree '${state.worktree}'\n` +
+        `  expected: ${guard.expected}\n` +
+        `  actual (git branch --show-current): ${guard.actual}\n` +
+        `  Refusing to advance phase to '${target}'.`,
+    );
+    return {
+      advanced: false,
+      reason: "branch-mismatch",
+      from: state.phase,
+      to: target,
+    };
+  }
+
+  writeState(
+    {
+      ...state,
+      phase: target,
+      phaseLog: appendPhaseLog(state, target),
+      updatedAt: nowIso(),
+    },
+    dir,
+  );
+  return {
+    advanced: true,
+    reason: "finalized",
+    from: state.phase,
+    to: target,
+  };
+}
+
+/**
+ * Terminal phase -> emitting-helper map, the terminal sibling of
+ * `PHASE_EMITTERS`. Kept separate rather than folded in:
+ * `bin/skill-md-lint.test.ts`'s `PHASE_EMITTERS` parity test asserts
+ * every key is a `STEP_PHASES` member, and no terminal phase is one.
+ * Consumed by `bin/skill-md-lint.test.ts`'s terminal-emitter lint.
+ */
+export const TERMINAL_PHASE_EMITTERS: Readonly<
+  Record<"merged" | "gated" | "needs-human" | "cancelled", string>
+> = {
+  merged: "flow-gate-summary",
+  gated: "flow-gate-summary",
+  "needs-human": "flow-gate-summary",
+  cancelled: "flow-gate-summary",
+};

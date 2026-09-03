@@ -681,7 +681,12 @@ export function probeSkillAdditions(
 ): boolean {
   const defaultBranch = resolveDefaultBranch(worktreePath, git);
   const r = git(
-    ["diff", "--name-only", `origin/${defaultBranch}...HEAD`],
+    [
+      "diff",
+      "--name-only",
+      "--diff-filter=A",
+      `origin/${defaultBranch}...HEAD`,
+    ],
     worktreePath,
   );
   if (r.exitCode !== 0) return false;

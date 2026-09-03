@@ -77,8 +77,9 @@ force.
 
 When the gate returns `gated`, that verdict is **terminal** — not a
 suggestion the `/flow-pipeline` supervisor may weigh against its own
-judgment. The supervisor renders the GATED block, writes `phase: gated`,
-and ends. On a `gated` verdict it must **not**:
+judgment. The supervisor renders the GATED block via `flow-gate-summary`,
+which records `phase: gated` itself, and ends. On a
+`gated` verdict it must **not**:
 
 - run `gh pr merge` on the PR on its own authority;
 - reclassify the PR's unchecked Test Steps items to change the verdict —
@@ -186,12 +187,12 @@ auto-merge path.
 `gh pr view <pr> --json state` returns one of `OPEN`, `MERGED`,
 `CLOSED`. Combine with the unchecked-count result:
 
-| PR state | Unchecked count | Decision                 | Action                                                                                                                                                                                                                                                                                                                                                                    |
-| -------- | --------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPEN`   | `0`             | **auto-merge**           | `(cd "$PRIMARY" && gh pr merge --squash <pr>)` (where `$PRIMARY` is the primary worktree path, so gh's post-merge `git checkout <base>` is a no-op there), then step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition), then `flow-remove-worktree --delete-branch`, then write `phase: merged`, end. |
-| `OPEN`   | `> 0`           | **gated**                | Write `phase: gated`. Print the validation checklist, the PR URL, and the manual-merge verb (`gh pr merge --squash <pr>`). End.                                                                                                                                                                                                                                           |
-| `MERGED` | (any)           | **already-merged**       | The user merged externally (gated → merged path). Run step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition), then `flow-remove-worktree --delete-branch`, write `phase: merged`, end.                                                                                                                |
-| `CLOSED` | (any)           | **closed-without-merge** | Escalate: `NEEDS HUMAN: pr-closed-without-merge <url>`. Leave worktree intact (the user may want to reopen). End.                                                                                                                                                                                                                                                         |
+| PR state | Unchecked count | Decision                 | Action                                                                                                                                                                                                                                                                                                                                                                             |
+| -------- | --------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPEN`   | `0`             | **auto-merge**           | `(cd "$PRIMARY" && gh pr merge --squash <pr>)` (where `$PRIMARY` is the primary worktree path, so gh's post-merge `git checkout <base>` is a no-op there), then step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (which records `phase: merged` itself, only after the block reaches stdout), then `flow-remove-worktree --delete-branch`, end. |
+| `OPEN`   | `> 0`           | **gated**                | Render the GATED block via `flow-gate-summary` (which records `phase: gated` itself). Print the validation checklist, the PR URL, and the manual-merge verb (`gh pr merge --squash <pr>`). End.                                                                                                                                                                                    |
+| `MERGED` | (any)           | **already-merged**       | The user merged externally (gated → merged path). Run step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (which records `phase: merged` itself, only after the block reaches stdout), then `flow-remove-worktree --delete-branch`, end.                                                                                                           |
+| `CLOSED` | (any)           | **closed-without-merge** | Escalate: `NEEDS HUMAN: pr-closed-without-merge <url>`. Leave worktree intact (the user may want to reopen). End.                                                                                                                                                                                                                                                                  |
 
 ## Defensive cases
 
@@ -286,8 +287,11 @@ End the turn.
 The supervisor never emits the GATED / MERGED / NEEDS HUMAN /
 CANCELLED block as ad-hoc prose. Every gate-emission site in
 `skills/pipeline/flow-pipeline/SKILL.md` calls
-`bin/flow-gate-summary.ts` (a thin Bun renderer with no side
-effects); the helper carries the per-status template and the
+`bin/flow-gate-summary.ts`, which is no longer a pure renderer: on a
+terminal `--status` (`merged` / `gated` / `needs-human` / `cancelled`)
+it also finalizes `phase` in state.json as a side effect of a
+successful render, via `finalizePhase` — see `TERMINAL_PHASE_EMITTERS`
+in `bin/lib/phase-advance.ts`. The helper carries the per-status template and the
 `NEXT_ACTION_BY_REASON` mapping that keys each NEEDS HUMAN
 escalation tag to a specific remediation line.
 
