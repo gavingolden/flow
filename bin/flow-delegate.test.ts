@@ -624,6 +624,17 @@ describe("run", () => {
     });
   });
 
+  it("caps an oversized agyStatus the same way agyError/stderrTail are capped", () => {
+    const longStatus = "unexpected status prose ".repeat(10);
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 1, stderr: "" }),
+      readFile: () =>
+        JSON.stringify({ status: longStatus, error: "quota exhausted" }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).agyStatus).toHaveLength(64);
+  });
+
   it("does not consult the json envelope when --output-format is omitted (text-mode SUCCESS/absent status still ran:true)", () => {
     const deps = makeDeps({
       runAgy: () => ({ exitCode: 0, stderr: "" }),

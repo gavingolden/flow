@@ -570,7 +570,12 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       task: parsed.task,
       exitCode: result.exitCode,
       ...(tail ? { stderrTail: tail } : {}),
-      ...(jsonOutcome.status ? { agyStatus: jsonOutcome.status } : {}),
+      // Capped the same way as agyError/stderrTail (redact + short cap) so
+      // a future agy version that stuffs prose into `status` (today always
+      // a short enum) cannot bypass the cap those two already respect.
+      ...(jsonOutcome.status
+        ? { agyStatus: stderrTail(jsonOutcome.status, 64) }
+        : {}),
       ...(agyError ? { agyError } : {}),
     });
   }
