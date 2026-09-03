@@ -9247,19 +9247,48 @@ describe("terminal phase-write emitter lint (bin/lib/phase-advance.ts's TERMINAL
   // flow-epic-create/SKILL.md's legitimate `flow-state-update --phase
   // cancelled` epic-designer cancel path, which `finalizePhase` refuses by
   // design (the `epic-` prefix guard) and which renders no gate-summary.
+  // Also covers references/failure-recovery.md, which was de-fenced
+  // (`write \`phase: cancelled\`` removed, prose pointed at the helper's own
+  // side effect) in lockstep with SKILL.md — a prose-phrased write (not
+  // just a `--phase` flag) must be caught here too, in either document.
+  const failureRecoveryContent = fs.readFileSync(
+    path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pipeline",
+      "references",
+      "failure-recovery.md",
+    ),
+    "utf8",
+  );
+
   it.each(Object.entries(TERMINAL_PHASE_EMITTERS))(
-    "%s carries no standalone `--phase %s` fence and the document names the emitting helper (%s) for --status %s",
+    "%s carries no standalone `--phase %s` fence or prose-phrased write, and names the emitting helper",
     (phase, helper) => {
       // Same word-boundary anchoring as the PHASE_EMITTERS lint above, so
       // e.g. `--phase needs-human` can never be confused with a longer
       // token (there is none today, but the shape is load-bearing).
       const standaloneWrite = new RegExp(`--phase ${phase}(?![-\\w])`);
-      expect(
-        standaloneWrite.test(content),
-        `flow-pipeline SKILL.md must carry no standalone '--phase ${phase}' ` +
-          `write — it is ${helper}'s side effect now, not a documented ` +
-          "instruction the supervisor may skip.",
-      ).toBe(false);
+      const proseWrite = new RegExp(`write \`phase: ${phase}\``);
+      for (const [label, doc] of [
+        ["flow-pipeline SKILL.md", content],
+        ["failure-recovery.md", failureRecoveryContent],
+      ] as const) {
+        expect(
+          standaloneWrite.test(doc),
+          `${label} must carry no standalone '--phase ${phase}' ` +
+            `write — it is ${helper}'s side effect now, not a documented ` +
+            "instruction the supervisor may skip.",
+        ).toBe(false);
+        expect(
+          proseWrite.test(doc),
+          `${label} must carry no prose-phrased 'write \`phase: ${phase}\`' ` +
+            `instruction — it is ${helper}'s side effect now, not a documented ` +
+            "instruction the supervisor may skip.",
+        ).toBe(false);
+      }
 
       const helperPath = path.resolve(HERE, `${helper}.ts`);
       expect(

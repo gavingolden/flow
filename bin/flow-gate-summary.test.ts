@@ -1637,7 +1637,7 @@ describe("run (end-to-end CLI)", () => {
       expect(readState(slug, tmpRoot)?.phaseLog ?? []).toHaveLength(0);
     });
 
-    it("an injected stdout write failure leaves the state file byte-identical and returns non-zero (render-before-write safety property)", () => {
+    it("an injected stdout write failure leaves the state file byte-identical, returns exactly 1, and logs the specific broken-pipe reason (render-before-write safety property)", () => {
       const slug = "finalize-broken-pipe-slug";
       seedState(slug, { phase: "gating" });
       const statePath = path.join(tmpRoot, `${slug}.json`);
@@ -1646,6 +1646,12 @@ describe("run (end-to-end CLI)", () => {
       process.stdout.write = (() => {
         throw new Error("EPIPE: broken pipe");
       }) as typeof process.stdout.write;
+      const originalStderr = process.stderr.write.bind(process.stderr);
+      let stderrCaptured = "";
+      process.stderr.write = ((chunk: unknown) => {
+        stderrCaptured += String(chunk);
+        return true;
+      }) as typeof process.stderr.write;
       let rc: number;
       try {
         rc = run(["--status", "merged", "--slug", slug], {
@@ -1653,10 +1659,36 @@ describe("run (end-to-end CLI)", () => {
         });
       } finally {
         process.stdout.write = original;
+        process.stderr.write = originalStderr;
       }
-      expect(rc).not.toBe(0);
+      expect(rc).toBe(1);
       const after = fs.readFileSync(statePath, "utf8");
       expect(after).toBe(before);
+      expect(stderrCaptured).toContain(
+        "flow-gate-summary: failed writing to stdout (EPIPE: broken pipe); not finalizing phase.",
+      );
+    });
+
+    it("a matching /pull/<n> --pr-url against a state file with that pr set finalizes the phase (the shape production actually uses)", () => {
+      const slug = "finalize-pr-url-match-slug";
+      seedState(slug, { phase: "gating", pr: 738 });
+      const { rc } = captureStdout(() =>
+        run(
+          [
+            "--status",
+            "merged",
+            "--slug",
+            slug,
+            "--pr-url",
+            "https://github.com/gavingolden/flow/pull/738",
+          ],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      const state = readState(slug, tmpRoot);
+      expect(state?.phase).toBe("merged");
+      expect(state?.phaseLog).toHaveLength(1);
     });
 
     it("a re-render on an already-terminal pipeline appends no second phaseLog entry (idempotent)", () => {

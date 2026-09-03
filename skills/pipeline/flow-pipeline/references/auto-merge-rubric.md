@@ -287,8 +287,11 @@ End the turn.
 The supervisor never emits the GATED / MERGED / NEEDS HUMAN /
 CANCELLED block as ad-hoc prose. Every gate-emission site in
 `skills/pipeline/flow-pipeline/SKILL.md` calls
-`bin/flow-gate-summary.ts` (a thin Bun renderer with no side
-effects); the helper carries the per-status template and the
+`bin/flow-gate-summary.ts`, which is no longer a pure renderer: on a
+terminal `--status` (`merged` / `gated` / `needs-human` / `cancelled`)
+it also finalizes `phase` in state.json as a side effect of a
+successful render, via `finalizePhase` — see `TERMINAL_PHASE_EMITTERS`
+in `bin/lib/phase-advance.ts`. The helper carries the per-status template and the
 `NEXT_ACTION_BY_REASON` mapping that keys each NEEDS HUMAN
 escalation tag to a specific remediation line.
 

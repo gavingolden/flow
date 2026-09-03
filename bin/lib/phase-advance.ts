@@ -1,20 +1,29 @@
 /**
- * Monotonic phase-advance primitive.
+ * Phase-advance primitive: `advancePhase` (non-terminal, monotonic) and
+ * `finalizePhase` (terminal, permits the one legal `gated`/`needs-human`
+ * -> `merged` backward-looking transition).
  *
  * `flow-open-pr` / `flow-ci-check` / `flow-fetch-pr-review` /
  * `flow-gate-decide` / `flow-merge-guard` each call `advancePhase` as a
  * side effect of returning the value the supervisor cannot proceed
  * without — a PR URL, a CI decision, a review payload, a gate verdict, or
- * a guard exit code. The write can no longer be a skippable prompt
- * instruction: PR #676's baseline re-record measured the supervisor
- * partially executing a mandatory fenced block (running its third
- * statement, never its first), so the write is moved into code the
- * supervisor has no way to bypass and still obtain the value it needs.
+ * a guard exit code. `flow-gate-summary` calls `finalizePhase` as a side
+ * effect of a successful terminal-status render (`merged` / `gated` /
+ * `needs-human` / `cancelled` — see `TERMINAL_PHASE_EMITTERS` below). Both
+ * writes can no longer be a skippable prompt instruction: PR #676's
+ * baseline re-record measured the supervisor partially executing a
+ * mandatory fenced block (running its third statement, never its first),
+ * so each write is moved into code the supervisor has no way to bypass
+ * and still obtain the value it needs.
  *
- * Monotonicity (never moving `phase` backwards, no-oping on terminal /
- * epic-* phases) is `bin/lib/state.ts`'s `STEP_PHASES` ordering applied as
- * a guard — the one idea kept from the rejected "derive phase from
- * artifacts" alternative (see plan.md Decision D1, Branch C).
+ * `advancePhase`'s monotonicity (never moving `phase` backwards, no-oping
+ * on terminal / epic-* phases) is `bin/lib/state.ts`'s `STEP_PHASES`
+ * ordering applied as a guard — the one idea kept from the rejected
+ * "derive phase from artifacts" alternative (see plan.md Decision D1,
+ * Branch C). `finalizePhase` is the sanctioned exception: it permits the
+ * `gated` / `needs-human` -> `merged` edge (AWAITING_HUMAN_PHASES) that
+ * `advancePhase`'s STEP_PHASES ordering alone cannot express, while still
+ * refusing out of `FINISHED_PHASE_SET`.
  */
 
 import {
