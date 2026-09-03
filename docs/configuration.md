@@ -162,20 +162,21 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 
 `~/.flow/config.json` is created by `flow install` and read at launch. The keys in use today:
 
-| key                  | what it controls                                                                                                                                                                                                                                                                                                                      |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `modules`            | the persisted module selection from `flow install` (see above)                                                                                                                                                                                                                                                                        |
-| `models.*`           | per-phase model routing (see [Per-phase models](#per-phase-models))                                                                                                                                                                                                                                                                   |
-| `delegate.models.*`  | per-surface agy delegate-model routing (see [Delegate models](#delegate-models))                                                                                                                                                                                                                                                      |
-| `update.checkFor`    | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                                                                                                                                                                                                                                                |
-| `update.autoUpgrade` | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                                                                                                                                                                                                                                             |
-| `research.discovery` | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run)                                                                                                                                                                                                                     |
-| `interview.enabled`  | opt-in for the adaptive intent interview (default `true`), read by the supervisor via `jq` against `~/.flow/config.json` (never a `bin/lib` import — subagents run in the consumer worktree, where flow's own `bin/lib` isn't present); overridable per run with `flow feature create --interview` (force) or `--no-interview` (skip) |
-| `launcher`           | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell                                                                                                                                                                                                                            |
-| `output.lens`        | `"pm"` (default) or `"dev"` — see [Output lens](#output-lens) below                                                                                                                                                                                                                                                                   |
-| `review.gemini`      | opt-in for the cross-model Gemini review lens (default `false`); strict `true` enables                                                                                                                                                                                                                                                |
-| `review.lensGates`   | content-gates `/flow-pr-review`'s six lenses against the changed-file set, static-analysis signals, and a diff-content check for new bare-specifier imports/requires via `flow-review-scope` (default `true`); strict `false` disables — every lens always runs                                                                       |
-| `review.deltaScope`  | scopes a fix-loop re-entry's review to `last-reviewed..HEAD` when the prior run was clean and the marker is an ancestor of HEAD (default `true`); strict `false` disables — every entry reviews the full PR diff                                                                                                                      |
+| key                   | what it controls                                                                                                                                                                                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modules`             | the persisted module selection from `flow install` (see above)                                                                                                                                                                                                                                                                        |
+| `models.*`            | per-phase model routing (see [Per-phase models](#per-phase-models))                                                                                                                                                                                                                                                                   |
+| `delegate.models.*`   | per-surface agy delegate-model routing (see [Delegate models](#delegate-models))                                                                                                                                                                                                                                                      |
+| `delegate.timeouts.*` | per-surface agy `--print-timeout` routing (see [Delegate timeouts](#delegate-timeouts))                                                                                                                                                                                                                                               |
+| `update.checkFor`     | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                                                                                                                                                                                                                                                |
+| `update.autoUpgrade`  | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                                                                                                                                                                                                                                             |
+| `research.discovery`  | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run)                                                                                                                                                                                                                     |
+| `interview.enabled`   | opt-in for the adaptive intent interview (default `true`), read by the supervisor via `jq` against `~/.flow/config.json` (never a `bin/lib` import — subagents run in the consumer worktree, where flow's own `bin/lib` isn't present); overridable per run with `flow feature create --interview` (force) or `--no-interview` (skip) |
+| `launcher`            | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell                                                                                                                                                                                                                            |
+| `output.lens`         | `"pm"` (default) or `"dev"` — see [Output lens](#output-lens) below                                                                                                                                                                                                                                                                   |
+| `review.gemini`       | opt-in for the cross-model Gemini review lens (default `false`); strict `true` enables                                                                                                                                                                                                                                                |
+| `review.lensGates`    | content-gates `/flow-pr-review`'s six lenses against the changed-file set, static-analysis signals, and a diff-content check for new bare-specifier imports/requires via `flow-review-scope` (default `true`); strict `false` disables — every lens always runs                                                                       |
+| `review.deltaScope`   | scopes a fix-loop re-entry's review to `last-reviewed..HEAD` when the prior run was clean and the marker is an ancestor of HEAD (default `true`); strict `false` disables — every entry reviews the full PR diff                                                                                                                      |
 
 Each `/flow-pr-review` run appends one JSON line to
 `~/.flow/telemetry/review-lenses.jsonl` (per-lens tokens/findings,
@@ -242,6 +243,36 @@ default flip is gated on a benchmark clear that has not happened yet), so
 **setting it today is a silent no-op**: scouting keeps using the Claude
 Task subagent regardless of this key's value. Setting
 one has no effect on the other.
+
+## Delegate timeouts
+
+`delegate.timeouts.<surface>` (`bin/lib/delegate-timeouts.ts`) routes the
+`--print-timeout` godur string `flow-delegate` passes to each sync
+cross-model delegate call — distinct from `delegate.models.*` above, which
+routes the _model_, not the _timeout budget_, for these same surfaces.
+Value grammar: a Go-duration string, one or more `<number><unit>` pairs
+where unit is `ns`/`us`/`µs`/`ms`/`s`/`m`/`h` (e.g. `"8m"`, `"90s"`,
+`"2m30s"`). Absent key = today's default for that surface; a present but
+malformed/wrong-typed value warns on stderr and falls back to the default;
+never throws.
+
+| surface       | what it drives                             | default today |
+| ------------- | ------------------------------------------ | ------------- |
+| `reviewLens`  | `/flow-pr-review` Gemini review lens       | `8m`          |
+| `intentGuess` | `/flow-pr-review` cross-model intent guess | `5m`          |
+
+**9-minute sync ceiling.** Both surfaces run inside a Bash tool call that
+itself pins a 600000ms (10-minute) timeout
+(`skills/pipeline/flow-pr-review/SKILL.md`,
+`skills/pipeline/flow-pr-review/references/intent-mismatch-resolution.md`).
+A configured timeout above that ceiling means the Bash tool kills the
+helper before agy's own `--print-timeout` ever fires, so the caller never
+sees an envelope at all — a worse misclassification than a bare
+`agy-timeout` skip. An exact-`9m` override is accepted as-is, reserving a
+minute of slack under the 10-minute Bash cap; `resolveDelegateTimeout`
+clamps only an override strictly above `9m` down to `9m`, warning once per
+surface on stderr, rather than
+silently passing the unsafe value through.
 
 ## tmux status-bar bindings (opt-in)
 

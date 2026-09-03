@@ -96,6 +96,7 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     mkdirp: () => {},
     writeOut: (line) => calls.out.push(line),
     dirExists: () => true,
+    fileExists: (p) => files.has(p),
   };
   files.set(BRIEF_FILE, BRIEF);
   files.set(DESCRIPTION_FILE, DESCRIPTION);
@@ -405,6 +406,78 @@ describe("run — fanout skip propagation", () => {
     expect(survey).toContain("_Judge B skipped: judge-timeout_");
   });
 
+  it("a dispatched-class skip (judge-timeout) forwards exitCode/stderrTail and retains the judge's raw artifact as partialArtifactPath", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        deps.calls.fanout.push(input);
+        let manifest: Array<{ task: string; model: string; out?: string }> = [];
+        try {
+          manifest = JSON.parse(deps.files.get(input.manifestPath) ?? "[]");
+        } catch {
+          manifest = [];
+        }
+        const entries = manifest.map((m, i) => {
+          if (m.task === "blind-survey-judge-b") {
+            // Simulate agy's --print-timeout kill: the raw --out file still
+            // holds partial content, and the fanout entry carries the
+            // dispatch's own diagnostics.
+            deps.files.set(m.out!, "partial output before the kill...");
+            return {
+              task: m.task,
+              ran: false,
+              skipReason: "agy-timeout",
+              exitCode: 1,
+              stderrTail: "Error: timeout waiting for response",
+            };
+          }
+          const artifactPath = m.out ?? `${input.outPath}.artifact.${i}.md`;
+          deps.files.set(artifactPath, JUDGE_PROSE);
+          return { task: m.task, model: m.model, ran: true, artifactPath };
+        });
+        return { entries, anyRan: true, allSkipped: false } as FanoutAggregate;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.judges[1]).toMatchObject({
+      ran: false,
+      skipReason: "judge-timeout",
+      exitCode: 1,
+      stderrTail: "Error: timeout waiting for response",
+      partialArtifactPath: `${OUT}.judge-b.md`,
+    });
+    // Retained, not swept by the scratch cleanup.
+    expect(deps.files.has(`${OUT}.judge-b.md`)).toBe(true);
+    expect(deps.calls.removed).not.toContain(`${OUT}.judge-b.md`);
+  });
+
+  it("a non-dispatched skip (agy-not-found) never emits partialArtifactPath even if the judge's --out path happens to exist", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        deps.calls.fanout.push(input);
+        let manifest: Array<{ task: string; model: string; out?: string }> = [];
+        try {
+          manifest = JSON.parse(deps.files.get(input.manifestPath) ?? "[]");
+        } catch {
+          manifest = [];
+        }
+        const entries = manifest.map((m, i) => {
+          if (m.task === "blind-survey-judge-b") {
+            return { task: m.task, ran: false, skipReason: "agy-not-found" };
+          }
+          const artifactPath = m.out ?? `${input.outPath}.artifact.${i}.md`;
+          deps.files.set(artifactPath, JUDGE_PROSE);
+          return { task: m.task, model: m.model, ran: true, artifactPath };
+        });
+        return { entries, anyRan: true, allSkipped: false } as FanoutAggregate;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.judges[1].skipReason).toBe("agy-not-found");
+    expect(env.judges[1].partialArtifactPath).toBeUndefined();
+  });
+
   it("an empty entries array ⇒ fanout-error (fanout binary missing / usage-error / malformed aggregate, distinct from a per-entry agy-not-found)", () => {
     const deps = makeDeps({
       runFanout: (input) => {
@@ -452,7 +525,12 @@ describe("run — fanout skip propagation", () => {
     });
     expect(run(BASE_ARGV, deps)).toBe(0);
     const env = envelope(deps);
-    expect(env.judges[0].skipReason).toBe("judge-empty");
+    expect(env.judges[0]).toMatchObject({
+      skipReason: "judge-empty",
+      partialArtifactPath: `${OUT}.judge-a.md`,
+    });
+    // The short artifact is still on disk (retained, not deleted).
+    expect(deps.files.has(`${OUT}.judge-a.md`)).toBe(true);
   });
 
   it("a ran:true entry with no artifactPath ⇒ judge-empty (missing artifact, not just short)", () => {
@@ -479,6 +557,9 @@ describe("run — fanout skip propagation", () => {
     expect(run(BASE_ARGV, deps)).toBe(0);
     const env = envelope(deps);
     expect(env.judges[0].skipReason).toBe("judge-empty");
+    // No artifact was ever written for judge A's out path in this fixture,
+    // so there is no evidence file to point at.
+    expect(env.judges[0].partialArtifactPath).toBeUndefined();
   });
 
   it("A agy-not-authenticated + B agy-error ⇒ A's reason wins (both-skipped precedence)", () => {

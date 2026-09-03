@@ -1538,7 +1538,15 @@ describe("godurToSec", () => {
   it("throws on an unparseable duration", () => {
     expect(() => godurToSec("")).toThrow();
     expect(() => godurToSec("nope")).toThrow();
-    expect(() => godurToSec("3h")).toThrow();
+  });
+
+  // godurToSec is re-exported from ./lib/delegate-timeouts.ts (Task 2's
+  // single-owner move) whose grammar is wider than this module's old
+  // m/s-only regex — "3h" now parses instead of throwing. Deliberate
+  // widening, not a behaviour change for the m/s inputs this module's own
+  // call sites (REVIEWER_1_TIMEOUT/REVIEWER_2_TIMEOUT) feed it.
+  it("parses hour units now that godurToSec is the wider-grammar lib owner", () => {
+    expect(godurToSec("3h")).toBe(10800);
   });
 });
 
