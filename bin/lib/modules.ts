@@ -142,6 +142,8 @@ export const MODULES: ModuleDefinition[] = [
       "flow-pr-diff",
       "flow-pr-agent-lens",
       "flow-pr-static-analysis",
+      "flow-review-scope",
+      "flow-review-telemetry",
       "flow-inject-evidence",
       "flow-ui-validate",
       "flow-design-spec",

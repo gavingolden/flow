@@ -73,7 +73,8 @@ length to task, fenced blocks only for runnable code, etc.).
 
 Source for shipped helper binaries lives in **`bin/`**. User-callable
 helpers (`flow-new-worktree`, `flow-pre-commit`, `flow-state-update`,
-`flow-notify`, `flow-ui-validate`, etc.) live there with `.ts` extensions, Bun shebangs, and
+`flow-notify`, `flow-ui-validate`, `flow-review-scope`,
+`flow-review-telemetry`, etc.) live there with `.ts` extensions, Bun shebangs, and
 tests next door
 (`<name>.test.ts`, skipped when `flow install` symlinks into
 `~/.local/bin/<name>`). The five schema validators
@@ -312,8 +313,9 @@ three-layer resolution table, and the manifest/foundation fields — is at
     [references/exemption-contracts.md](references/exemption-contracts.md);
     only the byte-exact opener and a one-line summary remain below.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
-    Multi-Agent Review.** Step 8's six parallel review agents plus one
-    intent-guess agent, one fan-out message, each with its own artifact.
+    Multi-Agent Review.** Step 8's up to six review agents, content-gated by
+    `flow-review-scope`, plus one intent-guess agent, one fan-out message,
+    re-fanned at most once on a consolidator widen, each with its own artifact.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-product-planning`
     Independent Discovery Subagent.** Step 3's one discovery agent.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-new-feature`

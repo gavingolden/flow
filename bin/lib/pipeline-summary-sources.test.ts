@@ -11,6 +11,7 @@ import {
   renderFollowupIssues,
   renderForeclosedPaths,
   renderIntent,
+  renderLenses,
   renderPhases,
   renderReviewCounts,
 } from "./pipeline-summary-sources";
@@ -1082,5 +1083,68 @@ describe(renderFollowupIssues, () => {
     expect(renderFollowupIssues(filedIssuesRaw, "")).toEqual([
       "rejected (needs repair): Bad Candidate",
     ]);
+  });
+});
+
+describe(renderLenses, () => {
+  const fixture = JSON.stringify({
+    scope: { kind: "delta", delta_files: 1 },
+    widened: { value: false, reason: null },
+    lenses: {
+      "bug-detection": {
+        ran: true,
+        tokens: { total: 100 },
+        findings_emitted: 2,
+        findings_survived: 1,
+        findings_acted: 1,
+      },
+      performance: {
+        ran: false,
+        skip_reason: "docs-only diff (1 files)",
+      },
+    },
+  });
+
+  it("renders one dev line per lens plus the scope line from a fixture telemetry JSON", () => {
+    const { dev } = renderLenses(fixture);
+    expect(dev[0]).toBe("scope: delta (1 files)");
+    expect(dev).toContain("bug-detection: ran · 100 tok · 2→1→1");
+  });
+
+  it("renders `gated (<reason>)` for a lens with ran:false", () => {
+    const { dev } = renderLenses(fixture);
+    expect(dev).toContain("performance: gated (docs-only diff (1 files))");
+  });
+
+  it("renders n/a for null tokens", () => {
+    const raw = JSON.stringify({
+      scope: { kind: "full", delta_files: 0 },
+      widened: { value: false, reason: null },
+      lenses: {
+        "bug-detection": {
+          ran: true,
+          tokens: null,
+          findings_emitted: 0,
+          findings_survived: 0,
+          findings_acted: 0,
+        },
+      },
+    });
+    const { dev } = renderLenses(raw);
+    expect(dev).toContain("bug-detection: ran · n/a tok · 0→0→0");
+  });
+
+  it("returns dev ['none'] / pm 'lenses: none' for undefined/empty raw", () => {
+    expect(renderLenses(undefined)).toEqual({
+      dev: ["none"],
+      pm: "lenses: none",
+    });
+    expect(renderLenses("")).toEqual({ dev: ["none"], pm: "lenses: none" });
+  });
+
+  it("returns '(unreadable)' for non-JSON raw", () => {
+    const result = renderLenses("{not json");
+    expect(result.dev).toEqual(["(unreadable)"]);
+    expect(result.pm).toBe("lenses: (unreadable)");
   });
 });
