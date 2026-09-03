@@ -250,7 +250,13 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
       partialArtifactPath: `${OUT}.agy-raw`,
     });
     expect(deps.files.has(`${OUT}.agy-raw`)).toBe(true);
-    expect(deps.calls.removed).not.toContain(`${OUT}.agy-raw`);
+    // removeFile(rawPath) is called exactly once — the unconditional
+    // pre-clean at the top of the run, before the raw artifact exists —
+    // and NOT again by cleanScratch's retention, which is what would
+    // delete the file this test asserts survives.
+    expect(deps.calls.removed.filter((p) => p === `${OUT}.agy-raw`)).toEqual([
+      `${OUT}.agy-raw`,
+    ]);
   });
 
   it("does not retain .agy-raw (or emit partialArtifactPath) on an environment-class skip", () => {
@@ -282,7 +288,33 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
     expect(envelope(deps)).toMatchObject({
       ran: false,
       skipReason: "delegate-envelope-unparseable",
+      // classifyDelegateSkip's unrecognised-reason fallthrough defaults to
+      // ran-unusable (report the safer way) rather than environment — pin
+      // it so a later edit that lists this reason under
+      // ENVIRONMENT_SKIP_REASONS (silently dropping partialArtifactPath
+      // retention for it) is a visible test change, not a silent one.
+      skipClass: "ran-unusable",
     });
+  });
+
+  it("pre-cleans a stale .agy-raw so a ran-unusable skip that never dispatches cannot report a prior run's file as its own evidence", () => {
+    const deps = makeDeps({
+      runDelegate: () => ({
+        ran: false,
+        skipReason: "delegate-envelope-unparseable",
+      }),
+    });
+    // Seed a .agy-raw left over from a hypothetical prior run's ran-unusable
+    // skip — this run's runDelegate stub never writes rawPath.
+    deps.files.set(`${OUT}.agy-raw`, "stale evidence from a previous run");
+    run(BASE_ARGV, deps);
+    const env = envelope(deps);
+    expect(env).toMatchObject({
+      ran: false,
+      skipReason: "delegate-envelope-unparseable",
+    });
+    expect(env.partialArtifactPath).toBeUndefined();
+    expect(deps.files.has(`${OUT}.agy-raw`)).toBe(false);
   });
 });
 
@@ -424,6 +456,20 @@ describe("run — conformant output", () => {
     run([...BASE_ARGV, "--timeout", "6m"], deps);
     const argv = deps.calls.delegate[0]!;
     expect(argv[argv.indexOf("--timeout") + 1]).toBe("6m");
+  });
+
+  it("clamps an explicit --timeout flag above the 9m sync ceiling", () => {
+    const deps = makeDeps();
+    run([...BASE_ARGV, "--timeout", "15m"], deps);
+    const argv = deps.calls.delegate[0]!;
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe("9m");
+  });
+
+  it("falls back to the default when an explicit --timeout flag is not a valid Go duration", () => {
+    const deps = makeDeps();
+    run([...BASE_ARGV, "--timeout", "not-a-duration"], deps);
+    const argv = deps.calls.delegate[0]!;
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe("8m");
   });
 
   it("writes AGENT_FINDINGS_JSON_SCHEMA to the --json-schema scratch path before dispatch", () => {

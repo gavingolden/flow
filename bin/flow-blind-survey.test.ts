@@ -525,7 +525,12 @@ describe("run — fanout skip propagation", () => {
     });
     expect(run(BASE_ARGV, deps)).toBe(0);
     const env = envelope(deps);
-    expect(env.judges[0].skipReason).toBe("judge-empty");
+    expect(env.judges[0]).toMatchObject({
+      skipReason: "judge-empty",
+      partialArtifactPath: `${OUT}.judge-a.md`,
+    });
+    // The short artifact is still on disk (retained, not deleted).
+    expect(deps.files.has(`${OUT}.judge-a.md`)).toBe(true);
   });
 
   it("a ran:true entry with no artifactPath ⇒ judge-empty (missing artifact, not just short)", () => {
@@ -552,6 +557,9 @@ describe("run — fanout skip propagation", () => {
     expect(run(BASE_ARGV, deps)).toBe(0);
     const env = envelope(deps);
     expect(env.judges[0].skipReason).toBe("judge-empty");
+    // No artifact was ever written for judge A's out path in this fixture,
+    // so there is no evidence file to point at.
+    expect(env.judges[0].partialArtifactPath).toBeUndefined();
   });
 
   it("A agy-not-authenticated + B agy-error ⇒ A's reason wins (both-skipped precedence)", () => {

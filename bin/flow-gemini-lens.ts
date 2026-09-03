@@ -64,7 +64,10 @@ import {
   validateAgentFindings,
 } from "./lib/agent-finding-schema";
 import { resolveDelegateModel } from "./lib/delegate-models";
-import { resolveDelegateTimeout } from "./lib/delegate-timeouts";
+import {
+  clampDelegateTimeout,
+  resolveDelegateTimeout,
+} from "./lib/delegate-timeouts";
 import { classifyDelegateSkip } from "./lib/delegate-skip-class";
 import { decodeDelegateArtifact } from "./lib/structured-response";
 
@@ -372,7 +375,12 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // path past the gate either rewrites --out (success) or leaves it absent
   // (skip), so the consolidator never consumes a previous run's findings as
   // the current review. removeFile is idempotent (force:true) — absent is fine.
+  // Also pre-clean rawPath: a ran-unusable skip retains it as
+  // partialArtifactPath (below), so a prior run's .agy-raw left over from a
+  // ran-unusable skip must not be reported as THIS run's evidence when this
+  // run never reaches dispatch (or dispatch itself fails before writing it).
   deps.removeFile(parsed.out);
+  deps.removeFile(rawPath);
 
   // Scratch files (prompt + schema + raw agy output) are transient; clear
   // all three on every exit so they don't accumulate in the worktree's
@@ -448,7 +456,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     "--task",
     parsed.task,
     "--timeout",
-    parsed.timeout ?? resolveDelegateTimeout("reviewLens"),
+    parsed.timeout
+      ? clampDelegateTimeout(parsed.timeout, "reviewLens")
+      : resolveDelegateTimeout("reviewLens"),
   ]);
 
   // Branch on the `ran` field (NEVER the exit code): flow-delegate exits 0

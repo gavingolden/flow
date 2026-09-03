@@ -396,6 +396,26 @@ describe("classifyAgyOutcome", () => {
       }),
     ).toBe("agy-timeout");
   });
+
+  it("classifies exit 0 with a non-timeout ERROR status as agy-error (the status, not the exit code, is the signal)", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 0,
+        stderr: "",
+        outcome: { status: "ERROR", error: "quota exhausted" },
+      }),
+    ).toBe("agy-error");
+  });
+
+  it("classifies a json-mode envelope auth failure (empty stderr) as agy-not-authenticated", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr: "",
+        outcome: { status: "ERROR", error: "authentication failed" },
+      }),
+    ).toBe("agy-not-authenticated");
+  });
 });
 
 describe("readAgyJsonOutcome", () => {

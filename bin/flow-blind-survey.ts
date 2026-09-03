@@ -46,6 +46,7 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 import { buildSurveyPrompt, briefLeaksCorpus } from "./lib/blind-survey-prompt";
+import { classifyDelegateSkip } from "./lib/delegate-skip-class";
 import {
   DELEGATE_MODEL_DEFAULTS,
   resolveDelegateModel,
@@ -78,6 +79,7 @@ export const SKIP_REASONS = [
   "agy-not-found",
   "agy-not-authenticated",
   "agy-error",
+  "agy-canceled",
   "judge-timeout",
   "judge-empty",
   "survey-prep-failed",
@@ -200,16 +202,6 @@ function mapJudgeSkipReason(
 // against, just a length floor.
 const MIN_ARTIFACT_CHARS = 40;
 
-// A dispatched call (the fanout DID spend agy quota on this judge, even
-// though the result is unusable) is the only case worth retaining the raw
-// artifact for — `worktree-not-provided`/`worktree-not-found`/`fanout-error`
-// never dispatched anything, so there is nothing on disk to point at.
-const DISPATCHED_SKIP_REASONS: ReadonlySet<SkipReason> = new Set([
-  "judge-timeout",
-  "agy-error",
-  "judge-empty",
-]);
-
 function resolveJudge(
   deps: Deps,
   entry: FanoutEntry | undefined,
@@ -218,8 +210,17 @@ function resolveJudge(
 ): JudgeStatus {
   if (!entry || entry.ran !== true) {
     const skipReason = mapJudgeSkipReason(entry?.skipReason);
+    // A dispatched call (the fanout DID spend agy quota on this judge, even
+    // though the result is unusable) is the only case worth retaining the
+    // raw artifact for — route through the shared classifier (same decision
+    // flow-gemini-lens.ts / flow-gemini-intent-guess.ts already use) rather
+    // than a second hand-rolled allowlist, so a new delegate skipReason
+    // (e.g. `agy-canceled`) is retained-by-default via the classifier's
+    // documented "unknown reason -> ran-unusable" fallthrough instead of
+    // silently dropping retention until this table is remembered.
     const partialArtifactPath =
-      DISPATCHED_SKIP_REASONS.has(skipReason) && deps.fileExists(artifactPath)
+      classifyDelegateSkip(skipReason) === "ran-unusable" &&
+      deps.fileExists(artifactPath)
         ? artifactPath
         : undefined;
     return {
@@ -446,7 +447,23 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   );
 
   if (!judgeA.ran && !judgeB.ran) {
-    return skip(judgeA.skipReason ?? "agy-not-found");
+    // Both judges skipped: still retain whichever partial artifacts
+    // resolveJudge already resolved (mirrors flow-plan-review.ts's
+    // equivalent both-skipped path, which retains both artifacts and
+    // forwards the first reviewer's diagnostics) — the both-timed-out case
+    // is exactly the one a transcript is most needed for.
+    const retained = [
+      judgeA.partialArtifactPath,
+      judgeB.partialArtifactPath,
+    ].filter((p): p is string => p !== undefined);
+    cleanScratch(retained);
+    return emit(deps, {
+      ran: false,
+      skipReason: judgeA.skipReason ?? "agy-not-found",
+      ...(judgeA.exitCode !== undefined ? { exitCode: judgeA.exitCode } : {}),
+      ...(judgeA.stderrTail ? { stderrTail: judgeA.stderrTail } : {}),
+      ...(retained[0] ? { partialArtifactPath: retained[0] } : {}),
+    });
   }
 
   const statusLine = (label: string, model: string, status: JudgeStatus) =>

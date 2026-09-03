@@ -47,7 +47,10 @@ import {
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { resolveDelegateModel } from "./lib/delegate-models";
-import { resolveDelegateTimeout } from "./lib/delegate-timeouts";
+import {
+  clampDelegateTimeout,
+  resolveDelegateTimeout,
+} from "./lib/delegate-timeouts";
 import { decodeDelegateArtifact } from "./lib/structured-response";
 import { classifyDelegateSkip } from "./lib/delegate-skip-class";
 
@@ -298,8 +301,12 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   const promptPath = `${parsed.out}.prompt`;
   const schemaPath = `${parsed.out}.schema.json`;
 
-  // Pre-clean any stale --out from a prior run on this reused worktree.
+  // Pre-clean any stale --out from a prior run on this reused worktree. Also
+  // pre-clean rawPath: a ran-unusable skip retains it as partialArtifactPath
+  // (below), so a prior run's .agy-raw must not be reported as THIS run's
+  // evidence when this run never reaches dispatch.
   deps.removeFile(parsed.out);
+  deps.removeFile(rawPath);
 
   const cleanScratch = (retain: string[] = []) => {
     const retainSet = new Set(retain);
@@ -385,7 +392,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     "--task",
     parsed.task,
     "--timeout",
-    parsed.timeout ?? resolveDelegateTimeout("intentGuess"),
+    parsed.timeout
+      ? clampDelegateTimeout(parsed.timeout, "intentGuess")
+      : resolveDelegateTimeout("intentGuess"),
   ]);
 
   // Branch on the `ran` field (NEVER the exit code): flow-delegate exits 0

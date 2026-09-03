@@ -321,7 +321,10 @@ export function classifyAgyOutcome(input: {
   ) {
     return "agy-timeout";
   }
-  if (looksUnauthenticated(input.stderr)) {
+  if (
+    looksUnauthenticated(input.stderr) ||
+    (input.outcome.error && looksUnauthenticated(input.outcome.error))
+  ) {
     return "agy-not-authenticated";
   }
   if (input.outcome.status === "CANCELED") {

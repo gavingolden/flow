@@ -6,7 +6,7 @@
  * runs inside a Bash tool call that itself pins a 600000ms/10m timeout
  * (`skills/pipeline/flow-pr-review/SKILL.md`,
  * `skills/pipeline/flow-pr-review/references/intent-mismatch-resolution.md`).
- * A configured `agy --print-timeout` at or above that ceiling means the
+ * A configured `agy --print-timeout` above that ceiling means the
  * Bash tool kills the helper first and the caller never sees an envelope
  * at all — a worse misclassification than the one this module exists to
  * fix. `SYNC_DELEGATE_CEILING` ("9m") leaves a minute of slack for bun
@@ -97,8 +97,9 @@ function extractDelegateTimeoutsKey(raw: unknown, key: string): unknown {
  * Resolves the `--print-timeout`-shaped godur string for a given delegate
  * surface: `delegate.timeouts.<surface>` from `~/.flow/config.json` when
  * present and a well-formed Go duration, else the seeded default. A
- * resolved value at or above `SYNC_DELEGATE_CEILING` is clamped down to it
- * (warn-and-clamp, never warn-and-pass — see module docstring). Never
+ * resolved value above `SYNC_DELEGATE_CEILING` is clamped down to it
+ * (warn-and-clamp, never warn-and-pass — see module docstring); a value
+ * exactly at the ceiling is accepted as-is. Never
  * throws — a missing file, malformed JSON, absent key, or non-godur value
  * all collapse to the default (warning on stderr once per surface).
  */
@@ -138,6 +139,44 @@ export function resolveDelegateTimeout(
     console.error(
       `delegate.timeouts.${surface}: config override active -> ${trimmed}`,
     );
+  }
+
+  return trimmed;
+}
+
+/**
+ * Applies the same validation + `SYNC_DELEGATE_CEILING` clamp that
+ * `resolveDelegateTimeout` applies to the config path, but to an explicit
+ * `--timeout` CLI flag value. Without this, a hand-passed flag could
+ * request a duration above the 9-minute sync ceiling and reproduce the
+ * exact no-envelope-at-all failure the clamp exists to prevent (the Bash
+ * tool's 600000ms cap kills the helper before agy's own timeout fires).
+ * A malformed value falls back to the surface's seeded default, same as
+ * an invalid config value. Never throws.
+ */
+export function clampDelegateTimeout(
+  value: string,
+  surface: DelegateTimeoutSurface,
+): string {
+  if (!isGoDuration(value)) {
+    if (!warnedInvalidSurfaces.has(surface)) {
+      warnedInvalidSurfaces.add(surface);
+      console.error(
+        `delegate.timeouts.${surface}: '--timeout ${value}' is not a valid Go-duration string; ignoring and using the default.`,
+      );
+    }
+    return DELEGATE_TIMEOUT_DEFAULTS[surface];
+  }
+
+  const trimmed = value.trim();
+  if (godurToSec(trimmed) > godurToSec(SYNC_DELEGATE_CEILING)) {
+    if (!warnedClampSurfaces.has(surface)) {
+      warnedClampSurfaces.add(surface);
+      console.error(
+        `delegate.timeouts.${surface}: '--timeout ${trimmed}' exceeds the ${SYNC_DELEGATE_CEILING} sync ceiling (the Bash tool calls that run this surface pin a 600000ms timeout); clamping to ${SYNC_DELEGATE_CEILING}.`,
+      );
+    }
+    return SYNC_DELEGATE_CEILING;
   }
 
   return trimmed;

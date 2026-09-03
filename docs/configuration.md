@@ -265,11 +265,13 @@ never throws.
 itself pins a 600000ms (10-minute) timeout
 (`skills/pipeline/flow-pr-review/SKILL.md`,
 `skills/pipeline/flow-pr-review/references/intent-mismatch-resolution.md`).
-A configured timeout at or above that ceiling means the Bash tool kills the
+A configured timeout above that ceiling means the Bash tool kills the
 helper before agy's own `--print-timeout` ever fires, so the caller never
 sees an envelope at all — a worse misclassification than a bare
-`agy-timeout` skip. `resolveDelegateTimeout` therefore clamps any override
-above `9m` down to `9m`, warning once per surface on stderr, rather than
+`agy-timeout` skip. An exact-`9m` override is accepted as-is, reserving a
+minute of slack under the 10-minute Bash cap; `resolveDelegateTimeout`
+clamps only an override strictly above `9m` down to `9m`, warning once per
+surface on stderr, rather than
 silently passing the unsafe value through.
 
 ## tmux status-bar bindings (opt-in)
