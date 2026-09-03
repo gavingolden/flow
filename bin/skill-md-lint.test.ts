@@ -1574,16 +1574,33 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     wantEffort?: string;
     wantTools?: string;
     inheritsAllTools?: boolean;
+    wantMemory?: "local";
+    wantMaxTurns?: number;
+    wantCacheTtl?: "1h";
+    wantSkills?: string;
   }> = [
     {
       file: "flow-verify.md",
       wantEffort: "low",
       wantTools:
         "Bash, Read, Edit, Write, Grep, ToolSearch, Task, mcp__chrome-devtools__\\*",
+      wantMaxTurns: 150,
+      wantCacheTtl: "1h",
+      wantSkills: "flow-verify-loop-instructions",
     },
-    { file: "flow-fix-applier.md", wantEffort: "low" },
+    {
+      file: "flow-fix-applier.md",
+      wantEffort: "low",
+      wantMaxTurns: 120,
+      wantCacheTtl: "1h",
+      wantSkills: "flow-fix-applier-instructions",
+    },
     { file: "flow-gatekeeper.md", wantModel: "haiku" },
-    { file: "flow-consolidator.md" },
+    {
+      file: "flow-consolidator.md",
+      wantCacheTtl: "1h",
+      wantSkills: "flow-consolidator-instructions",
+    },
     {
       file: "flow-review-bug-detection.md",
       wantTools: "Read, Grep, Glob, Write",
@@ -1609,15 +1626,29 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       file: "flow-review-test-coverage.md",
       wantTools: "Read, Grep, Glob, Write",
     },
-    { file: "flow-scout.md", wantTools: "Bash, Read, Grep, Glob, Write" },
-    { file: "flow-discovery.md", inheritsAllTools: true },
+    {
+      file: "flow-scout.md",
+      wantTools: "Bash, Read, Grep, Glob, Write",
+      wantMemory: "local",
+      wantSkills: "flow-scout-instructions",
+    },
+    {
+      file: "flow-discovery.md",
+      inheritsAllTools: true,
+      wantMemory: "local",
+      wantCacheTtl: "1h",
+    },
     {
       file: "flow-merge-resolver.md",
       wantTools: "Bash, Read, Edit, Write, Grep",
+      wantMaxTurns: 80,
+      wantSkills: "flow-merge-resolver-instructions",
     },
     {
       file: "flow-edit-applier.md",
       wantTools: "Bash, Read, Edit, Write, Grep, Glob, NotebookEdit",
+      wantMaxTurns: 80,
+      wantSkills: "flow-coder-instructions",
     },
     { file: "flow-backlog-verifier.md", wantTools: "Bash, Read, Grep, Glob" },
   ];
@@ -1642,6 +1673,10 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       wantEffort,
       wantTools,
       inheritsAllTools,
+      wantMemory,
+      wantMaxTurns,
+      wantCacheTtl,
+      wantSkills,
     } of AGENT_FRONTMATTER_POLICY) {
       const agentPath = path.resolve(HERE, "..", "agents", "core", file);
       expect(
@@ -1696,6 +1731,62 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
           /^effort:/m.test(frontmatter),
           `agents/${file} frontmatter must NOT pin 'effort:' — judgment ` +
             "roles scale with session effort (gatekeeper: already bounded by haiku).",
+        ).toBe(false);
+      }
+      if (wantMemory) {
+        expect(
+          new RegExp(`^memory:\\s*${wantMemory}\\s*$`, "m").test(frontmatter),
+          `agents/${file} frontmatter must pin 'memory: ${wantMemory}'.`,
+        ).toBe(true);
+      } else {
+        expect(
+          /^memory:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT declare 'memory:'.`,
+        ).toBe(false);
+      }
+      if (wantMaxTurns !== undefined) {
+        expect(wantMaxTurns).toBeGreaterThanOrEqual(20);
+        expect(wantMaxTurns).toBeLessThanOrEqual(400);
+        expect(
+          new RegExp(`^maxTurns:\\s*${wantMaxTurns}\\s*$`, "m").test(
+            frontmatter,
+          ),
+          `agents/${file} frontmatter must pin 'maxTurns: ${wantMaxTurns}'.`,
+        ).toBe(true);
+      } else {
+        expect(
+          /^maxTurns:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT declare 'maxTurns:'.`,
+        ).toBe(false);
+      }
+      if (wantCacheTtl) {
+        // cacheTtl is nested under experimental:, never a top-level key —
+        // the docs say it's read only from the nested map; a top-level
+        // ^cacheTtl: line is silently ignored.
+        expect(
+          /^experimental:\s*\n\s+cacheTtl:\s*1h\s*$/m.test(frontmatter),
+          `agents/${file} frontmatter must declare 'experimental:' with a ` +
+            `nested 'cacheTtl: ${wantCacheTtl}' — a top-level 'cacheTtl:' ` +
+            "key is silently ignored by Claude Code.",
+        ).toBe(true);
+      } else {
+        expect(
+          /^experimental:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT declare 'experimental:'.`,
+        ).toBe(false);
+      }
+      if (wantSkills) {
+        expect(
+          new RegExp(`^skills:\\s*\\n\\s+-\\s+${wantSkills}\\s*$`, "m").test(
+            frontmatter,
+          ),
+          `agents/${file} frontmatter must declare a 'skills:' block list ` +
+            `naming '${wantSkills}'.`,
+        ).toBe(true);
+      } else {
+        expect(
+          /^skills:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT declare 'skills:'.`,
         ).toBe(false);
       }
     }
@@ -2159,7 +2250,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ],
       [
         "agents/core/flow-merge-resolver.md",
-        11,
+        14,
         "never `main`, `master`, or the base branch",
       ],
       [

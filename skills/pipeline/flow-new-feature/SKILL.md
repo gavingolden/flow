@@ -241,10 +241,9 @@ config.models.implement > inherited` (see
 
 ### Spawn prompt template
 
-Fill in the seven `{{...}}` placeholders before passing to the Task tool:
-`INSTRUCTIONS_PATH`, `USER_DESCRIPTION`, `WORKTREE`, `SKILL_DIR`,
-`SCOUT_PATH`, `PLAN_PATH`, `EXCLUDED_PATHS` (omit-when-absent — see step 2b
-above).
+Fill in the eight `{{...}}` placeholders before passing to the Task tool:
+`INSTRUCTIONS_PATH`, `USER_DESCRIPTION`, `WORKTREE`, `SKILL_DIR`, `SCOUT_PATH`,
+`PLAN_PATH`, `EXCLUDED_PATHS` (omit-when-absent — step 2b), `HEAD` (`git rev-parse --short HEAD`, wrapper-resolved).
 
 ```
 You are the Independent Scout Subagent for `/flow-new-feature`. You run in an
@@ -262,6 +261,7 @@ Working directory (cd here before reading any project files):
 Skill base directory (resolve sibling references against this absolute
 path — they do not exist relative to {{WORKTREE}}):
   {{SKILL_DIR}}
+Current HEAD (short sha): {{HEAD}}
 
 Write the scout report to (absolute path):
   {{SCOUT_PATH}}

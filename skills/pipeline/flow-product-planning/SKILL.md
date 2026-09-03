@@ -206,6 +206,9 @@ Skill base directory (resolve sibling templates and references against
 this absolute path — they do not exist relative to {{WORKTREE}}):
   {{SKILL_DIR}}
 
+Current HEAD (short sha, Bash-derived by the wrapper via `git rev-parse
+--short HEAD`): {{HEAD}}
+
 {{OUTPUT_PATHS}}
 
 Follow the {{INSTRUCTIONS_PATH}} steps in order (the feature-grain
