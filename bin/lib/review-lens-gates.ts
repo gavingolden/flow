@@ -1,7 +1,10 @@
 /**
  * Pure lens-gate rules for /flow-pr-review's Step 3 fan-out: decides, per
  * review lens, whether it runs against the current changed-file set (full
- * PR or delta) plus the static-analysis pre-digest.
+ * PR or delta), the static-analysis pre-digest, and a diff-content signal
+ * (`hasNewBareImports`) that catches a new runtime dependency introduced
+ * via a bare import/require even when no manifest file changed in the
+ * same diff.
  *
  * Explicit allowlists as exported constants, two always-on lenses
  * (bug-detection, pattern-consistency have no narrow domain to gate on),
@@ -15,6 +18,7 @@
  * node_modules has gone missing `picomatch` before).
  */
 
+import { builtinModules } from "node:module";
 import type { AgentName } from "../flow-pr-agent-lens";
 import type { AnalysisResult } from "../flow-pr-static-analysis/types";
 
@@ -28,7 +32,6 @@ export const MANIFEST_GLOBS: readonly string[] = [
   "yarn.lock",
   ".yarnrc.yml",
   "pnpm-lock.yaml",
-  ".npmrc",
   "**/.npmrc",
   "requirements*.txt",
   "pyproject.toml",
@@ -39,7 +42,6 @@ export const MANIFEST_GLOBS: readonly string[] = [
   "go.sum",
   "Gemfile",
   "Gemfile.lock",
-  "Dockerfile*",
   "**/Dockerfile*",
   ".github/dependabot.yml",
   ".github/workflows/**",
@@ -134,26 +136,51 @@ export function isDocsOnly(files: readonly string[]): boolean {
   );
 }
 
-const BARE_IMPORT_RE =
-  /^\+(?!\+\+)(?:.*\bimport\s+(?:[\w*${}\s,]+\s+from\s+)?['"]([^'"]+)['"]|.*\brequire\(\s*['"]([^'"]+)['"]\s*\))/;
+// Each alternative anchors on a fixed keyword/punctuation boundary before the
+// quoted specifier, with a single non-backtracking `[^'"]+` capture — no
+// nested/overlapping whitespace quantifiers, so match time is linear in line
+// length regardless of input shape.
+const FROM_IMPORT_RE = /(?:^|[\s};])from\s+(['"])([^'"]+)\1/;
+const DYNAMIC_IMPORT_RE = /\bimport\(\s*(['"])([^'"]+)\1/;
+const SIDE_EFFECT_IMPORT_RE = /^\+\s*import\s+(['"])([^'"]+)\1\s*;?\s*$/;
+const REQUIRE_RE = /\brequire\(\s*(['"])([^'"]+)\1\s*\)/;
+
+const NODE_BUILTINS: ReadonlySet<string> = new Set(builtinModules);
+
+function isBareSpecifier(specifier: string): boolean {
+  if (/^(\.|\/|node:|bun:|#)/.test(specifier)) return false;
+  const pkgRoot = specifier.startsWith("@")
+    ? specifier.split("/").slice(0, 2).join("/")
+    : specifier.split("/")[0];
+  if (NODE_BUILTINS.has(specifier) || NODE_BUILTINS.has(pkgRoot)) return false;
+  return true;
+}
 
 /**
  * True iff any ADDED diff line (`+` prefix, never the `+++ b/file` file
  * header) introduces an `import`/`require` of a bare specifier — one that
  * does not start with `.`, `/`, `node:`, `bun:`, or `#` (Node subpath
- * imports). A new bare specifier signals a new runtime dependency even
- * when no manifest file changed in the same diff (e.g. a monorepo
- * workspace hoisting an existing root-level dependency).
+ * imports), and is not an unprefixed Node builtin module (`fs`, `path`,
+ * `child_process`, etc. — those ship with the runtime, not npm). Covers
+ * static named/default imports (including prettier-wrapped `} from "pkg"`
+ * continuation lines), dynamic `import("pkg")`, side-effect `import
+ * "pkg"`, `export ... from "pkg"` re-exports, and `require("pkg")`. A new
+ * bare specifier signals a new runtime dependency even when no manifest
+ * file changed in the same diff (e.g. a monorepo workspace hoisting an
+ * existing root-level dependency).
  */
 export function hasNewBareImports(diffText: string): boolean {
   for (const line of diffText.split("\n")) {
     if (!line.startsWith("+") || line.startsWith("+++")) continue;
-    const m = BARE_IMPORT_RE.exec(line);
+    const m =
+      FROM_IMPORT_RE.exec(line) ??
+      DYNAMIC_IMPORT_RE.exec(line) ??
+      SIDE_EFFECT_IMPORT_RE.exec(line) ??
+      REQUIRE_RE.exec(line);
     if (!m) continue;
-    const specifier = m[1] ?? m[2];
+    const specifier = m[2];
     if (!specifier) continue;
-    if (/^(\.|\/|node:|bun:|#)/.test(specifier)) continue;
-    return true;
+    if (isBareSpecifier(specifier)) return true;
   }
   return false;
 }

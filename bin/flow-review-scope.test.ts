@@ -33,6 +33,19 @@ const BASE_INPUT = {
   forceFull: false,
 };
 
+/** BASE_INPUT plus the "clean prior review, eligible for delta" preconditions
+ * every delta-path test case starts from — factored out so those five test
+ * bodies aren't each retyping the same three fields. */
+function makeDeps(overrides: Partial<typeof BASE_INPUT> = {}) {
+  return {
+    ...BASE_INPUT,
+    markerSha: "abc1234",
+    isAncestor: true,
+    priorStatus: "clean",
+    ...overrides,
+  };
+}
+
 describe("resolveScope", () => {
   it("returns full 'no prior marker' when markerSha is null", () => {
     const r = resolveScope({ ...BASE_INPUT, markerSha: null });
@@ -59,81 +72,55 @@ describe("resolveScope", () => {
   });
 
   it("returns full 'prior review not clean (escalated)' when priorStatus !== 'clean'", () => {
-    const r = resolveScope({
-      ...BASE_INPUT,
-      markerSha: "abc1234",
-      isAncestor: true,
-      priorStatus: "escalated",
-    });
+    const r = resolveScope(makeDeps({ priorStatus: "escalated" }));
     expect(r.scope).toBe("full");
     expect(r.reason).toBe("prior review not clean (escalated)");
   });
 
   it("returns full 'delta scope disabled' when deltaEnabled false", () => {
-    const r = resolveScope({
-      ...BASE_INPUT,
-      markerSha: "abc1234",
-      isAncestor: true,
-      priorStatus: "clean",
-      deltaEnabled: false,
-    });
+    const r = resolveScope(makeDeps({ deltaEnabled: false }));
     expect(r.scope).toBe("full");
     expect(r.reason).toBe("delta scope disabled");
   });
 
   it("returns full 'forced full (widen)' when forceFull", () => {
-    const r = resolveScope({
-      ...BASE_INPUT,
-      markerSha: "abc1234",
-      isAncestor: true,
-      priorStatus: "clean",
-      forceFull: true,
-    });
+    const r = resolveScope(makeDeps({ forceFull: true }));
     expect(r.scope).toBe("full");
     expect(r.reason).toBe("forced full (widen)");
   });
 
   it("returns full 'delta ≥ 75% of PR diff' when the ratio meets DELTA_RATIO_THRESHOLD", () => {
-    const r = resolveScope({
-      ...BASE_INPUT,
-      markerSha: "abc1234",
-      isAncestor: true,
-      priorStatus: "clean",
-      fullDiffLines: 100,
-      deltaDiffLines: 80,
-    });
+    const r = resolveScope(
+      makeDeps({ fullDiffLines: 100, deltaDiffLines: 80 }),
+    );
     expect(r.scope).toBe("full");
     expect(r.reason).toBe("delta ≥ 75% of PR diff");
     expect(80 / 100).toBeGreaterThanOrEqual(DELTA_RATIO_THRESHOLD);
   });
 
   it("returns full 'no PR files changed since marker' when the delta/PR-file intersection is empty", () => {
-    const r = resolveScope({
-      ...BASE_INPUT,
-      markerSha: "abc1234",
-      isAncestor: true,
-      priorStatus: "clean",
-      prFiles: ["a.ts"],
-      changedSinceMarker: ["unrelated.ts"],
-      fullDiffLines: 100,
-      deltaDiffLines: 0,
-    });
+    const r = resolveScope(
+      makeDeps({
+        prFiles: ["a.ts"],
+        changedSinceMarker: ["unrelated.ts"],
+        fullDiffLines: 100,
+        deltaDiffLines: 0,
+      }),
+    );
     expect(r.scope).toBe("full");
     expect(r.reason).toBe("no PR files changed since marker");
     expect(r.delta_files).toEqual([]);
   });
 
   it("returns delta with delta_files = intersection and delta_ratio otherwise", () => {
-    const r = resolveScope({
-      ...BASE_INPUT,
-      markerSha: "abc1234",
-      isAncestor: true,
-      priorStatus: "clean",
-      prFiles: ["a.ts", "b.ts"],
-      changedSinceMarker: ["a.ts", "c.ts"],
-      fullDiffLines: 100,
-      deltaDiffLines: 10,
-    });
+    const r = resolveScope(
+      makeDeps({
+        prFiles: ["a.ts", "b.ts"],
+        changedSinceMarker: ["a.ts", "c.ts"],
+        fullDiffLines: 100,
+        deltaDiffLines: 10,
+      }),
+    );
     expect(r.scope).toBe("delta");
     expect(r.delta_files).toEqual(["a.ts"]);
     expect(r.delta_ratio).toBeCloseTo(0.1);
@@ -259,6 +246,10 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       "+++ b/other.ts",
       "@@ -1,40 +1,40 @@",
       ...filler,
+      // Only present in the FULL diff, never in the actual delta (a.ts-only)
+      // git diff below — proves hasNewBareImports scans the delta diff, not
+      // the full PR diff, when scope resolves to "delta".
+      '+import picomatch from "picomatch";',
       "",
     ].join("\n");
     const gh = (args: string[]) => {
@@ -296,6 +287,7 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
     );
     expect(scope.scope).toBe("delta");
+    expect(scope.gates["supply-chain"].run).toBe(false);
     const diffText = fs.readFileSync(
       path.join(dir, ".flow-tmp", "diff.txt"),
       "utf8",

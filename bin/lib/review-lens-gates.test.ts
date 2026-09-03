@@ -180,4 +180,45 @@ describe("hasNewBareImports", () => {
     expect(hasNewBareImports("+++ b/file.ts")).toBe(false);
     expect(hasNewBareImports('-import x from "picomatch";')).toBe(false);
   });
+
+  it('returns true for a prettier-wrapped `} from "pkg"` continuation line', () => {
+    expect(hasNewBareImports('+} from "picomatch";')).toBe(true);
+  });
+
+  it('returns true for a dynamic `import("pkg")` line', () => {
+    expect(hasNewBareImports('+const m = await import("picomatch");')).toBe(
+      true,
+    );
+  });
+
+  it('returns true for a side-effect `import "pkg"` line', () => {
+    expect(hasNewBareImports('+import "picomatch";')).toBe(true);
+  });
+
+  it('returns true for an `export ... from "pkg"` re-export line', () => {
+    expect(hasNewBareImports('+export { foo } from "picomatch";')).toBe(true);
+  });
+
+  it("returns true for a scoped package with a single-quoted specifier", () => {
+    expect(hasNewBareImports("+import x from '@scope/pkg';")).toBe(true);
+  });
+
+  it("returns false for a Node `#subpath` import", () => {
+    expect(hasNewBareImports('+import x from "#internal/foo";')).toBe(false);
+  });
+
+  it("returns false for unprefixed Node builtin module names", () => {
+    expect(hasNewBareImports('+import fs from "fs";')).toBe(false);
+    expect(hasNewBareImports('+const cp = require("child_process");')).toBe(
+      false,
+    );
+    expect(hasNewBareImports('+import p from "path";')).toBe(false);
+  });
+
+  it("does not exhibit polynomial backtracking on a crafted long whitespace line", () => {
+    const crafted = `+import ${" ".repeat(20000)}from "picomatch";`;
+    const start = performance.now();
+    hasNewBareImports(crafted);
+    expect(performance.now() - start).toBeLessThan(50);
+  });
 });

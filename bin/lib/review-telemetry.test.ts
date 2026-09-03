@@ -216,7 +216,7 @@ describe("attributeTranscripts", () => {
     );
 
     const now = Date.now() / 1000;
-    fs.utimesSync(oldJsonl, now - 120, now - 120);
+    fs.utimesSync(oldJsonl, now - 30, now - 30);
     fs.utimesSync(newJsonl, now, now);
 
     const out = await attributeTranscripts(dir, since);
