@@ -13,6 +13,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as crypto from "node:crypto";
 import { spawn as spawnAsync, spawnSync } from "node:child_process";
 import type { ResolvedScenario } from "./eval-suite";
 import type { MaterializedFixture } from "./eval-fixture";
@@ -25,6 +26,7 @@ import {
 import { pluginBinPath, pluginDirArgs } from "./plugin-root";
 import { statePath } from "./state";
 import { checkpointBodyPath } from "./checkpoint-freshness";
+import type { Arm } from "./eval-report";
 import {
   resumeSeedFor,
   terminalCarryOver,
@@ -185,8 +187,17 @@ export function buildChildArgv(
     model?: string;
     effort?: string;
     keepSessions?: boolean;
+    /** `"with"` (default) is byte-identical to today's argv. `"without"`
+     * omits every `--plugin-dir` and points `--add-dir` at the fixture's
+     * plugin-free `bareClaudeHome` instead of `claudeHome` — see
+     * `eval-fixture.ts`'s `bareClaudeHome` doc comment. Omitting only
+     * `--plugin-dir` does NOT ablate: `coreRoot` is materialized INSIDE
+     * `claudeHome`, so a plugin-bearing `--add-dir` would still make
+     * every flow skill discoverable via the skills-dir path. */
+    arm?: Arm;
   },
 ): string[] {
+  const arm = opts.arm ?? "with";
   return [
     opts.claudeBin,
     "-p",
@@ -195,12 +206,14 @@ export function buildChildArgv(
     "stream-json",
     "--verbose",
     "--add-dir",
-    fixture.claudeHome,
-    ...pluginDirArgs(fixture.pluginRoots),
+    arm === "without" ? fixture.bareClaudeHome : fixture.claudeHome,
+    ...(arm === "without" ? [] : pluginDirArgs(fixture.pluginRoots)),
     "--setting-sources",
     "project",
     "--permission-mode",
     "dontAsk",
+    "--permission-prompts",
+    "none",
     "--allowedTools",
     scenario.allowedTools.join(","),
     // The child runs as an unattended agent under `--permission-mode
@@ -210,6 +223,14 @@ export function buildChildArgv(
     // shell actions regardless of what any single scenario's
     // `allowedTools` grants — it is not a substitute for a tight
     // `allowedTools` list, which each scenario still owns.
+    //
+    // `--disallowedTools` (this fixed deny-list) and `--permission-prompts
+    // none` (above) are two INDEPENDENT floors, not a single control: the
+    // deny-list blocks specific highest-harm argv shapes outright
+    // regardless of who would answer a prompt, while `--permission-prompts
+    // none` closes off every OTHER tool call that would otherwise pause
+    // for an answer nobody is present to give in this unattended child —
+    // removing either one leaves the other's gap uncovered.
     "--disallowedTools",
     "Bash(git push:*),Bash(gh pr merge:*),Bash(gh pr create:*),Bash(gh pr close:*),Bash(gh release:*),Bash(rm -rf node_modules*)",
     "--max-budget-usd",
@@ -225,12 +246,60 @@ export function buildChildArgv(
   ];
 }
 
+/**
+ * A stable digest of the composed child argv's SHAPE, never its content:
+ * flag names, plus the fixed values of `--permission-mode`,
+ * `--permission-prompts`, `--setting-sources`, `--allowedTools`,
+ * `--disallowedTools`, and a `--plugin-dir` COUNT (never the paths
+ * themselves). The prompt, session id, and every fixture path are
+ * deliberately excluded — those differ on every single run, and folding
+ * them in would make the digest unique per run instead of per shape,
+ * defeating its one job: letting `compareReports` warn when two reports
+ * were produced by argv-shape-different children (e.g. one predates a
+ * `--permission-prompts` addition) rather than just different trees.
+ */
+const DIGESTED_VALUE_FLAGS: ReadonlySet<string> = new Set([
+  "--permission-mode",
+  "--permission-prompts",
+  "--setting-sources",
+  "--allowedTools",
+  "--disallowedTools",
+]);
+
+export function childArgvDigest(argv: readonly string[]): string {
+  const parts: string[] = [];
+  let pluginDirCount = 0;
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i];
+    if (tok === "--plugin-dir") {
+      pluginDirCount++;
+      i++; // skip its path value — never hashed
+      continue;
+    }
+    if (!tok.startsWith("-")) continue; // a flag's VALUE, not a flag itself
+    if (DIGESTED_VALUE_FLAGS.has(tok)) {
+      parts.push(`${tok}=${argv[i + 1] ?? ""}`);
+      i++;
+      continue;
+    }
+    parts.push(tok);
+  }
+  parts.push(`--plugin-dir*${pluginDirCount}`);
+  const canonical = [...parts].sort().join("|");
+  return crypto
+    .createHash("sha256")
+    .update(canonical)
+    .digest("hex")
+    .slice(0, 16);
+}
+
 const ENV_STRIP = ["FLOW_SLUG", "TMUX_PANE", "CLAUDECODE"] as const;
 
 export function buildChildEnv(
   scenario: ResolvedScenario,
   fixture: MaterializedFixture,
   base: NodeJS.ProcessEnv,
+  arm: Arm = "with",
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(base)) {
@@ -249,7 +318,12 @@ export function buildChildEnv(
   // symlinks the maintainer's shell already has on PATH. `withPluginPath`
   // (append-only) is the right shape for a live flow session's own PATH
   // extension elsewhere; a hermetic eval child needs the opposite order.
-  const pluginBin = pluginBinPath(fixture.pluginRoots);
+  // The `"without"` arm drops the plugin-bin segment entirely — otherwise
+  // the bare arm would still resolve `flow-state-update`,
+  // `flow-pre-commit`, etc. off PATH even with no `--plugin-dir` loaded.
+  // `fixture.shimDir` stays in PATH either way: the `gh` shim is scenario
+  // infrastructure (mocking a real external tool), not flow scaffold.
+  const pluginBin = arm === "without" ? "" : pluginBinPath(fixture.pluginRoots);
   env.PATH = [fixture.shimDir, pluginBin, base.PATH ?? ""]
     .filter((seg) => seg.length > 0)
     .join(":");
@@ -304,6 +378,14 @@ export type RunOutcome = {
   events: StreamEvent[];
   result: ResultEnvelope | null;
   error?: string;
+  /** Stamped straight from `opts.arm` — omitted (not `"with"`) unless the
+   * caller passed one, so a single-arm (no `--ablation`) run's outcome
+   * carries no `arm` key at all. */
+  arm?: Arm;
+  /** `childArgvDigest(argv)` for THIS run's composed argv — threaded up so
+   * `runSuite` can stamp `EvalReport.runner.childArgvDigest` without
+   * recomputing the argv shape itself. */
+  childArgvDigest: string;
 };
 
 export async function runScenarioOnce(
@@ -319,6 +401,9 @@ export async function runScenarioOnce(
     keepSessions?: boolean;
     spawn?: SpawnFn;
     readFile?: (p: string) => string;
+    /** `"with"` (default) is byte-identical to today's argv/env. See
+     * `buildChildArgv`/`buildChildEnv`'s own `arm` doc comments. */
+    arm?: Arm;
   },
 ): Promise<RunOutcome> {
   const readFile = opts.readFile ?? ((p: string) => fs.readFileSync(p, "utf8"));
@@ -336,8 +421,10 @@ export async function runScenarioOnce(
     model: opts.model,
     effort: opts.effort,
     keepSessions: opts.keepSessions,
+    arm: opts.arm,
   });
-  const env = buildChildEnv(scenario, fixture, process.env);
+  const env = buildChildEnv(scenario, fixture, process.env, opts.arm ?? "with");
+  const digest = childArgvDigest(argv);
 
   let out = "";
   let stderrOut = "";
@@ -379,6 +466,8 @@ export async function runScenarioOnce(
     assistantTextPath,
     events,
     result,
+    childArgvDigest: digest,
     ...(error ? { error } : {}),
+    ...(opts.arm ? { arm: opts.arm } : {}),
   };
 }

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { main, parseArgs, type Deps } from "./lib/eval-cli";
 import { materializeFixture } from "./lib/eval-fixture";
 import { gradeAll } from "./lib/eval-graders";
+import { buildChildArgv } from "./lib/eval-runner";
 import type { EvalReport } from "./lib/eval-report";
 
 // No test in this file ever spawns a real `claude` or `gh` process: every
@@ -300,6 +301,7 @@ describe("main run — stale run dir", () => {
           root: "/r",
           repoDir: "/r/repo",
           claudeHome: "/r/home",
+          bareClaudeHome: "/r/bare-home",
           pluginRoots: [],
           shimDir: "/r/shims",
           slug: "eval-fake-suite-s1-r1",
@@ -433,6 +435,156 @@ describe("main run --dry-run", () => {
   });
 });
 
+describe("main run --ablation with-without", () => {
+  // Scout finding (mirrors this file's own doc comment): the --dry-run
+  // branch never calls `deps.runScenarioOnce` at all (it grades the
+  // fixture directly), so the without-arm's composed argv cannot be
+  // observed through a dry run — adapted to a real (non-dry-run) run
+  // whose `runScenarioOnce` double calls the REAL `buildChildArgv` to
+  // produce a genuine composed argv, giving actual end-to-end coverage
+  // through the CLI's Deps injection rather than a dry-run stand-in.
+  it("the without arm's composed argv omits every --plugin-dir, and both arms write to distinct run directories", async () => {
+    const fs = memFs(baseFiles());
+    const capturedArgvByArm: Record<string, string[]> = {};
+    const capturedOutDirs: string[] = [];
+    const deps = fakeDeps(fs, {
+      materializeFixture: (_scenario, _suiteId, run, opts) =>
+        ({
+          root: "/r",
+          repoDir: "/r/repo",
+          claudeHome: "/r/home",
+          bareClaudeHome: "/r/bare-home",
+          pluginRoots: ["/r/home/.claude/skills/flow-module-core"],
+          shimDir: "/r/shims",
+          slug: `eval-fake-suite-s1-r${run}${opts?.arm === "without" ? "-wo" : ""}`,
+          stateDir: "/state",
+          teardown: () => {},
+        }) as ReturnType<Deps["materializeFixture"]>,
+      runScenarioOnce: async (scenario, fixture, opts) => {
+        capturedOutDirs.push(opts.outDir);
+        const argv = buildChildArgv(scenario, fixture, {
+          claudeBin: opts.claudeBin,
+          sessionId: opts.sessionId,
+          prompt: "prompt",
+          arm: opts.arm,
+        });
+        capturedArgvByArm[opts.arm ?? "with"] = argv;
+        return {
+          exitCode: 0,
+          timedOut: false,
+          streamPath: "/r/stream.jsonl",
+          assistantTextPath: "/r/assistant-text.txt",
+          events: [],
+          result: null,
+          childArgvDigest: "digest",
+          ...(opts.arm ? { arm: opts.arm } : {}),
+        } as Awaited<ReturnType<Deps["runScenarioOnce"]>>;
+      },
+    });
+    const code = await main(
+      [
+        "run",
+        "--suite",
+        "fake-suite",
+        "--out",
+        "out",
+        "--evals-dir",
+        "evals",
+        "--ablation",
+        "with-without",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    expect(capturedArgvByArm.without).toBeDefined();
+    expect(capturedArgvByArm.without).not.toContain("--plugin-dir");
+    expect(capturedArgvByArm.with).toContain("--plugin-dir");
+    // Task 6b collision guard: the with/without pair for run 1 must never
+    // resolve to the same run directory (the second arm's `deps.rm`
+    // would otherwise delete the first arm's output).
+    expect(capturedOutDirs).toHaveLength(2);
+    expect(new Set(capturedOutDirs).size).toBe(2);
+  });
+
+  // Marking `plugin-loaded` withOnly stops the bare arm being scored on a
+  // gate it can never pass — but it also removes the only RUNTIME signal
+  // that would catch an ablation leak. `ablation-leak-free` is the
+  // inverted replacement; these two cases are what stop it from silently
+  // passing on a leaked run.
+  it("gates the without arm on ablation-leak-free, failing it when the transcript still names a plugin root", async () => {
+    for (const [label, streamBody, shouldPass] of [
+      ["clean", '{"type":"assistant"}\n', true],
+      ["leaked", '{"type":"assistant","text":"flow-module-core"}\n', false],
+    ] as const) {
+      const fs = memFs(baseFiles());
+      const gradesByArm: Record<string, string[]> = {};
+      const passByArm: Record<string, boolean | undefined> = {};
+      const deps = fakeDeps(fs, {
+        materializeFixture: (_scenario, _suiteId, run, opts) =>
+          ({
+            root: "/r",
+            repoDir: "/r/repo",
+            claudeHome: "/r/home",
+            bareClaudeHome: "/r/bare-home",
+            pluginRoots: ["/r/home/.claude/skills/flow-module-core"],
+            shimDir: "/r/shims",
+            slug: `eval-fake-suite-s1-r${run}${opts?.arm === "without" ? "-wo" : ""}`,
+            stateDir: "/state",
+            teardown: () => {},
+          }) as ReturnType<Deps["materializeFixture"]>,
+        runScenarioOnce: async (_scenario, _fixture, opts) => {
+          const streamPath = `/r/stream-${opts.arm ?? "with"}.jsonl`;
+          fs.files[streamPath] = streamBody;
+          return {
+            exitCode: 0,
+            timedOut: false,
+            streamPath,
+            assistantTextPath: "/r/assistant-text.txt",
+            events: [],
+            result: null,
+            childArgvDigest: "digest",
+            ...(opts.arm ? { arm: opts.arm } : {}),
+          } as Awaited<ReturnType<Deps["runScenarioOnce"]>>;
+        },
+      });
+
+      await main(
+        [
+          "run",
+          "--suite",
+          "fake-suite",
+          "--out",
+          "out",
+          "--evals-dir",
+          "evals",
+          "--ablation",
+          "with-without",
+        ],
+        deps,
+      );
+
+      for (const [p, body] of Object.entries(fs.files)) {
+        if (!p.endsWith("grades.json")) continue;
+        // The run directory is arm-qualified as `run-N-without` (see
+        // `runDir` in eval-cli.ts) — that suffix is the only thing
+        // distinguishing the two arms' output here.
+        const arm = p.includes("-without/") ? "without" : "with";
+        const parsed = JSON.parse(body) as {
+          grades: { id: string; pass: boolean }[];
+        };
+        gradesByArm[arm] = parsed.grades.map((g) => g.id);
+        passByArm[arm] = parsed.grades.find(
+          (g) => g.id === "ablation-leak-free",
+        )?.pass;
+      }
+
+      expect(gradesByArm.with ?? [], label).not.toContain("ablation-leak-free");
+      expect(gradesByArm.without ?? [], label).toContain("ablation-leak-free");
+      expect(passByArm.without, label).toBe(shouldPass);
+    }
+  });
+});
+
 describe("main run --threshold", () => {
   it("exits 1 when the suite score misses the threshold", async () => {
     const files = baseFiles();
@@ -448,6 +600,7 @@ describe("main run --threshold", () => {
           root: "/r",
           repoDir: "/r/repo",
           claudeHome: "/r/home",
+          bareClaudeHome: "/r/bare-home",
           pluginRoots: [],
           shimDir: "/r/shims",
           slug: "eval-fake-suite-s1-r1",
@@ -462,6 +615,7 @@ describe("main run --threshold", () => {
           assistantTextPath: "/r/assistant-text.txt",
           events: [],
           result: null,
+          childArgvDigest: "digest",
         }) as Awaited<ReturnType<Deps["runScenarioOnce"]>>,
       // $REPO/out.txt is never written by this fake, so the `exists`
       // grader fails -> score 0 -> below any positive threshold.
@@ -511,6 +665,7 @@ describe("main run --record-baseline", () => {
           root: "/r",
           repoDir: "/r/repo",
           claudeHome: "/r/home",
+          bareClaudeHome: "/r/bare-home",
           pluginRoots: [],
           shimDir: "/r/shims",
           slug: "eval-fake-suite-s1-r1",
@@ -525,6 +680,7 @@ describe("main run --record-baseline", () => {
           assistantTextPath: "/r/assistant-text.txt",
           events: [],
           result: null,
+          childArgvDigest: "digest",
         }) as Awaited<ReturnType<Deps["runScenarioOnce"]>>,
       ...overrides,
     });
@@ -869,6 +1025,7 @@ describe("concurrency pool", () => {
           root: "/r",
           repoDir: "/r/repo",
           claudeHome: "/r/home",
+          bareClaudeHome: "/r/bare-home",
           pluginRoots: [],
           shimDir: "/r/shims",
           slug: "eval-fake-suite-x-r1",
@@ -887,6 +1044,7 @@ describe("concurrency pool", () => {
           assistantTextPath: "/r/assistant-text.txt",
           events: [],
           result: null,
+          childArgvDigest: "digest",
         } as Awaited<ReturnType<Deps["runScenarioOnce"]>>;
       },
     });

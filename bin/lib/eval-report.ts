@@ -11,6 +11,14 @@ import type { ValidationErr, ValidationResult } from "./eval-suite";
 
 export const EVAL_REPORT_SCHEMA_VERSION = 1;
 
+/**
+ * `"with"` — the plugin-bearing arm, the harness's only arm before
+ * `--ablation`. `"without"` — the no-plugin baseline arm `--ablation
+ * with-without` adds. Every field this arm introduces is optional/additive
+ * so `schemaVersion` stays 1.
+ */
+export type Arm = "with" | "without";
+
 export type GradeResult = {
   id: string;
   kind: GraderKind;
@@ -36,6 +44,20 @@ export type RunRecord = {
   durationMs?: number;
   numTurns?: number;
   error?: string;
+  /** Omitted (not `"with"`) on the single-arm path, so a report recorded
+   * without `--ablation` stays byte-identical to today's shape. */
+  arm?: Arm;
+  /**
+   * `childArgvDigest(argv)` for THIS run's composed child argv, mirrored
+   * from `eval-runner.ts`'s `RunOutcome.childArgvDigest`. Not named in
+   * the plan's field list for `RunRecord` (only `EvalReport.runner`
+   * named it) — added here as the natural per-run provenance field
+   * (alongside `sessionId`/`costUsd`) so `runSuite` can lift ONE run's
+   * digest into the report-level `runner.childArgvDigest` without a
+   * separate out-of-band side channel. Optional/additive, so it never
+   * touches the single-arm byte-identity requirement.
+   */
+  childArgvDigest?: string;
 };
 
 export type MetricSummary = {
@@ -46,6 +68,21 @@ export type MetricSummary = {
   values: number[];
 };
 
+/**
+ * Per-scenario `--ablation with-without` result. `with`/`without` each
+ * carry the same `{score, metrics}` shape as the scenario's own top-level
+ * fields, PLUS `avgCostUsd` — an adaptation beyond the plan's literal
+ * `{score, metrics}` pair: Task 7's headline rule requires leading with
+ * cost/context/turn deltas, and cost lives on `RunRecord.costUsd`, never
+ * inside the `metrics` record, so `avgCostUsd` is the only way to carry it
+ * through without inventing a synthetic metrics key.
+ */
+export type ArmSummary = {
+  score: number;
+  metrics: Record<string, MetricSummary>;
+  avgCostUsd: number;
+};
+
 export type ScenarioRecord = {
   id: string;
   title: string;
@@ -53,6 +90,12 @@ export type ScenarioRecord = {
   score: number;
   runs: RunRecord[];
   metrics: Record<string, MetricSummary>;
+  ablation?: {
+    with: ArmSummary;
+    without: ArmSummary;
+    scoreDelta: number;
+    metricDeltas: Record<string, number>;
+  };
 };
 
 export type EvalReport = {
@@ -63,6 +106,16 @@ export type EvalReport = {
     model?: string;
     effort?: string;
     notes?: string[];
+    /**
+     * A hash of the composed child argv's flag NAMES plus the fixed
+     * values of the permission/setting-sources/tools flags and a
+     * `--plugin-dir` count — never the prompt, session id, or fixture
+     * paths (see `childArgvDigest` in `./eval-runner`). `compare` warns
+     * when base and candidate carry different digests: the two reports
+     * were produced by differently-shaped children, not just different
+     * trees.
+     */
+    childArgvDigest?: string;
   };
   tree: { gitHead: string; dirty: boolean };
   suite: string;
@@ -77,6 +130,9 @@ export type EvalReport = {
     failed: number;
     errored: number;
     costUsd: number;
+    /** Mean of every scenario's `ablation.scoreDelta`, present only when
+     * at least one scenario carries an `ablation` field. */
+    scoreDelta?: number;
   };
   skipped?: {
     reason:
@@ -142,6 +198,10 @@ function isGradeResult(v: unknown): v is GradeResult {
   );
 }
 
+function isArm(v: unknown): v is Arm {
+  return v === "with" || v === "without";
+}
+
 function isRunRecord(v: unknown): v is RunRecord {
   if (!isPlainObject(v)) return false;
   if (!isNumber(v.run)) return false;
@@ -149,6 +209,10 @@ function isRunRecord(v: unknown): v is RunRecord {
   if (!isNumber(v.score)) return false;
   if (!Array.isArray(v.grades) || !v.grades.every(isGradeResult)) return false;
   if (!isMetricsRecord(v.metrics)) return false;
+  if (v.arm !== undefined && !isArm(v.arm)) return false;
+  if (v.childArgvDigest !== undefined && !isString(v.childArgvDigest)) {
+    return false;
+  }
   return true;
 }
 
@@ -164,6 +228,20 @@ function isMetricSummary(v: unknown): v is MetricSummary {
   );
 }
 
+function isArmSummary(v: unknown): v is ArmSummary {
+  if (!isPlainObject(v)) return false;
+  return (
+    isNumber(v.score) &&
+    isPlainObject(v.metrics) &&
+    Object.values(v.metrics).every(isMetricSummary) &&
+    isNumber(v.avgCostUsd)
+  );
+}
+
+function isMetricDeltas(v: unknown): v is Record<string, number> {
+  return isPlainObject(v) && Object.values(v).every(isNumber);
+}
+
 function isScenarioRecord(v: unknown): v is ScenarioRecord {
   if (!isPlainObject(v)) return false;
   if (!isNonEmptyString(v.id)) return false;
@@ -177,6 +255,18 @@ function isScenarioRecord(v: unknown): v is ScenarioRecord {
   ) {
     return false;
   }
+  if (v.ablation !== undefined) {
+    const a = v.ablation;
+    if (
+      !isPlainObject(a) ||
+      !isArmSummary(a.with) ||
+      !isArmSummary(a.without) ||
+      !isNumber(a.scoreDelta) ||
+      !isMetricDeltas(a.metricDeltas)
+    ) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -185,6 +275,12 @@ export function validateReport(o: unknown): ValidationResult<EvalReport> {
   if (o.schemaVersion !== 1) return err("'schemaVersion' must be 1");
   if (!isPlainObject(o.runner) || o.runner.name !== "flow-eval-headless") {
     return err("'runner.name' must be 'flow-eval-headless'");
+  }
+  if (
+    o.runner.childArgvDigest !== undefined &&
+    !isString(o.runner.childArgvDigest)
+  ) {
+    return err("'runner.childArgvDigest' must be a string");
   }
   if (
     !isPlainObject(o.tree) ||
@@ -218,6 +314,9 @@ export function validateReport(o: unknown): ValidationResult<EvalReport> {
       "'summary' must carry score/scenarios/passed/failed/errored/costUsd numbers",
     );
   }
+  if (s.scoreDelta !== undefined && !isNumber(s.scoreDelta)) {
+    return err("'summary.scoreDelta' must be a number when present");
+  }
   if (o.skipped !== undefined) {
     const skip = o.skipped;
     const validReasons = new Set([
@@ -241,9 +340,27 @@ export function validateReport(o: unknown): ValidationResult<EvalReport> {
  * `passed gates / total gates`. Informational (`gate: false`) graders are
  * excluded from both numerator and denominator. A scenario with zero gate
  * graders scores 1 (vacuously satisfied, never a divide-by-zero fail).
+ *
+ * `arm`/`withOnlyIds` are additive (both default to the single-arm
+ * behaviour, so an un-widened call site is byte-identical to before):
+ * when `arm` is `"without"`, any grade whose `id` is in `withOnlyIds` is
+ * ALSO excluded from both numerator and denominator — a `withOnly` grader
+ * (e.g. `plugin-loaded`) can never pass in the no-plugin baseline arm, so
+ * counting it there would make every scenario's `scoreDelta` a fixed,
+ * information-free constant rather than a real measurement. `withOnlyIds`
+ * is deliberately an id set rather than a field on `GradeResult` itself —
+ * the caller already holds the scenario's `GraderSpec[]` (which carries
+ * `withOnly`) at the point it calls this, so no new field needs to round
+ * -trip through the grading pipeline.
  */
-export function scoreRun(grades: GradeResult[]): number {
-  const gates = grades.filter((g) => g.gate);
+export function scoreRun(
+  grades: GradeResult[],
+  arm: Arm = "with",
+  withOnlyIds: ReadonlySet<string> = new Set(),
+): number {
+  const gates = grades.filter(
+    (g) => g.gate && !(arm === "without" && withOnlyIds.has(g.id)),
+  );
   if (gates.length === 0) return 1;
   const passed = gates.filter((g) => g.pass).length;
   return passed / gates.length;
@@ -330,6 +447,12 @@ export function buildReport(args: {
   startedAt: string;
   finishedAt: string;
   skipped?: EvalReport["skipped"];
+  /** Mean of every scenario's `ablation.scoreDelta`, computed by the
+   * caller (which owns the per-arm job list) and threaded straight into
+   * `summary.scoreDelta`. Absent whenever no scenario ran an ablation
+   * arm — the `--threshold` gate then reads the same `summary.score`
+   * shape it always has. */
+  summaryScoreDelta?: number;
 }): EvalReport {
   const passed = args.scenarios.filter((s) => s.status === "pass").length;
   const failed = args.scenarios.filter((s) => s.status === "fail").length;
@@ -339,8 +462,19 @@ export function buildReport(args: {
     scored.length === 0
       ? 0
       : scored.reduce((sum, s) => sum + s.score, 0) / scored.length;
+  // Explicit with-arm restriction: `s.runs` is the caller's contract to
+  // hold only with-arm RunRecords (the without-arm's own runs are folded
+  // separately into `s.ablation.without`, never appended here) — this
+  // filter is a defensive backstop, not a no-op left to chance, so a
+  // future caller that DID start appending without-arm runs into `.runs`
+  // could never silently double the reported cost or skew the threshold
+  // gate's score.
   const costUsd = args.scenarios.reduce(
-    (sum, s) => sum + s.runs.reduce((rs, r) => rs + (r.costUsd ?? 0), 0),
+    (sum, s) =>
+      sum +
+      s.runs
+        .filter((r) => r.arm !== "without")
+        .reduce((rs, r) => rs + (r.costUsd ?? 0), 0),
     0,
   );
 
@@ -360,6 +494,9 @@ export function buildReport(args: {
       failed,
       errored,
       costUsd,
+      ...(args.summaryScoreDelta !== undefined
+        ? { scoreDelta: args.summaryScoreDelta }
+        : {}),
     },
     ...(args.skipped ? { skipped: args.skipped } : {}),
   };
@@ -404,6 +541,62 @@ export function renderSummary(r: EvalReport): string {
     "",
     `Suite score: **${fmtNum(r.summary.score)}** (${r.summary.passed}/${r.summary.scenarios} passed, ${r.summary.failed} failed, ${r.summary.errored} errored, $${fmtNum(r.summary.costUsd)})`,
   );
+
+  // OFF-LIMITS invariant (docs/eval/baseline/README.md:14-19 forbids a
+  // feature PR regenerating the committed *.summary.md files): every line
+  // above this point is unconditional, so a report with no scenario
+  // carrying `ablation` produces BYTE-IDENTICAL output to before this
+  // function existed — asserted directly in eval-report.test.ts. This
+  // section is additive ONLY, gated behind `hasAblation`.
+  const hasAblation = r.scenarios.some((s) => s.ablation);
+  if (hasAblation) {
+    // Task 7's headline rule: lead with the per-metric cost/context/turn
+    // deltas (absolute AND as a % of the without arm), with scoreDelta
+    // shown alongside — never as the sole or primary number.
+    lines.push(
+      "",
+      "## Plugin ablation (with vs without)",
+      "",
+      "Leading deltas — cost/context/turns, with vs without the plugin (Δ and Δ% of the without arm):",
+      "",
+      "| Scenario | Metric | With | Without | Δ | Δ% (of without) |",
+      "| --- | --- | --- | --- | --- | --- |",
+    );
+    const pctOfWithout = (delta: number, without: number): string =>
+      without === 0
+        ? "n/a"
+        : `${((delta / Math.abs(without)) * 100).toFixed(1)}%`;
+    for (const s of r.scenarios) {
+      if (!s.ablation) continue;
+      const rows: Array<[string, number, number]> = [
+        ["costUsd", s.ablation.with.avgCostUsd, s.ablation.without.avgCostUsd],
+        [
+          "transcript.finalContextTokens",
+          s.ablation.with.metrics["transcript.finalContextTokens"]?.median ??
+            NaN,
+          s.ablation.without.metrics["transcript.finalContextTokens"]?.median ??
+            NaN,
+        ],
+        [
+          "result.num_turns",
+          s.ablation.with.metrics["result.num_turns"]?.median ?? NaN,
+          s.ablation.without.metrics["result.num_turns"]?.median ?? NaN,
+        ],
+      ];
+      for (const [name, withVal, withoutVal] of rows) {
+        if (Number.isNaN(withVal) || Number.isNaN(withoutVal)) continue;
+        const delta = withVal - withoutVal;
+        lines.push(
+          `| ${s.id} | ${name} | ${fmtNum(withVal)} | ${fmtNum(withoutVal)} | ${fmtNum(delta)} | ${pctOfWithout(delta, withoutVal)} |`,
+        );
+      }
+    }
+    lines.push(
+      "",
+      `Suite scoreDelta: **${fmtNum(r.summary.scoreDelta ?? 0)}** (with-arm score vs without-arm score — secondary to the deltas above, never the plugin's sole signal)`,
+    );
+  }
+
   return lines.join("\n");
 }
 
@@ -465,13 +658,18 @@ export function compareReports(
   const warnings: string[] = [];
   const regressions: string[] = [];
 
+  const childArgvDigestDrift =
+    base.runner.childArgvDigest !== undefined &&
+    cand.runner.childArgvDigest !== undefined &&
+    base.runner.childArgvDigest !== cand.runner.childArgvDigest;
   const environmentMismatch =
     base.runner.model !== cand.runner.model ||
     base.runner.effort !== cand.runner.effort ||
-    base.runner.claudeVersion !== cand.runner.claudeVersion;
+    base.runner.claudeVersion !== cand.runner.claudeVersion ||
+    childArgvDigestDrift;
   if (environmentMismatch) {
     warnings.push(
-      `runner mismatch: model ${base.runner.model ?? "n/a"} -> ${cand.runner.model ?? "n/a"}, effort ${base.runner.effort ?? "n/a"} -> ${cand.runner.effort ?? "n/a"}, claudeVersion ${base.runner.claudeVersion ?? "n/a"} -> ${cand.runner.claudeVersion ?? "n/a"}`,
+      `runner mismatch: model ${base.runner.model ?? "n/a"} -> ${cand.runner.model ?? "n/a"}, effort ${base.runner.effort ?? "n/a"} -> ${cand.runner.effort ?? "n/a"}, claudeVersion ${base.runner.claudeVersion ?? "n/a"} -> ${cand.runner.claudeVersion ?? "n/a"}${childArgvDigestDrift ? `, childArgvDigest ${base.runner.childArgvDigest} -> ${cand.runner.childArgvDigest} (the composed child argv/env shape itself differs)` : ""}`,
     );
   }
 

@@ -38,7 +38,8 @@ export type ProbeId =
   | "bin-path-injection"
   | "enabled-plugins"
   | "skill-invocation-name"
-  | "agent-invocation-name";
+  | "agent-invocation-name"
+  | "plugin-eval-availability";
 
 export type ProbeVerdict = {
   id: ProbeId;
@@ -54,6 +55,7 @@ const PROBE_IDS: ProbeId[] = [
   "enabled-plugins",
   "skill-invocation-name",
   "agent-invocation-name",
+  "plugin-eval-availability",
 ];
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -69,11 +71,18 @@ function commandOnPath(cmd: string): boolean {
   return result.status === 0;
 }
 
-type ClaudeResult = { stdout: string; exitCode: number; timedOut: boolean };
+type ClaudeResult = {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  timedOut: boolean;
+};
 
-/** Runs `claude <args>`, capturing stdout ONLY, with an in-process hard
- * timeout. `cwd`/`env.HOME` scope every invocation to the caller's fixture —
- * never the real user home. */
+/** Runs `claude <args>`, capturing stdout and stderr on SEPARATE pipes, with
+ * an in-process hard timeout. `cwd`/`env.HOME` scope every invocation to the
+ * caller's fixture — never the real user home. Streams are never merged
+ * (`2>&1`): each lands in its own field so a downstream JSON parse of stdout
+ * is never corrupted by stderr progress/diagnostic lines. */
 function runClaude(
   args: string[],
   opts: { cwd?: string; home?: string; timeoutMs?: number } = {},
@@ -87,9 +96,10 @@ function runClaude(
         CI: "1",
         ...(opts.home ? { HOME: opts.home } : {}),
       },
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
+    let stderr = "";
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
@@ -98,9 +108,12 @@ function runClaude(
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
     const finish = (exitCode: number) => {
       clearTimeout(timer);
-      resolve({ stdout, exitCode, timedOut });
+      resolve({ stdout, stderr, exitCode, timedOut });
     };
     child.on("close", (code) => finish(code ?? -1));
     child.on("error", () => finish(-1));
@@ -415,21 +428,25 @@ async function probeAgentInvocationName(
   // basename via a `-p` session, and inspect whichever identifier form the
   // tool call actually resolves against — never inferred from display
   // output.
-  const taskResult = await runClaude(
-    [
-      "--plugin-dir",
-      root,
-      "-p",
-      "Use the Task tool to spawn a subagent with subagent_type: flow-probe-agent, description: probe, and prompt: 'reply OK'. Report back the exact raw Task-tool result or error text verbatim, unmodified.",
-    ],
-    { home: fixtureHome },
-  );
+  const taskSpawnArgs = [
+    "--plugin-dir",
+    root,
+    "--restricted",
+    "--tools",
+    "Task",
+    "--permission-prompts",
+    "none",
+    "-p",
+    "Use the Task tool to spawn a subagent with subagent_type: flow-probe-agent, description: probe, and prompt: 'reply OK'. Report back the exact raw Task-tool result or error text verbatim, unmodified.",
+  ];
+  const appliedFlags = "--restricted --tools Task --permission-prompts none";
+  const taskResult = await runClaude(taskSpawnArgs, { home: fixtureHome });
 
   if (taskResult.timedOut) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `Task-tool spawn probe timed out after ${DEFAULT_TIMEOUT_MS}ms. Display-only corroboration: ${detailsEvidence}`,
+      evidence: `Task-tool spawn probe (applied flags: ${appliedFlags}) timed out after ${DEFAULT_TIMEOUT_MS}ms. Display-only corroboration: ${detailsEvidence}`,
       fallback:
         "the deferred agent-move follow-up ships without a verified naming answer; re-probe before implementing it",
     };
@@ -438,7 +455,7 @@ async function probeAgentInvocationName(
     return {
       id,
       verdict: "inconclusive",
-      evidence: `Task-tool spawn probe could not authenticate in the isolated fixture HOME ("Not logged in"), so no real Task-tool resolution was observed. Display-only corroboration (non-gating): ${detailsEvidence}`,
+      evidence: `Task-tool spawn probe (applied flags: ${appliedFlags}) could not authenticate in the isolated fixture HOME ("Not logged in"), so no real Task-tool resolution was observed. Display-only corroboration (non-gating): ${detailsEvidence}`,
       fallback:
         "the deferred agent-move follow-up ships without a verified naming answer; re-probe from an authenticated session before implementing it",
     };
@@ -455,16 +472,81 @@ async function probeAgentInvocationName(
     return {
       id,
       verdict: "confirmed",
-      evidence: `Actual Task-tool resolution (gating): a bare 'flow-probe-agent' subagent_type ${bareResolutionFailed ? "fails Task-tool resolution outright" : "was not accepted"}; the plugin-qualified 'flow-module-core:flow-probe-agent' form is what Task-tool resolution recognizes. Raw excerpt: ${taskResult.stdout.trim().slice(0, 300)}. Display-only corroboration (non-gating, NOT used to derive this verdict): ${detailsEvidence}`,
+      evidence: `Actual Task-tool resolution (gating, applied flags: ${appliedFlags}): a bare 'flow-probe-agent' subagent_type ${bareResolutionFailed ? "fails Task-tool resolution outright" : "was not accepted"}; the plugin-qualified 'flow-module-core:flow-probe-agent' form is what Task-tool resolution recognizes. Raw excerpt: ${taskResult.stdout.trim().slice(0, 300)}. Display-only corroboration (non-gating, NOT used to derive this verdict): ${detailsEvidence}`,
     };
   }
 
   return {
     id,
     verdict: "inconclusive",
-    evidence: `Task-tool spawn probe returned exit ${taskResult.exitCode} without a recognizable resolution signal (neither the qualified name nor the 'not found' error appeared): ${taskResult.stdout.trim().slice(0, 300)}. Display-only corroboration (non-gating): ${detailsEvidence}`,
+    evidence: `Task-tool spawn probe (applied flags: ${appliedFlags}) returned exit ${taskResult.exitCode} without a recognizable resolution signal (neither the qualified name nor the 'not found' error appeared): ${taskResult.stdout.trim().slice(0, 300)}. Display-only corroboration (non-gating): ${detailsEvidence}`,
     fallback:
       "the deferred agent-move follow-up ships without a verified naming answer; re-probe before implementing it",
+  };
+}
+
+/** Machine-detects whether `claude plugin eval` is still early-access gated
+ * on the locally installed `claude`. `--help` alone is NOT sufficient
+ * evidence: it renders and exits 0 even while the command is gated, so only
+ * a real (harmless, network-free) invocation — `init --bare <name>` inside
+ * the isolated fixtureHome — can distinguish "documented" from
+ * "available". */
+async function probePluginEvalAvailability(
+  fixtureHome: string,
+): Promise<ProbeVerdict> {
+  const id: ProbeId = "plugin-eval-availability";
+  const helpResult = await runClaude(["plugin", "eval", "--help"], {
+    home: fixtureHome,
+  });
+  if (helpResult.timedOut) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `claude plugin eval --help timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+      fallback: "re-probe before relying on `claude plugin eval` availability",
+    };
+  }
+  if (helpResult.exitCode !== 0) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `claude plugin eval --help exited ${helpResult.exitCode} (stderr: ${helpResult.stderr.trim().slice(0, 300)}) — could not determine gate status`,
+      fallback: "re-probe before relying on `claude plugin eval` availability",
+    };
+  }
+
+  const gatedTarget = `probe-${Date.now()}`;
+  const initResult = await runClaude(
+    ["plugin", "eval", "init", "--bare", gatedTarget],
+    { cwd: fixtureHome, home: fixtureHome },
+  );
+  if (initResult.timedOut) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `claude plugin eval init --bare <name> timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+      fallback: "re-probe before relying on `claude plugin eval` availability",
+    };
+  }
+  if (initResult.exitCode === 0) {
+    return {
+      id,
+      verdict: "confirmed",
+      evidence: `claude plugin eval --help exits 0 and \`claude plugin eval init --bare <name>\` also exits 0 — the early-access gate previously observed is no longer in effect on this claude install`,
+    };
+  }
+  if (/early access/i.test(initResult.stderr)) {
+    return {
+      id,
+      verdict: "refuted",
+      evidence: `claude plugin eval --help exits 0 (documented), but \`claude plugin eval init --bare <name>\` exits ${initResult.exitCode} with stderr: ${initResult.stderr.trim()}`,
+    };
+  }
+  return {
+    id,
+    verdict: "inconclusive",
+    evidence: `claude plugin eval init --bare <name> exited ${initResult.exitCode} without the expected early-access stderr signal (stderr: ${initResult.stderr.trim().slice(0, 300)})`,
+    fallback: "re-probe before relying on `claude plugin eval` availability",
   };
 }
 
@@ -478,6 +560,7 @@ const PROBE_FNS: Record<
   "enabled-plugins": probeEnabledPlugins,
   "skill-invocation-name": probeSkillInvocationName,
   "agent-invocation-name": probeAgentInvocationName,
+  "plugin-eval-availability": probePluginEvalAvailability,
 };
 
 export function runProbes(
