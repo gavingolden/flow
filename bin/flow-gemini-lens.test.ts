@@ -136,6 +136,7 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     },
     mkdirp: () => {},
     writeOut: (line) => calls.out.push(line),
+    fileExists: (p) => files.has(p),
   };
   // Seed the diff file the helper reads.
   files.set("/d.txt", "diff --git a/src/foo.ts ...");
@@ -206,6 +207,114 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
       skipReason: "agy-skip",
       skipClass: "ran-unusable",
     });
+  });
+
+  it("forwards exitCode/agyStatus/agyError diagnostics from the delegate envelope on skip", () => {
+    const deps = makeDeps({
+      runDelegate: () => ({
+        ran: false,
+        skipReason: "agy-timeout",
+        exitCode: 1,
+        agyStatus: "ERROR",
+        agyError: "timeout waiting for response",
+      }),
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "agy-timeout",
+      skipClass: "ran-unusable",
+      exitCode: 1,
+      agyStatus: "ERROR",
+      agyError: "timeout waiting for response",
+    });
+  });
+
+  it("retains .agy-raw as partialArtifactPath on a ran-unusable skip whose raw artifact exists", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPathIdx = argv.indexOf("--out") + 1;
+        const rawPath = argv[rawPathIdx]!;
+        // Simulate a dispatched-but-unusable agy call: the raw artifact
+        // exists on disk, but the envelope itself reports a failure.
+        deps.files.set(rawPath, "not valid json");
+        return { ran: false, skipReason: "agy-timeout", exitCode: 1 };
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "agy-timeout",
+      skipClass: "ran-unusable",
+      partialArtifactPath: `${OUT}.agy-raw`,
+    });
+    expect(deps.files.has(`${OUT}.agy-raw`)).toBe(true);
+    // removeFile(rawPath) is called exactly once — the unconditional
+    // pre-clean at the top of the run, before the raw artifact exists —
+    // and NOT again by cleanScratch's retention, which is what would
+    // delete the file this test asserts survives.
+    expect(deps.calls.removed.filter((p) => p === `${OUT}.agy-raw`)).toEqual([
+      `${OUT}.agy-raw`,
+    ]);
+  });
+
+  it("does not retain .agy-raw (or emit partialArtifactPath) on an environment-class skip", () => {
+    const deps = makeDeps({
+      readConfig: () => JSON.stringify({}),
+    });
+    run(BASE_ARGV, deps);
+    const env = envelope(deps);
+    expect(env.skipReason).toBe("gemini-lens-disabled");
+    expect(env.partialArtifactPath).toBeUndefined();
+  });
+
+  // NOTE: the default resolveDeps().runDelegate's own JSON.parse-catch (the
+  // rename target) shells out via `Bun.spawnSync`, unavailable under
+  // node-vitest (`npm run test`'s default runner — see
+  // flow-pre-commit.test.ts's "silent-pass hole" comment on the same
+  // constraint); every other spec in this file injects `runDelegate`
+  // directly rather than exercising that fallback, so this spec follows
+  // the same convention and asserts the reason string via an injected
+  // envelope instead of the real spawn path.
+  it("emits skipReason delegate-envelope-unparseable when the delegate call's own envelope reports it", () => {
+    const deps = makeDeps({
+      runDelegate: () => ({
+        ran: false,
+        skipReason: "delegate-envelope-unparseable",
+      }),
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "delegate-envelope-unparseable",
+      // classifyDelegateSkip's unrecognised-reason fallthrough defaults to
+      // ran-unusable (report the safer way) rather than environment — pin
+      // it so a later edit that lists this reason under
+      // ENVIRONMENT_SKIP_REASONS (silently dropping partialArtifactPath
+      // retention for it) is a visible test change, not a silent one.
+      skipClass: "ran-unusable",
+    });
+  });
+
+  it("pre-cleans a stale .agy-raw so a ran-unusable skip that never dispatches cannot report a prior run's file as its own evidence", () => {
+    const deps = makeDeps({
+      runDelegate: () => ({
+        ran: false,
+        skipReason: "delegate-envelope-unparseable",
+      }),
+    });
+    // Seed a .agy-raw left over from a hypothetical prior run's ran-unusable
+    // skip — this run's runDelegate stub never writes rawPath.
+    deps.files.set(`${OUT}.agy-raw`, "stale evidence from a previous run");
+    run(BASE_ARGV, deps);
+    const env = envelope(deps);
+    expect(env).toMatchObject({
+      ran: false,
+      skipReason: "delegate-envelope-unparseable",
+    });
+    expect(env.partialArtifactPath).toBeUndefined();
+    expect(deps.files.has(`${OUT}.agy-raw`)).toBe(false);
   });
 });
 
@@ -332,6 +441,35 @@ describe("run — conformant output", () => {
     expect(argv[argv.indexOf("--output-format") + 1]).toBe("json");
     expect(argv).toContain("--json-schema");
     expect(argv[argv.indexOf("--json-schema") + 1]).toBe(`${OUT}.schema.json`);
+  });
+
+  it("passes --timeout resolveDelegateTimeout('reviewLens') default (8m) to flow-delegate", () => {
+    const deps = makeDeps();
+    run(BASE_ARGV, deps);
+    const argv = deps.calls.delegate[0]!;
+    expect(argv).toContain("--timeout");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe("8m");
+  });
+
+  it("passes an explicit --timeout flag through to flow-delegate", () => {
+    const deps = makeDeps();
+    run([...BASE_ARGV, "--timeout", "6m"], deps);
+    const argv = deps.calls.delegate[0]!;
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe("6m");
+  });
+
+  it("clamps an explicit --timeout flag above the 9m sync ceiling", () => {
+    const deps = makeDeps();
+    run([...BASE_ARGV, "--timeout", "15m"], deps);
+    const argv = deps.calls.delegate[0]!;
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe("9m");
+  });
+
+  it("falls back to the default when an explicit --timeout flag is not a valid Go duration", () => {
+    const deps = makeDeps();
+    run([...BASE_ARGV, "--timeout", "not-a-duration"], deps);
+    const argv = deps.calls.delegate[0]!;
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe("8m");
   });
 
   it("writes AGENT_FINDINGS_JSON_SCHEMA to the --json-schema scratch path before dispatch", () => {
@@ -529,10 +667,13 @@ describe("run — malformed payloads drop the lens, never throw, leave no valid 
       },
     });
     expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    // A ran-unusable skip whose raw artifact exists on disk (it does here —
+    // runDelegate wrote it above) retains it as partialArtifactPath.
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-output-unparseable",
       skipClass: "ran-unusable",
+      partialArtifactPath: `${OUT}.agy-raw`,
     });
     // CRITICAL: no consolidator-valid agent-output-gemini.json left behind.
     expect(deps.files.has(OUT)).toBe(false);
@@ -676,10 +817,13 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
       },
     });
     expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    // The default runDelegate stub still wrote the raw artifact to disk
+    // before this override's readFile started throwing, so it is retained.
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-output-unreadable",
       skipClass: "ran-unusable",
+      partialArtifactPath: `${OUT}.agy-raw`,
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -699,6 +843,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
       ran: false,
       skipReason: "gemini-finalize-failed",
       skipClass: "ran-unusable",
+      partialArtifactPath: `${OUT}.agy-raw`,
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -722,6 +867,7 @@ describe("run — cross-run staleness: a prior --out is cleared before any skip 
       ran: false,
       skipReason: "gemini-output-unparseable",
       skipClass: "ran-unusable",
+      partialArtifactPath: `${OUT}.agy-raw`,
     });
     // CRITICAL: the stale run-1 file is gone — the consolidator can't consume it.
     expect(deps.files.has(OUT)).toBe(false);

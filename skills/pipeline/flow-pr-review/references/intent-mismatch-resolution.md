@@ -57,7 +57,9 @@ flow-gemini-intent-guess --worktree "$WORKTREE" \
 ```
 
 The Bash tool call MUST pass an explicit `timeout: 600000`, since its own
-120000 ms default undercuts flow-delegate's 5m agy call cap.
+120000 ms default undercuts the helper's own agy call
+(`delegate.timeouts.intentGuess`, default 5m, ceiling 9m — see
+`docs/configuration.md`'s "Delegate timeouts" section).
 
 Branch on the helper's `{ran}` stdout envelope, never the exit code (it
 exits 0 on every graceful path): `ran: true` → `intent-guess-gemini.json`

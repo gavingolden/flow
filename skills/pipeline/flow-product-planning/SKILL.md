@@ -220,7 +220,10 @@ description leaves something unspecified, make a defensible assumption based
 on the codebase and project conventions, and surface every assumption you
 made in the PRD's "Open Questions" section (or, under `MODE: epic`, the
 `design.md` "Open Questions" section), each resolved per the resolution-first
-contract (a **Recommended:** answer or a named **Needs user input:** escape).
+contract (a **Recommended:** answer or a named **Needs user input:** escape,
+each `**Recommended:**` line carrying `[confidence: high|medium|low] [anchor: …]`
+and each unchecked entry a `**Stakes:** system|user|both` line per the discovery
+contract's confidence + stakes rubric).
 
 Return a summary of 3–5 labeled bullets — `Problem:` (the problem
 statement in one line), `Tasks:` (the task count), `Candidates:` (the

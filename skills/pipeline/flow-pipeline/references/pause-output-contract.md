@@ -21,12 +21,13 @@ markdown instead of a helper block.
 3. **Labeled slots (omit-when-empty, in this order):**
    - `**Unsolved:**` — open forks, unresolved questions, or known-red
      items left as-is, each with the recommended default inline when
-     one exists.
+     one exists; each item carries its `(high)`/`(medium)` tag inline,
+     anchors omitted.
    - `**Needs attention:**` — high-stakes decisions (see
      `## Definitions`) and items awaiting the user's judgment
      (subjective checks, gated Test Steps with their click target, open
      questions), each stated as before→after plus the option chosen and
-     why.
+     why, plus every crucial-and-uncertain item (see `## Definitions`).
    - `**Manual action:**` — split `before merge:` / `whenever:` (see
      `## Definitions`).
    - `**Untracked:**` — discovered-but-not-tracked work items (see
@@ -79,6 +80,24 @@ more than one viable option. Read these from a plan's
 each as before→after, the option chosen, and why — never as an
 enumerated task or file list (see `## Applicability`'s plan-approval
 entry).
+
+**Crucial-and-uncertain** (feeds `**Needs attention:**`): an Open
+Questions item tagged `[confidence: low]` or carrying `**Needs user
+input:**` — stakes-bearing by construction, since zero-stakes questions
+are never asked (see the interview playbook's Stakes filter). A
+`**Needs user input:**` escape is not a `low`-confidence recommendation —
+it deliberately carries neither a confidence tag nor necessarily a
+recommended default, so the two render distinctly. A genuine
+`[confidence: low]` recommendation renders as `Q<n> (low): <question> —
+default: <recommended>` with no anchor in chat. A `**Needs user
+input:**` item, which carries no `**Recommended:**` line by contract,
+renders instead as `Q<n> (needs input): <question> — default: none` —
+never tagged `(low)` and never fabricating a recommended default.
+Ceiling allocation: crucial-and-uncertain items take the ≤2-bullet
+ceiling FIRST, then high-stakes decisions; overflow collapses to one
+count line — `+N more uncertain — plan: <path>#Open-Questions` for
+uncertain items (a distinct collapse line from the existing high-stakes
+collapse).
 
 **Untracked** (feeds `**Untracked:**`): work discovered mid-run that is
 not in the plan and not filed as an issue — a mechanically-seeded

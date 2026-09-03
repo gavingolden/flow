@@ -86,8 +86,8 @@ instead of the markdown table.
 ## Recording a baseline
 
 One command, from a **plain shell** — never inside a flow session window
-(AGENTS.md forbids a nested `claude -p` from a supervisor; baseline
-recording is a maintainer-initiated action, not a pipeline step):
+(a pipeline may spawn `claude -p` only through `flow-claude-headless`;
+baseline recording is a maintainer-initiated action, not a pipeline step):
 
 Before recording, confirm
 `~/.flow/claude-home/.claude/skills/flow-module-core/agents/` carries

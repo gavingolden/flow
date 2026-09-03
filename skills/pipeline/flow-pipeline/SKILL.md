@@ -58,10 +58,11 @@ Stay in-process for skills; shell out for scripts; never delegate.
 
 > **You are never a sub-agent.** Never call the `Task` / `Agent`
 > tool from this skill — **except for the named exceptions below**.
-> Never spawn a separate `claude -p` subprocess. (This binds the
-> supervisor and its sub-agents and is NOT relaxed; a standalone leaf
-> skill like `/flow-research` run directly firing `claude -p` is a
-> separate context this rule never governed.) The supervisor's
+> Never spawn a raw `claude -p` subprocess — the only sanctioned
+> headless-Claude spawn is `flow-claude-headless` (a Bash fan-out, not a
+> tenth exemption; contract in `references/headless-claude.md`). A
+> standalone leaf skill like `/flow-research` run directly is a separate
+> context this rule never governed. The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
 > calls, and (c) the nine narrowly-named Task-tool exceptions that
 > follow.
@@ -189,6 +190,16 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > the two notes above, NOT a `#10` exemption. Gated on `state.interview`
 > non-empty; gracefully skips on any failure. Documented bidirectionally
 > in `AGENTS.md` `## Don'ts` and `references/blind-survey.md`.
+
+> **Headless Claude via `flow-claude-headless` is a Bash fan-out, not a
+> tenth exemption.** Any skill the supervisor loads — including
+> consumer-repo skills invoked during implement — may run a fixed-model,
+> fixed-effort `claude -p` ONLY through `flow-claude-headless`, which
+> allowlists the child env (`FLOW_SLUG`/`TMUX_PANE` never leak, issue
+> #618), caps spend, refuses to nest, and returns one envelope carrying
+> `total_cost_usd`. It spawns no Task, so the nine-exemption count is
+> unchanged. Documented bidirectionally in `AGENTS.md` `## Don'ts` and
+> `references/headless-claude.md`.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
@@ -825,11 +836,21 @@ After the wrapper returns, **read `<worktree>/.flow-tmp/plan.md`** once
 and print the plan-summary block to chat per `references/pause-output-contract.md`
 — six labeled slots, no open prose, ≤12 lines, ≤2 bullets per slot
 (template: `### ⏸ Plan ready for review` / `**TLDR:** <one-sentence
-user-visible outcome>` / `**Unsolved:** <open answer-sheet items, the
-recommended default inline for each>` / `**Needs attention:**
-<high-stakes decisions read from `## Decision analysis` +
+user-visible outcome, suffixed `(N zero-stakes questions resolved
+without asking)` when N checked `**Stakes:** none` entries exist>` /
+`**Unsolved:** <open answer-sheet items with their `(high)`/`(medium)`
+tag and recommended default inline, anchors omitted>` / `**Needs
+attention:** <high-stakes decisions read from `## Decision analysis` +
 `## Architecture Decisions`, each stated as before→after (from
-`## Behavioral contrast`) plus the option chosen and why, plus one
+`## Behavioral contrast`) plus the option chosen and why, plus every
+crucial-and-uncertain item (`[confidence: low]` or `**Needs user
+input:**`, each carrying the stable `Q<n>` id discovery's numbering rule
+assigns to both) as `Q<n> (low): <question> — default: <recommended>`
+for a genuine low-confidence recommendation, or `Q<n> (needs input):
+<question> — default: none` for a `**Needs user input:**` escape (which
+has no `**Recommended:**` line by contract, so it is never rendered as
+`(low)`), taking the ceiling first and collapsing to `+N more uncertain — plan:
+<path>#Open-Questions` above two, plus one
 `Method: <user's> → <chosen> (survey: <verdict>)` line when
 `## Method selection` is present, plus one
 `Scope: N tasks, M files` line, plus any material risk from
@@ -1034,7 +1055,12 @@ only and the helper exact-matches against them. The blind survey's
   existing retry pattern`) — step 4 classifies it as ONE batched
   Imperative scope/plan revision redirect back to step 3 (see
   `references/redirect-handling.md`), the same disposition as `pull #N
-  into the plan` above, never as a fresh interview round.
+  into the plan` above, never as a fresh interview round. Items render
+  escaped and `[confidence: low]` first, then `medium`, then `high` —
+  `Q<n>` ids are untouched by this display order. A missing
+  `[confidence: …]` tag or missing `**Stakes:**` line (a pre-change
+  `plan.md` on resume) reads as `medium`, is never promoted, and never
+  errors.
 
   **Untracked items at plan-pending-review.** When the `**Untracked:**`
   slot lists items carried over from a prior pipeline run of this same
@@ -3025,7 +3051,8 @@ After each phase transition:
   `/flow-pr-review`'s "Independent Consolidator-Validator Subagent",
   and step 6's "Verify-Retry-Loop Subagent".
   No other skill or step may call Task.
-- The supervisor never spawned a `claude -p` subprocess.
+- The supervisor never spawned a raw `claude -p` subprocess — only
+  `flow-claude-headless` calls.
 
 When the pipeline ends, scrollback contains exactly one of `MERGED`
 / `GATED: <url>` / `NEEDS HUMAN: <reason>` / `cancelled` on its own

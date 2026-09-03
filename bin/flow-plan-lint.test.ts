@@ -1,8 +1,19 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { lintPlan, parseArgs, run } from "./flow-plan-lint";
+
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
+const EXAMPLE_PRD_PATH = path.join(
+  REPO_ROOT,
+  "skills/pipeline/flow-product-planning/references/example-prd.md",
+);
 
 const CONFORMING_PLAN = `# PRD
 
@@ -50,11 +61,12 @@ Users cannot export widgets today.
 ## Open Questions
 
 - [ ] [Is CSV the only export format needed? — a second format adds a task]
-  - **Recommended:** CSV only — the request names CSV and no other consumer exists.
+  - **Stakes:** system — a second format adds a task and a schema change if missed
+  - **Recommended:** CSV only — the request names CSV and no other consumer exists. [confidence: high] [anchor: user: "just CSV for now"]
 
 ## Recommendation
 
-**Proceed** — clear value.
+**Proceed** — clear value. [confidence: medium] [anchor: weighing: risk — self-contained, low-blast-radius scope]
 
 **Redundancy:** none found
 
@@ -569,7 +581,7 @@ describe("lintPlan — Open Questions resolution", () => {
 
   it("names a miss when an unchecked entry lacks both markers", () => {
     const plan = CONFORMING_PLAN.replace(
-      "- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+      '- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Stakes:** system — a second format adds a task and a schema change if missed\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists. [confidence: high] [anchor: user: "just CSV for now"]',
       "- [ ] Should exports be paginated?",
     );
     const { misses } = lintPlan(plan);
@@ -589,7 +601,7 @@ describe("lintPlan — Open Questions resolution", () => {
       writeFileSync(
         planPath,
         CONFORMING_PLAN.replace(
-          "  - **Recommended:** CSV only — the request names CSV and no other consumer exists.\n",
+          '  - **Recommended:** CSV only — the request names CSV and no other consumer exists. [confidence: high] [anchor: user: "just CSV for now"]\n',
           "",
         ),
       );
@@ -619,10 +631,11 @@ describe("lintPlan — Open Questions resolution", () => {
 
   it("flags an unchecked entry followed by a resolved top-level entry (block-boundary slicing)", () => {
     const plan = CONFORMING_PLAN.replace(
-      "- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+      '- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Stakes:** system — a second format adds a task and a schema change if missed\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists. [confidence: high] [anchor: user: "just CSV for now"]',
       "- [ ] Should exports be paginated?\n" +
         "- [ ] [Is CSV the only export format needed? — a second format adds a task]\n" +
-        "  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+        "  - **Stakes:** system — a second format adds a task and a schema change if missed\n" +
+        '  - **Recommended:** CSV only — the request names CSV and no other consumer exists. [confidence: high] [anchor: user: "just CSV for now"]',
     );
     const { misses } = lintPlan(plan);
     expect(
@@ -649,7 +662,7 @@ describe("lintPlan — Open Questions resolution", () => {
 
   it("passes when the '**Recommended:**' marker sits on the entry's own line", () => {
     const plan = CONFORMING_PLAN.replace(
-      "- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+      '- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Stakes:** system — a second format adds a task and a schema change if missed\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists. [confidence: high] [anchor: user: "just CSV for now"]',
       "- [ ] Should exports be paginated? **Recommended:** no — out of scope.",
     );
     const { misses } = lintPlan(plan);
@@ -660,7 +673,7 @@ describe("lintPlan — Open Questions resolution", () => {
     const longLine =
       "Should this extremely long open question line get truncated in the miss message for readability purposes?";
     const plan = CONFORMING_PLAN.replace(
-      "- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+      '- [ ] [Is CSV the only export format needed? — a second format adds a task]\n  - **Stakes:** system — a second format adds a task and a schema change if missed\n  - **Recommended:** CSV only — the request names CSV and no other consumer exists. [confidence: high] [anchor: user: "just CSV for now"]',
       `- [ ] ${longLine}`,
     );
     const { misses } = lintPlan(plan);
@@ -672,11 +685,380 @@ describe("lintPlan — Open Questions resolution", () => {
 
   it("accepts a '**Needs user input:**' escape in place of a recommendation", () => {
     const plan = CONFORMING_PLAN.replace(
-      "  - **Recommended:** CSV only — the request names CSV and no other consumer exists.",
+      '  - **Recommended:** CSV only — the request names CSV and no other consumer exists. [confidence: high] [anchor: user: "just CSV for now"]',
       "  - **Needs user input:** user-held preference on export format.",
     );
     const { misses } = lintPlan(plan);
     expect(misses.some((m) => m.includes("resolution-first"))).toBe(false);
+  });
+});
+
+describe("lintPlan — confidence + stakes markers", () => {
+  function oqPlan(entry: string): string {
+    return `## Open Questions\n\n${entry}\n`;
+  }
+
+  function daPlan(verdictLine: string): string {
+    return `## Decision analysis\n\n${verdictLine}\n\n## Recommendation\n\n**Proceed** — fine. [confidence: high] [anchor: user: "ok"]\n`;
+  }
+
+  it("names a miss when the Recommended line has no confidence tag", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        '- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [anchor: user: "quote"]',
+      ),
+    );
+    expect(misses.some((m) => m.startsWith("confidence-missing"))).toBe(true);
+  });
+
+  it("does not false-positive when a soft-wrapped Recommended entry carries the tag pair on its last line (example-prd.md's shape)", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        "- [ ] Should share links have an expiration date? — redirect adds a nullable\n" +
+          "      `expires_at` column + an expiry check to Task 1's RPC, no other task changes\n" +
+          "  - **Stakes:** system — an unrevocable, non-expiring link is a standing data-exposure\n" +
+          "    surface if the default is wrong\n" +
+          "  - **Recommended:** no expiration for v1, but the schema accommodates adding\n" +
+          "    `expires_at` later — the existing `is_active` toggle (see Architecture Decisions)\n" +
+          "    already gives O(1) revocation, so an expiry column is additive, not a redesign\n" +
+          '    [confidence: high] [anchor: user: "see architecture decisions"]',
+      ),
+    );
+    expect(
+      misses.some(
+        (m) =>
+          m.startsWith("confidence-missing") ||
+          m.startsWith("anchor-missing-tag"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not false-positive when a soft-wrapped '## Recommendation' verdict carries the tag pair on a later line (example-prd.md's shape)", () => {
+    const plan =
+      "## Recommendation\n\n" +
+      "**Proceed** — clear user value with a self-contained, low-risk scope; the read-only viewer\n" +
+      "follows the existing domain-module and route patterns, and the open questions are deferrable\n" +
+      'to v1+. [confidence: medium] [anchor: user: "ok"]\n';
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.startsWith("verdict-confidence-missing"))).toBe(
+      false,
+    );
+  });
+
+  it("the shipped example-prd.md's '## Open Questions' and '## Recommendation' sections never trip the soft-wrap checks (drift pin)", () => {
+    const planText = readFileSync(EXAMPLE_PRD_PATH, "utf8");
+    const oqStart = planText.indexOf("## Open Questions");
+    const altStart = planText.indexOf("## Alternatives considered");
+    const recStart = planText.indexOf("## Recommendation");
+    const planRisksStart = planText.indexOf("## Plan risks");
+    expect(oqStart).toBeGreaterThanOrEqual(0);
+    expect(altStart).toBeGreaterThan(oqStart);
+    expect(recStart).toBeGreaterThan(altStart);
+    expect(planRisksStart).toBeGreaterThan(recStart);
+    const snippet =
+      planText.slice(oqStart, altStart) +
+      "\n" +
+      planText.slice(recStart, planRisksStart);
+    const { misses } = lintPlan(snippet, { planMdFile: EXAMPLE_PRD_PATH });
+    expect(
+      misses.filter(
+        (m) =>
+          m.startsWith("confidence-missing") ||
+          m.startsWith("anchor-missing-tag") ||
+          m.startsWith("verdict-confidence-missing"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("names a miss when the Recommended line has a confidence tag but no anchor tag, without the 'must END the line' wording", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: high]",
+      ),
+    );
+    const anchorMiss = misses.find((m) => m.startsWith("anchor-missing-tag"));
+    expect(anchorMiss).toBeDefined();
+    expect(anchorMiss).not.toContain("must END the line");
+  });
+
+  it("names anchor-missing for a 'high' entry whose file path does not exist", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "flow-plan-lint-anchor-"));
+    try {
+      spawnSync("git", ["init", "-q"], { cwd: dir });
+      const planPath = path.join(dir, "plan.md");
+      const plan = oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: high] [anchor: does/not/exist.ts:1]",
+      );
+      writeFileSync(planPath, plan);
+      const { misses } = lintPlan(plan, { planMdFile: planPath });
+      expect(misses.some((m) => m.startsWith("anchor-missing:"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("has no miss for a 'high' entry whose file path exists", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "flow-plan-lint-anchor-"));
+    try {
+      spawnSync("git", ["init", "-q"], { cwd: dir });
+      writeFileSync(path.join(dir, "real.ts"), "export {};\n");
+      const planPath = path.join(dir, "plan.md");
+      const plan = oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: high] [anchor: real.ts:1]",
+      );
+      writeFileSync(planPath, plan);
+      const { misses } = lintPlan(plan, { planMdFile: planPath });
+      expect(
+        misses.some(
+          (m) =>
+            m.startsWith("anchor-missing") || m.startsWith("high-anchor-form"),
+        ),
+      ).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("has no miss for a 'high' entry with a user-quote anchor", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        '- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: high] [anchor: user: "just do it"]',
+      ),
+    );
+    expect(
+      misses.some(
+        (m) =>
+          m.startsWith("anchor-missing") || m.startsWith("high-anchor-form"),
+      ),
+    ).toBe(false);
+  });
+
+  it("names high-anchor-form for a 'high' entry whose anchor is a weighing or inference form", () => {
+    for (const anchor of [
+      "weighing: risk — feels safe",
+      "inference — rises to medium if a precedent surfaces",
+    ]) {
+      const { misses } = lintPlan(
+        oqPlan(
+          `- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: high] [anchor: ${anchor}]`,
+        ),
+      );
+      expect(misses.some((m) => m.startsWith("high-anchor-form"))).toBe(true);
+    }
+  });
+
+  it("does not false-positive when the rationale mentions the tag syntax mid-line and ends with a real tag pair", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        '- [ ] Q?\n  - **Stakes:** system — d\n  - **Recommended:** yes — write it as `[confidence: <level>] [anchor: <ref>]` per the rubric. [confidence: high] [anchor: user: "ok"]',
+      ),
+    );
+    expect(
+      misses.some(
+        (m) =>
+          m.startsWith("confidence-missing") ||
+          m.startsWith("anchor-missing-tag"),
+      ),
+    ).toBe(false);
+  });
+
+  it("names confidence-missing when the Recommended line carries two confidence tags", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        '- [ ] Q?\n  - **Stakes:** system — d\n  - **Recommended:** yes [confidence: medium] — because. [confidence: high] [anchor: user: "ok"]',
+      ),
+    );
+    expect(
+      misses.some(
+        (m) =>
+          m.startsWith("confidence-missing") && m.includes("more than one"),
+      ),
+    ).toBe(true);
+  });
+
+  it("names medium-anchor-form for a 'medium' entry with a bare path", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: medium] [anchor: bin/flow-plan-lint.ts:1]",
+      ),
+    );
+    expect(misses.some((m) => m.startsWith("medium-anchor-form"))).toBe(true);
+  });
+
+  it("has no miss for a 'medium' entry with an existing 'adjacent:' path", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "flow-plan-lint-anchor-"));
+    try {
+      spawnSync("git", ["init", "-q"], { cwd: dir });
+      writeFileSync(path.join(dir, "real.ts"), "export {};\n");
+      const planPath = path.join(dir, "plan.md");
+      const plan = oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: medium] [anchor: adjacent: real.ts:1]",
+      );
+      writeFileSync(planPath, plan);
+      const { misses } = lintPlan(plan, { planMdFile: planPath });
+      expect(
+        misses.some(
+          (m) =>
+            m.startsWith("anchor-missing") ||
+            m.startsWith("medium-anchor-form"),
+        ),
+      ).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("names anchor-missing for a 'medium' entry with a nonexistent 'adjacent:' path", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "flow-plan-lint-anchor-"));
+    try {
+      spawnSync("git", ["init", "-q"], { cwd: dir });
+      const planPath = path.join(dir, "plan.md");
+      const plan = oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: medium] [anchor: adjacent: does/not/exist.ts:1]",
+      );
+      writeFileSync(planPath, plan);
+      const { misses } = lintPlan(plan, { planMdFile: planPath });
+      expect(misses.some((m) => m.startsWith("anchor-missing:"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("has no miss for a 'medium' entry with a closed-list 'weighing:' factor", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: medium] [anchor: weighing: footprint — smaller blast radius]",
+      ),
+    );
+    expect(misses.some((m) => m.startsWith("medium-anchor-form"))).toBe(false);
+  });
+
+  it("names medium-anchor-form for a 'medium' entry with an unlisted 'weighing:' factor", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: medium] [anchor: weighing: vibes — feels right]",
+      ),
+    );
+    expect(misses.some((m) => m.startsWith("medium-anchor-form"))).toBe(true);
+  });
+
+  it("has no miss for a 'low' entry with an 'inference' anchor", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: low] [anchor: inference — rises to medium if a precedent surfaces]",
+      ),
+    );
+    expect(misses.some((m) => m.startsWith("low-anchor-form"))).toBe(false);
+  });
+
+  it("names low-anchor-form for a 'low' entry with a path anchor", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: low] [anchor: bin/flow-plan-lint.ts:1]",
+      ),
+    );
+    expect(misses.some((m) => m.startsWith("low-anchor-form"))).toBe(true);
+  });
+
+  it("names stakes-missing when an unchecked entry has no Stakes line", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        '- [ ] Q?\n  - **Recommended:** yes — because. [confidence: high] [anchor: user: "quote"]',
+      ),
+    );
+    expect(misses.some((m) => m.startsWith("stakes-missing"))).toBe(true);
+  });
+
+  it("names stakes-missing when an unchecked entry declares 'Stakes: none'", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        '- [ ] Q?\n  - **Stakes:** none — resolved without asking\n  - **Recommended:** yes — because. [confidence: high] [anchor: user: "quote"]',
+      ),
+    );
+    expect(misses.some((m) => m.startsWith("stakes-missing"))).toBe(true);
+  });
+
+  it("has no miss for a checked '- [x]' entry with 'Stakes: none'", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        "- [x] Q? — resolved without asking\n  - **Stakes:** none — resolved without asking",
+      ),
+    );
+    expect(misses.some((m) => m.startsWith("stakes-missing"))).toBe(false);
+  });
+
+  it("names verdict-confidence-missing for a Decision analysis Verdict line with no tag", () => {
+    const { misses } = lintPlan(
+      daPlan("**Decision A — fork?** Verdict: **branch 1** — rationale."),
+    );
+    expect(misses.some((m) => m.startsWith("verdict-confidence-missing"))).toBe(
+      true,
+    );
+  });
+
+  it("names verdict-confidence-missing for a Recommendation verdict line with no tag", () => {
+    const { misses } = lintPlan(
+      "## Recommendation\n\n**Proceed** — clear value, no tag.\n",
+    );
+    expect(misses.some((m) => m.startsWith("verdict-confidence-missing"))).toBe(
+      true,
+    );
+  });
+
+  it("names verdict-confidence-missing for only D1 when two Decision analysis Verdict lines are adjacent with no blank line between them", () => {
+    const { misses } = lintPlan(
+      daPlan(
+        "**D1 — q?** a b. Verdict: **A** — no tag here.\n" +
+          "**D2 — q?** a b. Verdict: **B** — tagged. [confidence: high] [anchor: AGENTS.md]",
+      ),
+    );
+    const verdictMisses = misses.filter((m) =>
+      m.startsWith("verdict-confidence-missing"),
+    );
+    expect(verdictMisses.length).toBe(1);
+    expect(verdictMisses[0]).toContain("D1");
+    expect(verdictMisses[0]).not.toContain("D2");
+  });
+
+  it("does not fire verdict-confidence-missing when a tagged verdict soft-wraps onto a continuation line that opens with a bold token", () => {
+    const { misses } = lintPlan(
+      daPlan(
+        "**D1 — q?** a b. Verdict: **A** — same floor, wider count;\n" +
+          "**0 additional interruptions per run** in the common case. [confidence: medium] [anchor: AGENTS.md]",
+      ),
+    );
+    expect(misses.some((m) => m.startsWith("verdict-confidence-missing"))).toBe(
+      false,
+    );
+  });
+
+  it("names an anchor-missing-tag miss that says the tag pair must END the line when trailing prose follows it", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: high] [anchor: AGENTS.md] (see also Q1)",
+      ),
+    );
+    const anchorMiss = misses.find((m) => m.startsWith("anchor-missing-tag"));
+    expect(anchorMiss).toBeDefined();
+    expect(anchorMiss).toContain("must END the line");
+  });
+
+  it("does not fire any of the new checks when the relevant headings are absent", () => {
+    const { misses } = lintPlan(
+      "# Widget Exporter\n\nJust prose, no headings.\n",
+    );
+    expect(
+      misses.some((m) =>
+        [
+          "confidence-missing",
+          "anchor-missing",
+          "medium-anchor-form",
+          "low-anchor-form",
+          "stakes-missing",
+          "verdict-confidence-missing",
+        ].some((prefix) => m.startsWith(prefix)),
+      ),
+    ).toBe(false);
   });
 });
 

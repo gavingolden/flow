@@ -30,6 +30,7 @@ import {
   terminalCarryOver,
   terminalContinueSeed,
 } from "../flow-session-start-hook";
+import { FIXED_DENY_LIST } from "./claude-headless";
 
 export type ClaudeAvailability =
   | { ok: true; version: string }
@@ -211,7 +212,7 @@ export function buildChildArgv(
     // `allowedTools` grants — it is not a substitute for a tight
     // `allowedTools` list, which each scenario still owns.
     "--disallowedTools",
-    "Bash(git push:*),Bash(gh pr merge:*),Bash(gh pr create:*),Bash(gh pr close:*),Bash(gh release:*),Bash(rm -rf node_modules*)",
+    FIXED_DENY_LIST,
     "--max-budget-usd",
     String(scenario.maxBudgetUsd),
     "--session-id",
