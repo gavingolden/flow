@@ -2078,7 +2078,7 @@ Options:
  * runtime consumer, `/flow-research`'s Tier-2 `claude -p` leaf guard
  * (`skills/universal/flow-research/SKILL.md:306`), an epic supervisor should
  * also trip; `FLOW_SLUG` makes every hook/helper in the window resolve the
- * ambient slug env-first instead of depending on a tmux `@flow-slug` read.
+ * ambient slug as the sole ambient carrier (`resolveSlugAmbient` is env-only).
  */
 function launchArgv(
   slug: string,

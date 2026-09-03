@@ -271,3 +271,16 @@ sees an envelope at all — a worse misclassification than a bare
 `agy-timeout` skip. `resolveDelegateTimeout` therefore clamps any override
 above `9m` down to `9m`, warning once per surface on stderr, rather than
 silently passing the unsafe value through.
+
+## tmux status-bar bindings (opt-in)
+
+flow's `@flow-repo` / `@flow-phase` / `@flow-phase-short` / `@flow-epic`
+tmux window options are publish-only mirrors — flow writes them on its own
+windows, but no flow code reads them back; the only user is your own
+tmux status-bar format. Bind them yourself, e.g.:
+
+```sh
+set -g window-status-format '#{@flow-repo} #{@flow-phase-short}'
+```
+
+flow never writes `~/.tmux.conf` or any other part of your tmux config.

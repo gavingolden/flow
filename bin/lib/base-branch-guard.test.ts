@@ -359,6 +359,23 @@ describe("installBaseBranchGuard", () => {
     expect(errors.join("\n")).toMatch(/upgraded the base-branch guard/);
   });
 
+  // LOAD-BEARING, not covered by the byte-equal fixture round-trip: without
+  // this, an existing checkout carrying an installed v4 hook (still shelling
+  // out to tmux) would classify own-outdated but never actually get
+  // rewritten by an ordinary helper invocation, leaving the migration
+  // invisible to every repo that already has the hook installed.
+  it("upgrades a v4 (tmux pane fallback) legacy hook in place — classifies own-outdated and rewrites to v5", () => {
+    fs.mkdirSync(path.dirname(hookPath()), { recursive: true });
+    fs.writeFileSync(hookPath(), readFixture(4), "utf8");
+
+    expect(classifyPreCommitHook(readFixture(4))).toBe("own-outdated");
+
+    const result = installBaseBranchGuard(repoDir);
+    expect(result).toMatchObject({ installed: true, reason: "upgraded" });
+    expect(fs.readFileSync(hookPath(), "utf8")).toBe(BASE_BRANCH_GUARD_HOOK);
+    expect(errors.join("\n")).toMatch(/upgraded the base-branch guard/);
+  });
+
   it("upgrades a hook carrying an OLDER marker version", () => {
     const olderMarkerHook = `#!/bin/sh\n# flow:base-branch-guard v${
       BASE_BRANCH_GUARD_VERSION - 1
@@ -765,32 +782,21 @@ describe("foreignHookNotice", () => {
   });
 });
 
-// Exercises the emitted sh hook through a REAL `git commit`. The hook's only
-// non-git dependency is `tmux show-options ... @flow-slug`, so a tiny `tmux`
-// PATH shim stands in for a live tmux server — that is the single seam between
-// the unit-tested decision function and the actual per-commit behaviour.
+// Exercises the emitted sh hook through a REAL `git commit`. The hook has no
+// non-git dependency (v5 dropped the tmux fallback), so this is pure `git`
+// + `sh` + the ambient env the hook reads directly.
 describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
   let repoDir!: string;
-  let shimDir!: string;
-
-  const writeTmuxShim = (slug: string) => {
-    const p = path.join(shimDir, "tmux");
-    fs.writeFileSync(p, `#!/bin/sh\nprintf '%s\\n' "${slug}"\n`, "utf8");
-    fs.chmodSync(p, 0o755);
-  };
 
   type Env = Record<string, string | undefined>;
 
   // Base env with the ambient flow-session markers stripped (this very test
   // process runs inside one), so each case opts INTO exactly the markers it
-  // needs. shimDir is prefixed so the `tmux` shim wins while real `git`/`sh`
-  // still resolve from the rest of PATH.
+  // needs.
   const baseEnv = (): Env => {
-    const env: Env = {
-      ...(process.env as Env),
-      PATH: `${shimDir}:${process.env.PATH}`,
-    };
+    const env: Env = { ...(process.env as Env) };
     delete env.CLAUDE_CODE_SESSION_ID;
+    delete env.FLOW_SLUG;
     delete env.TMUX_PANE;
     return env;
   };
@@ -847,7 +853,6 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
 
   beforeEach(() => {
     repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-bbg-hook-"));
-    shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-bbg-shim-"));
     execFileSync("git", ["init", "-b", "main"], { cwd: repoDir });
     execFileSync("git", ["config", "user.email", "t@example.com"], {
       cwd: repoDir,
@@ -858,13 +863,15 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
 
   afterEach(() => {
     fs.rmSync(repoDir, { recursive: true, force: true });
-    fs.rmSync(shimDir, { recursive: true, force: true });
   });
 
   it("refuses a default-branch commit inside a flow session", () => {
-    writeTmuxShim("csv-export");
     const r = tryCommit(
-      { ...baseEnv(), CLAUDE_CODE_SESSION_ID: "sess-1", TMUX_PANE: "%1" },
+      {
+        ...baseEnv(),
+        CLAUDE_CODE_SESSION_ID: "sess-1",
+        FLOW_SLUG: "csv-export",
+      },
       "a.txt",
     );
     expect(r.ok).toBe(false);
@@ -872,27 +879,28 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
   });
 
   it("allows a feature-branch commit inside a flow session", () => {
-    writeTmuxShim("csv-export");
     execFileSync("git", ["checkout", "-b", "feature/csv-export"], {
       cwd: repoDir,
     });
     const r = tryCommit(
-      { ...baseEnv(), CLAUDE_CODE_SESSION_ID: "sess-1", TMUX_PANE: "%1" },
+      {
+        ...baseEnv(),
+        CLAUDE_CODE_SESSION_ID: "sess-1",
+        FLOW_SLUG: "csv-export",
+      },
       "b.txt",
     );
     expect(r.ok).toBe(true);
   });
 
   it("allows a default-branch commit outside a flow session (no session id)", () => {
-    writeTmuxShim("csv-export");
-    const r = tryCommit({ ...baseEnv(), TMUX_PANE: "%1" }, "c.txt");
+    const r = tryCommit({ ...baseEnv(), FLOW_SLUG: "csv-export" }, "c.txt");
     expect(r.ok).toBe(true);
   });
 
-  it("allows a default-branch commit when the pane carries no @flow-slug", () => {
-    writeTmuxShim(""); // empty slug → guard is inert
+  it("allows a default-branch commit when FLOW_SLUG is empty (guard is inert)", () => {
     const r = tryCommit(
-      { ...baseEnv(), CLAUDE_CODE_SESSION_ID: "sess-1", TMUX_PANE: "%1" },
+      { ...baseEnv(), CLAUDE_CODE_SESSION_ID: "sess-1", FLOW_SLUG: "" },
       "d.txt",
     );
     expect(r.ok).toBe(true);
@@ -933,11 +941,10 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
       { cwd: repoDir },
     );
 
-    writeTmuxShim("csv-export");
     const sessionEnv = {
       ...baseEnv(),
       CLAUDE_CODE_SESSION_ID: "sess-1",
-      TMUX_PANE: "%1",
+      FLOW_SLUG: "csv-export",
     };
 
     // HEAD is `trunk` (the origin/HEAD-resolved default) → refused, and the
@@ -968,9 +975,12 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
       cwd: repoDir,
     });
 
-    writeTmuxShim("csv-export");
     const r = tryCommit(
-      { ...baseEnv(), CLAUDE_CODE_SESSION_ID: "sess-1", TMUX_PANE: "%1" },
+      {
+        ...baseEnv(),
+        CLAUDE_CODE_SESSION_ID: "sess-1",
+        FLOW_SLUG: "csv-export",
+      },
       "after-born.txt",
     );
     expect(r.ok).toBe(false);
@@ -998,7 +1008,6 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
         cwd: masterRepo,
       });
 
-      writeTmuxShim("csv-export");
       fs.writeFileSync(path.join(masterRepo, "next.txt"), "next\n", "utf8");
       execFileSync("git", ["add", "next.txt"], { cwd: masterRepo });
       let refused = false;
@@ -1010,7 +1019,7 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
           env: {
             ...baseEnv(),
             CLAUDE_CODE_SESSION_ID: "sess-1",
-            TMUX_PANE: "%1",
+            FLOW_SLUG: "csv-export",
           } as NodeJS.ProcessEnv,
         });
       } catch (err) {
@@ -1025,11 +1034,10 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
   });
 
   it("allows a path-scoped commit of a lone epic status board on the base branch inside a flow session", () => {
-    writeTmuxShim("csv-export");
     const env = {
       ...baseEnv(),
       CLAUDE_CODE_SESSION_ID: "sess-1",
-      TMUX_PANE: "%1",
+      FLOW_SLUG: "csv-export",
     };
     const r = tryPathScopedCommit(
       env,
@@ -1045,11 +1053,10 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
   (hasJq ? it : it.skip)(
     "refuses a staged epic status board that is not valid JSON (jq-gated content check)",
     () => {
-      writeTmuxShim("csv-export");
       const env = {
         ...baseEnv(),
         CLAUDE_CODE_SESSION_ID: "sess-1",
-        TMUX_PANE: "%1",
+        FLOW_SLUG: "csv-export",
       };
       const r = tryPathScopedCommit(
         env,
@@ -1064,11 +1071,10 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
   );
 
   it("refuses a path-scoped commit of manifest.json on the base branch inside a flow session", () => {
-    writeTmuxShim("csv-export");
     const env = {
       ...baseEnv(),
       CLAUDE_CODE_SESSION_ID: "sess-1",
-      TMUX_PANE: "%1",
+      FLOW_SLUG: "csv-export",
     };
     const r = tryPathScopedCommit(
       env,
@@ -1080,11 +1086,10 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
   });
 
   it("leaves an unrelated staged file out of the path-scoped board commit, still staged afterwards", () => {
-    writeTmuxShim("csv-export");
     const env = {
       ...baseEnv(),
       CLAUDE_CODE_SESSION_ID: "sess-1",
-      TMUX_PANE: "%1",
+      FLOW_SLUG: "csv-export",
     };
     // Stage an unrelated file WITHOUT committing it.
     fs.writeFileSync(
@@ -1116,11 +1121,10 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
     // --name-only` prints ONLY the destination path for a detected rename,
     // so this rename would show a single allowlisted `status.json` line and
     // pass the check while committing a DELETION of manifest.json.
-    writeTmuxShim("csv-export");
     const env = {
       ...baseEnv(),
       CLAUDE_CODE_SESSION_ID: "sess-1",
-      TMUX_PANE: "%1",
+      FLOW_SLUG: "csv-export",
     };
     const manifestAbs = path.join(repoDir, ".flow/epics/e1/manifest.json");
     fs.mkdirSync(path.dirname(manifestAbs), { recursive: true });
@@ -1156,11 +1160,10 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
   });
 
   it("the TS mirror (baseBranchGuardDecision) and the real-git sh hook AGREE on a mixed-staged-set (board + unrelated file)", () => {
-    writeTmuxShim("csv-export");
     const env = {
       ...baseEnv(),
       CLAUDE_CODE_SESSION_ID: "sess-1",
-      TMUX_PANE: "%1",
+      FLOW_SLUG: "csv-export",
     };
     const boardAbs = path.join(repoDir, ".flow/epics/e1/status.json");
     fs.mkdirSync(path.dirname(boardAbs), { recursive: true });
@@ -1205,6 +1208,13 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
 describe("version-drift lock", () => {
   it(`BASE_BRANCH_GUARD_HOOK is byte-equal to bin/fixtures/base-branch-guard-v${BASE_BRANCH_GUARD_VERSION}.sh`, () => {
     expect(BASE_BRANCH_GUARD_HOOK).toBe(readFixture(BASE_BRANCH_GUARD_VERSION));
+  });
+
+  // v5 dropped the tmux pane fallback from the flow-session gate — this is
+  // the whole point of the bump, so pin it directly rather than relying on
+  // the byte-equal fixture round-trip above to catch a regression.
+  it("v5 (current) contains no tmux invocation", () => {
+    expect(BASE_BRANCH_GUARD_HOOK).not.toContain("tmux");
   });
 
   it('LEGACY_HOOK_BODIES["base-branch"] has exactly VERSION-1 entries', () => {

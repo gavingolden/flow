@@ -510,7 +510,7 @@ describe("run() integration", () => {
     expect(exit).toBe(2);
   });
 
-  it("auto-resolves the slug from $TMUX_PANE when omitted", () => {
+  it("auto-resolves the slug from $FLOW_SLUG when omitted", () => {
     seedState("paneslug-epic", { phase: "epic-approved" });
     const { writes, restore } = captureStdout();
     const exit = run([], {

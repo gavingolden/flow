@@ -25,8 +25,8 @@
  *   flow-checkpoint [<slug>] --probe --site <site>         read-only freshness verdict, no mutation
  *   flow-checkpoint [<slug>] --path                        print the absolute checkpoint.md path (creating its parent dir) and exit
  *
- * `<slug>` is optional inside a flow tmux pane: it auto-resolves from
- * `$TMUX_PANE`'s `@flow-slug` window option. `--site` defaults to `"manual"`
+ * `<slug>` is optional when a pipeline is live: it auto-resolves from
+ * `$FLOW_SLUG`. `--site` defaults to `"manual"`
  * (the `/flow-checkpoint` skill's own bare call); the auto sites in
  * `flow-pipeline/SKILL.md` pass their own `--site` explicitly.
  *
@@ -45,7 +45,7 @@
  * Exit codes (same exit-0-for-every-decision contract as flow-resume-decide /
  * flow-gate-decide — the skill captures stdout and branches on `.status`):
  *   0 — decision computed (ready / needs / consumed / noop / probe), or --path printed
- *   2 — bad CLI args, or no slug given and none resolvable from $TMUX_PANE
+ *   2 — bad CLI args, or no slug given and no FLOW_SLUG in the environment
  */
 
 import * as fs from "node:fs";
@@ -265,8 +265,8 @@ export function run(argv: string[], deps: Deps = {}): number {
   const slug = parsed.slug ?? resolveSlug();
   if (!slug) {
     console.error(
-      "flow-checkpoint: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
-        "  pass <slug> explicitly, or run inside a tmux window created by `flow feature create`.",
+      "flow-checkpoint: no slug given and no FLOW_SLUG in the environment.\n" +
+        "  pass <slug> explicitly, or run inside a pipeline launched by `flow feature create`.",
     );
     return 2;
   }

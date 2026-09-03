@@ -97,8 +97,8 @@ on `main`, per the original low-bar trigger.
 (`installBaseBranchGuard` in `bin/lib/base-branch-guard.ts`) that refuses
 a commit landing directly on the repo's default branch. It is narrowed by
 **two session gates**, both required: `CLAUDE_CODE_SESSION_ID` (set by
-Claude Code) AND a flow slug, resolved env-first from `FLOW_SLUG` and
-falling back to the tmux `@flow-slug` pane option. Without both, the
+Claude Code) AND a flow slug, resolved from `FLOW_SLUG` alone (the guard is
+env-only as of v5). Without both, the
 user's own hand-driven commits — including a manual commit on `main` — are
 never blocked; the guard only ever fires inside a flow-supervisor session.
 
@@ -107,10 +107,10 @@ marker, `# flow:base-branch-guard v<N>` (`BASE_BRANCH_GUARD_MARKER` +
 `BASE_BRANCH_GUARD_VERSION`), matched by substring-contains rather than a
 byte-exact compare — a byte-exact compare misclassified a still-installed
 older hook body as a foreign hook forever instead of upgrading it in
-place. Three prior bodies (v1: tmux-only, pre-marker; v2: env-first
-`FLOW_SLUG`, pre-marker; v3: marker-carrying, path-scoped epic-status
-carve-out) are registered in `LEGACY_HOOK_BODIES` and still classify as
-flow-owned. **Any edit to the hook body requires bumping
+place. Four prior bodies (v1: tmux-only, pre-marker; v2: env-first
+`FLOW_SLUG`, pre-marker; v3: marker-carrying; v4: path-scoped epic-status
+carve-out, tmux pane fallback) are registered in `LEGACY_HOOK_BODIES` and
+still classify as flow-owned. **Any edit to the hook body requires bumping
 `BASE_BRANCH_GUARD_VERSION` AND registering the prior body** in
 `LEGACY_HOOK_BODIES` plus a matching `bin/fixtures/<role>-guard-v<N>.sh`
 fixture — `base-branch-guard.test.ts`'s `version-drift lock` enforces this

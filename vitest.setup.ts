@@ -24,15 +24,32 @@ import { afterAll, beforeAll } from "vitest";
 // evaluation is tracked as a followup in PR #86.
 let originalHome: string | undefined;
 let sandboxHome: string | undefined;
+let originalFlowSlug: string | undefined;
+let originalTmuxPane: string | undefined;
 
 beforeAll(() => {
   originalHome = process.env.HOME;
   sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-vitest-home-"));
   process.env.HOME = sandboxHome;
+
+  // After f4 (env/state-only session identity), FLOW_SLUG is the sole
+  // identity carrier — no tmux pane fallback remains. An ambient FLOW_SLUG /
+  // TMUX_PANE from a live flow window would otherwise leak into every
+  // ambient-resolution test in the suite, so strip both for the suite's
+  // duration and restore them afterward.
+  originalFlowSlug = process.env.FLOW_SLUG;
+  originalTmuxPane = process.env.TMUX_PANE;
+  delete process.env.FLOW_SLUG;
+  delete process.env.TMUX_PANE;
 });
 
 afterAll(() => {
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
   if (sandboxHome) fs.rmSync(sandboxHome, { recursive: true, force: true });
+
+  if (originalFlowSlug === undefined) delete process.env.FLOW_SLUG;
+  else process.env.FLOW_SLUG = originalFlowSlug;
+  if (originalTmuxPane === undefined) delete process.env.TMUX_PANE;
+  else process.env.TMUX_PANE = originalTmuxPane;
 });

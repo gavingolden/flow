@@ -5,11 +5,10 @@
  * Usage:
  *   flow-new-worktree [<branch-name>] [base-branch] [--reuse]
  *
- * - The branch name is optional when invoked from inside a flow tmux
- *   pane: it auto-resolves from `$TMUX_PANE`'s `@flow-slug` window
- *   option. The supervisor pattern relies on the auto-resolve path; the
- *   explicit positional stays for back-compat and for callers outside
- *   tmux. When both are present they must agree, otherwise the helper
+ * - The branch name is optional when a pipeline is live: it auto-resolves
+ *   from `$FLOW_SLUG`. The supervisor pattern relies on the auto-resolve
+ *   path; the explicit positional stays for callers with no live
+ *   pipeline. When both are present they must agree, otherwise the helper
  *   exits 2 (`slug-mismatch:`).
  */
 
@@ -40,7 +39,7 @@ export type RunNewWorktreeDeps = {
   /**
    * Slug fallback consulted when the positional arg is omitted, and
    * compared against the positional arg when both are present. Defaults
-   * to `resolveSlugAmbient()` against the real tmux. Tests inject a stub.
+   * to `resolveSlugAmbient()` against the ambient $FLOW_SLUG. Tests inject a stub.
    */
   resolveSlug?: () => string | null;
 };
@@ -50,34 +49,34 @@ type PickBranchNameResult =
   | { kind: "error"; message: string; exitCode: number };
 
 /**
- * Reconciles a positional `<slug>` arg with the supervisor pane's
- * `@flow-slug`. The canonical pipeline slug lives on the pane (set by
+ * Reconciles a positional `<slug>` arg with the supervisor's ambient
+ * `FLOW_SLUG`. The canonical pipeline slug lives in the launch env (set by
  * `flow feature create` and read by every other helper); silently accepting a
  * mismatched positional was the PR #152 footgun — state.json keyed by
- * pane slug, worktree directory keyed by the mismatched positional.
+ * the ambient slug, worktree directory keyed by the mismatched positional.
  *
  * - both present and equal → use either (they agree).
  * - both present and different → exit 2 (`slug-mismatch:`). Exit code 2
  *   mirrors `flow-state-update.ts`'s arg-parse / usage-error precedent.
- * - only positional given → use it (caller is outside tmux or in a non-flow window).
- * - only pane slug available → use it (caller omitted the arg, supervisor pattern).
+ * - only positional given → use it (caller has no live pipeline).
+ * - only ambient slug available → use it (caller omitted the arg, supervisor pattern).
  * - neither → exit 1 (`branch name is required`).
  */
 export function pickBranchName(
   positional: string | undefined,
-  paneSlug: string | null,
+  ambientSlug: string | null,
 ): PickBranchNameResult {
-  if (positional && paneSlug && positional !== paneSlug) {
+  if (positional && ambientSlug && positional !== ambientSlug) {
     return {
       kind: "error",
       message:
-        `slug-mismatch: positional '${positional}' != pane @flow-slug '${paneSlug}'.\n` +
+        `slug-mismatch: positional '${positional}' != ambient FLOW_SLUG '${ambientSlug}'.\n` +
         `  The supervisor's pipeline slug (set by 'flow feature create') is canonical.\n` +
-        `  Re-run with no positional arg, or fix the caller to match @flow-slug.`,
+        `  Re-run with no positional arg, or fix the caller to match $FLOW_SLUG.`,
       exitCode: 2,
     };
   }
-  const branchName = positional ?? paneSlug;
+  const branchName = positional ?? ambientSlug;
   if (!branchName) {
     return { kind: "error", message: "branch name is required", exitCode: 1 };
   }
@@ -112,15 +111,15 @@ suffix; deps are installed; .env and .claude/settings.local.json are
 symlinked. Without --reuse, auto-suffixes (<slug>-2, -3, ...) on
 collision so concurrent calls return distinct paths.
 
-The branch name is optional inside a flow tmux pane — it auto-resolves
-from $TMUX_PANE's @flow-slug. When the positional is also given it must
-match the pane slug, otherwise the helper exits 2 (slug-mismatch).
+The branch name is optional when a pipeline is live — it auto-resolves
+from $FLOW_SLUG. When the positional is also given it must match the
+ambient slug, otherwise the helper exits 2 (slug-mismatch).
 
 Examples:
   flow-new-worktree feature/new-chart
   flow-new-worktree fix/tooltip-bug develop
   flow-new-worktree feature/new-chart --reuse
-  flow-new-worktree           # inside a flow pane: uses @flow-slug
+  flow-new-worktree           # inside a live pipeline: uses $FLOW_SLUG
   `);
 }
 
@@ -206,7 +205,7 @@ export function createWorktreeWithRetry(
       log.info(`Branch: ${slot.branchName} (from ${startPoint})`);
       gitWorktreeAdd(slot.worktreeDir, slot.branchName, startPoint);
       // Loud divergence signal: the requested slug collided, so the created
-      // worktree/branch carry a numeric suffix the pipeline slug / @flow-slug /
+      // worktree/branch carry a numeric suffix the pipeline slug /
       // ~/.flow/state/<slug>.json filename do NOT. Cleanup must therefore rely
       // on the recorded worktree path in state.json to target this branch, not
       // re-derive from the slug (which would resolve the colliding sibling).
@@ -215,7 +214,7 @@ export function createWorktreeWithRetry(
       if (slot.branchName !== initialBranch) {
         warn(
           `worktree slug '${initialBranch}' collided; created '${slot.worktreeDir}' ` +
-            `on branch '${slot.branchName}'. The pipeline slug / @flow-slug / state.json ` +
+            `on branch '${slot.branchName}'. The pipeline slug and state.json ` +
             `stay '${initialBranch}'; cleanup relies on the recorded worktree path in ` +
             `~/.flow/state to remove the correct worktree and branch.`,
         );

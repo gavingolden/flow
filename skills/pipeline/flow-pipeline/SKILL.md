@@ -337,10 +337,9 @@ a model that has already chosen to stop, but a Stop hook fires
 
 Contract:
 
-- Reads `~/.flow/state/<slug>.json` (slug resolved env-first from the
+- Reads `~/.flow/state/<slug>.json` (slug resolved from the
   `FLOW_SLUG` env var — set in the launch env by both launcher
-  backends — falling back to the tmux window's `@flow-slug` user
-  option).
+  backends).
 - Exits 2 with a stderr `DO NOT END THE TURN` reminder when phase
   is non-terminal-non-pending — the supervisor is mid-pipeline and
   must continue.
@@ -351,7 +350,7 @@ Contract:
   `triage-pending-clarification`, `approval-pending-clarification`,
   `ci-wait-pending`, `checkpoint-pending-clear`).
 - Self-detects: exits 0 (no-op) when no flow slug resolves (no
-  `FLOW_SLUG`, and no `@flow-slug` pane), or when state.json is
+  `FLOW_SLUG`), or when state.json is
   missing. Safe to install in a global Stop hook list.
 - Loop-break budget: a per-turn block counter persisted at
   `~/.flow/state/turns/<slug>.json` (a sibling subdirectory so `flow ls`
@@ -387,10 +386,10 @@ flow-notify --status <merged|gated|needs-human> \
 `flow-state-update`, `flow-rename-window`, `flow-open-pr`,
 `flow-resume-decide`, `flow-gate-decide`, `flow-remove-worktree`,
 `flow-gate-summary`)
-auto-resolves it env-first from the `FLOW_SLUG` env var (set in the
-launch env by both launcher backends), falling back to `$TMUX_PANE`'s
-durable `@flow-slug` window option (the per-Bash-call shell loses any
-`SLUG=…` between calls). Pass `--slug <slug>` explicitly only when
+auto-resolves it from the `FLOW_SLUG` env var (set in the
+launch env by both launcher backends; the per-Bash-call shell loses any
+`SLUG=…` between calls, so `FLOW_SLUG` is the load-bearing carrier).
+Pass `--slug <slug>` explicitly only when
 invoking from outside the pipeline session — space-separated; the
 `--slug=<slug>` equals form is not accepted by any flow helper.
 `bin/slug-flag-contract-lint.test.ts` enforces this list: every helper
@@ -435,12 +434,12 @@ and refreshes `updatedAt`. It exits non-zero if the slug has no
 state file, surfacing drift instead of papering over it.
 
 `$PHASE` must be one of the values listed in the phase table below.
-The slug is auto-resolved from `$TMUX_PANE`'s `@flow-slug` window
-option — the canonical pipeline identifier, set by `flow feature create` when
-creating the window and matching the worktree directory's basename
-(e.g. `csv-export`). It is *not* the display name, which the
-supervisor renames to a readable title in step 1 and which the user
-may further rename via `tmux ,`.
+The slug is auto-resolved from `$FLOW_SLUG` — the canonical pipeline
+identifier, set by `flow feature create` in the launch env and
+matching the worktree directory's basename (e.g. `csv-export`). Under
+the tmux launcher, the window title is *not* this identifier: the
+supervisor renames it to a readable title in step 1, and the user may
+further rename it via `tmux ,`, with no effect on `$FLOW_SLUG`.
 
 ## Additional fields to set once
 
@@ -492,10 +491,8 @@ the inline description IS the request, used exactly as before.
 
 Write the phase to state.json so `flow ls` immediately shows `triaging`
 instead of the stale `starting` from `flow feature create`. Pass `--slug <slug>`
-explicitly so the state write is not subject to `resolveSlugFromPane()`'s
-ambient-pane resolution, which may race against a parallel pipeline's
-window during the brief window between window creation and the first
-`@flow-slug` option set:
+explicitly — explicit and self-documenting, rather than relying on
+`resolveSlugAmbient()`'s ambient `FLOW_SLUG` read:
 
 ```bash
 flow-state-update --phase triaging --slug <slug>
@@ -503,8 +500,8 @@ flow-state-update --phase triaging --slug <slug>
 
 **No-state-file guard (never work inline on the base branch).** If this
 first `flow-state-update --phase triaging` exits non-zero with a `no state
-file` error *while the pane resolves `@flow-slug` from `$TMUX_PANE`* — i.e.
-the supervisor is genuinely inside a `flow feature create`-created window — this is the
+file` error *while `FLOW_SLUG` is set* — i.e.
+the supervisor is genuinely inside a `flow feature create`-launched pipeline — this is the
 `flow feature create` state-write race (the parent's `phase: starting` write has not
 landed yet), **not** a direct/manual invocation. The supervisor must **not**
 fall through to classifying or implementing inline on the base branch.
@@ -519,20 +516,20 @@ turn-end is permitted. (`flow feature create` now writes `phase: starting` befor
 delivers the seed, so this guard is defense-in-depth against a residual
 slow-filesystem window or a future regression, not the common path.)
 
-Then set a readable tmux window title so the user can scan their
+Then, under the tmux launcher, set a readable tmux window title so the user can scan their
 status bar at a glance instead of squinting at the slug. The slug
-stays the canonical lookup key (it's stored in tmux's `@flow-slug`
-user option, set when `flow feature create` created the window) — the rename
-only changes the display. Pass `--slug <slug>` here for the same
-reason as above: the explicit slug avoids the pane-resolution race:
+stays the canonical lookup key (`FLOW_SLUG`, set in the launch env
+when `flow feature create` launched the pipeline) — the rename
+only changes the tmux window's display title. Pass `--slug <slug>` here for the same
+reason as above: explicit and self-documenting.
 
 ```bash
 flow-rename-window --slug <slug> "<short descriptive title>"
 ```
 
 **Only these two step-1 calls use `--slug`.** All other helpers after
-step 1 continue to use auto-resolution (`resolveSlugFromPane`) because
-by then `@flow-slug` is reliably set on the window.
+step 1 continue to use auto-resolution (`resolveSlugAmbient`) because
+`FLOW_SLUG` is reliably set for the pipeline's whole lifetime.
 
 Pick a 20–30-character title from the user's verbatim description.
 Strip imperative verbs and articles (`make`, `add`, `the`, `a`),
@@ -670,11 +667,12 @@ Then assign an **intent**: `feature` / `bug` / `refactor` / `docs` /
 - **Change** → continue to step 2. The **slug** was already finalized by
   `flow feature create`'s slugify (`bin/lib/slug.ts`) and is the worktree
   directory basename; the supervisor never re-derives or renames it (it is
-  the canonical pipeline identifier in the window's `@flow-slug` tmux
-  option — changing it would orphan the state file, worktree branch, and
+  the canonical pipeline identifier, set in the launch env as `FLOW_SLUG`
+  — changing it would orphan the state file, worktree branch, and
   `flow attach`/`flow done` lookups). The display-title rename
-  (`flow-rename-window`) is the only exception. `flow-new-worktree` enforces
-  this: a positional slug not matching the pane's `@flow-slug` exits
+  (`flow-rename-window`, tmux launcher only) is the only exception.
+  `flow-new-worktree` enforces
+  this: a positional slug not matching the ambient `FLOW_SLUG` exits
   non-zero with `slug-mismatch:` (the PR #152 footgun).
 - **Ambiguous** (input is genuinely unparseable) → write
   `flow-state-update --phase triage-pending-clarification`,
@@ -705,8 +703,8 @@ flow-new-worktree <slug>
 ```
 
 The positional `<slug>` is belt-and-suspenders: `flow-new-worktree` reads
-`@flow-slug` from the pane, so a bare call resolves the same value; a
-positional that doesn't match `@flow-slug` is a hard error
+`$FLOW_SLUG` ambiently, so a bare call resolves the same value; a
+positional that doesn't match `$FLOW_SLUG` is a hard error
 (`slug-mismatch:`, exit 2), not a silent footgun (step 1's "never
 re-derives the slug" contract).
 
@@ -825,11 +823,21 @@ After the wrapper returns, **read `<worktree>/.flow-tmp/plan.md`** once
 and print the plan-summary block to chat per `references/pause-output-contract.md`
 — six labeled slots, no open prose, ≤12 lines, ≤2 bullets per slot
 (template: `### ⏸ Plan ready for review` / `**TLDR:** <one-sentence
-user-visible outcome>` / `**Unsolved:** <open answer-sheet items, the
-recommended default inline for each>` / `**Needs attention:**
-<high-stakes decisions read from `## Decision analysis` +
+user-visible outcome, suffixed `(N zero-stakes questions resolved
+without asking)` when N checked `**Stakes:** none` entries exist>` /
+`**Unsolved:** <open answer-sheet items with their `(high)`/`(medium)`
+tag and recommended default inline, anchors omitted>` / `**Needs
+attention:** <high-stakes decisions read from `## Decision analysis` +
 `## Architecture Decisions`, each stated as before→after (from
-`## Behavioral contrast`) plus the option chosen and why, plus one
+`## Behavioral contrast`) plus the option chosen and why, plus every
+crucial-and-uncertain item (`[confidence: low]` or `**Needs user
+input:**`, each carrying the stable `Q<n>` id discovery's numbering rule
+assigns to both) as `Q<n> (low): <question> — default: <recommended>`
+for a genuine low-confidence recommendation, or `Q<n> (needs input):
+<question> — default: none` for a `**Needs user input:**` escape (which
+has no `**Recommended:**` line by contract, so it is never rendered as
+`(low)`), taking the ceiling first and collapsing to `+N more uncertain — plan:
+<path>#Open-Questions` above two, plus one
 `Method: <user's> → <chosen> (survey: <verdict>)` line when
 `## Method selection` is present, plus one
 `Scope: N tasks, M files` line, plus any material risk from
@@ -1034,7 +1042,12 @@ only and the helper exact-matches against them. The blind survey's
   existing retry pattern`) — step 4 classifies it as ONE batched
   Imperative scope/plan revision redirect back to step 3 (see
   `references/redirect-handling.md`), the same disposition as `pull #N
-  into the plan` above, never as a fresh interview round.
+  into the plan` above, never as a fresh interview round. Items render
+  escaped and `[confidence: low]` first, then `medium`, then `high` —
+  `Q<n>` ids are untouched by this display order. A missing
+  `[confidence: …]` tag or missing `**Stakes:**` line (a pre-change
+  `plan.md` on resume) reads as `medium`, is never promoted, and never
+  errors.
 
   **Untracked items at plan-pending-review.** When the `**Untracked:**`
   slot lists items carried over from a prior pipeline run of this same
@@ -1402,9 +1415,8 @@ mkdir -p "$WORKTREE/.flow-tmp"
 PR_URL=$(flow-open-pr \
   --body-file "$WORKTREE/.flow-tmp/pr-body.md" \
   --title "<conventional-commit summary>")
-# Read the PR number back. `~/.flow/state/<slug>.json` is keyed by slug,
-# so resolve the slug from the pane inline — single Bash call, single shell.
-SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+# Read the PR number back. `~/.flow/state/<slug>.json` is keyed by slug.
+SLUG="$FLOW_SLUG"
 PR=$(jq -r '.pr' ~/.flow/state/"$SLUG".json)
 ```
 
@@ -1795,8 +1807,8 @@ SKIP_REASON=$(printf '%s' "$VERDICT" | jq -r '.requestSkipReason // empty')  # l
 NOT_REQUESTED_FLAG=""
 # A genuine decline or unavailability collapses the wait; an auto-review skip keeps it.
 [ "$REQUESTED" = "false" ] || [ "$REQUESTABLE" = "false" ] && NOT_REQUESTED_FLAG="--copilot-not-requested"
-# WAIT_FLAG mirrors state.json's waitForCopilot; resolve SLUG inline (env-first, then pane) — a per-call shell loses any prior `SLUG=...`.
-SLUG="${FLOW_SLUG:-$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)}"; WAIT_FLAG=""
+# WAIT_FLAG mirrors state.json's waitForCopilot — a per-call shell loses any prior `SLUG=...`, so re-set it from $FLOW_SLUG.
+SLUG="$FLOW_SLUG"; WAIT_FLAG=""
 [ "$(jq -r '.waitForCopilot // empty' ~/.flow/state/"$SLUG".json)" = "true" ] && WAIT_FLAG="--wait-for-copilot"
 flow-ci-check "$PR" $NOT_REQUESTED_FLAG $WAIT_FLAG --out "$VERDICT_FILE" > "$WORKTREE/.flow-tmp/ci-check-stdout.json"
 CHECK=$(cat "$WORKTREE/.flow-tmp/ci-check-stdout.json"); STATUS=$(printf '%s' "$CHECK" | jq -r '.status')
@@ -1851,7 +1863,7 @@ Branch on `.decision`. Resolve the render lens once for the whole table: `LENS=$
 | `proceed-to-review` | Continue to step 8. |
 | `proceed-to-review-no-bot` | Same as above; the bot review timed out 10 min after CI went terminal, or the Copilot auto-detect short-circuited (see `copilotSkipReason` JSON field — one of `unclaimed-after-deadline`, `self-dismissed`, or `null` when the 10-min timeout fired). |
 | `ci-failed` | Continue to step 5 mode=fix. Pass `$CI_FAILED_CHECKS` (extracted above) as the failure log. Subject to the 3-loop ci-fix cap below. |
-| `merged-externally` | PR was merged externally mid-flight. Capture follow-ups output to a file: `flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (still executes auto-allowlisted entries; `>` captures the rendered block). Resolve the slug inline (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)`), in ONE `gh pr view` round-trip guarded by `[ -n "$PR" ]`, capture the diff-size source AND the echo-recap fields (`[ -n "$PR" ] && gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json" && IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] \| @tsv' "$WORKTREE/.flow-tmp/pr-view.json") && jq '{additions,deletions,changedFiles,commits:(.commits\|length)}' "$WORKTREE/.flow-tmp/pr-view.json" > "$WORKTREE/.flow-tmp/pr-changes.json"`), then render the snapshot ABOVE the gate block via `flow-pipeline-summary --status merged --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --post-comment "$PR" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH" --lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)` (`--post-comment` durably persists the snapshot as an idempotent PR comment on the MERGED path; it no-ops when `$PR` is empty), then capture `COUNTS_LINE=$(flow-pipeline-summary --status merged --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)` — then **extract the block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as markdown bullets in your assistant message (prose, not tool output)**; see the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection. Then render the epic-membership block via `flow-epic-membership --slug "$SLUG" --terminal-state merged-externally` (no-op for non-epic features). Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then author `TLDR="<one-sentence outcome>"` and render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally mid-flight; supervisor cleaned up the worktree" --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"` — which records `phase: merged` itself, only after its block reaches stdout, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry (the helper silently suppresses the FOLLOW-UPS slot when the file is empty; its final stdout line is the byte-exact sentinel `MERGED`). Then `flow-remove-worktree --delete-branch`, call `flow-notify --status merged --url "$PR_URL" --reason "$TLDR"`. End. The roadmap row was self-marked in the PR's diff by `/flow-pr-review` step 7.5; no post-merge sweep required. |
+| `merged-externally` | PR was merged externally mid-flight. Capture follow-ups output to a file: `flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (still executes auto-allowlisted entries; `>` captures the rendered block). Set `SLUG="$FLOW_SLUG"`, in ONE `gh pr view` round-trip guarded by `[ -n "$PR" ]`, capture the diff-size source AND the echo-recap fields (`[ -n "$PR" ] && gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json" && IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] \| @tsv' "$WORKTREE/.flow-tmp/pr-view.json") && jq '{additions,deletions,changedFiles,commits:(.commits\|length)}' "$WORKTREE/.flow-tmp/pr-view.json" > "$WORKTREE/.flow-tmp/pr-changes.json"`), then render the snapshot ABOVE the gate block via `flow-pipeline-summary --status merged --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --post-comment "$PR" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH" --lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)` (`--post-comment` durably persists the snapshot as an idempotent PR comment on the MERGED path; it no-ops when `$PR` is empty), then capture `COUNTS_LINE=$(flow-pipeline-summary --status merged --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)` — then **extract the block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as markdown bullets in your assistant message (prose, not tool output)**; see the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection. Then render the epic-membership block via `flow-epic-membership --slug "$SLUG" --terminal-state merged-externally` (no-op for non-epic features). Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then author `TLDR="<one-sentence outcome>"` and render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally mid-flight; supervisor cleaned up the worktree" --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"` — which records `phase: merged` itself, only after its block reaches stdout, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry (the helper silently suppresses the FOLLOW-UPS slot when the file is empty; its final stdout line is the byte-exact sentinel `MERGED`). Then `flow-remove-worktree --delete-branch`, call `flow-notify --status merged --url "$PR_URL" --reason "$TLDR"`. End. The roadmap row was self-marked in the PR's diff by `/flow-pr-review` step 7.5; no post-merge sweep required. |
 | `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
 | `pr-conflicted` | Branch conflicts with base; CI can never run. Advance to the step-10 merge path — `gh pr merge --squash` surfaces the conflict-class failure and the existing Merge-Conflict Resolver Subagent merges base into the branch, resolves, and pushes, after which CI re-runs on the clean head and the pipeline re-enters step 7. Does NOT consume a ci-fix-loop budget slot (conflict remediation is a merge, not a code fix). |
 | `pr-blocked` | Branch protection blocks the merge — `mergeStateStatus` is still `BLOCKED` (a failing required check, a missing required review, CODEOWNERS, or a linear-history rule outside the `gh pr checks` surface) **after** CI reached terminal and passed. Unlike `pr-conflicted`, this fires only post-CI-terminal (a PR is legitimately `BLOCKED` while required checks are still pending, so `flow-ci-check` waits CI out first), and unlike a conflict it has no universal mechanical fix the pipeline owns. Escalate `NEEDS HUMAN: pr-blocked` via the standard `# Failure paths` block. Does NOT route to the step-10 merge path and does NOT consume a ci-fix-loop budget slot. |
@@ -2059,8 +2071,8 @@ Branch on `.decision`. Resolve the render lens once for the whole table: `LENS=$
 | `.decision` | Action |
 |---|---|
 | `auto-merge` | Run `flow-followups pr-body-upsert "$PR"` (no-op when log is empty; otherwise idempotent in-place upsert of `## Local Follow-ups` so the section survives the squash-merge), then run `flow-foreclosed-paths pr-body-upsert "$PR"` (idempotent; no-ops when there are no foreclosed paths). Continue to step 10 (auto-merge). |
-| `gated` | Run `flow-followups pr-body-upsert "$PR"` (idempotent), then run `flow-foreclosed-paths pr-body-upsert "$PR"` (idempotent; no-ops when there are no foreclosed paths), then capture the deferred follow-ups block via `flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"` (the renderer suppresses the FOLLOW-UPS slot when the file is empty). Resolve the slug inline (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)`), in ONE `gh pr view` round-trip, capture the diff-size source AND the echo-recap fields (`gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json" && IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] \| @tsv' "$WORKTREE/.flow-tmp/pr-view.json") && jq '{additions,deletions,changedFiles,commits:(.commits\|length)}' "$WORKTREE/.flow-tmp/pr-view.json" > "$WORKTREE/.flow-tmp/pr-changes.json"`), then render the snapshot ABOVE the gate block via `flow-pipeline-summary --status gated --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH" --lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)`, then capture `COUNTS_LINE=$(flow-pipeline-summary --status gated --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)` — then **extract the block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as markdown bullets in your assistant message (prose, not tool output)**; see the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection. Then render the epic-membership block via `flow-epic-membership --slug "$SLUG" --terminal-state gated` (prints nothing for non-epic features). Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then author `TLDR="<one-sentence outcome + count of items needing you>"` and render the GATED block via `flow-gate-summary --status gated --pr-url "$PR_URL" --why "$REASON" --validation-items-file <(printf '%s\n' "$VALIDATION_ITEMS") --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"` — which records `phase: gated` itself, only after its block reaches stdout, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry. Call `flow-notify --status gated --url "$PR_URL" --reason "$TLDR"`. End. |
-| `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Capture follow-ups output: `flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (executes allowlisted+auto entries while the worktree is still alive; `>` captures the rendered block). Resolve the slug inline (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)`), in ONE `gh pr view` round-trip guarded by `[ -n "$PR" ]`, capture the diff-size source AND the echo-recap fields (`[ -n "$PR" ] && gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json" && IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] \| @tsv' "$WORKTREE/.flow-tmp/pr-view.json") && jq '{additions,deletions,changedFiles,commits:(.commits\|length)}' "$WORKTREE/.flow-tmp/pr-view.json" > "$WORKTREE/.flow-tmp/pr-changes.json"`), then render the snapshot ABOVE the gate block via `flow-pipeline-summary --status merged --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --post-comment "$PR" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH" --lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)` (the helper yields `none` for absent artifacts, so a thin merged-externally snapshot is expected; `--post-comment` durably persists the snapshot as an idempotent PR comment and no-ops when `$PR` is empty), then capture `COUNTS_LINE=$(flow-pipeline-summary --status merged --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)` — then **extract the block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as markdown bullets in your assistant message (prose, not tool output)**; see the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection. Then render the epic-membership block via `flow-epic-membership --slug "$SLUG" --terminal-state merged-externally` (no-op for non-epic features). Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then author `TLDR="<one-sentence outcome>"` and render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally; supervisor cleaned up worktree only" --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"` — which records `phase: merged` itself, only after its block reaches stdout, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry. Then `flow-remove-worktree --delete-branch`, call `flow-notify --status merged --url "$PR_URL" --reason "$TLDR"`. End. (The roadmap row was self-marked in the PR's diff by `/flow-pr-review` step 7.5; no post-merge sweep is needed.) |
+| `gated` | Run `flow-followups pr-body-upsert "$PR"` (idempotent), then run `flow-foreclosed-paths pr-body-upsert "$PR"` (idempotent; no-ops when there are no foreclosed paths), then capture the deferred follow-ups block via `flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"` (the renderer suppresses the FOLLOW-UPS slot when the file is empty). Set `SLUG="$FLOW_SLUG"`, in ONE `gh pr view` round-trip, capture the diff-size source AND the echo-recap fields (`gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json" && IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] \| @tsv' "$WORKTREE/.flow-tmp/pr-view.json") && jq '{additions,deletions,changedFiles,commits:(.commits\|length)}' "$WORKTREE/.flow-tmp/pr-view.json" > "$WORKTREE/.flow-tmp/pr-changes.json"`), then render the snapshot ABOVE the gate block via `flow-pipeline-summary --status gated --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH" --lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)`, then capture `COUNTS_LINE=$(flow-pipeline-summary --status gated --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)` — then **extract the block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as markdown bullets in your assistant message (prose, not tool output)**; see the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection. Then render the epic-membership block via `flow-epic-membership --slug "$SLUG" --terminal-state gated` (prints nothing for non-epic features). Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then author `TLDR="<one-sentence outcome + count of items needing you>"` and render the GATED block via `flow-gate-summary --status gated --pr-url "$PR_URL" --why "$REASON" --validation-items-file <(printf '%s\n' "$VALIDATION_ITEMS") --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"` — which records `phase: gated` itself, only after its block reaches stdout, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry. Call `flow-notify --status gated --url "$PR_URL" --reason "$TLDR"`. End. |
+| `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Capture follow-ups output: `flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (executes allowlisted+auto entries while the worktree is still alive; `>` captures the rendered block). Set `SLUG="$FLOW_SLUG"`, in ONE `gh pr view` round-trip guarded by `[ -n "$PR" ]`, capture the diff-size source AND the echo-recap fields (`[ -n "$PR" ] && gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json" && IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] \| @tsv' "$WORKTREE/.flow-tmp/pr-view.json") && jq '{additions,deletions,changedFiles,commits:(.commits\|length)}' "$WORKTREE/.flow-tmp/pr-view.json" > "$WORKTREE/.flow-tmp/pr-changes.json"`), then render the snapshot ABOVE the gate block via `flow-pipeline-summary --status merged --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --post-comment "$PR" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH" --lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)` (the helper yields `none` for absent artifacts, so a thin merged-externally snapshot is expected; `--post-comment` durably persists the snapshot as an idempotent PR comment and no-ops when `$PR` is empty), then capture `COUNTS_LINE=$(flow-pipeline-summary --status merged --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)` — then **extract the block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as markdown bullets in your assistant message (prose, not tool output)**; see the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection. Then render the epic-membership block via `flow-epic-membership --slug "$SLUG" --terminal-state merged-externally` (no-op for non-epic features). Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then author `TLDR="<one-sentence outcome>"` and render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally; supervisor cleaned up worktree only" --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"` — which records `phase: merged` itself, only after its block reaches stdout, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry. Then `flow-remove-worktree --delete-branch`, call `flow-notify --status merged --url "$PR_URL" --reason "$TLDR"`. End. (The roadmap row was self-marked in the PR's diff by `/flow-pr-review` step 7.5; no post-merge sweep is needed.) |
 | `closed-no-merge` | Author `TLDR="The PR was closed without merging; nothing was shipped."`. Call `flow-notify --status needs-human --url "$PR_URL" --reason "$TLDR" --tag pr-closed-without-merge`. Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then render the NEEDS HUMAN block via `flow-gate-summary --status needs-human --reason pr-closed-without-merge --pr-url "$PR_URL" --why "PR closed without merge" --cleanup --tldr "$TLDR" --lens "$LENS"`. End. |
 | `escalate-heading-missing` | Author `TLDR="The PR body is missing its Test Steps section, so I can't tell whether this is safe to auto-merge."`. Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then render the NEEDS HUMAN block via `flow-gate-summary --status needs-human --reason test-steps-section-missing --pr-url "$PR_URL" --why "PR body has no ## Test Steps heading — gate cannot evaluate" --cleanup --tldr "$TLDR" --lens "$LENS"`. Call `flow-notify --status needs-human --url "$PR_URL" --reason "$TLDR" --tag test-steps-section-missing`. End. |
 | `escalate-gh-error` | Author `TLDR="A GitHub API error stopped the gate check; nothing was merged."`. Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then render the NEEDS HUMAN block via `flow-gate-summary --status needs-human --reason gh-error --pr-url "$PR_URL" --why "$(printf '%s' "$REASON" | tr '\n' ' ' | head -c 200)" --cleanup --tldr "$TLDR" --lens "$LENS"` (one-line, length-bounded from the `gh` stderr). Call `flow-notify --status needs-human --url "$PR_URL" --reason "$TLDR" --tag gh-error`. End. |
@@ -2296,7 +2308,7 @@ rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior re-entry (step 
 # Per-phase model (mergeResolver) — resolution field: state.modelMergeResolver.
 # Precedence: --model-merge-resolver > config.models.mergeResolver > inherited.
 # Empty ⇒ omit model: from the Task call (inherit). See references/model-routing.md.
-SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+SLUG="$FLOW_SLUG"
 MERGE_RESOLVER_MODEL=$(jq -r '.modelMergeResolver // empty' ~/.flow/state/"$SLUG".json)
 [ -z "$MERGE_RESOLVER_MODEL" ] && MERGE_RESOLVER_MODEL=$(jq -r '.models.mergeResolver // empty' ~/.flow/config.json 2>/dev/null)
 # Best-effort conflicting-file list — only non-empty when an outer
@@ -2480,7 +2492,7 @@ never saw:
 
 ```bash
 flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"  # executes auto-allowlisted entries; > captures the rendered block
-SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)       # resolve slug inline for the state-file path
+SLUG="$FLOW_SLUG"       # for the state-file path
 LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)
 gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json"  # ONE gh pr view round-trip: diff-size + url/title/headRefName for the echo recap
 IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] | @tsv' "$WORKTREE/.flow-tmp/pr-view.json")
@@ -2852,7 +2864,7 @@ helper's final stdout line is the byte-exact sentinel
 
 ```bash
 flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"  # captures the deferred LOCAL FOLLOW-UPS block (empty when log is empty)
-SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)                  # resolve slug for the state-file path
+SLUG="$FLOW_SLUG"                  # for the state-file path
 LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)
 ECHO_PROSE_ARGS=()  # echo-prose only on POST-review escalations (a PR exists); guard the field fetch + flags on [ -n "$PR" ] — pre-review escalations have no PR/plan
 [ -n "$PR" ] && gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json"  # guard: some escalations precede PR creation; ONE gh pr view round-trip (diff-size + url/title/headRefName)

@@ -29,7 +29,7 @@
  * the TLDR instead.
  *
  * `--slug` is optional: when omitted, the helper auto-resolves the
- * supervisor's slug from `$TMUX_PANE`'s `@flow-slug` window option.
+ * supervisor's slug from `$FLOW_SLUG`.
  * Null result is silently OK — the notification's subtitle just stays
  * empty rather than failing the helper.
  *

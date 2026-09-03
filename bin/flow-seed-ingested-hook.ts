@@ -3,9 +3,8 @@
  * Claude Code UserPromptSubmit hook for the /flow-pipeline (and /flow-epic-create)
  * supervisor.
  *
- * When a prompt is submitted inside a flow session — slug resolved env-first
- * from `FLOW_SLUG`, falling back to the tmux pane's `@flow-slug` user option,
- * exactly like flow-stop-guard — this records a self-describing
+ * When a prompt is submitted inside a flow session — slug resolved from
+ * `FLOW_SLUG`, exactly like flow-stop-guard — this records a self-describing
  * `seedIngest` record on `~/.flow/state/<slug>.json` describing what the hook
  * could actually establish about the delivery. That record is the launch-time
  * signal the launcher's `consumed()` predicate wants: success can latch the
@@ -38,8 +37,8 @@
  * predicate is what turns a recorded `corrupt` into a launch failure, on the
  * NEXT retry attempt, not this turn.
  *
- * Self-detection: exits 0 cleanly when no flow slug resolves (no `FLOW_SLUG`,
- * and no pane carrying `@flow-slug` — a normal coding session), or when
+ * Self-detection: exits 0 cleanly when no flow slug resolves (no `FLOW_SLUG`
+ * — a normal coding session), or when
  * state.json is missing — making it safe to register in a flow-scoped settings file passed
  * to `claude --settings`. It writes ONLY the per-pipeline state file under
  * `~/.flow/state/`, never the user's global Claude Code settings; the two
@@ -48,7 +47,6 @@
  * churns the file or the supervisor's own `updatedAt`.
  */
 
-import { spawnSync } from "node:child_process";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { deliveryMarker, squash } from "./lib/seed-delivery";
 import { type SeedIngest } from "./lib/seed-ingest";
@@ -60,10 +58,8 @@ import {
 } from "./lib/state";
 
 export type Deps = {
-  /** FLOW_SLUG env value (env-first ambient slug; both launcher backends set it). */
+  /** FLOW_SLUG env value (sole slug carrier; both launcher backends set it). */
   flowSlugEnv?: string | undefined;
-  tmuxPane: string | undefined;
-  showFlowSlug: (pane: string) => string;
   loadState: (slug: string) => PipelineState | null;
   saveState: (state: PipelineState) => void;
   nowIso: () => string;
@@ -139,15 +135,10 @@ function record(
 }
 
 export async function run(deps: Deps): Promise<number> {
-  // Env-first slug resolution: FLOW_SLUG (shape-validated) wins; the tmux
-  // pane option is the fallback for tmux-launched sessions.
-  let slug =
+  // Env-only slug resolution: FLOW_SLUG, shape-validated.
+  const slug =
     resolveSlugFromEnv({ FLOW_SLUG: deps.flowSlugEnv } as NodeJS.ProcessEnv) ??
     "";
-  if (slug.length === 0) {
-    const pane = deps.tmuxPane;
-    if (pane) slug = deps.showFlowSlug(pane).trim();
-  }
   if (slug.length === 0) return 0;
 
   const state = deps.loadState(slug);
@@ -264,16 +255,6 @@ export async function run(deps: Deps): Promise<number> {
   return 0;
 }
 
-export function defaultShowFlowSlug(pane: string): string {
-  const r = spawnSync(
-    "tmux",
-    ["show-options", "-w", "-t", pane, "-q", "-v", "@flow-slug"],
-    { encoding: "utf8" },
-  );
-  if (r.status !== 0) return "";
-  return r.stdout ?? "";
-}
-
 // Deliberately NOT shared with bin/flow-session-start-hook.ts /
 // bin/flow-stop-guard.ts: those two block session start on every `/clear`
 // machine-wide and keep a 250 ms ceiling, while this copy needs both the
@@ -317,8 +298,6 @@ export async function defaultReadStdin(): Promise<{
 if (import.meta.main) {
   run({
     flowSlugEnv: process.env.FLOW_SLUG,
-    tmuxPane: process.env.TMUX_PANE,
-    showFlowSlug: defaultShowFlowSlug,
     loadState: (slug) => readState(slug),
     saveState: (state) => writeState(state),
     nowIso: defaultNowIso,

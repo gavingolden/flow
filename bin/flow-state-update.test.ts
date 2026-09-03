@@ -53,7 +53,7 @@ describe("parseArgs", () => {
   it("treats a leading flag as 'slug omitted' (auto-resolve path)", () => {
     // Previously rejected with 'slug must be the first positional argument'.
     // The supervisor now relies on this form: `flow-state-update --phase X`
-    // resolves the slug from $TMUX_PANE.
+    // resolves the slug from $FLOW_SLUG.
     expect(parseArgs(["--phase", "implementing"])).toEqual({
       phase: "implementing",
     });
@@ -564,7 +564,7 @@ describe("runUpdate", () => {
     expect(got?.phase).toBe("starting"); // unchanged from seed
   });
 
-  it("auto-resolves the slug from $TMUX_PANE when omitted", () => {
+  it("auto-resolves the slug from $FLOW_SLUG when omitted", () => {
     seed("csv-export");
     const code = runUpdate(["--phase", "implementing"], dir, {
       resolveSlug: () => "csv-export",
@@ -606,13 +606,13 @@ describe("runUpdate", () => {
     expect(readState("other-pipeline", dir)?.phase).toBe("starting");
   });
 
-  it("returns 2 with a clear error when no slug given and pane has none either", () => {
+  it("returns 2 with a clear error when no slug given and none resolves from FLOW_SLUG either", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const code = runUpdate(["--phase", "implementing"], dir, {
       resolveSlug: () => null,
     });
     expect(code).toBe(2);
-    expect(errSpy.mock.calls.flat().join("\n")).toContain("@flow-slug");
+    expect(errSpy.mock.calls.flat().join("\n")).toContain("FLOW_SLUG");
     errSpy.mockRestore();
   });
 

@@ -43,7 +43,7 @@ function fakeState(overrides: Partial<PipelineState> = {}): PipelineState {
 }
 
 function makeDeps(opts: {
-  pane?: string;
+  /** Convenience alias for flowSlugEnv, kept for call-site brevity across the suite. */
   slug?: string;
   flowSlugEnv?: string;
   state?: PipelineState | null;
@@ -51,9 +51,7 @@ function makeDeps(opts: {
 }): { deps: Deps; saveState: ReturnType<typeof vi.fn> } {
   const saveState = vi.fn();
   const deps: Deps = {
-    flowSlugEnv: opts.flowSlugEnv,
-    tmuxPane: opts.pane,
-    showFlowSlug: () => opts.slug ?? "",
+    flowSlugEnv: opts.flowSlugEnv ?? opts.slug,
     loadState: () => opts.state ?? null,
     saveState,
     nowIso: () => FROZEN_NOW,
@@ -68,7 +66,6 @@ function makeDeps(opts: {
 describe("flow-seed-ingested-hook", () => {
   it("records not-applicable given a flow-session env and no recorded seed", async () => {
     const { deps, saveState } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState(),
     });
@@ -86,53 +83,25 @@ describe("flow-seed-ingested-hook", () => {
     );
   });
 
-  it("records via FLOW_SLUG with no pane at all (plain launcher)", async () => {
+  it("no-ops when FLOW_SLUG is shape-invalid — env-only, no fallback", async () => {
     const { deps, saveState } = makeDeps({
-      pane: undefined,
-      flowSlugEnv: "demo",
-      state: fakeState(),
-    });
-    await expect(run(deps)).resolves.toBe(0);
-    expect(saveState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        slug: "demo",
-        seedIngest: expect.objectContaining({ outcome: "not-applicable" }),
-      }),
-    );
-  });
-
-  it("ignores a shape-invalid FLOW_SLUG and falls back to the pane", async () => {
-    const loadCalls: string[] = [];
-    const saveState = vi.fn();
-    const deps: Deps = {
       flowSlugEnv: "NOT A SLUG",
-      tmuxPane: "%1",
-      showFlowSlug: () => "pane-slug",
-      loadState: (slug) => {
-        loadCalls.push(slug);
-        return fakeState({ slug: "pane-slug" });
-      },
-      saveState,
-      nowIso: () => FROZEN_NOW,
-      readStdin: async () => ({ text: "", complete: true }),
-    };
-    await expect(run(deps)).resolves.toBe(0);
-    expect(loadCalls).toEqual(["pane-slug", "pane-slug"]);
-  });
-
-  it("no-ops when not in tmux (pane undefined)", async () => {
-    const { deps, saveState } = makeDeps({
-      pane: undefined,
-      slug: "demo",
       state: fakeState(),
     });
     await expect(run(deps)).resolves.toBe(0);
     expect(saveState).not.toHaveBeenCalled();
   });
 
-  it("no-ops when @flow-slug is empty (not a flow window)", async () => {
+  it("no-ops when FLOW_SLUG is unset (not a flow session)", async () => {
     const { deps, saveState } = makeDeps({
-      pane: "%1",
+      state: fakeState(),
+    });
+    await expect(run(deps)).resolves.toBe(0);
+    expect(saveState).not.toHaveBeenCalled();
+  });
+
+  it("no-ops when FLOW_SLUG is empty", async () => {
+    const { deps, saveState } = makeDeps({
       slug: "",
       state: fakeState(),
     });
@@ -142,7 +111,6 @@ describe("flow-seed-ingested-hook", () => {
 
   it("no-ops when state.json is missing for the slug", async () => {
     const { deps, saveState } = makeDeps({
-      pane: "%1",
       slug: "ghost",
       state: null,
     });
@@ -160,7 +128,6 @@ describe("flow-seed-ingested-hook", () => {
       },
     ]) {
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seedIngest }),
       });
@@ -171,7 +138,6 @@ describe("flow-seed-ingested-hook", () => {
 
   it("preserves the rest of the state when recording (spread, not replace)", async () => {
     const { deps, saveState } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState({ phase: "starting", pr: 7, effort: "high" }),
     });
@@ -191,7 +157,6 @@ describe("flow-seed-ingested-hook", () => {
     for (const seed of ["", "   \n\t "]) {
       const readStdin = vi.fn(async () => ({ text: "", complete: true }));
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed }),
         readStdin,
@@ -223,7 +188,6 @@ describe("flow-seed-ingested-hook", () => {
 
     it("records verified when the submitted prompt contains the seed intact", async () => {
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
         readStdin: complete(payload(SEED)),
@@ -238,7 +202,6 @@ describe("flow-seed-ingested-hook", () => {
 
     it("a supervisor preamble/trailing note around the intact seed still counts (containment, not equality)", async () => {
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
         readStdin: complete(
@@ -256,7 +219,6 @@ describe("flow-seed-ingested-hook", () => {
     it("records corrupt when the submitted prompt has the seed's MIDDLE removed — the observed truncation failure shape", async () => {
       const truncated = SEED.slice(0, 30) + SEED.slice(-10); // drop the middle
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
         readStdin: complete(payload(truncated)),
@@ -274,7 +236,6 @@ describe("flow-seed-ingested-hook", () => {
 
     it("writes NOTHING for a foreign (user-typed) prompt carrying no delivery marker", async () => {
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
         readStdin: complete(payload("what does this repo do?")),
@@ -291,7 +252,6 @@ describe("flow-seed-ingested-hook", () => {
         submittedBytes: 111,
       };
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED, seedIngest: standing }),
         readStdin: complete(payload("unrelated later chatter")),
@@ -308,7 +268,6 @@ describe("flow-seed-ingested-hook", () => {
         submittedBytes: 111,
       };
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED, seedIngest: standing }),
         readStdin: async () => ({ text: "", complete: false }),
@@ -319,7 +278,6 @@ describe("flow-seed-ingested-hook", () => {
 
     it("a standing corrupt record IS cleared by a later intact submission (PR #686 clear-on-intact-retry)", async () => {
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({
           seed: SEED,
@@ -349,7 +307,6 @@ describe("flow-seed-ingested-hook", () => {
       // with a later, unrelated submission's.
       const truncated = SEED.slice(0, 30) + SEED.slice(-10);
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({
           seed: SEED,
@@ -373,7 +330,6 @@ describe("flow-seed-ingested-hook", () => {
       // this hook fires again.
       const truncated = SEED.slice(0, 30) + SEED.slice(-10);
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED, phase: "triaging" }),
         readStdin: complete(payload(truncated)),
@@ -391,7 +347,6 @@ describe("flow-seed-ingested-hook", () => {
 
     it("records unverified{stdin-error} when the stdin drain throws", async () => {
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
         readStdin: async () => {
@@ -412,7 +367,6 @@ describe("flow-seed-ingested-hook", () => {
 
     it("records unverified{stdin-timeout} when the drain came back incomplete", async () => {
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
         readStdin: async () => ({ text: payload(SEED), complete: false }),
@@ -431,7 +385,6 @@ describe("flow-seed-ingested-hook", () => {
 
     it("records unverified{payload-unparsable} on malformed JSON", async () => {
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
         readStdin: complete("{not json"),
@@ -450,7 +403,6 @@ describe("flow-seed-ingested-hook", () => {
 
     it("records unverified{no-prompt-field} when the payload carries no prompt", async () => {
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed: SEED }),
         readStdin: complete(
@@ -473,8 +425,7 @@ describe("flow-seed-ingested-hook", () => {
       const saveState = vi.fn();
       let call = 0;
       const deps: Deps = {
-        tmuxPane: "%1",
-        showFlowSlug: () => "demo",
+        flowSlugEnv: "demo",
         // Second read (the pre-write re-read) sees the supervisor's advance.
         loadState: () =>
           ++call === 1
@@ -560,7 +511,6 @@ describe("production seed shapes", () => {
       const HEAD = 2 * DELIVERY_MARKER_SQUASHED_CHARS;
       const truncated = seed.slice(0, HEAD) + seed.slice(-10);
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed }),
         readStdin: complete(payload(truncated)),
@@ -581,7 +531,6 @@ describe("production seed shapes", () => {
     "$name: an intact submission records verified",
     async ({ seed }) => {
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed }),
         readStdin: complete(payload(seed)),
@@ -605,7 +554,6 @@ describe("production seed shapes", () => {
     "$name: a genuinely foreign user-typed prompt ($prompt) writes nothing",
     async ({ seed, prompt }) => {
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed }),
         readStdin: complete(payload(prompt)),
@@ -619,7 +567,6 @@ describe("production seed shapes", () => {
     const recorded = readFixture("seed-incident-2026-08-28.recorded.txt");
     const submitted = readFixture("seed-incident-2026-08-28.submitted.txt");
     const { deps, saveState } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState({ seed: recorded }),
       readStdin: complete(payload(submitted)),
@@ -661,7 +608,6 @@ describe("production seed shapes", () => {
 
     for (const seed of [epicCreate, epicResume]) {
       const { deps, saveState } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState({ seed }),
         readStdin: complete(payload("Use the /flow-epic-create skill")),
@@ -675,7 +621,6 @@ describe("production seed shapes", () => {
     }
 
     const { deps, saveState } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState({ seed: epicRun }),
       readStdin: complete(payload("Use the /flow-epic-run skill")),
@@ -702,7 +647,6 @@ describe("production seed shapes", () => {
     )!.seed;
     const headCorrupted = `X${seed.slice(1)}`;
     const { deps, saveState } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState({ seed }),
       readStdin: complete(payload(headCorrupted)),

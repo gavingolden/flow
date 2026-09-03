@@ -38,9 +38,16 @@ type Stub = {
 
 function makeDeps(opts: {
   stdin?: string;
-  pane?: string;
+  /** Convenience alias for flowSlugEnv, kept for call-site brevity across the suite. */
   slug?: string;
   flowSlugEnv?: string;
+  /**
+   * TMUX_PANE liveness stub. Defaults to a truthy live-pane value so the
+   * existing tmux-launcher suite (which predates this seam) keeps exercising
+   * the send-keys arm unchanged; pass `""` explicitly to simulate a
+   * launcher-tagged session with no live pane (the no-pane residual).
+   */
+  tmuxPaneEnv?: string;
   state?: PipelineState | null;
   markerExists?: boolean;
   /** Terminal-carry-over body: `null`/omitted falls back to `terminalAdvisory`. */
@@ -73,9 +80,8 @@ function makeDeps(opts: {
   const retiredSlugs: string[] = [];
   const deps: Deps = {
     readStdin: async () => opts.stdin ?? "",
-    flowSlugEnv: opts.flowSlugEnv,
-    tmuxPane: opts.pane,
-    showFlowSlug: () => opts.slug ?? "",
+    flowSlugEnv: opts.flowSlugEnv ?? opts.slug,
+    tmuxPaneEnv: opts.tmuxPaneEnv ?? "%0",
     loadState: (slug) => {
       loadCalls.push(slug);
       return opts.state ?? null;
@@ -134,7 +140,6 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
   it("dispatches for a non-terminal flow slug WITH a checkpoint.pending marker", async () => {
     const { deps, dispatched } = makeDeps({
       stdin: JSON.stringify({ hook_event_name: "SessionStart" }),
-      pane: "%1",
       slug: "demo",
       state: fakeState("checkpoint-pending-clear"),
       markerExists: true,
@@ -145,7 +150,6 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
 
   it("dispatches at gated WITH a checkpoint marker (feedback-mode resume point)", async () => {
     const { deps, dispatched } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("gated"),
       markerExists: true,
@@ -161,8 +165,8 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
     let dispatchedSlug: string | null = null;
     const deps: Deps = {
       readStdin: async () => "",
-      tmuxPane: "%1",
-      showFlowSlug: () => "demo",
+      flowSlugEnv: "demo",
+      tmuxPaneEnv: "%1",
       loadState: () => fakeState("checkpoint-pending-clear"),
       markerExists: () => true,
       readCheckpointBody: () => null,
@@ -180,12 +184,40 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
     // already resolved above without this test awaiting any delivery promise.
     expect(dispatchedSlug).toBe("demo");
   });
+
+  it("degrades to passive additionalContext (no send-keys) when launcher is tmux but TMUX_PANE is absent — the no-pane residual", async () => {
+    // Restores, in env-only form, the coverage the deleted "the `pane &&`
+    // half of the gate" test used to provide: `state.launcher !== "plain"`
+    // alone answers "which backend created the pipeline?", not "is this
+    // clearing session actually inside a live tmux pane?" — a session that
+    // inherited a tmux-launched pipeline's FLOW_SLUG without itself being
+    // inside that pane must degrade to the passive emit, never send-keys.
+    const { deps, dispatched, emitted } = makeDeps({
+      slug: "demo",
+      state: fakeState("checkpoint-pending-clear"),
+      markerExists: true,
+      tmuxPaneEnv: "",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(emitted).toHaveLength(1);
+  });
+
+  it("still dispatches send-keys when launcher is tmux AND TMUX_PANE is live", async () => {
+    const { deps, dispatched } = makeDeps({
+      slug: "demo",
+      state: fakeState("checkpoint-pending-clear"),
+      markerExists: true,
+      tmuxPaneEnv: "%3",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual(["demo"]);
+  });
 });
 
 describe("flow-session-start-hook — silent no-op paths", () => {
-  it("no-op (no dispatch, exit 0) when TMUX_PANE is undefined (unresolved slug)", async () => {
+  it("no-op (no dispatch, exit 0) when FLOW_SLUG is unset (unresolved slug)", async () => {
     const { deps, dispatched, loadCalls } = makeDeps({
-      pane: undefined,
       state: fakeState("implementing"),
       markerExists: true,
     });
@@ -194,10 +226,9 @@ describe("flow-session-start-hook — silent no-op paths", () => {
     expect(loadCalls).toEqual([]);
   });
 
-  it("no-op when @flow-slug is empty (non-flow window)", async () => {
+  it("no-op when FLOW_SLUG is shape-invalid — env-only, no fallback", async () => {
     const { deps, dispatched, loadCalls } = makeDeps({
-      pane: "%1",
-      slug: "",
+      flowSlugEnv: "NOT A SLUG",
       state: fakeState("implementing"),
       markerExists: true,
     });
@@ -208,7 +239,6 @@ describe("flow-session-start-hook — silent no-op paths", () => {
 
   it("no-op when state.json is missing for the slug", async () => {
     const { deps, dispatched } = makeDeps({
-      pane: "%1",
       slug: "ghost",
       state: null,
       markerExists: true,
@@ -227,7 +257,6 @@ describe("flow-session-start-hook — silent no-op paths", () => {
     for (const phase of TERMINAL_PHASES.filter((p) => p !== "gated")) {
       const { deps, dispatched, dispatchedTerminal, dispatchedModes } =
         makeDeps({
-          pane: "%1",
           slug: "demo",
           state: fakeState(phase),
           markerExists: true,
@@ -243,7 +272,6 @@ describe("flow-session-start-hook — silent no-op paths", () => {
 
   it("no-op at gated WITHOUT a checkpoint marker (a plain /clear at the gate still clears)", async () => {
     const { deps, dispatched } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("gated"),
       markerExists: false,
@@ -254,7 +282,6 @@ describe("flow-session-start-hook — silent no-op paths", () => {
 
   it("no-op for a non-terminal slug when the checkpoint.pending marker is absent", async () => {
     const { deps, dispatched } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("checkpoint-pending-clear"),
       markerExists: false,
@@ -270,7 +297,6 @@ describe("flow-session-start-hook — silent no-op paths", () => {
     // `starting`, before step 2 creates the worktree) with an armed marker
     // reaches the normal dispatch path.
     const { deps, dispatched } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: { ...fakeState("checkpoint-pending-clear"), worktree: undefined },
       markerExists: true,
@@ -283,7 +309,6 @@ describe("flow-session-start-hook — silent no-op paths", () => {
 describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => {
   it("(a) epic-design-pending-review + marker + no @flow-kind dispatches with kind epic-design", async () => {
     const { deps, dispatched, dispatchedKinds } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("epic-design-pending-review"),
       markerExists: true,
@@ -296,7 +321,6 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
   it("(b) every epic-design STEP phase + marker dispatches with kind epic-design", async () => {
     for (const phase of ["epic-designing", "epic-validating", "epic-pr-open"]) {
       const { deps, dispatched, dispatchedKinds } = makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState(phase),
         markerExists: true,
@@ -309,7 +333,6 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
 
   it("(c) a feature phase dispatches with kind feature and a byte-identical seed (regression)", async () => {
     const { deps, dispatched, dispatchedKinds } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("implementing"),
       markerExists: true,
@@ -363,11 +386,10 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     expect(seed).toContain("SKILL_DIR: ");
   });
 
-  it("(e) plain path (FLOW_SLUG, no pane) at an epic phase emits the epic-design seed as additionalContext", async () => {
+  it("(e) plain path (FLOW_SLUG, launcher plain) at an epic phase emits the epic-design seed as additionalContext", async () => {
     const { deps, dispatched, emitted } = makeDeps({
-      pane: undefined,
       flowSlugEnv: "demo",
-      state: fakeState("epic-design-pending-review"),
+      state: { ...fakeState("epic-design-pending-review"), launcher: "plain" },
       markerExists: true,
     });
     expect(await run(deps)).toBe(0);
@@ -383,7 +405,6 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
       dispatchedTerminalKinds,
       emitted,
     } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("epic-approved"),
       markerExists: true,
@@ -411,7 +432,6 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
       dispatchedTerminalKinds,
       emitted,
     } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("cancelled"),
       markerExists: true,
@@ -436,7 +456,6 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
       dispatchedTerminalKinds,
       emitted,
     } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("needs-human"),
       markerExists: true,
@@ -454,7 +473,6 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
 
   it("(g) epic-approved + marker + resolveKind() === 'epic-run' dispatches with kind epic-run (D3 bypasses the terminal guard)", async () => {
     const { deps, dispatched, dispatchedKinds, emitted } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("epic-approved"),
       markerExists: true,
@@ -503,7 +521,6 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
 
   it("(i) resolveKind() === 'feature' on a feature pipeline does not change today's behavior", async () => {
     const { deps, dispatched, dispatchedKinds } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("implementing"),
       markerExists: true,
@@ -516,7 +533,6 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
 
   it("(k) epic-approved with NO marker: no dispatch and no emit (an ordinary /clear with no checkpoint stays silent)", async () => {
     const { deps, dispatched, emitted } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("epic-approved"),
       markerExists: false,
@@ -528,7 +544,6 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
 
   it("(l) merged + marker on a feature pipeline: advisory names the flow feature resume recovery command", async () => {
     const { deps, dispatched, dispatchedTerminal, emitted } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("merged"),
       markerExists: true,
@@ -545,7 +560,6 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
   it("a terminal phase with a non-empty body emits it under '## Checkpoint (carried over)' plus the terminal note, and retires the checkpoint exactly once", async () => {
     const { deps, dispatched, dispatchedTerminal, emitted, retiredSlugs } =
       makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState("merged"),
         markerExists: true,
@@ -600,7 +614,6 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
 
   it("a terminal phase with NO readable body falls back to the plain terminalAdvisory and does not retire anything", async () => {
     const { deps, emitted, retiredSlugs } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("needs-human"),
       markerExists: true,
@@ -616,7 +629,6 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
   it("a throwing readCheckpointBody still returns 0 and emits nothing — session start is never blocked", async () => {
     const { deps, emitted, retiredSlugs, dispatched, dispatchedTerminal } =
       makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState("merged"),
         markerExists: true,
@@ -634,7 +646,6 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
 
   it("a throwing retireCheckpoint still returns 0 AND the body was already emitted — emit-before-retire ordering, so a failed retirement never costs the user their notes", async () => {
     const { deps, emitted, dispatchedTerminal } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("merged"),
       markerExists: true,
@@ -662,8 +673,8 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
     const order: string[] = [];
     const deps: Deps = {
       readStdin: async () => "",
-      tmuxPane: "%1",
-      showFlowSlug: () => "demo",
+      flowSlugEnv: "demo",
+      tmuxPaneEnv: "%1",
       loadState: () => fakeState("merged"),
       markerExists: () => true,
       readCheckpointBody: () => "note\n",
@@ -689,7 +700,6 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
     // assert an advisory the user never actually sees.
     const { deps, emitted, retiredSlugs, dispatched, dispatchedTerminal } =
       makeDeps({
-        pane: "%1",
         slug: "demo",
         state: fakeState("cancelled"),
         markerExists: false, // post-retirement
@@ -706,7 +716,6 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
 
   it("an armed marker with no readable body falls back to the plain advisory (arm succeeded, body lost) and STILL fires the orientation turn", async () => {
     const { deps, emitted, dispatchedTerminal } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("cancelled"),
       markerExists: true,
@@ -720,43 +729,15 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
     expect(emitted).toEqual([terminalAdvisory("demo", "cancelled", "feature")]);
   });
 
-  it("a plain-launched pipeline at a terminal phase carries the notes over but fires NO orientation turn, even with a pane inherited from the user's terminal", async () => {
+  it("a plain-launched pipeline at a terminal phase carries the notes over but fires NO orientation turn", async () => {
     // Plain mode has no send-keys surface, so the passive carry-over is the
-    // whole delivery — byte-identical to before this turn existed. The pane is
-    // deliberately SET here: `TMUX_PANE` leaks in from the user's own terminal,
-    // so `state.launcher === "plain"` is the half of the gate doing the work.
+    // whole delivery — byte-identical to before this turn existed.
+    // `state.launcher === "plain"` is the entire gate now that identity is
+    // env-only — there is no pane to isolate separately.
     const { deps, dispatched, dispatchedTerminal, emitted, retiredSlugs } =
       makeDeps({
-        pane: "%1",
         slug: "demo",
         state: { ...fakeState("merged"), launcher: "plain" },
-        markerExists: true,
-        checkpointBody: "approved with condition X\n",
-      });
-    expect(await run(deps)).toBe(0);
-    expect(emitted).toEqual([
-      terminalCarryOver(
-        "demo",
-        "merged",
-        "feature",
-        "approved with condition X\n",
-      ),
-    ]);
-    expect(retiredSlugs).toEqual(["demo"]);
-    expect(dispatched).toEqual([]);
-    expect(dispatchedTerminal).toEqual([]);
-  });
-
-  it("no pane at all (undefined, not merely inherited-plain) also carries the notes over with NO orientation turn — the `pane &&` half of the gate, isolated from the launcher half", async () => {
-    // The sibling test above isolates `state.launcher !== "plain"`; this one
-    // isolates `pane &&` by leaving TMUX_PANE unset while keeping the
-    // launcher tmux. Dropping `pane &&` from the gate would stay green on
-    // every other test in this suite but would try to dispatch send-keys
-    // against a nonexistent window here.
-    const { deps, dispatched, dispatchedTerminal, emitted, retiredSlugs } =
-      makeDeps({
-        flowSlugEnv: "demo",
-        state: { ...fakeState("merged"), launcher: "tmux" },
         markerExists: true,
         checkpointBody: "approved with condition X\n",
       });
@@ -984,12 +965,11 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
   });
 });
 
-describe("plain-mode additionalContext fallback (FLOW_SLUG, no pane)", () => {
+describe('plain-mode additionalContext fallback (state.launcher === "plain")', () => {
   it("emits the resume seed as additionalContext instead of send-keys", async () => {
     const { deps, dispatched, emitted } = makeDeps({
-      pane: undefined,
       flowSlugEnv: "demo",
-      state: fakeState("checkpoint-pending-clear"),
+      state: { ...fakeState("checkpoint-pending-clear"), launcher: "plain" },
       markerExists: true,
     });
     expect(await run(deps)).toBe(0);
@@ -999,9 +979,8 @@ describe("plain-mode additionalContext fallback (FLOW_SLUG, no pane)", () => {
 
   it("no-ops (no emit) when the checkpoint marker is absent", async () => {
     const { deps, dispatched, emitted } = makeDeps({
-      pane: undefined,
       flowSlugEnv: "demo",
-      state: fakeState("checkpoint-pending-clear"),
+      state: { ...fakeState("checkpoint-pending-clear"), launcher: "plain" },
       markerExists: false,
     });
     expect(await run(deps)).toBe(0);
@@ -1009,9 +988,8 @@ describe("plain-mode additionalContext fallback (FLOW_SLUG, no pane)", () => {
     expect(emitted).toEqual([]);
   });
 
-  it("tmux path is unchanged: a pane-resolved slug still dispatches send-keys, never emits context", async () => {
+  it("tmux path is unchanged: a resolved slug still dispatches send-keys, never emits context", async () => {
     const { deps, dispatched, emitted } = makeDeps({
-      pane: "%1",
       slug: "demo",
       state: fakeState("checkpoint-pending-clear"),
       markerExists: true,
@@ -1019,32 +997,6 @@ describe("plain-mode additionalContext fallback (FLOW_SLUG, no pane)", () => {
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual(["demo"]);
     expect(emitted).toEqual([]);
-  });
-
-  it("FLOW_SLUG with a live pane still uses send-keys (env resolves the slug, the pane owns delivery)", async () => {
-    const { deps, dispatched, emitted, loadCalls } = makeDeps({
-      pane: "%1",
-      slug: "pane-slug",
-      flowSlugEnv: "env-slug",
-      state: fakeState("checkpoint-pending-clear"),
-      markerExists: true,
-    });
-    expect(await run(deps)).toBe(0);
-    expect(loadCalls).toEqual(["env-slug"]);
-    expect(dispatched).toEqual(["env-slug"]);
-    expect(emitted).toEqual([]);
-  });
-
-  it("a plain-launched pipeline resumed from inside a tmux pane emits context, never send-keys (regression: TMUX_PANE inherited from the user's terminal used to route to dispatchResume against a nonexistent window)", async () => {
-    const { deps, dispatched, emitted } = makeDeps({
-      pane: "%1",
-      flowSlugEnv: "demo",
-      state: { ...fakeState("checkpoint-pending-clear"), launcher: "plain" },
-      markerExists: true,
-    });
-    expect(await run(deps)).toBe(0);
-    expect(dispatched).toEqual([]);
-    expect(emitted).toEqual([flowPipelineResumeSeed("demo")]);
   });
 
   it("sessionStartOutput wraps the context in the SessionStart hookSpecificOutput shape", () => {

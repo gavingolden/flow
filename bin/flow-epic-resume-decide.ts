@@ -21,7 +21,7 @@
  * `bin/lib` imports only inside the spawned consumer-worktree window.
  *
  * Usage:
- *   flow-epic-resume-decide [<slug>]   (slug auto-resolves from $TMUX_PANE)
+ *   flow-epic-resume-decide [<slug>]   (slug auto-resolves from $FLOW_SLUG)
  *
  * Output: a single JSON object on stdout.
  *   {
@@ -250,7 +250,7 @@ export type Deps = {
 export function parseArgs(
   argv: string[],
 ): { slug?: string } | { error: string } {
-  // Slug is optional: when omitted, the caller resolves from $TMUX_PANE — the
+  // Slug is optional: when omitted, the caller resolves from $FLOW_SLUG — the
   // same auto-resolve contract as flow-resume-decide / flow-state-update.
   if (argv.length === 0) return {};
   for (const a of argv) {
@@ -323,8 +323,8 @@ export function run(argv: string[], deps: Deps = {}): number {
   const slug = parsed.slug ?? resolveSlug();
   if (!slug) {
     console.error(
-      "flow-epic-resume-decide: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
-        "  pass <slug> explicitly, or run inside a tmux window created by `flow epic create`.",
+      "flow-epic-resume-decide: no slug given and no FLOW_SLUG in the environment.\n" +
+        "  pass <slug> explicitly, or run inside a pipeline launched by `flow epic create`.",
     );
     return 2;
   }

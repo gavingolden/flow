@@ -217,7 +217,7 @@ describe(run, () => {
     expect(err.join("")).toContain("usage: flow-rename-window");
   });
 
-  it("auto-resolves the slug from $TMUX_PANE when only a title is given", () => {
+  it("auto-resolves the slug from $FLOW_SLUG when only a title is given", () => {
     const calls: string[][] = [];
     const exit = run(["add CSV export"], {
       listWindows: () => [
@@ -255,7 +255,7 @@ describe(run, () => {
     expect(calls[0][2]).toBe("@7");
   });
 
-  it("exits 2 with a clear error when no slug given and pane has none either", () => {
+  it("exits 2 with a clear error when no slug given and none resolves from FLOW_SLUG either", () => {
     const err: string[] = [];
     const exit = run(["add CSV export"], {
       listWindows: () => [],
@@ -265,7 +265,7 @@ describe(run, () => {
       writeErr: (s) => err.push(s),
     });
     expect(exit).toBe(2);
-    expect(err.join("")).toContain("@flow-slug");
+    expect(err.join("")).toContain("FLOW_SLUG");
   });
 
   it("--slug drives the rename without consulting the pane resolver", () => {

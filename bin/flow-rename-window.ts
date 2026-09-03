@@ -13,7 +13,7 @@
  *
  * Usage:
  *   flow-rename-window <slug> <title>
- *   flow-rename-window <title>            # slug auto-resolved from $TMUX_PANE
+ *   flow-rename-window <title>            # slug auto-resolved from $FLOW_SLUG
  *   flow-rename-window --help
  *
  * Exits 0 on success, 1 if the slug doesn't resolve to a flow window,
@@ -33,7 +33,7 @@ const HELP_TEXT = `flow-rename-window — rename a pipeline's tmux window displa
 Usage:
   flow-rename-window <slug> <title>
   flow-rename-window --slug <slug> <title>
-  flow-rename-window <title>     # slug auto-resolved from $TMUX_PANE's @flow-slug
+  flow-rename-window <title>     # slug auto-resolved from $FLOW_SLUG
 
 The window keeps its @flow-slug user option, so 'flow attach <slug>',
 'flow done <slug>', 'flow ls', and 'flow feature resume <slug>' continue
@@ -150,10 +150,10 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
   const slug = parsed.slug ?? resolveSlug();
   if (!slug) {
     writeErr(
-      "flow-rename-window: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n",
+      "flow-rename-window: no slug given and no FLOW_SLUG in the environment.\n",
     );
     writeErr(
-      "  pass <slug> explicitly, or run inside a tmux window created by `flow feature create`.\n",
+      "  pass <slug> explicitly, or run inside a pipeline launched by `flow feature create`.\n",
     );
     return 2;
   }
