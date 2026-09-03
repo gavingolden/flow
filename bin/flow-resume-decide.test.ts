@@ -1094,7 +1094,7 @@ describe("run() integration", () => {
     expect(exit).toBe(2);
   });
 
-  it("auto-resolves the slug from $TMUX_PANE when omitted", () => {
+  it("auto-resolves the slug from $FLOW_SLUG when omitted", () => {
     seedState("kappa", { phase: "merged" });
     const { writes, restore } = captureStdout();
     const exit = run([], {

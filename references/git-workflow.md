@@ -107,10 +107,10 @@ marker, `# flow:base-branch-guard v<N>` (`BASE_BRANCH_GUARD_MARKER` +
 `BASE_BRANCH_GUARD_VERSION`), matched by substring-contains rather than a
 byte-exact compare — a byte-exact compare misclassified a still-installed
 older hook body as a foreign hook forever instead of upgrading it in
-place. Three prior bodies (v1: tmux-only, pre-marker; v2: env-first
-`FLOW_SLUG`, pre-marker; v3: marker-carrying, path-scoped epic-status
-carve-out) are registered in `LEGACY_HOOK_BODIES` and still classify as
-flow-owned. **Any edit to the hook body requires bumping
+place. Four prior bodies (v1: tmux-only, pre-marker; v2: env-first
+`FLOW_SLUG`, pre-marker; v3: marker-carrying; v4: path-scoped epic-status
+carve-out, tmux pane fallback) are registered in `LEGACY_HOOK_BODIES` and
+still classify as flow-owned. **Any edit to the hook body requires bumping
 `BASE_BRANCH_GUARD_VERSION` AND registering the prior body** in
 `LEGACY_HOOK_BODIES` plus a matching `bin/fixtures/<role>-guard-v<N>.sh`
 fixture — `base-branch-guard.test.ts`'s `version-drift lock` enforces this

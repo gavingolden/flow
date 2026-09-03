@@ -217,7 +217,7 @@ describe(run, () => {
     expect(err.join("")).toContain("usage: flow-rename-window");
   });
 
-  it("auto-resolves the slug from $TMUX_PANE when only a title is given", () => {
+  it("auto-resolves the slug from $FLOW_SLUG when only a title is given", () => {
     const calls: string[][] = [];
     const exit = run(["add CSV export"], {
       listWindows: () => [

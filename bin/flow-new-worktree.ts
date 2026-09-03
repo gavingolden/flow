@@ -39,7 +39,7 @@ export type RunNewWorktreeDeps = {
   /**
    * Slug fallback consulted when the positional arg is omitted, and
    * compared against the positional arg when both are present. Defaults
-   * to `resolveSlugAmbient()` against the real tmux. Tests inject a stub.
+   * to `resolveSlugAmbient()` against the ambient $FLOW_SLUG. Tests inject a stub.
    */
   resolveSlug?: () => string | null;
 };

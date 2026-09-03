@@ -26,7 +26,19 @@ import { fileURLToPath } from "node:url";
 
 export type PaneReadViolation = { file: string; line: number; text: string };
 
-const READ_VERB_RE = /show-options|list-windows|display-message/;
+// Long-form verbs plus tmux's own command aliases (`man tmux` ALIASES
+// column): `show-options` -> `show`/`showo`; `show-window-options` ->
+// `showw`; `list-windows` -> `lsw`; `display-message` -> `display`; plus
+// `list-panes` -> `lsp`, since a pane enumeration read is equally a pane
+// read. The short bare-word aliases (`show`, `display`) are quote-delimited
+// (`"show"` / `'show'` / `` `show` ``) rather than `\b`-bounded: those two
+// words are common English/identifier substrings (`showFoo`, "display the
+// result"), so a bare-word match floods the frozen-set assertion with
+// unrelated files — quoting them the same way a `spawn([...])` command-array
+// literal actually spells the verb keeps the false-positive rate at the
+// level the frozen-set test can still name one-by-one.
+const READ_VERB_RE =
+  /\bshow-options\b|["'`]showo["'`]|\bshow-window-options\b|["'`]showw["'`]|\blist-windows\b|["'`]lsw["'`]|\bdisplay-message\b|["'`]show["'`]|["'`]display["'`]|\blist-panes\b|["'`]lsp["'`]/;
 const OPTION_TOKEN_RE =
   /@flow-[A-Za-z0-9_-]+|FLOW_SLUG_OPTION|FLOW_KIND_OPTION|FLOW_PHASE_OPTION|FLOW_PHASE_SHORT_OPTION|FLOW_REPO_OPTION|FLOW_EPIC_OPTION/;
 
@@ -294,6 +306,20 @@ describe("pane-read-lint", () => {
         },
       ]);
       expect(violations.length).toBe(1);
+    });
+
+    it("catches tmux's short-form alias `showw` (show-window-options) reading @flow-kind, not just the long-form verb", () => {
+      const violations = findPaneReads([
+        {
+          path: "synthetic/f.ts",
+          contents: `tmux(["showw", "-v", "@flow-kind"]);`,
+        },
+      ]);
+      expect(
+        violations.length,
+        "a lint that only matches the long-form verb name lets the same " +
+          "read spelled with tmux's own alias evade the frozen-set guard",
+      ).toBe(1);
     });
 
     it("returns [] for prose mentioning @flow-phase with no read verb anywhere", () => {

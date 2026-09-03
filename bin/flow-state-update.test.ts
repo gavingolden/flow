@@ -53,7 +53,7 @@ describe("parseArgs", () => {
   it("treats a leading flag as 'slug omitted' (auto-resolve path)", () => {
     // Previously rejected with 'slug must be the first positional argument'.
     // The supervisor now relies on this form: `flow-state-update --phase X`
-    // resolves the slug from $TMUX_PANE.
+    // resolves the slug from $FLOW_SLUG.
     expect(parseArgs(["--phase", "implementing"])).toEqual({
       phase: "implementing",
     });
@@ -564,7 +564,7 @@ describe("runUpdate", () => {
     expect(got?.phase).toBe("starting"); // unchanged from seed
   });
 
-  it("auto-resolves the slug from $TMUX_PANE when omitted", () => {
+  it("auto-resolves the slug from $FLOW_SLUG when omitted", () => {
     seed("csv-export");
     const code = runUpdate(["--phase", "implementing"], dir, {
       resolveSlug: () => "csv-export",

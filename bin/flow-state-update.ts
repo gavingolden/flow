@@ -230,7 +230,7 @@ export function applyUpdate(
 export type RunUpdateDeps = {
   /**
    * Slug fallback when the positional arg is omitted. Defaults to
-   * `resolveSlugAmbient()` against the real tmux. Tests inject a
+   * `resolveSlugAmbient()` against the ambient $FLOW_SLUG. Tests inject a
    * stub.
    */
   resolveSlug?: () => string | null;

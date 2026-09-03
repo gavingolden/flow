@@ -546,7 +546,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     // FLOW_PIPELINE=1 lets /flow-research's Tier-2 claude -p leaf guard fire
     // inside an epic supervisor exactly as it does in a feature supervisor
     // (skills/universal/flow-research/SKILL.md:306); FLOW_SLUG makes every
-    // hook/helper resolve the ambient slug env-first over a tmux read.
+    // hook/helper resolve the ambient slug as the sole ambient carrier.
     expect(command).toContain("FLOW_PIPELINE=1");
     expect(command).toContain("env");
     // The flow-scoped settings file was written, registering the seed-ingested hook.

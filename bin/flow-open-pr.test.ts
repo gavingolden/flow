@@ -80,7 +80,7 @@ describe(parseArgs, () => {
   it("treats a leading flag as 'slug omitted' (auto-resolve path)", () => {
     // Previously rejected with 'slug must be the first positional argument'.
     // The supervisor now relies on this form: the slug auto-resolves from
-    // $TMUX_PANE.
+    // $FLOW_SLUG.
     const r = parseArgs(["--body-file", "/tmp/x.md"]);
     expect(r).toEqual({ bodyFile: "/tmp/x.md", draft: false });
   });
@@ -444,7 +444,7 @@ describe("flow-open-pr run()", () => {
     expect(exit).toBe(1);
   });
 
-  it("auto-resolves the slug from $TMUX_PANE when omitted", () => {
+  it("auto-resolves the slug from $FLOW_SLUG when omitted", () => {
     seedState("theta");
     const { updater, calls: updaterCalls } = makeUpdater();
     const prJson: GhResponse = {

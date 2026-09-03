@@ -237,8 +237,8 @@ When `flow-state-update` exits with status 4, a terminal→non-terminal
 phase regression was detected — the existing phase in state.json is one
 of `merged`, `gated`, `needs-human`, `cancelled`, or `epic-approved`,
 but the requested transition would move to a non-terminal phase. This
-signals an ambient-pane race that wrote to the wrong pipeline's state:
-`resolveSlugFromPane()` resolved a stale or mismatched slug and the
+signals a race that wrote to the wrong pipeline's state: an
+inherited/stale `FLOW_SLUG` resolved another pipeline's slug and the
 write was blocked by the mechanical guard. The supervisor must NOT
 retry. Shape rule: `references/pause-output-contract.md`
 `## Step contract`.

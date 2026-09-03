@@ -1493,8 +1493,8 @@ function launchArgv(
   // running inside the supervisor and suppress their standalone-only
   // `claude -p` fallback tier — the no-nested-LLM boundary the supervisor
   // must never cross. FLOW_SLUG is the backend-agnostic ambient slug for
-  // helpers/hooks (`resolveSlugAmbient`), env-first over the tmux pane's
-  // `@flow-slug`. PATH is the tmux-backend half of Decision B0 (the plain
+  // helpers/hooks (`resolveSlugAmbient`), the sole ambient carrier
+  // (`resolveSlugAmbient` is env-only). PATH is the tmux-backend half of Decision B0 (the plain
   // backend's half is a SEPARATE implementation via a real env object in
   // launcher.ts) — omitted entirely when there is nothing left to append.
   //

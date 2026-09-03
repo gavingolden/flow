@@ -248,14 +248,15 @@ three-layer resolution table, and the manifest/foundation fields — is at
   shell is the DEFAULT launcher and tmux is opt-in, so a bare install has no
   pane/window options at all. flow's tmux options (`@flow-slug`, `@flow-phase`,
   `@flow-repo`, `@flow-phase-short`, `@flow-kind`, `@flow-epic`) are additive,
-  publish-only convenience mirrors. Exception: `@flow-kind`, the ONLY option
-  read as a load-bearing input, because epic orchestration is ALREADY
-  tmux-only by an independent hard constraint (it refuses a non-tmux
-  backend) — the tmux-only precondition is named in a comment at BOTH the
-  producing and consuming site, and absence degrades to a CORRECT default,
-  not a wrong one; an absent pane option is indistinguishable from a
-  legitimately-absent value, so the fallback must be safe-by-construction,
-  not merely safe-today. See `resolveSlugAmbient` (env-only) and
+  publish-only convenience mirrors. Two sanctioned reads: `@flow-kind`, a
+  load-bearing input because epic orchestration is ALREADY tmux-only by an
+  independent hard constraint (refuses a non-tmux backend) — the tmux-only
+  precondition is named in a comment at BOTH producing and consuming site,
+  and absence degrades to a CORRECT, safe-by-construction default (an
+  absent option can't be told apart from a legitimately-absent one) — and
+  `@flow-slug`, read back only as a `flow ls`/`attach`/
+  `done` window-join key (`LIST_WINDOWS_FORMAT`, `bin/lib/tmux.ts`), not
+  identity resolution. See `resolveSlugAmbient` (env-only) and
   `resolveKindAmbient` (the `@flow-kind` exception) in
   `bin/lib/session-identity.ts`. `bin/pane-read-lint.test.ts` enforces this
   mechanically — it fails CI on any pane-option read outside the frozen
