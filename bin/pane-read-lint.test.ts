@@ -156,12 +156,25 @@ function loadFiles(relPaths: string[]): { path: string; contents: string }[] {
   }));
 }
 
+/** Non-recursive scan of repo-root files with a code/doc extension — `AGENTS.md`
+ * used to be the only root file named explicitly, which made every OTHER
+ * root-level file (e.g. `vitest.setup.ts`, the file this PR itself edits to
+ * handle `TMUX_PANE`) invisible to the frozen-set assertion below. */
+function rootFiles(): string[] {
+  return fs
+    .readdirSync(REPO_ROOT, { withFileTypes: true })
+    .filter((d) => d.isFile() && /\.(ts|js|mjs|cjs|sh|md|json)$/.test(d.name))
+    .map((d) => d.name);
+}
+
 /**
  * The full scanned surface: `bin/**` (every extension — see `filesUnder`'s
  * doc comment), `skills/**\/*.md`, `references/*.md` (the repo-root
  * `references/` dir; `skills/**\/*.md` already covers the per-skill ones
  * recursively), `docs/**\/*.md`, `agents/**\/*.md`, `templates/**`, and
- * `AGENTS.md`.
+ * every repo-ROOT file with a code/doc extension (non-recursive — a new
+ * top-level DIRECTORY still needs a conscious `filesUnder(...)` addition
+ * here, pinned by the surface test below).
  */
 function scanSet(): string[] {
   const relPaths = [
@@ -171,10 +184,8 @@ function scanSet(): string[] {
     ...filesUnder("docs", [".md"]),
     ...filesUnder("agents", [".md"]),
     ...filesUnder("templates"),
+    ...rootFiles(),
   ];
-  if (fs.existsSync(path.join(REPO_ROOT, "AGENTS.md"))) {
-    relPaths.push("AGENTS.md");
-  }
   return [...new Set(relPaths)].sort();
 }
 
@@ -212,6 +223,47 @@ describe("pane-read-lint", () => {
         `PANE_READ_ALLOWLIST's prefix entry '${prefix}' matches no violation`,
       ).toBeGreaterThan(0);
     }
+  });
+
+  it("allowlist shape: named entries are concrete file paths, at most one prefix entry, no broad prefixes", () => {
+    // Pins the two regressions that pass every OTHER assertion in this file:
+    // (1) a future maintainer widening a named entry into a broad prefix
+    // (`"bin/"`, `"skills/"`) still trivially satisfies completeness /
+    // dead-entry / prefix-match-count, silently un-freezing the set; (2) see
+    // the next test for the matcher-drift half.
+    const prefixes = PANE_READ_ALLOWLIST.filter((e) => e.endsWith("/"));
+    expect(prefixes.length).toBeLessThanOrEqual(1);
+    for (const e of prefixes) {
+      expect(
+        e.split("/").filter(Boolean).length,
+        `prefix '${e}' is too broad`,
+      ).toBeGreaterThan(1);
+    }
+    for (const e of PANE_READ_ALLOWLIST.filter((x) => !x.endsWith("/"))) {
+      expect(e, `named entry '${e}' must be a concrete file path`).toMatch(
+        /\.[a-z]+$/,
+      );
+    }
+  });
+
+  it("fails closed for a new file: exact match for named entries, prefix only for the trailing-slash rule", () => {
+    // The matcher-drift half of the regression above: if `isAllowlisted`'s
+    // named-entry arm ever changed from `===` to `startsWith`, this is the
+    // assertion that would catch a stray `.orig`/`.bak` sneaking through.
+    expect(isAllowlisted("bin/lib/session-identity.ts")).toBe(false);
+    expect(isAllowlisted("bin/lib/tmux.ts.orig")).toBe(false);
+    expect(isAllowlisted("bin/fixtures/base-branch-guard-v6.sh")).toBe(true);
+  });
+
+  it("scanned surface includes repo-root files (not just the hard-coded AGENTS.md)", () => {
+    // Reachable, not hypothetical: vitest.setup.ts is a repo-root file this
+    // very PR edits to handle TMUX_PANE, and a hard-coded single-file root
+    // scan would leave it (and any future root-level pane read) invisible to
+    // the frozen-set assertion above.
+    const scanned = new Set(scanSet());
+    expect(scanned.has("AGENTS.md")).toBe(true);
+    expect(scanned.has("vitest.setup.ts")).toBe(true);
+    expect(scanned.has("package.json")).toBe(true);
   });
 
   it("no prose reads: zero matches of 'tmux show-options' across skills/**/*.md, references/*.md, docs/**/*.md, agents/**/*.md, AGENTS.md", () => {
