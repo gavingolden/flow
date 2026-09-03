@@ -41,6 +41,13 @@ function makeDeps(opts: {
   /** Convenience alias for flowSlugEnv, kept for call-site brevity across the suite. */
   slug?: string;
   flowSlugEnv?: string;
+  /**
+   * TMUX_PANE liveness stub. Defaults to a truthy live-pane value so the
+   * existing tmux-launcher suite (which predates this seam) keeps exercising
+   * the send-keys arm unchanged; pass `""` explicitly to simulate a
+   * launcher-tagged session with no live pane (the no-pane residual).
+   */
+  tmuxPaneEnv?: string;
   state?: PipelineState | null;
   markerExists?: boolean;
   /** Terminal-carry-over body: `null`/omitted falls back to `terminalAdvisory`. */
@@ -74,6 +81,7 @@ function makeDeps(opts: {
   const deps: Deps = {
     readStdin: async () => opts.stdin ?? "",
     flowSlugEnv: opts.flowSlugEnv ?? opts.slug,
+    tmuxPaneEnv: opts.tmuxPaneEnv ?? "%0",
     loadState: (slug) => {
       loadCalls.push(slug);
       return opts.state ?? null;
@@ -158,6 +166,7 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
     const deps: Deps = {
       readStdin: async () => "",
       flowSlugEnv: "demo",
+      tmuxPaneEnv: "%1",
       loadState: () => fakeState("checkpoint-pending-clear"),
       markerExists: () => true,
       readCheckpointBody: () => null,
@@ -174,6 +183,35 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
     // Dispatch was actually invoked (proves run() didn't skip it) AND run()
     // already resolved above without this test awaiting any delivery promise.
     expect(dispatchedSlug).toBe("demo");
+  });
+
+  it("degrades to passive additionalContext (no send-keys) when launcher is tmux but TMUX_PANE is absent — the no-pane residual", async () => {
+    // Restores, in env-only form, the coverage the deleted "the `pane &&`
+    // half of the gate" test used to provide: `state.launcher !== "plain"`
+    // alone answers "which backend created the pipeline?", not "is this
+    // clearing session actually inside a live tmux pane?" — a session that
+    // inherited a tmux-launched pipeline's FLOW_SLUG without itself being
+    // inside that pane must degrade to the passive emit, never send-keys.
+    const { deps, dispatched, emitted } = makeDeps({
+      slug: "demo",
+      state: fakeState("checkpoint-pending-clear"),
+      markerExists: true,
+      tmuxPaneEnv: "",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(emitted).toHaveLength(1);
+  });
+
+  it("still dispatches send-keys when launcher is tmux AND TMUX_PANE is live", async () => {
+    const { deps, dispatched } = makeDeps({
+      slug: "demo",
+      state: fakeState("checkpoint-pending-clear"),
+      markerExists: true,
+      tmuxPaneEnv: "%3",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual(["demo"]);
   });
 });
 
@@ -636,6 +674,7 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
     const deps: Deps = {
       readStdin: async () => "",
       flowSlugEnv: "demo",
+      tmuxPaneEnv: "%1",
       loadState: () => fakeState("merged"),
       markerExists: () => true,
       readCheckpointBody: () => "note\n",

@@ -285,6 +285,19 @@ export type Deps = {
   /** FLOW_SLUG env value (sole slug carrier; both launcher backends set it). */
   flowSlugEnv?: string | undefined;
   /**
+   * TMUX_PANE env value, read for PRESENCE only (never parsed, never used to
+   * spawn a tmux subprocess to read a pane option) — an env-presence
+   * liveness check, not a pane-option read, so it neither violates this
+   * file's env-only invariant
+   * nor trips `bin/pane-read-lint.test.ts`. `state.launcher !== "plain"`
+   * answers "which backend created the pipeline?"; this answers the
+   * DIFFERENT question "is this clearing session actually inside a tmux pane
+   * right now?" — a `/clear` in a plain (non-tmux) session that inherited a
+   * tmux-launched pipeline's `FLOW_SLUG` must not send a real turn into a
+   * pane it cannot see.
+   */
+  tmuxPaneEnv?: string | undefined;
+  /**
    * Plain-mode delivery: emit the SessionStart hookSpecificOutput JSON
    * carrying the resume seed as additionalContext. Default writes to stdout
    * (the SessionStart hook contract); injected in tests.
@@ -403,21 +416,29 @@ export async function run(deps: Deps): Promise<number> {
     // failure returns from the catch above without ever waking the pane. Fires
     // on both sub-branches (carry-over and advisory) — the advisory case is
     // precisely where the user has no notes and the blank pane is most
-    // confusing. Same `launcher !== "plain"` gate as the emit path below,
-    // reusing state the hook already holds: no tmux subprocess and no new
-    // filesystem probe, because this runs on EVERY /clear.
-    if (state.launcher !== "plain") {
+    // confusing. Gated on BOTH `launcher !== "plain"` (which backend created
+    // the pipeline) AND live TMUX_PANE presence (is THIS clearing session
+    // actually inside a tmux pane right now) — a `/clear` in a genuinely
+    // plain session that inherited a tmux pipeline's FLOW_SLUG must degrade
+    // to the passive emit above, not send a real turn into a pane it cannot
+    // see. No tmux subprocess and no new filesystem probe either way — an
+    // env read, same cost class as the launcher check it joins.
+    if (state.launcher !== "plain" && Boolean(deps.tmuxPaneEnv)) {
       deps.dispatchResume(slug, kind, "terminal");
     }
     return 0;
   }
 
-  // Emit path. TMUX: deliver the resume seed as a real user turn (send-keys),
-  // fire-and-forget — dispatchResume returns at once (detached child), so the
-  // hook does not block session start. PLAIN (env-resolved slug, no send-keys
-  // surface): degrade to passive additionalContext — the deliberate
-  // plain-mode fallback (see the header comment).
-  if (state.launcher === "plain") {
+  // Emit path. TMUX (both launcher-tagged AND a live TMUX_PANE): deliver the
+  // resume seed as a real user turn (send-keys), fire-and-forget —
+  // dispatchResume returns at once (detached child), so the hook does not
+  // block session start. PLAIN (env-resolved slug, no send-keys surface) OR
+  // a launcher-tagged session with no live TMUX_PANE (inherited FLOW_SLUG,
+  // not actually inside the pipeline's pane): degrade to passive
+  // additionalContext — the deliberate plain-mode fallback (see the header
+  // comment), now also covering the no-pane residual so a stray `/clear`
+  // never sends a turn into a window this session cannot see.
+  if (state.launcher === "plain" || !deps.tmuxPaneEnv) {
     deps.emitContext(resumeSeedFor(slug, kind));
     return 0;
   }
@@ -727,6 +748,7 @@ if (import.meta.main) {
   run({
     readStdin: defaultReadStdin,
     flowSlugEnv: process.env.FLOW_SLUG,
+    tmuxPaneEnv: process.env.TMUX_PANE,
     emitContext: (context) => {
       process.stdout.write(sessionStartOutput(context) + "\n");
     },
