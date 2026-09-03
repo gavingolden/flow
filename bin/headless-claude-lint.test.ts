@@ -73,7 +73,10 @@ describe("headless-claude rule lint", () => {
       "AGENTS.md must have a '## Supervisor and sub-skills' section.",
     ).toBeDefined();
     expect(section?.includes("flow-claude-headless")).toBe(true);
-    expect(section?.includes("raw")).toBe(true);
+    // Word-boundary match, not the bare "raw" substring — a substring
+    // check would pass on any word merely containing "raw" (e.g.
+    // "drawer", "withdrawn") with no relation to the narrowed rule.
+    expect(section && /\braw\b/.test(section)).toBe(true);
   });
 
   it("references/headless-claude.md exists and names flow-claude-headless, FLOW_SLUG, TMUX_PANE, and #618", () => {

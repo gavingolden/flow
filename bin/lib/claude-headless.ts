@@ -13,6 +13,8 @@
  * `Deps`, never inline in this file or in the test file.
  */
 
+import { redactSecrets } from "./redact-secrets";
+
 // Allowlist, not denylist: issue #618 was a leaked FLOW_SLUG/TMUX_PANE that
 // let a nested `claude` session trip flow-stop-guard against the PARENT
 // pipeline and overwrite its state.json. A denylist (eval-runner.ts's
@@ -28,6 +30,17 @@ export const CHILD_ENV_ALLOW = [
   "LANG",
   "USER",
   "CLAUDE_CONFIG_DIR",
+  // Auth/network passthrough: none of these is a session-identity marker,
+  // and dropping them breaks the child in CI or behind a proxy.
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+  "SSL_CERT_FILE",
+  "NODE_EXTRA_CA_CERTS",
 ] as const;
 
 // Always stripped, even if explicitly named via --env — belt-and-braces
@@ -135,21 +148,36 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         }
         out.effort = value as Effort;
         break;
-      case "--max-budget-usd":
-        out.maxBudgetUsd = Number(value);
+      case "--max-budget-usd": {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+          return { error: `--max-budget-usd must be a number, got ${value}` };
+        }
+        out.maxBudgetUsd = n;
         break;
-      case "--max-turns":
-        out.maxTurns = Number(value);
+      }
+      case "--max-turns": {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+          return { error: `--max-turns must be a number, got ${value}` };
+        }
+        out.maxTurns = n;
         break;
+      }
       case "--allowed-tools":
         out.allowedTools = value;
         break;
       case "--env":
         out.env.push(value);
         break;
-      case "--timeout-sec":
-        out.timeoutSec = Number(value);
+      case "--timeout-sec": {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+          return { error: `--timeout-sec must be a number, got ${value}` };
+        }
+        out.timeoutSec = n;
         break;
+      }
       case "--out":
         out.out = value;
         break;
@@ -188,7 +216,28 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   };
 }
 
+// `--allowedTools` is a floor, not a ceiling: a `dontAsk` child still
+// inherits every `Bash(...)` allow rule from the caller's own
+// `~/.claude/settings.json` — `--allowedTools` only ADDS permissions on
+// top of whatever the settings file already grants, it never narrows
+// them. Two independent guards close that gap: `--setting-sources
+// project` drops the user-level settings file from the child's resolved
+// config (mirrors `bin/lib/eval-runner.ts`'s existing use of the flag),
+// and appending a bare `Bash` deny entry to `FIXED_DENY_LIST` whenever
+// the caller's `--allowed-tools` set contains no `Bash(...)` entry closes
+// the same gap even if `--setting-sources` is ever dropped upstream —
+// deny beats allow.
+function callerAllowsBash(allowedTools: string): boolean {
+  return allowedTools
+    .split(",")
+    .map((t) => t.trim())
+    .some((t) => t === "Bash" || t.startsWith("Bash("));
+}
+
 export function buildChildArgv(a: Args, prompt: string): string[] {
+  const disallowedTools = callerAllowsBash(a.allowedTools)
+    ? FIXED_DENY_LIST
+    : `${FIXED_DENY_LIST},Bash`;
   return [
     "claude",
     "-p",
@@ -208,7 +257,9 @@ export function buildChildArgv(a: Args, prompt: string): string[] {
     "--allowedTools",
     a.allowedTools,
     "--disallowedTools",
-    FIXED_DENY_LIST,
+    disallowedTools,
+    "--setting-sources",
+    "project",
     "--no-session-persistence",
     ...(a.bare ? ["--bare"] : []),
   ];
@@ -248,8 +299,21 @@ function emit(deps: Deps, envelope: Record<string, unknown>): number {
   return 0;
 }
 
-function stderrTail(text: string): string {
-  return text.length > 2000 ? text.slice(-2000) : text;
+// Matches the sibling helper's (flow-delegate) contract: redact secrets
+// before the tail ever reaches a JSON envelope on stdout, and omit the
+// field entirely rather than emit an empty string.
+function stderrTail(text: string): string | undefined {
+  if (!text) return undefined;
+  const redacted = redactSecrets(text);
+  return redacted.length > 2000 ? redacted.slice(-2000) : redacted;
+}
+
+function withStderrTail(
+  envelope: Record<string, unknown>,
+  text: string,
+): Record<string, unknown> {
+  const tail = stderrTail(text);
+  return tail === undefined ? envelope : { ...envelope, stderrTail: tail };
 }
 
 type ChildEnvelope = {
@@ -273,6 +337,12 @@ function looksNotLoggedIn(envelope: ChildEnvelope): boolean {
   );
 }
 
+// Two reachable throw paths (a synchronous `readFile` on the prompt file,
+// and anything the depsOverride's Deps functions might throw) previously
+// escaped the "always one JSON line, exit 0 or 2" contract as an
+// unhandled rejection. `run()` is the public entry point and wraps
+// `runInner()` so no throw can bypass the envelope — the entry point
+// (`bin/flow-claude-headless.ts`) then never needs its own `.catch`.
 export async function run(
   argv: string[],
   depsOverride?: Partial<Deps>,
@@ -289,6 +359,20 @@ export async function run(
     ...depsOverride,
   };
 
+  try {
+    return await runInner(argv, deps);
+  } catch (e) {
+    return emit(
+      deps,
+      withStderrTail(
+        { ran: false, task: DEFAULT_TASK, skipReason: "claude-error" },
+        e instanceof Error ? e.message : String(e),
+      ),
+    );
+  }
+}
+
+async function runInner(argv: string[], deps: Deps): Promise<number> {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     deps.writeOut(
@@ -340,12 +424,13 @@ export async function run(
       outPath.includes("/") ? outPath.slice(0, outPath.lastIndexOf("/")) : ".",
     );
   } catch (e) {
-    return emit(deps, {
-      ran: false,
-      task: parsed.task,
-      skipReason: "claude-error",
-      stderrTail: stderrTail(e instanceof Error ? e.message : String(e)),
-    });
+    return emit(
+      deps,
+      withStderrTail(
+        { ran: false, task: parsed.task, skipReason: "claude-error" },
+        e instanceof Error ? e.message : String(e),
+      ),
+    );
   }
 
   const childEnv = buildChildEnv(deps.env, parsed.env);
@@ -359,12 +444,13 @@ export async function run(
   );
 
   if (result.timedOut) {
-    return emit(deps, {
-      ran: false,
-      task: parsed.task,
-      skipReason: "claude-timeout",
-      stderrTail: stderrTail(result.stderr),
-    });
+    return emit(
+      deps,
+      withStderrTail(
+        { ran: false, task: parsed.task, skipReason: "claude-timeout" },
+        result.stderr,
+      ),
+    );
   }
 
   let raw: string | undefined;
@@ -393,21 +479,23 @@ export async function run(
         skipReason: "claude-not-logged-in",
       });
     }
-    return emit(deps, {
-      ran: false,
-      task: parsed.task,
-      skipReason: "claude-error",
-      stderrTail: stderrTail(result.stderr),
-    });
+    return emit(
+      deps,
+      withStderrTail(
+        { ran: false, task: parsed.task, skipReason: "claude-error" },
+        result.stderr,
+      ),
+    );
   }
 
   if (!envelope) {
-    return emit(deps, {
-      ran: false,
-      task: parsed.task,
-      skipReason: "incomplete-result",
-      stderrTail: stderrTail(result.stderr),
-    });
+    return emit(
+      deps,
+      withStderrTail(
+        { ran: false, task: parsed.task, skipReason: "incomplete-result" },
+        result.stderr,
+      ),
+    );
   }
 
   if (envelope.is_error === true) {
@@ -418,24 +506,26 @@ export async function run(
         skipReason: "claude-not-logged-in",
       });
     }
-    return emit(deps, {
-      ran: false,
-      task: parsed.task,
-      skipReason: "incomplete-result",
-      stderrTail: stderrTail(result.stderr),
-    });
+    return emit(
+      deps,
+      withStderrTail(
+        { ran: false, task: parsed.task, skipReason: "incomplete-result" },
+        result.stderr,
+      ),
+    );
   }
 
   if (
     envelope.session_id === undefined ||
     envelope.total_cost_usd === undefined
   ) {
-    return emit(deps, {
-      ran: false,
-      task: parsed.task,
-      skipReason: "incomplete-result",
-      stderrTail: stderrTail(result.stderr),
-    });
+    return emit(
+      deps,
+      withStderrTail(
+        { ran: false, task: parsed.task, skipReason: "incomplete-result" },
+        result.stderr,
+      ),
+    );
   }
 
   return emit(deps, {

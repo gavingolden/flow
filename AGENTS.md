@@ -120,7 +120,9 @@ sub-agents. `flow-claude-headless` is the one sanctioned
 `skills/pipeline/flow-pipeline/references/headless-claude.md`).
 
 Logic needing a separate LLM session belongs in an in-process sub-skill
-or a non-LLM helper, not here.
+or a non-LLM helper, not here — except a fixed-model, fixed-effort leaf
+review or judgment call, which is the one narrow exception and goes
+through `flow-claude-headless`, never a hand-typed `claude -p`.
 
 ## Compact Instructions
 

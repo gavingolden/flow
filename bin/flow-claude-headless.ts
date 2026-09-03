@@ -29,6 +29,30 @@ function claudeOnPath(): boolean {
 
 const KILL_GRACE_MS = 2000;
 
+// `detached: true` puts the child in its own process group so a timeout
+// can kill the whole tree — but it also means the child survives if the
+// wrapper itself is killed (Ctrl-C, a pipeline-level SIGTERM), left
+// running with nobody to collect its result. Track the live child's pid
+// so the wrapper's own signal handlers (registered once below) can
+// forward the signal into the child's process group before the wrapper
+// exits.
+let currentChildPid: number | undefined;
+
+function forwardSignal(signal: NodeJS.Signals): void {
+  if (currentChildPid) {
+    try {
+      process.kill(-currentChildPid, signal);
+    } catch {
+      // process group already gone
+    }
+  }
+  process.exit(signal === "SIGINT" ? 130 : 1);
+}
+
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+  process.on(signal, () => forwardSignal(signal));
+}
+
 function runClaude(
   argv: string[],
   env: Record<string, string>,
@@ -42,6 +66,7 @@ function runClaude(
       detached: true,
       stdio: ["ignore", outFd, "pipe"],
     });
+    currentChildPid = child.pid;
 
     let stderr = "";
     child.stderr?.on("data", (chunk: Buffer) => {
@@ -73,6 +98,7 @@ function runClaude(
     child.on("close", (code) => {
       clearTimeout(timeoutTimer);
       if (killTimer) clearTimeout(killTimer);
+      currentChildPid = undefined;
       try {
         closeSync(outFd);
       } catch {
@@ -84,6 +110,7 @@ function runClaude(
     child.on("error", (e) => {
       clearTimeout(timeoutTimer);
       if (killTimer) clearTimeout(killTimer);
+      currentChildPid = undefined;
       try {
         closeSync(outFd);
       } catch {
@@ -105,7 +132,25 @@ function defaultDeps(): Partial<Deps> {
 }
 
 if (import.meta.main) {
-  run(process.argv.slice(2), defaultDeps()).then((code) => {
-    process.exit(code);
-  });
+  // `run()` (bin/lib/claude-headless.ts) already wraps every internal
+  // throw so it always resolves with an envelope + exit code — this
+  // `.catch` is defense-in-depth against a throw from `defaultDeps()`
+  // construction itself or a `Deps` function outside `run()`'s own
+  // try/catch, so this entry point can never leave a thrown error as an
+  // unhandled rejection instead of the promised one JSON line.
+  run(process.argv.slice(2), defaultDeps())
+    .then((code) => {
+      process.exit(code);
+    })
+    .catch((e) => {
+      console.log(
+        JSON.stringify({
+          ran: false,
+          task: "headless",
+          skipReason: "claude-error",
+          stderrTail: e instanceof Error ? e.message : String(e),
+        }),
+      );
+      process.exit(0);
+    });
 }

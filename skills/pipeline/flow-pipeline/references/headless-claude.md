@@ -41,14 +41,28 @@ flow-claude-headless (--prompt <text, up to 200 chars> | --prompt-file <path>) \
   (probed via the missing-argument error, not the help text) — re-verify
   on any CLI upgrade before relying on it.
 - The child env is an **allowlist**, not a denylist: only `PATH`, `HOME`,
-  `TMPDIR`, `SHELL`, `TERM`, `LANG`, `USER`, `CLAUDE_CONFIG_DIR`, any
-  `ANTHROPIC_*`/`LC_*`-prefixed key, and explicit `--env` names cross into
-  the child. `FLOW_SLUG`, `TMUX_PANE`, `CLAUDECODE`, and
-  `CLAUDE_CODE_CHILD_SESSION` never reach the child, even if named via
-  `--env` — this closes issue #618, where a leaked `FLOW_SLUG` let a
-  nested session trip `flow-stop-guard` against the PARENT pipeline and
-  overwrite its `state.json`. `FLOW_PIPELINE=1` and
+  `TMPDIR`, `SHELL`, `TERM`, `LANG`, `USER`, `CLAUDE_CONFIG_DIR`, the
+  auth/network passthrough (`CLAUDE_CODE_OAUTH_TOKEN`, `HTTP_PROXY`,
+  `HTTPS_PROXY`, `NO_PROXY`, `http_proxy`, `https_proxy`, `no_proxy`,
+  `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`), any `ANTHROPIC_*`/`LC_*`-prefixed
+  key, and explicit `--env` names cross into the child. `ENV_NEVER` — all
+  7 entries, `FLOW_SLUG`, `TMUX_PANE`, `FLOW_NOTIFY`, `CLAUDECODE`,
+  `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_EFFORT`, `CLAUDE_CODE_EFFORT_LEVEL`
+  — never reach the child, even if named via `--env`. Stripping `FLOW_SLUG`/
+  `TMUX_PANE` prevents THIS helper from reproducing issue #618, where a
+  leaked `FLOW_SLUG` let a nested session trip `flow-stop-guard` against
+  the PARENT pipeline and overwrite its `state.json` — it does not close
+  #618 itself: a raw/manual child process outside this helper can still
+  inherit the slug, and `flow-stop-guard`'s own ownership check remains
+  open (see "What it does not cover" below). `FLOW_PIPELINE=1` and
   `FLOW_HEADLESS_DEPTH=1` are always set on the child.
+- `--allowedTools` is a floor, not a ceiling: a `dontAsk` child still
+  inherits every `Bash(...)` allow rule from the caller's own
+  `~/.claude/settings.json`. Two guards close that gap: `--setting-sources
+project` drops the user-level settings file from the child's resolved
+  config, and `--disallowedTools` gets a bare `Bash` entry appended
+  whenever the caller's `--allowed-tools` set contains no `Bash(...)`
+  entry — deny beats allow.
 - `--bare` needs `ANTHROPIC_API_KEY` — OAuth and keychain credentials are
   never read in `--bare` mode, so a subscription-only user gets
   "Not logged in" if `--bare` is passed without an API key configured.
@@ -108,7 +122,10 @@ opt-in, not yet exposed by `flow-claude-headless`.
   part of this contract.
 - The copilot-classify inline judgment (`SKILL.md` step 7) — still a
   no-subprocess site, makes no `claude -p` call at all.
-- Issue #618's `flow-stop-guard` fix itself — that fix lives in
-  `bin/lib/session-identity.ts` and is orthogonal to this helper; this
-  helper's allowlist is a second, independent layer against the same
-  failure mode.
+- Issue #618's `flow-stop-guard` ownership check itself — `#618` stays
+  open. `bin/lib/session-identity.ts` only validates and reads
+  `FLOW_SLUG`; `flow-stop-guard` still trusts whatever value it's handed,
+  and this PR does not touch that check. This helper's env allowlist is
+  an independent guard that prevents this ONE spawn site from
+  reproducing the leak — it is not the fix for #618, and a raw/manual
+  child process elsewhere in the codebase can still trip it.

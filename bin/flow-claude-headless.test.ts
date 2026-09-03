@@ -67,6 +67,52 @@ describe("buildChildEnv", () => {
     expect(CHILD_ENV_ALLOW).toContain("PATH");
     expect(CHILD_ENV_ALLOW).toContain("CLAUDE_CONFIG_DIR");
   });
+
+  it("CHILD_ENV_ALLOW carries the auth/network passthrough", () => {
+    for (const key of [
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "HTTP_PROXY",
+      "HTTPS_PROXY",
+      "NO_PROXY",
+      "http_proxy",
+      "https_proxy",
+      "no_proxy",
+      "SSL_CERT_FILE",
+      "NODE_EXTRA_CA_CERTS",
+    ]) {
+      expect(CHILD_ENV_ALLOW).toContain(key);
+    }
+    const base: NodeJS.ProcessEnv = { HTTPS_PROXY: "http://proxy:8080" };
+    const env = buildChildEnv(base, []);
+    expect(env.HTTPS_PROXY).toBe("http://proxy:8080");
+  });
+
+  // Derived from the ENV_NEVER constant itself (not a hardcoded list) so
+  // this test stays true for any future addition to ENV_NEVER without
+  // being edited by hand — the failure mode a hand-typed list invites.
+  it("strips every current ENV_NEVER entry, derived from the constant", () => {
+    const base: NodeJS.ProcessEnv = Object.fromEntries(
+      ENV_NEVER.map((k) => [k, "leaked"]),
+    );
+    const env = buildChildEnv(base, [...ENV_NEVER]);
+    for (const k of ENV_NEVER) {
+      expect(env[k]).toBeUndefined();
+    }
+  });
+
+  it("ENV_NEVER names all 7 documented entries", () => {
+    expect([...ENV_NEVER].sort()).toEqual(
+      [
+        "FLOW_SLUG",
+        "TMUX_PANE",
+        "FLOW_NOTIFY",
+        "CLAUDECODE",
+        "CLAUDE_CODE_CHILD_SESSION",
+        "CLAUDE_EFFORT",
+        "CLAUDE_CODE_EFFORT_LEVEL",
+      ].sort(),
+    );
+  });
 });
 
 describe("parseArgs", () => {
@@ -169,10 +215,85 @@ describe("parseArgs", () => {
     expect(a.env).toEqual(["MY_VAR", "OTHER_VAR"]);
     expect(a.bare).toBe(true);
   });
+
+  it("rejects a trailing flag with no value", () => {
+    expect(
+      parseArgs([
+        "--prompt",
+        "hi",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+        "--max-turns",
+      ]),
+    ).toEqual({ error: "missing value for --max-turns" });
+  });
+
+  it("--bare as the last token needs no value and does not error", () => {
+    const parsed = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+      "--bare",
+    ]);
+    expect("error" in parsed).toBe(false);
+    expect((parsed as Args).bare).toBe(true);
+  });
+
+  it("rejects a non-numeric --max-budget-usd", () => {
+    expect(
+      parseArgs([
+        "--prompt",
+        "hi",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+        "--max-budget-usd",
+        "not-a-number",
+      ]),
+    ).toEqual({
+      error: "--max-budget-usd must be a number, got not-a-number",
+    });
+  });
+
+  it("rejects a non-numeric --max-turns", () => {
+    expect(
+      parseArgs([
+        "--prompt",
+        "hi",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+        "--max-turns",
+        "NaN",
+      ]),
+    ).toEqual({ error: "--max-turns must be a number, got NaN" });
+  });
+
+  it("rejects a non-numeric --timeout-sec", () => {
+    expect(
+      parseArgs([
+        "--prompt",
+        "hi",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+        "--timeout-sec",
+        "soon",
+      ]),
+    ).toEqual({ error: "--timeout-sec must be a number, got soon" });
+  });
 });
 
 describe("buildChildArgv", () => {
-  it("builds the exact argv order with the preamble prefix, dontAsk, and FIXED_DENY_LIST", () => {
+  it("builds the exact argv order with the preamble prefix, dontAsk, FIXED_DENY_LIST, and --setting-sources project", () => {
     const a = parseArgs([
       "--prompt",
       "hi",
@@ -201,7 +322,9 @@ describe("buildChildArgv", () => {
       "--allowedTools",
       "Read,Grep,Glob",
       "--disallowedTools",
-      FIXED_DENY_LIST,
+      `${FIXED_DENY_LIST},Bash`,
+      "--setting-sources",
+      "project",
       "--no-session-persistence",
     ]);
   });
@@ -218,6 +341,57 @@ describe("buildChildArgv", () => {
     ]) as Args;
     const argv = buildChildArgv(a, "hi");
     expect(argv[argv.length - 1]).toBe("--bare");
+  });
+
+  // The security-blocking finding: --allowedTools is a floor, not a
+  // ceiling, since a dontAsk child still inherits the user's
+  // ~/.claude/settings.json Bash(...) allow rules. When the caller's
+  // --allowed-tools set names no Bash entry, --disallowedTools gets a
+  // bare `Bash` deny appended — deny beats allow.
+  it("appends a bare Bash deny when the caller's allowedTools has no Bash entry", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+      "--allowed-tools",
+      "Read,Grep,Glob",
+    ]) as Args;
+    const argv = buildChildArgv(a, "hi");
+    const idx = argv.indexOf("--disallowedTools");
+    expect(argv[idx + 1]).toBe(`${FIXED_DENY_LIST},Bash`);
+  });
+
+  it("does not double-append Bash when the caller's allowedTools already names it", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+      "--allowed-tools",
+      "Read,Bash(npm test:*)",
+    ]) as Args;
+    const argv = buildChildArgv(a, "hi");
+    const idx = argv.indexOf("--disallowedTools");
+    expect(argv[idx + 1]).toBe(FIXED_DENY_LIST);
+  });
+
+  it("always includes --setting-sources project", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+    ]) as Args;
+    const argv = buildChildArgv(a, "hi");
+    const idx = argv.indexOf("--setting-sources");
+    expect(argv[idx + 1]).toBe("project");
   });
 });
 
@@ -400,5 +574,213 @@ describe("run", () => {
     expect(envelope.session_id).toBe("sess-1");
     expect(envelope.total_cost_usd).toBe(0.0123);
     expect(envelope.num_turns).toBe(3);
+  });
+
+  it("captures exactly what reaches runClaude: argv, env, outPath, timeoutSec", async () => {
+    let captured:
+      | {
+          argv: string[];
+          env: Record<string, string>;
+          outPath: string;
+          timeoutSec: number;
+        }
+      | undefined;
+    await run(
+      [
+        "--prompt",
+        "hi",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+        "--timeout-sec",
+        "42",
+        "--out",
+        ".flow-tmp/captured.json",
+      ],
+      baseDeps({
+        env: { PATH: "/usr/bin", FLOW_SLUG: "should-be-stripped" },
+        fileExists: () => true,
+        readFile: () =>
+          JSON.stringify({
+            is_error: false,
+            session_id: "s",
+            total_cost_usd: 0,
+          }),
+        runClaude: async (argv, env, outPath, timeoutSec) => {
+          captured = { argv, env, outPath, timeoutSec };
+          return { exitCode: 0, stderr: "", timedOut: false };
+        },
+      }),
+    );
+    expect(captured).toBeDefined();
+    expect(captured?.argv[0]).toBe("claude");
+    expect(captured?.env.FLOW_SLUG).toBeUndefined();
+    expect(captured?.env.PATH).toBe("/usr/bin");
+    expect(captured?.outPath).toBe(".flow-tmp/captured.json");
+    expect(captured?.timeoutSec).toBe(42);
+  });
+
+  it("reads the prompt from --prompt-file through run()", async () => {
+    let seenPrompt = "";
+    await run(
+      [
+        "--prompt-file",
+        "/tmp/brief.txt",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+      ],
+      baseDeps({
+        fileExists: () => true,
+        readFile: (p) => {
+          if (p === "/tmp/brief.txt") return "the actual prompt body";
+          return JSON.stringify({
+            is_error: false,
+            session_id: "s",
+            total_cost_usd: 0,
+          });
+        },
+        runClaude: async (argv) => {
+          seenPrompt = argv[2];
+          return { exitCode: 0, stderr: "", timedOut: false };
+        },
+      }),
+    );
+    expect(seenPrompt).toBe(HEADLESS_PREAMBLE + "the actual prompt body");
+  });
+
+  it("returns claude-error, exit 0, with a redacted stderrTail when --prompt-file is missing", async () => {
+    let out = "";
+    const code = await run(
+      [
+        "--prompt-file",
+        "/tmp/missing.txt",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+      ],
+      baseDeps({
+        fileExists: () => false,
+        writeOut: (line) => {
+          out = line;
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    expect(JSON.parse(out).skipReason).toBe("claude-error");
+  });
+
+  it("returns claude-error, exit 0, when mkdirp throws instead of an unhandled rejection", async () => {
+    let out = "";
+    const code = await run(
+      ["--prompt", "hi", "--model", "haiku", "--effort", "low"],
+      baseDeps({
+        mkdirp: () => {
+          throw new Error("EACCES: permission denied");
+        },
+        writeOut: (line) => {
+          out = line;
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    const envelope = JSON.parse(out);
+    expect(envelope.skipReason).toBe("claude-error");
+    expect(envelope.stderrTail).toBe("EACCES: permission denied");
+  });
+
+  it("returns claude-error, exit 0, when readFile throws synchronously (was an unhandled rejection)", async () => {
+    let out = "";
+    const code = await run(
+      ["--prompt-file", "/tmp/p.txt", "--model", "haiku", "--effort", "low"],
+      baseDeps({
+        fileExists: () => true,
+        readFile: () => {
+          throw new Error("EIO: i/o error");
+        },
+        writeOut: (line) => {
+          out = line;
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    const envelope = JSON.parse(out);
+    expect(envelope.skipReason).toBe("claude-error");
+  });
+
+  it("omits stderrTail entirely when the underlying stderr is empty", async () => {
+    let out = "";
+    const code = await run(
+      ["--prompt", "hi", "--model", "haiku", "--effort", "low"],
+      baseDeps({
+        runClaude: async () => ({ exitCode: 1, stderr: "", timedOut: false }),
+        writeOut: (line) => {
+          out = line;
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    const envelope = JSON.parse(out);
+    expect(envelope.skipReason).toBe("claude-error");
+    expect("stderrTail" in envelope).toBe(false);
+  });
+
+  it("redacts secrets in stderrTail", async () => {
+    let out = "";
+    const code = await run(
+      ["--prompt", "hi", "--model", "haiku", "--effort", "low"],
+      baseDeps({
+        runClaude: async () => ({
+          exitCode: 1,
+          stderr: "Authorization: Bearer abc123XYZ",
+          timedOut: false,
+        }),
+        writeOut: (line) => {
+          out = line;
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    const envelope = JSON.parse(out);
+    expect(envelope.stderrTail).not.toContain("abc123XYZ");
+  });
+
+  it("returns incomplete-result when the result JSON is unparsable", async () => {
+    let out = "";
+    const code = await run(
+      ["--prompt", "hi", "--model", "haiku", "--effort", "low"],
+      baseDeps({
+        fileExists: () => true,
+        readFile: () => "{not valid json",
+        writeOut: (line) => {
+          out = line;
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    expect(JSON.parse(out).skipReason).toBe("incomplete-result");
+  });
+
+  it("returns incomplete-result when a nonzero exit code has no result file", async () => {
+    let out = "";
+    const code = await run(
+      ["--prompt", "hi", "--model", "haiku", "--effort", "low"],
+      baseDeps({
+        runClaude: async () => ({
+          exitCode: 1,
+          stderr: "boom",
+          timedOut: false,
+        }),
+        fileExists: () => false,
+        writeOut: (line) => {
+          out = line;
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    expect(JSON.parse(out).skipReason).toBe("claude-error");
   });
 });
