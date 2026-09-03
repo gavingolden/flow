@@ -736,6 +736,19 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     return 0;
   }
 
+  // Records the ci-wait -> implementing fix-loop re-entry as a side
+  // effect of returning the ci-failed verdict, so the supervisor's loop
+  // back to step 5 is truthful on a crash-resume. Mirrors the
+  // `if (!stateless)` guard at :387/:388 for the same reason: `slug` is
+  // `string | null`, and an unguarded stateless run would fall through
+  // to `resolveSlugAmbient()` (a tmux pane read) and could terminalize
+  // an unrelated pane's pipeline. Synchronous by design — `advancePhase`
+  // is readFileSync/writeFileSync, so it is never awaited or reordered
+  // relative to this verdict return even though run() itself is async.
+  if (!stateless && verdict.decision === "ci-failed") {
+    advancePhase("implementing", { slug, expectPr: parsed.pr, dir: stateDir });
+  }
+
   decided({
     decision: verdict.decision,
     elapsedSec,
