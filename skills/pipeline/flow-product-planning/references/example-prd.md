@@ -188,7 +188,7 @@ DEFINER` `get_shared_dashboard` RPC (Task 1) is the only anonymous read path, an
   - **Recommended:** no expiration for v1, but the schema accommodates adding
     `expires_at` later — the existing `is_active` toggle (see Architecture Decisions)
     already gives O(1) revocation, so an expiry column is additive, not a redesign
-    [confidence: high] [anchor: skills/pipeline/flow-product-planning/references/example-prd.md:74]
+    [confidence: high] [anchor: skills/pipeline/flow-product-planning/references/example-prd.md:106]
 - [ ] Should the shared view show a "Built with Stax Data" watermark? — redirect
       adds a watermark render to Task 4's page, no schema change
   - **Stakes:** user — the watermark is visible brand/UX taste with no system-side

@@ -1003,6 +1003,43 @@ describe("lintPlan — confidence + stakes markers", () => {
     );
   });
 
+  it("names verdict-confidence-missing for only D1 when two Decision analysis Verdict lines are adjacent with no blank line between them", () => {
+    const plan =
+      "## Decision analysis\n\n" +
+      "**D1 — q?** a b. Verdict: **A** — no tag here.\n" +
+      "**D2 — q?** a b. Verdict: **B** — tagged. [confidence: high] [anchor: AGENTS.md]\n\n" +
+      '## Recommendation\n\n**Proceed** — fine. [confidence: high] [anchor: user: "ok"]\n';
+    const { misses } = lintPlan(plan);
+    const verdictMisses = misses.filter((m) =>
+      m.startsWith("verdict-confidence-missing"),
+    );
+    expect(verdictMisses.length).toBe(1);
+    expect(verdictMisses[0]).toContain("D1");
+    expect(verdictMisses[0]).not.toContain("D2");
+  });
+
+  it("names an anchor-missing-tag miss that says the tag pair must END the line when trailing prose follows it", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: high] [anchor: AGENTS.md] (see also Q1)",
+      ),
+    );
+    const anchorMiss = misses.find((m) => m.startsWith("anchor-missing-tag"));
+    expect(anchorMiss).toBeDefined();
+    expect(anchorMiss).toContain("must END the line");
+  });
+
+  it("names an anchor-missing-tag miss without the 'must END the line' wording when no anchor tag is present at all", () => {
+    const { misses } = lintPlan(
+      oqPlan(
+        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: high]",
+      ),
+    );
+    const anchorMiss = misses.find((m) => m.startsWith("anchor-missing-tag"));
+    expect(anchorMiss).toBeDefined();
+    expect(anchorMiss).not.toContain("must END the line");
+  });
+
   it("does not fire any of the new checks when the relevant headings are absent", () => {
     const { misses } = lintPlan(
       "# Widget Exporter\n\nJust prose, no headings.\n",

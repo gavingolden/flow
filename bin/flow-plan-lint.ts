@@ -409,15 +409,26 @@ function joinLogicalLine(text: string, startIndex: number): string {
  * Same join as `joinLogicalLine`, but bounded by the next blank line
  * (paragraph break) instead of the next sub-bullet — used for `Verdict:` /
  * `## Recommendation` lines, which are prose paragraphs rather than
- * sub-bullets.
+ * sub-bullets. Also bounded by the next physical line that starts a NEW
+ * decision/verdict (a line whose trimmed text begins with `**` or contains
+ * `Verdict:`) — `## Decision analysis` entries are routinely adjacent with
+ * no blank line between them, so without this second bound an untagged
+ * verdict silently joins onto the next (possibly tagged) one. A plain
+ * soft-wrap continuation line — neither of those shapes — still joins.
  */
 function joinLogicalLineToBlankLine(text: string, startIndex: number): string {
   const rest = text.slice(startIndex);
   const blankMatch = rest.match(/\n\s*\n/);
-  const end = blankMatch ? (blankMatch.index ?? rest.length) : rest.length;
-  return rest
-    .slice(0, end)
-    .split("\n")
+  const blankEnd = blankMatch ? (blankMatch.index ?? rest.length) : rest.length;
+  const lines = rest.slice(0, blankEnd).split("\n");
+  const logicalLines = [lines[0]];
+  for (let i = 1; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.length === 0) break;
+    if (trimmed.startsWith("**") || trimmed.includes("Verdict:")) break;
+    logicalLines.push(lines[i]);
+  }
+  return logicalLines
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .join(" ");
@@ -564,6 +575,10 @@ function checkConfidenceMarkers(
       if (allConfMatches.length === 0) {
         misses.push(
           `confidence-missing: '## Open Questions' entry '${entryLine}' Recommended line must end with '[confidence: high|medium|low] [anchor: …]'`,
+        );
+      } else if (/\[anchor:/.test(recLine)) {
+        misses.push(
+          `anchor-missing-tag: '## Open Questions' entry '${entryLine}' Recommended line's '[confidence: …] [anchor: …]' pair must END the line (found trailing text after it)`,
         );
       } else {
         misses.push(
