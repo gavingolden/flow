@@ -40,6 +40,15 @@ Every headless `claude` child this repo spawns picks its own subset of
 what that child is FOR, not a single blanket policy. Three rows, plus a
 fourth that's `n/a` because it spawns no `claude` child at all:
 
+> [!IMPORTANT]
+> **This section raises the harness's minimum `claude` version.** Both
+> flags below were verified present against `claude --version`
+> `2.1.259 (Claude Code)`; `--restricted` additionally documents its own
+> floor ("Requires Claude Code v2.1.248 or later",
+> https://code.claude.com/docs/en/cli-reference). `probeClaude` enforces
+> no version floor, so an older `claude` fails every run with an
+> unknown-flag error rather than one of the three named skip reasons.
+
 | Spawn site                                                                                     | `--permission-prompts none`    | `--restricted`      | Why                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ---------------------------------------------------------------------------------------------- | ------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `flow-eval` child (`bin/lib/eval-runner.ts`'s `buildChildArgv`)                                | YES                            | NO                  | `--restricted` "removes the built-in tools that run commands or code ... unless `--tools` names them, and ignores ... project ... settings files" (`claude --help`) — it would strip the Bash access the scenarios exist to drive and null the deliberate `--setting-sources project` this file already passes. `--permission-prompts none` alone closes the unattended-child gap without touching either. |
