@@ -338,6 +338,93 @@ export function composeCountsLine(fixApplierRaw: string): string {
 }
 
 /**
+ * `LENSES:` body (dev) / `lenses:` one-liner (pm) from
+ * `review-telemetry.json` — dev gets one line per lens plus a leading
+ * `scope:` line; pm gets a single summary line. `none` when raw is
+ * empty/absent, `(unreadable)` when present but not parseable JSON —
+ * same explicit-none discipline as `renderReviewCounts`.
+ */
+export function renderLenses(raw: string | undefined): {
+  dev: string[];
+  pm: string;
+} {
+  if (!raw || !raw.trim()) return { dev: NONE, pm: "lenses: none" };
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { dev: ["(unreadable)"], pm: "lenses: (unreadable)" };
+  }
+  const scope = parsed.scope as
+    | { kind?: string; delta_files?: number }
+    | undefined;
+  const widened = parsed.widened as
+    | { value?: boolean; reason?: string }
+    | undefined;
+  const lenses = parsed.lenses as
+    | Record<
+        string,
+        {
+          ran?: boolean;
+          skip_reason?: string;
+          tokens?: { total?: number } | null;
+          findings_emitted?: number;
+          findings_survived?: number;
+          findings_acted?: number;
+        }
+      >
+    | undefined;
+  if (
+    !scope ||
+    typeof scope !== "object" ||
+    !lenses ||
+    typeof lenses !== "object"
+  ) {
+    return { dev: ["(unreadable)"], pm: "lenses: (unreadable)" };
+  }
+
+  const kind = typeof scope.kind === "string" ? scope.kind : "unknown";
+  const n = typeof scope.delta_files === "number" ? scope.delta_files : 0;
+  const widenedSuffix =
+    widened && widened.value ? `, widened: ${widened.reason ?? "unknown"}` : "";
+  const devLines = [`scope: ${kind} (${n} files${widenedSuffix})`];
+
+  let ranCount = 0;
+  let totalCount = 0;
+  let tokenTotal = 0;
+  let anyTokens = false;
+  for (const [lens, l] of Object.entries(lenses)) {
+    if (lens === "gemini" && l.skip_reason === "no artifact") {
+      // gemini is optional-by-default (review.gemini off), not a gated lens
+      // like the six mandatory ones — "not run" keeps it out of the ran/total
+      // ratio instead of masquerading as a real gate verdict.
+      devLines.push(`${lens}: not run`);
+      continue;
+    }
+    totalCount++;
+    if (l.ran) {
+      ranCount++;
+      const tokStr =
+        l.tokens && typeof l.tokens.total === "number"
+          ? String(l.tokens.total)
+          : "n/a";
+      if (l.tokens && typeof l.tokens.total === "number") {
+        tokenTotal += l.tokens.total;
+        anyTokens = true;
+      }
+      devLines.push(
+        `${lens}: ran · ${tokStr} tok · ${l.findings_emitted ?? 0}→${l.findings_survived ?? 0}→${l.findings_acted ?? 0}`,
+      );
+    } else {
+      devLines.push(`${lens}: gated (${l.skip_reason ?? "unknown"})`);
+    }
+  }
+
+  const pmLine = `lenses: ${ranCount}/${totalCount} ran, scope ${kind}, ~${anyTokens ? tokenTotal : "n/a"} tokens`;
+  return { dev: devLines, pm: pmLine };
+}
+
+/**
  * `PLAN-DEVIATION:` bullets under scout.md's `## open_questions` heading —
  * binding contract adjustments the scout agent found between the plan and
  * the actual code (`AGENTS.md`/coder-instructions discipline: these
@@ -558,6 +645,8 @@ export type RenderCommentInputs = {
   untrackedBlock?: string;
   /** OPTIONAL disk-fallback directory for the anti-pattern DECISIONS section's lens negatives. */
   artifactDir?: string;
+  /** review-telemetry.json raw text, for the LENSES (dev) / lenses: (pm) sections. */
+  reviewTelemetryRaw?: string;
 };
 
 function renderCommentDev(inputs: RenderCommentInputs): string {
@@ -571,6 +660,10 @@ function renderCommentDev(inputs: RenderCommentInputs): string {
     consolidatorRaw: inputs.consolidatorRaw,
     ciWaitRaw: inputs.ciWaitRaw,
   })) {
+    lines.push(`  ${ln}`);
+  }
+  lines.push("LENSES:");
+  for (const ln of renderLenses(inputs.reviewTelemetryRaw).dev) {
     lines.push(`  ${ln}`);
   }
   // INTENT only appears in the comment variant when the artifact is present
@@ -653,6 +746,7 @@ function renderCommentPm(inputs: RenderCommentInputs): string {
   })) {
     lines.push(`  ${ln}`);
   }
+  lines.push(`  ${renderLenses(inputs.reviewTelemetryRaw).pm}`);
   lines.push("DEVIATIONS:");
   for (const ln of renderDeviations({
     intentResolutionRaw: inputs.intentResolutionRaw ?? "",

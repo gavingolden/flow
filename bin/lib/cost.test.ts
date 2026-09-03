@@ -2,7 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { computeCost, encodeProjectSegment, seedMatchesSlug } from "./cost";
+import {
+  computeCost,
+  encodeProjectSegment,
+  seedMatchesSlug,
+  sumTranscriptUsage,
+} from "./cost";
 import { MODEL_PRICING } from "./cost-pricing";
 import type { PipelineState } from "./state";
 
@@ -349,6 +354,85 @@ describe(computeCost, () => {
     expect(cost.byModel["claude-sonnet-4-6"]).toBeCloseTo(3, 6);
     expect(cost.unknownModels).toEqual(["claude-experimental-future"]);
     expect(cost.hasData).toBe(true);
+  });
+});
+
+describe(sumTranscriptUsage, () => {
+  let scratchRoot: string;
+  beforeEach(() => {
+    scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "flow-cost-usage-"));
+  });
+  afterEach(() => {
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  });
+
+  it("sums input/cache_creation/cache_read/output across assistant events and reports total + last model", async () => {
+    const jsonlPath = path.join(scratchRoot, "session.jsonl");
+    fs.writeFileSync(
+      jsonlPath,
+      [
+        JSON.stringify(
+          assistant("claude-sonnet-4-6", {
+            input_tokens: 10,
+            cache_creation_input_tokens: 20,
+            cache_read_input_tokens: 30,
+            output_tokens: 40,
+          }),
+        ),
+        JSON.stringify(
+          assistant("claude-opus-4-7", {
+            input_tokens: 1,
+            cache_creation_input_tokens: 2,
+            cache_read_input_tokens: 3,
+            output_tokens: 4,
+          }),
+        ),
+      ].join("\n"),
+    );
+    const usage = await sumTranscriptUsage(jsonlPath);
+    expect(usage).toEqual({
+      input: 11,
+      cache_creation: 22,
+      cache_read: 33,
+      output: 44,
+      total: 110,
+      model: "claude-opus-4-7",
+    });
+  });
+
+  it("skips malformed lines without throwing", async () => {
+    const jsonlPath = path.join(scratchRoot, "session.jsonl");
+    fs.writeFileSync(
+      jsonlPath,
+      [
+        "{not valid json",
+        JSON.stringify(
+          assistant("claude-sonnet-4-6", {
+            input_tokens: 5,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            output_tokens: 0,
+          }),
+        ),
+      ].join("\n"),
+    );
+    const usage = await sumTranscriptUsage(jsonlPath);
+    expect(usage.input).toBe(5);
+    expect(usage.model).toBe("claude-sonnet-4-6");
+  });
+
+  it("returns all zeros with model null and does not throw for a missing file", async () => {
+    const usage = await sumTranscriptUsage(
+      path.join(scratchRoot, "does-not-exist.jsonl"),
+    );
+    expect(usage).toEqual({
+      input: 0,
+      cache_creation: 0,
+      cache_read: 0,
+      output: 0,
+      total: 0,
+      model: null,
+    });
   });
 });
 

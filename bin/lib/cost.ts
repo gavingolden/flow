@@ -178,6 +178,71 @@ function mergeBreakdowns(parts: CostBreakdown[]): CostBreakdown {
   };
 }
 
+export type TranscriptUsage = {
+  input: number;
+  cache_creation: number;
+  cache_read: number;
+  output: number;
+  total: number;
+  model: string | null;
+};
+
+/**
+ * Reusable transcript-usage summer for a single JSONL: sums every
+ * assistant event's `message.usage` fields and tracks the last-seen
+ * `message.model`. Never throws — malformed lines are skipped, a missing
+ * file yields all-zero counts with `model: null`. Kept separate from
+ * `parseAndPrice` (module-private, priced in dollars) rather than
+ * refactored into it, so a review-telemetry consumer gets raw token
+ * counts without perturbing `computeCost`'s existing $ output.
+ */
+export async function sumTranscriptUsage(
+  jsonlPath: string,
+): Promise<TranscriptUsage> {
+  const out: TranscriptUsage = {
+    input: 0,
+    cache_creation: 0,
+    cache_read: 0,
+    output: 0,
+    total: 0,
+    model: null,
+  };
+  let stream: fs.ReadStream;
+  try {
+    stream = fs.createReadStream(jsonlPath);
+  } catch {
+    return out;
+  }
+  const rl = readline.createInterface({ input: stream });
+  try {
+    for await (const line of rl) {
+      if (!line) continue;
+      const event = tryParse(line);
+      if (!event || event.type !== "assistant") continue;
+      const usage = event.message?.usage;
+      if (!usage || typeof usage !== "object") continue;
+      const u = usage as Record<string, unknown>;
+      const input = num(u.input_tokens);
+      const cacheCreation = num(u.cache_creation_input_tokens);
+      const cacheRead = num(u.cache_read_input_tokens);
+      const output = num(u.output_tokens);
+      out.input += input;
+      out.cache_creation += cacheCreation;
+      out.cache_read += cacheRead;
+      out.output += output;
+      out.total += input + cacheCreation + cacheRead + output;
+      const model = event.message?.model;
+      if (typeof model === "string" && model) out.model = model;
+    }
+  } catch {
+    // stream error mid-read (e.g. ENOENT surfaced async) — return partial/zero
+  } finally {
+    rl.close();
+    stream.destroy();
+  }
+  return out;
+}
+
 function priceUsage(usage: unknown, p: ModelPricing): number {
   if (!usage || typeof usage !== "object") return 0;
   const u = usage as Record<string, unknown>;

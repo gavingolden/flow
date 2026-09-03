@@ -29,7 +29,11 @@ evals/
 **`_shims/gh`'s supported subcommands.** `pr view <n|branch> --json a,b,c`
 answers from `$FLOW_EVAL_FIXTURE/pr.json` (an array of PR objects, or an
 object keyed by PR number); an absent field on the matched record reads
-as `null`, never a crash. `pr checks <n> --json a,b,c` answers from an
+as `null`, never a crash. A selector-less `pr view --json a,b,c` (no `<n>`
+or `<branch>` token) is also supported, mirroring real `gh`: the shim
+resolves `git rev-parse --abbrev-ref HEAD` in its own `cwd` and uses that
+as the selector — this is the call `flow-open-pr`'s `probePr` actually
+makes. `pr checks <n> --json a,b,c` answers from an
 OPTIONAL sibling `checks.json` (an array of check records) — when that
 file is absent it exits 1 with a short stderr rather than a silent `[]`,
 so a scenario that meant to seed CI state and forgot the file fails
@@ -95,6 +99,7 @@ sensitivity warrants it: the harness passes it through as `claude -p
     "linkNodeModules": false
   },
   "env": { "flowSlug": true },
+  "ghCalls": [["pr", "view", "--json", "number,url"]],
   "allowedTools": ["Bash", "Read"],
   "model": "haiku",
   "effort": "medium",
@@ -120,6 +125,19 @@ reach the shared shim.
 terminal-orientation seed a real launched session would receive:
 `"resume"` uses `resumeSeedFor`, `"terminal"` uses `terminalCarryOver` +
 `terminalContinueSeed` (both from `bin/flow-session-start-hook.ts`).
+
+`ghCalls` is a list of exact `gh` argv arrays the scenario is expected to
+drive — each entry is replayed through the real `evals/_shims/gh`
+subprocess by `bin/evals-gh-shim.test.ts`'s scenario cross-check, which
+fails loudly (naming the scenario and the offending argv) if the shim
+cannot answer a declared call. **Required and non-empty** whenever
+`fixture.shims` mounts the gh shim — `bin/lib/eval-suite.ts`'s
+`loadSuite` rejects a suite where a gh-shim-mounting scenario declares no
+`ghCalls`. Issue #695's cross-check only replays each declared argv against
+the real shim and fails loudly on a shape the shim can't answer — it does
+not diff this field, the paragraph above, and `_shims/gh`'s own file-header
+comment against each other. Keep all three in sync by hand when the shim's
+supported-argv surface changes.
 
 ## Grader kinds
 

@@ -9,6 +9,36 @@
     "shims": ["../../_shims/gh"]
   },
   "env": { "flowSlug": true },
+  "ghCalls": [
+    [
+      "pr",
+      "view",
+      "1",
+      "--json",
+      "state,isDraft,additions,deletions,commits,author,body"
+    ],
+    [
+      "api",
+      "repos/{owner}/{repo}/pulls/1",
+      "--jq",
+      "{title, html_url, number, state, body: (.body // \"\"), additions, deletions, changed_files, head: {ref: .head.ref}}"
+    ],
+    [
+      "api",
+      "--paginate",
+      "repos/{owner}/{repo}/pulls/1/reviews",
+      "--jq",
+      ".[] | {body, state, user: {login: .user.login}, html_url}"
+    ],
+    [
+      "api",
+      "--paginate",
+      "repos/{owner}/{repo}/pulls/1/comments",
+      "--jq",
+      ".[] | {path, line, start_line, body, diff_hunk, html_url, user: {login: .user.login}, in_reply_to_id, id}"
+    ],
+    ["pr", "diff", "1", "--name-only"]
+  ],
   "resultSchema": "result-schema.json",
   "graders": [
     {

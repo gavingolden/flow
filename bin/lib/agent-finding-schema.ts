@@ -108,6 +108,11 @@ export type ConsolidatorResult = {
   lens_rejected_alternatives?: LensNegativeEntry<LensRejectedAlternative>[];
   lens_anti_patterns_found?: LensNegativeEntry<LensAntiPattern>[];
   lens_negatives_missing?: string[];
+  // Optional consolidator authority to request a widen from delta scope to
+  // the full PR diff (once per invocation; see review-scope.md "Widen").
+  // Omitted on full scope — the consolidator never authors this on a full
+  // review, since there is nothing left to widen to.
+  scope_verdict?: { widen: boolean; reason: string };
 };
 
 export type ValidationOk<T> = { ok: true; value: T };
@@ -577,6 +582,19 @@ export function validateConsolidatorResult(
     ) {
       return err(
         "'lens_negatives_missing' must be an array of strings when present",
+      );
+    }
+  }
+
+  if (parsed.scope_verdict !== undefined) {
+    const sv = parsed.scope_verdict;
+    if (
+      !isPlainObject(sv) ||
+      typeof sv.widen !== "boolean" ||
+      !isNonEmptyString(sv.reason)
+    ) {
+      return err(
+        "'scope_verdict' must be {widen: boolean, reason: string} when present",
       );
     }
   }

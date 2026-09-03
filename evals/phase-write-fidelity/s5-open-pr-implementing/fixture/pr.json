@@ -1,0 +1,9 @@
+[
+  {
+    "number": 7,
+    "state": "OPEN",
+    "url": "https://github.com/example-org/example-repo/pull/7",
+    "branch": "eval",
+    "headRefName": "eval"
+  }
+]
