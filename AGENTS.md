@@ -246,22 +246,18 @@ three-layer resolution table, and the manifest/foundation fields — is at
 - **Don't make tmux pane/window state a load-bearing input.** Backend-agnostic
   signals only, in order: the launch env (`FLOW_SLUG`, set by both launcher
   backends), `~/.flow/state/<slug>.json`, then on-disk artifacts — the plain
-  shell is the DEFAULT launcher and tmux is opt-in, so a bare install has no
-  pane/window options at all. flow's tmux options (`@flow-slug`, `@flow-phase`,
-  `@flow-repo`, `@flow-phase-short`, `@flow-kind`, `@flow-epic`) are additive,
-  publish-only convenience mirrors. Two sanctioned reads: `@flow-kind`, a
-  load-bearing input because epic orchestration is ALREADY tmux-only by an
-  independent hard constraint (refuses a non-tmux backend) — the tmux-only
-  precondition is named in a comment at BOTH producing and consuming site,
-  and absence degrades to a CORRECT, safe-by-construction default (an
-  absent option can't be told apart from a legitimately-absent one) — and
-  `@flow-slug`, read back only as a `flow ls`/`attach`/
-  `done` window-join key (`LIST_WINDOWS_FORMAT`, `bin/lib/tmux.ts`), not
-  identity resolution. See `resolveSlugAmbient` (env-only) and
-  `resolveKindAmbient` (the `@flow-kind` exception) in
-  `bin/lib/session-identity.ts`. `bin/pane-read-lint.test.ts` enforces this
-  mechanically — it fails CI on any pane-option read outside the frozen
-  allowlist, in code or in skill prose.
+  shell is the DEFAULT launcher, so a bare install has none. flow's options
+  (`@flow-slug`, `@flow-phase`, `@flow-repo`, `@flow-phase-short`,
+  `@flow-kind`, `@flow-epic`) are additive, publish-only mirrors. Two
+  sanctioned reads: `@flow-kind`, load-bearing ONLY because epic orchestration
+  is already tmux-only by an independent hard constraint — its precondition
+  must be named in a comment at BOTH producing and consuming site, and absence
+  must degrade to a CORRECT, safe-by-construction default; and `@flow-slug`,
+  read back only as a `flow ls`/`attach`/`done` window-join key
+  (`LIST_WINDOWS_FORMAT`), never identity. See `resolveSlugAmbient` (env-only)
+  and `resolveKindAmbient` in `bin/lib/session-identity.ts`;
+  `bin/pane-read-lint.test.ts` fails CI on any pane read outside the frozen
+  allowlist, in code or prose.
 - **Don't write test-time port or URL overrides to a file.** Pass them
   inline to the launch subprocess (env vars / CLI flags); never write
   `.env.local`, `.env`, or any other config file. A gitignored override
