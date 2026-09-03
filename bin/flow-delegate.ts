@@ -60,9 +60,13 @@
  *
  * stdout is always a one-line JSON envelope:
  *   success: {"ran":true,"task":..,"model":..,"artifactPath":..,"exitCode":0,"durationMs":..}
- *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-timeout"|"agy-error",..}
- *            (every skip envelope may also carry a redacted, <=2000-byte
- *            `stderrTail`, tail-most, when agy's stderr was non-empty)
+ *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-timeout"|"agy-canceled"|"agy-error",..}
+ *            (every skip envelope from a dispatched agy call may also carry
+ *            `exitCode`, a redacted <=2000-byte `stderrTail` (tail-most, when
+ *            agy's stderr was non-empty), `agyStatus` (the json-mode
+ *            envelope's `status` field), and `agyError` (its `error` field,
+ *            through the same redact+cap helper as `stderrTail`) — all
+ *            omit-when-absent)
  *
  * Exit codes:
  *   0 — delegated successfully, OR a quiet graceful skip (agy missing /
@@ -255,15 +259,78 @@ export function looksUnauthenticated(text: string): boolean {
   );
 }
 
-// A `--print-timeout` kill is distinguishable from a genuine model error —
-// verified agy stderr signature: "Error: timeout waiting for response"
-// (agy 1.1.10/1.1.11, exit 1). Checked BEFORE looksUnauthenticated in the
-// non-zero-exit branch below (the two patterns do not overlap today;
-// ordering makes that robust to a future widening of the auth regex).
+// A `--print-timeout` kill is distinguishable from a genuine model error.
+// Three verified agy 1.1.25 timeout signatures, none of which overlap the
+// auth patterns below (checked BEFORE looksUnauthenticated so a future
+// widening of the auth regex can never shadow a timeout):
+// - text mode: agy's stderr reads "Error: timeout waiting for response".
+// - json mode: stderr is EMPTY (the process still exits 1); the same
+//   "timeout waiting for response" string instead lands in the json
+//   envelope's `error` field, fed through this same regex by the
+//   classifyAgyOutcome caller below.
+// - log-file-only: "Print mode: timed out after N polls (printed=M)" is
+//   written to agy's own log under ~/.gemini/antigravity-cli/log/, never to
+//   stdout/stderr — this alternation can never match live input today, but
+//   is kept cheap insurance against a future agy version routing it there.
 export function looksTimedOut(text: string): boolean {
-  return /timeout waiting for response|print[- ]timeout|deadline exceeded|context deadline/i.test(
+  return /timeout waiting for response|print[- ]timeout|deadline exceeded|context deadline|timed out after \d+ polls|print mode: timed out/i.test(
     text,
   );
+}
+
+// The lifted, never-throws projection of the json-mode artifact's outcome
+// fields — populated only when `--output-format json` was requested,
+// consumed by classifyAgyOutcome below.
+export type AgyJsonOutcome = { status?: string; error?: string };
+
+// Shares liftJsonEnvelope's tolerant read-and-parse (never throws; {} on an
+// unreadable/unparseable/non-object artifact) rather than re-implementing a
+// second reader for the same file.
+export function readAgyJsonOutcome(
+  deps: Deps,
+  outPath: string,
+): AgyJsonOutcome {
+  const obj = readJsonEnvelopeObject(deps, outPath);
+  if (!obj) return {};
+  const outcome: AgyJsonOutcome = {};
+  if (typeof obj.status === "string") outcome.status = obj.status;
+  if (typeof obj.error === "string") outcome.error = obj.error;
+  return outcome;
+}
+
+export type AgyOutcome =
+  | "ran"
+  | "agy-timeout"
+  | "agy-not-authenticated"
+  | "agy-canceled"
+  | "agy-error";
+
+// Single classification chokepoint for the non-zero-exit AND json-mode-error
+// paths. Ordering is load-bearing: a timeout signal (stderr OR the json
+// envelope's `error` field) is checked first so a widened auth regex can
+// never shadow it, `CANCELED` next, then a generic non-zero-exit/`ERROR`
+// status, with everything else treated as a successful run.
+export function classifyAgyOutcome(input: {
+  exitCode: number;
+  stderr: string;
+  outcome: AgyJsonOutcome;
+}): AgyOutcome {
+  if (
+    looksTimedOut(input.stderr) ||
+    (input.outcome.error && looksTimedOut(input.outcome.error))
+  ) {
+    return "agy-timeout";
+  }
+  if (looksUnauthenticated(input.stderr)) {
+    return "agy-not-authenticated";
+  }
+  if (input.outcome.status === "CANCELED") {
+    return "agy-canceled";
+  }
+  if (input.exitCode !== 0 || input.outcome.status === "ERROR") {
+    return "agy-error";
+  }
+  return "ran";
 }
 
 export type AgyResult = { exitCode: number; stderr: string };
@@ -285,30 +352,42 @@ function emit(deps: Deps, envelope: Record<string, unknown>): number {
   return 0;
 }
 
-// Reads outPath as a JSON envelope (the shape agy itself writes when
-// `--output-format json` is set) and lifts its `duration_seconds` / `usage`
-// fields. NEVER throws — an unreadable or unparseable artifact, or one that
-// carries neither field, simply yields an empty projection.
-function liftJsonEnvelope(
+// Shared tolerant read-and-parse for the json-mode artifact (the shape agy
+// itself writes when `--output-format json` is set). NEVER throws —
+// returns undefined for an unreadable path, unparseable JSON, or a
+// non-object/array top level. Both liftJsonEnvelope and readAgyJsonOutcome
+// build their narrower projections on top of this single reader.
+function readJsonEnvelopeObject(
   deps: Deps,
   outPath: string,
-): { durationSeconds?: number; usage?: Record<string, number> } {
+): Record<string, unknown> | undefined {
   let raw: string;
   try {
     raw = deps.readFile(outPath);
   } catch {
-    return {};
+    return undefined;
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return {};
+    return undefined;
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return {};
+    return undefined;
   }
-  const obj = parsed as Record<string, unknown>;
+  return parsed as Record<string, unknown>;
+}
+
+// Lifts `duration_seconds` / `usage` from the json-mode artifact. NEVER
+// throws — an unreadable/unparseable artifact, or one carrying neither
+// field, simply yields an empty projection.
+function liftJsonEnvelope(
+  deps: Deps,
+  outPath: string,
+): { durationSeconds?: number; usage?: Record<string, number> } {
+  const obj = readJsonEnvelopeObject(deps, outPath);
+  if (!obj) return {};
   const lifted: { durationSeconds?: number; usage?: Record<string, number> } =
     {};
   if (typeof obj.duration_seconds === "number") {
@@ -469,19 +548,27 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     });
   }
 
-  if (result.exitCode !== 0) {
-    const skipReason = looksTimedOut(result.stderr)
-      ? "agy-timeout"
-      : looksUnauthenticated(result.stderr)
-        ? "agy-not-authenticated"
-        : "agy-error";
+  // A json-mode print-timeout exits 1 with EMPTY stderr — the failure
+  // signature lives only in the artifact's own envelope `error` field — so
+  // classification reads both sources whenever json mode was requested.
+  const jsonOutcome: AgyJsonOutcome =
+    parsed.outputFormat === "json" ? readAgyJsonOutcome(deps, outPath) : {};
+  const outcome = classifyAgyOutcome({
+    exitCode: result.exitCode,
+    stderr: result.stderr,
+    outcome: jsonOutcome,
+  });
+  if (outcome !== "ran") {
     const tail = stderrTail(result.stderr);
+    const agyError = jsonOutcome.error ? stderrTail(jsonOutcome.error) : "";
     return emit(deps, {
       ran: false,
-      skipReason,
+      skipReason: outcome,
       task: parsed.task,
       exitCode: result.exitCode,
       ...(tail ? { stderrTail: tail } : {}),
+      ...(jsonOutcome.status ? { agyStatus: jsonOutcome.status } : {}),
+      ...(agyError ? { agyError } : {}),
     });
   }
 

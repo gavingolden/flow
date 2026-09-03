@@ -99,6 +99,10 @@ export type EntryResult = {
   // the child envelope's own field. Present only on a failed entry whose
   // stderr was non-empty.
   stderrTail?: string;
+  // Projected straight from the child envelope — see DelegateEnvelope.
+  exitCode?: number;
+  agyStatus?: string;
+  agyError?: string;
 };
 
 export type FanoutResult = {
@@ -125,6 +129,8 @@ export type DelegateEnvelope = {
   parseRetries?: number;
   structuredParse?: "ok" | "failed";
   stderrTail?: string;
+  agyStatus?: string;
+  agyError?: string;
 };
 
 export type FanoutDeps = {
@@ -335,6 +341,12 @@ async function runPool(
           record.structuredParse = envelope.structuredParse;
         }
         if (envelope.stderrTail) record.stderrTail = envelope.stderrTail;
+        if (envelope.exitCode !== undefined)
+          record.exitCode = envelope.exitCode;
+        if (envelope.agyStatus !== undefined)
+          record.agyStatus = envelope.agyStatus;
+        if (envelope.agyError !== undefined)
+          record.agyError = envelope.agyError;
       } catch (err) {
         // A thrown dispatch is a graceful skip for this entry, mirroring
         // flow-delegate's spawn-throw → agy-error contract.

@@ -6,12 +6,15 @@ import {
   AGY_SAFETY_PREAMBLE,
   artifactPathFor,
   buildAgyArgv,
+  classifyAgyOutcome,
   looksTimedOut,
   looksUnauthenticated,
   parseArgs,
+  readAgyJsonOutcome,
   run,
   stderrTail,
   withSafetyPreamble,
+  type AgyJsonOutcome,
   type Args,
   type Deps,
 } from "./flow-delegate";
@@ -323,6 +326,127 @@ describe("looksTimedOut", () => {
   it("does not flag a generic error", () => {
     expect(looksTimedOut("something went wrong")).toBe(false);
   });
+
+  it("flags the log-file-only 'Print mode: timed out after N polls' literal (never reaches stdout/stderr today)", () => {
+    expect(
+      looksTimedOut("Print mode: timed out after 1491 polls (printed=17)"),
+    ).toBe(true);
+  });
+});
+
+describe("classifyAgyOutcome", () => {
+  it("classifies a json-mode print-timeout (exit 1, empty stderr, envelope error) as agy-timeout", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr: "",
+        outcome: { status: "ERROR", error: "timeout waiting for response" },
+      }),
+    ).toBe("agy-timeout");
+  });
+
+  it("classifies a text-mode stderr timeout as agy-timeout", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr: "Error: timeout waiting for response",
+        outcome: {},
+      }),
+    ).toBe("agy-timeout");
+  });
+
+  it("classifies CANCELED (exit 0) as agy-canceled", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 0,
+        stderr: "",
+        outcome: { status: "CANCELED" },
+      }),
+    ).toBe("agy-canceled");
+  });
+
+  it("classifies a generic nonzero exit as agy-error", () => {
+    expect(
+      classifyAgyOutcome({ exitCode: 1, stderr: "boom", outcome: {} }),
+    ).toBe("agy-error");
+  });
+
+  it("classifies exit 0 with SUCCESS status as ran", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 0,
+        stderr: "",
+        outcome: { status: "SUCCESS" },
+      }),
+    ).toBe("ran");
+  });
+
+  it("classifies exit 0 with an absent status as ran", () => {
+    expect(classifyAgyOutcome({ exitCode: 0, stderr: "", outcome: {} })).toBe(
+      "ran",
+    );
+  });
+
+  it("checks timeout before auth so a widened auth regex can never shadow it", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr: "please sign in — timeout waiting for response",
+        outcome: {},
+      }),
+    ).toBe("agy-timeout");
+  });
+});
+
+describe("readAgyJsonOutcome", () => {
+  const deps = (readFile: (p: string) => string): Deps =>
+    ({
+      agyOnPath: () => true,
+      runAgy: () => ({ exitCode: 0, stderr: "" }),
+      readFile,
+      fileExists: () => true,
+      mkdirp: () => {},
+      now: () => 0,
+      writeOut: () => {},
+    }) as Deps;
+
+  it("lifts status/error from a well-formed envelope", () => {
+    const d = deps(() =>
+      JSON.stringify({
+        status: "ERROR",
+        error: "timeout waiting for response",
+      }),
+    );
+    expect(readAgyJsonOutcome(d, "/out.json")).toEqual<AgyJsonOutcome>({
+      status: "ERROR",
+      error: "timeout waiting for response",
+    });
+  });
+
+  it("returns {} for an unreadable path", () => {
+    const d: Deps = {
+      agyOnPath: () => true,
+      runAgy: () => ({ exitCode: 0, stderr: "" }),
+      readFile: () => {
+        throw new Error("ENOENT");
+      },
+      fileExists: () => true,
+      mkdirp: () => {},
+      now: () => 0,
+      writeOut: () => {},
+    };
+    expect(readAgyJsonOutcome(d, "/out.json")).toEqual({});
+  });
+
+  it("returns {} for unparseable JSON", () => {
+    const d = deps(() => "not json");
+    expect(readAgyJsonOutcome(d, "/out.json")).toEqual({});
+  });
+
+  it("returns {} for a non-object top level", () => {
+    const d = deps(() => JSON.stringify([1, 2, 3]));
+    expect(readAgyJsonOutcome(d, "/out.json")).toEqual({});
+  });
 });
 
 describe("stderrTail", () => {
@@ -458,6 +582,77 @@ describe("run", () => {
       task: "default",
       exitCode: 1,
     });
+  });
+
+  it("classifies a json-mode print-timeout (exit 1, empty stderr, envelope error) as agy-timeout", () => {
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 1, stderr: "" }),
+      readFile: () =>
+        JSON.stringify({
+          status: "ERROR",
+          error: "timeout waiting for response",
+        }),
+    });
+    expect(run(["--prompt", "hi", "--output-format", "json"], deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "agy-timeout",
+      task: "default",
+      exitCode: 1,
+      agyStatus: "ERROR",
+      agyError: "timeout waiting for response",
+    });
+  });
+
+  it("does not consult the json envelope when --output-format is omitted (text-mode SUCCESS/absent status still ran:true)", () => {
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 0, stderr: "" }),
+      readFile: () => JSON.stringify({ status: "SUCCESS" }),
+    });
+    const code = run(["--prompt", "hi"], deps);
+    expect(code).toBe(0);
+    expect(envelope(deps).ran).toBe(true);
+  });
+
+  it("maps a json-mode CANCELED status (exit 0) to agy-canceled", () => {
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 0, stderr: "" }),
+      readFile: () => JSON.stringify({ status: "CANCELED" }),
+    });
+    expect(run(["--prompt", "hi", "--output-format", "json"], deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "agy-canceled",
+      task: "default",
+      exitCode: 0,
+      agyStatus: "CANCELED",
+    });
+  });
+
+  it("passes json-mode SUCCESS straight through to ran:true", () => {
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 0, stderr: "" }),
+      readFile: () => JSON.stringify({ status: "SUCCESS" }),
+    });
+    const code = run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(code).toBe(0);
+    expect(envelope(deps).ran).toBe(true);
+  });
+
+  it("redacts and caps agyError the same way as stderrTail", () => {
+    // Spaces every few chars keep the padding below the 32-char opaque-run
+    // redaction threshold (see the stderrTail cap test above), so only the
+    // trailing api_key assignment is redacted.
+    const padding = Array.from({ length: 700 }, (_, i) => `A${i}`).join(" ");
+    const longSecret = `${padding} api_key=sk-abcdefghijklmnopqrstuvwxyz012345`;
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 1, stderr: "" }),
+      readFile: () => JSON.stringify({ status: "ERROR", error: longSecret }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    const env = envelope(deps);
+    expect(env.agyError.length).toBeLessThanOrEqual(2000);
+    expect(env.agyError).not.toContain("sk-abcdefghijklmnopqrstuvwxyz012345");
   });
 
   it("caps stderrTail at 2000 bytes, keeping the tail-most (not head-most) slice", () => {

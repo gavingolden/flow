@@ -17,7 +17,9 @@
  *  2. Build the embedded Gemini review prompt (self-contained so it works
  *     on any consumer PATH — the single source of truth for the lens prompt)
  *     and delegate ONE bounded agy call via `flow-delegate` (model
- *     "Gemini 3.1 Pro (High)", flow-delegate's default 5m timeout).
+ *     "Gemini 3.1 Pro (High)", `--timeout` from
+ *     `resolveDelegateTimeout("reviewLens")` — `delegate.timeouts.reviewLens`,
+ *     default 8m, clamped to a 9m sync ceiling).
  *  3. Branch on the flow-delegate envelope's `ran` field (NEVER the exit
  *     code): `ran:false` → propagate the skipReason, finalize nothing.
  *  4. `ran:true` → read the raw agy artifact and decode it through the
@@ -44,7 +46,13 @@
  * assigned consolidator-side at Step 3.5.
  */
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -56,6 +64,7 @@ import {
   validateAgentFindings,
 } from "./lib/agent-finding-schema";
 import { resolveDelegateModel } from "./lib/delegate-models";
+import { resolveDelegateTimeout } from "./lib/delegate-timeouts";
 import { classifyDelegateSkip } from "./lib/delegate-skip-class";
 import { decodeDelegateArtifact } from "./lib/structured-response";
 
@@ -70,6 +79,7 @@ export type Args = {
   out: string;
   config: string;
   task: string;
+  timeout?: string;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
@@ -96,6 +106,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--task":
         out.task = value;
         break;
+      case "--timeout":
+        out.timeout = value;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -116,6 +129,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     out: out.out as string,
     config: out.config ?? `${homedir()}/.flow/config.json`,
     task: out.task ?? DEFAULT_TASK,
+    timeout: out.timeout,
   };
 }
 
@@ -298,6 +312,10 @@ export type DelegateEnvelope = {
   ran?: boolean;
   skipReason?: string;
   artifactPath?: string;
+  exitCode?: number;
+  stderrTail?: string;
+  agyStatus?: string;
+  agyError?: string;
 };
 
 export type Deps = {
@@ -310,6 +328,7 @@ export type Deps = {
   removeFile: (path: string) => void;
   mkdirp: (dir: string) => void;
   writeOut: (line: string) => void;
+  fileExists: (path: string) => boolean;
 };
 
 function emit(deps: Deps, envelope: Record<string, unknown>): number {
@@ -323,7 +342,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   if ("error" in parsed) {
     console.error(`flow-gemini-lens: ${parsed.error}`);
     console.error(
-      "usage: flow-gemini-lens --worktree <dir> --diff-file <path> --out <path> [--config <path>] [--task <name>]",
+      "usage: flow-gemini-lens --worktree <dir> --diff-file <path> --out <path> [--config <path>] [--task <name>] [--timeout <godur>]",
     );
     return 2;
   }
@@ -357,19 +376,44 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
 
   // Scratch files (prompt + schema + raw agy output) are transient; clear
   // all three on every exit so they don't accumulate in the worktree's
-  // .flow-tmp/.
-  const cleanScratch = () => {
-    deps.removeFile(promptPath);
-    deps.removeFile(rawPath);
-    deps.removeFile(schemaPath);
+  // .flow-tmp/ — UNLESS retained (a ran-unusable skip keeps rawPath as
+  // partialArtifactPath evidence for the consolidator/report).
+  const cleanScratch = (retain: string[] = []) => {
+    const retainSet = new Set(retain);
+    for (const p of [promptPath, rawPath, schemaPath]) {
+      if (!retainSet.has(p)) deps.removeFile(p);
+    }
   };
-  const skip = (skipReason: string): number => {
-    cleanScratch();
-    return emit(deps, {
+  // diag carries the flow-delegate envelope's own diagnostics through to
+  // this helper's skip envelope, omit-when-absent; partialArtifactPath is
+  // set ONLY for a ran-unusable skip (a dispatched agy call whose output
+  // couldn't be used) whose raw artifact still exists on disk — an
+  // environment-class skip (gate/prep/diff-read failure) never ran agy, so
+  // there is nothing to point at.
+  const skip = (
+    skipReason: string,
+    diag?: Pick<
+      DelegateEnvelope,
+      "exitCode" | "stderrTail" | "agyStatus" | "agyError"
+    >,
+  ): number => {
+    const skipClass = classifyDelegateSkip(skipReason);
+    const partialArtifactPath =
+      skipClass === "ran-unusable" && deps.fileExists(rawPath)
+        ? rawPath
+        : undefined;
+    cleanScratch(partialArtifactPath ? [partialArtifactPath] : []);
+    const envelope: Record<string, unknown> = {
       ran: false,
       skipReason,
-      skipClass: classifyDelegateSkip(skipReason),
-    });
+      skipClass,
+    };
+    if (diag?.exitCode !== undefined) envelope.exitCode = diag.exitCode;
+    if (diag?.stderrTail) envelope.stderrTail = diag.stderrTail;
+    if (diag?.agyStatus) envelope.agyStatus = diag.agyStatus;
+    if (diag?.agyError) envelope.agyError = diag.agyError;
+    if (partialArtifactPath) envelope.partialArtifactPath = partialArtifactPath;
+    return emit(deps, envelope);
   };
 
   let diff = "";
@@ -403,12 +447,21 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     rawPath,
     "--task",
     parsed.task,
+    "--timeout",
+    parsed.timeout ?? resolveDelegateTimeout("reviewLens"),
   ]);
 
   // Branch on the `ran` field (NEVER the exit code): flow-delegate exits 0
-  // even on a graceful agy-absent skip.
+  // even on a graceful agy-absent skip. Diagnostics (exitCode/stderrTail/
+  // agyStatus/agyError) forward through so a caller can distinguish a
+  // print-timeout kill from a generic agy-error.
   if (!envelope.ran) {
-    return skip(envelope.skipReason ?? "agy-skip");
+    return skip(envelope.skipReason ?? "agy-skip", {
+      exitCode: envelope.exitCode,
+      stderrTail: envelope.stderrTail,
+      agyStatus: envelope.agyStatus,
+      agyError: envelope.agyError,
+    });
   }
 
   let raw: string;
@@ -493,7 +546,7 @@ function resolveDeps(o?: Partial<Deps>): Deps {
         try {
           return JSON.parse(line) as DelegateEnvelope;
         } catch {
-          return { ran: false, skipReason: "agy-error" };
+          return { ran: false, skipReason: "delegate-envelope-unparseable" };
         }
       }),
     readFile: o?.readFile ?? ((p) => readFileSync(p, "utf8")),
@@ -501,6 +554,7 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     removeFile: o?.removeFile ?? ((p) => void rmSync(p, { force: true })),
     mkdirp: o?.mkdirp ?? ((d) => void mkdirSync(d, { recursive: true })),
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
+    fileExists: o?.fileExists ?? ((p) => existsSync(p)),
   };
 }
 

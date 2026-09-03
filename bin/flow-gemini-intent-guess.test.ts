@@ -210,6 +210,7 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     },
     mkdirp: () => {},
     writeOut: (line) => calls.out.push(line),
+    fileExists: (p) => files.has(p),
   };
   files.set(
     "/d.txt",
@@ -281,6 +282,72 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
       ran: false,
       skipReason: "agy-skip",
       skipClass: "ran-unusable",
+    });
+  });
+
+  it("forwards exitCode/agyStatus/agyError diagnostics from the delegate envelope on skip", () => {
+    const deps = makeDeps({
+      runDelegate: () => ({
+        ran: false,
+        skipReason: "agy-timeout",
+        exitCode: 1,
+        agyStatus: "ERROR",
+        agyError: "timeout waiting for response",
+      }),
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "agy-timeout",
+      skipClass: "ran-unusable",
+      exitCode: 1,
+      agyStatus: "ERROR",
+      agyError: "timeout waiting for response",
+    });
+  });
+
+  it("retains .agy-raw as partialArtifactPath on a ran-unusable skip whose raw artifact exists", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPathIdx = argv.indexOf("--out") + 1;
+        const rawPath = argv[rawPathIdx]!;
+        deps.files.set(rawPath, "not valid json");
+        return { ran: false, skipReason: "agy-timeout", exitCode: 1 };
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "agy-timeout",
+      skipClass: "ran-unusable",
+      partialArtifactPath: `${OUT}.agy-raw`,
+    });
+    expect(deps.files.has(`${OUT}.agy-raw`)).toBe(true);
+    expect(deps.calls.removed).not.toContain(`${OUT}.agy-raw`);
+  });
+
+  it("does not retain .agy-raw (or emit partialArtifactPath) on an environment-class skip", () => {
+    const deps = makeDeps({
+      readConfig: () => JSON.stringify({}),
+    });
+    run(BASE_ARGV, deps);
+    const env = envelope(deps);
+    expect(env.skipReason).toBe("gemini-intent-guess-disabled");
+    expect(env.partialArtifactPath).toBeUndefined();
+  });
+
+  it("emits skipReason delegate-envelope-unparseable when the delegate call's own envelope reports it", () => {
+    const deps = makeDeps({
+      runDelegate: () => ({
+        ran: false,
+        skipReason: "delegate-envelope-unparseable",
+      }),
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "delegate-envelope-unparseable",
     });
   });
 });
@@ -422,6 +489,21 @@ describe("run — conformant output", () => {
     expect(argv[argv.indexOf("--json-schema") + 1]).toBe(`${OUT}.schema.json`);
   });
 
+  it("passes --timeout resolveDelegateTimeout('intentGuess') default (5m) to flow-delegate", () => {
+    const deps = makeDeps();
+    run(BASE_ARGV, deps);
+    const argv = deps.calls.delegate[0]!;
+    expect(argv).toContain("--timeout");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe("5m");
+  });
+
+  it("passes an explicit --timeout flag through to flow-delegate", () => {
+    const deps = makeDeps();
+    run([...BASE_ARGV, "--timeout", "3m"], deps);
+    const argv = deps.calls.delegate[0]!;
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe("3m");
+  });
+
   it("writes INTENT_GUESS_JSON_SCHEMA to the --json-schema scratch path before dispatch", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
@@ -481,10 +563,13 @@ describe("run — malformed payloads drop the guess, never throw, leave no valid
         },
       });
       expect(() => run(BASE_ARGV, deps)).not.toThrow();
+      // A ran-unusable skip whose raw artifact exists on disk (it does
+      // here — runDelegate wrote it above) retains it as partialArtifactPath.
       expect(envelope(deps)).toEqual({
         ran: false,
         skipReason: "gemini-intent-guess-output-unparseable",
         skipClass: "ran-unusable",
+        partialArtifactPath: `${OUT}.agy-raw`,
       });
       expect(deps.files.has(OUT)).toBe(false);
     },
@@ -532,10 +617,13 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
       },
     });
     expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    // The default runDelegate stub still wrote the raw artifact to disk
+    // before this override's readFile started throwing, so it is retained.
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "gemini-intent-guess-output-unreadable",
       skipClass: "ran-unusable",
+      partialArtifactPath: `${OUT}.agy-raw`,
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -553,6 +641,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
       ran: false,
       skipReason: "gemini-intent-guess-finalize-failed",
       skipClass: "ran-unusable",
+      partialArtifactPath: `${OUT}.agy-raw`,
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -574,6 +663,7 @@ describe("run — cross-run staleness: a prior --out is cleared before any skip 
       ran: false,
       skipReason: "gemini-intent-guess-output-unparseable",
       skipClass: "ran-unusable",
+      partialArtifactPath: `${OUT}.agy-raw`,
     });
     expect(deps.files.has(OUT)).toBe(false);
     expect(deps.calls.removed).toContain(OUT);

@@ -121,6 +121,7 @@ import { createHash } from "node:crypto";
 import { buildBatteryPrompt, extractGoalLine } from "./lib/plan-review-prompt";
 import { classifyEngagement } from "./lib/plan-review-engagement";
 import { resolveDelegateModel } from "./lib/delegate-models";
+import { godurToSec } from "./lib/delegate-timeouts";
 import { readState, writeState, type PlanReviewRecord } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { isLive, pidStartEpoch } from "./lib/liveness";
@@ -160,19 +161,13 @@ const DEFAULT_TASK = "plan-review";
 const REVIEWER_1_TIMEOUT = "3m";
 const REVIEWER_2_TIMEOUT = "15m";
 
-// Parses a "godur"-shaped duration string ("3m", "15m", "90s", "2m30s")
-// into whole seconds. Throws on anything else — callers only ever feed it
-// this module's own REVIEWER_*_TIMEOUT constants, so a throw here is a
-// programmer error, not a runtime input-validation path.
-export function godurToSec(value: string): number {
-  const m = /^(?:(\d+)m)?(?:(\d+)s)?$/.exec(value.trim());
-  if (!m || (m[1] === undefined && m[2] === undefined)) {
-    throw new Error(`invalid duration: "${value}"`);
-  }
-  const minutes = m[1] !== undefined ? parseInt(m[1], 10) : 0;
-  const seconds = m[2] !== undefined ? parseInt(m[2], 10) : 0;
-  return minutes * 60 + seconds;
-}
+// godurToSec now lives in ./lib/delegate-timeouts.ts (the single owner of
+// Go-duration parsing, per Task 2) and is re-exported here so existing
+// importers of this module (including flow-plan-review.test.ts) keep
+// working unchanged. Its grammar is now wider than this module's old
+// m/s-only regex (adds ns/us/µs/ms/h) — a deliberate widening, not a
+// behaviour change for the m/s inputs this module's own call sites feed it.
+export { godurToSec };
 
 // Slack added on top of the two reviewer caps to derive `--check`'s give-up
 // cap — covers bun startup, two agy spawns, and the fanout's own overhead,

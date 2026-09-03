@@ -446,6 +446,43 @@ describe("run — aggregation + concurrency", () => {
     expect(entry.stderrTail).toBeUndefined();
   });
 
+  it("projects exitCode, agyStatus, and agyError from a skipped entry's child envelope", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+      runDelegate: async (entry) => ({
+        ran: false,
+        task: entry.task,
+        skipReason: "agy-timeout",
+        exitCode: 1,
+        agyStatus: "ERROR",
+        agyError: "timeout waiting for response",
+      }),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    const entry = aggregate(deps).entries[0];
+    expect(entry).toMatchObject({
+      exitCode: 1,
+      agyStatus: "ERROR",
+      agyError: "timeout waiting for response",
+    });
+  });
+
+  it("omits exitCode, agyStatus, and agyError when the child envelope carries none", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+      runDelegate: async (entry) => ({
+        ran: true,
+        task: entry.task,
+        artifactPath: "/x.md",
+      }),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    const entry = aggregate(deps).entries[0];
+    expect(entry.exitCode).toBeUndefined();
+    expect(entry.agyStatus).toBeUndefined();
+    expect(entry.agyError).toBeUndefined();
+  });
+
   it("keeps durationMs as pool wall-clock while durationSeconds is the child's model time — sourced differently", async () => {
     const deps = makeDeps({
       readFile: () => manifestOf([{ task: "a", prompt: "x" }]),

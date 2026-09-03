@@ -154,6 +154,8 @@ export type FanoutAggregate = {
     ran?: boolean;
     artifactPath?: string;
     skipReason?: string;
+    exitCode?: number;
+    stderrTail?: string;
   }>;
   anyRan?: boolean;
   allSkipped?: boolean;
@@ -175,6 +177,9 @@ type JudgeStatus = {
   ran: boolean;
   skipReason?: SkipReason;
   prose?: string;
+  exitCode?: number;
+  stderrTail?: string;
+  partialArtifactPath?: string;
 };
 
 // `flow-delegate`'s own `agy-timeout` is layer-correct for the delegate
@@ -195,26 +200,59 @@ function mapJudgeSkipReason(
 // against, just a length floor.
 const MIN_ARTIFACT_CHARS = 40;
 
+// A dispatched call (the fanout DID spend agy quota on this judge, even
+// though the result is unusable) is the only case worth retaining the raw
+// artifact for — `worktree-not-provided`/`worktree-not-found`/`fanout-error`
+// never dispatched anything, so there is nothing on disk to point at.
+const DISPATCHED_SKIP_REASONS: ReadonlySet<SkipReason> = new Set([
+  "judge-timeout",
+  "agy-error",
+  "judge-empty",
+]);
+
 function resolveJudge(
   deps: Deps,
   entry: FanoutEntry | undefined,
   model: string,
+  artifactPath: string,
 ): JudgeStatus {
   if (!entry || entry.ran !== true) {
+    const skipReason = mapJudgeSkipReason(entry?.skipReason);
+    const partialArtifactPath =
+      DISPATCHED_SKIP_REASONS.has(skipReason) && deps.fileExists(artifactPath)
+        ? artifactPath
+        : undefined;
     return {
       model,
       ran: false,
-      skipReason: mapJudgeSkipReason(entry?.skipReason),
+      skipReason,
+      ...(entry?.exitCode !== undefined ? { exitCode: entry.exitCode } : {}),
+      ...(entry?.stderrTail ? { stderrTail: entry.stderrTail } : {}),
+      ...(partialArtifactPath ? { partialArtifactPath } : {}),
     };
   }
   try {
     const prose = deps.readFile(entry.artifactPath ?? "");
     if (prose.trim().length < MIN_ARTIFACT_CHARS) {
-      return { model, ran: false, skipReason: "judge-empty" };
+      return {
+        model,
+        ran: false,
+        skipReason: "judge-empty",
+        ...(deps.fileExists(artifactPath)
+          ? { partialArtifactPath: artifactPath }
+          : {}),
+      };
     }
     return { model, ran: true, prose };
   } catch {
-    return { model, ran: false, skipReason: "judge-empty" };
+    return {
+      model,
+      ran: false,
+      skipReason: "judge-empty",
+      ...(deps.fileExists(artifactPath)
+        ? { partialArtifactPath: artifactPath }
+        : {}),
+    };
   }
 }
 
@@ -233,6 +271,7 @@ export type Deps = {
   writeOut: (line: string) => void;
   // True when `path` exists and is a directory. Backs the worktree gate.
   dirExists: (path: string) => boolean;
+  fileExists: (path: string) => boolean;
 };
 
 function emit(deps: Deps, envelope: Record<string, unknown>): number {
@@ -263,7 +302,8 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   const judgeBOut = `${parsed.out}.judge-b.md`;
   deps.removeFile(parsed.out);
 
-  const cleanScratch = () => {
+  const cleanScratch = (retain: string[] = []) => {
+    const retainSet = new Set(retain);
     for (const p of [
       promptA,
       promptB,
@@ -272,7 +312,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       judgeAOut,
       judgeBOut,
     ]) {
-      deps.removeFile(p);
+      if (!retainSet.has(p)) deps.removeFile(p);
     }
   };
 
@@ -396,11 +436,13 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     deps,
     entries.find((e) => e.task === manifest[0]!.task),
     first,
+    manifest[0]!.out,
   );
   const judgeB = resolveJudge(
     deps,
     entries.find((e) => e.task === manifest[1]!.task),
     second,
+    manifest[1]!.out,
   );
 
   if (!judgeA.ran && !judgeB.ran) {
@@ -442,17 +484,35 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return emit(deps, { ran: false, skipReason: "survey-finalize-failed" });
   }
 
-  cleanScratch();
+  // Retain each judge's own raw artifact when it carries partialArtifactPath
+  // evidence — a per-judge skip alongside the OTHER judge's success still
+  // finalizes (only both-skipped short-circuits above), so this diagnostic
+  // is worth keeping around for the consolidator/report.
+  const retainedArtifacts = [
+    judgeA.partialArtifactPath,
+    judgeB.partialArtifactPath,
+  ].filter((p): p is string => p !== undefined);
+  cleanScratch(retainedArtifacts);
   const judges = [
     {
       model: first,
       ran: judgeA.ran,
       ...(judgeA.skipReason ? { skipReason: judgeA.skipReason } : {}),
+      ...(judgeA.exitCode !== undefined ? { exitCode: judgeA.exitCode } : {}),
+      ...(judgeA.stderrTail ? { stderrTail: judgeA.stderrTail } : {}),
+      ...(judgeA.partialArtifactPath
+        ? { partialArtifactPath: judgeA.partialArtifactPath }
+        : {}),
     },
     {
       model: second,
       ran: judgeB.ran,
       ...(judgeB.skipReason ? { skipReason: judgeB.skipReason } : {}),
+      ...(judgeB.exitCode !== undefined ? { exitCode: judgeB.exitCode } : {}),
+      ...(judgeB.stderrTail ? { stderrTail: judgeB.stderrTail } : {}),
+      ...(judgeB.partialArtifactPath
+        ? { partialArtifactPath: judgeB.partialArtifactPath }
+        : {}),
     },
   ];
   return emit(deps, {
@@ -495,6 +555,7 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
     dirExists:
       o?.dirExists ?? ((p) => existsSync(p) && statSync(p).isDirectory()),
+    fileExists: o?.fileExists ?? ((p) => existsSync(p)),
   };
 }
 
