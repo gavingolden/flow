@@ -3,6 +3,7 @@
 Everything you can tune after `flow install`: which modules are linked, which Claude models run which phases, and the knobs in `~/.flow/config.json`.
 
 - [Install flags and module selection](#install-flags-and-module-selection)
+- [Subagent memory, preloaded instructions, turn budgets, and cache TTL](#subagent-memory-preloaded-instructions-turn-budgets-and-cache-ttl)
 - [The standalone skills home](#the-standalone-skills-home)
 - [Plugin materialization](#plugin-materialization)
 - [Staying up to date](#staying-up-to-date)
@@ -23,6 +24,23 @@ bun bin/flow install --core-only                                    # core only,
 The resolved selection persists to `~/.flow/config.json`'s `modules` array, so `flow install --upgrade` never re-asks. To change your selection later, re-run `flow install` with one of the flags above — narrowing prunes the now-deselected symlinks, widening adds the new ones.
 
 `flow install` also registers a `SessionStart` hook in `~/.claude/settings.json` (used by the checkpoint/auto-resume flow); skip it with `flow install --no-hooks`.
+
+## Subagent memory, preloaded instructions, turn budgets, and cache TTL
+
+flow's core agent definitions (`agents/core/*.md`) use four Claude Code subagent features. Each is opt-out at the Claude Code layer, not the flow layer — flow pins the value; Claude Code's own settings/env-var overrides win.
+
+- **`memory: local`** (flow-discovery, flow-scout) — writes a per-agent `MEMORY.md` note under `.claude/agent-memory-local/<agent>/`, resolved **cwd-relative** to the worktree the agent was spawned in (confirmed by a live probe — see `docs/subagent-features-probe.md`). `flow-new-worktree` symlinks that path to a per-repo cache dir under `~/.flow/cache/` so the note survives worktree removal; `flow-remove-worktree` salvages a real (non-symlinked) directory back into the cache before removal. **Memory is a hint to verify against the live tree, never evidence** — every note ends with `observed: <short sha>`, and a note whose sha isn't an ancestor of the current `HEAD` gets re-verified or deleted before use.
+- **`skills:`** (flow-scout, flow-verify, flow-fix-applier, flow-edit-applier, flow-merge-resolver, flow-consolidator) — preloads that agent's own `flow-<agent>-instructions` skill directly into its context at spawn time, instead of the spawn prompt telling it to `Read` a `references/*.md` file. This keeps the instructions off the supervisor's own transcript (the spawn prompt only carries a short sentinel-check line) while skipping a wasted `Read` round trip in the subagent's own context. Uses the **bare skill directory name** — confirmed by the live probe; the sub-agents page documents no plugin-qualified form.
+- **`maxTurns:`** (flow-verify: 150, flow-fix-applier: 120, flow-edit-applier: 80, flow-merge-resolver: 80) — bounds each agent's own turn budget. Hitting it returns the Task result marked **partial** with a recoverable `agentId`; the owning exemption sends one bounded `SendMessage` continuation (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) asking the agent to write its artifact from where it stopped, never to restart. This is a continuation inside the owning Task-tool exemption, not a new spawn site.
+- **`experimental.cacheTtl: 1h`** (flow-discovery, flow-verify, flow-fix-applier, flow-consolidator) — requests Anthropic's 1-hour prompt cache instead of the default 5 minutes, worthwhile for the longer-running loop/discovery agents. Read only from the agent **file** (never from `--agents` JSON), always nested under `experimental:` (a top-level `cacheTtl:` key is silently ignored).
+
+**Version floors.** `skills:` preload and `memory:` need Claude Code ≥ 2.1.242; `maxTurns:` partial-result markers need ≥ 2.1.246; `experimental.cacheTtl` needs ≥ 2.1.248. On an older install the field is present in the agent file but inert — flow degrades safely (no crash), just without the feature.
+
+**Billing.** The 1-hour cache TTL's cost depends on your plan: a subscription plan billing within its plan usage honors the 1h TTL at no extra charge; a subscription plan billing on usage credits ignores the per-agent `experimental.cacheTtl` (falls back to the default 5-minute TTL); an API key or Claude Code on a cloud host bills a 1h cache **write** at the platform's higher 1h write rate (see Anthropic's prompt-caching pricing page — no flat multiplier is quoted here since it varies by model and changes over time).
+
+**Overrides that win over flow's values.** Claude Code's own settings/env vars take precedence over every per-agent pin above: a `subagentPromptCacheTtl` value in `~/.claude/settings.json`, the `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` env var, or `FORCE_PROMPT_CACHING_5M=1` all override flow's `experimental.cacheTtl: 1h` pins; `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` (or `autoMemoryEnabled: false` in settings) makes `memory: local` inert. `flow install` prints a one-line notice when it detects either override active in your `~/.claude/settings.json` or environment, so a silently-inert feature doesn't go unnoticed.
+
+**These fields only reach sessions started after `flow install --upgrade`** — run it twice for a newly-registered skill file to actually resolve (a known one-invocation-behind quirk of the registry fast-forward), and note that a pipeline session already running when you upgrade keeps its pre-upgrade agent definitions for the rest of that session.
 
 ## The standalone skills home
 

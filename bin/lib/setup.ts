@@ -295,6 +295,13 @@ export type SetupOptions = {
    * always means stubbing the check, not organically breaking a symlink.
    */
   checkDrift?: () => InstallDriftResult;
+  /**
+   * Injectable environment for the auto-memory / subagent-cache-TTL install
+   * notices below. Defaults to `process.env`; tests stub
+   * `CLAUDE_CODE_DISABLE_AUTO_MEMORY` / `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL`
+   * without mutating the real process env.
+   */
+  env?: NodeJS.ProcessEnv;
 };
 
 export type SetupSummary = {
@@ -319,6 +326,59 @@ export type SetupSummary = {
    */
   missingRuntimeDeps: string[];
 };
+
+/**
+ * Read-only, malformed-tolerant check: does the user's `settings.json` (or
+ * `CLAUDE_CODE_DISABLE_AUTO_MEMORY`) disable Claude Code's auto memory
+ * feature? When it does, `memory: local` on flow-discovery/flow-scout is
+ * inert. Never writes — this is a notice-only read, unlike
+ * `ensureStopHook`/`ensureSessionStartHook` above, which merge. A malformed
+ * or unreadable settings file returns `false` (no notice) rather than
+ * erroring — the existing "run --repair-settings" hint from the hook merge
+ * above already covers a malformed file; this must not add a second,
+ * confusing error for the same root cause.
+ */
+export function autoMemoryDisabled(
+  settingsPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (env.CLAUDE_CODE_DISABLE_AUTO_MEMORY === "1") return true;
+  try {
+    const raw = fs.readFileSync(settingsPath, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return parsed.autoMemoryEnabled === false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read-only, malformed-tolerant check for a `subagentPromptCacheTtl`
+ * override (setting or env var) that would mask flow's per-agent
+ * `experimental.cacheTtl: 1h` pins — the prompt-caching precedence list
+ * puts this setting ABOVE per-agent `experimental.cacheTtl`. Returns the
+ * overriding value's source string for the notice, or `null` when nothing
+ * overrides. Same malformed-tolerant contract as `autoMemoryDisabled`.
+ */
+export function subagentCacheTtlOverride(
+  settingsPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  if (env.FORCE_PROMPT_CACHING_5M === "1") return "FORCE_PROMPT_CACHING_5M=1";
+  if (env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL) {
+    return `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=${env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL}`;
+  }
+  try {
+    const raw = fs.readFileSync(settingsPath, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof parsed.subagentPromptCacheTtl === "string") {
+      return `subagentPromptCacheTtl=${parsed.subagentPromptCacheTtl}`;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export async function runSetup(
   options: SetupOptions = {},
@@ -741,6 +801,19 @@ async function runUnderLock(
     } else if (ssResult.reason && ssResult.reason !== "malformed-json") {
       log(
         `  ! hooks/SessionStart:${SESSION_START_HOOK_COMMAND}  (${ssResult.reason}: ${ssResult.error ?? "no detail"})`,
+      );
+    }
+
+    const notifyEnv = options.env ?? process.env;
+    if (autoMemoryDisabled(settingsPath, notifyEnv)) {
+      log(
+        "  ! auto memory is disabled — flow-discovery/flow-scout memory: local will be inert (see docs/configuration.md)",
+      );
+    }
+    const cacheTtlOverride = subagentCacheTtlOverride(settingsPath, notifyEnv);
+    if (cacheTtlOverride) {
+      log(
+        `  ! ${cacheTtlOverride} overrides flow's per-agent 1h cache TTL (see docs/configuration.md)`,
       );
     }
   }
