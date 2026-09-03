@@ -24,6 +24,7 @@ import {
   type StreamEvent,
 } from "./eval-transcript";
 import { pluginBinPath, pluginDirArgs } from "./plugin-root";
+import { LOCAL_BIN_DIR } from "./paths";
 import { statePath } from "./state";
 import { checkpointBodyPath } from "./checkpoint-freshness";
 import type { Arm } from "./eval-report";
@@ -318,13 +319,27 @@ export function buildChildEnv(
   // symlinks the maintainer's shell already has on PATH. `withPluginPath`
   // (append-only) is the right shape for a live flow session's own PATH
   // extension elsewhere; a hermetic eval child needs the opposite order.
-  // The `"without"` arm drops the plugin-bin segment entirely — otherwise
-  // the bare arm would still resolve `flow-state-update`,
-  // `flow-pre-commit`, etc. off PATH even with no `--plugin-dir` loaded.
+  // The `"without"` arm drops the plugin-bin segment AND strips
+  // `LOCAL_BIN_DIR` (`~/.local/bin`) from the inherited PATH — `flow
+  // install` symlinks every flow helper there (`bin/lib/paths.ts`), and
+  // `runVerb` gates the eval run on a completed `flow install`
+  // (`probeFlowInstall`), so that directory is on the maintainer's PATH on
+  // any host that can run this harness. Without stripping it, the bare arm
+  // would still resolve `flow-state-update`, `flow-pre-commit`, etc. via
+  // the inherited PATH even with no `--plugin-dir` loaded and the
+  // fixture's own plugin bin/ segment dropped — only two of the three
+  // discovery surfaces would actually be ablated.
   // `fixture.shimDir` stays in PATH either way: the `gh` shim is scenario
   // infrastructure (mocking a real external tool), not flow scaffold.
   const pluginBin = arm === "without" ? "" : pluginBinPath(fixture.pluginRoots);
-  env.PATH = [fixture.shimDir, pluginBin, base.PATH ?? ""]
+  const inheritedPath =
+    arm === "without"
+      ? (base.PATH ?? "")
+          .split(path.delimiter)
+          .filter((seg) => seg !== LOCAL_BIN_DIR)
+          .join(path.delimiter)
+      : (base.PATH ?? "");
+  env.PATH = [fixture.shimDir, pluginBin, inheritedPath]
     .filter((seg) => seg.length > 0)
     .join(":");
   return env;
@@ -378,10 +393,6 @@ export type RunOutcome = {
   events: StreamEvent[];
   result: ResultEnvelope | null;
   error?: string;
-  /** Stamped straight from `opts.arm` — omitted (not `"with"`) unless the
-   * caller passed one, so a single-arm (no `--ablation`) run's outcome
-   * carries no `arm` key at all. */
-  arm?: Arm;
   /** `childArgvDigest(argv)` for THIS run's composed argv — threaded up so
    * `runSuite` can stamp `EvalReport.runner.childArgvDigest` without
    * recomputing the argv shape itself. */
@@ -468,6 +479,5 @@ export async function runScenarioOnce(
     result,
     childArgvDigest: digest,
     ...(error ? { error } : {}),
-    ...(opts.arm ? { arm: opts.arm } : {}),
   };
 }

@@ -513,8 +513,17 @@ describe("main run --ablation with-without", () => {
   // passing on a leaked run.
   it("gates the without arm on ablation-leak-free, failing it when the transcript still names a plugin root", async () => {
     for (const [label, streamBody, shouldPass] of [
-      ["clean", '{"type":"assistant"}\n', true],
-      ["leaked", '{"type":"assistant","text":"flow-module-core"}\n', false],
+      [
+        "clean",
+        '{"type": "system", "subtype": "init", "plugins": []}' + "\n",
+        true,
+      ],
+      [
+        "leaked",
+        '{"type": "system", "subtype": "init", "plugins": [{"name": "flow-module-core"}]}' +
+          "\n",
+        false,
+      ],
     ] as const) {
       const fs = memFs(baseFiles());
       const gradesByArm: Record<string, string[]> = {};
@@ -582,6 +591,162 @@ describe("main run --ablation with-without", () => {
       expect(gradesByArm.without ?? [], label).toContain("ablation-leak-free");
       expect(passByArm.without, label).toBe(shouldPass);
     }
+  });
+
+  // Covers the arithmetic itself, not just argv/leak-gate shape: sign,
+  // direction, the both-arms-present guard, and the with-arm fold purity.
+  it("computes scoreDelta and metricDeltas from real with/without result envelopes, without mutating the with-arm fold", async () => {
+    const files = baseFiles();
+    files[path.join(SCENARIO_DIR, "case.json")] = caseJson({
+      graders: [
+        { id: "g1", kind: "file", file: "$REPO/out.txt", exists: true },
+        {
+          id: "result.num_turns",
+          kind: "metric",
+          source: "result.num_turns",
+          direction: "lower",
+        },
+      ],
+    });
+    files[path.join(SUITE_DIR, "s1", "out.txt")] = "";
+    const fs = memFs(files);
+    fs.files["/r/repo/out.txt"] = "";
+    const deps = fakeDeps(fs, {
+      materializeFixture: (_scenario, _suiteId, run, opts) =>
+        ({
+          root: "/r",
+          repoDir: "/r/repo",
+          claudeHome: "/r/home",
+          bareClaudeHome: "/r/bare-home",
+          pluginRoots: ["/r/home/.claude/skills/flow-module-core"],
+          shimDir: "/r/shims",
+          slug: `eval-fake-suite-s1-r${run}${opts?.arm === "without" ? "-wo" : ""}`,
+          stateDir: "/state",
+          teardown: () => {},
+        }) as ReturnType<Deps["materializeFixture"]>,
+      runScenarioOnce: async (_scenario, _fixture, opts) => {
+        const numTurns = opts.arm === "without" ? 10 : 4;
+        return {
+          exitCode: 0,
+          timedOut: false,
+          streamPath: "/r/stream.jsonl",
+          assistantTextPath: "/r/assistant-text.txt",
+          events: [],
+          result: {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            num_turns: numTurns,
+            total_cost_usd: opts.arm === "without" ? 0.1 : 0.2,
+            duration_ms: 10,
+            session_id: "s",
+            usage: { input_tokens: 1, output_tokens: 1 },
+            modelUsage: {},
+            permission_denials: [],
+          },
+          childArgvDigest: "digest",
+          ...(opts.arm ? { arm: opts.arm } : {}),
+        } as Awaited<ReturnType<Deps["runScenarioOnce"]>>;
+      },
+    });
+    const code = await main(
+      [
+        "run",
+        "--suite",
+        "fake-suite",
+        "--out",
+        "out",
+        "--evals-dir",
+        "evals",
+        "--ablation",
+        "with-without",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    const report = JSON.parse(
+      fs.readFile(path.join("out", "fake-suite", "report.json")),
+    ) as EvalReport;
+    const scenario = report.scenarios.find((s) => s.id === "s1");
+    expect(scenario?.ablation).toBeDefined();
+    expect(scenario?.ablationError).toBeUndefined();
+    // with-arm's own score/metrics stay exactly what a plain with-arm
+    // fold would produce — the without arm's presence must not leak into
+    // the with-arm fold (fold purity).
+    expect(scenario?.score).toBe(scenario?.ablation?.with.score);
+    expect(scenario?.metrics).toEqual(scenario?.ablation?.with.metrics);
+    expect(scenario?.ablation?.metricDeltas["result.num_turns"]).toBe(4 - 10);
+    expect(scenario?.ablation?.scoreDelta).toBe(
+      scenario!.ablation!.with.score - scenario!.ablation!.without.score,
+    );
+  });
+
+  it("records ablationError (never an inflated scoreDelta) when every without-arm run errors", async () => {
+    const fs = memFs(baseFiles());
+    const deps = fakeDeps(fs, {
+      materializeFixture: (_scenario, _suiteId, run, opts) =>
+        ({
+          root: "/r",
+          repoDir: "/r/repo",
+          claudeHome: "/r/home",
+          bareClaudeHome: "/r/bare-home",
+          pluginRoots: ["/r/home/.claude/skills/flow-module-core"],
+          shimDir: "/r/shims",
+          slug: `eval-fake-suite-s1-r${run}${opts?.arm === "without" ? "-wo" : ""}`,
+          stateDir: "/state",
+          teardown: () => {},
+        }) as ReturnType<Deps["materializeFixture"]>,
+      runScenarioOnce: async (_scenario, _fixture, opts) => {
+        if (opts.arm === "without") {
+          return {
+            exitCode: 1,
+            timedOut: true,
+            streamPath: "/r/stream.jsonl",
+            assistantTextPath: "/r/assistant-text.txt",
+            events: [],
+            result: null,
+            childArgvDigest: "digest",
+            arm: "without",
+          } as Awaited<ReturnType<Deps["runScenarioOnce"]>>;
+        }
+        return {
+          exitCode: 0,
+          timedOut: false,
+          streamPath: "/r/stream.jsonl",
+          assistantTextPath: "/r/assistant-text.txt",
+          events: [],
+          result: null,
+          childArgvDigest: "digest",
+          arm: "with",
+        } as Awaited<ReturnType<Deps["runScenarioOnce"]>>;
+      },
+    });
+    fs.files["/r/repo/out.txt"] = "";
+    const code = await main(
+      [
+        "run",
+        "--suite",
+        "fake-suite",
+        "--out",
+        "out",
+        "--evals-dir",
+        "evals",
+        "--ablation",
+        "with-without",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    const report = JSON.parse(
+      fs.readFile(path.join("out", "fake-suite", "report.json")),
+    ) as EvalReport;
+    const scenario = report.scenarios.find((s) => s.id === "s1");
+    expect(scenario?.ablation).toBeUndefined();
+    expect(scenario?.ablationError).toEqual({
+      withoutStatus: "error",
+      runCount: 1,
+    });
+    expect(report.summary.scoreDelta).toBeUndefined();
   });
 });
 

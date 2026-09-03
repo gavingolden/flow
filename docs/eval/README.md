@@ -72,9 +72,11 @@ bun bin/flow-eval.ts run --all --out .flow-tmp/eval
 Useful flags: `--dry-run` (materializes fixtures and renders prompts
 without spawning `claude`), `--runs <n>` (override every scenario's
 per-run count), `--concurrency <n>` (bounded worker pool across every
-`(scenario, run)` pair in the suite; default 1), `--threshold <0..1>`
-(exit 1 when a suite's score misses it), `--claude-bin <path>`,
-`--ablation <none|with-without>` (default `none`).
+`(scenario, run[, arm])` job in the suite — `--ablation with-without`
+doubles each `(scenario, run)` into a with/without pair, and the pool is
+sized against the flattened job list, not the scenario count; default 1),
+`--threshold <0..1>` (exit 1 when a suite's score misses it),
+`--claude-bin <path>`, `--ablation <none|with-without>` (default `none`).
 
 Named skip reasons (exit 0, one-line stderr notice, a `skipped` report
 still written): `claude-not-on-path`, `claude-not-authenticated`,

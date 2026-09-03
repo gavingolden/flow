@@ -14,6 +14,7 @@ import {
 } from "./eval-runner";
 import type { MaterializedFixture } from "./eval-fixture";
 import type { ResolvedScenario } from "./eval-suite";
+import { LOCAL_BIN_DIR } from "./paths";
 
 function makeFixture(
   overrides: Partial<MaterializedFixture> = {},
@@ -506,6 +507,52 @@ describe("runScenarioOnce", () => {
     expect(
       fs.readFileSync(path.join(outDir, "stream.jsonl"), "utf8"),
     ).toContain('"type":"result"');
+  });
+
+  it("passes arm through to buildChildEnv so the without-arm spawn env has LOCAL_BIN_DIR stripped from PATH", async () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const files: Record<string, string> = {
+      [path.join(scenario.dir, "prompt.md")]: "do the thing",
+    };
+    const resultLine = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      num_turns: 1,
+      total_cost_usd: 0.01,
+      duration_ms: 10,
+      session_id: "s",
+      usage: { input_tokens: 1, output_tokens: 1 },
+      modelUsage: {},
+      permission_denials: [],
+    });
+
+    let capturedEnv: Record<string, string> | undefined;
+    const fakeSpawn: SpawnFn = (_argv, env, _cwd, onStdout) => {
+      capturedEnv = env;
+      onStdout(resultLine + "\n");
+      return { exited: Promise.resolve(0), kill: () => {} };
+    };
+
+    const priorPath = process.env.PATH;
+    process.env.PATH = [LOCAL_BIN_DIR, "/usr/bin", "/bin"].join(path.delimiter);
+    try {
+      await runScenarioOnce(scenario, fixture, {
+        claudeBin: "claude",
+        outDir,
+        sessionId: "sess-1",
+        spawn: fakeSpawn,
+        readFile: (p) => files[p] ?? "",
+        arm: "without",
+      });
+    } finally {
+      process.env.PATH = priorPath;
+    }
+
+    expect(capturedEnv?.PATH).toBeDefined();
+    const segs = capturedEnv!.PATH!.split(":");
+    expect(segs).not.toContain(LOCAL_BIN_DIR);
   });
 
   it("writes assistant-text.txt containing only assistant-emitted text, excluding user-role content", async () => {

@@ -21,8 +21,9 @@
  * PATH on macOS, the primary dev platform, so a `timeout`-based
  * implementation would be a silent no-op exactly where it's needed. A
  * timed-out probe yields "inconclusive" with the timeout named in evidence.
- * stdout is captured alone — never `2>&1` — so progress lines never corrupt
- * a downstream JSON parse.
+ * stdout and stderr are captured on separate pipes — never `2>&1` — so
+ * stderr progress/diagnostic lines never corrupt a downstream JSON parse of
+ * stdout.
  */
 
 import * as fs from "node:fs";
@@ -539,7 +540,7 @@ async function probePluginEvalAvailability(
     return {
       id,
       verdict: "refuted",
-      evidence: `claude plugin eval --help exits 0 (documented), but \`claude plugin eval init --bare <name>\` exits ${initResult.exitCode} with stderr: ${initResult.stderr.trim()}`,
+      evidence: `claude plugin eval --help exits 0 (documented), but \`claude plugin eval init --bare <name>\` exits ${initResult.exitCode} with stderr: ${initResult.stderr.trim().slice(0, 300)}`,
     };
   }
   return {

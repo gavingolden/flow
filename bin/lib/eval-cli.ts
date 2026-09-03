@@ -12,7 +12,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { git } from "./git";
 import {
   buildReport,
@@ -30,7 +30,7 @@ import {
   type ScenarioRecord,
 } from "./eval-report";
 import { gradeAll, type GraderContext } from "./eval-graders";
-import { transcriptMetrics } from "./eval-transcript";
+import { initInfo, parseStream, transcriptMetrics } from "./eval-transcript";
 import {
   loadSuite,
   type LoadSuiteDeps,
@@ -179,11 +179,10 @@ function buildGraderContext(
 export const activeFixtureTeardowns = new Set<() => void>();
 
 /**
- * The substring whose presence in a run transcript proves a flow plugin
- * root was loaded. Same marker the committed `plugin-loaded` gate graders
- * use in every scenario's `case.json`, kept in one place so the positive
- * gate (with arm) and the inverted gate below (without arm) cannot drift
- * apart.
+ * The plugin-name prefix that proves a flow plugin root was loaded. Same
+ * prefix the committed `plugin-loaded` gate graders match against every
+ * scenario's `case.json`, kept in one place so the positive gate (with
+ * arm) and the inverted gate below (without arm) cannot drift apart.
  */
 const PLUGIN_ROOT_MARKER = "flow-module-core";
 
@@ -193,10 +192,20 @@ const PLUGIN_ROOT_MARKER = "flow-module-core";
  * Marking `plugin-loaded` as `withOnly` (so the bare arm is not scored on a
  * gate it can never pass) removes the only signal that would have caught an
  * ablation leak at run time. This gate puts that signal back, inverted: the
- * bare arm's transcript must NOT mention a flow plugin root. It is the
- * runtime counterpart to the composition-time anti-leak assertions in
+ * bare arm's transcript must NOT report a loaded flow plugin root. It is
+ * the runtime counterpart to the composition-time anti-leak assertions in
  * `eval-runner.test.ts` — those prove the argv and env are clean, this
  * proves the child actually behaved as though they were.
+ *
+ * Reads the structured `system/init` event's `plugins` list
+ * (`initInfo(events).plugins`, `eval-transcript.ts`) rather than
+ * substring-matching the whole transcript: a raw substring grep both
+ * false-positives (preloaded scenario fixtures like
+ * `evals/verify-loop-isolation/{s1,s2}/preload/plan-digest.md` contain the
+ * literal marker in prose, unrelated to plugin load) and false-negatives
+ * (it cannot see a leak that never prints the marker string verbatim,
+ * e.g. a helper resolved off `~/.local/bin`). The structured list is the
+ * one place a plugin load is unambiguous.
  *
  * Without it, a future change that reintroduces a discovery path (a third
  * `--add-dir`, a settings-sourced skills dir) would silently produce a
@@ -207,15 +216,24 @@ function ablationLeakGate(ctx: GraderContext): GradeResult {
   // contractually null-tolerant, so an unreadable transcript fails this
   // gate rather than throwing out of the grading path.
   const stream = ctx.readFile(ctx.streamPath);
-  const leaked = stream !== null && stream.includes(PLUGIN_ROOT_MARKER);
+  const plugins =
+    stream === null ? [] : initInfo(parseStream(stream).events).plugins;
+  const leakedPlugin = plugins.find((name) =>
+    name.startsWith(PLUGIN_ROOT_MARKER),
+  );
+  const leaked = stream !== null && leakedPlugin !== undefined;
   return {
     id: "ablation-leak-free",
     kind: "file",
     gate: true,
     pass: stream !== null && !leaked,
-    expected: `transcript free of "${PLUGIN_ROOT_MARKER}"`,
+    expected: `no loaded plugin named "${PLUGIN_ROOT_MARKER}*"`,
     actual:
-      stream === null ? "transcript unreadable" : leaked ? "present" : "absent",
+      stream === null
+        ? "transcript unreadable"
+        : leaked
+          ? `loaded: ${leakedPlugin}`
+          : "none loaded",
     detail:
       stream === null
         ? "could not read the run transcript, so the ablation could not be verified"
@@ -465,39 +483,57 @@ async function runSuite(
             : undefined,
         )
         .filter((r): r is RunRecord => r !== undefined);
-      // An error-status run is reported (folded into `withoutFold.status`)
-      // but EXCLUDED from the score/metric average that feeds the delta —
-      // never counted as a score of 0, which would otherwise make a
-      // transient timeout look like a real regression.
+      // An error-status run is EXCLUDED from the score/metric average that
+      // feeds the delta — never counted as a score of 0, which would
+      // otherwise make a transient timeout look like a real regression.
       const withoutScored = withoutRecords.filter((r) => r.status !== "error");
-      const withoutFold = foldScenario(
-        scenario.id,
-        scenario.title,
-        withoutScored,
-      );
-      const metricDeltas: Record<string, number> = {};
-      for (const name of new Set([
-        ...Object.keys(record.metrics),
-        ...Object.keys(withoutFold.metrics),
-      ])) {
-        const w = record.metrics[name]?.median;
-        const wo = withoutFold.metrics[name]?.median;
-        if (w !== undefined && wo !== undefined) metricDeltas[name] = w - wo;
+      if (withoutScored.length === 0) {
+        // Every without-arm run errored, so there is nothing to fold a
+        // real score from. `foldScenario([])` returns `score: 0`, and
+        // `record.score - 0` would report the LARGEST delta the metric
+        // can produce — generated by the baseline crashing, not by the
+        // scaffold helping. Emit no delta at all; record the error status
+        // instead so a reader can see why this scenario has no ablation
+        // row rather than silently dropping it.
+        const withoutFold = foldScenario(
+          scenario.id,
+          scenario.title,
+          withoutRecords,
+        );
+        record.ablationError = {
+          withoutStatus: withoutFold.status,
+          runCount: withoutRecords.length,
+        };
+      } else {
+        const withoutFold = foldScenario(
+          scenario.id,
+          scenario.title,
+          withoutScored,
+        );
+        const metricDeltas: Record<string, number> = {};
+        for (const name of new Set([
+          ...Object.keys(record.metrics),
+          ...Object.keys(withoutFold.metrics),
+        ])) {
+          const w = record.metrics[name]?.median;
+          const wo = withoutFold.metrics[name]?.median;
+          if (w !== undefined && wo !== undefined) metricDeltas[name] = w - wo;
+        }
+        record.ablation = {
+          with: {
+            score: record.score,
+            metrics: record.metrics,
+            avgCostUsd: avgCostUsd(withRecords),
+          },
+          without: {
+            score: withoutFold.score,
+            metrics: withoutFold.metrics,
+            avgCostUsd: avgCostUsd(withoutScored),
+          },
+          scoreDelta: record.score - withoutFold.score,
+          metricDeltas,
+        };
       }
-      record.ablation = {
-        with: {
-          score: record.score,
-          metrics: record.metrics,
-          avgCostUsd: avgCostUsd(withRecords),
-        },
-        without: {
-          score: withoutFold.score,
-          metrics: withoutFold.metrics,
-          avgCostUsd: avgCostUsd(withoutScored),
-        },
-        scoreDelta: record.score - withoutFold.score,
-        metricDeltas,
-      };
     }
 
     deps.progress(`flow-eval: ${spec.id}/${scenario.id} -> ${record.status}`);
@@ -512,13 +548,29 @@ async function runSuite(
           0,
         ) / scenariosWithAblation.length
       : undefined;
-  // Lift one representative run's childArgvDigest (the with-arm shape,
-  // when ablation ran) up to the report-level `runner.childArgvDigest` —
-  // the digest is deterministic given a scenario's flags/arm, so any
-  // with-arm run in this suite carries the same value.
-  const childArgvDigest = allRecords.find(
-    (r) => r.arm !== "without" && r.childArgvDigest,
-  )?.childArgvDigest;
+  // `childArgvDigest` is per-scenario (`--allowedTools`/`--model`/`--effort`
+  // are DIGESTED_VALUE_FLAGS), so scenarios in the same suite genuinely
+  // carry different digests when their flags differ. Lifting only the
+  // first with-arm run's digest would silently ignore drift in every
+  // OTHER scenario's flags. Instead, fold every distinct with-arm digest
+  // in the suite into one suite-level digest — a change to ANY
+  // scenario's composed argv/env shape changes this value, so `compare`'s
+  // `environmentMismatch` warning still fires on the drift it exists to
+  // catch.
+  const withArmDigests = [
+    ...new Set(
+      allRecords
+        .filter((r) => r.arm !== "without" && r.childArgvDigest)
+        .map((r) => r.childArgvDigest!),
+    ),
+  ].sort();
+  const childArgvDigest =
+    withArmDigests.length > 0
+      ? createHash("sha256")
+          .update(withArmDigests.join("|"))
+          .digest("hex")
+          .slice(0, 16)
+      : undefined;
 
   return buildReport({
     suite: spec,
@@ -565,9 +617,11 @@ async function runVerb(args: RunArgs, deps: Deps): Promise<number> {
   if (args.ablation === "with-without") {
     // Informational only — never a prompt, never a confirmation: doubling
     // the arm count doubles the number of `claude` children spawned and
-    // therefore the run's real-account spend.
+    // therefore the run's real-account spend AND wall-clock time (subject
+    // to `--concurrency`'s pool size, since the flattened job list is now
+    // twice as long).
     deps.progress(
-      "flow-eval: --ablation with-without doubles the arm count per scenario run, and therefore doubles claude spend for this invocation\n",
+      "flow-eval: --ablation with-without doubles the arm count per scenario run, and therefore doubles claude spend and wall-clock time for this invocation\n",
     );
   }
   if (args.recordBaseline && deps.gitDirty() && !args.allowDirty) {
