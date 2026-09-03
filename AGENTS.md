@@ -108,15 +108,16 @@ scripts to Bun; deviating needs user confirmation and an inline comment.
 The load-bearing constraint for `/flow-pipeline`: the supervisor is one
 Claude Code chat session, sub-skills load in-process via the `Skill`
 tool, and helper scripts under `bin/` are Bash tool calls. The
-supervisor never spawns the `Task` / `Agent` tool and never invokes
-`claude -p ...` subprocesses, **with nine narrowly-named exceptions** —
+supervisor never spawns the `Task` / `Agent` tool and never invokes raw
+`claude -p` subprocesses (headless Claude only via `flow-claude-headless`),
+**with nine narrowly-named exceptions** —
 the `**Task-tool exemption: ...**` bullets under `## Don'ts` below. This
 sidesteps two problems: deep sub-agent fan-out (possible since Claude Code
 v2.1.172, capped at 5 levels, but ruinously token-expensive and hard to
 observe), and context bloat from a long-running supervisor with
-sub-agents. A standalone leaf skill
-(`/flow-research` run directly) firing `claude -p` is a context this
-constraint never governed.
+sub-agents. `flow-claude-headless` is the one sanctioned
+`claude -p` site (a Bash fan-out, not a tenth exemption; contract in
+`skills/pipeline/flow-pipeline/references/headless-claude.md`).
 
 Logic needing a separate LLM session belongs in an in-process sub-skill
 or a non-LLM helper, not here.
@@ -367,7 +368,9 @@ three-layer resolution table, and the manifest/foundation fields — is at
     **blind method survey** are a
     **Bash fan-out, not a tenth exemption** —
     `flow-delegate`/`flow-plan-review`/`flow-blind-survey` calls, no
-    Task, graceful skip sans agy.
+    Task, graceful skip sans agy. The same holds for **headless Claude
+    via `flow-claude-headless`** (contract:
+    `skills/pipeline/flow-pipeline/references/headless-claude.md`).
   - **AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override
     sub-step.** The single confirmation form fired when the user
     instructs the supervisor to merge a `gated` PR anyway — a *fresh*

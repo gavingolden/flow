@@ -1310,9 +1310,22 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * exactly that delta plus 44 chars of headroom (25_900 + 56 + 44 =
    * 26_000) rather than the bare delta, matching the "don't land at a
    * single-digit-headroom trap" discipline of every raise above.
+   * Raised once more from 26_000 to 26_300 to narrow the `claude -p`
+   * prohibition to the sanctioned `flow-claude-headless` Bash fan-out:
+   * the `## Supervisor and sub-skills` paragraph now says "never invokes
+   * raw `claude -p` subprocesses (headless Claude only via
+   * `flow-claude-headless`)" and names the helper's contract instead of
+   * the old standalone-leaf-skill sentence, and the `## Don'ts`
+   * Bash-fan-out bullet gained a trailing sentence naming
+   * `flow-claude-headless` alongside the Gemini lens / plan review /
+   * blind survey. Measured via String.prototype.length (not `wc -c`
+   * bytes): pre-edit 25_979, post-edit 26_102 — a +123-char delta. The
+   * budget goes to 26_300 (198 chars of headroom), not the bare
+   * post-edit value, matching the "don't land at a single-digit-headroom
+   * trap" discipline of every raise above.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 26_000;
+    const CHAR_BUDGET = 26_300;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -5010,12 +5023,19 @@ describe("pr-review include-by-reference structure", () => {
     // discipline as every raise above. This also absorbs — and does NOT
     // retroactively re-tighten for — the pre-existing #704 overshoot
     // already noted on the main side.
+    // Narrowing the `claude -p` prohibition to the sanctioned
+    // `flow-claude-headless` Bash fan-out (Hard-rules rewrite + new F2
+    // sibling blockquote + Verification bullet rewrite) is genuine
+    // feature-mechanical content, not incidental bloat. Measured via
+    // `wc -l`: pre-edit 3035, post-edit 3047 — a +12-line delta. The
+    // ceiling moves to 3060 (13 lines of genuine headroom), the same
+    // discipline as every raise above.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3040 lines. Material regrowth past this ceiling would ` +
+        `budget of 3060 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3040);
+    ).toBeLessThan(3060);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
