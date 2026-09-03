@@ -770,13 +770,15 @@ describe("lintPlan — confidence + stakes markers", () => {
     ).toEqual([]);
   });
 
-  it("names a miss when the Recommended line has a confidence tag but no anchor tag", () => {
+  it("names a miss when the Recommended line has a confidence tag but no anchor tag, without the 'must END the line' wording", () => {
     const { misses } = lintPlan(
       oqPlan(
         "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: high]",
       ),
     );
-    expect(misses.some((m) => m.startsWith("anchor-missing-tag"))).toBe(true);
+    const anchorMiss = misses.find((m) => m.startsWith("anchor-missing-tag"));
+    expect(anchorMiss).toBeDefined();
+    expect(anchorMiss).not.toContain("must END the line");
   });
 
   it("names anchor-missing for a 'high' entry whose file path does not exist", () => {
@@ -1004,18 +1006,30 @@ describe("lintPlan — confidence + stakes markers", () => {
   });
 
   it("names verdict-confidence-missing for only D1 when two Decision analysis Verdict lines are adjacent with no blank line between them", () => {
-    const plan =
-      "## Decision analysis\n\n" +
-      "**D1 — q?** a b. Verdict: **A** — no tag here.\n" +
-      "**D2 — q?** a b. Verdict: **B** — tagged. [confidence: high] [anchor: AGENTS.md]\n\n" +
-      '## Recommendation\n\n**Proceed** — fine. [confidence: high] [anchor: user: "ok"]\n';
-    const { misses } = lintPlan(plan);
+    const { misses } = lintPlan(
+      daPlan(
+        "**D1 — q?** a b. Verdict: **A** — no tag here.\n" +
+          "**D2 — q?** a b. Verdict: **B** — tagged. [confidence: high] [anchor: AGENTS.md]",
+      ),
+    );
     const verdictMisses = misses.filter((m) =>
       m.startsWith("verdict-confidence-missing"),
     );
     expect(verdictMisses.length).toBe(1);
     expect(verdictMisses[0]).toContain("D1");
     expect(verdictMisses[0]).not.toContain("D2");
+  });
+
+  it("does not fire verdict-confidence-missing when a tagged verdict soft-wraps onto a continuation line that opens with a bold token", () => {
+    const { misses } = lintPlan(
+      daPlan(
+        "**D1 — q?** a b. Verdict: **A** — same floor, wider count;\n" +
+          "**0 additional interruptions per run** in the common case. [confidence: medium] [anchor: AGENTS.md]",
+      ),
+    );
+    expect(misses.some((m) => m.startsWith("verdict-confidence-missing"))).toBe(
+      false,
+    );
   });
 
   it("names an anchor-missing-tag miss that says the tag pair must END the line when trailing prose follows it", () => {
@@ -1027,17 +1041,6 @@ describe("lintPlan — confidence + stakes markers", () => {
     const anchorMiss = misses.find((m) => m.startsWith("anchor-missing-tag"));
     expect(anchorMiss).toBeDefined();
     expect(anchorMiss).toContain("must END the line");
-  });
-
-  it("names an anchor-missing-tag miss without the 'must END the line' wording when no anchor tag is present at all", () => {
-    const { misses } = lintPlan(
-      oqPlan(
-        "- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: high]",
-      ),
-    );
-    const anchorMiss = misses.find((m) => m.startsWith("anchor-missing-tag"));
-    expect(anchorMiss).toBeDefined();
-    expect(anchorMiss).not.toContain("must END the line");
   });
 
   it("does not fire any of the new checks when the relevant headings are absent", () => {

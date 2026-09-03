@@ -414,8 +414,13 @@ function joinLogicalLine(text: string, startIndex: number): string {
  * `Verdict:`) — `## Decision analysis` entries are routinely adjacent with
  * no blank line between them, so without this second bound an untagged
  * verdict silently joins onto the next (possibly tagged) one. A plain
- * soft-wrap continuation line — neither of those shapes — still joins.
+ * soft-wrap continuation line — neither of those shapes — still joins,
+ * including one that happens to open with a bold token (e.g. a wrapped
+ * verdict continuation like `**0 additional interruptions**...`) — the new-
+ * decision bound below only matches the actual heading shape
+ * (`**D1 — question?**`), not any bold run.
  */
+const NEW_DECISION_LINE_RE = /^\*\*[^*]+\?\*\*/;
 function joinLogicalLineToBlankLine(text: string, startIndex: number): string {
   const rest = text.slice(startIndex);
   const blankMatch = rest.match(/\n\s*\n/);
@@ -425,7 +430,8 @@ function joinLogicalLineToBlankLine(text: string, startIndex: number): string {
   for (let i = 1; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     if (trimmed.length === 0) break;
-    if (trimmed.startsWith("**") || trimmed.includes("Verdict:")) break;
+    if (NEW_DECISION_LINE_RE.test(trimmed) || trimmed.includes("Verdict:"))
+      break;
     logicalLines.push(lines[i]);
   }
   return logicalLines
@@ -576,7 +582,9 @@ function checkConfidenceMarkers(
         misses.push(
           `confidence-missing: '## Open Questions' entry '${entryLine}' Recommended line must end with '[confidence: high|medium|low] [anchor: …]'`,
         );
-      } else if (/\[anchor:/.test(recLine)) {
+      } else if (
+        /\[confidence:\s*(high|medium|low)\]\s*\[anchor:/.test(recLine)
+      ) {
         misses.push(
           `anchor-missing-tag: '## Open Questions' entry '${entryLine}' Recommended line's '[confidence: …] [anchor: …]' pair must END the line (found trailing text after it)`,
         );
