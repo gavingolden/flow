@@ -153,8 +153,15 @@ describe("dry-run via the real CLI", () => {
         deps,
       );
       expect(code).toBe(0);
-      expect(fs.existsSync(path.join(outDir, suiteId, "report.json"))).toBe(
-        true,
+      const reportPath = path.join(outDir, suiteId, "report.json");
+      expect(fs.existsSync(reportPath)).toBe(true);
+      const report = JSON.parse(fs.readFileSync(reportPath, "utf8")) as {
+        scenarios: Array<{ id: string }>;
+      };
+      const loaded = loadSuite(path.join(EVALS_ROOT, suiteId));
+      if (!loaded.ok) throw new Error(loaded.reason);
+      expect(report.scenarios.map((s) => s.id).sort()).toEqual(
+        loaded.value.scenarios.map((s) => s.id).sort(),
       );
     }
     const leaked = fs

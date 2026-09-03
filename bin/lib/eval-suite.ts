@@ -129,6 +129,7 @@ export type ScenarioSpec = {
   fixture?: FixtureSpec;
   env?: { flowSlug?: boolean };
   allowedTools?: string[];
+  ghCalls?: string[][];
   model?: string;
   effort?: string;
   maxBudgetUsd?: number;
@@ -157,6 +158,14 @@ export type SuiteSpec = {
   >;
 };
 
+// `ghCalls` is unconditionally defaulted to `[]` in resolveScenario below,
+// same as its four siblings in the `Required<Pick<...>>` list — but it is
+// deliberately left OUT of that list and stays optional here. Widening it
+// to Required would break `bin/lib/eval-runner.test.ts`'s scenario factory,
+// which builds fixtures via `overrides: Partial<ResolvedScenario> = {}`
+// and relies on `ghCalls` being omittable rather than defaulted per call
+// site. Normalize with `scenario.ghCalls ?? []` at each read site instead
+// of widening the type.
 export type ResolvedScenario = Required<
   Pick<ScenarioSpec, "runs" | "maxBudgetUsd" | "timeoutSec" | "allowedTools">
 > &
@@ -364,6 +373,23 @@ export function validateScenarioSpec(
   }
   if (o.allowedTools !== undefined && !isStringArray(o.allowedTools)) {
     return err("'allowedTools' must be a string array");
+  }
+  if (o.ghCalls !== undefined) {
+    if (!Array.isArray(o.ghCalls) || !o.ghCalls.every(isNonEmptyStringArray)) {
+      return err("'ghCalls' must be an array of non-empty string arrays");
+    }
+  }
+  const fixtureShims =
+    isPlainObject(o.fixture) && isStringArray(o.fixture.shims)
+      ? o.fixture.shims
+      : undefined;
+  const mountsGhShim = (fixtureShims ?? []).some(
+    (s) => path.basename(s) === "gh",
+  );
+  if (mountsGhShim && (!Array.isArray(o.ghCalls) || o.ghCalls.length === 0)) {
+    return err(
+      "'ghCalls' is required (and non-empty) when fixture.shims mounts the gh shim",
+    );
   }
   if (o.model !== undefined && !isString(o.model)) {
     return err("'model' must be a string");
@@ -592,6 +618,7 @@ function resolveScenario(
       maxBudgetUsd,
       timeoutSec,
       allowedTools,
+      ghCalls: spec.ghCalls ?? [],
       model,
       effort,
       dir: scenarioDir,

@@ -1,7 +1,7 @@
 {
   "id": "s1-resume-step5-addendum",
   "title": "Resume re-enters at Step 5 (implement) and carries the plan-approval addendum",
-  "provenance": "Synthetic fixture authored against bin/flow-resume-decide.ts's decision tree (POST_APPROVAL_PHASES row 5, 'no PR for branch' -> step-5) and bin/flow-checkpoint.ts's arm/consume contract.",
+  "provenance": "Synthetic fixture authored against bin/flow-resume-decide.ts's decision tree (POST_APPROVAL_PHASES row 5, 'no PR for branch' -> step-5) and bin/flow-checkpoint.ts's arm/consume contract. ghCalls is a best-effort declaration — this scenario's gh path is model-determined via promptSeed 'resume'; the declared argv mirrors bin/lib/resume-probes.ts's probePr(branch, gh) call (gh([\"pr\", \"view\", branch, \"--json\", \"number,state,url\"])) that flow-resume-decide invokes on the eval-materialized branch, not an observed transcript.",
   "prompt": "prompt.md",
   "promptSeed": "resume",
   "fixture": {
@@ -15,6 +15,7 @@
     "shims": ["../../_shims/gh"]
   },
   "env": { "flowSlug": true },
+  "ghCalls": [["pr", "view", "eval", "--json", "number,state,url"]],
   "resultSchema": "result-schema.json",
   "graders": [
     {

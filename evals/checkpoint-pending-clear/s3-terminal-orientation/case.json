@@ -1,7 +1,7 @@
 {
   "id": "s3-terminal-orientation",
   "title": "Post-/clear orientation turn on a finished (merged) pipeline",
-  "provenance": "Synthetic fixture authored against bin/flow-session-start-hook.ts's terminalCarryOver/terminalContinueSeed (PR #640's orientation turn) and the WORKTREE_REMOVED_PHASE_SET (merged + cancelled).",
+  "provenance": "Synthetic fixture authored against bin/flow-session-start-hook.ts's terminalCarryOver/terminalContinueSeed (PR #640's orientation turn) and the WORKTREE_REMOVED_PHASE_SET (merged + cancelled). ghCalls is a best-effort declaration — this scenario's gh path is model-determined via promptSeed 'terminal'; the declared argv follows terminalContinueSeed's literal inspection suggestion ('run `gh pr view 305`') with a --json field list borrowed from bin/lib/resume-probes.ts's probePr, not an observed transcript. fixture/pr.json is deliberately [] (no PR #305 record seeded), so a 'no PR matching' response from the shim is the correct answer here, not a bug.",
   "prompt": "prompt.md",
   "promptSeed": "terminal",
   "fixture": {
@@ -15,6 +15,7 @@
     "shims": ["../../_shims/gh"]
   },
   "env": { "flowSlug": true },
+  "ghCalls": [["pr", "view", "305", "--json", "number,state,url"]],
   "resultSchema": "result-schema.json",
   "graders": [
     {

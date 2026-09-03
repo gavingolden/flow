@@ -206,6 +206,82 @@ describe("validateScenarioSpec", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toMatch(/effort/);
   });
+
+  it("accepts a well-formed ghCalls", () => {
+    const result = validateScenarioSpec({
+      ...validScenario,
+      ghCalls: [["pr", "view", "--json", "number,url"]],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects a non-array ghCalls", () => {
+    const result = validateScenarioSpec({
+      ...validScenario,
+      ghCalls: "pr view",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/ghCalls/);
+  });
+
+  it("rejects a ghCalls entry that is not an array", () => {
+    const result = validateScenarioSpec({
+      ...validScenario,
+      ghCalls: ["pr view"],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/ghCalls/);
+  });
+
+  it("rejects a ghCalls entry that is an empty array", () => {
+    const result = validateScenarioSpec({
+      ...validScenario,
+      ghCalls: [[]],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/ghCalls/);
+  });
+
+  it("rejects a ghCalls entry containing an empty-string element", () => {
+    const result = validateScenarioSpec({
+      ...validScenario,
+      ghCalls: [["pr", ""]],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/ghCalls/);
+  });
+
+  it("rejects a scenario mounting the gh shim with ghCalls absent", () => {
+    const result = validateScenarioSpec({
+      ...validScenario,
+      fixture: { shims: ["../../_shims/gh"] },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/ghCalls.*required/);
+    }
+  });
+
+  it("rejects a scenario mounting the gh shim with ghCalls empty", () => {
+    const result = validateScenarioSpec({
+      ...validScenario,
+      fixture: { shims: ["../../_shims/gh"] },
+      ghCalls: [],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/ghCalls.*required/);
+    }
+  });
+
+  it("accepts a scenario mounting the gh shim with ghCalls declared", () => {
+    const result = validateScenarioSpec({
+      ...validScenario,
+      fixture: { shims: ["../../_shims/gh"] },
+      ghCalls: [["pr", "view", "--json", "number,url"]],
+    });
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe("evalSlug", () => {
@@ -376,6 +452,7 @@ describe("loadSuite", () => {
       "/e/s/s1/case.json": JSON.stringify({
         ...validScenario,
         fixture: { shims: ["../../_shims/gh"] },
+        ghCalls: [["pr", "view", "--json", "number,url"]],
       }),
       "/e/s/s1/prompt.md": "hi",
       "/e/s/s1/out.txt": "hi",
@@ -383,5 +460,22 @@ describe("loadSuite", () => {
     });
     const result = loadSuite("/e/s", deps);
     expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.scenarios[0].ghCalls).toEqual([
+      ["pr", "view", "--json", "number,url"],
+    ]);
+  });
+
+  it("defaults ghCalls to [] when the scenario mounts no gh shim", () => {
+    const deps = memDeps({
+      "/e/s/suite.json": JSON.stringify(validSuite),
+      "/e/s/s1/case.json": JSON.stringify(validScenario),
+      "/e/s/s1/prompt.md": "hi",
+      "/e/s/s1/out.txt": "hi",
+    });
+    const result = loadSuite("/e/s", deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.scenarios[0].ghCalls).toEqual([]);
   });
 });
