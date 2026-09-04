@@ -767,7 +767,7 @@ The `agents/flow-consolidator.md` definition carries a `tools:` allowlist
 role, so the CONSOLIDATOR_MODEL threading above always wins.
 
 Then make exactly one Task-tool call with `subagent_type: $CONSOLIDATOR_SUBAGENT`
-(plus the resolved `model:` above when non-empty). The composed prompt must include, load-bearing for the general-purpose fallback branch above (no definition file to preload from): "If the line `flow-instructions-sentinel: flow-consolidator-instructions` is NOT in your context, read the instructions at: ~/.flow/claude-home/.claude/skills/flow-module-core/skills/flow-consolidator-instructions/SKILL.md". The prompt cites
+(plus the resolved `model:` above when non-empty). The composed prompt must include, load-bearing for the general-purpose fallback branch above (no definition file to preload from): "If the line `flow-instructions-sentinel: flow-consolidator-instructions` is NOT in your context, read the instructions at: $SKILL_DIR/../flow-consolidator-instructions/SKILL.md". The prompt cites
 `../flow-consolidator-instructions/SKILL.md` as the absolute-path
 instructions and passes `$WORKTREE`, `$SKILL_DIR`, the six per-agent
 paths at `$WORKTREE/.flow-tmp/agent-output-<lens>.json` (lenses:

@@ -154,9 +154,12 @@ function runClaude(
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
-    // Node emits `error` and THEN `close` for a spawn ENOENT, so without
-    // this first-wins latch the second call (`close`) would clobber
-    // `spawnError` back to undefined.
+    // Node emits `error` and THEN `close` for a spawn ENOENT. `resolve` is
+    // itself idempotent (a second call is a no-op), so this latch isn't
+    // needed to stop `spawnError` being clobbered — it exists to keep the
+    // error-then-close ordering explicit rather than incidental, and to
+    // guard the non-promise side effect below (`clearTimeout`), which has
+    // no built-in idempotence of its own.
     let settled = false;
     const finish = (exitCode: number, err?: Error) => {
       if (settled) return;
@@ -448,6 +451,12 @@ export async function checkPluginContract(
         root: skillsDir,
         phase: "list-skills-dir",
         detail: `claude plugin list --json timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+      });
+    } else if (listResult.exitCode !== 0) {
+      failures.push({
+        root: skillsDir,
+        phase: "list-skills-dir",
+        detail: `claude plugin list --json exited ${listResult.exitCode}${listResult.spawnError ? ` (spawn error: ${listResult.spawnError})` : ""}`,
       });
     } else {
       let parsed: Array<{ id: string; enabled: boolean; errors?: unknown[] }> =

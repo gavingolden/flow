@@ -297,7 +297,12 @@ describe(runClaude, () => {
     expect(closeResult.spawnError).toBeUndefined();
   });
 
-  it("pins the first-wins latch: an error-then-close sequence (Node's real ENOENT ordering) still carries spawnError", async () => {
+  // NOTE: this does not pin the `settled` latch itself — `resolve()` is
+  // idempotent by spec, so the second `finish()` call is a no-op with or
+  // without the latch, and no assertion here can distinguish the two. What
+  // this DOES pin is the observable outcome: Node's real ENOENT
+  // error-then-close ordering still surfaces `spawnError`.
+  it("carries spawnError through Node's real error-then-close ENOENT ordering", async () => {
     spawnMock.mockImplementationOnce(() =>
       fakeChild("", "", 0, {
         errorThenClose: { code: "ENOENT", message: "spawn claude ENOENT" },
@@ -307,19 +312,36 @@ describe(runClaude, () => {
     expect(result.spawnError).toContain("ENOENT");
   });
 
-  it("end-to-end: a spawn failure surfaces as an 'inconclusive' verdict naming the failure (bin-path-injection, a non-live probe)", async () => {
-    spawnMock.mockImplementation(() =>
-      fakeChild("", "", -1, {
-        error: { code: "ENOENT", message: "spawn claude ENOENT" },
-      }),
-    );
-    const verdicts = await runProbesFiltered(["bin-path-injection"], {
-      claudeOnPath: () => true,
-    });
-    const v = verdicts.find((x) => x.id === "bin-path-injection");
-    expect(v?.verdict).toBe("inconclusive");
-    expect(v?.evidence).toContain("ENOENT");
-  });
+  // All seven non-live probe ids (PROBE_IDS minus LIVE_ONLY_IDS) — widened
+  // from a single bin-path-injection case so a spawnError regression in any
+  // one probe's unrunnable() wiring surfaces here rather than only in a
+  // live/manual run.
+  const NON_LIVE_PROBE_IDS: ProbeId[] = [
+    "add-dir-discovery",
+    "symlink-materialization",
+    "bin-path-injection",
+    "enabled-plugins",
+    "skill-invocation-name",
+    "agent-invocation-name",
+    "plugin-eval-availability",
+  ];
+
+  it.each(NON_LIVE_PROBE_IDS)(
+    "end-to-end: a spawn failure surfaces as an 'inconclusive' verdict naming the failure (%s, a non-live probe)",
+    async (id) => {
+      spawnMock.mockImplementation(() =>
+        fakeChild("", "", -1, {
+          error: { code: "ENOENT", message: "spawn claude ENOENT" },
+        }),
+      );
+      const verdicts = await runProbesFiltered([id], {
+        claudeOnPath: () => true,
+      });
+      const v = verdicts.find((x) => x.id === id);
+      expect(v?.verdict).toBe("inconclusive");
+      expect(v?.evidence).toContain("ENOENT");
+    },
+  );
 });
 
 describe("plugin-eval-availability", () => {

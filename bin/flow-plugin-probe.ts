@@ -140,9 +140,12 @@ export function runClaude(
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
     });
-    // Node emits `error` and THEN `close` for a spawn ENOENT, so without
-    // this first-wins latch the second call (`close`) would clobber
-    // `spawnError` back to undefined.
+    // Node emits `error` and THEN `close` for a spawn ENOENT. `resolve` is
+    // itself idempotent (a second call is a no-op), so this latch isn't
+    // needed to stop `spawnError` being clobbered — it exists to keep the
+    // error-then-close ordering explicit rather than incidental, and to
+    // guard the non-promise side effect below (`clearTimeout`), which has
+    // no built-in idempotence of its own.
     let settled = false;
     const finish = (exitCode: number, err?: Error) => {
       if (settled) return;
@@ -164,9 +167,12 @@ export function runClaude(
  * signal kill to the same -1 and an exit-code check would misreport a
  * killed child as never-launched) or hit the in-process hard timeout.
  * Returns `null` when the result is a real, completed invocation. */
-function unrunnable(r: ClaudeResult): string | null {
+function unrunnable(
+  r: ClaudeResult,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): string | null {
   if (r.spawnError) return `claude could not be launched (${r.spawnError})`;
-  if (r.timedOut) return `timed out after ${DEFAULT_TIMEOUT_MS}ms`;
+  if (r.timedOut) return `timed out after ${timeoutMs}ms`;
   return null;
 }
 
@@ -748,7 +754,7 @@ async function probeAgentMemoryScope(
     p.startsWith(expectedCwdRelative),
   );
 
-  const withoutSymlinkNotRun = unrunnable(withoutSymlink);
+  const withoutSymlinkNotRun = unrunnable(withoutSymlink, LIVE_TIMEOUT_MS);
   if (withoutSymlinkNotRun) {
     return {
       id,
@@ -782,7 +788,7 @@ async function probeAgentMemoryScope(
     }
   })();
 
-  const withSymlinkNotRun = unrunnable(withSymlink);
+  const withSymlinkNotRun = unrunnable(withSymlink, LIVE_TIMEOUT_MS);
   const cwdRelativeConfirmed = foundCwdRelative.length > 0;
   const symlinkFollowedConfirmed =
     !withSymlinkNotRun && foundInCache.length > 0 && stillLink;
@@ -837,7 +843,7 @@ async function probeSkillsPreloadName(
   };
 
   const bare = await tryForm("flow-probe-preload-skill");
-  const bareNotRun = unrunnable(bare);
+  const bareNotRun = unrunnable(bare, LIVE_TIMEOUT_MS);
   if (bareNotRun) {
     return {
       id,
@@ -863,7 +869,7 @@ async function probeSkillsPreloadName(
       evidence: `plugin-qualified skills: [\"flow-module-core:flow-probe-preload-skill\"] form echoed the sentinel (bare form did not) — exit ${qualified.exitCode}`,
     };
   }
-  const qualifiedNotRun = unrunnable(qualified);
+  const qualifiedNotRun = unrunnable(qualified, LIVE_TIMEOUT_MS);
   return {
     id,
     verdict: "inconclusive",
@@ -898,7 +904,7 @@ async function probeMaxTurnsPartial(
     ],
     { timeoutMs: LIVE_TIMEOUT_MS },
   );
-  const notRun = unrunnable(result);
+  const notRun = unrunnable(result, LIVE_TIMEOUT_MS);
   if (notRun) {
     return {
       id,
@@ -951,7 +957,7 @@ async function probeCacheTtl1h(fixtureHome: string): Promise<ProbeVerdict> {
     ],
     { timeoutMs: LIVE_TIMEOUT_MS },
   );
-  const notRun = unrunnable(result);
+  const notRun = unrunnable(result, LIVE_TIMEOUT_MS);
   if (notRun) {
     return {
       id,

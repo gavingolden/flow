@@ -443,9 +443,13 @@ describe(ensureFlowExcludes, () => {
     try {
       ensureFlowExcludes(worktreeDir);
       linkAgentMemory(worktreeDir, fx.repoDir, cacheRoot);
-      const target = path.join(worktreeDir, ".claude", "agent-memory-local");
+      const claudeDir = path.join(worktreeDir, ".claude");
+      const created = fs
+        .readdirSync(claudeDir)
+        .filter((n) => fs.lstatSync(path.join(claudeDir, n)).isSymbolicLink());
+      expect(created).toHaveLength(1);
       const relFromRoot = path
-        .relative(worktreeDir, target)
+        .relative(worktreeDir, path.join(claudeDir, created[0]!))
         .split(path.sep)
         .join("/");
       const excludeContents = fs.readFileSync(sharedExcludePath(), "utf8");

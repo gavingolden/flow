@@ -328,17 +328,6 @@ export type SetupSummary = {
 };
 
 /**
- * Read-only, malformed-tolerant check: does the user's `settings.json` (or
- * `CLAUDE_CODE_DISABLE_AUTO_MEMORY`) disable Claude Code's auto memory
- * feature? When it does, `memory: local` on flow-discovery/flow-scout is
- * inert. Never writes — this is a notice-only read, unlike
- * `ensureStopHook`/`ensureSessionStartHook` above, which merge. A malformed
- * or unreadable settings file returns `false` (no notice) rather than
- * erroring — the existing "run --repair-settings" hint from the hook merge
- * above already covers a malformed file; this must not add a second,
- * confusing error for the same root cause.
- */
-/**
  * Mirrors Claude Code's own env-boolean predicate AS OBSERVED IN claude
  * 2.1.260: `1`/`true`/`yes`/`on`, case-insensitive and trimmed, are all
  * truthy — a strict `=== "1"` comparison would silently miss a user who
@@ -352,6 +341,17 @@ function claudeEnvTruthy(value: string | undefined): boolean {
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
+/**
+ * Read-only, malformed-tolerant check: does the user's `settings.json` (or
+ * `CLAUDE_CODE_DISABLE_AUTO_MEMORY`) disable Claude Code's auto memory
+ * feature? When it does, `memory: local` on flow-discovery/flow-scout is
+ * inert. Never writes — this is a notice-only read, unlike
+ * `ensureStopHook`/`ensureSessionStartHook` above, which merge. A malformed
+ * or unreadable settings file returns `false` (no notice) rather than
+ * erroring — the existing "run --repair-settings" hint from the hook merge
+ * above already covers a malformed file; this must not add a second,
+ * confusing error for the same root cause.
+ */
 export function autoMemoryDisabled(
   settingsPath: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -379,7 +379,7 @@ export function subagentCacheTtlOverride(
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
   if (claudeEnvTruthy(env.FORCE_PROMPT_CACHING_5M))
-    return "FORCE_PROMPT_CACHING_5M=1";
+    return `FORCE_PROMPT_CACHING_5M=${env.FORCE_PROMPT_CACHING_5M}`;
   if (env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL) {
     // Deliberately unchanged — plain truthiness, not claudeEnvTruthy().
     // Claude Code appears to enum-validate this against ["5m","1h"], so a

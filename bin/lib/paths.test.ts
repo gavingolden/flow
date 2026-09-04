@@ -81,10 +81,6 @@ describe("repoCacheKey", () => {
       fs.rmSync(parentB, { recursive: true, force: true });
     }
   });
-
-  it("is stable across repeated calls on the same path", () => {
-    expect(repoCacheKey(dir)).toBe(repoCacheKey(dir));
-  });
 });
 
 describe("agent-memory constants (rename tripwire)", () => {

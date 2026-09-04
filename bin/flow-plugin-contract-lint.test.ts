@@ -213,6 +213,63 @@ describe(checkPluginContract, () => {
     expect(result.probedPluginDirRoots).toHaveLength(2);
   });
 
+  it("a list-skills-dir spawn failure surfaces the spawn error, not a JSON-parse misdiagnosis (injected runClaude, no real claude needed)", async () => {
+    const result = await checkPluginContract({
+      tmpRoot,
+      claudeOnPath: () => true,
+      runClaude: async (args) => {
+        if (args.includes("--strict")) {
+          return { stdout: "", exitCode: 0, timedOut: false };
+        }
+        if (args.includes("--plugin-dir")) {
+          const roots: string[] = [];
+          for (let i = 0; i < args.length; i++) {
+            if (args[i] === "--plugin-dir") roots.push(args[i + 1]);
+          }
+          const entries = roots.map((root) => ({
+            id: `${path.basename(root)}@inline`,
+            enabled: true,
+            installPath: root,
+          }));
+          return {
+            stdout: JSON.stringify(entries),
+            exitCode: 0,
+            timedOut: false,
+          };
+        }
+        if (args[0] === "plugin" && args[1] === "list") {
+          // Simulate an unlaunchable child on the `plugin list --json`
+          // call: no stdout, non-zero exit, spawnError set — the shape
+          // that previously fell through to `JSON.parse("")` and reported
+          // a misleading "could not parse ... Unexpected end of JSON
+          // input" plus one "not reported by claude plugin list --json"
+          // per module, none naming the real cause.
+          return {
+            stdout: "",
+            exitCode: -1,
+            timedOut: false,
+            spawnError: "EAGAIN: spawn claude EAGAIN",
+          };
+        }
+        // Phase 1b: shipped-root validate, no --strict.
+        return { stdout: "", exitCode: 0, timedOut: false };
+      },
+    });
+    expect(result.status).toBe("drifted");
+    const listFailures = result.failures.filter(
+      (f) => f.phase === "list-skills-dir",
+    );
+    // Exactly one failure naming the spawn error, not one-per-module.
+    expect(listFailures).toHaveLength(1);
+    expect(listFailures[0]?.detail).toContain("EAGAIN");
+    expect(listFailures[0]?.detail).not.toContain("could not parse");
+    expect(
+      result.failures.some(
+        (f) => f.detail === "not reported by claude plugin list --json",
+      ),
+    ).toBe(false);
+  });
+
   it("a dereferenceRoot failure produces a materialize-phase entry and drops that root from the strict pass, without poisoning any other root (injected dereference)", async () => {
     const firstModuleRoot = { id: moduleIds()[0] };
     const result = await checkPluginContract({

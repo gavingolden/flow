@@ -936,12 +936,14 @@ describe("flow install", () => {
       it.each(truthy)(
         "FORCE_PROMPT_CACHING_5M=%j returns a non-null override",
         (value) => {
-          expect(
-            subagentCacheTtlOverride(settingsPath(), {
-              ...process.env,
-              FORCE_PROMPT_CACHING_5M: value,
-            }),
-          ).not.toBeNull();
+          const env: NodeJS.ProcessEnv = {
+            ...process.env,
+            FORCE_PROMPT_CACHING_5M: value,
+          };
+          delete env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL;
+          expect(subagentCacheTtlOverride(settingsPath(), env)).toBe(
+            `FORCE_PROMPT_CACHING_5M=${value}`,
+          );
         },
       );
 
