@@ -30,7 +30,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn as spawnAsync, spawnSync } from "node:child_process";
-import { resolveFlowSource } from "./lib/paths";
+import { AGENT_MEMORY_DIRNAME, resolveFlowSource } from "./lib/paths";
 import { ensurePluginRoot } from "./lib/plugin-root";
 
 export type ProbeId =
@@ -97,6 +97,10 @@ type ClaudeResult = {
   stderr: string;
   exitCode: number;
   timedOut: boolean;
+  /** Set only when the child process itself never launched (e.g. spawn
+   * ENOENT) — distinct from a launched-but-nonzero-exit child, which
+   * carries a normal `exitCode` and no `spawnError`. */
+  spawnError?: string;
 };
 
 /** Runs `claude <args>`, capturing stdout and stderr on SEPARATE pipes, with
@@ -104,7 +108,7 @@ type ClaudeResult = {
  * caller's fixture — never the real user home. Streams are never merged
  * (`2>&1`): each lands in its own field so a downstream JSON parse of stdout
  * is never corrupted by stderr progress/diagnostic lines. */
-function runClaude(
+export function runClaude(
   args: string[],
   opts: { cwd?: string; home?: string; timeoutMs?: number } = {},
 ): Promise<ClaudeResult> {
@@ -136,13 +140,40 @@ function runClaude(
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
     });
-    const finish = (exitCode: number) => {
+    // Node emits `error` and THEN `close` for a spawn ENOENT. `resolve` is
+    // itself idempotent (a second call is a no-op), so this latch isn't
+    // needed to stop `spawnError` being clobbered — it exists to keep the
+    // error-then-close ordering explicit rather than incidental, and to
+    // guard the non-promise side effect below (`clearTimeout`), which has
+    // no built-in idempotence of its own.
+    let settled = false;
+    const finish = (exitCode: number, err?: Error) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      resolve({ stdout, stderr, exitCode, timedOut });
+      const spawnError = err
+        ? `${(err as NodeJS.ErrnoException).code ?? "spawn-error"}: ${err.message}`
+        : undefined;
+      resolve({ stdout, stderr, exitCode, timedOut, spawnError });
     };
     child.on("close", (code) => finish(code ?? -1));
-    child.on("error", () => finish(-1));
+    child.on("error", (err) => finish(-1, err));
   });
+}
+
+/** Names why a `ClaudeResult` cannot ground a `confirmed`/`refuted` verdict:
+ * the child either never launched (`spawnError`, checked FIRST — never
+ * branch on `exitCode === -1`, since `finish(code ?? -1)` maps a genuine
+ * signal kill to the same -1 and an exit-code check would misreport a
+ * killed child as never-launched) or hit the in-process hard timeout.
+ * Returns `null` when the result is a real, completed invocation. */
+function unrunnable(
+  r: ClaudeResult,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): string | null {
+  if (r.spawnError) return `claude could not be launched (${r.spawnError})`;
+  if (r.timedOut) return `timed out after ${timeoutMs}ms`;
+  return null;
 }
 
 function skillsDirRoot(fixtureHome: string): string {
@@ -185,11 +216,14 @@ async function probeAddDirDiscovery(
   const result = await runClaude(["plugin", "list", "--json"], {
     home: fixtureHome,
   });
-  if (result.timedOut) {
+  const notRun = unrunnable(result);
+  if (notRun) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `claude plugin list --json timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+      evidence: result.timedOut
+        ? `claude plugin list --json timed out after ${DEFAULT_TIMEOUT_MS}ms`
+        : `claude plugin list --json ${notRun}`,
       fallback:
         "fall back to copying the module directory in place under the skills directory (no marketplace, no cache copy)",
     };
@@ -240,11 +274,14 @@ async function probeSymlinkMaterialization(
   const result = await runClaude(["plugin", "validate", "--strict", root], {
     home: fixtureHome,
   });
-  if (result.timedOut) {
+  const notRun = unrunnable(result);
+  if (notRun) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `claude plugin validate --strict timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+      evidence: result.timedOut
+        ? `claude plugin validate --strict timed out after ${DEFAULT_TIMEOUT_MS}ms`
+        : `claude plugin validate --strict ${notRun}`,
       fallback: "route helpers through ~/.local/bin PATH symlinks only",
     };
   }
@@ -272,11 +309,14 @@ async function probeBinPathInjection(
     ["--plugin-dir", rootA, "--plugin-dir", rootA, "--version"],
     { home: fixtureHome },
   );
-  if (result.timedOut) {
+  const notRun = unrunnable(result);
+  if (notRun) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `claude --plugin-dir ... --version timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+      evidence: result.timedOut
+        ? `claude --plugin-dir ... --version timed out after ${DEFAULT_TIMEOUT_MS}ms`
+        : `claude --plugin-dir ... --version ${notRun}`,
       fallback:
         "modules stay symlink-materialized for helper coverage; the packaging layer is revisited without touching the (b) backbone",
     };
@@ -312,11 +352,14 @@ async function probeEnabledPlugins(fixtureHome: string): Promise<ProbeVerdict> {
     ["plugin", "disable", "flow-module-core@skills-dir", "--scope", "project"],
     { cwd: projectDir, home: fixtureHome },
   );
-  if (result.timedOut) {
+  const notRun = unrunnable(result);
+  if (notRun) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `claude plugin disable --scope project timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+      evidence: result.timedOut
+        ? `claude plugin disable --scope project timed out after ${DEFAULT_TIMEOUT_MS}ms`
+        : `claude plugin disable --scope project ${notRun}`,
       fallback:
         "per-repo enablement degrades to the existing symlink-selection mechanism",
     };
@@ -380,11 +423,14 @@ async function probeSkillInvocationName(
     ["plugin", "details", "flow-module-core@skills-dir"],
     { home: fixtureHome },
   );
-  if (result.timedOut) {
+  const notRun = unrunnable(result);
+  if (notRun) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `claude plugin details timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+      evidence: result.timedOut
+        ? `claude plugin details timed out after ${DEFAULT_TIMEOUT_MS}ms`
+        : `claude plugin details ${notRun}`,
       fallback:
         "the deferred skill move ships without a verified naming answer; re-probe before implementing it",
     };
@@ -448,9 +494,12 @@ async function probeAgentInvocationName(
     ["plugin", "details", "flow-module-core@skills-dir"],
     { home: fixtureHome },
   );
+  const detailsNotRun = unrunnable(detailsResult);
   const detailsEvidence = detailsResult.timedOut
     ? `claude plugin details timed out after ${DEFAULT_TIMEOUT_MS}ms`
-    : `claude plugin details exit ${detailsResult.exitCode}, reports agent under Agents(N): ${/Agents\s*\(1\)/.test(detailsResult.stdout) && detailsResult.stdout.includes("flow-probe-agent")}`;
+    : detailsNotRun
+      ? `claude plugin details ${detailsNotRun}`
+      : `claude plugin details exit ${detailsResult.exitCode}, reports agent under Agents(N): ${/Agents\s*\(1\)/.test(detailsResult.stdout) && detailsResult.stdout.includes("flow-probe-agent")}`;
 
   // GATING evidence: attempt an ACTUAL Task-tool spawn against the bare
   // basename via a `-p` session, and inspect whichever identifier form the
@@ -472,11 +521,14 @@ async function probeAgentInvocationName(
   const appliedFlags = taskSpawnArgs.slice(2, -2).join(" ");
   const taskResult = await runClaude(taskSpawnArgs, { home: fixtureHome });
 
-  if (taskResult.timedOut) {
+  const taskNotRun = unrunnable(taskResult);
+  if (taskNotRun) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `Task-tool spawn probe (applied flags: ${appliedFlags}) timed out after ${DEFAULT_TIMEOUT_MS}ms. Display-only corroboration: ${detailsEvidence}`,
+      evidence: taskResult.timedOut
+        ? `Task-tool spawn probe (applied flags: ${appliedFlags}) timed out after ${DEFAULT_TIMEOUT_MS}ms. Display-only corroboration: ${detailsEvidence}`
+        : `Task-tool spawn probe (applied flags: ${appliedFlags}) ${taskNotRun}. Display-only corroboration: ${detailsEvidence}`,
       fallback:
         "the deferred agent-move follow-up ships without a verified naming answer; re-probe before implementing it",
     };
@@ -528,11 +580,14 @@ async function probePluginEvalAvailability(
   const helpResult = await runClaude(["plugin", "eval", "--help"], {
     home: fixtureHome,
   });
-  if (helpResult.timedOut) {
+  const helpNotRun = unrunnable(helpResult);
+  if (helpNotRun) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `claude plugin eval --help timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+      evidence: helpResult.timedOut
+        ? `claude plugin eval --help timed out after ${DEFAULT_TIMEOUT_MS}ms`
+        : `claude plugin eval --help ${helpNotRun}`,
       fallback: "re-probe before relying on `claude plugin eval` availability",
     };
   }
@@ -550,11 +605,14 @@ async function probePluginEvalAvailability(
     ["plugin", "eval", "init", "--bare", gatedTarget],
     { cwd: fixtureHome, home: fixtureHome },
   );
-  if (initResult.timedOut) {
+  const initNotRun = unrunnable(initResult);
+  if (initNotRun) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `claude plugin eval init --bare <name> timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+      evidence: initResult.timedOut
+        ? `claude plugin eval init --bare <name> timed out after ${DEFAULT_TIMEOUT_MS}ms`
+        : `claude plugin eval init --bare <name> ${initNotRun}`,
       fallback: "re-probe before relying on `claude plugin eval` availability",
     };
   }
@@ -645,7 +703,7 @@ async function probeAgentMemoryScope(
       const cacheDir = fs.mkdtempSync(
         path.join(tmpParent, "agent-memory-cache-"),
       );
-      const linkPath = path.join(cwd, ".claude", "agent-memory-local");
+      const linkPath = path.join(cwd, ".claude", AGENT_MEMORY_DIRNAME);
       fs.mkdirSync(path.dirname(linkPath), { recursive: true });
       try {
         fs.symlinkSync(cacheDir, linkPath);
@@ -690,17 +748,20 @@ async function probeAgentMemoryScope(
   const expectedCwdRelative = path.join(
     worktreeDir,
     ".claude",
-    "agent-memory-local",
+    AGENT_MEMORY_DIRNAME,
   );
   const foundCwdRelative = foundWithout.filter((p) =>
     p.startsWith(expectedCwdRelative),
   );
 
-  if (withoutSymlink.timedOut) {
+  const withoutSymlinkNotRun = unrunnable(withoutSymlink, LIVE_TIMEOUT_MS);
+  if (withoutSymlinkNotRun) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `agent-memory-scope live probe timed out after ${LIVE_TIMEOUT_MS}ms`,
+      evidence: withoutSymlink.timedOut
+        ? `agent-memory-scope live probe timed out after ${LIVE_TIMEOUT_MS}ms`
+        : `agent-memory-scope live probe ${withoutSymlinkNotRun}`,
       fallback: "assume cwd-relative + symlink-followed handoff (plan default)",
     };
   }
@@ -727,9 +788,10 @@ async function probeAgentMemoryScope(
     }
   })();
 
+  const withSymlinkNotRun = unrunnable(withSymlink, LIVE_TIMEOUT_MS);
   const cwdRelativeConfirmed = foundCwdRelative.length > 0;
   const symlinkFollowedConfirmed =
-    !withSymlink.timedOut && foundInCache.length > 0 && stillLink;
+    !withSymlinkNotRun && foundInCache.length > 0 && stillLink;
   const verdict: ProbeVerdict["verdict"] =
     cwdRelativeConfirmed && symlinkFollowedConfirmed
       ? "confirmed"
@@ -738,7 +800,7 @@ async function probeAgentMemoryScope(
   return {
     id,
     verdict,
-    evidence: `memory:local agent run from worktree cwd ${worktreeDir}; cwd-relative MEMORY.md observed at: ${JSON.stringify(foundCwdRelative)} (all observed: ${JSON.stringify(foundWithout)}); exit ${withoutSymlink.exitCode}; symlink leg: cache dir ${symlinkCacheDir}, files in cache: ${JSON.stringify(foundInCache)}, link intact after run: ${stillLink}, exit ${withSymlink.timedOut ? "timed-out" : withSymlink.exitCode}`,
+    evidence: `memory:local agent run from worktree cwd ${worktreeDir}; cwd-relative MEMORY.md observed at: ${JSON.stringify(foundCwdRelative)} (all observed: ${JSON.stringify(foundWithout)}); exit ${withoutSymlink.exitCode}; symlink leg: cache dir ${symlinkCacheDir}, files in cache: ${JSON.stringify(foundInCache)}, link intact after run: ${stillLink}, exit ${withSymlinkNotRun ?? withSymlink.exitCode}`,
     fallback: "assume cwd-relative + symlink-followed handoff (plan default)",
   };
 }
@@ -781,11 +843,14 @@ async function probeSkillsPreloadName(
   };
 
   const bare = await tryForm("flow-probe-preload-skill");
-  if (bare.timedOut) {
+  const bareNotRun = unrunnable(bare, LIVE_TIMEOUT_MS);
+  if (bareNotRun) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `skills-preload-name live probe (bare form) timed out after ${LIVE_TIMEOUT_MS}ms`,
+      evidence: bare.timedOut
+        ? `skills-preload-name live probe (bare form) timed out after ${LIVE_TIMEOUT_MS}ms`
+        : `skills-preload-name live probe (bare form) ${bareNotRun}`,
       fallback: "assume bare skill name form (sub-agents page precedent)",
     };
   }
@@ -804,10 +869,11 @@ async function probeSkillsPreloadName(
       evidence: `plugin-qualified skills: [\"flow-module-core:flow-probe-preload-skill\"] form echoed the sentinel (bare form did not) — exit ${qualified.exitCode}`,
     };
   }
+  const qualifiedNotRun = unrunnable(qualified, LIVE_TIMEOUT_MS);
   return {
     id,
     verdict: "inconclusive",
-    evidence: `neither bare nor plugin-qualified skills: form observably echoed the sentinel; bare exit ${bare.exitCode}, output: ${bare.stdout.trim().slice(0, 300)}`,
+    evidence: `neither bare nor plugin-qualified skills: form observably echoed the sentinel; bare exit ${bare.exitCode}, output: ${bare.stdout.trim().slice(0, 300)}; qualified ${qualifiedNotRun ?? `exit ${qualified.exitCode}`}`,
     fallback: "assume bare skill name form (sub-agents page precedent)",
   };
 }
@@ -838,11 +904,14 @@ async function probeMaxTurnsPartial(
     ],
     { timeoutMs: LIVE_TIMEOUT_MS },
   );
-  if (result.timedOut) {
+  const notRun = unrunnable(result, LIVE_TIMEOUT_MS);
+  if (notRun) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `max-turns-partial live probe timed out after ${LIVE_TIMEOUT_MS}ms`,
+      evidence: result.timedOut
+        ? `max-turns-partial live probe timed out after ${LIVE_TIMEOUT_MS}ms`
+        : `max-turns-partial live probe ${notRun}`,
       fallback: "assume a partial marker is returned, undocumented shape",
     };
   }
@@ -888,11 +957,14 @@ async function probeCacheTtl1h(fixtureHome: string): Promise<ProbeVerdict> {
     ],
     { timeoutMs: LIVE_TIMEOUT_MS },
   );
-  if (result.timedOut) {
+  const notRun = unrunnable(result, LIVE_TIMEOUT_MS);
+  if (notRun) {
     return {
       id,
       verdict: "inconclusive",
-      evidence: `cache-ttl-1h live probe timed out after ${LIVE_TIMEOUT_MS}ms`,
+      evidence: result.timedOut
+        ? `cache-ttl-1h live probe timed out after ${LIVE_TIMEOUT_MS}ms`
+        : `cache-ttl-1h live probe ${notRun}`,
       fallback: "assume 1h TTL is honored per docs, unverified",
     };
   }

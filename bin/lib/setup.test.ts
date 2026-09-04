@@ -10,7 +10,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
-import { runSetup, validateJsonFiles } from "./setup";
+import {
+  autoMemoryDisabled,
+  runSetup,
+  subagentCacheTtlOverride,
+  validateJsonFiles,
+} from "./setup";
 import { runSetupCli } from "./setup-args";
 import { readManifest, writeManifest } from "./manifest";
 import type { FlowRootInfo } from "./worktree-source";
@@ -875,6 +880,103 @@ describe("flow install", () => {
       } finally {
         logSpy.mockRestore();
       }
+    });
+
+    // Direct calls (no runQuietly round-trip) — exercises the widened
+    // claudeEnvTruthy() matrix and the malformed-settings tolerance both
+    // helpers document, neither of which the round-trip tests above touch.
+    describe("autoMemoryDisabled (direct call)", () => {
+      const truthy = ["true", "TRUE", " yes ", "on"];
+      const falsy = ["0", "false", ""];
+
+      it.each(truthy)(
+        "CLAUDE_CODE_DISABLE_AUTO_MEMORY=%j returns true",
+        (value) => {
+          expect(
+            autoMemoryDisabled(settingsPath(), {
+              ...process.env,
+              CLAUDE_CODE_DISABLE_AUTO_MEMORY: value,
+            }),
+          ).toBe(true);
+        },
+      );
+
+      it.each(falsy)(
+        "CLAUDE_CODE_DISABLE_AUTO_MEMORY=%j returns false",
+        (value) => {
+          expect(
+            autoMemoryDisabled(settingsPath(), {
+              ...process.env,
+              CLAUDE_CODE_DISABLE_AUTO_MEMORY: value,
+            }),
+          ).toBe(false);
+        },
+      );
+
+      it("undefined (unset) returns false", () => {
+        const env = { ...process.env };
+        delete env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
+        expect(autoMemoryDisabled(settingsPath(), env)).toBe(false);
+      });
+
+      it("does not throw on a malformed settings.json — returns false", () => {
+        fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
+        fs.writeFileSync(settingsPath(), "{not json");
+        const env = { ...process.env };
+        delete env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
+        expect(() => autoMemoryDisabled(settingsPath(), env)).not.toThrow();
+        expect(autoMemoryDisabled(settingsPath(), env)).toBe(false);
+      });
+    });
+
+    describe("subagentCacheTtlOverride (direct call)", () => {
+      const truthy = ["true", "TRUE", " yes ", "on"];
+      const falsy = ["0", "false", ""];
+
+      it.each(truthy)(
+        "FORCE_PROMPT_CACHING_5M=%j returns a non-null override",
+        (value) => {
+          const env: NodeJS.ProcessEnv = {
+            ...process.env,
+            FORCE_PROMPT_CACHING_5M: value,
+          };
+          delete env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL;
+          expect(subagentCacheTtlOverride(settingsPath(), env)).toBe(
+            `FORCE_PROMPT_CACHING_5M=${value}`,
+          );
+        },
+      );
+
+      it.each(falsy)(
+        "FORCE_PROMPT_CACHING_5M=%j returns null (absent any other override)",
+        (value) => {
+          const env: NodeJS.ProcessEnv = {
+            ...process.env,
+            FORCE_PROMPT_CACHING_5M: value,
+          };
+          delete env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL;
+          expect(subagentCacheTtlOverride(settingsPath(), env)).toBeNull();
+        },
+      );
+
+      it("undefined (unset) returns null", () => {
+        const env = { ...process.env };
+        delete env.FORCE_PROMPT_CACHING_5M;
+        delete env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL;
+        expect(subagentCacheTtlOverride(settingsPath(), env)).toBeNull();
+      });
+
+      it("does not throw on a malformed settings.json — returns null", () => {
+        fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
+        fs.writeFileSync(settingsPath(), "{not json");
+        const env = { ...process.env };
+        delete env.FORCE_PROMPT_CACHING_5M;
+        delete env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL;
+        expect(() =>
+          subagentCacheTtlOverride(settingsPath(), env),
+        ).not.toThrow();
+        expect(subagentCacheTtlOverride(settingsPath(), env)).toBeNull();
+      });
     });
   });
 
