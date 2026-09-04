@@ -14,6 +14,7 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { evalSlug, type ResolvedScenario } from "./eval-suite";
+import type { Arm } from "./eval-report";
 import { isValidSlug } from "./slug";
 import { FLOW_STATE_DIR } from "./paths";
 import { writeState, deleteState, type PipelineState } from "./state";
@@ -33,6 +34,16 @@ export type MaterializedFixture = {
   root: string;
   repoDir: string;
   claudeHome: string;
+  /**
+   * A plugin-free sibling of `claudeHome`: an empty `.claude/skills`
+   * directory, no `flow-module-*` root ever materialized under it. The
+   * `--ablation` "without" arm points `--add-dir` here instead of
+   * `claudeHome` so the bare arm has no flow scaffold discoverable via the
+   * skills-dir path. `claudeHome`'s only content is `flow-module-core`
+   * (nothing else writes under it), so this sibling can stay a plain empty
+   * directory rather than a second full materialization.
+   */
+  bareClaudeHome: string;
   pluginRoots: string[];
   shimDir: string;
   slug: string;
@@ -90,6 +101,16 @@ export function materializeFixture(
     stateDir?: string;
     git?: (argv: string[], cwd: string) => void;
     now?: () => Date;
+    /**
+     * Threaded into `evalSlug` so the two arms of one `--ablation
+     * with-without` run get DISTINCT `~/.flow/state/<slug>.json` rows —
+     * without this, a concurrent with/without pair for the same
+     * `(suite, scenario, run)` would collide on the same state path and
+     * stomp each other's fixture, the same class of bug `eval-cli.ts`'s
+     * `runDir` collision guard exists to prevent on disk. Absent or
+     * `"with"` is byte-identical to before this parameter existed.
+     */
+    arm?: Arm;
   } = {},
 ): MaterializedFixture {
   const flowSource = opts.flowSource ?? ownCheckoutRoot();
@@ -97,7 +118,7 @@ export function materializeFixture(
   const now = opts.now ?? (() => new Date());
   const git = opts.git ?? defaultGit;
 
-  const slug = evalSlug(suiteId, scenario.id, run);
+  const slug = evalSlug(suiteId, scenario.id, run, opts.arm);
   if (!isValidSlug(slug)) {
     throw new Error(
       `materializeFixture: evalSlug produced an invalid slug '${slug}'`,
@@ -111,9 +132,12 @@ export function materializeFixture(
   const claudeHome = path.join(root, "claude-home");
   const skillsRoot = path.join(claudeHome, ".claude", "skills");
   const shimDir = path.join(root, "shims");
+  const bareClaudeHome = path.join(root, "bare-claude-home");
+  const bareSkillsRoot = path.join(bareClaudeHome, ".claude", "skills");
   fs.mkdirSync(repoDir, { recursive: true });
   fs.mkdirSync(skillsRoot, { recursive: true });
   fs.mkdirSync(shimDir, { recursive: true, mode: 0o755 });
+  fs.mkdirSync(bareSkillsRoot, { recursive: true });
 
   if (scenario.fixture?.repo) {
     fs.cpSync(path.join(scenario.dir, scenario.fixture.repo), repoDir, {
@@ -254,6 +278,7 @@ export function materializeFixture(
     root,
     repoDir,
     claudeHome,
+    bareClaudeHome,
     pluginRoots,
     shimDir,
     slug,

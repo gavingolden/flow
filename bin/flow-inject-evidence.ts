@@ -96,6 +96,27 @@ export function pickFenceLength(output: string): number {
   return Math.max(3, longest + 1);
 }
 
+/**
+ * Indent any column-0 ATX heading in the captured output by one space.
+ *
+ * Sibling defense to `pickFenceLength`, aimed at a different consumer.
+ * The fence stops a *markdown renderer* mis-reading captured output;
+ * this stops a *line-oriented section parser* doing the same.
+ * `flow-gate-decide` extracts the `## Test Steps` section by scanning to
+ * the next `^## ` and does not track code fences — so a captured
+ * `npm test` run that prints its own markdown report (`## Regressions
+ * (1)`) silently truncates the section, hiding every checklist item
+ * below it. The gate then counts zero unchecked items and returns
+ * `auto-merge` on a PR whose manual steps were never run. Observed on
+ * PR #755, where it hid the one genuinely-manual step.
+ *
+ * One leading space suffices: the gate's anchored `^## ` test fails on
+ * any indent, and inside the fenced block the space is invisible.
+ */
+export function neutralizeHeadings(output: string): string {
+  return output.replace(/^(#{1,6} )/gm, " $1");
+}
+
 export function buildEvidenceBlock(
   output: string,
   exitCode: number,
@@ -103,7 +124,7 @@ export function buildEvidenceBlock(
 ): string {
   const status = exitCode === 0 ? "pass" : `FAILED exit ${exitCode}`;
   const summary = `Output (auto-captured ${timestamp}; ${status})`;
-  const trimmed = trimOutput(output);
+  const trimmed = neutralizeHeadings(trimOutput(output));
   const fence = "`".repeat(pickFenceLength(trimmed));
   // The blank line before `</details>` here just closes off the fenced
   // code block for markdown re-entry (unrelated to the two GFM

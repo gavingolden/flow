@@ -58,6 +58,30 @@ describe.each(suiteIds)("evals/%s", (suiteId) => {
       expect(isValidSlug(evalSlug(suiteId, scenario.id, 1))).toBe(true);
     }
   });
+
+  it("every scenario's evalSlug fits the cap for the 'without' ablation arm too, and differs from the 'with' slug", () => {
+    const result = loadSuite(suiteDir);
+    if (!result.ok) throw new Error(result.reason);
+    for (const scenario of result.value.scenarios) {
+      const withSlug = evalSlug(suiteId, scenario.id, 1, "with");
+      const withoutSlug = evalSlug(suiteId, scenario.id, 1, "without");
+      expect(isValidSlug(withoutSlug)).toBe(true);
+      expect(withoutSlug).not.toBe(withSlug);
+    }
+  });
+
+  it("the plugin-loaded gate grader is marked withOnly (Task 6c: a correctly-ablated 'without' arm can never pass it)", () => {
+    const result = loadSuite(suiteDir);
+    if (!result.ok) throw new Error(result.reason);
+    for (const scenario of result.value.scenarios) {
+      const pluginLoaded = scenario.graders.find(
+        (g) => g.id === "plugin-loaded",
+      );
+      if (pluginLoaded) {
+        expect(pluginLoaded.withOnly).toBe(true);
+      }
+    }
+  });
 });
 
 describe("materialization (real fixtures, tmp stateDir)", () => {
