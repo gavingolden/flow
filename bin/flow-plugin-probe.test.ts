@@ -1,10 +1,12 @@
 /**
  * Unit tests for the probe harness's DISPATCH logic (D4 degradation, id
- * filtering, JSON shape). Never invoke the real `claude` here — every case
- * injects `claudeOnPath` and never lets `main()` run against a real binary.
- * The harness's actual per-probe verdicts are exercised live by running
- * `bun bin/flow-plugin-probe.ts --json` directly (see the file's own doc
- * comment); that is a maintainer/CI action, not a unit test.
+ * filtering, JSON shape) plus per-probe verdict classification for probes
+ * whose spawn is mocked via `spawnMock` (`agent-invocation-name` argv shape,
+ * `plugin-eval-availability` verdict classification). Never invoke the real
+ * `claude` for the LIVE-only probes here — those stay behind `--live` and
+ * are exercised live by running `bun bin/flow-plugin-probe.ts --json --live`
+ * directly (see the file's own doc comment); that is a maintainer/CI
+ * action, not a unit test.
  */
 
 import * as fs from "node:fs";
@@ -166,7 +168,9 @@ describe("Task-spawn probe argv shape (agent-invocation-name)", () => {
   // SHAPE the probe composes instead, captured directly off the mocked
   // `spawn` call, never the resulting verdict.
   it("carries --restricted, --tools Task, --permission-prompts none, with --tools followed by a flag (not a positional), and -p <prompt> last", async () => {
-    await runProbes({ claudeOnPath: () => true });
+    await runProbesFiltered(["agent-invocation-name"], {
+      claudeOnPath: () => true,
+    });
     const taskSpawnCall = spawnMock.mock.calls.find(
       (call) =>
         Array.isArray(call[1]) &&
@@ -189,6 +193,31 @@ describe("Task-spawn probe argv shape (agent-invocation-name)", () => {
     expect(args[promptFlagIdx + 1]).toBe("none");
 
     expect(args[args.length - 2]).toBe("-p");
+  });
+
+  it("spawn options keep both merged halves live: stdio is piped and FLOW_SLUG/TMUX_PANE are stripped from the child env", async () => {
+    vi.stubEnv("FLOW_SLUG", "some-slug");
+    vi.stubEnv("TMUX_PANE", "%1");
+    try {
+      await runProbesFiltered(["agent-invocation-name"], {
+        claudeOnPath: () => true,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const taskSpawnCall = spawnMock.mock.calls.find(
+      (call) =>
+        Array.isArray(call[1]) &&
+        (call[1] as string[]).includes("--restricted"),
+    );
+    expect(taskSpawnCall).toBeDefined();
+    const spawnOptions = taskSpawnCall![2] as {
+      stdio?: string[];
+      env?: NodeJS.ProcessEnv;
+    };
+    expect(spawnOptions.stdio).toEqual(["ignore", "pipe", "pipe"]);
+    expect(spawnOptions.env?.FLOW_SLUG).toBeUndefined();
+    expect(spawnOptions.env?.TMUX_PANE).toBeUndefined();
   });
 });
 
@@ -218,12 +247,36 @@ describe("plugin-eval-availability", () => {
     });
   }
 
+  it("classifies 'inconclusive' when --help itself exits non-zero (gate status undeterminable)", async () => {
+    mockEvalGate({ helpExit: 1, initExit: 1 });
+    const verdicts = await runProbesFiltered(["plugin-eval-availability"], {
+      claudeOnPath: () => true,
+    });
+    const v = verdicts.find((x) => x.id === "plugin-eval-availability");
+    expect(v?.verdict).toBe("inconclusive");
+    expect(v?.evidence).toContain("could not determine gate status");
+  });
+
+  it("classifies 'inconclusive' when init --bare exits non-zero without the expected early-access stderr signal", async () => {
+    mockEvalGate({ initExit: 1, initStderr: "some unrelated failure" });
+    const verdicts = await runProbesFiltered(["plugin-eval-availability"], {
+      claudeOnPath: () => true,
+    });
+    const v = verdicts.find((x) => x.id === "plugin-eval-availability");
+    expect(v?.verdict).toBe("inconclusive");
+    expect(v?.evidence).toContain(
+      "without the expected early-access stderr signal",
+    );
+  });
+
   it("classifies 'refuted' when --help exits 0 but init --bare exits non-zero with an early-access stderr", async () => {
     mockEvalGate({
       initExit: 1,
       initStderr: "`plugin eval` is currently in early access",
     });
-    const verdicts = await runProbes({ claudeOnPath: () => true });
+    const verdicts = await runProbesFiltered(["plugin-eval-availability"], {
+      claudeOnPath: () => true,
+    });
     const v = verdicts.find((x) => x.id === "plugin-eval-availability");
     expect(v?.verdict).toBe("refuted");
     expect(v?.evidence).toContain("early access");
@@ -231,7 +284,9 @@ describe("plugin-eval-availability", () => {
 
   it("classifies 'confirmed' when init --bare also exits 0 (gate lifted)", async () => {
     mockEvalGate({ initExit: 0, initStdout: "Scaffolded evals/demo\n" });
-    const verdicts = await runProbes({ claudeOnPath: () => true });
+    const verdicts = await runProbesFiltered(["plugin-eval-availability"], {
+      claudeOnPath: () => true,
+    });
     const v = verdicts.find((x) => x.id === "plugin-eval-availability");
     expect(v?.verdict).toBe("confirmed");
   });

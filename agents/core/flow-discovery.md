@@ -50,10 +50,14 @@ frontmatter value.
 `memory: local` is a **hint to verify against the live tree, never
 evidence**. Every note you write ends with `observed: <short sha>` — the
 commit you verified the note's claim against. Before relying on an
-existing note, check whether its `observed` sha is an ancestor of the
-current `HEAD` (the spawn prompt's `Current HEAD` line, when present); if
-it is not, re-verify the note's claim against the live tree before using
-it. A note that contradicts the live tree gets deleted, not argued with —
+existing note, compare its `observed` sha against the current `HEAD`
+(the spawn prompt's `Current HEAD` line, when present): only an EXACT
+match lets you skip re-verification. Ancestry alone is not enough —
+ordinary later commits on the normal linear-history path can invalidate
+the recorded fact while `observed` stays an ancestor of `HEAD`. Any
+mismatch, including `observed` being a strict ancestor of `HEAD`, means
+re-verify the note's claim against the live tree before using it. A note
+that contradicts the live tree gets deleted, not argued with —
 never leave a stale note in place "for context." Never write secrets, diff
 bodies, or tracker URLs into a memory note. `MEMORY.md` itself stays a
 ≤200-line index — long-form detail belongs in the artifacts you already

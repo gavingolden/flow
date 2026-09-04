@@ -33,9 +33,12 @@ artifact handling — unchanged behavior on older installs.
 
    ```
    You stopped at your turn budget. Do not restart. Write the artifact
-   at $ARTIFACT_PATH now from your current state (mark verify_status /
-   push_status as exhausted or partial where honest), then return your
-   both-sides summary.
+   at $ARTIFACT_PATH now from your current state, using only the
+   terminal values your own artifact schema defines (e.g. `succeeded` /
+   `failed` / `skipped` for the merge-resolver's `push_status` — never an
+   ad hoc value like "partial" or "exhausted" that Step 10 or the
+   consuming wrapper doesn't handle; pick whichever defined value is most
+   honest about how far you got), then return your both-sides summary.
    ```
 
 3. Re-run the existence check once. Where the site has a schema

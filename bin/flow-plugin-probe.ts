@@ -423,8 +423,11 @@ async function probeAgentInvocationName(
   // key is declared (the manifest type has none) — this settles whether an
   // `agents/` directory is discovered by bare presence.
   const root = materializeRoot(fixtureHome);
+  // Create under the fixture's own tmp parent (like probeCacheTtl1h does)
+  // rather than bare os.tmpdir(), so the probe's tmpRoot teardown reaps it
+  // instead of leaking one flow-probe-agents-* dir per run.
   const agentsSourceDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), "flow-probe-agents-"),
+    path.join(path.dirname(fixtureHome), "flow-probe-agents-"),
   );
   fs.writeFileSync(
     path.join(agentsSourceDir, "flow-probe-agent.md"),
@@ -464,7 +467,9 @@ async function probeAgentInvocationName(
     "-p",
     "Use the Task tool to spawn a subagent with subagent_type: flow-probe-agent, description: probe, and prompt: 'reply OK'. Report back the exact raw Task-tool result or error text verbatim, unmodified.",
   ];
-  const appliedFlags = "--restricted --tools Task --permission-prompts none";
+  // Derived from taskSpawnArgs (never hand-copied) so the evidence string
+  // can't silently drift out of sync with which flags were actually spawned.
+  const appliedFlags = taskSpawnArgs.slice(2, -2).join(" ");
   const taskResult = await runClaude(taskSpawnArgs, { home: fixtureHome });
 
   if (taskResult.timedOut) {
@@ -504,7 +509,7 @@ async function probeAgentInvocationName(
   return {
     id,
     verdict: "inconclusive",
-    evidence: `Task-tool spawn probe (applied flags: ${appliedFlags}) returned exit ${taskResult.exitCode} without a recognizable resolution signal (neither the qualified name nor the 'not found' error appeared): ${taskResult.stdout.trim().slice(0, 300)}. Display-only corroboration (non-gating): ${detailsEvidence}`,
+    evidence: `Task-tool spawn probe (applied flags: ${appliedFlags}) returned exit ${taskResult.exitCode} without a recognizable resolution signal (neither the qualified name nor the 'not found' error appeared): stdout: ${taskResult.stdout.trim().slice(0, 300)}${taskResult.stderr.trim() ? ` | stderr: ${taskResult.stderr.trim().slice(0, 300)}` : ""}. Display-only corroboration (non-gating): ${detailsEvidence}`,
     fallback:
       "the deferred agent-move follow-up ships without a verified naming answer; re-probe before implementing it",
   };
