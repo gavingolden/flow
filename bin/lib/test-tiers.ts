@@ -97,9 +97,21 @@ export function planSelection(
   const isolatedFiles = new Set<string>();
   for (const changed of changedFiles) {
     const sibling = colocatedTestPath(changed);
-    if (!sibling) continue;
-    colocated.add(sibling);
-    if (deferSet.has(sibling)) isolatedFiles.add(sibling);
+    if (sibling) {
+      colocated.add(sibling);
+      if (deferSet.has(sibling)) isolatedFiles.add(sibling);
+      continue;
+    }
+    // A changed file that IS itself a test file has no colocated sibling
+    // (colocatedTestPath returns null for it) and relatedInputs deliberately
+    // filters `.test.ts` out below — so without this branch an edited test
+    // file never appears anywhere in the plan and never runs.
+    if (
+      changed.endsWith(".test.ts") &&
+      (!discovered || discovered.includes(changed))
+    ) {
+      colocated.add(changed);
+    }
   }
 
   const explicitFiles = dedupeSorted([...alwaysRun, ...colocated]);
@@ -111,16 +123,13 @@ export function planSelection(
   const explicitSet = new Set(explicitFiles);
   const excluded = dedupeSorted(deferToCi.filter((f) => !explicitSet.has(f)));
 
-  // Fail-closed against manifest rot: explicitFiles is a UNION of the
-  // (possibly rot-filtered) alwaysRun set with colocated files, so it can
-  // never be shorter than that same filtered set — comparing against it
-  // would be dead code. Compare against the manifest's DECLARED (pre-rot)
-  // alwaysRun length instead: when discoveredTestFiles filtering drops
-  // enough alwaysRun entries that even the colocated additions don't make
-  // up the difference, something is badly out of sync between the
-  // manifest and the repo tree — better to run the full suite than
-  // silently skip most of the always-run set.
-  if (explicitFiles.length < tiers.alwaysRun.length) {
+  // Fail-closed against manifest rot: compare the ROT-FILTERED alwaysRun
+  // set against the manifest's DECLARED (pre-rot) alwaysRun length — NOT
+  // explicitFiles.length. explicitFiles is a UNION of alwaysRun with
+  // colocated additions, so colocated files can mask dropped alwaysRun
+  // entries one-for-one, letting a badly-rotted manifest sail through with
+  // most of its always-run set silently missing.
+  if (alwaysRun.length < tiers.alwaysRun.length) {
     return { mode: "full", reason: "selection shorter than always-run set" };
   }
 

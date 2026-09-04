@@ -115,8 +115,10 @@ candidates; they are not (yet) computed by `flow-test-audit.ts`.
 
 ## Verdict quadrants
 
-Every scored file lands in exactly one quadrant, crossing cost (A1) against
-necessity (A4):
+Every scored file lands in exactly one quadrant. `quadrantFor` actually
+crosses cost (A1, `ms/assert` vs. the repo median) with A2's
+subprocess-spawn signal and assertion count — not A4; A4 is diagnostic
+metadata for a human, not an input `quadrantFor` reads:
 
 - **cheap-valuable** — low ms/assert, high assertion density. Leave alone;
   this is the suite doing its job efficiently.
@@ -151,22 +153,22 @@ TTL (#756)`):
 
 Irreplaceable-vs-avoidable worked table:
 
-| File                                | ms/assert | Verdict                                             |
-| ----------------------------------- | --------- | --------------------------------------------------- |
-| `bin/evals-suites.test.ts`          | 1,012     | expensive-avoidable                                 |
-| `bin/lib/setup.test.ts`             | 299       | mixed                                               |
-| `bin/lib/feature.test.ts`           | 127       | expensive-irreplaceable (101 `spawnSync git` sites) |
-| `bin/flow-new-worktree.test.ts`     | 566       | expensive-irreplaceable                             |
-| `bin/flow-remove-worktree.test.ts`  | 293       | expensive-irreplaceable                             |
-| `bin/lib/base-branch-guard.test.ts` | 165       | expensive-irreplaceable                             |
-| `bin/lib/epic-guard-parity.test.ts` | 907       | expensive-avoidable                                 |
-| `bin/flow-pre-commit.test.ts`       | 20        | cheap-and-high-value, keep local                    |
+| File                                | ms/assert | Verdict                                                                                               |
+| ----------------------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
+| `bin/evals-suites.test.ts`          | 1,012     | expensive-avoidable                                                                                   |
+| `bin/lib/setup.test.ts`             | 299       | mixed                                                                                                 |
+| `bin/lib/feature.test.ts`           | 127       | expensive-irreplaceable (101 `spawnSync git` sites)                                                   |
+| `bin/flow-new-worktree.test.ts`     | 566       | expensive-irreplaceable                                                                               |
+| `bin/flow-remove-worktree.test.ts`  | 293       | expensive-irreplaceable                                                                               |
+| `bin/lib/base-branch-guard.test.ts` | 165       | expensive-irreplaceable                                                                               |
+| `bin/lib/epic-guard-parity.test.ts` | 907       | expensive-avoidable                                                                                   |
+| `bin/flow-pre-commit.test.ts`       | 20        | cheap-valuable, but ships in `deferToCi` (large surface area; runs in CI, not every local invocation) |
 
 ## Reproducing the numbers
 
 ```sh
 env -u FLOW_SLUG -u TMUX_PANE npx vitest run --reporter=json --outputFile .flow-tmp/vitest-report.json
-bun bin/flow-test-audit.ts --from-json .flow-tmp/vitest-report.json --markdown
+bun bin/flow-test-audit.ts --from-json .flow-tmp/vitest-report.json
 ```
 
 The `-u FLOW_SLUG -u TMUX_PANE` unset avoids tripping the pipeline
@@ -195,8 +197,7 @@ stop-guard when this is run from inside a flow window (see
   gain a `--check` mode that fails CI when a file's measured `ms/assert`
   regresses past a committed threshold, catching newly-added expensive
   tests before they get baked into `alwaysRun` by inertia. Deliberately cut
-  from v1 (see `bin/flow-test-audit.ts`'s cut-list) pending real usage data
-  on the manifest itself.
+  from v1 pending real usage data on the manifest itself.
 - **Push subprocess tests toward in-process invocation.** The single
   biggest lever left on the table: 69 files spawning real subprocesses for
   91% of sys time. Where the subject under test is flow's own helper

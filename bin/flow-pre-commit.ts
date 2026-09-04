@@ -740,9 +740,12 @@ export function parseScopes(
  * through the shared stack table (`npmRunCheck` builds the node command form;
  * the go marker's default + a `-C backend` cwd option backs `backend`) so
  * built-in and auto-detected scopes share one command-shape mechanism. The
- * argv arrays are byte-for-byte identical to the previous static switch — the
- * `describe(checksForScope)` block is the guard against drift. Signature is
- * unchanged: zero extra args, `Scope` in, `CheckDef[]` out.
+ * argv arrays are byte-for-byte identical to the previous static switch when
+ * no `selection` is passed — the `describe(checksForScope)` block is the
+ * guard against drift. Takes an optional `selection?: SelectionPlan` second
+ * argument (see `tieredTestChecks`/`tieredDocsTestCheck` below): omitted or
+ * `undefined` reproduces the original zero-arg argv exactly; passed, it
+ * narrows the test check(s) per the tiered-selection plan.
  */
 /**
  * Builds the src/scripts/root-fallback test check(s) for a `selected` plan:
@@ -1075,6 +1078,36 @@ function discoverTestFiles(cwd: string = process.cwd()): string[] {
   walk("bin");
   walk("skills");
   return found;
+}
+
+/** Pure seam for the "manifest present but `test:related` undeclared ⇒ full
+ * suite" branch: absent manifest, an unparseable manifest, or a
+ * package.json missing the declared `test:related` script all degrade to
+ * `undefined`, which every checksForScope call site treats identically to
+ * "no manifest" — byte-identical argv to the pre-tiering behaviour.
+ * Branching explicitly on `hasTestRelatedScript` (rather than letting
+ * filterDefinedChecks silently drop an undefined-script check) matters:
+ * filterDefinedChecks would silently DROP the test:related check and
+ * thereby silently skip tests, not fall back to the full suite. */
+export function resolveSelection(opts: {
+  hasTestRelatedScript: boolean;
+  tiersFileExists: () => boolean;
+  readTiersFile: () => string;
+  changedFiles: string[] | undefined;
+  discoveredTestFiles: () => string[];
+}): SelectionPlan | undefined {
+  if (!opts.hasTestRelatedScript) return undefined;
+  if (!opts.tiersFileExists()) return undefined;
+  let tiers: ReturnType<typeof parseTestTiers> = null;
+  try {
+    tiers = parseTestTiers(JSON.parse(opts.readTiersFile()));
+  } catch {
+    tiers = null;
+  }
+  if (!tiers) return undefined;
+  return planSelection(opts.changedFiles, tiers, {
+    discoveredTestFiles: opts.discoveredTestFiles(),
+  });
 }
 
 function getChangedFilesForPr(prNumber: number): string[] {
@@ -1596,32 +1629,14 @@ async function main(): Promise<void> {
     process.env,
     os.availableParallelism(),
   );
-  // Test-tier selection: absent manifest, an unparseable manifest, or a
-  // package.json missing the declared `test:related` script all degrade
-  // to `selection = undefined`, which every checksForScope call site below
-  // treats identically to "no manifest" — byte-identical argv to today.
-  // Branching explicitly on `definedScripts.has("test:related")` (rather
-  // than letting filterDefinedChecks silently drop an undefined-script
-  // check) matters: filterDefinedChecks would silently DROP the
-  // test:related check and thereby silently skip tests, not fall back to
-  // the full suite.
-  let selection: SelectionPlan | undefined;
-  if (definedScripts.has("test:related")) {
-    const tiersPath = "./.flow/test-tiers.json";
-    if (existsSync(tiersPath)) {
-      let tiers: ReturnType<typeof parseTestTiers> = null;
-      try {
-        tiers = parseTestTiers(JSON.parse(readFileSync(tiersPath, "utf8")));
-      } catch {
-        tiers = null;
-      }
-      if (tiers) {
-        selection = planSelection(changedFiles, tiers, {
-          discoveredTestFiles: discoverTestFiles(),
-        });
-      }
-    }
-  }
+  const tiersPath = "./.flow/test-tiers.json";
+  const selection = resolveSelection({
+    hasTestRelatedScript: definedScripts.has("test:related"),
+    tiersFileExists: () => existsSync(tiersPath),
+    readTiersFile: () => readFileSync(tiersPath, "utf8"),
+    changedFiles,
+    discoveredTestFiles: () => discoverTestFiles(),
+  });
   const results: CheckResult[] = [];
   for (const scope of scopes) {
     const dynamic = dynamicByName.get(scope);
@@ -1663,11 +1678,13 @@ async function main(): Promise<void> {
         }
         // Isolation retry: a `--no-isolate` tiered check that FAILS gets one
         // isolated re-run of the same file list before being reported red —
-        // `--no-isolate` can produce a false GREEN normally (shared module
-        // state), never a false RED, so a red result under `--no-isolate`
-        // that turns green under isolation was a leak between the selected
-        // files, not a real regression; a red result that stays red under
-        // isolation is a real failure either way.
+        // `--no-isolate` can produce a false RED (cross-file shared-module
+        // contamination among the selected files), never a false GREEN, so
+        // a red result under `--no-isolate` that turns green under
+        // isolation was that contamination, not a real regression; a red
+        // result that stays red under isolation is a real failure either
+        // way. False greens are the case this retry cannot detect — that's
+        // what isolated CI is for.
         if (!result.passed && check.argv.includes("--no-isolate")) {
           const isolatedArgv = check.argv.filter((a) => a !== "--no-isolate");
           const { result: isolatedResult } = withTestSemaphore(

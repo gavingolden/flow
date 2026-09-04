@@ -38,6 +38,7 @@ import {
   findNonExecutableHelpers,
   formatJsonReport,
   formatReport,
+  resolveSelection,
   getChangedFilesForPush,
   isExecutableLibModule,
   isTestCheck,
@@ -630,7 +631,7 @@ describe("checksForScope with tiered selection", () => {
     expect(checks.filter((c) => isTestCheck(c.argv)).length).toBe(1);
   });
 
-  it("falls back to the full suite when explicitFiles would be shorter than alwaysRun (fail-closed plan)", () => {
+  it("renders a pre-built mode:'full' plan as the plain 'npm run test' argv (does not itself exercise the fail-closed rot guard — see bin/lib/test-tiers.test.ts:95 for that)", () => {
     const checks = checksForScope("root-fallback", fullPlan);
     const testCheck = checks.find((c) => isTestCheck(c.argv))!;
     expect(testCheck.argv).toEqual(["npm", "run", "test"]);
@@ -640,6 +641,61 @@ describe("checksForScope with tiered selection", () => {
     const checks = checksForScope("src");
     const testCheck = checks.find((c) => isTestCheck(c.argv))!;
     expect(testCheck.argv).toEqual(["npm", "run", "test"]);
+  });
+});
+
+const validTiersManifest = {
+  version: 1,
+  alwaysRun: ["bin/skill-md-lint.test.ts"],
+  deferToCi: [],
+  forceFullOn: [],
+};
+
+describe(resolveSelection, () => {
+  it("returns undefined when package.json does not declare test:related, even when a manifest is present (B5)", () => {
+    const selection = resolveSelection({
+      hasTestRelatedScript: false,
+      tiersFileExists: () => true,
+      readTiersFile: () => JSON.stringify(validTiersManifest),
+      changedFiles: ["bin/lib/foo.ts"],
+      discoveredTestFiles: () => [],
+    });
+    expect(selection).toBeUndefined();
+  });
+
+  it("returns undefined when the manifest file does not exist", () => {
+    const selection = resolveSelection({
+      hasTestRelatedScript: true,
+      tiersFileExists: () => false,
+      readTiersFile: () => {
+        throw new Error("should not be called");
+      },
+      changedFiles: ["bin/lib/foo.ts"],
+      discoveredTestFiles: () => [],
+    });
+    expect(selection).toBeUndefined();
+  });
+
+  it("returns undefined when the manifest fails to parse", () => {
+    const selection = resolveSelection({
+      hasTestRelatedScript: true,
+      tiersFileExists: () => true,
+      readTiersFile: () => "not json",
+      changedFiles: ["bin/lib/foo.ts"],
+      discoveredTestFiles: () => [],
+    });
+    expect(selection).toBeUndefined();
+  });
+
+  it("returns a selection plan when test:related is declared and the manifest parses", () => {
+    const selection = resolveSelection({
+      hasTestRelatedScript: true,
+      tiersFileExists: () => true,
+      readTiersFile: () => JSON.stringify(validTiersManifest),
+      changedFiles: ["bin/lib/foo.ts"],
+      discoveredTestFiles: () => validTiersManifest.alwaysRun,
+    });
+    expect(selection?.mode).toBe("selected");
   });
 });
 

@@ -63,6 +63,34 @@ describe(scoreFiles, () => {
     ).toBe(false);
   });
 
+  it("sets scansRepoTree for a module-scope read of a repo-tree path via a derived anchor var, and NOT for a module-scope read of an os.tmpdir()/mkdtemp fixture path", () => {
+    const repoTreeRead =
+      "const HERE = fileURLToPath(import.meta.url);\n" +
+      "const BIN_DIR = path.resolve(HERE, '..');\n" +
+      "const manifestPath = path.join(BIN_DIR, 'AGENTS.md');\n" +
+      "const x = fs.readFileSync(manifestPath, 'utf8');";
+    const tempFixtureRead =
+      "const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-fixture-'));\n" +
+      "const fixturePath = path.join(scratch, 'input.json');\n" +
+      "const y = fs.readFileSync(fixturePath, 'utf8');";
+    const scores = scoreFiles({
+      timings: timings([
+        ["repo-tree.test.ts", { wallMs: 10, assertions: 1 }],
+        ["temp-fixture.test.ts", { wallMs: 10, assertions: 1 }],
+      ]),
+      sources: sources([
+        ["repo-tree.test.ts", repoTreeRead],
+        ["temp-fixture.test.ts", tempFixtureRead],
+      ]),
+    });
+    expect(
+      scores.find((s) => s.path === "repo-tree.test.ts")!.scansRepoTree,
+    ).toBe(true);
+    expect(
+      scores.find((s) => s.path === "temp-fixture.test.ts")!.scansRepoTree,
+    ).toBe(false);
+  });
+
   it("assigns quadrant expensive-avoidable for a high-cost low-assertion file", () => {
     const scores = scoreFiles({
       timings: timings([

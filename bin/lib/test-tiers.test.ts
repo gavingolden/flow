@@ -129,4 +129,46 @@ describe(planSelection, () => {
     if (plan.mode !== "selected") throw new Error("expected selected mode");
     expect(plan.isolatedFiles).toEqual(["bin/lib/feature.test.ts"]);
   });
+
+  it("includes a changed test file directly in explicitFiles even though it has no colocated sibling (B1)", () => {
+    const plan = planSelection(["bin/lib/slug.test.ts"], tiers, {
+      discoveredTestFiles: [...tiers.alwaysRun, "bin/lib/slug.test.ts"],
+    });
+    if (plan.mode !== "selected") throw new Error("expected selected mode");
+    expect(plan.explicitFiles).toContain("bin/lib/slug.test.ts");
+  });
+
+  it("still returns mode 'full' on manifest rot even when colocated additions would otherwise mask it (B2)", () => {
+    // 5-entry alwaysRun where 4 entries have rotted off disk; the one
+    // survivor is undermined by adding 4 colocated files from an unrelated
+    // change so explicitFiles.length reaches 5 again — the union masks the
+    // rot if compared against explicitFiles.length instead of the
+    // rot-filtered alwaysRun length.
+    const rotTiers: TestTiers = {
+      version: 1,
+      alwaysRun: [
+        "bin/lib/a.test.ts",
+        "bin/lib/b.test.ts",
+        "bin/lib/c.test.ts",
+        "bin/lib/d.test.ts",
+        "bin/lib/survivor.test.ts",
+      ],
+      deferToCi: [],
+      forceFullOn: [],
+    };
+    const plan = planSelection(
+      [
+        "bin/lib/one.ts",
+        "bin/lib/two.ts",
+        "bin/lib/three.ts",
+        "bin/lib/four.ts",
+      ],
+      rotTiers,
+      { discoveredTestFiles: ["bin/lib/survivor.test.ts"] },
+    );
+    expect(plan.mode).toBe("full");
+    expect((plan as { reason: string }).reason).toBe(
+      "selection shorter than always-run set",
+    );
+  });
 });

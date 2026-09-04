@@ -17,7 +17,7 @@
  *   flow-test-audit --from-json <path>     # re-score a saved vitest report
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import picomatch from "picomatch";
@@ -94,7 +94,14 @@ function runVitestJson(cwd: string): { testResults?: RawTestResult[] } {
   const outFile = path.join(cwd, ".flow-tmp", "vitest-audit-report.json");
   const result = spawnSync(
     "npx",
-    ["vitest", "run", "--reporter=json", "--outputFile", outFile],
+    [
+      "--no-install",
+      "vitest",
+      "run",
+      "--reporter=json",
+      "--outputFile",
+      outFile,
+    ],
     { cwd, encoding: "utf8" },
   );
   if (result.status !== 0 && !existsSync(outFile)) {
@@ -120,6 +127,13 @@ function toMarkdown(scores: FileScore[], medianVal: number): string {
 export async function main(argv: string[]): Promise<number> {
   const cwd = process.cwd();
   const fromJsonIdx = argv.indexOf("--from-json");
+  if (fromJsonIdx !== -1) {
+    const operand = argv[fromJsonIdx + 1];
+    if (!operand || operand.startsWith("--")) {
+      console.error("Error: --from-json requires a path");
+      return 1;
+    }
+  }
   const report =
     fromJsonIdx !== -1
       ? JSON.parse(
@@ -139,6 +153,7 @@ export async function main(argv: string[]): Promise<number> {
 
   if (argv.includes("--write-tiers")) {
     const tiers = toTiers(scores);
+    mkdirSync(path.join(cwd, ".flow"), { recursive: true });
     writeFileSync(
       path.join(cwd, ".flow", "test-tiers.json"),
       JSON.stringify(tiers, null, 2) + "\n",
