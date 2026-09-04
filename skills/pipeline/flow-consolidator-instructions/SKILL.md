@@ -1,3 +1,10 @@
+---
+name: flow-consolidator-instructions
+description: Preloaded instructions for the flow-consolidator subagent; not for direct invocation.
+---
+
+<!-- flow-instructions-sentinel: flow-consolidator-instructions -->
+
 # Consolidator-Validator instructions
 
 These instructions are read by the Consolidator-Validator subagent that
@@ -131,12 +138,12 @@ Exit-1 outcomes are split by source:
   `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
   and `escalation_tag: "consolidator-missing-artifact"` per the
   `consolidator-missing-artifact` recipe in
-  [references/escalation-recipes.md](escalation-recipes.md), then exit.
+  [references/escalation-recipes.md](../flow-pr-review/references/escalation-recipes.md), then exit.
 - **Schema validation failed** (the file exists but its JSON shape is
   invalid): escalate `consolidator-schema-failure`. Same write protocol,
   with `escalation_tag: "consolidator-schema-failure"` per the
   `consolidator-schema-failure` recipe in
-  [references/escalation-recipes.md](escalation-recipes.md), then exit.
+  [references/escalation-recipes.md](../flow-pr-review/references/escalation-recipes.md), then exit.
 
 The optional seventh path `$WORKTREE/.flow-tmp/agent-output-gemini.json` is
 read **only if present** (`test -s` succeeds). Its absence is NOT a
@@ -153,12 +160,12 @@ proceed with the six rather than escalating, since the lens is non-mandatory).
 Escalation writes overwrite any prior `pr-review-result.json` with
 `status: "clean"` — escalation always wins over a prior clean status.
 But the read-before-overwrite guard from
-[references/result-artifact-write-protocol.md](result-artifact-write-protocol.md)
+[references/result-artifact-write-protocol.md](../flow-pr-review/references/result-artifact-write-protocol.md)
 DOES apply to these escalation writes too: if the prior artifact is
 already `status: "escalated"` (from an even earlier subagent), skip
 the write and exit. This prevents a less-specific escalation tag from
 clobbering a more-specific one. The recipes in
-[references/escalation-recipes.md](escalation-recipes.md) include the
+[references/escalation-recipes.md](../flow-pr-review/references/escalation-recipes.md) include the
 guard inline.
 
 ### (b) Merge into a single array
@@ -265,7 +272,7 @@ finding cite a file outside `delta_files[]`, or does any lens's
 break (e.g. "this signature change affects callers in file X")? If
 either holds, write `scope_verdict: {widen: true, reason: "<one-line
 cite>"}` — a REQUEST the wrapper honours (see
-[references/review-scope.md](review-scope.md) "Widen"), never a
+[references/review-scope.md](../flow-pr-review/references/review-scope.md) "Widen"), never a
 self-review of the wider diff (that stays the six lenses' job, per (d)'s
 "does not invent new findings"). On a **full** scope, or when the floor
 doesn't fire, OMIT `scope_verdict` entirely — it is not a `false`
@@ -300,7 +307,7 @@ dispatches by JSON shape: presence of `consolidated_findings` routes
 to `validateConsolidatorResult`. On validation failure, leave the
 `.tmp` file on disk for inspection and escalate
 `consolidator-schema-failure` per the recipe in
-[references/escalation-recipes.md](escalation-recipes.md).
+[references/escalation-recipes.md](../flow-pr-review/references/escalation-recipes.md).
 
 The three `lens_*` keys are OPTIONAL on the validator — an absent key still
 validates. Pre-seed them to `[]` anyway rather than omitting them: the
@@ -315,7 +322,7 @@ required, never a way to accidentally suppress that fallback.
 
 The clean-exit write itself does NOT use the read-before-overwrite
 guard from
-[references/result-artifact-write-protocol.md](result-artifact-write-protocol.md)
+[references/result-artifact-write-protocol.md](../flow-pr-review/references/result-artifact-write-protocol.md)
 because this is a write to `consolidator-result.json`, not
 `pr-review-result.json`. The protocol applies only to the
 `pr-review-result.json` clean-exit sites (Step 1.5 Gatekeeper "skip"
@@ -364,7 +371,7 @@ deviation.
 ## 5. Escalation recipes
 
 Two escalation paths are documented in
-[references/escalation-recipes.md](escalation-recipes.md):
+[references/escalation-recipes.md](../flow-pr-review/references/escalation-recipes.md):
 
 - **`consolidator-schema-failure`** — fires when
   `flow-agent-finding-schema --validate` exits 1 on any of
@@ -380,7 +387,7 @@ $WORKTREE/.flow-tmp/consolidator-result.json` fails (the
 Both heredocs use the atomic write-`.tmp` → validate-`.tmp` → `mv`
 idiom shared with the existing recipes. The
 read-before-overwrite guard from
-[references/result-artifact-write-protocol.md](result-artifact-write-protocol.md)
+[references/result-artifact-write-protocol.md](../flow-pr-review/references/result-artifact-write-protocol.md)
 applies to **clean-exit** writes of `pr-review-result.json`, not to
 escalation writes — escalation overwriting a prior status is the
 correct behaviour.

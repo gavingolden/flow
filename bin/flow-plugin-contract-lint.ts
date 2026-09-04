@@ -64,7 +64,8 @@ export type ContractLintPhase =
   | "validate-strict-deref"
   | "validate-shipped-root"
   | "list-skills-dir"
-  | "plugin-dir-probe";
+  | "plugin-dir-probe"
+  | "skills-resolve";
 
 export type ContractLintFailure = {
   root: string;
@@ -95,6 +96,13 @@ export type ContractLintResult = {
    * empty array here rather than merely an empty `failures`. Populated
    * only past the D4 short-circuit. */
   probedPluginDirRoots: string[];
+  /** Every `skills:` entry (bare or plugin-qualified) declared by an
+   * agents/core/*.md definition that resolved to a real SKILL.md under the
+   * materialized plugin root — a positive observable so a collapsed glob
+   * (every agent silently dropped) shows up as an empty array here rather
+   * than merely an empty `failures`. Populated only past the D4
+   * short-circuit. */
+  resolvedPreloadSkills: string[];
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -202,6 +210,59 @@ export function dereferenceRoot(
   }
 }
 
+/** For every `agents/*.md` definition under `root`, resolves each
+ * frontmatter `skills:` entry (bare or plugin-qualified, block-list form)
+ * against `root/skills/<bareName>/SKILL.md`. Exported standalone (not
+ * inlined into `checkPluginContract`) so a fixture root can be unit-tested
+ * without a real `claude` invocation — a wrong `skills:` name silently
+ * no-ops the preload at runtime rather than erroring, so this filesystem
+ * check is the only signal. */
+export function resolveAgentPreloadSkills(root: string): {
+  resolved: string[];
+  failures: ContractLintFailure[];
+} {
+  const resolved: string[] = [];
+  const failures: ContractLintFailure[] = [];
+  const agentsDir = path.join(root, "agents");
+  let agentFiles: string[] = [];
+  try {
+    agentFiles = fs
+      .readdirSync(agentsDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map((entry) => entry.name);
+  } catch {
+    return { resolved, failures }; // no agents/ dir for this module
+  }
+  for (const agentFile of agentFiles) {
+    const agentPath = path.join(agentsDir, agentFile);
+    const frontmatter =
+      fs.readFileSync(agentPath, "utf8").split("---")[1] ?? "";
+    const skillsMatch = frontmatter.match(
+      /^skills:\s*\n((?:\s+-\s+\S+\s*\n?)+)/m,
+    );
+    if (!skillsMatch) continue;
+    const skillNames = [...skillsMatch[1].matchAll(/-\s+(\S+)/g)].map(
+      (m) => m[1],
+    );
+    for (const rawName of skillNames) {
+      const bareName = rawName.includes(":")
+        ? rawName.split(":").slice(1).join(":")
+        : rawName;
+      const skillMdPath = path.join(root, "skills", bareName, "SKILL.md");
+      if (fs.existsSync(skillMdPath)) {
+        resolved.push(`${agentFile}:${rawName}`);
+      } else {
+        failures.push({
+          root: agentPath,
+          phase: "skills-resolve",
+          detail: `skills: entry '${rawName}' does not resolve to ${skillMdPath}`,
+        });
+      }
+    }
+  }
+  return { resolved, failures };
+}
+
 export async function checkPluginContract(
   opts: {
     claudeOnPath?: (cmd: string) => boolean;
@@ -225,6 +286,7 @@ export async function checkPluginContract(
       derefValidatedRoots: [],
       shippedValidatedRoots: [],
       probedPluginDirRoots: [],
+      resolvedPreloadSkills: [],
     };
   }
 
@@ -262,6 +324,19 @@ export async function checkPluginContract(
       roots.push({ id, root });
     }
     materializeModuleContent(flowSource, skillsDir);
+
+    // Phase skills-resolve: every `skills:` entry an agents/core/*.md
+    // definition declares must resolve to a real SKILL.md under the
+    // materialized root — a wrong name silently no-ops the preload at
+    // runtime rather than erroring, so this is a filesystem-only check
+    // (no `claude` invocation needed) run against each materialized root.
+    const resolvedPreloadSkills: string[] = [];
+    for (const { root } of roots) {
+      const { resolved, failures: skillsResolveFailures } =
+        resolveAgentPreloadSkills(root);
+      resolvedPreloadSkills.push(...resolved);
+      failures.push(...skillsResolveFailures);
+    }
 
     // Phase 1a: dereference each root into a real-file `cp -RL` twin under
     // <tmpRoot>/deref and validate THAT --strict. A failed copy is a LOCAL
@@ -530,6 +605,7 @@ export async function checkPluginContract(
           derefValidatedRoots,
           shippedValidatedRoots,
           probedPluginDirRoots,
+          resolvedPreloadSkills,
         }
       : {
           status: "ok",
@@ -537,6 +613,7 @@ export async function checkPluginContract(
           derefValidatedRoots,
           shippedValidatedRoots,
           probedPluginDirRoots,
+          resolvedPreloadSkills,
         };
   } finally {
     if (ownsTmpRoot) {

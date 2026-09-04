@@ -1,6 +1,6 @@
 # Value-prop rubric
 
-Canonical text of the value-prop block. It is embedded verbatim (marker-delimited) in `methodology.md`, `flow-product-planning/references/discovery-instructions.md`, `flow-pr-review/references/fix-applier-instructions.md`, and `flow-file-issue/SKILL.md`; `bin/flow-value-rubric-lint.test.ts` fails when any copy drifts.
+Canonical text of the value-prop block. It is embedded verbatim (marker-delimited) in `methodology.md`, `flow-product-planning/references/discovery-instructions.md`, `flow-fix-applier-instructions/SKILL.md`, and `flow-file-issue/SKILL.md`; `bin/flow-value-rubric-lint.test.ts` fails when any copy drifts.
 
 <!-- flow-value-rubric:begin -->
 

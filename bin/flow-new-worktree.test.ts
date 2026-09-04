@@ -28,7 +28,7 @@ import {
   ensureFlowExcludes,
   writeBranchMarker,
 } from "./lib/worktree-marker";
-import { SYMLINK_FILES } from "./lib/worktree-fs";
+import { SYMLINK_FILES, linkAgentMemory } from "./lib/worktree-fs";
 
 describe(toDirSuffix, () => {
   it("should replace slashes with hyphens", () => {
@@ -59,6 +59,53 @@ describe("SYMLINK_FILES", () => {
 
   it("should include .claude/settings.local.json", () => {
     expect(SYMLINK_FILES).toContain(".claude/settings.local.json");
+  });
+});
+
+describe(linkAgentMemory, () => {
+  let fx: Fixture;
+  let cacheRoot: string;
+  beforeEach(() => {
+    fx = makeFixture();
+    cacheRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-new-worktree-cache-"),
+    );
+  });
+  afterEach(() => {
+    fx.cleanup();
+    fs.rmSync(cacheRoot, { recursive: true, force: true });
+  });
+
+  it("creates the cache dir and symlinks .claude/agent-memory-local to it", () => {
+    const worktreeDir = path.join(path.dirname(fx.repoDir), "wt-memory");
+    mustGit(["worktree", "add", "-b", "wt-memory", worktreeDir], fx.repoDir);
+    linkAgentMemory(worktreeDir, fx.repoDir, cacheRoot);
+    const target = path.join(worktreeDir, ".claude", "agent-memory-local");
+    expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+    const linkDest = fs.realpathSync(target);
+    expect(fs.existsSync(linkDest)).toBe(true);
+    expect(linkDest.startsWith(fs.realpathSync(cacheRoot))).toBe(true);
+  });
+
+  it("is idempotent — a second call leaves the existing symlink alone", () => {
+    const worktreeDir = path.join(path.dirname(fx.repoDir), "wt-memory-2");
+    mustGit(["worktree", "add", "-b", "wt-memory-2", worktreeDir], fx.repoDir);
+    linkAgentMemory(worktreeDir, fx.repoDir, cacheRoot);
+    const target = path.join(worktreeDir, ".claude", "agent-memory-local");
+    const before = fs.readlinkSync(target);
+    linkAgentMemory(worktreeDir, fx.repoDir, cacheRoot);
+    expect(fs.readlinkSync(target)).toBe(before);
+  });
+
+  it("refuses to replace a real directory at the target path", () => {
+    const worktreeDir = path.join(path.dirname(fx.repoDir), "wt-memory-3");
+    mustGit(["worktree", "add", "-b", "wt-memory-3", worktreeDir], fx.repoDir);
+    const target = path.join(worktreeDir, ".claude", "agent-memory-local");
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, "keep.txt"), "real dir content");
+    linkAgentMemory(worktreeDir, fx.repoDir, cacheRoot);
+    expect(fs.lstatSync(target).isSymbolicLink()).toBe(false);
+    expect(fs.existsSync(path.join(target, "keep.txt"))).toBe(true);
   });
 });
 
@@ -331,7 +378,7 @@ describe(ensureFlowExcludes, () => {
     expect(fs.existsSync(sharedExcludePath())).toBe(true);
   });
 
-  it("is idempotent — second call does not duplicate either line", () => {
+  it("is idempotent — second call does not duplicate any of the three lines", () => {
     ensureFlowExcludes(fx.repoDir);
     const after1 = fs.readFileSync(sharedExcludePath(), "utf8");
     ensureFlowExcludes(fx.repoDir);
@@ -339,8 +386,11 @@ describe(ensureFlowExcludes, () => {
     expect(after2).toBe(after1);
     const tmpMatches = after2.match(/^\.flow-tmp\/$/gm) ?? [];
     const branchMatches = after2.match(/^\.flow-branch$/gm) ?? [];
+    const memoryMatches =
+      after2.match(/^\.claude\/agent-memory-local$/gm) ?? [];
     expect(tmpMatches.length).toBe(1);
     expect(branchMatches.length).toBe(1);
+    expect(memoryMatches.length).toBe(1);
   });
 
   it("preserves existing exclude content", () => {

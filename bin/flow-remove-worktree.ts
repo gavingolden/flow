@@ -20,7 +20,11 @@ import * as fs from "fs";
 import * as path from "path";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { readState } from "./lib/state";
-import { detectDefaultBranch, SYMLINK_FILES } from "./lib/worktree-fs";
+import {
+  detectDefaultBranch,
+  salvageAgentMemory,
+  SYMLINK_FILES,
+} from "./lib/worktree-fs";
 import {
   BRANCH_MARKER_FILENAME,
   FLOW_TMP_DIRNAME,
@@ -648,13 +652,21 @@ function main(): void {
     }
   }
 
+  // Best-effort salvage of the agent-memory-local handoff BEFORE removal —
+  // a no-op when it's a symlink (the cache dir it points at survives
+  // removal on its own) or absent; copies back a real directory's contents
+  // (the symlink was never written through, or something wrote directly
+  // into it).
+  salvageAgentMemory(info.worktreeDir, info.primaryDir);
+
   // Clean flow-owned files before asking git to remove the worktree.
   // `git worktree remove` refuses when the tree contains untracked files. The
   // primary defence is `.git/info/exclude` (registered by `flow-new-worktree`
-  // via `ensureFlowExcludes`), which marks both `.flow-tmp/` and `.flow-branch`
-  // as ignored across every worktree of the repo. The cleanup below is the
-  // fallback for older worktrees whose common dir wasn't yet registered. Scope
-  // is strictly these two paths — do not pass `--force` to `git worktree remove`
+  // via `ensureFlowExcludes`), which marks `.flow-tmp/`, `.flow-branch`, and
+  // `.claude/agent-memory-local` as ignored across every worktree of the
+  // repo. The cleanup below is the fallback for older worktrees whose common
+  // dir wasn't yet registered. Scope is strictly the flow-tmp dir and the
+  // branch marker below — do not pass `--force` to `git worktree remove`
   // and do not sweep arbitrary untracked files.
   const flowTmpDir = path.join(
     info.worktreeDir,

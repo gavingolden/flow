@@ -4,7 +4,7 @@
  * `<worktree>/.flow-tmp/fix-applier-result.json`.
  *
  * The schema is documented prose-only in
- * `skills/pipeline/flow-pr-review/references/fix-applier-instructions.md` step 9
+ * `skills/pipeline/flow-fix-applier-instructions/SKILL.md` step 9
  * and `skills/pipeline/flow-pr-review/references/fix-applier-spawn-prompt.md`'s
  * spawn-prompt template, with a top-level-keys lint at
  * `bin/skill-md-lint.test.ts`. This module is the
@@ -27,7 +27,7 @@
  *    filed for a deferral — either because the repo has no GitHub Issues
  *    surface, or because `flow-create-issue` itself failed (e.g. `gh`
  *    unavailable). `flow-create-issue` is the canonical issue-creation
- *    pathway (see fix-applier-instructions.md's deferral section); this
+ *    pathway (see flow-fix-applier-instructions/SKILL.md's deferral section); this
  *    validator does not assume its absence.
  *
  * Negative-findings slots (`rejected_alternatives`, `anti_patterns_found`)

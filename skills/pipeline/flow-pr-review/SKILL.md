@@ -226,7 +226,7 @@ dedups + threshold-filters, runs a second-opinion validation pass on
 >=80-confidence non-praise survivors, and writes a structured artifact
 at `<worktree>/.flow-tmp/consolidator-result.json` with five REQUIRED top-level keys (`consolidated_findings`, `dropped_by_validation`, `rejected_alternatives`, `anti_patterns_found`, `summary`) plus three OPTIONAL per-lens pass-through keys (`lens_rejected_alternatives`, `lens_anti_patterns_found`, `lens_negatives_missing`), the three OPTIONAL keys produced by `flow-agent-finding-schema --collect-lens-negatives` rather than hand-copied. The full
 prose, procedure, and prompt template live in
-[references/consolidator-instructions.md](references/consolidator-instructions.md).
+[flow-consolidator-instructions](../flow-consolidator-instructions/SKILL.md).
 
 The fan-out is the **eighth** named Task-tool exemption; the bidirectional
 contract lives in `AGENTS.md` `## Don'ts` and
@@ -278,7 +278,7 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
    read both use.
 2. Capture `SKILL_DIR` from the Skill tool's "Base directory for this skill" line so
    the subagent can resolve sibling references
-   (`references/fix-applier-instructions.md`, `references/conventional-comments.md`,
+   (`../flow-fix-applier-instructions/SKILL.md`, `references/conventional-comments.md`,
    `references/checklists/<lens>.md`) as absolute paths under `SKILL_DIR` rather than
    relative to its `cd`'d worktree, where they don't exist. Also create the
    consumer-side `.flow-tmp/` directory now:
@@ -313,7 +313,7 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
 See [references/fix-applier-spawn-prompt.md](references/fix-applier-spawn-prompt.md) for the verbatim template (six `{{...}}` placeholders).
 
 The artifact's JSON schema is documented verbatim in
-`references/fix-applier-instructions.md` step 9. Both files declare the
+`../flow-fix-applier-instructions/SKILL.md` step 9. Both files declare the
 same five top-level keys (`commits`, `deferred`, `rejected_alternatives`,
 `anti_patterns_found`, `summary`); a structural lint at
 `bin/skill-md-lint.test.ts` enforces the schema-drift symmetry.
@@ -720,7 +720,7 @@ subagent-type resolution, and graceful-skip reasons in
 
 Spawn the **Independent Consolidator-Validator Subagent** (see
 § Independent Consolidator-Validator Subagent above; full prose in
-[references/consolidator-instructions.md](references/consolidator-instructions.md))
+[flow-consolidator-instructions](../flow-consolidator-instructions/SKILL.md))
 to merge the six per-agent outputs, apply confidence threshold +
 dedup + praise specificity, and run a second-opinion validation pass
 before Step 4 consumes them.
@@ -768,7 +768,7 @@ role, so the CONSOLIDATOR_MODEL threading above always wins.
 
 Then make exactly one Task-tool call with `subagent_type: $CONSOLIDATOR_SUBAGENT`
 (plus the resolved `model:` above when non-empty). The prompt cites
-`references/consolidator-instructions.md` as the absolute-path
+`../flow-consolidator-instructions/SKILL.md` as the absolute-path
 instructions and passes `$WORKTREE`, `$SKILL_DIR`, the six per-agent
 paths at `$WORKTREE/.flow-tmp/agent-output-<lens>.json` (lenses:
 `bug-detection`, `security`, `pattern-consistency`, `performance`,
@@ -783,7 +783,7 @@ static-analysis path at
 `DIFF_PATH`/`PR_METADATA_PATH` feed the second-opinion in-scope-of-diff
 check; `REVIEW_SCOPE_PATH` feeds the (d2) scope-widen judgment, which
 may write `scope_verdict` to `$ARTIFACT_PATH` (see
-[references/consolidator-instructions.md](references/consolidator-instructions.md) § Inputs).
+[flow-consolidator-instructions](../flow-consolidator-instructions/SKILL.md) § Inputs).
 
 After the subagent returns:
 
@@ -865,7 +865,7 @@ Otherwise, read the review comments from Step 2's fetch output. This is the self
      `.flow/review-checklist.md` (create it with a 3-line header — same convention as
      `references/checklists/<lens>.md`'s header — if the file doesn't exist yet). This edit
      is bundled into the Fix-Applier Subagent's existing commit+push on the PR branch (see
-     `references/fix-applier-instructions.md`'s checklist-append step) — never a separate
+     `../flow-fix-applier-instructions/SKILL.md`'s checklist-append step) — never a separate
      commit.
    - **Generic / flow-shipped gap** (a pattern that belongs in one of flow's own lens
      checklists, not this repo's `.flow/review-checklist.md`) → file it via
@@ -874,7 +874,7 @@ Otherwise, read the review comments from Step 2's fetch output. This is the self
      naturally lands there; on any OTHER (consumer) repo it's filed locally against
      that repo's tracker with the `review-checklist` label plus a body naming flow as
      the intended upstream destination (same convention as the helper's existing
-     third-party-regression deferrals — fix-applier-instructions.md step 2). Write the
+     third-party-regression deferrals — flow-fix-applier-instructions/SKILL.md step 2). Write the
      drafted entry to a scratch file first, then pass it via `--body-file` (there is no
      `--body` flag):
 
@@ -916,7 +916,7 @@ The deferral path's tracker-entry filing (a GitHub issue via
 has no GitHub Issues surface the deferral is surfaced loudly in the
 report with an empty `tracker_entry_url` rather than written to a file)
 is documented inside the subagent's instructions at
-`references/fix-applier-instructions.md`. A `reason` beginning `below bar — ` is a value-bar dismissal, not a tracker failure, and renders under its own `Below bar (not filed)` sub-list in the Step 12 report.
+`../flow-fix-applier-instructions/SKILL.md`. A `reason` beginning `below bar — ` is a value-bar dismissal, not a tracker failure, and renders under its own `Below bar (not filed)` sub-list in the Step 12 report.
 
 ## 7. Address Each Review Comment
 
@@ -933,7 +933,7 @@ subagent self-marks the current PR's row and sweeps drifted prior-PR rows in
 `docs/roadmap.md` (when one exists), and syncs the epic status board via
 `flow-epic-sync` (no-op for a non-epic PR; named skip when absent) — bundling
 either edit into the same fix commit as Steps 6/7. Full contract:
-`references/fix-applier-instructions.md` step 5; `AGENTS.md`'s `Auto-push exemption: pr-review` clause covers the commit + push.
+`../flow-fix-applier-instructions/SKILL.md` step 5; `AGENTS.md`'s `Auto-push exemption: pr-review` clause covers the commit + push.
 
 ## 8. Spawn Fix-Applier Subagent and Run Verification Items
 
@@ -944,7 +944,7 @@ its own context.
 
 After the subagent returns, do a cheap existence check against the
 canonical `$ARTIFACT_PATH` resolved during the spawn procedure (the
-single source of truth for the artifact's location):
+single source of truth for the artifact's location). **Partial-result continuation:** a Task result marked partial with an agent id and a missing artifact gets one `SendMessage` continuation per `../flow-pipeline/references/partial-result-continuation.md` before falling through to the escalation below.
 
 ```bash
 test -s "$ARTIFACT_PATH" || {

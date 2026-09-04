@@ -56,11 +56,20 @@ fourth that's `n/a` because it spawns no `claude` child at all:
 | `flow-plugin-probe` / `flow-plugin-contract-lint`'s `plugin list\|validate\|details` calls     | NO                             | NO                  | Not headless prompt sessions (no `-p`) — these subcommands take neither flag.                                                                                                                                                                                                                                                                                                                              |
 | `flow-model-bench`                                                                             | n/a — spawns no `claude` child | n/a                 | `flow-model-bench` dispatches its manifest through `flow-delegate-fanout`, whose default runner spawns the `flow-delegate` BINARY (`bin/flow-delegate-fanout.ts:472`), which in turn calls agy (Google AI Ultra), never `claude -p`.                                                                                                                                                                       |
 
-Exactly **two** headless `claude -p` children exist repo-wide today: the
-`flow-eval` scenario child and `flow-plugin-probe`'s Task-spawn probe.
-`bin/flow-plugin-contract-lint.ts:125` is the repo's **third** real
-`claude` spawn site, but it's a `plugin validate`/`plugin list` call, not
-a headless prompt session, so it carries neither flag.
+Five headless `claude -p` children exist repo-wide today: the `flow-eval`
+scenario child, `flow-plugin-probe`'s Task-spawn probe
+(`probeAgentInvocationName`), and three live-only probes the ablation-arm
+PR (#755) added — `probeAgentMemoryScope`, `probeSkillsPreloadName`, and
+`probeMaxTurnsPartial`/`probeCacheTtl1h` — each gated behind `--live` and
+run against the real, already-logged-in `HOME` rather than an isolated
+fixture. Those three live probes do not yet carry
+`--permission-prompts none` / `--restricted`: they drive Bash tool calls
+and Task-tool subagent spawns the flags would suppress, so extending the
+contract to them needs a probe-by-probe safety check, not a blanket flag
+add — tracked separately rather than guessed here.
+`bin/flow-plugin-contract-lint.ts:125` is a further real `claude` spawn
+site, but it's a `plugin validate`/`plugin list` call, not a headless
+prompt session, so it carries neither flag.
 
 ## Precondition: `flow install`
 

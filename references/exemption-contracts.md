@@ -120,13 +120,16 @@ resolved via a single plugin-root probe using the `[ -f ~/.flow/claude-home/.cla
 file-exists guard: the plugin-qualified `flow-module-core:flow-fix-applier`
 name when present (a bare `flow-fix-applier` subagent_type fails
 Task-tool resolution outright), else `general-purpose` fallback emitting the
-`NOTICE — agent-fallback:` line (no bare-name legacy-install tier).
+`NOTICE — agent-fallback:` line (no bare-name legacy-install tier). The
+agent's `maxTurns: 120` budget means a `SendMessage` continuation of its
+own partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays
+inside this exemption — not a tenth site.
 
 ## Merge-Conflict Resolver Subagent
 
 When `/flow-pipeline` step 10's `gh pr merge --squash` returns a
 conflict-class failure (stderr matching the detection patterns in
-`skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md`),
+`skills/pipeline/flow-merge-resolver-instructions/SKILL.md`),
 the supervisor spawns one resolver subagent via the Task tool for the
 base-branch merge + per-file resolution + push. Artifact:
 `.flow-tmp/merge-resolver-result.json` (typed fields `resolved_files`,
@@ -155,7 +158,10 @@ the supervisor escalates `NEEDS HUMAN: merge-resolver-spawn-denied` and
 does **not** resolve the conflict inline: doing so would re-run a denied
 operation under the supervisor's broader permission umbrella, inverting
 the context-isolation this exemption exists to provide, and would also
-re-spawn beyond the one-Task-call-per-run limit exemption #5 grants.
+re-spawn beyond the one-Task-call-per-run limit exemption #5 grants. The
+agent's `maxTurns: 80` budget means a `SendMessage` continuation of its
+own partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays
+inside this exemption — not a tenth site.
 
 ## `/flow-coder` Independent Edit-Applier Subagent
 
@@ -189,7 +195,10 @@ spawns the same definition directly at depth 3 via the same single
 plugin-root probe, writing
 `verify-coder-result.json` with no `general-purpose` fallback (a
 fallbackless site: a miss degrades inline instead); see the
-Verify-Retry-Loop section below.
+Verify-Retry-Loop section below. The agent's `maxTurns: 80` budget means
+a `SendMessage` continuation of its own partial result
+(`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays inside this
+exemption at either spawn site — not a tenth site.
 
 ## `/flow-pr-review` Independent Gatekeeper Subagent
 
@@ -235,7 +244,7 @@ Artifact: `<worktree>/.flow-tmp/consolidator-result.json` (typed fields
 `consolidated_findings`, `dropped_by_validation`, `rejected_alternatives`,
 `anti_patterns_found`, `summary`); the wrapper reads it once at Step 4
 and reuses the parsed object across Steps 4–7. Also documented in
-`skills/pipeline/flow-pr-review/references/consolidator-instructions.md`.
+`skills/pipeline/flow-consolidator-instructions/SKILL.md`.
 
 ## Verify-Retry-Loop Subagent
 
@@ -263,7 +272,7 @@ resolution outright — measured: "Agent type 'flow-scout' not found"),
 else `general-purpose` fallback emitting the `NOTICE — agent-fallback:` line
 (no bare-name legacy-install tier). The
 subagent's full instructions are at
-`skills/pipeline/flow-pipeline/references/verify-loop-instructions.md`.
+`skills/pipeline/flow-verify-loop-instructions/SKILL.md`.
 
 **Nested site.** On the wider-scope path, the verify-loop subagent
 spawns ONE flow-edit-applier subagent at depth 3, resolved via a single
@@ -274,7 +283,7 @@ definition is installed, with NO bare-name legacy-install tier and NO
 site has a known-good inline fallback and does not hand a Task-capable
 toolset to a definition that isn't lint-pinned to exclude `Task`),
 passing a JSON edit-set per
-`skills/pipeline/flow-coder/references/coder-instructions.md` (its
+`skills/pipeline/flow-coder-instructions/SKILL.md` (its
 `INSTRUCTIONS_PATH`, threaded alongside `SKILL_DIR =
 skills/pipeline/flow-coder/`) and the absolute artifact path
 `<worktree>/.flow-tmp/verify-coder-result.json` (distinct from the
@@ -285,4 +294,10 @@ mask a child miss); failure enum recorded in `verify-loop-result.json`'s
 applies that fix inline once and stays inline for the remainder of the
 run. This is a sanctioned nested site inside this exemption, not a
 tenth top-level exemption; its failure action is inverted from the nine
-top-level sites — record and degrade inline, never escalate.
+top-level sites — record and degrade inline, never escalate. The outer
+agent's `maxTurns: 150` budget and the nested edit-applier's `maxTurns:
+80` budget each mean a `SendMessage` continuation of that agent's own
+partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays
+inside this exemption at either site — not a tenth site; at the nested
+site a still-missing artifact after one continuation feeds the existing
+`coder_spawn: "artifact-missing"` inline fallback, never an escalation.

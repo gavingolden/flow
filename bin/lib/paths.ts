@@ -11,10 +11,34 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 export const HOME = os.homedir();
 export const FLOW_DIR = path.join(HOME, ".flow");
 export const FLOW_STATE_DIR = path.join(FLOW_DIR, "state");
+/**
+ * Per-repo cache root for artifacts that must survive a worktree's removal
+ * (e.g. the agent-memory-local handoff) — distinct from `FLOW_STATE_DIR`
+ * (per-pipeline state) and `~/.flow/research-cache` (the only cache dir
+ * that exists on a host today). Callers that need a test-visible path
+ * still take a `cacheRoot` parameter defaulting to this constant, rather
+ * than reading it eagerly inside test-sensitive logic — same HOME-capture
+ * hazard `flowConfigPath()` below documents.
+ */
+export const FLOW_CACHE_DIR = path.join(FLOW_DIR, "cache");
+
+/**
+ * Stable per-repo cache key: `<basename>-<sha256(realpath)[0..8]>` — the
+ * hash disambiguates same-named repos at different paths (e.g. two
+ * checkouts of "flow" for different clients) without leaking the full path
+ * into a directory name.
+ */
+export function repoCacheKey(primaryDir: string): string {
+  const real = fs.realpathSync(primaryDir);
+  const base = path.basename(real);
+  const hash = createHash("sha256").update(real).digest("hex").slice(0, 8);
+  return `${base}-${hash}`;
+}
 /**
  * Per-machine epic-orchestrator runtime state root: `~/.flow/epics/<slug>/run.json`.
  * Physically distinct from the repo's committed `.flow/epics/<slug>/` (manifest +

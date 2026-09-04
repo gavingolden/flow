@@ -286,7 +286,7 @@ export const SMALL_FOLLOWUP_MAX_FILES = 3;
  * Marks a `/flow-pr-review` fix-applier review-fix commit. Fix-applier
  * commits carry a `(pr-review #<PR_NUMBER>)` suffix in the subject —
  * source of truth:
- * skills/pipeline/flow-pr-review/references/fix-applier-instructions.md §7.
+ * skills/pipeline/flow-fix-applier-instructions/SKILL.md §7.
  */
 export const FIX_APPLIER_COMMIT_MARKER = /\(pr-review #\d+\)/;
 

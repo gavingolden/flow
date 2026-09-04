@@ -202,7 +202,7 @@ describe("run()", () => {
       path.join(worktree, ".flow-tmp", "verify-loop-result.json"),
     );
     expect(json.instructionsPath).toMatch(
-      /references\/verify-loop-instructions\.md$/,
+      /flow-verify-loop-instructions\/SKILL\.md$/,
     );
   });
 
@@ -216,7 +216,7 @@ describe("run()", () => {
     });
     expect(exit).toBe(0);
     expect(lastJson().instructionsPath).toBe(
-      "/custom/skill-dir/references/verify-loop-instructions.md",
+      "/custom/flow-verify-loop-instructions/SKILL.md",
     );
   });
 
