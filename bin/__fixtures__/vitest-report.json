@@ -1,0 +1,180 @@
+{
+  "numTotalTestSuites": 5,
+  "numPassedTestSuites": 5,
+  "numFailedTestSuites": 0,
+  "numTotalTests": 32,
+  "numPassedTests": 32,
+  "numFailedTests": 0,
+  "startTime": 1788558900000,
+  "success": true,
+  "testResults": [
+    {
+      "startTime": 1788558900000,
+      "endTime": 1788558900004,
+      "status": "passed",
+      "name": "bin/lib/slug.test.ts",
+      "assertionResults": [
+        {
+          "status": "passed",
+          "duration": 0.5
+        },
+        {
+          "status": "passed",
+          "duration": 0.5
+        },
+        {
+          "status": "passed",
+          "duration": 0.5
+        },
+        {
+          "status": "passed",
+          "duration": 0.5
+        },
+        {
+          "status": "passed",
+          "duration": 0.5
+        },
+        {
+          "status": "passed",
+          "duration": 0.5
+        },
+        {
+          "status": "passed",
+          "duration": 0.5
+        },
+        {
+          "status": "passed",
+          "duration": 0.5
+        }
+      ]
+    },
+    {
+      "startTime": 1788558900009,
+      "endTime": 1788558903409,
+      "status": "passed",
+      "name": "bin/flow-new-worktree.test.ts",
+      "assertionResults": [
+        {
+          "status": "passed",
+          "duration": 566.667
+        },
+        {
+          "status": "passed",
+          "duration": 566.667
+        },
+        {
+          "status": "passed",
+          "duration": 566.667
+        },
+        {
+          "status": "passed",
+          "duration": 566.667
+        },
+        {
+          "status": "passed",
+          "duration": 566.667
+        },
+        {
+          "status": "passed",
+          "duration": 566.667
+        }
+      ]
+    },
+    {
+      "startTime": 1788558903414,
+      "endTime": 1788558904314,
+      "status": "passed",
+      "name": "bin/skill-md-lint.test.ts",
+      "assertionResults": [
+        {
+          "status": "passed",
+          "duration": 90.0
+        },
+        {
+          "status": "passed",
+          "duration": 90.0
+        },
+        {
+          "status": "passed",
+          "duration": 90.0
+        },
+        {
+          "status": "passed",
+          "duration": 90.0
+        },
+        {
+          "status": "passed",
+          "duration": 90.0
+        },
+        {
+          "status": "passed",
+          "duration": 90.0
+        },
+        {
+          "status": "passed",
+          "duration": 90.0
+        },
+        {
+          "status": "passed",
+          "duration": 90.0
+        },
+        {
+          "status": "passed",
+          "duration": 90.0
+        },
+        {
+          "status": "passed",
+          "duration": 90.0
+        }
+      ]
+    },
+    {
+      "startTime": 1788558904319,
+      "endTime": 1788558909519,
+      "status": "passed",
+      "name": "bin/flow-spawn.live.test.ts",
+      "assertionResults": [
+        {
+          "status": "passed",
+          "duration": 1040.0
+        },
+        {
+          "status": "passed",
+          "duration": 1040.0
+        },
+        {
+          "status": "passed",
+          "duration": 1040.0
+        },
+        {
+          "status": "passed",
+          "duration": 1040.0
+        },
+        {
+          "status": "passed",
+          "duration": 1040.0
+        }
+      ]
+    },
+    {
+      "startTime": 1788558909524,
+      "endTime": 1788558912560,
+      "status": "passed",
+      "name": "bin/evals-suites.test.ts",
+      "assertionResults": [
+        {
+          "status": "passed",
+          "duration": 1012.0
+        },
+        {
+          "status": "passed",
+          "duration": 1012.0
+        },
+        {
+          "status": "passed",
+          "duration": 1012.0
+        }
+      ]
+    }
+  ]
+}

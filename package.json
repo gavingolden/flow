@@ -11,6 +11,8 @@
   "scripts": {
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "test": "vitest run",
+    "test:related": "vitest related --run",
+    "test:audit": "bun bin/flow-test-audit.ts",
     "test:watch": "vitest",
     "lint": "prettier --check .",
     "verify": "npm run typecheck:scripts && npm run test && npm run lint"

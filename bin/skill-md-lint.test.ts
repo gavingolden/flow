@@ -1319,9 +1319,20 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * budget goes to 26_300 (198 chars of headroom), not the bare
    * post-edit value, matching the "don't land at a single-digit-headroom
    * trap" discipline of every raise above.
+   * Raised once more from 26_300 to 26_650 to document the optional
+   * `.flow/test-tiers.json` test-tier manifest at all three `AGENTS.md`
+   * anchors (the `## Where to look` table, the `flow-test-audit` helper
+   * name, and the `## Consumer-repo notes` paragraph). Measured via
+   * String.prototype.length (not `wc -c` bytes): pre-edit 26_285,
+   * post-edit 26_438 — a +153-char delta, additive-only per the
+   * edit-set's contract (no existing prose was reworded or reordered,
+   * so dedup-first wasn't available here). The budget goes to 26_650
+   * (212 chars of headroom), not the bare post-edit value, matching the
+   * "don't land at a single-digit-headroom trap" discipline of every
+   * raise above.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 26_300;
+    const CHAR_BUDGET = 26_650;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +

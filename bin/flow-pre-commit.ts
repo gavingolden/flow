@@ -15,12 +15,18 @@
  *   flow-pre-commit --pre-push         # read refs from stdin (git hook)
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import * as os from "node:os";
+import picomatch from "picomatch";
 import { resolveChecks, npmRunCheck, type CheckDef } from "./lib/stack-table";
 import { withTestSemaphore } from "./lib/lock";
 import { FLOW_TEST_SEM_DIR } from "./lib/paths";
 import { detectStrayEnvFiles, strayEnvWarning } from "./lib/stray-env-file";
+import {
+  parseTestTiers,
+  planSelection,
+  type SelectionPlan,
+} from "./lib/test-tiers";
 import {
   detectWorkspaceScopes,
   readMonorepoConfig,
@@ -738,32 +744,109 @@ export function parseScopes(
  * `describe(checksForScope)` block is the guard against drift. Signature is
  * unchanged: zero extra args, `Scope` in, `CheckDef[]` out.
  */
-export function checksForScope(scope: Scope): CheckDef[] {
+/**
+ * Builds the src/scripts/root-fallback test check(s) for a `selected` plan:
+ * one `npm run test -- <explicit non-isolated files> --no-isolate` check,
+ * plus a SEPARATE isolated check (no `--no-isolate`) for the colocated
+ * files pulled back from deferToCi — a defer-worthy expensive spawner is
+ * also the profile most likely to misbehave under shared module state, so
+ * it runs isolated from the start rather than paying a near-certain retry
+ * — plus a `test:related` check for the rest, when there are related
+ * inputs to feed it. `vitest run --related <f>` is NOT a flag on the
+ * pinned vitest 2.1.9 (`related` is a subcommand — see package.json's
+ * `test:related` script), so this always goes through `npm run
+ * test:related`, never a hand-built `--related` flag.
+ */
+function tieredTestChecks(selection: SelectionPlan): CheckDef[] {
+  if (selection.mode === "full") return [npmRunCheck("test")];
+  const isolatedSet = new Set(selection.isolatedFiles);
+  const nonIsolated = selection.explicitFiles.filter(
+    (f) => !isolatedSet.has(f),
+  );
+  const checks: CheckDef[] = [];
+  const explicitArgv = [
+    "npm",
+    "run",
+    "test",
+    "--",
+    ...nonIsolated,
+    "--no-isolate",
+  ];
+  checks.push({ name: explicitArgv.join(" "), argv: explicitArgv });
+  if (selection.isolatedFiles.length > 0) {
+    const isolatedArgv = [
+      "npm",
+      "run",
+      "test",
+      "--",
+      ...selection.isolatedFiles,
+    ];
+    checks.push({ name: isolatedArgv.join(" "), argv: isolatedArgv });
+  }
+  if (selection.relatedInputs.length > 0) {
+    const relatedArgv = [
+      "npm",
+      "run",
+      "test:related",
+      "--",
+      ...selection.relatedInputs,
+      ...selection.excluded.flatMap((p) => ["--exclude", p]),
+      "--no-isolate",
+    ];
+    checks.push({ name: relatedArgv.join(" "), argv: relatedArgv });
+  }
+  return checks;
+}
+
+/** docs scope's narrower form: always-run set only, no related/isolated
+ * split — a .md-only diff has no colocated .ts sibling to isolate and no
+ * `.ts` relatedInputs by construction. */
+function tieredDocsTestCheck(selection: SelectionPlan): CheckDef {
+  if (selection.mode === "full") return npmRunCheck("test");
+  const argv = [
+    "npm",
+    "run",
+    "test",
+    "--",
+    ...selection.explicitFiles,
+    "--no-isolate",
+  ];
+  return { name: argv.join(" "), argv };
+}
+
+export function checksForScope(
+  scope: Scope,
+  selection?: SelectionPlan,
+): CheckDef[] {
   switch (scope) {
     case "src":
       return [
         npmRunCheck("typecheck"),
-        npmRunCheck("test"),
+        ...(selection ? tieredTestChecks(selection) : [npmRunCheck("test")]),
         npmRunCheck("lint"),
       ];
     case "scripts":
       return [
         npmRunCheck("typecheck:scripts"),
-        npmRunCheck("test"),
+        ...(selection ? tieredTestChecks(selection) : [npmRunCheck("test")]),
         npmRunCheck("lint"),
       ];
     case "docs":
       // `npm run test` runs after flow-md-validate so .md-only diffs still
-      // exercise the *full* vitest suite — which is the only place
+      // exercise the always-run set — which is the only place
       // structural-anchor lints (e.g. bin/skill-md-lint.test.ts) run, since
-      // .md-only diffs never fall through to root-fallback. `npm run lint`
+      // .md-only diffs never fall through to root-fallback. Under tiered
+      // selection, that always-run set is exactly `selection.explicitFiles`
+      // (the manifest's alwaysRun tier is built FROM the scansRepoTree axis
+      // that seeds these lints — see docs/test-quality-methodology.md); with
+      // no manifest, the full suite plays the same role. `npm run lint`
       // last mirrors src/scripts/root-fallback: it is the repo-wide
       // `prettier --check .`, so a markdown formatting violation fails the
       // gate locally instead of first surfacing in CI's root lint job. Stays
       // inert via filterDefinedChecks in repos with no `lint` script.
       return [
         { name: "flow-md-validate .", argv: ["flow-md-validate", "."] },
-        npmRunCheck("test"),
+        selection ? tieredDocsTestCheck(selection) : npmRunCheck("test"),
         npmRunCheck("lint"),
       ];
     case "actions":
@@ -789,7 +872,7 @@ export function checksForScope(scope: Scope): CheckDef[] {
       // match flow's prefixes still expects typecheck + test + lint at the root.
       return [
         npmRunCheck("typecheck"),
-        npmRunCheck("test"),
+        ...(selection ? tieredTestChecks(selection) : [npmRunCheck("test")]),
         npmRunCheck("lint"),
       ];
   }
@@ -848,14 +931,20 @@ export function resolveTestConcurrency(
 }
 
 /**
- * Whether a check's argv is the test check that gets throttled through the
- * host-wide semaphore. Keys on argv[1]/argv[2] rather than exact-array
- * equality so the workspace form `["npm","run","test","-w",<pkg>]` matches
- * alongside the bare root form `["npm","run","test"]`. typecheck/lint/etc.
- * return false and run unthrottled.
+ * Whether a check's argv is a test check that gets throttled through the
+ * host-wide semaphore. Keys on argv[1]/argv[2] against an EXPLICIT set —
+ * `test` and `test:related` — rather than an `argv[2].startsWith("test")`
+ * prefix: a prefix also matches `npm run test:watch`, a long-running
+ * watcher that would hold a host-wide semaphore slot forever, and throws
+ * on a 2-element argv. Keying on argv[1]/argv[2] (not exact-array
+ * equality) still lets the workspace form
+ * `["npm","run","test","-w",<pkg>]` match alongside the bare root form.
+ * typecheck/lint/test:watch/etc. return false and run unthrottled.
  */
 export function isTestCheck(argv: string[]): boolean {
-  return argv[1] === "run" && argv[2] === "test";
+  return (
+    argv[1] === "run" && (argv[2] === "test" || argv[2] === "test:related")
+  );
 }
 
 export type Runner = (argv: string[]) => {
@@ -957,6 +1046,35 @@ function loadDefinedNpmScripts(): Set<string> {
   } catch {
     return new Set();
   }
+}
+
+/** Every test file on disk under `bin/` or `skills/` — the same shape as
+ * vitest's own `include` globs, walked with plain `readdirSync` (never
+ * Bun-only APIs: this module is imported directly by its own vitest
+ * suite, which runs under Node). Feeds planSelection's manifest-rot
+ * filter so a renamed/deleted alwaysRun/deferToCi entry is silently
+ * dropped rather than handed to `npm run test -- <nonexistent path>`. */
+function discoverTestFiles(cwd: string = process.cwd()): string[] {
+  const isMatch = picomatch(["bin/**/*.test.ts", "skills/**/*.test.ts"]);
+  const found: string[] = [];
+  const walk = (relDir: string) => {
+    const absDir = relDir ? `${cwd}/${relDir}` : cwd;
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = readdirSync(absDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(relPath);
+      else if (isMatch(relPath)) found.push(relPath);
+    }
+  };
+  walk("bin");
+  walk("skills");
+  return found;
 }
 
 function getChangedFilesForPr(prNumber: number): string[] {
@@ -1379,6 +1497,14 @@ Check mapping:
   root-fallback:  npm run typecheck, npm run test, npm run lint
                   (fires for files no other scope claimed)
 
+With a valid .flow/test-tiers.json manifest AND a declared 'test:related'
+npm script, 'npm run test' above narrows to a tiered selection: the
+manifest's always-run set plus files colocated with the diff, run with
+--no-isolate, plus a 'npm run test:related' check for the rest. A
+forceFullOn trigger in the diff, an unparseable/absent manifest, or a
+missing 'test:related' script all fall back to the full 'npm run test'
+shown above. See docs/test-quality-methodology.md.
+
 The lint check is skipped when no 'lint' npm script is defined.
 
 The same checks may run multiple times if multiple scopes are detected.
@@ -1470,6 +1596,32 @@ async function main(): Promise<void> {
     process.env,
     os.availableParallelism(),
   );
+  // Test-tier selection: absent manifest, an unparseable manifest, or a
+  // package.json missing the declared `test:related` script all degrade
+  // to `selection = undefined`, which every checksForScope call site below
+  // treats identically to "no manifest" — byte-identical argv to today.
+  // Branching explicitly on `definedScripts.has("test:related")` (rather
+  // than letting filterDefinedChecks silently drop an undefined-script
+  // check) matters: filterDefinedChecks would silently DROP the
+  // test:related check and thereby silently skip tests, not fall back to
+  // the full suite.
+  let selection: SelectionPlan | undefined;
+  if (definedScripts.has("test:related")) {
+    const tiersPath = "./.flow/test-tiers.json";
+    if (existsSync(tiersPath)) {
+      let tiers: ReturnType<typeof parseTestTiers> = null;
+      try {
+        tiers = parseTestTiers(JSON.parse(readFileSync(tiersPath, "utf8")));
+      } catch {
+        tiers = null;
+      }
+      if (tiers) {
+        selection = planSelection(changedFiles, tiers, {
+          discoveredTestFiles: discoverTestFiles(),
+        });
+      }
+    }
+  }
   const results: CheckResult[] = [];
   for (const scope of scopes) {
     const dynamic = dynamicByName.get(scope);
@@ -1478,7 +1630,10 @@ async function main(): Promise<void> {
     // from the OWNING package's declared scripts (Layer 1), so they run as-is.
     const checks = dynamic
       ? dynamic.checks
-      : filterDefinedChecks(checksForScope(scope as Scope), definedScripts);
+      : filterDefinedChecks(
+          checksForScope(scope as Scope, selection),
+          definedScripts,
+        );
     if (checks.length === 0) {
       // In --json mode this diagnostic would corrupt stdout (which must be
       // a single parseable JSON object), so route it to stderr instead.
@@ -1506,11 +1661,34 @@ async function main(): Promise<void> {
           if (json) console.error(note);
           else console.log(note);
         }
-        results.push(result);
+        // Isolation retry: a `--no-isolate` tiered check that FAILS gets one
+        // isolated re-run of the same file list before being reported red —
+        // `--no-isolate` can produce a false GREEN normally (shared module
+        // state), never a false RED, so a red result under `--no-isolate`
+        // that turns green under isolation was a leak between the selected
+        // files, not a real regression; a red result that stays red under
+        // isolation is a real failure either way.
+        if (!result.passed && check.argv.includes("--no-isolate")) {
+          const isolatedArgv = check.argv.filter((a) => a !== "--no-isolate");
+          const { result: isolatedResult } = withTestSemaphore(
+            FLOW_TEST_SEM_DIR,
+            testConcurrency,
+            () =>
+              runCheck(`${check.name} (isolated retry)`, isolatedArgv, scope),
+          );
+          results.push(isolatedResult);
+        } else {
+          results.push(result);
+        }
       } else {
         results.push(runCheck(check.name, check.argv, scope));
       }
     }
+  }
+  if (selection && selection.mode === "selected") {
+    const note = `selected ${selection.explicitFiles.length} test file(s), deferred ${selection.deferredCount} to CI; local ran with --no-isolate, CI re-runs isolated.`;
+    if (json) console.error(note);
+    else console.log(note);
   }
 
   // Captured BEFORE the two candidate-gated supplementary checks below are

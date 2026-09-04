@@ -26,6 +26,7 @@ Read it once at the start of a session.
 | Generic engineering rules to copy into a new repo | `templates/AGENTS.md.template` |
 | Where flow is heading (modular redesign) | `docs/target-architecture.md` |
 | Measure a scaffold removal | `docs/eval/README.md` |
+| Which tests earn their cost, and why | `docs/test-quality-methodology.md` |
 
 ## Current state
 
@@ -74,7 +75,7 @@ length to task, fenced blocks only for runnable code, etc.).
 Source for shipped helper binaries lives in **`bin/`**. User-callable
 helpers (`flow-new-worktree`, `flow-pre-commit`, `flow-state-update`,
 `flow-notify`, `flow-ui-validate`, `flow-review-scope`,
-`flow-review-telemetry`, etc.) live there with `.ts` extensions, Bun shebangs, and
+`flow-review-telemetry`, `flow-test-audit`, etc.) live there with `.ts` extensions, Bun shebangs, and
 tests next door
 (`<name>.test.ts`, skipped when `flow install` symlinks into
 `~/.local/bin/<name>`). The five schema validators
@@ -205,8 +206,9 @@ workflow-enforceable.
 → `actions`) plus a monorepo auto-detect + three-layer command
 resolution for `apps/<pkg>/`/`packages/<pkg>/` workspaces, a host-wide
 test-concurrency cap, a host-wide research cache, an optional
-`.flow/ui-validation.json` manifest, and an optional
-`.flow/design/foundation.md` design contract. Full surface area —
+`.flow/ui-validation.json` manifest, an optional
+`.flow/design/foundation.md` design contract, and an optional
+`.flow/test-tiers.json` test-tier manifest. Full surface area —
 scope-detection rules, the concurrency-cap formula, the cache TTL, the
 three-layer resolution table, and the manifest/foundation fields — is at
 [references/consumer-repo-contract.md](references/consumer-repo-contract.md).

@@ -7,6 +7,9 @@
   {
     "name": "flow-config",
     "prefixes": [".flow/"],
-    "checks": ["jq empty .flow/pre-commit.json"]
+    "checks": [
+      "jq empty .flow/pre-commit.json",
+      "jq empty .flow/test-tiers.json"
+    ]
   }
 ]
