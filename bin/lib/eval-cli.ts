@@ -12,7 +12,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { git } from "./git";
 import {
   buildReport,
@@ -22,6 +22,7 @@ import {
   renderSummary,
   scoreRun,
   validateReport,
+  type Arm,
   type EvalReport,
   type GradeResult,
   type RunRecord,
@@ -29,7 +30,7 @@ import {
   type ScenarioRecord,
 } from "./eval-report";
 import { gradeAll, type GraderContext } from "./eval-graders";
-import { transcriptMetrics } from "./eval-transcript";
+import { initInfo, parseStream, transcriptMetrics } from "./eval-transcript";
 import {
   loadSuite,
   type LoadSuiteDeps,
@@ -177,25 +178,111 @@ function buildGraderContext(
  */
 export const activeFixtureTeardowns = new Set<() => void>();
 
+/**
+ * The plugin-name prefix that proves a flow plugin root was loaded. Same
+ * prefix the committed `plugin-loaded` gate graders match against every
+ * scenario's `case.json`, kept in one place so the positive gate (with
+ * arm) and the inverted gate below (without arm) cannot drift apart.
+ */
+const PLUGIN_ROOT_MARKER = "flow-module-core";
+
+/**
+ * The `without` arm's runtime leak detector.
+ *
+ * Marking `plugin-loaded` as `withOnly` (so the bare arm is not scored on a
+ * gate it can never pass) removes the only signal that would have caught an
+ * ablation leak at run time. This gate puts that signal back, inverted: the
+ * bare arm's transcript must NOT report a loaded flow plugin root. It is
+ * the runtime counterpart to the composition-time anti-leak assertions in
+ * `eval-runner.test.ts` — those prove the argv and env are clean, this
+ * proves the child actually behaved as though they were.
+ *
+ * Reads the structured `system/init` event's `plugins` list
+ * (`initInfo(events).plugins`, `eval-transcript.ts`) rather than
+ * substring-matching the whole transcript: a raw substring grep both
+ * false-positives (preloaded scenario fixtures like
+ * `evals/verify-loop-isolation/{s1,s2}/preload/plan-digest.md` contain the
+ * literal marker in prose, unrelated to plugin load) and false-negatives
+ * (it cannot see a leak that never prints the marker string verbatim,
+ * e.g. a helper resolved off `~/.local/bin`). The structured list is the
+ * one place a plugin load is unambiguous.
+ *
+ * Without it, a future change that reintroduces a discovery path (a third
+ * `--add-dir`, a settings-sourced skills dir) would silently produce a
+ * near-zero delta that reads as "the scaffold adds nothing".
+ */
+function ablationLeakGate(ctx: GraderContext): GradeResult {
+  // `ctx.readFile` (not `Deps.readFile`) — the context's reader is
+  // contractually null-tolerant, so an unreadable transcript fails this
+  // gate rather than throwing out of the grading path.
+  const stream = ctx.readFile(ctx.streamPath);
+  const plugins =
+    stream === null ? [] : initInfo(parseStream(stream).events).plugins;
+  const leakedPlugin = plugins.find((name) =>
+    name.startsWith(PLUGIN_ROOT_MARKER),
+  );
+  const leaked = stream !== null && leakedPlugin !== undefined;
+  return {
+    id: "ablation-leak-free",
+    kind: "file",
+    gate: true,
+    pass: stream !== null && !leaked,
+    expected: `no loaded plugin named "${PLUGIN_ROOT_MARKER}*"`,
+    actual:
+      stream === null
+        ? "transcript unreadable"
+        : leaked
+          ? `loaded: ${leakedPlugin}`
+          : "none loaded",
+    detail:
+      stream === null
+        ? "could not read the run transcript, so the ablation could not be verified"
+        : leaked
+          ? "the no-plugin arm still loaded a flow plugin root — the ablation leaked, so any delta from this run is meaningless"
+          : undefined,
+  };
+}
+
+/**
+ * `arm` of `undefined` behaves as `"with"` for argv/env/slug purposes but
+ * leaves `RunRecord.arm` unset, so the single-arm (no `--ablation`) path
+ * stays byte-identical to before ablation existed. Only `--ablation
+ * with-without` ever passes an explicit `"with"`/`"without"`.
+ */
 async function runOneScenarioRun(
   scenario: ResolvedScenario,
   suite: SuiteSpec,
   run: number,
+  arm: Arm | undefined,
   outBase: string,
   args: RunArgs,
   deps: Deps,
 ): Promise<RunRecord> {
   const fixture = deps.materializeFixture(scenario, suite.id, run, {
     now: deps.now,
+    arm,
   });
   activeFixtureTeardowns.add(fixture.teardown);
-  const runDir = path.join(outBase, suite.id, scenario.id, `run-${run}`);
+  // Arm-qualify the run directory: two arms at the same run number would
+  // otherwise both resolve to `run-${run}` and the SECOND arm's
+  // `deps.rm(runDir)` below would delete the FIRST arm's output. Absent
+  // or `"with"` keeps today's shape unchanged.
+  const runDir = path.join(
+    outBase,
+    suite.id,
+    scenario.id,
+    arm === "without" ? `run-${run}-without` : `run-${run}`,
+  );
   // Wipe any stale contents left by a cancelled earlier invocation (e.g. a
   // prior --all run interrupted mid-scenario) before recreating the dir,
   // so a fresh run never mixes its output with a leftover run-N/ from a
   // run that never completed.
   deps.rm(runDir);
   deps.mkdirp(runDir);
+
+  const withOnlyIds = new Set(
+    scenario.graders.filter((g) => g.withOnly).map((g) => g.id),
+  );
 
   try {
     if (args.dryRun) {
@@ -227,12 +314,19 @@ async function runOneScenarioRun(
           grades.push(deps.gradeAll([spec], ctx).grades[0]);
         }
       }
-      const score = scoreRun(grades);
+      const score = scoreRun(grades, arm ?? "with", withOnlyIds);
       deps.writeFile(
         path.join(runDir, "grades.json"),
         JSON.stringify({ grades, score }, null, 2) + "\n",
       );
-      return { run, status: "skipped", score, grades, metrics: {} };
+      return {
+        run,
+        status: "skipped",
+        score,
+        grades,
+        metrics: {},
+        ...(arm ? { arm } : {}),
+      };
     }
 
     const outcome = await deps.runScenarioOnce(scenario, fixture, {
@@ -247,6 +341,7 @@ async function runOneScenarioRun(
       model: args.model ?? scenario.model,
       effort: args.effort ?? scenario.effort,
       keepSessions: args.keepSessions,
+      arm,
     });
     const transcript = transcriptMetrics(outcome.events, outcome.result);
     const ctx = buildGraderContext(
@@ -260,7 +355,14 @@ async function runOneScenarioRun(
       },
       deps,
     );
-    const { grades, metrics, score } = deps.gradeAll(scenario.graders, ctx);
+    // `gradeAll`'s own inline `score` is discarded in favour of `scoreRun`
+    // here — `scoreRun` is the single source of truth for arm-aware
+    // (`withOnly`-skipping) scoring; for the `"with"` arm the two are
+    // byte-identical (no grade is ever skipped), so this is a no-op change
+    // for the single-arm path.
+    const { grades, metrics } = deps.gradeAll(scenario.graders, ctx);
+    if (arm === "without") grades.push(ablationLeakGate(ctx));
+    const score = scoreRun(grades, arm ?? "with", withOnlyIds);
     deps.writeFile(
       path.join(runDir, "grades.json"),
       JSON.stringify({ grades, metrics, score }, null, 2) + "\n",
@@ -281,6 +383,8 @@ async function runOneScenarioRun(
       durationMs: outcome.result?.duration_ms,
       numTurns: outcome.result?.num_turns,
       error: outcome.error,
+      childArgvDigest: outcome.childArgvDigest,
+      ...(arm ? { arm } : {}),
     };
   } finally {
     activeFixtureTeardowns.delete(fixture.teardown);
@@ -323,30 +427,150 @@ async function runSuite(
     });
   }
 
-  // Flatten every (scenario, run) pair across the WHOLE suite into one job
-  // list so `args.concurrency` bounds concurrency suite-wide, not just
-  // within a single scenario's repeat runs — a per-scenario pool would
-  // serialize every scenario behind the previous one even at concurrency
-  // > 1, defeating the point of the flag.
-  const jobs: Array<{ scenario: ResolvedScenario; run: number }> = [];
+  // Flatten every (scenario, run[, arm]) pair across the WHOLE suite into
+  // one job list so `args.concurrency` bounds concurrency suite-wide, not
+  // just within a single scenario's repeat runs — a per-scenario pool
+  // would serialize every scenario behind the previous one even at
+  // concurrency > 1, defeating the point of the flag. `arm` is only ever
+  // present when `--ablation with-without` doubles every run into a
+  // with/without pair; otherwise each job carries no `arm` at all (the
+  // single-arm path's job shape is unchanged).
+  const jobs: Array<{ scenario: ResolvedScenario; run: number; arm?: Arm }> =
+    [];
   for (const scenario of scenarios) {
     const runsN = args.runs ?? scenario.runs;
-    for (let run = 1; run <= runsN; run++) jobs.push({ scenario, run });
+    for (let run = 1; run <= runsN; run++) {
+      if (args.ablation === "with-without") {
+        jobs.push({ scenario, run, arm: "with" });
+        jobs.push({ scenario, run, arm: "without" });
+      } else {
+        jobs.push({ scenario, run });
+      }
+    }
   }
   const allRecords = await runPool(jobs, args.concurrency, (job) =>
-    runOneScenarioRun(job.scenario, spec, job.run, args.out, args, deps),
+    runOneScenarioRun(
+      job.scenario,
+      spec,
+      job.run,
+      job.arm,
+      args.out,
+      args,
+      deps,
+    ),
   );
 
   const scenarioRecords: ScenarioRecord[] = scenarios.map((scenario) => {
-    const records = jobs
+    // The scenario's own status/score/runs/metrics are folded from the
+    // WITH-arm records ONLY (job.arm !== "without") — this is what keeps
+    // them byte-identical to the pre-ablation single-arm fold, and what
+    // lets `buildReport`'s summary restriction (see its own comment) hold
+    // even when a without-arm ran alongside.
+    const withRecords = jobs
       .map((job, i) =>
-        job.scenario.id === scenario.id ? allRecords[i] : undefined,
+        job.scenario.id === scenario.id && job.arm !== "without"
+          ? allRecords[i]
+          : undefined,
       )
       .filter((r): r is RunRecord => r !== undefined);
-    const record = foldScenario(scenario.id, scenario.title, records);
+    const record = foldScenario(scenario.id, scenario.title, withRecords);
+
+    if (args.ablation === "with-without") {
+      const withoutRecords = jobs
+        .map((job, i) =>
+          job.scenario.id === scenario.id && job.arm === "without"
+            ? allRecords[i]
+            : undefined,
+        )
+        .filter((r): r is RunRecord => r !== undefined);
+      // An error-status run is EXCLUDED from the score/metric average that
+      // feeds the delta — never counted as a score of 0, which would
+      // otherwise make a transient timeout look like a real regression.
+      const withoutScored = withoutRecords.filter((r) => r.status !== "error");
+      if (withoutScored.length === 0) {
+        // Every without-arm run errored, so there is nothing to fold a
+        // real score from. `foldScenario([])` returns `score: 0`, and
+        // `record.score - 0` would report the LARGEST delta the metric
+        // can produce — generated by the baseline crashing, not by the
+        // scaffold helping. Emit no delta at all; record the error status
+        // instead so a reader can see why this scenario has no ablation
+        // row rather than silently dropping it.
+        const withoutFold = foldScenario(
+          scenario.id,
+          scenario.title,
+          withoutRecords,
+        );
+        record.ablationError = {
+          withoutStatus: withoutFold.status,
+          runCount: withoutRecords.length,
+        };
+      } else {
+        const withoutFold = foldScenario(
+          scenario.id,
+          scenario.title,
+          withoutScored,
+        );
+        const metricDeltas: Record<string, number> = {};
+        for (const name of new Set([
+          ...Object.keys(record.metrics),
+          ...Object.keys(withoutFold.metrics),
+        ])) {
+          const w = record.metrics[name]?.median;
+          const wo = withoutFold.metrics[name]?.median;
+          if (w !== undefined && wo !== undefined) metricDeltas[name] = w - wo;
+        }
+        record.ablation = {
+          with: {
+            score: record.score,
+            metrics: record.metrics,
+            avgCostUsd: avgCostUsd(withRecords),
+          },
+          without: {
+            score: withoutFold.score,
+            metrics: withoutFold.metrics,
+            avgCostUsd: avgCostUsd(withoutScored),
+          },
+          scoreDelta: record.score - withoutFold.score,
+          metricDeltas,
+        };
+      }
+    }
+
     deps.progress(`flow-eval: ${spec.id}/${scenario.id} -> ${record.status}`);
     return record;
   });
+
+  const scenariosWithAblation = scenarioRecords.filter((s) => s.ablation);
+  const summaryScoreDelta =
+    scenariosWithAblation.length > 0
+      ? scenariosWithAblation.reduce(
+          (sum, s) => sum + (s.ablation?.scoreDelta ?? 0),
+          0,
+        ) / scenariosWithAblation.length
+      : undefined;
+  // `childArgvDigest` is per-scenario (`--allowedTools`/`--model`/`--effort`
+  // are DIGESTED_VALUE_FLAGS), so scenarios in the same suite genuinely
+  // carry different digests when their flags differ. Lifting only the
+  // first with-arm run's digest would silently ignore drift in every
+  // OTHER scenario's flags. Instead, fold every distinct with-arm digest
+  // in the suite into one suite-level digest — a change to ANY
+  // scenario's composed argv/env shape changes this value, so `compare`'s
+  // `environmentMismatch` warning still fires on the drift it exists to
+  // catch.
+  const withArmDigests = [
+    ...new Set(
+      allRecords
+        .filter((r) => r.arm !== "without" && r.childArgvDigest)
+        .map((r) => r.childArgvDigest!),
+    ),
+  ].sort();
+  const childArgvDigest =
+    withArmDigests.length > 0
+      ? createHash("sha256")
+          .update(withArmDigests.join("|"))
+          .digest("hex")
+          .slice(0, 16)
+      : undefined;
 
   return buildReport({
     suite: spec,
@@ -356,10 +580,12 @@ async function runSuite(
       model: args.model,
       effort: args.effort,
       claudeVersion: availability.ok ? availability.version : undefined,
+      ...(childArgvDigest ? { childArgvDigest } : {}),
     },
     tree: { gitHead: deps.gitHead(), dirty: deps.gitDirty() },
     startedAt,
     finishedAt: deps.now().toISOString(),
+    ...(summaryScoreDelta !== undefined ? { summaryScoreDelta } : {}),
     ...(args.dryRun
       ? {
           skipped: {
@@ -369,6 +595,11 @@ async function runSuite(
         }
       : {}),
   });
+}
+
+function avgCostUsd(records: RunRecord[]): number {
+  if (records.length === 0) return 0;
+  return records.reduce((sum, r) => sum + (r.costUsd ?? 0), 0) / records.length;
 }
 
 function listSuiteDirs(evalsDir: string, deps: Deps): string[] {
@@ -383,6 +614,16 @@ function listSuiteDirs(evalsDir: string, deps: Deps): string[] {
 }
 
 async function runVerb(args: RunArgs, deps: Deps): Promise<number> {
+  if (args.ablation === "with-without") {
+    // Informational only — never a prompt, never a confirmation: doubling
+    // the arm count doubles the number of `claude` children spawned and
+    // therefore the run's real-account spend AND wall-clock time (subject
+    // to `--concurrency`'s pool size, since the flattened job list is now
+    // twice as long).
+    deps.progress(
+      "flow-eval: --ablation with-without doubles the arm count per scenario run, and therefore doubles claude spend and wall-clock time for this invocation\n",
+    );
+  }
   if (args.recordBaseline && deps.gitDirty() && !args.allowDirty) {
     deps.progress(
       "flow-eval: --record-baseline refuses a dirty tree (pass --allow-dirty to override)\n",

@@ -14,6 +14,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { isValidSlug } from "./slug";
 import type { CheckpointSite } from "./checkpoint-freshness";
+import type { Arm } from "./eval-report";
 
 export type ValidationOk<T> = { ok: true; value: T };
 export type ValidationErr = { ok: false; reason: string; path?: string };
@@ -108,6 +109,19 @@ export type GraderSpec = Matcher & {
   direction?: "lower" | "higher";
   max?: number;
   min?: number;
+  /**
+   * Defaults to `false`, so every existing case.json is unchanged in
+   * meaning. `true` marks a grader as a plugin-fired INDICATOR rather
+   * than a scored gate under `--ablation with-without`'s `"without"` arm
+   * — the no-plugin baseline can never pass it (e.g. `plugin-loaded`
+   * checking the transcript for `flow-module-core`), so counting it there
+   * would make `scoreDelta` a fixed, information-free constant rather
+   * than a real measurement. Mirrors the native harness's own vocabulary:
+   * `claude plugin eval --help` on 2.1.259 documents "graders marked
+   * with-only ... are a plugin-fired indicator rather than part of the
+   * score".
+   */
+  withOnly?: boolean;
 };
 
 export type FixtureSpec = {
@@ -216,9 +230,15 @@ export function evalSlug(
   suiteId: string,
   scenarioId: string,
   run: number,
+  arm?: Arm,
 ): string {
   const prefix = `eval-${suiteId}-`.toLowerCase();
-  const suffix = `-r${run}`;
+  // Absent or `"with"`: byte-identical to before `arm` existed — no
+  // committed baseline and no existing `~/.flow/state/` key may shift.
+  // Only `"without"` appends a distinguishing component, INSIDE the same
+  // 60-char budget arithmetic below, so truncation still holds.
+  const armSuffixPart = arm === "without" ? "-wo" : "";
+  const suffix = `-r${run}${armSuffixPart}`;
   const budget = 60 - prefix.length - suffix.length;
   const scenario = scenarioId.toLowerCase();
   const truncated =
@@ -244,6 +264,9 @@ function validateGraderSpec(
   const kind = o.kind as GraderKind;
   if (o.gate !== undefined && !isBoolean(o.gate)) {
     return err("grader 'gate' must be a boolean", at);
+  }
+  if (o.withOnly !== undefined && !isBoolean(o.withOnly)) {
+    return err("grader 'withOnly' must be a boolean", at);
   }
   const matcherCount = matcherKeyCount(o);
 

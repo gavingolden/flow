@@ -23,6 +23,10 @@ export type RunArgs = {
   baselineDir: string;
   allowDirty: boolean;
   concurrency: number;
+  /** `"none"` (default): today's single-arm run. `"with-without"`: also
+   * runs a no-plugin baseline arm per scenario and reports the score
+   * delta — see docs/eval/README.md's ablation section. */
+  ablation: "none" | "with-without";
 };
 export type ReportArgs = { verb: "report"; in: string };
 export type CompareArgs = {
@@ -42,6 +46,7 @@ const DEFAULTS = {
   tolerance: 0.1,
   baselineDir: path.join("docs", "eval", "baseline"),
   concurrency: 1,
+  ablation: "none" as const,
 };
 
 function flagValue(
@@ -149,6 +154,7 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
   let baselineDir = DEFAULTS.baselineDir;
   let allowDirty = false;
   let concurrency = DEFAULTS.concurrency;
+  let ablation: "none" | "with-without" = DEFAULTS.ablation;
 
   for (let i = 0; i < rest.length; i++) {
     const flag = rest[i];
@@ -221,6 +227,13 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
         concurrency = n;
         break;
       }
+      case "--ablation": {
+        if (v !== "none" && v !== "with-without") {
+          return { error: "--ablation must be none or with-without" };
+        }
+        ablation = v;
+        break;
+      }
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -248,5 +261,6 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
     baselineDir,
     allowDirty,
     concurrency,
+    ablation,
   };
 }

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildChildArgv,
   buildChildEnv,
+  childArgvDigest,
   probeClaude,
   probeFlowInstall,
   renderPrompt,
@@ -13,6 +14,7 @@ import {
 } from "./eval-runner";
 import type { MaterializedFixture } from "./eval-fixture";
 import type { ResolvedScenario } from "./eval-suite";
+import { LOCAL_BIN_DIR } from "./paths";
 
 function makeFixture(
   overrides: Partial<MaterializedFixture> = {},
@@ -21,6 +23,7 @@ function makeFixture(
     root: "/tmp/fixture-root",
     repoDir: "/tmp/fixture-root/repo",
     claudeHome: "/tmp/fixture-root/claude-home",
+    bareClaudeHome: "/tmp/fixture-root/bare-claude-home",
     pluginRoots: [
       "/tmp/fixture-root/claude-home/.claude/skills/flow-module-core",
     ],
@@ -129,6 +132,8 @@ describe("buildChildArgv", () => {
       "project",
       "--permission-mode",
       "dontAsk",
+      "--permission-prompts",
+      "none",
       "--allowedTools",
       "Bash,Read",
       "--disallowedTools",
@@ -139,6 +144,47 @@ describe("buildChildArgv", () => {
       "sess-1",
       "--no-session-persistence",
     ]);
+  });
+
+  it("emits --permission-prompts immediately followed by none", () => {
+    const argv = buildChildArgv(makeScenario(), makeFixture(), {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    const idx = argv.indexOf("--permission-prompts");
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(argv[idx + 1]).toBe("none");
+  });
+
+  it("'without' arm: omits every --plugin-dir and points --add-dir at bareClaudeHome", () => {
+    const fixture = makeFixture();
+    const argv = buildChildArgv(makeScenario(), fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+      arm: "without",
+    });
+    expect(argv).not.toContain("--plugin-dir");
+    const addDirIdx = argv.indexOf("--add-dir");
+    expect(argv[addDirIdx + 1]).toBe(fixture.bareClaudeHome);
+  });
+
+  it("'with' arm (explicit or default) is byte-identical", () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const explicit = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+      arm: "with",
+    });
+    const defaulted = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    expect(explicit).toEqual(defaulted);
   });
 
   it("adds --json-schema and --model, and omits --no-session-persistence when keepSessions is set", () => {
@@ -181,6 +227,60 @@ describe("buildChildArgv", () => {
       prompt: "hello",
     });
     expect(argv).not.toContain("--effort");
+  });
+});
+
+describe("childArgvDigest", () => {
+  it("is stable across runs that differ only in prompt/session-id/fixture path", () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const argvA = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "do the first thing",
+    });
+    const argvB = buildChildArgv(
+      scenario,
+      makeFixture({ root: "/tmp/other-fixture-root" }),
+      {
+        claudeBin: "claude",
+        sessionId: "sess-2-totally-different-uuid",
+        prompt: "do a completely different, much longer thing",
+      },
+    );
+    expect(childArgvDigest(argvA)).toBe(childArgvDigest(argvB));
+  });
+
+  it("changes when a digested permission flag's value changes", () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const argvA = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    const argvB = argvA.map((tok, i) =>
+      argvA[i - 1] === "--permission-mode" ? "acceptEdits" : tok,
+    );
+    expect(childArgvDigest(argvA)).not.toBe(childArgvDigest(argvB));
+  });
+
+  it("changes when the --plugin-dir count changes", () => {
+    const scenario = makeScenario();
+    const withPlugin = buildChildArgv(scenario, makeFixture(), {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    const withoutPlugin = buildChildArgv(scenario, makeFixture(), {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+      arm: "without",
+    });
+    expect(childArgvDigest(withPlugin)).not.toBe(
+      childArgvDigest(withoutPlugin),
+    );
   });
 });
 
@@ -243,6 +343,60 @@ describe("buildChildEnv", () => {
       expect(parts.indexOf(pluginBin)).toBeLessThan(parts.indexOf("/usr/bin"));
     } finally {
       fs.rmSync(pluginRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("'without' arm: no PATH segment resolves to a path containing flow-module-, and the composed argv's --add-dir target carries no flow-module-* entry on disk", () => {
+    const tmpRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-eval-anti-leak-"),
+    );
+    try {
+      const claudeHome = path.join(tmpRoot, "claude-home");
+      const bareClaudeHome = path.join(tmpRoot, "bare-claude-home");
+      const pluginRoot = path.join(
+        claudeHome,
+        ".claude",
+        "skills",
+        "flow-module-core",
+      );
+      fs.mkdirSync(path.join(pluginRoot, "bin"), { recursive: true });
+      fs.mkdirSync(path.join(bareClaudeHome, ".claude", "skills"), {
+        recursive: true,
+      });
+      const fixture = makeFixture({
+        claudeHome,
+        bareClaudeHome,
+        pluginRoots: [pluginRoot],
+      });
+      const scenario = makeScenario();
+
+      const argv = buildChildArgv(scenario, fixture, {
+        claudeBin: "claude",
+        sessionId: "sess-1",
+        prompt: "hello",
+        arm: "without",
+      });
+      const env = buildChildEnv(
+        scenario,
+        fixture,
+        { PATH: "/usr/bin:/bin" },
+        "without",
+      );
+
+      for (const tok of argv) {
+        expect(tok).not.toContain("flow-module-");
+      }
+      for (const seg of env.PATH!.split(":")) {
+        expect(seg).not.toContain("flow-module-");
+      }
+      const addDirIdx = argv.indexOf("--add-dir");
+      const addDirTarget = argv[addDirIdx + 1];
+      expect(addDirTarget).toBe(bareClaudeHome);
+      const skillsDir = path.join(addDirTarget, ".claude", "skills");
+      const entries = fs.existsSync(skillsDir) ? fs.readdirSync(skillsDir) : [];
+      expect(entries.some((e) => e.startsWith("flow-module-"))).toBe(false);
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
     }
   });
 });
@@ -353,6 +507,52 @@ describe("runScenarioOnce", () => {
     expect(
       fs.readFileSync(path.join(outDir, "stream.jsonl"), "utf8"),
     ).toContain('"type":"result"');
+  });
+
+  it("passes arm through to buildChildEnv so the without-arm spawn env has LOCAL_BIN_DIR stripped from PATH", async () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const files: Record<string, string> = {
+      [path.join(scenario.dir, "prompt.md")]: "do the thing",
+    };
+    const resultLine = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      num_turns: 1,
+      total_cost_usd: 0.01,
+      duration_ms: 10,
+      session_id: "s",
+      usage: { input_tokens: 1, output_tokens: 1 },
+      modelUsage: {},
+      permission_denials: [],
+    });
+
+    let capturedEnv: Record<string, string> | undefined;
+    const fakeSpawn: SpawnFn = (_argv, env, _cwd, onStdout) => {
+      capturedEnv = env;
+      onStdout(resultLine + "\n");
+      return { exited: Promise.resolve(0), kill: () => {} };
+    };
+
+    const priorPath = process.env.PATH;
+    process.env.PATH = [LOCAL_BIN_DIR, "/usr/bin", "/bin"].join(path.delimiter);
+    try {
+      await runScenarioOnce(scenario, fixture, {
+        claudeBin: "claude",
+        outDir,
+        sessionId: "sess-1",
+        spawn: fakeSpawn,
+        readFile: (p) => files[p] ?? "",
+        arm: "without",
+      });
+    } finally {
+      process.env.PATH = priorPath;
+    }
+
+    expect(capturedEnv?.PATH).toBeDefined();
+    const segs = capturedEnv!.PATH!.split(":");
+    expect(segs).not.toContain(LOCAL_BIN_DIR);
   });
 
   it("writes assistant-text.txt containing only assistant-emitted text, excluding user-role content", async () => {

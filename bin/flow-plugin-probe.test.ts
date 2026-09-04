@@ -10,7 +10,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { parseArgs, runProbes, type ProbeId } from "./flow-plugin-probe";
 
 const ALL_IDS: ProbeId[] = [
@@ -20,7 +21,47 @@ const ALL_IDS: ProbeId[] = [
   "enabled-plugins",
   "skill-invocation-name",
   "agent-invocation-name",
+  "plugin-eval-availability",
 ];
+
+// A dedicated mocked `spawn` (never `spawnSync`) so the new
+// plugin-eval-availability classification tests and the Task-spawn argv
+// assertion below can drive canned `claude` responses without ever
+// invoking the real binary. `spawnSync` stays real — `probeEnabledPlugins`
+// shells out to real `git init -q` on a scratch dir, unrelated to `claude`.
+const spawnMock = vi.hoisted(() => vi.fn());
+vi.mock("node:child_process", async () => {
+  const actual =
+    await vi.importActual<typeof import("node:child_process")>(
+      "node:child_process",
+    );
+  return { ...actual, spawn: spawnMock };
+});
+
+/** A minimal EventEmitter-shaped fake child process: emits `stdout`/`stderr`
+ * data then `close(exitCode)` on the next microtask, matching the shape
+ * `runClaude` consumes (`.stdout`, `.stderr`, `.on("close"|"error")`). */
+function fakeChild(stdout: string, stderr: string, exitCode: number) {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    kill: () => void;
+  };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = vi.fn();
+  queueMicrotask(() => {
+    if (stdout) child.stdout.emit("data", Buffer.from(stdout));
+    if (stderr) child.stderr.emit("data", Buffer.from(stderr));
+    child.emit("close", exitCode);
+  });
+  return child;
+}
+
+beforeEach(() => {
+  spawnMock.mockReset();
+  spawnMock.mockImplementation(() => fakeChild("", "", 1));
+});
 
 describe(runProbes, () => {
   it("emits exactly one verdict per ProbeId", async () => {
@@ -71,6 +112,92 @@ describe(runProbes, () => {
     for (const v of verdicts) {
       expect(v.fallback).toBeUndefined();
     }
+  });
+});
+
+describe("Task-spawn probe argv shape (agent-invocation-name)", () => {
+  // Scout finding, load-bearing: the fixture runs under an isolated
+  // fixtureHome so the real Task-spawn probe already short-circuits to
+  // "inconclusive" on "Not logged in" on a dev host — asserting a verdict
+  // FLIP would fail for reasons unrelated to this change. Assert the argv
+  // SHAPE the probe composes instead, captured directly off the mocked
+  // `spawn` call, never the resulting verdict.
+  it("carries --restricted, --tools Task, --permission-prompts none, with --tools followed by a flag (not a positional), and -p <prompt> last", async () => {
+    await runProbes({ claudeOnPath: () => true });
+    const taskSpawnCall = spawnMock.mock.calls.find(
+      (call) =>
+        Array.isArray(call[1]) &&
+        (call[1] as string[]).includes("--restricted"),
+    );
+    expect(taskSpawnCall).toBeDefined();
+    const args = taskSpawnCall![1] as string[];
+
+    expect(args).toContain("--restricted");
+    const toolsIdx = args.indexOf("--tools");
+    expect(toolsIdx).toBeGreaterThanOrEqual(0);
+    expect(args[toolsIdx + 1]).toBe("Task");
+    // `--tools <tools...>` is variadic per `claude --help` — the token
+    // right after its one value MUST be another flag, never a bare
+    // positional, or the variadic collector would swallow it.
+    expect(args[toolsIdx + 2]?.startsWith("-")).toBe(true);
+
+    const promptFlagIdx = args.indexOf("--permission-prompts");
+    expect(promptFlagIdx).toBeGreaterThanOrEqual(0);
+    expect(args[promptFlagIdx + 1]).toBe("none");
+
+    expect(args[args.length - 2]).toBe("-p");
+  });
+});
+
+describe("plugin-eval-availability", () => {
+  function mockEvalGate(opts: {
+    helpExit?: number;
+    initExit: number;
+    initStderr?: string;
+    initStdout?: string;
+  }) {
+    spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "plugin" && args[1] === "eval" && args[2] === "--help") {
+        return fakeChild(
+          "Usage: claude plugin eval [options] [command] [target]\n",
+          "",
+          opts.helpExit ?? 0,
+        );
+      }
+      if (args[0] === "plugin" && args[1] === "eval" && args[2] === "init") {
+        return fakeChild(
+          opts.initStdout ?? "",
+          opts.initStderr ?? "",
+          opts.initExit,
+        );
+      }
+      return fakeChild("", "", 1);
+    });
+  }
+
+  it("classifies 'refuted' when --help exits 0 but init --bare exits non-zero with an early-access stderr", async () => {
+    mockEvalGate({
+      initExit: 1,
+      initStderr: "`plugin eval` is currently in early access",
+    });
+    const verdicts = await runProbes({ claudeOnPath: () => true });
+    const v = verdicts.find((x) => x.id === "plugin-eval-availability");
+    expect(v?.verdict).toBe("refuted");
+    expect(v?.evidence).toContain("early access");
+  });
+
+  it("classifies 'confirmed' when init --bare also exits 0 (gate lifted)", async () => {
+    mockEvalGate({ initExit: 0, initStdout: "Scaffolded evals/demo\n" });
+    const verdicts = await runProbes({ claudeOnPath: () => true });
+    const v = verdicts.find((x) => x.id === "plugin-eval-availability");
+    expect(v?.verdict).toBe("confirmed");
+  });
+
+  it("classifies 'skipped' with a named reason when claude is not on PATH (no-claude)", async () => {
+    const verdicts = await runProbes({ claudeOnPath: () => false });
+    const v = verdicts.find((x) => x.id === "plugin-eval-availability");
+    expect(v?.verdict).toBe("skipped");
+    expect(v?.evidence).toContain("PATH");
   });
 });
 

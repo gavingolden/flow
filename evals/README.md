@@ -143,7 +143,9 @@ supported-argv surface changes.
 
 Every grader carries `id`, `kind`, and an optional `gate` (default `true`;
 `gate: false` marks it informational — excluded from `scoreRun`'s
-denominator, still recorded and rendered).
+denominator, still recorded and rendered) plus an optional `withOnly`
+(default `false`) — see `## promptSeed and run/compare` below for what it
+does under `--ablation with-without`.
 
 | kind         | required fields                                                 | what it checks                                                           |
 | ------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -213,7 +215,14 @@ scenario's fixture, spawns `claude -p` with the rendered prompt (unless
 <report.json> --candidate <report.json>` diffs two reports (median per
 metric, direction-aware verdicts, a tolerance band) — this is how a
 supervisor-scaffold removal proves it didn't regress cost/context/turns
-against the recorded baseline.
+against the recorded baseline. `--ablation with-without` runs a
+complementary no-plugin baseline arm WITHIN a single invocation (rather
+than across two committed trees) and reports the delta; a grader marked
+`withOnly: true` (e.g. a `plugin-loaded` gate that can never pass without
+the plugin) is excluded from the `"without"` arm's score entirely, so it
+reads as a plugin-fired indicator instead of forcing every suite's
+`scoreDelta` to the same fixed constant — see docs/eval/README.md for the
+full flag reference.
 
 ## flow ls and eval- state
 

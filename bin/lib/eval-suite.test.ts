@@ -92,6 +92,43 @@ describe("validateScenarioSpec", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("accepts an optional boolean 'withOnly' on a grader, defaulting to unchanged meaning", () => {
+    const withTrue = validateScenarioSpec({
+      ...validScenario,
+      graders: [
+        {
+          id: "g1",
+          kind: "file",
+          file: "out.txt",
+          exists: true,
+          withOnly: true,
+        },
+      ],
+    });
+    expect(withTrue.ok).toBe(true);
+
+    // Omitted entirely — the existing case.json shape stays meaningfully
+    // unchanged (defaults to false inside eval-cli.ts's withOnly-id set).
+    expect(validateScenarioSpec(validScenario).ok).toBe(true);
+  });
+
+  it("rejects a non-boolean 'withOnly'", () => {
+    const result = validateScenarioSpec({
+      ...validScenario,
+      graders: [
+        {
+          id: "g1",
+          kind: "file",
+          file: "out.txt",
+          exists: true,
+          withOnly: "yes",
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/withOnly/);
+  });
+
   it("requires source+direction for metric graders", () => {
     const noSource = validateScenarioSpec({
       ...validScenario,
@@ -295,6 +332,32 @@ describe("evalSlug", () => {
     const longScenario = "s".repeat(100);
     const slug = evalSlug("suite", longScenario, 3);
     expect(slug.endsWith("-r3")).toBe(true);
+    expect(slug.length).toBeLessThanOrEqual(60);
+  });
+
+  it("arm omitted or 'with' is byte-identical to the pre-ablation slug", () => {
+    const base = evalSlug("haiku-gatekeeper", "s1-merged-skip", 1);
+    expect(evalSlug("haiku-gatekeeper", "s1-merged-skip", 1, "with")).toBe(
+      base,
+    );
+  });
+
+  it("arm 'without' produces a distinct slug from the same (suite, scenario, run)", () => {
+    const withSlug = evalSlug("haiku-gatekeeper", "s1-merged-skip", 1, "with");
+    const withoutSlug = evalSlug(
+      "haiku-gatekeeper",
+      "s1-merged-skip",
+      1,
+      "without",
+    );
+    expect(withoutSlug).not.toBe(withSlug);
+    expect(withoutSlug.length).toBeLessThanOrEqual(60);
+  });
+
+  it("arm 'without' stays within the 60-char cap even for a long scenario id", () => {
+    const longScenario = "s".repeat(100);
+    const slug = evalSlug("suite", longScenario, 3, "without");
+    expect(slug.endsWith("-wo")).toBe(true);
     expect(slug.length).toBeLessThanOrEqual(60);
   });
 });
