@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { scoreFiles, toTiers, main } from "./flow-test-audit";
+import { REQUIRED_LINTERS } from "./lib/test-audit-core";
 
 function timings(entries: [string, { wallMs: number; assertions: number }][]) {
   return new Map(entries);
@@ -134,7 +135,7 @@ describe(toTiers, () => {
     expect(tiers.deferToCi).toContain("cheap.live.test.ts");
   });
 
-  it("derives alwaysRun from the scansRepoTree axis rather than a hand list", () => {
+  it("derives the rest of alwaysRun from the scansRepoTree axis beyond the curated floor", () => {
     const scores = scoreFiles({
       timings: timings([
         ["lint.test.ts", { wallMs: 10, assertions: 5 }],
@@ -147,6 +148,45 @@ describe(toTiers, () => {
     });
     const tiers = toTiers(scores);
     expect(tiers.alwaysRun).toEqual(["lint.test.ts"]);
+  });
+
+  it("floors a REQUIRED_LINTERS entry into alwaysRun even when its source gives no scansRepoTree signal", () => {
+    const [floorPath] = REQUIRED_LINTERS;
+    const scores = scoreFiles({
+      timings: timings([[floorPath, { wallMs: 10, assertions: 5 }]]),
+      sources: sources([[floorPath, "expect(1).toBe(1);"]]),
+    });
+    const tiers = toTiers(scores);
+    expect(tiers.alwaysRun).toContain(floorPath);
+  });
+
+  it("does not pin an expensive spawner that only incidentally scansRepoTree into alwaysRun unless it's in the floor", () => {
+    const scores = scoreFiles({
+      timings: timings([
+        ["expensive-lint.test.ts", { wallMs: 5000, assertions: 5 }],
+      ]),
+      sources: sources([
+        [
+          "expensive-lint.test.ts",
+          "const c = fs.readFileSync('AGENTS.md', 'utf8'); spawnSync('git')",
+        ],
+      ]),
+    });
+    const tiers = toTiers(scores);
+    expect(tiers.alwaysRun).not.toContain("expensive-lint.test.ts");
+    expect(tiers.deferToCi).toContain("expensive-lint.test.ts");
+  });
+
+  it("drops a stale REQUIRED_LINTERS entry (a rename/removal) instead of erroring when it isn't among the scored files", () => {
+    const scores = scoreFiles({
+      timings: timings([["plain.test.ts", { wallMs: 10, assertions: 5 }]]),
+      sources: sources([["plain.test.ts", "expect(1).toBe(1);"]]),
+    });
+    expect(() => toTiers(scores)).not.toThrow();
+    const tiers = toTiers(scores);
+    for (const required of REQUIRED_LINTERS) {
+      expect(tiers.alwaysRun).not.toContain(required);
+    }
   });
 });
 

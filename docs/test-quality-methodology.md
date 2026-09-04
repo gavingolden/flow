@@ -36,10 +36,53 @@ changelog of what got automated first.
 - **A3 — repo-tree scanning.** Whether the file reads other repo files
   (markdown docs, skill frontmatter, other source files) at module scope —
   i.e. the check IS "does the committed tree look right," not "does this
-  function behave right." This axis seeds the `alwaysRun` tier: a file that
-  scans the repo tree is validating structural/documentation invariants that
-  a `.md`-only or config-only diff can silently violate, so it must run
-  regardless of which source files changed.
+  function behave right." The detector (`scansRepoTree` in
+  `bin/lib/test-audit-core.ts`) classifies each repo-read call SITE
+  independently by tracing its argument back to either a repo-root anchor
+  (a `HERE`/`__dirname`/`import.meta.dir`/`import.meta.url` +
+  `path.resolve(..., "..")` chain, or a literal naming a tracked repo
+  surface — `AGENTS.md`, `skills/`, `docs/`, etc.) or a temp-fixture root
+  (`os.tmpdir()`/`mkdtempSync`): only the former counts. This matters
+  because a file can do both — `bin/lib/setup.test.ts` reads a real
+  `discoverHelpers(repoRoot)` invariant in one `it()` AND an ephemeral
+  `mkdtempSync`-rooted `settings.json` fixture in a dozen others; only the
+  read call's OWN traced target decides, not "does this file contain both
+  an anchor variable and a read call somewhere." This axis seeds the
+  `alwaysRun` tier for cheap/moderate-cost files: a file that scans the
+  repo tree is validating structural/documentation invariants that a
+  `.md`-only or config-only diff can silently violate, so it must run
+  regardless of which source files changed — UNLESS it's also an
+  expensive subprocess spawner (see "Curated floor" below).
+  - **Curated floor.** The text-analysis detector above only sees a repo
+    read in the TEST file's own body (or, one hop, a plain helper function
+    it calls in the same file) — it does not follow the file's `import`
+    graph, and it does not know that a test's fixture-scoped run of a
+    production CLI (`flow-md-validate`, `flow-plugin-contract-lint`)
+    exercises a real repo-tree scan when that CLI runs for real. A
+    one-hop local-import inline was tried to close this gap and reverted:
+    it ballooned `alwaysRun` from 46 files to 142, because many unrelated
+    test files transitively import the same widely-shared `bin/lib/*.ts`
+    helper that happens to contain an unrelated repo read elsewhere in
+    the same module. `REQUIRED_LINTERS` (`bin/lib/test-audit-core.ts`) is
+    a small, named, committed list of the contract linters this
+    text-analysis blind spot would otherwise miss; `toTiers` unions it
+    into `alwaysRun` unconditionally, ahead of the cost-based exclusion
+    below, and a renamed/removed entry silently drops out at scoring time
+    rather than erroring.
+  - **Cost-based exclusion (non-floor files only).** A file that trips
+    `scansRepoTree` AND is also an expensive subprocess spawner
+    (`spawnsSubprocess && wallMs > 2000ms`) does NOT join `alwaysRun` via
+    A3 alone — it defers to CI instead, same as any other expensive
+    spawner. Concretely:
+    `alwaysRun = REQUIRED_LINTERS ∪ {f : scansRepoTree(f) ∧ ¬expensiveSpawner(f)}`,
+    `deferToCi = {f : isLive(f) ∨ expensiveSpawner(f)} − alwaysRun`. This
+    is what keeps `bin/lib/feature.test.ts` / `setup.test.ts` /
+    `epic.test.ts` — each genuinely reads ONE real repo file (a
+    hook-script drift check, a `discoverHelpers`/`discoverAgents` smoke
+    test) buried among hundreds of temp-fixture assertions, and each also
+    spawns expensive subprocess-backed CLI flows — out of `alwaysRun`:
+    the incidental repo read doesn't outweigh the file being, in
+    aggregate, an expensive spawner the floor doesn't name.
 - **A4 — necessity / irreplaceability.** The one genuinely judged axis, not
   mechanically derived: is the slowness intrinsic to the subject under test
   (a git worktree helper that must actually shell out to `git`), or is it
@@ -64,10 +107,11 @@ changelog of what got automated first.
   rewrite candidate, not a scored input.
 
 Only **A1** and **A2** drive the v1 tier decision (`alwaysRun` /
-`deferToCi` / default). **A3** seeds `alwaysRun` independently of cost. The
-rest — A4 through A8 — are diagnostic metadata surfaced for a human
-triaging rewrite candidates; they are not (yet) computed by
-`flow-test-audit.ts`.
+`deferToCi` / default). **A3** seeds `alwaysRun`, gated by A2's cost
+signal for non-floor files (see A3's "Cost-based exclusion" above) and
+unioned with the curated `REQUIRED_LINTERS` floor. The rest — A4 through
+A8 — are diagnostic metadata surfaced for a human triaging rewrite
+candidates; they are not (yet) computed by `flow-test-audit.ts`.
 
 ## Verdict quadrants
 
