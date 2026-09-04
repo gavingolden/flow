@@ -105,6 +105,9 @@ describe(buildRows, () => {
     expect(rows[0].phase).toBe("—");
     expect(rows[0].pr).toBe("—");
     expect(rows[0].epic).toBe("");
+    // kind: "" is the only legal empty value, documented at bin/lib/ls.ts's
+    // unmanaged-window fallback — pin it so a future default change is caught.
+    expect(rows[0].kind).toBe("");
   });
 
   it("pulls the epic slug from state.epic for an epic-launched pipeline", async () => {
@@ -453,11 +456,35 @@ describe("buildRows — phase-aware annotation (terminal phases outrank liveness
   // NEW case, not a re-parametrization of EXPECTED_ANNOTATION_BY_PHASE
   // above: that table's rows carry no `kind`, so the fallback resolves
   // "epic-approved" to "epic-design" and stays green untouched. A row whose
-  // persisted kind IS "epic-run" is the carve-out — its shared state.json's
-  // phase describes the design lifecycle, not the run, so a FINISHED phase
-  // must render no annotation and no resume hint (the row is live, not
-  // orphaned).
-  it("kind=epic-run at a FINISHED phase ⇒ empty annotation, needsResumeHint false", async () => {
+  // persisted kind IS "epic-run" is the carve-out — but ONLY while its run
+  // window is still live: its shared state.json's phase describes the
+  // design lifecycle, not the run, so a FINISHED phase must render no
+  // annotation and no resume hint while the window is present (the row is
+  // live, not orphaned).
+  it("kind=epic-run at a FINISHED phase with a live window ⇒ empty annotation, needsResumeHint false", async () => {
+    const rows = await buildRows(
+      [
+        state({
+          slug: "run-row",
+          phase: "epic-approved",
+          kind: "epic-run",
+        }),
+      ],
+      [window({ name: "run-row" })],
+      NOW,
+    );
+    expect(rows[0].annotation).toBe("");
+    expect(rows[0].needsResumeHint).toBe(false);
+  });
+
+  // Regression pin for the finding this PR fixed: without the `window`
+  // condition, a FINISHED (or never-launched) epic-run row with no window
+  // suppressed "(done)" unconditionally and rendered blank forever,
+  // indistinguishable from a genuinely live run. With no window present,
+  // "(done)" must render — and must NOT fall through to `livenessOf`
+  // (no pid is recorded for the run window, so that path would misread
+  // "(crashed)").
+  it("kind=epic-run at a FINISHED phase with NO window ⇒ (done), not blank or (crashed)", async () => {
     const rows = await buildRows(
       [
         state({
@@ -469,7 +496,7 @@ describe("buildRows — phase-aware annotation (terminal phases outrank liveness
       [],
       NOW,
     );
-    expect(rows[0].annotation).toBe("");
+    expect(rows[0].annotation).toBe("(done)");
     expect(rows[0].needsResumeHint).toBe(false);
   });
 
@@ -790,9 +817,14 @@ describe("runLs — printed table header", () => {
     expect(headerLine).toContain("EPIC");
   });
 
-  it("the header row includes a KIND column", async () => {
+  it("the header row includes a KIND column, and a data row renders its cell", async () => {
     vi.spyOn(stateModule, "listStates").mockReturnValue([
-      state({ slug: "some-pipeline", phase: "verifying", repo: "/repo" }),
+      state({
+        slug: "some-pipeline",
+        phase: "verifying",
+        repo: "/repo",
+        kind: "feature",
+      }),
     ]);
     vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -804,7 +836,17 @@ describe("runLs — printed table header", () => {
 
     expect(code).toBe(0);
     const headerLine = String(log.mock.calls[0][0]);
-    expect(headerLine).toContain("KIND");
+    const kindHeaderIndex = headerLine.indexOf("KIND");
+    expect(kindHeaderIndex).toBeGreaterThan(-1);
+
+    // Not just "the word appears somewhere" — the data row must actually
+    // render a kind value at (roughly) the same column as the header.
+    const dataLine = String(
+      log.mock.calls.find((call) =>
+        String(call[0]).includes("some-pipeline"),
+      )?.[0],
+    );
+    expect(dataLine).toContain("feature");
   });
 });
 

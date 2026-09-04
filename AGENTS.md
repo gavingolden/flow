@@ -249,8 +249,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
   backends), `~/.flow/state/<slug>.json`, then on-disk artifacts — the plain
   shell is the DEFAULT launcher, so a bare install has none. flow's options
   (`@flow-slug`, `@flow-phase`, `@flow-repo`, `@flow-phase-short`,
-  `@flow-kind`, `@flow-epic`) are additive, publish-only mirrors on every
-  flow window. Two sanctioned reads: `@flow-kind`, load-bearing ONLY because epic orchestration
+  `@flow-kind`, `@flow-epic`) are additive, publish-only mirrors (`@flow-epic`
+  only on epic-member windows). Two sanctioned reads: `@flow-kind`, load-bearing ONLY because epic orchestration
   is already tmux-only by an independent hard constraint — its precondition
   must be named in a comment at BOTH producing and consuming site, and absence
   must degrade to a CORRECT, safe-by-construction default; and `@flow-slug`,

@@ -35,7 +35,7 @@ export function resolveSlugAmbient(
  * Ambient window-kind resolution: a thin pass-through to
  * `resolveKindFromPane`, deliberately WITHOUT an env-var arm. Unlike the
  * slug, the kind must stay per-pane: the epic launch argv exports
- * `FLOW_SLUG` (`bin/lib/epic.ts:2122`), so any shell the user `cd`s into
+ * `FLOW_SLUG` (`bin/lib/epic.ts:2142`), so any shell the user `cd`s into
  * from that pane inherits it — a parallel `FLOW_KIND` env var would combine
  * with that inherited slug to make an arbitrary descendant shell look like a
  * live epic supervisor to the `SessionStart:clear` hook.

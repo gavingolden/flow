@@ -638,7 +638,9 @@ export function isPipelineKind(value: string): value is PipelineKind {
  * *design* lifecycle, not run progress — see `bin/lib/epic.ts`'s "no
  * per-machine phase machine" comment on the run path); every other kind
  * resumes unless `phase` is terminal, with the `gated` carve-out
- * (feedback-resume stays live even though `gated` is terminal).
+ * (feedback-resume stays live even though `gated` is terminal). Mirrored
+ * by `bin/lib/ls.ts`'s `kind === "epic-run"` annotation carve-out, which
+ * documents this reciprocal link on its own side.
  */
 export function autoResumesAfterClear(
   phase: string,

@@ -245,17 +245,23 @@ export async function buildRows(
       // Two buckets, both with a real call site: FINISHED -> "(done)",
       // AWAITING_HUMAN (gated/needs-human) -> no annotation (the pipeline
       // isn't "done" in the sense flow-ls should label it). An "epic-run"
-      // row is a THIRD, sibling carve-out: its shared state.json describes
-      // the *design* lifecycle's phase, not the run's — `phase` can sit at
-      // a FINISHED value (e.g. `epic-approved`) while the run window is
-      // still live, so "(done)" would mislabel it. Mirrors
-      // `autoResumesAfterClear`'s `kind === "epic-run"` carve-out
-      // (`bin/lib/state.ts` ~627-635) — the two predicates answer different
-      // questions (whether to auto-resume vs. how to label) and only
-      // happen to agree here, so this is a documented sibling, not a
-      // shared helper.
+      // row is a THIRD, sibling carve-out, but ONLY while its run window is
+      // still live: its shared state.json describes the *design*
+      // lifecycle's phase, not the run's — `phase` can sit at a FINISHED
+      // value (e.g. `epic-approved`) while the run window is still live, so
+      // "(done)" would mislabel it. Once the window is gone (finished or
+      // never launched), there is nothing left to distinguish from a truly
+      // finished row, so "(done)" is correct again — suppress only when a
+      // window is actually present. Mirrors `autoResumesAfterClear`'s
+      // `kind === "epic-run"` carve-out (`bin/lib/state.ts:643`) — the two
+      // predicates answer different questions (whether to auto-resume vs.
+      // how to label) and only happen to agree here, so this is a
+      // documented sibling, not a shared helper. Deliberately does NOT fall
+      // through to `livenessOf` below: no pid is recorded for the run
+      // window, so a live run would misread as "(crashed)".
       annotation =
-        FINISHED_PHASE_SET.has(state.phase) && rowKind !== "epic-run"
+        FINISHED_PHASE_SET.has(state.phase) &&
+        !(rowKind === "epic-run" && window)
           ? "(done)"
           : AWAITING_HUMAN_PHASE_SET.has(state.phase)
             ? ""

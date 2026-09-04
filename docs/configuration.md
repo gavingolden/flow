@@ -305,10 +305,12 @@ set -g window-status-format '#{@flow-repo} #{@flow-phase-short}'
 
 `@flow-kind` is published on every flow window too, with one of three
 values (`feature` / `epic-design` / `epic-run`), and you're welcome to
-bind it into your status-bar format the same way. It is the one
-exception to the publish-only rule above: it is also read back by the
-`SessionStart:clear` hook (`resolveKindFromPane`) to resolve which
-pipeline kind a resumed session belongs to — the only flow code that
-reads any of these options back, and the only sanctioned site.
+bind it into your status-bar format the same way. It is one of two
+sanctioned exceptions to the publish-only rule above: it is also read
+back by the `SessionStart:clear` hook (`resolveKindFromPane`) to resolve
+which pipeline kind a resumed session belongs to. The other is
+`@flow-slug`, read back only as a `flow ls`/`attach`/`done` window-join
+key, never as identity — see `AGENTS.md`'s "Two sanctioned reads." Every
+other option above stays publish-only.
 
 flow never writes `~/.tmux.conf` or any other part of your tmux config.
