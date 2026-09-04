@@ -32,6 +32,8 @@ import {
 } from "./flow-plugin-contract-lint";
 import { moduleIds } from "./lib/modules";
 import { pluginRootName } from "./lib/plugin-manifest";
+import { resolveFlowSource } from "./lib/paths";
+import { ensurePluginRoot, materializeModuleContent } from "./lib/plugin-root";
 
 const claudeMissing =
   spawnSync("sh", ["-c", "command -v claude"], { stdio: "pipe" }).status !== 0;
@@ -338,6 +340,50 @@ describe(checkPluginContract, () => {
       expect(resolved).toEqual([]);
       expect(failures).toEqual([]);
     });
+
+    // Always-on (never it.skipIf(claudeMissing)): drives the REAL
+    // materialized flow-module-core registry (agents/core/*.md + their
+    // skills/ siblings), so a mistyped `skills:` name in a real agent
+    // definition turns CI red on a runner without `claude` installed —
+    // the four fixture-based tests above cover the resolver's own logic
+    // but say nothing about the actual shipped registry.
+    it("resolves all six declared agent:skill pairs against the real materialized flow-module-core registry, with no failures", () => {
+      const skillsDir = path.join(tmpRoot, "real-registry");
+      const root = path.join(skillsDir, pluginRootName("core"));
+      // `resolveFlowSource()` reads the developer's REAL ~/.flow/config.json
+      // 'source' key against an import-time HOME that vitest.setup.ts's
+      // sandbox does NOT cover — passing a directory with no .flow/config.json
+      // forces the deterministic module-path branch, so this test can't
+      // silently materialize a different checkout on a host that has run
+      // `flow setup --source <worktree>`.
+      const flowSource = resolveFlowSource(path.join(tmpRoot, "no-config"));
+      const rootResult = ensurePluginRoot({
+        root,
+        moduleId: "core",
+        flowSource,
+        version: "1.0.0",
+        includeSkills: true,
+        force: false,
+      });
+      expect(rootResult).not.toBe("blocked");
+      // The 3-arg form is required: the 2-arg form would mkdirSync an
+      // ownerless, never-ensurePluginRoot'd directory for every one of the
+      // seven registered module ids.
+      materializeModuleContent(flowSource, skillsDir, ["core"]);
+
+      const { resolved, failures } = resolveAgentPreloadSkills(root);
+      expect(failures).toEqual([]);
+      expect(resolved).toEqual(
+        expect.arrayContaining([
+          "flow-consolidator.md:flow-consolidator-instructions",
+          "flow-edit-applier.md:flow-coder-instructions",
+          "flow-fix-applier.md:flow-fix-applier-instructions",
+          "flow-merge-resolver.md:flow-merge-resolver-instructions",
+          "flow-scout.md:flow-scout-instructions",
+          "flow-verify.md:flow-verify-loop-instructions",
+        ]),
+      );
+    });
   });
 
   describe(dereferenceRoot, () => {
@@ -389,7 +435,7 @@ describe(checkPluginContract, () => {
     });
   });
 
-  // The five real-CLI specs below share one checkPluginContract() run —
+  // The four real-CLI specs below share one checkPluginContract() run —
   // separately they'd each re-materialize 7 module roots + 2 probe roots
   // and fire 16 claude invocations (7 strict-deref + 7 shipped-root + 1
   // list + 1 plugin-dir-probe), quadrupling wall-clock cost for zero extra

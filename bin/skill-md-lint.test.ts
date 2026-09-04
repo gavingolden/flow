@@ -9717,7 +9717,7 @@ describe("Preloaded instructions SKILL.md frontmatter + sentinel lint", () => {
     },
   );
 
-  // Five consumer sites cite `flow-instructions-sentinel: <name>` in their
+  // Six consumer sites cite `flow-instructions-sentinel: <name>` in their
   // spawn prompt. Each `<name>` must have a producer among PRELOAD_SKILLS,
   // catching a spawn-prompt site that drifted to name a skill different
   // from the SKILL.md it actually preloads/points at.
@@ -9742,6 +9742,10 @@ describe("Preloaded instructions SKILL.md frontmatter + sentinel lint", () => {
       {
         file: "skills/pipeline/flow-pipeline/references/merge-resolver-spawn-prompt.md",
         expectedName: "flow-merge-resolver-instructions",
+      },
+      {
+        file: "skills/pipeline/flow-pr-review/SKILL.md",
+        expectedName: "flow-consolidator-instructions",
       },
     ];
 

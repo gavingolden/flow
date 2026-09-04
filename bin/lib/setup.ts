@@ -338,11 +338,25 @@ export type SetupSummary = {
  * above already covers a malformed file; this must not add a second,
  * confusing error for the same root cause.
  */
+/**
+ * Mirrors Claude Code's own env-boolean predicate AS OBSERVED IN claude
+ * 2.1.260: `1`/`true`/`yes`/`on`, case-insensitive and trimmed, are all
+ * truthy — a strict `=== "1"` comparison would silently miss a user who
+ * exported `=true`. Module-private: not exported, since the item-5
+ * coverage calls `autoMemoryDisabled`/`subagentCacheTtlOverride` directly
+ * (both already exported), so this predicate needs no public surface. A
+ * future claude version divergence is re-checkable via this comment.
+ */
+function claudeEnvTruthy(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
 export function autoMemoryDisabled(
   settingsPath: string,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  if (env.CLAUDE_CODE_DISABLE_AUTO_MEMORY === "1") return true;
+  if (claudeEnvTruthy(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY)) return true;
   try {
     const raw = fs.readFileSync(settingsPath, "utf8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -364,8 +378,15 @@ export function subagentCacheTtlOverride(
   settingsPath: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
-  if (env.FORCE_PROMPT_CACHING_5M === "1") return "FORCE_PROMPT_CACHING_5M=1";
+  if (claudeEnvTruthy(env.FORCE_PROMPT_CACHING_5M))
+    return "FORCE_PROMPT_CACHING_5M=1";
   if (env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL) {
+    // Deliberately unchanged — plain truthiness, not claudeEnvTruthy().
+    // Claude Code appears to enum-validate this against ["5m","1h"], so a
+    // plain-truthiness read may over-report for a bogus value. Kept
+    // because for a notice-only read, over-reporting is the safe
+    // direction: a wrong notice is cosmetic, a suppressed one hides an
+    // inert feature.
     return `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=${env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL}`;
   }
   try {

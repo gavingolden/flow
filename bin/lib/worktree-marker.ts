@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { git } from "./git";
+import { AGENT_MEMORY_RELPATH } from "./paths";
 
 /** Filename of the worktree-local branch marker, read by flow-state-update's guard. */
 export const BRANCH_MARKER_FILENAME = ".flow-branch";
@@ -15,7 +16,7 @@ export const FLOW_TMP_DIRNAME = ".flow-tmp/";
 const FLOW_EXCLUDE_PATHS = [
   BRANCH_MARKER_FILENAME,
   FLOW_TMP_DIRNAME,
-  ".claude/agent-memory-local",
+  AGENT_MEMORY_RELPATH,
 ] as const;
 
 /** Writes the worktree-local branch-name marker that flow-state-update reads. */

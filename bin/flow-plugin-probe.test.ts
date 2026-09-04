@@ -16,6 +16,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   parseArgs,
+  runClaude,
   runProbes,
   runProbesFiltered,
   type ProbeId,
@@ -58,8 +59,28 @@ vi.mock("node:child_process", async () => {
 
 /** A minimal EventEmitter-shaped fake child process: emits `stdout`/`stderr`
  * data then `close(exitCode)` on the next microtask, matching the shape
- * `runClaude` consumes (`.stdout`, `.stderr`, `.on("close"|"error")`). */
-function fakeChild(stdout: string, stderr: string, exitCode: number) {
+ * `runClaude` consumes (`.stdout`, `.stderr`, `.on("close"|"error")`).
+ *
+ * The optional 4th `opts` param covers the spawn-failure/hang shapes the
+ * default 3-arg call can't express — every existing 3-arg call keeps
+ * working unchanged since `opts` defaults to `{}`:
+ *   - `neverClose`: emits stdout/stderr data (if any) but never `close` —
+ *     simulates a hung child for the in-process timeout tests.
+ *   - `error`: emits only `error` (never `close`) — simulates a bare spawn
+ *     failure (e.g. ENOENT).
+ *   - `errorThenClose`: emits `error` THEN `close(exitCode)`, in that
+ *     order — mirrors Node's real ENOENT sequence, for pinning the
+ *     first-wins latch. */
+function fakeChild(
+  stdout: string,
+  stderr: string,
+  exitCode: number,
+  opts: {
+    neverClose?: boolean;
+    error?: { code?: string; message?: string };
+    errorThenClose?: { code?: string; message?: string };
+  } = {},
+) {
   const child = new EventEmitter() as EventEmitter & {
     stdout: EventEmitter;
     stderr: EventEmitter;
@@ -67,10 +88,33 @@ function fakeChild(stdout: string, stderr: string, exitCode: number) {
   };
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
-  child.kill = vi.fn();
+  // A real killed child eventually emits `close` (with a signal, mapped by
+  // runClaude to exitCode -1) — without this, `neverClose`'s fake child
+  // would hang the timeout test's promise forever, since runClaude only
+  // resolves via `close`/`error`, never from the timer callback itself.
+  child.kill = vi.fn(() => {
+    queueMicrotask(() => child.emit("close", null));
+  });
+  const makeError = (spec: { code?: string; message?: string }) => {
+    const err = new Error(
+      spec.message ?? "spawn error",
+    ) as NodeJS.ErrnoException;
+    if (spec.code) err.code = spec.code;
+    return err;
+  };
   queueMicrotask(() => {
     if (stdout) child.stdout.emit("data", Buffer.from(stdout));
     if (stderr) child.stderr.emit("data", Buffer.from(stderr));
+    if (opts.error) {
+      child.emit("error", makeError(opts.error));
+      return;
+    }
+    if (opts.errorThenClose) {
+      child.emit("error", makeError(opts.errorThenClose));
+      child.emit("close", exitCode);
+      return;
+    }
+    if (opts.neverClose) return;
     child.emit("close", exitCode);
   });
   return child;
@@ -218,6 +262,63 @@ describe("Task-spawn probe argv shape (agent-invocation-name)", () => {
     expect(spawnOptions.stdio).toEqual(["ignore", "pipe", "pipe"]);
     expect(spawnOptions.env?.FLOW_SLUG).toBeUndefined();
     expect(spawnOptions.env?.TMUX_PANE).toBeUndefined();
+  });
+});
+
+describe(runClaude, () => {
+  it("resolves timedOut:true and kills the child when it never closes", async () => {
+    vi.useFakeTimers();
+    try {
+      spawnMock.mockImplementationOnce(() =>
+        fakeChild("", "", 0, { neverClose: true }),
+      );
+      const promise = runClaude(["--version"], { timeoutMs: 1000 });
+      await vi.advanceTimersByTimeAsync(1001);
+      const result = await promise;
+      expect(result.timedOut).toBe(true);
+      const child = spawnMock.mock.results[0]?.value as { kill: () => void };
+      expect(child.kill).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("carries spawnError only when the child never launches, distinct from a real close(-1)", async () => {
+    spawnMock.mockImplementationOnce(() =>
+      fakeChild("", "", -1, {
+        error: { code: "ENOENT", message: "spawn claude ENOENT" },
+      }),
+    );
+    const errorResult = await runClaude(["--version"]);
+    expect(errorResult.spawnError).toContain("ENOENT");
+
+    spawnMock.mockImplementationOnce(() => fakeChild("", "", -1));
+    const closeResult = await runClaude(["--version"]);
+    expect(closeResult.spawnError).toBeUndefined();
+  });
+
+  it("pins the first-wins latch: an error-then-close sequence (Node's real ENOENT ordering) still carries spawnError", async () => {
+    spawnMock.mockImplementationOnce(() =>
+      fakeChild("", "", 0, {
+        errorThenClose: { code: "ENOENT", message: "spawn claude ENOENT" },
+      }),
+    );
+    const result = await runClaude(["--version"]);
+    expect(result.spawnError).toContain("ENOENT");
+  });
+
+  it("end-to-end: a spawn failure surfaces as an 'inconclusive' verdict naming the failure (bin-path-injection, a non-live probe)", async () => {
+    spawnMock.mockImplementation(() =>
+      fakeChild("", "", -1, {
+        error: { code: "ENOENT", message: "spawn claude ENOENT" },
+      }),
+    );
+    const verdicts = await runProbesFiltered(["bin-path-injection"], {
+      claudeOnPath: () => true,
+    });
+    const v = verdicts.find((x) => x.id === "bin-path-injection");
+    expect(v?.verdict).toBe("inconclusive");
+    expect(v?.evidence).toContain("ENOENT");
   });
 });
 

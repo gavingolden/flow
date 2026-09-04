@@ -117,7 +117,14 @@ function commandOnPath(cmd: string): boolean {
   return result.status === 0;
 }
 
-type ClaudeResult = { stdout: string; exitCode: number; timedOut: boolean };
+type ClaudeResult = {
+  stdout: string;
+  exitCode: number;
+  timedOut: boolean;
+  /** Set only when the child process itself never launched (e.g. spawn
+   * ENOENT) — distinct from a launched-but-nonzero-exit child. */
+  spawnError?: string;
+};
 
 /** Same in-process hard-timeout discipline as flow-plugin-probe.ts's
  * runClaude — stdout captured alone, CI=1 in the child env, never a
@@ -147,12 +154,21 @@ function runClaude(
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
-    const finish = (exitCode: number) => {
+    // Node emits `error` and THEN `close` for a spawn ENOENT, so without
+    // this first-wins latch the second call (`close`) would clobber
+    // `spawnError` back to undefined.
+    let settled = false;
+    const finish = (exitCode: number, err?: Error) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      resolve({ stdout, exitCode, timedOut });
+      const spawnError = err
+        ? `${(err as NodeJS.ErrnoException).code ?? "spawn-error"}: ${err.message}`
+        : undefined;
+      resolve({ stdout, exitCode, timedOut, spawnError });
     };
     child.on("close", (code) => finish(code ?? -1));
-    child.on("error", () => finish(-1));
+    child.on("error", (err) => finish(-1, err));
   });
 }
 
@@ -382,7 +398,7 @@ export async function checkPluginContract(
         failures.push({
           root,
           phase: "validate-strict-deref",
-          detail: `claude plugin validate --strict exited ${result.exitCode}`,
+          detail: `claude plugin validate --strict exited ${result.exitCode}${result.spawnError ? ` (spawn error: ${result.spawnError})` : ""}`,
         });
         continue;
       }
@@ -415,7 +431,7 @@ export async function checkPluginContract(
         failures.push({
           root,
           phase: "validate-shipped-root",
-          detail: `claude plugin validate exited ${result.exitCode}`,
+          detail: `claude plugin validate exited ${result.exitCode}${result.spawnError ? ` (spawn error: ${result.spawnError})` : ""}`,
         });
         continue;
       }
@@ -543,7 +559,7 @@ export async function checkPluginContract(
       failures.push({
         root: probeLabel,
         phase: "plugin-dir-probe",
-        detail: `exited ${probeResult.exitCode}, via ${probeLabel}`,
+        detail: `exited ${probeResult.exitCode}${probeResult.spawnError ? ` (spawn error: ${probeResult.spawnError})` : ""}, via ${probeLabel}`,
       });
     } else {
       let probeParsed: Array<{
