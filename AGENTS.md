@@ -90,12 +90,10 @@ module (`docs/configuration.md`). `flow-plugin-probe`/`flow-plugin-contract-lint
 join `flow-release`/`flow-model-bench`/`flow-eval` in `MAINTAINER_ONLY` — never on PATH.
 
 Static agent-type definitions live at **`agents/<moduleId>/*.md`** (today
-only `core/`), symlinked as ONE dir per module (`flow-module-<id>/agents`
-— Claude Code follows a symlinked dir, not a symlinked file). 15/16 carry
-`tools:` allowlists (flow-discovery: none); 2 mechanical roles pin
-`effort: low`, the gatekeeper pins `model: haiku`; per-spawn `model:`
-still wins. In-process skills (`flow-checkpoint`) pin `effort:`, never
-`model:`.
+only `core/`), symlinked as ONE dir per module (`flow-module-<id>/agents`;
+Claude Code follows symlinked dirs, not files). Frontmatter pins are
+enumerated by `AGENT_FRONTMATTER_POLICY` in `bin/skill-md-lint.test.ts`;
+per-spawn `model:` wins. In-process skills pin `effort:`, never `model:`.
 
 Conventions for any script under `bin/`: `#!/usr/bin/env bun` + `chmod
 +x`; gate `main()` with `import.meta.main` (not an
@@ -260,7 +258,9 @@ three-layer resolution table, and the manifest/foundation fields — is at
   (`LIST_WINDOWS_FORMAT`), never identity. See `resolveSlugAmbient` (env-only)
   and `resolveKindAmbient` in `bin/lib/session-identity.ts`;
   `bin/pane-read-lint.test.ts` fails CI on any pane read outside the frozen
-  allowlist, in code or prose.
+  allowlist, in code or prose. `@flow-kind` now also publishes on feature
+  windows, not only epic ones; `flow ls`'s KIND column reads
+  `PipelineState.kind`, never the pane option.
 - **Don't write test-time port or URL overrides to a file.** Pass them
   inline to the launch subprocess (env vars / CLI flags); never write
   `.env.local`, `.env`, or any other config file. A gitignored override
@@ -361,9 +361,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
     falling back inline. Enforced by `bin/skill-md-lint.test.ts`'s "Load
     the Task tool before spawning" check at all nine sites, plus the
     nested verify-loop → edit-applier site, which records `coder_spawn:
-    task-tool-unavailable` and degrades inline instead of escalating
-    because inline application is a known-good fallback there — a
-    sibling guard, not a tenth exemption.
+    task-tool-unavailable` and degrades inline (a known-good fallback
+    there) — a sibling guard, not a tenth exemption.
   - The `/flow-pr-review` Gemini lens, the cross-model intent guess
     (`flow-gemini-intent-guess`), the `/flow-pipeline` Step-3
     **cross-model plan review**, and the Step-3

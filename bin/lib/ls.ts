@@ -13,7 +13,10 @@
  *     end state there, not a crash. A FINISHED phase (merged, cancelled,
  *     epic-approved) renders "(done)"; an AWAITING_HUMAN phase (gated,
  *     needs-human) renders no annotation — the PHASE column already says
- *     what's outstanding.
+ *     what's outstanding. Carve-out: a row whose KIND is "epic-run" renders
+ *     no "(done)" even at a FINISHED phase — its shared state.json's phase
+ *     describes the *design* lifecycle, not run progress, so a live run
+ *     window can sit at `epic-approved` (see `resolveRowKind` below).
  *   - otherwise, drift handling by liveness/window presence:
  *     - state file but no window → "(no window)" (likely a crashed session)
  *     - window but no state file → "(no state)" (manual creation)
@@ -39,7 +42,9 @@ import {
   TERMINAL_PHASE_SET,
   FINISHED_PHASE_SET,
   AWAITING_HUMAN_PHASE_SET,
+  isEpicPhase,
   type PipelineState,
+  type PipelineKind,
 } from "./state";
 import { livenessOf } from "./liveness";
 import { reapStartingOrphans } from "./reap-orphans";
@@ -71,6 +76,14 @@ export type LsOptions = {
 export type Row = {
   name: string;
   repo: string;
+  /**
+   * Which supervisor kind this row is: `feature` / `epic-design` /
+   * `epic-run`, sourced from `state.kind` (falling back to
+   * `resolveRowKind`'s phase-derived default) — NEVER from the `@flow-kind`
+   * tmux pane option. Empty ONLY for the unmanaged "(no state)" rows built
+   * from a window with no state file, which have no PipelineState to read.
+   */
+  kind: PipelineKind | "";
   /** Epic slug from state.epic, or "" when this pipeline isn't epic-launched. */
   epic: string;
   phase: string;
@@ -225,17 +238,28 @@ export async function buildRows(
     // annotation, so the two can never disagree — the footer below merely
     // reads it rather than re-deriving eligibility from the phase or the
     // display string.
+    const rowKind = resolveRowKind(state);
     let annotation: Row["annotation"];
     let needsResumeHint: boolean;
     if (TERMINAL_PHASE_SET.has(state.phase)) {
       // Two buckets, both with a real call site: FINISHED -> "(done)",
       // AWAITING_HUMAN (gated/needs-human) -> no annotation (the pipeline
-      // isn't "done" in the sense flow-ls should label it).
-      annotation = FINISHED_PHASE_SET.has(state.phase)
-        ? "(done)"
-        : AWAITING_HUMAN_PHASE_SET.has(state.phase)
-          ? ""
-          : "";
+      // isn't "done" in the sense flow-ls should label it). An "epic-run"
+      // row is a THIRD, sibling carve-out: its shared state.json describes
+      // the *design* lifecycle's phase, not the run's — `phase` can sit at
+      // a FINISHED value (e.g. `epic-approved`) while the run window is
+      // still live, so "(done)" would mislabel it. Mirrors
+      // `autoResumesAfterClear`'s `kind === "epic-run"` carve-out
+      // (`bin/lib/state.ts` ~627-635) — the two predicates answer different
+      // questions (whether to auto-resume vs. how to label) and only
+      // happen to agree here, so this is a documented sibling, not a
+      // shared helper.
+      annotation =
+        FINISHED_PHASE_SET.has(state.phase) && rowKind !== "epic-run"
+          ? "(done)"
+          : AWAITING_HUMAN_PHASE_SET.has(state.phase)
+            ? ""
+            : "";
       needsResumeHint = false;
     } else {
       const verdict = livenessOf(state);
@@ -253,7 +277,13 @@ export async function buildRows(
     rows.push({
       name: state.slug,
       repo: path.basename(state.repo),
-      epic: state.epic?.slug ?? "",
+      kind: rowKind,
+      // A non-feature row (epic-design/epic-run) has no `state.epic`
+      // membership of its own — it falls back to its OWN slug, mirroring
+      // `epic.ts`'s `setWindowEpic(slug, slug)` self-publish rationale, so
+      // an epic supervisor's row still shows something under EPIC. A
+      // feature row's absent membership stays "" (not epic-launched).
+      epic: state.epic?.slug ?? (rowKind === "feature" ? "" : state.slug),
       phase: state.phase || "—",
       pr: state.pr ? `#${state.pr}` : "—",
       lastActivity: lastActivityFrom(state.updatedAt, nowMs),
@@ -273,6 +303,7 @@ export async function buildRows(
     rows.push({
       name: window.name,
       repo: "",
+      kind: "",
       epic: "",
       phase: "—",
       pr: "—",
@@ -316,6 +347,23 @@ export function formatEpicCell(epic: string): string {
   return epic || "—";
 }
 
+/**
+ * Which supervisor kind a managed row is. Prefers the persisted
+ * `state.kind` (Task 2); absent (a pre-existing state file, or a legacy one
+ * from before this field existed) falls back to the phase-derived default —
+ * `isEpicPhase` cannot itself distinguish epic-design from epic-run sharing
+ * one state file (`bin/lib/state.ts`'s `isEpicPhase` doc comment), so the
+ * fallback can only ever resolve to "epic-design", never "epic-run".
+ */
+export function resolveRowKind(state: PipelineState): PipelineKind {
+  return state.kind ?? (isEpicPhase(state.phase) ? "epic-design" : "feature");
+}
+
+/** Renders the KIND column cell — mirrors `formatEpicCell`. */
+export function formatKindCell(kind: Row["kind"]): string {
+  return kind || "—";
+}
+
 /** Composes the NAME cell: base name, then any drift annotation, then a
  * `(wait-copilot)` marker — the two coexist rather than excluding each other. */
 export function formatNameCell(row: Row): string {
@@ -329,6 +377,7 @@ function printTable(rows: Row[], opts: LsOptions): void {
   type Col = { header: string; get: (r: Row) => string };
   const cols: Col[] = [
     { header: "NAME", get: (r) => formatNameCell(r) },
+    { header: "KIND", get: (r) => formatKindCell(r.kind) },
     { header: "REPO", get: (r) => formatRepoCell(r.repo) },
     { header: "EPIC", get: (r) => formatEpicCell(r.epic) },
     { header: "PHASE", get: (r) => r.phase },

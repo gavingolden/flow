@@ -56,9 +56,20 @@ export function resolveSlugAmbient(
  * would read `null` and misresolve to `"feature"`), and the kind signal
  * must move to a backend-agnostic carrier BEFORE that happens. The carrier
  * choice is deliberately left open here — an env var is ruled out for the
- * leak reason above, and a `PipelineState.kind` field was considered and
- * rejected once already (pre-existing epic state files would read
- * `undefined` and silently take the feature branch).
+ * leak reason above. `PipelineState.kind` now EXISTS as an optional DISPLAY
+ * carrier (`bin/lib/state.ts`, read by `flow ls`'s KIND column) — but this
+ * function deliberately still does NOT read it: the display use is safe
+ * because an absent value there degrades to a correctly-derived fallback
+ * cell, while the identity use here is NOT — an absent value could
+ * silently misresolve and let the `SessionStart:clear` hook drive a live
+ * epic supervisor with a feature seed. If epic orchestration ever supports
+ * the plain launcher, `state.kind` plus the `isEpicPhase` fallback is the
+ * carrier to move to.
+ *
+ * Producing-site note (AGENTS.md's both-sites rule): `@flow-kind` is now
+ * published on feature windows too (`bin/lib/feature.ts`), not just epic
+ * windows — this function's pane-only read is unaffected, since every
+ * live window of every kind now carries the option.
  */
 export function resolveKindAmbient(
   deps: ResolveSlugDeps = {},

@@ -177,6 +177,23 @@ export type PipelineState = {
    */
   epic?: { slug: string; featureId: string };
   /**
+   * Which supervisor wrote this state file, at the time it wrote it:
+   * `feature` (`flow feature create`), `epic-design` (`flow epic create` /
+   * `flow epic resume`), or `epic-run` (`flow epic run`). Immutable per
+   * LAUNCH, not per file — epic-design and epic-run share one
+   * `<epic-slug>.json`, so a later launch of the OTHER kind deliberately
+   * overwrites it (do NOT read this as immutable for the state file's
+   * lifetime; that contradicts the stale-kind discipline `bin/lib/epic.ts`'s
+   * writeState sites enforce). Absent resolves via the phase-derived
+   * fallback `isEpicPhase(phase) ? "epic-design" : "feature"`, never a bare
+   * `"feature"`. A DISPLAY carrier only — `resolveKindAmbient`
+   * (`bin/lib/session-identity.ts`) deliberately does NOT read it, since an
+   * absent value there could silently misresolve identity, not just
+   * display. Absent ≡ resolved via the fallback above; no migration
+   * (AGENTS.md: no back-compat shims).
+   */
+  kind?: PipelineKind;
+  /**
    * Append-only phase-transition history, one entry per `flow-state-update
    * --phase` write. Feeds the `## PIPELINE SNAPSHOT` block's PHASES section
    * (`flow-pipeline-summary`) with an authoritative trace instead of
@@ -880,6 +897,7 @@ function isPipelineState(x: unknown): x is PipelineState {
     o.launcher !== "tmux"
   )
     return false;
+  if (o.kind !== undefined && !isPipelineKind(o.kind as string)) return false;
   if (o.launchAttempts !== undefined && typeof o.launchAttempts !== "number")
     return false;
   if (

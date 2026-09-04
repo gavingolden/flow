@@ -6,9 +6,11 @@ import {
   buildRows as buildRowsImpl,
   formatCostCell,
   formatEpicCell,
+  formatKindCell,
   formatNameCell,
   formatRepoCell,
   printOrphanRecovery,
+  resolveRowKind,
   runLs,
   runLsCli,
   type LsOptions,
@@ -122,6 +124,45 @@ describe(buildRows, () => {
   it("renders an empty epic field for a non-epic pipeline", async () => {
     const rows = await buildRows([state({ slug: "csv-export" })], [], NOW);
     expect(rows[0].epic).toBe("");
+  });
+
+  it.each(["feature", "epic-design", "epic-run"] as const)(
+    "buildRows carries the persisted kind %s straight through to the row",
+    async (kind) => {
+      const rows = await buildRows(
+        [state({ slug: "csv-export", kind })],
+        [],
+        NOW,
+      );
+      expect(rows[0].kind).toBe(kind);
+    },
+  );
+
+  it("resolveRowKind falls back to epic-design for an absent kind at an epic phase", () => {
+    expect(
+      resolveRowKind(state({ phase: "epic-designing", kind: undefined })),
+    ).toBe("epic-design");
+  });
+
+  it("resolveRowKind falls back to feature for an absent kind at a non-epic phase", () => {
+    expect(
+      resolveRowKind(state({ phase: "implementing", kind: undefined })),
+    ).toBe("feature");
+  });
+
+  it("a non-feature row with no state.epic membership falls back to its own slug under EPIC", async () => {
+    const rows = await buildRows(
+      [
+        state({
+          slug: "design-thing",
+          phase: "epic-designing",
+          kind: "epic-design",
+        }),
+      ],
+      [],
+      NOW,
+    );
+    expect(rows[0].epic).toBe("design-thing");
   });
 
   it("falls back to tmux activity for (no state) rows", async () => {
@@ -409,6 +450,46 @@ describe("buildRows — phase-aware annotation (terminal phases outrank liveness
     },
   );
 
+  // NEW case, not a re-parametrization of EXPECTED_ANNOTATION_BY_PHASE
+  // above: that table's rows carry no `kind`, so the fallback resolves
+  // "epic-approved" to "epic-design" and stays green untouched. A row whose
+  // persisted kind IS "epic-run" is the carve-out — its shared state.json's
+  // phase describes the design lifecycle, not the run, so a FINISHED phase
+  // must render no annotation and no resume hint (the row is live, not
+  // orphaned).
+  it("kind=epic-run at a FINISHED phase ⇒ empty annotation, needsResumeHint false", async () => {
+    const rows = await buildRows(
+      [
+        state({
+          slug: "run-row",
+          phase: "epic-approved",
+          kind: "epic-run",
+        }),
+      ],
+      [],
+      NOW,
+    );
+    expect(rows[0].annotation).toBe("");
+    expect(rows[0].needsResumeHint).toBe(false);
+  });
+
+  // Regression pin alongside the carve-out above: a "feature" row (or any
+  // non-epic-run kind) at a FINISHED phase still renders "(done)".
+  it("kind=feature at a FINISHED phase still renders (done) (regression pin)", async () => {
+    const rows = await buildRows(
+      [
+        state({
+          slug: "done-row",
+          phase: "merged",
+          kind: "feature",
+        }),
+      ],
+      [],
+      NOW,
+    );
+    expect(rows[0].annotation).toBe("(done)");
+  });
+
   // Named regression case: this is the bug report. A merged pipeline with a
   // dead recorded pid must read (done), never (crashed).
   it("phase=merged + dead pid ⇒ (done), never (crashed) (regression pin)", async () => {
@@ -624,6 +705,18 @@ describe(formatEpicCell, () => {
   });
 });
 
+describe(formatKindCell, () => {
+  it("renders — for the empty-string kind (unmanaged '(no state)' rows only)", () => {
+    expect(formatKindCell("")).toBe("—");
+  });
+
+  it("renders each PipelineKind verbatim", () => {
+    expect(formatKindCell("feature")).toBe("feature");
+    expect(formatKindCell("epic-design")).toBe("epic-design");
+    expect(formatKindCell("epic-run")).toBe("epic-run");
+  });
+});
+
 describe("runLsCli (--help / -h short-circuit)", () => {
   // The help check must precede every state read and tmux query so the
   // shim is safe to invoke even when ~/.flow/state/ is unreadable.
@@ -695,6 +788,23 @@ describe("runLs — printed table header", () => {
     expect(code).toBe(0);
     const headerLine = String(log.mock.calls[0][0]);
     expect(headerLine).toContain("EPIC");
+  });
+
+  it("the header row includes a KIND column", async () => {
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "some-pipeline", phase: "verifying", repo: "/repo" }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+
+    expect(code).toBe(0);
+    const headerLine = String(log.mock.calls[0][0]);
+    expect(headerLine).toContain("KIND");
   });
 });
 
@@ -819,6 +929,7 @@ describe("runLs — orphan recovery footnote", () => {
     const falseFlagCrashed: Row = {
       name: "false-flag",
       repo: "/repo",
+      kind: "feature",
       epic: "",
       phase: "merged",
       pr: "—",
@@ -830,6 +941,7 @@ describe("runLs — orphan recovery footnote", () => {
     const trueFlagHealthyLooking: Row = {
       name: "true-flag",
       repo: "/repo",
+      kind: "feature",
       epic: "",
       phase: "verifying",
       pr: "—",
