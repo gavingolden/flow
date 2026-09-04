@@ -249,8 +249,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
   backends), `~/.flow/state/<slug>.json`, then on-disk artifacts — the plain
   shell is the DEFAULT launcher, so a bare install has none. flow's options
   (`@flow-slug`, `@flow-phase`, `@flow-repo`, `@flow-phase-short`,
-  `@flow-kind`, `@flow-epic`) are additive, publish-only mirrors. Two
-  sanctioned reads: `@flow-kind`, load-bearing ONLY because epic orchestration
+  `@flow-kind`, `@flow-epic`) are additive, publish-only mirrors (`@flow-epic`
+  only on epic-member windows). Two sanctioned reads: `@flow-kind`, load-bearing ONLY because epic orchestration
   is already tmux-only by an independent hard constraint — its precondition
   must be named in a comment at BOTH producing and consuming site, and absence
   must degrade to a CORRECT, safe-by-construction default; and `@flow-slug`,
@@ -258,7 +258,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
   (`LIST_WINDOWS_FORMAT`), never identity. See `resolveSlugAmbient` (env-only)
   and `resolveKindAmbient` in `bin/lib/session-identity.ts`;
   `bin/pane-read-lint.test.ts` fails CI on any pane read outside the frozen
-  allowlist, in code or prose.
+  allowlist, in code or prose. `flow ls`'s KIND column reads
+  `PipelineState.kind`, never `@flow-kind`.
 - **Don't write test-time port or URL overrides to a file.** Pass them
   inline to the launch subprocess (env vars / CLI flags); never write
   `.env.local`, `.env`, or any other config file. A gitignored override

@@ -1319,9 +1319,24 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * budget goes to 26_300 (198 chars of headroom), not the bare
    * post-edit value, matching the "don't land at a single-digit-headroom
    * trap" discipline of every raise above.
+   * Raised once more from 26_300 to 26_500 to fund the `@flow-kind`
+   * publish-breadth + `flow ls` KIND-column facts: the `## Don'ts`
+   * pane-state bullet now says the six `@flow-*` mirrors publish "on every
+   * flow window" (they previously read epic-only by omission) and closes
+   * with "`flow ls`'s KIND column reads `PipelineState.kind`, never
+   * `@flow-kind`" — the foreclosed shortcut a future agent is most likely
+   * to take on this surface. Measured via String.prototype.length (not
+   * `wc -c` bytes): pre-edit 26_285, post-edit 26_380 — a +95-char delta,
+   * already the deduped form (the first draft was +151 before folding the
+   * publish-breadth fact into the existing mirrors sentence rather than
+   * appending a second one). The budget goes to 26_500 (120 chars of
+   * headroom), not the bare post-edit value, matching the "don't land at a
+   * single-digit-headroom trap" discipline of every raise above — the
+   * 26_300 budget had only 15 chars of headroom left on `main`, so a
+   * dedup-only path would have had to cut unrelated contract prose.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 26_300;
+    const CHAR_BUDGET = 26_500;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +

@@ -605,6 +605,7 @@ PR → review checkpoint), and writes initial epic state under
         model: sessionModel,
         modelPlanning,
         seed,
+        kind: "epic-design",
         updatedAt: nowIso(),
       },
       options.stateDir,
@@ -795,11 +796,20 @@ function runEpicResume(name: string, options: EpicOptions): number {
   {
     const preClear = readState(slug, options.stateDir);
     if (preClear != null) {
+      // kind stamped unconditionally (not a `?? preClear.kind` fallback) —
+      // `flow epic run` may have left this shared state file's kind at
+      // "epic-run"; this resume is unambiguously the epic-design supervisor,
+      // so it must overwrite, mirroring the LOAD-BEARING setPaneKind
+      // republish below that overwrites a stale @flow-kind left the same
+      // way. Only reached when a state file already exists (the null guard
+      // above) — a slug with no state file produces no `flow ls` row to
+      // label, so there is nothing to stamp.
       writeState(
         {
           ...preClear,
           seed,
           seedIngest: undefined,
+          kind: "epic-design",
         },
         options.stateDir,
       );
@@ -1104,11 +1114,21 @@ function spawnEpicRunSupervisor(
   {
     const current = readState(slug, options.stateDir);
     if (current != null) {
+      // kind stamped unconditionally — this shared state.json may still
+      // carry "epic-design" from `runCreate`/epic-resume; last-writer-wins
+      // is correct here specifically BECAUSE the `windowExists(slug)`
+      // refusal above makes epic-design and epic-run windows for the same
+      // slug mutually exclusive at any given moment, so there is never a
+      // live design supervisor whose kind this write could clobber
+      // underneath it. Only reached when a state file already exists (the
+      // null guard above) — a slug with no state file produces no `flow ls`
+      // row to label, so there is nothing to stamp.
       writeState(
         {
           ...current,
           seed,
           seedIngest: undefined,
+          kind: "epic-run",
         },
         options.stateDir,
       );
