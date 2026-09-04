@@ -272,9 +272,16 @@ function main(): void {
   // have created the worktree without these.
   writeBranchMarker(chosen.worktreeDir, chosen.branchName);
   ensureFlowExcludes(chosen.worktreeDir);
-  linkAgentMemory(chosen.worktreeDir, primaryDir);
-  // Best-effort: the session trailer is non-critical, so a config/hook-write
-  // hiccup must not abort worktree creation (unlike the two calls above).
+  // Best-effort: the memory handoff and the session trailer are both
+  // nice-to-haves, so a symlink/config hiccup must not abort worktree
+  // creation (unlike the two marker/exclude calls above).
+  try {
+    linkAgentMemory(chosen.worktreeDir, primaryDir);
+  } catch (e: unknown) {
+    log.warn(
+      `could not link agent-memory-local: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
   try {
     installCommitHook(chosen.worktreeDir);
   } catch (e: unknown) {

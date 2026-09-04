@@ -371,7 +371,10 @@ export function subagentCacheTtlOverride(
   try {
     const raw = fs.readFileSync(settingsPath, "utf8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (typeof parsed.subagentPromptCacheTtl === "string") {
+    if (
+      typeof parsed.subagentPromptCacheTtl === "string" ||
+      typeof parsed.subagentPromptCacheTtl === "number"
+    ) {
       return `subagentPromptCacheTtl=${parsed.subagentPromptCacheTtl}`;
     }
     return null;
@@ -803,19 +806,23 @@ async function runUnderLock(
         `  ! hooks/SessionStart:${SESSION_START_HOOK_COMMAND}  (${ssResult.reason}: ${ssResult.error ?? "no detail"})`,
       );
     }
+  }
 
-    const notifyEnv = options.env ?? process.env;
-    if (autoMemoryDisabled(settingsPath, notifyEnv)) {
-      log(
-        "  ! auto memory is disabled — flow-discovery/flow-scout memory: local will be inert (see docs/configuration.md)",
-      );
-    }
-    const cacheTtlOverride = subagentCacheTtlOverride(settingsPath, notifyEnv);
-    if (cacheTtlOverride) {
-      log(
-        `  ! ${cacheTtlOverride} overrides flow's per-agent 1h cache TTL (see docs/configuration.md)`,
-      );
-    }
+  // Read-only notices — unrelated to the hook merge above, so they must fire
+  // regardless of `--no-hooks`. The users most likely to have hand-set
+  // `subagentPromptCacheTtl` or `autoMemoryEnabled: false` are exactly the
+  // `--no-hooks` users who hand-manage settings.json.
+  const notifyEnv = options.env ?? process.env;
+  if (autoMemoryDisabled(settingsPath, notifyEnv)) {
+    log(
+      "  ! auto memory is disabled — flow-discovery/flow-scout memory: local will be inert (see docs/configuration.md)",
+    );
+  }
+  const cacheTtlOverride = subagentCacheTtlOverride(settingsPath, notifyEnv);
+  if (cacheTtlOverride) {
+    log(
+      `  ! ${cacheTtlOverride} overrides flow's per-agent 1h cache TTL (see docs/configuration.md)`,
+    );
   }
 
   // Write the manifest as the union of "what we just installed" + entries

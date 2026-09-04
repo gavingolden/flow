@@ -182,7 +182,8 @@ template). The `{{RESEARCH_OVERRIDE}}`, `{{REVISION_OVERRIDE}}`, `{{EPIC_OVERRID
 blocks are all **omit-when-absent** (shown, in that section order, after the
 template). The other placeholders
 (`{{INSTRUCTIONS_PATH}}`, `{{USER_DESCRIPTION}}`, `{{WORKTREE}}`,
-`{{SKILL_DIR}}`) are mode-independent:
+`{{SKILL_DIR}}`, `{{HEAD}}` — wrapper-resolved via `git rev-parse --short HEAD`
+in `$WORKTREE`) are mode-independent:
 
 ```
 You are the Independent Discovery Subagent for `/flow-product-planning`. You run

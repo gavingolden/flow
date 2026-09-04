@@ -541,7 +541,7 @@ async function probeAgentMemoryScope(
 ): Promise<ProbeVerdict> {
   const id: ProbeId = "agent-memory-scope";
   const tmpParent = path.dirname(fixtureHome);
-  const { primaryDir, worktreeDir } = makeFixtureRepoAndWorktree(tmpParent);
+  const { worktreeDir } = makeFixtureRepoAndWorktree(tmpParent);
 
   const agentsJson = JSON.stringify({
     "probe-memory-agent": {
@@ -582,13 +582,31 @@ async function probeAgentMemoryScope(
   };
 
   const withoutSymlink = await runOnce(worktreeDir, false);
+  // `tmpParent` already contains both `worktreeDir` and `primaryDir`, so
+  // listing all three would walk the same fixture tree redundantly and
+  // could double/triple-list the same file in the evidence string — walk
+  // tmpParent (covers the fixture) and the real user-scope root once each.
   const observedRoots = [
     tmpParent,
-    worktreeDir,
-    primaryDir,
     path.join(os.homedir(), ".claude", "agent-memory"),
   ];
   const foundWithout = observedRoots.flatMap(findMemoryFiles);
+  // The hypothesis under test is cwd-relative resolution — a note landing
+  // under `<worktreeDir>/.claude/agent-memory-local`, NOT anywhere under
+  // `~/.claude/agent-memory`. Any host that has ever run a `memory: user`
+  // agent already has files under the real, persistent
+  // `~/.claude/agent-memory`, so folding that root into the verdict would
+  // say "confirmed (cwd-relative)" even when the fixture agent wrote
+  // nothing or wrote to the wrong scope — finding a note there is in fact
+  // evidence AGAINST the cwd-relative claim.
+  const expectedCwdRelative = path.join(
+    worktreeDir,
+    ".claude",
+    "agent-memory-local",
+  );
+  const foundCwdRelative = foundWithout.filter((p) =>
+    p.startsWith(expectedCwdRelative),
+  );
 
   if (withoutSymlink.timedOut) {
     return {
@@ -599,10 +617,40 @@ async function probeAgentMemoryScope(
     };
   }
 
+  // Second leg: re-run with a pre-planted symlink at the same cwd-relative
+  // path and confirm the write followed the link into the cache dir. This
+  // is the leg `linkAgentMemory`'s design and docs/subagent-features-probe.md
+  // cite as evidence for symlink-followed writes, so it must actually run
+  // rather than staying dead code (`runOnce`'s `withSymlink` param was
+  // otherwise never exercised with `true`).
+  const symlinkCacheDir = fs.mkdtempSync(
+    path.join(tmpParent, "agent-memory-cache-"),
+  );
+  fs.rmSync(expectedCwdRelative, { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(expectedCwdRelative), { recursive: true });
+  fs.symlinkSync(symlinkCacheDir, expectedCwdRelative);
+  const withSymlink = await runOnce(worktreeDir, false);
+  const foundInCache = findMemoryFiles(symlinkCacheDir);
+  const stillLink = (() => {
+    try {
+      return fs.lstatSync(expectedCwdRelative).isSymbolicLink();
+    } catch {
+      return false;
+    }
+  })();
+
+  const cwdRelativeConfirmed = foundCwdRelative.length > 0;
+  const symlinkFollowedConfirmed =
+    !withSymlink.timedOut && foundInCache.length > 0 && stillLink;
+  const verdict: ProbeVerdict["verdict"] =
+    cwdRelativeConfirmed && symlinkFollowedConfirmed
+      ? "confirmed"
+      : "inconclusive";
+
   return {
     id,
-    verdict: foundWithout.length > 0 ? "confirmed" : "inconclusive",
-    evidence: `memory:local agent run from worktree cwd ${worktreeDir}; MEMORY.md observed at: ${JSON.stringify(foundWithout)}; exit ${withoutSymlink.exitCode}`,
+    verdict,
+    evidence: `memory:local agent run from worktree cwd ${worktreeDir}; cwd-relative MEMORY.md observed at: ${JSON.stringify(foundCwdRelative)} (all observed: ${JSON.stringify(foundWithout)}); exit ${withoutSymlink.exitCode}; symlink leg: cache dir ${symlinkCacheDir}, files in cache: ${JSON.stringify(foundInCache)}, link intact after run: ${stillLink}, exit ${withSymlink.timedOut ? "timed-out" : withSymlink.exitCode}`,
     fallback: "assume cwd-relative + symlink-followed handoff (plan default)",
   };
 }
@@ -710,10 +758,17 @@ async function probeMaxTurnsPartial(
       fallback: "assume a partial marker is returned, undocumented shape",
     };
   }
+  // The top-level `-p` session almost always prints something (including a
+  // false "the subagent finished and replied DONE" when the budget wasn't
+  // actually hit, or a Task-tool permission refusal), so a bare non-empty
+  // check can only ever return `inconclusive`. Test for the literal partial
+  // marker `partial-result-continuation.md` documents instead.
+  const hitLimit = /stopped at its \d+-turn limit/.test(result.stdout);
+  const hasAgentId = /agentId:\s*\S+/.test(result.stdout);
   return {
     id,
-    verdict: result.stdout.trim().length > 0 ? "confirmed" : "inconclusive",
-    evidence: `maxTurns:1 agent raw result text (exit ${result.exitCode}, agent id probe-maxturns-agent): ${result.stdout.trim().slice(0, 500)}`,
+    verdict: hitLimit && hasAgentId ? "confirmed" : "inconclusive",
+    evidence: `maxTurns:1 agent raw result text (exit ${result.exitCode}, agent id probe-maxturns-agent, hitLimit=${hitLimit}, hasAgentId=${hasAgentId}): ${result.stdout.trim().slice(0, 500)}`,
   };
 }
 
@@ -723,8 +778,12 @@ async function probeCacheTtl1h(fixtureHome: string): Promise<ProbeVerdict> {
   // JSON (per the sub-agents page) — this fixture writes a real agent file
   // into the fixture plugin root's agents/ dir.
   const root = materializeRoot(fixtureHome);
+  // Create under the fixture's own tmp parent (like
+  // makeFixtureRepoAndWorktree does) rather than bare os.tmpdir(), so the
+  // probe's tmpRoot teardown reaps it instead of leaking one
+  // flow-probe-cachettl-agents-* dir per live run.
   const agentsSourceDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), "flow-probe-cachettl-agents-"),
+    path.join(path.dirname(fixtureHome), "flow-probe-cachettl-agents-"),
   );
   fs.writeFileSync(
     path.join(agentsSourceDir, "flow-probe-cachettl-agent.md"),

@@ -1592,7 +1592,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       file: "flow-verify.md",
       wantEffort: "low",
       wantTools:
-        "Bash, Read, Edit, Write, Grep, ToolSearch, Task, mcp__chrome-devtools__\\*",
+        "Bash, Read, Edit, Write, Grep, ToolSearch, Task, SendMessage, mcp__chrome-devtools__\\*",
       wantMaxTurns: 150,
       wantCacheTtl: "1h",
       wantSkills: "flow-verify-loop-instructions",
@@ -9661,5 +9661,213 @@ describe("review scope, lens gates, telemetry pins", () => {
   it("docs/configuration.md documents review.lensGates and review.deltaScope", () => {
     expect(docsConfigurationContent.includes("review.lensGates")).toBe(true);
     expect(docsConfigurationContent.includes("review.deltaScope")).toBe(true);
+  });
+});
+
+describe("Preloaded instructions SKILL.md frontmatter + sentinel lint", () => {
+  // The six `flow-*-instructions` skills are preloaded via the agent's own
+  // `skills:` frontmatter (see AGENTS.md "Static agent-type definitions").
+  // Three silent-failure modes are unguarded without this lint: (1) a
+  // `name:` drifting from the dir name, or a `disable-model-invocation:
+  // true` added to one of the six, makes `skills:` preload inert with no
+  // runtime error; (2) a dropped/renamed sentinel comment makes every
+  // preloaded agent fall through to the redundant `Read` the spawn prompt
+  // keeps for the `general-purpose` fallback; (3) a spawn-prompt sentinel
+  // line can name a different skill than the SKILL.md it points at.
+  const PRELOAD_SKILLS = [
+    "flow-verify-loop-instructions",
+    "flow-fix-applier-instructions",
+    "flow-coder-instructions",
+    "flow-merge-resolver-instructions",
+    "flow-scout-instructions",
+    "flow-consolidator-instructions",
+  ];
+
+  it.each(PRELOAD_SKILLS)(
+    "%s SKILL.md is preloadable and opens with its sentinel",
+    (name) => {
+      const p = path.resolve(
+        HERE,
+        "..",
+        "skills",
+        "pipeline",
+        name,
+        "SKILL.md",
+      );
+      const content = fs.readFileSync(p, "utf8");
+      const fm = content.split("---")[1] ?? "";
+      expect(
+        new RegExp(`^name:\\s*${name}\\s*$`, "m").test(fm),
+        `${p} frontmatter name: must equal the dir name (${name}).`,
+      ).toBe(true);
+      expect(
+        /^description:\s*\S/m.test(fm),
+        `${p} frontmatter must have a non-empty description:.`,
+      ).toBe(true);
+      expect(
+        /^disable-model-invocation:/m.test(fm),
+        `${p} must not set disable-model-invocation: — that would block skills: preload.`,
+      ).toBe(false);
+      const body = content.split("---").slice(2).join("---").trim();
+      const firstBodyLine = body.split("\n")[0];
+      expect(
+        firstBodyLine,
+        `${p}'s first non-frontmatter line must be the sentinel comment.`,
+      ).toBe(`<!-- flow-instructions-sentinel: ${name} -->`);
+    },
+  );
+
+  // Five consumer sites cite `flow-instructions-sentinel: <name>` in their
+  // spawn prompt. Each `<name>` must have a producer among PRELOAD_SKILLS,
+  // catching a spawn-prompt site that drifted to name a skill different
+  // from the SKILL.md it actually preloads/points at.
+  const SENTINEL_CONSUMER_SITES: Array<{ file: string; expectedName: string }> =
+    [
+      {
+        file: "skills/pipeline/flow-coder/SKILL.md",
+        expectedName: "flow-coder-instructions",
+      },
+      {
+        file: "skills/pipeline/flow-pipeline/SKILL.md",
+        expectedName: "flow-verify-loop-instructions",
+      },
+      {
+        file: "skills/pipeline/flow-new-feature/SKILL.md",
+        expectedName: "flow-scout-instructions",
+      },
+      {
+        file: "skills/pipeline/flow-pr-review/references/fix-applier-spawn-prompt.md",
+        expectedName: "flow-fix-applier-instructions",
+      },
+      {
+        file: "skills/pipeline/flow-pipeline/references/merge-resolver-spawn-prompt.md",
+        expectedName: "flow-merge-resolver-instructions",
+      },
+    ];
+
+  it.each(
+    SENTINEL_CONSUMER_SITES.map(({ file, expectedName }) => [
+      file,
+      expectedName,
+    ]),
+  )(
+    "%s's sentinel-check line names a preloadable skill (%s)",
+    (file, expectedName) => {
+      const p = path.resolve(HERE, "..", file);
+      const content = fs.readFileSync(p, "utf8");
+      const match = content.match(/flow-instructions-sentinel:\s*(\S+)`/);
+      expect(
+        match,
+        `${p} must contain a 'flow-instructions-sentinel: <name>' check line.`,
+      ).not.toBeNull();
+      const namedSkill = match?.[1];
+      expect(
+        namedSkill,
+        `${p}'s sentinel-check line names '${namedSkill}', expected '${expectedName}'.`,
+      ).toBe(expectedName);
+      expect(
+        PRELOAD_SKILLS.includes(namedSkill ?? ""),
+        `${p}'s sentinel-check line names '${namedSkill}', which has no producer among PRELOAD_SKILLS.`,
+      ).toBe(true);
+    },
+  );
+});
+
+describe("partial-result-continuation.md pointer-site lint", () => {
+  // references/partial-result-continuation.md's own "Scope note" declares
+  // it is referenced from five sites. The string appears in no file under
+  // bin/, so any of these two-line pointers can be silently dropped in a
+  // later edit, reverting the supervisor to immediate *-missing-artifact
+  // escalation — the exact behaviour this contract exists to replace.
+  const POINTER_SITES = [
+    "skills/pipeline/flow-pipeline/SKILL.md",
+    "skills/pipeline/flow-pr-review/SKILL.md",
+    "skills/pipeline/flow-coder/SKILL.md",
+    "skills/pipeline/flow-verify-loop-instructions/SKILL.md",
+  ];
+
+  it.each(POINTER_SITES)(
+    "%s references partial-result-continuation.md",
+    (file) => {
+      const p = path.resolve(HERE, "..", file);
+      const content = fs.readFileSync(p, "utf8");
+      expect(
+        content.includes("partial-result-continuation.md"),
+        `${p} must reference references/partial-result-continuation.md — a dropped pointer silently reverts to immediate *-missing-artifact escalation.`,
+      ).toBe(true);
+    },
+  );
+
+  // The four maxTurns-pinned agent files carry the continuation contract's
+  // own paragraph, so the agent-side and supervisor-side halves cannot
+  // drift apart independently.
+  const MAX_TURNS_AGENT_FILES = [
+    "agents/core/flow-verify.md",
+    "agents/core/flow-fix-applier.md",
+    "agents/core/flow-edit-applier.md",
+    "agents/core/flow-merge-resolver.md",
+  ];
+
+  it.each(MAX_TURNS_AGENT_FILES)(
+    "%s references partial-result-continuation.md",
+    (file) => {
+      const p = path.resolve(HERE, "..", file);
+      const content = fs.readFileSync(p, "utf8");
+      expect(
+        content.includes("partial-result-continuation.md"),
+        `${p} must reference skills/pipeline/flow-pipeline/references/partial-result-continuation.md.`,
+      ).toBe(true);
+    },
+  );
+});
+
+describe("no stale references/<agent>-instructions.md anchors (pr-review #756 Test Step 3)", () => {
+  // This PR's own Test Step 3 was `git grep -l
+  // 'references/(verify-loop|fix-applier|coder|merge-resolver|scout|consolidator)-instructions.md' HEAD`,
+  // expecting no output — a deterministic repo-tree assertion, so per the
+  // automate-first rubric it belongs here as a lint rather than a one-off
+  // manual checkbox that only protects this merge.
+  const STALE_PATH =
+    /references\/(verify-loop|fix-applier|coder|merge-resolver|scout|consolidator)-instructions\.md/;
+  // Same exclusions as the PR's own Test Step 3: frozen fixtures/recorded
+  // inputs, not live anchors.
+  const EXCLUDE_DIRS = [
+    "node_modules",
+    ".git",
+    "bin/fixtures",
+    "evals",
+    "docs/subagent-features-probe.md",
+    ".flow-tmp",
+  ];
+
+  function walkRepoTextFiles(root: string): string[] {
+    const out: string[] = [];
+    const stack = [root];
+    while (stack.length > 0) {
+      const dir = stack.pop()!;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const abs = path.join(dir, entry.name);
+        const rel = path.relative(root, abs);
+        if (EXCLUDE_DIRS.some((ex) => rel === ex || rel.startsWith(`${ex}/`)))
+          continue;
+        if (entry.isDirectory()) {
+          stack.push(abs);
+        } else if (/\.(md|ts|template)$/.test(entry.name)) {
+          out.push(abs);
+        }
+      }
+    }
+    return out;
+  }
+
+  it("no file still references a pre-move references/<agent>-instructions.md path", () => {
+    const root = path.resolve(HERE, "..");
+    for (const file of walkRepoTextFiles(root)) {
+      const content = fs.readFileSync(file, "utf8");
+      expect(
+        STALE_PATH.test(content),
+        `${file} references a moved instructions path (references/<agent>-instructions.md); the six instruction files now live at skills/pipeline/flow-<agent>-instructions/SKILL.md.`,
+      ).toBe(false);
+    }
   });
 });

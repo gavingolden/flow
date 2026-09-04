@@ -170,58 +170,6 @@ function runClaude(
  * is `null` — so those two cases are branched on explicitly rather than
  * falling into the generic non-zero-exit branch, where they'd read as the
  * unactionable `cp -RL exited null: `. */
-/** For every `agents/*.md` definition under `root`, resolves each
- * frontmatter `skills:` entry (bare or plugin-qualified, block-list form)
- * against `root/skills/<bareName>/SKILL.md`. Exported standalone (not
- * inlined into `checkPluginContract`) so a fixture root can be unit-tested
- * without a real `claude` invocation — a wrong `skills:` name silently
- * no-ops the preload at runtime rather than erroring, so this filesystem
- * check is the only signal. */
-export function resolveAgentPreloadSkills(root: string): {
-  resolved: string[];
-  failures: ContractLintFailure[];
-} {
-  const resolved: string[] = [];
-  const failures: ContractLintFailure[] = [];
-  const agentsDir = path.join(root, "agents");
-  let agentFiles: string[] = [];
-  try {
-    agentFiles = fs
-      .readdirSync(agentsDir)
-      .filter((name) => name.endsWith(".md"));
-  } catch {
-    return { resolved, failures }; // no agents/ dir for this module
-  }
-  for (const agentFile of agentFiles) {
-    const agentPath = path.join(agentsDir, agentFile);
-    const frontmatter =
-      fs.readFileSync(agentPath, "utf8").split("---")[1] ?? "";
-    const skillsMatch = frontmatter.match(
-      /^skills:\s*\n((?:\s+-\s+\S+\s*\n?)+)/m,
-    );
-    if (!skillsMatch) continue;
-    const skillNames = [...skillsMatch[1].matchAll(/-\s+(\S+)/g)].map(
-      (m) => m[1],
-    );
-    for (const rawName of skillNames) {
-      const bareName = rawName.includes(":")
-        ? rawName.split(":").slice(1).join(":")
-        : rawName;
-      const skillMdPath = path.join(root, "skills", bareName, "SKILL.md");
-      if (fs.existsSync(skillMdPath)) {
-        resolved.push(`${agentFile}:${rawName}`);
-      } else {
-        failures.push({
-          root: agentPath,
-          phase: "skills-resolve",
-          detail: `skills: entry '${rawName}' does not resolve to ${skillMdPath}`,
-        });
-      }
-    }
-  }
-  return { resolved, failures };
-}
-
 export function dereferenceRoot(
   root: string,
   dest: string,
@@ -260,6 +208,59 @@ export function dereferenceRoot(
       detail: `cp -RL threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+}
+
+/** For every `agents/*.md` definition under `root`, resolves each
+ * frontmatter `skills:` entry (bare or plugin-qualified, block-list form)
+ * against `root/skills/<bareName>/SKILL.md`. Exported standalone (not
+ * inlined into `checkPluginContract`) so a fixture root can be unit-tested
+ * without a real `claude` invocation — a wrong `skills:` name silently
+ * no-ops the preload at runtime rather than erroring, so this filesystem
+ * check is the only signal. */
+export function resolveAgentPreloadSkills(root: string): {
+  resolved: string[];
+  failures: ContractLintFailure[];
+} {
+  const resolved: string[] = [];
+  const failures: ContractLintFailure[] = [];
+  const agentsDir = path.join(root, "agents");
+  let agentFiles: string[] = [];
+  try {
+    agentFiles = fs
+      .readdirSync(agentsDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map((entry) => entry.name);
+  } catch {
+    return { resolved, failures }; // no agents/ dir for this module
+  }
+  for (const agentFile of agentFiles) {
+    const agentPath = path.join(agentsDir, agentFile);
+    const frontmatter =
+      fs.readFileSync(agentPath, "utf8").split("---")[1] ?? "";
+    const skillsMatch = frontmatter.match(
+      /^skills:\s*\n((?:\s+-\s+\S+\s*\n?)+)/m,
+    );
+    if (!skillsMatch) continue;
+    const skillNames = [...skillsMatch[1].matchAll(/-\s+(\S+)/g)].map(
+      (m) => m[1],
+    );
+    for (const rawName of skillNames) {
+      const bareName = rawName.includes(":")
+        ? rawName.split(":").slice(1).join(":")
+        : rawName;
+      const skillMdPath = path.join(root, "skills", bareName, "SKILL.md");
+      if (fs.existsSync(skillMdPath)) {
+        resolved.push(`${agentFile}:${rawName}`);
+      } else {
+        failures.push({
+          root: agentPath,
+          phase: "skills-resolve",
+          detail: `skills: entry '${rawName}' does not resolve to ${skillMdPath}`,
+        });
+      }
+    }
+  }
+  return { resolved, failures };
 }
 
 export async function checkPluginContract(

@@ -1028,6 +1028,46 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     expect(list).not.toContain(wtDir);
   });
 
+  it("worktree memory link end-to-end: linked, ignored, and salvaged into cache on removal (PR #756 Test Step 5)", async () => {
+    const create = await runNewWorktree(["probe-mem"], fx.repoDir);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
+      0,
+    );
+    const wtDir = path.join(path.dirname(fx.repoDir), "repo-probe-mem");
+    expect(fs.existsSync(wtDir)).toBe(true);
+
+    const link = path.join(wtDir, ".claude", "agent-memory-local");
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+
+    // A `.claude/` dir whose only content is the excluded symlink is
+    // collapsed by `git status`'s default (non `-uall`) mode -- it reports
+    // nothing rather than the file within, unlike a partially-tracked dir.
+    // `check-ignore` asserts the exclude registration directly instead.
+    const ignoreCheck = spawnSync("git", ["check-ignore", "-q", link], {
+      cwd: wtDir,
+    });
+    expect(
+      ignoreCheck.status,
+      "expected .claude/agent-memory-local to be registered as git-ignored",
+    ).toBe(0);
+
+    const remove = await runHelper(["probe-mem"], fx.repoDir);
+    expect(
+      remove.exitCode,
+      `stderr: ${remove.stderr}\nstdout: ${remove.stdout}`,
+    ).toBe(0);
+    expect(fs.existsSync(wtDir)).toBe(false);
+
+    const cacheDir = path.join(
+      process.env.HOME!,
+      ".flow",
+      "cache",
+      repoCacheKey(fx.repoDir),
+      "agent-memory-local",
+    );
+    expect(fs.existsSync(cacheDir)).toBe(true);
+  });
+
   it("zero-arg invocation with no live pipeline fails with the FLOW_SLUG error (not the help banner)", async () => {
     // Regression: the supervisor calls `flow-remove-worktree` with zero
     // args and expects the slug to resolve from $FLOW_SLUG. The previous

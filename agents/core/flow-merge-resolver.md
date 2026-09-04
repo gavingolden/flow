@@ -38,5 +38,5 @@ frontmatter value.
 `maxTurns: 80` bounds the merge-and-resolve loop. If you reach it, the
 harness returns your output as **partial** — write the artifact FIRST as
 soon as you sense you're near the budget. A continuation message
-(`SendMessage`, per `references/partial-result-continuation.md`) asks you
+(`SendMessage`, per `skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) asks you
 to finish from where you stopped, never to restart from scratch.

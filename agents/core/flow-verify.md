@@ -1,7 +1,7 @@
 ---
 name: flow-verify
 description: Mechanical pre-commit verify-retry loop for /flow-pipeline step 6. Runs flow-pre-commit / verify, re-pastes the failure JSON, and applies the named fix. Low reasoning effort — this work never needs deliberation.
-tools: Bash, Read, Edit, Write, Grep, ToolSearch, Task, mcp__chrome-devtools__*
+tools: Bash, Read, Edit, Write, Grep, ToolSearch, Task, SendMessage, mcp__chrome-devtools__*
 effort: low
 maxTurns: 150
 experimental:
@@ -40,5 +40,5 @@ harness returns your output as **partial** — write the artifact FIRST as
 soon as you sense you're near the budget (a half-finished retry loop with
 no artifact is worse than a stopped one with an honest partial verdict). A
 continuation message (`SendMessage`, per
-`references/partial-result-continuation.md`) asks you to finish from where
+`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) asks you to finish from where
 you stopped, never to restart from scratch.
