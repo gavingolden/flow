@@ -9,8 +9,14 @@ export const BRANCH_MARKER_FILENAME = ".flow-branch";
 /** Filename used for the supervisor + sub-skill scratch directory inside each worktree. */
 export const FLOW_TMP_DIRNAME = ".flow-tmp/";
 
-/** Paths that flow writes into each worktree but doesn't track in git. */
-const FLOW_EXCLUDE_PATHS = [BRANCH_MARKER_FILENAME, FLOW_TMP_DIRNAME] as const;
+/** Paths that flow writes into each worktree but doesn't track in git. The
+ * third entry (no trailing slash — it's a symlink, and git's exclude
+ * matches a symlink as a file) is the `linkAgentMemory` handoff target. */
+const FLOW_EXCLUDE_PATHS = [
+  BRANCH_MARKER_FILENAME,
+  FLOW_TMP_DIRNAME,
+  ".claude/agent-memory-local",
+] as const;
 
 /** Writes the worktree-local branch-name marker that flow-state-update reads. */
 export function writeBranchMarker(

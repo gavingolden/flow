@@ -242,6 +242,10 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   3. Once resolved, run git add <resolved-files>, git commit, git push
   4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
   5. Then run (cd <repo> && gh pr merge --squash <pr>).`,
+  "verify-loop-missing-artifact": `The verify-retry-loop subagent artifact is missing.
+  1. Inspect <worktree>/.flow-tmp/ for partial verify-loop state.
+  2. Run (cd <worktree> && flow-pre-commit --json) and fix any failures manually.
+  3. Then run (flow feature resume <slug>).`,
   "branch-mismatch":
     "Inspect git reflog and git worktree list before any further git commands; do NOT auto-recover",
   "terminal-regression": `A terminal-phase state file was about to be regressed to a non-terminal phase (likely an ambient-pane slug race from 'flow feature create' inside a flow window).
@@ -324,6 +328,7 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
     "git fetch origin <pr-branch> && git merge origin/<pr-branch>",
     "cd <repo> && gh pr merge --squash <pr>",
   ],
+  "verify-loop-missing-artifact": ["flow feature resume <slug>"],
   "branch-mismatch": ["git reflog", "git worktree list"],
   "terminal-regression": [
     "flow feature create",

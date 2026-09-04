@@ -27,7 +27,7 @@ import { SURVEY_VERDICTS } from "./flow-step3-route";
  * exemptions: AGENTS.md `## Don'ts` and flow-pipeline/SKILL.md "Hard
  * rules" must list the same set of exemptions, and the JSON schema
  * for the Fix-Applier Subagent's artifact must match between
- * flow-pr-review/SKILL.md and flow-pr-review/references/fix-applier-instructions.md.
+ * flow-pr-review/SKILL.md and flow-fix-applier-instructions/SKILL.md.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -59,9 +59,8 @@ const FIX_APPLIER_INSTRUCTIONS_PATH = path.resolve(
   "..",
   "skills",
   "pipeline",
-  "flow-pr-review",
-  "references",
-  "fix-applier-instructions.md",
+  "flow-fix-applier-instructions",
+  "SKILL.md",
 );
 const CODER_SKILL_MD_PATH = path.resolve(
   HERE,
@@ -76,9 +75,8 @@ const CODER_INSTRUCTIONS_PATH = path.resolve(
   "..",
   "skills",
   "pipeline",
-  "flow-coder",
-  "references",
-  "coder-instructions.md",
+  "flow-coder-instructions",
+  "SKILL.md",
 );
 const PRODUCT_PLANNING_TOP_SKILL_MD_PATH = path.resolve(
   HERE,
@@ -174,9 +172,8 @@ const MERGE_RESOLVER_INSTRUCTIONS_PATH = path.resolve(
   "..",
   "skills",
   "pipeline",
-  "flow-pipeline",
-  "references",
-  "merge-resolver-instructions.md",
+  "flow-merge-resolver-instructions",
+  "SKILL.md",
 );
 const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   HERE,
@@ -245,9 +242,8 @@ const SCOUT_INSTRUCTIONS_PATH = path.resolve(
   "..",
   "skills",
   "pipeline",
-  "flow-new-feature",
-  "references",
-  "scout-instructions.md",
+  "flow-scout-instructions",
+  "SKILL.md",
 );
 const PR_DESCRIPTION_AUTHORING_PATH = path.resolve(
   HERE,
@@ -855,19 +851,19 @@ describe("pr-review deferral-tracker lint", () => {
   it("the Fix-Applier Subagent's instructions wire the flow-create-issue invocation", () => {
     expect(
       fixApplierContent.includes("flow-create-issue"),
-      "fix-applier-instructions.md must contain a runnable 'flow-create-issue' " +
+      "flow-fix-applier-instructions/SKILL.md must contain a runnable 'flow-create-issue' " +
         "invocation in the deferral path. PR #100 moved Step 6 into the subagent; " +
         "this wiring lives there now.",
     ).toBe(true);
     expect(
       fixApplierContent.includes("flow-agent,deferred-review"),
-      "fix-applier-instructions.md must use the 'flow-agent,deferred-review' " +
+      "flow-fix-applier-instructions/SKILL.md must use the 'flow-agent,deferred-review' " +
         "label combo so deferred findings are filterable via " +
         "`gh issue list --label deferred-review`.",
     ).toBe(true);
     expect(
       fixApplierContent.includes("ROADMAP.md"),
-      "fix-applier-instructions.md must NOT name a 'ROADMAP.md' fallback " +
+      "flow-fix-applier-instructions/SKILL.md must NOT name a 'ROADMAP.md' fallback " +
         "tracker — when the helper exits non-zero or no GH Issues surface " +
         "exists, the deferral is surfaced loudly with an empty tracker_entry_url " +
         "rather than written to a file that may not exist.",
@@ -879,7 +875,7 @@ describe("pr-review deferral-tracker lint", () => {
       fixApplierContent.includes(
         "do NOT commit anywhere and do NOT switch branches",
       ),
-      "fix-applier-instructions.md's already-merged branch of step 7 must " +
+      "flow-fix-applier-instructions/SKILL.md's already-merged branch of step 7 must " +
         "carry the explicit no-commit prohibition — this pins the prose's " +
         "presence, not just its absence elsewhere, so a future edit can't " +
         "silently drop the mandate while the surrounding structure survives.",
@@ -1323,9 +1319,24 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * budget goes to 26_300 (198 chars of headroom), not the bare
    * post-edit value, matching the "don't land at a single-digit-headroom
    * trap" discipline of every raise above.
+   * Raised once more from 26_300 to 26_500 to fund the `@flow-kind`
+   * publish-breadth + `flow ls` KIND-column facts: the `## Don'ts`
+   * pane-state bullet now says the six `@flow-*` mirrors publish "on every
+   * flow window" (they previously read epic-only by omission) and closes
+   * with "`flow ls`'s KIND column reads `PipelineState.kind`, never
+   * `@flow-kind`" — the foreclosed shortcut a future agent is most likely
+   * to take on this surface. Measured via String.prototype.length (not
+   * `wc -c` bytes): pre-edit 26_285, post-edit 26_380 — a +95-char delta,
+   * already the deduped form (the first draft was +151 before folding the
+   * publish-breadth fact into the existing mirrors sentence rather than
+   * appending a second one). The budget goes to 26_500 (120 chars of
+   * headroom), not the bare post-edit value, matching the "don't land at a
+   * single-digit-headroom trap" discipline of every raise above — the
+   * 26_300 budget had only 15 chars of headroom left on `main`, so a
+   * dedup-only path would have had to cut unrelated contract prose.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 26_300;
+    const CHAR_BUDGET = 26_500;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -1587,16 +1598,33 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     wantEffort?: string;
     wantTools?: string;
     inheritsAllTools?: boolean;
+    wantMemory?: "local";
+    wantMaxTurns?: number;
+    wantCacheTtl?: "1h";
+    wantSkills?: string;
   }> = [
     {
       file: "flow-verify.md",
       wantEffort: "low",
       wantTools:
-        "Bash, Read, Edit, Write, Grep, ToolSearch, Task, mcp__chrome-devtools__\\*",
+        "Bash, Read, Edit, Write, Grep, ToolSearch, Task, SendMessage, mcp__chrome-devtools__\\*",
+      wantMaxTurns: 150,
+      wantCacheTtl: "1h",
+      wantSkills: "flow-verify-loop-instructions",
     },
-    { file: "flow-fix-applier.md", wantEffort: "low" },
+    {
+      file: "flow-fix-applier.md",
+      wantEffort: "low",
+      wantMaxTurns: 120,
+      wantCacheTtl: "1h",
+      wantSkills: "flow-fix-applier-instructions",
+    },
     { file: "flow-gatekeeper.md", wantModel: "haiku" },
-    { file: "flow-consolidator.md" },
+    {
+      file: "flow-consolidator.md",
+      wantCacheTtl: "1h",
+      wantSkills: "flow-consolidator-instructions",
+    },
     {
       file: "flow-review-bug-detection.md",
       wantTools: "Read, Grep, Glob, Write",
@@ -1622,15 +1650,29 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       file: "flow-review-test-coverage.md",
       wantTools: "Read, Grep, Glob, Write",
     },
-    { file: "flow-scout.md", wantTools: "Bash, Read, Grep, Glob, Write" },
-    { file: "flow-discovery.md", inheritsAllTools: true },
+    {
+      file: "flow-scout.md",
+      wantTools: "Bash, Read, Grep, Glob, Write",
+      wantMemory: "local",
+      wantSkills: "flow-scout-instructions",
+    },
+    {
+      file: "flow-discovery.md",
+      inheritsAllTools: true,
+      wantMemory: "local",
+      wantCacheTtl: "1h",
+    },
     {
       file: "flow-merge-resolver.md",
       wantTools: "Bash, Read, Edit, Write, Grep",
+      wantMaxTurns: 80,
+      wantSkills: "flow-merge-resolver-instructions",
     },
     {
       file: "flow-edit-applier.md",
       wantTools: "Bash, Read, Edit, Write, Grep, Glob, NotebookEdit",
+      wantMaxTurns: 80,
+      wantSkills: "flow-coder-instructions",
     },
     { file: "flow-backlog-verifier.md", wantTools: "Bash, Read, Grep, Glob" },
   ];
@@ -1655,6 +1697,10 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       wantEffort,
       wantTools,
       inheritsAllTools,
+      wantMemory,
+      wantMaxTurns,
+      wantCacheTtl,
+      wantSkills,
     } of AGENT_FRONTMATTER_POLICY) {
       const agentPath = path.resolve(HERE, "..", "agents", "core", file);
       expect(
@@ -1709,6 +1755,62 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
           /^effort:/m.test(frontmatter),
           `agents/${file} frontmatter must NOT pin 'effort:' — judgment ` +
             "roles scale with session effort (gatekeeper: already bounded by haiku).",
+        ).toBe(false);
+      }
+      if (wantMemory) {
+        expect(
+          new RegExp(`^memory:\\s*${wantMemory}\\s*$`, "m").test(frontmatter),
+          `agents/${file} frontmatter must pin 'memory: ${wantMemory}'.`,
+        ).toBe(true);
+      } else {
+        expect(
+          /^memory:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT declare 'memory:'.`,
+        ).toBe(false);
+      }
+      if (wantMaxTurns !== undefined) {
+        expect(wantMaxTurns).toBeGreaterThanOrEqual(20);
+        expect(wantMaxTurns).toBeLessThanOrEqual(400);
+        expect(
+          new RegExp(`^maxTurns:\\s*${wantMaxTurns}\\s*$`, "m").test(
+            frontmatter,
+          ),
+          `agents/${file} frontmatter must pin 'maxTurns: ${wantMaxTurns}'.`,
+        ).toBe(true);
+      } else {
+        expect(
+          /^maxTurns:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT declare 'maxTurns:'.`,
+        ).toBe(false);
+      }
+      if (wantCacheTtl) {
+        // cacheTtl is nested under experimental:, never a top-level key —
+        // the docs say it's read only from the nested map; a top-level
+        // ^cacheTtl: line is silently ignored.
+        expect(
+          /^experimental:\s*\n\s+cacheTtl:\s*1h\s*$/m.test(frontmatter),
+          `agents/${file} frontmatter must declare 'experimental:' with a ` +
+            `nested 'cacheTtl: ${wantCacheTtl}' — a top-level 'cacheTtl:' ` +
+            "key is silently ignored by Claude Code.",
+        ).toBe(true);
+      } else {
+        expect(
+          /^experimental:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT declare 'experimental:'.`,
+        ).toBe(false);
+      }
+      if (wantSkills) {
+        expect(
+          new RegExp(`^skills:\\s*\\n\\s+-\\s+${wantSkills}\\s*$`, "m").test(
+            frontmatter,
+          ),
+          `agents/${file} frontmatter must declare a 'skills:' block list ` +
+            `naming '${wantSkills}'.`,
+        ).toBe(true);
+      } else {
+        expect(
+          /^skills:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT declare 'skills:'.`,
         ).toBe(false);
       }
     }
@@ -1990,7 +2092,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     );
     expect(
       mandatesForcePush(mergeResolverInstructionsContent),
-      "merge-resolver-instructions.md must never mandate a force-push.",
+      "flow-merge-resolver-instructions/SKILL.md must never mandate a force-push.",
     ).toBe(false);
     expect(
       mandatesForcePush(mergeResolverSpawnPromptContent),
@@ -2015,7 +2117,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   // verified rephrasings such as "check out `main` and land the fix there"
   // are NOT flagged by BASE_BRANCH_WRITE_VERB below (it only matches `git
   // (push|commit|switch|checkout)`, `commit (there|on|to)`, and `push
-  // (to|the)`) — the prose prohibition in fix-applier-instructions.md is
+  // (to|the)`) — the prose prohibition in flow-fix-applier-instructions/SKILL.md is
   // the primary contract; this lint is the backstop that catches a literal
   // regression of the fixed phrasing, not every possible rewording of a
   // base-branch-write mandate.
@@ -2047,6 +2149,21 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     withFileTypes: true,
   })) {
     if (!entry.isDirectory()) continue;
+    // Sibling preloaded-instructions skill dirs (flow-<agent>-instructions/
+    // SKILL.md) — the six instruction files that moved out of a references/
+    // dir into their own skill dir so they can be Skill-preloaded. Checked
+    // BEFORE the references/-dir continue below since these dirs carry no
+    // references/ subdir of their own.
+    if (/-instructions$/.test(entry.name)) {
+      const skillMdPath = path.join(
+        PIPELINE_SKILLS_DIR,
+        entry.name,
+        "SKILL.md",
+      );
+      if (fs.existsSync(skillMdPath)) {
+        instructionsAndSpawnPromptFiles.push(skillMdPath);
+      }
+    }
     const refsDir = path.join(PIPELINE_SKILLS_DIR, entry.name, "references");
     if (!fs.existsSync(refsDir)) continue;
     for (const fileName of fs.readdirSync(refsDir)) {
@@ -2112,7 +2229,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       mandatesBaseBranchWrite(
         "- If the PR is **already merged**: switch to `main`, pull, commit there,",
       ),
-      "the pre-fix fix-applier-instructions.md:342 phrasing must be caught by the detector.",
+      "the pre-fix flow-fix-applier-instructions/SKILL.md:342 phrasing must be caught by the detector.",
     ).toBe(true);
     expect(
       mandatesBaseBranchWrite(
@@ -2154,8 +2271,8 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     };
 
     const negatedButMatchesTokenAndVerb = readAnchoredLine(
-      "skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md",
-      452,
+      "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
+      459,
       "NEVER push to the base branch",
     );
     expect(
@@ -2166,18 +2283,18 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
-        "skills/pipeline/flow-pipeline/references/verify-loop-instructions.md",
-        387,
+        "skills/pipeline/flow-verify-loop-instructions/SKILL.md",
+        403,
         "NEVER touch the base branch",
       ],
       [
         "agents/core/flow-merge-resolver.md",
-        11,
+        14,
         "never `main`, `master`, or the base branch",
       ],
       [
-        "skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md",
-        454,
+        "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
+        461,
         "NEVER use `git push --force`",
       ],
     ];
@@ -2210,7 +2327,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
     expect(
       orientationSection.includes("<<<<<<< HEAD"),
-      "merge-resolver-instructions.md must name the `<<<<<<< HEAD` marker in its " +
+      "flow-merge-resolver-instructions/SKILL.md must name the `<<<<<<< HEAD` marker in its " +
         "orientation section.",
     ).toBe(true);
     // Scoped to the section, not file-wide — `origin/` appears ~20x
@@ -2218,12 +2335,12 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     // and would pass on inverted prose too.
     expect(
       orientationSection.includes("origin/"),
-      "merge-resolver-instructions.md must name the `origin/<base>` side in its " +
+      "flow-merge-resolver-instructions/SKILL.md must name the `origin/<base>` side in its " +
         "orientation section.",
     ).toBe(true);
     expect(
       /inverse of a rebase/i.test(orientationSection),
-      "merge-resolver-instructions.md must state the rebase-orientation inversion.",
+      "flow-merge-resolver-instructions/SKILL.md must state the rebase-orientation inversion.",
     ).toBe(true);
 
     // Ordered-pair assertions: bind each marker to the CORRECT side so
@@ -2367,7 +2484,10 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
   it("the merge-resolver artifact field is push_status everywhere", () => {
     for (const [name, text] of [
-      ["merge-resolver-instructions.md", mergeResolverInstructionsContent],
+      [
+        "flow-merge-resolver-instructions/SKILL.md",
+        mergeResolverInstructionsContent,
+      ],
       ["flow-pipeline SKILL.md", content],
       ["references/exemption-contracts.md", exemptionContractsContent],
     ] as const) {
@@ -2404,7 +2524,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
 describe("Compact Instructions + verify-loop-instructions structural anchors", () => {
   // The `## Compact Instructions` compaction-steering section and the new
-  // verify-loop-instructions.md spawn-instructions file are load-bearing
+  // flow-verify-loop-instructions/SKILL.md spawn-instructions file are load-bearing
   // governance the PR's one-shot Test-Steps greps cover but no durable lint
   // does. These anchors are the durable guard so a later edit deleting the
   // KEEP/DROP list, dropping the heading from either file, or removing the
@@ -2456,19 +2576,18 @@ describe("Compact Instructions + verify-loop-instructions structural anchors", (
     ).toBeGreaterThan(0);
   });
 
-  it("references/verify-loop-instructions.md exists and carries its contract anchors", () => {
+  it("flow-verify-loop-instructions/SKILL.md exists and carries its contract anchors", () => {
     const verifyLoopPath = path.resolve(
       HERE,
       "..",
       "skills",
       "pipeline",
-      "flow-pipeline",
-      "references",
-      "verify-loop-instructions.md",
+      "flow-verify-loop-instructions",
+      "SKILL.md",
     );
     expect(
       fs.existsSync(verifyLoopPath),
-      "skills/pipeline/flow-pipeline/references/verify-loop-instructions.md " +
+      "skills/pipeline/flow-verify-loop-instructions/SKILL.md " +
         "must exist — it is the spawn-instructions file the step-6 " +
         "Verify-Retry-Loop subagent reads, referenced by name from SKILL.md, " +
         "AGENTS.md, and exemption-contracts.md.",
@@ -2476,19 +2595,19 @@ describe("Compact Instructions + verify-loop-instructions structural anchors", (
     const content = fs.readFileSync(verifyLoopPath, "utf8");
     expect(
       content.length,
-      "verify-loop-instructions.md must be non-empty.",
+      "flow-verify-loop-instructions/SKILL.md must be non-empty.",
     ).toBeGreaterThan(0);
     expect(
       content.includes("verify-loop-result.json"),
-      "verify-loop-instructions.md must name the `verify-loop-result.json` artifact.",
+      "flow-verify-loop-instructions/SKILL.md must name the `verify-loop-result.json` artifact.",
     ).toBe(true);
     expect(
       content.includes("verify_status"),
-      "verify-loop-instructions.md must document the `verify_status` artifact field.",
+      "flow-verify-loop-instructions/SKILL.md must document the `verify_status` artifact field.",
     ).toBe(true);
     expect(
       content.includes("verify-coder-result.json"),
-      "verify-loop-instructions.md must document the load-bearing hybrid " +
+      "flow-verify-loop-instructions/SKILL.md must document the load-bearing hybrid " +
         "inline/nested-spawn invariant: narrow fixes apply inline; wider-scope " +
         "fixes spawn one flow-edit-applier subagent writing " +
         "verify-coder-result.json, recording coder_spawn and falling back " +
@@ -2497,7 +2616,7 @@ describe("Compact Instructions + verify-loop-instructions structural anchors", (
     expect(
       content.includes("select:Task") ||
         content.includes("Load the Task tool before spawning"),
-      "verify-loop-instructions.md must document the Task-load guard " +
+      "flow-verify-loop-instructions/SKILL.md must document the Task-load guard " +
         "('Load the Task tool before spawning' / ToolSearch query=\"select:Task\") " +
         "for its one sanctioned nested spawn.",
     ).toBe(true);
@@ -2513,21 +2632,20 @@ describe("Compact Instructions + verify-loop-instructions structural anchors", (
   ] as const;
 
   it.each(CODER_SPAWN_VALUES)(
-    "verify-loop-instructions.md documents the coder_spawn value %s",
+    "flow-verify-loop-instructions/SKILL.md documents the coder_spawn value %s",
     (value) => {
       const verifyLoopPath = path.resolve(
         HERE,
         "..",
         "skills",
         "pipeline",
-        "flow-pipeline",
-        "references",
-        "verify-loop-instructions.md",
+        "flow-verify-loop-instructions",
+        "SKILL.md",
       );
       const content = fs.readFileSync(verifyLoopPath, "utf8");
       expect(
         content.includes(`"${value}"`),
-        `verify-loop-instructions.md must document the coder_spawn value '"${value}"' — the ` +
+        `flow-verify-loop-instructions/SKILL.md must document the coder_spawn value '"${value}"' — the ` +
           "supervisor's step-6 NOTICE branch keys off exactly this enum; dropping a value " +
           "breaks the record-and-degrade contract without failing any test.",
       ).toBe(true);
@@ -2800,9 +2918,8 @@ describe("cross-model (Gemini) lens doc symmetry", () => {
     "..",
     "skills",
     "pipeline",
-    "flow-pr-review",
-    "references",
-    "consolidator-instructions.md",
+    "flow-consolidator-instructions",
+    "SKILL.md",
   );
   const consolidatorContent = fs.readFileSync(
     consolidatorInstructionsPath,
@@ -2842,10 +2959,10 @@ describe("cross-model (Gemini) lens doc symmetry", () => {
     ).toBe(true);
   });
 
-  it("consolidator-instructions.md §2 input list names agent-output-gemini.json", () => {
+  it("flow-consolidator-instructions/SKILL.md §2 input list names agent-output-gemini.json", () => {
     expect(
       consolidatorContent.includes(GEMINI_ARTIFACT),
-      "references/consolidator-instructions.md §2 Inputs must name " +
+      "flow-consolidator-instructions/SKILL.md §2 Inputs must name " +
         `'${GEMINI_ARTIFACT}' as the optional seventh input so the consolidator ` +
         "subagent's instructions stay in sync with flow-pr-review/SKILL.md.",
     ).toBe(true);
@@ -3126,7 +3243,7 @@ describe("cross-model plan review worktree + convergence pins", () => {
   });
 });
 
-describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ references/fix-applier-instructions.md)", () => {
+describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ flow-fix-applier-instructions/SKILL.md)", () => {
   const REQUIRED_KEYS = [
     "commits",
     "deferred",
@@ -3142,17 +3259,17 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ re
         prReviewContent.includes(`\`${key}\``),
         `flow-pr-review/SKILL.md must reference '\`${key}\`' as one of the artifact's typed fields. ` +
           `Missing the key here means a downstream Step (9/10/11/12) consumer drifts away from ` +
-          `the schema documented in references/fix-applier-instructions.md.`,
+          `the schema documented in flow-fix-applier-instructions/SKILL.md.`,
       ).toBe(true);
     },
   );
 
   it.each(REQUIRED_KEYS)(
-    "references/fix-applier-instructions.md declares the '%s' top-level key in the artifact schema",
+    "flow-fix-applier-instructions/SKILL.md declares the '%s' top-level key in the artifact schema",
     (key) => {
       expect(
         fixApplierContent.includes(`"${key}"`),
-        `references/fix-applier-instructions.md step 9 must include '"${key}"' in the JSON schema fenced block. ` +
+        `flow-fix-applier-instructions/SKILL.md step 9 must include '"${key}"' in the JSON schema fenced block. ` +
           `Drift between this file and flow-pr-review/SKILL.md silently breaks the wrapper-subagent contract.`,
       ).toBe(true);
     },
@@ -3231,10 +3348,10 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ re
     ).toEqual([]);
   });
 
-  it("references/fix-applier-instructions.md documents the per-entry 'introduced_by_this_pr' field", () => {
+  it("flow-fix-applier-instructions/SKILL.md documents the per-entry 'introduced_by_this_pr' field", () => {
     expect(
       fixApplierContent.includes("introduced_by_this_pr"),
-      "references/fix-applier-instructions.md must document the per-entry " +
+      "flow-fix-applier-instructions/SKILL.md must document the per-entry " +
         "'introduced_by_this_pr' boolean on anti_patterns_found entries. Dropping it here " +
         "breaks lockstep with the fix-applier-schema.ts validator that now requires the field.",
     ).toBe(true);
@@ -3256,10 +3373,10 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ re
     ).toBe(true);
   });
 
-  it("references/fix-applier-instructions.md documents the self-validate-before-exit step (validator invocation + re-emit-once)", () => {
+  it("flow-fix-applier-instructions/SKILL.md documents the self-validate-before-exit step (validator invocation + re-emit-once)", () => {
     expect(
       fixApplierContent.includes("flow-fix-applier-schema --validate"),
-      "references/fix-applier-instructions.md must invoke 'flow-fix-applier-schema --validate' " +
+      "flow-fix-applier-instructions/SKILL.md must invoke 'flow-fix-applier-schema --validate' " +
         "in section 9 so the subagent self-validates its candidate artifact before the mv. " +
         "Dropping it here lets the subagent exit with an off-shape artifact undetected.",
     ).toBe(true);
@@ -3270,14 +3387,14 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ re
         fixApplierContent.includes("once"));
     expect(
       hasReEmitOnce,
-      "references/fix-applier-instructions.md must document the re-emit-once contract " +
+      "flow-fix-applier-instructions/SKILL.md must document the re-emit-once contract " +
         "(re-emit a corrected artifact exactly once on validation failure). Dropping this prose " +
         "breaks the self-validate-before-exit hardening.",
     ).toBe(true);
   });
 });
 
-describe("Edit-Applier artifact JSON schema drift (flow-coder/SKILL.md ↔ references/coder-instructions.md)", () => {
+describe("Edit-Applier artifact JSON schema drift (flow-coder/SKILL.md ↔ flow-coder-instructions/SKILL.md)", () => {
   const CODER_REQUIRED_KEYS = [
     "edits",
     "verify_status",
@@ -3293,17 +3410,17 @@ describe("Edit-Applier artifact JSON schema drift (flow-coder/SKILL.md ↔ refer
         coderContent.includes(`\`${key}\``),
         `flow-coder/SKILL.md must reference '\`${key}\`' as one of the artifact's typed fields. ` +
           `Missing the key here means a downstream consumer (/flow-new-feature step 5, /flow-verify step 3, /flow-refactoring step 3) ` +
-          `drifts away from the schema documented in references/coder-instructions.md.`,
+          `drifts away from the schema documented in flow-coder-instructions/SKILL.md.`,
       ).toBe(true);
     },
   );
 
   it.each(CODER_REQUIRED_KEYS)(
-    "references/coder-instructions.md declares the '%s' top-level key in the artifact schema",
+    "flow-coder-instructions/SKILL.md declares the '%s' top-level key in the artifact schema",
     (key) => {
       expect(
         coderInstructionsContent.includes(`"${key}"`),
-        `references/coder-instructions.md step 4 must include '"${key}"' in the JSON schema fenced block. ` +
+        `flow-coder-instructions/SKILL.md step 4 must include '"${key}"' in the JSON schema fenced block. ` +
           `Drift between this file and flow-coder/SKILL.md silently breaks the wrapper-subagent contract.`,
       ).toBe(true);
     },
@@ -3332,10 +3449,10 @@ describe("Edit-Applier artifact JSON schema drift (flow-coder/SKILL.md ↔ refer
     ).toBe(true);
   });
 
-  it("references/coder-instructions.md documents the per-entry 'introduced_by_this_pr' field", () => {
+  it("flow-coder-instructions/SKILL.md documents the per-entry 'introduced_by_this_pr' field", () => {
     expect(
       coderInstructionsContent.includes("introduced_by_this_pr"),
-      "references/coder-instructions.md must document the per-entry 'introduced_by_this_pr' " +
+      "flow-coder-instructions/SKILL.md must document the per-entry 'introduced_by_this_pr' " +
         "boolean on anti_patterns_found entries. Dropping it here breaks lockstep with the " +
         "coder-schema.ts validator that now requires the field.",
     ).toBe(true);
@@ -3475,9 +3592,8 @@ describe("Consolidator artifact JSON schema drift (flow-pr-review/SKILL.md)", ()
     "..",
     "skills",
     "pipeline",
-    "flow-pr-review",
-    "references",
-    "consolidator-instructions.md",
+    "flow-consolidator-instructions",
+    "SKILL.md",
   );
   const consolidatorInstructionsContent = fs.readFileSync(
     CONSOLIDATOR_INSTRUCTIONS_PATH,
@@ -3499,11 +3615,11 @@ describe("Consolidator artifact JSON schema drift (flow-pr-review/SKILL.md)", ()
   );
 
   it.each(CONSOLIDATOR_REQUIRED_KEYS)(
-    "references/consolidator-instructions.md declares the '%s' top-level key in the artifact schema",
+    "flow-consolidator-instructions/SKILL.md declares the '%s' top-level key in the artifact schema",
     (key) => {
       expect(
         consolidatorInstructionsContent.includes(key),
-        `references/consolidator-instructions.md must include '${key}' in ` +
+        `flow-consolidator-instructions/SKILL.md must include '${key}' in ` +
           `the artifact schema documentation. Drift between this file and ` +
           `flow-pr-review/SKILL.md silently breaks the wrapper-subagent contract.`,
       ).toBe(true);
@@ -3605,7 +3721,7 @@ describe("AGENTS.md Output style anchors", () => {
     // documented at AGENTS.md `## Output style`. The full fix-now-vs-defer
     // bar it summarises lives at the two enforcement sites
     // (templates/AGENTS.md.template `## Anti-Overengineering` and
-    // skills/pipeline/flow-pr-review/references/fix-applier-instructions.md);
+    // skills/pipeline/flow-fix-applier-instructions/SKILL.md);
     // this rule is the flow-repo-side decision-discipline pointer. Renaming
     // the rule's anchor phrase requires updating this assertion in the same
     // commit.
@@ -4124,10 +4240,10 @@ describe("Machine-readable closed-path anchors (excluded-paths.json injection)",
   );
 });
 
-describe("Optional edit-set field symmetry (flow-coder/SKILL.md ↔ coder-instructions.md ↔ flow-new-feature/SKILL.md)", () => {
+describe("Optional edit-set field symmetry (flow-coder/SKILL.md ↔ flow-coder-instructions/SKILL.md ↔ flow-new-feature/SKILL.md)", () => {
   // The optional `contract` / `acceptance` edit-set fields extend the required
   // {file, intent, expected_outcome} triple. Three docs carry the field names:
-  // flow-coder/SKILL.md (the wrapper contract), coder-instructions.md (the subagent
+  // flow-coder/SKILL.md (the wrapper contract), flow-coder-instructions/SKILL.md (the subagent
   // procedure), and flow-new-feature/SKILL.md Step 5 (the composing caller). A
   // one-sided rename silently severs the plan-contract channel — the caller
   // composes a field the subagent no longer honors, or vice versa. Mirrors the
@@ -4135,7 +4251,7 @@ describe("Optional edit-set field symmetry (flow-coder/SKILL.md ↔ coder-instru
   const OPTIONAL_FIELDS = ["`contract`", "`acceptance`"];
   const SITES: Array<[string, string]> = [
     ["flow-coder/SKILL.md", coderContent],
-    ["flow-coder/references/coder-instructions.md", coderInstructionsContent],
+    ["flow-coder-instructions/SKILL.md", coderInstructionsContent],
     ["flow-new-feature/SKILL.md", newFeatureContent],
   ];
 
@@ -4146,7 +4262,7 @@ describe("Optional edit-set field symmetry (flow-coder/SKILL.md ↔ coder-instru
         expect(
           docContent.includes(field),
           `${label} must name the optional edit-set field ${field}. The field is ` +
-            `documented in lock-step across flow-coder/SKILL.md, coder-instructions.md, and ` +
+            `documented in lock-step across flow-coder/SKILL.md, flow-coder-instructions/SKILL.md, and ` +
             `flow-new-feature/SKILL.md Step 5; a one-sided drop silently severs the ` +
             `plan-contract channel between the composing caller and the edit-applier.`,
         ).toBe(true);
@@ -4154,15 +4270,15 @@ describe("Optional edit-set field symmetry (flow-coder/SKILL.md ↔ coder-instru
     },
   );
 
-  it("coder-instructions.md states the strong-prior mechanical pre-check", () => {
+  it("flow-coder-instructions/SKILL.md states the strong-prior mechanical pre-check", () => {
     expect(
       /strong prior/i.test(coderInstructionsContent),
-      "coder-instructions.md must state that the `contract` field is a strong prior, " +
+      "flow-coder-instructions/SKILL.md must state that the `contract` field is a strong prior, " +
         "not a straitjacket — the deviation-handling half of the contract channel.",
     ).toBe(true);
     expect(
       coderInstructionsContent.includes("MECHANICAL PRE-CHECK"),
-      "coder-instructions.md must state the contract check as a MECHANICAL PRE-CHECK " +
+      "flow-coder-instructions/SKILL.md must state the contract check as a MECHANICAL PRE-CHECK " +
         "(files/symbols/signatures vs actual code), not a judgment call — the wording " +
         "that keeps cheaper coder models from fixating on stale literal signatures.",
     ).toBe(true);
@@ -4172,23 +4288,23 @@ describe("Optional edit-set field symmetry (flow-coder/SKILL.md ↔ coder-instru
 describe("Scout plan-verification anchors (PLAN wiring + PLAN-DEVIATION channel)", () => {
   // The plan reaches the implementer through three prose hops: /flow-pipeline
   // Step 5 appends the PLAN: line, /flow-new-feature Step 1b forwards it into the
-  // scout spawn as {{PLAN_PATH}}, and scout-instructions.md's
+  // scout spawn as {{PLAN_PATH}}, and flow-scout-instructions/SKILL.md's
   // verify-not-rederive mode reports contradictions as PLAN-DEVIATION: bullets
   // inside the UNCHANGED six-section artifact. Any hop silently dropped means
   // plans are authored surgically but never consumed.
-  it("scout-instructions.md carries the PLAN-DEVIATION: prefix", () => {
+  it("flow-scout-instructions/SKILL.md carries the PLAN-DEVIATION: prefix", () => {
     expect(
       scoutInstructionsContent.includes("PLAN-DEVIATION:"),
-      "scout-instructions.md must instruct the scout to record contract " +
+      "flow-scout-instructions/SKILL.md must instruct the scout to record contract " +
         "contradictions as 'PLAN-DEVIATION:'-prefixed bullets in ## open_questions — " +
         "the drift-visibility channel /flow-new-feature Step 2 reconciles.",
     ).toBe(true);
   });
 
-  it("flow-new-feature/SKILL.md and scout-instructions.md agree on the `absent` PLAN_PATH sentinel", () => {
+  it("flow-new-feature/SKILL.md and flow-scout-instructions/SKILL.md agree on the `absent` PLAN_PATH sentinel", () => {
     for (const [label, docContent] of [
       ["flow-new-feature/SKILL.md", newFeatureContent],
-      ["scout-instructions.md", scoutInstructionsContent],
+      ["flow-scout-instructions/SKILL.md", scoutInstructionsContent],
     ] as Array<[string, string]>) {
       expect(
         /the literal string\s+`absent`/.test(docContent),
@@ -4205,14 +4321,14 @@ describe("Scout plan-verification anchors (PLAN wiring + PLAN-DEVIATION channel)
       discoveryInstructionsContent.includes("# Task breakdown"),
       "discovery-instructions.md step 8's plan.md persist skeleton must emit the " +
         "literal heading `# Task breakdown` — this is the PRODUCER side every " +
-        "downstream consumer (/flow-new-feature Step 1b, scout-instructions.md, " +
+        "downstream consumer (/flow-new-feature Step 1b, flow-scout-instructions/SKILL.md, " +
         "flow-pipeline/SKILL.md, flow-coder/SKILL.md) gates on. Consumers match this " +
         "heading tolerantly (any level, case-insensitive), but the producer must " +
         "still emit this exact string so the tolerant match has something to find.",
     ).toBe(true);
     for (const [label, docContent] of [
       ["flow-new-feature/SKILL.md", newFeatureContent],
-      ["scout-instructions.md", scoutInstructionsContent],
+      ["flow-scout-instructions/SKILL.md", scoutInstructionsContent],
       ["flow-pipeline/SKILL.md", content],
       ["flow-coder/SKILL.md", coderContent],
     ] as Array<[string, string]>) {
@@ -4220,12 +4336,12 @@ describe("Scout plan-verification anchors (PLAN wiring + PLAN-DEVIATION channel)
         /task\s+breakdown/i.test(docContent),
         `${label} must reference the plan's Task breakdown section — the tolerant ` +
           "(case-insensitive, any heading level) match consistent with the gating " +
-          "wording in flow-new-feature/SKILL.md Step 1b and scout-instructions.md.",
+          "wording in flow-new-feature/SKILL.md Step 1b and flow-scout-instructions/SKILL.md.",
       ).toBe(true);
     }
   });
 
-  it("scout-instructions.md six-section artifact list is unchanged (no seventh section)", () => {
+  it("flow-scout-instructions/SKILL.md six-section artifact list is unchanged (no seventh section)", () => {
     const SECTIONS = [
       "## affected_modules",
       "## relevant_tests",
@@ -4237,14 +4353,14 @@ describe("Scout plan-verification anchors (PLAN wiring + PLAN-DEVIATION channel)
     for (const section of SECTIONS) {
       expect(
         scoutInstructionsContent.includes(section),
-        `scout-instructions.md must keep the artifact section '${section}' — the ` +
+        `flow-scout-instructions/SKILL.md must keep the artifact section '${section}' — the ` +
           `consumer reads the six sections positionally, and the plan-verification ` +
           `mode explicitly reuses ## open_questions rather than adding a section.`,
       ).toBe(true);
     }
     expect(
       scoutInstructionsContent.includes("## plan_deviations"),
-      "scout-instructions.md must NOT add a seventh '## plan_deviations' section — " +
+      "flow-scout-instructions/SKILL.md must NOT add a seventh '## plan_deviations' section — " +
         "PLAN-DEVIATION: bullets live inside the existing ## open_questions so the " +
         "positionally-read six-section contract stays intact.",
     ).toBe(false);
@@ -4434,7 +4550,7 @@ describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites p
 
   const NESTED_SITE_NAME = "verify-loop-edit-applier";
   const NESTED_SITE_FILE =
-    "skills/pipeline/flow-pipeline/references/verify-loop-instructions.md";
+    "skills/pipeline/flow-verify-loop-instructions/SKILL.md";
   const TOP_LEVEL_SITES = SITES.filter(
     (s) => s.exemption_name !== NESTED_SITE_NAME,
   );
@@ -4585,7 +4701,7 @@ describe("Agent spawn sites resolve plugin-qualified subagent_type on the plugin
       agent: "flow-merge-resolver",
     },
     {
-      file: "skills/pipeline/flow-pipeline/references/verify-loop-instructions.md",
+      file: "skills/pipeline/flow-verify-loop-instructions/SKILL.md",
       agent: "flow-edit-applier",
     },
     { file: "skills/pipeline/flow-new-feature/SKILL.md", agent: "flow-scout" },
@@ -7726,7 +7842,7 @@ describe("design-artifact fidelity structural anchors", () => {
     ).toBe(true);
     expect(
       coderInstructionsContent.includes("DESIGN_CONTEXT"),
-      "coder references/coder-instructions.md must consume DESIGN_CONTEXT as " +
+      "coder flow-coder-instructions/SKILL.md must consume DESIGN_CONTEXT as " +
         "REQUIRED context (read foundation.md/spec.json BEFORE the first UI " +
         "edit; conform every edit).",
     ).toBe(true);
@@ -7833,7 +7949,7 @@ describe("design-artifact fidelity structural anchors", () => {
     ).toBe(true);
     expect(
       coderInstructionsContent.includes("Layout Intent"),
-      "coder references/coder-instructions.md must consume a ratified " +
+      "coder flow-coder-instructions/SKILL.md must consume a ratified " +
         "Layout Intent as a structural constraint the edit-applier may " +
         "never silently drop.",
     ).toBe(true);
@@ -9560,5 +9676,213 @@ describe("review scope, lens gates, telemetry pins", () => {
   it("docs/configuration.md documents review.lensGates and review.deltaScope", () => {
     expect(docsConfigurationContent.includes("review.lensGates")).toBe(true);
     expect(docsConfigurationContent.includes("review.deltaScope")).toBe(true);
+  });
+});
+
+describe("Preloaded instructions SKILL.md frontmatter + sentinel lint", () => {
+  // The six `flow-*-instructions` skills are preloaded via the agent's own
+  // `skills:` frontmatter (see AGENTS.md "Static agent-type definitions").
+  // Three silent-failure modes are unguarded without this lint: (1) a
+  // `name:` drifting from the dir name, or a `disable-model-invocation:
+  // true` added to one of the six, makes `skills:` preload inert with no
+  // runtime error; (2) a dropped/renamed sentinel comment makes every
+  // preloaded agent fall through to the redundant `Read` the spawn prompt
+  // keeps for the `general-purpose` fallback; (3) a spawn-prompt sentinel
+  // line can name a different skill than the SKILL.md it points at.
+  const PRELOAD_SKILLS = [
+    "flow-verify-loop-instructions",
+    "flow-fix-applier-instructions",
+    "flow-coder-instructions",
+    "flow-merge-resolver-instructions",
+    "flow-scout-instructions",
+    "flow-consolidator-instructions",
+  ];
+
+  it.each(PRELOAD_SKILLS)(
+    "%s SKILL.md is preloadable and opens with its sentinel",
+    (name) => {
+      const p = path.resolve(
+        HERE,
+        "..",
+        "skills",
+        "pipeline",
+        name,
+        "SKILL.md",
+      );
+      const content = fs.readFileSync(p, "utf8");
+      const fm = content.split("---")[1] ?? "";
+      expect(
+        new RegExp(`^name:\\s*${name}\\s*$`, "m").test(fm),
+        `${p} frontmatter name: must equal the dir name (${name}).`,
+      ).toBe(true);
+      expect(
+        /^description:\s*\S/m.test(fm),
+        `${p} frontmatter must have a non-empty description:.`,
+      ).toBe(true);
+      expect(
+        /^disable-model-invocation:/m.test(fm),
+        `${p} must not set disable-model-invocation: — that would block skills: preload.`,
+      ).toBe(false);
+      const body = content.split("---").slice(2).join("---").trim();
+      const firstBodyLine = body.split("\n")[0];
+      expect(
+        firstBodyLine,
+        `${p}'s first non-frontmatter line must be the sentinel comment.`,
+      ).toBe(`<!-- flow-instructions-sentinel: ${name} -->`);
+    },
+  );
+
+  // Five consumer sites cite `flow-instructions-sentinel: <name>` in their
+  // spawn prompt. Each `<name>` must have a producer among PRELOAD_SKILLS,
+  // catching a spawn-prompt site that drifted to name a skill different
+  // from the SKILL.md it actually preloads/points at.
+  const SENTINEL_CONSUMER_SITES: Array<{ file: string; expectedName: string }> =
+    [
+      {
+        file: "skills/pipeline/flow-coder/SKILL.md",
+        expectedName: "flow-coder-instructions",
+      },
+      {
+        file: "skills/pipeline/flow-pipeline/SKILL.md",
+        expectedName: "flow-verify-loop-instructions",
+      },
+      {
+        file: "skills/pipeline/flow-new-feature/SKILL.md",
+        expectedName: "flow-scout-instructions",
+      },
+      {
+        file: "skills/pipeline/flow-pr-review/references/fix-applier-spawn-prompt.md",
+        expectedName: "flow-fix-applier-instructions",
+      },
+      {
+        file: "skills/pipeline/flow-pipeline/references/merge-resolver-spawn-prompt.md",
+        expectedName: "flow-merge-resolver-instructions",
+      },
+    ];
+
+  it.each(
+    SENTINEL_CONSUMER_SITES.map(({ file, expectedName }) => [
+      file,
+      expectedName,
+    ]),
+  )(
+    "%s's sentinel-check line names a preloadable skill (%s)",
+    (file, expectedName) => {
+      const p = path.resolve(HERE, "..", file);
+      const content = fs.readFileSync(p, "utf8");
+      const match = content.match(/flow-instructions-sentinel:\s*(\S+)`/);
+      expect(
+        match,
+        `${p} must contain a 'flow-instructions-sentinel: <name>' check line.`,
+      ).not.toBeNull();
+      const namedSkill = match?.[1];
+      expect(
+        namedSkill,
+        `${p}'s sentinel-check line names '${namedSkill}', expected '${expectedName}'.`,
+      ).toBe(expectedName);
+      expect(
+        PRELOAD_SKILLS.includes(namedSkill ?? ""),
+        `${p}'s sentinel-check line names '${namedSkill}', which has no producer among PRELOAD_SKILLS.`,
+      ).toBe(true);
+    },
+  );
+});
+
+describe("partial-result-continuation.md pointer-site lint", () => {
+  // references/partial-result-continuation.md's own "Scope note" declares
+  // it is referenced from five sites. The string appears in no file under
+  // bin/, so any of these two-line pointers can be silently dropped in a
+  // later edit, reverting the supervisor to immediate *-missing-artifact
+  // escalation — the exact behaviour this contract exists to replace.
+  const POINTER_SITES = [
+    "skills/pipeline/flow-pipeline/SKILL.md",
+    "skills/pipeline/flow-pr-review/SKILL.md",
+    "skills/pipeline/flow-coder/SKILL.md",
+    "skills/pipeline/flow-verify-loop-instructions/SKILL.md",
+  ];
+
+  it.each(POINTER_SITES)(
+    "%s references partial-result-continuation.md",
+    (file) => {
+      const p = path.resolve(HERE, "..", file);
+      const content = fs.readFileSync(p, "utf8");
+      expect(
+        content.includes("partial-result-continuation.md"),
+        `${p} must reference references/partial-result-continuation.md — a dropped pointer silently reverts to immediate *-missing-artifact escalation.`,
+      ).toBe(true);
+    },
+  );
+
+  // The four maxTurns-pinned agent files carry the continuation contract's
+  // own paragraph, so the agent-side and supervisor-side halves cannot
+  // drift apart independently.
+  const MAX_TURNS_AGENT_FILES = [
+    "agents/core/flow-verify.md",
+    "agents/core/flow-fix-applier.md",
+    "agents/core/flow-edit-applier.md",
+    "agents/core/flow-merge-resolver.md",
+  ];
+
+  it.each(MAX_TURNS_AGENT_FILES)(
+    "%s references partial-result-continuation.md",
+    (file) => {
+      const p = path.resolve(HERE, "..", file);
+      const content = fs.readFileSync(p, "utf8");
+      expect(
+        content.includes("partial-result-continuation.md"),
+        `${p} must reference skills/pipeline/flow-pipeline/references/partial-result-continuation.md.`,
+      ).toBe(true);
+    },
+  );
+});
+
+describe("no stale references/<agent>-instructions.md anchors (pr-review #756 Test Step 3)", () => {
+  // This PR's own Test Step 3 was `git grep -l
+  // 'references/(verify-loop|fix-applier|coder|merge-resolver|scout|consolidator)-instructions.md' HEAD`,
+  // expecting no output — a deterministic repo-tree assertion, so per the
+  // automate-first rubric it belongs here as a lint rather than a one-off
+  // manual checkbox that only protects this merge.
+  const STALE_PATH =
+    /references\/(verify-loop|fix-applier|coder|merge-resolver|scout|consolidator)-instructions\.md/;
+  // Same exclusions as the PR's own Test Step 3: frozen fixtures/recorded
+  // inputs, not live anchors.
+  const EXCLUDE_DIRS = [
+    "node_modules",
+    ".git",
+    "bin/fixtures",
+    "evals",
+    "docs/subagent-features-probe.md",
+    ".flow-tmp",
+  ];
+
+  function walkRepoTextFiles(root: string): string[] {
+    const out: string[] = [];
+    const stack = [root];
+    while (stack.length > 0) {
+      const dir = stack.pop()!;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const abs = path.join(dir, entry.name);
+        const rel = path.relative(root, abs);
+        if (EXCLUDE_DIRS.some((ex) => rel === ex || rel.startsWith(`${ex}/`)))
+          continue;
+        if (entry.isDirectory()) {
+          stack.push(abs);
+        } else if (/\.(md|ts|template)$/.test(entry.name)) {
+          out.push(abs);
+        }
+      }
+    }
+    return out;
+  }
+
+  it("no file still references a pre-move references/<agent>-instructions.md path", () => {
+    const root = path.resolve(HERE, "..");
+    for (const file of walkRepoTextFiles(root)) {
+      const content = fs.readFileSync(file, "utf8");
+      expect(
+        STALE_PATH.test(content),
+        `${file} references a moved instructions path (references/<agent>-instructions.md); the six instruction files now live at skills/pipeline/flow-<agent>-instructions/SKILL.md.`,
+      ).toBe(false);
+    }
   });
 });

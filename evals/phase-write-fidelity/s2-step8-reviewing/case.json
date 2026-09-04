@@ -58,7 +58,8 @@
       "id": "plugin-loaded",
       "kind": "file",
       "file": "$STREAM",
-      "contains": "flow-module-core"
+      "contains": "flow-module-core",
+      "withOnly": true
     },
     {
       "id": "transcript.finalContextTokens",

@@ -114,6 +114,7 @@ function setup(
     configPath?: string;
     checkDrift?: () => InstallDriftResult;
     reexecAfterFastForward?: (ff: FastForwardResult) => number | undefined;
+    env?: NodeJS.ProcessEnv;
   } = {},
 ) {
   const { flowSourceOverride, installRootOverride, ...rest } = opts;
@@ -770,6 +771,110 @@ describe("flow install", () => {
           fs.rmSync(realDir, { recursive: true, force: true });
         }
       });
+    });
+  });
+
+  describe("auto-memory / subagent-cache-TTL install notices", () => {
+    function runQuietly(env?: NodeJS.ProcessEnv) {
+      return runSetup({
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        reexecAfterFastForward: () => undefined,
+        quiet: false,
+        env,
+      });
+    }
+
+    it("notices when settings.json sets autoMemoryEnabled: false", async () => {
+      fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
+      fs.writeFileSync(
+        settingsPath(),
+        JSON.stringify({ autoMemoryEnabled: false }),
+      );
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        await runQuietly();
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).toMatch(/auto memory is disabled/);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("notices when CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 is set", async () => {
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        await runQuietly({
+          ...process.env,
+          CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+        });
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).toMatch(/auto memory is disabled/);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("notices when settings.json sets subagentPromptCacheTtl: '5m'", async () => {
+      fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
+      fs.writeFileSync(
+        settingsPath(),
+        JSON.stringify({ subagentPromptCacheTtl: "5m" }),
+      );
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        await runQuietly();
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).toMatch(/overrides flow's per-agent 1h cache TTL/);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("notices when CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL is set", async () => {
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        await runQuietly({
+          ...process.env,
+          CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL: "5m",
+        });
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).toMatch(/overrides flow's per-agent 1h cache TTL/);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("emits neither notice on a clean settings.json / env", async () => {
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        await runQuietly();
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).not.toMatch(/auto memory is disabled/);
+        expect(allLogs).not.toMatch(/overrides flow's per-agent 1h cache TTL/);
+      } finally {
+        logSpy.mockRestore();
+      }
     });
   });
 

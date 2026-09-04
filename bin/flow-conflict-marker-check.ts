@@ -7,7 +7,7 @@
  * left to diff and reports clean regardless of content (see AGENTS.md
  * "Don't gate a post-commit verification on a worktree-vs-index diff").
  *
- * This is the merge-resolver's Layer 2 check (`merge-resolver-instructions.md`
+ * This is the merge-resolver's Layer 2 check (`flow-merge-resolver-instructions/SKILL.md`
  * Step 5) — Layer 1 is `git diff --check` run per-file BEFORE the resolution
  * commit, which is the only layer that catches a partial edit (a lone
  * `=======` left mid-file).

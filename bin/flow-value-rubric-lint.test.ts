@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
  * `skills/universal/flow-backlog-triage/references/value-rubric.md` is
  * embedded verbatim (marker-delimited) in four consumer files —
  * `methodology.md`, `flow-product-planning/references/discovery-instructions.md`,
- * `flow-pr-review/references/fix-applier-instructions.md`, and
+ * `flow-fix-applier-instructions/SKILL.md`, and
  * `flow-file-issue/SKILL.md`. There is no
  * runtime read of the canonical file (sub-agents run in consumer worktrees
  * and can't reliably fetch a sibling skill file), so drift between the five
@@ -54,8 +54,8 @@ const CONSUMERS: { path: string; label: string }[] = [
     label: "discovery-instructions.md",
   },
   {
-    path: "skills/pipeline/flow-pr-review/references/fix-applier-instructions.md",
-    label: "fix-applier-instructions.md",
+    path: "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
+    label: "flow-fix-applier-instructions/SKILL.md",
   },
   {
     path: "skills/universal/flow-file-issue/SKILL.md",
@@ -197,26 +197,26 @@ describe("flow-value-rubric: step-10 sweep carries .details", () => {
 
 describe("flow-value-rubric: below-bar deferrals stay unfiled (fix-applier / pr-review)", () => {
   const fixApplierContent = read(
-    "skills/pipeline/flow-pr-review/references/fix-applier-instructions.md",
+    "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
   );
 
-  it("fix-applier-instructions.md states the below-bar-deferrals-not-filed rule", () => {
+  it("flow-fix-applier-instructions/SKILL.md states the below-bar-deferrals-not-filed rule", () => {
     expect(
       fixApplierContent.includes("Below-bar deferrals are not filed"),
     ).toBe(true);
   });
 
-  it("fix-applier-instructions.md's below-bar reason begins 'below bar — '", () => {
+  it("flow-fix-applier-instructions/SKILL.md's below-bar reason begins 'below bar — '", () => {
     expect(fixApplierContent.includes("below bar — ")).toBe(true);
   });
 
-  it("fix-applier-instructions.md's deferred-body.md heredoc carries all eight value-prop labels", () => {
+  it("flow-fix-applier-instructions/SKILL.md's deferred-body.md heredoc carries all eight value-prop labels", () => {
     const start = fixApplierContent.indexOf(
       'cat > "$WORKTREE/.flow-tmp/deferred-body.md"',
     );
     expect(
       start,
-      "fix-applier-instructions.md must carry the deferred-body.md heredoc.",
+      "flow-fix-applier-instructions/SKILL.md must carry the deferred-body.md heredoc.",
     ).toBeGreaterThanOrEqual(0);
     // The opening line itself contains the `<<'EOF'` heredoc marker, so the
     // CLOSING `EOF` (a standalone line) must be searched for starting AFTER
@@ -238,7 +238,7 @@ describe("flow-value-rubric: below-bar deferrals stay unfiled (fix-applier / pr-
     ]) {
       expect(
         heredoc.includes(label),
-        `fix-applier-instructions.md's deferred-body.md heredoc must ` +
+        `flow-fix-applier-instructions/SKILL.md's deferred-body.md heredoc must ` +
           `include the value-prop label '${label}'.`,
       ).toBe(true);
     }

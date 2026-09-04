@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildEvidenceBlock,
+  neutralizeHeadings,
   parseArgs,
   rewriteBody,
   trimOutput,
@@ -460,5 +461,44 @@ describe("rewriteBody", () => {
     expect(result.body).toContain("no closing tag here");
     // Exactly one closing </details> from the freshly inserted block.
     expect((result.body.match(/<\/details>/g) ?? []).length).toBe(1);
+  });
+});
+
+describe("neutralizeHeadings — gate-parser containment", () => {
+  // Regression guard for PR #755: a captured `npm test` run printed its
+  // own markdown report, whose column-0 `## Regressions (1)` truncated
+  // `flow-gate-decide`'s `## Test Steps` extraction. The gate then saw
+  // zero unchecked items and returned `auto-merge` on a PR with an
+  // unrun manual step.
+  it("indents every column-0 ATX heading so an anchored ^## scan cannot match", () => {
+    const captured = [
+      "# flow-eval compare",
+      "## s1 (score 1 -> 1, delta 0)",
+      "###### deep",
+      "## Regressions (1)",
+      "- s1: transcript.finalContextTokens",
+    ].join("\n");
+    const out = neutralizeHeadings(captured);
+    expect(out.split("\n").some((l) => /^#{1,6} /.test(l))).toBe(false);
+    // Content is preserved verbatim apart from the one-space indent.
+    for (const line of captured.split("\n")) {
+      expect(out).toContain(line.startsWith("#") ? ` ${line}` : line);
+    }
+  });
+
+  it("leaves non-heading hashes alone (a bare #, and # mid-line)", () => {
+    const captured = [
+      "#not-a-heading",
+      "run with #comment",
+      "#",
+      "  ## indented",
+    ].join("\n");
+    expect(neutralizeHeadings(captured)).toBe(captured);
+  });
+
+  it("buildEvidenceBlock emits no column-0 heading from heading-bearing output", () => {
+    const block = buildEvidenceBlock("## Regressions (1)\n- boom", 0, TS);
+    expect(block.split("\n").some((l) => /^#{1,6} /.test(l))).toBe(false);
+    expect(block).toContain("## Regressions (1)");
   });
 });

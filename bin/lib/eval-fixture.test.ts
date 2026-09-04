@@ -269,6 +269,30 @@ describe("materializeFixture", () => {
     }
   });
 
+  it("materializes a plugin-free bareClaudeHome with an empty skills dir, no flow-module-* entry", () => {
+    const fixture = materializeFixture(buildScenario(), "my-suite", 1, {
+      stateDir,
+    });
+    try {
+      expect(fs.existsSync(fixture.bareClaudeHome)).toBe(true);
+      const skillsDir = path.join(fixture.bareClaudeHome, ".claude", "skills");
+      expect(fs.existsSync(skillsDir)).toBe(true);
+      const entries = fs.readdirSync(skillsDir);
+      expect(entries.some((e) => e.startsWith("flow-module-"))).toBe(false);
+    } finally {
+      fixture.teardown();
+    }
+  });
+
+  it("removes bareClaudeHome on teardown (it lives under fixture.root, which teardown rm -rf's)", () => {
+    const fixture = materializeFixture(buildScenario(), "my-suite", 1, {
+      stateDir,
+    });
+    const { bareClaudeHome } = fixture;
+    fixture.teardown();
+    expect(fs.existsSync(bareClaudeHome)).toBe(false);
+  });
+
   it("teardown removes root/state/checkpoints/turns/procs and never throws when called twice", () => {
     const fixture = materializeFixture(buildScenario(), "my-suite", 1, {
       stateDir,

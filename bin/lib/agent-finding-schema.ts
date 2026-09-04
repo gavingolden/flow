@@ -604,7 +604,7 @@ export function validateConsolidatorResult(
 
 // The six canonical kebab-case review-agent names plus the optional
 // cross-model Gemini lens, matching agent-prompts.md and
-// consolidator-instructions.md.
+// flow-consolidator-instructions/SKILL.md.
 const CANONICAL_LENSES = [
   "bug-detection",
   "security",
@@ -671,10 +671,10 @@ function accumulateLensFile(
  * that reads and parses but has an absent negative-findings slot (neither
  * `rejected_alternatives` nor `anti_patterns_found` present) appends the
  * bare lens name to `lens_negatives_missing`, mirroring
- * consolidator-instructions.md's existing "absent state" prose. A lens
+ * flow-consolidator-instructions/SKILL.md's existing "absent state" prose. A lens
  * whose slot was non-absent but yielded zero valid entries appends
  * `"<lens> (N unreadable)"`, matching the `"<lens> (N unreadable)"`
- * residual-marker precedent documented in consolidator-instructions.md's
+ * residual-marker precedent documented in flow-consolidator-instructions/SKILL.md's
  * per-agent-envelope section (the paragraph on reading the `skipped`
  * count). A file that exists but fails to parse
  * as JSON is treated the same as a missing file (skipped silently) — this

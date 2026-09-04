@@ -103,6 +103,8 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > for the canonical "Load the Task tool before spawning" paragraph and
 > `# Failure paths` for the escalation script — a sibling note, not a tenth.
 >
+> **A `SendMessage` continuation of a partial (`maxTurns`) agent stays inside its exemption — not a tenth site.** See `references/partial-result-continuation.md`.
+>
 > **Task-tool exemption #1: `/flow-pr-review` Independent Multi-Agent
 > Review.** Step 8's six review agents + one diff-only intent-guess agent,
 > spawned together ([references/exemption-contracts.md](../../../references/exemption-contracts.md)).
@@ -127,7 +129,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > merge + per-file resolution + push (per-pipeline branch only), writing
 > `.flow-tmp/merge-resolver-result.json`; full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
-> `references/merge-resolver-instructions.md`.
+> `../flow-merge-resolver-instructions/SKILL.md`. `maxTurns: 80`; partial-result continuation per `references/partial-result-continuation.md`.
 >
 > **Task-tool exemption #6: `/flow-coder` Independent Edit-Applier Subagent.**
 > The one edit-applier agent (`flow-edit-applier`) `/flow-coder` spawns when
@@ -152,7 +154,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > verify-retry-loop agent (`flow-verify`) owning the 3-outer-attempt
 > `/flow-verify` loop (isolating the re-pasted `flow-pre-commit --json`
 > failure JSON), writing `.flow-tmp/verify-loop-result.json`; full contract in
-> [references/exemption-contracts.md](../../../references/exemption-contracts.md) and `references/verify-loop-instructions.md`.
+> [references/exemption-contracts.md](../../../references/exemption-contracts.md) and `../flow-verify-loop-instructions/SKILL.md`. `maxTurns: 150`; partial-result continuation per `references/partial-result-continuation.md`.
 >
 > **The `/flow-pr-review` Gemini cross-model lens is a Bash fan-out, not a
 > tenth exemption.** When the supervisor invokes `/flow-pr-review` in step 8
@@ -1568,7 +1570,7 @@ above), not inline in the supervisor. The subagent owns the
 proactive config-authoring branch**, and the **UI-smoke pass** (see
 [references/ui-smoke-pass.md](references/ui-smoke-pass.md)) — the full
 bodies of these live in
-[references/verify-loop-instructions.md](references/verify-loop-instructions.md).
+[flow-verify-loop-instructions](../flow-verify-loop-instructions/SKILL.md).
 Isolating the loop is the point: across the 3 attempts the re-pasted
 failure JSON would otherwise accumulate unbounded in the supervisor's
 own transcript (the one measured unbounded supervisor-context
@@ -1609,7 +1611,7 @@ You are the Independent Verify-Retry-Loop Subagent for /flow-pipeline
 step 6. You run in an isolated context and return an artifact on disk
 plus a brief both-sides summary.
 
-Read the full instructions at:
+If the line `flow-instructions-sentinel: flow-verify-loop-instructions` is NOT in your context, read the instructions at:
   {{INSTRUCTIONS_PATH}}
 
 PR number:
@@ -1624,7 +1626,7 @@ Plan path (read for PR intent context):
 Write the artifact to (absolute path):
   {{ARTIFACT_PATH}}
 
-Follow the verify-loop-instructions.md steps in order. You are one-shot
+Follow the flow-verify-loop-instructions steps in order. You are one-shot
 — do not ask the user clarifying questions. Apply narrow fixes inline;
 wider-scope fixes may spawn ONE flow-edit-applier subagent per its spawn
 procedure, never any other Task. Stay within 3 outer /flow-verify attempts.
@@ -1644,7 +1646,7 @@ per-spawn `model: "$VERIFY_MODEL"` argument resolved above (verify precedence
 [references/model-routing.md](references/model-routing.md)), and the filled
 prompt. The `flow-verify` definition pins `effort: low`; the per-spawn
 `model:` overrides its model, so the precedence above is unchanged. After it
-returns:
+returns (**partial-result continuation:** a Task result marked partial with an agent id and a missing artifact gets one `SendMessage` continuation per `references/partial-result-continuation.md` before escalating):
 
 1. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
    `NEEDS HUMAN: verify-loop-missing-artifact` and end (do not re-spawn
@@ -1719,7 +1721,7 @@ the session:
 row re-enters here and re-spawns the subagent (the `/flow-verify` loop
 observes the worktree fresh, so a re-spawn is idempotent). Narrow fixes
 stay inline; wider-scope fixes spawn one flow-edit-applier subagent per
-`references/verify-loop-instructions.md`'s nested-spawn contract — either
+`flow-verify-loop-instructions/SKILL.md`'s nested-spawn contract — either
 way, the diff bytes stay out of the supervisor's own context.
 
 **End condition:** the artifact reports `verify_status: "pass"`.
@@ -2312,7 +2314,7 @@ Task call:
 
 ```bash
 ARTIFACT_PATH="$WORKTREE/.flow-tmp/merge-resolver-result.json"
-INSTRUCTIONS_PATH="$SKILL_DIR/references/merge-resolver-instructions.md"; FLOW_ROOT=$(cd -P "$SKILL_DIR/../../.." && pwd -P); MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"  # cd -P+pwd -P load-bearing: a logical cd lands in ~/.flow/claude-home
+INSTRUCTIONS_PATH="$SKILL_DIR/../flow-merge-resolver-instructions/SKILL.md"; FLOW_ROOT=$(cd -P "$SKILL_DIR/../../.." && pwd -P); MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"  # cd -P+pwd -P load-bearing: a logical cd lands in ~/.flow/claude-home
 BASE_BRANCH=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
 mkdir -p "$WORKTREE/.flow-tmp"
 rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior re-entry (step 10 is re-enterable via the step-7 pr-conflicted row)
@@ -2363,7 +2365,7 @@ and the filled prompt. After it returns:
    ~/.flow/config.json 2>/dev/null)"`, leave the worktree intact, and
    end — do **not** resolve inline in the supervisor
    (see [references/exemption-contracts.md](../../../references/exemption-contracts.md)
-   for why). Then the standard `# Failure paths` chain.
+   for why). Then the standard `# Failure paths` chain. **Partial-result continuation:** a Task result marked partial with an agent id and a missing artifact gets one `SendMessage` continuation per `references/partial-result-continuation.md` before escalating.
 2. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
    `NEEDS HUMAN: merge-resolver-missing-artifact` and end. (Do not
    re-spawn the resolver — exactly one Task call per run, per the

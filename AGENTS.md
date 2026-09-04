@@ -249,8 +249,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
   backends), `~/.flow/state/<slug>.json`, then on-disk artifacts — the plain
   shell is the DEFAULT launcher, so a bare install has none. flow's options
   (`@flow-slug`, `@flow-phase`, `@flow-repo`, `@flow-phase-short`,
-  `@flow-kind`, `@flow-epic`) are additive, publish-only mirrors. Two
-  sanctioned reads: `@flow-kind`, load-bearing ONLY because epic orchestration
+  `@flow-kind`, `@flow-epic`) are additive, publish-only mirrors on every
+  flow window. Two sanctioned reads: `@flow-kind`, load-bearing ONLY because epic orchestration
   is already tmux-only by an independent hard constraint — its precondition
   must be named in a comment at BOTH producing and consuming site, and absence
   must degrade to a CORRECT, safe-by-construction default; and `@flow-slug`,
@@ -258,9 +258,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
   (`LIST_WINDOWS_FORMAT`), never identity. See `resolveSlugAmbient` (env-only)
   and `resolveKindAmbient` in `bin/lib/session-identity.ts`;
   `bin/pane-read-lint.test.ts` fails CI on any pane read outside the frozen
-  allowlist, in code or prose. `@flow-kind` now also publishes on feature
-  windows, not only epic ones; `flow ls`'s KIND column reads
-  `PipelineState.kind`, never the pane option.
+  allowlist, in code or prose. `flow ls`'s KIND column reads
+  `PipelineState.kind`, never `@flow-kind`.
 - **Don't write test-time port or URL overrides to a file.** Pass them
   inline to the launch subprocess (env vars / CLI flags); never write
   `.env.local`, `.env`, or any other config file. A gitignored override
@@ -272,7 +271,7 @@ three-layer resolution table, and the manifest/foundation fields — is at
   Post-commit, worktree == index == HEAD, so `git diff --check` /
   `git status --porcelain` report clean regardless of content — read the
   committed tree instead (`git grep ... HEAD`). See
-  `skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md`
+  `skills/pipeline/flow-merge-resolver-instructions/SKILL.md`
   Step 5 and `flow-conflict-marker-check`.
 - Don't auto-commit or auto-push outside an explicit user instruction —
   this default always holds on `main` (or any base branch). **On a
@@ -363,6 +362,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
     nested verify-loop → edit-applier site, which records `coder_spawn:
     task-tool-unavailable` and degrades inline (a known-good fallback
     there) — a sibling guard, not a tenth exemption.
+  - **A `SendMessage` continuation of a partial agent stays inside its
+    exemption — not a tenth site** (`references/partial-result-continuation.md`).
   - The `/flow-pr-review` Gemini lens, the cross-model intent guess
     (`flow-gemini-intent-guess`), the `/flow-pipeline` Step-3
     **cross-model plan review**, and the Step-3

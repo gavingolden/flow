@@ -33,6 +33,44 @@ no `gh pr merge/create/close`, no `gh release`, no `rm -rf
 node_modules*`), but that is a floor, not a sandbox — only run scenarios
 you trust, the same as you would `claude -p` directly.
 
+## Headless safety flags
+
+Every headless `claude` child this repo spawns picks its own subset of
+`--restricted`/`--permission-prompts none` — the right subset depends on
+what that child is FOR, not a single blanket policy. Three rows, plus a
+fourth that's `n/a` because it spawns no `claude` child at all:
+
+> [!IMPORTANT]
+> **This section raises the harness's minimum `claude` version.** Both
+> flags below were verified present against `claude --version`
+> `2.1.259 (Claude Code)`; `--restricted` additionally documents its own
+> floor ("Requires Claude Code v2.1.248 or later",
+> https://code.claude.com/docs/en/cli-reference). `probeClaude` enforces
+> no version floor, so an older `claude` fails every run with an
+> unknown-flag error rather than one of the three named skip reasons.
+
+| Spawn site                                                                                     | `--permission-prompts none`    | `--restricted`      | Why                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------- | ------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `flow-eval` child (`bin/lib/eval-runner.ts`'s `buildChildArgv`)                                | YES                            | NO                  | `--restricted` "removes the built-in tools that run commands or code ... unless `--tools` names them, and ignores ... project ... settings files" (`claude --help`) — it would strip the Bash access the scenarios exist to drive and null the deliberate `--setting-sources project` this file already passes. `--permission-prompts none` alone closes the unattended-child gap without touching either. |
+| `flow-plugin-probe` Task-spawn probe (`bin/flow-plugin-probe.ts`'s `probeAgentInvocationName`) | YES                            | YES, `--tools Task` | This probe needs the Task tool and nothing else — `--restricted --tools Task` is the tightest legal grant, and the probe already runs against an isolated fixture `HOME`.                                                                                                                                                                                                                                  |
+| `flow-plugin-probe` / `flow-plugin-contract-lint`'s `plugin list\|validate\|details` calls     | NO                             | NO                  | Not headless prompt sessions (no `-p`) — these subcommands take neither flag.                                                                                                                                                                                                                                                                                                                              |
+| `flow-model-bench`                                                                             | n/a — spawns no `claude` child | n/a                 | `flow-model-bench` dispatches its manifest through `flow-delegate-fanout`, whose default runner spawns the `flow-delegate` BINARY (`bin/flow-delegate-fanout.ts:472`), which in turn calls agy (Google AI Ultra), never `claude -p`.                                                                                                                                                                       |
+
+Five headless `claude -p` children exist repo-wide today: the `flow-eval`
+scenario child, `flow-plugin-probe`'s Task-spawn probe
+(`probeAgentInvocationName`), and three live-only probes the ablation-arm
+PR (#755) added — `probeAgentMemoryScope`, `probeSkillsPreloadName`, and
+`probeMaxTurnsPartial`/`probeCacheTtl1h` — each gated behind `--live` and
+run against the real, already-logged-in `HOME` rather than an isolated
+fixture. Those three live probes do not yet carry
+`--permission-prompts none` / `--restricted`: they drive Bash tool calls
+and Task-tool subagent spawns the flags would suppress, so extending the
+contract to them needs a probe-by-probe safety check, not a blanket flag
+add — tracked separately rather than guessed here.
+`bin/flow-plugin-contract-lint.ts:125` is a further real `claude` spawn
+site, but it's a `plugin validate`/`plugin list` call, not a headless
+prompt session, so it carries neither flag.
+
 ## Precondition: `flow install`
 
 `flow-eval` spawns a real `claude -p` child that loads the same
@@ -52,8 +90,11 @@ bun bin/flow-eval.ts run --all --out .flow-tmp/eval
 Useful flags: `--dry-run` (materializes fixtures and renders prompts
 without spawning `claude`), `--runs <n>` (override every scenario's
 per-run count), `--concurrency <n>` (bounded worker pool across every
-`(scenario, run)` pair in the suite; default 1), `--threshold <0..1>`
-(exit 1 when a suite's score misses it), `--claude-bin <path>`.
+`(scenario, run[, arm])` job in the suite — `--ablation with-without`
+doubles each `(scenario, run)` into a with/without pair, and the pool is
+sized against the flattened job list, not the scenario count; default 1),
+`--threshold <0..1>` (exit 1 when a suite's score misses it),
+`--claude-bin <path>`, `--ablation <none|with-without>` (default `none`).
 
 Named skip reasons (exit 0, one-line stderr notice, a `skipped` report
 still written): `claude-not-on-path`, `claude-not-authenticated`,
@@ -62,12 +103,71 @@ report for the same reason — vitest (`bin/evals-suites.test.ts`,
 `bin/flow-eval.test.ts`) stays the CI gate; no vitest spec ever spawns
 `claude`.
 
+### `--ablation with-without`: a no-plugin baseline arm
+
+```sh
+bun bin/flow-eval.ts run --suite verify-loop-isolation --out .flow-tmp/eval \
+  --ablation with-without
+```
+
+Runs every scenario TWICE per configured run — once with the real
+`flow-module-core` plugin loaded (`"with"`, today's only arm), once with
+no plugin loaded at all (`"without"`: no `--plugin-dir`, and `--add-dir`
+points at a plugin-free sibling home instead of the fixture's real one)
+— and reports the score/metric delta between the two, so a scaffold-
+removal PR can cite a measured "the plugin changed X by Y%" instead of a
+prose argument. Doubling the arm count doubles `claude` spend for that
+invocation; the CLI prints a one-line cost notice (never a prompt) before
+running when this flag is set.
+
+A gate grader that can never pass without the plugin loaded (the
+`plugin-loaded` gate every committed scenario carries, which asserts the
+transcript mentions `flow-module-core`) is marked `withOnly: true` in its
+`case.json` entry — excluded entirely from the `"without"` arm's score
+(both numerator and denominator), so it reads as a plugin-fired
+indicator rather than dragging every suite's `scoreDelta` down to the
+same fixed, information-free constant. This mirrors the native harness's
+own vocabulary verbatim: `claude plugin eval --help` on 2.1.259 describes
+`--ablation`'s `with-without` mode as making "graders marked with-only,
+incl. `tool_used: Skill`, ... a plugin-fired indicator rather than part
+of the score."
+
+Excluding `plugin-loaded` from the bare arm removes the only signal that
+would have caught an ablation _leak_ at run time, so that arm gets an
+inverted replacement: a synthetic `ablation-leak-free` gate asserting its
+transcript does **not** mention `flow-module-core`. It fires on the
+`"without"` arm only, and a failure means the no-plugin child still
+loaded a flow plugin root — the delta from that run is meaningless, not
+merely small. This is the runtime counterpart to the composition-time
+anti-leak assertions in `bin/lib/eval-runner.test.ts`: those prove the
+argv and env are clean, this proves the child behaved as though they
+were. The ablation removes flow's scaffold from **three** surfaces, not
+one — `--plugin-dir`, the `--add-dir` claude-home (the plugin root is
+materialized _inside_ it), and the plugin `bin/` on `PATH`. Dropping only
+the first leaves every skill and helper reachable and yields a near-zero
+delta that reads as "the scaffold adds nothing".
+
+`--ablation with-without` COMPLEMENTS the baseline-vs-candidate `compare`
+workflow below, it does not replace it: `compare` measures drift between
+two committed trees (e.g. before/after a scaffold-removal PR), while
+`--ablation` measures the plugin's own effect within a SINGLE run. Use
+both together to answer "did this PR's change move the metric, and how
+much of the metric was the plugin's doing in the first place."
+
 ## Report schema (v1) and `compare`
 
 `bin/lib/eval-report.ts`'s `EvalReport` (`schemaVersion: 1`) is the
 deliberate stable seam — additive fields only once a baseline is
-committed; bump `schemaVersion` for anything else. `bun bin/flow-eval.ts
-report --in <report.json>` renders the markdown summary;
+committed; bump `schemaVersion` for anything else. Two additive fields
+this feature added, both optional so every committed `docs/eval/baseline/
+*.report.json` still validates unchanged: `runner.childArgvDigest` (a
+hash of the composed child argv's SHAPE — flag names, plus the fixed
+values of the permission/setting-sources/tools flags, and a
+`--plugin-dir` count; never the prompt, session id, or a fixture path,
+which differ on every run) and, per scenario, an `ablation` object
+(`{with, without, scoreDelta, metricDeltas}`) present only when
+`--ablation with-without` ran. `bun bin/flow-eval.ts report --in
+<report.json>` renders the markdown summary;
 
 ```sh
 bun bin/flow-eval.ts compare --base docs/eval/baseline/verify-loop-isolation.report.json \
@@ -78,7 +178,11 @@ bun bin/flow-eval.ts compare --base docs/eval/baseline/verify-loop-isolation.rep
 diffs two reports scenario-by-scenario and metric-by-metric: `worse` /
 `better` / `same` / `noisy` (base-spread-exceeds-tolerance) verdicts,
 direction-aware (`lower`/`higher`-is-better), plus an
-`environmentMismatch` warning when `runner.model`/`runner.effort`/
+`environmentMismatch` warning when `runner.childArgvDigest` (when BOTH
+reports carry one) differs between the two reports — a shape drift means
+the two children were composed differently (e.g. one predates a
+`--permission-prompts` addition), not just a different tree — or when
+`runner.model`/`runner.effort`/
 `runner.claudeVersion` differ between the two reports. `--fail-on-regression`
 exits 1 on any regression; `--json` prints the raw `Comparison` object
 instead of the markdown table.
@@ -159,15 +263,42 @@ bun bin/flow.ts install --upgrade
 
 ## The `claude plugin eval` forward check
 
-The installed CLI (2.1.239 at this writing) lists `claude plugin eval`
-with `--json`/`--runs`/`--threshold`, but it is org-gated early access
-(design.md verdict 4), and `.github/workflows/ci.yml` installs Node and
-Bun only — no `claude` binary — so it can never be flow's CI gate
-regardless of enablement. `EvalReport.runner.name` is the seam that
-would let a future `claude-plugin-eval` runner backend emit the same
-report shape (an adapter, not a rewrite) — revisit when the command is
-GA for flow's org **and** CI installs `claude`. Not built now; tracked
-as a candidate follow-up, not a task in this feature.
+Live on 2.1.259 (superseding this doc's earlier "2.1.239 at this
+writing" note, which was already stale): `claude plugin eval --help`
+renders full usage and exits 0 — `--json`/`--runs`/`--threshold` and now
+also a native `--ablation <none|with-without>` flag with the SAME
+with/without-baseline shape this feature independently arrived at — but
+a real (non-`--help`) invocation is still org-gated early access. Verified
+directly against both `init --bare <name>` and a real target:
+
+```console
+$ claude plugin eval init --bare demo
+`plugin eval` is currently in early access
+$ echo $?
+1
+```
+
+(stderr, not stdout — never merged with `2>&1`, so a downstream JSON
+parse of the same invocation's stdout is never corrupted by this
+message). `bin/flow-plugin-probe.ts`'s `plugin-eval-availability` probe
+machine-detects this gate the same way — `--help` alone is NOT
+sufficient evidence (it renders and exits 0 even while gated), so the
+probe additionally attempts the harmless, network-free `init --bare`
+invocation and classifies `refuted` on the early-access stderr,
+`confirmed` once the gate lifts. Run it directly:
+
+```sh
+bun bin/flow-plugin-probe.ts --json --probe plugin-eval-availability
+```
+
+`.github/workflows/ci.yml` installs Node and Bun only — no `claude`
+binary — so the native command can never be flow's CI gate regardless of
+enablement. `EvalReport.runner.name` stays the seam that would let a
+future `claude-plugin-eval` runner backend emit the same report shape
+(an adapter, not a rewrite, enforced at `bin/lib/eval-report.ts`'s
+`runner.name` literal type) — revisit when the command is GA for flow's
+org **and** CI installs `claude`. Not built now; tracked as a candidate
+follow-up, not a task in this feature.
 
 ## Concurrency
 
