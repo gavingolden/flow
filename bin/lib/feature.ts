@@ -30,6 +30,7 @@ import {
   FLOW_SESSION,
   SEED_CORRUPTED_STDERR,
   setWindowEpic,
+  setPaneKind,
   type VerifiedLaunchResult,
 } from "./tmux";
 import { livenessOf, pidStartEpoch } from "./liveness";
@@ -852,6 +853,7 @@ function runFresh(
     modelMergeResolver: options.modelMergeResolver,
     epic: options.epic,
     launcher,
+    kind: "feature",
     updatedAt: nowIso(),
   });
   const existing = readState(slug, options.stateDir);
@@ -1041,6 +1043,14 @@ function runFresh(
     );
     if (w) console.error(dim(w));
   }
+
+  // Best-effort @flow-kind badge: publish once the launch is confirmed live,
+  // tmux-only (the plain branch already returned at the "plain" backend
+  // dispatch above, well before this site). Failures are ignored and never
+  // change this command's exit code, but @flow-kind IS load-bearing state —
+  // see AGENTS.md "Two sanctioned reads" and session-identity.ts's
+  // resolveKindAmbient — so this republish must still land.
+  setPaneKind(slug, "feature");
 
   // Best-effort epic tree-view badge (OQ-1): publish @flow-epic once the
   // launch is confirmed live. Failures are ignored — @flow-epic is a
@@ -1371,6 +1381,19 @@ function runResume(
     );
     if (w) console.error(dim(w));
   }
+
+  // Best-effort @flow-kind badge, mirroring runFresh: publish once the
+  // (re)launch is confirmed live, tmux-only (this is `runResume`'s tmux
+  // path). respawnWindowVerified reuses the pane and never re-seeds window
+  // options, so this republish is the only place a resumed window's
+  // @flow-kind gets (re)set. Failures are ignored and never change this
+  // command's exit code, but @flow-kind IS load-bearing state — see
+  // AGENTS.md "Two sanctioned reads" and session-identity.ts's
+  // resolveKindAmbient. NOTE: `flow feature resume` has no epic-slug guard,
+  // so resuming a slug that is actually an epic-member window would
+  // overwrite its @flow-kind to "feature" here — a known hazard, not yet
+  // fixed.
+  setPaneKind(slug, "feature");
 
   // Best-effort epic tree-view badge (OQ-1), mirroring runFresh: publish
   // @flow-epic once the (re)launch is confirmed live. respawnWindowVerified

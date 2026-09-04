@@ -63,6 +63,11 @@ const tmuxMock = vi.hoisted(() => ({
   // fake pid keeps every pre-existing launch-path test passing unmodified —
   // panePid is a genuinely new call site those tests never anticipated.
   panePid: vi.fn<(slug: string) => number | null>(() => 4242),
+  // Best-effort @flow-kind publish — defaults to ok so the happy paths pass
+  // without per-test setup. Mirrors bin/lib/epic.test.ts's tmuxMock.
+  setPaneKind: vi.fn<
+    (slug: string, kind: string) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
   // Best-effort epic tree-view publish (OQ-1) — defaults to ok so the
   // happy paths pass without per-test setup.
   setWindowEpic: vi.fn<
@@ -1210,6 +1215,92 @@ describe("runNew (fresh)", () => {
       stateDir,
     );
     expect(consumedFn!()).toBe(true);
+  });
+});
+
+describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () => {
+  it("stamps kind: 'feature' and publishes @flow-kind on a fresh tmux launch", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    expect(readState("csv-export", stateDir)?.kind).toBe("feature");
+    expect(tmuxMock.setPaneKind).toHaveBeenCalledWith("csv-export", "feature");
+  });
+
+  it("republishes @flow-kind on a tmux resume, preserving the persisted kind", () => {
+    // Seeded WITH kind already set (as a prior `flow feature create` would
+    // have stamped it) — runResume's writeState sites spread the existing
+    // state rather than re-deriving kind, so this pins preservation, not
+    // (re-)stamping; the fresh-launch stamp is covered above.
+    writeState(
+      {
+        slug: "resumed-feature",
+        phase: "verifying",
+        repo: repoDir,
+        kind: "feature",
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const code = runNew("resumed-feature", {
+      resume: true,
+      stateDir,
+      launchSettingsPath: path.join(stateDir, "launch-settings.json"),
+    });
+    expect(code).toBe(0);
+    expect(readState("resumed-feature", stateDir)?.kind).toBe("feature");
+    expect(tmuxMock.setPaneKind).toHaveBeenCalledWith(
+      "resumed-feature",
+      "feature",
+    );
+  });
+
+  it("stamps kind: 'feature' but issues NO @flow-kind publish on the plain launcher path", async () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const calls: Array<{ argv: string[] }> = [];
+    const spawn = (
+      argv: string[],
+      o: { cwd: string; env: NodeJS.ProcessEnv },
+    ) => {
+      calls.push({ argv });
+      const slug = o.env.FLOW_SLUG!;
+      const raw = JSON.parse(
+        fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"),
+      );
+      writeState(
+        {
+          ...raw,
+          seedIngest: {
+            at: new Date().toISOString(),
+            outcome: "not-applicable",
+            reason: "no-seed-recorded",
+          },
+        },
+        stateDir,
+      );
+      return { pid: 777, exited: Promise.resolve(0) };
+    };
+    const code = await runFeatureCliReal(["create", "plain", "kind", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({}),
+      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+    });
+    expect(code).toBe(0);
+    expect(calls).toHaveLength(1);
+    const slug = fs
+      .readdirSync(stateDir)
+      .find((f) => f.endsWith(".json"))!
+      .replace(/\.json$/, "");
+    expect(readState(slug, stateDir)?.kind).toBe("feature");
+    expect(tmuxMock.setPaneKind).not.toHaveBeenCalled();
   });
 });
 

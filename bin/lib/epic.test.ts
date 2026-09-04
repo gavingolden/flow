@@ -722,6 +722,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       cwd: repoDir,
     });
     expect(code).toBe(0);
+    expect(readState("design-thing", stateDir)?.kind).toBe("epic-design");
     expect(tmuxMock.setPaneKind).toHaveBeenCalledWith(
       "design-thing",
       "epic-design",
@@ -1249,6 +1250,7 @@ describe("runEpicCli create --resume", () => {
       stateDir,
     });
     expect(code).toBe(0);
+    expect(readState("crashed-epic", stateDir)?.kind).toBe("epic-design");
     expect(tmuxMock.setPaneKind).toHaveBeenCalledWith(
       "crashed-epic",
       "epic-design",
@@ -1318,7 +1320,13 @@ describe("runEpicCli create --resume", () => {
       tmuxMock.respawnWindowVerified.mock.calls[0]?.[3] ??
       tmuxMock.createWindowVerified.mock.calls[0]?.[3];
     expect(typeof deliveredSeed).toBe("string");
-    expect(after).toEqual({ ...before, seed: deliveredSeed });
+    // kind: "epic-design" is a genuinely NEW field this resume stamps
+    // (Task 2) — the pre-clear write now also carries it unconditionally.
+    expect(after).toEqual({
+      ...before,
+      seed: deliveredSeed,
+      kind: "epic-design",
+    });
   });
 
   it("rejects a slug that is not already a valid slug", () => {
@@ -1460,7 +1468,13 @@ describe("runEpicCli create --resume", () => {
     );
     const deliveredSeed = tmuxMock.respawnWindowVerified.mock.calls[0]?.[3];
     expect(typeof deliveredSeed).toBe("string");
-    expect(after).toEqual({ ...before, seed: deliveredSeed });
+    // kind: "epic-design" is a genuinely NEW field this resume stamps
+    // (Task 2) — the pre-clear write now also carries it unconditionally.
+    expect(after).toEqual({
+      ...before,
+      seed: deliveredSeed,
+      kind: "epic-design",
+    });
   });
 });
 
@@ -1628,6 +1642,44 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       "spawn-epic",
       "spawn-epic",
     );
+  });
+
+  it("stamps kind: 'epic-run' on an existing state.json — the mutual-exclusion cross-path overwrite", () => {
+    gitInit();
+    writeManifest("spawn-epic", [{ id: "a" }]);
+    freshWindowOk();
+    // Pre-seed as if `flow epic create` already ran (kind: epic-design), the
+    // same shared-state.json scenario the seed-clearing test above pins.
+    // windowExists(slug) refuses a concurrent design window (~1093-1102), so
+    // a state file existing here means no LIVE design supervisor's kind gets
+    // clobbered underneath it — this write is the sole owner at this moment.
+    writeState(
+      {
+        slug: "spawn-epic",
+        phase: "epic-approved",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+        kind: "epic-design",
+      },
+      stateDir,
+    );
+    const code = runEpicCli(["run", "spawn-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      stateDir,
+    });
+    expect(code).toBe(0);
+    expect(readState("spawn-epic", stateDir)?.kind).toBe("epic-run");
+    // Flip it back: an epic-resume over that same shared state.json (dead
+    // pane after `flow epic run` left windowExists true / isPaneAlive false)
+    // must overwrite epic-run with epic-design again — the stale-kind
+    // discipline both writeState sites in bin/lib/epic.ts enforce
+    // unconditionally, never a `?? existing.kind` fallback.
+    const resumeCode = runEpicCli(["create", "--resume", "spawn-epic"], {
+      stateDir,
+    });
+    expect(resumeCode).toBe(0);
+    expect(readState("spawn-epic", stateDir)?.kind).toBe("epic-design");
   });
 
   it("a failing setPaneKind never changes the run command's exit code (best-effort; return value ignored)", () => {

@@ -68,8 +68,8 @@ The transcript below is **illustrative — not exact output**:
 
 ```text
 $ flow ls
-  add-csv-export     review    not running
-  fix-login-redirect ci        running
+  add-csv-export     feature review    not running
+  fix-login-redirect feature ci        running
 
 $ flow feature resume add-csv-export
 RESUMING AT: review (PR #142, 2 findings open)

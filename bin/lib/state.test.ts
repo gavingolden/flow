@@ -573,6 +573,31 @@ describe("state", () => {
     expect(readState("full", dir)).toEqual(full);
   });
 
+  it.each(PIPELINE_KINDS)("readState round-trips kind %s", (kind) => {
+    writeState(fixture(`kind-${kind}`, { kind }), dir);
+    expect(readState(`kind-${kind}`, dir)?.kind).toBe(kind);
+  });
+
+  it("readState round-trips an absent kind as undefined", () => {
+    writeState(fixture("no-kind"), dir);
+    expect(readState("no-kind", dir)?.kind).toBeUndefined();
+  });
+
+  it("readState returns null when state JSON has an invalid kind", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-kind.json"),
+      JSON.stringify({
+        slug: "bad-kind",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        kind: "nope",
+      }),
+    );
+    expect(readState("bad-kind", dir)).toBeNull();
+  });
+
   it("readState returns null when state JSON has wrong-type interview", () => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(

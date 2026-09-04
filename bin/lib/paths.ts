@@ -28,6 +28,22 @@ export const FLOW_STATE_DIR = path.join(FLOW_DIR, "state");
 export const FLOW_CACHE_DIR = path.join(FLOW_DIR, "cache");
 
 /**
+ * Single path segment shared by every agent-memory-local call site
+ * (the worktree-local symlink name, the git-exclude entry, and the
+ * cache-salvage subdir name) — extracted so a future rename touches one
+ * constant instead of drifting across `worktree-marker.ts`,
+ * `worktree-fs.ts`, and `flow-plugin-probe.ts`.
+ */
+export const AGENT_MEMORY_DIRNAME = "agent-memory-local";
+/**
+ * Repo-relative path to the worktree-local agent-memory symlink, written
+ * verbatim into `.git/info/exclude`. MUST stay a template literal with a
+ * forward slash — NEVER `path.join` — because git parses exclude entries
+ * with `/` separators unconditionally, regardless of host OS.
+ */
+export const AGENT_MEMORY_RELPATH = `.claude/${AGENT_MEMORY_DIRNAME}`;
+
+/**
  * Stable per-repo cache key: `<basename>-<sha256(realpath)[0..8]>` — the
  * hash disambiguates same-named repos at different paths (e.g. two
  * checkouts of "flow" for different clients) without leaking the full path

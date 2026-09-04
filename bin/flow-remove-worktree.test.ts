@@ -5,8 +5,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteBranchWithForceFallback,
   isDeregisteredFailure,
@@ -23,7 +24,17 @@ import {
   resolveTargetInput,
 } from "./flow-remove-worktree";
 import { salvageAgentMemory } from "./lib/worktree-fs";
-import { repoCacheKey } from "./lib/paths";
+
+/** Computes the SAME `repoCacheKey` value as `./lib/paths.ts`'s
+ * `repoCacheKey`, but derived independently (never by calling
+ * `repoCacheKey` itself) — so this test goes red if the key formula, the
+ * realpath resolution, or the truncation width ever drifts. */
+function expectedCacheKey(dir: string): string {
+  const real = fs.realpathSync(dir);
+  const base = path.basename(real);
+  const hash = createHash("sha256").update(real).digest("hex").slice(0, 8);
+  return `${base}-${hash}`;
+}
 
 // --- parseWorktreeListOutput ---
 
@@ -791,13 +802,55 @@ describe(salvageAgentMemory, () => {
     salvageAgentMemory(worktreeDir, scratchRoot, cacheRoot);
     const salvaged = path.join(
       cacheRoot,
-      repoCacheKey(scratchRoot),
+      expectedCacheKey(scratchRoot),
       "agent-memory-local",
       "flow-scout",
       "MEMORY.md",
     );
     expect(fs.existsSync(salvaged)).toBe(true);
     expect(fs.readFileSync(salvaged, "utf8")).toBe("real dir note\n");
+  });
+
+  it("no-ops when the target is a plain file", () => {
+    const worktreeDir = path.join(scratchRoot, "wt-plain-file");
+    const cacheRoot = path.join(scratchRoot, "cache");
+    const target = path.join(worktreeDir, ".claude", "agent-memory-local");
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, "not a directory\n");
+    expect(() =>
+      salvageAgentMemory(worktreeDir, scratchRoot, cacheRoot),
+    ).not.toThrow();
+    // The negated `stat.isDirectory()` return in worktree-fs.ts fires
+    // before any mkdirSync of the cache root, so a plain-file target must
+    // never cause the cache root to spring into existence.
+    expect(fs.existsSync(cacheRoot)).toBe(false);
+  });
+
+  it("never throws when the copy fails", () => {
+    const worktreeDir = path.join(scratchRoot, "wt-copy-fails");
+    const cacheRoot = path.join(scratchRoot, "cache-blocked");
+    const target = path.join(worktreeDir, ".claude", "agent-memory-local");
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, "MEMORY.md"), "note\n");
+    // Occupy the cache root path with a plain file so
+    // fs.mkdirSync(cacheDir, { recursive: true }) throws ENOTDIR
+    // deterministically on macOS and Linux.
+    fs.writeFileSync(cacheRoot, "occupied\n");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(() =>
+        salvageAgentMemory(worktreeDir, scratchRoot, cacheRoot),
+      ).not.toThrow();
+      // log.warn (worktree-fs.ts) prefixes every message with a warning
+      // emoji and spaces, so assert a SUBSTRING match, never equality.
+      expect(
+        warnSpy.mock.calls.some((call) =>
+          String(call[0]).includes("Could not salvage agent-memory-local"),
+        ),
+      ).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 
@@ -1062,7 +1115,7 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
       process.env.HOME!,
       ".flow",
       "cache",
-      repoCacheKey(fx.repoDir),
+      expectedCacheKey(fx.repoDir),
       "agent-memory-local",
     );
     expect(fs.existsSync(cacheDir)).toBe(true);

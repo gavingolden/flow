@@ -428,6 +428,38 @@ describe(ensureFlowExcludes, () => {
     expect(branchMatches.length).toBe(1);
   });
 
+  it("the git-exclude entry matches the path linkAgentMemory creates", () => {
+    const worktreeDir = path.join(
+      path.dirname(fx.repoDir),
+      "wt-exclude-desync",
+    );
+    mustGit(
+      ["worktree", "add", "-b", "wt-exclude-desync", worktreeDir],
+      fx.repoDir,
+    );
+    const cacheRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-new-worktree-exclude-desync-cache-"),
+    );
+    try {
+      ensureFlowExcludes(worktreeDir);
+      linkAgentMemory(worktreeDir, fx.repoDir, cacheRoot);
+      const claudeDir = path.join(worktreeDir, ".claude");
+      const created = fs
+        .readdirSync(claudeDir)
+        .filter((n) => fs.lstatSync(path.join(claudeDir, n)).isSymbolicLink());
+      expect(created).toHaveLength(1);
+      const relFromRoot = path
+        .relative(worktreeDir, path.join(claudeDir, created[0]!))
+        .split(path.sep)
+        .join("/");
+      const excludeContents = fs.readFileSync(sharedExcludePath(), "utf8");
+      const excludeLines = excludeContents.split("\n");
+      expect(excludeLines).toContain(relFromRoot);
+    } finally {
+      fs.rmSync(cacheRoot, { recursive: true, force: true });
+    }
+  });
+
   // Regression guard for the bug fixed when ensureFlowTmpExclude was first
   // introduced: when invoked from inside a *secondary* worktree, the lines
   // must land in the primary's shared .git/info/exclude (which git actually

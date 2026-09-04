@@ -1319,6 +1319,21 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * budget goes to 26_300 (198 chars of headroom), not the bare
    * post-edit value, matching the "don't land at a single-digit-headroom
    * trap" discipline of every raise above.
+   * Raised once more from 26_300 to 26_500 to fund the `@flow-kind`
+   * publish-breadth + `flow ls` KIND-column facts: the `## Don'ts`
+   * pane-state bullet now says the six `@flow-*` mirrors publish "on every
+   * flow window" (they previously read epic-only by omission) and closes
+   * with "`flow ls`'s KIND column reads `PipelineState.kind`, never
+   * `@flow-kind`" — the foreclosed shortcut a future agent is most likely
+   * to take on this surface. Measured via String.prototype.length (not
+   * `wc -c` bytes): pre-edit 26_285, post-edit 26_380 — a +95-char delta,
+   * already the deduped form (the first draft was +151 before folding the
+   * publish-breadth fact into the existing mirrors sentence rather than
+   * appending a second one). The budget goes to 26_500 (120 chars of
+   * headroom), not the bare post-edit value, matching the "don't land at a
+   * single-digit-headroom trap" discipline of every raise above — the
+   * 26_300 budget had only 15 chars of headroom left on `main`, so a
+   * dedup-only path would have had to cut unrelated contract prose.
    * Raised once more from 26_300 to 26_650 to document the optional
    * `.flow/test-tiers.json` test-tier manifest at all three `AGENTS.md`
    * anchors (the `## Where to look` table, the `flow-test-audit` helper
@@ -1330,6 +1345,14 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * (212 chars of headroom), not the bare post-edit value, matching the
    * "don't land at a single-digit-headroom trap" discipline of every
    * raise above.
+   * Merge note: the two raises immediately above were authored
+   * independently off the same 26_285 base and collided in the merge of
+   * `origin/main` into this branch. Both prose additions survive, so the
+   * merged `AGENTS.md` measures 26_555 chars (String.prototype.length) —
+   * larger than either side's own post-edit measurement. The higher of the
+   * two budgets (26_650) is kept rather than summing the deltas: it already
+   * clears the merged size with 95 chars of headroom, so no further raise
+   * was warranted. The 26_500 side would have failed at merge time.
    */
   it("AGENTS.md stays under the char budget", () => {
     const CHAR_BUDGET = 26_650;
@@ -9728,7 +9751,7 @@ describe("Preloaded instructions SKILL.md frontmatter + sentinel lint", () => {
     },
   );
 
-  // Five consumer sites cite `flow-instructions-sentinel: <name>` in their
+  // Six consumer sites cite `flow-instructions-sentinel: <name>` in their
   // spawn prompt. Each `<name>` must have a producer among PRELOAD_SKILLS,
   // catching a spawn-prompt site that drifted to name a skill different
   // from the SKILL.md it actually preloads/points at.
@@ -9753,6 +9776,10 @@ describe("Preloaded instructions SKILL.md frontmatter + sentinel lint", () => {
       {
         file: "skills/pipeline/flow-pipeline/references/merge-resolver-spawn-prompt.md",
         expectedName: "flow-merge-resolver-instructions",
+      },
+      {
+        file: "skills/pipeline/flow-pr-review/SKILL.md",
+        expectedName: "flow-consolidator-instructions",
       },
     ];
 

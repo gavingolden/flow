@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { git } from "./git";
-import { FLOW_CACHE_DIR, repoCacheKey } from "./paths";
+import { AGENT_MEMORY_DIRNAME, FLOW_CACHE_DIR, repoCacheKey } from "./paths";
 
 /** Files symlinked from the primary repo into each new worktree. */
 export const SYMLINK_FILES = [".env", ".claude/settings.local.json"];
@@ -113,11 +113,11 @@ export function linkAgentMemory(
   primaryDir: string,
   cacheRoot: string = FLOW_CACHE_DIR,
 ): void {
-  const target = path.join(worktreeDir, ".claude", "agent-memory-local");
+  const target = path.join(worktreeDir, ".claude", AGENT_MEMORY_DIRNAME);
   const cacheDir = path.join(
     cacheRoot,
     repoCacheKey(primaryDir),
-    "agent-memory-local",
+    AGENT_MEMORY_DIRNAME,
   );
   // `fs.existsSync` follows symlinks, so it returns `false` for a dangling
   // link (cache target wiped) and falls through to `symlinkSync` below,
@@ -164,7 +164,7 @@ export function salvageAgentMemory(
   primaryDir: string,
   cacheRoot: string = FLOW_CACHE_DIR,
 ): void {
-  const target = path.join(worktreeDir, ".claude", "agent-memory-local");
+  const target = path.join(worktreeDir, ".claude", AGENT_MEMORY_DIRNAME);
   try {
     if (!fs.existsSync(target)) return;
     const stat = fs.lstatSync(target);
@@ -172,7 +172,7 @@ export function salvageAgentMemory(
     const cacheDir = path.join(
       cacheRoot,
       repoCacheKey(primaryDir),
-      "agent-memory-local",
+      AGENT_MEMORY_DIRNAME,
     );
     fs.mkdirSync(cacheDir, { recursive: true });
     fs.cpSync(target, cacheDir, { recursive: true });
