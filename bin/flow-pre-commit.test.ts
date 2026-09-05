@@ -3215,8 +3215,14 @@ describe("integration: verify.attempt telemetry", () => {
       ],
       { cwd: tmpDir },
     );
-    writeFileSync(join(tmpDir, "README.md"), "# fixture\n");
-    spawnSync("git", ["add", "README.md"], { cwd: tmpDir });
+    // Stage a file that matches NO scope, so detection lands on
+    // `root-fallback` (`npm run test` + the in-process conflict-marker
+    // check) rather than `docs`. The `docs` scope shells out to
+    // `flow-md-validate`, a PATH helper only present once `flow install`
+    // has run — present on a developer box, absent on CI, which made this
+    // fixture exit 0 locally and 1 in Actions.
+    writeFileSync(join(tmpDir, "data.txt"), "fixture\n");
+    spawnSync("git", ["add", "data.txt"], { cwd: tmpDir });
     return tmpDir;
   }
 
