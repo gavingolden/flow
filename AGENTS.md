@@ -112,7 +112,8 @@ supervisor never spawns the `Task` / `Agent` tool and never invokes raw
 **with nine narrowly-named exceptions** —
 the `**Task-tool exemption: ...**` bullets under `## Don'ts` below. This
 sidesteps two problems: deep sub-agent fan-out (possible since Claude Code
-v2.1.172, capped at 5 levels, but ruinously token-expensive and hard to
+v2.1.172, default cap 3, env-overridable via
+CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH, but token-expensive and hard to
 observe), and context bloat from a long-running supervisor with
 sub-agents. `flow-claude-headless` is the one sanctioned
 `claude -p` site (a Bash fan-out, not a tenth exemption; contract in

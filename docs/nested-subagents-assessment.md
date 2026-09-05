@@ -4,9 +4,12 @@
 
 As of Claude Code v2.1.172 (June 2026), nested sub-agent spawning is
 platform-possible: a sub-agent may itself spawn a sub-agent, up to a
-fixed depth of 5, enforced by tool-stripping at depth 5 (a depth-5
-sub-agent's tool list omits `Task`/`Agent`, so it cannot spawn further).
-This is documented at code.claude.com/docs/en/sub-agents. The premise
+configurable depth cap (the default moved 5 → 1 → 3 across v2.1.172 →
+v2.1.217 → v2.1.219+, and is env-overridable via
+`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`), enforced by tool-stripping at
+the configured cap (a sub-agent at the cap's tool list omits
+`Task`/`Agent`, so it cannot spawn further). This is documented at
+code.claude.com/docs/en/sub-agents. The premise
 was verified via a web-grounded gather pass (Gemini 3.1 Pro) followed by
 an adversarial refute pass (Claude Opus 4.6) explicitly tasked with
 finding evidence against it; the refute pass found none, so the premise
@@ -24,7 +27,8 @@ context bloat from a long-running supervisor accumulating sub-agent
 output. The platform premise above shows justification (1) was never a
 hard platform limit at any depth flow actually uses (the deepest chain
 any site could plausibly want is depth 3: supervisor → verify-loop →
-edit-applier). Justification (2) — context economy — was always the
+edit-applier — depth 3 sits AT the current default cap, so it is
+supported without an env override). Justification (2) — context economy — was always the
 load-bearing one. `docs/context-economy-audit.md` establishes review as
 the heaviest phase per pipeline run; Anthropic's own multi-agent
 guidance recommends flat orchestrator-worker topologies over deep
