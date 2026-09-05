@@ -12,7 +12,7 @@ authoritative record of which scaffolds were removed, kept, or reverted.
 
 | Candidate                        | Outcome | Scope | Decision metric                                                          | Before report                                            | After report                                            | Note                                                                     |
 | -------------------------------- | ------- | ----- | ------------------------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `verify-loop-subagent-isolation` | TBD     | TBD   | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/verify-loop-isolation/report.json    | docs/eval/f2/after/verify-loop-isolation/report.json    |                                                                          |
+| `verify-loop-subagent-isolation` | remove  | full  | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/verify-loop-isolation/report.json    | docs/eval/f2/after/verify-loop-isolation/report.json    | Removed on 8c6b8c4; delta clean (see Evidence)                           |
 | `haiku-gatekeeper`               | TBD     | TBD   | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/haiku-gatekeeper/report.json         | docs/eval/f2/after/haiku-gatekeeper/report.json         | Sonnet-parent sibling arm recorded alongside at haiku-gatekeeper-sonnet/ |
 | `checkpoint-pending-clear`       | TBD     | TBD   | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/checkpoint-pending-clear/report.json | docs/eval/f2/after/checkpoint-pending-clear/report.json |                                                                          |
 
@@ -48,7 +48,7 @@ Preconditions: `[ -d ~/.flow/claude-home/.claude/skills/flow-module-core/agents 
 resolves; the tree is clean (`git status --porcelain` is empty); `claude`
 is authenticated. The before arm is recorded at the HEAD carrying Tasks
 1–3 (not the merge-base with `main`), and its `tree.gitHead` is cited
-here: `<sha>` (placeholder — filled when the arm is recorded).
+here: `9a1a8e21deb27fc5e7744854414cc878ee144f45` (claude 2.1.261, `--runs 3`). After arms are recorded at `--runs 2` — the before arm's measured spend (~$29.5 across the four passes) exceeded the plan's whole-feature estimate, so the plan's Q7 fallback (drop candidate arms to two runs before dropping any candidate) was applied; `compare` reads medians, so the run-count difference does not change the verdict rule.
 `claude --version` is pinned to `docs/eval/f2/claude-version.txt` and
 every arm must match it.
 
@@ -85,7 +85,12 @@ controls (s2, s3) unmoved.
 
 ### verify-loop-subagent-isolation
 
-TBD — filled when the arm is recorded.
+- **Outcome:** remove. Removal commit `8c6b8c4` (+ `bec403e`, which drops the two non-gating graders that asserted the subagent's artifact). After arm recorded at tree `bec403e3aaa9a16487e322cbc84fa50c34c2b4f5`, `--runs 2`.
+- **Gate score:** 1.000 → 1.000 (2/2 scenarios pass on both arms).
+- **Decision metrics** (`flow-eval compare --tolerance 0.10`, medians): `transcript.finalContextTokens` s1 142,096 → 148,353 (+4.4%, `same`), s2 143,030 → 147,763 (+3.3%, `same`); `result.total_cost_usd` s1 $0.942 → $0.945 (+0.3%, `same`), s2 $0.891 → $0.897 (+0.6%, `same`).
+- **Scaffold-absent check:** `transcript.subagentsSpawned` 1 → 0 on both scenarios (the inverted `scaffold-absent` grader was red on the before arm and green on the after arm, so the delta measures an actual removal, not a failed spawn).
+- **Non-decisional:** `result.num_turns` 10 → 16.5 / 12 → 19 (`noisy` — the inline loop's Bash calls now count as supervisor turns); `result.duration_ms` 63.2s → 55.3s / 87.6s → 53.1s (`better`).
+- **Reading:** the isolation bought no measurable context or cost headroom at this fixture scale; the +3–4% context is the verify transcript that used to live in the subagent, well inside tolerance.
 
 ### haiku-gatekeeper
 
