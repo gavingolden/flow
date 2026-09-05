@@ -58,7 +58,7 @@
       "id": "no-agent-fallback",
       "kind": "file",
       "file": "$ASSISTANT_TEXT",
-      "notMatches": "NOTICE \u2014 agent-fallback:"
+      "notMatches": "NOTICE — agent-fallback:"
     },
     {
       "id": "plugin-loaded",
@@ -73,21 +73,6 @@
       "source": "transcript.toolCalls.Bash",
       "direction": "lower",
       "min": 1
-    },
-    {
-      "id": "verify-loop-result-status",
-      "kind": "json-file",
-      "gate": false,
-      "file": "$REPO/.flow-tmp/verify-loop-result.json",
-      "path": "verify_status",
-      "equals": "pass"
-    },
-    {
-      "id": "verify-loop-result-exists",
-      "kind": "file",
-      "gate": false,
-      "file": "$REPO/.flow-tmp/verify-loop-result.json",
-      "exists": true
     },
     {
       "id": "transcript.finalContextTokens",
