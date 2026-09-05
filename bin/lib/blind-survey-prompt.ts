@@ -10,7 +10,13 @@
  * This module ships to consumer repos via `flow install`, so it carries no
  * flow-specific context (no AGENTS.md / SKILL.md file names baked in) —
  * any repo context the judge needs travels in the brief text itself.
+ *
+ * The file-reading-tools-only / no-shell-out read-access block is now
+ * composed from `bin/lib/agy-read-rules.ts` (the shared source of truth for
+ * every `--add-dir` agy prompt), rather than hand-copied here.
  */
+
+import { agyReadRules } from "./agy-read-rules";
 
 export const BLIND_FRAMING =
   "You are an independent judge in a blind design survey. You are given " +
@@ -29,7 +35,13 @@ export type SurveyPromptInput = {
 export function buildSurveyPrompt(input: SurveyPromptInput): string {
   return `${BLIND_FRAMING}
 
-${input.worktreePath} is the readable repository root — READ it to ground your recommendation in what already exists rather than guessing. Reach for it with your file-reading tools ONLY (read a file, list a directory). Spot-check AT MOST 8 files — you are sampling to understand the codebase, not auditing the repo. Do NOT spawn subagents or delegate this reading to other agents — read the files yourself. Spend at most a third of your run reading, then STOP and write your recommendation — a recommendation that is never written is worth nothing. Do NOT shell out — no \`grep\`, \`find\`, \`ls\`, \`cat\`, or \`git\` commands: this is a headless run in which shell commands need a permission nothing can grant mid-run, so they are auto-denied and your run ends silently with no output at all. Do NOT read the \`.flow-tmp/\` directory — it holds this pipeline's own scratch state, including the OTHER judge's in-flight or already-written recommendation AND the requester's own proposed method; your independence from the other judge (and your blindness to the user's proposed method) is the entire point of running a second model, so reading either would silently turn an "independently converged" recommendation into an echo, or a blind survey into a rubber stamp. Do NOT open \`.env*\` files or any credential/secret file — you never need them to recommend a method, and reading them would be a pure liability with no benefit.
+${agyReadRules({
+  worktreePath: input.worktreePath,
+  readPurpose:
+    "ground your recommendation in what already exists rather than guessing",
+  fileCap: 8,
+  outputNoun: "run",
+})} Write your recommendation once you stop reading — a recommendation that is never written is worth nothing. Do NOT read the \`.flow-tmp/\` directory — it holds this pipeline's own scratch state, including the OTHER judge's in-flight or already-written recommendation AND the requester's own proposed method; your independence from the other judge (and your blindness to the user's proposed method) is the entire point of running a second model, so reading either would silently turn an "independently converged" recommendation into an echo, or a blind survey into a rubber stamp. Do NOT open \`.env*\` files or any credential/secret file — you never need them to recommend a method, and reading them would be a pure liability with no benefit.
 
 ## Goal brief
 

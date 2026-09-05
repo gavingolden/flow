@@ -858,6 +858,78 @@ describe("run — --output-format json envelope lift", () => {
   });
 });
 
+describe("run — deniedActions lift", () => {
+  const DENIED_FIXTURE = readFileSync(
+    path.join(__dirname, "fixtures", "agy", "denied-tools-envelope.json"),
+    "utf8",
+  );
+
+  it("lifts deniedActions:['RunCommand'] from the archived fixture on the ran:true json path", () => {
+    const deps = makeDeps({ readFile: () => DENIED_FIXTURE });
+    const code = run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(code).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      deniedActions: ["RunCommand"],
+    });
+  });
+
+  it("lifts deniedActions on the non-ran path too (e.g. a CANCELED reproduction of the same denial)", () => {
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 0, stderr: "" }),
+      readFile: () =>
+        JSON.stringify({
+          status: "CANCELED",
+          denied_actions: [{ action: "command", display_name: "RunCommand" }],
+        }),
+    });
+    const code = run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(code).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "agy-canceled",
+      deniedActions: ["RunCommand"],
+    });
+  });
+
+  it("omits deniedActions when denied_actions is absent from the artifact", () => {
+    const deps = makeDeps({
+      readFile: () => JSON.stringify({ status: "SUCCESS", response: "ok" }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).deniedActions).toBeUndefined();
+  });
+
+  it("omits deniedActions when denied_actions is null", () => {
+    const deps = makeDeps({
+      readFile: () =>
+        JSON.stringify({ status: "SUCCESS", denied_actions: null }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).deniedActions).toBeUndefined();
+  });
+
+  it("omits deniedActions when denied_actions is an empty array", () => {
+    const deps = makeDeps({
+      readFile: () => JSON.stringify({ status: "SUCCESS", denied_actions: [] }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).deniedActions).toBeUndefined();
+  });
+
+  it("falls back to `action` when an entry lacks display_name", () => {
+    const deps = makeDeps({
+      readFile: () =>
+        JSON.stringify({
+          status: "SUCCESS",
+          denied_actions: [{ action: "command" }],
+        }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).deniedActions).toEqual(["command"]);
+  });
+});
+
 describe("run — --structured-fallback parse-validate-retry-once", () => {
   const SCHEMA_PATH = "/schema.json";
   const schemaText = JSON.stringify({

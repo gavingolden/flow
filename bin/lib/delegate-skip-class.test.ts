@@ -66,4 +66,28 @@ describe("classifyDelegateSkip", () => {
     );
     expect(classifyDelegateSkip("")).toBe("ran-unusable");
   });
+
+  // Both new self-diagnosing denial/exhaustion skip reasons default to
+  // ran-unusable with NO ENVIRONMENT_SKIP_REASONS table entry — the archived
+  // failure burned 3,704 output tokens of real quota, and this module's
+  // governing rule is "could this have spent quota?", not "did agy exit
+  // non-zero?". delegate-skip-class.ts itself is READ-ONLY for this
+  // feature: both reasons already default correctly with no code change.
+  it("classifies gemini-tools-denied as ran-unusable (real quota was spent on the denied call)", () => {
+    expect(classifyDelegateSkip("gemini-tools-denied")).toBe("ran-unusable");
+  });
+
+  it("classifies gemini-token-exhausted as ran-unusable (real quota was spent on the exhausted call)", () => {
+    expect(classifyDelegateSkip("gemini-token-exhausted")).toBe("ran-unusable");
+  });
+
+  it("does not add either new reason to ENVIRONMENT_SKIP_REASONS", () => {
+    expect(ENVIRONMENT_SKIP_REASONS.has("gemini-tools-denied")).toBe(false);
+    expect(ENVIRONMENT_SKIP_REASONS.has("gemini-token-exhausted")).toBe(false);
+  });
+
+  it("still classifies agy-canceled as ran-unusable (never 'tidied' into the environment set)", () => {
+    expect(classifyDelegateSkip("agy-canceled")).toBe("ran-unusable");
+    expect(ENVIRONMENT_SKIP_REASONS.has("agy-canceled")).toBe(false);
+  });
 });

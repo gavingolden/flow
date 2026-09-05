@@ -47,6 +47,7 @@
     "bin/flow-browser-teardown.live.test.ts",
     "bin/flow-conflict-marker-check.test.ts",
     "bin/flow-epic-sync.test.ts",
+    "bin/flow-gemini-lens.live.test.ts",
     "bin/flow-new-worktree.test.ts",
     "bin/flow-pre-commit.live.test.ts",
     "bin/flow-pre-commit.test.ts",

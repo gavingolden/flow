@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   VALID_DECORATIONS,
@@ -6,12 +8,18 @@ import {
 } from "./lib/agent-finding-schema";
 import {
   AGENT_FINDINGS_JSON_SCHEMA,
+  buildPrompt,
   isGeminiLensEnabled,
   parseArgs,
   run,
   type DelegateEnvelope,
   type Deps,
 } from "./flow-gemini-lens";
+
+const DENIED_FIXTURE = readFileSync(
+  path.join(__dirname, "fixtures", "agy", "denied-tools-envelope.json"),
+  "utf8",
+);
 
 const VALID_FINDING = {
   file: "src/foo.ts",
@@ -888,5 +896,200 @@ describe("run — usage errors", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(run(["--worktree", "/wt"], makeDeps())).toBe(2);
     errSpy.mockRestore();
+  });
+});
+
+describe("buildPrompt", () => {
+  it("composes the shared read-rules block and omits the old shell-inviting sentence", () => {
+    const diff = "diff --git a/x.ts b/x.ts\n@@ -1,1 +1,1 @@\n-old\n+new\n";
+    const prompt = buildPrompt(diff, "/repo");
+    expect(prompt).toContain("Reach for it with your file-reading tools ONLY");
+    expect(prompt).not.toContain("the working tree is your current directory");
+  });
+
+  it("derives fileCap from the diff's 'diff --git ' count, capped at 10 with a floor of 1", () => {
+    const manyFiles = Array.from(
+      { length: 15 },
+      (_, i) => `diff --git a/f${i}.ts b/f${i}.ts\n`,
+    ).join("");
+    expect(buildPrompt(manyFiles, "/repo")).toContain(
+      "Spot-check AT MOST 10 files",
+    );
+    const oneFile = "diff --git a/f.ts b/f.ts\n";
+    expect(buildPrompt(oneFile, "/repo")).toContain(
+      "Spot-check AT MOST 1 files",
+    );
+    const noHeader = "not a real diff";
+    expect(buildPrompt(noHeader, "/repo")).toContain(
+      "Spot-check AT MOST 1 files",
+    );
+  });
+
+  it("omits the read-rules block entirely and substitutes a no-filesystem clause when worktreePath is null", () => {
+    const prompt = buildPrompt("diff --git a/x.ts b/x.ts\n", null);
+    expect(prompt).not.toContain(
+      "Reach for it with your file-reading tools ONLY",
+    );
+    expect(prompt).toContain("no filesystem access");
+  });
+});
+
+describe("run — self-diagnosing skip reasons (denied tools / token exhaustion)", () => {
+  it("classifies a denied tool call as gemini-tools-denied and, when the fallback retry also fails, returns the ORIGINAL skip envelope with fallbackAttempted:true", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        if (callCount === 1) {
+          deps.files.set(rawPath, DENIED_FIXTURE);
+          return {
+            ran: true,
+            artifactPath: rawPath,
+            deniedActions: ["RunCommand"],
+            usage: { thinking_tokens: 3601, output_tokens: 3704 },
+          } as DelegateEnvelope;
+        }
+        deps.files.set(rawPath, "I could not produce JSON.");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "gemini-tools-denied",
+      fallbackAttempted: true,
+    });
+    expect(deps.calls.delegate).toHaveLength(2);
+    expect(deps.calls.delegate[1]).not.toContain("--add-dir");
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
+  it("retries exactly once without --add-dir on denial and returns ran:true with degraded:'diff-only' when the retry succeeds", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        if (callCount === 1) {
+          deps.files.set(rawPath, DENIED_FIXTURE);
+          return {
+            ran: true,
+            artifactPath: rawPath,
+            deniedActions: ["RunCommand"],
+            usage: { thinking_tokens: 3601, output_tokens: 3704 },
+          } as DelegateEnvelope;
+        }
+        deps.files.set(rawPath, JSON.stringify({ findings: [VALID_FINDING] }));
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      degraded: "diff-only",
+      degradedReason: "gemini-tools-denied",
+      findingCount: 1,
+    });
+    expect(deps.calls.delegate).toHaveLength(2);
+    expect(deps.calls.delegate[1]).not.toContain("--add-dir");
+  });
+
+  it("classifies a thinking-dominated empty response with NO denials as gemini-token-exhausted", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        if (callCount === 1) {
+          deps.files.set(
+            rawPath,
+            JSON.stringify({ status: "SUCCESS", response: "" }),
+          );
+          return {
+            ran: true,
+            artifactPath: rawPath,
+            usage: { thinking_tokens: 5000, output_tokens: 100 },
+          } as DelegateEnvelope;
+        }
+        deps.files.set(rawPath, "still nothing usable");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "gemini-token-exhausted",
+      fallbackAttempted: true,
+    });
+    expect(deps.calls.delegate).toHaveLength(2);
+  });
+
+  it("still yields gemini-output-unparseable, with no retry, when neither denial nor exhaustion signals are present", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(rawPath, "not json at all");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "gemini-output-unparseable",
+    });
+    expect(deps.calls.delegate).toHaveLength(1);
+  });
+
+  it("classifies as denied, not exhausted, when both signals are present (the archived fixture has 3601 thinking of 3704 output AND denied_actions)", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(rawPath, DENIED_FIXTURE);
+        return callCount === 1
+          ? ({
+              ran: true,
+              artifactPath: rawPath,
+              deniedActions: ["RunCommand"],
+              usage: { thinking_tokens: 3601, output_tokens: 3704 },
+            } as DelegateEnvelope)
+          : ({ ran: true, artifactPath: rawPath } as DelegateEnvelope);
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({ skipReason: "gemini-tools-denied" });
+  });
+
+  it("promotes a ran:false envelope carrying deniedActions to gemini-tools-denied, even under a raw skipReason of agy-canceled", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        if (callCount === 1) {
+          return {
+            ran: false,
+            skipReason: "agy-canceled",
+            deniedActions: ["RunCommand"],
+          } as DelegateEnvelope;
+        }
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(rawPath, "still nothing usable");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      skipReason: "gemini-tools-denied",
+      fallbackAttempted: true,
+    });
+    expect(deps.calls.delegate).toHaveLength(2);
   });
 });
