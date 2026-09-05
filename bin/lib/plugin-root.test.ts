@@ -538,6 +538,12 @@ describe(materializeModuleContent, () => {
     const agentDir = path.join(fakeFlowSource, "agents", "core");
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(path.join(agentDir, "x.md"), "---\nname: x\n---\nbody\n");
+    const workflowDir = path.join(fakeFlowSource, "workflows", "core");
+    fs.mkdirSync(workflowDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(workflowDir, "x.workflow.js"),
+      "// fixture workflow\n",
+    );
   });
 
   afterEach(() => {
@@ -566,6 +572,20 @@ describe(materializeModuleContent, () => {
       fs.realpathSync(path.join(fakeFlowSource, "agents", "core")),
     );
     expect(fs.existsSync(path.join(agentsLink, "x.md"))).toBe(true);
+  });
+
+  it("copies workflow files as real bytes, never a symlink (Claude Code 2.1.261 rejects a workflows dir symlink-out)", () => {
+    materializeModuleContent(fakeFlowSource, skillsDir);
+
+    const workflowCopy = path.join(
+      skillsDir,
+      "flow-module-core",
+      "workflows",
+      "x.workflow.js",
+    );
+    expect(fs.existsSync(workflowCopy)).toBe(true);
+    expect(fs.lstatSync(workflowCopy).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(workflowCopy, "utf8")).toBe("// fixture workflow\n");
   });
 
   it("honours onlyIds — a module not in the allowlist gets no symlinks", () => {

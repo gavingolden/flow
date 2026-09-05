@@ -22,6 +22,7 @@ import {
 } from "./modules";
 import { resolveArtifactSetForSource } from "./modules-source-resolve";
 import { pluginRootName } from "./plugin-manifest";
+import { sha256File } from "./content-hash";
 
 const SKILL_TIERS = ["pipeline", "universal", "stacks"] as const;
 const COMPLETION_SHELLS = ["bash", "zsh"] as const;
@@ -81,6 +82,12 @@ export type SourceEntry = {
   kind: SymlinkKind;
   /** Pretty name used in install summary output. */
   displayName: string;
+  /** When `"copy"`, `flow install` materializes real file bytes at
+   * `target` instead of a symlink — Claude Code's plugin loader (2.1.261)
+   * rejects a `workflows` DIRECTORY symlink whose realpath leaves the
+   * plugin root, while the per-module `agents` dir symlink passes. Only
+   * `discoverWorkflows` sets this; every other kind stays symlinked. */
+  materialize?: "copy";
 };
 
 export type InstallTargets = {
@@ -177,12 +184,18 @@ export function discoverAgents(
 }
 
 /**
- * Lists one entry PER MODULE SUBDIRECTORY under <flow-source>/workflows/,
- * mirroring `discoverAgents` above — Claude Code's plugin-root component
- * discovery follows a symlinked DIRECTORY, not a symlinked FILE, so
- * `<root>/workflows/` materializes as ONE directory symlink per owning
- * module (`<root>/workflows -> <flowSource>/workflows/<moduleId>`). Empty
- * if the `workflows/` root is absent (most modules have none).
+ * Lists one entry PER `.workflow.js` FILE under
+ * <flow-source>/workflows/<moduleId>/, materialized by COPY rather than
+ * `discoverAgents`'s per-module directory symlink: Claude Code 2.1.261's
+ * plugin loader rejects a `workflows` dir symlink whose realpath leaves the
+ * plugin root ("Path escapes plugin directory"), while the `agents`
+ * symlink-out passes — verified experimentally, not a design preference.
+ * `<root>/workflows/` therefore materializes as a REAL directory containing
+ * REAL files (`plugin-root.ts`'s `materializeModuleContent` copy branch),
+ * one per source `.workflow.js`, each carrying `materialize: "copy"` so
+ * `setup.ts`'s install loop and the drift/audit paths branch off symlink
+ * handling. Empty if the `workflows/` root is absent (most modules have
+ * none).
  */
 export function discoverWorkflows(
   flowSource: string,
@@ -190,19 +203,33 @@ export function discoverWorkflows(
 ): SourceEntry[] {
   const workflowsRoot = path.join(flowSource, "workflows");
   if (!existsDir(workflowsRoot)) return [];
-  return fs
-    .readdirSync(workflowsRoot, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
-    .map((d) => ({
-      source: path.join(workflowsRoot, d.name),
-      target: path.join(
-        targets.skillsDir,
-        pluginRootName(d.name as ModuleId),
-        "workflows",
-      ),
-      kind: "workflow" as const,
-      displayName: `workflows/${d.name}`,
-    }));
+  const entries: SourceEntry[] = [];
+  for (const moduleDirent of fs.readdirSync(workflowsRoot, {
+    withFileTypes: true,
+  })) {
+    if (!moduleDirent.isDirectory()) continue;
+    const moduleDir = path.join(workflowsRoot, moduleDirent.name);
+    for (const fileDirent of fs.readdirSync(moduleDir, {
+      withFileTypes: true,
+    })) {
+      if (!fileDirent.isFile() || !fileDirent.name.endsWith(".workflow.js")) {
+        continue;
+      }
+      entries.push({
+        source: path.join(moduleDir, fileDirent.name),
+        target: path.join(
+          targets.skillsDir,
+          pluginRootName(moduleDirent.name as ModuleId),
+          "workflows",
+          fileDirent.name,
+        ),
+        kind: "workflow",
+        displayName: `workflows/${moduleDirent.name}/${fileDirent.name}`,
+        materialize: "copy",
+      });
+    }
+  }
+  return entries;
 }
 
 /**
@@ -445,7 +472,10 @@ export async function discoverSelected(
       foldedIds.has(e.displayName.replace(/^agents\//, "")),
     ),
     ...discoverWorkflows(flowSource, targets).filter((e) =>
-      foldedIds.has(e.displayName.replace(/^workflows\//, "")),
+      // displayName is now `workflows/<moduleId>/<file>.workflow.js` (one
+      // entry per FILE, not per module dir) — the moduleId is the second
+      // path segment, not the whole `agents/`-style suffix.
+      foldedIds.has(e.displayName.split("/")[1] ?? ""),
     ),
     ...discoverHelpers(flowSource, targets).filter(
       (e) =>
@@ -478,11 +508,16 @@ export function entryToRecord(
   flowSource: string,
   installRoot: string,
 ): SymlinkRecord {
-  return {
+  const record: SymlinkRecord = {
     source: canonicalizeRecordedSource(entry.source, flowSource, installRoot),
     target: entry.target,
     kind: entry.kind,
   };
+  if (entry.materialize === "copy") {
+    record.materialize = "copy";
+    record.sha256 = sha256File(entry.source);
+  }
+  return record;
 }
 
 /**

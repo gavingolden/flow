@@ -52,6 +52,7 @@ import {
 import { isRegistryKnownArtifact } from "./modules";
 import { scanPluginRoots as scanPluginRootsReal } from "./plugin-root";
 import { unexpectedPluginRootEntries } from "./plugin-root-audit";
+import { sha256File } from "./content-hash";
 
 export type DriftKind =
   | "missing"
@@ -162,6 +163,16 @@ export function checkInstallDrift(
 
     const entries: DriftEntry[] = [];
 
+    // Read once, up front — the plugin pass below needs each workflow
+    // copy's recorded sha256 (for `unexpectedPluginRootEntries`'s
+    // `drifted-copy` check) even though it otherwise runs manifest-
+    // independently; the manifest-symlinks early return further down
+    // reuses this same read.
+    const manifest = readManifestFn(manifestPath);
+    const workflowRecords = manifest.symlinks.filter(
+      (r) => r.kind === "workflow",
+    );
+
     // ADDITIVE plugin pass, run BEFORE the manifest-symlinks early return
     // below — this scan is manifest-INDEPENDENT by design (mirroring
     // `scanPluginRoots`'s own OQ-7 manifest-independent discovery), so it
@@ -172,6 +183,7 @@ export function checkInstallDrift(
       for (const issue of unexpectedPluginRootEntries(root, {
         flowSource,
         installRoot,
+        workflowRecords,
       })) {
         // Three-way map: a dangling `bin/`/`skills/`/`agents/` symlink
         // self-heals on the next `flow install --upgrade` ("dangling"), a
@@ -189,7 +201,9 @@ export function checkInstallDrift(
             ? "dangling"
             : issue.reason === "foreign-live-bin-symlink"
               ? "foreign"
-              : "unexpected";
+              : issue.reason === "drifted-copy"
+                ? "stale"
+                : "unexpected";
         entries.push({
           kind,
           displayName: path.basename(root),
@@ -199,7 +213,6 @@ export function checkInstallDrift(
       }
     }
 
-    const manifest = readManifestFn(manifestPath);
     if (manifest.symlinks.length === 0) {
       // Nothing recorded yet (fresh machine, or a genuinely empty install)
       // — nothing to compare the SYMLINK-drift kinds against, but the
@@ -238,6 +251,37 @@ export function checkInstallDrift(
     );
 
     for (const entry of inScope) {
+      if (entry.materialize === "copy") {
+        // Copy-materialized (workflow) entries have no symlink to read —
+        // compare the live file's hash against its current source instead.
+        if (!fs.existsSync(entry.target)) {
+          entries.push({
+            kind: "missing",
+            displayName: entry.displayName,
+            target: entry.target,
+          });
+          continue;
+        }
+        const expectedSource = effectiveLinkSource(
+          entry.source,
+          flowSource,
+          installRoot,
+        );
+        const actualHash = sha256File(entry.target);
+        const expectedHash = sha256File(expectedSource);
+        if (
+          actualHash !== undefined &&
+          expectedHash !== undefined &&
+          actualHash !== expectedHash
+        ) {
+          entries.push({
+            kind: "stale",
+            displayName: entry.displayName,
+            target: entry.target,
+          });
+        }
+        continue;
+      }
       const link = readSymlinkSafe(entry.target);
       if (link === null) {
         // No symlink at the target. A real (non-symlink) file there is

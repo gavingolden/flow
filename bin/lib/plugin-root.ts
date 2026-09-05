@@ -355,6 +355,26 @@ export function materializeModuleContent(
       );
       if (!allowedRootDirs.has(rootDir)) continue;
     }
+    if (entry.materialize === "copy") {
+      copyFileEntry(entry.target, entry.source);
+      continue;
+    }
     ensureSymlink(entry.target, entry.source, false);
   }
+}
+
+/**
+ * Materializes a `materialize: "copy"` entry (today, only `discoverWorkflows`'
+ * `.workflow.js` files) as real file bytes at `target`, unconditionally
+ * overwriting a stale copy — the copy path has no `force` concept the way
+ * `ensureSymlink` does, since a real file here is always flow-managed
+ * content (never a user's own file: `discoverWorkflows`' target namespace is
+ * entirely flow-owned). `chmod 0644` matches a normal non-executable file —
+ * these are `.workflow.js` sources the `Workflow` tool reads, never `exec`'d
+ * directly.
+ */
+function copyFileEntry(target: string, source: string): void {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.copyFileSync(source, target);
+  fs.chmodSync(target, 0o644);
 }
