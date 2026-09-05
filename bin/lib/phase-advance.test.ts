@@ -331,6 +331,101 @@ describe("advancePhase", () => {
   });
 });
 
+describe("advancePhase / finalizePhase — phase.transition telemetry", () => {
+  let telemetryHome: string;
+  let telemetryPath: string;
+
+  beforeEach(() => {
+    telemetryHome = process.env.HOME as string;
+    telemetryPath = path.join(
+      telemetryHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  afterEach(() => {
+    fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  function readTransitions(): Array<Record<string, unknown>> {
+    if (!fs.existsSync(telemetryPath)) return [];
+    return fs
+      .readFileSync(telemetryPath, "utf8")
+      .split("\n")
+      .filter((l) => l.length > 0)
+      .map((l) => JSON.parse(l))
+      .filter((l) => l.event === "phase.transition");
+  }
+
+  it("advancePhase records one phase.transition event with the correct from/to", () => {
+    seedState("tele-1", "reviewing");
+    const result = advancePhase("gating", { slug: "tele-1", dir: stateDir });
+    expect(result.advanced).toBe(true);
+    const transitions = readTransitions();
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]?.attrs).toMatchObject({
+      from: "reviewing",
+      to: "gating",
+      outcome: null,
+      forced: false,
+    });
+  });
+
+  it("advancePhase does not record an event on a no-op (already-at-or-past)", () => {
+    seedState("tele-2", "gating");
+    const result = advancePhase("reviewing", {
+      slug: "tele-2",
+      dir: stateDir,
+    });
+    expect(result.advanced).toBe(false);
+    expect(readTransitions()).toHaveLength(0);
+  });
+
+  it("finalizePhase records one phase.transition event with the correct from/to", () => {
+    seedState("tele-3", "gated");
+    const result = finalizePhase("merged", { slug: "tele-3", dir: stateDir });
+    expect(result.advanced).toBe(true);
+    const transitions = readTransitions();
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]?.attrs).toMatchObject({
+      from: "gated",
+      to: "merged",
+      outcome: null,
+      forced: false,
+    });
+  });
+
+  it("finalizePhase does not record an event on an already-terminal no-op", () => {
+    seedState("tele-4", "merged");
+    const result = finalizePhase("merged", { slug: "tele-4", dir: stateDir });
+    expect(result.advanced).toBe(false);
+    expect(readTransitions()).toHaveLength(0);
+  });
+
+  it("a throwing telemetry write never fails the phase write (best-effort, same idiom as publishBadges)", () => {
+    fs.mkdirSync(path.join(telemetryHome, ".flow"), { recursive: true });
+    fs.writeFileSync(path.join(telemetryHome, ".flow", "telemetry"), "");
+    seedState("tele-5", "reviewing");
+    let result: ReturnType<typeof advancePhase> | undefined;
+    expect(() => {
+      result = advancePhase("gating", { slug: "tele-5", dir: stateDir });
+    }).not.toThrow();
+    expect(result?.advanced).toBe(true);
+    fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+      force: true,
+    });
+  });
+});
+
 describe("PHASE_EMITTERS", () => {
   it("maps every emitted phase to its owning helper and does not contradict flow-stop-guard's phase set", () => {
     expect(PHASE_EMITTERS).toEqual({

@@ -3179,3 +3179,123 @@ describe("guard: shipped bin/lib executable modules are tracked 100755", () => {
     expect(mode).toBe("100755");
   });
 });
+
+describe("integration: verify.attempt telemetry", () => {
+  // Covers the shared verify.attempt emit site in main() (both --json and
+  // human modes share it) through the existing spawned-CLI pattern used
+  // above — a .md-only diff routes to the docs scope's `npm run test`
+  // check. Each fixture gets its own sandboxed $HOME (never the real
+  // ~/.flow/telemetry/) so the spawned child's recordEvent() call writes
+  // to a throwaway events.jsonl this test reads back and cleans up.
+  const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
+
+  function makeFixture(testScript: string): string {
+    const tmpDir = mkdtempSync(join(tmpdir(), "flow-pre-commit-telemetry-"));
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify(
+        { name: "fixture", version: "0.0.1", scripts: { test: testScript } },
+        null,
+        2,
+      ),
+    );
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: tmpDir });
+    spawnSync(
+      "git",
+      [
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "--allow-empty",
+        "-q",
+        "-m",
+        "init",
+      ],
+      { cwd: tmpDir },
+    );
+    // Stage a file that matches NO scope, so detection lands on
+    // `root-fallback` (`npm run test` + the in-process conflict-marker
+    // check) rather than `docs`. The `docs` scope shells out to
+    // `flow-md-validate`, a PATH helper only present once `flow install`
+    // has run — present on a developer box, absent on CI, which made this
+    // fixture exit 0 locally and 1 in Actions.
+    writeFileSync(join(tmpDir, "data.txt"), "fixture\n");
+    spawnSync("git", ["add", "data.txt"], { cwd: tmpDir });
+    return tmpDir;
+  }
+
+  function readTelemetryEvents(home: string): Array<Record<string, any>> {
+    const p = join(home, ".flow", "telemetry", "events.jsonl");
+    try {
+      return readFileSync(p, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0)
+        .map((l) => JSON.parse(l));
+    } catch {
+      return [];
+    }
+  }
+
+  it.skipIf(!bunOnPath)(
+    "a passing run records one verify.attempt event with ok:true and empty failing_checks",
+    () => {
+      const tmpDir = makeFixture("true");
+      const telemetryHome = mkdtempSync(
+        join(tmpdir(), "flow-pre-commit-telemetry-home-"),
+      );
+      try {
+        const here =
+          import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+        const scriptPath = resolve(here, "flow-pre-commit.ts");
+        const result = spawnSync("bun", [scriptPath, "--json"], {
+          cwd: tmpDir,
+          encoding: "utf8",
+          env: { ...process.env, HOME: telemetryHome },
+        });
+        expect(result.status).toBe(0);
+        const events = readTelemetryEvents(telemetryHome);
+        const attempts = events.filter((e) => e.event === "verify.attempt");
+        expect(attempts).toHaveLength(1);
+        expect(attempts[0].attrs.ok).toBe(true);
+        expect(attempts[0].attrs.failing_checks).toEqual([]);
+        expect(attempts[0].attrs.json_mode).toBe(true);
+        expect(typeof attempts[0].attrs.duration_ms).toBe("number");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+        rmSync(telemetryHome, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(!bunOnPath)(
+    "a failing run records one verify.attempt event with ok:false and the failing check's NAME only, no output text",
+    () => {
+      const tmpDir = makeFixture("false");
+      const telemetryHome = mkdtempSync(
+        join(tmpdir(), "flow-pre-commit-telemetry-home-"),
+      );
+      try {
+        const here =
+          import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+        const scriptPath = resolve(here, "flow-pre-commit.ts");
+        const result = spawnSync("bun", [scriptPath, "--json"], {
+          cwd: tmpDir,
+          encoding: "utf8",
+          env: { ...process.env, HOME: telemetryHome },
+        });
+        expect(result.status).toBe(1);
+        const events = readTelemetryEvents(telemetryHome);
+        const attempts = events.filter((e) => e.event === "verify.attempt");
+        expect(attempts).toHaveLength(1);
+        expect(attempts[0].attrs.ok).toBe(false);
+        expect(attempts[0].attrs.failing_checks).toContain("npm run test");
+        expect(JSON.stringify(attempts[0])).not.toContain("npm ERR");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+        rmSync(telemetryHome, { recursive: true, force: true });
+      }
+    },
+  );
+});

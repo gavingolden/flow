@@ -75,16 +75,16 @@ length to task, fenced blocks only for runnable code, etc.).
 
 Source for shipped helper binaries lives in **`bin/`**. User-callable
 helpers (`flow-new-worktree`, `flow-pre-commit`, `flow-state-update`,
-`flow-notify`, `flow-ui-validate`, `flow-review-scope`,
-`flow-review-telemetry`, `flow-test-audit`, etc.) live there with `.ts` extensions, Bun shebangs, and
-tests next door
+`flow-notify`, `flow-ui-validate`, `flow-review-telemetry`,
+`flow-test-audit`, etc.) live there with `.ts`
+extensions, Bun shebangs, and tests next door
 (`<name>.test.ts`, skipped when `flow install` symlinks into
 `~/.local/bin/<name>`). The five schema validators
 (`flow-pr-review-result-schema`, `flow-agent-finding-schema`,
 `flow-fix-applier-schema`, `flow-epic-manifest-schema`,
 `flow-intent-resolution-schema`) are also symlinked, sourced from
-`bin/lib/*-schema.ts` via an explicit-allowlist `discoverValidators`
-(distinct from `discoverHelpers`'s auto-pickup of every `bin/*.ts`).
+`bin/lib/*-schema.ts` via an allowlisted `discoverValidators`
+(vs `discoverHelpers`'s auto-pickup of every `bin/*.ts`).
 `bin/flow` itself is Bun and dispatches every verb natively.
 
 `flow install` also materializes a skills-dir plugin root per selected
@@ -102,6 +102,10 @@ Conventions for any script under `bin/`: `#!/usr/bin/env bun` + `chmod
 `import.meta.url`/`process.argv[1]` comparison, which breaks through a
 symlink); tests live next door, run via `npm run test`. Default new
 scripts to Bun; deviating needs user confirmation and an inline comment.
+
+Telemetry is helper-emitted only, via `bin/lib/telemetry.ts`'s `recordEvent`
+at existing chokepoints — never agent prose; a signal no helper sees is
+DERIVED from one a helper already writes. Contract: `docs/configuration.md`.
 
 ## Supervisor and sub-skills: in-process only
 

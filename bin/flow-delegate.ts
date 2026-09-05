@@ -60,13 +60,19 @@
  *
  * stdout is always a one-line JSON envelope:
  *   success: {"ran":true,"task":..,"model":..,"artifactPath":..,"exitCode":0,"durationMs":..}
- *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-timeout"|"agy-canceled"|"agy-error",..}
+ *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-timeout"|"agy-canceled"|"agy-error"|"agy-empty-artifact"|"spawn-failed",..}
  *            (every skip envelope from a dispatched agy call may also carry
  *            `exitCode`, a redacted <=2000-byte `stderrTail` (tail-most, when
  *            agy's stderr was non-empty), `agyStatus` (the json-mode
  *            envelope's `status` field), and `agyError` (its `error` field,
  *            through the same redact+cap helper as `stderrTail`) — all
- *            omit-when-absent)
+ *            omit-when-absent. Every `ran:false` envelope also carries a
+ *            typed `failureClass` — see `bin/lib/agy-failure-class.ts` —
+ *            splitting the "quota exhausted" / "rate limited" causes out of
+ *            the generic buckets above. Best-effort, never-throwing
+ *            telemetry is recorded for every call at the `emit()`
+ *            chokepoint — see `bin/lib/telemetry.ts`'s `delegate.call`
+ *            event; it never affects this stdout envelope or the exit code)
  *
  * Exit codes:
  *   0 — delegated successfully, OR a quiet graceful skip (agy missing /
@@ -85,6 +91,8 @@ import {
 import { dirname } from "node:path";
 import { redactSecrets } from "./lib/redact-secrets";
 import { parseStructured } from "./lib/structured-response";
+import { recordEvent } from "./lib/telemetry";
+import { classifyAgyFailure } from "./lib/agy-failure-class";
 
 const DEFAULT_TIMEOUT = "5m";
 const DEFAULT_TASK = "default";
@@ -303,18 +311,28 @@ export type AgyOutcome =
   | "agy-timeout"
   | "agy-not-authenticated"
   | "agy-canceled"
-  | "agy-error";
+  | "agy-error"
+  | "agy-empty-artifact";
 
 // Single classification chokepoint for the non-zero-exit AND json-mode-error
 // paths. Ordering is load-bearing: a timeout signal (stderr OR the json
 // envelope's `error` field) is checked first so a widened auth regex can
 // never shadow it, `CANCELED` next, then a generic non-zero-exit/`ERROR`
-// status, with everything else treated as a successful run.
-export function classifyAgyOutcome(input: {
-  exitCode: number;
-  stderr: string;
-  outcome: AgyJsonOutcome;
-}): AgyOutcome {
+// status, then (only once every other check has passed, i.e. exactly the
+// case that would otherwise be a successful "ran") the `artifactHasContent`
+// flag — a 0-byte artifact from an otherwise-clean exit is #627/#712's
+// silent-false-success bug, so it is reclassified as `agy-empty-artifact`
+// rather than `ran`. `artifactHasContent` defaults to `true` (not required)
+// so every pre-existing call site that doesn't pass it keeps compiling and
+// keeps its prior behaviour.
+export function classifyAgyOutcome(
+  input: {
+    exitCode: number;
+    stderr: string;
+    outcome: AgyJsonOutcome;
+  },
+  artifactHasContent: boolean = true,
+): AgyOutcome {
   if (
     looksTimedOut(input.stderr) ||
     (input.outcome.error && looksTimedOut(input.outcome.error))
@@ -333,6 +351,9 @@ export function classifyAgyOutcome(input: {
   if (input.exitCode !== 0 || input.outcome.status === "ERROR") {
     return "agy-error";
   }
+  if (!artifactHasContent) {
+    return "agy-empty-artifact";
+  }
   return "ran";
 }
 
@@ -348,10 +369,103 @@ export type Deps = {
   mkdirp: (dir: string) => void;
   now: () => number;
   writeOut: (line: string) => void;
+  // True when the artifact at `path` has >=1 non-whitespace byte. TRUE on
+  // any read failure (missing file, permission error) so an unreadable
+  // artifact is never misreported as empty — #627/#712 only needs to catch
+  // the case where agy ran clean and left nothing behind, not every I/O
+  // failure mode.
+  artifactHasContent: (path: string) => boolean;
 };
 
-function emit(deps: Deps, envelope: Record<string, unknown>): number {
+// Second, telemetry-only context argument to `emit()` — deliberately kept
+// out of the printed stdout envelope. `outputFormat` isn't derivable from
+// the envelope itself (the success envelope only carries the LIFTED
+// `durationSeconds`/`usage`, never the format flag that produced them), and
+// `outPath` lets `emit()` measure `artifact_bytes` / (on `ran:false` only)
+// tail-read `stdout_tail` without every call site re-deriving it.
+type TelemetryCtx = {
+  outputFormat?: "text" | "json";
+  outPath?: string;
+};
+
+// Single emission chokepoint for both the printed stdout envelope and the
+// best-effort `delegate.call` telemetry event. The telemetry side is
+// wrapped in its own try/catch — on top of `recordEvent`'s own
+// never-throws contract — so a `deps.readFile` seam swapped in by a test
+// can never turn a telemetry miss into a changed return value or a missed
+// stdout write.
+function emit(
+  deps: Deps,
+  envelope: Record<string, unknown>,
+  ctx: TelemetryCtx = {},
+): number {
   deps.writeOut(JSON.stringify(envelope));
+  try {
+    const attrs: Record<string, unknown> = {};
+    const copy = (envKey: string, attrKey: string) => {
+      if (envelope[envKey] !== undefined) attrs[attrKey] = envelope[envKey];
+    };
+    copy("task", "task");
+    copy("model", "model");
+    attrs.ran = envelope.ran;
+    copy("skipReason", "skip_reason");
+    copy("failureClass", "failure_class");
+    copy("exitCode", "exit_code");
+    copy("durationMs", "duration_ms");
+    copy("agyStatus", "agy_status");
+    copy("agyError", "agy_error");
+    copy("usage", "usage");
+    copy("durationSeconds", "duration_seconds");
+    copy("artifactPath", "artifact_path");
+    copy("structuredParse", "structured_parse");
+    copy("parseRetries", "parse_retries");
+    if (ctx.outputFormat !== undefined) attrs.output_format = ctx.outputFormat;
+
+    // Re-capped to a tighter 1000-byte tail than the envelope's own
+    // 2000-byte `stderrTail` — telemetry is a lower-fidelity trace, not
+    // the primary debugging surface.
+    if (typeof envelope.stderrTail === "string") {
+      const recapped = stderrTail(envelope.stderrTail, 1000);
+      if (recapped) attrs.stderr_tail = recapped;
+    }
+
+    if (ctx.outPath !== undefined) {
+      let text: string | undefined;
+      try {
+        text = deps.readFile(ctx.outPath);
+      } catch {
+        text = undefined;
+      }
+      if (text !== undefined) {
+        const artifactBytes = Buffer.byteLength(text, "utf8");
+        attrs.artifact_bytes = artifactBytes;
+        // A successful run's artifact is model completion text — the
+        // no-prompt-or-completion-payloads constraint forbids storing it.
+        // `ran === false` alone is NOT sufficient: agy streams its
+        // completion into the artifact path as it generates, so a
+        // print-timeout kill can leave a partial generation there even
+        // though `ran` is false, and in json mode the artifact is an
+        // envelope whose `.response` is model prose. A genuine diagnostic
+        // dump (an agy error/quota notice) is small; a generation is not
+        // — so `stdout_tail` is captured only when BOTH `ran === false`
+        // AND the artifact is small enough to plausibly be diagnostic
+        // text rather than a truncated completion.
+        const STDOUT_TAIL_MAX_ARTIFACT_BYTES = 2000;
+        if (
+          envelope.ran === false &&
+          artifactBytes <= STDOUT_TAIL_MAX_ARTIFACT_BYTES
+        ) {
+          const tail = stderrTail(text, 1000);
+          if (tail) attrs.stdout_tail = tail;
+        }
+      }
+    }
+
+    recordEvent("delegate.call", attrs);
+  } catch {
+    // Best-effort: telemetry must never affect the emitted envelope or the
+    // caller's control flow.
+  }
   return 0;
 }
 
@@ -517,11 +631,16 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
 
   // Graceful skip: agy not installed → caller falls back to Claude.
   if (!deps.agyOnPath()) {
-    return emit(deps, {
-      ran: false,
-      skipReason: "agy-not-found",
-      task: parsed.task,
-    });
+    return emit(
+      deps,
+      {
+        ran: false,
+        skipReason: "agy-not-found",
+        failureClass: classifyAgyFailure({ skipReason: "agy-not-found" }),
+        task: parsed.task,
+      },
+      { outputFormat: parsed.outputFormat },
+    );
   }
 
   const outPath = artifactPathFor(parsed);
@@ -543,12 +662,20 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const tail = stderrTail(message);
-    return emit(deps, {
-      ran: false,
-      skipReason: "agy-error",
-      task: parsed.task,
-      ...(tail ? { stderrTail: tail } : {}),
-    });
+    return emit(
+      deps,
+      {
+        ran: false,
+        skipReason: "spawn-failed",
+        failureClass: classifyAgyFailure({
+          skipReason: "spawn-failed",
+          stderrTail: tail,
+        }),
+        task: parsed.task,
+        ...(tail ? { stderrTail: tail } : {}),
+      },
+      { outputFormat: parsed.outputFormat, outPath },
+    );
   }
 
   // A json-mode print-timeout exits 1 with EMPTY stderr — the failure
@@ -556,28 +683,53 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // classification reads both sources whenever json mode was requested.
   const jsonOutcome: AgyJsonOutcome =
     parsed.outputFormat === "json" ? readAgyJsonOutcome(deps, outPath) : {};
-  const outcome = classifyAgyOutcome({
-    exitCode: result.exitCode,
-    stderr: result.stderr,
-    outcome: jsonOutcome,
-  });
+  const outcome = classifyAgyOutcome(
+    {
+      exitCode: result.exitCode,
+      stderr: result.stderr,
+      outcome: jsonOutcome,
+    },
+    deps.artifactHasContent(outPath),
+  );
   if (outcome !== "ran") {
     const tail = stderrTail(result.stderr);
     const agyError = jsonOutcome.error ? stderrTail(jsonOutcome.error) : "";
-    return emit(deps, {
-      ran: false,
-      skipReason: outcome,
-      task: parsed.task,
-      exitCode: result.exitCode,
-      ...(tail ? { stderrTail: tail } : {}),
-      // Capped the same way as agyError/stderrTail (redact + short cap) so
-      // a future agy version that stuffs prose into `status` (today always
-      // a short enum) cannot bypass the cap those two already respect.
-      ...(jsonOutcome.status
-        ? { agyStatus: stderrTail(jsonOutcome.status, 64) }
-        : {}),
-      ...(agyError ? { agyError } : {}),
-    });
+    const agyStatus = jsonOutcome.status
+      ? stderrTail(jsonOutcome.status, 64)
+      : undefined;
+    // agy can print a quota/rate-limit notice to its stdout (the artifact
+    // file itself in text mode) while stderr stays empty — read the same
+    // artifact `emit()` reads a few lines below so `classifyAgyFailure`
+    // can match it too (see the module header on `agy-failure-class.ts`).
+    let artifactStdoutTail: string | undefined;
+    try {
+      artifactStdoutTail = stderrTail(deps.readFile(outPath), 1000);
+    } catch {
+      artifactStdoutTail = undefined;
+    }
+    return emit(
+      deps,
+      {
+        ran: false,
+        skipReason: outcome,
+        failureClass: classifyAgyFailure({
+          skipReason: outcome,
+          stderrTail: tail,
+          stdoutTail: artifactStdoutTail,
+          agyError,
+          agyStatus,
+        }),
+        task: parsed.task,
+        exitCode: result.exitCode,
+        ...(tail ? { stderrTail: tail } : {}),
+        // Capped the same way as agyError/stderrTail (redact + short cap) so
+        // a future agy version that stuffs prose into `status` (today always
+        // a short enum) cannot bypass the cap those two already respect.
+        ...(agyStatus ? { agyStatus } : {}),
+        ...(agyError ? { agyError } : {}),
+      },
+      { outputFormat: parsed.outputFormat, outPath },
+    );
   }
 
   // Schema-free fallback: parse-validate-retry-once. A retry spawn failure
@@ -637,7 +789,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     envelope.structuredParse = structuredParse;
     envelope.parseRetries = parseRetries;
   }
-  return emit(deps, envelope);
+  return emit(deps, envelope, { outputFormat: parsed.outputFormat, outPath });
 }
 
 function defaultAgyOnPath(): boolean {
@@ -666,6 +818,18 @@ function defaultRunAgy(argv: string[], outPath: string): AgyResult {
   }
 }
 
+// TRUE on any read failure (missing file, permission error) — an
+// unreadable artifact must never be misreported as empty; #627/#712 is
+// only about the case where agy exited clean and left a genuinely empty
+// (or whitespace-only) file behind.
+function defaultArtifactHasContent(path: string): boolean {
+  try {
+    return readFileSync(path, "utf8").trim().length > 0;
+  } catch {
+    return true;
+  }
+}
+
 function resolveDeps(o?: Partial<Deps>): Deps {
   return {
     agyOnPath: o?.agyOnPath ?? defaultAgyOnPath,
@@ -675,6 +839,7 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     mkdirp: o?.mkdirp ?? ((d) => void mkdirSync(d, { recursive: true })),
     now: o?.now ?? (() => Date.now()),
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
+    artifactHasContent: o?.artifactHasContent ?? defaultArtifactHasContent,
   };
 }
 
