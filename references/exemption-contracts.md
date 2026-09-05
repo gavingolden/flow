@@ -2,7 +2,7 @@
 
 Per-exemption contract bodies offloaded from `AGENTS.md` `## Don'ts` (PR
 addressing #220) to keep that file under its char budget. Each section
-below carries the unique contract for one of the nine named Task-tool
+below carries the unique contract for one of the seven named Task-tool
 exemptions: spawn site / triggering step, artifact path, typed artifact
 fields, and any model override.
 
@@ -14,7 +14,7 @@ This file is one half of a bidirectional contract. The other anchors are:
   `**Task-tool exemption #N: ...**` blocks the AGENTS.md bullets are
   symmetric with (enforced by `bin/skill-md-lint.test.ts`).
 
-The **shared rationale** for all nine (why a top-level supervisor may
+The **shared rationale** for all seven (why a top-level supervisor may
 call Task at these sites) stays in `AGENTS.md` `## Don'ts` alongside the
 openers — it is not duplicated here.
 
@@ -29,7 +29,7 @@ diff-only intent-guess agent (skipped on a delta re-entry with a prior
 message, via the Task tool; the fan-out is re-fanned at most once per
 invocation when the Consolidator-Validator's `scope_verdict.widen`
 requests a widen to the full PR diff, inside this same exemption (no new
-Task-tool exemption; the count stays nine). Each spawned lens names
+Task-tool exemption; the count stays seven). Each spawned lens names
 `subagent_type: $LENS_AGENT` (resolved per-lens against the
 `agents/flow-review-<lens>.md` definitions with a Read/Grep/Glob/Write
 `tools:` allowlist and no `effort:`/`model:` pins), resolved via a
@@ -123,7 +123,7 @@ Task-tool resolution outright), else `general-purpose` fallback emitting the
 `NOTICE — agent-fallback:` line (no bare-name legacy-install tier). The
 agent's `maxTurns: 120` budget means a `SendMessage` continuation of its
 own partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays
-inside this exemption — not a tenth site.
+inside this exemption — not an eighth site.
 
 ## Merge-Conflict Resolver Subagent
 
@@ -161,7 +161,7 @@ the context-isolation this exemption exists to provide, and would also
 re-spawn beyond the one-Task-call-per-run limit exemption #5 grants. The
 agent's `maxTurns: 80` budget means a `SendMessage` continuation of its
 own partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays
-inside this exemption — not a tenth site.
+inside this exemption — not an eighth site.
 
 ## `/flow-coder` Independent Edit-Applier Subagent
 
@@ -188,41 +188,10 @@ file-exists guard: the plugin-qualified `flow-module-core:flow-edit-applier`
 name when present (a bare `flow-edit-applier` subagent_type fails
 Task-tool resolution outright — measured: "Agent type 'flow-scout' not
 found"), else `general-purpose` fallback emitting the `NOTICE — agent-fallback:` line
-(no bare-name legacy-install tier).
-A second,
-nested spawn site exists — the Verify-Retry-Loop's wider-scope path
-spawns the same definition directly at depth 3 via the same single
-plugin-root probe, writing
-`verify-coder-result.json` with no `general-purpose` fallback (a
-fallbackless site: a miss degrades inline instead); see the
-Verify-Retry-Loop section below. The agent's `maxTurns: 80` budget means
-a `SendMessage` continuation of its own partial result
+(no bare-name legacy-install tier). The agent's `maxTurns: 80` budget
+means a `SendMessage` continuation of its own partial result
 (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays inside this
-exemption at either spawn site — not a tenth site.
-
-## `/flow-pr-review` Independent Gatekeeper Subagent
-
-`/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
-Gatekeeper Subagent" step (Step 1.5), one gatekeeper agent is spawned
-via the Task tool as `subagent_type: $GATEKEEPER_SUBAGENT` (resolved via
-a single plugin-root probe using the file-exists guard: the plugin-qualified
-`flow-module-core:flow-gatekeeper` name when present — a bare
-`flow-gatekeeper` subagent_type fails Task-tool resolution outright —
-else falling back
-to `general-purpose` with the loud
-`NOTICE — agent-fallback:` line (no bare-name legacy-install tier)) with a per-spawn `model: "haiku"`
-override — justified primarily by **cost-routing** rather than context
-isolation. The haiku pin is paired: `agents/flow-gatekeeper.md`
-frontmatter declares `model: haiku` as the declarative record, and the
-spawn site keeps the identical per-spawn `model: "haiku"` so the
-fallback path stays haiku (per-spawn wins; the values never conflict).
-It short-circuits the six-agent Sonnet fan-out on
-closed/merged/trivial/no-new-commits PRs from a single `gh pr view`
-metadata fetch. Artifact: `<worktree>/.flow-tmp/gatekeeper-result.json`
-(typed fields `decision`, `reason`, `skip_kind?`, `summary`). The
-wrapper branches on it: `"skip"` writes a `pr-review-result.json` with
-`status: "clean"` and `completed_steps: ["1", "1.5"]` so Step 8 proceeds
-to the auto-merge gate; `"proceed"` continues to Step 2 unchanged.
+exemption — not an eighth site.
 
 ## `/flow-pr-review` Independent Consolidator-Validator Subagent
 
@@ -236,8 +205,7 @@ plugin-qualified `flow-module-core:flow-consolidator` name when present
 (a bare `flow-consolidator` subagent_type fails Task-tool resolution
 outright), else falling back to
 `general-purpose` with the loud `NOTICE — agent-fallback:` line
-(no bare-name legacy-install tier). Unlike
-the Gatekeeper there is **no** `model: "haiku"` override — default
+(no bare-name legacy-install tier). This spawn carries **no** `model: "haiku"` override — default
 Sonnet is used because the second-opinion pass needs the larger model's
 judgment.
 Artifact: `<worktree>/.flow-tmp/consolidator-result.json` (typed fields
@@ -245,59 +213,3 @@ Artifact: `<worktree>/.flow-tmp/consolidator-result.json` (typed fields
 `anti_patterns_found`, `summary`); the wrapper reads it once at Step 4
 and reuses the parsed object across Steps 4–7. Also documented in
 `skills/pipeline/flow-consolidator-instructions/SKILL.md`.
-
-## Verify-Retry-Loop Subagent
-
-`/flow-pipeline` step 6 (`Local verify`) spawns one verify-retry-loop agent via
-the Task tool to own the 3-outer-attempt `/flow-verify` loop in an isolated context:
-each retry re-invokes `/flow-verify` and re-pastes the prior attempt's
-`flow-pre-commit --json` `failure` object, and the loop also owns the Layer-3
-`.flow/pre-commit.json` config-authoring branch (which commits to the feature
-branch) and the UI-smoke pass. Artifact:
-`<worktree>/.flow-tmp/verify-loop-result.json` (typed fields `verify_status`
-(`pass` | `exhausted`), `attempts`, `config_authored`, `ui_smoke`,
-`ui_smoke_reason?`, `ui_screenshots?` — optional array of absolute
-screenshot paths captured by the browser pass, for supervisor session
-surfacing — `final_failure_excerpt?`, `rejected_alternatives`, `anti_patterns_found`,
-`summary`). The supervisor reads it once and branches: `pass` continues to step
-7; `exhausted` escalates `verify-exhausted` and writes the `> [!CAUTION]` PR-body
-block from `final_failure_excerpt`. A committing subagent is consistent with the
-Fix-Applier (#4) and Merge-Conflict Resolver (#5) precedents. Spawned as
-the named `agents/flow-verify.md` definition (mechanical role: pins
-`effort: low`, no `model:` pin; per-spawn `model:` threading unchanged),
-resolved via a single plugin-root probe using the `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-verify.md ]`
-file-exists guard: the plugin-qualified `flow-module-core:flow-verify`
-name when present (a bare `flow-verify` subagent_type fails Task-tool
-resolution outright — measured: "Agent type 'flow-scout' not found"),
-else `general-purpose` fallback emitting the `NOTICE — agent-fallback:` line
-(no bare-name legacy-install tier). The
-subagent's full instructions are at
-`skills/pipeline/flow-verify-loop-instructions/SKILL.md`.
-
-**Nested site.** On the wider-scope path, the verify-loop subagent
-spawns ONE flow-edit-applier subagent at depth 3, resolved via a single
-plugin-root probe to the plugin-qualified
-`flow-module-core:flow-edit-applier` name when the plugin-root
-definition is installed, with NO bare-name legacy-install tier and NO
-`general-purpose` fallback (unlike the nine top-level exemptions, this
-site has a known-good inline fallback and does not hand a Task-capable
-toolset to a definition that isn't lint-pinned to exclude `Task`),
-passing a JSON edit-set per
-`skills/pipeline/flow-coder-instructions/SKILL.md` (its
-`INSTRUCTIONS_PATH`, threaded alongside `SKILL_DIR =
-skills/pipeline/flow-coder/`) and the absolute artifact path
-`<worktree>/.flow-tmp/verify-coder-result.json` (distinct from the
-supervisor-path `coder-result.json` so a stale parent artifact can never
-mask a child miss); failure enum recorded in `verify-loop-result.json`'s
-`coder_spawn`: `ok`|`not-attempted`|`task-tool-unavailable`|
-`agent-unavailable`|`artifact-missing`|`invalid`. On any miss the loop
-applies that fix inline once and stays inline for the remainder of the
-run. This is a sanctioned nested site inside this exemption, not a
-tenth top-level exemption; its failure action is inverted from the nine
-top-level sites — record and degrade inline, never escalate. The outer
-agent's `maxTurns: 150` budget and the nested edit-applier's `maxTurns:
-80` budget each mean a `SendMessage` continuation of that agent's own
-partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays
-inside this exemption at either site — not a tenth site; at the nested
-site a still-missing artifact after one continuation feeds the existing
-`coder_spawn: "artifact-missing"` inline fallback, never an escalation.

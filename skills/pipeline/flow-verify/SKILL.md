@@ -57,6 +57,30 @@ When the diff touches a meaningful UI surface AND the `chrome-devtools` MCP is a
 
 **Shared-profile lock (parallel pipelines).** chrome-devtools-mcp backs every browser with a single default on-disk Chrome profile (`~/.cache/chrome-devtools-mcp/chrome-profile`), so two flow pipelines that both reach this pass under one un-isolated MCP registration contend for it — the second to launch errors with `The browser is already running for ~/.cache/chrome-devtools-mcp/chrome-profile. Use --isolated to run multiple browser instances`. Recovery: register the chrome-devtools MCP with `--isolated` in `~/.claude.json` (each server process gets its own auto-cleaned throwaway profile), or wait for/close the other pipeline browser. The per-call `isolatedContext` above is same-server defense-in-depth — it isolates pages within one MCP server but does NOT resolve this cross-process on-disk-profile lock; `--isolated` is the remedy for the cross-process on-disk PROFILE LOCK specifically, but it does not prevent a leaked browser process — its temp profile is cleaned only after the browser closes, and the browser itself is reaped separately by `flow-browser-teardown` at the pipeline's terminal state. On detecting the lock, drive `flow-ui-validate --browser-busy`, which emits a loud-but-clean `ran:false` / `skipped_reason: browser-profile-busy` skip — a busy browser degrades exactly like an absent one (never a hard failure) and verify proceeds green on the rest of the diff.
 
+### Layer-3 proactive config-authoring branch
+
+When `flow-pre-commit --json` returns `reason: "unmatched-files"`, the
+orphaned files may belong to a recognizable-but-uncovered layout. Before
+treating it as a verify failure, call the pure
+`draftConfigEntryForOrphans` helper (exported from
+`bin/lib/monorepo-scopes.ts`) over the report's `unmatchedFiles`:
+
+- **If it returns an entry** (a recognizable layout whose owning
+  `package.json` declares verify-class scripts), write/merge it into the
+  repo-relative `.flow/pre-commit.json` (top-level array of
+  `{ name, prefixes, checks }` entries — append, do not clobber existing
+  entries), commit it to the feature branch so it lands in the reviewable
+  PR diff, and **re-run verify** — this does NOT count as a new failed
+  check.
+- **If it returns `null`** (a genuine orphan: no `package.json` owner, no
+  stack marker, no config), fall through to the loud `unmatched-files`
+  failure at Step 3.
+
+The helper is LLM-free and pure (no `claude -p` / Task sub-call). This is
+the **third** of `flow-pre-commit`'s command-resolution layers;
+zero-config auto-detect (layers 1–2) writes nothing — the Layer-3 commit
+above is the only config write this skill makes.
+
 ## 2. Interpret Results
 
 The helper exits 0 if all checks pass, 1 if any fail. Stdout is a single JSON object with
@@ -179,7 +203,12 @@ relevant source file directly. Fix the issue in the source file.
 ## 4. Re-Run Until Clean
 
 - After fixing, re-run the same checks with the same arguments.
-- Repeat until all checks pass.
+- Repeat until all checks pass, **up to 5 inner re-runs per invocation**.
+  After the fifth failing re-run, stop and return the Step 5 report to the
+  caller — the supervisor's outer 3-attempt cap decides what happens next.
+  This inner cap is the hard ceiling on how much `flow-pre-commit --json`
+  output can accumulate in the calling session (it replaces the `maxTurns`
+  bound the removed verify-loop subagent used to carry).
 - Do not give up after one round — some fixes reveal new errors.
 
 ## 5. Report

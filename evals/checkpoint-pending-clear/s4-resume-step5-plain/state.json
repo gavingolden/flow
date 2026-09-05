@@ -1,0 +1,10 @@
+{
+  "phase": "checkpoint-pending-clear",
+  "launcher": "plain",
+  "phaseLog": [
+    { "phase": "triage", "at": "2026-01-01T00:00:00.000Z" },
+    { "phase": "plan-pending-review", "at": "2026-01-01T00:05:00.000Z" },
+    { "phase": "worktree", "at": "2026-01-01T00:10:00.000Z" },
+    { "phase": "checkpoint-pending-clear", "at": "2026-01-01T00:15:00.000Z" }
+  ]
+}
