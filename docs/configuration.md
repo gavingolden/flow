@@ -322,4 +322,13 @@ next reconcile. The other sanctioned exception is
 key, never as identity — see `AGENTS.md`'s "Two sanctioned reads." Every
 other option above stays publish-only.
 
+`@flow-phase` / `@flow-phase-short` are published on every phase
+transition, including the ones emitted as a side effect by
+`flow-verify-prep` / `flow-ci-check` / `flow-fetch-pr-review` /
+`flow-gate-decide` / `flow-merge-guard` / `flow-gate-summary` — every phase
+write in the tree goes through one of the three wired write paths, each of
+which publishes the whole badge set via `bin/lib/tmux.ts`'s
+`publishStateBadges`, so your bound status-bar format stays current through
+the whole pipeline, not just the supervisor-driven transitions.
+
 flow never writes `~/.tmux.conf` or any other part of your tmux config.

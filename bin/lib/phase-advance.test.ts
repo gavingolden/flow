@@ -702,3 +702,60 @@ describe("TERMINAL_PHASE_EMITTERS", () => {
     });
   });
 });
+
+describe("phase publish — refusal paths and the fix-loop re-entry edge not covered by the publishBadges seam tests above", () => {
+  // These four cases fill gaps left by the publishBadges seam tests above:
+  // the `reentered` backward edge (a real phase change the badge must
+  // track) plus the pr-mismatch / no-state / epic-phase refusals (writes
+  // that must publish nothing).
+  it("publishes on a `reentered` fix-loop backward edge (ci-wait -> implementing)", () => {
+    seedState("pub-3", "ci-wait", { pr: 5 });
+    const published: Array<[string, string]> = [];
+    const result = advancePhase("implementing", {
+      slug: "pub-3",
+      dir: stateDir,
+      expectPr: 5,
+      publishBadges: (st) => published.push([st.slug, st.phase]),
+    });
+    expect(result.reason).toBe("reentered");
+    expect(published).toEqual([["pub-3", "implementing"]]);
+  });
+
+  it("does not publish on pr-mismatch (refused write)", () => {
+    seedState("pub-neg-3", "reviewing", { pr: 42 });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const published: Array<[string, string]> = [];
+    const result = advancePhase("gating", {
+      slug: "pub-neg-3",
+      dir: stateDir,
+      expectPr: 99,
+      publishBadges: (st) => published.push([st.slug, st.phase]),
+    });
+    expect(result.reason).toBe("pr-mismatch");
+    expect(published).toEqual([]);
+    errorSpy.mockRestore();
+  });
+
+  it("does not publish on no-state (no state file to advance)", () => {
+    const published: Array<[string, string]> = [];
+    const result = advancePhase("gating", {
+      slug: "pub-neg-4",
+      dir: stateDir,
+      publishBadges: (st) => published.push([st.slug, st.phase]),
+    });
+    expect(result.reason).toBe("no-state");
+    expect(published).toEqual([]);
+  });
+
+  it("does not publish on epic-phase (refused write)", () => {
+    seedState("pub-neg-5", "epic-designing");
+    const published: Array<[string, string]> = [];
+    const result = advancePhase("gating", {
+      slug: "pub-neg-5",
+      dir: stateDir,
+      publishBadges: (st) => published.push([st.slug, st.phase]),
+    });
+    expect(result.reason).toBe("epic-phase");
+    expect(published).toEqual([]);
+  });
+});
