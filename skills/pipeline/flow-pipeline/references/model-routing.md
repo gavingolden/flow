@@ -5,7 +5,7 @@ each fan-out sub-agent. Every named Task-spawn site in the pipeline / epic
 SKILLs links here rather than restating the whole chain.
 
 Adding a per-spawn `model:` argument to an **existing** named fan-out creates
-**no new Task-tool exemption** and **no ninth spawn site** — the eight exemption
+**no new Task-tool exemption** and **no eighth spawn site** — the seven exemption
 openers, the one `AskUserQuestion` form, and every "Load the Task tool before
 spawning" preamble stay byte-exact (guarded by `bin/skill-md-lint.test.ts`).
 

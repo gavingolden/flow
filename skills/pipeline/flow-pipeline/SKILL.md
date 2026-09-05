@@ -27,7 +27,8 @@ in-process when you invoke it; every helper script
 (`flow-new-worktree`, `flow-remove-worktree`, `gh`, etc.) is a Bash
 tool call. **You never spawn a Task-tool sub-agent.** flow's flat-fan-out
 policy (deliberate, not a platform limit — `docs/nested-subagents-assessment.md`,
-repo-only, not shipped) allows one exception, verify-loop → edit-applier; a
+repo-only, not shipped) allows zero nesting exceptions — the seven
+Task-tool exemptions in `AGENTS.md` are each a flat, one-shot spawn; a
 long-running supervisor with sub-agents would also blow the context window.
 Stay in-process for skills; shell out for scripts; never delegate.
 
@@ -1551,12 +1552,15 @@ flow-state-update --phase verifying --slug "$SLUG"
 
 The verify work runs **inline** now — the supervisor invokes `/flow-verify`
 in-process via the Skill tool and observes its output directly in its own
-context (no subagent isolation, no separate artifact). The supervisor owns
-the **3-outer-attempt cap**: `/flow-verify` self-loops internally against
-`flow-pre-commit --json` until it reports a clean pass or gives up, and the
-supervisor re-invokes `/flow-verify` at most 3 times total when an attempt
-does not end clean. Each re-invocation observes the worktree fresh (it
-re-runs `flow-pre-commit --json` itself), so a re-invocation is idempotent.
+context (no subagent isolation, no separate artifact). Each `/flow-verify`
+invocation makes exactly one fix attempt per failing check and does not
+retry internally (see `skills/pipeline/flow-verify/SKILL.md` Step 3: "Do
+not retry inside `/flow-verify`'s own wrapper"). The supervisor owns the
+**one hard retry ceiling**: it re-invokes `/flow-verify` at most 3 times
+total (the 3-outer-attempt cap) when an attempt does not end clean, then
+stops and returns the report rather than looping further. Each
+re-invocation observes the worktree fresh (it re-runs `flow-pre-commit
+--json` itself), so a re-invocation is idempotent.
 
 **Automated UI-smoke pass.** `/flow-verify` Step 1 already runs the
 browser-driven UI-smoke pass inline (when the diff touches a meaningful UI

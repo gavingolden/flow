@@ -305,7 +305,7 @@ three-layer resolution table, and the manifest/foundation fields — is at
     enforced by the step-10 backstop). Full anti-pattern catalogue and
     the `--no-auto-merge` opt-out are at
     [references/git-workflow.md](references/git-workflow.md).
-  - **Shared rationale for the eight Task-tool exemptions below**: the
+  - **Shared rationale for the seven Task-tool exemptions below**: the
     supervisor is depth 1, so its own Task calls are never nested; flow
     chooses flat one-shot fan-out despite nesting being
     platform-possible — none of the seven sites below nests; each subagent

@@ -76,12 +76,16 @@ export function lintVerdicts(
     if (!row.decisionMetric.trim()) {
       misses.push(`${row.candidate}: decision metric is empty`);
     }
-    if (row.beforeReport && !existsSync(join(repoRoot, row.beforeReport))) {
+    if (!row.beforeReport.trim()) {
+      misses.push(`${row.candidate}: before report path is empty`);
+    } else if (!existsSync(join(repoRoot, row.beforeReport))) {
       misses.push(
         `${row.candidate}: before report path missing on disk: ${row.beforeReport}`,
       );
     }
-    if (row.afterReport && !existsSync(join(repoRoot, row.afterReport))) {
+    if (!row.afterReport.trim()) {
+      misses.push(`${row.candidate}: after report path is empty`);
+    } else if (!existsSync(join(repoRoot, row.afterReport))) {
       misses.push(
         `${row.candidate}: after report path missing on disk: ${row.afterReport}`,
       );

@@ -72,7 +72,6 @@ _flow() {
                             '--model-planning[model for the planning phase]:alias:(opus haiku sonnet fable)' \
                             '--model-implement[model for the implement phase]:alias:(opus haiku sonnet fable)' \
                             '--model-review[model for the review phase]:alias:(opus haiku sonnet fable)' \
-                            '--model-verify[model for the verify phase (defaults to sonnet)]:alias:(opus haiku sonnet fable)' \
                             '--model-fix-applier[model for the fix-applier phase]:alias:(opus haiku sonnet fable)' \
                             '--model-consolidator[model for the consolidator phase]:alias:(opus haiku sonnet fable)' \
                             '--model-merge-resolver[model for the merge-resolver phase]:alias:(opus haiku sonnet fable)' \

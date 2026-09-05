@@ -52,7 +52,8 @@ here: `9a1a8e21deb27fc5e7744854414cc878ee144f45` (claude 2.1.261, `--runs 3`). A
 `claude --version` is pinned to `docs/eval/f2/claude-version.txt` and
 every arm must match it.
 
-Runs use `--runs 3` and `--out .flow-tmp/eval/<arm>`; only `report.json`
+Runs use `--runs 3` for the before arm and `--runs 2` for after arms (see
+the Q7 fallback note above) with `--out .flow-tmp/eval/<arm>`; only `report.json`
 and `summary.md` are then copied into `docs/eval/f2/<arm>/<suite>/` —
 the `run-*/` stream logs are never committed. The `haiku-gatekeeper`
 suite is run twice per arm: once as pinned, and once with

@@ -1131,6 +1131,55 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
         "move to 'ten' in the same PR.",
     ).toBe(true);
   });
+
+  it("AGENTS.md's 'Shared rationale for the N Task-tool exemptions' numeral matches the derived count", () => {
+    const expectedCount = extractAgentsExemptions().length;
+    const expectedNumeral = numberToEnglish(expectedCount);
+    expect(
+      agentsContent.includes(
+        `Shared rationale for the ${expectedNumeral} Task-tool exemptions`,
+      ),
+      "AGENTS.md's '## Don'ts' must say " +
+        `'Shared rationale for the ${expectedNumeral} Task-tool exemptions' — ` +
+        `derived from extractAgentsExemptions()'s ${expectedCount} bullets, ` +
+        "not a hardcoded numeral. Guards the exact drift this PR fixed " +
+        "(the opener said 'eight' while the bullets below it numbered seven).",
+    ).toBe(true);
+  });
+
+  it("removed scaffolds (pr-review-gatekeeper, Verify-Retry-Loop, verify-loop-instructions) never reappear", () => {
+    const banned = [
+      "flow-verify-prep",
+      "Verify-Retry-Loop Subagent",
+      "Gatekeeper Subagent",
+      "flow-verify-loop-instructions",
+    ];
+    const roots = ["skills", "agents", "references"];
+    const files: string[] = [path.resolve(HERE, "..", "AGENTS.md")];
+    for (const root of roots) {
+      const rootPath = path.resolve(HERE, "..", root);
+      if (!fs.existsSync(rootPath)) continue;
+      const walk = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(full);
+          else if (entry.name.endsWith(".md")) files.push(full);
+        }
+      };
+      walk(rootPath);
+    }
+    for (const file of files) {
+      const text = fs.readFileSync(file, "utf8");
+      for (const phrase of banned) {
+        expect(
+          text.includes(phrase),
+          `${path.relative(path.resolve(HERE, ".."), file)} must not mention ` +
+            `'${phrase}' — this scaffold was removed; only docs/eval/ may ` +
+            "keep historical mentions.",
+        ).toBe(false);
+      }
+    }
+  });
 });
 
 describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warning)", () => {
@@ -9093,6 +9142,24 @@ describe("phase-write emitter lint (bin/lib/phase-advance.ts's PHASE_EMITTERS)",
         `PHASE_EMITTERS['${phase}'] names '${helper}', but bin/${helper}.ts does not exist.`,
       ).toBe(true);
     }
+  });
+
+  it("'verifying' is deliberately absent from PHASE_EMITTERS but Step 6 still carries its own explicit --phase verifying write", () => {
+    // phase-advance.ts documents 'verifying' as an explicit prose call (no
+    // helper side effect), so it is excluded from the it.each loop above —
+    // this is the standalone anchor that keeps that explicit write honest.
+    expect(
+      Object.keys(PHASE_EMITTERS).includes("verifying"),
+      "'verifying' is expected to stay OUT of PHASE_EMITTERS (see phase-advance.ts) — " +
+        "if it was added, delete this test and let the it.each loop above cover it instead.",
+    ).toBe(false);
+    const section = sliceStepSection(STEP_HEADING_BY_PHASE.verifying);
+    expect(
+      /--phase verifying/.test(section),
+      "flow-pipeline SKILL.md Step 6 must still carry an explicit " +
+        "'--phase verifying' flow-state-update call — this is its only " +
+        "phase-write anchor since 'verifying' is absent from PHASE_EMITTERS.",
+    ).toBe(true);
   });
 });
 

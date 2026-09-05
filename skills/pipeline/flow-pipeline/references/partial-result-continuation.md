@@ -2,8 +2,8 @@
 
 Shared contract for every exemption spawn site that owns a `maxTurns`-
 budgeted agent. This is a bounded `SendMessage` continuation **inside**
-the owning exemption's Task-tool call — never a ninth Task-tool site
-(`AGENTS.md`'s "only eight" count and the eight-site "Load the Task tool
+the owning exemption's Task-tool call — never an eighth Task-tool site
+(`AGENTS.md`'s "seven" count and the seven-site "Load the Task tool
 before spawning" suite are unaffected).
 
 ## When this branch fires
@@ -27,7 +27,7 @@ artifact handling — unchanged behavior on older installs.
 ## Continuation procedure
 
 1. Load `SendMessage` via `ToolSearch query="select:SendMessage"` before
-   calling it, mirroring the Task-tool load guard at each of the eight
+   calling it, mirroring the Task-tool load guard at each of the seven
    spawn sites.
 2. Send **exactly one** message to the recovered `agentId`:
 
@@ -47,7 +47,7 @@ artifact handling — unchanged behavior on older installs.
    artifact counts as missing, same as an absent one. This step never
    loops: one continuation, one re-check, done.
 4. **Still missing or invalid** → fall through to the site's existing
-   missing-artifact handling: each of the eight top-level exemption
+   missing-artifact handling: each of the seven top-level exemption
    sites escalates its own named `NEEDS HUMAN: <site>-missing-artifact`
    tag exactly as it would without this branch.
 5. **A partial result WITH a valid artifact** is consumed normally; the

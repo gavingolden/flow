@@ -90,25 +90,27 @@ Independent of any single site, nesting anywhere carries these costs:
 
 ## Verdict
 
-The current flat, one-shot, eight-named-exemption design stands with no
+The current flat, one-shot, seven-named-exemption design stands with no
 nested site. **verify-loop → edit-applier** was adopted for a time (see
 below) but has since been **removed**: `/flow-pipeline` step 6 now
 invokes `/flow-verify` in-process instead of spawning a Verify-Retry-Loop
 subagent, so there is no longer a verify-loop parent to nest under. The
-exactly-eight top-level-exemption rule is unchanged.
+exactly-seven top-level-exemption rule is unchanged.
 
-The adoption is deliberately conservative given the depth-3 swallowed-
-failure pre-mortem (a grandchild subagent's failure silently disappearing
-into a stale or missing artifact, with no one layer noticing): the
-answer is a distinct `verify-coder-result.json` artifact (never
-confusable with the supervisor-path `coder-result.json`), a recorded
-`coder_spawn` enum (`ok`|`not-attempted`|`task-tool-unavailable`|
-`artifact-missing`|`invalid`) that the verify-loop subagent writes into
-its own `verify-loop-result.json`, and a hard behavioural rule: on any
-spawn or artifact miss, apply that one fix inline and stay inline for
-the remainder of the run — never retry the spawn. This is the same
+While it was live, the adoption was deliberately conservative given the
+depth-3 swallowed-failure pre-mortem (a grandchild subagent's failure
+silently disappearing into a stale or missing artifact, with no one layer
+noticing): the answer was a distinct `verify-coder-result.json` artifact
+(never confusable with the supervisor-path `coder-result.json`), a
+recorded `coder_spawn` enum (`ok`|`not-attempted`|`task-tool-unavailable`|
+`artifact-missing`|`invalid`) that the verify-loop subagent wrote into its
+own `verify-loop-result.json`, and a hard behavioural rule: on any spawn
+or artifact miss, apply that one fix inline and stay inline for the
+remainder of the run — never retry the spawn. This was the same
 loud-failure discipline that makes flow's existing artifact contracts
 debuggable, applied one layer deeper rather than invented from scratch.
+None of this machinery exists today — step 6 invokes `/flow-verify`
+in-process, so there is no verify-loop parent and no nested spawn.
 
 Rejected alternatives, recorded here so they are not silently
 re-proposed:

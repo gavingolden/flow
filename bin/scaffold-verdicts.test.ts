@@ -16,6 +16,7 @@ const FIXTURE_MD = `# fixture
 | --- | --- | --- | --- | --- | --- | --- |
 | \`candidate-a\` | remove | full | metric-a | docs/eval/scaffold-verdicts.md | docs/eval/scaffold-verdicts.md | note-a |
 | \`candidate-b\` | TBD | bogus-scope | | missing/before.json | missing/after.json | |
+| \`candidate-c\` | remove | full | metric-c |  |  | note-c |
 
 ## Other section
 not a table
@@ -24,7 +25,7 @@ not a table
 describe("parseVerdictTable", () => {
   it("parses rows with the right fields", () => {
     const rows = parseVerdictTable(FIXTURE_MD);
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0]).toEqual({
       candidate: "candidate-a",
       outcome: "remove",
@@ -36,11 +37,14 @@ describe("parseVerdictTable", () => {
     });
     expect(rows[1].candidate).toBe("candidate-b");
     expect(rows[1].outcome).toBe("TBD");
+    expect(rows[2].candidate).toBe("candidate-c");
+    expect(rows[2].beforeReport).toBe("");
+    expect(rows[2].afterReport).toBe("");
   });
 });
 
 describe("lintVerdicts", () => {
-  it("flags TBD outcome, bad scope, and missing report paths", () => {
+  it("flags TBD outcome, bad scope, missing report paths, and empty report-path cells", () => {
     const rows = parseVerdictTable(FIXTURE_MD);
     const misses = lintVerdicts(rows, REPO_ROOT);
     expect(
@@ -49,8 +53,21 @@ describe("lintVerdicts", () => {
     expect(misses.some((m) => m.includes("bogus-scope"))).toBe(true);
     expect(misses.some((m) => m.includes("missing/before.json"))).toBe(true);
     expect(misses.some((m) => m.includes("missing/after.json"))).toBe(true);
-    // exactly-3-rows check also fires since the fixture only has 2
-    expect(misses.some((m) => m.includes("exactly 3"))).toBe(true);
+    expect(
+      misses.some(
+        (m) =>
+          m.includes("candidate-c") &&
+          m.includes("before report path is empty"),
+      ),
+    ).toBe(true);
+    expect(
+      misses.some(
+        (m) =>
+          m.includes("candidate-c") && m.includes("after report path is empty"),
+      ),
+    ).toBe(true);
+    // exactly-3-rows check does not fire since the fixture now has 3 rows
+    expect(misses.some((m) => m.includes("exactly 3"))).toBe(false);
   });
 });
 
@@ -58,20 +75,17 @@ describe("committed docs/eval/scaffold-verdicts.md", () => {
   const md = fs.readFileSync(DOC_PATH, "utf8");
   const rows = parseVerdictTable(md);
 
-  it("parses to exactly 3 rows with the expected candidate ids", () => {
+  it("parses to exactly 3 rows with the expected candidate ids and outcomes", () => {
     expect(rows).toHaveLength(3);
     expect(rows.map((r) => r.candidate)).toEqual([
       "verify-loop-subagent-isolation",
       "haiku-gatekeeper",
       "checkpoint-pending-clear",
     ]);
+    expect(rows.map((r) => r.outcome)).toEqual(["remove", "remove", "keep"]);
   });
 
-  const anyTBD = rows.some((r) => r.outcome === "TBD" || r.scope === "TBD");
-
-  describe.skipIf(anyTBD)("once every row is filled", () => {
-    it("has no lint misses", () => {
-      expect(lintVerdicts(rows, REPO_ROOT)).toEqual([]);
-    });
+  it("has no lint misses", () => {
+    expect(lintVerdicts(rows, REPO_ROOT)).toEqual([]);
   });
 });

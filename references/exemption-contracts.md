@@ -29,7 +29,7 @@ diff-only intent-guess agent (skipped on a delta re-entry with a prior
 message, via the Task tool; the fan-out is re-fanned at most once per
 invocation when the Consolidator-Validator's `scope_verdict.widen`
 requests a widen to the full PR diff, inside this same exemption (no new
-Task-tool exemption; the count stays eight). Each spawned lens names
+Task-tool exemption; the count stays seven). Each spawned lens names
 `subagent_type: $LENS_AGENT` (resolved per-lens against the
 `agents/flow-review-<lens>.md` definitions with a Read/Grep/Glob/Write
 `tools:` allowlist and no `effort:`/`model:` pins), resolved via a

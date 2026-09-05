@@ -278,7 +278,7 @@ after confirming which pipeline's state needs correction.
 
 ### Task-tool unavailable (no retries)
 
-Fires when any of the nine spawn procedures' load step
+Fires when any of the seven spawn procedures' load step
 (`ToolSearch query="select:Task"`) returns a response that does not
 contain _either_ a `<function>{"name": "Task", ...}</function>` _or_ a
 `<function>{"name": "Agent", ...}</function>` line — i.e. the harness
@@ -313,7 +313,7 @@ flow-notify --status needs-human --reason "$TLDR" --tag "task-tool-unavailable: 
      `NEXT_ACTION_BY_REASON["task-tool-unavailable"]` so the rendered
      block names the exact spawn site; the sentinel line is byte-exact
      `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
-   - `<exemption-name>` is one of `pr-review-gatekeeper`,
+   - `<exemption-name>` is one of
      `pr-review-multi-agent-review`, `pr-review-fix-applier`,
      `pr-review-consolidator-validator`, `product-planning-discovery`,
      `new-feature-scout`, `coder-edit-applier`, `flow-pipeline-merge-resolver`.

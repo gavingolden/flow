@@ -2012,7 +2012,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
         "create",
         "--model-planning",
         "fable",
-        "--model-verify",
+        "--model-fix-applier",
         "haiku",
         "--model",
         "sonnet",
@@ -2026,13 +2026,13 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       fs.readFileSync(path.join(stateDir, "add-feature.json"), "utf8"),
     );
     expect(raw.modelPlanning).toBe("fable");
-    expect(raw.modelVerify).toBe("haiku");
+    expect(raw.modelFixApplier).toBe("haiku");
     // The session --model DOES reach the launch argv; the per-phase ones do not.
     expect(raw.model).toBe("sonnet");
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(command).toContain("--model");
     expect(command).not.toContain("--model-planning");
-    expect(command).not.toContain("--model-verify");
+    expect(command).not.toContain("--model-fix-applier");
   });
 
   it("runFeatureCli without any --model-<phase> flag leaves every per-phase field undefined", () => {
