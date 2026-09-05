@@ -63,6 +63,7 @@ import { renderEchoRecap } from "./lib/echo-recap";
 import { readState, type PipelinePhase, type ReapRecord } from "./lib/state";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { finalizePhase } from "./lib/phase-advance";
+import { recordEvent } from "./lib/telemetry";
 import { isValidSlug } from "./lib/slug";
 import { resolveLens, type OutputLens } from "./lib/output-lens";
 import {
@@ -944,6 +945,21 @@ export function run(
       process.stderr.write(
         `flow-gate-summary: not finalizing phase to '${targetPhase}' (${result.reason})\n`,
       );
+    }
+    // Best-effort run.terminal telemetry — one record per terminal render
+    // that actually reached the reader (the broken-pipe `return 1` above
+    // already bailed before this point, so it can never double-log or
+    // log a block the caller never saw). Never suppresses or reorders the
+    // sentinel already written to stdout.
+    try {
+      recordEvent("run.terminal", {
+        status: parsed.status,
+        reason: parsed.reason ?? null,
+        pr_url: parsed.prUrl ?? null,
+        cleanup: cleanup ?? null,
+      });
+    } catch {
+      // swallowed — telemetry must never affect this CLI's exit code.
     }
   }
   return 0;

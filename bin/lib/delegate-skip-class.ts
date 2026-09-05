@@ -56,6 +56,12 @@ export const ENVIRONMENT_SKIP_REASONS: ReadonlySet<string> = new Set([
   // this back to `ran-unusable` on the strength of that wiring-bug framing.
   "worktree-not-provided",
   "worktree-not-found",
+  // `agy-empty-artifact` (bin/flow-delegate.ts) is deliberately NOT added
+  // here even though its name reads like a no-op. The rule is "could this
+  // have spent quota?", and an empty artifact means the call WAS
+  // dispatched (past every pre-dispatch gate) and quota WAS spent for
+  // nothing — the opposite of pre-dispatch. It classifies as
+  // `ran-unusable` unchanged; don't "fix" this by adding it here.
 ]);
 
 // Returns `environment` for a known pre-dispatch reason, `ran-unusable` for

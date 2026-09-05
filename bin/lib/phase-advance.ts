@@ -41,6 +41,7 @@ import { resolveSlugAmbient } from "./session-identity";
 import { FLOW_STATE_DIR } from "./paths";
 import { checkWorktreeBranch } from "./worktree-marker";
 import { publishStateBadges } from "./tmux";
+import { recordEvent } from "./telemetry";
 
 export type PhaseAdvanceReason =
   | "advanced"
@@ -272,6 +273,29 @@ export function advancePhase(
   } catch {
     // swallowed — see comment above.
   }
+  // Durable phase-trace telemetry, same best-effort idiom as the
+  // publishBadges block above — advancePhase bypasses flow-state-update
+  // entirely for the six PHASE_EMITTERS phases, so this is the only place
+  // those transitions would otherwise go unrecorded.
+  try {
+    const priorLog = state.phaseLog;
+    const lastEntry =
+      priorLog && priorLog.length > 0
+        ? priorLog[priorLog.length - 1]
+        : undefined;
+    const sincePrevMs = lastEntry
+      ? Date.now() - Date.parse(lastEntry.at)
+      : null;
+    recordEvent("phase.transition", {
+      from: state.phase,
+      to: target,
+      outcome: null,
+      since_prev_ms: sincePrevMs,
+      forced: false,
+    });
+  } catch {
+    // swallowed — see comment above.
+  }
   return {
     advanced: true,
     reason: isReentry ? "reentered" : "advanced",
@@ -382,6 +406,27 @@ export function finalizePhase(
   // write. state.json is already durable at this point.
   try {
     publishBadges(written);
+  } catch {
+    // swallowed — see comment above.
+  }
+  // Durable phase-trace telemetry, same best-effort idiom as the
+  // publishBadges block above.
+  try {
+    const priorLog = state.phaseLog;
+    const lastEntry =
+      priorLog && priorLog.length > 0
+        ? priorLog[priorLog.length - 1]
+        : undefined;
+    const sincePrevMs = lastEntry
+      ? Date.now() - Date.parse(lastEntry.at)
+      : null;
+    recordEvent("phase.transition", {
+      from: state.phase,
+      to: target,
+      outcome: null,
+      since_prev_ms: sincePrevMs,
+      forced: false,
+    });
   } catch {
     // swallowed — see comment above.
   }

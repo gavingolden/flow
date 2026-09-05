@@ -396,6 +396,69 @@ describe("runUpdate", () => {
     expect(got?.phase).toBe("implementing");
   });
 
+  describe("phase.transition telemetry", () => {
+    let telemetryHome: string;
+    let telemetryPath: string;
+
+    beforeEach(() => {
+      telemetryHome = process.env.HOME as string;
+      telemetryPath = path.join(
+        telemetryHome,
+        ".flow",
+        "telemetry",
+        "events.jsonl",
+      );
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    afterEach(() => {
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    it("records one phase.transition event with the correct from/to on a --phase write", () => {
+      seed("csv-export", { phase: "triaged" });
+      expect(runUpdate(["csv-export", "--phase", "implementing"], dir)).toBe(0);
+      const lines = fs
+        .readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0)
+        .map((l) => JSON.parse(l));
+      const transitions = lines.filter((l) => l.event === "phase.transition");
+      expect(transitions).toHaveLength(1);
+      expect(transitions[0].attrs.from).toBe("triaged");
+      expect(transitions[0].attrs.to).toBe("implementing");
+      expect(transitions[0].attrs.since_prev_ms).toBeNull();
+      expect(transitions[0].attrs.forced).toBe(false);
+    });
+
+    it("does not record a phase.transition event on a --pr-only write", () => {
+      seed("csv-export");
+      expect(runUpdate(["csv-export", "--pr", "142"], dir)).toBe(0);
+      expect(fs.existsSync(telemetryPath)).toBe(false);
+    });
+
+    it("a telemetry failure never changes the exit code", () => {
+      // recordEvent is best-effort and never throws by contract; this
+      // asserts the write path stays fully functional even though the
+      // telemetry log directory is unwritable (occupied by a plain file).
+      fs.mkdirSync(path.join(telemetryHome, ".flow"), { recursive: true });
+      fs.writeFileSync(path.join(telemetryHome, ".flow", "telemetry"), "");
+      seed("csv-export");
+      expect(runUpdate(["csv-export", "--phase", "implementing"], dir)).toBe(0);
+      const got = readState("csv-export", dir);
+      expect(got?.phase).toBe("implementing");
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        force: true,
+      });
+    });
+  });
+
   it("clears a stale reap record when resumed past a terminal phase", () => {
     seed("csv-export", {
       phase: "merged",

@@ -1353,9 +1353,24 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * two budgets (26_650) is kept rather than summing the deltas: it already
    * clears the merged size with 95 chars of headroom, so no further raise
    * was warranted. The 26_500 side would have failed at merge time.
+   * Raised from 26_650 to 26_950 to document the helper-emitted telemetry
+   * contract (`bin/lib/telemetry.ts` / `~/.flow/telemetry/events.jsonl`) —
+   * the derive-don't-emit rule a future helper author needs before adding
+   * an emission site, and the reason no agent-prose emission surface
+   * exists. Dedup-first WAS applied twice before this raise: the addition
+   * was drafted at +568 chars and cut to +220 by moving the event
+   * vocabulary and the worked `jq` filters to `docs/configuration.md` and
+   * keeping only the rule plus a pointer, then a further -56 by trimming
+   * the illustrative (unpinned, `etc.`-terminated) helper-name list in
+   * `## Scripts` from eight examples to five. Measured via
+   * String.prototype.length (not `wc -c` bytes): pre-edit 26_650 budget
+   * against a 26_594 base, post-edit 26_814 — a +220 net delta after both
+   * dedups. The budget goes to 26_950 (136 chars of headroom), not the
+   * bare post-edit value, matching the "don't land at a single-digit-
+   * headroom trap" discipline of every raise above.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 26_650;
+    const CHAR_BUDGET = 26_950;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +

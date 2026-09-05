@@ -200,6 +200,38 @@ Each `/flow-pr-review` run appends one JSON line to
 `~/.flow/telemetry/review-lenses.jsonl` (per-lens tokens/findings,
 jq-readable, no rotation in v1) — see `flow-review-telemetry`.
 
+Separately, a handful of helpers append one JSON line per event to
+`~/.flow/telemetry/events.jsonl` (`bin/lib/telemetry.ts`'s `recordEvent`),
+covering four event names: `delegate.call` (one per `flow-delegate`
+invocation), `phase.transition` (one per `flow-state-update` `--phase`
+write), `verify.attempt` (one per `flow-pre-commit` run, scopes/verdict/
+failing-check-names only, never output text), and `run.terminal` (one per
+`flow-gate-summary` render that reaches a terminal status). Every event
+carries the same `slug` / `pr` / `session_id` correlation triple
+(`resolveCorrelation` in `bin/lib/telemetry.ts`) so a reader can
+reconstruct one pipeline run by filtering on any one of the three. The log
+rotates by whole-slug-block compaction — `bin/lib/telemetry-rotate.ts`
+drops the oldest complete slug's lines once the file exceeds 32 MiB or
+180 days, never truncating a slug's block mid-way. No agent-authored
+telemetry emission surface exists: every event is emitted by a helper at
+an existing chokepoint, and a signal an agent would otherwise have to
+remember to emit is instead DERIVED from an event a helper already
+writes.
+
+Two worked `jq` one-liners:
+
+```sh
+# Reconstruct one pipeline run's full event timeline.
+jq -c 'select(.slug == "csv-export")' ~/.flow/telemetry/events.jsonl
+
+# Derive the plan-review redirect count (a LOWER BOUND on total revision
+# passes — the step-3 auto-bundle pass re-enters `planning` without ever
+# writing `plan-pending-review`, so it never emits the phase.transition
+# this counts).
+jq -c 'select(.event == "phase.transition" and .attrs.from == "plan-pending-review" and .attrs.to == "planning")' \
+  ~/.flow/telemetry/events.jsonl | wc -l
+```
+
 The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher set tmux`.
 
 ## Output lens
