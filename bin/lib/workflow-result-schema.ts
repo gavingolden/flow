@@ -269,7 +269,12 @@ async function cliMain(argv: string[]): Promise<number> {
   const path = argv[flagIdx + 1];
   let raw: string;
   try {
-    raw = await Bun.file(path).text();
+    // Bun.file("/dev/stdin") does not read a piped stdin on Linux CI;
+    // the stage scripts pipe the result object in, so read stdin directly.
+    raw =
+      path === "/dev/stdin" || path === "-"
+        ? await Bun.stdin.text()
+        : await Bun.file(path).text();
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
     process.stderr.write(
