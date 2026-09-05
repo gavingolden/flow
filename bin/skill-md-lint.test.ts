@@ -2412,7 +2412,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ).toBe(false);
     }
   });
-
 });
 
 describe("Compact Instructions structural anchors", () => {
@@ -3328,9 +3327,8 @@ describe("Metadata-triage artifact JSON schema drift (flow-pr-review/SKILL.md)",
     // write-site (Step 13's clean-completion block) live in the same file.
     // This lint asserts both sides of the paired contract so a future drift
     // can't silently break the skip rule.
-    const occurrences = (
-      prReviewContent.match(/pr-review-last-sha/g) ?? []
-    ).length;
+    const occurrences = (prReviewContent.match(/pr-review-last-sha/g) ?? [])
+      .length;
     expect(
       occurrences >= 2,
       `flow-pr-review/SKILL.md must reference 'pr-review-last-sha' at both the Step 1.5 ` +
@@ -8643,7 +8641,6 @@ describe("pause-output contract wiring lint", () => {
 });
 
 describe("PM-lens supervisor wiring lint (Tasks 9/10)", () => {
-
   it("every flow-gate-summary --status (merged|gated|needs-human|cancelled) invocation in flow-pipeline SKILL.md carries --tldr", () => {
     const c = fs.readFileSync(SKILL_MD_PATH, "utf8");
     const stripped = c.replace(/<!--[\s\S]*?-->/g, "");
@@ -9320,9 +9317,8 @@ describe("review scope, lens gates, telemetry pins", () => {
     // closes the GitHub head-sync stall: neither site may fall back to
     // `gh pr view` for the marker comparison. Both sites now live in the
     // same file since the triage went inline.
-    const occurrences = (
-      prReviewContent.match(/pr-review-last-sha/g) ?? []
-    ).length;
+    const occurrences = (prReviewContent.match(/pr-review-last-sha/g) ?? [])
+      .length;
     expect(occurrences).toBeGreaterThanOrEqual(2);
 
     const step13Idx = prReviewContent.indexOf(
