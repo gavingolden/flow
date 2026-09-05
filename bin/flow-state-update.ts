@@ -160,6 +160,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         if (out.slug !== undefined) {
           return { error: "cannot combine positional <slug> with --slug" };
         }
+        // An EMPTY --slug reads as "not supplied", so the ambient $FLOW_SLUG
+        // fallback below still fires. `--slug "$SLUG"` in a fresh per-Bash-call
+        // shell expands to `--slug ""` whenever SLUG is unset (every flow
+        // helper call runs in its own shell, so SLUG never survives between
+        // them). Binding "" here would defeat `parsed.slug ?? resolveSlug()` —
+        // "" is not nullish — and exit 2 with the misleading "no slug given and
+        // no FLOW_SLUG in the environment", naming the one thing that WAS set.
+        if (value.trim() === "") break;
         out.slug = value;
         break;
       default:

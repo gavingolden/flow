@@ -262,11 +262,13 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
       ["triaging", "step 2 (worktree-create)"],
       ["worktree-create", "step 3 (plan)"],
       ["planning", "step 4 (approval)"],
-      ["implementing", "step 5.5 (installing-skills)"],
+      // The three EARLY_PHASE_WRITES phases are written at their step's
+      // HEAD, so each names the step still IN PROGRESS, not the next one.
+      ["implementing", "step 5 (implement)"],
       ["installing-skills", "step 6 (verify)"],
       ["verifying", "step 7 (ci-wait)"],
-      ["ci-wait", "step 8 (review)"],
-      ["reviewing", "step 9 (gate)"],
+      ["ci-wait", "step 7 (ci-wait)"],
+      ["reviewing", "step 8 (review)"],
       ["gating", "step 10 (merge)"],
       [
         "merging",
@@ -291,6 +293,17 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
     expect(nextStepLabel("ci-wait-pending")).toBe(
       "step 7 (ci-wait) — run flow-ci-check and branch on .status/.decision",
     );
+  });
+
+  it("NEXT_STEP_BY_PHASE names the IN-PROGRESS step for each EARLY_PHASE_WRITES phase", () => {
+    // These three phases are written at their step's HEAD, so the phase
+    // means "inside step N", not "step N is done" — the label must point
+    // at that same step. A label naming a later step would misdirect a
+    // review-fix re-entry (re-entering step 5 from `reviewing` with a PR
+    // already open must not be told to open the PR).
+    expect(nextStepLabel("implementing")).toBe("step 5 (implement)");
+    expect(nextStepLabel("ci-wait")).toBe("step 7 (ci-wait)");
+    expect(nextStepLabel("reviewing")).toBe("step 8 (review)");
   });
 
   it("exits 0 at the yielded ci-wait-pending phase but still exits 2 at the active ci-wait phase", async () => {

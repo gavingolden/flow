@@ -1331,6 +1331,32 @@ describe(publishStateBadges, () => {
     ]);
   });
 
+  it("ends with a best-effort `refresh-client -S` so the new badges repaint immediately", () => {
+    // Must be LAST: the repaint has to follow every set-option, or the
+    // status line redraws with the previous values still in place.
+    const { calls, spawnTmux } = fakeSpawn();
+    publishStateBadges(
+      {
+        slug: "csv-export",
+        phase: "reviewing",
+        pr: 762,
+        kind: "feature",
+        launcher: "tmux",
+      },
+      { spawnTmux, listWindowsFn: () => windows, env: {} },
+    );
+    expect(calls.at(-1)).toEqual(["refresh-client", "-S"]);
+  });
+
+  it("still repaints when state.kind is absent (the @flow-kind write is skipped)", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    publishStateBadges(
+      { slug: "csv-export", phase: "implementing", launcher: "tmux" },
+      { spawnTmux, listWindowsFn: () => windows, env: {} },
+    );
+    expect(calls.at(-1)).toEqual(["refresh-client", "-S"]);
+  });
+
   it("publishes @flow-pr as the empty string when state.pr is absent", () => {
     const { calls, spawnTmux } = fakeSpawn();
     publishStateBadges(

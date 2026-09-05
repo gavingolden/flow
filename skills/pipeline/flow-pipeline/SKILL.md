@@ -1359,8 +1359,16 @@ it's a non-terminal phase the resume + hook machinery already handles).
 
 **Phase:** `implementing`
 
-Emitted by `flow-open-pr` as a side effect of returning the value this
-step branches on ($PR_URL); there is no separate phase-write command.
+Write the phase BEFORE invoking the implement sub-skill below, so the
+phase names the step the run is actually inside:
+
+```bash
+flow-state-update --phase implementing
+```
+
+`flow-open-pr` still emits `implementing` at this step's tail as an
+idempotent backstop — by then `advancePhase` returns `already-at-or-past`,
+so the backstop adds no duplicate `phaseLog[]` row.
 
 Invoke `/flow-new-feature` in-process. On the first entry to this step,
 pass the user's request plus the approved plan's path:
@@ -1449,10 +1457,11 @@ closed: the previous three-call sequence stranded PRs in `pr: —`
 when the supervisor crashed between `gh pr create` and the state
 write.
 
-The phase write is a side effect of `flow-open-pr` — it advances
-`phase` to `implementing` as it records `pr`, so obtaining `$PR_URL`
-and recording the phase are the same action. Do not write it
-separately.
+`flow-open-pr` also advances `phase` to `implementing` as it records
+`pr` — the tail backstop for the step-head fence above, not a second
+write: `advancePhase` returns `already-at-or-past` and appends no
+duplicate `phaseLog[]` row. Do not add a third hand-written phase call
+here; the step-head fence at the top of this step is the only one.
 
 **Re-entry from a fix loop** (called from step 7 ci-red or step 8
 review-critical): pass mode=fix and the failure log:
@@ -1564,7 +1573,7 @@ visible.
 Write the phase explicitly before invoking verify:
 
 ```bash
-flow-state-update --phase verifying --slug "$SLUG"
+flow-state-update --phase verifying
 ```
 
 The verify work runs **inline** now — the supervisor invokes `/flow-verify`
@@ -1651,9 +1660,16 @@ longer a diff-bytes isolation boundary to preserve at this step.
 
 **Phase:** `ci-wait`
 
-Emitted by `flow-ci-check` as a side effect of returning the value
-this step branches on (`.decision`); there is no separate phase-write
-command.
+Write the phase BEFORE the module precheck and the `flow-ci-check`
+call below, so the phase names the step the run is actually inside:
+
+```bash
+flow-state-update --phase ci-wait
+```
+
+`flow-ci-check` still emits `ci-wait` at this step's tail as an
+idempotent backstop — by then `advancePhase` returns
+`already-at-or-past`, so the backstop adds no duplicate `phaseLog[]` row.
 
 **Copilot-module precheck (before any of this).** Probe
 `flow-module-status --check copilot >/dev/null 2>&1` — non-zero means the
@@ -1836,14 +1852,21 @@ clean head. On `merged-externally`, run cleanup and end. On `pr-blocked`
 
 **Phase:** `reviewing`
 
-Emitted by `flow-fetch-pr-review` (via `/flow-pr-review` Step 2) as a
-side effect of returning the value this step branches on; there is no
-separate phase-write command. An inline metadata triage `skip`
-short-circuit (Step 1.5, closed/merged/trivial PR) bypasses Step 2's fetch and so
-never writes `reviewing` — benign: `flow-gate-decide` advances straight
-to `gating` at Step 9, and monotonicity means the phase is never
-*behind* reality, only the `phaseLog[]` audit row for this step is
-missing.
+Write the phase BEFORE invoking the review sub-skill below, so the
+phase names the step the run is actually inside:
+
+```bash
+flow-state-update --phase reviewing
+```
+
+`flow-fetch-pr-review` (from the review sub-skill's Step 2) still emits
+`reviewing` at this step's tail as an idempotent backstop — by then
+`advancePhase` returns `already-at-or-past`, so the backstop adds no
+duplicate `phaseLog[]` row. An inline metadata triage `skip`
+short-circuit (Step 1.5, closed/merged/trivial PR) bypasses Step 2's
+fetch, so the backstop never fires — but the step-head write above has
+already recorded `reviewing` regardless, closing the `phaseLog[]` audit
+hole that short-circuit used to leave.
 
 Invoke `/flow-pr-review` in-process with the PR number:
 

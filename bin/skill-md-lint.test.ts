@@ -7,7 +7,11 @@ import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { ALWAYS_ON_LENSES, evaluateGates } from "./lib/review-lens-gates";
 import { CHECKPOINT_SITES } from "./flow-checkpoint";
-import { PHASE_EMITTERS, TERMINAL_PHASE_EMITTERS } from "./lib/phase-advance";
+import {
+  EARLY_PHASE_WRITES,
+  PHASE_EMITTERS,
+  TERMINAL_PHASE_EMITTERS,
+} from "./lib/phase-advance";
 import { SURVEY_VERDICTS } from "./flow-step3-route";
 
 /**
@@ -9371,23 +9375,88 @@ describe("phase-write emitter lint (bin/lib/phase-advance.ts's PHASE_EMITTERS)",
     return content.slice(start, end);
   }
 
+  /**
+   * The marker each EARLY_PHASE_WRITES step's phase fence must PRECEDE —
+   * the first thing that step actually does after recording the phase.
+   * An existence-only lint would happily pass a fence appended to the
+   * step's tail, which is exactly the bug the step-head fences fix (the
+   * phase named the previous step for the whole of the current one), so
+   * the ordering assertion below is the load-bearing half.
+   *
+   * Each marker is LINE-ANCHORED (`^`, optionally after a `**` bold
+   * lead-in), never a bare substring: the invocation sites are a fenced
+   * `/flow-new-feature` / `/flow-pr-review` command line and the
+   * `**Copilot-module precheck …**` lead-in, all of which start their
+   * line. A bare `indexOf` would instead match the FIRST prose mention of
+   * the marker anywhere in the section, so ordinary explanatory prose
+   * above a correctly-placed fence would fail the lint — a doc-wording
+   * coupling, not a contract violation. Anchoring keeps the assertion
+   * about where the step starts working, not about how it is described.
+   */
+  const STEP_INVOCATION_MARKER: Record<string, RegExp> = {
+    implementing: /^[ \t]*(?:\*\*)?\/flow-new-feature\b/m,
+    "ci-wait": /^[ \t]*(?:\*\*)?Copilot-module precheck\b/m,
+    reviewing: /^[ \t]*(?:\*\*)?\/flow-pr-review\b/m,
+  };
+
   it.each(Object.entries(PHASE_EMITTERS))(
-    "%s carries no standalone `--phase %s` fence and its step section names the emitting helper (%s)",
+    "%s: its step section names the emitting helper (%s), and its `--phase` fence is step-head-required (EARLY_PHASE_WRITES) or document-wide forbidden (helper-only)",
     (phase, helper) => {
       // Word-boundary anchored so the legitimate `--phase ci-wait-pending`
       // yield write (SKILL.md ~1714-1715, wrapped across lines today) can
       // never trip this — and stays safe even if that paragraph is
       // re-flowed onto one line later (plan.md Contract adjustment #6).
       const standaloneWrite = new RegExp(`--phase ${phase}(?![-\\w])`);
-      expect(
-        standaloneWrite.test(content),
-        `flow-pipeline SKILL.md must carry no standalone '--phase ${phase}' ` +
-          `write — it is ${helper}'s side effect now, not a documented ` +
-          "pipeline-step instruction.",
-      ).toBe(false);
-
       const heading = STEP_HEADING_BY_PHASE[phase];
       const section = sliceStepSection(heading);
+
+      if (EARLY_PHASE_WRITES.has(phase as keyof typeof PHASE_EMITTERS)) {
+        // Step-head class: the fence is REQUIRED inside its own step
+        // section and forbidden everywhere else, so the helper stays a
+        // backstop rather than the sole writer.
+        const fence = standaloneWrite.exec(section);
+        expect(
+          fence !== null,
+          `the '${heading}' section must carry a step-head ` +
+            `'flow-state-update --phase ${phase}' fence — '${phase}' is an ` +
+            "EARLY_PHASE_WRITES member (bin/lib/phase-advance.ts), so the " +
+            `${helper} emission is only its idempotent backstop.`,
+        ).toBe(true);
+        expect(
+          standaloneWrite.test(content.replace(section, "")),
+          `flow-pipeline SKILL.md must carry exactly ONE '--phase ${phase}' ` +
+            `fence — a second one outside the '${heading}' section would ` +
+            "re-record the phase from a step that is not this one.",
+        ).toBe(false);
+
+        const marker = STEP_INVOCATION_MARKER[phase];
+        const markerMatch = marker.exec(section);
+        expect(
+          markerMatch !== null,
+          `the '${heading}' section must still name its invocation marker ` +
+            `(${marker}) at the start of a line for the fence-ordering ` +
+            "assertion to mean anything.",
+        ).toBe(true);
+        const markerAt = markerMatch!.index;
+        expect(
+          fence!.index < markerAt,
+          `the '--phase ${phase}' fence must appear BEFORE ${marker} in ` +
+            `the '${heading}' section. A tail-placed fence passes an ` +
+            "existence-only check while reproducing the exact bug this " +
+            "contract fixes: the phase would name the PREVIOUS step for " +
+            "the whole of this one.",
+        ).toBe(true);
+      } else {
+        // Helper-only class (gating, merging): these already write at
+        // their step's first command, so any prose fence is a duplicate.
+        expect(
+          standaloneWrite.test(content),
+          `flow-pipeline SKILL.md must carry no standalone '--phase ${phase}' ` +
+            `write — it is ${helper}'s side effect now, not a documented ` +
+            "pipeline-step instruction.",
+        ).toBe(false);
+      }
+
       expect(
         section.includes(helper),
         `the '${heading}' section must name its emitting helper ('${helper}') ` +

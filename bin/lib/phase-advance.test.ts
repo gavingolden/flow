@@ -6,6 +6,7 @@ import {
   advancePhase,
   finalizePhase,
   isFixLoopReentry,
+  EARLY_PHASE_WRITES,
   FIX_LOOP_REENTRY_TRANSITIONS,
   PENDING_PHASE_ANCHOR,
   PHASE_EMITTERS,
@@ -340,6 +341,32 @@ describe("PHASE_EMITTERS", () => {
       gating: "flow-gate-decide",
       merging: "flow-merge-guard",
     });
+  });
+});
+
+describe("EARLY_PHASE_WRITES", () => {
+  it("is exactly the three step-head-written phases", () => {
+    expect([...EARLY_PHASE_WRITES].sort()).toEqual([
+      "ci-wait",
+      "implementing",
+      "reviewing",
+    ]);
+  });
+
+  it("every member is a PHASE_EMITTERS key — the helper stays the backstop", () => {
+    for (const phase of EARLY_PHASE_WRITES) {
+      expect(
+        Object.hasOwn(PHASE_EMITTERS, phase),
+        `EARLY_PHASE_WRITES member '${phase}' must also be a PHASE_EMITTERS ` +
+          "key; the step-head fence supplements the helper emission, it does " +
+          "not replace it.",
+      ).toBe(true);
+    }
+  });
+
+  it("excludes gating and merging, which already write at their step's first command", () => {
+    expect(EARLY_PHASE_WRITES.has("gating")).toBe(false);
+    expect(EARLY_PHASE_WRITES.has("merging")).toBe(false);
   });
 });
 

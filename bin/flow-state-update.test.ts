@@ -1114,6 +1114,22 @@ describe("parseArgs --slug flag", () => {
     ).toEqual({ error: "cannot combine positional <slug> with --slug" });
   });
 
+  it("an EMPTY --slug reads as not-supplied so the ambient FLOW_SLUG fallback still fires", () => {
+    // `--slug "$SLUG"` in a fresh per-Bash-call shell expands to `--slug ""`
+    // whenever SLUG is unset. Binding "" would defeat the
+    // `parsed.slug ?? resolveSlug()` fallback (an empty string is not nullish)
+    // and exit 2 naming FLOW_SLUG as missing when it was in fact set.
+    const result = parseArgs(["--slug", "", "--phase", "triaging"]);
+    expect("error" in result).toBe(false);
+    expect((result as { slug?: string }).slug).toBeUndefined();
+  });
+
+  it("a whitespace-only --slug reads as not-supplied too", () => {
+    const result = parseArgs(["--slug", "   ", "--phase", "triaging"]);
+    expect("error" in result).toBe(false);
+    expect((result as { slug?: string }).slug).toBeUndefined();
+  });
+
   it("--slug without a value returns an error", () => {
     expect(parseArgs(["--slug"])).toEqual({
       error: "--slug requires a value",

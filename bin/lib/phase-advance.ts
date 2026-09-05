@@ -131,6 +131,13 @@ export function isFixLoopReentry(from: string, to: string): boolean {
  * explicit `flow-state-update --phase verifying` call (no subagent
  * side-effect helper resolves it anymore).
  * Must not contradict `bin/flow-stop-guard.ts`'s `NEXT_STEP_BY_PHASE`.
+ *
+ * The five split into two classes:
+ *  - **written at the step head, helper is the idempotent backstop** —
+ *    `implementing`, `ci-wait`, `reviewing`; see `EARLY_PHASE_WRITES`.
+ *  - **written by the helper only** — `gating` and `merging`, which
+ *    already write at their step's first command, so a step-head fence
+ *    would name the same instant twice.
  */
 export const PHASE_EMITTERS: Readonly<
   Record<
@@ -144,6 +151,38 @@ export const PHASE_EMITTERS: Readonly<
   gating: "flow-gate-decide",
   merging: "flow-merge-guard",
 };
+
+/**
+ * The `PHASE_EMITTERS` subset that is ALSO written at its step's head.
+ *
+ * Each of these three phases carries a step-head `flow-state-update
+ * --phase <phase>` fence in `skills/pipeline/flow-pipeline/SKILL.md` AND
+ * keeps its `PHASE_EMITTERS` helper emission as an idempotent backstop:
+ * by the time the helper fires, `advancePhase` sees the phase already
+ * recorded and returns `already-at-or-past`, so no duplicate `phaseLog[]`
+ * row is appended.
+ *
+ * Why: the helper emission alone records the phase when the step ENDS, so
+ * the tmux badge named the PREVIOUS step for the whole of the current one
+ * (measured median 30.6 min for implement). The step-head fence makes the
+ * badge describe what the run is doing now.
+ *
+ * Deliberate asymmetry, not an oversight: the step-head fences write
+ * through `flow-state-update`, which has no `STEP_PHASES` ordering guard,
+ * so a review-fix loop re-entering step 5 from `reviewing` legitimately
+ * records `implementing` backward. That is intended — the run really is
+ * implementing — and it is NOT mirrored into
+ * `FIX_LOOP_REENTRY_TRANSITIONS`: `advancePhase`'s backward branch also
+ * needs a matching `expectPr`, and `bin/flow-open-pr.ts`'s
+ * `advancePhase("implementing")` call (today :375) deliberately passes
+ * none, so such an edge would be unreachable dead data. Whether
+ * `flow-state-update` should grow a forward-only guard of its own is
+ * tracked as a separate follow-up.
+ *
+ * Consumed by `bin/skill-md-lint.test.ts`.
+ */
+export const EARLY_PHASE_WRITES: ReadonlySet<keyof typeof PHASE_EMITTERS> =
+  new Set(["implementing", "ci-wait", "reviewing"] as const);
 
 function resolveIndex(phase: string): number {
   const anchored = PENDING_PHASE_ANCHOR[phase] ?? phase;

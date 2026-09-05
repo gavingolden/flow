@@ -326,6 +326,14 @@ set -g window-status-format '#{@flow-repo} #{@flow-phase-short}'
 `@flow-pr` carries the pipeline's PR number as bare digits (no leading
 `#`), and is empty until the pipeline has opened a PR.
 
+After publishing these options flow issues a best-effort `tmux
+refresh-client -S`, so a phase change repaints your status bar
+immediately rather than waiting for the session's `status-interval` to
+come round. It is fire-and-forget: a detached or headless run has no
+client to refresh, and that failure is discarded — the options are still
+published either way, and the publish-only/additive contract above is
+unchanged.
+
 `@flow-kind` is published on every flow window too, with one of three
 values (`feature` / `epic-design` / `epic-run`), and you're welcome to
 bind it into your status-bar format the same way. It is one of two
