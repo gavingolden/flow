@@ -678,8 +678,10 @@ function bundlingMeta(overrides: Partial<CandidateMeta> = {}): CandidateMeta {
   };
 }
 
-const SMALL_LOW_DETAILS = "  - **Complexity:** Small\n  - **Risk:** Low\n";
-const MEDIUM_DETAILS = "  - **Complexity:** Medium\n  - **Risk:** Low\n";
+const SMALL_LOW_DETAILS =
+  "  - **Complexity:** Small — one file\n  - **Risk:** Low — blast radius is one file\n";
+const MEDIUM_DETAILS =
+  "  - **Complexity:** Medium — a few files\n  - **Risk:** Low — blast radius is one file\n";
 
 describe(classifyBundling, () => {
   it("accepts genuinely novel non-trivial feature (EXCLUSION_RES.novel)", () => {
@@ -794,6 +796,52 @@ describe(classifyBundling, () => {
         MEDIUM_DETAILS,
       ),
     ).toBeNull();
+  });
+
+  it.each([
+    "needs a design session: specifically whether to key by slug or by PR",
+    "needs a design session — the decision on cache TTL",
+    "needs a design session — the specific decision about retry budget",
+  ])("accepts each decision-naming clause on Small/Low (%j)", (rationale) => {
+    expect(DECISION_CLAUSE_RES.some((re) => re.test(rationale))).toBe(true);
+    expect(
+      classifyBundling(bundlingMeta({ rationale }), SMALL_LOW_DETAILS),
+    ).toBeNull();
+  });
+
+  it("treats Trivial/LOW (any case) as Small/Low", () => {
+    expect(
+      classifyBundling(
+        bundlingMeta({
+          rationale: "a large refactor that is not a prerequisite",
+          complexity: "TRIVIAL",
+        }),
+        "  - **Risk:** LOW\n",
+      ),
+    ).toBe("small-low-risk");
+  });
+
+  it("a Small/Low cell naming both genuinely novel and large refactor clears (novel wins)", () => {
+    expect(
+      classifyBundling(
+        bundlingMeta({
+          rationale:
+            "genuinely novel non-trivial feature; also a large refactor",
+        }),
+        SMALL_LOW_DETAILS,
+      ),
+    ).toBeNull();
+  });
+
+  it("a Small/Low cell naming design session + large refactor with no decision is decision-unnamed, not small-low-risk", () => {
+    expect(
+      classifyBundling(
+        bundlingMeta({
+          rationale: "needs a design session and a large refactor",
+        }),
+        SMALL_LOW_DETAILS,
+      ),
+    ).toBe("decision-unnamed");
   });
 });
 
@@ -992,6 +1040,50 @@ describe(lintFollowUpReferences, () => {
   it("reports bundlingMisses: [] when the section is absent", () => {
     const r = lintFollowUpReferences("# PRD\n\nno candidate section here.\n");
     expect(r.bundlingMisses).toEqual([]);
+  });
+
+  it("reports decision-unnamed from the ranking-table Complexity cell plus a body Risk line", () => {
+    const body =
+      `${HEADING}\n\n` +
+      `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+      `| - | - | - | - | - | - |\n` +
+      `| a | Low | Small | needs its own design/decision session | adjacent | No |\n\n` +
+      `- [ ] a — b\n  - **Risk:** Low\n`;
+    expect(lintFollowUpReferences(body).bundlingMisses).toEqual([
+      { index: 1, title: "a", reason: "decision-unnamed" },
+    ]);
+  });
+
+  it("reports small-low-risk for a Trivial table row whose only exclusion is large refactor", () => {
+    const body =
+      `${HEADING}\n\n` +
+      `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+      `| - | - | - | - | - | - |\n` +
+      `| a | Low | Trivial | a large refactor, not a prerequisite | adjacent | No |\n\n` +
+      `- [ ] a — b\n  - **Risk:** Low\n`;
+    expect(lintFollowUpReferences(body).bundlingMisses).toEqual([
+      { index: 1, title: "a", reason: "small-low-risk" },
+    ]);
+  });
+
+  it("skips the size rule when the checkbox body carries no Risk line", () => {
+    const body =
+      `${HEADING}\n\n` +
+      `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+      `| - | - | - | - | - | - |\n` +
+      `| a | Low | Small | needs its own design/decision session | adjacent | No |\n\n` +
+      `- [ ] a — b\n`;
+    expect(lintFollowUpReferences(body).bundlingMisses).toEqual([]);
+  });
+
+  it("accepts a user-foreclosed Rationale with a quoted constraint via the ranking table", () => {
+    const body =
+      `${HEADING}\n\n` +
+      `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+      `| - | - | - | - | - | - |\n` +
+      `| a | Low | Small | user-foreclosed: "no CI changes this PR" | adjacent | No |\n\n` +
+      `- [ ] a — b\n  - **Risk:** Low\n`;
+    expect(lintFollowUpReferences(body).bundlingMisses).toEqual([]);
   });
 });
 

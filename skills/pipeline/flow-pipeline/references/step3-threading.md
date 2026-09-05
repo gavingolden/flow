@@ -235,7 +235,7 @@ run:
 
 ```bash
 LINT_RC=0
-LINT_JSON=$(flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md") || LINT_RC=$?
+flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md" >/dev/null || LINT_RC=$?
 ```
 
 Exit 1 signals either a follow-up-reference drift (the stdout JSON's
@@ -271,8 +271,9 @@ once the lint has named the offending index. Rides Discovery exemption
 `/flow-product-planning` Revision-pass threading already has.
 
 ```bash
+LINT_JSON=$(flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md" 2>/dev/null)
 MISS_IDX=$(printf '%s' "$LINT_JSON" | jq -r '[.bundlingMisses[]?.index] | unique | map(tostring) | join(", #")' 2>/dev/null)
-if [ -n "$MISS_IDX" ] && [ ! -f "$WORKTREE/.flow-tmp/auto-bundle-pass" ] && [ "$REDIRECT_KIND" != defer-task ]; then
+if [ -n "$MISS_IDX" ] && [ ! -f "$WORKTREE/.flow-tmp/auto-bundle-pass" ]; then
   touch "$WORKTREE/.flow-tmp/auto-bundle-pass"
   # re-enter /flow-product-planning on the same threading channel
 fi
@@ -303,10 +304,14 @@ second bullet per pause-output-contract.md).
 Invariants, stated explicitly: rides Discovery exemption #2 (no new
 Task-tool site), no new pause phase, no `AskUserQuestion`, at most one
 pass per pipeline, never loops, crash-resume with the marker present
-takes the surface-and-proceed branch, never fires on a re-entry whose
-redirect is `defer task #N` (the deferred row carries `user-foreclosed:
-"defer task #N"` so the lint passes it anyway), and the supervisor never
-reads Rationale text itself — the lint decides, discovery folds. See
+takes the surface-and-proceed branch, and the supervisor never reads
+Rationale text itself — the lint decides, discovery folds. A user's
+`defer task #N` reply is guarded by the defer drift guard in SKILL.md,
+which writes the deferred row's Rationale as `user-foreclosed: "defer
+task #N"` — the sole guard against the auto-bundle pass re-pulling a
+task the user just deferred, since that Rationale satisfies
+`EXCLUSION_RES.foreclosed` and the lint passes it without a
+`bundlingMisses` entry, so `MISS_IDX` never names it. See
 `discovery-instructions.md`'s **Exclusion-naming rule** and
 `SKILL.md`'s pointer paragraph after the Follow-up-reference consistency
 backstop.

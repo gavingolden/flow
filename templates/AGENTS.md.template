@@ -720,11 +720,12 @@ use; build it in-task even if the request did not enumerate it. Suggest a
 separate issue only when the addition is genuinely independent — its own user
 goal and surface, valuable and shippable on its own. Never use a "candidate
 follow-up issue" or a backlog ticket as a hedge to avoid doing in-scope work.
-Calibrate with three named exclusions: split to a separate issue only for a
+Calibrate with four named exclusions: split to a separate issue only for a
 genuinely novel non-trivial feature, something that needs its own
-design/decision session, or a large refactor that is not a prerequisite for
-the current work — and apply the size test for that last exclusion to the
-whole set of bundled work cumulatively, not to any one item in isolation.
+design/decision session, a large refactor that is not a prerequisite for
+the current work, or a user-foreclosed constraint — and apply the size test
+for the large-refactor exclusion to the whole set of bundled work
+cumulatively, not to any one item in isolation.
 
 **Hold a production bar on what you build.** Error handling, edge cases,
 accessibility, and tests for the surface you touch are part of the feature, not

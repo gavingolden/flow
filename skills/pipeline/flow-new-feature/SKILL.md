@@ -342,13 +342,13 @@ scout report back; the artifact on disk is the record.
   - **Bundle late-discovered adjacent items during implementation.** The bullet above covers
     complementary enhancements surfaced during this analysis; the same bundle-by-default
     discipline extends to items discovered later, mid-implementation. An adjacent item
-    discovered DURING implementation that passes the three-exclusion triage in
+    discovered DURING implementation that passes the four-exclusion triage in
     `skills/pipeline/flow-product-planning/references/discovery-instructions.md`
     ("Objective-item triage") is implemented in the SAME PR — never a stop-and-ask, and never
     silently skipped. That triage's cumulative bundle-size test applies to implementation-time
     bundles too, not only plan-time ones. Disclose each one as a `## Key decisions` line in the
     PR body of the exact form `Bundled during implementation: <item> — <why>`. An item that
-    hits one of the three named exclusions is instead recorded as a candidate for the
+    hits one of the four named exclusions is instead recorded as a candidate for the
     post-merge issue path — with a value-prop block per discovery-instructions.md's
     `flow-value-rubric`, ticked only when it clears the bar — not bundled. **Plan
     stays source-of-truth:** when a late item is

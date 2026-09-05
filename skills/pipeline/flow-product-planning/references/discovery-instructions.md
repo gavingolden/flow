@@ -604,10 +604,13 @@ candidates, ticked only when their block clears the bar.
 **Small/Low rule.** A candidate whose Complexity is Trivial or Small AND whose Risk
 is Low is objective by presumption — bundle it. It survives as a candidate ONLY under
 `genuinely novel non-trivial feature`, `user-foreclosed`, or a design/decision
-exclusion whose Rationale names the decision with the verbatim clause
-`the open decision is …`. `large refactor` never applies to a Small item.
-`flow-candidate-issues --lint` reports the misses as `exclusion-missing`,
-`decision-unnamed`, and `small-low-risk`.
+exclusion whose Rationale names the decision — any of "open decision" (e.g.
+`the open decision is …`), "decision is", "specifically", or "the (specific)
+decision" clears it; a rationale that merely asserts a design session exists
+with no nameable decision does not. `large refactor` never applies to a
+Small item. `flow-candidate-issues --lint`
+reports the misses as `exclusion-missing`, `decision-unnamed`, and
+`small-low-risk`.
 
 For example: "the retry loop swallows the underlying error" is an objective bug —
 bundle it into the task breakdown. "Add a settings toggle to let users disable

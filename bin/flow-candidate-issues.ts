@@ -415,8 +415,7 @@ export type LintReport = {
  */
 export const EXCLUSION_RES = {
   novel: /genuinely novel/i,
-  design:
-    /own design\/decision session|design\/decision session|design session|decision session/i,
+  design: /design session|decision session/i,
   refactor: /large refactor/i,
   foreclosed: /user-foreclosed/i,
 };
@@ -456,12 +455,12 @@ export function classifyBundling(
     return "exclusion-missing";
   }
 
-  const complexity = (
-    meta.complexity ??
-    labelValueLine(details, "Complexity") ??
-    ""
-  ).toLowerCase();
-  const risk = (labelValueLine(details, "Risk") ?? "").toLowerCase();
+  const level = (s: string | null | undefined) =>
+    (s ?? "").replace(/^`/, "").trim().toLowerCase().split(/\s|—/)[0];
+  const complexity = level(
+    meta.complexity ?? labelValueLine(details, "Complexity"),
+  );
+  const risk = level(labelValueLine(details, "Risk"));
   const isSmallLow =
     (complexity === "trivial" || complexity === "small") && risk === "low";
 
@@ -569,7 +568,7 @@ export function lintFollowUpReferences(
     section.items.forEach((it, i) => {
       const c = splitCandidate(it.text);
       const reason = classifyBundling(
-        meta.get(c.title) ?? EMPTY_META,
+        meta.get(c.title.trim()) ?? EMPTY_META,
         it.details,
       );
       if (reason) {

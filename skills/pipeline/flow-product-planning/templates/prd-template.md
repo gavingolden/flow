@@ -362,9 +362,9 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      the contract here; this is a thin sketch.
      Columns (exact, keep verbatim): Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? -->
 
-| Candidate         | Value             | Complexity                   | Rationale                                                                                                                                                                                               | Relation to current request | Pull into this pipeline? |
-| ----------------- | ----------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ------------------------ |
-| [orthogonal idea] | [High/Medium/Low] | [Trivial/Small/Medium/Large] | [<exclusion>: one-line why — genuinely novel non-trivial feature \| needs its own design/decision session: the open decision is … \| large refactor that is not a prerequisite \| user-foreclosed: "…"] | [how it relates]            | [Yes/No]                 |
+| Candidate         | Value             | Complexity                   | Rationale                                                                                                                                                                                            | Relation to current request | Pull into this pipeline? |
+| ----------------- | ----------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ------------------------ |
+| [orthogonal idea] | [High/Medium/Low] | [Trivial/Small/Medium/Large] | [<exclusion>: one-line why — genuinely novel non-trivial feature / needs its own design/decision session: the open decision is … / large refactor that is not a prerequisite / user-foreclosed: "…"] | [how it relates]            | [Yes/No]                 |
 
 - [x] [orthogonal idea] — [one-line body; the machine-readable candidate the post-merge sweep files]
   - **UX:** [who notices, what changes, how often] `[anchor: …]` — or `none`
