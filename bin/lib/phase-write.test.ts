@@ -60,6 +60,13 @@ describe("writePhaseState", () => {
     expect(readState("csv-export", stateDir)?.phase).toBe("gating");
   });
 
+  it("omitting `publish` exercises the module's own default publisher: no throw, state still written (the production wiring — every other case injects a stub, so nothing else covers the default parameter)", () => {
+    expect(() =>
+      writePhaseState(makeState({ phase: "gating" }), stateDir),
+    ).not.toThrow();
+    expect(readState("csv-export", stateDir)?.phase).toBe("gating");
+  });
+
   it("no-tmux path: the default publisher driving the real setWindowPhase degrades to {ok:false} without throwing (plain-shell launcher, the default)", () => {
     let observed: { ok: boolean; stderr: string } | undefined;
     const publish: PhasePublisher = (slug, phase) => {
