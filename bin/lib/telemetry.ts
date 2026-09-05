@@ -20,10 +20,9 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { flowTelemetryLogPath } from "./paths";
+import { flowTelemetryLogPath, FLOW_STATE_DIR } from "./paths";
 import { resolveSlugAmbient } from "./session-identity";
 import { readState, type PipelineState } from "./state";
-import { FLOW_STATE_DIR } from "./paths";
 import {
   shouldAttemptCompaction,
   compactLogIfNeeded,
@@ -230,8 +229,8 @@ export function recordEvent(
     };
     const line = serializeEvent(record);
     const target = opts.logPath ?? flowTelemetryLogPath();
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.appendFileSync(target, `${line}\n`);
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+    fs.appendFileSync(target, `${line}\n`, { mode: 0o600 });
 
     if (shouldAttemptCompaction(target)) {
       compactLogIfNeeded(target, Date.now());

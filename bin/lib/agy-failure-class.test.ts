@@ -26,9 +26,16 @@ describe("classifyAgyFailure", () => {
     expect(result).toBe("quota-exhausted");
   });
 
-  it("classifies a quota notice printed to stdout with a 0-byte artifact as quota-exhausted, not empty-artifact", () => {
+  it("classifies a quota notice printed to stdout (the artifact, non-zero exit) as quota-exhausted, not agy-error/unknown", () => {
+    // NOTE: a quota notice printed to stdout means the artifact has
+    // content, so this reaches `classifyAgyOutcome`'s `agy-error` branch
+    // (non-zero exit), never `agy-empty-artifact` — a 0-byte artifact and
+    // "quota text was printed to stdout" are mutually exclusive.
+    // `bin/flow-delegate.ts`'s outcome!==ran branch reads the artifact and
+    // threads its tail as `stdoutTail` regardless of which `skipReason`
+    // classifyAgyOutcome produced, which is what makes this reachable.
     const result = classifyAgyFailure({
-      skipReason: "agy-empty-artifact",
+      skipReason: "agy-error",
       stdoutTail:
         "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 2h59m28s.",
     });

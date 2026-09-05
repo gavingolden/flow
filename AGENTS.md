@@ -75,15 +75,16 @@ length to task, fenced blocks only for runnable code, etc.).
 
 Source for shipped helper binaries lives in **`bin/`**. User-callable
 helpers (`flow-new-worktree`, `flow-pre-commit`, `flow-state-update`,
-`flow-review-telemetry`, `flow-test-audit`, etc.) live there with `.ts`
+`flow-notify`, `flow-ui-validate`, `flow-review-telemetry`,
+`flow-test-audit`, etc.) live there with `.ts`
 extensions, Bun shebangs, and tests next door
 (`<name>.test.ts`, skipped when `flow install` symlinks into
 `~/.local/bin/<name>`). The five schema validators
 (`flow-pr-review-result-schema`, `flow-agent-finding-schema`,
 `flow-fix-applier-schema`, `flow-epic-manifest-schema`,
 `flow-intent-resolution-schema`) are also symlinked, sourced from
-`bin/lib/*-schema.ts` via an explicit-allowlist `discoverValidators`
-(distinct from `discoverHelpers`'s auto-pickup of every `bin/*.ts`).
+`bin/lib/*-schema.ts` via an allowlisted `discoverValidators`
+(vs `discoverHelpers`'s auto-pickup of every `bin/*.ts`).
 `bin/flow` itself is Bun and dispatches every verb natively.
 
 `flow install` also materializes a skills-dir plugin root per selected

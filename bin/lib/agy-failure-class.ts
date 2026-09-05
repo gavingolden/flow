@@ -9,10 +9,12 @@
  * Quota and rate-limit patterns are matched FIRST, before the generic
  * fallback AND before the empty-artifact fallback, and are matched
  * against BOTH `stdoutTail` and `stderrTail`: agy can print a quota
- * notice to its stdout (the artifact file itself, per `flow-delegate.ts`)
- * and still exit 0 with a 0-byte artifact — that must classify as
- * `quota-exhausted`, not a bare `empty-artifact` that discards the real
- * cause.
+ * notice to its stdout (the artifact file itself, per `flow-delegate.ts`),
+ * which exits non-zero with a non-empty artifact — that reaches the
+ * generic `agy-error` skipReason, and must still classify as
+ * `quota-exhausted`, not a bare `unknown` that discards the real cause. A
+ * 0-byte artifact and "quota text was printed to stdout" are mutually
+ * exclusive, so this case never reaches `agy-empty-artifact`.
  */
 
 export const AGY_FAILURE_CLASSES = [
@@ -62,6 +64,8 @@ export function classifyAgyFailure(input: {
       return "canceled";
     case "agy-empty-artifact":
       return "empty-artifact";
+    case "spawn-failed":
+      return "spawn-failed";
     case "agy-not-found":
       return "unknown";
     default:

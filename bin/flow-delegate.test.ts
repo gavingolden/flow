@@ -775,7 +775,7 @@ describe("run", () => {
     errSpy.mockRestore();
   });
 
-  it("gracefully skips (exit 0, agy-error) when runAgy throws a spawn failure", () => {
+  it("gracefully skips (exit 0, spawn-failed) when runAgy throws a spawn failure", () => {
     const deps = makeDeps({
       runAgy: () => {
         throw new Error("spawn agy ENOMEM");
@@ -784,8 +784,8 @@ describe("run", () => {
     expect(run(["--prompt", "hi"], deps)).toBe(0);
     expect(envelope(deps)).toEqual({
       ran: false,
-      skipReason: "agy-error",
-      failureClass: "unknown",
+      skipReason: "spawn-failed",
+      failureClass: "spawn-failed",
       task: "default",
       stderrTail: "spawn agy ENOMEM",
     });
@@ -858,6 +858,87 @@ describe("run", () => {
       expect(lines.length).toBeGreaterThanOrEqual(1);
       const last = JSON.parse(lines[lines.length - 1] as string);
       expect(last.event).toBe("delegate.call");
+    } finally {
+      rmSync(path.join(sandboxHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+
+  it("never stores stdout_tail on a successful run's telemetry event (no completion payloads)", () => {
+    const sandboxHome = process.env.HOME as string;
+    const telemetryPath = path.join(
+      sandboxHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    try {
+      const deps = makeDeps({ readFile: () => "some model completion text" });
+      run(["--prompt", "hi"], deps);
+      const lines = readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0);
+      const last = JSON.parse(lines[lines.length - 1] as string);
+      expect(last.attrs.ran).toBe(true);
+      expect(last.attrs.stdout_tail).toBeUndefined();
+    } finally {
+      rmSync(path.join(sandboxHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+
+  it("stores stdout_tail on a failing run's telemetry event when the artifact is small (diagnostic, not a completion)", () => {
+    const sandboxHome = process.env.HOME as string;
+    const telemetryPath = path.join(
+      sandboxHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    try {
+      const deps = makeDeps({
+        runAgy: () => ({ exitCode: 1, stderr: "boom" }),
+        readFile: () => "small diagnostic error text",
+      });
+      run(["--prompt", "hi"], deps);
+      const lines = readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0);
+      const last = JSON.parse(lines[lines.length - 1] as string);
+      expect(last.attrs.ran).toBe(false);
+      expect(last.attrs.stdout_tail).toBe("small diagnostic error text");
+    } finally {
+      rmSync(path.join(sandboxHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+
+  it("omits stdout_tail on a failing run when the artifact is too large to plausibly be diagnostic text", () => {
+    const sandboxHome = process.env.HOME as string;
+    const telemetryPath = path.join(
+      sandboxHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    try {
+      const deps = makeDeps({
+        runAgy: () => ({ exitCode: 1, stderr: "boom" }),
+        readFile: () => "x".repeat(2001),
+      });
+      run(["--prompt", "hi"], deps);
+      const lines = readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0);
+      const last = JSON.parse(lines[lines.length - 1] as string);
+      expect(last.attrs.ran).toBe(false);
+      expect(last.attrs.stdout_tail).toBeUndefined();
     } finally {
       rmSync(path.join(sandboxHome, ".flow", "telemetry"), {
         recursive: true,

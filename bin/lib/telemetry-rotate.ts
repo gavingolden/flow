@@ -148,10 +148,19 @@ export function compactLogIfNeeded(
 
     // 2. Whole-block size pruning, oldest-remaining-block first, null
     //    slug last.
+    // Byte-accurate (UTF-8 bytes, matching the `statSync` check in
+    // `shouldAttemptCompaction`) — NOT `l.raw.length`, which is UTF-16
+    // code units and undercounts any multi-byte character, letting a
+    // genuinely-oversized file skip eviction entirely.
     const totalBytes = () =>
       Array.from(blocks.values())
         .flat()
-        .reduce((sum, l) => sum + l.raw.length + 1, 0);
+        .reduce((sum, l) => sum + Buffer.byteLength(l.raw, "utf8") + 1, 0);
+
+    // Prune down to a low watermark meaningfully under the cap (80%),
+    // not just back under it, so compaction is amortized across many
+    // subsequent appends rather than re-arming ~10 appends later.
+    const lowWatermarkBytes = Math.floor(maxBytes * 0.8);
 
     if (totalBytes() > maxBytes) {
       const remainingKeys = Array.from(blocks.keys());
@@ -160,7 +169,7 @@ export function compactLogIfNeeded(
         ...remainingKeys.filter((k) => k === null),
       ];
       for (const slug of orderedForEviction) {
-        if (totalBytes() <= maxBytes) break;
+        if (totalBytes() <= lowWatermarkBytes) break;
         blocks.delete(slug);
         slugsDropped.push(slug);
       }
@@ -179,7 +188,7 @@ export function compactLogIfNeeded(
       };
     }
 
-    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.mkdirSync(path.dirname(logPath), { recursive: true, mode: 0o700 });
     tmpTarget = `${logPath}.tmp.${process.pid}.${now}`;
     let content = survivors.map((l) => `${l.raw}\n`).join("");
 
@@ -202,7 +211,7 @@ export function compactLogIfNeeded(
       }
     }
 
-    fs.writeFileSync(tmpTarget, content);
+    fs.writeFileSync(tmpTarget, content, { mode: 0o600 });
     const rename = deps.rename ?? fs.renameSync;
     rename(tmpTarget, logPath);
     tmpTarget = undefined;

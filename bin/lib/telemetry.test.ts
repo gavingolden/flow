@@ -132,12 +132,33 @@ describe("resolveCorrelation", () => {
     expect(result.attrs.slug_unverified).toBe(true);
   });
 
-  it("keeps attribution and marks slug_unverified when session id is absent on one side (match case, not a mismatch)", () => {
+  it("keeps attribution and marks slug_unverified when the state file has no sessionId but the env does (one-sided, not a mismatch)", () => {
     const state: PipelineState = {
       slug: "my-slug",
       phase: "implementing",
       repo: "me/flow",
       pr: 7,
+      updatedAt: "2026-09-05T00:00:00.000Z",
+      // no sessionId
+    };
+    writeState(state, stateDir);
+    const result = resolveCorrelation({
+      env: { FLOW_SLUG: "my-slug", CLAUDE_CODE_SESSION_ID: "sess-abc" },
+      stateDir,
+    });
+    expect(result.slug).toBe("my-slug");
+    expect(result.pr).toBe(7);
+    expect(result.repo).toBe("me/flow");
+    expect(result.attrs.slug_unverified).toBe(true);
+  });
+
+  it("keeps attribution and marks slug_unverified when the env has no session id but the state file does (one-sided, not a mismatch)", () => {
+    const state: PipelineState = {
+      slug: "my-slug",
+      phase: "implementing",
+      repo: "me/flow",
+      pr: 7,
+      sessionId: "sess-abc",
       updatedAt: "2026-09-05T00:00:00.000Z",
     };
     writeState(state, stateDir);

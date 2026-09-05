@@ -60,7 +60,7 @@
  *
  * stdout is always a one-line JSON envelope:
  *   success: {"ran":true,"task":..,"model":..,"artifactPath":..,"exitCode":0,"durationMs":..}
- *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-timeout"|"agy-canceled"|"agy-error"|"agy-empty-artifact",..}
+ *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-timeout"|"agy-canceled"|"agy-error"|"agy-empty-artifact"|"spawn-failed",..}
  *            (every skip envelope from a dispatched agy call may also carry
  *            `exitCode`, a redacted <=2000-byte `stderrTail` (tail-most, when
  *            agy's stderr was non-empty), `agyStatus` (the json-mode
@@ -437,12 +437,24 @@ function emit(
         text = undefined;
       }
       if (text !== undefined) {
-        attrs.artifact_bytes = Buffer.byteLength(text, "utf8");
+        const artifactBytes = Buffer.byteLength(text, "utf8");
+        attrs.artifact_bytes = artifactBytes;
         // A successful run's artifact is model completion text — the
-        // no-prompt-or-completion-payloads constraint forbids storing it,
-        // so `stdout_tail` is captured ONLY on the ran:false path (where
-        // the artifact is diagnostic output, e.g. an agy error dump).
-        if (envelope.ran === false) {
+        // no-prompt-or-completion-payloads constraint forbids storing it.
+        // `ran === false` alone is NOT sufficient: agy streams its
+        // completion into the artifact path as it generates, so a
+        // print-timeout kill can leave a partial generation there even
+        // though `ran` is false, and in json mode the artifact is an
+        // envelope whose `.response` is model prose. A genuine diagnostic
+        // dump (an agy error/quota notice) is small; a generation is not
+        // — so `stdout_tail` is captured only when BOTH `ran === false`
+        // AND the artifact is small enough to plausibly be diagnostic
+        // text rather than a truncated completion.
+        const STDOUT_TAIL_MAX_ARTIFACT_BYTES = 2000;
+        if (
+          envelope.ran === false &&
+          artifactBytes <= STDOUT_TAIL_MAX_ARTIFACT_BYTES
+        ) {
           const tail = stderrTail(text, 1000);
           if (tail) attrs.stdout_tail = tail;
         }
@@ -654,9 +666,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       deps,
       {
         ran: false,
-        skipReason: "agy-error",
+        skipReason: "spawn-failed",
         failureClass: classifyAgyFailure({
-          skipReason: "agy-error",
+          skipReason: "spawn-failed",
           stderrTail: tail,
         }),
         task: parsed.task,
@@ -685,6 +697,16 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     const agyStatus = jsonOutcome.status
       ? stderrTail(jsonOutcome.status, 64)
       : undefined;
+    // agy can print a quota/rate-limit notice to its stdout (the artifact
+    // file itself in text mode) while stderr stays empty — read the same
+    // artifact `emit()` reads a few lines below so `classifyAgyFailure`
+    // can match it too (see the module header on `agy-failure-class.ts`).
+    let artifactStdoutTail: string | undefined;
+    try {
+      artifactStdoutTail = stderrTail(deps.readFile(outPath), 1000);
+    } catch {
+      artifactStdoutTail = undefined;
+    }
     return emit(
       deps,
       {
@@ -693,6 +715,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
         failureClass: classifyAgyFailure({
           skipReason: outcome,
           stderrTail: tail,
+          stdoutTail: artifactStdoutTail,
           agyError,
           agyStatus,
         }),

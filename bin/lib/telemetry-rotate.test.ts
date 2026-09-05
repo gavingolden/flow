@@ -237,12 +237,11 @@ describe("compactLogIfNeeded", () => {
     const multiLineCount = remaining.filter(
       (r) => r.slug === "multi-line-slug",
     ).length;
-    // Never a partial drop: either all three multi-line-slug lines survive
-    // or none do.
-    expect([0, 3]).toContain(multiLineCount);
-    if (multiLineCount === 0) {
-      expect(result.slugsDropped).toContain("multi-line-slug");
-    }
+    // Deterministic outcome: `multi-line-slug` is the oldest-inserted
+    // non-null block, so eviction (oldest-first) drops it whole — never a
+    // partial drop of 1 or 2 of its 3 lines.
+    expect(multiLineCount).toBe(0);
+    expect(result.slugsDropped).toContain("multi-line-slug");
   });
 
   it("preserves an append landing after the snapshot (afterSnapshot race case)", () => {
@@ -320,5 +319,41 @@ describe("compactLogIfNeeded", () => {
     for (const l of remaining) {
       expect(() => JSON.parse(l)).not.toThrow();
     }
+  });
+
+  it("prunes to a low watermark meaningfully under maxBytes, not just back under it (steady-state, amortized)", () => {
+    // Five same-size single-line slug blocks. A `maxBytes = totalBytes - 10`
+    // cap (as most other tests in this file use) only ever needs to evict
+    // ONE block to get back under cap — that's exactly why an off-by-unit
+    // bug in `totalBytes()` and a missing low watermark were both invisible
+    // to every other test here. Use a cap that requires evicting multiple
+    // blocks to reach 80% and assert the exact resulting byte budget.
+    const now = Date.parse("2026-06-01T00:00:00.000Z");
+    const blockLine = (slug: string) =>
+      line({ slug, ts: "2026-05-31T00:00:00.000Z" });
+    const slugs = ["slug-1", "slug-2", "slug-3", "slug-4", "slug-5"];
+    const content = slugs.map(blockLine).join("\n") + "\n";
+    const perLineBytes = Buffer.byteLength(blockLine("slug-1"), "utf8") + 1;
+    fs.writeFileSync(logPath, content);
+    // Cap sits just under 4 blocks' worth, so plain "prune back under cap"
+    // would stop after dropping exactly 1 block (4 blocks remaining, which
+    // fits). The low watermark (80% of this cap) forces further eviction.
+    const maxBytes = perLineBytes * 4 - 1;
+    const lowWatermarkBytes = Math.floor(maxBytes * 0.8);
+    const result = compactLogIfNeeded(logPath, now, maxBytes, 100000);
+    expect(result.compacted).toBe(true);
+    const remaining = fs
+      .readFileSync(logPath, "utf8")
+      .split("\n")
+      .filter((l) => l.length > 0);
+    const remainingBytes = Buffer.byteLength(
+      remaining.join("\n") + "\n",
+      "utf8",
+    );
+    expect(remainingBytes).toBeLessThanOrEqual(lowWatermarkBytes);
+    // Oldest-first eviction: slug-1 and slug-2 are dropped to reach the
+    // watermark (3 blocks survive: slug-3, slug-4, slug-5).
+    expect(result.slugsDropped).toEqual(["slug-1", "slug-2"]);
+    expect(remaining.length).toBe(3);
   });
 });

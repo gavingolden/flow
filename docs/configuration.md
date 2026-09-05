@@ -202,19 +202,25 @@ Separately, a handful of helpers append one JSON line per event to
 `~/.flow/telemetry/events.jsonl` (`bin/lib/telemetry.ts`'s `recordEvent`),
 covering four event names: `delegate.call` (one per `flow-delegate`
 invocation), `phase.transition` (one per `flow-state-update` `--phase`
-write), `verify.attempt` (one per `flow-pre-commit` run, scopes/verdict/
+write, OR per `bin/lib/phase-advance.ts` phase advance — `phase-advance.ts`
+is the SOLE emitter for six phases in the implement→merge half of the
+pipeline, so reading only `flow-state-update` call sites undercounts this
+event), `verify.attempt` (one per `flow-pre-commit` run, scopes/verdict/
 failing-check-names only, never output text), and `run.terminal` (one per
 `flow-gate-summary` render that reaches a terminal status). Every event
-carries the same `slug` / `pr` / `session_id` correlation triple
-(`resolveCorrelation` in `bin/lib/telemetry.ts`) so a reader can
-reconstruct one pipeline run by filtering on any one of the three. The log
+carries the same `slug` / `pr` / `repo` / `session_id` correlation
+quadruple (`resolveCorrelation` in `bin/lib/telemetry.ts`) so a reader can
+reconstruct one pipeline run by filtering on any one of the four. The log
 rotates by whole-slug-block compaction — `bin/lib/telemetry-rotate.ts`
-drops the oldest complete slug's lines once the file exceeds 32 MiB or
-180 days, never truncating a slug's block mid-way. No agent-authored
-telemetry emission surface exists: every event is emitted by a helper at
-an existing chokepoint, and a signal an agent would otherwise have to
-remember to emit is instead DERIVED from an event a helper already
-writes.
+drops the oldest complete slug's lines once the file exceeds 32 MiB, and
+separately drops any slug block whose newest line is older than 180 days,
+but only as part of a compaction pass triggered by the 32 MiB size check —
+the age prune never fires on its own on a file that stays under the size
+cap, however old its lines get. Neither prune ever truncates a slug's
+block mid-way. No agent-authored telemetry emission surface exists: every
+event is emitted by a helper at an existing chokepoint, and a signal an
+agent would otherwise have to remember to emit is instead DERIVED from an
+event a helper already writes.
 
 Two worked `jq` one-liners:
 
