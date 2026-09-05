@@ -119,7 +119,7 @@ if (merge.rc !== 0) {
       `CONFLICTING_FILES: ${inputs.conflictingFiles}\nMARKER_CHECK_CMD: ${markerCheckCmd}\n` +
       `ARTIFACT_PATH: ${artifactPath}\nPR_DESCRIPTION: ${inputs.prDescription}`;
 
-    await agent(resolverPrompt, {
+    const resolverAgentResult = await agent(resolverPrompt, {
       agentType: "flow-module-core:flow-merge-resolver",
       label: "resolver",
       phase: "Resolve",
@@ -127,6 +127,15 @@ if (merge.rc !== 0) {
       ...modelArg(args.models.mergeResolver),
       schema: { type: "object", required: ["ran"], properties: { ran: { type: "boolean" } } },
     });
+
+    // A denied/died Task spawn surfaces as a null resolverAgentResult
+    // rather than a thrown error — fold it into the same outcome as a
+    // missing resolver artifact instead of falling through to
+    // resolverRead, which would crash reading a file the resolver never
+    // got a chance to write.
+    if (resolverAgentResult === null) {
+      return terminal("resolver-missing-artifact", "resolver-missing-artifact", "The merge-resolver subagent spawn was denied or the agent died before writing a result.", { resolver: { ran: false } });
+    }
 
     const resolverRead = await helperAgent(
       `Using the Bash tool, run: test -s ${artifactPath} && cat ${artifactPath} || echo '{"exists":false}'. Report exists (boolean), push_status (string, "skipped" when absent), and summaryFirstLine (string, may be empty).`,

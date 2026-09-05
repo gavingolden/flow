@@ -1506,6 +1506,24 @@ internally rather than re-launching; on `pr-conflicted`, stage A returns
 `needs-stage-b` (see "## Stage A launch" above). Re-entry resumes stage A
 at this step from a `ci-wait`/`ci-wait-pending` phase.
 
+On `merged-externally` (the PR was merged externally, outside the
+pipeline, mid-flight), stage A returns `needs-human: merged-externally`;
+the decision row still renders via the existing [Stage A `needs-human:
+merged-externally` render](#stage-a-needs-human-merged-externally-render)
+above — still `flow-remove-worktree --delete-branch` then
+`flow-gate-summary --status merged ...` (same `--tldr`/`--lens`
+augmentation as step 11's MERGED block).
+
+If the supervisor's own turn must end while stage A is still
+backgrounded in `ci-wait`, it writes `ci-wait-pending` and ends cleanly
+rather than hand-rolling a manual poll loop:
+
+```bash
+flow-state-update --phase ci-wait-pending --slug "$FLOW_SLUG"
+```
+
+On resume, the step-7 row above relaunches stage A (state.json skip).
+
 ## Step 8 — Review
 
 **Phase:** `reviewing` — written by `flow-fetch-pr-review` inside stage

@@ -2059,7 +2059,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
         "agent()'s agentType to `flow-module-core:flow-merge-resolver`.",
     ).toBe(true);
     expect(
-      stageBWorkflowContent.includes("label: \"resolver\""),
+      stageBWorkflowContent.includes('label: "resolver"'),
       "workflows/core/flow-stage-b.workflow.js must label the resolver " +
         "agent() call 'resolver' so it resolves from " +
         "references/workflow-agent-sites.md.",
@@ -6904,7 +6904,7 @@ describe("terminal-state reap wiring lint", () => {
   }
 
   it("every wired terminal flow-gate-summary occurrence in SKILL.md has its own preceding reap call", () => {
-    // 3 deliberately unwired: the elliptical resume-path back-references.
+    // 4 deliberately unwired: the elliptical resume-path back-references.
     // Was 8 pre-LEG-A (f6-workflow-port): the 5 step-10 merge-resolution
     // escalations that delegated to the (already-wired) `# Failure paths`
     // chain are gone — that whole "Independent Merge-Conflict Resolver
@@ -6912,8 +6912,13 @@ describe("terminal-state reap wiring lint", () => {
     // into workflows/core/flow-stage-b.workflow.js's `terminal()` helper,
     // which returns a result object for the supervisor to render, not
     // inline SKILL.md prose with its own flow-gate-summary calls. Dropped
-    // 8 → 3 to reflect the true count, not to loosen the check.
-    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 3);
+    // 8 → 3 to reflect the true count, not to loosen the check. LEG A2
+    // bumped 3 → 4: Step 7's new merged-externally sentence adds a 4th
+    // elliptical back-reference (`flow-gate-summary --status merged ...`)
+    // pointing at the ALREADY-wired "Stage A `needs-human:
+    // merged-externally` render" section above — same shape as the
+    // step-9/step-10 resume-path back-references, not a new unwired site.
+    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 4);
   });
 
   it("every wired terminal flow-gate-summary occurrence in the reference docs has its own preceding reap call", () => {

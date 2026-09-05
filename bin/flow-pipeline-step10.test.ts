@@ -32,9 +32,17 @@ const RUBRIC_MD_PATH = path.resolve(
   "references",
   "auto-merge-rubric.md",
 );
+const STAGE_B_PATH = path.resolve(
+  HERE,
+  "..",
+  "workflows",
+  "core",
+  "flow-stage-b.workflow.js",
+);
 
 const skillContent = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const rubricContent = fs.readFileSync(RUBRIC_MD_PATH, "utf8");
+const stageBContent = fs.readFileSync(STAGE_B_PATH, "utf8");
 
 function extractStep10(content: string): string {
   const lines = content.split("\n");
@@ -85,8 +93,8 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
     const needle =
       "PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, \"\"); print; exit}')";
     expect(
-      STEP_10.includes(needle),
-      `Step 10 must derive \`$PRIMARY\` via \`${needle}\` so the merge ` +
+      stageBContent.includes(needle),
+      `Stage B's merge agent must derive \`$PRIMARY\` via \`${needle}\` so the merge ` +
         `subshell can \`cd\` into the primary worktree. The awk form keys ` +
         `on the literal \`worktree \` prefix and strips it (rather than ` +
         `field-splitting \`{print $2}\`), so worktree paths containing ` +
@@ -127,8 +135,41 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
     }
     expect(STEP_10).not.toMatch(/MERGE_FLAGS|flow-merge-body/);
 
-    const mergeCalls = STEP_10.match(/gh pr merge --squash "\$PR"/g) ?? [];
-    expect(mergeCalls).toHaveLength(4);
+    // The actual merge invocation moved into stage B's mergeOnce() helper
+    // (workflows/core/flow-stage-b.workflow.js) — assert no --body/--subject
+    // there either, and that MERGE_FLAGS / flow-merge-body never reappear.
+    const stageBMergeLines = stageBContent
+      .split("\n")
+      .filter(
+        (line) => line.includes("gh pr merge") && line.includes("${args.pr}"),
+      );
+    for (const line of stageBMergeLines) {
+      expect(
+        line,
+        `flow-stage-b.workflow.js merge invocation must carry no --body/--subject: ${line}`,
+      ).not.toMatch(/--body\b|--subject\b/);
+    }
+    expect(stageBContent).not.toMatch(/MERGE_FLAGS|flow-merge-body/);
+
+    // The literal `gh pr merge --squash ${args.pr}` invocation must be
+    // defined exactly once, inside mergeOnce, so every retry site shares
+    // the same command instead of drifting per call site.
+    const literalMergeOccurrences =
+      stageBContent.match(/gh pr merge --squash \$\{args\.pr\}/g) ?? [];
+    expect(
+      literalMergeOccurrences,
+      "flow-stage-b.workflow.js must define `gh pr merge --squash ${args.pr}` " +
+        "exactly once, inside mergeOnce().",
+    ).toHaveLength(1);
+
+    // mergeOnce() must be called at exactly 3 sites: the initial merge, the
+    // post-resolve retry, and the non-conflict retry.
+    const mergeOnceCalls = stageBContent.match(/await mergeOnce\(/g) ?? [];
+    expect(
+      mergeOnceCalls,
+      "flow-stage-b.workflow.js must call mergeOnce() at exactly 3 sites " +
+        "(merge, merge-retry-after-resolve, merge-retry-non-conflict).",
+    ).toHaveLength(3);
   });
 
   it("keeps the auto-merge rubric's action row in sync with the wrapped form", () => {
@@ -192,43 +233,69 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
   });
 
   it("structurally pins the merge-resolver-spawn-denied escalation branch", () => {
-    // Deleting this branch (and its reason tag) leaves the suite green
-    // plus an orphan `merge-resolver-spawn-denied` key in
-    // NEXT_ACTION_BY_REASON and an orphan failure-recovery row in
-    // auto-merge-rubric.md — nothing else in this repo pins its presence.
+    // The resolver's Task spawn now runs inside stage B
+    // (workflows/core/flow-stage-b.workflow.js), not SKILL.md prose. A
+    // denied/died spawn surfaces as a null agent() result; stage B must
+    // null-guard it and fold it into the SAME outcome as a missing
+    // resolver artifact (`resolver-missing-artifact`) rather than falling
+    // through to a file read that would crash on the absent artifact.
     expect(
-      STEP_10.includes("merge-resolver-spawn-denied"),
-      "step 10 must escalate `NEEDS HUMAN: merge-resolver-spawn-denied` on a Task spawn denial.",
+      /resolverAgentResult\s*===\s*null/.test(stageBContent),
+      "flow-stage-b.workflow.js must null-guard the merge-resolver agent() result (a denied/died Task spawn).",
     ).toBe(true);
+    const nullGuardIdx = stageBContent.search(
+      /resolverAgentResult\s*===\s*null/,
+    );
+    const nullGuardBlock = stageBContent.slice(
+      nullGuardIdx,
+      nullGuardIdx + 400,
+    );
     expect(
-      /do \*\*not\*\* resolve inline/i.test(STEP_10),
-      "step 10's spawn-denial branch must forbid inline resolution in the supervisor.",
+      nullGuardBlock.includes('"resolver-missing-artifact"'),
+      "the null-guard branch must terminate with outcome `resolver-missing-artifact`.",
     ).toBe(true);
+
+    // `## Stage B launch`'s outcome table must still branch that outcome
+    // onto the existing NEEDS HUMAN render — deleting the row would leave
+    // the escalation silently unrendered.
+    const stageBLaunchIdx = skillContent.indexOf("## Stage B launch");
+    expect(stageBLaunchIdx).toBeGreaterThan(-1);
+    const stageBLaunchEnd = skillContent.indexOf("## Step 11", stageBLaunchIdx);
+    const stageBLaunch = skillContent.slice(
+      stageBLaunchIdx,
+      stageBLaunchEnd > -1 ? stageBLaunchEnd : undefined,
+    );
     expect(
-      STEP_10.includes("flow-gate-summary --status needs-human --reason"),
-      "step 10's spawn-denial branch must call flow-gate-summary to render the escalation.",
+      stageBLaunch.includes("`resolver-missing-artifact`") &&
+        /NEEDS HUMAN: merge-resolver-missing-artifact/.test(stageBLaunch),
+      "`## Stage B launch`'s outcome table must escalate `NEEDS HUMAN: merge-resolver-missing-artifact` on `.outcome` `resolver-missing-artifact`.",
     ).toBe(true);
-    // The `merge-resolver-spawn-denied` key itself must exist so the
-    // rendered NEXT ACTION line is non-empty.
+
+    // The reason's NEXT ACTION line must still be non-empty.
     const gateSummarySrc = fs.readFileSync(
       path.resolve(HERE, "flow-gate-summary.ts"),
       "utf8",
     );
     expect(
-      gateSummarySrc.includes('"merge-resolver-spawn-denied":'),
-      "bin/flow-gate-summary.ts must define a NEXT_ACTION_BY_REASON entry for `merge-resolver-spawn-denied`.",
+      gateSummarySrc.includes('"merge-resolver-missing-artifact":'),
+      "bin/flow-gate-summary.ts must define a NEXT_ACTION_BY_REASON entry for `merge-resolver-missing-artifact`.",
     ).toBe(true);
   });
 
-  it("defines $MARKER_CHECK_CMD via `bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts`", () => {
-    // Both consumers (step 5's per-file check and the resolver instructions)
-    // are pinned elsewhere; this pins the PRODUCER line that defines the
-    // variable, so a refold can't drop it with every other lint green.
+  it("defines MARKER_CHECK_CMD via the flow-conflict-marker-check PATH helper", () => {
+    // The resolver spawn now runs inside stage B
+    // (workflows/core/flow-stage-b.workflow.js), which fills
+    // MARKER_CHECK_CMD with the PATH-resolved name `flow-conflict-marker-check`
+    // (verified on PATH by the installed symlink), not the bun-path form.
     expect(
-      STEP_10.includes(
-        'MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"',
+      stageBContent.includes(
+        'const markerCheckCmd = "flow-conflict-marker-check";',
       ),
-      "step 10 must define MARKER_CHECK_CMD as `bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts`.",
+      'flow-stage-b.workflow.js must define markerCheckCmd as "flow-conflict-marker-check".',
+    ).toBe(true);
+    expect(
+      /MARKER_CHECK_CMD:\s*\$\{markerCheckCmd\}/.test(stageBContent),
+      "flow-stage-b.workflow.js's resolver prompt must pass MARKER_CHECK_CMD via ${markerCheckCmd}.",
     ).toBe(true);
   });
 });
