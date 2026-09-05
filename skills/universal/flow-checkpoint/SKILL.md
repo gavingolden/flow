@@ -182,11 +182,12 @@ here only ever takes `ready` or `needs`.
 
 ## 3. Tell the user it is safe to `/clear`, then end the turn
 
-On a `ready` verdict, surface a one-line nudge and end the turn:
-
-```
-✅ checkpointed — type /clear now to reset context (the pipeline auto-resumes and re-injects your notes), or keep going in this session.
-```
+On a `ready` verdict, extract step 2's helper's `checkpointed: ` line from
+its stderr and echo it **verbatim** as the last line of the turn — per the
+pipeline SKILL.md's [Checkpoint arm signal
+(echo-verbatim)](../../pipeline/flow-pipeline/SKILL.md#checkpoint-arm-signal-echo-verbatim)
+subsection: never restate it from memory, paraphrase it, reorder it, or
+drop it.
 
 When step 2's JSON carried a non-empty `.warning`, echo it verbatim
 alongside that line, so the user knows the notes will carry over but the

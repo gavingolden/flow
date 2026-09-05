@@ -4,11 +4,14 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   archiveCheckpointBody,
+  armBannerPath,
   checkpointBodyPath,
   checkpointConsumedPath,
+  checkpointDir,
   checkpointMarkerPath,
   parseArgs,
   probeCheckpointBody,
+  renderArmBanner,
   run,
   type CheckpointResult,
 } from "./flow-checkpoint";
@@ -66,6 +69,18 @@ function captureStdout(): { writes: string[]; restore: () => void } {
   return { writes, restore: () => spy.mockRestore() };
 }
 
+// Sibling of captureStdout(): no stderr capture existed before this PR, so
+// the pre-existing terminal-warning suite (`run() — ready-path terminal-
+// phase warning`) let the real process.stderr.write through unmocked.
+function captureStderr(): { writes: string[]; restore: () => void } {
+  const writes: string[] = [];
+  const spy = vi.spyOn(process.stderr, "write").mockImplementation((s) => {
+    writes.push(s.toString());
+    return true;
+  });
+  return { writes, restore: () => spy.mockRestore() };
+}
+
 function runCapture(
   argv: string[],
   slug?: string,
@@ -80,6 +95,31 @@ function runCapture(
   restore();
   const result = JSON.parse(writes.join("")) as CheckpointResult;
   return { ...result, exit };
+}
+
+// stdout+stderr twin of runCapture(): the caller wants both the parsed JSON
+// verdict AND the raw stderr lines (the arm banner, the terminal warning).
+function runCaptureBoth(
+  argv: string[],
+  slug?: string,
+  resolveKind: () => PipelineKind | null = () => null,
+): CheckpointResult & {
+  exit: number;
+  stdoutRaw: string;
+  stderrLines: string[];
+} {
+  const out = captureStdout();
+  const err = captureStderr();
+  const exit = run(argv, {
+    stateDir,
+    resolveSlug: () => slug ?? null,
+    resolveKind,
+  });
+  out.restore();
+  err.restore();
+  const stdoutRaw = out.writes.join("");
+  const result = JSON.parse(stdoutRaw) as CheckpointResult;
+  return { ...result, exit, stdoutRaw, stderrLines: err.writes };
 }
 
 describe("probeCheckpointBody", () => {
@@ -678,5 +718,246 @@ describe("probeFreshness vs isCheckpointUsable — intentional divergence", () =
 
     expect(probeFreshness(state, "gate", stateDir).verdict).toBe("preserve");
     expect(isCheckpointUsable(state, stateDir)).toBe(true);
+  });
+});
+
+describe("renderArmBanner()", () => {
+  it("true branch renders the exact site-bearing string", () => {
+    expect(renderArmBanner({ armed: true, site: "manual" })).toBe(
+      "checkpointed: true — site=manual — safe to /clear",
+    );
+  });
+
+  it("false branch renders the exact reason-bearing string", () => {
+    expect(
+      renderArmBanner({ armed: false, reason: "checkpoint-missing" }),
+    ).toBe(
+      "checkpointed: false — checkpoint-missing — /clear will lose unsaved in-chat state",
+    );
+  });
+
+  it("never contains 'phase=' or 'armed=' in either branch", () => {
+    const trueLine = renderArmBanner({ armed: true, site: "terminal" });
+    const falseLine = renderArmBanner({ armed: false, reason: "no-slug" });
+    expect(trueLine).not.toContain("phase=");
+    expect(trueLine).not.toContain("armed=");
+    expect(falseLine).not.toContain("phase=");
+    expect(falseLine).not.toContain("armed=");
+  });
+
+  it("never contains emoji in either branch", () => {
+    const trueLine = renderArmBanner({ armed: true, site: "gate" });
+    const falseLine = renderArmBanner({ armed: false, reason: "bad-args" });
+    // Matches any character outside the Basic Multilingual Plane's common
+    // text range — a cheap emoji smell test without a full Unicode
+    // emoji-property regex dependency.
+    const emojiIsh = /[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]/u;
+    expect(emojiIsh.test(trueLine)).toBe(false);
+    expect(emojiIsh.test(falseLine)).toBe(false);
+  });
+
+  it("has no trailing newline in either branch", () => {
+    expect(renderArmBanner({ armed: true, site: "manual" })).not.toMatch(/\n$/);
+    expect(
+      renderArmBanner({ armed: false, reason: "state-missing" }),
+    ).not.toMatch(/\n$/);
+  });
+});
+
+describe("armBannerPath()", () => {
+  it("resolves to last-arm-banner.txt inside the slug's checkpoint dir", () => {
+    expect(armBannerPath("iota", stateDir)).toBe(
+      path.join(checkpointDir("iota", stateDir), "last-arm-banner.txt"),
+    );
+  });
+
+  it("honours an explicit stateDir override", () => {
+    const otherDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-checkpoint-other-state-"),
+    );
+    try {
+      expect(armBannerPath("iota", otherDir)).toBe(
+        path.join(checkpointDir("iota", otherDir), "last-arm-banner.txt"),
+      );
+      expect(armBannerPath("iota", otherDir)).not.toBe(
+        armBannerPath("iota", stateDir),
+      );
+    } finally {
+      fs.rmSync(otherDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("run() — arm banner on stderr", () => {
+  it("ready arm prints a 'checkpointed: true' banner naming the site", () => {
+    seedState("banner-ready");
+    writeCheckpoint("banner-ready");
+    const r = runCaptureBoth(["banner-ready", "--site", "gate"]);
+    expect(r.status).toBe("ready");
+    const bannerLines = r.stderrLines.filter((l) =>
+      l.startsWith("checkpointed: "),
+    );
+    expect(bannerLines).toHaveLength(1);
+    expect(bannerLines[0]).toBe(
+      "checkpointed: true — site=gate — safe to /clear\n",
+    );
+  });
+
+  it("state-missing needs arm prints a 'checkpointed: false' banner with that reason", () => {
+    const r = runCaptureBoth(["banner-state-missing"]);
+    expect(r.status).toBe("needs");
+    const bannerLines = r.stderrLines.filter((l) =>
+      l.startsWith("checkpointed: "),
+    );
+    expect(bannerLines).toEqual([
+      "checkpointed: false — state-missing — /clear will lose unsaved in-chat state\n",
+    ]);
+  });
+
+  it("checkpoint-missing needs arm prints a 'checkpointed: false' banner with that reason", () => {
+    seedState("banner-checkpoint-missing");
+    const r = runCaptureBoth(["banner-checkpoint-missing"]);
+    expect(r.status).toBe("needs");
+    const bannerLines = r.stderrLines.filter((l) =>
+      l.startsWith("checkpointed: "),
+    );
+    expect(bannerLines).toEqual([
+      "checkpointed: false — checkpoint-missing — /clear will lose unsaved in-chat state\n",
+    ]);
+  });
+
+  it("marker-write-failed needs arm prints a 'checkpointed: false' banner with that reason", () => {
+    seedState("banner-marker-fail");
+    writeCheckpoint("banner-marker-fail");
+    // Force fs.writeFileSync (the marker write) to fail without touching the
+    // banner-file write, by pre-occupying the marker path with a directory.
+    fs.mkdirSync(markerFile("banner-marker-fail"), { recursive: true });
+    const r = runCaptureBoth(["banner-marker-fail"]);
+    expect(r.status).toBe("needs");
+    const bannerLines = r.stderrLines.filter((l) =>
+      l.startsWith("checkpointed: "),
+    );
+    expect(bannerLines).toHaveLength(1);
+    expect(bannerLines[0]).toMatch(
+      /^checkpointed: false — marker-write-failed:.* — \/clear will lose unsaved in-chat state\n$/,
+    );
+  });
+
+  it("no-slug bad-arg path prints a 'checkpointed: false — no-slug' banner", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = captureStderr();
+    const exit = run([], { stateDir, resolveSlug: () => null });
+    err.restore();
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    const bannerLines = err.writes.filter((l) =>
+      l.startsWith("checkpointed: "),
+    );
+    expect(bannerLines).toEqual([
+      "checkpointed: false — no-slug — /clear will lose unsaved in-chat state\n",
+    ]);
+  });
+
+  it("bad-args parse-error path prints a 'checkpointed: false — bad-args' banner", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = captureStderr();
+    const exit = run(["--bogus"], { stateDir, resolveSlug: () => "x" });
+    err.restore();
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    const bannerLines = err.writes.filter((l) =>
+      l.startsWith("checkpointed: "),
+    );
+    expect(bannerLines).toEqual([
+      "checkpointed: false — bad-args — /clear will lose unsaved in-chat state\n",
+    ]);
+  });
+
+  it("when the terminal-phase warning also fires, the arm banner is the LAST stderr line", () => {
+    seedState("banner-and-warning", { phase: "merged" });
+    writeCheckpoint("banner-and-warning");
+    const r = runCaptureBoth(["banner-and-warning"], undefined, () => null);
+    expect(r.status).toBe("ready");
+    expect(r.warning).toBeDefined();
+    expect(r.stderrLines.length).toBeGreaterThanOrEqual(2);
+    const last = r.stderrLines[r.stderrLines.length - 1];
+    expect(last.startsWith("checkpointed: true")).toBe(true);
+  });
+});
+
+describe("run() — stdout purity (byte-identity regression guard)", () => {
+  it("--site ready arm emits byte-identical stdout with or without the stderr banner change", () => {
+    seedState("purity-ready");
+    writeCheckpoint("purity-ready");
+    const r = runCaptureBoth(["purity-ready", "--site", "manual"]);
+    // runCapture() already JSON.parses stdout (so any stray byte anywhere
+    // red-lines it implicitly); this test pins the raw string shape
+    // explicitly rather than incidentally, per the contract.
+    expect(r.stdoutRaw).toBe(JSON.stringify(JSON.parse(r.stdoutRaw)) + "\n");
+    expect(r.stdoutRaw).not.toContain("checkpointed:");
+  });
+
+  it("needs arms (state-missing / checkpoint-missing) emit stdout with no 'checkpointed:' substring", () => {
+    const stateMissing = runCaptureBoth(["purity-needs-a"]);
+    expect(stateMissing.stdoutRaw).not.toContain("checkpointed:");
+    seedState("purity-needs-b");
+    const checkpointMissing = runCaptureBoth(["purity-needs-b"]);
+    expect(checkpointMissing.stdoutRaw).not.toContain("checkpointed:");
+  });
+
+  it("--probe writes NO 'checkpointed: ' line to stderr", () => {
+    seedState("purity-probe");
+    writeCheckpoint("purity-probe");
+    const r = runCaptureBoth(["purity-probe", "--probe", "--site", "gate"]);
+    expect(r.status).toBe("probe");
+    expect(r.stderrLines.some((l) => l.includes("checkpointed: "))).toBe(false);
+  });
+
+  it("--consume writes NO 'checkpointed: ' line to stderr", () => {
+    seedState("purity-consume");
+    writeCheckpoint("purity-consume");
+    runCaptureBoth(["purity-consume", "--site", "manual"]); // arm first
+    const r = runCaptureBoth(["purity-consume", "--consume"]);
+    expect(r.status).toBe("consumed");
+    expect(r.stderrLines.some((l) => l.includes("checkpointed: "))).toBe(false);
+  });
+
+  it("--path writes NO 'checkpointed: ' line to stderr", () => {
+    const err = captureStderr();
+    const out = captureStdout();
+    run(["purity-path", "--path"], { stateDir, resolveSlug: () => null });
+    out.restore();
+    err.restore();
+    expect(err.writes.some((l) => l.includes("checkpointed: "))).toBe(false);
+  });
+});
+
+describe("run() — durable arm-banner file", () => {
+  it("writes the rendered banner to armBannerPath on a successful arm", () => {
+    seedState("durable-ready");
+    writeCheckpoint("durable-ready");
+    const r = runCapture(["durable-ready", "--site", "plan-review"]);
+    expect(r.status).toBe("ready");
+    const bannerFile = armBannerPath("durable-ready", stateDir);
+    expect(fs.existsSync(bannerFile)).toBe(true);
+    expect(fs.readFileSync(bannerFile, "utf8")).toBe(
+      "checkpointed: true — site=plan-review — safe to /clear\n",
+    );
+  });
+
+  it("a banner-file write failure still exits 0 with normal JSON (best-effort)", () => {
+    seedState("durable-fail");
+    writeCheckpoint("durable-fail");
+    // Pre-occupy the banner file's path with a directory so the write fails.
+    const bannerFile = armBannerPath("durable-fail", stateDir);
+    fs.mkdirSync(bannerFile, { recursive: true });
+    const r = runCaptureBoth(["durable-fail", "--site", "manual"]);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("ready");
+    expect(r.marker).toBe(markerFile("durable-fail"));
+    // The stderr banner still fires even though the durable copy failed.
+    expect(r.stderrLines.some((l) => l.startsWith("checkpointed: true"))).toBe(
+      true,
+    );
   });
 });

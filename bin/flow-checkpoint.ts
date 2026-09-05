@@ -133,6 +133,37 @@ export function checkpointConsumedPath(
 }
 
 /**
+ * Absolute path of the durable copy of the last-rendered arm banner
+ * (`renderArmBanner`'s output). Read-side consumers that missed the
+ * original stderr line — a fresh session resuming from a checkpoint, for
+ * instance — can recover it here. Its absence is not itself a signal
+ * (the checkpoint dir is recursively deleted on `--consume`), so callers
+ * must tolerate a missing file rather than treat it as "never armed".
+ */
+export function armBannerPath(slug: string, dir = FLOW_STATE_DIR): string {
+  return path.join(checkpointDir(slug, dir), "last-arm-banner.txt");
+}
+
+/**
+ * Pure formatter for the single stderr line every arm branch prints. The
+ * pipeline supervisor extracts this line (anchored on
+ * `^checkpointed: (true|false)`) and echoes it verbatim as the last line of
+ * its assistant message — see flow-pipeline/SKILL.md's "Checkpoint arm
+ * signal (echo-verbatim)" subsection. Never called from `--probe`/`--consume`/
+ * `--path` paths, which must stay silent on this line.
+ */
+export function renderArmBanner(
+  input:
+    | { armed: true; site: CheckpointSite }
+    | { armed: false; reason: string },
+): string {
+  if (input.armed) {
+    return `checkpointed: true — site=${input.site} — safe to /clear`;
+  }
+  return `checkpointed: false — ${input.reason} — /clear will lose unsaved in-chat state`;
+}
+
+/**
  * True iff the slug's `checkpoint.md` is present and non-empty. Mirrors
  * `probePlan` in flow-resume-decide.ts — empty and missing collapse to the
  * same `false`.
@@ -259,6 +290,9 @@ export function run(argv: string[], deps: Deps = {}): number {
     }
     console.error(`flow-checkpoint: ${parsed.error}`);
     console.error(USAGE);
+    process.stderr.write(
+      renderArmBanner({ armed: false, reason: "bad-args" }) + "\n",
+    );
     return 2;
   }
 
@@ -267,6 +301,9 @@ export function run(argv: string[], deps: Deps = {}): number {
     console.error(
       "flow-checkpoint: no slug given and no FLOW_SLUG in the environment.\n" +
         "  pass <slug> explicitly, or run inside a pipeline launched by `flow feature create`.",
+    );
+    process.stderr.write(
+      renderArmBanner({ armed: false, reason: "no-slug" }) + "\n",
     );
     return 2;
   }
@@ -379,10 +416,16 @@ export function run(argv: string[], deps: Deps = {}): number {
   // armed site); a needs verdict writes nothing. No worktree requirement —
   // the checkpoint location is slug-keyed.
   if (!state) {
+    process.stderr.write(
+      renderArmBanner({ armed: false, reason: "state-missing" }) + "\n",
+    );
     emit({ status: "needs", slug, reason: "state-missing" });
     return 0;
   }
   if (!probeCheckpointBody(slug, stateDir)) {
+    process.stderr.write(
+      renderArmBanner({ armed: false, reason: "checkpoint-missing" }) + "\n",
+    );
     emit({
       status: "needs",
       slug,
@@ -398,12 +441,14 @@ export function run(argv: string[], deps: Deps = {}): number {
     fs.mkdirSync(path.dirname(marker), { recursive: true });
     fs.writeFileSync(marker, `${slug}\n${nowIso()}\n`);
   } catch (err) {
+    const reason = `marker-write-failed: ${String(err)}`;
+    process.stderr.write(renderArmBanner({ armed: false, reason }) + "\n");
     emit({
       status: "needs",
       slug,
       phase: state.phase,
       worktree: state.worktree,
-      reason: `marker-write-failed: ${String(err)}`,
+      reason,
     });
     return 0;
   }
@@ -455,6 +500,19 @@ export function run(argv: string[], deps: Deps = {}): number {
     warning = `phase '${state.phase}' is terminal — your notes are still carried over into the fresh session after /clear, but the pipeline itself will not auto-resume (there is nothing left to resume). In a tmux window the notes arrive alongside a short orientation turn that summarises them and then waits for your questions, so the pane does not sit blank.`;
     process.stderr.write(`flow-checkpoint: warning: ${warning}\n`);
   }
+
+  const banner = renderArmBanner({ armed: true, site: parsed.site });
+  try {
+    fs.mkdirSync(path.dirname(armBannerPath(slug, stateDir)), {
+      recursive: true,
+    });
+    fs.writeFileSync(armBannerPath(slug, stateDir), banner + "\n");
+  } catch {
+    // best-effort: the durable copy is a convenience for a later reader that
+    // missed the stderr line; a failed write must never change the exit
+    // code, the JSON, or the stderr banner below.
+  }
+  process.stderr.write(banner + "\n");
 
   emit({
     status: "ready",
