@@ -139,17 +139,18 @@ capture it from a plain interactive session on a future re-run.
 
 ## Narrative caveats
 
-- **Two provenance generations, one merged evidence set.** The incumbent
-  (claude-sonnet-4-6) and prior-candidate (gemini-3.1-pro-high,
-  gemini-3.6-flash-high) entries are reused verbatim from the 2026-08-05
-  run (agy 1.1.10 — itself three dispatch waves: the original commit
-  f784a0b dispatch, a hardened-fixture re-run of c4/c6/c8/c10, and an
-  N=10 repeat-tier re-run of c5/c6/c8/c10), merged with the 2026-08-17
-  gemini-3.7-flash-high dispatch (agy 1.1.13, 196 entries). Order is
-  committed-first: the 588 committed entries precede the 196 new ones,
-  which is load-bearing for recommend()'s appearance-order tie-break.
-  The `## Run provenance` commit is the harness commit at final-render
-  time; per-entry provenance is the entry itself.
+- **Two provenance generations, one merged evidence set (as of the
+  2026-08-17 render — see the third-generation bullet below for this run's
+  784+196 merge).** The incumbent (claude-sonnet-4-6) and prior-candidate
+  (gemini-3.1-pro-high, gemini-3.6-flash-high) entries were reused verbatim
+  from the 2026-08-05 run (agy 1.1.10 — itself three dispatch waves: the
+  original commit f784a0b dispatch, a hardened-fixture re-run of
+  c4/c6/c8/c10, and an N=10 repeat-tier re-run of c5/c6/c8/c10), merged with
+  the 2026-08-17 gemini-3.7-flash-high dispatch (agy 1.1.13, 196 entries).
+  At that render, order was committed-first: the 588 committed entries
+  preceded the 196 new ones, load-bearing for recommend()'s appearance-order
+  tie-break. The `## Run provenance` commit is the harness commit at
+  final-render time; per-entry provenance is the entry itself.
 - **Scoring semantics changed between the first dispatch and this render.**
   Recall is now a per-attempt mean over required criteria + structured
   tuples + planted/real defects, replacing a union-across-attempts recall
@@ -253,24 +254,39 @@ capture it from a plain interactive session on a future re-run.
   so only the 10 new `c1-multifile-contract` entries (r840-r849) were judged
   fresh, and every committed verdict is byte-unchanged. This is the check
   that failed in the 2026-08-17 run and forced a full re-judge.
-- **`gemini-3.8-flash-high` returned an EMPTY response on 81 of 196 entries
-  (41.3%), and 80 of those 81 are exactly the entries where agy recorded
-  `denied_actions: [RunCommand]`.** Every single denied-action envelope came
-  back empty; none recovered. The mechanism: 3.8 attempts a shell tool call,
-  `flow-delegate`'s default `--sandbox` posture denies it, and the model
-  returns `status: SUCCESS` with `response: ""` after spending its output
-  budget on thinking tokens (a representative envelope: 1228 output tokens,
-  1159 of them thinking, 5.36s, empty body). For comparison, the empty-response
-  rate is 0.5% for `claude-sonnet-4-6`, 5.6% for `gemini-3.1-pro-high`, 5.1%
-  for `gemini-3.6-flash-high`, and 11.2% for `gemini-3.7-flash-high` — 3.8 is
-  3.7x the worst prior arm and a categorical break in the trend.
+- **`gemini-3.8-flash-high` returned an EMPTY response on 83 of 196 committed
+  entries (42.3%) — two counting frames, stated separately.** The
+  **committed-artifact frame** (`(.response // "") == ""` over
+  `docs/model-bench/results.json`, the reproducible-from-the-repo number) is
+  83/196 (42.3%). Comparison arms in this bullet all use this same frame:
+  0.5% for `claude-sonnet-4-6` (1/196), 5.6% for `gemini-3.1-pro-high`
+  (11/196), 5.1% for `gemini-3.6-flash-high` (10/196), and 11.2% for
+  `gemini-3.7-flash-high` (22/196) — 3.8 is roughly 3.8x the worst prior arm
+  and a categorical break in the trend. Separately, the **raw-envelope
+  frame** (the 196 pre-serialization dispatch envelopes in
+  `.flow-tmp/model-bench-38/raw/`, uncommitted — a 2-3 entry redacted sample
+  is committed at `docs/model-bench/denied-actions-sample.json` for
+  auditability) counts 81 empty responses, and 80 of those 81 are exactly the
+  envelopes where agy recorded `denied_actions: [RunCommand]`. The two
+  frames differ (83 vs 81) because the committed serializer drops the
+  `response` key entirely on the 6 `ran: false` rows, which the
+  committed-artifact frame's `(.response // "")` rule also counts as empty —
+  a distinct failure mode from a denied action, and not reconciled 1:1
+  against the raw-envelope count above. Every single denied-action envelope
+  came back empty; none recovered. The mechanism: 3.8 attempts a shell tool
+  call, `flow-delegate`'s default `--sandbox` posture denies it, and the
+  model returns `status: SUCCESS` with `response: ""` after spending its
+  output budget on thinking tokens (a representative envelope: 1228 output
+  tokens, 1159 of them thinking, 5.36s, empty body — see the committed
+  sample file).
 - **That empty-response behaviour is a DEPLOYMENT-VALID signal, not a harness
   artifact.** `flow-delegate` passes `--sandbox` and does NOT pass
   `--skip-permissions` (it is opt-in), and no production delegate surface —
   `flow-plan-review`, `flow-gemini-lens`, `flow-gemini-intent-guess`,
   `flow-research-run`, `flow-blind-survey` — opts in. The bench therefore ran
   3.8 under exactly the permission posture flow uses in production, so the
-  41.3% empty rate is what flow would actually get from this model today. A
+  42.3% committed-artifact empty rate is what flow would actually get from
+  this model today. A
   separate `--skip-permissions` run would measure 3.8's ceiling rather than its
   deployed behaviour; that is a different question and is not what gates a
   routing default.

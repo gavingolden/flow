@@ -43,16 +43,17 @@ export type DelegateSurface =
 // carries no model constant: it carries two (MODEL + SECOND_MODEL), and the
 // second (deep-tier) reviewer needs its own config slot.
 export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
-  // 2026-09-05 RUN (gemini-3.8-flash-high, agy 1.1.27): the 3.8 arm was
-  // REJECTED on all nine benched surfaces and nominated on none, so the
-  // strict flip rule produced zero flips this run. Root cause is recorded in
-  // docs/model-bench/report.md: 3.8 returned an EMPTY response on 81/196
-  // entries (41.3%), and 80 of those 81 are exactly the envelopes carrying
-  // `denied_actions: [RunCommand]` — it reaches for a shell tool, the
-  // default `--sandbox` posture denies it, and it answers with
-  // `status: SUCCESS` and an empty body. That posture is flow's PRODUCTION
-  // posture (flow-delegate never passes --skip-permissions and no delegate
-  // surface opts in), so this is deployed behaviour, not a harness artifact.
+  // 2026-09-05 RUN (gemini-3.8-flash-high, agy 1.1.27): REJECTED on every
+  // one of the ten surfaces this run's fixtures cover (a bench-coverage
+  // set, NOT the same as this record's nine keys — see report.md for the
+  // exact roster) and nominated on none: zero flips. Root cause:
+  // docs/model-bench/report.md: 83/196 committed entries (42.3%) came back
+  // with an EMPTY response — 81/196 in the separate uncommitted raw-envelope
+  // count, ~80 of those tied to `denied_actions: [RunCommand]` — it reaches
+  // for a shell tool the default `--sandbox` posture denies, and answers
+  // `status: SUCCESS` with an empty body. That's flow's PRODUCTION posture
+  // (no delegate surface passes --skip-permissions), so this is deployed
+  // behaviour, not a harness artifact.
   // NO FLIP (2026-09-05): intent-guess rejected for 3.8 on mechanical parity
   // (c4-intent-json recall 0.44 vs incumbent 1.00); recommend() nominates no
   // candidate for this surface.

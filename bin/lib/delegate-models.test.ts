@@ -168,6 +168,20 @@ describe("resolveDelegateModel", () => {
     );
   });
 
+  it("planReview/planReviewSecond stay on DIFFERENT vendor families, with no runtime guard to fall back on", () => {
+    // Verified asymmetry (2026-09-05): flow-research-run.ts and
+    // flow-blind-survey.ts each carry a runtime equality guard for their
+    // pairs (see the two distinctness tests above), but flow-plan-review.ts
+    // resolves MODEL and SECOND_MODEL and never compares them at runtime —
+    // planReview/planReviewSecond is the one adversarial pair with NO
+    // runtime protection, so this static default-level guard is the only
+    // thing standing between it and a same-family collapse.
+    const planFamily = DELEGATE_MODEL_DEFAULTS.planReview!.split(/\s+/)[0];
+    const secondFamily =
+      DELEGATE_MODEL_DEFAULTS.planReviewSecond!.split(/\s+/)[0];
+    expect(planFamily).not.toBe(secondFamily);
+  });
+
   it("every non-null default is a display-name form (ends in a parenthesised tier)", () => {
     // Pins the convention that production helpers pass agy DISPLAY NAMES,
     // while the benchmark harness pins SLUGS (a different namespace, since
@@ -194,18 +208,22 @@ describe("resolveDelegateModel", () => {
     );
   });
 
-  it("adversarial pairs stay on DIFFERENT vendor families, not merely different strings", () => {
+  it("adversarial pairs stay on DIFFERENT product-line prefixes, not merely different strings", () => {
     // The two distinctness guards above test string inequality, which is all
     // flow-research-run.ts' resolveModels and flow-blind-survey enforce at
     // runtime. That is too weak for the property those pairs actually exist
     // to hold: gather-vs-refute and survey-vs-second are ADVERSARIAL, so two
-    // different models from the SAME vendor family (e.g. "Gemini 3.1 Pro
+    // different models from the SAME product line (e.g. "Gemini 3.1 Pro
     // (High)" refuting "Gemini 3.8 Flash (High)") would pass both string
-    // checks while collapsing the cross-family tension into intra-family
+    // checks while collapsing the cross-line tension into intra-line
     // confirmation, with nothing warning. Scope is defaults only; a config
     // override stays deliberately unguarded (see the researchRefute comment
-    // block in delegate-models.ts).
-    const family = (value: string) => value.split(/\s*\d/)[0]!.trim();
+    // block in delegate-models.ts). NOTE: `family()` here derives a
+    // product-line PREFIX (first whitespace token, e.g. "Claude" / "Gemini"
+    // / "GPT-OSS"), not a vendor — "Claude Opus" and "Claude Sonnet" both
+    // reduce to "Claude" and would NOT be caught by this guard; that's a
+    // known narrower-than-the-name gap, not a bug in this assertion.
+    const family = (value: string) => value.split(/\s+/)[0]!;
     for (const [a, b] of [
       ["researchGather", "researchRefute"],
       ["blindSurvey", "blindSurveySecond"],
@@ -214,26 +232,63 @@ describe("resolveDelegateModel", () => {
       const vb = DELEGATE_MODEL_DEFAULTS[b];
       expect(va).not.toBeNull();
       expect(vb).not.toBeNull();
-      expect(family(va as string)).not.toBe(family(vb as string));
+      const famA = family(va as string);
+      const famB = family(vb as string);
+      expect(famA.length).toBeGreaterThan(0);
+      expect(famB.length).toBeGreaterThan(0);
+      expect(famA).not.toBe(famB);
     }
   });
 
   it("docs/configuration.md's delegate-models table cannot drift from the code defaults", () => {
     // PR #644 shipped a code flip whose docs/configuration.md "default today"
     // row went stale, and only a human reviewer caught it. This makes that
-    // class of drift mechanical. Reads the doc the same way the existing
-    // consumer-routing test in this file does.
-    const doc = fs.readFileSync("docs/configuration.md", "utf8").split("\n");
+    // class of drift mechanical for THIS ONE FILE. Two other sites pin the
+    // same researchGather/researchRefute strings byte-exactly and are
+    // deliberately NOT covered here (different formats — prose + a shell
+    // read_budget call, not a markdown table row):
+    // skills/universal/flow-research/SKILL.md:85-86,158,386-387,391-392 and
+    // skills/pipeline/flow-product-planning/references/discovery-instructions.md:106-107,114,117.
+    // Reads the doc module-relative, the same way
+    // the consumer-routing test above does (NOT cwd-relative — a cwd-relative
+    // read here would ENOENT under any invocation whose cwd isn't the repo
+    // root, e.g. a single-file vitest run from an editor).
+    const doc = fs
+      .readFileSync(
+        new URL("../../docs/configuration.md", import.meta.url),
+        "utf8",
+      )
+      .split("\n");
+    // Anchor the search to the "## Delegate models" table specifically: the
+    // doc also has a "## Delegate timeouts" table AND a namespace-distinct
+    // `models.scout` row under "## Per-phase models" that both match a bare
+    // `` `scout` `` substring search, so scanning the whole document would
+    // silently pick the wrong row the moment `scout`'s default flips non-null.
+    const tableStart = doc.findIndex((line) =>
+      line.startsWith("## Delegate models"),
+    );
+    expect(
+      tableStart,
+      "docs/configuration.md is missing the Delegate models heading",
+    ).toBeGreaterThanOrEqual(0);
+    const nextHeadingOffset = doc
+      .slice(tableStart + 1)
+      .findIndex((line) => line.startsWith("## "));
+    const tableEnd =
+      nextHeadingOffset === -1
+        ? doc.length
+        : tableStart + 1 + nextHeadingOffset;
+    const tableLines = doc.slice(tableStart, tableEnd);
     for (const surface of ALL_SURFACES) {
       const value = DELEGATE_MODEL_DEFAULTS[surface];
       if (value === null) continue;
-      const row = doc.find(
+      const row = tableLines.find(
         (line) =>
           line.trimStart().startsWith("|") && line.includes(`\`${surface}\``),
       );
       expect(
         row,
-        `no docs/configuration.md table row for ${surface}`,
+        `no docs/configuration.md Delegate models table row for ${surface}`,
       ).toBeDefined();
       expect(row, `stale doc row for ${surface}: expected ${value}`).toContain(
         value,
