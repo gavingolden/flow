@@ -12,6 +12,10 @@
       "gemini-3.7-flash-high": {
         "status": "reject",
         "reason": "mechanical parity failed on c4-intent-json: recall 0.91 < incumbent 1.00 - 0.05"
+      },
+      "gemini-3.8-flash-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c4-intent-json: recall 0.44 < incumbent 1.00 - 0.05"
       }
     },
     "scout": {
@@ -26,6 +30,10 @@
       "gemini-3.7-flash-high": {
         "status": "reject",
         "reason": "defect regression on c2b-real-defect: gemini-3.7-flash-high missed \"src/pipeline-summary-sources.ts.txt:237:real-defect\", which claude-sonnet-4-6 caught"
+      },
+      "gemini-3.8-flash-high": {
+        "status": "reject",
+        "reason": "defect regression on c2b-real-defect: gemini-3.8-flash-high missed \"src/pipeline-summary-sources.ts.txt:237:real-defect\", which claude-sonnet-4-6 caught"
       }
     },
     "plan-review": {
@@ -40,6 +48,10 @@
       "gemini-3.7-flash-high": {
         "status": "clear",
         "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff"
+      },
+      "gemini-3.8-flash-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c6-plan-review: recall 0.75 < incumbent 1.00 - 0.05"
       }
     },
     "log-triage": {
@@ -52,6 +64,10 @@
         "reason": "mechanical parity failed on c3-log-triage: recall 0.00 < incumbent 0.67 - 0.05"
       },
       "gemini-3.7-flash-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c3-log-triage: recall 0.00 < incumbent 0.67 - 0.05"
+      },
+      "gemini-3.8-flash-high": {
         "status": "reject",
         "reason": "mechanical parity failed on c3-log-triage: recall 0.00 < incumbent 0.67 - 0.05"
       }
@@ -68,6 +84,10 @@
       "gemini-3.7-flash-high": {
         "status": "reject",
         "reason": "latency payoff insufficient: gemini-3.7-flash-high median 15.48s is not <= 60% of incumbent's 6.45s"
+      },
+      "gemini-3.8-flash-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c5-commit-msg: recall 0.18 < incumbent 0.32 - 0.05"
       }
     },
     "critique": {
@@ -82,6 +102,10 @@
       "gemini-3.7-flash-high": {
         "status": "reject",
         "reason": "mechanical parity failed on c9b-pushback-control: recall 0.90 < incumbent 1.00 - 0.05"
+      },
+      "gemini-3.8-flash-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c9b-pushback-control: recall 0.20 < incumbent 1.00 - 0.05"
       }
     },
     "gatekeeper": {
@@ -96,6 +120,10 @@
       "gemini-3.7-flash-high": {
         "status": "inconclusive",
         "reason": "mechanical parity borderline on c10-gatekeeper — re-run when models update"
+      },
+      "gemini-3.8-flash-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c10-gatekeeper: recall 0.49 < incumbent 0.98 - 0.05"
       }
     },
     "review-lens": {
@@ -108,6 +136,10 @@
         "reason": "mechanical parity failed on c7-review-lens: recall 0.75 < incumbent 0.83 - 0.05"
       },
       "gemini-3.7-flash-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c7-review-lens: recall 0.00 < incumbent 0.83 - 0.05"
+      },
+      "gemini-3.8-flash-high": {
         "status": "reject",
         "reason": "mechanical parity failed on c7-review-lens: recall 0.00 < incumbent 0.83 - 0.05"
       }
@@ -124,6 +156,10 @@
       "gemini-3.7-flash-high": {
         "status": "reject",
         "reason": "latency payoff insufficient: gemini-3.7-flash-high median 25.30s is not <= 60% of incumbent's 40.53s"
+      },
+      "gemini-3.8-flash-high": {
+        "status": "reject",
+        "reason": "mechanical parity failed on c8-research-refute: recall 0.11 < incumbent 0.90 - 0.05"
       }
     }
   },
@@ -216,6 +252,19 @@
         "c8-research-refute": 0
       },
       "overall": 0.06608946608946613,
+      "recommendedArm": "free-form"
+    },
+    "gemini-3.8-flash-high": {
+      "perCase": {
+        "c4-intent-json": 0.5,
+        "c6-plan-review": 0.25,
+        "c9b-pushback-control": 0.2,
+        "c10-gatekeeper": 0.3636363636363636,
+        "c7-review-lens": 0.3333333333333333,
+        "c9a-pushback-wrong": 0.29999999999999993,
+        "c8-research-refute": 0.5888888888888888
+      },
+      "overall": 0.36226551226551224,
       "recommendedArm": "free-form"
     }
   }
