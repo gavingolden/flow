@@ -1966,4 +1966,87 @@ describe("run (end-to-end CLI)", () => {
       }
     });
   });
+
+  describe("run.terminal telemetry", () => {
+    let telemetryHome: string;
+    let telemetryPath: string;
+
+    beforeEach(() => {
+      telemetryHome = process.env.HOME as string;
+      telemetryPath = path.join(
+        telemetryHome,
+        ".flow",
+        "telemetry",
+        "events.jsonl",
+      );
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    afterEach(() => {
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    it.each(["merged", "gated", "needs-human", "cancelled"] as const)(
+      "records one run.terminal event with status/reason for status: %s",
+      (status) => {
+        const slug = `terminal-telemetry-${status}-slug`;
+        seedState(slug, { phase: "gating" });
+        const { rc } = captureStdout(() =>
+          run(["--status", status, "--slug", slug, "--reason", "ci-hang"], {
+            stateDir: tmpRoot,
+          }),
+        );
+        expect(rc).toBe(0);
+        const lines = fs
+          .readFileSync(telemetryPath, "utf8")
+          .split("\n")
+          .filter((l) => l.length > 0)
+          .map((l) => JSON.parse(l));
+        const terminals = lines.filter((l) => l.event === "run.terminal");
+        expect(terminals).toHaveLength(1);
+        expect(terminals[0].attrs.status).toBe(status);
+        expect(terminals[0].attrs.reason).toBe("ci-hang");
+      },
+    );
+
+    it("awaiting-approval records no run.terminal event (not a terminal status)", () => {
+      const slug = "terminal-telemetry-awaiting-approval-slug";
+      seedState(slug, { phase: "gating" });
+      const { rc } = captureStdout(() =>
+        run(["--status", "awaiting-approval", "--slug", slug], {
+          stateDir: tmpRoot,
+        }),
+      );
+      expect(rc).toBe(0);
+      expect(fs.existsSync(telemetryPath)).toBe(false);
+    });
+
+    it("an injected stdout write failure (broken pipe) records no run.terminal event", () => {
+      const slug = "terminal-telemetry-broken-pipe-slug";
+      seedState(slug, { phase: "gating" });
+      const original = process.stdout.write.bind(process.stdout);
+      process.stdout.write = (() => {
+        throw new Error("EPIPE: broken pipe");
+      }) as typeof process.stdout.write;
+      const originalStderr = process.stderr.write.bind(process.stderr);
+      process.stderr.write = (() => true) as typeof process.stderr.write;
+      let rc: number;
+      try {
+        rc = run(["--status", "merged", "--slug", slug], {
+          stateDir: tmpRoot,
+        });
+      } finally {
+        process.stdout.write = original;
+        process.stderr.write = originalStderr;
+      }
+      expect(rc).toBe(1);
+      expect(fs.existsSync(telemetryPath)).toBe(false);
+    });
+  });
 });

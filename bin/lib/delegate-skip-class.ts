@@ -56,6 +56,18 @@ export const ENVIRONMENT_SKIP_REASONS: ReadonlySet<string> = new Set([
   // this back to `ran-unusable` on the strength of that wiring-bug framing.
   "worktree-not-provided",
   "worktree-not-found",
+  // `spawn-failed` (bin/flow-delegate.ts) is the `deps.runAgy` throw path:
+  // the child process never started, so agy was never dispatched and no
+  // quota was spent. It belongs here for the same reason `agy-not-found`
+  // does, and is NOT a sibling of `agy-error` — that one means agy ran and
+  // failed, which DID spend quota.
+  "spawn-failed",
+  // `agy-empty-artifact` (bin/flow-delegate.ts) is deliberately NOT added
+  // here even though its name reads like a no-op. The rule is "could this
+  // have spent quota?", and an empty artifact means the call WAS
+  // dispatched (past every pre-dispatch gate) and quota WAS spent for
+  // nothing — the opposite of pre-dispatch. It classifies as
+  // `ran-unusable` unchanged; don't "fix" this by adding it here.
 ]);
 
 // Returns `environment` for a known pre-dispatch reason, `ran-unusable` for

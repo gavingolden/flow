@@ -1399,9 +1399,39 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * merge time. The budget lands at 25_850 (168 chars of headroom),
    * honouring the offload-then-trim discipline `main` introduced while
    * clearing the merged size.
+   * Raised from 26_650 to 26_950 to document the helper-emitted telemetry
+   * contract (`bin/lib/telemetry.ts` / `~/.flow/telemetry/events.jsonl`) —
+   * the derive-don't-emit rule a future helper author needs before adding
+   * an emission site, and the reason no agent-prose emission surface
+   * exists. Dedup-first WAS applied twice before this raise: the addition
+   * was drafted at +568 chars and cut to +220 by moving the event
+   * vocabulary and the worked `jq` filters to `docs/configuration.md` and
+   * keeping only the rule plus a pointer, then a further -56 by trimming
+   * the illustrative (unpinned, `etc.`-terminated) helper-name list in
+   * `## Scripts` from eight examples to five. Measured via
+   * String.prototype.length (not `wc -c` bytes): pre-edit 26_650 budget
+   * against a 26_594 base, post-edit 26_814 — a +220 net delta after both
+   * dedups. The budget goes to 26_950 (136 chars of headroom), not the
+   * bare post-edit value, matching the "don't land at a single-digit-
+   * headroom trap" discipline of every raise above.
+   * Merge note (telemetry branch x clickable-targets/f2-trim): the raise
+   * to 26_950 immediately above and `main`'s 25_850 were authored
+   * independently off the same 26_643 base and collided in the merge of
+   * `origin/main` into this branch. Both prose additions survive, so the
+   * merged `AGENTS.md` measures 25_853 chars (String.prototype.length,
+   * not `wc -c` bytes) — `main`'s 25_682 plus this branch's +171
+   * telemetry-contract delta. Neither side's number is kept, and the
+   * deltas are not summed: 26_950 would leave 1_097 chars of silent
+   * headroom and discard `main`'s deliberate downward trim, while 25_850
+   * fails outright at merge time by 3 chars. The budget lands at 26_000
+   * (147 chars of headroom), honouring the offload-then-trim discipline
+   * `main` introduced while clearing the merged size, and matching the
+   * 136-202-char headroom range every deliberate raise above landed with
+   * rather than the single-digit-headroom traps rejected earlier in this
+   * history.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 25_850;
+    const CHAR_BUDGET = 26_000;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
