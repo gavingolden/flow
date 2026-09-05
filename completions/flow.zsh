@@ -33,6 +33,7 @@ _flow() {
                 'a:alias for attach'
                 'done:close a pipeline window'
                 'reap:report (and clean up) processes left by dead pipelines'
+                'prompt:print a pipeline'\''s originating request'
                 'completion:print a shell completion script'
                 'version:print flow version'
                 'help:show help'
@@ -172,6 +173,9 @@ _flow() {
                         '--yes[act on registered rows instead of only reporting]' \
                         '--include-strays[also act on shape-heuristic strays]' \
                         '--json[emit machine-readable output]'
+                    ;;
+                prompt)
+                    _flow_slugs
                     ;;
                 completion)
                     local -a shells

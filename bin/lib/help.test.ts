@@ -78,6 +78,7 @@ describe("HELP_TEXT", () => {
     "attach",
     "done",
     "reap",
+    "prompt",
     "install",
     "completion",
     "version",

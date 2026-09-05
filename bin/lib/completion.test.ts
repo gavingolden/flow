@@ -124,6 +124,36 @@ describe("completion scripts stay in sync with VERBS", () => {
     expect(missing).toEqual([]);
   });
 
+  it("bash script carries an explicit 'prompt' verb entry in its verbs list", () => {
+    // Non-vacuous guard for `prompt` specifically: the generic verbInScript
+    // regex above is enough for bash (no other substring collides), but the
+    // equivalent zsh assertion below exists because the generic guard passes
+    // there even when the verb is absent from the real verbs=( … ) array.
+    const script = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.bash"),
+      "utf8",
+    );
+    const verbsLine = script
+      .split("\n")
+      .find((l) => l.includes('local verbs="'));
+    expect(verbsLine).toBeDefined();
+    expect(verbsLine!.split(/\s+/)).toContain("prompt");
+  });
+
+  it("zsh script carries an explicit 'prompt:…' verbs array element (non-vacuous guard)", () => {
+    // WHY this exists (scout-verified): the generic verbInScript regex
+    // `/(^|[^\w-])prompt([^\w-]|$)/` already matches the UNRELATED
+    // `'*::prompt:'` positional descriptor used by `epic create`'s zsh
+    // completion arm, so "zsh script lists every verb" above passes even if
+    // the verbs=( … ) array never gets a `prompt:` element. This assertion
+    // targets the array element specifically and fails if it's removed.
+    const script = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.zsh"),
+      "utf8",
+    );
+    expect(script).toMatch(/'prompt:[^']*'/);
+  });
+
   it("zsh script lists every verb", () => {
     const script = fs.readFileSync(
       path.join(FLOW_SOURCE, "completions", "flow.zsh"),

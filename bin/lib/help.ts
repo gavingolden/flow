@@ -80,6 +80,7 @@ Usage:
   flow done --orphans                   close every state file whose tmux window is gone
   flow done --merged --orphans          compose: close terminal-state OR orphaned pipelines
   flow reap [--slug <s>] [--yes]        report (and with --yes, clean up) processes left by dead pipelines
+  flow prompt [<slug>]                  print a pipeline's originating request
   flow completion <bash|zsh>            print a shell completion script to stdout
 
   flow --version                        print the installed flow version
@@ -339,6 +340,22 @@ Never passes --record and never writes to ~/.flow/state/<slug>.json — a
 host-wide sweep touches OTHER pipelines' slugs, and recording into a
 sibling's state file would corrupt that pipeline's own
 'flow-gate-summary --cleanup' CLEANUP row.`,
+
+  prompt: `flow prompt [<slug>] — print a pipeline's originating request
+
+Usage:
+  flow prompt [<slug>]
+
+Prints the verbatim request text a pipeline was launched with, bounded by
+an HTML-comment marker pair, plus a one-line header naming the slug, repo,
+and any non-default run-shaping flags ('flags: none' when every flag is at
+its default).
+
+Slug resolution: the first positional argument, else FLOW_SLUG from the
+launch environment (set by both launcher backends) — call it bare from
+inside a live pipeline's session. Neither available, the state file
+missing/unreadable, or the request file missing/empty all exit non-zero
+with a named reason on stderr and print nothing to stdout.`,
 
   install: `flow install — install skills, agents, helpers globally
 

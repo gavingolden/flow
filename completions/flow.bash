@@ -36,7 +36,7 @@ _flow() {
         cword=$COMP_CWORD
     fi
 
-    local verbs="install feature epic config ls attach a done reap completion version help --version -v --help -h"
+    local verbs="install feature epic config ls attach a done reap prompt completion version help --version -v --help -h"
 
     # Find the verb (first non-flag token after `flow`).
     local verb="" i
@@ -259,6 +259,10 @@ _flow() {
             esac
             # shellcheck disable=SC2207
             COMPREPLY=( $(compgen -W "--slug --yes --include-strays --json" -- "$cur") )
+            ;;
+        prompt)
+            # shellcheck disable=SC2207
+            COMPREPLY=( $(compgen -W "$(_flow_slugs)" -- "$cur") )
             ;;
         completion)
             # shellcheck disable=SC2207

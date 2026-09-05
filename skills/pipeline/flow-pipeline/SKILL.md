@@ -469,6 +469,28 @@ is met; the next step's phase value is written next. There is **no
 inter-step state file beyond `state.json`** — the worktree contents,
 state.json, and the PR are the state.
 
+## Step 0 — Echo the originating request
+
+Run `flow prompt` (bare — no slug argument; both launchers export `FLOW_SLUG`
+into the session env, and `flow prompt` resolves it ambiently, exactly like
+`flow-new-worktree` / `flow-resume-decide`). The resume seed is a fixed
+literal (`Use the /flow-pipeline skill in --resume mode for: <slug>`) with
+no slug-bearing prefix to parse, so the bare ambient call is the only form
+that works on both a fresh launch and a resume re-entry. Document
+`flow prompt <slug>` only as the form a user types in another terminal.
+
+Extract the region between `<!-- flow-request-echo:start -->` and
+`<!-- flow-request-echo:end -->` from its stdout and echo it VERBATIM as the
+session's FIRST assistant output — prose, not a tool-call result, since
+Claude Code truncates Bash tool output. Never paraphrase, reorder, truncate,
+or re-wrap it.
+
+Step 0 writes no state and is inert on control flow. On any non-zero exit
+from `flow prompt`, emit one plain line noting the request could not be
+read and continue straight to Step 1 — Step 0 never escalates. Step 1's
+existing `NEEDS HUMAN: request-file-missing` escalation (below) stays the
+sole authority for an actually-missing request.
+
 ## Step 1 — Triage
 
 **Phase:** `triaging`
@@ -2633,6 +2655,9 @@ directory delete — the checkpoint dir itself is never removed), so a consumed
 checkpoint's banner is gone by design.
 
 # Resume mode
+
+Step 0 (Echo the originating request) runs first on this re-entry path too,
+before the resume-mode detection below.
 
 The supervisor enters resume mode when the seed prompt begins with
 the literal prefix:

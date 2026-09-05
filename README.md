@@ -72,7 +72,7 @@ New here? The full first-run walkthrough — reading a run, resuming, cleaning u
 
 Reach for the tmux launcher when you want to run several pipelines at once from one place, or start a pipeline and walk away, re-attaching from anywhere later. Opt in per run with `flow feature create --tmux "<description>"`, answer "yes" to the tmux question `flow install` asks on an interactive install, or set it as your default with `flow config launcher set tmux`. Agent- or script-driven `flow feature create` (anything without a TTY) must pass `--tmux`: the default plain launcher refuses non-interactive launches by design (since PR #457).
 
-Under the tmux launcher, your first `flow feature create` starts the pipeline in a tmux window but doesn't drop you into it — run `flow attach` (no args) to pop into the flow session, or `flow attach <name>` (alias `flow a <name>`) to jump to a specific one. To step away without stopping the run, detach with `Ctrl-b d` — the pipeline keeps running, and you come back with `flow attach`.
+Under the tmux launcher, your first `flow feature create` starts the pipeline in a tmux window but doesn't drop you into it — run `flow attach` (no args) to pop into the flow session, or `flow attach <name>` (alias `flow a <name>`) to jump to a specific one. To step away without stopping the run, detach with `Ctrl-b d` — the pipeline keeps running, and you come back with `flow attach`. Forgot exactly what you asked for? `flow prompt [<slug>]` prints it back verbatim.
 
 ## Per-phase models
 

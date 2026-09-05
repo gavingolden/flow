@@ -460,9 +460,9 @@ function findStepHeadings(lines: string[]): string[] {
 }
 
 describe("flow-pipeline SKILL.md structural lint", () => {
-  it("ships exactly 12 numbered step headings (1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 11)", () => {
+  it("ships exactly 13 numbered step headings (0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 11)", () => {
     const headings = findStepHeadings(content.split("\n"));
-    expect(headings.length).toBe(12);
+    expect(headings.length).toBe(13);
   });
 
   it.each([
@@ -9643,6 +9643,57 @@ describe("REQUEST_FILE seed-pointer contract — both supervisor SKILL.md files"
         epicCreateContent.includes(literal),
         `skills/pipeline/flow-epic-create/SKILL.md must contain '${literal}'. ` +
           `Dropping it breaks the seed's REQUEST_FILE contract; restore it or ` +
+          `update this anchor in lockstep.`,
+      ).toBe(true);
+    },
+  );
+});
+
+describe("Step 0 request echo contract — both supervisor SKILL.md files", () => {
+  // Mechanical pin against a skipped prose step: `flow prompt`'s
+  // verbatim-echo block is only exercised by the supervisor's own prose
+  // instructions (there is no runtime code path that enforces it), so this
+  // is the only guard against a future edit silently dropping Step 0.
+  // Reads flow-epic-create/SKILL.md fresh (rather than reusing the sibling
+  // describe block's `epicCreateContent`, scoped inside that block's own
+  // callback) to stay standalone.
+  const epicCreateContent = fs.readFileSync(
+    path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-epic-create",
+      "SKILL.md",
+    ),
+    "utf8",
+  );
+
+  const REQUIRED_LITERALS = [
+    "## Step 0 — Echo the originating request",
+    "flow prompt",
+    "verbatim",
+  ];
+
+  it.each(REQUIRED_LITERALS)(
+    "flow-pipeline/SKILL.md contains the load-bearing literal %j",
+    (literal) => {
+      expect(
+        content.toLowerCase().includes(literal.toLowerCase()),
+        `skills/pipeline/flow-pipeline/SKILL.md must contain '${literal}'. ` +
+          `Dropping it breaks the Step 0 request-echo contract; restore it or ` +
+          `update this anchor in lockstep.`,
+      ).toBe(true);
+    },
+  );
+
+  it.each(REQUIRED_LITERALS)(
+    "flow-epic-create/SKILL.md contains the load-bearing literal %j",
+    (literal) => {
+      expect(
+        epicCreateContent.toLowerCase().includes(literal.toLowerCase()),
+        `skills/pipeline/flow-epic-create/SKILL.md must contain '${literal}'. ` +
+          `Dropping it breaks the Step 0 request-echo contract; restore it or ` +
           `update this anchor in lockstep.`,
       ).toBe(true);
     },
