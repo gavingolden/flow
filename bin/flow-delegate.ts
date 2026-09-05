@@ -388,12 +388,19 @@ function readJsonEnvelopeObject(
 // `display_name` is preferred, falling back to `action`; non-object entries
 // and entries with no usable name are dropped. Returns undefined (never an
 // empty array) so callers can `if (denied)` before adding the field —
-// mirrors the omit-when-empty contract of the other lifted fields.
+// mirrors the omit-when-empty contract of the other lifted fields. Vendor
+// text, so redacted + capped like every other lifted field (stderrTail's
+// 2000-byte cap, agyStatus's 64-byte cap) — this array is rendered straight
+// into the PR body.
+const DENIED_ACTIONS_NAME_CAP = 64;
+const DENIED_ACTIONS_MAX_ENTRIES = 20;
+
 function liftDeniedActions(obj: Record<string, unknown>): string[] | undefined {
   const raw = obj.denied_actions ?? obj.deniedActions;
   if (!Array.isArray(raw)) return undefined;
   const names: string[] = [];
   for (const entry of raw) {
+    if (names.length >= DENIED_ACTIONS_MAX_ENTRIES) break;
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
       continue;
     }
@@ -404,7 +411,7 @@ function liftDeniedActions(obj: Record<string, unknown>): string[] | undefined {
         : typeof record.action === "string" && record.action.trim()
           ? record.action
           : undefined;
-    if (name) names.push(name);
+    if (name) names.push(stderrTail(name, DENIED_ACTIONS_NAME_CAP));
   }
   return names.length > 0 ? names : undefined;
 }

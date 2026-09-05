@@ -7,9 +7,13 @@
  *
  * `bin/flow-research-run.ts` passes no `--add-dir` and therefore must NOT
  * carry this block — there is deliberately no repo-wide lint enforcing
- * adoption (see the excluded-paths entries for `repo-wide-grep-lint` and a
- * cross-site lint constant); each `--add-dir` caller opts in explicitly by
- * calling this function.
+ * adoption (a lint scanning every bin script for this exact paragraph
+ * would false-positive on that caller); each `--add-dir` caller opts in
+ * explicitly by calling this function.
+ *
+ * Includes the `.env*`/credential-file exclusion (folded in here rather than
+ * left as a hand copy in each caller's own prompt) — every `--add-dir`
+ * caller grants filesystem reads, so every one needs the same fence.
  */
 export function agyReadRules(input: {
   worktreePath: string;
@@ -29,5 +33,5 @@ export function agyReadRules(input: {
 }): string {
   const readVerb = input.readVerb ?? "reading";
   const pacingPhrase = input.pacingPhrase ?? readVerb;
-  return `${input.worktreePath} is the readable repository root — READ it to ${input.readPurpose}. Reach for it with your file-reading tools ONLY (read a file, list a directory). Spot-check AT MOST ${input.fileCap} files — you are sampling, not auditing the repo. Do NOT spawn subagents or delegate this ${readVerb} to other agents — read the files yourself. Spend at most a third of your run ${pacingPhrase}, then STOP. Do NOT shell out — no \`grep\`, \`find\`, \`ls\`, \`cat\`, or \`git\` commands: this is a headless run in which shell commands need a permission nothing can grant mid-run, so they are auto-denied and your ${input.outputNoun} ends silently with no output at all.`;
+  return `${input.worktreePath} is the readable repository root — READ it to ${input.readPurpose}. Reach for it with your file-reading tools ONLY (read a file, list a directory). Spot-check AT MOST ${input.fileCap} files — you are sampling, not auditing the repo. Do NOT spawn subagents or delegate this ${readVerb} to other agents — read the files yourself. Spend at most a third of your run ${pacingPhrase}, then STOP. Do NOT shell out — no \`grep\`, \`find\`, \`ls\`, \`cat\`, or \`git\` commands: this is a headless run in which shell commands need a permission nothing can grant mid-run, so they are auto-denied and your ${input.outputNoun} ends silently with no output at all. Do NOT open \`.env*\` files or any credential/secret file — you never need them for this task, and reading them would be a pure liability with no benefit.`;
 }

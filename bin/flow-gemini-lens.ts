@@ -21,7 +21,10 @@
  *     `resolveDelegateTimeout("reviewLens")` — `delegate.timeouts.reviewLens`,
  *     default 8m, clamped to a 9m sync ceiling).
  *  3. Branch on the flow-delegate envelope's `ran` field (NEVER the exit
- *     code): `ran:false` → propagate the skipReason, finalize nothing.
+ *     code): `ran:false` → propagate the skipReason, promoting it to
+ *     `gemini-tools-denied` when a denial is the plausible cause
+ *     (`agy-canceled`/`agy-error`, never `agy-timeout`/
+ *     `agy-not-authenticated`) — finalize nothing.
  *  4. `ran:true` → read the raw agy artifact and decode it through the
  *     rung-ordered ladder in `bin/lib/structured-response.ts`
  *     (`decodeDelegateArtifact`): the envelope's wire-level
@@ -29,8 +32,16 @@
  *     first, then `parseStructured` over the response prose, then a naive
  *     salvage — normalizing (`normalizeParsedFindings`) and validating
  *     (`validateAgentFindings`) at every rung. Any unusable output →
- *     dropped result + skipReason, NO consolidator-valid
- *     `agent-output-gemini.json` left behind (write-only-on-success).
+ *     `classifyUnusable` checks for a denial (`deniedActions`) FIRST, then a
+ *     thinking-token-dominated empty response, else falls back to
+ *     `gemini-output-unparseable` → dropped result + skipReason, NO
+ *     consolidator-valid `agent-output-gemini.json` left behind
+ *     (write-only-on-success).
+ *  4b. A `gemini-tools-denied` or `gemini-token-exhausted` skip retries
+ *     EXACTLY ONCE with a diff-only prompt (no `--add-dir`, no filesystem
+ *     access, a short fixed timeout distinct from the primary's) so a
+ *     repeated prompt-constraint failure degrades to a weaker review
+ *     (`degraded:"diff-only"`) rather than to nothing.
  *  5. Valid → write the normalized
  *     `{findings:[...], rejected_alternatives:[...], anti_patterns_found:[...]}`
  *     to `--out` → `{ran:true,findingsPath,findingCount,decodedVia}`. The two
@@ -289,12 +300,12 @@ function countDiffFiles(diff: string): number {
 export function buildPrompt(diff: string, worktreePath: string | null): string {
   const readSection =
     worktreePath !== null
-      ? agyReadRules({
+      ? `${agyReadRules({
           worktreePath,
           readPurpose: "read the changed files in full for surrounding context",
           fileCap: Math.min(Math.max(countDiffFiles(diff), 1), 10),
           outputNoun: "review",
-        })
+        })} Do NOT read the \`.flow-tmp/\` directory — it holds this pipeline's own scratch state, including your own \`--out\` file and the OTHER (Claude) review lenses' \`agent-output-*.json\` findings; reading either would let you restate another lens's finding as independent cross-model convergence, defeating the entire point of running a second model.`
       : "You are reviewing the diff below with no filesystem access.";
   return `You are a cross-model code reviewer. A separate set of reviewers running on a different model family is reviewing this same pull request; your job is to catch real issues their model family systematically under-weights. Review the whole diff below from every angle (correctness, security, performance, consistency, test coverage, supply-chain).
 
@@ -397,6 +408,11 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // The raw agy artifact is a scratch sibling of --out; finalize --out only
   // on a fully-valid payload so the consolidator never sees a half-baked file.
   const rawPath = `${parsed.out}.agy-raw`;
+  // Separate from `rawPath`: the diff-only retry must not overwrite the
+  // primary's raw artifact, or a stale rawPath left after the retry could
+  // be finalized as `degraded: "diff-only"` while `skipReason` still names
+  // the PRIMARY's failure.
+  const retryRawPath = `${parsed.out}.agy-raw-retry`;
   const promptPath = `${parsed.out}.prompt`;
   const schemaPath = `${parsed.out}.schema.json`;
 
@@ -410,14 +426,15 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // run never reaches dispatch (or dispatch itself fails before writing it).
   deps.removeFile(parsed.out);
   deps.removeFile(rawPath);
+  deps.removeFile(retryRawPath);
 
   // Scratch files (prompt + schema + raw agy output) are transient; clear
-  // all three on every exit so they don't accumulate in the worktree's
+  // all four on every exit so they don't accumulate in the worktree's
   // .flow-tmp/ — UNLESS retained (a ran-unusable skip keeps rawPath as
   // partialArtifactPath evidence for the consolidator/report).
   const cleanScratch = (retain: string[] = []) => {
     const retainSet = new Set(retain);
-    for (const p of [promptPath, rawPath, schemaPath]) {
+    for (const p of [promptPath, rawPath, retryRawPath, schemaPath]) {
       if (!retainSet.has(p)) deps.removeFile(p);
     }
   };
@@ -466,7 +483,17 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     ? clampDelegateTimeout(parsed.timeout, "reviewLens")
     : resolveDelegateTimeout("reviewLens");
 
-  const dispatchArgv = (addDir: string | null): string[] => [
+  const dispatchArgv = (
+    addDir: string | null,
+    outPath: string = rawPath,
+    // The diff-only retry (addDir === null) has no read phase, so it does
+    // not need the primary's full read+review budget. A short fixed bound
+    // keeps primary+retry under the caller's 10-minute Bash cap
+    // (`bin/lib/delegate-timeouts.ts`'s SYNC_DELEGATE_CEILING) — the
+    // default 8m reviewLens timeout would otherwise let 8m+8m breach it,
+    // and a tripped ceiling leaves the caller with NO envelope at all.
+    timeout: string = addDir === null ? "2m" : timeoutArg,
+  ): string[] => [
     "--output-format",
     "json",
     "--json-schema",
@@ -479,11 +506,11 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     resolveDelegateModel("reviewLens") as string,
     ...(addDir !== null ? ["--add-dir", addDir] : []),
     "--out",
-    rawPath,
+    outPath,
     "--task",
     parsed.task,
     "--timeout",
-    timeoutArg,
+    timeout,
   ];
 
   const decodeAgentFindings = (rawArtifact: string) =>
@@ -575,6 +602,8 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return "gemini-output-unparseable";
   };
 
+  const PLAUSIBLE_DENIAL_SKIP_REASONS = new Set(["agy-canceled", "agy-error"]);
+
   const RETRYABLE_SKIP_REASONS = new Set([
     "gemini-tools-denied",
     "gemini-token-exhausted",
@@ -614,10 +643,20 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       agyError: envelope.agyError,
       deniedActions: envelope.deniedActions,
     };
+    const rawSkipReason = envelope.skipReason ?? "agy-skip";
+    // Only promote to `gemini-tools-denied` when the underlying skip reason
+    // is one where a denial is a plausible cause — `agy-canceled` and
+    // `agy-error` are the documented CANCELED-reproduction reasons a
+    // denial surfaces through. `agy-timeout` and `agy-not-authenticated`
+    // carrying an incidental/stale `deniedActions` must NOT be relabeled:
+    // the former would mask a real timeout as a denial, and the latter
+    // would wrongly flip an `environment`-class skip to `ran-unusable`.
     skipReason =
-      envelope.deniedActions && envelope.deniedActions.length > 0
+      envelope.deniedActions &&
+      envelope.deniedActions.length > 0 &&
+      PLAUSIBLE_DENIAL_SKIP_REASONS.has(rawSkipReason)
         ? "gemini-tools-denied"
-        : (envelope.skipReason ?? "agy-skip");
+        : rawSkipReason;
   } else {
     try {
       raw = deps.readFile(envelope.artifactPath ?? rawPath);
@@ -628,6 +667,15 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       decoded = decodeAgentFindings(raw);
       if (!decoded.ok) {
         skipReason = classifyUnusable(raw, envelope);
+        // [conf 92 fix]: mirror the field onto `diag` on the ran:true path
+        // too — `classifyUnusable` can return `gemini-tools-denied` off
+        // `envelope.deniedActions`, but this branch previously left `diag`
+        // at its `{}` initializer, so `skip()` below omitted the field
+        // exactly on the path this PR exists to fix. Match
+        // `flow-gemini-intent-guess.ts`'s equivalent branch.
+        if (envelope.deniedActions && envelope.deniedActions.length > 0) {
+          diag = { deniedActions: envelope.deniedActions };
+        }
       }
     }
   }
@@ -638,6 +686,10 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     // to a weaker review rather than to nothing.
     const originalSkipReason = skipReason;
     const originalDiag = diag;
+    // Pre-clean invariant (matches the top-of-run pre-clean above): a prior
+    // run's leftover retry artifact must never be mistaken for this run's
+    // retry output if the write below fails before agy ever runs.
+    deps.removeFile(retryRawPath);
     try {
       deps.writeFile(promptPath, buildPrompt(diff, null));
     } catch {
@@ -645,11 +697,13 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
         fallbackAttempted: true,
       });
     }
-    const retryEnvelope = deps.runDelegate(dispatchArgv(null));
+    const retryEnvelope = deps.runDelegate(dispatchArgv(null, retryRawPath));
     let retryDecoded: ReturnType<typeof decodeAgentFindings> | undefined;
     if (retryEnvelope.ran) {
       try {
-        const retryRaw = deps.readFile(retryEnvelope.artifactPath ?? rawPath);
+        const retryRaw = deps.readFile(
+          retryEnvelope.artifactPath ?? retryRawPath,
+        );
         retryDecoded = decodeAgentFindings(retryRaw);
       } catch {
         retryDecoded = { ok: false };

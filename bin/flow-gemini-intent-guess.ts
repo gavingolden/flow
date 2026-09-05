@@ -461,6 +461,13 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     // collapsed into one before this change — the ladder folds validation
     // into decoding, so once no rung both parses AND validates, the two are
     // no longer distinguishable from the caller's side.
+    //
+    // Deliberately NO fallback retry here (unlike `bin/flow-gemini-lens.ts`'s
+    // diff-only retry): this call already passes `--add-dir` for PR-metadata
+    // grounding, not full filesystem access for a review, so "already
+    // diff-only" only holds for the review lens, not for this helper's read
+    // scope — a second identically-scoped call would just re-risk the same
+    // denial for a guess that's already best-effort and non-blocking.
     if (envelope.deniedActions && envelope.deniedActions.length > 0) {
       return skip("gemini-tools-denied", {
         deniedActions: envelope.deniedActions,

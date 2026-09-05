@@ -1092,4 +1092,140 @@ describe("run — self-diagnosing skip reasons (denied tools / token exhaustion)
     });
     expect(deps.calls.delegate).toHaveLength(2);
   });
+
+  it("does NOT promote a ran:false envelope carrying an incidental deniedActions when the raw skipReason is agy-timeout", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        return {
+          ran: false,
+          skipReason: "agy-timeout",
+          deniedActions: ["RunCommand"],
+        } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({ skipReason: "agy-timeout" });
+    // Not retryable and not promoted, so exactly one dispatch, no retry.
+    expect(deps.calls.delegate).toHaveLength(1);
+  });
+
+  it("does NOT flip an agy-not-authenticated environment-class skip to ran-unusable on an incidental deniedActions", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        return {
+          ran: false,
+          skipReason: "agy-not-authenticated",
+          deniedActions: ["RunCommand"],
+        } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      skipReason: "agy-not-authenticated",
+    });
+    expect(deps.calls.delegate).toHaveLength(1);
+  });
+
+  // [conf 92] Regression test: `diag` was previously left at its `{}`
+  // initializer on the ran:true decode-failure branch, so `deniedActions`
+  // was silently OMITTED from the skip envelope exactly on the path this
+  // PR exists to fix. A blanket toMatchObject cannot catch an omitted
+  // key — assert the key explicitly.
+  it("includes deniedActions in the final skip envelope when the ran:true decode-failure branch classifies as gemini-tools-denied (even after the fallback retry also fails)", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        if (callCount === 1) {
+          deps.files.set(rawPath, DENIED_FIXTURE);
+          return {
+            ran: true,
+            artifactPath: rawPath,
+            deniedActions: ["RunCommand"],
+            usage: { thinking_tokens: 3601, output_tokens: 3704 },
+          } as DelegateEnvelope;
+        }
+        deps.files.set(rawPath, "still nothing usable");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    const env = envelope(deps);
+    expect(env.skipReason).toBe("gemini-tools-denied");
+    expect(env.deniedActions).toEqual(["RunCommand"]);
+  });
+});
+
+describe("run — retry timeout bound (Task 8 diff-only fallback)", () => {
+  // [conf 88] Regression test: the retry previously reused the primary's
+  // full --timeout, so primary+retry could exceed the caller's 10-minute
+  // Bash cap. The retry has no --add-dir and therefore no read phase, so
+  // it gets a short fixed bound strictly below the primary's.
+  it("dispatches the diff-only retry with a timeout strictly below the primary call's timeout", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        if (callCount === 1) {
+          deps.files.set(rawPath, DENIED_FIXTURE);
+          return {
+            ran: true,
+            artifactPath: rawPath,
+            deniedActions: ["RunCommand"],
+            usage: { thinking_tokens: 3601, output_tokens: 3704 },
+          } as DelegateEnvelope;
+        }
+        deps.files.set(rawPath, "still nothing usable");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(deps.calls.delegate).toHaveLength(2);
+    const primaryArgv = deps.calls.delegate[0]!;
+    const retryArgv = deps.calls.delegate[1]!;
+    const primaryTimeout = primaryArgv[primaryArgv.indexOf("--timeout") + 1]!;
+    const retryTimeout = retryArgv[retryArgv.indexOf("--timeout") + 1]!;
+    const parseMinutes = (d: string) => parseInt(d, 10);
+    expect(parseMinutes(retryTimeout)).toBeLessThan(
+      parseMinutes(primaryTimeout),
+    );
+  });
+
+  // [conf 86] Regression test: the retry previously overwrote the primary's
+  // rawPath, so a stale artifact from the primary's own failed attempt
+  // could survive under a name the retry then also wrote — and a failed
+  // retry write could leave a leftover retry artifact from a PRIOR run
+  // mistaken for this run's evidence. Separate raw paths + pre-clean fixes
+  // both.
+  it("writes the retry's artifact to a separate raw path from the primary's", () => {
+    let callCount = 0;
+    const outPaths: string[] = [];
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        outPaths.push(rawPath);
+        if (callCount === 1) {
+          deps.files.set(rawPath, DENIED_FIXTURE);
+          return {
+            ran: true,
+            artifactPath: rawPath,
+            deniedActions: ["RunCommand"],
+            usage: { thinking_tokens: 3601, output_tokens: 3704 },
+          } as DelegateEnvelope;
+        }
+        deps.files.set(rawPath, JSON.stringify({ findings: [VALID_FINDING] }));
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(outPaths[0]).not.toBe(outPaths[1]);
+  });
 });

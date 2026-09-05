@@ -41,7 +41,7 @@ ${agyReadRules({
     "ground your recommendation in what already exists rather than guessing",
   fileCap: 8,
   outputNoun: "run",
-})} Write your recommendation once you stop reading — a recommendation that is never written is worth nothing. Do NOT read the \`.flow-tmp/\` directory — it holds this pipeline's own scratch state, including the OTHER judge's in-flight or already-written recommendation AND the requester's own proposed method; your independence from the other judge (and your blindness to the user's proposed method) is the entire point of running a second model, so reading either would silently turn an "independently converged" recommendation into an echo, or a blind survey into a rubber stamp. Do NOT open \`.env*\` files or any credential/secret file — you never need them to recommend a method, and reading them would be a pure liability with no benefit.
+})} Write your recommendation once you stop reading — a recommendation that is never written is worth nothing. Do NOT read the \`.flow-tmp/\` directory — it holds this pipeline's own scratch state, including the OTHER judge's in-flight or already-written recommendation AND the requester's own proposed method; your independence from the other judge (and your blindness to the user's proposed method) is the entire point of running a second model, so reading either would silently turn an "independently converged" recommendation into an echo, or a blind survey into a rubber stamp.
 
 ## Goal brief
 

@@ -121,34 +121,51 @@ describeOnPosix("flow-gemini-lens live (RUN_AGY=1)", () => {
         },
       );
 
-      const envelope = JSON.parse(res.stdout.trim()) as LensEnvelope;
+      try {
+        let envelope: LensEnvelope;
+        try {
+          envelope = JSON.parse(res.stdout.trim()) as LensEnvelope;
+        } catch (parseErr) {
+          // Fail loudly with the spawn's own diagnostics rather than an
+          // opaque SyntaxError — a spawn failure/timeout/crash leaves
+          // stdout empty or non-JSON, and this file's whole purpose is to
+          // fail loudly, not to bury the real cause under a parse error.
+          throw new Error(
+            `flow-gemini-lens spawn did not produce a parseable envelope: ${
+              (parseErr as Error).message
+            }\nstatus=${res.status} signal=${res.signal}\nstdout=${
+              res.stdout
+            }\nstderr=${res.stderr}`,
+          );
+        }
 
-      // Fail loudly rather than false-greening when agy is present but unusable
-      // (logged out, quota exhausted). A skip here means the proof did not run,
-      // which is exactly what this file exists to catch.
-      expect(
-        envelope.ran,
-        `lens did not run: ${envelope.skipReason ?? "unknown"} (class ${
-          envelope.skipClass ?? "none"
-        }); denied=${JSON.stringify(envelope.deniedActions ?? [])}; stderr=${
-          envelope.stderrTail ?? ""
-        }`,
-      ).toBe(true);
+        // Fail loudly rather than false-greening when agy is present but unusable
+        // (logged out, quota exhausted). A skip here means the proof did not run,
+        // which is exactly what this file exists to catch.
+        expect(
+          envelope.ran,
+          `lens did not run: ${envelope.skipReason ?? "unknown"} (class ${
+            envelope.skipClass ?? "none"
+          }); denied=${JSON.stringify(envelope.deniedActions ?? [])}; stderr=${
+            envelope.stderrTail ?? ""
+          }`,
+        ).toBe(true);
 
-      expect(envelope.findingCount ?? 0).toBeGreaterThanOrEqual(1);
-      expect(envelope.decodedVia).toBeTruthy();
+        expect(envelope.findingCount ?? 0).toBeGreaterThanOrEqual(1);
+        expect(envelope.decodedVia).toBeTruthy();
 
-      const parsed = JSON.parse(fs.readFileSync(outFile, "utf8"));
-      expect(Array.isArray(parsed.findings)).toBe(true);
-      expect(Array.isArray(parsed.rejected_alternatives)).toBe(true);
-      expect(Array.isArray(parsed.anti_patterns_found)).toBe(true);
-      expect(parsed.findings.length).toBeGreaterThanOrEqual(1);
+        const parsed = JSON.parse(fs.readFileSync(outFile, "utf8"));
+        expect(Array.isArray(parsed.findings)).toBe(true);
+        expect(Array.isArray(parsed.rejected_alternatives)).toBe(true);
+        expect(Array.isArray(parsed.anti_patterns_found)).toBe(true);
+        expect(parsed.findings.length).toBeGreaterThanOrEqual(1);
 
-      // The fix's whole point: the primary --add-dir call succeeds, so the
-      // diff-only fallback must NOT have been needed.
-      expect(envelope.degraded).toBeUndefined();
-
-      fs.rmSync(tmp, { recursive: true, force: true });
+        // The fix's whole point: the primary --add-dir call succeeds, so the
+        // diff-only fallback must NOT have been needed.
+        expect(envelope.degraded).toBeUndefined();
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
     },
     10 * 60 * 1000,
   );
