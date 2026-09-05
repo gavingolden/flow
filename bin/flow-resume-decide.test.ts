@@ -1181,6 +1181,19 @@ describe("decide() — checkpoint re-injection + auto-checkpoint resume", () => 
     expect(r.context.checkpointExists).toBe(false);
   });
 
+  it("resolves checkpoint-pending-clear to step-5 — the approval→implement hand-off has no PR yet (Story 6)", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "checkpoint-pending-clear" }),
+        pr: { kind: "none" },
+      }),
+    );
+    // checkpoint-pending-clear is a POST_APPROVAL phase (passes Row 4), and no
+    // PR exists at the auto-checkpoint boundary, so Row 5 resumes at implement —
+    // NOT step-4 re-approval.
+    expect(r.resumeAt).toBe("step-5");
+  });
+
   it("populates checkpointExists/checkpointMarkerExists/checkpointPath at every TERMINAL_PHASE_SET phase (Story 3), with resumeAt staying terminal", () => {
     for (const phase of TERMINAL_PHASE_SET) {
       if (phase === "gated") continue; // gated has its own dedicated branch, tested above

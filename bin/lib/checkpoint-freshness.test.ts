@@ -191,7 +191,7 @@ describe("probeFreshness — keyed on state.slug, no path argument", () => {
       slug: "auto-slug",
       checkpoint: {
         site: "plan-approval" as const,
-        phase: "plan-pending-review",
+        phase: "checkpoint-pending-clear",
         armedAt: "2026-06-30T12:00:00.000Z",
       },
       phaseLog: [{ at: "2026-06-30T11:00:00.000Z" }],
@@ -220,7 +220,7 @@ describe("isCheckpointUsable — keyed on state.slug, no path argument", () => {
       slug: "auto-usable",
       checkpoint: {
         site: "plan-approval" as const,
-        phase: "plan-pending-review",
+        phase: "checkpoint-pending-clear",
         armedAt: "2026-06-30T12:00:00.000Z",
       },
       phaseLog: [{ at: "2026-06-30T11:00:00.000Z" }],

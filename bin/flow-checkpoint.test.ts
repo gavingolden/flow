@@ -34,7 +34,7 @@ function seedState(slug: string, overrides: Partial<PipelineState> = {}): void {
   writeState(
     {
       slug,
-      phase: "plan-pending-review",
+      phase: "checkpoint-pending-clear",
       repo: "/tmp/repo",
       worktree: "/tmp/some-worktree-path",
       updatedAt: "2026-06-30T12:00:00Z",
@@ -636,7 +636,7 @@ describe("probeFreshness vs isCheckpointUsable — intentional divergence", () =
     seedState("drift", {
       checkpoint: {
         site: "plan-approval",
-        phase: "plan-pending-review",
+        phase: "checkpoint-pending-clear",
         armedAt: "2026-06-30T12:00:00.000Z",
       },
       phaseLog: [{ phase: "planning", at: "2026-06-30T11:00:00.000Z" }],
@@ -652,7 +652,7 @@ describe("probeFreshness vs isCheckpointUsable — intentional divergence", () =
     seedState("drift", {
       checkpoint: {
         site: "plan-approval",
-        phase: "plan-pending-review",
+        phase: "checkpoint-pending-clear",
         armedAt: "2026-06-30T12:00:00.000Z",
       },
       phaseLog: [{ phase: "implementing", at: "2026-06-30T13:00:00.000Z" }],

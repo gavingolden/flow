@@ -302,13 +302,19 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > fires and a fresh `flow-ci-check` call reaches `decided`, the
 > supervisor writes `phase: ci-wait-pending` and ends the turn cleanly
 > rather than hand-rolling a discouraged manual poll loop (see step 7
-> for the yield-and-resume contract); (6) the intent interview (adaptive)'s
+> for the yield-and-resume contract); and (6) step 4's auto-checkpoint
+> at the approval →
+> implement hand-off (state writes `phase: checkpoint-pending-clear`),
+> where the supervisor flushes conversational state to the state-dir
+> checkpoint, nudges "safe to `/clear`", and yields so the user can reset
+> context before the token-heavy phases (see step 4 for the
+> auto-checkpoint sub-step); (7) the intent interview (adaptive)'s
 > two chat pauses — step 1 (state writes `phase:
 > triage-pending-interview`) and step 3's post-discovery question gate
 > (state writes `phase: plan-pending-interview`) — each ending the turn
 > once per round until the frontier is empty (see step 1's Intent
 > interview sub-step and step 3's Question-gate branch;
-> `references/interview-playbook.md` governs the round shape); and (7)
+> `references/interview-playbook.md` governs the round shape); and (8)
 > the method pause (phase `plan-pending-interview`, a SECOND, distinct
 > use of the same phase; see `references/blind-survey.md`). Every
 > other step transition stays in the
@@ -337,10 +343,10 @@ Contract:
   must continue.
 - Exits 0 (allows the stop) when phase is in the legitimate-end
   set: any of the four terminals (`merged`, `gated`, `needs-human`,
-  `cancelled`) or the five pending-end phases
+  `cancelled`) or the six pending-end phases
   (`plan-pending-review`, `triaged-no-change`,
   `triage-pending-clarification`, `approval-pending-clarification`,
-  `ci-wait-pending`).
+  `ci-wait-pending`, `checkpoint-pending-clear`).
 - Self-detects: exits 0 (no-op) when no flow slug resolves (no
   `FLOW_SLUG`), or when state.json is
   missing. Safe to install in a global Stop hook list.
@@ -1234,10 +1240,12 @@ typed something into the tmux chat. Classify the input using
 `references/redirect-handling.md`:
 
 - **Affirmative** ("approved", "looks good", "go ahead", etc.) →
-  proceed straight to step 5 in the same turn. Bundled tasks and ticked
-  candidates proceed exactly as authored — the user had the full
-  `--details` disclosure (step 3's End condition above) in front of them
-  before replying Affirmative.
+  proceed straight to the auto-checkpoint sub-step below, which ends
+  the turn at `checkpoint-pending-clear`; the user resumes into step 5
+  by typing `continue` (same session) or `/clear` (fresh, auto-resumed
+  session). Bundled tasks and ticked candidates proceed exactly as
+  authored — the user had the full `--details` disclosure (step 3's End
+  condition above) in front of them before replying Affirmative.
 - **Candidate curation reply** (`drop candidate #N`, `drop all
   candidates`, `file candidate #N`) → **mechanical, not a redirect and
   not a revision pass.** Run `flow-candidate-issues --plan-md-file
@@ -1295,6 +1303,39 @@ typed something into the tmux chat. Classify the input using
   `NEEDS HUMAN: approval-ambiguous` via `flow-gate-summary --status
   needs-human` (which records `phase: needs-human` itself). Format this reply per `references/pause-output-contract.md` — labeled slots, no open prose (template: `### ❓ Clarification needed` / `**Needs attention:** <the ambiguous reply, quoted>` / `**Next action:** approve / redirect: … / cancel`).
   <!-- any new pause site below must reference pause-output-contract.md -->
+
+### Auto-checkpoint sub-step
+
+Runs on the **Affirmative** branch, as the last thing step 4 does before
+ending the turn. This is the sub-step the forward-reference above
+("proceed straight to the auto-checkpoint sub-step below") resolves to.
+It is the approval → implement clear point: it flushes the load-bearing
+approval state so the user can `/clear` here and resume into step 5 on
+a fresh, low-context session.
+
+1. **Flush approval state to `checkpoint.md` (non-clobbering).** Write it at
+   the path `flow-checkpoint --path` prints. Probe with
+   `flow-checkpoint --probe --site plan-approval`; only on a `write` verdict
+   (a still-fresh manual note reads `preserve` and wins, left untouched)
+   write the load-bearing conversational state the fresh process would
+   otherwise drop: the approval verdict plus any addenda or conditions the
+   user attached (e.g. an "approved with A1" note, a folded-in scope change,
+   an "ignore flake X" decision). Unlike the gate auto-checkpoint (near-zero
+   residue), this one genuinely flushes approval state, so it uses the fuller
+   `/flow-checkpoint`-style flush.
+2. **Arm the one-shot marker:** `flow-checkpoint --site plan-approval`
+   (validates `checkpoint.md`, writes the `checkpoint.pending` marker on
+   a ready verdict, and records the freshness receipt for this site).
+3. **Advance the phase:** `flow-state-update --phase checkpoint-pending-clear`.
+4. **Nudge and end.** Tell the user: safe to `/clear` — the pipeline
+   resumes into step 5 on a fresh session, or type `continue` to proceed
+   in this session. Then end the turn.
+
+On resume, Resume mode re-injects `checkpoint.md` and runs
+`flow-checkpoint --consume`; `flow-resume-decide` resolves
+`checkpoint-pending-clear` → step-5, so the fresh session re-enters at
+implement with the approval addenda folded in (no helper change needed —
+it's a non-terminal phase the resume + hook machinery already handles).
 
 ## Step 5 — Implement
 
@@ -2854,6 +2895,7 @@ triaging
 worktree-create
 planning
 plan-pending-review     (feature only; ends turn — pending phase)
+checkpoint-pending-clear (feature only; ends turn — pending phase; step 4 auto-checkpoint before implement)
 implementing
 installing-skills       (only if worktree adds skills/agents; otherwise skipped)
 verifying
@@ -2877,6 +2919,7 @@ triage-pending-interview           (step 1 intent interview (adaptive) round)
 approval-pending-clarification     (step 4 single clarifying question)
 plan-pending-interview             (step 3 post-discovery question-gate round)
 ci-wait-pending                    (step 7 yield while flow-ci-wait is backgrounded)
+checkpoint-pending-clear           (step 4 auto-checkpoint at the approval → implement hand-off)
 ```
 
 The canonical phase set is exported from `bin/lib/state.ts` as
