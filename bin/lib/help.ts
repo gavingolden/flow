@@ -129,12 +129,12 @@ Options (create):
   --model <opus|haiku|sonnet|fable>
                         whole-session Claude model alias (omit for the default; also settable via
                         ~/.flow/config.json models.default)
-  --model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>
+  --model-planning|--model-implement|--model-review|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>
                         override the model for just that phase (alias one of opus|haiku|sonnet|fable).
                         Precedence: --model-<phase> > config.models.<phase> > inherited session model.
-                        verify is the one exception — it defaults to sonnet, NOT the session model.
-                        scout/coder are finer-grain config-only (config.models.scout|coder, no flag);
-                        the gatekeeper stays pinned to haiku (no flag). See README 'Per-phase models'.
+                        fix-applier is the one exception — it defaults to sonnet, NOT the session model.
+                        scout/coder are finer-grain config-only (config.models.scout|coder, no flag).
+                        See README 'Per-phase models'.
   --slug <slug>         use an explicit slug instead of deriving one from the description;
                         hard-fails if that slug's window already exists
 
@@ -225,8 +225,8 @@ Usage:
 Subcommands:
   models                print the effective Claude model + reasoning effort for
                         every pipeline phase and fan-out sub-agent (session,
-                        planning, scout, coder, verify, review, fix-applier,
-                        consolidator, merge-resolver, gatekeeper),
+                        planning, scout, coder, review, fix-applier,
+                        consolidator, merge-resolver),
                         with a SOURCE column showing where each value resolved
                         from (per-run flag/state, global config, built-in
                         fallback, pinned, or inherited-session)

@@ -1,0 +1,1350 @@
+{
+  "schemaVersion": 1,
+  "runner": {
+    "name": "flow-eval-headless",
+    "claudeVersion": "2.1.261",
+    "childArgvDigest": "aebea121667c832f"
+  },
+  "tree": {
+    "gitHead": "9a1a8e21deb27fc5e7744854414cc878ee144f45",
+    "dirty": false
+  },
+  "suite": "checkpoint-pending-clear",
+  "candidate": "checkpoint-pending-clear",
+  "startedAt": "2026-09-05T01:46:40.498Z",
+  "finishedAt": "2026-09-05T01:47:57.930Z",
+  "scenarios": [
+    {
+      "id": "s1-resume-step5-addendum",
+      "title": "Resume re-enters at Step 5 (implement) and carries the plan-approval addendum",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "resumed-step-matches",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "addenda-carries-skip-task-3",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-implementing-or-pending-clear",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "checkpoint-consumed",
+              "kind": "file",
+              "gate": false,
+              "pass": false,
+              "expected": true,
+              "actual": false
+            },
+            {
+              "id": "state-checkpoint-cleared",
+              "kind": "json-file",
+              "gate": false,
+              "pass": false,
+              "expected": "exists === false",
+              "actual": {
+                "site": "plan-approval",
+                "phase": "checkpoint-pending-clear",
+                "armedAt": "2026-09-05T01:46:40.581Z"
+              }
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 108709,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.2434104999999998,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 19515,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "328a2e57-4a60-4146-9195-667a7ca40921",
+          "costUsd": 1.2434104999999998,
+          "durationMs": 19515,
+          "numTurns": 6,
+          "childArgvDigest": "98e9bcedec2f2f89"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "resumed-step-matches",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "addenda-carries-skip-task-3",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-implementing-or-pending-clear",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "checkpoint-consumed",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "state-checkpoint-cleared",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 109217,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.298325,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 17857,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "5c6a6c2f-0320-4abb-9542-0eefd6cc7dc8",
+          "costUsd": 1.298325,
+          "durationMs": 17857,
+          "numTurns": 7,
+          "childArgvDigest": "98e9bcedec2f2f89"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "resumed-step-matches",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "addenda-carries-skip-task-3",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-implementing-or-pending-clear",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "checkpoint-consumed",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "state-checkpoint-cleared",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 109427,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.3062805,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 20497,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "c36e3fbf-4624-4049-9368-3a1fecc8108d",
+          "costUsd": 1.3062805,
+          "durationMs": 20497,
+          "numTurns": 7,
+          "childArgvDigest": "98e9bcedec2f2f89"
+        }
+      ],
+      "metrics": {
+        "transcript.finalContextTokens": {
+          "median": 109217,
+          "min": 108709,
+          "max": 109427,
+          "direction": "lower",
+          "values": [
+            108709,
+            109217,
+            109427
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 1.298325,
+          "min": 1.2434104999999998,
+          "max": 1.3062805,
+          "direction": "lower",
+          "values": [
+            1.2434104999999998,
+            1.298325,
+            1.3062805
+          ]
+        },
+        "result.num_turns": {
+          "median": 7,
+          "min": 6,
+          "max": 7,
+          "direction": "lower",
+          "values": [
+            6,
+            7,
+            7
+          ]
+        },
+        "result.duration_ms": {
+          "median": 19515,
+          "min": 17857,
+          "max": 20497,
+          "direction": "lower",
+          "values": [
+            19515,
+            17857,
+            20497
+          ]
+        }
+      }
+    },
+    {
+      "id": "s2-resume-gated-feedback",
+      "title": "Resume re-enters gated-feedback mode and carries the cleared manual Test Step",
+      "status": "fail",
+      "score": 0.9333333333333332,
+      "runs": [
+        {
+          "run": 1,
+          "status": "fail",
+          "score": 0.8,
+          "grades": [
+            {
+              "id": "resumed-step-null-on-gated-feedback",
+              "kind": "structured",
+              "gate": true,
+              "pass": false,
+              "expected": null,
+              "actual": 9
+            },
+            {
+              "id": "action-matches-resume",
+              "kind": "structured",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "cleared-items-carries-test-step-2",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-still-gated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 108735,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.142866,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 26430,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "4cb9db7f-6daa-4107-8b9c-9de3ad6ad08e",
+          "costUsd": 1.142866,
+          "durationMs": 26430,
+          "numTurns": 6,
+          "childArgvDigest": "98e9bcedec2f2f89"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "resumed-step-null-on-gated-feedback",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "action-matches-resume",
+              "kind": "structured",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "cleared-items-carries-test-step-2",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-still-gated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 108681,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.1305824999999998,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 19617,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "401ea716-8280-473e-bd9b-174ba6fed981",
+          "costUsd": 1.1305824999999998,
+          "durationMs": 19617,
+          "numTurns": 6,
+          "childArgvDigest": "98e9bcedec2f2f89"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "resumed-step-null-on-gated-feedback",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "action-matches-resume",
+              "kind": "structured",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "cleared-items-carries-test-step-2",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-still-gated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 108553,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.1239895,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 17393,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "b180186e-1cbc-4654-9eda-9de7d7f92095",
+          "costUsd": 1.1239895,
+          "durationMs": 17393,
+          "numTurns": 6,
+          "childArgvDigest": "98e9bcedec2f2f89"
+        }
+      ],
+      "metrics": {
+        "transcript.finalContextTokens": {
+          "median": 108681,
+          "min": 108553,
+          "max": 108735,
+          "direction": "lower",
+          "values": [
+            108735,
+            108681,
+            108553
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 1.1305824999999998,
+          "min": 1.1239895,
+          "max": 1.142866,
+          "direction": "lower",
+          "values": [
+            1.142866,
+            1.1305824999999998,
+            1.1239895
+          ]
+        },
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 6,
+          "direction": "lower",
+          "values": [
+            6,
+            6,
+            6
+          ]
+        },
+        "result.duration_ms": {
+          "median": 19617,
+          "min": 17393,
+          "max": 26430,
+          "direction": "lower",
+          "values": [
+            26430,
+            19617,
+            17393
+          ]
+        }
+      }
+    },
+    {
+      "id": "s3-terminal-orientation",
+      "title": "Post-/clear orientation turn on a finished (merged) pipeline",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "action-matches-orient",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-merged",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "worktree-clean",
+              "kind": "git-clean",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 24141,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.146208,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 9403,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "70b95a52-714d-43c1-9df4-b7751bfe598f",
+          "costUsd": 0.146208,
+          "durationMs": 9403,
+          "numTurns": 2,
+          "childArgvDigest": "98e9bcedec2f2f89"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "action-matches-orient",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-merged",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "worktree-clean",
+              "kind": "git-clean",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 24141,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.145905,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 9185,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "b76cf935-d988-42b0-9fc8-c12107f3cdfb",
+          "costUsd": 0.145905,
+          "durationMs": 9185,
+          "numTurns": 2,
+          "childArgvDigest": "98e9bcedec2f2f89"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "action-matches-orient",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-merged",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "worktree-clean",
+              "kind": "git-clean",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 24141,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.14616,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 8568,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "ac4e9b52-d92e-4122-a43c-a718e10ce984",
+          "costUsd": 0.14616,
+          "durationMs": 8568,
+          "numTurns": 2,
+          "childArgvDigest": "98e9bcedec2f2f89"
+        }
+      ],
+      "metrics": {
+        "transcript.finalContextTokens": {
+          "median": 24141,
+          "min": 24141,
+          "max": 24141,
+          "direction": "lower",
+          "values": [
+            24141,
+            24141,
+            24141
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 0.14616,
+          "min": 0.145905,
+          "max": 0.146208,
+          "direction": "lower",
+          "values": [
+            0.146208,
+            0.145905,
+            0.14616
+          ]
+        },
+        "result.num_turns": {
+          "median": 2,
+          "min": 2,
+          "max": 2,
+          "direction": "lower",
+          "values": [
+            2,
+            2,
+            2
+          ]
+        },
+        "result.duration_ms": {
+          "median": 9185,
+          "min": 8568,
+          "max": 9403,
+          "direction": "lower",
+          "values": [
+            9403,
+            9185,
+            8568
+          ]
+        }
+      }
+    },
+    {
+      "id": "s4-resume-step5-plain",
+      "title": "Resume re-enters at Step 5 (implement) from a plain plan-approval checkpoint, no addendum",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "resumed-step-matches",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "addenda-empty",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-implementing-or-pending-clear",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "checkpoint-consumed",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "state-checkpoint-cleared",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 108970,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.1737605000000002,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 13924,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "3e28cfbe-1396-41f5-8aec-56011ee30a46",
+          "costUsd": 1.1737605000000002,
+          "durationMs": 13924,
+          "numTurns": 7,
+          "childArgvDigest": "98e9bcedec2f2f89"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "resumed-step-matches",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "addenda-empty",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-implementing-or-pending-clear",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "checkpoint-consumed",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "state-checkpoint-cleared",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 109124,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.1812019999999999,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 16122,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "ef18d027-b8a3-4dae-af25-a7836596a827",
+          "costUsd": 1.1812019999999999,
+          "durationMs": 16122,
+          "numTurns": 7,
+          "childArgvDigest": "98e9bcedec2f2f89"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "resumed-step-matches",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "addenda-empty",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-implementing-or-pending-clear",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "checkpoint-consumed",
+              "kind": "file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "state-checkpoint-cleared",
+              "kind": "json-file",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 109318,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.191198,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 20144,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "1d654b88-fde8-435f-a23e-4c6dbd9a3d54",
+          "costUsd": 1.191198,
+          "durationMs": 20144,
+          "numTurns": 7,
+          "childArgvDigest": "98e9bcedec2f2f89"
+        }
+      ],
+      "metrics": {
+        "transcript.finalContextTokens": {
+          "median": 109124,
+          "min": 108970,
+          "max": 109318,
+          "direction": "lower",
+          "values": [
+            108970,
+            109124,
+            109318
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 1.1812019999999999,
+          "min": 1.1737605000000002,
+          "max": 1.191198,
+          "direction": "lower",
+          "values": [
+            1.1737605000000002,
+            1.1812019999999999,
+            1.191198
+          ]
+        },
+        "result.num_turns": {
+          "median": 7,
+          "min": 7,
+          "max": 7,
+          "direction": "lower",
+          "values": [
+            7,
+            7,
+            7
+          ]
+        },
+        "result.duration_ms": {
+          "median": 16122,
+          "min": 13924,
+          "max": 20144,
+          "direction": "lower",
+          "values": [
+            13924,
+            16122,
+            20144
+          ]
+        }
+      }
+    }
+  ],
+  "summary": {
+    "score": 0.9833333333333333,
+    "scenarios": 4,
+    "passed": 3,
+    "failed": 1,
+    "errored": 0,
+    "costUsd": 11.229887499999998
+  }
+}

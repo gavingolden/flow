@@ -404,7 +404,7 @@ describe(checkPluginContract, () => {
     // definition turns CI red on a runner without `claude` installed —
     // the four fixture-based tests above cover the resolver's own logic
     // but say nothing about the actual shipped registry.
-    it("resolves all six declared agent:skill pairs against the real materialized flow-module-core registry, with no failures", () => {
+    it("resolves all five declared agent:skill pairs against the real materialized flow-module-core registry, with no failures", () => {
       const skillsDir = path.join(tmpRoot, "real-registry");
       const root = path.join(skillsDir, pluginRootName("core"));
       // `resolveFlowSource()` reads the developer's REAL ~/.flow/config.json
@@ -437,7 +437,6 @@ describe(checkPluginContract, () => {
           "flow-fix-applier.md:flow-fix-applier-instructions",
           "flow-merge-resolver.md:flow-merge-resolver-instructions",
           "flow-scout.md:flow-scout-instructions",
-          "flow-verify.md:flow-verify-loop-instructions",
         ]),
       );
     });

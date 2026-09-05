@@ -321,6 +321,46 @@ describe("flow-open-pr run()", () => {
       "feat: x",
     ]);
     expect(readState("alpha").pr).toBe(142);
+    expect(readState("alpha").prUrl).toBe("https://github.com/x/y/pull/142");
+  });
+
+  it("stdout stays exactly the bare PR URL, even though prUrl is now persisted", () => {
+    seedState("alpha-stdout");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 142,
+        url: "https://github.com/x/y/pull/142",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      {
+        matches: isCreate,
+        response: {
+          stdout: "https://github.com/x/y/pull/142\n",
+          stderr: "",
+          exitCode: 0,
+        },
+      },
+      { matches: isView, response: prJson },
+    ]);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = run(
+        ["alpha-stdout", "--body-file", bodyFile, "--title", "feat: x"],
+        { gh, updater, git: branchOnRemoteGit(), sessionId: "" },
+      );
+      expect(exit).toBe(0);
+      // The entire stdout contract: exactly one bare-URL console.log call,
+      // never linkified — /flow-pipeline step 5 reads this line verbatim.
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(logSpy).toHaveBeenCalledWith("https://github.com/x/y/pull/142");
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   it("skips gh pr create when the branch already has a PR (resume case, no stderr parsing)", () => {
@@ -638,6 +678,8 @@ describe("flow-open-pr run()", () => {
       "forward-create",
       "--pr",
       "34",
+      "--pr-url",
+      "https://github.com/x/y/pull/34",
       "--session-id",
       VALID_SESSION,
     ]);
@@ -670,6 +712,8 @@ describe("flow-open-pr run()", () => {
       "forward-resume",
       "--pr",
       "35",
+      "--pr-url",
+      "https://github.com/x/y/pull/35",
       "--session-id",
       VALID_SESSION,
     ]);

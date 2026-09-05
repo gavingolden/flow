@@ -56,7 +56,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag (empty argv)", () => {
     expect(parseArgs([])).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
     });
   });
 
@@ -72,7 +72,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag", () => {
     expect(parseArgs(["foo"])).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
     });
   });
 
@@ -498,6 +498,39 @@ describe("runUpdate", () => {
     expect(got?.pr).toBe(142);
     expect(got?.worktree).toBe("/tmp/wt");
     expect(got?.autoMerge).toBe(false);
+  });
+
+  it("records prUrl when --pr-url is supplied", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "implementing",
+      repo: "/tmp/repo",
+      updatedAt: "2026-04-30T12:00:00Z",
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      prUrl: "https://github.com/org/repo/pull/7",
+    });
+    expect(updated.prUrl).toBe("https://github.com/org/repo/pull/7");
+  });
+
+  it("preserves prUrl across phase-only updates", () => {
+    // A dropped `?? existing.prUrl` here silently un-links every `flow ls`
+    // row: the PR cell falls back to the bare number with no error path, so
+    // nothing else in the suite would catch the regression.
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "implementing",
+      repo: "/tmp/repo",
+      updatedAt: "2026-04-30T12:00:00Z",
+      prUrl: "https://github.com/org/repo/pull/7",
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      phase: "verifying",
+    });
+    expect(updated.phase).toBe("verifying");
+    expect(updated.prUrl).toBe("https://github.com/org/repo/pull/7");
   });
 
   it("preserves sessionId across phase-only updates", () => {
@@ -1134,7 +1167,7 @@ describe("parseArgs --slug flag", () => {
     const result = parseArgs(["--slug", "csv-export"]);
     expect(result).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
     });
   });
 

@@ -76,9 +76,9 @@ cd <flow-checkout> && git checkout <earlier ref> && flow install --upgrade
 
 ## Per-phase models
 
-A pipeline runs many distinct Claude phases — planning, implementation, review, verify, the fix-applier/consolidator tail, merge-conflict resolution — plus the epic-design and epic-run supervisors. You can concentrate an expensive model (e.g. the newly-released **Fable**) on the high-leverage reasoning phases and run cheaper models on the mechanical ones, controlled per-run (flags) or globally (config).
+A pipeline runs many distinct Claude phases — planning, implementation, review, the fix-applier/consolidator tail, merge-conflict resolution — plus the epic-design and epic-run supervisors. You can concentrate an expensive model (e.g. the newly-released **Fable**) on the high-leverage reasoning phases and run cheaper models on the mechanical ones, controlled per-run (flags) or globally (config). Verify has no phase model knob: `/flow-pipeline` step 6 invokes `/flow-verify` in-process on the supervisor's own session model, not a spawned sub-agent.
 
-**Per-run flags** — `flow feature create --model-planning fable --model-verify haiku "add X"` routes Fable to planning and Haiku to verify for that pipeline, leaving every other phase on the session default. Epic knobs: `flow epic create --model-planning <alias>` (the epic design phase shares the feature planning knob), and `flow epic run --model <alias> [--effort <level>]` (the /flow-epic-run playbook supervisor session); `flow epic launch <epic> <id> [--model <alias>] [--effort <level>]` applies the same per-launch overrides without mutating the committed manifest.
+**Per-run flags** — `flow feature create --model-planning fable --model-fix-applier haiku "add X"` routes Fable to planning and Haiku to the fix-applier tail for that pipeline, leaving every other phase on the session default. Epic knobs: `flow epic create --model-planning <alias>` (the epic design phase shares the feature planning knob), and `flow epic run --model <alias> [--effort <level>]` (the /flow-epic-run playbook supervisor session); `flow epic launch <epic> <id> [--model <alias>] [--effort <level>]` applies the same per-launch overrides without mutating the committed manifest.
 
 **Global config** — set a house style once in `~/.flow/config.json`:
 
@@ -89,7 +89,6 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
     "planning": "fable",
     "implement": "sonnet",
     "review": "sonnet",
-    "verify": "haiku",
     "fixApplier": "sonnet",
     "consolidator": "sonnet",
     "mergeResolver": "sonnet",
@@ -105,7 +104,6 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
 | `planning`      | planning / epic design                     | `--model-planning`       |
 | `implement`     | implementation (scout + coder)             | `--model-implement`      |
 | `review`        | multi-agent PR review                      | `--model-review`         |
-| `verify`        | pre-commit verify gate                     | `--model-verify`         |
 | `fixApplier`    | PR-review fix-applier                      | `--model-fix-applier`    |
 | `consolidator`  | PR-review consolidator-validator           | `--model-consolidator`   |
 | `mergeResolver` | merge-conflict resolver                    | `--model-merge-resolver` |
@@ -116,7 +114,7 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
 
 - **Session model** — `--model` > `config.models.default` > Claude's default. Read once at launch and passed to `claude --model`.
 - **Per-phase model** — `--model-<phase>` > `config.models.<phase>` > inherited session model.
-- **Two deliberate asymmetries** — (1) **verify** defaults to `sonnet`, **not** the session model (a mechanical gate rarely earns an expensive model): `--model-verify` > `config.models.verify` > `sonnet`. (2) **scout / coder** are config-only fine-grain that layer _above_ `--model-implement`: `config.models.scout|coder` > `--model-implement` > `config.models.implement` > inherited.
+- **Two deliberate asymmetries** — (1) **fix-applier** defaults to `sonnet`, **not** the session model (mechanical apply-commit-push work that must not silently inherit Opus/Fable): `--model-fix-applier` > `config.models.fixApplier` > `sonnet`. (2) **scout / coder** are config-only fine-grain that layer _above_ `--model-implement`: `config.models.scout|coder` > `--model-implement` > `config.models.implement` > inherited.
 - **The gatekeeper is pinned** to `haiku` — its whole job is cheap cost-routing. There is no `--model-gatekeeper` flag; a `config.models.gatekeeper` key is reachable but strongly discouraged (overriding it defeats the cost-routing).
 
 Aliases are `opus`, `haiku`, `sonnet`, `fable`; flow forwards the alias verbatim to `claude --model`. An invalid alias in a flag exits non-zero writing no state; an invalid value in `config.models.*` emits a best-effort warning at create time and falls back.
@@ -233,6 +231,28 @@ jq -c 'select(.event == "phase.transition" and .attrs.from == "plan-pending-revi
 ```
 
 The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher set tmux`.
+
+## Clickable output
+
+flow renders absolute file paths, PR URLs, and issue URLs as real click
+targets — an OSC 8 hyperlink on a terminal, a markdown link in assistant
+prose — via `bin/lib/link.ts`, rather than a bare string you have to
+hand-copy.
+
+**tmux users:** tmux strips OSC 8 hyperlink sequences by default, so a
+rendered link shows as plain text (or stray escape bytes) inside a tmux
+pane unless you opt in:
+
+```sh
+set -as terminal-features ",*:hyperlinks"
+```
+
+**Opting out:** set `FLOW_NO_HYPERLINKS` (any value) to disable
+hyperlink rendering and fall back to bare text — `NO_COLOR` already
+suppresses it too, since a no-color terminal is usually also one without
+hyperlink support. Machine-read output (the `flow-gate-summary`
+sentinels, `flow-open-pr`'s bare-URL stdout, `flow-create-issue`'s JSON)
+is never linkified regardless of either setting.
 
 ## Output lens
 

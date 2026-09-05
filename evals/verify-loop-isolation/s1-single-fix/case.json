@@ -9,7 +9,9 @@
     "overlay": "overlay",
     "state": "state.json"
   },
-  "env": { "flowSlug": true },
+  "env": {
+    "flowSlug": true
+  },
   "resultSchema": "result-schema.json",
   "graders": [
     {
@@ -59,21 +61,6 @@
       "withOnly": true
     },
     {
-      "id": "verify-loop-result-status",
-      "kind": "json-file",
-      "gate": false,
-      "file": "$REPO/.flow-tmp/verify-loop-result.json",
-      "path": "verify_status",
-      "equals": "pass"
-    },
-    {
-      "id": "verify-loop-result-exists",
-      "kind": "file",
-      "gate": false,
-      "file": "$REPO/.flow-tmp/verify-loop-result.json",
-      "exists": true
-    },
-    {
       "id": "transcript.finalContextTokens",
       "kind": "metric",
       "gate": false,
@@ -100,6 +87,14 @@
       "gate": false,
       "source": "transcript.subagentsSpawned",
       "direction": "lower"
+    },
+    {
+      "id": "scaffold-absent",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.subagentsSpawned",
+      "direction": "lower",
+      "max": 0
     },
     {
       "id": "result.duration_ms",

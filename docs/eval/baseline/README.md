@@ -19,12 +19,16 @@ own behalf.
 
 ## How f2 consumes this
 
-A scaffold-removal candidate PR runs the same suite against its own tree
-and calls `bun bin/flow-eval.ts compare --base
-docs/eval/baseline/<suite>.report.json --candidate
-<candidate-run>/<suite>/report.json --fail-on-regression` — the
-before/after delta this directory anchors is the evidence a removal PR's
-description points to.
+f2 does NOT diff against the reports in this directory — they were
+recorded 15 commits behind f2's HEAD on an older `claude` minor, so a
+`compare` against them would additionally raise `environmentMismatch`.
+Instead f2 re-records its own before arm under `docs/eval/f2/before/`
+(at the HEAD carrying its scaffold-inventory tasks) and compares each
+candidate's after arm against that same-tree, same-`claude`-version
+before arm. The committed baselines in this directory stay the
+historical record, not f2's comparison surface. See
+`docs/eval/scaffold-verdicts.md` for f2's keep/remove verdicts and full
+measurement protocol.
 
 ## Recorded-at table
 

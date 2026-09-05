@@ -42,7 +42,7 @@ export type Violation = {
 };
 
 const IGNORE_DIRS = new Set(["node_modules", ".git", ".flow-tmp"]);
-const EXTERNAL_RE = /^(https?|mailto|tel|ftp):/i;
+const EXTERNAL_RE = /^(https?|mailto|tel|ftp|file):/i;
 const LINK_RE = /(!?)\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const HEADING_RE = /^#{1,6}\s+(.+?)\s*#*\s*$/;
 

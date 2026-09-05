@@ -9,7 +9,7 @@
  *
  * Usage:
  *   flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]
- *                              [--worktree <path>] [--auto-merge | --no-auto-merge]
+ *                              [--pr-url <url>] [--worktree <path>] [--auto-merge | --no-auto-merge]
  *                              [--session-id <value>] [--answer <text> | --answer-stdin]
  *                              [--interview-stdin]
  *                              [--slug <slug>] [--force]
@@ -70,6 +70,7 @@ type Args = {
   slug?: string;
   phase?: string;
   pr?: number;
+  prUrl?: string;
   worktree?: string;
   autoMerge?: boolean;
   sessionId?: string;
@@ -141,6 +142,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         out.pr = n;
         break;
       }
+      case "--pr-url":
+        out.prUrl = value;
+        break;
       case "--worktree":
         out.worktree = value;
         break;
@@ -173,6 +177,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   if (
     out.phase === undefined &&
     out.pr === undefined &&
+    out.prUrl === undefined &&
     out.worktree === undefined &&
     out.autoMerge === undefined &&
     out.sessionId === undefined &&
@@ -182,7 +187,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   ) {
     return {
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
     };
   }
   return out;
@@ -216,6 +221,7 @@ export function applyUpdate(
     ...existing,
     phase: resolvedPhase,
     pr: args.pr ?? existing.pr,
+    prUrl: args.prUrl ?? existing.prUrl,
     worktree: args.worktree ?? existing.worktree,
     autoMerge: args.autoMerge ?? existing.autoMerge,
     sessionId: args.sessionId ?? existing.sessionId,
@@ -254,7 +260,7 @@ export function runUpdate(
     console.error(`flow-state-update: ${parsed.error}`);
     console.error(
       "usage: flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]\n" +
-        "                                 [--worktree <path>] [--auto-merge | --no-auto-merge]\n" +
+        "                                 [--pr-url <url>] [--worktree <path>] [--auto-merge | --no-auto-merge]\n" +
         "                                 [--session-id <value>] [--answer <text> | --answer-stdin]\n" +
         "                                 [--interview-stdin]\n" +
         "                                 [--slug <slug>] [--force]",
