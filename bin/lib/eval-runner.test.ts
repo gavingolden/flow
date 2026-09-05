@@ -10,6 +10,7 @@ import {
   probeFlowInstall,
   renderPrompt,
   runScenarioOnce,
+  waitForStageResult,
   type SpawnFn,
 } from "./eval-runner";
 import type { MaterializedFixture } from "./eval-fixture";
@@ -452,6 +453,53 @@ describe("renderPrompt", () => {
   });
 });
 
+describe("waitForStageResult", () => {
+  it("resolves immediately when the file already exists", async () => {
+    const sleep = vi.fn(() => Promise.resolve());
+    const outcome = await waitForStageResult("/tmp/fixture-root/repo", {
+      exists: () => true,
+      sleep,
+    });
+    expect(outcome).toEqual({ found: true, waitedSec: 0 });
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("times out cleanly when the file never appears", async () => {
+    const sleep = vi.fn(() => Promise.resolve());
+    let now = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => {
+      now += 5_000;
+      return now;
+    });
+    const outcome = await waitForStageResult("/tmp/fixture-root/repo", {
+      exists: () => false,
+      sleep,
+      pollMs: 5_000,
+      maxWaitMs: 15_000,
+    });
+    expect(outcome.found).toBe(false);
+    expect(sleep).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("finds the file after a couple of polls", async () => {
+    let calls = 0;
+    const exists = vi.fn(() => {
+      calls += 1;
+      return calls >= 3;
+    });
+    const sleep = vi.fn(() => Promise.resolve());
+    const outcome = await waitForStageResult("/tmp/fixture-root/repo", {
+      exists,
+      sleep,
+      pollMs: 1_000,
+      maxWaitMs: 60_000,
+    });
+    expect(outcome.found).toBe(true);
+    expect(exists).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe("runScenarioOnce", () => {
   let outDir!: string;
 
@@ -687,5 +735,63 @@ describe("runScenarioOnce", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("skips the stage-result wait when the scenario does not allow Workflow", async () => {
+    const scenario = makeScenario({ allowedTools: ["Bash", "Read"] });
+    const fixture = makeFixture();
+    const files: Record<string, string> = {
+      [path.join(scenario.dir, "prompt.md")]: "hi",
+    };
+    const fakeSpawn: SpawnFn = (_argv, _env, _cwd, onStdout) => {
+      onStdout(
+        JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+        }) + "\n",
+      );
+      return { exited: Promise.resolve(0), kill: () => {} };
+    };
+    const outcome = await runScenarioOnce(scenario, fixture, {
+      claudeBin: "claude",
+      outDir,
+      sessionId: "sess-1",
+      spawn: fakeSpawn,
+      readFile: (p) => files[p] ?? "",
+    });
+    expect(outcome.stageResultWaitNote).toBeUndefined();
+  });
+
+  it("records a stage-result-wait note when the scenario allows Workflow", async () => {
+    const scenario = makeScenario({ allowedTools: ["Bash", "Workflow"] });
+    const fixture = makeFixture({ repoDir: outDir });
+    const files: Record<string, string> = {
+      [path.join(scenario.dir, "prompt.md")]: "hi",
+    };
+    const fakeSpawn: SpawnFn = (_argv, _env, _cwd, onStdout) => {
+      onStdout(
+        JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+        }) + "\n",
+      );
+      return { exited: Promise.resolve(0), kill: () => {} };
+    };
+    const fs = await import("node:fs");
+    fs.mkdirSync(path.join(outDir, ".flow-tmp"), { recursive: true });
+    fs.writeFileSync(
+      path.join(outDir, ".flow-tmp", "stage-a-result.json"),
+      "{}",
+    );
+    const outcome = await runScenarioOnce(scenario, fixture, {
+      claudeBin: "claude",
+      outDir,
+      sessionId: "sess-1",
+      spawn: fakeSpawn,
+      readFile: (p) => files[p] ?? "",
+    });
+    expect(outcome.stageResultWaitNote).toBe("stage-result-wait: 0s (found)");
   });
 });

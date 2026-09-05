@@ -34,6 +34,8 @@ const ALL_IDS: ProbeId[] = [
   "max-turns-partial",
   "cache-ttl-1h",
   "plugin-eval-availability",
+  "workflow-headless-await",
+  "workflow-plugin-command",
 ];
 
 const LIVE_ONLY_IDS: ProbeId[] = [
@@ -41,6 +43,8 @@ const LIVE_ONLY_IDS: ProbeId[] = [
   "skills-preload-name",
   "max-turns-partial",
   "cache-ttl-1h",
+  "workflow-headless-await",
+  "workflow-plugin-command",
 ];
 
 // A dedicated mocked `spawn` (never `spawnSync`) so the new

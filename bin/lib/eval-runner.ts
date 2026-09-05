@@ -398,7 +398,50 @@ export type RunOutcome = {
    * `runSuite` can stamp `EvalReport.runner.childArgvDigest` without
    * recomputing the argv shape itself. */
   childArgvDigest: string;
+  /** Set only when `scenario.allowedTools` includes `"Workflow"` — a
+   * `stage-result-wait: <n>s (<found|timeout>)` note the caller folds into
+   * `EvalReport.runner.notes`. */
+  stageResultWaitNote?: string;
 };
+
+/** Bounded poll (5s cadence, ≤600s) for the stage-A Workflow script's
+ * result artifact to land under the fixture repo — only meaningful when
+ * the scenario allows the `Workflow` tool, since a non-Workflow scenario
+ * never produces this file. Exported for direct unit coverage; never
+ * throws. */
+export async function waitForStageResult(
+  repoDir: string,
+  opts: {
+    filePath?: string;
+    pollMs?: number;
+    maxWaitMs?: number;
+    exists?: (p: string) => boolean;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<{ found: boolean; waitedSec: number }> {
+  const filePath =
+    opts.filePath ?? path.join(repoDir, ".flow-tmp", "stage-a-result.json");
+  const pollMs = opts.pollMs ?? 5_000;
+  const maxWaitMs = opts.maxWaitMs ?? 600_000;
+  const exists = opts.exists ?? ((p: string) => fs.existsSync(p));
+  const sleep =
+    opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+
+  const start = Date.now();
+  if (exists(filePath)) {
+    return { found: true, waitedSec: 0 };
+  }
+  while (Date.now() - start < maxWaitMs) {
+    await sleep(pollMs);
+    if (exists(filePath)) {
+      return {
+        found: true,
+        waitedSec: Math.round((Date.now() - start) / 1000),
+      };
+    }
+  }
+  return { found: false, waitedSec: Math.round((Date.now() - start) / 1000) };
+}
 
 export async function runScenarioOnce(
   scenario: ResolvedScenario,
@@ -471,6 +514,12 @@ export async function runScenarioOnce(
   fs.writeFileSync(assistantTextPath, assistantText(events));
   const error = result?.is_error ? (result.subtype ?? "error") : undefined;
 
+  let stageResultWaitNote: string | undefined;
+  if (scenario.allowedTools?.includes("Workflow")) {
+    const { found, waitedSec } = await waitForStageResult(fixture.repoDir);
+    stageResultWaitNote = `stage-result-wait: ${waitedSec}s (${found ? "found" : "timeout"})`;
+  }
+
   return {
     exitCode,
     timedOut,
@@ -480,5 +529,6 @@ export async function runScenarioOnce(
     result,
     childArgvDigest: digest,
     ...(error ? { error } : {}),
+    ...(stageResultWaitNote ? { stageResultWaitNote } : {}),
   };
 }

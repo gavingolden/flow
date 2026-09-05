@@ -206,6 +206,7 @@ export const SCENARIO_DEFAULTS = {
     "Task",
     "Agent",
     "ToolSearch",
+    "Workflow",
   ],
 } as const;
 

@@ -233,3 +233,30 @@ session's own helpers (`flow-state-update`, `flow-checkpoint`,
 `flow ls` shows `eval-*` rows while a suite is running; teardown removes
 them (state, checkpoints, turn tracking, proc registry) whether the run
 passed, failed, or was interrupted.
+
+## Workflow tool + stage-result wait
+
+`SCENARIO_DEFAULTS.allowedTools` (`bin/lib/eval-suite.ts`) includes
+`"Workflow"` alongside `Task`/`Agent`/`ToolSearch`, so a scenario can drive
+the f6 stage scripts (`workflows/core/flow-stage-a.workflow.js`,
+`flow-stage-b.workflow.js`) without an explicit per-scenario override.
+When a scenario's resolved `allowedTools` includes `"Workflow"`,
+`runScenarioOnce` (`bin/lib/eval-runner.ts`) polls (5s cadence, ≤600s) for
+`<repoDir>/.flow-tmp/stage-a-result.json` after the child exits, and folds
+a `stage-result-wait: <n>s (<found|timeout>)` note into the report's
+`runner.notes`. The wait is a no-op (never invoked) for a scenario that
+does not allow `Workflow`.
+
+**Pending:** `evals/phase-write-fidelity/*/prompt.md` and
+`evals/verify-loop-isolation/{s1-single-fix,s2-test-and-typecheck}/prompt.md`
+still say "Execute ONLY `## Step N`" against the pre-port `SKILL.md` prose.
+Once `skills/pipeline/flow-pipeline/SKILL.md`'s `## Stage A launch` /
+`## Stage B launch` sections land, these prompts migrate to "Resume the
+pipeline at step N: launch stage A …" and each scenario's `case.json`
+gains a `stage-result-written` gate grader (`kind: "json-file"`, `file:
+"$REPO/.flow-tmp/stage-a-result.json"`, `path: "stage"`, `equals: "A"`,
+`gate: true`). Until that migration lands, comparing a pre-port baseline
+report against a post-port candidate report is expected to show an
+`environmentMismatch` (different `childArgvDigest`, since only the
+post-port prompts drive the `Workflow` tool) — that mismatch is diagnostic
+of the pending migration, not a harness regression.
