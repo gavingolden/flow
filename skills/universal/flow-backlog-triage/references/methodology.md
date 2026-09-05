@@ -41,6 +41,8 @@ adopted even when the notes source names an explicit goal item. Absent
 either argument, grooming mode is the default and inference stays live.
 Grooming mode's default lens, absent any other signal, is PM-shaped:
 app stability, bug fixes, and high-value features/enhancements.
+`top: <n>` caps the Decision Brief at n chunk cards (default 5); an
+invalid value falls back to 5 and the opener says so.
 
 **Surfaced-never-silent milestone inference.** In grooming mode, when the
 notes source contains an explicit goal item, adopt it as a **provisional**
@@ -116,6 +118,10 @@ cold-start Phase 0/1 pass:
   close-candidates the user never ran the drafted `gh issue close`
   command for — rather than assuming silence meant confirmation or
   meant withdrawal. Give each one a fresh look against current state.
+- The top-n cut re-runs fresh on every delta run; unactioned chunks
+  re-compete and normally reappear; no cursor is kept. And the
+  carry-forward rule above is what keeps successive runs cheap — only
+  verdicts the merge delta touches are re-derived.
 
 ## Phase 1 — Verify before judging (mandatory)
 
@@ -215,7 +221,7 @@ queued command. Assuming a default inside a queue command — quietly
 picking a value for the user rather than surfacing it — is exactly the
 tier-mixing failure this rule prevents.
 
-## Phase 3 — bundle for minimum PRs
+## Phase 3 — bundle, chunk, rank
 
 Bundle by shared root cause, shared surface/files, or shared review
 context — NEVER by theme. A "Charts & dashboard editor — UX polish"
@@ -244,6 +250,76 @@ already-lowercase-hyphenated slug; never rely on auto-slugify. Valid
 shown (see output-template.md's shell-safety contract); the surrounding
 inline-code backticks above are markdown display syntax, not command
 text, and do not violate the zero-backticks rule.
+
+### Chunking
+
+A **chunk** is one **anchor bundle** plus zero or more **riders**. A
+rider is a separate DO bundle that did not itself earn a bundle-sized
+review but is small enough to ride along with an anchor it shares a
+surface with — riders share the anchor's root cause, surface/files, or
+review context, never a theme. Note that the one-reviewable-PR test and
+the never-by-theme rule apply per bundle, never per chunk: a chunk can
+carry several sequenced PRs, but each constituent bundle still has to
+pass the test on its own. Keep a chunk to ordinarily at most three
+sequenced one-PR bundles — beyond that, split the excess into its own
+chunk rather than growing one card past what a reviewer can hold in
+their head. Note also that a rider never inflates the chunk's rank: the
+chunk ranks on the anchor bundle's value alone, and a rider is included
+because it is cheap to ship alongside, not because it adds value rank of
+its own.
+
+### Ranking layer
+
+The ranking layer is applied ON TOP of the value-prop block above, which
+stays byte-identical — ranking never touches the rubric, it only orders
+what the rubric already scored. **Value rank is the primary key**, above
+everything else. In milestone mode, on-milestone membership is key 0 — an on-milestone chunk
+always outranks an off-milestone one regardless of Value rank, and
+on-milestone features then compete on Value rank like everything else.
+Below Value rank, ties are broken by this ordered, anchor-backed list —
+stop at the first key that separates the two chunks:
+
+1. **root-cause leverage** — count of inventoried refs the chunk closes
+   wins (anchor: the ref list itself).
+2. **system value** — a measured effect beats none (anchor: a measured
+   number, a red run id).
+3. **carrying cost / tech debt** — how often the debt's file is touched
+   (`git log --oneline --since=<date> -- <path> | wc -l`) and what each
+   touch costs (anchor: file:line of the debt + the churn count).
+4. **test-coverage gap** — an untested path with a named blast radius
+   beats a covered one (anchor: the untested file:line + what it would
+   break).
+5. **reach/frequency** — named cadence or user count wins (anchor:
+   cadence, count, the user's own words).
+6. **age** — the older-untouched chunk loses (anchor: issue number with
+   its age).
+7. **effort** — smaller wins (anchor: files touched, blast radius).
+
+There is never a weighted numeric sum — each key is a strict, ordered
+tie-break, applied one at a time until one chunk wins outright. Note
+that a tie-break claim with no anchor counts as `none` and cannot
+decide anything. When every key ties, Phase-0 inventory order decides
+and both the shown card and the first ledger row carry
+`**Marginal tie:**`. Note too that the item's class (bug / feature /
+enhancement / debt) is never an input to any of this — only anchors
+are.
+
+### Top-n cut and bias
+
+Show the top n chunks (default 5, `top: <n>`) as cards; every other DO
+bundle goes to the `### Next-chunk candidates` ledger in the Audit
+Appendix, in rank order. When fewer than n chunks exist, show them all
+and the ledger states `none`.
+
+**Stability-first bias.** In grooming mode, an observed failure outranks
+an absence at equal effort — a reproducible bug or a red signal beats an
+unbuilt feature when their anchor-backed keys otherwise tie. And note
+that the Decision Brief's opener states the bias in force so the reader
+knows what the ranking optimized for. It's important to name a milestone
+(`milestone: <goal>`) for feature-led chunks, where on-milestone
+features compete on equal terms rather than losing by default to the
+stability bias. And every shown card says which key beat the next chunk
+down, so the ranking stays falsifiable from the card alone.
 
 ## Phase 4 — act
 

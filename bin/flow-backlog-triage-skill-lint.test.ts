@@ -431,6 +431,12 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
     "**What changes / who notices:**",
     "**Why it's worth it:**",
     "**Size:**",
+    "**Refs:**",
+    "**Riders:**",
+    "**Why it beat the next one down:**",
+    "**In-chunk PR order:**",
+    "**File-overlap warnings:**",
+    "**Tier:**",
   ];
 
   it.each(BUNDLE_CARD_FACETS)(
@@ -838,6 +844,187 @@ describe("flow-backlog-triage opinionated-constraint anchors", () => {
 
   it("SKILL.md body stays under the 500-line hard cap", () => {
     expect(skillContent.split("\n").length).toBeLessThan(500);
+  });
+});
+
+describe("flow-backlog-triage top-n chunk anchors", () => {
+  it("SKILL.md documents the top: <n> argument with its default of 5", () => {
+    expect(
+      skillContent.includes("`top: <n>`"),
+      "SKILL.md must document the `top: <n>` invocation argument.",
+    ).toBe(true);
+    expect(
+      /chunk cards \(default 5\)/.test(skillContent),
+      "SKILL.md must state the chunk-card cap defaults to 5.",
+    ).toBe(true);
+  });
+
+  it("methodology.md names Value rank as the primary key and orders the tie-breaks", () => {
+    const start = methodologyContent.indexOf("### Ranking layer");
+    expect(
+      start,
+      "methodology.md must contain a '### Ranking layer' heading.",
+    ).toBeGreaterThanOrEqual(0);
+    const nextHeading = methodologyContent.indexOf("\n### ", start + 1);
+    const slice = methodologyContent.slice(
+      start,
+      nextHeading === -1 ? undefined : nextHeading,
+    );
+    expect(
+      slice.includes("Value rank is the primary key"),
+      "methodology.md's Ranking layer must name Value rank as the primary key.",
+    ).toBe(true);
+    // Sequential indexOf (each search starts after the previous match)
+    // rather than a bare indexOf from 0: "root-cause leverage" itself
+    // contains the substring "age" (lever-AGE), which would otherwise
+    // make a bare indexOf("age") resolve inside item 1 and falsely fail
+    // the strictly-increasing check before ever reaching item 6's real
+    // "age" heading.
+    const orderedKeys = [
+      "root-cause leverage",
+      "system value",
+      "carrying cost / tech debt",
+      "test-coverage gap",
+      "reach/frequency",
+      "age",
+      "effort",
+    ];
+    let cursor = 0;
+    const indices: number[] = [];
+    for (const key of orderedKeys) {
+      const idx = slice.indexOf(key, cursor);
+      indices.push(idx);
+      cursor = idx === -1 ? cursor : idx + key.length;
+    }
+    expect(
+      indices.every((idx) => idx >= 0),
+      `methodology.md's Ranking layer must name all seven tie-break keys ` +
+        `in order: ${JSON.stringify(orderedKeys)}.`,
+    ).toBe(true);
+    expect(
+      indices.every((idx, i) => i === 0 || idx > indices[i - 1]),
+      "methodology.md's Ranking layer must list the seven tie-break keys " +
+        "in the exact order root-cause leverage, system value, carrying " +
+        "cost / tech debt, test-coverage gap, reach/frequency, age, effort.",
+    ).toBe(true);
+  });
+
+  it("methodology.md forbids a weighted numeric sum (polarity-anchored)", () => {
+    expect(
+      methodologyContent.includes("There is never a weighted numeric sum"),
+      "methodology.md must state there is never a weighted numeric sum — a " +
+        "bare 'weighted' check would also pass a section that permits one.",
+    ).toBe(true);
+  });
+
+  it("methodology.md keeps the PR discipline per bundle, never per chunk", () => {
+    expect(methodologyContent.includes("per bundle, never per chunk")).toBe(
+      true,
+    );
+    expect(methodologyContent.includes("one **anchor bundle**")).toBe(true);
+  });
+
+  it("methodology.md states the stability-first bias and routes features to milestone mode", () => {
+    const normalized = methodologyContent.replace(/\s+/g, " ");
+    expect(methodologyContent.includes("**Stability-first bias.**")).toBe(true);
+    expect(
+      normalized.includes("on-milestone features compete on equal terms"),
+    ).toBe(true);
+  });
+
+  it("methodology.md names the deterministic all-keys-tie fallback", () => {
+    expect(methodologyContent.includes("inventory order decides")).toBe(true);
+    expect(methodologyContent.includes("**Marginal tie:**")).toBe(true);
+  });
+
+  it("SKILL.md declares the stability-first bias next to the top: argument", () => {
+    const start = skillContent.indexOf("**Mode selection.**");
+    expect(
+      start,
+      "SKILL.md must contain a '**Mode selection.**' paragraph.",
+    ).toBeGreaterThanOrEqual(0);
+    const nextParagraph = skillContent.indexOf("\n\n", start + 1);
+    const slice = skillContent.slice(
+      start,
+      nextParagraph === -1 ? undefined : nextParagraph + 400,
+    );
+    expect(
+      slice.includes("stability-first"),
+      "SKILL.md's Mode selection paragraph must declare the stability-first " +
+        "bias alongside the top: <n> argument.",
+    ).toBe(true);
+  });
+
+  it("output-template.md caps the brief at n chunk cards in rank order and ledgers the rest", () => {
+    const briefStart = outputTemplateContent.indexOf("\n## Decision Brief\n");
+    const appendixStart = outputTemplateContent.indexOf(
+      "\n## Audit Appendix\n",
+    );
+    const brief = outputTemplateContent.slice(briefStart, appendixStart);
+    expect(
+      brief.includes("at most n cards"),
+      "output-template.md's Decision Brief must cap the card budget at n cards.",
+    ).toBe(true);
+    const appendix = outputTemplateContent.slice(appendixStart);
+    const headings = [...appendix.matchAll(/^### .*$/gm)].map((m) =>
+      m[0].trim(),
+    );
+    expect(
+      headings[0],
+      "output-template.md's Audit Appendix must lead with " +
+        "'### Next-chunk candidates' as its FIRST subsection.",
+    ).toBe("### Next-chunk candidates");
+    expect(appendix.includes("unactioned chunks reappear")).toBe(true);
+  });
+
+  it("output-template.md's opener carries the Shown and Ranking bias lines", () => {
+    const briefStart = outputTemplateContent.indexOf("\n## Decision Brief\n");
+    const appendixStart = outputTemplateContent.indexOf(
+      "\n## Audit Appendix\n",
+    );
+    const brief = outputTemplateContent.slice(briefStart, appendixStart);
+    expect(brief.includes("**Shown:**")).toBe(true);
+    expect(brief.includes("**Ranking bias:**")).toBe(true);
+  });
+
+  it("output-template.md extends the jargon-ban carve-out to rider refs without dropping the scope sentence", () => {
+    const briefStart = outputTemplateContent.indexOf("\n## Decision Brief\n");
+    const appendixStart = outputTemplateContent.indexOf(
+      "\n## Audit Appendix\n",
+    );
+    const brief = outputTemplateContent.slice(briefStart, appendixStart);
+    const normalizedBrief = brief.replace(/\s+/g, " ");
+    expect(normalizedBrief.includes("ref prefix on a rider line")).toBe(true);
+    expect(
+      normalizedBrief.includes(
+        "This ban scopes to the At-a-glance opener and the bundle cards",
+      ),
+    ).toBe(true);
+  });
+
+  it("output-template.md groups the kill list by rejection class and keeps it required and non-empty", () => {
+    expect(
+      outputTemplateContent.includes("Group entries by rejection class"),
+    ).toBe(true);
+    expect(outputTemplateContent.includes("required and non-empty")).toBe(true);
+  });
+
+  it("output-template.md's Self-check gains the cut rows", () => {
+    const selfCheckStart = outputTemplateContent.search(/^#{2,3} Self-check$/m);
+    expect(selfCheckStart).toBeGreaterThanOrEqual(0);
+    const selfCheck = outputTemplateContent.slice(selfCheckStart);
+    expect(selfCheck.includes("Chunk cards ≤ n")).toBe(true);
+    expect(selfCheck.includes("Next-chunk candidates ledger")).toBe(true);
+  });
+
+  it("worked-example.md demonstrates a chunk with a rider, the beat-the-next line, and the ledger", () => {
+    expect(workedExampleContent.includes("**Riders:**")).toBe(true);
+    expect(
+      workedExampleContent.includes("**Why it beat the next one down:**"),
+    ).toBe(true);
+    expect(
+      workedExampleContent.includes("## Next-chunk candidates excerpt"),
+    ).toBe(true);
   });
 });
 
