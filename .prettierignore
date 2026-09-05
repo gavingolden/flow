@@ -56,3 +56,4 @@ bin/fixtures/eval/
 # buildReport/renderSummary, and README.md's recorded-at table is refreshed
 # by the baseline writer between markers — none of these are hand-formatted.
 docs/eval/baseline/
+docs/eval/f2/
