@@ -203,7 +203,12 @@ relevant source file directly. Fix the issue in the source file.
 ## 4. Re-Run Until Clean
 
 - After fixing, re-run the same checks with the same arguments.
-- Repeat until all checks pass.
+- Repeat until all checks pass, **up to 5 inner re-runs per invocation**.
+  After the fifth failing re-run, stop and return the Step 5 report to the
+  caller — the supervisor's outer 3-attempt cap decides what happens next.
+  This inner cap is the hard ceiling on how much `flow-pre-commit --json`
+  output can accumulate in the calling session (it replaces the `maxTurns`
+  bound the removed verify-loop subagent used to carry).
 - Do not give up after one round — some fixes reveal new errors.
 
 ## 5. Report

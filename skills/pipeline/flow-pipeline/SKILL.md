@@ -1553,12 +1553,14 @@ flow-state-update --phase verifying --slug "$SLUG"
 The verify work runs **inline** now — the supervisor invokes `/flow-verify`
 in-process via the Skill tool and observes its output directly in its own
 context (no subagent isolation, no separate artifact). Each `/flow-verify`
-invocation makes exactly one fix attempt per failing check and does not
-retry internally (see `skills/pipeline/flow-verify/SKILL.md` Step 3: "Do
-not retry inside `/flow-verify`'s own wrapper"). The supervisor owns the
-**one hard retry ceiling**: it re-invokes `/flow-verify` at most 3 times
-total (the 3-outer-attempt cap) when an attempt does not end clean, then
-stops and returns the report rather than looping further. Each
+invocation makes one fix attempt per failing check and re-runs the checks
+**at most 5 times** before returning its report (the inner cap in
+`skills/pipeline/flow-verify/SKILL.md` Step 4 — the hard ceiling on how
+much `flow-pre-commit --json` output can land in this session, replacing
+the `maxTurns` bound the removed subagent carried). The supervisor owns the
+outer ceiling: it re-invokes `/flow-verify` at most 3 times total (the
+3-outer-attempt cap) when an attempt does not end clean, then stops and
+returns the report rather than looping further. Each
 re-invocation observes the worktree fresh (it re-runs `flow-pre-commit
 --json` itself), so a re-invocation is idempotent.
 
