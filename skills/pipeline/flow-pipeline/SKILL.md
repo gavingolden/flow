@@ -1107,13 +1107,11 @@ only and the helper exact-matches against them. The blind survey's
 
   The helper renders two bullets as the **last** lines of the message —
   the worktree absolute path first, the plan file's absolute path
-  (`$WORKTREE/.flow-tmp/plan.md`) second — as clickable OSC 8 hyperlinks
-  on a terminal, or bare text otherwise (`bin/lib/link.ts`). **No
-  trailing punctuation on either bullet line, and no prose after them**
-  — the OSC 8 form has an explicit end marker, so this is now the
-  FALLBACK for a terminal without hyperlink support, not the mechanism:
-  such a terminal still greedily extends bare-URL auto-detection through
-  trailing dots (and other adjacent punctuation) and breaks the click
+  (`$WORKTREE/.flow-tmp/plan.md`) second, as OSC 8 hyperlinks on a
+  terminal and bare text otherwise (`bin/lib/link.ts`). **No trailing
+  punctuation on either bullet line, and no prose after them** — the
+  fallback where hyperlinks are unsupported and bare-URL
+  auto-detection swallows a trailing dot, breaking the click
   target. Rendered example:
 
   ```
@@ -1717,11 +1715,7 @@ the session:
 
   Print each surviving absolute path as a markdown link,
   `[<abs path>](file://<abs path>)` — one per line, no bullet marker, no
-  trailing punctuation (a terminal without hyperlink support still
-  greedily extends bare-URL auto-detection through trailing punctuation
-  and breaks the click target, so the no-punctuation rule stays the
-  fallback even though the link form is now the primary mechanism) —
-  all of them, no cap.
+  trailing punctuation — all of them, no cap.
 
 - **`exhausted`** → after three failed outer attempts, escalate
   `NEEDS HUMAN: verify-exhausted`. Surface the artifact's
@@ -1982,8 +1976,7 @@ the same recipe used at step 6 against it:
 
   Print each surviving absolute path as a markdown link,
   `[<abs path>](file://<abs path>)` — one per line, no bullet marker, no
-  trailing punctuation (fallback for a terminal without hyperlink
-  support) — all of them, no cap.
+  trailing punctuation — all of them, no cap.
 
 `/flow-pr-review` also spawns one **Independent Gatekeeper Subagent** via
 the Task tool (the seventh of the nine named Task-tool exemptions in
@@ -2662,12 +2655,11 @@ as before) and the `url`/`title`/`headRefName` shell vars (`PR_URL` / `PR_TITLE`
 `PR_BRANCH`). It then passes
 `--echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH"`
 to the existing `flow-pipeline-summary` call. The PR-URL and plan-file bullet
-lines render as markdown links (`bin/lib/link.ts`, `renderEchoRecap`'s
-markdown default — the recap is copied into assistant prose, not a
-terminal) and carry **NO trailing punctuation** either way: the link form
-has an explicit closing `)`, so the punctuation rule is now the FALLBACK,
-not the mechanism — plain bare-URL auto-detection still greedily extends
-through adjacent punctuation and breaks the click target. The
+lines render as markdown links (`bin/lib/link.ts`; `renderEchoRecap`
+defaults to markdown because the recap is copied into assistant prose,
+not a terminal) and carry **NO trailing punctuation** either way — the
+link form closes with `)`, so the punctuation rule is the FALLBACK for
+bare-URL auto-detection, not the mechanism. The
 field-bearing bullets may carry normal punctuation.
 
 The recap renders exactly this **bounded field set** and no more: PR URL,
