@@ -39,6 +39,7 @@ const VALIDATOR_MODULES = [
   "fix-applier-schema.ts",
   "epic-manifest-schema.ts",
   "intent-resolution-schema.ts",
+  "workflow-result-schema.ts",
 ] as const;
 
 /**
@@ -172,6 +173,35 @@ export function discoverAgents(
       ),
       kind: "agent" as const,
       displayName: `agents/${d.name}`,
+    }));
+}
+
+/**
+ * Lists one entry PER MODULE SUBDIRECTORY under <flow-source>/workflows/,
+ * mirroring `discoverAgents` above — Claude Code's plugin-root component
+ * discovery follows a symlinked DIRECTORY, not a symlinked FILE, so
+ * `<root>/workflows/` materializes as ONE directory symlink per owning
+ * module (`<root>/workflows -> <flowSource>/workflows/<moduleId>`). Empty
+ * if the `workflows/` root is absent (most modules have none).
+ */
+export function discoverWorkflows(
+  flowSource: string,
+  targets = DEFAULT_TARGETS,
+): SourceEntry[] {
+  const workflowsRoot = path.join(flowSource, "workflows");
+  if (!existsDir(workflowsRoot)) return [];
+  return fs
+    .readdirSync(workflowsRoot, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => ({
+      source: path.join(workflowsRoot, d.name),
+      target: path.join(
+        targets.skillsDir,
+        pluginRootName(d.name as ModuleId),
+        "workflows",
+      ),
+      kind: "workflow" as const,
+      displayName: `workflows/${d.name}`,
     }));
 }
 
@@ -330,6 +360,7 @@ export function discoverAll(
   const all = [
     ...discoverSkills(flowSource, targets),
     ...discoverAgents(flowSource, targets),
+    ...discoverWorkflows(flowSource, targets),
     ...discoverHelpers(flowSource, targets),
     ...discoverValidators(flowSource, targets),
     ...discoverCompletions(flowSource, targets),
@@ -412,6 +443,9 @@ export async function discoverSelected(
     ),
     ...discoverAgents(flowSource, targets).filter((e) =>
       foldedIds.has(e.displayName.replace(/^agents\//, "")),
+    ),
+    ...discoverWorkflows(flowSource, targets).filter((e) =>
+      foldedIds.has(e.displayName.replace(/^workflows\//, "")),
     ),
     ...discoverHelpers(flowSource, targets).filter(
       (e) =>

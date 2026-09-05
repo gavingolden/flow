@@ -11,6 +11,7 @@ import { FLOW_MANIFEST } from "./paths";
 export type SymlinkKind =
   | "skill"
   | "agent"
+  | "workflow"
   | "bin"
   | "completion"
   // A "plugin" record's target is a real directory materialized by

@@ -29,6 +29,7 @@ import {
   discoverHelpers,
   discoverSkills,
   discoverValidators,
+  discoverWorkflows,
   effectiveLinkSource,
   type InstallTargets,
 } from "./sources";
@@ -339,6 +340,7 @@ export function materializeModuleContent(
   for (const entry of [
     ...discoverSkills(flowSource, targets),
     ...discoverAgents(flowSource, targets),
+    ...discoverWorkflows(flowSource, targets),
   ]) {
     if (allowedRootDirs) {
       // Skill targets nest two levels below skillsRoot

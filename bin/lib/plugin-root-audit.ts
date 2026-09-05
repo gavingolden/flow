@@ -95,6 +95,30 @@ function manifestDeclaresSkills(root: string): boolean {
   }
 }
 
+/**
+ * Mirrors `manifestDeclaresSkills` exactly, checking the manifest's
+ * `workflows` key instead of `skills`.
+ */
+function manifestDeclaresWorkflows(root: string): boolean {
+  try {
+    const raw = fs.readFileSync(
+      path.join(root, ".claude-plugin", "plugin.json"),
+      "utf8",
+    );
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return true;
+    const value = (parsed as Record<string, unknown>).workflows;
+    if (value === undefined) return false;
+    return (
+      Array.isArray(value) &&
+      value.length > 0 &&
+      value.every((v) => typeof v === "string")
+    );
+  } catch {
+    return true;
+  }
+}
+
 function expectedRootChildren(root: string): Set<string> {
   // `agents` is unconditional (Task 5): an `agents/` directory inside a
   // flow-owned root is always legitimate, whether or not the module owns
@@ -105,6 +129,7 @@ function expectedRootChildren(root: string): Set<string> {
   // type has none).
   const expected = new Set([".claude-plugin", "bin", "agents"]);
   if (manifestDeclaresSkills(root)) expected.add("skills");
+  if (manifestDeclaresWorkflows(root)) expected.add("workflows");
   return expected;
 }
 
