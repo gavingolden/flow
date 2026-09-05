@@ -37,7 +37,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
-import { resolveRepoRoot } from "./repo-root";
+import { resolveRepoRoot, makeSameRepository } from "./repo-root";
 import {
   FLOW_CLAUDE_HOME,
   FLOW_LAUNCH_SEM_DIR,
@@ -1749,7 +1749,7 @@ function discoverCommittedEpics(
 
 /**
  * `flow epic ls`'s help + unknown-flag guard. Copied in shape from
- * `runLsCli` (bin/lib/ls.ts:106-117) — help first, then an allowlist parse
+ * `runLsCli` (bin/lib/ls.ts:109-129) — help first, then an allowlist parse
  * that exits 2 on anything unrecognised, matching the one other subcommand
  * with a real flag surface rather than the silent-drop shape used by
  * `runEpicBind`/`runEpicDone`.
@@ -1759,29 +1759,53 @@ function runEpicLs(rest: string[], options: EpicOptions): number {
     console.log(`flow epic ls — list epics
 
 Usage:
-  flow epic ls [--all]
+  flow epic ls [--all|-a] [--done] [--all-repos]
 
 Options:
-  --all, -a             Include completed (done) epics in the listing
+  --done                Include completed (done) epics in the listing
+  --all-repos           Include epics from every repo, not just this one
+  --all, -a             Drop every default filter (done epics AND every repo)
 
 Lists every epic with per-state counts + status, combining live run.json
 state under ~/.flow/epics with committed status boards under this repo's
-.flow/epics. Completed epics are hidden by default and counted in a
-footer line; --all shows them.`);
+.flow/epics. By default the listing is scoped to this repo and completed
+epics are hidden, each counted in its own footer line; --done widens the
+done axis, --all-repos widens the repo axis, and --all/-a drop both.
+Outside a git repo, the default listing is empty with a printed reason;
+--all-repos still lists every repo's epics.`);
     return 0;
   }
-  const allowed = new Set(["--all", "-a"]);
+  const allowed = new Set(["--all", "-a", "--done", "--all-repos"]);
   for (const arg of rest) {
     if (!allowed.has(arg)) {
       console.error(`flow epic ls: unknown option '${arg}'`);
-      console.error("usage: flow epic ls [--all]");
+      console.error("usage: flow epic ls [--all|-a] [--done] [--all-repos]");
       return 2;
     }
   }
-  const showAll = rest.includes("--all") || rest.includes("-a");
+  const all = rest.includes("--all") || rest.includes("-a");
+  const showDone = all || rest.includes("--done");
+  const allRepos = all || rest.includes("--all-repos");
+
+  const cwd = options.cwd ?? process.cwd();
+  const currentRepo = resolveRepoRoot(cwd);
+
+  if (currentRepo === null && !allRepos) {
+    console.log(
+      "flow epic ls: not in a git repo — no epic scope; show every epic with 'flow epic ls --all-repos'",
+    );
+    return 0;
+  }
+
+  // Only build the predicate (which resolves cwd's own git-common-dir) when
+  // it will actually be consulted — allRepos short-circuits every use below,
+  // so skip the wasted git spawn on that path.
+  const sameRepo = allRepos ? () => true : makeSameRepository(cwd);
+
+  type LsEntry = { row: EpicListRow; repoPath: string };
 
   const states = listEpicRunStates(options.epicsDir);
-  const rows: EpicListRow[] = states.map((rs) => {
+  const entries: LsEntry[] = states.map((rs) => {
     const loaded = loadCommittedManifest(rs.manifestPath);
     if (!loaded.ok) {
       // Degraded row: manifest unreadable (moved/unmerged). Count launched only.
@@ -1790,13 +1814,17 @@ footer line; --all shows them.`);
       );
       const launched = Object.values(rs.features).length;
       return {
-        slug: rs.epicSlug,
-        ready: 0,
-        running: 0,
-        blocked: 0,
-        merged: 0,
-        total: launched,
-        status: "running" as const,
+        row: {
+          slug: rs.epicSlug,
+          repo: path.basename(rs.repo),
+          ready: 0,
+          running: 0,
+          blocked: 0,
+          merged: 0,
+          total: launched,
+          status: "running" as const,
+        },
+        repoPath: rs.repo,
       };
     }
     const result = reconcile({
@@ -1808,22 +1836,25 @@ footer line; --all shows them.`);
       committedStatus: readCommittedStatus(path.dirname(rs.manifestPath)),
     });
     return {
-      slug: rs.epicSlug,
-      ready: result.summary.ready,
-      running: result.summary.running,
-      blocked: result.summary.blocked,
-      merged: result.summary.merged,
-      total: result.summary.total,
-      status: result.epicStatus,
+      row: {
+        slug: rs.epicSlug,
+        repo: path.basename(rs.repo),
+        ready: result.summary.ready,
+        running: result.summary.running,
+        blocked: result.summary.blocked,
+        merged: result.summary.merged,
+        total: result.summary.total,
+        status: result.epicStatus,
+      },
+      repoPath: rs.repo,
     };
   });
 
   // Union in this repo's committed epics. Run-state rows always win on slug —
   // they carry live per-feature bindings the committed manifest cannot.
-  const seen = new Set(rows.map((r) => r.slug));
-  for (const { slug, manifestPath } of discoverCommittedEpics(
-    options.cwd ?? process.cwd(),
-  )) {
+  const seen = new Set(entries.map((e) => e.row.slug));
+  const committedRepoPath = currentRepo ?? "";
+  for (const { slug, manifestPath } of discoverCommittedEpics(cwd)) {
     if (seen.has(slug)) continue;
     const loaded = loadCommittedManifest(manifestPath);
     if (!loaded.ok) {
@@ -1840,21 +1871,41 @@ footer line; --all shows them.`);
       maxParallel: maxParallel(),
       committedStatus: readCommittedStatus(path.dirname(manifestPath)),
     });
-    rows.push({
-      slug,
-      ready: result.summary.ready,
-      running: result.summary.running,
-      blocked: result.summary.blocked,
-      merged: result.summary.merged,
-      total: result.summary.total,
-      status: result.epicStatus,
+    entries.push({
+      row: {
+        slug,
+        repo: path.basename(committedRepoPath),
+        ready: result.summary.ready,
+        running: result.summary.running,
+        blocked: result.summary.blocked,
+        merged: result.summary.merged,
+        total: result.summary.total,
+        status: result.epicStatus,
+      },
+      repoPath: committedRepoPath,
     });
   }
 
-  rows.sort((a, b) => a.slug.localeCompare(b.slug));
-  const visible = showAll ? rows : rows.filter((r) => r.status !== "done");
-  const hiddenDone = rows.length - visible.length;
-  console.log(renderEpicList(visible, hiddenDone));
+  entries.sort((a, b) => a.row.slug.localeCompare(b.row.slug));
+
+  const passesRepo = (e: LsEntry) => allRepos || sameRepo(e.repoPath);
+  const passesDone = (e: LsEntry) => showDone || e.row.status !== "done";
+
+  const visible = entries.filter((e) => passesRepo(e) && passesDone(e));
+  const hiddenDone = entries.filter(
+    (e) => passesRepo(e) && !passesDone(e),
+  ).length;
+  const hiddenOtherRepos = entries.filter(
+    (e) => passesDone(e) && !passesRepo(e),
+  ).length;
+
+  console.log(
+    renderEpicList(
+      visible.map((e) => e.row),
+      hiddenDone,
+      hiddenOtherRepos,
+    ),
+  );
   return 0;
 }
 

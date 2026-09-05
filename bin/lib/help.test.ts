@@ -175,8 +175,17 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.epic).not.toContain("list every epic under ~/.flow/epics");
   });
 
-  it("HELP_TEXT.epic documents the ls --all flag", () => {
-    expect(HELP_TEXT.epic).toContain("flow epic ls [--all]");
+  it("HELP_TEXT.epic documents the ls --all/-a, --done, and --all-repos flags", () => {
+    expect(HELP_TEXT.epic).toContain(
+      "flow epic ls [--all|-a] [--done] [--all-repos]",
+    );
+    expect(HELP_TEXT.epic).toContain("--done");
+    expect(HELP_TEXT.epic).toContain("--all-repos");
+  });
+
+  it("HELP_TEXT.ls documents --all-repos and the repo-scoped default", () => {
+    expect(HELP_TEXT.ls).toContain("--all-repos");
+    expect(HELP_TEXT.ls).toMatch(/scoped to the current repo/i);
   });
 });
 

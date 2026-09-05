@@ -73,7 +73,7 @@ Usage:
   flow config launcher [get | set <plain|tmux>]
                                         get/set the recorded launcher backend (flow install
                                         asks once on interactive installs)
-  flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
+  flow ls [--cost [--detail]] [--all-repos]   list this repo's pipelines (--all-repos for every repo; cost adds $ column)
   flow attach [<name>]                  attach to a pipeline window — single window only  (alias: a)
   flow done <name> [<name> ...]         close one or more pipeline windows
   flow done --merged                    close every merged or cancelled window
@@ -152,7 +152,7 @@ Usage:
   flow epic bind <epic-slug> <feature-id> <feature-slug> [--force]
   flow epic bind <epic-slug> <feature-id> --external "<ref>" [--force]
   flow epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--force]
-  flow epic ls [--all]
+  flow epic ls [--all|-a] [--done] [--all-repos]
   flow epic done <slug> [--yes]
 
 Subcommands:
@@ -176,10 +176,13 @@ Subcommands:
                         \`flow feature create\` → binding recorded)
   ls                    list this repo's committed epics unioned with the
                         per-machine run-state under ~/.flow/epics, with
-                        per-state feature counts and overall status (the
-                        committed half is scoped to the current repo).
-                        Completed epics are hidden by default and counted
-                        in a footer; --all, -a shows them.
+                        per-state feature counts and overall status. By
+                        default the listing is scoped to the current repo
+                        and completed epics are hidden, each counted in its
+                        own footer line; --done widens the done axis,
+                        --all-repos widens the repo axis, and --all/-a drop
+                        both. Outside a git repo, the default listing is
+                        empty with a printed reason.
   done <slug>           remove the recomputable per-machine ~/.flow/epics/<slug>/
                         runtime state (does NOT close the design window or
                         pipeline state — use \`flow done <slug>\` for those)
@@ -247,14 +250,20 @@ Read-only: reports routing, not spend — see 'flow ls --cost' for realized cost
   ls: `flow ls — list active pipelines
 
 Lists each pipeline with its repository, epic (— when not epic-launched),
-phase, PR, and last activity.
+phase, PR, and last activity. Scoped to the current repo by default; a
+footer names how many pipelines from other repos were hidden. Outside a
+git repo, the default listing fails OPEN — this differs from
+'flow epic ls', which fails closed (empty) outside a repo — and shows
+every pipeline with a printed note.
 
 Usage:
-  flow ls [--cost [--detail]]
+  flow ls [--cost [--detail]] [--all-repos] [--all|-a]
 
 Options:
   --cost                add a $ column summing supervisor-session cost
   --detail              break the cost down by model (requires --cost)
+  --all-repos           include every repository's pipelines, not just this one
+  --all, -a             drop every default filter (today that is the repo filter)
 
 Annotations (shown after the pipeline name):
   (done)          finished — close it with 'flow done <name>'

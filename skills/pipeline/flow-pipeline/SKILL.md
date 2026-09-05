@@ -2993,7 +2993,8 @@ After each phase transition:
 - `~/.flow/state/<slug>.json` reflects the new `phase`, the populated
   `worktree` (post-step-2) and `pr` (post-step-5) fields, and a
   fresh `updatedAt`.
-- `flow ls` (run from any terminal) shows the right phase **and PR
+- `flow ls` (run from a terminal inside this pipeline's repo, or with
+  `--all-repos` from anywhere else) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
   via the seven named exceptions in "Hard rules" above:

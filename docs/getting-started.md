@@ -4,7 +4,7 @@ Your first pipeline, from install to merged PR. Every console transcript in this
 
 ## Install
 
-Follow the Quickstart in the [README](../README.md#quickstart): clone, `npm install`, `bun bin/flow install`, then confirm `flow ls` prints an empty pipeline list. Module selection, upgrades, and every config knob are covered in [configuration.md](configuration.md).
+Follow the Quickstart in the [README](../README.md#quickstart): clone, `npm install`, `bun bin/flow install`, then confirm `flow ls` prints an empty pipeline list (or a repo-scoped one, if you're standing in a repo with pipelines already running). Module selection, upgrades, and every config knob are covered in [configuration.md](configuration.md).
 
 ## Your first pipeline
 
@@ -49,11 +49,12 @@ Every pipeline ends by printing one of four terminal states:
 | `NEEDS HUMAN: <reason>` | the supervisor hit something it can't resolve alone — read the reason and step in.                                                                   |
 | `cancelled`             | you cancelled at the plan-approval pause.                                                                                                            |
 
-To check on runs — including pipelines launched from other terminals — use:
+To check on runs — including pipelines launched from other terminals but scoped to this repo by default — use:
 
 ```sh
-flow ls           # every pipeline and its current phase
-flow ls --cost    # add per-pipeline spend (--detail for a breakdown)
+flow ls               # this repo's pipelines and their current phase
+flow ls --all-repos   # every repo's pipelines
+flow ls --cost         # add per-pipeline spend (--detail for a breakdown)
 ```
 
 ## Resuming

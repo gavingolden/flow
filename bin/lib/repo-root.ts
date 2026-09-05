@@ -13,6 +13,7 @@ export function resolveRepoRoot(cwd: string): string | null {
   // runs through bin/flow (bun-shebanged), so node-compat here costs nothing.
   const r = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
     encoding: "utf8",
+    timeout: 2000,
   });
   if (r.status !== 0) return null;
   const out = r.stdout.trim();
@@ -29,6 +30,7 @@ export function resolveRepoRoot(cwd: string): string | null {
 export function resolveGitCommonDir(cwd: string): string | null {
   const r = spawnSync("git", ["-C", cwd, "rev-parse", "--git-common-dir"], {
     encoding: "utf8",
+    timeout: 2000,
   });
   if (r.status !== 0) return null;
   const out = r.stdout.trim();
@@ -42,4 +44,34 @@ export function resolveGitCommonDir(cwd: string): string | null {
   } catch {
     return resolved;
   }
+}
+
+/**
+ * Builds a same-repository predicate scoped to `cwd`'s repository, memoized
+ * across repeated calls so at most one git spawn happens per distinct
+ * surviving `repoPath`. Four invariants:
+ *   1. Fail OPEN on an empty/whitespace `repoPath` — an unclassifiable row
+ *      is shown, never hidden.
+ *   2. Never spawn git for a `repoPath` that doesn't exist on disk (a
+ *      deleted or unmounted path is resolved to `false` from `fs.existsSync`
+ *      alone).
+ *   3. At most one git spawn per distinct surviving path (memoized by the
+ *      `Map` below).
+ *   4. A null common-dir on either side never matches (`null !== null` is
+ *      treated as `false`, not `true`).
+ */
+export function makeSameRepository(cwd: string): (repoPath: string) => boolean {
+  const callerCommonDir = resolveGitCommonDir(cwd);
+  const memo = new Map<string, string | null>();
+  return (repoPath: string): boolean => {
+    if (!repoPath || !repoPath.trim()) return true;
+    if (!fs.existsSync(repoPath)) return false;
+    let commonDir = memo.get(repoPath);
+    if (commonDir === undefined) {
+      commonDir = resolveGitCommonDir(repoPath);
+      memo.set(repoPath, commonDir);
+    }
+    if (commonDir === null || callerCommonDir === null) return false;
+    return commonDir === callerCommonDir;
+  };
 }

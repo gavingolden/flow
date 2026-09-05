@@ -229,7 +229,11 @@ full flag reference.
 `flow-eval` seeds real pipeline state under an `eval-<suite>-<scenario>-r<n>`
 slug in the real `~/.flow/state/` (not a test-only directory) — the child
 session's own helpers (`flow-state-update`, `flow-checkpoint`,
-`flow-resume-decide`) only ever read the real state dir. This means
-`flow ls` shows `eval-*` rows while a suite is running; teardown removes
-them (state, checkpoints, turn tracking, proc registry) whether the run
-passed, failed, or was interrupted.
+`flow-resume-decide`) only ever read the real state dir. Each seeded
+state record's `repo` field points at that run's hermetic fixture repo,
+not the flow checkout (`bin/lib/eval-fixture.ts` writes `repo: repoDir`)
+— so a bare `flow ls` run from the flow checkout no longer shows
+`eval-*` rows once `flow ls` scopes to the current repo by default; run
+`flow ls --all-repos` to see them while a suite is running. Teardown
+removes the seeded state (state, checkpoints, turn tracking, proc
+registry) whether the run passed, failed, or was interrupted.
