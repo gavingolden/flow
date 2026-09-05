@@ -47,17 +47,22 @@ describe("classifyDelegateSkip", () => {
         "decision-analysis-unchanged",
         "worktree-not-provided",
         "worktree-not-found",
+        "spawn-failed",
       ].sort(),
     );
   });
 
-  it("classifies agy-error as ran-unusable (deliberately excluded from ENVIRONMENT_SKIP_REASONS — it may cover a genuinely-dispatched call)", () => {
+  it("classifies agy-error as ran-unusable (deliberately excluded from ENVIRONMENT_SKIP_REASONS — it covers a genuinely-dispatched call)", () => {
     // NOTE: agy-error is deliberately excluded from ENVIRONMENT_SKIP_REASONS
-    // (the safe direction): bin/flow-delegate.ts emits it both when the
-    // runAgy spawn throws (agy never ran) AND on a non-zero exit without an
-    // auth signature (agy genuinely ran) — since it can't be assumed
-    // quota-free, it classifies as ran-unusable. This pins that exclusion.
+    // (the safe direction). It now covers only the non-zero-exit-without-an-
+    // auth-signature case, where agy genuinely ran and may have spent quota;
+    // the runAgy-spawn-throw case that used to share this reason now emits
+    // `spawn-failed`, which IS pre-dispatch and IS in the set above.
     expect(classifyDelegateSkip("agy-error")).toBe("ran-unusable");
+  });
+
+  it("classifies spawn-failed as environment (the runAgy spawn threw, so agy never ran and no quota was spent)", () => {
+    expect(classifyDelegateSkip("spawn-failed")).toBe("environment");
   });
 
   it("defaults an unknown/never-seen reason string to ran-unusable", () => {

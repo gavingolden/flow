@@ -59,6 +59,7 @@ import {
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { publishStateBadges } from "./lib/tmux";
 import { resolveSlugAmbient } from "./lib/session-identity";
+import { recordEvent } from "./lib/telemetry";
 import {
   BRANCH_MARKER_FILENAME,
   checkWorktreeBranch,
@@ -369,6 +370,33 @@ export function runUpdate(
       deps.publishBadges ?? ((s) => void publishStateBadges(s));
     try {
       publishBadges(next);
+    } catch {
+      // swallowed — see comment above.
+    }
+  }
+
+  // Durable phase-trace telemetry, best-effort (same swallow idiom as the
+  // publishBadges block above): fires ONLY on a --phase write, only after
+  // the write itself succeeded. `since_prev_ms` is derived from the
+  // PRE-write phaseLog's last entry (not `next`'s, which already carries
+  // this transition) so it measures dwell time in the phase being left.
+  if (parsed.phase !== undefined) {
+    try {
+      const priorLog = existing.phaseLog;
+      const lastEntry =
+        priorLog && priorLog.length > 0
+          ? priorLog[priorLog.length - 1]
+          : undefined;
+      const sincePrevMs = lastEntry
+        ? Date.now() - Date.parse(lastEntry.at)
+        : null;
+      recordEvent("phase.transition", {
+        from: existing.phase,
+        to: parsed.phase,
+        outcome: parsed.phaseOutcome ?? null,
+        since_prev_ms: sincePrevMs,
+        forced: parsed.force ?? false,
+      });
     } catch {
       // swallowed — see comment above.
     }
