@@ -2,8 +2,8 @@
 
 Shared contract for every exemption spawn site that owns a `maxTurns`-
 budgeted agent. This is a bounded `SendMessage` continuation **inside**
-the owning exemption's Task-tool call — never a tenth Task-tool site
-(`AGENTS.md`'s "only nine" count and the nine-site "Load the Task tool
+the owning exemption's Task-tool call — never a ninth Task-tool site
+(`AGENTS.md`'s "only eight" count and the eight-site "Load the Task tool
 before spawning" suite are unaffected).
 
 ## When this branch fires
@@ -27,7 +27,7 @@ artifact handling — unchanged behavior on older installs.
 ## Continuation procedure
 
 1. Load `SendMessage` via `ToolSearch query="select:SendMessage"` before
-   calling it, mirroring the Task-tool load guard at each of the nine
+   calling it, mirroring the Task-tool load guard at each of the eight
    spawn sites.
 2. Send **exactly one** message to the recovered `agentId`:
 
@@ -47,14 +47,9 @@ artifact handling — unchanged behavior on older installs.
    artifact counts as missing, same as an absent one. This step never
    loops: one continuation, one re-check, done.
 4. **Still missing or invalid** → fall through to the site's existing
-   missing-artifact handling:
-   - The nine top-level exemption sites escalate their own named
-     `NEEDS HUMAN: <site>-missing-artifact` tag exactly as they would
-     without this branch.
-   - The nested verify-loop → edit-applier site is the one exception:
-     it records `coder_spawn: "artifact-missing"` and applies the fix
-     inline instead, per its existing record-and-degrade contract —
-     never an escalation.
+   missing-artifact handling: each of the eight top-level exemption
+   sites escalates its own named `NEEDS HUMAN: <site>-missing-artifact`
+   tag exactly as it would without this branch.
 5. **A partial result WITH a valid artifact** is consumed normally; the
    partial marker is informational only and does not itself trigger a
    continuation.
@@ -62,8 +57,8 @@ artifact handling — unchanged behavior on older installs.
 ## Scope note
 
 This file is referenced by every exemption whose agent carries a
-`maxTurns` pin (Fix-Applier, Merge-Conflict Resolver, Edit-Applier,
-Verify-Retry-Loop) and by the pause-points in `flow-pipeline/SKILL.md`
-step 6 and step 10, `flow-pr-review/SKILL.md` Step 8, and
+`maxTurns` pin (Fix-Applier, Merge-Conflict Resolver, Edit-Applier) and
+by the pause-points in `flow-pipeline/SKILL.md` step 6 and step 10,
+`flow-pr-review/SKILL.md` Step 8, and
 `flow-coder/SKILL.md` step 4. It documents one bounded behavior inside
 each owning exemption — it does not create a new spawn site.

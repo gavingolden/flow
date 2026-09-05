@@ -3,7 +3,7 @@
 Offload target for `AGENTS.md` `## Git workflow` mechanics and several
 `## Don'ts` bullet bodies that need a durable home but must not become a
 new `## ` section in [exemption-contracts.md](exemption-contracts.md) —
-that file's h2 sections are pinned 1:1 to the nine Task-tool exemptions
+that file's h2 sections are pinned 1:1 to the eight Task-tool exemptions
 by `bin/skill-md-lint.test.ts`.
 
 ## Session marker + trailer mechanics
@@ -262,16 +262,15 @@ override in `~/.flow/config.json`, `overflowNote`) and
 `skills/pipeline/flow-pr-review/SKILL.md` Step 3 for `/flow-pr-review`'s
 `{{EXISTING_INTENT_COMMENTS}}` consumption.
 
-## Shared rationale for the nine Task-tool exemptions
+## Shared rationale for the eight Task-tool exemptions
 
 `/flow-pipeline`'s "Hard rules" forbid the supervisor from calling the
-`Task` / `Agent` tool, with nine named exceptions. The same rationale
-covers all nine: (a) the supervisor is itself a top-level Claude Code
+`Task` / `Agent` tool, with eight named exceptions. The same rationale
+covers all eight: (a) the supervisor is itself a top-level Claude Code
 session at depth 1, so its own Task calls are never themselves nested;
 flow chooses flat one-shot
-fan-out even though nesting is now platform-possible — with one
-sanctioned nested site, verify-loop → edit-applier, inside the
-Verify-Retry-Loop exemption; (b) each subagent is one-shot (returns an artifact + brief
+fan-out even though nesting is platform-possible — none of the eight
+sites nests; (b) each subagent is one-shot (returns an artifact + brief
 summary, then exits), so the context-bloat constraint doesn't apply
 either; (c) every exemption is anchored on its step _heading name_, not
 its number, so it survives renumbering; (d) every exemption is documented

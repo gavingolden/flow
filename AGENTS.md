@@ -109,14 +109,14 @@ Claude Code chat session, sub-skills load in-process via the `Skill`
 tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes raw
 `claude -p` subprocesses (headless Claude only via `flow-claude-headless`),
-**with nine narrowly-named exceptions** —
+**with eight narrowly-named exceptions** —
 the `**Task-tool exemption: ...**` bullets under `## Don'ts` below. This
 sidesteps two problems: deep sub-agent fan-out (possible since Claude Code
 v2.1.172, default cap 3, env-overridable via
 CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH, but token-expensive and hard to
 observe), and context bloat from a long-running supervisor with
 sub-agents. `flow-claude-headless` is the one sanctioned
-`claude -p` site (a Bash fan-out, not a tenth exemption; contract in
+`claude -p` site (a Bash fan-out, not a ninth exemption; contract in
 `skills/pipeline/flow-pipeline/references/headless-claude.md`).
 
 Logic needing a separate LLM session belongs in an in-process sub-skill
@@ -219,12 +219,12 @@ three-layer resolution table, and the manifest/foundation fields — is at
 - Don't bypass the helper scripts. The supervisor must always call
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. See above. The nine
+- Don't spawn sub-agents from the supervisor. See above. The eight
   named exceptions are the `**Task-tool exemption: ...**` bullets below
   (one each for `/flow-pr-review` Multi-Agent Review, `/flow-product-planning`
   Discovery, `/flow-new-feature` Scout, `/flow-pr-review` Fix-Applier,
   Merge-Conflict Resolver, `/flow-coder` Edit-Applier, `/flow-pr-review`
-  Gatekeeper, `/flow-pr-review` Consolidator-Validator, and Verify-Retry-Loop);
+  Gatekeeper, and `/flow-pr-review` Consolidator-Validator);
   no other skill or step may call Task.
 - Don't add features beyond the task's stated scope.
 - Don't treat an absent optional-module skill as a hard failure — check
@@ -305,11 +305,10 @@ three-layer resolution table, and the manifest/foundation fields — is at
     enforced by the step-10 backstop). Full anti-pattern catalogue and
     the `--no-auto-merge` opt-out are at
     [references/git-workflow.md](references/git-workflow.md).
-  - **Shared rationale for the nine Task-tool exemptions below**: the
+  - **Shared rationale for the eight Task-tool exemptions below**: the
     supervisor is depth 1, so its own Task calls are never nested; flow
     chooses flat one-shot fan-out despite nesting being
-    platform-possible, with one sanctioned nested site (verify-loop →
-    edit-applier, inside the Verify-Retry-Loop exemption); each subagent
+    platform-possible — none of the eight sites below nests; each subagent
     is one-shot; and each is documented bidirectionally with
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules". Full
     five-point rationale and each exemption's unique contract (spawn
@@ -336,9 +335,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
     when `/flow-new-feature` step 5, `/flow-verify` step 3, or
     `/flow-refactoring` step 3 takes its wider-scope path — or the
     supervisor's **interactive code-change redirect** path; full
-    contract in `skills/pipeline/flow-coder/SKILL.md`. (A second, nested
-    spawn site exists — see the Verify-Retry-Loop bullet below.) These are the
-    **only nine** authorised Task-tool fan-out sites from `/flow-pipeline`;
+    contract in `skills/pipeline/flow-coder/SKILL.md`. These are the
+    **only eight** authorised Task-tool fan-out sites from `/flow-pipeline`;
     no other skill or step may call Task.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
     Gatekeeper Subagent.** Step 1.5's one gatekeeper agent, `model:
@@ -346,32 +344,20 @@ three-layer resolution table, and the manifest/foundation fields — is at
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
     Consolidator-Validator Subagent.** Step 3.5's one consolidator
     agent, default Sonnet.
-  - **Task-tool exemption: `/flow-pipeline` → Verify-Retry-Loop
-    Subagent.** Step 6's one verify-retry-loop agent owning the
-    3-outer-attempt `/flow-verify` loop so failure JSON never
-    accumulates in the supervisor's own context. May itself spawn one
-    edit-applier subagent (depth 3) on its wider-scope path, with an
-    artifact-miss inline fallback and no `general-purpose` fallback — a
-    sanctioned nested site inside this exemption, not a tenth; see the
-    flow repo's `docs/nested-subagents-assessment.md` (rationale only;
-    not shipped by `flow install`).
-  - **Task-tool spawn sites must load Task first.** Each of the nine
+  - **Task-tool spawn sites must load Task first.** Each of the eight
     sites above must load the Task schema via
     `ToolSearch query="select:Task"` before invoking Task (or its alias
     `Agent`); on a missing schema, escalate
     `NEEDS HUMAN: task-tool-unavailable: <exemption-name>` rather than
     falling back inline. Enforced by `bin/skill-md-lint.test.ts`'s "Load
-    the Task tool before spawning" check at all nine sites, plus the
-    nested verify-loop → edit-applier site, which records `coder_spawn:
-    task-tool-unavailable` and degrades inline (a known-good fallback
-    there) — a sibling guard, not a tenth exemption.
+    the Task tool before spawning" check at all eight sites.
   - **A `SendMessage` continuation of a partial agent stays inside its
-    exemption — not a tenth site** (`references/partial-result-continuation.md`).
+    exemption — not a ninth site** (`references/partial-result-continuation.md`).
   - The `/flow-pr-review` Gemini lens, the cross-model intent guess
     (`flow-gemini-intent-guess`), the `/flow-pipeline` Step-3
     **cross-model plan review**, and the Step-3
     **blind method survey** are a
-    **Bash fan-out, not a tenth exemption** —
+    **Bash fan-out, not a ninth exemption** —
     `flow-delegate`/`flow-plan-review`/`flow-blind-survey` calls, no
     Task, graceful skip sans agy. The same holds for **headless Claude
     via `flow-claude-headless`** (contract:
@@ -396,12 +382,12 @@ three-layer resolution table, and the manifest/foundation fields — is at
     [references/git-workflow.md](references/git-workflow.md).
   - **`/flow-epic-create` is a separate sanctioned supervisor session.**
     `flow epic create` spawns a fresh top-level `/flow-epic-create` session, so
-    `/flow-pipeline`'s exactly-9 and one-form rule are unaffected by its
+    `/flow-pipeline`'s exactly-8 and one-form rule are unaffected by its
     two named surfaces: **Task-tool fan-out: `/flow-epic-create` →
     /flow-product-planning MODE: epic designer.** and **AskUserQuestion
     form: `/flow-epic-create` clarification round.** Its
     **cross-model design review** is a
-    **Bash fan-out, not a tenth exemption** —
+    **Bash fan-out, not a ninth exemption** —
     `review.gemini`-gated `flow-plan-review` over `design.md`; no Task,
     no form.
   - **`/flow-epic-run` is a separate sanctioned playbook session.**
@@ -411,7 +397,7 @@ three-layer resolution table, and the manifest/foundation fields — is at
     **no** `AskUserQuestion` form. `gated ⇒ escalate-only`, never merges
     a feature PR.
   - **`/flow-backlog-triage` is a separate sanctioned standalone
-    session,** so `/flow-pipeline`'s exactly-9 and one-form rule are
+    session,** so `/flow-pipeline`'s exactly-8 and one-form rule are
     unaffected by its one named surface: One Task-tool fan-out (Phase-1
     verification via `flow-backlog-verifier`), zero `AskUserQuestion`
     forms; contract in `skills/universal/flow-backlog-triage/SKILL.md`.

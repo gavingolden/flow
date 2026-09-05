@@ -42,9 +42,9 @@ export type SpawnSite = {
   fineGrainAbove?: string;
   fallback: Fallback;
   /**
-   * Of the spawn sites, only `flow-verify` + `flow-fix-applier` pin effort
-   * (frontmatter). An in-process `SKILL.md` (e.g. flow-checkpoint) may also
-   * pin effort — outside this spawn-site table entirely.
+   * Of the spawn sites, only `flow-fix-applier` pins effort (frontmatter).
+   * An in-process `SKILL.md` (e.g. flow-checkpoint) may also pin effort —
+   * outside this spawn-site table entirely.
    */
   effortPin?: EffortLevel;
 };
@@ -81,15 +81,8 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
     fineGrainAbove: "coder",
     fallback: "inherited",
   },
-  // verify + fix-applier fall back to a LITERAL sonnet, not the session model:
-  // both are mechanical gate/apply work that must not silently inherit Opus/Fable.
-  {
-    phase: "verify",
-    stateField: "modelVerify",
-    configKey: "verify",
-    fallback: "builtin-sonnet",
-    effortPin: "low",
-  },
+  // fix-applier falls back to a LITERAL sonnet, not the session model:
+  // mechanical apply-commit-push work that must not silently inherit Opus/Fable.
   {
     phase: "review",
     stateField: "modelReview",

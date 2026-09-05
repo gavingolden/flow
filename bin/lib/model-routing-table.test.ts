@@ -30,14 +30,6 @@ const row = (rows: ReturnType<typeof resolveRouting>, phase: string) => {
 describe("resolveRouting — fallback branches (empty config + state)", () => {
   const rows = resolveRouting({ state: null, config: {} });
 
-  it("verify falls back to the literal sonnet, not inherited", () => {
-    expect(row(rows, "verify")).toMatchObject({
-      model: "sonnet",
-      source: "built-in (sonnet)",
-      effort: "low (pinned)",
-    });
-  });
-
   it("fix-applier falls back to the literal sonnet, not inherited", () => {
     expect(row(rows, "fix-applier")).toMatchObject({
       model: "sonnet",
@@ -68,9 +60,9 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
     }
   });
 
-  it("only verify + fix-applier pin effort; every other row inherits", () => {
+  it("only fix-applier pins effort; every other row inherits", () => {
     for (const r of rows) {
-      const pinned = r.phase === "verify" || r.phase === "fix-applier";
+      const pinned = r.phase === "fix-applier";
       expect(r.effort).toBe(pinned ? "low (pinned)" : "inherited");
     }
   });
@@ -96,21 +88,10 @@ describe("resolveRouting — state per-phase overrides", () => {
     });
   });
 
-  it("state.modelVerify beats the built-in sonnet fallback", () => {
-    const rows = resolveRouting({
-      state: st({ modelVerify: "haiku" }),
-      config: {},
-    });
-    expect(row(rows, "verify")).toMatchObject({
-      model: "haiku",
-      source: "state (--model-verify)",
-    });
-  });
-
   it("a session effort is rendered on every non-pinned row and overridden by the pins", () => {
     const rows = resolveRouting({ state: st({ effort: "high" }), config: {} });
     expect(row(rows, "review").effort).toBe("high");
-    expect(row(rows, "verify").effort).toBe("low (pinned)");
+    expect(row(rows, "fix-applier").effort).toBe("low (pinned)");
   });
 });
 
@@ -222,8 +203,8 @@ describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
   );
   const parsed = parsePrecedenceTable(md);
 
-  it("parses the nine precedence-table rows", () => {
-    expect(parsed.length).toBe(9);
+  it("parses the eight precedence-table rows", () => {
+    expect(parsed.length).toBe(8);
     for (const r of parsed) expect(r.fallback).not.toBe("unknown");
   });
 

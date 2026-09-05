@@ -116,23 +116,19 @@ export function isFixLoopReentry(from: string, to: string): boolean {
 /**
  * Phase → emitting-helper map. Consumed by `bin/skill-md-lint.test.ts` to
  * assert SKILL.md names the right helper at each site and carries no
- * standalone `flow-state-update --phase <phase>` fence for these six
- * (was five; `verifying` was missing here despite being emitted below).
+ * standalone `flow-state-update --phase <phase>` fence for these five.
+ * `verifying` is deliberately absent — step 6 now writes it via an
+ * explicit `flow-state-update --phase verifying` call (no subagent
+ * side-effect helper resolves it anymore).
  * Must not contradict `bin/flow-stop-guard.ts`'s `NEXT_STEP_BY_PHASE`.
  */
 export const PHASE_EMITTERS: Readonly<
   Record<
-    | "implementing"
-    | "verifying"
-    | "ci-wait"
-    | "reviewing"
-    | "gating"
-    | "merging",
+    "implementing" | "ci-wait" | "reviewing" | "gating" | "merging",
     string
   >
 > = {
   implementing: "flow-open-pr",
-  verifying: "flow-verify-prep",
   "ci-wait": "flow-ci-check",
   reviewing: "flow-fetch-pr-review",
   gating: "flow-gate-decide",

@@ -86,7 +86,6 @@ export const MODULES: ModuleDefinition[] = [
       "flow-testing",
       "flow-backlog-triage",
       "flow-file-issue",
-      "flow-verify-loop-instructions",
       "flow-fix-applier-instructions",
       "flow-coder-instructions",
       "flow-merge-resolver-instructions",
@@ -109,7 +108,6 @@ export const MODULES: ModuleDefinition[] = [
       "flow-review-supply-chain.md",
       "flow-review-test-coverage.md",
       "flow-scout.md",
-      "flow-verify.md",
     ],
     helpers: [
       "flow-new-worktree",
@@ -138,7 +136,6 @@ export const MODULES: ModuleDefinition[] = [
       "flow-checkpoint",
       "flow-ci-wait",
       "flow-ci-check",
-      "flow-verify-prep",
       "flow-fetch-pr-review",
       "flow-reply-pr-comments",
       "flow-fetch-intent-comments",

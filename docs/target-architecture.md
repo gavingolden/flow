@@ -280,24 +280,24 @@ the PATH-bound schema validators. Always installed.
 
 **Agents**
 
-| Current                                     | Role                               | Frontmatter pin                                |
-| ------------------------------------------- | ---------------------------------- | ---------------------------------------------- |
-| `agents/flow-verify.md`                     | verify-retry-loop agent            | `tools:` allowlist; `effort: low` (mechanical) |
-| `agents/flow-fix-applier.md`                | pr-review fix-applier              | `tools:` allowlist; `effort: low` (mechanical) |
-| `agents/flow-review-bug-detection.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-security.md`            | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-pattern-consistency.md` | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-performance.md`         | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-supply-chain.md`        | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-test-coverage.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-gatekeeper.md`                 | pr-review gatekeeper               | `tools:` allowlist; `model: haiku`             |
-| `agents/flow-consolidator.md`               | pr-review consolidator-validator   | `tools:` allowlist                             |
-| `agents/flow-review-intent-guess.md`        | pr-review cross-model intent guess | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-scout.md`                      | new-feature scout                  | `tools:` allowlist                             |
-| `agents/flow-discovery.md`                  | product-planning discovery         | no `tools:` (inherits all)                     |
-| `agents/flow-merge-resolver.md`             | pipeline merge-conflict resolver   | `tools:` allowlist                             |
-| `agents/flow-edit-applier.md`               | coder edit-applier                 | `tools:` allowlist                             |
-| `agents/flow-backlog-verifier.md`           | backlog-triage Phase-1 verifier    | `tools: Bash, Read, Grep, Glob`                |
+| Current                                                                                           | Role                               | Frontmatter pin                                |
+| ------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------------- |
+| _(removed — `/flow-pipeline` now invokes `/flow-verify` inline; no more verify-retry-loop agent)_ | —                                  | —                                              |
+| `agents/flow-fix-applier.md`                                                                      | pr-review fix-applier              | `tools:` allowlist; `effort: low` (mechanical) |
+| `agents/flow-review-bug-detection.md`                                                             | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-security.md`                                                                  | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-pattern-consistency.md`                                                       | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-performance.md`                                                               | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-supply-chain.md`                                                              | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-test-coverage.md`                                                             | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-gatekeeper.md`                                                                       | pr-review gatekeeper               | `tools:` allowlist; `model: haiku`             |
+| `agents/flow-consolidator.md`                                                                     | pr-review consolidator-validator   | `tools:` allowlist                             |
+| `agents/flow-review-intent-guess.md`                                                              | pr-review cross-model intent guess | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-scout.md`                                                                            | new-feature scout                  | `tools:` allowlist                             |
+| `agents/flow-discovery.md`                                                                        | product-planning discovery         | no `tools:` (inherits all)                     |
+| `agents/flow-merge-resolver.md`                                                                   | pipeline merge-conflict resolver   | `tools:` allowlist                             |
+| `agents/flow-edit-applier.md`                                                                     | coder edit-applier                 | `tools:` allowlist                             |
+| `agents/flow-backlog-verifier.md`                                                                 | backlog-triage Phase-1 verifier    | `tools: Bash, Read, Grep, Glob`                |
 
 Phase 4 is complete: the scout, discovery, merge-resolver, and
 edit-applier fan-outs are now promoted `agents/*.md` definitions —

@@ -341,14 +341,6 @@ const UI_VALIDATION_SCHEMA_PATH = path.resolve(
 );
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
-// `flow-verify-prep.ts` (plan.md Task 10) now owns the VERIFY_MODEL /
-// VERIFY_SUBAGENT resolution that used to be inline prose in Step 6's
-// spawn-prep fence — several lints below assert against its SOURCE
-// instead of SKILL.md text for exactly that reason.
-const verifyPrepContent = fs.readFileSync(
-  path.resolve(HERE, "flow-verify-prep.ts"),
-  "utf8",
-);
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
 const exemptionContractsContent = fs.readFileSync(
   EXEMPTION_CONTRACTS_PATH,
@@ -939,30 +931,29 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     );
   }
 
-  it("flow-pipeline/SKILL.md Hard rules lists exactly 9 Task-tool exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules lists exactly 8 Task-tool exemptions", () => {
     const exemptions = extractSkillExemptions();
     expect(
       exemptions.length,
-      "flow-pipeline/SKILL.md must list exactly 9 Task-tool exemption blocks " +
+      "flow-pipeline/SKILL.md must list exactly 8 Task-tool exemption blocks " +
         "(one each for /flow-pr-review Multi-Agent Review, /flow-product-planning Discovery " +
         "Subagent, /flow-new-feature Scout Subagent, /flow-pr-review Fix-Applier Subagent, " +
         "/flow-pipeline step 10's Merge-Conflict Resolver Subagent, /flow-coder " +
-        "Edit-Applier Subagent, /flow-pr-review Step 1.5 Gatekeeper Subagent, " +
-        "/flow-pr-review Step 3.5 Consolidator-Validator Subagent, and /flow-pipeline " +
-        "step 6's Verify-Retry-Loop Subagent). " +
+        "Edit-Applier Subagent, /flow-pr-review Step 1.5 Gatekeeper Subagent, and " +
+        "/flow-pr-review Step 3.5 Consolidator-Validator Subagent). " +
         "Found: " +
         JSON.stringify(exemptions),
-    ).toBe(9);
+    ).toBe(8);
   });
 
-  it("AGENTS.md ## Don'ts lists exactly 9 Task-tool exemption bullets", () => {
+  it("AGENTS.md ## Don'ts lists exactly 8 Task-tool exemption bullets", () => {
     const exemptions = extractAgentsExemptions();
     expect(
       exemptions.length,
-      "AGENTS.md ## Don'ts must list exactly 9 Task-tool exemption bullets. " +
+      "AGENTS.md ## Don'ts must list exactly 8 Task-tool exemption bullets. " +
         "Found: " +
         JSON.stringify(exemptions),
-    ).toBe(9);
+    ).toBe(8);
   });
 
   it("AGENTS.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
@@ -984,14 +975,14 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("references/exemption-contracts.md lists exactly 9 contract sections", () => {
+  it("references/exemption-contracts.md lists exactly 8 contract sections", () => {
     const exemptions = extractContractsExemptions();
     expect(
       exemptions.length,
-      "references/exemption-contracts.md must hold exactly 9 `## ` contract " +
+      "references/exemption-contracts.md must hold exactly 8 `## ` contract " +
         "sections (one per Task-tool exemption). Found: " +
         JSON.stringify(exemptions),
-    ).toBe(9);
+    ).toBe(8);
   });
 
   it("references/exemption-contracts.md matches the AGENTS.md exemption set", () => {
@@ -1003,7 +994,7 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       onlyInContracts.length,
       `Sections in references/exemption-contracts.md but missing from AGENTS.md openers: ${JSON.stringify(onlyInContracts)}. ` +
         "The offloaded contract file and the AGENTS.md `## Don'ts` openers enumerate the same " +
-        "nine exemptions; a section heading must match its AGENTS.md opener name (minus the " +
+        "eight exemptions; a section heading must match its AGENTS.md opener name (minus the " +
         "`/flow-pipeline → ` prefix) so a reader hopping AGENTS.md → references lands on the right section.",
     ).toBe(0);
     expect(
@@ -1014,49 +1005,49 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("flow-pipeline/SKILL.md Hard rules preamble references nine exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules preamble references eight exemptions", () => {
     expect(
       skillStripped.match(
-        /the\s+\*\*only nine\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
+        /the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
       ),
-      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only nine** authorised " +
+      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only eight** authorised " +
         "Task-tool fan-out sites'. If you added or removed an exemption, update the count " +
         "in the preamble too — the count is bidirectional with the block list below.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Hard rules opening references nine Task-tool exceptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules opening references eight Task-tool exceptions", () => {
     expect(
       skillStripped.match(
-        /the\s+nine\s+narrowly-named Task-tool exceptions that\s+follow/,
+        /the\s+eight\s+narrowly-named Task-tool exceptions that\s+follow/,
       ),
-      "flow-pipeline/SKILL.md Hard rules opening must say 'the nine narrowly-named " +
+      "flow-pipeline/SKILL.md Hard rules opening must say 'the eight narrowly-named " +
         "Task-tool exceptions that follow'. Drift here means a future reader sees a count " +
         "that doesn't match the exemption blocks.",
     ).toBeTruthy();
   });
 
-  it("AGENTS.md upstream prose references nine exceptions", () => {
+  it("AGENTS.md upstream prose references eight exceptions", () => {
     expect(
-      agentsContent.match(/\*\*with nine narrowly-named exceptions\*\*/),
-      "AGENTS.md ## Supervisor and sub-skills must say '**with nine narrowly-named exceptions**'. " +
+      agentsContent.match(/\*\*with eight narrowly-named exceptions\*\*/),
+      "AGENTS.md ## Supervisor and sub-skills must say '**with eight narrowly-named exceptions**'. " +
         "The count must match the bullet list under ## Don'ts.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/The nine\s+named exceptions are/),
-      "AGENTS.md ## Don'ts parent bullet must say 'The nine named exceptions are'. " +
+      agentsContent.match(/The eight\s+named exceptions are/),
+      "AGENTS.md ## Don'ts parent bullet must say 'The eight named exceptions are'. " +
         "Drift here is the most likely landmine when adding a new exemption.",
     ).toBeTruthy();
     expect(
       agentsContent.match(
-        /the\s+\*\*only nine\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
+        /the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
       ),
-      "AGENTS.md ## Don'ts closer must say 'the **only nine** authorised Task-tool fan-out sites'. " +
+      "AGENTS.md ## Don'ts closer must say 'the **only eight** authorised Task-tool fan-out sites'. " +
         "Same count, same wording as flow-pipeline/SKILL.md's closer.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Verification (this skill) lists all nine exemptions by name", () => {
+  it("flow-pipeline/SKILL.md Verification (this skill) lists all eight exemptions by name", () => {
     const verificationSection =
       content.split("# Verification")[1] ??
       content.split("# Verification (this skill)")[1] ??
@@ -1104,13 +1095,7 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       ),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Consolidator-Validator Subagent' " +
         "as one of the named Task-tool exemptions. The eighth exemption was added in the " +
-        "/flow-pr-review Step 3.5 Consolidator-Validator refactor; this list must enumerate all nine.",
-    ).toBe(true);
-    expect(
-      verificationSection.includes("Verify-Retry-Loop Subagent"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Verify-Retry-Loop Subagent' " +
-        "as one of the named Task-tool exemptions. The ninth exemption was added in the " +
-        "step 6 verify-retry-loop refactor; this list must enumerate all nine.",
+        "/flow-pr-review Step 3.5 Consolidator-Validator refactor; this list must enumerate all eight.",
     ).toBe(true);
   });
 
@@ -1505,37 +1490,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
           ),
       );
 
-  it("the flow-pipeline verify-loop spawn site names flow-verify with a general-purpose fallback", () => {
-    expect(
-      content.includes("subagent_type: $VERIFY_SUBAGENT"),
-      "flow-pipeline SKILL.md step-6 spawn must use `subagent_type: $VERIFY_SUBAGENT` " +
-        "so the resolved low-effort agent (or the general-purpose fallback) is passed.",
-    ).toBe(true);
-    // The VERIFY_SUBAGENT resolution itself moved into `bin/flow-verify-prep.ts`
-    // (plan.md Task 10) — SKILL.md now only consumes `$VERIFY_SUBAGENT` from
-    // the helper's JSON, so these two assertions read the helper's source.
-    expect(
-      verifyPrepContent.includes(
-        'verifySubagent = "flow-module-core:flow-verify"',
-      ),
-      "bin/flow-verify-prep.ts must resolve VERIFY_SUBAGENT to " +
-        "`flow-module-core:flow-verify` — the agents/flow-verify.md definition " +
-        "that pins effort: low (plugin-qualified resolution asserted in full " +
-        "by the SITES it.each below).",
-    ).toBe(true);
-    expect(
-      /verifySubagent = "general-purpose"/.test(verifyPrepContent),
-      "bin/flow-verify-prep.ts must fall back to `general-purpose` when " +
-        "the flow-verify definition is not symlinked, so the spawn never fails on an " +
-        "unknown agent type.",
-    ).toBe(true);
-    expect(
-      content.includes('model: "$VERIFY_MODEL"'),
-      "flow-pipeline SKILL.md verify site must still pass the per-spawn " +
-        '`model: "$VERIFY_MODEL"` override so the per-phase model flags keep working.',
-    ).toBe(true);
-  });
-
   it("the pr-review fix-applier spawn site names flow-fix-applier with a general-purpose fallback", () => {
     expect(
       prReviewContent.includes("subagent_type: $FIX_APPLIER_SUBAGENT"),
@@ -1579,8 +1533,8 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     ).toBe(true);
   });
 
-  it("neither low-effort agent definition pins a model (per-spawn override must win)", () => {
-    for (const name of ["flow-verify.md", "flow-fix-applier.md"] as const) {
+  it("the low-effort agent definition does not pin a model (per-spawn override must win)", () => {
+    for (const name of ["flow-fix-applier.md"] as const) {
       const agentPath = path.resolve(HERE, "..", "agents", "core", name);
       expect(
         fs.existsSync(agentPath),
@@ -1622,15 +1576,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     wantCacheTtl?: "1h";
     wantSkills?: string;
   }> = [
-    {
-      file: "flow-verify.md",
-      wantEffort: "low",
-      wantTools:
-        "Bash, Read, Edit, Write, Grep, ToolSearch, Task, SendMessage, mcp__chrome-devtools__\\*",
-      wantMaxTurns: 150,
-      wantCacheTtl: "1h",
-      wantSkills: "flow-verify-loop-instructions",
-    },
     {
       file: "flow-fix-applier.md",
       wantEffort: "low",
@@ -1835,40 +1780,35 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     }
   });
 
-  it("flow-verify.md and flow-fix-applier.md retain the mcp__chrome-devtools__* and ToolSearch grants (UI-running agents)", () => {
-    for (const file of ["flow-verify.md", "flow-fix-applier.md"]) {
-      const content = fs.readFileSync(
-        path.resolve(HERE, "..", "agents", "core", file),
-        "utf8",
-      );
-      for (const grant of ["ToolSearch", "mcp__chrome-devtools__*"]) {
-        expect(
-          content.includes(grant),
-          `agents/${file} must keep the '${grant}' grant in its tools: ` +
-            "frontmatter — the two sub-agents run the browser UI passes; dropping " +
-            "it silently re-breaks the browser gate (mcp-not-available).",
-        ).toBe(true);
-      }
+  it("flow-fix-applier.md retains the mcp__chrome-devtools__* and ToolSearch grants (UI-running agent)", () => {
+    const content = fs.readFileSync(
+      path.resolve(HERE, "..", "agents", "core", "flow-fix-applier.md"),
+      "utf8",
+    );
+    for (const grant of ["ToolSearch", "mcp__chrome-devtools__*"]) {
+      expect(
+        content.includes(grant),
+        `agents/flow-fix-applier.md must keep the '${grant}' grant in its tools: ` +
+          "frontmatter — the sub-agent runs the browser UI pass; dropping " +
+          "it silently re-breaks the browser gate (mcp-not-available).",
+      ).toBe(true);
     }
   });
 
-  it("no agent other than flow-verify.md and flow-fix-applier.md carries the chrome-devtools MCP grant", () => {
+  it("no agent other than flow-fix-applier.md carries the chrome-devtools MCP grant", () => {
     const agentsDir = path.resolve(HERE, "..", "agents", "core");
     const otherAgentFiles = fs
       .readdirSync(agentsDir)
-      .filter(
-        (file) =>
-          file.endsWith(".md") &&
-          file !== "flow-verify.md" &&
-          file !== "flow-fix-applier.md",
-      );
+      .filter((file) => file.endsWith(".md") && file !== "flow-fix-applier.md");
     for (const file of otherAgentFiles) {
       const content = fs.readFileSync(path.resolve(agentsDir, file), "utf8");
       expect(
         content.includes("mcp__chrome-devtools"),
         `agents/${file} must NOT carry the chrome-devtools MCP grant — only ` +
-          "flow-verify.md and flow-fix-applier.md run the browser UI passes; " +
-          "granting it elsewhere silently widens the browser blast radius.",
+          "flow-fix-applier.md runs the browser UI pass (/flow-verify's own " +
+          "UI-smoke pass now runs in-process, inheriting the session's tools " +
+          "rather than a spawned agent's grant); granting it elsewhere silently " +
+          "widens the browser blast radius.",
       ).toBe(false);
     }
   });
@@ -1985,14 +1925,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
           "real guard notices as long as the prose mention survives.",
       ).toBe(true);
     }
-    expect(
-      verifyPrepContent.includes(
-        "agent-fallback: flow-verify → general-purpose",
-      ),
-      "bin/flow-verify-prep.ts must emit the named agent-fallback notice on " +
-        "its general-purpose fallback branch (moved from SKILL.md prose by " +
-        "plan.md Task 10).",
-    ).toBe(true);
     expect(
       content.includes("agent-fallback: flow-merge-resolver → general-purpose"),
       "flow-pipeline SKILL.md step-10 merge-resolver guard must emit the named " +
@@ -2302,9 +2234,9 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
-        "skills/pipeline/flow-verify-loop-instructions/SKILL.md",
-        403,
-        "NEVER touch the base branch",
+        "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
+        466,
+        "NEVER commit to or push the base branch",
       ],
       [
         "agents/core/flow-merge-resolver.md",
@@ -2541,15 +2473,13 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   });
 });
 
-describe("Compact Instructions + verify-loop-instructions structural anchors", () => {
-  // The `## Compact Instructions` compaction-steering section and the new
-  // flow-verify-loop-instructions/SKILL.md spawn-instructions file are load-bearing
+describe("Compact Instructions structural anchors", () => {
+  // The `## Compact Instructions` compaction-steering section is load-bearing
   // governance the PR's one-shot Test-Steps greps cover but no durable lint
-  // does. These anchors are the durable guard so a later edit deleting the
-  // KEEP/DROP list, dropping the heading from either file, or removing the
-  // instructions file goes red on `npm run verify` — same regression class
-  // the cross-doc `persist-back` and `task-tool-exemption-preamble.md`
-  // existence guards above protect against.
+  // does. This anchor is the durable guard so a later edit deleting the
+  // KEEP/DROP list or dropping the heading goes red on `npm run verify` —
+  // same regression class the cross-doc `persist-back` and
+  // `task-tool-exemption-preamble.md` existence guards above protect against.
 
   function compactSection(content: string): string {
     const start = content.indexOf("\n## Compact Instructions");
@@ -2593,119 +2523,6 @@ describe("Compact Instructions + verify-loop-instructions structural anchors", (
       "templates/AGENTS.md.template must carry a `## Compact Instructions` " +
         "section so consumer repos get the same compaction steering.",
     ).toBeGreaterThan(0);
-  });
-
-  it("flow-verify-loop-instructions/SKILL.md exists and carries its contract anchors", () => {
-    const verifyLoopPath = path.resolve(
-      HERE,
-      "..",
-      "skills",
-      "pipeline",
-      "flow-verify-loop-instructions",
-      "SKILL.md",
-    );
-    expect(
-      fs.existsSync(verifyLoopPath),
-      "skills/pipeline/flow-verify-loop-instructions/SKILL.md " +
-        "must exist — it is the spawn-instructions file the step-6 " +
-        "Verify-Retry-Loop subagent reads, referenced by name from SKILL.md, " +
-        "AGENTS.md, and exemption-contracts.md.",
-    ).toBe(true);
-    const content = fs.readFileSync(verifyLoopPath, "utf8");
-    expect(
-      content.length,
-      "flow-verify-loop-instructions/SKILL.md must be non-empty.",
-    ).toBeGreaterThan(0);
-    expect(
-      content.includes("verify-loop-result.json"),
-      "flow-verify-loop-instructions/SKILL.md must name the `verify-loop-result.json` artifact.",
-    ).toBe(true);
-    expect(
-      content.includes("verify_status"),
-      "flow-verify-loop-instructions/SKILL.md must document the `verify_status` artifact field.",
-    ).toBe(true);
-    expect(
-      content.includes("verify-coder-result.json"),
-      "flow-verify-loop-instructions/SKILL.md must document the load-bearing hybrid " +
-        "inline/nested-spawn invariant: narrow fixes apply inline; wider-scope " +
-        "fixes spawn one flow-edit-applier subagent writing " +
-        "verify-coder-result.json, recording coder_spawn and falling back " +
-        "inline on any miss — never hanging or retrying the spawn.",
-    ).toBe(true);
-    expect(
-      content.includes("select:Task") ||
-        content.includes("Load the Task tool before spawning"),
-      "flow-verify-loop-instructions/SKILL.md must document the Task-load guard " +
-        "('Load the Task tool before spawning' / ToolSearch query=\"select:Task\") " +
-        "for its one sanctioned nested spawn.",
-    ).toBe(true);
-  });
-
-  const CODER_SPAWN_VALUES = [
-    "ok",
-    "not-attempted",
-    "task-tool-unavailable",
-    "agent-unavailable",
-    "artifact-missing",
-    "invalid",
-  ] as const;
-
-  it.each(CODER_SPAWN_VALUES)(
-    "flow-verify-loop-instructions/SKILL.md documents the coder_spawn value %s",
-    (value) => {
-      const verifyLoopPath = path.resolve(
-        HERE,
-        "..",
-        "skills",
-        "pipeline",
-        "flow-verify-loop-instructions",
-        "SKILL.md",
-      );
-      const content = fs.readFileSync(verifyLoopPath, "utf8");
-      expect(
-        content.includes(`"${value}"`),
-        `flow-verify-loop-instructions/SKILL.md must document the coder_spawn value '"${value}"' — the ` +
-          "supervisor's step-6 NOTICE branch keys off exactly this enum; dropping a value " +
-          "breaks the record-and-degrade contract without failing any test.",
-      ).toBe(true);
-    },
-  );
-
-  it("flow-pipeline/SKILL.md's step-6 artifact read keeps the CODER_SPAWN NOTICE anchors", () => {
-    for (const literal of [
-      "CODER_SPAWN=$(jq -r '.coder_spawn // empty' \"$ARTIFACT_PATH\")",
-      "NOTICE — verify-loop coder spawn degraded:",
-    ]) {
-      expect(
-        content.includes(literal),
-        `flow-pipeline SKILL.md step-6 artifact read must keep '${literal}' — the recorded ` +
-          "coder_spawn degradation is never escalated, so this NOTICE is the only signal a " +
-          "depth-3 spawn or artifact miss ever reaches a human.",
-      ).toBe(true);
-    }
-  });
-
-  it("flow-pipeline SKILL.md step 6 resolves everything via flow-verify-prep, not a standalone phase write", () => {
-    // Superseded by `bin/lib/phase-advance.ts`'s PHASE_EMITTERS lint below:
-    // the former spawn-prep fence's OWN `flow-state-update --phase verifying`
-    // (measured 7/10, then 4/10, skipped even when folded into this fence)
-    // is now `flow-verify-prep`'s side effect, not a command in this file at
-    // all — this test pins the fence's first command is the helper call, not
-    // that a since-removed phase-write line still lives here.
-    const step6 = content.slice(content.indexOf("## Step 6 — Local verify"));
-    const fenceStart = step6.indexOf("```bash");
-    const fence = step6.slice(fenceStart, step6.indexOf("```", fenceStart + 7));
-    expect(
-      /```bash\nVERIFY_JSON=\$\(flow-verify-prep /.test(step6),
-      "step 6's spawn-prep fence must call flow-verify-prep as its first " +
-        "command — the phase write is the helper's side effect, so skipping " +
-        "the call means skipping the values needed to spawn at all.",
-    ).toBe(true);
-    expect(
-      fence.includes("flow-state-update --phase verifying"),
-      "the phase write must not reappear as a standalone command in step 6's " +
-        "fence — it is flow-verify-prep's side effect now.",
-    ).toBe(false);
   });
 });
 
@@ -2998,7 +2815,7 @@ describe("cross-model plan review doc symmetry (AGENTS.md ↔ flow-pipeline/SKIL
    * does NOT touch the nine-exemption-count `.toBe`/only-nine lints.
    */
   const PLAN_REVIEW_PHRASE = "cross-model plan review";
-  const FANOUT_PHRASE = "Bash fan-out, not a tenth exemption";
+  const FANOUT_PHRASE = "Bash fan-out, not a ninth exemption";
 
   it("AGENTS.md names the cross-model plan review Bash-fan-out sibling note", () => {
     expect(
@@ -3034,7 +2851,7 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
    * does NOT touch the nine-exemption-count `.toBe`/only-nine lints.
    */
   const SURVEY_PHRASE = "blind method survey";
-  const FANOUT_PHRASE = "Bash fan-out, not a tenth exemption";
+  const FANOUT_PHRASE = "Bash fan-out, not a ninth exemption";
   // Co-anchor both phrases in one regex (bounded to ~400 chars apart) so a
   // drift that leaves one phrase in place while moving/renaming the other
   // into an unrelated paragraph can't silently pass two independent
@@ -3102,7 +2919,7 @@ describe("cross-model design review doc symmetry (AGENTS.md ↔ flow-epic-create
    * separately-anchored guard — it does NOT touch the two-named-surface count.
    */
   const DESIGN_REVIEW_PHRASE = "cross-model design review";
-  const FANOUT_PHRASE = "Bash fan-out, not a tenth exemption";
+  const FANOUT_PHRASE = "Bash fan-out, not a ninth exemption";
   const EPIC_CREATE_PATH = path.resolve(
     HERE,
     "..",
@@ -4527,7 +4344,7 @@ describe("pr-review result-artifact contract lint", () => {
   );
 });
 
-describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites plus the nested verify-loop site", () => {
+describe("Task-tool ToolSearch-load preamble at all eight top-level spawn sites", () => {
   const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
     {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
@@ -4561,20 +4378,9 @@ describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites p
       file: "skills/pipeline/flow-pipeline/SKILL.md",
       exemption_name: "flow-pipeline-merge-resolver",
     },
-    {
-      file: "skills/pipeline/flow-pipeline/SKILL.md",
-      exemption_name: "flow-pipeline-verify-loop",
-    },
   ];
 
-  const NESTED_SITE_NAME = "verify-loop-edit-applier";
-  const NESTED_SITE_FILE =
-    "skills/pipeline/flow-verify-loop-instructions/SKILL.md";
-  const TOP_LEVEL_SITES = SITES.filter(
-    (s) => s.exemption_name !== NESTED_SITE_NAME,
-  );
-
-  it.each(TOP_LEVEL_SITES)(
+  it.each(SITES)(
     "$file carries the 'Load the Task tool before spawning' preamble and escalation tag for $exemption_name",
     ({ file, exemption_name }) => {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
@@ -4598,34 +4404,6 @@ describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites p
       ).toBe(true);
     },
   );
-
-  it("the nested verify-loop → edit-applier site loads Task then records-and-degrades instead of escalating", () => {
-    const absPath = path.resolve(HERE, "..", ...NESTED_SITE_FILE.split("/"));
-    const fileContent = fs.readFileSync(absPath, "utf8");
-    expect(
-      fileContent.includes("Load the Task tool before spawning"),
-      `${NESTED_SITE_FILE} must include the literal 'Load the Task tool before spawning' ` +
-        `anchor for '${NESTED_SITE_NAME}', same as the nine top-level sites.`,
-    ).toBe(true);
-    expect(
-      fileContent.includes('coder_spawn: "task-tool-unavailable"'),
-      `${NESTED_SITE_FILE} must record coder_spawn: "task-tool-unavailable" on a missing ` +
-        `Task schema at the '${NESTED_SITE_NAME}' site.`,
-    ).toBe(true);
-    expect(
-      /do not escalate/i.test(fileContent),
-      `${NESTED_SITE_FILE} must state its failure action is inverted from the nine ` +
-        `top-level sites: do not escalate on a missing Task schema.`,
-    ).toBe(true);
-    expect(
-      fileContent.includes(
-        `NEEDS HUMAN: task-tool-unavailable: ${NESTED_SITE_NAME}`,
-      ),
-      `${NESTED_SITE_FILE} must NOT escalate 'NEEDS HUMAN: task-tool-unavailable: ` +
-        `${NESTED_SITE_NAME}' — inline application is this site's known-good fallback, ` +
-        `unlike the nine top-level exemptions that have none.`,
-    ).toBe(false);
-  });
 
   // Sites refactored to include-by-reference: the alias-tolerance literals
   // live in skills/pipeline/flow-pr-review/references/task-tool-exemption-preamble.md
@@ -4714,14 +4492,9 @@ describe("Agent spawn sites resolve plugin-qualified subagent_type on the plugin
   // test pins that invariant so a future refactor cannot silently revert
   // it back to the pre-fix, hard-spawn-failure shape.
   const SITES: ReadonlyArray<{ file: string; agent: string }> = [
-    { file: "skills/pipeline/flow-pipeline/SKILL.md", agent: "flow-verify" },
     {
       file: "skills/pipeline/flow-pipeline/SKILL.md",
       agent: "flow-merge-resolver",
-    },
-    {
-      file: "skills/pipeline/flow-verify-loop-instructions/SKILL.md",
-      agent: "flow-edit-applier",
     },
     { file: "skills/pipeline/flow-new-feature/SKILL.md", agent: "flow-scout" },
     {
@@ -6355,30 +6128,32 @@ describe("browser-driven UI-validation structural anchors", () => {
   // assertion in the same commit.
 
   it("flow-pipeline SKILL.md Step 6 documents the Automated UI-smoke pass", () => {
-    // Step 6 (verifying) wires the LLM-free flow-ui-validate helper + the
-    // MCP probe → --mcp-absent fallback → loud-skip relay → ok:false fix-loop
-    // routing. Consumed by /flow-verify's own SKILL.md (which mirrors it) and the
-    // supervisor that drives Step 6. NOT a new ## Step heading (the 12-step
-    // count is asserted above).
+    // Step 6 (verifying) now invokes /flow-verify inline, which itself wires
+    // the LLM-free flow-ui-validate helper + the MCP probe → --mcp-absent
+    // fallback → loud-skip relay → ok:false fix-loop routing (verify
+    // SKILL.md is the one canonical site now that the pass runs in-process
+    // rather than crossing an isolation boundary). NOT a new ## Step
+    // heading (the 12-step count is asserted above).
     expect(
-      content.includes("Automated UI-smoke pass (before/alongside"),
+      content.includes("Automated UI-smoke pass."),
       "flow-pipeline SKILL.md Step 6 must document the 'Automated UI-smoke " +
         "pass'. It is the supervisor-side contract for the browser-validation " +
         "capability; /flow-verify SKILL.md and the rubric reference it.",
     ).toBe(true);
   });
 
-  it("flow-pipeline SKILL.md Step 6 documents the adaptive noise filter", () => {
-    // The other half of the noise filter: when an ok:false flags benign noise
-    // unrelated to the diff, the agent adds the substring to the manifest's
-    // ignore*Patterns and COMMITS that change (lands in the PR diff) instead of
-    // burning a fix-loop attempt. verify SKILL.md mirrors this guidance.
+  it("verify SKILL.md documents the adaptive noise filter", () => {
+    // When an ok:false flags benign noise unrelated to the diff, the agent
+    // adds the substring to the manifest's ignore*Patterns and COMMITS that
+    // change (lands in the PR diff) instead of burning a fix-loop attempt.
+    // Now the one canonical site (flow-pipeline SKILL.md defers to
+    // /flow-verify's own in-process report instead of mirroring this prose).
     expect(
-      content.includes("Adaptive noise filter:") &&
-        content.includes(
-          "add the offending substring to the manifest's `ignoreRequestPatterns`",
+      verifyContent.includes("Adaptive noise filter:") &&
+        verifyContent.includes(
+          "add the substring to the manifest's `ignoreRequestPatterns`",
         ),
-      "flow-pipeline SKILL.md Step 6 must document the 'Adaptive noise " +
+      "verify SKILL.md must document the 'Adaptive noise " +
         "filter' (add benign-noise substring to ignoreRequestPatterns + " +
         "commit the manifest change, don't fix-loop on it).",
     ).toBe(true);
@@ -6575,20 +6350,16 @@ describe("browser-driven UI-validation structural anchors", () => {
   it("guards the self-improving-manifest persist-back instruction across doc sites", () => {
     // The CRITICAL persist-back instruction (the agent commits on-the-fly
     // launch adaptations back into .flow/ui-validation.json) must survive at
-    // all four prose sites that document it so it can't be silently dropped
-    // from any one of them. Anchor on a stable single-line substring written
-    // into every site.
+    // the prose sites that document it so it can't be silently dropped from
+    // any one of them. Anchor on a stable single-line substring written into
+    // every site. flow-pipeline/SKILL.md no longer duplicates this prose —
+    // /flow-verify now runs the UI-smoke pass in-process (not an isolated
+    // subagent), so its own SKILL.md is the one canonical site instead of a
+    // cross-isolation-boundary mirror.
     const anchor = "persists the launch adaptation back into";
     expect(
       agentsTemplateContent.includes(anchor),
       "templates/AGENTS.md.template must document the self-improving-manifest " +
-        "persist-back instruction (anchor: '" +
-        anchor +
-        "').",
-    ).toBe(true);
-    expect(
-      content.includes(anchor),
-      "flow-pipeline SKILL.md Step 6 must document the self-improving-manifest " +
         "persist-back instruction (anchor: '" +
         anchor +
         "').",
@@ -7177,7 +6948,7 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
     // Step 4.5 cross-model design-review gate literals
     ["flow-plan-review", "the cross-model design-review Bash fan-out"],
     ["review.gemini", "the shared cross-model opt-in key"],
-    ["Bash fan-out, not a tenth exemption", "the not-a-Task sibling note"],
+    ["Bash fan-out, not a ninth exemption", "the not-a-Task sibling note"],
     ["^## Decision analysis", "the consumer-side Decision-analysis gate grep"],
     // Resume-mode literals
     [
@@ -7454,7 +7225,6 @@ describe("per-phase model-routing wiring lint (feature: per-phase model selectio
     for (const field of [
       "modelPlanning",
       "modelImplement",
-      "modelVerify",
       "modelReview",
       "modelFixApplier",
       "modelConsolidator",
@@ -7465,13 +7235,12 @@ describe("per-phase model-routing wiring lint (feature: per-phase model selectio
         `model-routing.md must name the '${field}' resolution field.`,
       ).toBe(true);
     }
-    // The verify-sonnet asymmetry and the gatekeeper pin are documented there.
-    expect(routing).toMatch(/verify.*sonnet/i);
+    // The fixApplier-sonnet asymmetry and the gatekeeper pin are documented there.
+    expect(routing).toMatch(/fixApplier.*sonnet/i);
     expect(routing).toContain('model: "haiku"');
   });
 
   it.each([
-    ["flow-pipeline/SKILL.md", "modelVerify", "config.models.verify"],
     [
       "flow-pipeline/SKILL.md",
       "modelMergeResolver",
@@ -8195,9 +7964,9 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     ).toBeGreaterThanOrEqual(5);
   });
 
-  it("flow-pipeline/SKILL.md agent table Multi-Agent Review exemption still counts nine total", () => {
+  it("flow-pipeline/SKILL.md agent table Multi-Agent Review exemption still counts eight total", () => {
     const matches = content.match(/Task-tool exemption #\d+:/g) ?? [];
-    expect(matches.length).toBe(9);
+    expect(matches.length).toBe(8);
   });
 });
 
@@ -9709,7 +9478,6 @@ describe("Preloaded instructions SKILL.md frontmatter + sentinel lint", () => {
   // keeps for the `general-purpose` fallback; (3) a spawn-prompt sentinel
   // line can name a different skill than the SKILL.md it points at.
   const PRELOAD_SKILLS = [
-    "flow-verify-loop-instructions",
     "flow-fix-applier-instructions",
     "flow-coder-instructions",
     "flow-merge-resolver-instructions",
@@ -9760,10 +9528,6 @@ describe("Preloaded instructions SKILL.md frontmatter + sentinel lint", () => {
       {
         file: "skills/pipeline/flow-coder/SKILL.md",
         expectedName: "flow-coder-instructions",
-      },
-      {
-        file: "skills/pipeline/flow-pipeline/SKILL.md",
-        expectedName: "flow-verify-loop-instructions",
       },
       {
         file: "skills/pipeline/flow-new-feature/SKILL.md",
@@ -9821,7 +9585,6 @@ describe("partial-result-continuation.md pointer-site lint", () => {
     "skills/pipeline/flow-pipeline/SKILL.md",
     "skills/pipeline/flow-pr-review/SKILL.md",
     "skills/pipeline/flow-coder/SKILL.md",
-    "skills/pipeline/flow-verify-loop-instructions/SKILL.md",
   ];
 
   it.each(POINTER_SITES)(
@@ -9836,11 +9599,10 @@ describe("partial-result-continuation.md pointer-site lint", () => {
     },
   );
 
-  // The four maxTurns-pinned agent files carry the continuation contract's
+  // The three maxTurns-pinned agent files carry the continuation contract's
   // own paragraph, so the agent-side and supervisor-side halves cannot
   // drift apart independently.
   const MAX_TURNS_AGENT_FILES = [
-    "agents/core/flow-verify.md",
     "agents/core/flow-fix-applier.md",
     "agents/core/flow-edit-applier.md",
     "agents/core/flow-merge-resolver.md",
