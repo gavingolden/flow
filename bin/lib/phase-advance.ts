@@ -157,15 +157,29 @@ export const PHASE_EMITTERS: Readonly<
  *
  * Each of these three phases carries a step-head `flow-state-update
  * --phase <phase>` fence in `skills/pipeline/flow-pipeline/SKILL.md` AND
- * keeps its `PHASE_EMITTERS` helper emission as an idempotent backstop:
- * by the time the helper fires, `advancePhase` sees the phase already
- * recorded and returns `already-at-or-past`, so no duplicate `phaseLog[]`
- * row is appended.
+ * keeps its `PHASE_EMITTERS` helper emission as an idempotent backstop.
+ * No duplicate `phaseLog[]` row is appended regardless of which write
+ * lands first, because `bin/lib/state.ts`'s `appendPhaseLog` carries a
+ * same-phase-tail guard: it returns the existing log unchanged whenever
+ * the last entry's `phase` already equals the phase being appended. The
+ * forward case (step-head fence first, helper backstop second) additionally
+ * has `advancePhase` refuse the equal-phase write before ever reaching
+ * `appendPhaseLog` — but the reversed-order case matters too: on a ci-red
+ * fix-loop reentry, `bin/flow-ci-check.ts`'s `advancePhase("implementing",
+ * ...)` fires FIRST (the `ci-wait -> implementing`
+ * `FIX_LOOP_REENTRY_TRANSITIONS` edge), then step 5's head fence calls
+ * `flow-state-update --phase implementing` SECOND through `applyUpdate`,
+ * which has no `STEP_PHASES` ordering guard of its own — the
+ * `appendPhaseLog` guard is what stops that second call from appending a
+ * duplicate row. The same shape is what makes step 7's repeated `ci-wait`
+ * head-fence writes across a multi-turn CI-wait yield/resume cycle
+ * idempotent too.
  *
  * Why: the helper emission alone records the phase when the step ENDS, so
  * the tmux badge named the PREVIOUS step for the whole of the current one
- * (measured median 30.6 min for implement). The step-head fence makes the
- * badge describe what the run is doing now.
+ * (measured median 30.6 min across 23 recorded runs, measured from
+ * `~/.flow/state/*.json` phaseLog timestamps in PR #782). The step-head
+ * fence makes the badge describe what the run is doing now.
  *
  * Deliberate asymmetry, not an oversight: the step-head fences write
  * through `flow-state-update`, which has no `STEP_PHASES` ordering guard,

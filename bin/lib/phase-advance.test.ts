@@ -14,6 +14,7 @@ import {
 } from "./phase-advance";
 import { spawnSync } from "node:child_process";
 import { readState } from "./state";
+import { runUpdate } from "../flow-state-update";
 
 // Mock ./tmux so no test in this file can reach the real tmux backend — the
 // upcoming `publishBadges` seam (Task 2) calls `publishStateBadges` on every
@@ -486,6 +487,29 @@ describe("advancePhase — fix-loop re-entry (backward allowance)", () => {
     });
     expect(result.reason).toBe("already-at-or-past");
     expect(readState("r7", stateDir)?.phase).toBe("reviewing");
+  });
+
+  it("pins the documented backward-write asymmetry: advancePhase refuses reviewing -> implementing, flow-state-update's runUpdate accepts it", () => {
+    // Half 1: advancePhase's own STEP_PHASES ordering guard refuses the
+    // backward move (it is not a FIX_LOOP_REENTRY_TRANSITIONS-listed edge).
+    seedState("r8", "reviewing", { pr: 5 });
+    const advanceResult = advancePhase("implementing", {
+      slug: "r8",
+      dir: stateDir,
+      expectPr: 5,
+    });
+    expect(advanceResult.reason).toBe("already-at-or-past");
+    expect(advanceResult.advanced).toBe(false);
+    expect(readState("r8", stateDir)?.phase).toBe("reviewing");
+
+    // Half 2: the same backward transition, written through
+    // flow-state-update's runUpdate (the step-5 head-fence path), has no
+    // STEP_PHASES ordering guard and succeeds — this is the documented,
+    // intentional asymmetry (a review-fix loop re-entering step 5 really is
+    // implementing again).
+    const code = runUpdate(["r8", "--phase", "implementing"], stateDir);
+    expect(code).toBe(0);
+    expect(readState("r8", stateDir)?.phase).toBe("implementing");
   });
 });
 

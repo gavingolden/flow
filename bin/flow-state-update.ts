@@ -99,7 +99,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   let rest: string[];
   const out: Args = {};
   if (argv.length > 0 && !argv[0].startsWith("--")) {
-    out.slug = argv[0];
+    // Empty/whitespace-only positional reads as "not supplied" too, for
+    // parity with the identical `--slug ""` guard below — a caller that
+    // passes an unset shell var positionally (`flow-state-update "$SLUG"
+    // --phase ...`) would otherwise bind `out.slug = ""` and defeat the
+    // `parsed.slug ?? resolveSlug()` ambient fallback the same way.
+    if (argv[0].trim() !== "") {
+      out.slug = argv[0];
+    }
     rest = argv.slice(1);
   } else {
     rest = argv;

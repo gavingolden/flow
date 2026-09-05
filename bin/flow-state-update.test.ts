@@ -616,6 +616,22 @@ describe("runUpdate", () => {
     expect(readState("csv-export", dir)?.phase).toBe("implementing");
   });
 
+  it("an empty --slug '' still falls back to the ambient resolveSlug and writes state (end-to-end proof of the shell-expansion fix)", () => {
+    // The motivating bug: `--slug "$SLUG"` in a fresh per-Bash-call shell
+    // expands to `--slug ""` when $SLUG is unset. parseArgs-level tests only
+    // prove `slug` parses to `undefined`; this drives the full runUpdate path
+    // with an ambient FLOW_SLUG present (injected via the same resolveSlug
+    // dep seam the file already uses) and asserts the fallback actually
+    // resolves and the state file is written to that slug, not left
+    // unwritten or misrouted.
+    seed("csv-export");
+    const code = runUpdate(["--slug", "", "--phase", "implementing"], dir, {
+      resolveSlug: () => "csv-export",
+    });
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("implementing");
+  });
+
   it("locates and writes the correct state file from an explicit --slug", () => {
     seed("csv-export");
     seed("other-pipeline");
@@ -1140,6 +1156,23 @@ describe("parseArgs --slug flag", () => {
     expect(parseArgs(["--slug", "--phase"])).toEqual({
       error: "--slug requires a value",
     });
+  });
+
+  it("an EMPTY positional <slug> reads as not-supplied too (parity with --slug)", () => {
+    // `flow-state-update "$SLUG" --phase ...` with an unset $SLUG expands to
+    // a positional empty string the same way `--slug "$SLUG"` does. Without
+    // the parity guard this would bind out.slug = "" and defeat the
+    // `parsed.slug ?? resolveSlug()` ambient fallback identically to the
+    // --slug case above.
+    const result = parseArgs(["", "--phase", "triaging"]);
+    expect("error" in result).toBe(false);
+    expect((result as { slug?: string }).slug).toBeUndefined();
+  });
+
+  it("a whitespace-only positional <slug> reads as not-supplied too", () => {
+    const result = parseArgs(["   ", "--phase", "triaging"]);
+    expect("error" in result).toBe(false);
+    expect((result as { slug?: string }).slug).toBeUndefined();
   });
 });
 
