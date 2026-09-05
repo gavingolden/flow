@@ -60,6 +60,15 @@ export type PipelineState = {
   slug: string;
   phase: string;
   pr?: number;
+  /**
+   * The PR's full URL, persisted at open time alongside `pr` (the bare
+   * number) — `flow-open-pr` writes both from the same `gh pr view`
+   * result. Lets `flow ls` render a click target without a per-row `gh`
+   * round-trip. Absent on state written before this field existed, or
+   * on a pipeline with no PR yet; a reader falls back to the bare `pr`
+   * number, never warns.
+   */
+  prUrl?: string;
   repo: string;
   worktree?: string;
   /**
@@ -832,6 +841,7 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (typeof o.repo !== "string") return false;
   if (typeof o.updatedAt !== "string") return false;
   if (o.pr !== undefined && typeof o.pr !== "number") return false;
+  if (o.prUrl !== undefined && typeof o.prUrl !== "string") return false;
   if (o.worktree !== undefined && typeof o.worktree !== "string") return false;
   if (o.autoMerge !== undefined && typeof o.autoMerge !== "boolean")
     return false;

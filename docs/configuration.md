@@ -200,6 +200,28 @@ jq-readable, no rotation in v1) — see `flow-review-telemetry`.
 
 The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher set tmux`.
 
+## Clickable output
+
+flow renders absolute file paths, PR URLs, and issue URLs as real click
+targets — an OSC 8 hyperlink on a terminal, a markdown link in assistant
+prose — via `bin/lib/link.ts`, rather than a bare string you have to
+hand-copy.
+
+**tmux users:** tmux strips OSC 8 hyperlink sequences by default, so a
+rendered link shows as plain text (or stray escape bytes) inside a tmux
+pane unless you opt in:
+
+```sh
+set -as terminal-features ",*:hyperlinks"
+```
+
+**Opting out:** set `FLOW_NO_HYPERLINKS` (any value) to disable
+hyperlink rendering and fall back to bare text — `NO_COLOR` already
+suppresses it too, since a no-color terminal is usually also one without
+hyperlink support. Machine-read output (the `flow-gate-summary`
+sentinels, `flow-open-pr`'s bare-URL stdout, `flow-create-issue`'s JSON)
+is never linkified regardless of either setting.
+
 ## Output lens
 
 `output.lens` (`bin/lib/output-lens.ts`) controls how much detail flow's

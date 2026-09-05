@@ -1368,15 +1368,40 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * two budgets (26_650) is kept rather than summing the deltas: it already
    * clears the merged size with 95 chars of headroom, so no further raise
    * was warranted. The 26_500 side would have failed at merge time.
+   * Raised once more from 26_650 to 26_900 to fund one new `## Output
+   * style` bullet — **Route every emitted path/PR/issue URL through
+   * `bin/lib/link.ts` or a raw-target-labelled markdown link.** — the
+   * lean binding-rule opener for the clickable-output feature, whose
+   * full rationale (the label-equals-raw-target invariant, terminal vs
+   * markdown mode, the never-linkify list, the tmux prerequisite) is
+   * offloaded to references/output-style.md per the offload-then-trim
+   * playbook. Measured via String.prototype.length (not `wc -c` bytes):
+   * pre-edit 26_555, post-edit 26_700 — a +145-char delta. Trimming
+   * existing lint-anchored `## Output style` prose to make room was
+   * rejected on the same grounds as every precedent above (a small
+   * documented raise over trimming load-bearing prose); the budget goes
+   * to 26_900 (200 chars of headroom), not the bare post-edit value,
+   * matching the "don't land at a single-digit-headroom trap" discipline
+   * of every raise above.
    * Trimmed from 26_650 to 25_600 by f2-scaffold-stress-test: removing the
    * verify-loop and gatekeeper exemption bullets shrank `AGENTS.md` to
    * 25_449 chars (String.prototype.length). The budget is trimmed toward
    * the new size (151 chars of headroom) rather than left as silent
    * headroom, per the plan's offload-then-trim rule — the first downward
    * move in this ledger.
+   * Merge note (clickable-targets branch x f2-scaffold-stress-test): the
+   * raise to 26_900 and the trim to 25_600 were authored independently off
+   * the same 26_555 base and collided here. Both prose edits survive, so the
+   * merged `AGENTS.md` measures 25_682 chars (String.prototype.length) —
+   * above `main`'s 25_600 and far below this branch's 26_900. Neither side's
+   * number is kept: 26_900 would leave 1_218 chars of silent headroom and
+   * discard `main`'s deliberate downward trim, and 25_600 fails outright at
+   * merge time. The budget lands at 25_850 (168 chars of headroom),
+   * honouring the offload-then-trim discipline `main` introduced while
+   * clearing the merged size.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 25_600;
+    const CHAR_BUDGET = 25_850;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -3668,6 +3693,46 @@ describe("AGENTS.md Output style anchors", () => {
     ).toBe(1);
   });
 
+  it("AGENTS.md contains the clickable-target rule anchor phrase exactly once", () => {
+    // The bolded anchor phrase **Route every emitted path/PR/issue URL
+    // through `bin/lib/link.ts` or a raw-target-labelled markdown link.**
+    // is the stable lint hook for the rule documented at AGENTS.md
+    // `## Output style`. Its rationale — the label-equals-raw-target
+    // invariant, the terminal (OSC 8) vs markdown mode split, the
+    // FORCE_COLOR carve-out in `hyperlinksEnabled`, the never-linkify
+    // list, and the tmux `terminal-features` prerequisite — lives at
+    // references/output-style.md `## Route every emitted path/PR/issue
+    // URL through bin/lib/link.ts`. Renaming the rule's anchor phrase
+    // requires updating this assertion in the same commit.
+    const matches = agentsContent.match(
+      /^- \*\*Route every emitted path\/PR\/issue URL through `bin\/lib\/link\.ts` or a raw-target-labelled markdown link\.\*\*/gm,
+    );
+    expect(
+      matches?.length ?? 0,
+      "AGENTS.md must contain the rule anchor phrase " +
+        "'- **Route every emitted path/PR/issue URL through " +
+        "`bin/lib/link.ts` or a raw-target-labelled markdown link.**' " +
+        "exactly once at the start of a list item in `## Output style`. " +
+        "Found " +
+        (matches?.length ?? 0) +
+        " match(es).",
+    ).toBe(1);
+  });
+
+  it("references/output-style.md carries the clickable-target rule section", () => {
+    // Every AGENTS.md `## Output style` bullet has a matching rationale
+    // section in references/output-style.md — the file's documented
+    // one-section-per-bullet convention. This is the second half of the
+    // anchor-test pair above.
+    const c = fs.readFileSync(
+      path.join(HERE, "..", "references", "output-style.md"),
+      "utf8",
+    );
+    expect(c).toContain(
+      "## Route every emitted path/PR/issue URL through a click target",
+    );
+  });
+
   it("AGENTS.md contains the product-lens impact-first rule anchor phrase exactly once", () => {
     // The bolded anchor phrase **Frame every explanation impact-first for
     // a product-lens reader.** is the stable lint hook for the rule
@@ -4816,6 +4881,19 @@ describe("pr-review include-by-reference structure", () => {
     );
     const content = fs.readFileSync(pipelineSkillPath, "utf8");
     const lineCount = content.split("\n").length;
+    // Clickable-targets PR: raised 3080 -> 3090. `main` had already climbed
+    // to 3078 (2 lines of headroom) before this branch, so the +5 net lines
+    // here are not the regrowth this ceiling guards against: they document
+    // the new emission mechanism at the four sites that actually print a
+    // path (the two AWAITING-APPROVAL bullets, the two screenshot-path
+    // prints, and the echo-recap contract), demoting the old
+    // no-trailing-punctuation rule from mechanism to fallback at each. The
+    // prose was tightened three times before raising — the fallback
+    // rationale is now stated once and cross-referenced rather than
+    // restated per site. 3090 restores the ~7 lines of genuine headroom the
+    // chain below has repeatedly found necessary, instead of re-pinning at
+    // zero headroom, which is the exact tension this ceiling exists to
+    // prevent.
     // New lint (p5-context-diet): the supervisor body had regrown 236 lines
     // since its #411 split before this diet trimmed it 2,986 → 2,700 lines
     // by moving the Step 3 threading/backstop contracts to
@@ -4940,6 +5018,11 @@ describe("pr-review include-by-reference structure", () => {
     // duplicated per-site; it now lives once, referenced everywhere), not
     // incidental bloat. Lands the file at 3095 lines, so the ceiling moves
     // to 3115 (20 lines of genuine headroom), the same discipline as above.
+    // Merge note: this branch raised 3080 -> 3090 while `main` raised
+    // 3080 -> 3115 for the checkpoint arm-signal work; both prose ledgers
+    // above survive the merge. `main`'s higher ceiling is kept — the
+    // merged file lands at 3019 lines after `main`'s verify-loop diet, so
+    // 3115 clears it and no third number is invented.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +

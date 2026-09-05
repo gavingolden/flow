@@ -1091,12 +1091,13 @@ only and the helper exact-matches against them. The blind survey's
   --echo-prose` renders only the plan-file bullet — every other field
   (PR URL, review/CI/count) is the literal `none`.
 
-  The helper renders two markdown bullets as the **last** lines of
-  the message — the worktree absolute path first, the plan file's
-  absolute path (`$WORKTREE/.flow-tmp/plan.md`) second. **No
-  trailing punctuation on either bullet line, and no prose after
-  them** — most terminals greedily extend URL auto-detection through
-  trailing dots (and other adjacent punctuation) and break the click
+  The helper renders two bullets as the **last** lines of the message —
+  the worktree absolute path first, the plan file's absolute path
+  (`$WORKTREE/.flow-tmp/plan.md`) second, as OSC 8 hyperlinks on a
+  terminal and bare text otherwise (`bin/lib/link.ts`). **No trailing
+  punctuation on either bullet line, and no prose after them** — the
+  fallback where hyperlinks are unsupported and bare-URL
+  auto-detection swallows a trailing dot, breaking the click
   target. Rendered example:
 
   ```
@@ -1606,9 +1607,9 @@ opening the PR.
 **Surface UI screenshots.** When `/flow-verify`'s UI-smoke pass captured
 screenshots, it names their absolute paths directly in its own report
 (sourced from `flow-ui-validate --captures`' `evidence_paths[]`) — print
-each surviving path bare, one per line, no bullet marker, no trailing
-punctuation (trailing punctuation breaks the terminal's click-target
-auto-detection), all of them, no cap.
+each surviving path as a markdown link, `[<abs path>](file://<abs path>)`,
+one per line, no bullet marker, no trailing punctuation, all of them, no
+cap.
 
 **Layer-3 proactive config-authoring branch.** `/flow-verify` owns this
 directly (see `skills/pipeline/flow-verify/SKILL.md`): when
@@ -1878,8 +1879,9 @@ the same recipe used at step 6 against it:
   done
   ```
 
-  Print each surviving absolute path bare — one per line, no bullet
-  marker, no trailing punctuation — all of them, no cap.
+  Print each surviving absolute path as a markdown link,
+  `[<abs path>](file://<abs path>)` — one per line, no bullet marker, no
+  trailing punctuation — all of them, no cap.
 
 `/flow-pr-review` Step 1.5 runs an inline metadata triage — performed by
 the reviewing session itself, no Task-tool spawn — before any Task-tool
@@ -2559,8 +2561,11 @@ as before) and the `url`/`title`/`headRefName` shell vars (`PR_URL` / `PR_TITLE`
 `PR_BRANCH`). It then passes
 `--echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH"`
 to the existing `flow-pipeline-summary` call. The PR-URL and plan-file bullet
-lines carry **NO trailing punctuation** (terminals greedily extend URL
-auto-detection through adjacent punctuation and break the click target); the
+lines render as markdown links (`bin/lib/link.ts`; `renderEchoRecap`
+defaults to markdown because the recap is copied into assistant prose,
+not a terminal) and carry **NO trailing punctuation** either way — the
+link form closes with `)`, so the punctuation rule is the FALLBACK for
+bare-URL auto-detection, not the mechanism. The
 field-bearing bullets may carry normal punctuation.
 
 The recap renders exactly this **bounded field set** and no more: PR URL,

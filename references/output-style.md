@@ -443,6 +443,60 @@ for skill output, then redirect `/flow-new-feature` with a fix hint."
 3. Redirect /flow-new-feature with a fix hint.
 ```
 
+## Route every emitted path/PR/issue URL through a click target
+
+Every absolute file path, PR URL, or issue URL an agent prints ends up
+either scrolled past or hand-copied into a browser bar. `bin/lib/link.ts`
+exists so the two surfaces flow emits on — a terminal (Bash tool output,
+`flow ls`, `flow-gate-summary`) and assistant prose (a chat reply,
+`renderEchoRecap`'s block) — both get a real click target instead.
+
+**The label-equals-raw-target invariant.** The visible label is ALWAYS
+the raw target verbatim — never a prettified name, a truncated path, or
+a friendly title. A reader who copies the visible text (e.g. out of a
+terminal that doesn't support OSC 8) must get back exactly the string
+the target actually is. The one NAMED exception is `flow ls`'s PR
+column (`linkLabel`, not `linkUrl`): the column's whole purpose is to
+stay narrow, so the visible label is the bare `#123` cell while the link
+itself resolves to the full PR URL — documented locally at that call
+site, not a silent divergence from the default.
+
+**Two modes, two surfaces.** `LinkMode` is `"terminal"` (OSC 8 hyperlink
+escapes — `\x1b]8;;<uri>\x1b\\<label>\x1b]8;;\x1b\\`), `"markdown"` (a
+`[label](uri)` link), or `"plain"` (the label, unchanged). Terminal
+output resolves its mode via `resolveLinkMode()`/`hyperlinksEnabled()`
+(TTY-gated); assistant prose defaults `renderEchoRecap` to `"markdown"`,
+since that block is copied verbatim into a chat reply rendered as
+markdown, never read in a raw terminal.
+
+**Why `hyperlinksEnabled` excludes FORCE_COLOR.** `bin/lib/color.ts`'s
+`colorEnabled()` returns `true` on `FORCE_COLOR` even when stdout is a
+pipe (a deterministic-test/CI-demo affordance for color). Hyperlinks
+have no equivalent use case, and carrying the same override would inject
+OSC 8 escape bytes into a piped, machine-read line under `FORCE_COLOR=1`
+— exactly the failure mode `flow-open-pr`'s bare-URL stdout contract
+cannot tolerate. `hyperlinksEnabled` drops the FORCE_COLOR check
+entirely rather than reproducing it.
+
+**The never-linkify list.** These emit raw, unwrapped targets by
+design, and must never be passed through `bin/lib/link.ts`:
+
+- The four `flow-gate-summary.ts` sentinels: `MERGED`, `GATED: <url>`,
+  `NEEDS HUMAN: <reason>`, `cancelled` — a downstream parser
+  (`flow-stop-guard`, scrollback regexes) reads these lines verbatim.
+- `flow-open-pr.ts`'s `console.log(pr.url)` — the entire stdout
+  contract `/flow-pipeline` step 5 reads as a bare URL.
+- `flow-create-issue.ts`'s JSON stdout — a structured payload, not
+  prose or a terminal line.
+
+**The tmux prerequisite.** tmux strips OSC 8 sequences by default, so a
+terminal-mode link renders as invisible escape bytes around plain text
+inside a tmux pane unless the user opts in with
+`set -as terminal-features ",*:hyperlinks"` (see
+`docs/configuration.md`). `FLOW_NO_HYPERLINKS` (and `NO_COLOR`, which
+already suppresses color) degrade cleanly to plain output for a user on
+an older terminal or an unconfigured tmux session.
+
 ## Remaining response-hygiene rules
 
 These are shorter conventions without a dedicated lint anchor — kept here

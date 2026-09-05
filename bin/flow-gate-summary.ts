@@ -27,10 +27,15 @@
  * The final line of stdout is ALWAYS the sentinel: `MERGED` /
  * `GATED: <url>` / `NEEDS HUMAN: <reason>` / `cancelled` — preserving
  * the `# End conditions` table contract for `flow-stop-guard` and any
- * scrollback regex. `awaiting-approval` has no sentinel; its final two
- * lines are the worktree + plan-file path bullets (two-space indented,
- * no trailing punctuation — terminal URL auto-detection greedily eats
- * adjacent punctuation and breaks the click target).
+ * scrollback regex. Sentinel lines are NEVER passed through
+ * `bin/lib/link.ts` — a downstream parser reads them verbatim.
+ * `awaiting-approval` has no sentinel; its final two lines are the
+ * worktree + plan-file path bullets, rendered as OSC 8 hyperlinks on a
+ * TTY (`bin/lib/link.ts`) or bare paths otherwise. No trailing
+ * punctuation either way — the OSC 8 form has an explicit end marker so
+ * this is now a fallback, not the mechanism, for terminals/modes without
+ * hyperlink support: plain-mode URL auto-detection still greedily eats
+ * adjacent punctuation and breaks the click target.
  *
  * The per-reason NEXT_ACTION_BY_REASON mapping is the single source of
  * truth for NEEDS HUMAN escalation responses; when adding a new
@@ -72,6 +77,13 @@ import {
   buildUntracked,
   clampTldr,
 } from "./lib/gate-summary-rows";
+import {
+  linkPath,
+  linkUrl,
+  applyLinkModeOptOut,
+  resolveLinkMode,
+  type LinkMode,
+} from "./lib/link";
 
 export type Status =
   | "merged"
@@ -121,6 +133,16 @@ export type GateSummaryInputs = {
   untrackedBlock?: string;
   /** The one composed count line, e.g. "12 findings fixed, 2 deferred". */
   countsLine?: string;
+  /**
+   * Optional and defaults to autodetect (`resolveLinkMode()`) at this pure
+   * layer — mirrors `lens` above. `run()` resolves it once from
+   * `--link-mode` (or the TTY autodetect) and threads it in; a direct
+   * `render()` call (every pre-existing test) that omits it gets
+   * `resolveLinkMode()`'s own default, which is `"plain"` when
+   * `process.stdout.isTTY` is undefined (the vitest environment), so
+   * existing byte-exact assertions are unaffected.
+   */
+  linkMode?: LinkMode;
 };
 
 const VALID_STATUSES: ReadonlySet<string> = new Set([
@@ -371,7 +393,14 @@ type Args = {
   untrackedFile?: string;
   countsLine?: string;
   slug?: string;
+  linkMode?: LinkMode;
 };
+
+const VALID_LINK_MODES: ReadonlySet<string> = new Set([
+  "terminal",
+  "markdown",
+  "plain",
+]);
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   const out: Partial<Args> = {};
@@ -441,6 +470,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
           };
         }
         out.slug = value;
+        break;
+      case "--link-mode":
+        if (!VALID_LINK_MODES.has(value)) {
+          return {
+            error: `--link-mode must be one of ${[...VALID_LINK_MODES].join(", ")}, got '${value}'`,
+          };
+        }
+        out.linkMode = value as LinkMode;
         break;
       default:
         return { error: `unknown flag: ${flag}` };
@@ -545,9 +582,17 @@ function effectiveLens(inputs: GateSummaryInputs): OutputLens {
   return inputs.lens ?? "dev";
 }
 
+function effectiveLinkMode(inputs: GateSummaryInputs): LinkMode {
+  // applyLinkModeOptOut keeps an EXPLICIT `--link-mode terminal` from
+  // defeating NO_COLOR / FLOW_NO_HYPERLINKS — without it the override
+  // would force escape bytes into a piped or redirected capture.
+  return applyLinkModeOptOut(inputs.linkMode ?? resolveLinkMode());
+}
+
 function renderMerged(inputs: GateSummaryInputs): string {
+  const mode = effectiveLinkMode(inputs);
   const lines: string[] = ["STATUS: MERGED"];
-  if (inputs.prUrl) lines.push(`PR: ${inputs.prUrl}`);
+  if (inputs.prUrl) lines.push(`PR: ${linkUrl(inputs.prUrl, mode)}`);
   const pm = effectiveLens(inputs) === "pm";
   if (!pm) {
     const why = oneLine(inputs.why);
@@ -566,12 +611,13 @@ function renderMerged(inputs: GateSummaryInputs): string {
 }
 
 function renderGated(inputs: GateSummaryInputs): string {
+  const mode = effectiveLinkMode(inputs);
   const lines: string[] = ["STATUS: GATED"];
-  if (inputs.prUrl) lines.push(`PR: ${inputs.prUrl}`);
+  if (inputs.prUrl) lines.push(`PR: ${linkUrl(inputs.prUrl, mode)}`);
   const pm = effectiveLens(inputs) === "pm";
   const items = inputs.validationItems ?? [];
   if (pm) {
-    lines.push(...buildNeedsAttention(items, inputs.prUrl));
+    lines.push(...buildNeedsAttention(items, inputs.prUrl, mode));
     lines.push(...buildManualAction(items, inputs.deferredBlock));
     lines.push(...buildUntracked(inputs.untrackedBlock));
     if (inputs.countsLine) lines.push(oneLine(inputs.countsLine));
@@ -606,8 +652,9 @@ function renderGated(inputs: GateSummaryInputs): string {
 }
 
 function renderNeedsHuman(inputs: GateSummaryInputs): string {
+  const mode = effectiveLinkMode(inputs);
   const lines: string[] = ["STATUS: NEEDS HUMAN"];
-  if (inputs.prUrl) lines.push(`PR: ${inputs.prUrl}`);
+  if (inputs.prUrl) lines.push(`PR: ${linkUrl(inputs.prUrl, mode)}`);
   const pm = effectiveLens(inputs) === "pm";
   // The WHY field carries the inline context. When `--reason` is set
   // but `--why` is omitted, surface the bare reason tag — the user
@@ -636,6 +683,7 @@ function renderNeedsHuman(inputs: GateSummaryInputs): string {
 function renderAwaitingApproval(inputs: GateSummaryInputs): string {
   const lines: string[] = [];
   const pm = effectiveLens(inputs) === "pm";
+  const mode = effectiveLinkMode(inputs);
   // --echo-prose PREPENDS the delimited recap block above STATUS. At
   // awaiting-approval no reviewable artifact exists yet, so only the path
   // fields are populated; review/CI/count fields render `none`. The block is
@@ -645,6 +693,13 @@ function renderAwaitingApproval(inputs: GateSummaryInputs): string {
   // eight always-`none` rows carry no decision value (calibration
   // sample 1) — suppressed via `suppressNone`.
   if (inputs.echoProse) {
+    // Mode divergence is INTENTIONAL here: the recap block is copied
+    // into assistant prose (read by a human via chat, not a terminal),
+    // so it stays on `renderEchoRecap`'s own markdown default — gate
+    // summary's resolved terminal/plain `mode` is deliberately NOT
+    // threaded down into it. The path bullets a few lines below, by
+    // contrast, are read directly in the terminal and DO use this
+    // render's resolved `mode`.
     const recap = renderEchoRecap({
       planFile: inputs.planFile,
       suppressNone: pm,
@@ -665,11 +720,17 @@ function renderAwaitingApproval(inputs: GateSummaryInputs): string {
     if (trimmed !== "") lines.push(...buildUntracked(inputs.untrackedBlock));
   }
   // The two path bullets are the LAST lines of the block (no
-  // sentinel). No trailing punctuation — most terminals greedily
-  // extend URL auto-detection through trailing dots and break the
-  // click target. See SKILL.md:629 for the canonical explanation.
-  if (inputs.worktree) lines.push(`  - ${inputs.worktree}`);
-  if (inputs.planFile) lines.push(`  - ${inputs.planFile}`);
+  // sentinel), rendered as OSC 8 hyperlinks in terminal mode
+  // (bin/lib/link.ts) or bare paths otherwise. No trailing punctuation
+  // either way — the OSC 8 form has an explicit end marker, so this is
+  // now the FALLBACK for plain/markdown modes, not the mechanism: most
+  // terminals without hyperlink support still greedily extend URL
+  // auto-detection through trailing dots and break the click target.
+  // See flow-pipeline/SKILL.md's "Gate-stage echo-verbatim recap" /
+  // plan-pending-review pause-output-contract section for the
+  // canonical explanation (not a fixed line number — it drifts).
+  if (inputs.worktree) lines.push(`  - ${linkPath(inputs.worktree, mode)}`);
+  if (inputs.planFile) lines.push(`  - ${linkPath(inputs.planFile, mode)}`);
   pushTldr(lines, inputs.tldr);
   return lines.join("\n");
 }
@@ -866,7 +927,8 @@ export function run(
         "                         [--validation-items-file <path>] [--deferred-file <path>]\n" +
         "                         [--worktree <path>] [--plan-file <path>] [--echo-prose]\n" +
         "                         [--cleanup] [--lens <pm|dev>] [--untracked-file <path>]\n" +
-        "                         [--counts-line <text>] [--slug <slug>]\n",
+        "                         [--counts-line <text>] [--slug <slug>]\n" +
+        "                         [--link-mode <terminal|markdown|plain>]\n",
     );
     return 2;
   }
@@ -909,6 +971,7 @@ export function run(
     lens,
     untrackedBlock,
     countsLine: parsed.countsLine,
+    linkMode: parsed.linkMode,
   });
   try {
     process.stdout.write(block + "\n");
