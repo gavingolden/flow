@@ -6,7 +6,9 @@ import {
   allAgentTypes,
   checkWorkflowScriptSyntax,
   everyAgentCallHasEffortAndModel,
+  extractWorkflowAgentSites,
   findAgentCallSites,
+  parseAgentSitesDoc,
   reviewLensAgentTypeSuffixes,
 } from "./lib/workflow-script-lint";
 
@@ -151,19 +153,36 @@ describe("workflow scripts — structural lint", () => {
     }
   });
 
-  it("symmetry: extractWorkflowAgentSites() vs references/workflow-agent-sites.md (skipped — doc not yet authored by Tasks 7+8+9 in this pass)", () => {
-    if (!existsSync(SITES_DOC)) {
-      // KNOWN GAP: this repo state has not yet run Tasks 7+8+9 (the
-      // SKILL.md slim + ledger-anchor pass), so the reference doc this
-      // assertion diffs against does not exist. Recorded in the coder
-      // artifact's anti_patterns_found; tighten this assertion once the
-      // doc lands instead of deleting it.
-      expect(existsSync(SITES_DOC)).toBe(false);
-      return;
-    }
+  it("symmetry: extractWorkflowAgentSites() vs references/workflow-agent-sites.md", () => {
+    expect(existsSync(SITES_DOC)).toBe(true);
     const doc = readFileSync(SITES_DOC, "utf8");
     expect(doc).toMatch(
       /Label \| agentType \| Model key \| Effort \| Artifact \| May nest/,
     );
+
+    const scriptSites = new Set(
+      [
+        ...extractWorkflowAgentSites(stageA),
+        ...extractWorkflowAgentSites(stageB),
+        // reviewLensAgent's label/agentType are templated on the runtime
+        // lens list — expand them the same way reviewLensAgentTypeSuffixes
+        // already does for the lens-parity test above.
+        ...Object.keys(AGENT_LENS_MAP).map((lens) => ({
+          label: `review:${lens}`,
+          agentType: `flow-module-core:flow-review-${lens}`,
+        })),
+      ].map((s) => `${s.label} ${s.agentType}`),
+    );
+    const docSites = new Set(
+      parseAgentSitesDoc(doc).map((r) => `${r.label} ${r.agentType}`),
+    );
+
+    const missingFromDoc = [...scriptSites].filter((s) => !docSites.has(s));
+    const missingFromScript = [...docSites].filter((s) => !scriptSites.has(s));
+    expect(
+      { missingFromDoc, missingFromScript },
+      `doc rows missing sites the scripts declare: ${JSON.stringify(missingFromDoc)}; ` +
+        `doc rows with no matching script site: ${JSON.stringify(missingFromScript)}`,
+    ).toEqual({ missingFromDoc: [], missingFromScript: [] });
   });
 });

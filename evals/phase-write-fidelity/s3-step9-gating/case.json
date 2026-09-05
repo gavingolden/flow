@@ -1,15 +1,27 @@
 {
   "id": "s3-step9-gating",
   "title": "Step 9 entry advances state.phase to gating",
-  "provenance": "Synthetic fixture authored against bin/flow-gate-decide.ts's advancePhase wiring (plan.md Task 3) and skills/pipeline/flow-pipeline/SKILL.md's Step 9.",
+  "provenance": "Synthetic fixture authored against bin/flow-gate-decide.ts's advancePhase wiring (plan.md Task 3) and skills/pipeline/flow-pipeline/SKILL.md's Step 9. Bumped for Task 10 (issue-tracked f6-workflow-port): re-authored to launch stage A/B per SKILL.md's Stage launch sections instead of hand-invoking the retired per-step Bash prose, plus the stage-result-written gate grader confirming the workflow actually wrote its result artifact.",
   "prompt": "prompt.md",
   "fixture": {
     "repo": "fixture",
     "state": "state.json",
-    "shims": ["../../_shims/gh"]
+    "shims": [
+      "../../_shims/gh"
+    ]
   },
-  "env": { "flowSlug": true },
-  "ghCalls": [["pr", "view", "1", "--json", "body,state,url"]],
+  "env": {
+    "flowSlug": true
+  },
+  "ghCalls": [
+    [
+      "pr",
+      "view",
+      "1",
+      "--json",
+      "body,state,url"
+    ]
+  ],
   "resultSchema": "result-schema.json",
   "graders": [
     {
@@ -18,6 +30,14 @@
       "file": "$STATE",
       "path": "phase",
       "equals": "gating"
+    },
+    {
+      "id": "stage-result-written",
+      "kind": "json-file",
+      "file": "$REPO/.flow-tmp/stage-a-result.json",
+      "path": "stage",
+      "equals": "A",
+      "gate": true
     },
     {
       "id": "no-agent-fallback",
