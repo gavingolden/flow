@@ -193,4 +193,51 @@ describe("resolveDelegateModel", () => {
       DELEGATE_MODEL_DEFAULTS.blindSurveySecond,
     );
   });
+
+  it("adversarial pairs stay on DIFFERENT vendor families, not merely different strings", () => {
+    // The two distinctness guards above test string inequality, which is all
+    // flow-research-run.ts' resolveModels and flow-blind-survey enforce at
+    // runtime. That is too weak for the property those pairs actually exist
+    // to hold: gather-vs-refute and survey-vs-second are ADVERSARIAL, so two
+    // different models from the SAME vendor family (e.g. "Gemini 3.1 Pro
+    // (High)" refuting "Gemini 3.8 Flash (High)") would pass both string
+    // checks while collapsing the cross-family tension into intra-family
+    // confirmation, with nothing warning. Scope is defaults only; a config
+    // override stays deliberately unguarded (see the researchRefute comment
+    // block in delegate-models.ts).
+    const family = (value: string) => value.split(/\s*\d/)[0]!.trim();
+    for (const [a, b] of [
+      ["researchGather", "researchRefute"],
+      ["blindSurvey", "blindSurveySecond"],
+    ] as const) {
+      const va = DELEGATE_MODEL_DEFAULTS[a];
+      const vb = DELEGATE_MODEL_DEFAULTS[b];
+      expect(va).not.toBeNull();
+      expect(vb).not.toBeNull();
+      expect(family(va as string)).not.toBe(family(vb as string));
+    }
+  });
+
+  it("docs/configuration.md's delegate-models table cannot drift from the code defaults", () => {
+    // PR #644 shipped a code flip whose docs/configuration.md "default today"
+    // row went stale, and only a human reviewer caught it. This makes that
+    // class of drift mechanical. Reads the doc the same way the existing
+    // consumer-routing test in this file does.
+    const doc = fs.readFileSync("docs/configuration.md", "utf8").split("\n");
+    for (const surface of ALL_SURFACES) {
+      const value = DELEGATE_MODEL_DEFAULTS[surface];
+      if (value === null) continue;
+      const row = doc.find(
+        (line) =>
+          line.trimStart().startsWith("|") && line.includes(`\`${surface}\``),
+      );
+      expect(
+        row,
+        `no docs/configuration.md table row for ${surface}`,
+      ).toBeDefined();
+      expect(row, `stale doc row for ${surface}: expected ${value}`).toContain(
+        value,
+      );
+    }
+  });
 });
