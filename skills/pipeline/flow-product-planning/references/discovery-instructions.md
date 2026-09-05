@@ -581,7 +581,7 @@ bundle clear UX additions and enhancements, bug fixes plus their tests, code qua
 improvements, testing improvements, and small or prerequisite refactors — include
 anything that should reasonably and ultimately be a part of the feature anyway.
 Borderline ties break toward bundle. An item remains eligible for the candidate
-follow-up section ONLY under one of three named exclusions:
+follow-up section ONLY under one of four named exclusions:
 
 1. a **genuinely novel non-trivial feature** — its own user goal and surface, not a
    natural extension of this one;
@@ -591,6 +591,9 @@ follow-up section ONLY under one of three named exclusions:
 3. a large refactor that is not a prerequisite for this feature — heuristics: it
    would roughly double the diff, or touches many files the feature otherwise
    would not.
+4. **user-foreclosed** — the user's request or SCOPE AND CONSTRAINTS block rules it
+   out; the Rationale MUST quote the user's constraint verbatim in double quotes
+   (precedent: issue #762).
 
 **Hardening rule.** Exclusion 3's size test applies to the bundle SET
 **cumulatively**, not per-candidate: several individually-fine bundles can together
@@ -598,13 +601,27 @@ roughly double the diff. Apply the test to the bundle set as a whole; on overflo
 keep the highest-value bundles in the task breakdown and demote the rest to
 candidates, ticked only when their block clears the bar.
 
+**Small/Low rule.** A candidate whose Complexity is Trivial or Small AND whose Risk
+is Low is objective by presumption — bundle it. It survives as a candidate ONLY under
+`genuinely novel non-trivial feature`, `user-foreclosed`, or a design/decision
+exclusion whose Rationale names the decision — any of "open decision" (e.g.
+`the open decision is …`), "decision is", "specifically", or "the (specific)
+decision" clears it; a rationale that merely asserts a design session exists
+with no nameable decision does not. `large refactor` never applies to a
+Small item. `flow-candidate-issues --lint`
+reports the misses as `exclusion-missing`, `decision-unnamed`, and
+`small-low-risk`.
+
 For example: "the retry loop swallows the underlying error" is an objective bug —
 bundle it into the task breakdown. "Add a settings toggle to let users disable
 retries" is a UX addition adjacent to this feature — bundle it too, unless it needs
 its own design session (name the decision) or the bundle set would double in size.
 "Migrate the entire auth stack to a new provider" is a genuinely novel non-trivial
 feature — that stays a candidate. Likewise, "off-by-one in the pagination cursor"
-bundles into the current task. After authoring both sections, run a
+bundles into the current task. Author `# Task breakdown` BEFORE `# Candidate
+follow-up issues` (authoring order only — the on-disk section order in step 8 is
+unchanged), so adjacent work is consumed by the task list before a candidate
+section exists to park it in. After authoring both sections, run a
 **mutual-exclusion self-check**: verify no item appears in BOTH `# Task breakdown`
 and `# Candidate follow-up issues` — dedup by intent (the same underlying change
 described two ways), not by string match — and fold any duplicate found back into
@@ -661,12 +678,16 @@ table cell would be a parser-mis-read hazard). Value and Complexity are coarse b
 (`High`/`Medium`/`Low` and `Trivial`/`Small`/`Medium`/`Large`).
 
 **Exclusion-naming rule.** Each candidate's Rationale cell in the ranking table MUST
-name which of the three named exclusions applies —
-`genuinely novel non-trivial feature`, needs its own design/decision session, or a
-large refactor that is not a prerequisite — and, for the design/decision exclusion,
-the specific open decision that needs its own session. A Rationale cell that names
-no exclusion is a bundling miss: fold the item into `# Task breakdown` instead of
-leaving it as a candidate.
+name which of the four named exclusions applies —
+`genuinely novel non-trivial feature`, needs its own design/decision session, a
+large refactor that is not a prerequisite, or `user-foreclosed: "<quoted
+constraint>"` — and, for the design/decision exclusion, the specific open decision
+that needs its own session. A Rationale cell that names no exclusion is a bundling
+miss: fold the item into `# Task breakdown` instead of leaving it as a candidate.
+`/flow-pipeline` step 3 runs `flow-candidate-issues --lint`; a `bundlingMisses`
+entry triggers ONE automatic revision pass that pulls the item into the task
+breakdown before the plan is shown — write the exclusion honestly or bundle the
+item yourself.
 
 **Consistency rubric (follow-up references must resolve).** Any item the plan prose refers
 to as "listed as a follow-up" / "tracked as a follow-up" / "deferred to a follow-up" (or a
@@ -697,14 +718,15 @@ and risks accumulating stale `- [ ]` entries on later edits. The supervisor's
 "section absent" and "count is 0" branches behave identically; the value of omitting
 the heading is signal-to-noise, not control flow.
 
-Bar for inclusion: the three named exclusions in **Objective-item triage** above are
+Bar for inclusion: the four named exclusions in **Objective-item triage** above are
 the entire bar — a genuinely novel non-trivial feature, an item that needs its own
-design/decision session (naming the specific decision), or a large refactor that is
-not a prerequisite (applied cumulatively across the whole bundle set). Per the
+design/decision session (naming the specific decision), a large refactor that is
+not a prerequisite (applied cumulatively across the whole bundle set), or
+`user-foreclosed` (the user's own constraint, quoted verbatim). Per the
 AGENTS.md `## Output style` rule
 **Treat every request as production-bound, not a hobby project.**, the include-vs-defer
 test is cohesion, not size; do not use this section as a hedge to defer cohesive
-in-scope work that fails all three exclusions. A backlog full of low-confidence
+in-scope work that fails all four exclusions. A backlog full of low-confidence
 candidates is still noise — when in doubt, bundle.
 
 <!-- flow-value-rubric:begin -->
@@ -1624,7 +1646,10 @@ minimal` affirmation — a bare `nothing` with no justification fails this check
 - **Self-check before returning:** run `flow-plan-lint --plan-md-file <the plan.md path>`
   by bare PATH name and fix every named miss. Tolerant: when the helper is missing
   from PATH, the check skips silently (same research-cache discipline as Step 1.5) —
-  never block on it.
+  never block on it. And
+  `flow-candidate-issues --lint --plan-md-file <the plan.md path>` (same tolerant
+  skip), fixing every `bundlingMisses` entry by bundling the item or naming its
+  exclusion.
 
 # Constraints
 
