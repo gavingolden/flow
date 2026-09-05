@@ -2669,6 +2669,11 @@ message at that arm site — same mirror-only discipline as the [Gate-stage
 echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose): never
 restate from memory, paraphrase, reorder, or drop it.
 
+This does not conflict with `references/pause-output-contract.md`'s
+`**Next action:**`-is-last rule: the banner is not a slot. It is the arm
+signal, trailing BELOW the completed pause block as its own line, never folded
+into `**Next action:**` and never displacing it as the block's final slot.
+
 **Never mute an arm call's stderr** (`2>/dev/null`, `2>&1`, `&>`) — that
 silently swallows the line and leaves the arm invisible. An arm whose call
 already redirects *stdout* to null (keeping the raw JSON verdict off the gate
