@@ -4,7 +4,7 @@ Full detail for Step 3's scope/gate resolution and the Step-3.5 widen
 sub-step `SKILL.md` points at — kept out of `SKILL.md` itself to stay
 under the file's line-budget lint ceiling.
 
-Why: every step-8 review entry that clears the Gatekeeper today spawns
+Why: every step-8 review entry that clears the Step 1.5 metadata triage today spawns
 all six lenses over the whole PR diff, even on a one-file fix-loop
 re-entry or a docs-only PR. `flow-review-scope` resolves `full | delta`
 scope and content-gates lenses with nothing in their domain, so cost

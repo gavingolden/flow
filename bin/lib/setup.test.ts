@@ -230,21 +230,20 @@ describe("flow install", () => {
     expect(names).toContain("flow-new-worktree");
   });
 
-  it("discovers the core module's agents directory, including flow-verify and flow-fix-applier on disk", () => {
+  it("discovers the core module's agents directory, including flow-fix-applier on disk", () => {
     // Regression guard: discoverAgents ships ONE kind: "agent" SourceEntry
     // per owning module's agents/ subdirectory (a directory-symlink target,
     // <skillsDir>/flow-module-<owner>/agents), not one per `.md` file — see
     // sources.ts's discoverAgents doc comment for why. Run against the real
     // repo's agents/ directory (not the synthetic fixture) so this fires if
-    // a future refactor breaks discovery for the two low-effort agent
-    // definitions that pin the mechanical fan-outs.
+    // a future refactor breaks discovery for the one low-effort agent
+    // definition that pins the one remaining mechanical fan-out.
     const repoRoot = path.resolve(__dirname, "..", "..");
     const agents = discoverAgents(repoRoot);
     const core = agents.find((a) => a.displayName === "agents/core");
     expect(core).toBeDefined();
     expect(core!.kind).toBe("agent");
     const files = fs.readdirSync(core!.source);
-    expect(files).toContain("flow-verify.md");
     expect(files).toContain("flow-fix-applier.md");
     for (const a of agents) {
       expect(a.kind).toBe("agent");

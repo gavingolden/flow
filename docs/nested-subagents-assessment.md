@@ -4,9 +4,12 @@
 
 As of Claude Code v2.1.172 (June 2026), nested sub-agent spawning is
 platform-possible: a sub-agent may itself spawn a sub-agent, up to a
-fixed depth of 5, enforced by tool-stripping at depth 5 (a depth-5
-sub-agent's tool list omits `Task`/`Agent`, so it cannot spawn further).
-This is documented at code.claude.com/docs/en/sub-agents. The premise
+configurable depth cap (the default moved 5 → 1 → 3 across v2.1.172 →
+v2.1.217 → v2.1.219+, and is env-overridable via
+`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`), enforced by tool-stripping at
+the configured cap (a sub-agent at the cap's tool list omits
+`Task`/`Agent`, so it cannot spawn further). This is documented at
+code.claude.com/docs/en/sub-agents. The premise
 was verified via a web-grounded gather pass (Gemini 3.1 Pro) followed by
 an adversarial refute pass (Claude Opus 4.6) explicitly tasked with
 finding evidence against it; the refute pass found none, so the premise
@@ -24,7 +27,8 @@ context bloat from a long-running supervisor accumulating sub-agent
 output. The platform premise above shows justification (1) was never a
 hard platform limit at any depth flow actually uses (the deepest chain
 any site could plausibly want is depth 3: supervisor → verify-loop →
-edit-applier). Justification (2) — context economy — was always the
+edit-applier — depth 3 sits AT the current default cap, so it is
+supported without an env override). Justification (2) — context economy — was always the
 load-bearing one. `docs/context-economy-audit.md` establishes review as
 the heaviest phase per pipeline run; Anthropic's own multi-agent
 guidance recommends flat orchestrator-worker topologies over deep
@@ -42,14 +46,14 @@ argument that happened to point the same direction.
 
 ## Per-site assessment
 
-| Site                             | Depth if nested | Win                                                                                                                                                         | Cost                                                                                                                                                                                                   | Verdict            |
-| -------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
-| supervisor → pr-review wholesale | 2               | Fewer top-level Task calls in the supervisor's own transcript                                                                                               | AskUserQuestion unavailable inside a subagent (pr-review's gate-override form would break); auto-push moves two levels from the user's own instruction; resume anchors leave the supervisor transcript | Rejected           |
-| verify-loop → edit-applier       | 3               | Verify-loop's wider-scope fix path gets edit-applier's mechanical pre-check + rejected-alternatives/anti-patterns discipline instead of ad-hoc inline edits | One extra artifact hop (`verify-coder-result.json`), one extra spawn-failure mode to record                                                                                                            | **Adopted**        |
-| fix-applier → coder              | 3               | Same edit-applier discipline for pr-review's per-finding fix loop                                                                                           | fix-applier already owns per-finding commit/push sequencing; splitting that into a grandchild spawn muddies which layer commits                                                                        | Rejected (for now) |
-| discovery → parallel scouts      | 2               | Faster wall-clock for multi-file discovery                                                                                                                  | Discovery is a single one-shot Task already; sub-fanning it multiplies the ~15x token cost for a phase that isn't the audited hot spot                                                                 | Rejected           |
-| consolidator sub-spawn           | 2               | Could parallelize validation of multiple agent-output files                                                                                                 | Consolidator-validator already runs as one Sonnet pass over pre-computed agent outputs; no measured bottleneck to justify the spend                                                                    | Rejected           |
-| epic-run fan-out                 | 2               | Could parallelize manifest reconciliation across features                                                                                                   | epic-run is a playbook session, explicitly zero named fan-out by design (no Task, no AskUserQuestion); nesting here would be a new top-level policy change, not a mechanical adoption                  | Rejected           |
+| Site                             | Depth if nested | Win                                                                                                                                                         | Cost                                                                                                                                                                                                   | Verdict                                                                                                    |
+| -------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| supervisor → pr-review wholesale | 2               | Fewer top-level Task calls in the supervisor's own transcript                                                                                               | AskUserQuestion unavailable inside a subagent (pr-review's gate-override form would break); auto-push moves two levels from the user's own instruction; resume anchors leave the supervisor transcript | Rejected                                                                                                   |
+| verify-loop → edit-applier       | 3               | Verify-loop's wider-scope fix path gets edit-applier's mechanical pre-check + rejected-alternatives/anti-patterns discipline instead of ad-hoc inline edits | One extra artifact hop (`verify-coder-result.json`), one extra spawn-failure mode to record                                                                                                            | Adopted, then **removed** — step 6 now invokes `/flow-verify` inline, so this nested site no longer exists |
+| fix-applier → coder              | 3               | Same edit-applier discipline for pr-review's per-finding fix loop                                                                                           | fix-applier already owns per-finding commit/push sequencing; splitting that into a grandchild spawn muddies which layer commits                                                                        | Rejected (for now)                                                                                         |
+| discovery → parallel scouts      | 2               | Faster wall-clock for multi-file discovery                                                                                                                  | Discovery is a single one-shot Task already; sub-fanning it multiplies the ~15x token cost for a phase that isn't the audited hot spot                                                                 | Rejected                                                                                                   |
+| consolidator sub-spawn           | 2               | Could parallelize validation of multiple agent-output files                                                                                                 | Consolidator-validator already runs as one Sonnet pass over pre-computed agent outputs; no measured bottleneck to justify the spend                                                                    | Rejected                                                                                                   |
+| epic-run fan-out                 | 2               | Could parallelize manifest reconciliation across features                                                                                                   | epic-run is a playbook session, explicitly zero named fan-out by design (no Task, no AskUserQuestion); nesting here would be a new top-level policy change, not a mechanical adoption                  | Rejected                                                                                                   |
 
 ## Cross-cutting costs
 
@@ -86,26 +90,27 @@ Independent of any single site, nesting anywhere carries these costs:
 
 ## Verdict
 
-The current flat, one-shot, nine-named-exemption design stands, **except**
-at the one site where the platform-possible win — the edit-applier's
-mechanical contract-adherence and negative-findings discipline — clearly
-outweighs the added nesting cost: **verify-loop → edit-applier**, adopted
-in this same PR. The exactly-nine top-level-exemption rule is unchanged;
-the nested site is bookkept _inside_ the existing Verify-Retry-Loop
-exemption, not as a tenth top-level exemption.
+The current flat, one-shot, seven-named-exemption design stands with no
+nested site. **verify-loop → edit-applier** was adopted for a time (see
+below) but has since been **removed**: `/flow-pipeline` step 6 now
+invokes `/flow-verify` in-process instead of spawning a Verify-Retry-Loop
+subagent, so there is no longer a verify-loop parent to nest under. The
+exactly-seven top-level-exemption rule is unchanged.
 
-The adoption is deliberately conservative given the depth-3 swallowed-
-failure pre-mortem (a grandchild subagent's failure silently disappearing
-into a stale or missing artifact, with no one layer noticing): the
-answer is a distinct `verify-coder-result.json` artifact (never
-confusable with the supervisor-path `coder-result.json`), a recorded
-`coder_spawn` enum (`ok`|`not-attempted`|`task-tool-unavailable`|
-`artifact-missing`|`invalid`) that the verify-loop subagent writes into
-its own `verify-loop-result.json`, and a hard behavioural rule: on any
-spawn or artifact miss, apply that one fix inline and stay inline for
-the remainder of the run — never retry the spawn. This is the same
+While it was live, the adoption was deliberately conservative given the
+depth-3 swallowed-failure pre-mortem (a grandchild subagent's failure
+silently disappearing into a stale or missing artifact, with no one layer
+noticing): the answer was a distinct `verify-coder-result.json` artifact
+(never confusable with the supervisor-path `coder-result.json`), a
+recorded `coder_spawn` enum (`ok`|`not-attempted`|`task-tool-unavailable`|
+`artifact-missing`|`invalid`) that the verify-loop subagent wrote into its
+own `verify-loop-result.json`, and a hard behavioural rule: on any spawn
+or artifact miss, apply that one fix inline and stay inline for the
+remainder of the run — never retry the spawn. This was the same
 loud-failure discipline that makes flow's existing artifact contracts
 debuggable, applied one layer deeper rather than invented from scratch.
+None of this machinery exists today — step 6 invokes `/flow-verify`
+in-process, so there is no verify-loop parent and no nested spawn.
 
 Rejected alternatives, recorded here so they are not silently
 re-proposed:
@@ -134,7 +139,13 @@ lint.test.ts` can enumerate and check each named site); a generic
   depth budget trades that away for no current consumer beyond the one
   site this PR adopts.
 
-## Adopted site: verify-loop → edit-applier
+## Formerly-adopted site: verify-loop → edit-applier (REMOVED)
+
+**Removed.** `/flow-pipeline` step 6 no longer spawns a Verify-Retry-Loop
+subagent — it invokes `/flow-verify` inline — so this nested spawn site
+no longer exists. The section below is left as historical rationale for
+why nesting was adopted here in the first place; it does not describe
+live behavior.
 
 On its wider-scope fix path (the same non-trivial bar `/flow-verify`
 step 3 already uses), the Verify-Retry-Loop subagent spawns exactly one

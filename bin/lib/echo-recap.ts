@@ -13,11 +13,18 @@
  *
  * Discipline mirrored from `pipeline-summary-sources.ts`: an absent scalar
  * renders the literal `none` (never a fabricated value). The PR-URL and
- * plan-file bullets carry NO trailing punctuation — terminals greedily extend
- * URL auto-detection through adjacent punctuation and break the click target.
- * The field-bearing bullets (branch, phase, verdicts, counts) are not click
+ * plan-file bullets are the click targets: rendered as markdown links
+ * (`bin/lib/link.ts`) by default, since this block is copied verbatim into
+ * assistant prose read as markdown, not a terminal. No trailing punctuation
+ * either way — the markdown link form has an explicit closing `)`, so this
+ * is now the FALLBACK for a caller that opts into `mode: "plain"`, not the
+ * mechanism: most terminals still greedily extend bare-URL auto-detection
+ * through adjacent punctuation and break the click target. The
+ * field-bearing bullets (branch, phase, verdicts, counts) are not click
  * targets and may carry normal punctuation.
  */
+
+import { linkPath, linkUrl, type LinkMode } from "./link";
 
 export const ECHO_RECAP_START = "<!-- flow-echo-recap:start -->";
 export const ECHO_RECAP_END = "<!-- flow-echo-recap:end -->";
@@ -44,6 +51,13 @@ export type EchoRecapInputs = {
    * never-fabricate-always-print-`none` honesty discipline.
    */
   suppressNone?: boolean;
+  /**
+   * Defaults to `"markdown"` — the recap is copied into assistant prose
+   * read as markdown, not a terminal. Callers that print the recap
+   * directly to a terminal (none today) can override to `"terminal"` or
+   * `"plain"`.
+   */
+  linkMode?: LinkMode;
 };
 
 function orNone(value: string | undefined): string {
@@ -56,7 +70,18 @@ function countOrNone(value: number | undefined): string {
 }
 
 export function renderEchoRecap(inputs: EchoRecapInputs): string {
-  // PR URL + plan-file: click targets, so NO trailing punctuation.
+  const mode = inputs.linkMode ?? "markdown";
+  // PR URL + plan-file: click targets, so NO trailing punctuation. Compute
+  // the `orNone`-trimmed value ONCE and linkify only when it isn't the
+  // literal `none` — the plan's `prUrl ? linkUrl(prUrl, mode) : NONE` shape
+  // regresses whitespace handling, because a whitespace-only `prUrl` is
+  // truthy (would linkify "   ") and desyncs from `isNone` below, which
+  // already treats a whitespace-only value as none via `.trim()`.
+  const prUrlValue = orNone(inputs.prUrl);
+  const prUrlText = prUrlValue === NONE ? NONE : linkUrl(prUrlValue, mode);
+  const planFileValue = orNone(inputs.planFile);
+  const planFileText =
+    planFileValue === NONE ? NONE : linkPath(planFileValue, mode);
   const branchIsNone =
     (!inputs.branch || !inputs.branch.trim()) &&
     (!inputs.prNumber || !inputs.prNumber.trim());
@@ -70,11 +95,11 @@ export function renderEchoRecap(inputs: EchoRecapInputs): string {
 
   const rows: { text: string; isNone: boolean }[] = [
     {
-      text: `- PR URL: ${orNone(inputs.prUrl)}`,
+      text: `- PR URL: ${prUrlText}`,
       isNone: !inputs.prUrl?.trim(),
     },
     {
-      text: `- Plan file: ${orNone(inputs.planFile)}`,
+      text: `- Plan file: ${planFileText}`,
       isNone: !inputs.planFile?.trim(),
     },
     { text: `- ${branchBullet}`, isNone: branchIsNone },

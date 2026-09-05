@@ -73,12 +73,15 @@ prompt session, so it carries neither flag.
 
 ## Precondition: `flow install`
 
-`flow-eval` spawns a real `claude -p` child that loads the same
-`flow-module-core` plugin root a real pipeline session loads, from the
-global `~/.flow/claude-home/.claude/skills/flow-module-core/agents/`
-location. Run `flow install` once before the first `flow-eval run` — a
-missing install surfaces as the named `flow-not-installed` skip, not a
-crash.
+`flow-eval` spawns a real `claude -p` child against a plugin root it
+materializes itself from the checkout you invoke `bun bin/flow-eval.ts`
+from (`bin/lib/eval-fixture.ts`'s `ownCheckoutRoot()`) — it does not read
+the global `~/.flow/claude-home/` install at run time. The global install
+is only an existence precondition: `flow-eval` checks that
+`~/.flow/claude-home/.claude/skills/flow-module-core/agents/` exists
+before running, and a missing install surfaces as the named
+`flow-not-installed` skip, not a crash. Run `flow install` once to
+satisfy that precondition.
 
 ## Running a suite
 
@@ -236,29 +239,16 @@ the recorded-at table in `docs/eval/baseline/README.md` between the
 `<!-- flow-eval-baseline:start -->` / `<!-- flow-eval-baseline:end -->`
 markers.
 
-**Measuring an unmerged branch.** The eval child loads the plugin root
-from the GLOBAL install (`~/.flow/claude-home/.claude/skills/flow-module-core/`),
-not the worktree you're standing in — a recording taken without first
-pointing the global install at the branch under test measures the _old_
-skills/helpers and is worthless. Before recording:
+**Measuring an unmerged branch.** The eval child materializes its plugin
+root from the checkout you invoke `bun bin/flow-eval.ts` from
+(`bin/lib/eval-fixture.ts`'s `ownCheckoutRoot()`), not from the global
+`~/.flow/claude-home/` install — so measuring a branch under test is just
+running `flow-eval` from that branch's checkout or worktree. No
+repointing the global install and no restore step:
 
 ```sh
-flow install --upgrade --source "$PWD"
-flow install --upgrade --source "$PWD"   # twice — see below
-command -v flow-gate-decide flow-merge-guard   # confirm the symlinks moved
-```
-
-Run the `--source` install **twice**: the first invocation's registry
-fast-forward lands one invocation late, so a single run can leave a
-helper still symlinked to the canonical checkout
-(`project_flow_install_source_stale_registry`). After recording, restore
-the global install from the canonical `main` checkout — never leave it
-pointed at a worktree a merge is about to delete
-(`project_flow_setup_source_dangling_symlinks`):
-
-```sh
-cd <canonical-main-checkout>
-bun bin/flow.ts install --upgrade
+cd <branch-checkout-or-worktree>
+bun bin/flow-eval.ts run --all --out .flow-tmp/eval
 ```
 
 ## The `claude plugin eval` forward check

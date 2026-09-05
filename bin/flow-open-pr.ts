@@ -361,7 +361,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 1;
   }
 
-  const updateArgv = [slug, "--pr", String(pr.number)];
+  const updateArgv = [slug, "--pr", String(pr.number), "--pr-url", pr.url];
   if (validSessionId !== undefined)
     updateArgv.push("--session-id", validSessionId);
   const updateExit = updater(updateArgv);

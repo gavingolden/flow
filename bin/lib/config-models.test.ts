@@ -54,12 +54,10 @@ describe("runConfigModelsCli", () => {
       "planning",
       "scout",
       "coder",
-      "verify",
       "review",
       "fix-applier",
       "consolidator",
       "merge-resolver",
-      "gatekeeper",
     ]) {
       expect(table).toContain(phase);
     }
@@ -90,15 +88,17 @@ describe("runConfigModelsCli", () => {
     expect(out.length).toBe(1);
     const parsed = JSON.parse(out[0]);
     expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed.length).toBeGreaterThanOrEqual(10);
+    expect(parsed.length).toBeGreaterThanOrEqual(8);
     for (const r of parsed) {
       expect(r).toHaveProperty("phase");
       expect(r).toHaveProperty("model");
       expect(r).toHaveProperty("source");
       expect(r).toHaveProperty("effort");
     }
-    const verify = parsed.find((r: { phase: string }) => r.phase === "verify");
-    expect(verify).toMatchObject({
+    const fixApplier = parsed.find(
+      (r: { phase: string }) => r.phase === "fix-applier",
+    );
+    expect(fixApplier).toMatchObject({
       model: "sonnet",
       source: "built-in (sonnet)",
       effort: "low (pinned)",

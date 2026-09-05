@@ -3,7 +3,7 @@
 Offload target for `AGENTS.md` `## Git workflow` mechanics and several
 `## Don'ts` bullet bodies that need a durable home but must not become a
 new `## ` section in [exemption-contracts.md](exemption-contracts.md) —
-that file's h2 sections are pinned 1:1 to the nine Task-tool exemptions
+that file's h2 sections are pinned 1:1 to the seven Task-tool exemptions
 by `bin/skill-md-lint.test.ts`.
 
 ## Session marker + trailer mechanics
@@ -262,16 +262,15 @@ override in `~/.flow/config.json`, `overflowNote`) and
 `skills/pipeline/flow-pr-review/SKILL.md` Step 3 for `/flow-pr-review`'s
 `{{EXISTING_INTENT_COMMENTS}}` consumption.
 
-## Shared rationale for the nine Task-tool exemptions
+## Shared rationale for the seven Task-tool exemptions
 
 `/flow-pipeline`'s "Hard rules" forbid the supervisor from calling the
-`Task` / `Agent` tool, with nine named exceptions. The same rationale
-covers all nine: (a) the supervisor is itself a top-level Claude Code
+`Task` / `Agent` tool, with seven named exceptions. The same rationale
+covers all seven: (a) the supervisor is itself a top-level Claude Code
 session at depth 1, so its own Task calls are never themselves nested;
 flow chooses flat one-shot
-fan-out even though nesting is now platform-possible — with one
-sanctioned nested site, verify-loop → edit-applier, inside the
-Verify-Retry-Loop exemption; (b) each subagent is one-shot (returns an artifact + brief
+fan-out even though nesting is platform-possible — none of the seven
+sites nests; (b) each subagent is one-shot (returns an artifact + brief
 summary, then exits), so the context-bloat constraint doesn't apply
 either; (c) every exemption is anchored on its step _heading name_, not
 its number, so it survives renumbering; (d) every exemption is documented
@@ -357,12 +356,12 @@ bidirectionally in
 ## `/flow-epic-create` and `/flow-epic-run` detail
 
 `flow epic create` spawns a fresh top-level `/flow-epic-create` session,
-so `/flow-pipeline`'s exactly-9 and one-form rule are unaffected by its
+so `/flow-pipeline`'s exactly-seven and one-form rule are unaffected by its
 two named surfaces (distinct openers, in
 `skills/pipeline/flow-epic-create/SKILL.md`): **Task-tool fan-out:
 `/flow-epic-create` → /flow-product-planning MODE: epic designer.** and
 **AskUserQuestion form: `/flow-epic-create` clarification round.** Its
-cross-model design review is a Bash fan-out, not a tenth exemption —
+cross-model design review is a Bash fan-out, not an eighth exemption —
 `review.gemini`-gated `flow-plan-review` over `design.md`; no Task, no
 form; graceful skip sans agy.
 

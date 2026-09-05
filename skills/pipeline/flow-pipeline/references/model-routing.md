@@ -5,7 +5,7 @@ each fan-out sub-agent. Every named Task-spawn site in the pipeline / epic
 SKILLs links here rather than restating the whole chain.
 
 Adding a per-spawn `model:` argument to an **existing** named fan-out creates
-**no new Task-tool exemption** and **no tenth spawn site** — the nine exemption
+**no new Task-tool exemption** and **no eighth spawn site** — the seven exemption
 openers, the one `AskUserQuestion` form, and every "Load the Task tool before
 spawning" preamble stay byte-exact (guarded by `bin/skill-md-lint.test.ts`).
 
@@ -40,19 +40,14 @@ so the sub-agent inherits the session model (the default Claude behaviour).
 | Step 3 Discovery (planning)                             | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                          |
 | `/flow-new-feature` Scout (implement)                   | `modelImplement`     | `config.models.scout // state.modelImplement // config.models.implement // inherited` |
 | `/flow-coder` Edit-Applier (implement)                  | `modelImplement`     | `config.models.coder // state.modelImplement // config.models.implement // inherited` |
-| Step 6 Verify-Retry-Loop (verify)                       | `modelVerify`        | `state.modelVerify // config.models.verify // "sonnet"` **(NOT inherited)**           |
 | `/flow-pr-review` Multi-Agent Review (review)           | `modelReview`        | `state.modelReview // config.models.review // inherited`                              |
 | `/flow-pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`    | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**   |
 | `/flow-pr-review` Consolidator-Validator (consolidator) | `modelConsolidator`  | `state.modelConsolidator // config.models.consolidator // inherited`                  |
 | Step 10 Merge-Conflict Resolver (mergeResolver)         | `modelMergeResolver` | `state.modelMergeResolver // config.models.mergeResolver // inherited`                |
 | `/flow-epic-create` designer (planning)                 | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                          |
 
-## Three deliberate asymmetries
+## Two deliberate asymmetries
 
-- **verify defaults to `sonnet`, not inherited.** Verify is a mechanical gate
-  that rarely benefits from an expensive model; defaulting it to inherit would
-  silently spend Fable on it. So its final fallback is the literal `sonnet`,
-  not the session model. Documented at the Step 6 spawn site.
 - **fixApplier defaults to `sonnet`, not inherited.** The Fix-Applier loop
   applies already-diagnosed findings — mechanical apply-commit-push work its
   `agents/flow-fix-applier.md` definition already pins to `effort: low` for the
@@ -63,22 +58,6 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   is the one primary grain over implementation; `config.models.scout` /
   `config.models.coder` are optional finer overrides that layer **above**
   `modelImplement` (they win when set) but have no CLI flag.
-
-## The gatekeeper is pinned — no flag, no inherit
-
-The `/flow-pr-review` Step 1.5 gatekeeper stays `model: "haiku"` by design (its
-whole point is cheap cost-routing that short-circuits the expensive review
-fan-out). A `config.models.gatekeeper` key is **reachable but loudly
-discouraged** — overriding it defeats the deliberate cost-routing. Do **not**
-wire a `--model-gatekeeper` flag and do **not** let it inherit the session
-model.
-
-The pin is now ALSO declarative: `agents/flow-gatekeeper.md` frontmatter
-carries `model: haiku` as the durable record of the pin. The spawn site keeps
-its identical per-spawn `model: "haiku"` param regardless — per-spawn wins
-over frontmatter, the two values are identical so they never conflict, and
-the param is what keeps the `general-purpose` fallback path (definition not
-installed) on haiku too.
 
 ## In-process skills pin effort, not model
 

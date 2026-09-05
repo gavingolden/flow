@@ -335,7 +335,6 @@ describe("PHASE_EMITTERS", () => {
   it("maps every emitted phase to its owning helper and does not contradict flow-stop-guard's phase set", () => {
     expect(PHASE_EMITTERS).toEqual({
       implementing: "flow-open-pr",
-      verifying: "flow-verify-prep",
       "ci-wait": "flow-ci-check",
       reviewing: "flow-fetch-pr-review",
       gating: "flow-gate-decide",

@@ -497,11 +497,13 @@ describe("render — awaiting-approval", () => {
     expect(startIdx).toBe(0);
     expect(endIdx).toBeGreaterThan(startIdx);
     expect(statusIdx).toBeGreaterThan(endIdx);
-    // The plan-file bullet inside the recap carries no trailing punctuation.
+    // The plan-file bullet inside the recap carries no trailing
+    // punctuation. It's a markdown link (renderEchoRecap's default) —
+    // the recap is copied into assistant prose, not a terminal.
     const recapPlan = out
       .split("\n")
       .find((l) => l.startsWith("- Plan file:"))!;
-    expect(recapPlan).toBe("- Plan file: /a/p.md");
+    expect(recapPlan).toBe("- Plan file: [/a/p.md](file:///a/p.md)");
     expect(recapPlan.endsWith(".")).toBe(false);
     expect(recapPlan.endsWith(":")).toBe(false);
     // The original two path bullets still close the block.
@@ -829,7 +831,9 @@ describe("render — pm lens", () => {
       planFile: "/work/.flow-tmp/plan.md",
     });
     expect(out).not.toContain("- PR URL: none");
-    expect(out).toContain("- Plan file: /work/.flow-tmp/plan.md");
+    expect(out).toContain(
+      "- Plan file: [/work/.flow-tmp/plan.md](file:///work/.flow-tmp/plan.md)",
+    );
     expect(out).toContain("TLDR: CI waiting becomes crash-proof.");
   });
 
@@ -1401,6 +1405,177 @@ describe("run (end-to-end CLI)", () => {
       tmpRoot,
     );
   }
+
+  it("keeps the sentinel line byte-exact and escape-free in EVERY link mode, for every status", () => {
+    const cases: { args: string[]; slug: string; expected: string }[] = [
+      {
+        args: ["--status", "merged", "--pr-url", "https://example/pr/1"],
+        slug: "escape-check-merged",
+        expected: "MERGED",
+      },
+      {
+        args: ["--status", "gated", "--pr-url", "https://example/pr/1"],
+        slug: "escape-check-gated",
+        expected: "GATED: https://example/pr/1",
+      },
+      {
+        args: [
+          "--status",
+          "needs-human",
+          "--pr-url",
+          "https://example/pr/1",
+          "--reason",
+          "some-reason",
+        ],
+        slug: "escape-check-needs-human",
+        expected: "NEEDS HUMAN: some-reason",
+      },
+      {
+        args: ["--status", "cancelled"],
+        slug: "escape-check-cancelled",
+        expected: "cancelled",
+      },
+    ];
+    // Loop BOTH dimensions. Terminal mode alone under-tests the contract:
+    // a markdown-mode regression rendering `GATED: [url](url)` carries no
+    // escape bytes at all, so an escape-only assertion passes it. Asserting
+    // the exact sentinel text is what actually pins "never linkified, in
+    // any mode" — `GATED: <url>` being the trap, a sentinel that CONTAINS
+    // a URL and so looks linkifiable.
+    for (const mode of ["terminal", "markdown", "plain"] as const) {
+      for (const { args, slug, expected } of cases) {
+        const { rc, out } = captureStdout(() =>
+          run([...args, "--link-mode", mode, "--slug", `${slug}-${mode}`], {
+            stateDir: tmpRoot,
+          }),
+        );
+        expect(rc).toBe(0);
+        const lines = out.split("\n").filter((l) => l !== "");
+        const sentinel = lines[lines.length - 1];
+        expect(sentinel).not.toContain("\x1b");
+        expect(sentinel).toBe(expected);
+      }
+    }
+  });
+
+  it("renders the AWAITING-APPROVAL path bullets as links in a non-plain mode", () => {
+    // Regression pin: every other render() call omits linkMode, so under
+    // vitest resolveLinkMode() returns "plain" and linkPath() is a no-op on
+    // these two lines — 2 of Task 2's 5 call sites, and the exact surface
+    // the feature exists for. Reverting them to bare paths, or swapping
+    // linkPath->linkUrl, would otherwise keep the whole suite green.
+    for (const mode of ["terminal", "markdown"] as const) {
+      const { rc, out } = captureStdout(() =>
+        run(
+          [
+            "--status",
+            "awaiting-approval",
+            "--worktree",
+            "/tmp/wt",
+            "--plan-file",
+            "/tmp/wt/.flow-tmp/plan.md",
+            "--link-mode",
+            mode,
+            "--slug",
+            `bullets-${mode}`,
+          ],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      const bullets = out.split("\n").filter((l) => l.startsWith("  - "));
+      expect(bullets).toHaveLength(2);
+      for (const b of bullets) {
+        if (mode === "terminal") {
+          expect(b).toContain("\x1b]8;;file:///");
+        } else {
+          expect(b).toContain("](file:///");
+        }
+      }
+      // The visible label stays the raw path verbatim — the module invariant.
+      expect(bullets[0]).toContain("/tmp/wt");
+      expect(bullets[1]).toContain("/tmp/wt/.flow-tmp/plan.md");
+    }
+  });
+
+  it("--link-mode terminal wraps the PR row in an OSC 8 hyperlink", () => {
+    const { out } = captureStdout(() =>
+      run(
+        [
+          "--status",
+          "gated",
+          "--pr-url",
+          "https://example/pr/1",
+          "--link-mode",
+          "terminal",
+          "--slug",
+          "link-mode-terminal-slug",
+        ],
+        { stateDir: tmpRoot },
+      ),
+    );
+    expect(out).toContain(
+      "PR: \x1b]8;;https://example/pr/1\x1b\\https://example/pr/1\x1b]8;;\x1b\\",
+    );
+    // The sentinel stays bare even though the PR row above it is linkified.
+    expect(out.trimEnd().endsWith("GATED: https://example/pr/1")).toBe(true);
+  });
+
+  it("--link-mode markdown wraps the PR row as a markdown link", () => {
+    const { out } = captureStdout(() =>
+      run(
+        [
+          "--status",
+          "merged",
+          "--pr-url",
+          "https://example/pr/1",
+          "--link-mode",
+          "markdown",
+          "--slug",
+          "link-mode-markdown-slug",
+        ],
+        { stateDir: tmpRoot },
+      ),
+    );
+    expect(out).toContain("PR: [https://example/pr/1](https://example/pr/1)");
+  });
+
+  it("--link-mode plain overrides the autodetect and leaves the PR row bare", () => {
+    const { out } = captureStdout(() =>
+      run(
+        [
+          "--status",
+          "merged",
+          "--pr-url",
+          "https://example/pr/1",
+          "--link-mode",
+          "plain",
+          "--slug",
+          "link-mode-plain-slug",
+        ],
+        { stateDir: tmpRoot },
+      ),
+    );
+    expect(out).toContain("PR: https://example/pr/1");
+    expect(out).not.toContain("\x1b");
+  });
+
+  it("rejects an unrecognised --link-mode value with a usage error", () => {
+    const original = process.stderr.write.bind(process.stderr);
+    let captured = "";
+    process.stderr.write = ((chunk: unknown) => {
+      captured += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const rc = run(["--status", "merged", "--link-mode", "bogus"]);
+      expect(rc).toBe(2);
+    } finally {
+      process.stderr.write = original;
+    }
+    expect(captured).toContain("--link-mode must be one of");
+    expect(captured).toContain("usage:");
+  });
 
   it("omits CLEANUP entirely when --cleanup is not passed, even with a recorded reap", () => {
     seedState("cleanup-flag-off-slug", {

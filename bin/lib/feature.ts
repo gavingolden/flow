@@ -227,12 +227,11 @@ export type FeatureOptions = {
    * and consumed by the supervisor at its named Task-spawn site — NOT threaded
    * into the launch argv (only the session `--model` reaches claude at launch).
    * Omitted when absent (absent ≡ the phase inherits the session model, with the
-   * verify-`sonnet` and scout/coder exceptions documented at their spawn sites).
+   * scout/coder exceptions documented at their spawn sites).
    */
   modelPlanning?: ModelAlias;
   modelImplement?: ModelAlias;
   modelReview?: ModelAlias;
-  modelVerify?: ModelAlias;
   modelFixApplier?: ModelAlias;
   modelConsolidator?: ModelAlias;
   modelMergeResolver?: ModelAlias;
@@ -712,7 +711,7 @@ function runFresh(
   if (!description || description.trim() === "") {
     console.error("flow feature create: description is required.");
     console.error(
-      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--interview | --no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] [--epic <epic-slug>/<feature-id>] <description>",
+      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--interview | --no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] [--epic <epic-slug>/<feature-id>] <description>",
     );
     return 1;
   }
@@ -847,7 +846,6 @@ function runFresh(
     modelPlanning: options.modelPlanning,
     modelImplement: options.modelImplement,
     modelReview: options.modelReview,
-    modelVerify: options.modelVerify,
     modelFixApplier: options.modelFixApplier,
     modelConsolidator: options.modelConsolidator,
     modelMergeResolver: options.modelMergeResolver,
