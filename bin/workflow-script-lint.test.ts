@@ -157,7 +157,7 @@ describe("workflow scripts — structural lint", () => {
     expect(existsSync(SITES_DOC)).toBe(true);
     const doc = readFileSync(SITES_DOC, "utf8");
     expect(doc).toMatch(
-      /Label \| agentType \| Model key \| Effort \| Artifact \| May nest/,
+      /Label\s*\|\s*agentType\s*\|\s*Model key\s*\|\s*Effort\s*\|\s*Artifact\s*\|\s*May nest/,
     );
 
     const scriptSites = new Set(

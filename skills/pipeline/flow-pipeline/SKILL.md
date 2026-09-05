@@ -1725,7 +1725,7 @@ branch on `.outcome`:
 Stage B's conflict-resolve step spawns the merge-resolver agent internally
 (`flow-module-core:flow-merge-resolver`, model `models.mergeResolver`) —
 this is the Workflow-tool `agent()` call enumerated in
-[references/workflow-agent-sites.md](references/workflow-agent-sites.md),
+[references/workflow-agent-sites.md](../../../references/workflow-agent-sites.md),
 not a supervisor-level Task-tool exemption. On success, the roadmap row
 for this PR was already flipped to `✅ shipped (#$PR)` in the PR's own
 diff by `/flow-pr-review` step 7.5, so no post-merge metadata sweep is
