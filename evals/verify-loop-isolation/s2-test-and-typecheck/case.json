@@ -3,9 +3,7 @@
   "title": "Step 6 verify-retry-loop fixes a test failure AND a type error in one run",
   "provenance": "Synthetic zero-dependency Bun+tsc fixture authored for this suite; preload/plan-digest.md is a ~40KB sanitized excerpt of this feature's own approved plan.md (PRD + architecture-decisions sections, no relative links). Bumped for Task 10 (issue-tracked f6-workflow-port): re-authored to launch stage A/B per SKILL.md's Stage launch sections instead of hand-invoking the retired per-step Bash prose, plus the stage-result-written gate grader confirming the workflow actually wrote its result artifact.",
   "prompt": "prompt.md",
-  "preload": [
-    "preload/plan-digest.md"
-  ],
+  "preload": ["preload/plan-digest.md"],
   "fixture": {
     "repo": "fixture",
     "overlay": "overlay",
@@ -20,10 +18,7 @@
     {
       "id": "bun-test-passes",
       "kind": "command",
-      "argv": [
-        "bun",
-        "test"
-      ],
+      "argv": ["bun", "test"],
       "cwd": "$REPO",
       "expectExit": 0
     },
@@ -38,11 +33,7 @@
     {
       "id": "typecheck-passes",
       "kind": "command",
-      "argv": [
-        "bun",
-        "run",
-        "typecheck"
-      ],
+      "argv": ["bun", "run", "typecheck"],
       "cwd": "$REPO",
       "expectExit": 0
     },

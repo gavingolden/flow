@@ -6,21 +6,12 @@
   "fixture": {
     "repo": "fixture",
     "state": "state.json",
-    "shims": [
-      "../../_shims/gh"
-    ]
+    "shims": ["../../_shims/gh"]
   },
   "env": {
     "flowSlug": true
   },
-  "ghCalls": [
-    [
-      "pr",
-      "view",
-      "--json",
-      "number,url"
-    ]
-  ],
+  "ghCalls": [["pr", "view", "--json", "number,url"]],
   "resultSchema": "result-schema.json",
   "graders": [
     {

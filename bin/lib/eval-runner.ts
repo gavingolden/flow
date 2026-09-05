@@ -404,7 +404,7 @@ export type RunOutcome = {
   stageResultWaitNote?: string;
 };
 
-/** Bounded poll (5s cadence, ≤600s) for the stage-A Workflow script's
+/** Bounded poll (5s cadence, ≤600s) for a stage Workflow script's
  * result artifact to land under the fixture repo — only meaningful when
  * the scenario allows the `Workflow` tool, since a non-Workflow scenario
  * never produces this file. Exported for direct unit coverage; never
@@ -419,11 +419,18 @@ export async function waitForStageResult(
     sleep?: (ms: number) => Promise<void>;
   } = {},
 ): Promise<{ found: boolean; waitedSec: number }> {
-  const filePath =
-    opts.filePath ?? path.join(repoDir, ".flow-tmp", "stage-a-result.json");
+  // A scenario may enter at stage B (the merge stage), so by default either
+  // stage's result artifact ends the wait.
+  const candidates = opts.filePath
+    ? [opts.filePath]
+    : ["stage-a-result.json", "stage-b-result.json"].map((name) =>
+        path.join(repoDir, ".flow-tmp", name),
+      );
   const pollMs = opts.pollMs ?? 5_000;
   const maxWaitMs = opts.maxWaitMs ?? 600_000;
-  const exists = opts.exists ?? ((p: string) => fs.existsSync(p));
+  const existsOne = opts.exists ?? ((p: string) => fs.existsSync(p));
+  const exists = (_: string) => candidates.some(existsOne);
+  const filePath = candidates[0];
   const sleep =
     opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
 

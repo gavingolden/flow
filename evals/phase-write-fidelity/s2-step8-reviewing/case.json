@@ -6,9 +6,7 @@
   "fixture": {
     "repo": "fixture",
     "state": "state.json",
-    "shims": [
-      "../../_shims/gh"
-    ]
+    "shims": ["../../_shims/gh"]
   },
   "env": {
     "flowSlug": true
@@ -41,12 +39,7 @@
       "--jq",
       ".[] | {path, line, start_line, body, diff_hunk, html_url, user: {login: .user.login}, in_reply_to_id, id}"
     ],
-    [
-      "pr",
-      "diff",
-      "1",
-      "--name-only"
-    ]
+    ["pr", "diff", "1", "--name-only"]
   ],
   "resultSchema": "result-schema.json",
   "graders": [

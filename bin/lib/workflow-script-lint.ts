@@ -235,18 +235,30 @@ function resolveWrapper(
     if (labelKVMatch) {
       const litLabel = literalStringValue(labelKVMatch[1]);
       if (litLabel !== null) {
-        return { kind: "literal", label: litLabel, agentType: agentTypeMatch[1] };
+        return {
+          kind: "literal",
+          label: litLabel,
+          agentType: agentTypeMatch[1],
+        };
       }
       const paramIdx = def.params.indexOf(labelKVMatch[1].trim());
       if (paramIdx !== -1) {
-        return { kind: "passthrough", labelParamIndex: paramIdx, agentType: agentTypeMatch[1] };
+        return {
+          kind: "passthrough",
+          labelParamIndex: paramIdx,
+          agentType: agentTypeMatch[1],
+        };
       }
       return { kind: "unresolved" };
     }
     if (/\blabel\b\s*[,}]/.test(objArg)) {
       const paramIdx = def.params.indexOf("label");
       if (paramIdx !== -1) {
-        return { kind: "passthrough", labelParamIndex: paramIdx, agentType: agentTypeMatch[1] };
+        return {
+          kind: "passthrough",
+          labelParamIndex: paramIdx,
+          agentType: agentTypeMatch[1],
+        };
       }
     }
     return { kind: "unresolved" };
@@ -273,14 +285,23 @@ function resolvedSiteForCall(
   const def = fnDefs.get(name);
   if (!def) return null;
   const res = resolveWrapper(def, source, fnDefs);
-  if (res.kind === "literal") return { label: res.label, agentType: res.agentType };
+  if (res.kind === "literal")
+    return { label: res.label, agentType: res.agentType };
   if (res.kind === "passthrough") {
     const lit = literalStringValue(callArgs[res.labelParamIndex] ?? "");
     return lit === null ? null : { label: lit, agentType: res.agentType };
   }
   if (res.kind === "delegates") {
-    const mapped = res.argIndexMap.map((idx) => (idx === -1 ? "" : callArgs[idx] ?? ""));
-    return resolvedSiteForCall(res.calleeName, mapped, fnDefs, source, depth + 1);
+    const mapped = res.argIndexMap.map((idx) =>
+      idx === -1 ? "" : (callArgs[idx] ?? ""),
+    );
+    return resolvedSiteForCall(
+      res.calleeName,
+      mapped,
+      fnDefs,
+      source,
+      depth + 1,
+    );
   }
   return null;
 }
