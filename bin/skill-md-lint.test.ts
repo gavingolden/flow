@@ -5784,7 +5784,56 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
-  it("no flow-checkpoint --site line mutes stderr, in either the pipeline or the manual checkpoint SKILL.md", () => {
+  // Per-site anchors for the 3 new terminal coverage-gap arms, following the
+  // Task-tool-exemption check's own per-site (not just aggregate-count)
+  // precedent above: a raw `armCount >= 9` can pass with a 10th silent site
+  // and a missing 1 of the 3 new ones, since the count doesn't say WHICH
+  // sites. Anchored on unique surrounding prose so a rename of the literal
+  // `--site terminal` token elsewhere can't produce a false pass.
+  it.each([
+    [
+      "step-11 MERGED block",
+      "flow-checkpoint --probe --site terminal | jq -r '.verdict')\" = write ] && echo \"Pipeline reached MERGED at",
+    ],
+    [
+      "merged-externally (step 9 early-exit row)",
+      'Pipeline reached MERGED (externally) at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal',
+    ],
+    [
+      "step-9 resume MERGED branch",
+      "run step 11's MERGED branch — which re-runs `flow-pipeline-summary",
+    ],
+    [
+      "NEEDS HUMAN escalation block",
+      "Pipeline escalated to NEEDS HUMAN (<reason>) at",
+    ],
+  ])(
+    "flow-pipeline SKILL.md arms the %s terminal coverage-gap site",
+    (_label, anchor) => {
+      expect(content.includes(anchor)).toBe(true);
+    },
+  );
+
+  // An "arm" invocation is either the explicit `flow-checkpoint --site
+  // <site>` form (pipeline auto-checkpoint sites) OR a bare `flow-checkpoint`
+  // call with none of --probe/--consume/--path (the manual skill's own arm
+  // form, which defaults --site to "manual" — see flow-checkpoint.ts's
+  // parseArgs). Excludes filename mentions (`flow-checkpoint.ts`) and the
+  // sibling freshness module (`flow-checkpoint-freshness`).
+  const isArmInvocationLine = (line: string): boolean => {
+    if (!/(^|[^\w.-])flow-checkpoint(\s|$)/.test(line)) return false;
+    if (line.includes("flow-checkpoint.ts")) return false;
+    if (line.includes("flow-checkpoint-freshness")) return false;
+    if (
+      line.includes("--probe") ||
+      line.includes("--consume") ||
+      line.includes("--path")
+    )
+      return false;
+    return true;
+  };
+
+  it("no flow-checkpoint arm line mutes stderr, in either the pipeline or the manual checkpoint SKILL.md", () => {
     for (const [label, text] of [
       ["flow-pipeline SKILL.md", content],
       ["flow-checkpoint SKILL.md", checkpointSkillContent],
@@ -5793,18 +5842,35 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         .split("\n")
         .filter(
           (line) =>
-            line.includes("flow-checkpoint --site") &&
+            isArmInvocationLine(line) &&
             (line.includes("2>/dev/null") ||
               line.includes("2>&1") ||
               line.includes("&>")),
         );
       expect(
         offendingLines,
-        `${label} must never mute stderr on a \`flow-checkpoint --site\` ` +
+        `${label} must never mute stderr on a \`flow-checkpoint\` arm ` +
           `call — doing so silently swallows the \`checkpointed: \` arm ` +
           `banner. Offending line(s): ${JSON.stringify(offendingLines)}`,
       ).toEqual([]);
     }
+  });
+
+  it("positive control: the arm-line stderr-mute predicate actually fires on a muted bare call", () => {
+    // Guards against the predicate being vacuously green (the bug this test
+    // itself once had: filtering on `flow-checkpoint --site` found nothing in
+    // the manual skill, whose only arm is a bare `flow-checkpoint` call, so
+    // the assertion below passed against ANY content).
+    const fixture = "flow-checkpoint 2>/dev/null";
+    expect(isArmInvocationLine(fixture)).toBe(true);
+    const offending = [fixture].filter(
+      (line) =>
+        isArmInvocationLine(line) &&
+        (line.includes("2>/dev/null") ||
+          line.includes("2>&1") ||
+          line.includes("&>")),
+    );
+    expect(offending).toEqual([fixture]);
   });
 
   it("the /flow-checkpoint skill documents the checkpoint.consumed.md archive", () => {

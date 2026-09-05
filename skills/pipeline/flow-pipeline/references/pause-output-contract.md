@@ -343,6 +343,17 @@ Nothing may be forced under a wrong label, and nothing may leak into
 open prose after the block. The block is always the last thing in the
 message.
 
+**Named carve-out: the checkpoint arm banner.** `flow-checkpoint`'s
+one-line `checkpointed: true|false — …` stderr banner is exempt from
+"the block is always the last thing in the message" when a checkpoint
+arm runs at the same site as a pause block. The banner is not open
+prose and not a slot inside the block — it's a fixed, mirror-only
+trailer line the supervisor echoes verbatim immediately below the
+completed block. See `flow-pipeline/SKILL.md`'s "Checkpoint arm signal
+(echo-verbatim)" subsection for the full mirror-only discipline that
+bounds it (anchor on `^checkpointed: (true|false)`, never restate from
+memory, never fold it into `**Next action:**`).
+
 ## Gate-grammar reconciliation
 
 Formal helper-rendered blocks — `flow-gate-summary` and

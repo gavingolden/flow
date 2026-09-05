@@ -133,12 +133,14 @@ export function checkpointConsumedPath(
 }
 
 /**
- * Absolute path of the durable copy of the last-rendered arm banner
- * (`renderArmBanner`'s output). Read-side consumers that missed the
- * original stderr line — a fresh session resuming from a checkpoint, for
- * instance — can recover it here. Its absence is not itself a signal
- * (the checkpoint dir is recursively deleted on `--consume`), so callers
- * must tolerate a missing file rather than treat it as "never armed".
+ * Absolute path of the durable copy of the last-*successful* arm banner
+ * (`renderArmBanner`'s output on the `armed: true` path only). Read-side
+ * consumers that missed the original stderr line — a fresh session
+ * resuming from a checkpoint, for instance — can recover it here. Its
+ * absence is not itself a signal (the `--consume` branch unlinks this file
+ * alongside the marker, so a retired checkpoint leaves no banner behind
+ * either), so callers must tolerate a missing file rather than treat it as
+ * "never armed".
  */
 export function armBannerPath(slug: string, dir = FLOW_STATE_DIR): string {
   return path.join(checkpointDir(slug, dir), "last-arm-banner.txt");
@@ -290,9 +292,21 @@ export function run(argv: string[], deps: Deps = {}): number {
     }
     console.error(`flow-checkpoint: ${parsed.error}`);
     console.error(USAGE);
-    process.stderr.write(
-      renderArmBanner({ armed: false, reason: "bad-args" }) + "\n",
+    // Bad args could be a malformed --probe/--consume/--path call too (e.g.
+    // an unknown --site value on a --probe invocation) — parseArgs can't
+    // tell which flag family was intended once it's failed to parse, so we
+    // can't gate this one on "is this an arm" the way the no-slug branch
+    // below can. Fall back to scanning the raw argv for the read-only flags;
+    // renderArmBanner's own "never called from --probe/--consume/--path"
+    // invariant still holds for every dispatch-reachable call site.
+    const isReadOnlyIntent = argv.some(
+      (a) => a === "--probe" || a === "--consume" || a === "--path",
     );
+    if (!isReadOnlyIntent) {
+      process.stderr.write(
+        renderArmBanner({ armed: false, reason: "bad-args" }) + "\n",
+      );
+    }
     return 2;
   }
 
@@ -302,9 +316,11 @@ export function run(argv: string[], deps: Deps = {}): number {
       "flow-checkpoint: no slug given and no FLOW_SLUG in the environment.\n" +
         "  pass <slug> explicitly, or run inside a pipeline launched by `flow feature create`.",
     );
-    process.stderr.write(
-      renderArmBanner({ armed: false, reason: "no-slug" }) + "\n",
-    );
+    if (!parsed.probe && !parsed.consume && !parsed.path) {
+      process.stderr.write(
+        renderArmBanner({ armed: false, reason: "no-slug" }) + "\n",
+      );
+    }
     return 2;
   }
 
@@ -385,6 +401,12 @@ export function run(argv: string[], deps: Deps = {}): number {
         // best-effort: a failed record clear does not block the decision.
       }
     }
+    try {
+      fs.unlinkSync(armBannerPath(slug, stateDir));
+    } catch {
+      // best-effort: no banner to retire (never armed, or already
+      // consumed) is not an error — see checkpointDir contract above.
+    }
     if (fs.existsSync(marker)) {
       try {
         fs.unlinkSync(marker);
@@ -441,7 +463,9 @@ export function run(argv: string[], deps: Deps = {}): number {
     fs.mkdirSync(path.dirname(marker), { recursive: true });
     fs.writeFileSync(marker, `${slug}\n${nowIso()}\n`);
   } catch (err) {
-    const reason = `marker-write-failed: ${String(err)}`;
+    const reason = `marker-write-failed: ${String(err)
+      .replace(/\n/g, " ")
+      .slice(0, 200)}`;
     process.stderr.write(renderArmBanner({ armed: false, reason }) + "\n");
     emit({
       status: "needs",

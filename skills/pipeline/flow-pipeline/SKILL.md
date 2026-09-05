@@ -2520,7 +2520,7 @@ flow-browser-teardown --reap --record  # registry-driven reap; records the outco
 TLDR="<one sentence, <=25 words, the user-visible outcome>"  # authored here, not derived
 flow-gate-summary --status merged --pr-url "$PR_URL" --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"  # renders TLDR/STATUS/PR/NEEDS ATTENTION/MANUAL ACTION/UNTRACKED/count line/NEXT ACTION/CLEANUP + sentinel MERGED, then records phase: merged itself (after the block reaches stdout)
 flow-notify --status merged --url "$PR_URL" --reason "$TLDR"
-[ "$(flow-checkpoint --probe --site terminal | jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null  # best-effort, non-clobbering arm (stdout muted so the JSON verdict does not land beside the gate block; stderr deliberately left connected — echo the `checkpointed: ` line verbatim per the Checkpoint arm signal (echo-verbatim) subsection); the merged-externally rows and the step-9 resume MERGED branch now carry their own equivalent arm below — nothing lost, the body is worktree-independent
+[ "$(flow-checkpoint --probe --site terminal | jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null  # best-effort, non-clobbering arm (stdout muted so the JSON verdict does not land beside the gate block; stderr deliberately left connected — echo the `checkpointed: ` line verbatim per the Checkpoint arm signal (echo-verbatim) subsection); the merged-externally rows above and the step-9 resume MERGED branch below now carry their own equivalent arm — nothing lost, the body is worktree-independent
 flow-remove-worktree --delete-branch
 ```
 
@@ -2670,9 +2670,10 @@ echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose): never
 restate from memory, paraphrase, reorder, or drop it.
 
 This does not conflict with `references/pause-output-contract.md`'s
-`**Next action:**`-is-last rule: the banner is not a slot. It is the arm
-signal, trailing BELOW the completed pause block as its own line, never folded
-into `**Next action:**` and never displacing it as the block's final slot.
+`## Closing-summary` clause ("the block is always the last thing in the
+message"): the banner is not a slot inside the block. It is a carved-out
+trailer that follows the completed pause block as its own line — see that
+file's own carve-out note for the authoritative statement of the exception.
 
 **Never mute an arm call's stderr** (`2>/dev/null`, `2>&1`, `&>`) — that
 silently swallows the line and leaves the arm invisible. An arm whose call
@@ -2682,7 +2683,8 @@ block) keeps that redirect: it is stdout-only, and stderr stays connected.
 The same line is also written to `last-arm-banner.txt` in the slug's checkpoint
 dir (`armBannerPath`), for a reader that missed the original — a fresh session
 resuming from a checkpoint. Treat its absence as unknown, never as "never
-armed": `--consume` deletes the checkpoint dir recursively, so a consumed
+armed": `--consume` unlinks this file alongside the marker (never a recursive
+directory delete — the checkpoint dir itself is never removed), so a consumed
 checkpoint's banner is gone by design.
 
 # Resume mode

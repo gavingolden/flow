@@ -772,19 +772,16 @@ describe("armBannerPath()", () => {
   });
 
   it("honours an explicit stateDir override", () => {
-    const otherDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "flow-checkpoint-other-state-"),
+    // Pure path.join under the hood — no directory needs to exist on disk,
+    // so a literal placeholder string is enough; this used to pay a real
+    // mkdtemp/rmSync round-trip for a computation that never touches fs.
+    const otherDir = "/does/not/exist/flow-checkpoint-other-state";
+    expect(armBannerPath("iota", otherDir)).toBe(
+      path.join(checkpointDir("iota", otherDir), "last-arm-banner.txt"),
     );
-    try {
-      expect(armBannerPath("iota", otherDir)).toBe(
-        path.join(checkpointDir("iota", otherDir), "last-arm-banner.txt"),
-      );
-      expect(armBannerPath("iota", otherDir)).not.toBe(
-        armBannerPath("iota", stateDir),
-      );
-    } finally {
-      fs.rmSync(otherDir, { recursive: true, force: true });
-    }
+    expect(armBannerPath("iota", otherDir)).not.toBe(
+      armBannerPath("iota", stateDir),
+    );
   });
 });
 
@@ -843,34 +840,55 @@ describe("run() — arm banner on stderr", () => {
     );
   });
 
-  it("no-slug bad-arg path prints a 'checkpointed: false — no-slug' banner", () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const err = captureStderr();
+  it("no-slug bad-arg path prints a 'checkpointed: false — no-slug' banner as the LAST write, ordered against the preceding console.error usage lines", () => {
+    // Record BOTH streams into one ordered array instead of mocking
+    // console.error away: under Bun/vitest, console.error does not route
+    // through process.stderr.write the way plain Node does, so a
+    // process.stderr.write-only spy silently drops the usage lines and the
+    // previous version of this test could never actually observe them —
+    // it asserted "banner present" against an array that could only ever
+    // contain the banner, which is true regardless of ordering.
+    const order: string[] = [];
+    const errSpy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      order.push(args.join(" "));
+    });
+    const writeSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((s) => {
+        order.push(s.toString());
+        return true;
+      });
     const exit = run([], { stateDir, resolveSlug: () => null });
-    err.restore();
+    writeSpy.mockRestore();
     errSpy.mockRestore();
     expect(exit).toBe(2);
-    const bannerLines = err.writes.filter((l) =>
-      l.startsWith("checkpointed: "),
-    );
-    expect(bannerLines).toEqual([
+    expect(order.length).toBeGreaterThanOrEqual(2);
+    const last = order[order.length - 1];
+    expect(last).toBe(
       "checkpointed: false — no-slug — /clear will lose unsaved in-chat state\n",
-    ]);
+    );
   });
 
-  it("bad-args parse-error path prints a 'checkpointed: false — bad-args' banner", () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const err = captureStderr();
+  it("bad-args parse-error path prints a 'checkpointed: false — bad-args' banner as the LAST write, ordered against the preceding console.error usage lines", () => {
+    const order: string[] = [];
+    const errSpy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      order.push(args.join(" "));
+    });
+    const writeSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((s) => {
+        order.push(s.toString());
+        return true;
+      });
     const exit = run(["--bogus"], { stateDir, resolveSlug: () => "x" });
-    err.restore();
+    writeSpy.mockRestore();
     errSpy.mockRestore();
     expect(exit).toBe(2);
-    const bannerLines = err.writes.filter((l) =>
-      l.startsWith("checkpointed: "),
-    );
-    expect(bannerLines).toEqual([
+    expect(order.length).toBeGreaterThanOrEqual(2);
+    const last = order[order.length - 1];
+    expect(last).toBe(
       "checkpointed: false — bad-args — /clear will lose unsaved in-chat state\n",
-    ]);
+    );
   });
 
   it("when the terminal-phase warning also fires, the arm banner is the LAST stderr line", () => {
@@ -882,6 +900,50 @@ describe("run() — arm banner on stderr", () => {
     expect(r.stderrLines.length).toBeGreaterThanOrEqual(2);
     const last = r.stderrLines[r.stderrLines.length - 1];
     expect(last.startsWith("checkpointed: true")).toBe(true);
+  });
+
+  // Regression coverage for the confidence-85 finding: the no-slug/bad-args
+  // banners were bundled in ahead of the flag dispatch, so a --probe/
+  // --consume/--path invocation with bad args or no ambient slug leaked a
+  // "checkpointed: false" banner despite renderArmBanner's own documented
+  // "never called from --probe/--consume/--path" invariant. Every prior
+  // no-slug/bad-args test above passed an explicit slug (or none at all,
+  // for a plain arm call), so none of them ever exercised a read-only
+  // invocation through this branch.
+  it("--probe with no ambient slug does NOT leak a 'checkpointed:' banner", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = captureStderr();
+    const exit = run(["--probe", "--site", "gate"], {
+      stateDir,
+      resolveSlug: () => null,
+    });
+    err.restore();
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    expect(err.writes.some((l) => l.startsWith("checkpointed: "))).toBe(false);
+  });
+
+  it("--path with no ambient slug does NOT leak a 'checkpointed:' banner", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = captureStderr();
+    const exit = run(["--path"], { stateDir, resolveSlug: () => null });
+    err.restore();
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    expect(err.writes.some((l) => l.startsWith("checkpointed: "))).toBe(false);
+  });
+
+  it("--consume with a malformed --site value does NOT leak a 'checkpointed:' banner", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = captureStderr();
+    const exit = run(["x", "--consume", "--site", "bogus-site"], {
+      stateDir,
+      resolveSlug: () => "x",
+    });
+    err.restore();
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    expect(err.writes.some((l) => l.startsWith("checkpointed: "))).toBe(false);
   });
 });
 
