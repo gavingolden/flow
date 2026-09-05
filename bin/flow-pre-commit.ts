@@ -35,6 +35,7 @@ import {
 } from "./lib/monorepo-scopes";
 import { isPathBoundHelper } from "./lib/sources";
 import { resolveSlugFromEnv } from "./lib/session-identity";
+import { recordEvent } from "./lib/telemetry";
 import {
   classifyGrepExit,
   conflictGrepArgv,
@@ -1546,6 +1547,7 @@ Each check is run independently and reports its own pass/fail.
 }
 
 async function main(): Promise<void> {
+  const startedAt = Date.now();
   const args = process.argv.slice(2);
 
   if (args.includes("--help") || args.includes("-h")) {
@@ -1746,6 +1748,26 @@ async function main(): Promise<void> {
   if (reason) report.reason = reason;
 
   console.log(json ? formatJsonReport(report) : formatReport(report));
+
+  // Best-effort verify.attempt telemetry — one record per run, covering
+  // both --json and human-readable modes. failing_checks carries CheckResult
+  // NAMES only (never output/excerpt text), bounded to 20 entries.
+  try {
+    const failingChecks = results
+      .filter((r) => !r.passed)
+      .map((r) => r.name)
+      .slice(0, 20);
+    recordEvent("verify.attempt", {
+      scopes,
+      ok: report.allPassed,
+      failing_checks: failingChecks,
+      duration_ms: Date.now() - startedAt,
+      json_mode: json,
+    });
+  } catch {
+    // swallowed — telemetry must never affect this CLI's exit code.
+  }
+
   process.exit(report.allPassed ? 0 : 1);
 }
 

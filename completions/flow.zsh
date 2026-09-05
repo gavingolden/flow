@@ -119,7 +119,9 @@ _flow() {
                             '--effort[per-launch effort override, wins over flowNewHints]:level:(low medium high xhigh max)'
                     elif [[ "$line[2]" == ls ]]; then
                         _arguments \
-                            '(--all -a)'{--all,-a}'[include completed epics]'
+                            '--done[include completed epics]' \
+                            '--all-repos[include epics from every repo]' \
+                            '(--all -a)'{--all,-a}'[drop every default filter: done epics and every repo]'
                     else
                         local -a sub
                         sub=(
@@ -154,7 +156,9 @@ _flow() {
                 ls)
                     _arguments \
                         '--cost[add a $ column summed across the supervisor session]' \
-                        '--detail[break cost down by model (requires --cost)]'
+                        '--detail[break cost down by model (requires --cost)]' \
+                        '--all-repos[include pipelines from every repo]' \
+                        '(--all -a)'{--all,-a}'[drop every default filter]'
                     ;;
                 attach|a)
                     _flow_slugs

@@ -1,0 +1,132 @@
+{
+  "status": "SUCCESS",
+  "response": "",
+  "duration_seconds": 31.308861,
+  "json_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "reasoning",
+      "findings",
+      "rejected_alternatives",
+      "anti_patterns_found"
+    ],
+    "properties": {
+      "reasoning": {
+        "type": "string",
+        "description": "Use this exclusively for scratchpad reasoning; every finding you want reported must go in the findings array, never here."
+      },
+      "findings": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "file",
+            "line",
+            "label",
+            "confidence",
+            "subject",
+            "body"
+          ],
+          "properties": {
+            "file": {
+              "type": "string",
+              "description": "The changed file path."
+            },
+            "line": {
+              "type": "number",
+              "description": "The primary line number."
+            },
+            "end_line": {
+              "type": "number",
+              "description": "Optional end line for a multi-line span."
+            },
+            "label": {
+              "type": "string",
+              "enum": [
+                "praise",
+                "nitpick",
+                "suggestion",
+                "issue",
+                "todo",
+                "question"
+              ],
+              "description": "The conventional-comments label for this finding."
+            },
+            "decoration": {
+              "type": "string",
+              "enum": ["blocking", "non-blocking", "if-minor"],
+              "description": "The bare decoration keyword. Omit (or set null) for a praise finding; every other label requires one."
+            },
+            "confidence": {
+              "type": "number",
+              "description": "0-100. Only emit findings you are >= 80% confident are real."
+            },
+            "subject": {
+              "type": "string",
+              "description": "A short description of the finding."
+            },
+            "body": {
+              "type": "string",
+              "description": "Detailed explanation in conventional-comments format with a concrete fix."
+            }
+          }
+        },
+        "description": "The reviewer's findings, one entry per issue/praise/etc."
+      },
+      "rejected_alternatives": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["considered_approach", "why_rejected"],
+          "properties": {
+            "considered_approach": {
+              "type": "string",
+              "description": "An approach you considered while reviewing a hunk of the reviewed code."
+            },
+            "why_rejected": {
+              "type": "string",
+              "description": "Why the code as written is preferable to the considered approach."
+            }
+          }
+        },
+        "description": "Code-scoped claims about approaches you considered and rejected while reviewing. A genuine none is the empty array; do not omit this key."
+      },
+      "anti_patterns_found": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["location", "pattern", "recommendation"],
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "The file:line of the off-pattern in the reviewed code."
+            },
+            "pattern": {
+              "type": "string",
+              "description": "The off-pattern observed — not itself a findings entry."
+            },
+            "recommendation": {
+              "type": "string",
+              "description": "What the next person touching this code should do."
+            }
+          }
+        },
+        "description": "Code-scoped off-patterns you noticed but didn't surface as a findings entry. A genuine none is the empty array; do not omit this key."
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 14308,
+    "output_tokens": 3704,
+    "thinking_tokens": 3601,
+    "cache_read_tokens": 8128,
+    "total_tokens": 18012
+  },
+  "denied_actions": [
+    {
+      "action": "command",
+      "display_name": "RunCommand"
+    }
+  ]
+}

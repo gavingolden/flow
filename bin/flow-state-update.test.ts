@@ -484,6 +484,69 @@ describe("runUpdate", () => {
     expect(got?.phase).toBe("implementing");
   });
 
+  describe("phase.transition telemetry", () => {
+    let telemetryHome: string;
+    let telemetryPath: string;
+
+    beforeEach(() => {
+      telemetryHome = process.env.HOME as string;
+      telemetryPath = path.join(
+        telemetryHome,
+        ".flow",
+        "telemetry",
+        "events.jsonl",
+      );
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    afterEach(() => {
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    it("records one phase.transition event with the correct from/to on a --phase write", () => {
+      seed("csv-export", { phase: "triaged" });
+      expect(runUpdate(["csv-export", "--phase", "implementing"], dir)).toBe(0);
+      const lines = fs
+        .readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0)
+        .map((l) => JSON.parse(l));
+      const transitions = lines.filter((l) => l.event === "phase.transition");
+      expect(transitions).toHaveLength(1);
+      expect(transitions[0].attrs.from).toBe("triaged");
+      expect(transitions[0].attrs.to).toBe("implementing");
+      expect(transitions[0].attrs.since_prev_ms).toBeNull();
+      expect(transitions[0].attrs.forced).toBe(false);
+    });
+
+    it("does not record a phase.transition event on a --pr-only write", () => {
+      seed("csv-export");
+      expect(runUpdate(["csv-export", "--pr", "142"], dir)).toBe(0);
+      expect(fs.existsSync(telemetryPath)).toBe(false);
+    });
+
+    it("a telemetry failure never changes the exit code", () => {
+      // recordEvent is best-effort and never throws by contract; this
+      // asserts the write path stays fully functional even though the
+      // telemetry log directory is unwritable (occupied by a plain file).
+      fs.mkdirSync(path.join(telemetryHome, ".flow"), { recursive: true });
+      fs.writeFileSync(path.join(telemetryHome, ".flow", "telemetry"), "");
+      seed("csv-export");
+      expect(runUpdate(["csv-export", "--phase", "implementing"], dir)).toBe(0);
+      const got = readState("csv-export", dir);
+      expect(got?.phase).toBe("implementing");
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        force: true,
+      });
+    });
+  });
+
   it("clears a stale reap record when resumed past a terminal phase", () => {
     seed("csv-export", {
       phase: "merged",
@@ -698,6 +761,22 @@ describe("runUpdate", () => {
   it("auto-resolves the slug from $FLOW_SLUG when omitted", () => {
     seed("csv-export");
     const code = runUpdate(["--phase", "implementing"], dir, {
+      resolveSlug: () => "csv-export",
+    });
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("implementing");
+  });
+
+  it("an empty --slug '' still falls back to the ambient resolveSlug and writes state (end-to-end proof of the shell-expansion fix)", () => {
+    // The motivating bug: `--slug "$SLUG"` in a fresh per-Bash-call shell
+    // expands to `--slug ""` when $SLUG is unset. parseArgs-level tests only
+    // prove `slug` parses to `undefined`; this drives the full runUpdate path
+    // with an ambient FLOW_SLUG present (injected via the same resolveSlug
+    // dep seam the file already uses) and asserts the fallback actually
+    // resolves and the state file is written to that slug, not left
+    // unwritten or misrouted.
+    seed("csv-export");
+    const code = runUpdate(["--slug", "", "--phase", "implementing"], dir, {
       resolveSlug: () => "csv-export",
     });
     expect(code).toBe(0);
@@ -1202,6 +1281,22 @@ describe("parseArgs --slug flag", () => {
     ).toEqual({ error: "cannot combine positional <slug> with --slug" });
   });
 
+  it("an EMPTY --slug reads as not-supplied so the ambient FLOW_SLUG fallback still fires", () => {
+    // `--slug "$SLUG"` in a fresh per-Bash-call shell expands to `--slug ""`
+    // whenever SLUG is unset. Binding "" would defeat the
+    // `parsed.slug ?? resolveSlug()` fallback (an empty string is not nullish)
+    // and exit 2 naming FLOW_SLUG as missing when it was in fact set.
+    const result = parseArgs(["--slug", "", "--phase", "triaging"]);
+    expect("error" in result).toBe(false);
+    expect((result as { slug?: string }).slug).toBeUndefined();
+  });
+
+  it("a whitespace-only --slug reads as not-supplied too", () => {
+    const result = parseArgs(["--slug", "   ", "--phase", "triaging"]);
+    expect("error" in result).toBe(false);
+    expect((result as { slug?: string }).slug).toBeUndefined();
+  });
+
   it("--slug without a value returns an error", () => {
     expect(parseArgs(["--slug"])).toEqual({
       error: "--slug requires a value",
@@ -1212,6 +1307,23 @@ describe("parseArgs --slug flag", () => {
     expect(parseArgs(["--slug", "--phase"])).toEqual({
       error: "--slug requires a value",
     });
+  });
+
+  it("an EMPTY positional <slug> reads as not-supplied too (parity with --slug)", () => {
+    // `flow-state-update "$SLUG" --phase ...` with an unset $SLUG expands to
+    // a positional empty string the same way `--slug "$SLUG"` does. Without
+    // the parity guard this would bind out.slug = "" and defeat the
+    // `parsed.slug ?? resolveSlug()` ambient fallback identically to the
+    // --slug case above.
+    const result = parseArgs(["", "--phase", "triaging"]);
+    expect("error" in result).toBe(false);
+    expect((result as { slug?: string }).slug).toBeUndefined();
+  });
+
+  it("a whitespace-only positional <slug> reads as not-supplied too", () => {
+    const result = parseArgs(["   ", "--phase", "triaging"]);
+    expect("error" in result).toBe(false);
+    expect((result as { slug?: string }).slug).toBeUndefined();
   });
 });
 

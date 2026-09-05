@@ -47,17 +47,22 @@ describe("classifyDelegateSkip", () => {
         "decision-analysis-unchanged",
         "worktree-not-provided",
         "worktree-not-found",
+        "spawn-failed",
       ].sort(),
     );
   });
 
-  it("classifies agy-error as ran-unusable (deliberately excluded from ENVIRONMENT_SKIP_REASONS — it may cover a genuinely-dispatched call)", () => {
+  it("classifies agy-error as ran-unusable (deliberately excluded from ENVIRONMENT_SKIP_REASONS — it covers a genuinely-dispatched call)", () => {
     // NOTE: agy-error is deliberately excluded from ENVIRONMENT_SKIP_REASONS
-    // (the safe direction): bin/flow-delegate.ts emits it both when the
-    // runAgy spawn throws (agy never ran) AND on a non-zero exit without an
-    // auth signature (agy genuinely ran) — since it can't be assumed
-    // quota-free, it classifies as ran-unusable. This pins that exclusion.
+    // (the safe direction). It now covers only the non-zero-exit-without-an-
+    // auth-signature case, where agy genuinely ran and may have spent quota;
+    // the runAgy-spawn-throw case that used to share this reason now emits
+    // `spawn-failed`, which IS pre-dispatch and IS in the set above.
     expect(classifyDelegateSkip("agy-error")).toBe("ran-unusable");
+  });
+
+  it("classifies spawn-failed as environment (the runAgy spawn threw, so agy never ran and no quota was spent)", () => {
+    expect(classifyDelegateSkip("spawn-failed")).toBe("environment");
   });
 
   it("defaults an unknown/never-seen reason string to ran-unusable", () => {
@@ -65,5 +70,29 @@ describe("classifyDelegateSkip", () => {
       "ran-unusable",
     );
     expect(classifyDelegateSkip("")).toBe("ran-unusable");
+  });
+
+  // Both new self-diagnosing denial/exhaustion skip reasons default to
+  // ran-unusable with NO ENVIRONMENT_SKIP_REASONS table entry — the archived
+  // failure burned 3,704 output tokens of real quota, and this module's
+  // governing rule is "could this have spent quota?", not "did agy exit
+  // non-zero?". delegate-skip-class.ts itself is READ-ONLY for this
+  // feature: both reasons already default correctly with no code change.
+  it("classifies gemini-tools-denied as ran-unusable (real quota was spent on the denied call)", () => {
+    expect(classifyDelegateSkip("gemini-tools-denied")).toBe("ran-unusable");
+  });
+
+  it("classifies gemini-token-exhausted as ran-unusable (real quota was spent on the exhausted call)", () => {
+    expect(classifyDelegateSkip("gemini-token-exhausted")).toBe("ran-unusable");
+  });
+
+  it("does not add either new reason to ENVIRONMENT_SKIP_REASONS", () => {
+    expect(ENVIRONMENT_SKIP_REASONS.has("gemini-tools-denied")).toBe(false);
+    expect(ENVIRONMENT_SKIP_REASONS.has("gemini-token-exhausted")).toBe(false);
+  });
+
+  it("still classifies agy-canceled as ran-unusable (never 'tidied' into the environment set)", () => {
+    expect(classifyDelegateSkip("agy-canceled")).toBe("ran-unusable");
+    expect(ENVIRONMENT_SKIP_REASONS.has("agy-canceled")).toBe(false);
   });
 });

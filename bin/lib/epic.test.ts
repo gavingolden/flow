@@ -2097,7 +2097,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(out).toContain("designed-only");
     // DAG roots a + b are READY; c is blocked; total is the manifest's 3.
     const row = out.split("\n").find((l) => l.startsWith("designed-only"))!;
-    expect(row).toMatch(/^designed-only\s+2\s+0\s+1\s+0 \/ 3\b/);
+    expect(row).toMatch(/^designed-only\s+\S+\s+2\s+0\s+1\s+0 \/ 3\b/);
   });
 
   it("ls: a run-state epic still appears with live counts from the readFeatureState seam", () => {
@@ -2133,7 +2133,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       .split("\n")
       .find((l) => l.startsWith("live-epic"))!;
     // a merged → c ready; b running; nothing blocked; 1/3 merged.
-    expect(row).toMatch(/^live-epic\s+1\s+1\s+0\s+1 \/ 3\b/);
+    expect(row).toMatch(/^live-epic\s+\S+\s+1\s+1\s+0\s+1 \/ 3\b/);
   });
 
   it("ls: dedups a slug present in both sources, with the run-state row winning", () => {
@@ -2165,7 +2165,9 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(rowsForSlug).toHaveLength(1);
     // MERGED 1 / 2 is only reachable via the run-state branch; the ephemeral
     // committed-only branch would render 0 / 2.
-    expect(rowsForSlug[0]).toMatch(/^both-sources\s+1\s+0\s+0\s+1 \/ 2\b/);
+    expect(rowsForSlug[0]).toMatch(
+      /^both-sources\s+\S+\s+1\s+0\s+0\s+1 \/ 2\b/,
+    );
   });
 
   it("ls: an archived epic re-lists as done from its committed status board, not as fresh work", () => {
@@ -2199,7 +2201,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       .join("\n")
       .split("\n")
       .find((l) => l.startsWith("archived-epic"))!;
-    expect(row).toMatch(/^archived-epic\s+0\s+0\s+0\s+2 \/ 2\s+done\b/);
+    expect(row).toMatch(/^archived-epic\s+\S+\s+0\s+0\s+0\s+2 \/ 2\s+done\b/);
   });
 
   it("ls: an archived epic (committed-only, no run.json) is hidden by default and named in the footer", () => {
@@ -2236,7 +2238,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(code).toBe(0);
     const out = logs.join("\n");
     expect(out).not.toContain("archived-epic-2");
-    expect(out).toContain("1 done — show them with 'flow epic ls --all'");
+    expect(out).toContain("1 done — show them with 'flow epic ls --done'");
   });
 
   it("ls: a malformed committed manifest is skipped from the table and warned on stderr", () => {
@@ -2258,7 +2260,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(errors.join("\n")).toMatch(/flow epic ls: skipping broken-epic — /);
   });
 
-  it("ls: outside a git repo, only run-state epics are listed (exit 0)", () => {
+  it("ls: outside a git repo, the default listing is empty with a printed reason (exit 0)", () => {
     // deliberately NO gitInit() — resolveRepoRoot returns null
     const manifestPath = writeManifest("committed-only", [{ id: "a" }]);
     writeEpicRunState(seedRunState("live-only", manifestPath), epicsDir);
@@ -2270,7 +2272,30 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     });
     expect(code).toBe(0);
     const out = logs.join("\n");
+    expect(out).toContain(
+      "not in a git repo — no epic scope; show every epic with 'flow epic ls --all-repos'",
+    );
+    expect(out).not.toContain("live-only");
+    expect(out).not.toContain("committed-only");
+  });
+
+  it("ls: outside a git repo, --all-repos still lists every epic", () => {
+    // deliberately NO gitInit() — resolveRepoRoot returns null
+    const manifestPath = writeManifest("committed-only", [{ id: "a" }]);
+    writeEpicRunState(seedRunState("live-only", manifestPath), epicsDir);
+    const code = runEpicCli(["ls", "--all-repos"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
     expect(out).toContain("live-only");
+    // discoverCommittedEpics itself returns [] outside a repo (resolveRepoRoot
+    // gate at bin/lib/epic.ts's discoverCommittedEpics), independent of the
+    // --all-repos flag — this is a pre-existing constraint, not something
+    // --all-repos widens.
     expect(out).not.toContain("committed-only");
   });
 
@@ -2321,7 +2346,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(out).not.toContain("finished");
     expect(out).toContain("in-flight");
     expect(out).toContain(
-      "1 done epic hidden — show them with 'flow epic ls --all'",
+      "1 done epic hidden — show them with 'flow epic ls --done'",
     );
   });
 
@@ -2393,7 +2418,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     });
     expect(code).toBe(0);
     expect(logs.join("\n")).toContain(
-      "no active epics (1 done — show them with 'flow epic ls --all')",
+      "no active epics (1 done — show them with 'flow epic ls --done')",
     );
   });
 
@@ -2440,10 +2465,12 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(errors.join("\n")).toContain(
       "flow epic ls: unknown option '--bogus'",
     );
-    expect(errors.join("\n")).toContain("usage: flow epic ls [--all]");
+    expect(errors.join("\n")).toContain(
+      "usage: flow epic ls [--all|-a] [--done] [--all-repos]",
+    );
   });
 
-  it("ls: --help prints the subcommand help documenting --all and exits 0", () => {
+  it("ls: --help prints the subcommand help documenting --all/-a, --done, and --all-repos and exits 0", () => {
     const code = runEpicCli(["ls", "--help"], {
       cwd: repoDir,
       epicsDir,
@@ -2451,7 +2478,369 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       readMaxParallel: () => 3,
     });
     expect(code).toBe(0);
-    expect(logs.join("\n")).toContain("--all");
+    const out = logs.join("\n");
+    expect(out).toContain("--all");
+    expect(out).toContain("--done");
+    expect(out).toContain("--all-repos");
+  });
+
+  // ── ls: repo scoping ───────────────────────────────────────────────────────
+
+  it("ls: a foreign-repo run-state is hidden by default and revealed by --all-repos", () => {
+    gitInit();
+    const foreignRepoDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-foreign-repo-"),
+    );
+    spawnSync("git", ["init", "-b", "main"], { cwd: foreignRepoDir });
+    try {
+      const manifestPath = writeManifest("local-epic", [{ id: "a" }]);
+      writeEpicRunState(seedRunState("local-epic", manifestPath), epicsDir);
+      const foreignManifestPath = path.join(
+        foreignRepoDir,
+        ".flow",
+        "epics",
+        "foreign-epic",
+        "manifest.json",
+      );
+      writeEpicRunState(
+        seedRunState("foreign-epic", foreignManifestPath, {
+          repo: fs.realpathSync(foreignRepoDir),
+        }),
+        epicsDir,
+      );
+      const defaultCode = runEpicCli(["ls"], {
+        cwd: repoDir,
+        epicsDir,
+        readFeatureState: () => null,
+        readMaxParallel: () => 3,
+      });
+      expect(defaultCode).toBe(0);
+      const defaultOut = logs.join("\n");
+      expect(defaultOut).toContain("local-epic");
+      expect(defaultOut).not.toContain("foreign-epic");
+      expect(defaultOut).toContain(
+        "1 epic in other repos hidden — show them with 'flow epic ls --all-repos'",
+      );
+
+      logs.length = 0;
+      const allReposCode = runEpicCli(["ls", "--all-repos"], {
+        cwd: repoDir,
+        epicsDir,
+        readFeatureState: () => null,
+        readMaxParallel: () => 3,
+      });
+      expect(allReposCode).toBe(0);
+      const allReposOut = logs.join("\n");
+      expect(allReposOut).toContain("local-epic");
+      expect(allReposOut).toContain("foreign-epic");
+    } finally {
+      fs.rmSync(foreignRepoDir, { recursive: true, force: true });
+    }
+  });
+
+  it("ls: a linked-worktree cwd keeps a run-state row seeded against the main checkout's realpath", () => {
+    gitInit();
+    spawnSync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: repoDir });
+    fs.writeFileSync(path.join(repoDir, "README.md"), "hello\n");
+    spawnSync("git", ["add", "README.md"], { cwd: repoDir });
+    spawnSync("git", ["commit", "-q", "-m", "init"], { cwd: repoDir });
+    const worktreeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-worktree-"),
+    );
+    fs.rmSync(worktreeDir, { recursive: true, force: true });
+    spawnSync("git", ["worktree", "add", "-b", "feature-branch", worktreeDir], {
+      cwd: repoDir,
+    });
+    try {
+      // seedRunState's default `repo` is `fs.realpathSync(repoDir)` — the
+      // exact asymmetry vs. a non-realpath'd worktree cwd the predicate must
+      // survive.
+      const manifestPath = writeManifest("wt-epic", [{ id: "a" }]);
+      writeEpicRunState(seedRunState("wt-epic", manifestPath), epicsDir);
+      const code = runEpicCli(["ls"], {
+        cwd: worktreeDir,
+        epicsDir,
+        readFeatureState: () => null,
+        readMaxParallel: () => 3,
+      });
+      expect(code).toBe(0);
+      expect(logs.join("\n")).toContain("wt-epic");
+    } finally {
+      spawnSync("git", ["worktree", "remove", "--force", worktreeDir], {
+        cwd: repoDir,
+      });
+      fs.rmSync(worktreeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("ls: a COMMITTED epic run from a linked worktree labels REPO from the main checkout, not the worktree name", () => {
+    gitInit();
+    spawnSync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: repoDir });
+    fs.writeFileSync(path.join(repoDir, "README.md"), "hello\n");
+    spawnSync("git", ["add", "README.md"], { cwd: repoDir });
+    spawnSync("git", ["commit", "-q", "-m", "init"], { cwd: repoDir });
+    const worktreeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-worktree-committed-"),
+    );
+    fs.rmSync(worktreeDir, { recursive: true, force: true });
+    spawnSync(
+      "git",
+      ["worktree", "add", "-b", "committed-epic-branch", worktreeDir],
+      { cwd: repoDir },
+    );
+    try {
+      // No run-state — a purely committed epic, discovered via
+      // `discoverCommittedEpics(cwd)` off the WORKTREE cwd. Before the fix,
+      // the row's REPO label was `path.basename(cwd)` (the worktree's own
+      // directory name); the fix labels from the main checkout instead, so
+      // the same repo doesn't show under two different REPO values across
+      // a run-state row (main-checkout-labelled) and a committed row
+      // (worktree-labelled).
+      // discoverCommittedEpics resolves `repo` off `cwd` (the worktree
+      // root), so the manifest must live under the WORKTREE's own
+      // `.flow/epics/`, not the main checkout's — a linked worktree has its
+      // own working tree of files, separate from the main checkout.
+      const committedDir = path.join(
+        worktreeDir,
+        ".flow",
+        "epics",
+        "committed-only-epic",
+      );
+      fs.mkdirSync(committedDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(committedDir, "manifest.json"),
+        JSON.stringify({
+          epicId: "committed-only-epic",
+          prompt: "p",
+          createdAt: "2026-06-28",
+          features: [
+            { id: "a", title: "A", description: "build a", dependsOn: [] },
+          ],
+        }),
+      );
+      const code = runEpicCli(["ls"], {
+        cwd: worktreeDir,
+        epicsDir,
+        readFeatureState: () => null,
+        readMaxParallel: () => 3,
+      });
+      expect(code).toBe(0);
+      const out = logs.join("\n");
+      const row = out
+        .split("\n")
+        .find((l) => l.startsWith("committed-only-epic"))!;
+      expect(row).toBeDefined();
+      expect(row).toContain(path.basename(fs.realpathSync(repoDir)));
+      expect(row).not.toContain(path.basename(worktreeDir));
+    } finally {
+      spawnSync("git", ["worktree", "remove", "--force", worktreeDir], {
+        cwd: repoDir,
+      });
+      fs.rmSync(worktreeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("ls: --done, --all-repos, and -a each widen only their own axis", () => {
+    gitInit();
+    const foreignRepoDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-foreign-repo-2-"),
+    );
+    spawnSync("git", ["init", "-b", "main"], { cwd: foreignRepoDir });
+    try {
+      const finishedManifest = writeManifest("finished-local", [{ id: "a" }]);
+      writeEpicRunState(
+        seedRunState("finished-local", finishedManifest, {
+          features: { a: { slug: "finished-local-a", launchedAt: "x" } },
+        }),
+        epicsDir,
+      );
+      const foreignManifestPath = path.join(
+        foreignRepoDir,
+        ".flow",
+        "epics",
+        "in-flight-foreign",
+        "manifest.json",
+      );
+      writeEpicRunState(
+        seedRunState("in-flight-foreign", foreignManifestPath, {
+          repo: fs.realpathSync(foreignRepoDir),
+        }),
+        epicsDir,
+      );
+      const readFeatureState = (slug: string) =>
+        slug === "finished-local-a"
+          ? { slug, phase: "merged" as const, repo: repoDir, updatedAt: "x" }
+          : null;
+
+      // --done widens the done axis only: the finished local epic appears,
+      // the foreign one still doesn't.
+      const doneCode = runEpicCli(["ls", "--done"], {
+        cwd: repoDir,
+        epicsDir,
+        readMaxParallel: () => 3,
+        readFeatureState,
+      });
+      expect(doneCode).toBe(0);
+      let out = logs.join("\n");
+      expect(out).toContain("finished-local");
+      expect(out).not.toContain("in-flight-foreign");
+
+      // --all-repos widens the repo axis only: the foreign epic appears (it
+      // is running, not done), the finished local one still doesn't.
+      logs.length = 0;
+      const allReposCode = runEpicCli(["ls", "--all-repos"], {
+        cwd: repoDir,
+        epicsDir,
+        readMaxParallel: () => 3,
+        readFeatureState,
+      });
+      expect(allReposCode).toBe(0);
+      out = logs.join("\n");
+      expect(out).not.toContain("finished-local");
+      expect(out).toContain("in-flight-foreign");
+
+      // -a drops both filters: both appear.
+      logs.length = 0;
+      const aCode = runEpicCli(["ls", "-a"], {
+        cwd: repoDir,
+        epicsDir,
+        readMaxParallel: () => 3,
+        readFeatureState,
+      });
+      expect(aCode).toBe(0);
+      out = logs.join("\n");
+      expect(out).toContain("finished-local");
+      expect(out).toContain("in-flight-foreign");
+    } finally {
+      fs.rmSync(foreignRepoDir, { recursive: true, force: true });
+    }
+  });
+
+  it("ls: an empty-repo run-state row renders with an em-dash rather than being hidden", () => {
+    gitInit();
+    const manifestPath = writeManifest("no-repo-epic", [{ id: "a" }]);
+    writeEpicRunState(
+      seedRunState("no-repo-epic", manifestPath, { repo: "" }),
+      epicsDir,
+    );
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("no-repo-epic");
+    const row = out.split("\n").find((l) => l.startsWith("no-repo-epic"))!;
+    expect(row).toContain("—");
+  });
+
+  it("ls: a done epic in another repo is counted by NEITHER footer under a bare ls, and shown under -a", () => {
+    gitInit();
+    const foreignRepoDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-foreign-repo-3-"),
+    );
+    spawnSync("git", ["init", "-b", "main"], { cwd: foreignRepoDir });
+    try {
+      const foreignManifestPath = path.join(
+        foreignRepoDir,
+        ".flow",
+        "epics",
+        "foreign-done",
+        "manifest.json",
+      );
+      // Write the manifest for real (mirroring `writeManifest`'s shape, just
+      // rooted under `foreignRepoDir` instead of `repoDir`) — an unwritten
+      // manifest path makes `loadCommittedManifest` fail and forces the
+      // degraded "manifest unreadable" row (`status: "running"` always),
+      // which would make this epic ALWAYS fail `passesDone` regardless of
+      // the merged feature state below, masking the done/foreign scenario
+      // this test is meant to exercise.
+      fs.mkdirSync(path.dirname(foreignManifestPath), { recursive: true });
+      fs.writeFileSync(
+        foreignManifestPath,
+        JSON.stringify({
+          epicId: "foreign-done",
+          prompt: "p",
+          createdAt: "2026-06-28",
+          features: [
+            { id: "a", title: "A", description: "build a", dependsOn: [] },
+          ],
+        }),
+      );
+      writeEpicRunState(
+        seedRunState("foreign-done", foreignManifestPath, {
+          repo: fs.realpathSync(foreignRepoDir),
+          features: { a: { slug: "foreign-done-a", launchedAt: "x" } },
+        }),
+        epicsDir,
+      );
+      // A local in-flight anchor epic: without it `visible` is empty and
+      // `renderEpicList` takes the EMPTY-STATE branch (`"no epics"`), which
+      // never emits the table-footer wording ("done epic" / "epic in other
+      // repos") the assertions below quote — so this test could not fail
+      // even with the footer-symmetry bug reintroduced. The anchor forces
+      // the table branch to render, with the both-filters row genuinely
+      // absent from it.
+      const localManifestPath = writeManifest("local-anchor", [{ id: "a" }]);
+      writeEpicRunState(
+        seedRunState("local-anchor", localManifestPath, { repo: repoDir }),
+        epicsDir,
+      );
+      const readFeatureState = (slug: string) =>
+        slug === "foreign-done-a"
+          ? {
+              slug,
+              phase: "merged" as const,
+              repo: foreignRepoDir,
+              updatedAt: "x",
+            }
+          : null;
+      const code = runEpicCli(["ls"], {
+        cwd: repoDir,
+        epicsDir,
+        readMaxParallel: () => 3,
+        readFeatureState,
+      });
+      expect(code).toBe(0);
+      const out = logs.join("\n");
+      expect(out).toContain("local-anchor");
+      expect(out).not.toContain("foreign-done");
+      expect(out).not.toContain("done epic");
+      expect(out).not.toContain("epics in other repos");
+      expect(out).not.toContain("epic in other repos");
+
+      logs.length = 0;
+      const aCode = runEpicCli(["ls", "-a"], {
+        cwd: repoDir,
+        epicsDir,
+        readMaxParallel: () => 3,
+        readFeatureState,
+      });
+      expect(aCode).toBe(0);
+      expect(logs.join("\n")).toContain("foreign-done");
+    } finally {
+      fs.rmSync(foreignRepoDir, { recursive: true, force: true });
+    }
+  });
+
+  it("ls: the genuinely-empty (no visible epics, none hidden) case renders exactly 'no epics'", () => {
+    gitInit();
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readMaxParallel: () => 3,
+      readFeatureState: () => null,
+    });
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toBe("no epics");
   });
 
   // ── bind ──────────────────────────────────────────────────────────────────

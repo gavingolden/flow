@@ -337,23 +337,34 @@ export async function run(deps: Deps): Promise<number> {
   return 2;
 }
 
+/**
+ * Phase → the step the supervisor must continue to.
+ *
+ * The three `EARLY_PHASE_WRITES` phases (`implementing`, `ci-wait`,
+ * `reviewing`) are now written at their step's HEAD, so each names a step
+ * that is IN PROGRESS, not one that is finished — their labels point at
+ * that same step rather than the next one. Single-step labels here are an
+ * accuracy requirement: a compound label naming a later step would
+ * misdescribe the review-fix re-entry (a run re-entering step 5 from
+ * `reviewing` already has a PR open, so telling it to open one is wrong).
+ */
 export const NEXT_STEP_BY_PHASE: Record<string, string> = {
   starting:
     "step 1 (triage) — first action should be flow-state-update --phase triaging",
   triaging: "step 2 (worktree-create)",
   "worktree-create": "step 3 (plan)",
   planning: "step 4 (approval) for feature intent, else step 5 (implement)",
-  implementing: "step 5.5 (installing-skills)",
+  implementing: "step 5 (implement)",
   "installing-skills": "step 6 (verify)",
   verifying: "step 7 (ci-wait)",
-  "ci-wait": "step 8 (review)",
+  "ci-wait": "step 7 (ci-wait)",
   "ci-wait-pending":
     "step 7 (ci-wait) — run flow-ci-check and branch on .status/.decision",
   "plan-review-pending":
     "step 3 (plan) — run flow-plan-review --check and branch on .status",
   "epic-plan-review-pending":
     "/flow-epic-create step 4.5 — run flow-plan-review --check and branch on .status",
-  reviewing: "step 9 (gate)",
+  reviewing: "step 8 (review)",
   gating: "step 10 (merge)",
   merging:
     "step 10 → step 11 (finalize merge, run local follow-ups, then MERGED)",

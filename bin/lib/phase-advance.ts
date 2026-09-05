@@ -41,6 +41,7 @@ import { resolveSlugAmbient } from "./session-identity";
 import { FLOW_STATE_DIR } from "./paths";
 import { checkWorktreeBranch } from "./worktree-marker";
 import { publishStateBadges } from "./tmux";
+import { recordEvent } from "./telemetry";
 
 export type PhaseAdvanceReason =
   | "advanced"
@@ -131,6 +132,13 @@ export function isFixLoopReentry(from: string, to: string): boolean {
  * explicit `flow-state-update --phase verifying` call (no subagent
  * side-effect helper resolves it anymore).
  * Must not contradict `bin/flow-stop-guard.ts`'s `NEXT_STEP_BY_PHASE`.
+ *
+ * The five split into two classes:
+ *  - **written at the step head, helper is the idempotent backstop** —
+ *    `implementing`, `ci-wait`, `reviewing`; see `EARLY_PHASE_WRITES`.
+ *  - **written by the helper only** — `gating` and `merging`, which
+ *    already write at their step's first command, so a step-head fence
+ *    would name the same instant twice.
  */
 export const PHASE_EMITTERS: Readonly<
   Record<
@@ -144,6 +152,52 @@ export const PHASE_EMITTERS: Readonly<
   gating: "flow-gate-decide",
   merging: "flow-merge-guard",
 };
+
+/**
+ * The `PHASE_EMITTERS` subset that is ALSO written at its step's head.
+ *
+ * Each of these three phases carries a step-head `flow-state-update
+ * --phase <phase>` fence in `skills/pipeline/flow-pipeline/SKILL.md` AND
+ * keeps its `PHASE_EMITTERS` helper emission as an idempotent backstop.
+ * No duplicate `phaseLog[]` row is appended regardless of which write
+ * lands first, because `bin/lib/state.ts`'s `appendPhaseLog` carries a
+ * same-phase-tail guard: it returns the existing log unchanged whenever
+ * the last entry's `phase` already equals the phase being appended. The
+ * forward case (step-head fence first, helper backstop second) additionally
+ * has `advancePhase` refuse the equal-phase write before ever reaching
+ * `appendPhaseLog` — but the reversed-order case matters too: on a ci-red
+ * fix-loop reentry, `bin/flow-ci-check.ts`'s `advancePhase("implementing",
+ * ...)` fires FIRST (the `ci-wait -> implementing`
+ * `FIX_LOOP_REENTRY_TRANSITIONS` edge), then step 5's head fence calls
+ * `flow-state-update --phase implementing` SECOND through `applyUpdate`,
+ * which has no `STEP_PHASES` ordering guard of its own — the
+ * `appendPhaseLog` guard is what stops that second call from appending a
+ * duplicate row. The same shape is what makes step 7's repeated `ci-wait`
+ * head-fence writes across a multi-turn CI-wait yield/resume cycle
+ * idempotent too.
+ *
+ * Why: the helper emission alone records the phase when the step ENDS, so
+ * the tmux badge named the PREVIOUS step for the whole of the current one
+ * (measured median 30.6 min across 23 recorded runs, measured from
+ * `~/.flow/state/*.json` phaseLog timestamps in PR #782). The step-head
+ * fence makes the badge describe what the run is doing now.
+ *
+ * Deliberate asymmetry, not an oversight: the step-head fences write
+ * through `flow-state-update`, which has no `STEP_PHASES` ordering guard,
+ * so a review-fix loop re-entering step 5 from `reviewing` legitimately
+ * records `implementing` backward. That is intended — the run really is
+ * implementing — and it is NOT mirrored into
+ * `FIX_LOOP_REENTRY_TRANSITIONS`: `advancePhase`'s backward branch also
+ * needs a matching `expectPr`, and `bin/flow-open-pr.ts`'s
+ * `advancePhase("implementing")` call (today :375) deliberately passes
+ * none, so such an edge would be unreachable dead data. Whether
+ * `flow-state-update` should grow a forward-only guard of its own is
+ * tracked as a separate follow-up.
+ *
+ * Consumed by `bin/skill-md-lint.test.ts`.
+ */
+export const EARLY_PHASE_WRITES: ReadonlySet<keyof typeof PHASE_EMITTERS> =
+  new Set(["implementing", "ci-wait", "reviewing"] as const);
 
 function resolveIndex(phase: string): number {
   const anchored = PENDING_PHASE_ANCHOR[phase] ?? phase;
@@ -268,6 +322,29 @@ export function advancePhase(
   } catch {
     // swallowed — see comment above.
   }
+  // Durable phase-trace telemetry, same best-effort idiom as the
+  // publishBadges block above — advancePhase bypasses flow-state-update
+  // entirely for the six PHASE_EMITTERS phases, so this is the only place
+  // those transitions would otherwise go unrecorded.
+  try {
+    const priorLog = state.phaseLog;
+    const lastEntry =
+      priorLog && priorLog.length > 0
+        ? priorLog[priorLog.length - 1]
+        : undefined;
+    const sincePrevMs = lastEntry
+      ? Date.now() - Date.parse(lastEntry.at)
+      : null;
+    recordEvent("phase.transition", {
+      from: state.phase,
+      to: target,
+      outcome: null,
+      since_prev_ms: sincePrevMs,
+      forced: false,
+    });
+  } catch {
+    // swallowed — see comment above.
+  }
   return {
     advanced: true,
     reason: isReentry ? "reentered" : "advanced",
@@ -378,6 +455,27 @@ export function finalizePhase(
   // write. state.json is already durable at this point.
   try {
     publishBadges(written);
+  } catch {
+    // swallowed — see comment above.
+  }
+  // Durable phase-trace telemetry, same best-effort idiom as the
+  // publishBadges block above.
+  try {
+    const priorLog = state.phaseLog;
+    const lastEntry =
+      priorLog && priorLog.length > 0
+        ? priorLog[priorLog.length - 1]
+        : undefined;
+    const sincePrevMs = lastEntry
+      ? Date.now() - Date.parse(lastEntry.at)
+      : null;
+    recordEvent("phase.transition", {
+      from: state.phase,
+      to: target,
+      outcome: null,
+      since_prev_ms: sincePrevMs,
+      forced: false,
+    });
   } catch {
     // swallowed — see comment above.
   }

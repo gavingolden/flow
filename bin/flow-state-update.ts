@@ -64,6 +64,7 @@ import {
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { publishStateBadges } from "./lib/tmux";
 import { resolveSlugAmbient } from "./lib/session-identity";
+import { recordEvent } from "./lib/telemetry";
 import {
   BRANCH_MARKER_FILENAME,
   checkWorktreeBranch,
@@ -106,7 +107,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   let rest: string[];
   const out: Args = {};
   if (argv.length > 0 && !argv[0].startsWith("--")) {
-    out.slug = argv[0];
+    // Empty/whitespace-only positional reads as "not supplied" too, for
+    // parity with the identical `--slug ""` guard below — a caller that
+    // passes an unset shell var positionally (`flow-state-update "$SLUG"
+    // --phase ...`) would otherwise bind `out.slug = ""` and defeat the
+    // `parsed.slug ?? resolveSlug()` ambient fallback the same way.
+    if (argv[0].trim() !== "") {
+      out.slug = argv[0];
+    }
     rest = argv.slice(1);
   } else {
     rest = argv;
@@ -175,6 +183,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         if (out.slug !== undefined) {
           return { error: "cannot combine positional <slug> with --slug" };
         }
+        // An EMPTY --slug reads as "not supplied", so the ambient $FLOW_SLUG
+        // fallback below still fires. `--slug "$SLUG"` in a fresh per-Bash-call
+        // shell expands to `--slug ""` whenever SLUG is unset (every flow
+        // helper call runs in its own shell, so SLUG never survives between
+        // them). Binding "" here would defeat `parsed.slug ?? resolveSlug()` —
+        // "" is not nullish — and exit 2 with the misleading "no slug given and
+        // no FLOW_SLUG in the environment", naming the one thing that WAS set.
+        if (value.trim() === "") break;
         out.slug = value;
         break;
       default:
@@ -394,6 +410,33 @@ export function runUpdate(
       deps.publishBadges ?? ((s) => void publishStateBadges(s));
     try {
       publishBadges(next);
+    } catch {
+      // swallowed — see comment above.
+    }
+  }
+
+  // Durable phase-trace telemetry, best-effort (same swallow idiom as the
+  // publishBadges block above): fires ONLY on a --phase write, only after
+  // the write itself succeeded. `since_prev_ms` is derived from the
+  // PRE-write phaseLog's last entry (not `next`'s, which already carries
+  // this transition) so it measures dwell time in the phase being left.
+  if (parsed.phase !== undefined) {
+    try {
+      const priorLog = existing.phaseLog;
+      const lastEntry =
+        priorLog && priorLog.length > 0
+          ? priorLog[priorLog.length - 1]
+          : undefined;
+      const sincePrevMs = lastEntry
+        ? Date.now() - Date.parse(lastEntry.at)
+        : null;
+      recordEvent("phase.transition", {
+        from: existing.phase,
+        to: parsed.phase,
+        outcome: parsed.phaseOutcome ?? null,
+        since_prev_ms: sincePrevMs,
+        forced: parsed.force ?? false,
+      });
     } catch {
       // swallowed — see comment above.
     }

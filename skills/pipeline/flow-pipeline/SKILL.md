@@ -1420,8 +1420,11 @@ decision covered before the port). Capture follow-ups output to a file:
 
 ## Step 5 — Implement
 
-**Phase:** `implementing` — written by `flow-open-pr` inside stage A's
-implement step, the same side effect as before.
+**Phase:** `implementing` — written at the step head by stage A's
+`implement-phase-write` agent (an `EARLY_PHASE_WRITES` member,
+`bin/lib/phase-advance.ts`), with `flow-open-pr`'s tail emission inside
+the same implement step as the idempotent backstop. No supervisor-side
+write: the lint pins the step-head write to the script.
 
 Stage A's implement agent runs `/flow-new-feature` in-process (its own
 Task-tool scout exemption still applies one level down), writes code +
@@ -1459,7 +1462,7 @@ surfaces `needs-human: flow-setup-upgrade-failed`.
 helper side effect:
 
 ```bash
-flow-state-update --phase verifying --slug "$SLUG"
+flow-state-update --phase verifying
 ```
 
 Stage A's verify step runs `/flow-verify` inline (its own inner 5-attempt
@@ -1486,8 +1489,10 @@ directly at this step.
 
 ## Step 7 — CI + Copilot wait
 
-**Phase:** `ci-wait` — written by `flow-ci-check` inside stage A's
-ci-check step, as before.
+**Phase:** `ci-wait` — written at the step head by stage A's
+`ci-wait-phase-write` agent (an `EARLY_PHASE_WRITES` member), with
+`flow-ci-check`'s emission inside stage A's ci-check step as the
+idempotent backstop. No supervisor-side write.
 
 Stage A's ci-check step runs the same Copilot precheck
 (`flow-module-status --check copilot`) and request-decision logic, then:
@@ -1526,8 +1531,12 @@ On resume, the step-7 row above relaunches stage A (state.json skip).
 
 ## Step 8 — Review
 
-**Phase:** `reviewing` — written by `flow-fetch-pr-review` inside stage
-A's review step, as before.
+**Phase:** `reviewing` — written at the step head by stage A's
+`reviewing-phase-write` agent (an `EARLY_PHASE_WRITES` member), with
+`flow-fetch-pr-review`'s emission inside stage A's review step as the
+idempotent backstop — so a review-skip short-circuit (closed/merged/
+trivial PR) still leaves a `reviewing` row in `phaseLog[]`. No
+supervisor-side write.
 
 Stage A's review step runs `/flow-pr-review <PR>` in-process (delta-scoped,
 lens-gated), including the Step 8c subjective visual-appearance pass against the browser-validation capability
@@ -2349,7 +2358,8 @@ After each phase transition:
 - `~/.flow/state/<slug>.json` reflects the new `phase`, the populated
   `worktree` (post-step-2) and `pr` (post-step-5) fields, and a
   fresh `updatedAt`.
-- `flow ls` (run from any terminal) shows the right phase **and PR
+- `flow ls` (run from a terminal inside this pipeline's repo, or with
+  `--all-repos` from anywhere else) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
   via the two named exceptions in "Hard rules" above:

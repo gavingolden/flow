@@ -305,8 +305,13 @@ it deliberately when running the full `--all` suite set.
 slug in the real `~/.flow/state/` — not an isolated test directory,
 because the child session's own helpers (`flow-state-update`,
 `flow-checkpoint`, `flow-resume-decide`) only ever read the real state
-dir. `flow ls` therefore shows `eval-*` rows while a suite is running;
-teardown removes them (state, checkpoints, turn tracking, proc registry)
-whether the run passed, failed, or was interrupted (a `SIGINT` handler
-in `bin/flow-eval.ts` sweeps every in-flight fixture before exiting).
+dir. Each seeded state record's `repo` field points at that run's
+hermetic fixture repo, not the flow checkout (`bin/lib/eval-fixture.ts`
+writes `repo: repoDir`) — so a bare `flow ls` run from the flow checkout
+no longer shows `eval-*` rows once `flow ls` scopes to the current repo
+by default; run `flow ls --all-repos` to see them while a suite is
+running. Teardown removes the seeded state (state, checkpoints, turn
+tracking, proc registry) whether the run passed, failed, or was
+interrupted (a `SIGINT` handler in `bin/flow-eval.ts` sweeps every
+in-flight fixture before exiting).
 See `evals/README.md` for the suite/scenario file format.

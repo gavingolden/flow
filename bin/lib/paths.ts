@@ -113,6 +113,17 @@ export function configuredFlowSource(
   return config.source ?? null;
 }
 
+/**
+ * Resolves `~/.flow/telemetry/events.jsonl` at call time, same rationale as
+ * `flowConfigPath()` above: `HOME` is captured at import time, before
+ * vitest's setup file swaps `$HOME` for a sandbox, so an eager
+ * `path.join(FLOW_DIR, "telemetry", "events.jsonl")` constant would leak the
+ * developer's real `~/.flow` into every test that records a telemetry event.
+ */
+export function flowTelemetryLogPath(homeDir: string = os.homedir()): string {
+  return path.join(homeDir, ".flow", "telemetry", "events.jsonl");
+}
+
 export const FLOW_UPDATE_CACHE = path.join(FLOW_DIR, "update-check.json");
 export const SETUP_LOCK_PATH = path.join(FLOW_DIR, "setup.lock");
 export const FLOW_TEST_SEM_DIR = path.join(FLOW_DIR, "test-sem");

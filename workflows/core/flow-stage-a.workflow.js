@@ -150,6 +150,12 @@ if (implementDone) {
   const prompt = args.planPath
     ? `/flow-new-feature ${args.request}\nPLAN: ${args.planPath}`
     : `/flow-new-feature ${args.request}`;
+  await helperAgent(
+    `Using the Bash tool, run exactly: FLOW_SLUG=${args.slug} flow-state-update --phase implementing --slug ${args.slug}`,
+    "implement-phase-write",
+    "Implement",
+    BOOL("ok"),
+  );
   let impl = await implementAgent(
     `Read ${args.skillDir}/flow-new-feature/SKILL.md and execute it in ${args.worktree} for the following verbatim request. It may spawn the scout/edit-applier subagents per that skill. Commit and push; do NOT open the PR. Request:\n${prompt}`,
     "implement",
@@ -201,6 +207,13 @@ if (!verify.clean) {
 ran.verify = true;
 
 phase("CI wait");
+
+await helperAgent(
+  `Using the Bash tool, run exactly: FLOW_SLUG=${args.slug} flow-state-update --phase ci-wait --slug ${args.slug}`,
+  "ci-wait-phase-write",
+  "CI wait",
+  BOOL("ok"),
+);
 
 async function ciCheckOnce() {
   const copilotCheck = await helperAgent(
@@ -279,6 +292,13 @@ if (ciOutcome === "pr-closed" || ciOutcome === "pr-blocked" || ciOutcome === "ci
 ran.ciWait = true;
 
 phase("Review");
+
+await helperAgent(
+  `Using the Bash tool, run exactly: FLOW_SLUG=${args.slug} flow-state-update --phase reviewing --slug ${args.slug}`,
+  "reviewing-phase-write",
+  "Review",
+  BOOL("ok"),
+);
 
 let reviewClean = false;
 let reviewFixed = false;

@@ -29,11 +29,13 @@ that spawns nothing further.
 | Label                        | agentType                                          | Model key    | Effort      | Artifact                                          | May nest            |
 | ---------------------------- | -------------------------------------------------- | ------------ | ----------- | ------------------------------------------------- | ------------------- |
 | `read-state`                 | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
+| `implement-phase-write`      | `general-purpose`                                  | inherit      | low         | state.json `phase`                                | —                   |
 | `implement`                  | `general-purpose`                                  | implement    | args.effort | commit+push                                       | scout, edit-applier |
 | `implement-retry`            | `general-purpose`                                  | implement    | args.effort | commit+push                                       | scout, edit-applier |
 | `open-pr`                    | `general-purpose`                                  | inherit      | low         | `.flow-tmp/pr-body.md`                            | —                   |
 | `verify-phase-write`         | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
 | `verify`                     | `general-purpose`                                  | implement    | args.effort | UI-smoke excerpt/screenshots                      | edit-applier        |
+| `ci-wait-phase-write`        | `general-purpose`                                  | inherit      | low         | state.json `phase`                                | —                   |
 | `copilot-precheck`           | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
 | `ci-copilot-request`         | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
 | `ci-check`                   | `general-purpose`                                  | inherit      | low         | `.flow-tmp/ci-wait-result.json`                   | —                   |
@@ -41,6 +43,7 @@ that spawns nothing further.
 | `loop-prep-ci`               | `general-purpose`                                  | inherit      | low         | state.json `loops.ciFix`                          | —                   |
 | `implement-ci-fix`           | `general-purpose`                                  | implement    | args.effort | commit+push                                       | scout, edit-applier |
 | `ci-wait-sleep-review`       | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
+| `reviewing-phase-write`      | `general-purpose`                                  | inherit      | low         | state.json `phase`                                | —                   |
 | `review-prep`                | `general-purpose`                                  | review       | args.effort | `.flow-tmp/lens-prompt-*.md`                      | —                   |
 | `review:bug-detection`       | `flow-module-core:flow-review-bug-detection`       | review       | args.effort | `.flow-tmp/agent-output-bug-detection.json`       | —                   |
 | `review:security`            | `flow-module-core:flow-review-security`            | review       | args.effort | `.flow-tmp/agent-output-security.json`            | —                   |

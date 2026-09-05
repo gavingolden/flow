@@ -69,9 +69,13 @@ agreement weighing; `ran: false` → record `skipReason` AND its
 `skipClass`, reported distinctly, never folded into one generic "skipped"
 phrase: `environment` (gate off, agy absent/unauthenticated — a genuine
 no-op, no quota spent) vs `ran-unusable` (the agy call ran but its output
-was unparseable/invalid — quota may have been spent for nothing). Either
-class proceeds with only the diff-only agent's guess — never a hard
-failure.
+was unparseable/invalid, INCLUDING `gemini-tools-denied` /
+`gemini-token-exhausted` — quota may have been spent for nothing). When
+present, also record `deniedActions` (the agy tool names denied, e.g.
+`RunCommand`, on `gemini-tools-denied`). Unlike the review lens
+(`bin/flow-gemini-lens.ts`), this helper makes NO fallback retry on either
+reason — see that file's own header comment for why. Either class
+proceeds with only the diff-only agent's guess — never a hard failure.
 
 ## 3.6. Intent-mismatch resolution — full detail
 

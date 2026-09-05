@@ -6,6 +6,7 @@ import {
   advancePhase,
   finalizePhase,
   isFixLoopReentry,
+  EARLY_PHASE_WRITES,
   FIX_LOOP_REENTRY_TRANSITIONS,
   PENDING_PHASE_ANCHOR,
   PHASE_EMITTERS,
@@ -13,6 +14,7 @@ import {
 } from "./phase-advance";
 import { spawnSync } from "node:child_process";
 import { readState } from "./state";
+import { runUpdate } from "../flow-state-update";
 
 // Mock ./tmux so no test in this file can reach the real tmux backend — the
 // upcoming `publishBadges` seam (Task 2) calls `publishStateBadges` on every
@@ -331,6 +333,101 @@ describe("advancePhase", () => {
   });
 });
 
+describe("advancePhase / finalizePhase — phase.transition telemetry", () => {
+  let telemetryHome: string;
+  let telemetryPath: string;
+
+  beforeEach(() => {
+    telemetryHome = process.env.HOME as string;
+    telemetryPath = path.join(
+      telemetryHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  afterEach(() => {
+    fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  function readTransitions(): Array<Record<string, unknown>> {
+    if (!fs.existsSync(telemetryPath)) return [];
+    return fs
+      .readFileSync(telemetryPath, "utf8")
+      .split("\n")
+      .filter((l) => l.length > 0)
+      .map((l) => JSON.parse(l))
+      .filter((l) => l.event === "phase.transition");
+  }
+
+  it("advancePhase records one phase.transition event with the correct from/to", () => {
+    seedState("tele-1", "reviewing");
+    const result = advancePhase("gating", { slug: "tele-1", dir: stateDir });
+    expect(result.advanced).toBe(true);
+    const transitions = readTransitions();
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]?.attrs).toMatchObject({
+      from: "reviewing",
+      to: "gating",
+      outcome: null,
+      forced: false,
+    });
+  });
+
+  it("advancePhase does not record an event on a no-op (already-at-or-past)", () => {
+    seedState("tele-2", "gating");
+    const result = advancePhase("reviewing", {
+      slug: "tele-2",
+      dir: stateDir,
+    });
+    expect(result.advanced).toBe(false);
+    expect(readTransitions()).toHaveLength(0);
+  });
+
+  it("finalizePhase records one phase.transition event with the correct from/to", () => {
+    seedState("tele-3", "gated");
+    const result = finalizePhase("merged", { slug: "tele-3", dir: stateDir });
+    expect(result.advanced).toBe(true);
+    const transitions = readTransitions();
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]?.attrs).toMatchObject({
+      from: "gated",
+      to: "merged",
+      outcome: null,
+      forced: false,
+    });
+  });
+
+  it("finalizePhase does not record an event on an already-terminal no-op", () => {
+    seedState("tele-4", "merged");
+    const result = finalizePhase("merged", { slug: "tele-4", dir: stateDir });
+    expect(result.advanced).toBe(false);
+    expect(readTransitions()).toHaveLength(0);
+  });
+
+  it("a throwing telemetry write never fails the phase write (best-effort, same idiom as publishBadges)", () => {
+    fs.mkdirSync(path.join(telemetryHome, ".flow"), { recursive: true });
+    fs.writeFileSync(path.join(telemetryHome, ".flow", "telemetry"), "");
+    seedState("tele-5", "reviewing");
+    let result: ReturnType<typeof advancePhase> | undefined;
+    expect(() => {
+      result = advancePhase("gating", { slug: "tele-5", dir: stateDir });
+    }).not.toThrow();
+    expect(result?.advanced).toBe(true);
+    fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+      force: true,
+    });
+  });
+});
+
 describe("PHASE_EMITTERS", () => {
   it("maps every emitted phase to its owning helper and does not contradict flow-stop-guard's phase set", () => {
     expect(PHASE_EMITTERS).toEqual({
@@ -340,6 +437,32 @@ describe("PHASE_EMITTERS", () => {
       gating: "flow-gate-decide",
       merging: "flow-merge-guard",
     });
+  });
+});
+
+describe("EARLY_PHASE_WRITES", () => {
+  it("is exactly the three step-head-written phases", () => {
+    expect([...EARLY_PHASE_WRITES].sort()).toEqual([
+      "ci-wait",
+      "implementing",
+      "reviewing",
+    ]);
+  });
+
+  it("every member is a PHASE_EMITTERS key — the helper stays the backstop", () => {
+    for (const phase of EARLY_PHASE_WRITES) {
+      expect(
+        Object.hasOwn(PHASE_EMITTERS, phase),
+        `EARLY_PHASE_WRITES member '${phase}' must also be a PHASE_EMITTERS ` +
+          "key; the step-head fence supplements the helper emission, it does " +
+          "not replace it.",
+      ).toBe(true);
+    }
+  });
+
+  it("excludes gating and merging, which already write at their step's first command", () => {
+    expect(EARLY_PHASE_WRITES.has("gating")).toBe(false);
+    expect(EARLY_PHASE_WRITES.has("merging")).toBe(false);
   });
 });
 
@@ -459,6 +582,29 @@ describe("advancePhase — fix-loop re-entry (backward allowance)", () => {
     });
     expect(result.reason).toBe("already-at-or-past");
     expect(readState("r7", stateDir)?.phase).toBe("reviewing");
+  });
+
+  it("pins the documented backward-write asymmetry: advancePhase refuses reviewing -> implementing, flow-state-update's runUpdate accepts it", () => {
+    // Half 1: advancePhase's own STEP_PHASES ordering guard refuses the
+    // backward move (it is not a FIX_LOOP_REENTRY_TRANSITIONS-listed edge).
+    seedState("r8", "reviewing", { pr: 5 });
+    const advanceResult = advancePhase("implementing", {
+      slug: "r8",
+      dir: stateDir,
+      expectPr: 5,
+    });
+    expect(advanceResult.reason).toBe("already-at-or-past");
+    expect(advanceResult.advanced).toBe(false);
+    expect(readState("r8", stateDir)?.phase).toBe("reviewing");
+
+    // Half 2: the same backward transition, written through
+    // flow-state-update's runUpdate (the step-5 head-fence path), has no
+    // STEP_PHASES ordering guard and succeeds — this is the documented,
+    // intentional asymmetry (a review-fix loop re-entering step 5 really is
+    // implementing again).
+    const code = runUpdate(["r8", "--phase", "implementing"], stateDir);
+    expect(code).toBe(0);
+    expect(readState("r8", stateDir)?.phase).toBe("implementing");
   });
 });
 

@@ -988,14 +988,36 @@ export function writeRequestFile(
  * `advancePhase` so the two write paths cannot drift on `phaseLog[]` shape.
  * Omits the `outcome` key entirely when absent — never writes
  * `outcome: undefined`.
+ *
+ * Same-phase-tail guard: when the last existing entry's `phase` already
+ * equals `phase`, return the existing log unchanged instead of appending a
+ * duplicate row. `advancePhase` already refuses an equal-phase write before
+ * ever reaching this function, so the guard here only changes behaviour for
+ * the `flow-state-update` write path (`applyUpdate`) — the path with no
+ * prior refusal check. This is what makes a phase's head-fence write (e.g.
+ * Step 5's `implementing`, Step 7's `ci-wait`) idempotent no matter which of
+ * the two write paths lands first: on a ci-red fix-loop reentry,
+ * `advancePhase("implementing", ...)` fires first (bin/flow-ci-check.ts),
+ * then Step 5's head fence calls `flow-state-update --phase implementing`
+ * second — this guard is what stops that second call from appending a
+ * duplicate row. The same shape makes Step 7's repeated `ci-wait` head-fence
+ * writes across a multi-turn yield/resume cycle idempotent too. Note this
+ * intentionally also suppresses a pre-existing consecutive duplicate (e.g.
+ * two `worktree-create` rows recorded back-to-back with nothing that changed
+ * phase in between) — that is the guard doing its job, not a regression.
  */
 export function appendPhaseLog(
   existing: PipelineState,
   phase: string,
   outcome?: string,
 ): NonNullable<PipelineState["phaseLog"]> {
+  const log = existing.phaseLog ?? [];
+  const last = log[log.length - 1];
+  if (last?.phase === phase) {
+    return log;
+  }
   return [
-    ...(existing.phaseLog ?? []),
+    ...log,
     {
       phase,
       at: nowIso(),

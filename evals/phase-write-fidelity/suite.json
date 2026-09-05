@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "phase-write-fidelity",
   "candidate": "phase-write-side-effect",
-  "description": "Measures whether /flow-pipeline's Steps 5 and 7-10 leave state.phase at the value the step's helper wrote as a side effect (implementing, ci-wait, reviewing, gating, merging), each scenario bounding the supervisor to one step's entry so the write is what's under test, not the whole step.",
+  "description": "Measures whether /flow-pipeline's Steps 5 and 7-10 leave state.phase at the value that step's contract requires, each scenario bounding the supervisor to one step's entry so the write is what's under test, not the whole step. Two classes: implementing, ci-wait and reviewing are written at their step's HEAD by an explicit `flow-state-update --phase <p>` fence AND re-emitted by their helper at the step's tail as an idempotent backstop (advancePhase returns already-at-or-past, so no duplicate phaseLog row); gating and merging stay helper-only side-effect writes.",
   "scenarios": [
     "s1-step7-ci-wait",
     "s2-step8-reviewing",

@@ -857,6 +857,11 @@ export type SetWindowPhaseDeps = {
  * still publish). Every set-option beyond the raw `@flow-phase` set is
  * swallowed — the returned `ok` is driven by the raw `@flow-phase` set only.
  *
+ * Ends with a best-effort `refresh-client -S` so a phase change repaints
+ * the status line immediately instead of waiting out the session's
+ * `status-interval` (5s by default). Same swallowed-result discipline as
+ * the additive mirrors.
+ *
  * `@flow-epic` resolves to `state.epic?.slug ?? (resolvedKind === "feature"
  * ? "" : state.slug)`, where `resolvedKind` falls back through the SAME
  * `isEpicPhase`-driven rule `resolveRowKind` (`./ls`) uses when `state.kind`
@@ -937,6 +942,14 @@ export function publishStateBadges(
         : window.id;
     spawn(["set-option", "-p", "-t", targetPane, FLOW_KIND_OPTION, state.kind]);
   }
+  // Force an immediate status-line repaint rather than leaving the new badge
+  // values invisible until the session's next `status-interval` tick. Bare
+  // `-S` on purpose: enumerating clients with `list-clients` would make tmux
+  // pane/window state a load-bearing input (AGENTS.md), on a publish-only
+  // path. The result is discarded because `refresh-client` exits non-zero
+  // when no client is attached — the normal case for a backgrounded
+  // pipeline — and `ok` stays driven by the raw @flow-phase set alone.
+  spawn(["refresh-client", "-S"]);
   return { ok: r.exitCode === 0, stderr: r.stderr };
 }
 

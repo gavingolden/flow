@@ -32,6 +32,16 @@ beforeAll(() => {
   sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-vitest-home-"));
   process.env.HOME = sandboxHome;
 
+  // Seam for credential-needing live tests (`bin/*.live.test.ts`). The
+  // sandbox above hands every spawned subprocess a credential-free $HOME, so
+  // a live `agy` call would come back `agy-not-authenticated` rather than
+  // exercising the code under test. Such a test spawns with
+  // `env: { ...process.env, HOME: process.env.FLOW_TEST_REAL_HOME }` to opt
+  // back into the real home for that one subprocess. Deliberately NOT a
+  // general escape hatch: unit tests must keep using the sandbox.
+  if (originalHome !== undefined)
+    process.env.FLOW_TEST_REAL_HOME = originalHome;
+
   // After f4 (env/state-only session identity), FLOW_SLUG is the sole
   // identity carrier — no tmux pane fallback remains. An ambient FLOW_SLUG /
   // TMUX_PANE from a live flow window would otherwise leak into every
@@ -47,6 +57,7 @@ afterAll(() => {
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
   if (sandboxHome) fs.rmSync(sandboxHome, { recursive: true, force: true });
+  delete process.env.FLOW_TEST_REAL_HOME;
 
   if (originalFlowSlug === undefined) delete process.env.FLOW_SLUG;
   else process.env.FLOW_SLUG = originalFlowSlug;

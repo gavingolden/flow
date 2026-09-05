@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -416,6 +416,27 @@ describe("classifyAgyOutcome", () => {
       }),
     ).toBe("agy-not-authenticated");
   });
+
+  it("classifies an otherwise-clean run with an empty artifact as agy-empty-artifact, not ran (#627/#712)", () => {
+    expect(
+      classifyAgyOutcome({ exitCode: 0, stderr: "", outcome: {} }, false),
+    ).toBe("agy-empty-artifact");
+  });
+
+  it("defaults artifactHasContent to true when omitted, so every pre-existing call site keeps classifying as ran", () => {
+    expect(classifyAgyOutcome({ exitCode: 0, stderr: "", outcome: {} })).toBe(
+      "ran",
+    );
+  });
+
+  it("never reaches the empty-artifact check when an earlier failure signal already matched", () => {
+    // exitCode 1 alone is enough to classify as agy-error, regardless of
+    // artifactHasContent — the flag is consulted ONLY on the otherwise-ran
+    // path.
+    expect(
+      classifyAgyOutcome({ exitCode: 1, stderr: "boom", outcome: {} }, false),
+    ).toBe("agy-error");
+  });
 });
 
 describe("readAgyJsonOutcome", () => {
@@ -428,6 +449,7 @@ describe("readAgyJsonOutcome", () => {
       mkdirp: () => {},
       now: () => 0,
       writeOut: () => {},
+      artifactHasContent: () => true,
     }) as Deps;
 
   it("lifts status/error from a well-formed envelope", () => {
@@ -454,6 +476,7 @@ describe("readAgyJsonOutcome", () => {
       mkdirp: () => {},
       now: () => 0,
       writeOut: () => {},
+      artifactHasContent: () => true,
     };
     expect(readAgyJsonOutcome(d, "/out.json")).toEqual({});
   });
@@ -528,6 +551,7 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     writeOut: (line) => {
       calls.out.push(line);
     },
+    artifactHasContent: () => true,
     calls,
     ...overrides,
   };
@@ -570,6 +594,7 @@ describe("run", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-error",
+      failureClass: "unknown",
       task: "default",
       exitCode: 1,
       stderrTail: "boom",
@@ -587,6 +612,7 @@ describe("run", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-timeout",
+      failureClass: "timeout",
       task: "default",
       exitCode: 1,
       stderrTail: "Error: timeout waiting for response",
@@ -599,6 +625,7 @@ describe("run", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-error",
+      failureClass: "unknown",
       task: "default",
       exitCode: 1,
     });
@@ -617,6 +644,7 @@ describe("run", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-timeout",
+      failureClass: "timeout",
       task: "default",
       exitCode: 1,
       agyStatus: "ERROR",
@@ -654,6 +682,7 @@ describe("run", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-canceled",
+      failureClass: "canceled",
       task: "default",
       exitCode: 0,
       agyStatus: "CANCELED",
@@ -746,7 +775,7 @@ describe("run", () => {
     errSpy.mockRestore();
   });
 
-  it("gracefully skips (exit 0, agy-error) when runAgy throws a spawn failure", () => {
+  it("gracefully skips (exit 0, spawn-failed) when runAgy throws a spawn failure", () => {
     const deps = makeDeps({
       runAgy: () => {
         throw new Error("spawn agy ENOMEM");
@@ -755,7 +784,8 @@ describe("run", () => {
     expect(run(["--prompt", "hi"], deps)).toBe(0);
     expect(envelope(deps)).toEqual({
       ran: false,
-      skipReason: "agy-error",
+      skipReason: "spawn-failed",
+      failureClass: "spawn-failed",
       task: "default",
       stderrTail: "spawn agy ENOMEM",
     });
@@ -769,10 +799,152 @@ describe("run", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-not-authenticated",
+      failureClass: "auth",
       task: "default",
       exitCode: 1,
       stderrTail: "Please log in",
     });
+  });
+
+  it("classifies a clean exit with a 0-byte artifact as ran:false/agy-empty-artifact, not a silent ran:true (#627/#712)", () => {
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 0, stderr: "" }),
+      artifactHasContent: () => false,
+    });
+    expect(run(["--prompt", "hi"], deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "agy-empty-artifact",
+      failureClass: "empty-artifact",
+      task: "default",
+      exitCode: 0,
+    });
+  });
+
+  it("classifies a whitespace-only artifact the same way as a genuinely empty one", () => {
+    // A deps.artifactHasContent implementing the documented contract
+    // (">=1 non-whitespace byte") against a whitespace-only artifact must
+    // downgrade to agy-empty-artifact end-to-end, same as a 0-byte file.
+    const whitespaceOnlyArtifact = "   \n\t  ";
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 0, stderr: "" }),
+      readFile: () => whitespaceOnlyArtifact,
+      artifactHasContent: () => whitespaceOnlyArtifact.trim().length > 0,
+    });
+    expect(run(["--prompt", "hi"], deps)).toBe(0);
+    expect(envelope(deps).ran).toBe(false);
+    expect(envelope(deps).skipReason).toBe("agy-empty-artifact");
+  });
+
+  it("never writes a delegate.call telemetry event to the real HOME (recordEvent resolves under vitest's sandbox $HOME)", () => {
+    const sandboxHome = process.env.HOME as string;
+    const telemetryPath = path.join(
+      sandboxHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    try {
+      const deps = makeDeps();
+      run(["--prompt", "hi"], deps);
+      // The sandbox HOME (set in vitest.setup.ts) is where a real
+      // recordEvent call resolves its default logPath — confirming the
+      // event landed there, not the developer's actual ~/.flow, is the
+      // whole point of the sandbox swap.
+      expect(existsSync(telemetryPath)).toBe(true);
+      const lines = readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0);
+      expect(lines.length).toBeGreaterThanOrEqual(1);
+      const last = JSON.parse(lines[lines.length - 1] as string);
+      expect(last.event).toBe("delegate.call");
+    } finally {
+      rmSync(path.join(sandboxHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+
+  it("never stores stdout_tail on a successful run's telemetry event (no completion payloads)", () => {
+    const sandboxHome = process.env.HOME as string;
+    const telemetryPath = path.join(
+      sandboxHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    try {
+      const deps = makeDeps({ readFile: () => "some model completion text" });
+      run(["--prompt", "hi"], deps);
+      const lines = readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0);
+      const last = JSON.parse(lines[lines.length - 1] as string);
+      expect(last.attrs.ran).toBe(true);
+      expect(last.attrs.stdout_tail).toBeUndefined();
+    } finally {
+      rmSync(path.join(sandboxHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+
+  it("stores stdout_tail on a failing run's telemetry event when the artifact is small (diagnostic, not a completion)", () => {
+    const sandboxHome = process.env.HOME as string;
+    const telemetryPath = path.join(
+      sandboxHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    try {
+      const deps = makeDeps({
+        runAgy: () => ({ exitCode: 1, stderr: "boom" }),
+        readFile: () => "small diagnostic error text",
+      });
+      run(["--prompt", "hi"], deps);
+      const lines = readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0);
+      const last = JSON.parse(lines[lines.length - 1] as string);
+      expect(last.attrs.ran).toBe(false);
+      expect(last.attrs.stdout_tail).toBe("small diagnostic error text");
+    } finally {
+      rmSync(path.join(sandboxHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+
+  it("omits stdout_tail on a failing run when the artifact is too large to plausibly be diagnostic text", () => {
+    const sandboxHome = process.env.HOME as string;
+    const telemetryPath = path.join(
+      sandboxHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    try {
+      const deps = makeDeps({
+        runAgy: () => ({ exitCode: 1, stderr: "boom" }),
+        readFile: () => "x".repeat(2001),
+      });
+      run(["--prompt", "hi"], deps);
+      const lines = readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0);
+      const last = JSON.parse(lines[lines.length - 1] as string);
+      expect(last.attrs.ran).toBe(false);
+      expect(last.attrs.stdout_tail).toBeUndefined();
+    } finally {
+      rmSync(path.join(sandboxHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    }
   });
 
   it("runs agy with the prompt LAST and reports ran:true on success", () => {
@@ -855,6 +1027,78 @@ describe("run — --output-format json envelope lift", () => {
     const env = envelope(deps);
     expect(env.durationSeconds).toBeUndefined();
     expect(env.usage).toBeUndefined();
+  });
+});
+
+describe("run — deniedActions lift", () => {
+  const DENIED_FIXTURE = readFileSync(
+    path.join(__dirname, "fixtures", "agy", "denied-tools-envelope.json"),
+    "utf8",
+  );
+
+  it("lifts deniedActions:['RunCommand'] from the archived fixture on the ran:true json path", () => {
+    const deps = makeDeps({ readFile: () => DENIED_FIXTURE });
+    const code = run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(code).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      deniedActions: ["RunCommand"],
+    });
+  });
+
+  it("lifts deniedActions on the non-ran path too (e.g. a CANCELED reproduction of the same denial)", () => {
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 0, stderr: "" }),
+      readFile: () =>
+        JSON.stringify({
+          status: "CANCELED",
+          denied_actions: [{ action: "command", display_name: "RunCommand" }],
+        }),
+    });
+    const code = run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(code).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "agy-canceled",
+      deniedActions: ["RunCommand"],
+    });
+  });
+
+  it("omits deniedActions when denied_actions is absent from the artifact", () => {
+    const deps = makeDeps({
+      readFile: () => JSON.stringify({ status: "SUCCESS", response: "ok" }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).deniedActions).toBeUndefined();
+  });
+
+  it("omits deniedActions when denied_actions is null", () => {
+    const deps = makeDeps({
+      readFile: () =>
+        JSON.stringify({ status: "SUCCESS", denied_actions: null }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).deniedActions).toBeUndefined();
+  });
+
+  it("omits deniedActions when denied_actions is an empty array", () => {
+    const deps = makeDeps({
+      readFile: () => JSON.stringify({ status: "SUCCESS", denied_actions: [] }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).deniedActions).toBeUndefined();
+  });
+
+  it("falls back to `action` when an entry lacks display_name", () => {
+    const deps = makeDeps({
+      readFile: () =>
+        JSON.stringify({
+          status: "SUCCESS",
+          denied_actions: [{ action: "command" }],
+        }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).deniedActions).toEqual(["command"]);
   });
 });
 

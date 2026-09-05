@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildRows as buildRowsImpl,
@@ -56,6 +57,16 @@ function state(overrides: Partial<PipelineState>): PipelineState {
     updatedAt: new Date(NOW).toISOString(),
     ...overrides,
   };
+}
+
+/** Hermetic real git repo for the repo-scoping suite — `resolveRepoRoot` /
+ * `makeSameRepository` shell out to real `git`, so a fixture repo path
+ * (rather than a fictional string like `/repo`) is required to exercise the
+ * scoping branch instead of always landing on the outside-a-repo fallback. */
+function initGitRepo(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-ls-repo-"));
+  spawnSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+  return dir;
 }
 
 function window(overrides: Partial<TmuxWindow>): TmuxWindow {
@@ -798,6 +809,73 @@ describe("runLsCli (--help / -h short-circuit)", () => {
   });
 });
 
+describe("runLsCli — flag parsing (--all-repos / --all / -a / unknown)", () => {
+  // runLsCli dispatches to the real runLs with the real checkInstallDrift,
+  // so mock stateModule/tmuxModule (the idiom at the top of this file)
+  // rather than letting it read the developer's live ~/.flow state.
+  beforeEach(() => {
+    vi.spyOn(stateModule, "listStates").mockReturnValue([]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  for (const flag of ["--all-repos", "--all", "-a"]) {
+    it(`accepts '${flag}' and exits 0`, async () => {
+      const code = await runLsCli([flag]);
+      expect(code).toBe(0);
+    });
+  }
+
+  it("--bogus is still an unknown option, exit 2", async () => {
+    const err = vi.spyOn(console, "error");
+    const code = await runLsCli(["--bogus"]);
+    expect(code).toBe(2);
+    expect(err.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+      "flow ls: unknown option '--bogus'",
+    );
+  });
+
+  it("actually forwards allRepos:true to runLs — a foreign-repo pipeline is hidden by bare 'flow ls' and revealed by --all-repos", async () => {
+    // Regression guard: deleting `allRepos` from the `runLsCli`->`runLs`
+    // call site would keep every test above green (they only assert
+    // exit 0 with an empty state list), so this test seeds a real
+    // foreign-repo state and observes the flag's actual effect through
+    // the CLI entry point rather than calling `runLs` directly.
+    const foreignRepo = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-ls-cli-foreign-"),
+    );
+    try {
+      spawnSync("git", ["init", "-q", "-b", "main"], { cwd: foreignRepo });
+      vi.spyOn(stateModule, "listStates").mockReturnValue([
+        state({
+          slug: "foreign-cli-pipeline",
+          repo: foreignRepo,
+          phase: "verifying",
+        }),
+      ]);
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+      const bareCode = await runLsCli([]);
+      expect(bareCode).toBe(0);
+      const bareOut = log.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(bareOut).not.toContain("foreign-cli-pipeline");
+
+      log.mockClear();
+      const allReposCode = await runLsCli(["--all-repos"]);
+      expect(allReposCode).toBe(0);
+      const allReposOut = log.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allReposOut).toContain("foreign-cli-pipeline");
+    } finally {
+      fs.rmSync(foreignRepo, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("runLs empty state (Story 5 cross-verb voice)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -832,6 +910,7 @@ describe("runLs — printed table header", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const code = await runLs({
+      allRepos: true,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });
@@ -854,6 +933,7 @@ describe("runLs — printed table header", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const code = await runLs({
+      allRepos: true,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });
@@ -924,6 +1004,7 @@ describe("runLs — PR column linking (bin/lib/link.ts)", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const code = await runLs({
+      allRepos: true,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });
@@ -954,6 +1035,7 @@ describe("runLs — PR column linking (bin/lib/link.ts)", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const code = await runLs({
+      allRepos: true,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });
@@ -986,6 +1068,7 @@ describe("runLs — PR column linking (bin/lib/link.ts)", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const code = await runLs({
+      allRepos: true,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });
@@ -1021,6 +1104,7 @@ describe("runLs — orphan recovery footnote", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const code = await runLs({
+      allRepos: true,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });
@@ -1045,6 +1129,7 @@ describe("runLs — orphan recovery footnote", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const code = await runLs({
+      allRepos: true,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });
@@ -1075,6 +1160,7 @@ describe("runLs — orphan recovery footnote", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const code = await runLs({
+      allRepos: true,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });
@@ -1102,6 +1188,7 @@ describe("runLs — orphan recovery footnote", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const code = await runLs({
+      allRepos: true,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });
@@ -1164,6 +1251,7 @@ describe("runLs — orphan recovery footnote", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const code = await runLs({
+      allRepos: true,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });
@@ -1194,6 +1282,7 @@ describe("runLs — lazy orphan reaper (Task 6)", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const code = await runLs({
+      allRepos: true,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });
@@ -1207,22 +1296,332 @@ describe("runLs — lazy orphan reaper (Task 6)", () => {
     expect(out).toContain("reap-ls-crashed");
     expect(out).toContain("(no window)");
   });
+
+  it("reaps a foreign-repo stale starting orphan under a bare (repo-scoped) flow ls", async () => {
+    // The reap runs over the UNFILTERED survivor set, before the repo
+    // partition — a foreign repo's never-started orphan must not be
+    // strandable just because a bare `flow ls` would otherwise hide it.
+    const localRepo = initGitRepo();
+    const foreignRepo = initGitRepo();
+    try {
+      vi.spyOn(stateModule, "listStates").mockReturnValue([
+        state({
+          slug: "foreign-reap-stale",
+          phase: "starting",
+          repo: foreignRepo,
+        }),
+      ]);
+      vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+      const del = vi.spyOn(stateModule, "deleteState").mockReturnValue(true);
+      vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+      // Awaited properly (not returned from inside try/finally): the
+      // previous shape returned the promise while `finally` synchronously
+      // deleted both fixture repos, passing only because repo resolution
+      // happened to precede the first `await` inside `runLs`.
+      const code = await runLs({
+        cwd: localRepo,
+        checkUpdate: () => ({ status: "current" }),
+        checkDrift: NO_DRIFT,
+      });
+      expect(code).toBe(0);
+      expect(del).toHaveBeenCalledWith("foreign-reap-stale", undefined);
+    } finally {
+      fs.rmSync(localRepo, { recursive: true, force: true });
+      fs.rmSync(foreignRepo, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runLs — repo scoping", () => {
+  let localRepo: string;
+  let foreignRepo: string;
+
+  beforeEach(() => {
+    localRepo = initGitRepo();
+    foreignRepo = initGitRepo();
+  });
+
+  afterEach(() => {
+    fs.rmSync(localRepo, { recursive: true, force: true });
+    fs.rmSync(foreignRepo, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it("hides a foreign-repo pipeline by default and reveals it with allRepos", async () => {
+    // `foreign-pipeline` deliberately has NO matching tmux window: buildRows
+    // only receives the repo-filtered `states`, so a foreign state's window
+    // (if any) would otherwise get misclassified as an unmanaged "(no
+    // state)" row (documented, deliberate fail-open — see the sibling
+    // "keeps an unmanaged (no state) row" case) — omitting the window here
+    // keeps this case's assertions about the STATE-level hide focused.
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "local-pipeline", repo: localRepo, phase: "verifying" }),
+      state({
+        slug: "foreign-pipeline",
+        repo: foreignRepo,
+        phase: "verifying",
+      }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "local-pipeline" }),
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      cwd: localRepo,
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+    expect(code).toBe(0);
+    let out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("local-pipeline");
+    expect(out).not.toContain("foreign-pipeline");
+    // `foreign-pipeline` has no window, so it also needs a resume once
+    // revealed — the footer's parenthetical reflects that.
+    expect(out).toContain(
+      "1 pipeline in other repos hidden (1 needs resume) — show them with 'flow ls --all-repos'",
+    );
+
+    log.mockClear();
+    const allReposCode = await runLs({
+      cwd: localRepo,
+      allRepos: true,
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+    expect(allReposCode).toBe(0);
+    out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("local-pipeline");
+    expect(out).toContain("foreign-pipeline");
+    expect(out).not.toContain("hidden — show them");
+  });
+
+  it("prints the repo-scoped empty-state line naming the hidden-elsewhere count", async () => {
+    // No window for `foreign-only` either — see the comment on the sibling
+    // "hides a foreign-repo pipeline" case above for why.
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "foreign-only", repo: foreignRepo, phase: "verifying" }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      cwd: localRepo,
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+    expect(code).toBe(0);
+    // `foreign-only` has no window, so — matching the non-empty footer's
+    // `(N needs resume)` parenthetical — the empty-state line carries it too.
+    expect(log.mock.calls[0][0]).toBe(
+      "flow ls: no pipelines in this repo (1 in other repos (1 needs resume) — show them with 'flow ls --all-repos')",
+    );
+  });
+
+  it("does not re-emit a hidden foreign-repo pipeline as an unmanaged '(no state)' row", async () => {
+    // Regression for the bug where buildRows received the repo-FILTERED
+    // `states` but the UNFILTERED `windows`: `matchedWindowIds` was built
+    // only from the filtered states, so the unclaimed-window loop
+    // re-emitted the hidden foreign-repo pipeline's own window as a
+    // synthetic `<slug> (no state)` row — even though a state file DOES
+    // exist for it (it's merely hidden by repo scope, not unmanaged).
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "local-pipeline", repo: localRepo, phase: "verifying" }),
+      state({
+        slug: "foreign-with-window",
+        repo: foreignRepo,
+        phase: "verifying",
+      }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "local-pipeline" }),
+      window({ name: "foreign-with-window" }),
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      cwd: localRepo,
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+    expect(code).toBe(0);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("local-pipeline");
+    expect(out).not.toContain("foreign-with-window");
+    expect(out).not.toContain("(no state)");
+    expect(out).toContain(
+      "1 pipeline in other repos hidden — show them with 'flow ls --all-repos'",
+    );
+  });
+
+  it("keeps an unmanaged (no state) row regardless of repo scope — it fails open by construction", async () => {
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "local-pipeline", repo: localRepo }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "local-pipeline" }),
+      window({ name: "untracked-window" }),
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      cwd: localRepo,
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+    expect(code).toBe(0);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("untracked-window");
+    expect(out).toContain("(no state)");
+  });
+
+  it("keeps a linked-worktree cwd's own rows under the default repo scope", async () => {
+    const worktreeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-ls-worktree-"),
+    );
+    fs.rmSync(worktreeDir, { recursive: true, force: true });
+    spawnSync("git", ["config", "user.email", "test@example.com"], {
+      cwd: localRepo,
+    });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: localRepo });
+    fs.writeFileSync(path.join(localRepo, "README.md"), "hello\n");
+    spawnSync("git", ["add", "README.md"], { cwd: localRepo });
+    spawnSync("git", ["commit", "-q", "-m", "init"], { cwd: localRepo });
+    spawnSync("git", ["worktree", "add", "-b", "feature-branch", worktreeDir], {
+      cwd: localRepo,
+    });
+    try {
+      vi.spyOn(stateModule, "listStates").mockReturnValue([
+        state({ slug: "wt-pipeline", repo: fs.realpathSync(localRepo) }),
+      ]);
+      vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+        window({ name: "wt-pipeline" }),
+      ]);
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+      const code = await runLs({
+        cwd: worktreeDir,
+        checkUpdate: () => ({ status: "current" }),
+        checkDrift: NO_DRIFT,
+      });
+      expect(code).toBe(0);
+      expect(log.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+        "wt-pipeline",
+      );
+    } finally {
+      spawnSync("git", ["worktree", "remove", "--force", worktreeDir], {
+        cwd: localRepo,
+      });
+      fs.rmSync(worktreeDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails OPEN outside a git repo: full table on stdout, one dimmed note on stderr", async () => {
+    const outsideDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-ls-outside-"),
+    );
+    try {
+      vi.spyOn(stateModule, "listStates").mockReturnValue([
+        state({ slug: "local-pipeline", repo: localRepo }),
+        state({ slug: "foreign-pipeline", repo: foreignRepo }),
+      ]);
+      vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+        window({ name: "local-pipeline" }),
+        window({ name: "foreign-pipeline" }),
+      ]);
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const err = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+
+      const code = await runLs({
+        cwd: outsideDir,
+        checkUpdate: () => ({ status: "current" }),
+        checkDrift: NO_DRIFT,
+      });
+      expect(code).toBe(0);
+      const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(out).toContain("local-pipeline");
+      expect(out).toContain("foreign-pipeline");
+      expect(err).toHaveBeenCalledTimes(1);
+      expect(String(err.mock.calls[0][0])).toContain(
+        "not in a git repo — showing every pipeline",
+      );
+    } finally {
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("footer/table agreement: a crashed foreign-repo pipeline's (1 needs resume) matches exactly one --all-repos recovery line", async () => {
+    // A TERMINAL-phase local anchor keeps `rows` non-empty in the default
+    // scope (so printHiddenRepos actually runs) without itself being
+    // affected by the global `livenessOf` mock below (TERMINAL_PHASE_SET
+    // short-circuits before needsResume ever calls it). No window for
+    // `foreign-zombie` — see the comment on "hides a foreign-repo pipeline"
+    // above for why.
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "local-anchor", repo: localRepo, phase: "merged" }),
+      state({ slug: "foreign-zombie", phase: "verifying", repo: foreignRepo }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "local-anchor" }),
+    ]);
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("dead");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      cwd: localRepo,
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+    expect(code).toBe(0);
+    let out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain(
+      "1 pipeline in other repos hidden (1 needs resume) — show them with 'flow ls --all-repos'",
+    );
+
+    log.mockClear();
+    const allReposCode = await runLs({
+      cwd: localRepo,
+      allRepos: true,
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+    expect(allReposCode).toBe(0);
+    out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    const resumeLines = out
+      .split("\n")
+      .filter((l) => l.includes("flow feature resume"));
+    expect(resumeLines).toHaveLength(1);
+    expect(resumeLines[0]).toContain("flow feature resume foreign-zombie");
+  });
 });
 
 describe("runLs — update notice seam", () => {
+  // Pin `cwd` to a real, hermetic git repo rather than relying on the
+  // ambient `process.cwd()` being one: these tests assert EXACT stderr
+  // call counts, and an ambient cwd outside any git repo would add the
+  // "not in a git repo" fail-open notice as an extra console.error call,
+  // desyncing the count from what the ambient environment happens to be.
+  let repoDir: string;
+
   beforeEach(() => {
+    repoDir = initGitRepo();
     vi.spyOn(stateModule, "listStates").mockReturnValue([]);
     vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
     vi.spyOn(console, "log").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
 
   it("should print an update notice to stderr when checkUpdate reports behind", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const code = await runLs({
+      cwd: repoDir,
       checkUpdate: () => ({
         status: "behind",
         behind: 2,
@@ -1238,6 +1637,7 @@ describe("runLs — update notice seam", () => {
   it("should not print a notice when checkUpdate reports current", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const code = await runLs({
+      cwd: repoDir,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });
@@ -1248,6 +1648,7 @@ describe("runLs — update notice seam", () => {
   it("should not print a notice when checkUpdate reports skipped", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const code = await runLs({
+      cwd: repoDir,
       checkUpdate: () => ({ status: "skipped", reason: "fetch-failed" }),
       checkDrift: NO_DRIFT,
     });
@@ -1258,6 +1659,7 @@ describe("runLs — update notice seam", () => {
   it("should print a drift notice to stderr when checkDrift reports drift", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const code = await runLs({
+      cwd: repoDir,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: () => ({
         status: "drifted",
@@ -1274,6 +1676,7 @@ describe("runLs — update notice seam", () => {
   it("should not print a drift notice when checkDrift reports clean", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const code = await runLs({
+      cwd: repoDir,
       checkUpdate: () => ({ status: "current" }),
       checkDrift: NO_DRIFT,
     });

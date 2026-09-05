@@ -43,8 +43,29 @@ export type DelegateSurface =
 // carries no model constant: it carries two (MODEL + SECOND_MODEL), and the
 // second (deep-tier) reviewer needs its own config slot.
 export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
+  // 2026-09-05 RUN (gemini-3.8-flash-high, agy 1.1.27): REJECTED on every
+  // one of the ten surfaces this run's fixtures cover (a bench-coverage
+  // set, NOT the same as this record's nine keys — see report.md for the
+  // exact roster) and nominated on none: zero flips. Root cause:
+  // docs/model-bench/report.md: 83/196 committed entries (42.3%) came back
+  // with an EMPTY response — 81/196 in the separate uncommitted raw-envelope
+  // count, ~80 of those tied to `denied_actions: [RunCommand]` — it reaches
+  // for a shell tool the default `--sandbox` posture denies, and answers
+  // `status: SUCCESS` with an empty body. That's flow's PRODUCTION posture
+  // (no delegate surface passes --skip-permissions), so this is deployed
+  // behaviour, not a harness artifact.
+  // NO FLIP (2026-09-05): intent-guess rejected for 3.8 on mechanical parity
+  // (c4-intent-json recall 0.44 vs incumbent 1.00); recommend() nominates no
+  // candidate for this surface.
   intentGuess: "Gemini 3.1 Pro (High)",
+  // NO FLIP (2026-09-05): review-lens rejected for 3.8 on mechanical parity
+  // (c7-review-lens recall 0.00 vs incumbent 0.83 — the empty-response mode
+  // above, at its most complete); recommend() nominates no candidate.
   reviewLens: "Gemini 3.1 Pro (High)",
+  // NO BENCH COVERAGE (2026-09-05): bin/fixtures/model-bench/ contains no
+  // research-gather case, so NO bench run has ever measured this surface and
+  // none can until that fixture exists. This pin is inherited, not evidenced
+  // — do not read the silence here as a clear. Tracked as a follow-up issue.
   researchGather: "Gemini 3.1 Pro (High)",
   // NO FLIP (evaluated 2026-08-05, PR #543): both Gemini candidates
   // cleared research-refute on the hardened c8 fixture at N=10, and the
@@ -68,6 +89,15 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // holds for it — but its research-refute verdict is a latency reject
   // (median 25.30s, not <= 60% of the incumbent's 40.53s) and recommend()
   // still nominates 3.1 Pro, which the diversity guard still blocks.
+  // RE-CHECKED, STILL NO FLIP (2026-09-05 run, gemini-3.8-flash-high): 3.8 is
+  // a research-refute REJECT on mechanical parity (c8 recall 0.11 vs
+  // incumbent 0.90), so the D1 cross-vendor question did not even arise this
+  // run. Had it cleared, the default would still have HELD: 3.8 is
+  // string-DIFFERENT from researchGather's "Gemini 3.1 Pro (High)", so
+  // flow-research-run.ts' equality-only diversity guard would have passed it
+  // through and left BOTH research passes on Gemini — the adversarial half
+  // silently ceasing to be adversarial, with nothing warning. A structural
+  // hold on top of the strict rule, same shape as planReviewSecond below.
   researchRefute: "Claude Opus 4.6 (Thinking)",
   // FLIPPED (2026-08-17 run): gemini-3.7-flash-high cleared every
   // plan-review gate on c6-plan-review at N=10 (no defect regression,
@@ -75,6 +105,10 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // payoff) and recommend()'s quality-gated tie-break nominated it over
   // 3.1 Pro's clear — docs/model-bench/verdicts.json. Cross-model
   // diversity vs planReviewSecond (Claude Opus) is preserved.
+  // RE-CONFIRMED, NO FLIP (2026-09-05 run): 3.8 is a plan-review REJECT on
+  // mechanical parity (c6-plan-review recall 0.75 vs incumbent 1.00), and
+  // recommend() still nominates gemini-3.7-flash-high for this surface — the
+  // pin below is re-validated against the newer arm, not merely unrevisited.
   planReview: "Gemini 3.7 Flash (High)",
   // Does NOT flip despite plan-review's gemini-3.1-pro-high clear (same
   // bench run): the deep-tier second reviewer exists for cross-model
@@ -82,17 +116,29 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // presumptively accepts points BOTH reviewers raise independently); two
   // same-family reviewers would hollow that rule out. The clear is
   // recorded here; the diversity rationale governs the default.
+  // UNCHANGED (2026-09-05 run): the structural cross-model-diversity
+  // rationale above is independent of any single arm's verdict, and 3.8
+  // cleared nothing that would have tested it.
   planReviewSecond: "Claude Opus 4.6 (Thinking)",
   // Pinned judges for the Step-3 blind method survey (flow-blind-survey):
   // the dogfood run's judge A rode the unpinned agy session default, so
   // both surfaces are pinned here rather than left to whatever agy
   // resolves at invocation time.
+  // NO BENCH COVERAGE (2026-09-05): bin/fixtures/model-bench/ contains no
+  // blind-survey case, so no bench run has ever measured this surface either.
+  // Same caveat as researchGather above — inherited, not evidenced.
   blindSurvey: "Gemini 3.1 Pro (High)",
+  // UNCHANGED (2026-09-05 run): structural cross-vendor hold against
+  // blindSurvey, on the same rationale as planReviewSecond.
   blindSurveySecond: "Claude Opus 4.6 (Thinking)",
   // null means "use the Claude Task subagent" (today's behaviour) rather
   // than delegating scouting to an agy variant. Both bench candidates were
   // rejected on a real-defect regression (c2b, docs/model-bench/report.md,
   // 2026-08-05) — null stays the verdict-consistent default.
+  // RE-CHECKED, STILL NULL (2026-09-05 run): gemini-3.8-flash-high is a scout
+  // REJECT on the same c2b-real-defect regression — it missed
+  // "src/pipeline-summary-sources.ts.txt:237:real-defect", which
+  // claude-sonnet-4-6 caught. Three candidate generations, same miss.
   scout: null,
 };
 
