@@ -37,6 +37,7 @@
     "bin/lib/stack-skill-frontmatter.test.ts",
     "bin/lib/tmux.test.ts",
     "bin/pane-read-lint.test.ts",
+    "bin/phase-write-lint.test.ts",
     "bin/skill-md-lint.test.ts",
     "bin/slug-flag-contract-lint.test.ts",
     "bin/workflows-regression.test.ts"

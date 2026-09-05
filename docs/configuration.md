@@ -313,4 +313,12 @@ which pipeline kind a resumed session belongs to. The other is
 key, never as identity — see `AGENTS.md`'s "Two sanctioned reads." Every
 other option above stays publish-only.
 
+`@flow-phase` / `@flow-phase-short` are published on every phase
+transition, including the ones emitted as a side effect by
+`flow-verify-prep` / `flow-ci-check` / `flow-fetch-pr-review` /
+`flow-gate-decide` / `flow-merge-guard` / `flow-gate-summary` — every phase
+write in the tree routes through `bin/lib/phase-write.ts`, so your bound
+status-bar format stays current through the whole pipeline, not just the
+supervisor-driven transitions.
+
 flow never writes `~/.tmux.conf` or any other part of your tmux config.

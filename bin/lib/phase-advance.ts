@@ -24,11 +24,15 @@
  * `gated` / `needs-human` -> `merged` edge (AWAITING_HUMAN_PHASES) that
  * `advancePhase`'s STEP_PHASES ordering alone cannot express, while still
  * refusing out of `FINISHED_PHASE_SET`.
+ *
+ * Both writers below route through `bin/lib/phase-write.ts`'s
+ * `writePhaseState` funnel, so every one of the eight phases this module
+ * emits also publishes the tmux `@flow-phase` mirror for free — see that
+ * module's docblock for the publish-only contract.
  */
 
 import {
   readState,
-  writeState,
   appendPhaseLog,
   STEP_PHASES,
   TERMINAL_PHASE_SET,
@@ -39,6 +43,7 @@ import {
 import { resolveSlugAmbient } from "./session-identity";
 import { FLOW_STATE_DIR } from "./paths";
 import { checkWorktreeBranch } from "./worktree-marker";
+import { writePhaseState, type PhasePublisher } from "./phase-write";
 
 export type PhaseAdvanceReason =
   | "advanced"
@@ -66,6 +71,14 @@ export type AdvancePhaseOpts = {
   expectPr?: number | null;
   dir?: string;
   resolveSlug?: () => string | null;
+  /**
+   * Publishes the new phase onto the window's `@flow-phase` option, threaded
+   * through to `writePhaseState`. Best-effort — defaults to the funnel's own
+   * inline default publisher (the real `setWindowPhase`). Tests inject a
+   * stub to assert it fires (or doesn't) without touching a real tmux
+   * session.
+   */
+  publish?: PhasePublisher;
 };
 
 /**
@@ -246,7 +259,7 @@ export function advancePhase(
     };
   }
 
-  writeState(
+  writePhaseState(
     {
       ...state,
       phase: target,
@@ -254,6 +267,7 @@ export function advancePhase(
       updatedAt: nowIso(),
     },
     dir,
+    opts.publish,
   );
   return {
     advanced: true,
@@ -352,7 +366,7 @@ export function finalizePhase(
     };
   }
 
-  writeState(
+  writePhaseState(
     {
       ...state,
       phase: target,
@@ -360,6 +374,7 @@ export function finalizePhase(
       updatedAt: nowIso(),
     },
     dir,
+    opts.publish,
   );
   return {
     advanced: true,
