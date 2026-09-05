@@ -14,6 +14,27 @@ import {
 import { spawnSync } from "node:child_process";
 import { readState } from "./state";
 
+// Mock ./tmux so no test in this file can reach the real tmux backend — the
+// upcoming `publishBadges` seam (Task 2) calls `publishStateBadges` on every
+// successful write, and this file's ~20 advancePhase/finalizePhase
+// invocations otherwise have no seam at all. Mirrors bin/lib/epic.test.ts's
+// tmuxMock shape.
+const tmuxMock = vi.hoisted(() => ({
+  setWindowPhase: vi.fn<
+    (slug: string, phase: string) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
+  setWindowEpic: vi.fn<
+    (slug: string, epicSlug: string) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
+  setPaneKind: vi.fn<
+    (slug: string, kind: string) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
+  publishStateBadges: vi.fn<
+    (state: unknown) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
+}));
+vi.mock("./tmux", () => tmuxMock);
+
 let stateDir!: string;
 
 beforeEach(() => {
@@ -224,6 +245,82 @@ describe("advancePhase", () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("invokes the injected publishBadges seam exactly once with the freshly-written state", () => {
+    seedState("s11", "reviewing");
+    const published: unknown[] = [];
+    const result = advancePhase("gating", {
+      slug: "s11",
+      dir: stateDir,
+      publishBadges: (s) => published.push(s),
+    });
+    expect(result.advanced).toBe(true);
+    expect(published).toHaveLength(1);
+    // Named one-transition-behind failure mode: the state handed to the
+    // seam must already carry the NEW phase, not the pre-write one.
+    expect((published[0] as { phase: string }).phase).toBe("gating");
+  });
+
+  it("does not invoke publishBadges on a refused write (branch-mismatch)", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "phase-advance-guard-nopublish-"),
+    );
+    const worktree = path.join(root, "wt");
+    fs.mkdirSync(worktree);
+    spawnSync("git", ["init", "-b", "actual-branch"], { cwd: worktree });
+    spawnSync("git", ["config", "user.email", "test@example.com"], {
+      cwd: worktree,
+    });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: worktree });
+    spawnSync("git", ["commit", "--allow-empty", "-m", "initial"], {
+      cwd: worktree,
+    });
+    fs.writeFileSync(path.join(worktree, ".flow-branch"), "expected-branch\n");
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const published: unknown[] = [];
+    try {
+      seedState("s12", "implementing", { worktree });
+      const result = advancePhase("ci-wait", {
+        slug: "s12",
+        dir: stateDir,
+        resolveSlug: () => null,
+        publishBadges: (s) => published.push(s),
+      });
+      expect(result.reason).toBe("branch-mismatch");
+      expect(published).toEqual([]);
+    } finally {
+      errSpy.mockRestore();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not invoke publishBadges on a refused write (already-at-or-past)", () => {
+    seedState("s13", "gating");
+    const published: unknown[] = [];
+    const result = advancePhase("gating", {
+      slug: "s13",
+      dir: stateDir,
+      publishBadges: (s) => published.push(s),
+    });
+    expect(result.reason).toBe("already-at-or-past");
+    expect(published).toEqual([]);
+  });
+
+  it("still returns advanced:true and does not throw when the publishBadges stub throws", () => {
+    seedState("s14", "reviewing");
+    let result: ReturnType<typeof advancePhase> | undefined;
+    expect(() => {
+      result = advancePhase("gating", {
+        slug: "s14",
+        dir: stateDir,
+        publishBadges: () => {
+          throw new Error("tmux boom");
+        },
+      });
+    }).not.toThrow();
+    expect(result?.advanced).toBe(true);
   });
 });
 
@@ -499,6 +596,82 @@ describe("finalizePhase", () => {
       errSpy.mockRestore();
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("invokes the injected publishBadges seam exactly once with the freshly-written state", () => {
+    seedState("f-pub", "gating");
+    const published: unknown[] = [];
+    const result = finalizePhase("merged", {
+      slug: "f-pub",
+      dir: stateDir,
+      publishBadges: (s) => published.push(s),
+    });
+    expect(result.advanced).toBe(true);
+    expect(published).toHaveLength(1);
+    // Named one-transition-behind failure mode: the state handed to the
+    // seam must already carry the NEW phase, not the pre-write one.
+    expect((published[0] as { phase: string }).phase).toBe("merged");
+  });
+
+  it("does not invoke publishBadges on a refused write (branch-mismatch)", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "finalize-phase-guard-nopublish-"),
+    );
+    const worktree = path.join(root, "wt");
+    fs.mkdirSync(worktree);
+    spawnSync("git", ["init", "-b", "actual-branch"], { cwd: worktree });
+    spawnSync("git", ["config", "user.email", "test@example.com"], {
+      cwd: worktree,
+    });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: worktree });
+    spawnSync("git", ["commit", "--allow-empty", "-m", "initial"], {
+      cwd: worktree,
+    });
+    fs.writeFileSync(path.join(worktree, ".flow-branch"), "expected-branch\n");
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const published: unknown[] = [];
+    try {
+      seedState("f-branch-nopub", "gating", { worktree });
+      const result = finalizePhase("merged", {
+        slug: "f-branch-nopub",
+        dir: stateDir,
+        resolveSlug: () => null,
+        publishBadges: (s) => published.push(s),
+      });
+      expect(result.reason).toBe("branch-mismatch");
+      expect(published).toEqual([]);
+    } finally {
+      errSpy.mockRestore();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not invoke publishBadges on a refused write (already-terminal)", () => {
+    seedState("f-idem-nopub", "merged");
+    const published: unknown[] = [];
+    const result = finalizePhase("merged", {
+      slug: "f-idem-nopub",
+      dir: stateDir,
+      publishBadges: (s) => published.push(s),
+    });
+    expect(result.reason).toBe("already-terminal");
+    expect(published).toEqual([]);
+  });
+
+  it("still returns advanced:true and does not throw when the publishBadges stub throws", () => {
+    seedState("f-throw", "gating");
+    let result: ReturnType<typeof finalizePhase> | undefined;
+    expect(() => {
+      result = finalizePhase("merged", {
+        slug: "f-throw",
+        dir: stateDir,
+        publishBadges: () => {
+          throw new Error("tmux boom");
+        },
+      });
+    }).not.toThrow();
+    expect(result?.advanced).toBe(true);
   });
 });
 

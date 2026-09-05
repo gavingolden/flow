@@ -40,7 +40,7 @@ export type PaneReadViolation = { file: string; line: number; text: string };
 const READ_VERB_RE =
   /\bshow-options\b|["'`]showo["'`]|\bshow-window-options\b|["'`]showw["'`]|\blist-windows\b|["'`]lsw["'`]|\bdisplay-message\b|["'`]show["'`]|["'`]display["'`]|\blist-panes\b|["'`]lsp["'`]/;
 const OPTION_TOKEN_RE =
-  /@flow-[A-Za-z0-9_-]+|FLOW_SLUG_OPTION|FLOW_KIND_OPTION|FLOW_PHASE_OPTION|FLOW_PHASE_SHORT_OPTION|FLOW_REPO_OPTION|FLOW_EPIC_OPTION/;
+  /@flow-[A-Za-z0-9_-]+|FLOW_SLUG_OPTION|FLOW_KIND_OPTION|FLOW_PHASE_OPTION|FLOW_PHASE_SHORT_OPTION|FLOW_REPO_OPTION|FLOW_EPIC_OPTION|FLOW_PR_OPTION/;
 
 /**
  * A file is a violation when it contains a tmux read verb (`show-options`,
@@ -189,6 +189,413 @@ function scanSet(): string[] {
   return [...new Set(relPaths)].sort();
 }
 
+/**
+ * TASK 4 parity checks: pins that `bin/lib/tmux.ts`'s exported
+ * `FLOW_*_OPTION` badge constants stay documented (DOCS PARITY), stay
+ * published (PUBLISHER PARITY), and that no OTHER file writes `state.phase`
+ * / `state.pr` without also publishing a badge for it (WRITE-SITE PARITY).
+ * All three are file-content lints, same discipline as the pane-read
+ * detector above: hand-rolled scanning, no glob/AST dependency (picomatch
+ * has a documented recurring failure mode in this repo).
+ */
+
+/** Every `export const FLOW_*_OPTION = "@flow-*"` in bin/lib/tmux.ts. The
+ * `export` anchor is load-bearing: `FLOW_SLUG_OPTION` is module-private and
+ * must NOT be required to appear in either doc or `publishStateBadges`. */
+function exportedFlowOptionConstants(): { name: string; value: string }[] {
+  const contents = fs.readFileSync(
+    path.join(REPO_ROOT, "bin/lib/tmux.ts"),
+    "utf8",
+  );
+  const re = /export const (FLOW_[A-Z0-9_]+_OPTION) = "(@flow-[a-z-]+)"/g;
+  const out: { name: string; value: string }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(contents))) {
+    out.push({ name: m[1]!, value: m[2]! });
+  }
+  return out;
+}
+
+/** Extracts the balanced bracket span starting at `openIndex` (which must
+ * hold `{`, `(`, or `[`), string-literal-aware. Used to carve out a
+ * function's parameter list, a function/arrow body, or an object literal
+ * without a full parser — the same "hand-rolled over a dependency" choice
+ * this file already makes for pane-read detection. */
+function extractBalanced(source: string, openIndex: number): string {
+  const openChar = source[openIndex];
+  const closeChar = openChar === "{" ? "}" : openChar === "(" ? ")" : "]";
+  let depth = 0;
+  let i = openIndex;
+  for (; i < source.length; i++) {
+    const ch = source[i];
+    // Comments must be skipped BEFORE the quote check: a `//` comment
+    // containing an apostrophe (e.g. "can't", "it's") is otherwise
+    // misread as an open quote whose matching close-quote is found
+    // arbitrarily far away, silently swallowing real braces in between
+    // and desyncing the whole depth count.
+    if (ch === "/" && source[i + 1] === "/") {
+      while (i < source.length && source[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      i += 2;
+      while (
+        i < source.length &&
+        !(source[i] === "*" && source[i + 1] === "/")
+      ) {
+        i++;
+      }
+      i += 1; // land on the trailing '/'; the loop's i++ advances past it
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      i++;
+      while (i < source.length && source[i] !== quote) {
+        if (source[i] === "\\") i++;
+        i++;
+      }
+      continue;
+    }
+    if (ch === openChar) depth++;
+    else if (ch === closeChar) {
+      depth--;
+      if (depth === 0) return source.slice(openIndex, i + 1);
+    }
+  }
+  throw new Error(`unbalanced '${openChar}' from index ${openIndex}`);
+}
+
+/** Depth-aware: true only when the literal sets `phase:` or `pr:` at DEPTH
+ * 1 of its OWN body (not nested inside a sub-object, and not a spread — a
+ * spread token never matches the `IDENT:` shape). `expectKeyStart` gates
+ * matching to "right after `{` or a depth-1 comma" so a value-position
+ * ternary colon (`cond ? a : b`) can never be mistaken for a key. */
+function literalSetsTopLevelPhaseOrPr(literal: string): boolean {
+  let depth = 0;
+  let expectKeyStart = false;
+  let i = 0;
+  const n = literal.length;
+  while (i < n) {
+    const ch = literal[i]!;
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      i++;
+      while (i < n && literal[i] !== quote) {
+        if (literal[i] === "\\") i++;
+        i++;
+      }
+      i++;
+      expectKeyStart = false;
+      continue;
+    }
+    if (ch === "/" && literal[i + 1] === "/") {
+      while (i < n && literal[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && literal[i + 1] === "*") {
+      i += 2;
+      while (i < n && !(literal[i] === "*" && literal[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    if (ch === "{" || ch === "[" || ch === "(") {
+      depth++;
+      i++;
+      if (depth === 1) expectKeyStart = true;
+      continue;
+    }
+    if (ch === "}" || ch === "]" || ch === ")") {
+      depth--;
+      i++;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (ch === ",") {
+      if (depth === 1) expectKeyStart = true;
+      i++;
+      continue;
+    }
+    if (depth === 1 && expectKeyStart) {
+      if (/^(phase|pr)\s*:/.exec(literal.slice(i))) return true;
+      expectKeyStart = false;
+      i++;
+      continue;
+    }
+    i++;
+  }
+  return false;
+}
+
+/** Splits a `writeState(...)`'s inner argument text at the first
+ * depth-0 (relative to this arg list) comma, string-literal-aware — the
+ * call's first argument, verbatim. */
+function splitTopLevelFirstArg(inner: string): string {
+  let depth = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    // Same comment-before-quote ordering as extractBalanced — an
+    // apostrophe inside an inline `//` comment must never be read as an
+    // open quote.
+    if (ch === "/" && inner[i + 1] === "/") {
+      while (i < inner.length && inner[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && inner[i + 1] === "*") {
+      i += 2;
+      while (i < inner.length && !(inner[i] === "*" && inner[i + 1] === "/")) {
+        i++;
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      i++;
+      while (i < inner.length && inner[i] !== quote) {
+        if (inner[i] === "\\") i++;
+        i++;
+      }
+      continue;
+    }
+    if (ch === "{" || ch === "[" || ch === "(") depth++;
+    else if (ch === "}" || ch === "]" || ch === ")") depth--;
+    else if (ch === "," && depth === 0) return inner.slice(0, i);
+  }
+  return inner;
+}
+
+/** Locates a function's body by its unique signature marker (e.g.
+ * `"export function publishStateBadges"`), skipping the parameter list AND
+ * — when present — an object-type RETURN-TYPE annotation
+ * (`): { ok: boolean; stderr: string } {`) that would otherwise be
+ * mistaken for the body itself: the first `{` after the parameter list is
+ * balanced-extracted, and if what immediately follows it is ALSO `{`, the
+ * first extraction was the return-type annotation and the second is the
+ * real body. */
+function findFunctionBody(contents: string, sigMarker: string): string {
+  const sigIdx = contents.indexOf(sigMarker);
+  if (sigIdx === -1) {
+    throw new Error(`signature '${sigMarker}' not found`);
+  }
+  const parenIdx = contents.indexOf("(", sigIdx);
+  const params = extractBalanced(contents, parenIdx);
+  let idx = contents.indexOf("{", parenIdx + params.length);
+  let candidate = extractBalanced(contents, idx);
+  let cursor = idx + candidate.length;
+  while (/\s/.test(contents[cursor]!)) cursor++;
+  if (contents[cursor] === "{") {
+    idx = cursor;
+    candidate = extractBalanced(contents, idx);
+  }
+  return candidate;
+}
+
+/** Same length as `source`, comments blanked to spaces (strings preserved
+ * verbatim) so a REGEX match against the result can never land inside a
+ * `//`/`/* *​/` comment — indices still line up 1:1 with the original for
+ * a subsequent `extractBalanced` call. Needed because `bin/lib/feature.ts`
+ * carries a doc comment illustrating `writeState(phase:"starting")` as
+ * prose — a bare `\bwriteState\(` regex over raw source matches that
+ * comment as a real call site. */
+function stripCommentsPreserveLength(source: string): string {
+  let out = "";
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    const ch = source[i];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      let j = i + 1;
+      while (j < n && source[j] !== quote) {
+        if (source[j] === "\\") j++;
+        j++;
+      }
+      j = Math.min(j + 1, n);
+      out += source.slice(i, j);
+      i = j;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "/") {
+      let j = i;
+      while (j < n && source[j] !== "\n") j++;
+      out += " ".repeat(j - i);
+      i = j;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      let j = i + 2;
+      while (j < n && !(source[j] === "*" && source[j + 1] === "/")) j++;
+      j = Math.min(j + 2, n);
+      out += " ".repeat(j - i);
+      i = j;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/** Every `writeState(` call site in `bin/**\/*.ts` (excluding tests and
+ * `bin/lib/state.ts`, `writeState`'s own definition file), paired with its
+ * first-argument text verbatim. */
+function findWriteStateCallSites(): {
+  file: string;
+  argText: string;
+  /** ~80 chars of preceding context + the call's own raw text — exemption
+   * markers are matched against THIS, not the whole file, so a file with
+   * one legitimately-exempted call site can never accidentally shadow a
+   * SECOND, genuinely-violating call site in the same file. */
+  contextText: string;
+}[] {
+  const files = filesUnder("bin", [".ts"]).filter(
+    (f) => !f.endsWith(".test.ts") && f !== "bin/lib/state.ts",
+  );
+  const sites: { file: string; argText: string; contextText: string }[] = [];
+  for (const relPath of files) {
+    const contents = fs.readFileSync(path.join(REPO_ROOT, relPath), "utf8");
+    const searchable = stripCommentsPreserveLength(contents);
+    const re = /\bwriteState\(/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(searchable))) {
+      const parenIdx = m.index + m[0].length - 1;
+      let argsBlock: string;
+      try {
+        argsBlock = extractBalanced(contents, parenIdx);
+      } catch {
+        continue;
+      }
+      const inner = argsBlock.slice(1, -1);
+      const callStart = m.index;
+      const callEnd = parenIdx + argsBlock.length;
+      sites.push({
+        file: relPath,
+        argText: splitTopLevelFirstArg(inner).trim(),
+        contextText: contents.slice(Math.max(0, callStart - 80), callEnd),
+      });
+    }
+  }
+  return sites;
+}
+
+/** Resolves a bare `const NAME = { ... }` (optionally typed, `const NAME:
+ * T = {`) same-file literal — the WRITE-SITE PARITY identifier-tracing
+ * case. Returns `null` when NAME isn't defined as a same-file object
+ * literal (e.g. it is a function parameter, like
+ * `flow-seed-ingested-hook.ts`'s passthrough `saveState` wrapper — see
+ * that file's named exemption below). */
+function resolveIdentifierLiteral(
+  fileContents: string,
+  name: string,
+): string | null {
+  const idx = fileContents.search(
+    new RegExp(`\\bconst\\s+${name}\\s*(?::[^=]+)?=\\s*\\{`),
+  );
+  if (idx === -1) return null;
+  const braceIdx = fileContents.indexOf("{", idx);
+  try {
+    return extractBalanced(fileContents, braceIdx);
+  } catch {
+    return null;
+  }
+}
+
+/** Resolves a same-file helper's returned object literal for the
+ * WRITE-SITE PARITY call-expression tracing case — handles both
+ * `const NAME = (...) => ({ ... })` (arrow, parenthesized return, e.g.
+ * `feature.ts`'s `makeBaseState`) and a traditional `function NAME(...) {
+ * ... return { ... }; }` body. Returns `null` when NAME isn't a same-file
+ * definition this shape-matches. */
+function resolveCalleeLiteral(
+  fileContents: string,
+  name: string,
+): string | null {
+  const arrowIdx = fileContents.search(
+    new RegExp(`\\bconst\\s+${name}\\s*=\\s*\\(`),
+  );
+  if (arrowIdx !== -1) {
+    const parenIdx = fileContents.indexOf("(", arrowIdx);
+    try {
+      const params = extractBalanced(fileContents, parenIdx);
+      const afterParams = parenIdx + params.length;
+      const arrowOpIdx = fileContents.indexOf("=>", afterParams);
+      if (arrowOpIdx !== -1) {
+        let j = arrowOpIdx + 2;
+        while (/\s/.test(fileContents[j]!)) j++;
+        if (fileContents[j] === "(") {
+          const wrapParen = extractBalanced(fileContents, j);
+          const braceIdx = wrapParen.indexOf("{");
+          if (braceIdx !== -1) {
+            return extractBalanced(fileContents, j + braceIdx);
+          }
+        } else if (fileContents[j] === "{") {
+          const block = extractBalanced(fileContents, j);
+          const retMatch = /return\s*\{/.exec(block);
+          if (retMatch) {
+            const braceIdx = j + retMatch.index! + retMatch[0].length - 1;
+            return extractBalanced(fileContents, braceIdx);
+          }
+        }
+      }
+    } catch {
+      // fall through to the traditional-function shape below
+    }
+  }
+  const fnIdx = fileContents.search(
+    new RegExp(`\\bfunction\\s+${name}\\s*\\(`),
+  );
+  if (fnIdx !== -1) {
+    try {
+      const parenIdx = fileContents.indexOf("(", fnIdx);
+      const params = extractBalanced(fileContents, parenIdx);
+      const afterParams = parenIdx + params.length;
+      const bodyOpen = fileContents.indexOf("{", afterParams);
+      const body = extractBalanced(fileContents, bodyOpen);
+      const retMatch = /return\s*\{/.exec(body);
+      if (retMatch) {
+        const braceIdx = bodyOpen + retMatch.index! + retMatch[0].length - 1;
+        return extractBalanced(fileContents, braceIdx);
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/** Classifies one `writeState(...)` call site's first-argument text and
+ * resolves whether it sets a top-level `phase:`/`pr:` key. `"unresolved"`
+ * (a bare identifier or helper call this file can't trace to a same-file
+ * literal) is treated the SAME as `true` by the caller below — fail
+ * closed, same discipline as `PANE_READ_ALLOWLIST`'s completeness
+ * assertion: an unexplained site must be named, not silently passed. */
+function callSiteSetsTopLevelPhaseOrPr(
+  argText: string,
+  fileContents: string,
+): boolean | "unresolved" {
+  if (argText.startsWith("{")) {
+    return literalSetsTopLevelPhaseOrPr(argText);
+  }
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(argText)) {
+    const literal = resolveIdentifierLiteral(fileContents, argText);
+    return literal === null
+      ? "unresolved"
+      : literalSetsTopLevelPhaseOrPr(literal);
+  }
+  const callMatch = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(argText);
+  if (callMatch) {
+    const literal = resolveCalleeLiteral(fileContents, callMatch[1]!);
+    return literal === null
+      ? "unresolved"
+      : literalSetsTopLevelPhaseOrPr(literal);
+  }
+  return "unresolved";
+}
+
 describe("pane-read-lint", () => {
   it("frozen file set: the set of files producing violations equals PANE_READ_ALLOWLIST's resolved set", () => {
     const files = loadFiles(scanSet());
@@ -314,6 +721,146 @@ describe("pane-read-lint", () => {
       "utf8",
     );
     expect(epic).toContain("resolveKindAmbient");
+  });
+
+  it("docs parity: every exported FLOW_*_OPTION value is documented in both AGENTS.md and docs/configuration.md", () => {
+    const constants = exportedFlowOptionConstants();
+    // Sanity: the extractor itself must find at least the long-standing
+    // constants, or this assertion would vacuously pass on a broken regex.
+    expect(constants.map((c) => c.name)).toEqual(
+      expect.arrayContaining(["FLOW_PHASE_OPTION", "FLOW_PR_OPTION"]),
+    );
+    expect(
+      constants.some((c) => c.name === "FLOW_SLUG_OPTION"),
+      "FLOW_SLUG_OPTION is module-private (not `export const`) and must NOT be required in docs",
+    ).toBe(false);
+    const agents = fs.readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf8");
+    const config = fs.readFileSync(
+      path.join(REPO_ROOT, "docs/configuration.md"),
+      "utf8",
+    );
+    const missing = constants
+      .filter((c) => !agents.includes(c.value) || !config.includes(c.value))
+      .map((c) => c.name);
+    expect(
+      missing,
+      "a new exported FLOW_*_OPTION badge must be documented in both AGENTS.md and docs/configuration.md before it ships",
+    ).toEqual([]);
+  });
+
+  // FLOW_REPO_OPTION is seeded ONCE at window creation by `seedWindowOptions`
+  // (bin/lib/tmux.ts) and deliberately never republished — repo identity
+  // never changes across a pipeline's lifetime. Verified against the tree:
+  // it is genuinely absent from publishStateBadges's body today, so an
+  // unexempted check here would FALSE-FAIL on correct code.
+  const PUBLISHER_PARITY_EXEMPTIONS: readonly string[] = ["FLOW_REPO_OPTION"];
+
+  it("publisher parity: every exported FLOW_*_OPTION identifier is referenced inside publishStateBadges's body, except the named creation-only exemption", () => {
+    const contents = fs.readFileSync(
+      path.join(REPO_ROOT, "bin/lib/tmux.ts"),
+      "utf8",
+    );
+    const constants = exportedFlowOptionConstants();
+    expect(constants.length).toBeGreaterThan(0);
+    const body = findFunctionBody(
+      contents,
+      "export function publishStateBadges",
+    );
+
+    const missing = constants
+      .filter((c) => !PUBLISHER_PARITY_EXEMPTIONS.includes(c.name))
+      .filter((c) => !body.includes(c.name))
+      .map((c) => c.name);
+    expect(
+      missing,
+      "a new exported FLOW_*_OPTION must be published inside publishStateBadges, or named in PUBLISHER_PARITY_EXEMPTIONS with a reason",
+    ).toEqual([]);
+
+    // Dead-exemption guard: an exemption that now IS published is stale.
+    const staleExemptions = PUBLISHER_PARITY_EXEMPTIONS.filter((name) =>
+      body.includes(name),
+    );
+    expect(
+      staleExemptions,
+      "PUBLISHER_PARITY_EXEMPTIONS names an option that publishStateBadges now publishes — remove the stale exemption",
+    ).toEqual([]);
+  });
+
+  // Frozen, named write-site exemption set — same discipline as
+  // PANE_READ_ALLOWLIST: one entry per legitimate top-level phase:/pr:
+  // write outside phase-advance.ts/flow-state-update.ts, each with an
+  // inline reason, verified against the tree (not the plan's prediction).
+  const WRITE_SITE_PARITY_FILE_EXEMPT = new Set([
+    "bin/lib/phase-advance.ts",
+    "bin/flow-state-update.ts",
+  ]);
+  const WRITE_SITE_PARITY_EXEMPTIONS: readonly {
+    file: string;
+    marker: string;
+    reason: string;
+  }[] = [
+    {
+      file: "bin/lib/epic.ts",
+      marker: 'phase: "starting"',
+      reason:
+        "epic-design creation write — seedWindowOptions (bin/lib/tmux.ts) already seeds @flow-phase at window creation, so this creation-path write is legitimately never republished.",
+    },
+    {
+      file: "bin/lib/feature.ts",
+      marker: 'writeState(makeBaseState("plain")',
+      reason:
+        'creation-path write via makeBaseState (same-file helper whose object literal sets phase: "starting") — seedWindowOptions already seeds @flow-phase at window creation.',
+    },
+    {
+      file: "bin/flow-seed-ingested-hook.ts",
+      marker: "saveState: (state) => writeState(state)",
+      reason:
+        "passthrough dependency-injection wrapper — its `state` parameter is not a same-file object literal the tracer can resolve; the one real call site (`deps.saveState({ ...fresh, seedIngest })`) was manually verified to carry no top-level phase/pr key, so this definition site is exempted as out of the depth-aware tracer's reach.",
+    },
+  ];
+
+  it("write-site parity: every writeState(...) call setting a top-level phase:/pr: key lives in phase-advance.ts/flow-state-update.ts, or is a named exemption", () => {
+    const sites = findWriteStateCallSites();
+    expect(sites.length).toBeGreaterThan(0);
+    const fileContentsCache = new Map<string, string>();
+    const violations: string[] = [];
+    for (const site of sites) {
+      if (WRITE_SITE_PARITY_FILE_EXEMPT.has(site.file)) continue;
+      if (!fileContentsCache.has(site.file)) {
+        fileContentsCache.set(
+          site.file,
+          fs.readFileSync(path.join(REPO_ROOT, site.file), "utf8"),
+        );
+      }
+      const contents = fileContentsCache.get(site.file)!;
+      const verdict = callSiteSetsTopLevelPhaseOrPr(site.argText, contents);
+      if (verdict === false) continue;
+      // Scoped to THIS call site's own context, not the whole file — a
+      // file-wide `contents.includes(...)` would let one legitimately
+      // exempted call site silently shadow a second, genuinely-violating
+      // call site elsewhere in the same file.
+      const exemption = WRITE_SITE_PARITY_EXEMPTIONS.find(
+        (e) => e.file === site.file && site.contextText.includes(e.marker),
+      );
+      if (exemption) continue;
+      violations.push(`${site.file}: ${site.argText.slice(0, 60)}`);
+    }
+    expect(
+      violations,
+      "a writeState(...) call sets a top-level phase:/pr: key outside " +
+        "phase-advance.ts/flow-state-update.ts with no named exemption — " +
+        "move the write there, add a publishBadges seam, or name a " +
+        "reviewed exemption in WRITE_SITE_PARITY_EXEMPTIONS",
+    ).toEqual([]);
+
+    // Dead-exemption guard: each exemption's marker must still be present.
+    for (const e of WRITE_SITE_PARITY_EXEMPTIONS) {
+      const contents = fs.readFileSync(path.join(REPO_ROOT, e.file), "utf8");
+      expect(
+        contents.includes(e.marker),
+        `WRITE_SITE_PARITY_EXEMPTIONS entry for ${e.file} is stale — marker '${e.marker}' no longer found`,
+      ).toBe(true);
+    }
   });
 
   describe("findPaneReads negative cases", () => {

@@ -19,6 +19,20 @@ import {
   type PipelineState,
 } from "./lib/state";
 
+// Mock ./lib/tmux so no test in this file can reach the real tmux backend.
+// This file already carries the latent exposure today via the default
+// `setWindowPhase` seam; Task 2 widens the default to `publishStateBadges`
+// (five options), so close the seam before it widens.
+const tmuxMock = vi.hoisted(() => ({
+  setWindowPhase: vi.fn<
+    (slug: string, phase: string) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
+  publishStateBadges: vi.fn<
+    (state: unknown) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
+}));
+vi.mock("./lib/tmux", () => tmuxMock);
+
 let dir!: string;
 
 beforeEach(() => {
@@ -616,33 +630,35 @@ describe("runUpdate", () => {
     errSpy.mockRestore();
   });
 
-  it("publishes the phase onto @flow-phase on a successful --phase update", () => {
+  it("publishes badges on a successful --phase update", () => {
     seed("csv-export");
-    const published: Array<[string, string]> = [];
+    const published: PipelineState[] = [];
     const code = runUpdate(["csv-export", "--phase", "implementing"], dir, {
-      publishPhase: (s, p) => published.push([s, p]),
+      publishBadges: (s) => published.push(s),
     });
     expect(code).toBe(0);
-    expect(published).toEqual([["csv-export", "implementing"]]);
+    expect(published).toHaveLength(1);
+    expect(published[0]?.phase).toBe("implementing");
   });
 
-  it("does NOT publish a phase on a --pr-only update (no --phase given)", () => {
+  it("publishes badges on a --pr-only update (no --phase given)", () => {
     seed("csv-export");
-    const published: Array<[string, string]> = [];
+    const published: PipelineState[] = [];
     const code = runUpdate(["csv-export", "--pr", "142"], dir, {
-      publishPhase: (s, p) => published.push([s, p]),
+      publishBadges: (s) => published.push(s),
     });
     expect(code).toBe(0);
-    expect(published).toEqual([]);
+    expect(published).toHaveLength(1);
+    expect(published[0]?.pr).toBe(142);
   });
 
-  it("does NOT publish a phase on a branch-mismatch (exit 3, no state write)", () => {
+  it("does NOT publish badges on a branch-mismatch (exit 3, no state write)", () => {
     const fx = makeWorktreeFixture("expected-branch", "actual-branch");
     seed("csv-export", { worktree: fx.worktreeDir });
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const published: Array<[string, string]> = [];
+    const published: PipelineState[] = [];
     const code = runUpdate(["csv-export", "--phase", "implementing"], dir, {
-      publishPhase: (s, p) => published.push([s, p]),
+      publishBadges: (s) => published.push(s),
     });
     errSpy.mockRestore();
     expect(code).toBe(3);

@@ -294,21 +294,30 @@ silently passing the unsafe value through.
 
 ## tmux status-bar bindings (opt-in)
 
-flow's `@flow-repo` / `@flow-phase` / `@flow-phase-short` / `@flow-epic`
-tmux window options are publish-only mirrors — flow writes them on its own
-windows, but no flow code reads them back; the only user is your own
-tmux status-bar format. Bind them yourself, e.g.:
+flow's `@flow-repo` / `@flow-phase` / `@flow-phase-short` / `@flow-epic` /
+`@flow-pr` tmux window options are publish-only mirrors — flow writes them
+on its own windows, but no flow code reads them back; the only user is your
+own tmux status-bar format. Bind them yourself, e.g.:
 
 ```sh
 set -g window-status-format '#{@flow-repo} #{@flow-phase-short}'
 ```
+
+`@flow-pr` carries the pipeline's PR number as bare digits (no leading
+`#`), and is empty until the pipeline has opened a PR.
 
 `@flow-kind` is published on every flow window too, with one of three
 values (`feature` / `epic-design` / `epic-run`), and you're welcome to
 bind it into your status-bar format the same way. It is one of two
 sanctioned exceptions to the publish-only rule above: it is also read
 back by the `SessionStart:clear` hook (`resolveKindFromPane`) to resolve
-which pipeline kind a resumed session belongs to. The other is
+which pipeline kind a resumed session belongs to. Two caveats: (1) when
+`state.kind` is absent, the reconcile SKIPS the write rather than blanking
+the option — blanking would break `SessionStart:clear` auto-resume, so a
+window can retain a stale `@flow-kind` value in that case; (2) the
+launch-time kind publish targets the window's active pane, so a user who
+splits a flow window may see the badge land on the wrong pane until the
+next reconcile. The other sanctioned exception is
 `@flow-slug`, read back only as a `flow ls`/`attach`/`done` window-join
 key, never as identity — see `AGENTS.md`'s "Two sanctioned reads." Every
 other option above stays publish-only.
