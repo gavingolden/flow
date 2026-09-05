@@ -84,7 +84,7 @@ _flow() {
                         COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
                         return
                         ;;
-                    --model|--model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver)
+                    --model|--model-planning|--model-implement|--model-review|--model-fix-applier|--model-consolidator|--model-merge-resolver)
                         # shellcheck disable=SC2207
                         COMPREPLY=( $(compgen -W "opus haiku sonnet fable" -- "$cur") )
                         return
@@ -96,7 +96,7 @@ _flow() {
                         ;;
                 esac
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "--no-auto-merge --wait-for-copilot --research --copilot-review --effort --model --model-planning --model-implement --model-review --model-verify --model-fix-applier --model-consolidator --model-merge-resolver" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--no-auto-merge --wait-for-copilot --research --copilot-review --effort --model --model-planning --model-implement --model-review --model-fix-applier --model-consolidator --model-merge-resolver" -- "$cur") )
             elif [ "$fsub" = "resume" ]; then
                 # Every trailing non-flag token is a slug (`flow feature resume
                 # x y z`); complete slugs cur-based (like `done`) so the SECOND+

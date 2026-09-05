@@ -137,15 +137,14 @@ describe("HELP_TEXT", () => {
       "--model-planning",
       "--model-implement",
       "--model-review",
-      "--model-verify",
       "--model-fix-applier",
       "--model-consolidator",
       "--model-merge-resolver",
     ]) {
       expect(HELP_TEXT.feature).toContain(flag);
     }
-    // The verify-sonnet asymmetry and the config-only scout/coder grain are noted.
-    expect(HELP_TEXT.feature).toMatch(/verify.*sonnet/i);
+    // The fix-applier-sonnet asymmetry and the config-only scout/coder grain are noted.
+    expect(HELP_TEXT.feature).toMatch(/fix-applier.*sonnet/i);
     expect(HELP_TEXT.feature).toContain("config.models.scout|coder");
   });
 

@@ -37,7 +37,7 @@ export const MODEL_ALIASES = ["opus", "haiku", "sonnet", "fable"] as const;
 export type ModelAlias = (typeof MODEL_ALIASES)[number];
 
 /**
- * The seven per-phase model override fields on `PipelineState`, paired with the
+ * The six per-phase model override fields on `PipelineState`, paired with the
  * `flow feature create --model-<phase>` flag that sets each. Single source of
  * truth for the parse loop (`feature.ts`), the state validator
  * (`isPipelineState`), and the tests. The gatekeeper is deliberately absent —
@@ -48,7 +48,6 @@ export const PHASE_MODEL_FLAGS = [
   { flag: "--model-planning", field: "modelPlanning" },
   { flag: "--model-implement", field: "modelImplement" },
   { flag: "--model-review", field: "modelReview" },
-  { flag: "--model-verify", field: "modelVerify" },
   { flag: "--model-fix-applier", field: "modelFixApplier" },
   { flag: "--model-consolidator", field: "modelConsolidator" },
   { flag: "--model-merge-resolver", field: "modelMergeResolver" },
@@ -126,7 +125,6 @@ export type PipelineState = {
   modelPlanning?: ModelAlias;
   modelImplement?: ModelAlias;
   modelReview?: ModelAlias;
-  modelVerify?: ModelAlias;
   modelFixApplier?: ModelAlias;
   modelConsolidator?: ModelAlias;
   modelMergeResolver?: ModelAlias;

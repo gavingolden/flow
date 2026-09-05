@@ -26,3 +26,7 @@ names WHAT to look for; entries never suppress findings.
   any other variable set in an EARLIER block silently expands it to empty at runtime —
   the supervisor runs each block as a separate Bash tool call. Flag any new or edited
   block that references a variable without (re)deriving it in the same block.
+
+## Sibling-file term domains (PR #769)
+
+- **A term's domain must match across sibling reference files.** When a skill defines a term in one file (a rider "shares root cause, surface/files, or review context"; an "invalid" argument value) and constrains it in a sibling (`SKILL.md`: riders share root cause, surface, or files; the fallback fires on "invalid"), flag any definition wider than, or left undefined by, its constraint — the run follows whichever file it read last.

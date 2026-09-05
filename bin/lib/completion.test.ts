@@ -174,7 +174,6 @@ describe("completion scripts stay in sync with VERBS", () => {
         "--model-planning",
         "--model-implement",
         "--model-review",
-        "--model-verify",
         "--model-fix-applier",
         "--model-consolidator",
         "--model-merge-resolver",

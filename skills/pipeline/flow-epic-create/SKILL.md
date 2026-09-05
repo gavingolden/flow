@@ -26,11 +26,11 @@ checkpoint and wait for the user to **approve**, **redirect**, or **cancel**.
 This is a different supervisor session from `/flow-pipeline`. You fire your own
 named `AskUserQuestion` clarification form and your own single named Task-tool
 fan-out (the `MODE: epic` designer). Those are NOT among `/flow-pipeline`'s
-one `AskUserQuestion` form / nine Task-tool exemptions — a different supervisor
+one `AskUserQuestion` form / seven Task-tool exemptions — a different supervisor
 in a different window is a different session.
 
 The Step 4.5 **cross-model design review** is a
-**Bash fan-out, not a tenth exemption** — it shells `flow-plan-review` (via
+**Bash fan-out, not an eighth exemption** — it shells `flow-plan-review` (via
 `flow-delegate`/AGY), reusing the SAME `review.gemini` gate as
 `/flow-pipeline`'s Step-3 plan review. It spawns no Task and fires no
 `AskUserQuestion` form, so `/flow-epic-create`'s
@@ -126,7 +126,7 @@ resolves the feature-set/DAG-shape fork; never use it for cosmetic detail.
 Spawn `/flow-product-planning` with `MODE: epic` via the Task tool — this is the
 supervisor's **SINGLE NAMED Task-tool fan-out site**, registered in AGENTS.md
 as the `/flow-epic-create` → `/flow-product-planning MODE: epic` designer. It is NOT one
-of `/flow-pipeline`'s nine Task-tool exemptions.
+of `/flow-pipeline`'s seven Task-tool exemptions.
 
 **Load the Task tool before spawning.** In Claude Code sessions where neither
 `Task` nor its alias `Agent` is surfaced top-level by the harness (both are
@@ -194,7 +194,7 @@ Before committing/opening the PR, run one independent **cross-model design
 review** of the epic decomposition's consequential forks, mirroring
 `/flow-pipeline`'s Step-3 plan-review sub-step. This is a Bash `flow-delegate`
 (AGY) fan-out — the same mechanism as `/flow-pr-review`'s Gemini lens — and spawns
-**no Task** (see the named-surface note above: a **Bash fan-out, not a tenth
+**no Task** (see the named-surface note above: a **Bash fan-out, not an eighth
 exemption**).
 
 It has a pending phase (`epic-plan-review-pending`) for the async wake
