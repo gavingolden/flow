@@ -321,7 +321,7 @@ export function runEpicCli(args: string[], options: EpicOptions = {}): number {
     case "launch":
       return runEpicLaunch(args.slice(1), options);
     case "ls":
-      return runEpicLs(options);
+      return runEpicLs(args.slice(1), options);
     case "done":
       return runEpicDone(args.slice(1), options);
     case undefined:
@@ -1747,7 +1747,39 @@ function discoverCommittedEpics(
   }
 }
 
-function runEpicLs(options: EpicOptions): number {
+/**
+ * `flow epic ls`'s help + unknown-flag guard. Copied in shape from
+ * `runLsCli` (bin/lib/ls.ts:106-117) — help first, then an allowlist parse
+ * that exits 2 on anything unrecognised, matching the one other subcommand
+ * with a real flag surface rather than the silent-drop shape used by
+ * `runEpicBind`/`runEpicDone`.
+ */
+function runEpicLs(rest: string[], options: EpicOptions): number {
+  if (argsContainHelp(rest)) {
+    console.log(`flow epic ls — list epics
+
+Usage:
+  flow epic ls [--all]
+
+Options:
+  --all, -a             Include completed (done) epics in the listing
+
+Lists every epic with per-state counts + status, combining live run.json
+state under ~/.flow/epics with committed status boards under this repo's
+.flow/epics. Completed epics are hidden by default and counted in a
+footer line; --all shows them.`);
+    return 0;
+  }
+  const allowed = new Set(["--all", "-a"]);
+  for (const arg of rest) {
+    if (!allowed.has(arg)) {
+      console.error(`flow epic ls: unknown option '${arg}'`);
+      console.error("usage: flow epic ls [--all]");
+      return 2;
+    }
+  }
+  const showAll = rest.includes("--all") || rest.includes("-a");
+
   const states = listEpicRunStates(options.epicsDir);
   const rows: EpicListRow[] = states.map((rs) => {
     const loaded = loadCommittedManifest(rs.manifestPath);
@@ -1820,7 +1852,9 @@ function runEpicLs(options: EpicOptions): number {
   }
 
   rows.sort((a, b) => a.slug.localeCompare(b.slug));
-  console.log(renderEpicList(rows));
+  const visible = showAll ? rows : rows.filter((r) => r.status !== "done");
+  const hiddenDone = rows.length - visible.length;
+  console.log(renderEpicList(visible, hiddenDone));
   return 0;
 }
 

@@ -189,6 +189,49 @@ describe("completion scripts stay in sync with VERBS", () => {
     }
   });
 
+  it("both scripts advertise --all and -a scoped to the `epic ls` arm", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      // Slice out just the `epic ls` arm (mirroring the run/launch arm-scoped
+      // idiom above) so this assertion can't pass because `--all` happens to
+      // migrate to the wrong arm, or survives elsewhere in the script while
+      // the `epic ls` arm itself is deleted.
+      const marker = shell === "bash" ? 'esub" = "ls"' : 'line[2]" == ls ';
+      const armStart = script.indexOf(marker);
+      expect(
+        armStart,
+        `flow.${shell} must have an epic ls arm`,
+      ).toBeGreaterThan(-1);
+      const armEnd = script.indexOf("else", armStart);
+      const lsArm = script.slice(armStart, armEnd === -1 ? undefined : armEnd);
+      expect(lsArm).toContain("--all");
+      expect(lsArm).toContain("-a");
+    }
+  });
+
+  it("both scripts lock the `done` epic-subcommand entry in the epic subcommand list", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      // Scope to the epic subcommand list specifically: `done` is also a
+      // top-level verb, so a bare-token check across the whole script would
+      // pass even if this epic-subcommand entry were removed.
+      const marker =
+        shell === "bash"
+          ? 'compgen -W "create run status bind launch ls done"'
+          : "'done:remove the per-machine run.json cache'";
+      expect(
+        script.includes(marker),
+        `flow.${shell} must list \`done\` in the epic subcommand list`,
+      ).toBe(true);
+    }
+  });
+
   it("both scripts advertise the config-group models subcommand + --slug/--json tokens", () => {
     for (const shell of ["bash", "zsh"] as const) {
       const script = fs.readFileSync(

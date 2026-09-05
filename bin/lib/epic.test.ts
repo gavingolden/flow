@@ -2058,7 +2058,10 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       }),
       epicsDir,
     );
-    const code = runEpicCli(["ls"], {
+    // alpha's sole feature merges, so alpha alone is `done` — route through
+    // --all so this case still asserts both epics are listed regardless of
+    // the default done-filter (covered separately below).
+    const code = runEpicCli(["ls", "--all"], {
       cwd: repoDir,
       epicsDir,
       readMaxParallel: () => 3,
@@ -2182,8 +2185,10 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
         },
       }),
     );
-    // No run.json — `flow epic done` deleted it.
-    const code = runEpicCli(["ls"], {
+    // No run.json — `flow epic done` deleted it. A done epic is hidden by
+    // default (see the "hides a done epic" case below), so this regression
+    // lock routes through --all.
+    const code = runEpicCli(["ls", "--all"], {
       cwd: repoDir,
       epicsDir,
       readFeatureState: () => null,
@@ -2195,6 +2200,43 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       .split("\n")
       .find((l) => l.startsWith("archived-epic"))!;
     expect(row).toMatch(/^archived-epic\s+0\s+0\s+0\s+2 \/ 2\s+done\b/);
+  });
+
+  it("ls: an archived epic (committed-only, no run.json) is hidden by default and named in the footer", () => {
+    // Sibling of the case above: that one routes through --all as the
+    // regression lock for the committed-only status derivation itself. This
+    // case asserts the OTHER half — that the same committed-only epic is
+    // actually hidden under the default (bare `ls`) filter. The committed-only
+    // path reaches the filter via `ephemeralRunState` + `readCommittedStatus`,
+    // not the `readFeatureState` seam the other hide-by-default cases use, so
+    // it needs its own lock.
+    gitInit();
+    const manifestPath = writeManifest("archived-epic-2", [
+      { id: "a" },
+      { id: "b", dependsOn: ["a"] },
+    ]);
+    fs.writeFileSync(
+      path.join(path.dirname(manifestPath), "status.json"),
+      JSON.stringify({
+        version: 1,
+        epicId: "archived-epic-2",
+        features: {
+          a: { status: "merged", pr: 21 },
+          b: { status: "merged", pr: 22 },
+        },
+      }),
+    );
+    // No run.json — `flow epic done` deleted it.
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).not.toContain("archived-epic-2");
+    expect(out).toContain("1 done — show them with 'flow epic ls --all'");
   });
 
   it("ls: a malformed committed manifest is skipped from the table and warned on stderr", () => {
@@ -2242,6 +2284,174 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     });
     expect(code).toBe(0);
     expect(logs.join("\n")).toContain("no epics");
+  });
+
+  it("ls: a done epic is hidden by default and the footer names the hidden count", () => {
+    gitInit();
+    const finishedManifest = writeManifest("finished", [{ id: "a" }]);
+    const inFlightManifest = writeManifest("in-flight", [
+      { id: "a" },
+      { id: "b" },
+    ]);
+    writeEpicRunState(
+      seedRunState("finished", finishedManifest, {
+        features: { a: { slug: "finished-a", launchedAt: "x" } },
+      }),
+      epicsDir,
+    );
+    writeEpicRunState(
+      seedRunState("in-flight", inFlightManifest, {
+        features: { a: { slug: "in-flight-a", launchedAt: "x" } },
+      }),
+      epicsDir,
+    );
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readMaxParallel: () => 3,
+      readFeatureState: (slug) =>
+        slug === "finished-a"
+          ? { slug, phase: "merged", repo: repoDir, updatedAt: "x" }
+          : slug === "in-flight-a"
+            ? { slug, phase: "implementing", repo: repoDir, updatedAt: "x" }
+            : null,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).not.toContain("finished");
+    expect(out).toContain("in-flight");
+    expect(out).toContain(
+      "1 done epic hidden — show them with 'flow epic ls --all'",
+    );
+  });
+
+  it("ls: --all restores the finished epic and emits no hidden-count footer", () => {
+    gitInit();
+    const finishedManifest = writeManifest("finished", [{ id: "a" }]);
+    writeEpicRunState(
+      seedRunState("finished", finishedManifest, {
+        features: { a: { slug: "finished-a", launchedAt: "x" } },
+      }),
+      epicsDir,
+    );
+    const code = runEpicCli(["ls", "--all"], {
+      cwd: repoDir,
+      epicsDir,
+      readMaxParallel: () => 3,
+      readFeatureState: (slug) =>
+        slug === "finished-a"
+          ? { slug, phase: "merged", repo: repoDir, updatedAt: "x" }
+          : null,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("finished");
+    expect(out).not.toContain("hidden — show them");
+  });
+
+  it("ls: -a behaves identically to --all", () => {
+    gitInit();
+    const finishedManifest = writeManifest("finished", [{ id: "a" }]);
+    writeEpicRunState(
+      seedRunState("finished", finishedManifest, {
+        features: { a: { slug: "finished-a", launchedAt: "x" } },
+      }),
+      epicsDir,
+    );
+    const code = runEpicCli(["ls", "-a"], {
+      cwd: repoDir,
+      epicsDir,
+      readMaxParallel: () => 3,
+      readFeatureState: (slug) =>
+        slug === "finished-a"
+          ? { slug, phase: "merged", repo: repoDir, updatedAt: "x" }
+          : null,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("finished");
+    expect(out).not.toContain("hidden — show them");
+  });
+
+  it("ls: every epic done → 'no active epics (N done', still exit 0", () => {
+    gitInit();
+    const finishedManifest = writeManifest("finished", [{ id: "a" }]);
+    writeEpicRunState(
+      seedRunState("finished", finishedManifest, {
+        features: { a: { slug: "finished-a", launchedAt: "x" } },
+      }),
+      epicsDir,
+    );
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readMaxParallel: () => 3,
+      readFeatureState: (slug) =>
+        slug === "finished-a"
+          ? { slug, phase: "merged", repo: repoDir, updatedAt: "x" }
+          : null,
+    });
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toContain(
+      "no active epics (1 done — show them with 'flow epic ls --all')",
+    );
+  });
+
+  it("ls: a manifest-unreadable degraded row is never hidden by the done-filter", () => {
+    gitInit();
+    // No writeManifest call for this slug — the run-state points at a
+    // manifest path that was never written, so loadCommittedManifest returns
+    // ok:false ("not-found") and runEpicLs takes the degraded-row branch,
+    // which hardcodes status: "running" (never "done"). Deliberately seed NO
+    // features so the row is merged: 0, total: 0 — merged === total is TRUE
+    // here, which is what actually discriminates a filter that (incorrectly)
+    // keys hidden-ness on `merged === total` rather than the row's real
+    // status. (A row seeded with merged: 0, total: 1 can't discriminate:
+    // merged !== total there regardless of whether the filter has the bug.)
+    const ghostManifestPath = path.join(
+      repoDir,
+      ".flow",
+      "epics",
+      "moved-epic",
+      "manifest.json",
+    );
+    writeEpicRunState(seedRunState("moved-epic", ghostManifestPath), epicsDir);
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("moved-epic");
+    expect(out).not.toContain("hidden — show them");
+  });
+
+  it("ls: an unrecognised flag exits 2 with the usage line", () => {
+    gitInit();
+    const code = runEpicCli(["ls", "--bogus"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toContain(
+      "flow epic ls: unknown option '--bogus'",
+    );
+    expect(errors.join("\n")).toContain("usage: flow epic ls [--all]");
+  });
+
+  it("ls: --help prints the subcommand help documenting --all and exits 0", () => {
+    const code = runEpicCli(["ls", "--help"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toContain("--all");
   });
 
   // ── bind ──────────────────────────────────────────────────────────────────
