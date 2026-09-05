@@ -44,7 +44,7 @@ contract that prevents the regression recurring.
 
 ## Cross-references
 
-The bidirectional-contract source of truth for all eight Task-tool
+The bidirectional-contract source of truth for all seven Task-tool
 exemptions lives in `AGENTS.md` under the `## Don'ts` section — every
 exemption is named there, scoped, and rationale'd. The supervisor-side
 canonical preamble lives in `skills/pipeline/flow-pipeline/SKILL.md`

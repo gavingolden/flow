@@ -38,13 +38,6 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
     });
   });
 
-  it("gatekeeper is pinned haiku", () => {
-    expect(row(rows, "gatekeeper")).toMatchObject({
-      model: "haiku",
-      source: "pinned",
-    });
-  });
-
   it("inherited sites resolve to an empty model with an `inherited` source", () => {
     for (const phase of [
       "session",
@@ -148,7 +141,7 @@ describe("resolveRouting — config values", () => {
 // Parse the precedence table out of model-routing.md and assert every
 // phase-keyed table row maps onto a SPAWN_SITES entry with matching config
 // keys + fallback (+ state field, where the row has a feature-state field).
-// session + gatekeeper are prose-only (table-exempt).
+// session is prose-only (table-exempt).
 
 type ParsedRow = { stateField: string; configKeys: string[]; fallback: string };
 
@@ -217,7 +210,7 @@ describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
   });
 
   it("every non-exempt SPAWN_SITE is represented by a table row", () => {
-    const exempt = new Set(["session", "gatekeeper"]);
+    const exempt = new Set(["session"]);
     for (const site of SPAWN_SITES) {
       if (exempt.has(site.phase)) continue;
       const hit = parsed.some((r) => matchSite(r)?.phase === site.phase);
@@ -225,14 +218,10 @@ describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
     }
   });
 
-  it("session + gatekeeper are prose-only: present in SPAWN_SITES, absent from the table", () => {
+  it("session is prose-only: present in SPAWN_SITES, absent from the table", () => {
     expect(SPAWN_SITES.some((s) => s.phase === "session")).toBe(true);
-    expect(SPAWN_SITES.some((s) => s.phase === "gatekeeper")).toBe(true);
-    // Neither has a precedence-table row.
+    // Has no precedence-table row.
     expect(parsed.some((r) => matchSite(r)?.phase === "session")).toBe(false);
-    expect(parsed.some((r) => matchSite(r)?.phase === "gatekeeper")).toBe(
-      false,
-    );
   });
 
   it("goes RED when a fixture table row is mutated", () => {

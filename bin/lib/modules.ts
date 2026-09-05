@@ -98,7 +98,6 @@ export const MODULES: ModuleDefinition[] = [
       "flow-discovery.md",
       "flow-edit-applier.md",
       "flow-fix-applier.md",
-      "flow-gatekeeper.md",
       "flow-merge-resolver.md",
       "flow-review-bug-detection.md",
       "flow-review-intent-guess.md",

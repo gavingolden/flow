@@ -29,8 +29,7 @@ export type SpawnSite = {
   phase: string;
   /**
    * The `PipelineState` field a `--model-<phase>` (or `--model`) flag writes,
-   * when this site has one. `scout`/`coder` share `modelImplement`; the
-   * gatekeeper has none (pinned).
+   * when this site has one. `scout`/`coder` share `modelImplement`.
    */
   stateField?: keyof PipelineState & string;
   /** The `config.models.<key>` this site's primary config grain reads. */
@@ -50,9 +49,9 @@ export type SpawnSite = {
 };
 
 /**
- * Every rendered site. Order is the render order. `session` + `gatekeeper`
- * are prose-only in `model-routing.md` (not precedence-table rows); the drift
- * lint treats them as table-exempt.
+ * Every rendered site. Order is the render order. `session` is
+ * prose-only in `model-routing.md` (not a precedence-table row); the drift
+ * lint treats it as table-exempt.
  */
 export const SPAWN_SITES: readonly SpawnSite[] = [
   {
@@ -108,10 +107,6 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
     configKey: "mergeResolver",
     fallback: "inherited",
   },
-  // gatekeeper is pinned haiku by design (cheap cost-routing) — no flag, no
-  // config grain, never inherits. config.models.gatekeeper is reachable but
-  // deliberately NOT wired here.
-  { phase: "gatekeeper", fallback: "pinned-haiku" },
 ] as const;
 
 /** Deduped list of every `config.models.<key>` the sites read. */

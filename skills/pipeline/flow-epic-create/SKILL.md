@@ -30,7 +30,7 @@ one `AskUserQuestion` form / nine Task-tool exemptions — a different superviso
 in a different window is a different session.
 
 The Step 4.5 **cross-model design review** is a
-**Bash fan-out, not a ninth exemption** — it shells `flow-plan-review` (via
+**Bash fan-out, not an eighth exemption** — it shells `flow-plan-review` (via
 `flow-delegate`/AGY), reusing the SAME `review.gemini` gate as
 `/flow-pipeline`'s Step-3 plan review. It spawns no Task and fires no
 `AskUserQuestion` form, so `/flow-epic-create`'s

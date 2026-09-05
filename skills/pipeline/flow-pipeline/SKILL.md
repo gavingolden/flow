@@ -60,11 +60,11 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > tool from this skill — **except for the named exceptions below**.
 > Never spawn a raw `claude -p` subprocess — the only sanctioned
 > headless-Claude spawn is `flow-claude-headless` (a Bash fan-out, not a
-> ninth exemption; contract in `references/headless-claude.md`). A
+> eighth exemption; contract in `references/headless-claude.md`). A
 > standalone leaf skill like `/flow-research` run directly is a separate
 > context this rule never governed. The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
-> calls, and (c) the eight narrowly-named Task-tool exceptions that
+> calls, and (c) the seven narrowly-named Task-tool exceptions that
 > follow.
 >
 > The two constraints behind the rule above are (1) flow's deliberate
@@ -72,9 +72,9 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > not shipped by `flow install`), and (2) a long-running supervisor with
 > sub-agents would bloat past the context window. Constraint (1) is not a
 > platform limit on the supervisor's own Task calls — it is flow's policy,
-> and it is why exactly eight top-level sites are enumerated below and
-> none nests. All eight are one-shot, not long-running, so constraint (2)
-> doesn't apply either. They are the **only eight** authorised Task-tool
+> and it is why exactly seven top-level sites are enumerated below and
+> none nests. All seven are one-shot, not long-running, so constraint (2)
+> doesn't apply either. They are the **only seven** authorised Task-tool
 > fan-out sites from this supervisor; no other skill or step may call
 > Task. Each is anchored on its step heading name rather than its number
 > so it survives future renumbering. Same narrow-and-named contract as the
@@ -87,7 +87,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > plugin-root install), falling back to `general-purpose` with a loud
 > `NOTICE — agent-fallback:` line when the definition is not installed.
 >
-> **Load the Task tool at each spawn site.** Each of the eight spawn
+> **Load the Task tool at each spawn site.** Each of the seven spawn
 > procedures below must instruct the supervisor to load the Task tool
 > schema via `ToolSearch query="select:Task"` *before* invoking Task (or
 > its alias `Agent`). Where neither is surfaced top-level by the harness
@@ -99,7 +99,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > for the canonical "Load the Task tool before spawning" paragraph and
 > `# Failure paths` for the escalation script.
 >
-> **A `SendMessage` continuation of a partial (`maxTurns`) agent stays inside its exemption — not a ninth site.** See `references/partial-result-continuation.md`.
+> **A `SendMessage` continuation of a partial (`maxTurns`) agent stays inside its exemption — not an eighth site.** See `references/partial-result-continuation.md`.
 >
 > **Task-tool exemption #1: `/flow-pr-review` Independent Multi-Agent
 > Review.** Step 8's six review agents + one diff-only intent-guess agent,
@@ -136,58 +136,53 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > `.flow-tmp/coder-result.json`; full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md) and `skills/pipeline/flow-coder/SKILL.md`.
 >
-> **Task-tool exemption #7: `/flow-pr-review` Independent Gatekeeper Subagent.**
-> `/flow-pr-review` Step 1.5's one gatekeeper agent (`flow-gatekeeper`) with a
-> `model: "haiku"` cost-routing override, writing `.flow-tmp/gatekeeper-result.json`;
-> full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
->
-> **Task-tool exemption #8: `/flow-pr-review` Independent Consolidator-Validator
+> **Task-tool exemption #7: `/flow-pr-review` Independent Consolidator-Validator
 > Subagent.** `/flow-pr-review` Step 3.5's one consolidator-validator agent
 > (`flow-consolidator`; default Sonnet, no model override), writing
 > `.flow-tmp/consolidator-result.json`; full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
-> **The `/flow-pr-review` Gemini cross-model lens is a Bash fan-out, not a
-> ninth exemption.** When the supervisor invokes `/flow-pr-review` in step 8
+> **The `/flow-pr-review` Gemini cross-model lens is a Bash fan-out, not an
+> eighth exemption.** When the supervisor invokes `/flow-pr-review` in step 8
 > and the consumer has opted into `review.gemini`, `/flow-pr-review` Step 3
 > runs ONE additional cross-model reviewer (Gemini) via `flow-delegate`
 > (agy) as a Bash subprocess (`flow-gemini-lens`), ALONGSIDE exemption
 > #1's six-agent Multi-Agent Review Task fan-out. It spawns no Task, so
-> the eight-exemption count above is unchanged — this is a sibling note in
-> the same F2 "not a ninth exemption" shape as the "Load the Task tool at
-> each spawn site" guard above, NOT a `#9` exemption block. The lens is
+> the seven-exemption count above is unchanged — this is a sibling note in
+> the same F2 "not an eighth exemption" shape as the "Load the Task tool at
+> each spawn site" guard above, NOT an `#8` exemption block. The lens is
 > config-gated, default off, and a graceful skip on any failure (it never
 > hard-fails the review). Documented bidirectionally in `AGENTS.md`
 > `## Don'ts` and `skills/pipeline/flow-pr-review/SKILL.md` Step 3.
 
 > **The Step-3 cross-model plan review is a
-> Bash fan-out, not a ninth exemption.** When the consumer has opted into `review.gemini` and plan.md
+> Bash fan-out, not an eighth exemption.** When the consumer has opted into `review.gemini` and plan.md
 > carries a `## Decision analysis` section, step 3 runs ONE cross-model plan
 > reviewer (AGY / Gemini) via `flow-delegate` as a Bash subprocess
 > (`flow-plan-review`) to pressure-test the PRD's consequential decisions
 > before the plan-pending-review gate. It spawns no Task, so the
-> eight-exemption count above is unchanged — a sibling note in the same F2
-> "not a ninth exemption" shape as the Gemini-lens note above, NOT a `#9`
+> seven-exemption count above is unchanged — a sibling note in the same F2
+> "not an eighth exemption" shape as the Gemini-lens note above, NOT an `#8`
 > exemption block. It reuses the SAME `review.gemini` gate key, is default
 > off, and gracefully skips on any failure (it never blocks the plan gate).
 > Documented bidirectionally in `AGENTS.md` `## Don'ts` and this file's
 > step 3.
 
 > **The Step-3 blind method survey is a
-> Bash fan-out, not a ninth exemption.** Before forced research and
+> Bash fan-out, not an eighth exemption.** Before forced research and
 > discovery, step 3 runs two model-pinned agy judges over a goal-only
 > brief (`flow-blind-survey`) via `flow-delegate-fanout` as a Bash
 > subprocess. It spawns no Task — a sibling note in the same F2 shape as
-> the two notes above, NOT a `#9` exemption. Gated on `state.interview`
+> the two notes above, NOT an `#8` exemption. Gated on `state.interview`
 > non-empty; gracefully skips on any failure. Documented bidirectionally
 > in `AGENTS.md` `## Don'ts` and `references/blind-survey.md`.
 
-> **Headless Claude via `flow-claude-headless` is a Bash fan-out, not a
-> ninth exemption.** Any skill the supervisor loads — including
+> **Headless Claude via `flow-claude-headless` is a Bash fan-out, not an
+> eighth exemption.** Any skill the supervisor loads — including
 > consumer-repo skills invoked during implement — may run a fixed-model,
 > fixed-effort `claude -p` ONLY through `flow-claude-headless`, which
 > allowlists the child env (`FLOW_SLUG`/`TMUX_PANE` never leak, issue
 > #618), caps spend, refuses to nest, and returns one envelope carrying
-> `total_cost_usd`. It spawns no Task, so the eight-exemption count is
+> `total_cost_usd`. It spawns no Task, so the seven-exemption count is
 > unchanged. Documented bidirectionally in `AGENTS.md` `## Don'ts` and
 > `references/headless-claude.md`.
 
@@ -899,7 +894,7 @@ bounded cross-model review pass (one or two reviewers by depth) of the
 plan's consequential decisions — fires for **ANY** intent, before the
 feature/non-feature end-condition split. Bash `flow-delegate` (AGY) fan-out, same mechanism as
 `/flow-pr-review`'s Gemini lens, spawns **no Task** (Hard rules' "Bash
-fan-out, not a ninth exemption"). Three-part gate: `review.gemini == true`
+fan-out, not an eighth exemption"). Three-part gate: `review.gemini == true`
 in `~/.flow/config.json` (same key the Gemini lens uses), AND a non-empty
 `## Decision analysis` section in plan.md, AND
 `flow-module-status --check research` passing (`flow-plan-review` is a
@@ -1372,7 +1367,7 @@ is without the line — and `mode:fix` re-entries do NOT carry the
 `PLAN:` line.
 
 `/flow-new-feature` is itself a thin wrapper that spawns one **Independent
-Scout Subagent** via the Task tool (the third of the eight named
+Scout Subagent** via the Task tool (the third of the seven named
 Task-tool exemptions in "Hard rules" above) on its wider-scope path.
 The subagent reads the codebase in its isolated context — affected
 modules, relevant tests, public API surface, anti-patterns / off-limits
@@ -1820,8 +1815,8 @@ clean head. On `merged-externally`, run cleanup and end. On `pr-blocked`
 
 Emitted by `flow-fetch-pr-review` (via `/flow-pr-review` Step 2) as a
 side effect of returning the value this step branches on; there is no
-separate phase-write command. A gatekeeper `skip` short-circuit
-(Step 1.5, closed/merged/trivial PR) bypasses Step 2's fetch and so
+separate phase-write command. An inline metadata triage `skip`
+short-circuit (Step 1.5, closed/merged/trivial PR) bypasses Step 2's fetch and so
 never writes `reviewing` — benign: `flow-gate-decide` advances straight
 to `gating` at Step 9, and monotonicity means the phase is never
 *behind* reality, only the `phaseLog[]` audit row for this step is
@@ -1841,7 +1836,7 @@ lens-gated by `flow-review-scope` (`flow-pr-review`
 When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are present, `/flow-pr-review` Step 8c runs the subjective visual-appearance pass against the browser-validation capability (opening each page in a per-pipeline `isolatedContext`): it drives each enumerated visual-appearance item, judges it via the `ui-ux` skill, captures an a11y snapshot as primary evidence (injected via `flow-inject-evidence`) plus a screenshot referenced by path under `.flow-tmp/ui-evidence/`, and ticks the box. This adds no new Task-tool exemption — Step 8c runs inside the already-exempt Fix-Applier surface. `/flow-pr-review` Step 3.6's intent-mismatch resolution sub-step also runs in this in-process review, comparing the diff-only intent-guess agent's blind guess against the actual request; it may escalate `NEEDS HUMAN: intent-drift` or append an unchecked `- [ ] SUBJECTIVE: confirm scope drift is intentional` item to the PR's Test Steps.
 
 `/flow-pr-review` itself spawns one **Fix-Applier Subagent** via the Task
-tool (the fourth of the eight named Task-tool exemptions in "Hard
+tool (the fourth of the seven named Task-tool exemptions in "Hard
 rules" above) to handle the per-finding address loop, the pre-commit
 run, the commit + push, and the `/flow-verify` re-run — all inside the
 subagent's isolated context. The subagent writes a structured
@@ -1864,15 +1859,15 @@ the same recipe used at step 6 against it:
   Print each surviving absolute path bare — one per line, no bullet
   marker, no trailing punctuation — all of them, no cap.
 
-`/flow-pr-review` also spawns one **Independent Gatekeeper Subagent** via
-the Task tool (the seventh of the eight named Task-tool exemptions in
-"Hard rules" above) at its Step 1.5, before any other Task-tool
-fan-out fires. This short-circuit uses a `model: "haiku"` cost-routing override to skip
-closed/merged/trivial/no-new-commits PRs cheaply without paying for the
-four-agent Sonnet review. On a skip verdict the wrapper writes a
-`status: "clean"` artifact and the supervisor proceeds to the auto-merge
-gate; on `decision: "proceed"` it falls through to the full review. Full
-contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
+`/flow-pr-review` Step 1.5 runs an inline metadata triage — performed by
+the reviewing session itself, no Task-tool spawn — before any Task-tool
+fan-out fires. This short-circuit fetches PR metadata (`gh pr view`) and
+applies deterministic skip rules to skip closed/merged/trivial/no-new-commits
+PRs cheaply without paying for the four-agent Sonnet review. On a skip
+verdict the wrapper writes a `status: "clean"` artifact and the supervisor
+proceeds to the auto-merge gate; on a proceed verdict it falls through to
+the full review. Full contract in
+[references/exemption-contracts.md](../../../references/exemption-contracts.md).
 
 The skill auto-detects Address vs Review mode from the existing PR
 state and:
@@ -1942,7 +1937,7 @@ three string literals `"clean"`, `"partial"`, or `"escalated"`:
 - `"escalated"` → propagate the `.escalation_tag` verbatim into
   `NEEDS HUMAN: <escalation_tag>` and bail. No retry: the tag names a
   documented bail-out site (e.g. `task-tool-unavailable: pr-review-*`,
-  `gatekeeper-missing-artifact`, `fix-applier-missing-artifact`) whose
+  `fix-applier-missing-artifact`) whose
   resolution is user-action.
 
 On non-zero exit from `/flow-pr-review` itself (Bun-level / shell-level
@@ -2942,14 +2937,13 @@ After each phase transition:
 - `flow ls` (run from any terminal) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
-  via the eight named exceptions in "Hard rules" above:
+  via the seven named exceptions in "Hard rules" above:
   `/flow-pr-review`'s "Independent Multi-Agent Review",
   `/flow-product-planning`'s "Independent Discovery Subagent",
   `/flow-new-feature`'s "Independent Scout Subagent",
   `/flow-pr-review`'s "Fix-Applier Subagent",
   step 10's "Merge-Conflict Resolver Subagent",
   `/flow-coder`'s "Independent Edit-Applier Subagent",
-  `/flow-pr-review`'s "Independent Gatekeeper Subagent",
   and `/flow-pr-review`'s "Independent Consolidator-Validator Subagent".
   No other skill or step may call Task.
 - The supervisor never spawned a raw `claude -p` subprocess — only

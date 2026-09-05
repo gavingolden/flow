@@ -410,7 +410,7 @@ Your concern is: **does this code fit naturally into the existing codebase?**
    `{{PROMPT_INTERPRETATION_TENSION}}` variable is the literal string `true`, the
    originating PR body names BOTH prescribed methods (a numbered list or explicit
    enumeration of moves) AND a quantitative target (a number with units like
-   `<800 lines`, `30% faster`, `≤100ms`). This is the Gatekeeper-side signal documented
+   `<800 lines`, `30% faster`, `≤100ms`). This is the metadata-triage-side signal documented
    at `skills/pipeline/flow-pr-review/SKILL.md` Step 1.5 — see also the AGENTS.md
    `## Output style` rule **Treat user prompts as evidence of intent, not exhaustive
    specifications.** for the full rationale and PR #170 precedent. Apply this

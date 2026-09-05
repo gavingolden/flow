@@ -2,7 +2,7 @@
 
 Per-exemption contract bodies offloaded from `AGENTS.md` `## Don'ts` (PR
 addressing #220) to keep that file under its char budget. Each section
-below carries the unique contract for one of the eight named Task-tool
+below carries the unique contract for one of the seven named Task-tool
 exemptions: spawn site / triggering step, artifact path, typed artifact
 fields, and any model override.
 
@@ -14,7 +14,7 @@ This file is one half of a bidirectional contract. The other anchors are:
   `**Task-tool exemption #N: ...**` blocks the AGENTS.md bullets are
   symmetric with (enforced by `bin/skill-md-lint.test.ts`).
 
-The **shared rationale** for all eight (why a top-level supervisor may
+The **shared rationale** for all seven (why a top-level supervisor may
 call Task at these sites) stays in `AGENTS.md` `## Don'ts` alongside the
 openers — it is not duplicated here.
 
@@ -123,7 +123,7 @@ Task-tool resolution outright), else `general-purpose` fallback emitting the
 `NOTICE — agent-fallback:` line (no bare-name legacy-install tier). The
 agent's `maxTurns: 120` budget means a `SendMessage` continuation of its
 own partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays
-inside this exemption — not a ninth site.
+inside this exemption — not an eighth site.
 
 ## Merge-Conflict Resolver Subagent
 
@@ -161,7 +161,7 @@ the context-isolation this exemption exists to provide, and would also
 re-spawn beyond the one-Task-call-per-run limit exemption #5 grants. The
 agent's `maxTurns: 80` budget means a `SendMessage` continuation of its
 own partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays
-inside this exemption — not a ninth site.
+inside this exemption — not an eighth site.
 
 ## `/flow-coder` Independent Edit-Applier Subagent
 
@@ -191,31 +191,7 @@ found"), else `general-purpose` fallback emitting the `NOTICE — agent-fallback
 (no bare-name legacy-install tier). The agent's `maxTurns: 80` budget
 means a `SendMessage` continuation of its own partial result
 (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays inside this
-exemption — not a ninth site.
-
-## `/flow-pr-review` Independent Gatekeeper Subagent
-
-`/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
-Gatekeeper Subagent" step (Step 1.5), one gatekeeper agent is spawned
-via the Task tool as `subagent_type: $GATEKEEPER_SUBAGENT` (resolved via
-a single plugin-root probe using the file-exists guard: the plugin-qualified
-`flow-module-core:flow-gatekeeper` name when present — a bare
-`flow-gatekeeper` subagent_type fails Task-tool resolution outright —
-else falling back
-to `general-purpose` with the loud
-`NOTICE — agent-fallback:` line (no bare-name legacy-install tier)) with a per-spawn `model: "haiku"`
-override — justified primarily by **cost-routing** rather than context
-isolation. The haiku pin is paired: `agents/flow-gatekeeper.md`
-frontmatter declares `model: haiku` as the declarative record, and the
-spawn site keeps the identical per-spawn `model: "haiku"` so the
-fallback path stays haiku (per-spawn wins; the values never conflict).
-It short-circuits the six-agent Sonnet fan-out on
-closed/merged/trivial/no-new-commits PRs from a single `gh pr view`
-metadata fetch. Artifact: `<worktree>/.flow-tmp/gatekeeper-result.json`
-(typed fields `decision`, `reason`, `skip_kind?`, `summary`). The
-wrapper branches on it: `"skip"` writes a `pr-review-result.json` with
-`status: "clean"` and `completed_steps: ["1", "1.5"]` so Step 8 proceeds
-to the auto-merge gate; `"proceed"` continues to Step 2 unchanged.
+exemption — not an eighth site.
 
 ## `/flow-pr-review` Independent Consolidator-Validator Subagent
 
@@ -229,8 +205,7 @@ plugin-qualified `flow-module-core:flow-consolidator` name when present
 (a bare `flow-consolidator` subagent_type fails Task-tool resolution
 outright), else falling back to
 `general-purpose` with the loud `NOTICE — agent-fallback:` line
-(no bare-name legacy-install tier). Unlike
-the Gatekeeper there is **no** `model: "haiku"` override — default
+(no bare-name legacy-install tier). This spawn carries **no** `model: "haiku"` override — default
 Sonnet is used because the second-opinion pass needs the larger model's
 judgment.
 Artifact: `<worktree>/.flow-tmp/consolidator-result.json` (typed fields
