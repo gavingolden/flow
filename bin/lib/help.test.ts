@@ -175,6 +175,10 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.epic).toContain("run-state");
     expect(HELP_TEXT.epic).not.toContain("list every epic under ~/.flow/epics");
   });
+
+  it("HELP_TEXT.epic documents the ls --all flag", () => {
+    expect(HELP_TEXT.epic).toContain("flow epic ls [--all]");
+  });
 });
 
 describe("HELP_TOP", () => {

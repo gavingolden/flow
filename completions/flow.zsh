@@ -118,6 +118,10 @@ _flow() {
                             '--force[relaunch an already-bound feature]' \
                             '--model[per-launch model override, wins over flowNewHints]:alias:(opus haiku sonnet fable)' \
                             '--effort[per-launch effort override, wins over flowNewHints]:level:(low medium high xhigh max)'
+                    elif [[ "$line[2]" == ls ]]; then
+                        _arguments \
+                            '--all[include completed epics]' \
+                            '-a[include completed epics]'
                     else
                         local -a sub
                         sub=(
@@ -127,6 +131,7 @@ _flow() {
                             'bind:repoint or adopt a feature run.json binding'
                             'launch:atomically create + bind a feature'
                             'ls:list epics with per-state feature counts'
+                            'done:remove the per-machine run.json cache'
                         )
                         _describe 'subcommand' sub
                     fi

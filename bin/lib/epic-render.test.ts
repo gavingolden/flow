@@ -104,6 +104,32 @@ describe("renderEpicList", () => {
   it("renders an empty-state line when there are no epics", () => {
     expect(renderEpicList([])).toBe("no epics");
   });
+
+  it("renders an all-hidden empty state naming the hidden-done count", () => {
+    expect(renderEpicList([], 3)).toBe(
+      "no active epics (3 done — show them with 'flow epic ls --all')",
+    );
+  });
+
+  it("appends a hidden-done footer after the table, singular for one", () => {
+    const out = renderEpicList(rows, 1);
+    expect(out).toContain("EPIC");
+    expect(out).toContain(
+      "1 done epic hidden — show them with 'flow epic ls --all'",
+    );
+    expect(out).not.toContain("1 done epics");
+  });
+
+  it("appends a hidden-done footer after the table, plural for more than one", () => {
+    const out = renderEpicList(rows, 2);
+    expect(out).toContain(
+      "2 done epics hidden — show them with 'flow epic ls --all'",
+    );
+  });
+
+  it("is byte-identical to the no-footer table when hiddenDone is 0", () => {
+    expect(renderEpicList(rows, 0)).toBe(renderEpicList(rows));
+  });
 });
 
 describe("renderTickSummary", () => {

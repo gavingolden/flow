@@ -189,6 +189,19 @@ describe("completion scripts stay in sync with VERBS", () => {
     }
   });
 
+  it("both scripts advertise --all for `epic ls`", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      expect(
+        script.includes("--all"),
+        `flow.${shell} must advertise --all for epic ls`,
+      ).toBe(true);
+    }
+  });
+
   it("both scripts advertise the config-group models subcommand + --slug/--json tokens", () => {
     for (const shell of ["bash", "zsh"] as const) {
       const script = fs.readFileSync(
