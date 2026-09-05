@@ -21,9 +21,10 @@
  * - `--sandbox` (terminal restrictions) is always passed. In `-p` mode agy
  *   may block on a tool-permission prompt; `--skip-permissions` adds agy's
  *   `--dangerously-skip-permissions` for non-interactive tool-using runs.
- *   It is opt-in, not default: the repo is never added to agy's workspace,
- *   so even an auto-approving run cannot mutate it, but the default path
- *   stays the empirically-verified `--sandbox`-only invocation.
+ *   It is opt-in, not default: four callers pass `--add-dir <worktree>`, so
+ *   an auto-approving run CAN reach the worktree — the grant stays opt-in
+ *   and is not used by any caller, but the default path stays the
+ *   empirically-verified `--sandbox`-only invocation.
  * - agy's stdout is redirected to a real FILE (never a pipe — a non-TTY
  *   pipe can silently drop agy's output) and the file is the artifact.
  *   stdin is closed; agy needs no TTY on stdin.
@@ -496,17 +497,57 @@ function readJsonEnvelopeObject(
   return parsed as Record<string, unknown>;
 }
 
-// Lifts `duration_seconds` / `usage` from the json-mode artifact. NEVER
-// throws — an unreadable/unparseable artifact, or one carrying neither
-// field, simply yields an empty projection.
+// Lifted projection of the json-mode artifact's `denied_actions` array (agy
+// may also emit the camelCase `deniedActions` spelling). Each entry's
+// `display_name` is preferred, falling back to `action`; non-object entries
+// and entries with no usable name are dropped. Returns undefined (never an
+// empty array) so callers can `if (denied)` before adding the field —
+// mirrors the omit-when-empty contract of the other lifted fields. Vendor
+// text, so redacted + capped like every other lifted field (stderrTail's
+// 2000-byte cap, agyStatus's 64-byte cap) — this array is rendered straight
+// into the PR body.
+const DENIED_ACTIONS_NAME_CAP = 64;
+const DENIED_ACTIONS_MAX_ENTRIES = 20;
+
+function liftDeniedActions(obj: Record<string, unknown>): string[] | undefined {
+  const raw = obj.denied_actions ?? obj.deniedActions;
+  if (!Array.isArray(raw)) return undefined;
+  const names: string[] = [];
+  for (const entry of raw) {
+    if (names.length >= DENIED_ACTIONS_MAX_ENTRIES) break;
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const name =
+      typeof record.display_name === "string" && record.display_name.trim()
+        ? record.display_name
+        : typeof record.action === "string" && record.action.trim()
+          ? record.action
+          : undefined;
+    if (name) names.push(stderrTail(name, DENIED_ACTIONS_NAME_CAP));
+  }
+  return names.length > 0 ? names : undefined;
+}
+
+// Lifts `duration_seconds` / `usage` / `denied_actions` from the json-mode
+// artifact. NEVER throws — an unreadable/unparseable artifact, or one
+// carrying none of these fields, simply yields an empty projection.
 function liftJsonEnvelope(
   deps: Deps,
   outPath: string,
-): { durationSeconds?: number; usage?: Record<string, number> } {
+): {
+  durationSeconds?: number;
+  usage?: Record<string, number>;
+  deniedActions?: string[];
+} {
   const obj = readJsonEnvelopeObject(deps, outPath);
   if (!obj) return {};
-  const lifted: { durationSeconds?: number; usage?: Record<string, number> } =
-    {};
+  const lifted: {
+    durationSeconds?: number;
+    usage?: Record<string, number>;
+    deniedActions?: string[];
+  } = {};
   if (typeof obj.duration_seconds === "number") {
     lifted.durationSeconds = obj.duration_seconds;
   }
@@ -516,6 +557,10 @@ function liftJsonEnvelope(
     !Array.isArray(obj.usage)
   ) {
     lifted.usage = obj.usage as Record<string, number>;
+  }
+  const deniedActions = liftDeniedActions(obj);
+  if (deniedActions !== undefined) {
+    lifted.deniedActions = deniedActions;
   }
   return lifted;
 }
@@ -697,6 +742,13 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     const agyStatus = jsonOutcome.status
       ? stderrTail(jsonOutcome.status, 64)
       : undefined;
+    // Same denied-tools lift as the ran:true json path below — a denial can
+    // land on the non-ran branch too (e.g. a CANCELED run), and the caller
+    // needs the same signal either way.
+    const deniedActions =
+      parsed.outputFormat === "json"
+        ? liftJsonEnvelope(deps, outPath).deniedActions
+        : undefined;
     // agy can print a quota/rate-limit notice to its stdout (the artifact
     // file itself in text mode) while stderr stays empty — read the same
     // artifact `emit()` reads a few lines below so `classifyAgyFailure`
@@ -727,6 +779,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
         // a short enum) cannot bypass the cap those two already respect.
         ...(agyStatus ? { agyStatus } : {}),
         ...(agyError ? { agyError } : {}),
+        ...(deniedActions ? { deniedActions } : {}),
       },
       { outputFormat: parsed.outputFormat, outPath },
     );
@@ -783,6 +836,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     }
     if (lifted.usage !== undefined) {
       envelope.usage = lifted.usage;
+    }
+    if (lifted.deniedActions !== undefined) {
+      envelope.deniedActions = lifted.deniedActions;
     }
   }
   if (parsed.structuredFallback) {

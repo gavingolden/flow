@@ -639,16 +639,12 @@ hard-fails the review.
      --out "$WORKTREE/.flow-tmp/agent-output-gemini.json"
    ```
 
-   The helper re-gates, runs ONE bounded `flow-delegate --model "Gemini 3.1 Pro (High)"` call (`delegate.timeouts.reviewLens`, default 8m, ceiling 9m; worktree as `--add-dir`, `--output-format json` + `--json-schema` pinning the wire-level `AGENT_FINDINGS_JSON_SCHEMA`), decodes the response through the `structured_output` → `parseStructured` → naive-salvage ladder in `bin/lib/structured-response.ts`, validates it against the shared agent-finding schema, and finalizes `agent-output-gemini.json` **only on success**.
+   The helper re-gates, runs a primary bounded `flow-delegate --model "Gemini 3.1 Pro (High)"` call (`delegate.timeouts.reviewLens`, default 8m, ceiling 9m; worktree as `--add-dir`, `--output-format json` + `--json-schema` pinning the wire-level `AGENT_FINDINGS_JSON_SCHEMA`), decodes the response through the `structured_output` → `parseStructured` → naive-salvage ladder in `bin/lib/structured-response.ts`, validates it against the shared agent-finding schema, and finalizes `agent-output-gemini.json` **only on success**. On a `gemini-tools-denied` or `gemini-token-exhausted` skip, it makes exactly ONE bounded fallback retry with a diff-only prompt (no `--add-dir`, no filesystem access, a short fixed timeout so primary+retry never approaches the ceiling) before giving up — `fallbackAttempted: true` in the envelope marks that this second call was made, and `degraded: "diff-only"` on a successful retry marks that the surviving result came from the weaker no-filesystem-access call.
 
 3. **Branch on the helper's `{ran}` JSON** (the one-line stdout envelope),
    NEVER on the exit code (the helper exits 0 on every graceful path):
-   - `ran: true` → `agent-output-gemini.json` is schema-valid; it becomes the
-     SEVENTH input to the Step 3.5 Consolidator. Record `decodedVia` from
-     the envelope for Step 12's report — the report template renders it
-     ONLY when it is not `structured-output`, so a silently-degrading model
-     surface (falling back through the parse/salvage rungs) stays visible.
-   - `ran: false` → record `skipReason` and its `skipClass` (`environment` — not run, no quota spent — vs `ran-unusable` — ran but produced nothing usable — reported distinctly, never folded into one generic "skipped" phrase) and, when present, `exitCode` / `agyError` / `stderrTail` / `partialArtifactPath` and proceed. No `agent-output-gemini.json` is left on disk; the consolidator tolerates its absence (it is NOT one of the six mandatory lenses, so its absence does NOT escalate `consolidator-missing-artifact`).
+   - `ran: true` → `agent-output-gemini.json` is schema-valid; it becomes the SEVENTH input to the Step 3.5 Consolidator. Record `decodedVia` from the envelope for Step 12's report — rendered ONLY when not `structured-output`, so a silently-degrading model surface stays visible — and `degraded` / `degradedReason` when present, since the one bounded no-`--add-dir` fallback retry can land a schema-valid but WEAKER, no-filesystem-access review.
+   - `ran: false` → record `skipReason` and its `skipClass` (`environment` — not run, no quota spent — vs `ran-unusable` — ran but produced nothing usable — reported distinctly, never folded into one generic "skipped" phrase) and, when present, `exitCode` / `agyError` / `stderrTail` / `partialArtifactPath` / `deniedActions` (the agy tool names denied, e.g. `RunCommand`, on `gemini-tools-denied`) / `fallbackAttempted` (the retry above was made but also failed) and proceed. No `agent-output-gemini.json` is left on disk; the consolidator tolerates its absence (it is NOT one of the six mandatory lenses, so its absence does NOT escalate `consolidator-missing-artifact`).
 
 Do NOT add a seventh row to the six-agent table above — the Gemini lens
 reviews the whole diff with no static-analysis lens, so it is deliberately
