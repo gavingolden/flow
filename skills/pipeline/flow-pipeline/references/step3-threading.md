@@ -235,7 +235,7 @@ run:
 
 ```bash
 LINT_RC=0
-flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md" || LINT_RC=$?
+LINT_JSON=$(flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md") || LINT_RC=$?
 ```
 
 Exit 1 signals either a follow-up-reference drift (the stdout JSON's
@@ -243,16 +243,73 @@ Exit 1 signals either a follow-up-reference drift (the stdout JSON's
 entry (a ticked candidate whose value-prop block has no `clears bar`
 Verdict, or whose `[anchor: …]` cites a file that does not exist —
 `barMisses[]` names each with a `reason` of `no-verdict` or
-`anchor-missing`); exit 0 is clean; exit 2 is a read error. This
+`anchor-missing`) OR a `bundlingMisses` entry (a candidate — ticked or
+not — whose ranking-table Rationale names none of the four exclusions,
+or a Trivial/Small + Low item rescued only by an unnamed design decision
+or a large-refactor claim — `bundlingMisses[]` names each with a
+`reason` of `exclusion-missing`, `decision-unnamed`, or
+`small-low-risk`); exit 0 is clean; exit 2 is a read error. This
 is **advisory and non-blocking** — on a non-zero exit, surface a one-line
 note in the plan-summary block naming which cause fired (e.g.
 "follow-up-reference drift: plan prose references a follow-up missing
-from `# Candidate follow-up issues`", or "value-bar miss: candidate #N
+from `# Candidate follow-up issues`", "value-bar miss: candidate #N
 has no clears-bar Verdict" / "value-bar miss: candidate #N cites a
-missing anchor `<path>`") so the user can redirect at
+missing anchor `<path>`", or "bundling miss: candidate #N
+(exclusion-missing)") so the user can redirect at
 `plan-pending-review`; never block planning on it (the same
 "research/plan-review never block planning" invariant the cross-model
 review honors).
+
+## Auto-bundle revision pass (bounded, once per pipeline)
+
+A `bundlingMisses` entry additionally drives ONE bounded, automatic
+revision pass — this is the only backstop in this file that re-enters
+`/flow-product-planning` rather than merely surfacing a note, because the
+fix (folding a candidate into the task breakdown) is itself mechanical
+once the lint has named the offending index. Rides Discovery exemption
+#2 (no new Task-tool site): it composes the message payload plumbing
+`/flow-product-planning` Revision-pass threading already has.
+
+```bash
+MISS_IDX=$(printf '%s' "$LINT_JSON" | jq -r '[.bundlingMisses[]?.index] | unique | map(tostring) | join(", #")' 2>/dev/null)
+if [ -n "$MISS_IDX" ] && [ ! -f "$WORKTREE/.flow-tmp/auto-bundle-pass" ] && [ "$REDIRECT_KIND" != defer-task ]; then
+  touch "$WORKTREE/.flow-tmp/auto-bundle-pass"
+  # re-enter /flow-product-planning on the same threading channel
+fi
+```
+
+The re-entry re-invokes `/flow-product-planning` with `REVISION: <n>`
+(Revision-pass threading) plus the payload:
+
+```
+AUTO-BUNDLE REDIRECT (supervisor-issued from flow-candidate-issues --lint
+bundlingMisses, not a user reply): pull #<MISS_IDX> into the plan — fold
+each named candidate into # Task breakdown as a task carrying a
+- **Bundled:** bullet, remove it from the ranking table and checkbox
+list, and record the fold in ## Open Questions as a checked entry with
+**Stakes:** none
+```
+
+then re-run the follow-up-reference backstop once (no further auto-pass
+— the marker gates it).
+
+Output: the plan-summary `**TLDR:**` suffix `auto-bundled: N
+candidate(s) pulled into the plan (#i, #j)`; when the marker already
+existed (or the re-run still reports misses), the `**Needs attention:**`
+line `bundling miss persisted: candidate #N (<reason>) — reply pull #N
+into the plan or file candidate #N` (collapse to `+N more` past the
+second bullet per pause-output-contract.md).
+
+Invariants, stated explicitly: rides Discovery exemption #2 (no new
+Task-tool site), no new pause phase, no `AskUserQuestion`, at most one
+pass per pipeline, never loops, crash-resume with the marker present
+takes the surface-and-proceed branch, never fires on a re-entry whose
+redirect is `defer task #N` (the deferred row carries `user-foreclosed:
+"defer task #N"` so the lint passes it anyway), and the supervisor never
+reads Rationale text itself — the lint decides, discovery folds. See
+`discovery-instructions.md`'s **Exclusion-naming rule** and
+`SKILL.md`'s pointer paragraph after the Follow-up-reference consistency
+backstop.
 
 ## Plan-shape backstop (advisory, deterministic)
 

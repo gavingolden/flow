@@ -58,11 +58,17 @@
  * inconsistency an external reviewer caught in the econ-data run. It ALSO
  * checks the flow-value-rubric bar: every ticked candidate must carry a
  * value-prop block whose Verdict reads `clears bar`, and every `[anchor:
- * path]` it cites must exist relative to the repo root. Emits
- * { references, candidateCount, drift, barMisses } and exits 1 on drift
- * OR any barMisses entry, 0 clean. Advisory-only: the supervisor surfaces
- * both in chat, never blocks planning. Tolerant — never throws on
- * malformed input.
+ * path]` it cites must exist relative to the repo root. It ALSO checks
+ * candidate-bundling discipline via `bundlingMisses`: EVERY candidate
+ * (ticked or not) whose ranking-table Rationale names none of the four
+ * exclusions (`exclusion-missing`), whose only rescue for a Trivial/Small
+ * + Low item is an unnamed design-session decision (`decision-unnamed`),
+ * or whose only exclusion on a Trivial/Small + Low item is `large
+ * refactor` (`small-low-risk`). Emits
+ * { references, candidateCount, drift, barMisses, bundlingMisses } and
+ * exits 1 on drift OR any barMisses entry OR any bundlingMisses entry, 0
+ * clean. Advisory-only: the supervisor surfaces all three in chat, never
+ * blocks planning. Tolerant — never throws on malformed input.
  *
  * `--details` prints a human-legible block of ALL candidates, grouped by
  * checkbox state, for the supervisor to paste into chat: rank, checkbox
@@ -73,13 +79,14 @@
  *
  * Exit codes:
  *   0 — read / enumerate / tick / untick / ticked / lint(clean) / details succeeded
- *   1 — --lint detected follow-up-reference drift or a value-bar miss (barMisses)
+ *   1 — --lint detected follow-up-reference drift, a value-bar miss (barMisses), or a bundling miss (bundlingMisses)
  *   2 — bad CLI args (file read failure, out-of-range tick/untick index, etc.)
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
+import { labelValueLine } from "./lib/issue-body-rubric";
 
 export type CandidateMeta = {
   value: string | null;
@@ -393,7 +400,82 @@ export type LintReport = {
     reason: "no-verdict" | "anchor-missing";
     anchor?: string;
   }[];
+  bundlingMisses: {
+    index: number;
+    title: string;
+    reason: "exclusion-missing" | "decision-unnamed" | "small-low-risk";
+  }[];
 };
+
+/**
+ * The four named exclusion phrases the `Objective-item triage (bundle by
+ * default)` rule in discovery-instructions.md requires a candidate's
+ * ranking-table Rationale to name. No `g` flag — each is tested once per
+ * candidate via `.test()`, never iterated statefully.
+ */
+export const EXCLUSION_RES = {
+  novel: /genuinely novel/i,
+  design:
+    /own design\/decision session|design\/decision session|design session|decision session/i,
+  refactor: /large refactor/i,
+  foreclosed: /user-foreclosed/i,
+};
+
+/**
+ * Phrases that count as "naming the decision" when a design-session
+ * exclusion is claimed on a Trivial/Small + Low item — the Small/Low rule
+ * in discovery-instructions.md requires the Rationale to say what the
+ * open decision actually is, not just that one exists.
+ */
+export const DECISION_CLAUSE_RES: RegExp[] = [
+  /open decision/i,
+  /decision is/i,
+  /specifically/i,
+  /the (?:specific )?decision/i,
+];
+
+/**
+ * Pure classifier for the `bundlingMisses` lint class. Rules apply in
+ * order, first match wins; returns null when the candidate clears the
+ * bundling bar. `meta.complexity`/Risk fall back to `labelValueLine` over
+ * `details` when the ranking-table row is absent or blank, since a
+ * candidate's own checkbox body sometimes carries `**Complexity:**` /
+ * `**Risk:**` lines the table row omits.
+ */
+export function classifyBundling(
+  meta: CandidateMeta,
+  details: string,
+): "exclusion-missing" | "decision-unnamed" | "small-low-risk" | null {
+  const rationale = meta.rationale ?? "";
+  const novel = EXCLUSION_RES.novel.test(rationale);
+  const design = EXCLUSION_RES.design.test(rationale);
+  const refactor = EXCLUSION_RES.refactor.test(rationale);
+  const foreclosed = EXCLUSION_RES.foreclosed.test(rationale);
+
+  if (!meta.rationale || (!novel && !design && !refactor && !foreclosed)) {
+    return "exclusion-missing";
+  }
+
+  const complexity = (
+    meta.complexity ??
+    labelValueLine(details, "Complexity") ??
+    ""
+  ).toLowerCase();
+  const risk = (labelValueLine(details, "Risk") ?? "").toLowerCase();
+  const isSmallLow =
+    (complexity === "trivial" || complexity === "small") && risk === "low";
+
+  if (design && !novel && !foreclosed && isSmallLow) {
+    const named = DECISION_CLAUSE_RES.some((re) => re.test(rationale));
+    if (!named) return "decision-unnamed";
+  }
+
+  if (isSmallLow && refactor && !novel && !design && !foreclosed) {
+    return "small-low-risk";
+  }
+
+  return null;
+}
 
 /**
  * Extracts the value after `**Verdict:**` on its own line inside a
@@ -424,7 +506,16 @@ export function extractVerdict(details: string): string | null {
  * that case, one dominant miss per item — otherwise one
  * `reason: "anchor-missing"` entry per `[anchor: …]` file path that does
  * not exist relative to the repo root (resolved via `planMdFile`, see
- * `resolveAnchorRepoRoot`). `--lint` exits 1 on drift OR any `barMisses` entry.
+ * `resolveAnchorRepoRoot`).
+ *
+ * `bundlingMisses` covers EVERY candidate (ticked or not) via
+ * `classifyBundling`: a candidate whose ranking-table Rationale names
+ * none of the four `EXCLUSION_RES` exclusions is `exclusion-missing`; a
+ * Trivial/Small + Low item rescued only by a design-session exclusion
+ * with no named decision (no `DECISION_CLAUSE_RES` match) is
+ * `decision-unnamed`; a Trivial/Small + Low item whose only exclusion is
+ * `large refactor` is `small-low-risk`. `--lint` exits 1 on drift OR any
+ * `barMisses` entry OR any `bundlingMisses` entry.
  * Tolerant by construction — pure string/filesystem-existence work, never
  * throws, and performs no `gh` call or LLM judgement (the anchor check is
  * a deterministic existence check only).
@@ -472,7 +563,22 @@ export function lintFollowUpReferences(
     });
   }
 
-  return { references, candidateCount, drift, barMisses };
+  const bundlingMisses: LintReport["bundlingMisses"] = [];
+  if (section) {
+    const meta = parseRankingTable(planMd);
+    section.items.forEach((it, i) => {
+      const c = splitCandidate(it.text);
+      const reason = classifyBundling(
+        meta.get(c.title) ?? EMPTY_META,
+        it.details,
+      );
+      if (reason) {
+        bundlingMisses.push({ index: i + 1, title: c.title, reason });
+      }
+    });
+  }
+
+  return { references, candidateCount, drift, barMisses, bundlingMisses };
 }
 
 export type TickResult = { tickedIndices: number[]; tickedCount: number };
@@ -739,7 +845,11 @@ export function run(argv: string[]): number {
   if (parsed.mode === "lint") {
     const report = lintFollowUpReferences(planMd, parsed.planMdFile);
     process.stdout.write(JSON.stringify(report) + "\n");
-    return report.drift || report.barMisses.length > 0 ? 1 : 0;
+    return report.drift ||
+      report.barMisses.length > 0 ||
+      report.bundlingMisses.length > 0
+      ? 1
+      : 0;
   }
 
   if (parsed.mode === "details") {

@@ -5,7 +5,10 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type CandidateMeta,
+  classifyBundling,
+  DECISION_CLAUSE_RES,
   enumerateCandidates,
+  EXCLUSION_RES,
   extractTicked,
   extractVerdict,
   FOLLOWUP_REFERENCE_RES,
@@ -662,6 +665,138 @@ describe(extractPathAnchors, () => {
   });
 });
 
+// --- classifyBundling (pure) ------------------------------------------------
+
+function bundlingMeta(overrides: Partial<CandidateMeta> = {}): CandidateMeta {
+  return {
+    value: null,
+    complexity: null,
+    rationale: null,
+    relation: null,
+    pull: null,
+    ...overrides,
+  };
+}
+
+const SMALL_LOW_DETAILS = "  - **Complexity:** Small\n  - **Risk:** Low\n";
+const MEDIUM_DETAILS = "  - **Complexity:** Medium\n  - **Risk:** Low\n";
+
+describe(classifyBundling, () => {
+  it("accepts genuinely novel non-trivial feature (EXCLUSION_RES.novel)", () => {
+    expect(
+      EXCLUSION_RES.novel.test("genuinely novel non-trivial feature"),
+    ).toBe(true);
+    expect(
+      classifyBundling(
+        bundlingMeta({ rationale: "genuinely novel non-trivial feature" }),
+        SMALL_LOW_DETAILS,
+      ),
+    ).toBeNull();
+  });
+
+  it.each([
+    "needs its own design/decision session: the open decision is X",
+    "needs a design/decision session: the open decision is X",
+    "needs a design session: the open decision is X",
+    "needs a decision session: the open decision is X",
+  ])("accepts each design-alternative exclusion phrasing (%j)", (rationale) => {
+    expect(EXCLUSION_RES.design.test(rationale)).toBe(true);
+    expect(
+      classifyBundling(bundlingMeta({ rationale }), SMALL_LOW_DETAILS),
+    ).toBeNull();
+  });
+
+  it("accepts large refactor on a Medium item (EXCLUSION_RES.refactor)", () => {
+    expect(
+      EXCLUSION_RES.refactor.test(
+        "a large refactor that is not a prerequisite",
+      ),
+    ).toBe(true);
+    expect(
+      classifyBundling(
+        bundlingMeta({
+          rationale: "a large refactor that is not a prerequisite",
+        }),
+        MEDIUM_DETAILS,
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts user-foreclosed on a Small/Low item (EXCLUSION_RES.foreclosed)", () => {
+    expect(
+      EXCLUSION_RES.foreclosed.test('user-foreclosed: "no auth changes"'),
+    ).toBe(true);
+    expect(
+      classifyBundling(
+        bundlingMeta({ rationale: 'user-foreclosed: "no auth changes"' }),
+        SMALL_LOW_DETAILS,
+      ),
+    ).toBeNull();
+  });
+
+  it("reports exclusion-missing when the Rationale names no exclusion", () => {
+    expect(
+      classifyBundling(
+        bundlingMeta({ rationale: "one-line reason with no exclusion" }),
+        SMALL_LOW_DETAILS,
+      ),
+    ).toBe("exclusion-missing");
+  });
+
+  it("reports exclusion-missing when the Rationale is null (no ranking-table row)", () => {
+    expect(classifyBundling(bundlingMeta(), SMALL_LOW_DETAILS)).toBe(
+      "exclusion-missing",
+    );
+  });
+
+  it("reports decision-unnamed for a Small/Low design-session exclusion with no named decision", () => {
+    expect(
+      classifyBundling(
+        bundlingMeta({ rationale: "needs its own design/decision session" }),
+        SMALL_LOW_DETAILS,
+      ),
+    ).toBe("decision-unnamed");
+  });
+
+  it("accepts a design-session exclusion on Small/Low WHEN a decision clause is named", () => {
+    expect(
+      DECISION_CLAUSE_RES.some((re) =>
+        re.test("needs a design session: the open decision is X"),
+      ),
+    ).toBe(true);
+    expect(
+      classifyBundling(
+        bundlingMeta({
+          rationale: "needs a design session: the open decision is X",
+        }),
+        SMALL_LOW_DETAILS,
+      ),
+    ).toBeNull();
+  });
+
+  it("reports small-low-risk for a Small/Low item whose only exclusion is large refactor", () => {
+    expect(
+      classifyBundling(
+        bundlingMeta({
+          rationale: "a large refactor that is not a prerequisite",
+        }),
+        SMALL_LOW_DETAILS,
+      ),
+    ).toBe("small-low-risk");
+  });
+
+  it("does not apply small-low-risk to a Medium item", () => {
+    expect(
+      classifyBundling(
+        bundlingMeta({
+          rationale: "a large refactor that is not a prerequisite",
+        }),
+        MEDIUM_DETAILS,
+      ),
+    ).toBeNull();
+  });
+});
+
 // --- lintFollowUpReferences (pure) -----------------------------------------
 
 describe(lintFollowUpReferences, () => {
@@ -831,6 +966,32 @@ describe(lintFollowUpReferences, () => {
         anchor: "../../.aws/credentials.json",
       },
     ]);
+  });
+
+  it("flags bundlingMisses for an UNticked candidate with no named exclusion", () => {
+    const body =
+      `${HEADING}\n\n` +
+      `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+      `| - | - | - | - | - | - |\n` +
+      `| a | Low | Small | one-line reason with no exclusion | adjacent | No |\n\n` +
+      `- [ ] a — b\n`;
+    const r = lintFollowUpReferences(body);
+    expect(r.bundlingMisses).toEqual([
+      { index: 1, title: "a", reason: "exclusion-missing" },
+    ]);
+  });
+
+  it("reports exclusion-missing when the ranking table has no row for the candidate", () => {
+    const body = `${HEADING}\n\n- [ ] a — b\n`;
+    const r = lintFollowUpReferences(body);
+    expect(r.bundlingMisses).toEqual([
+      { index: 1, title: "a", reason: "exclusion-missing" },
+    ]);
+  });
+
+  it("reports bundlingMisses: [] when the section is absent", () => {
+    const r = lintFollowUpReferences("# PRD\n\nno candidate section here.\n");
+    expect(r.bundlingMisses).toEqual([]);
   });
 });
 
@@ -1155,7 +1316,11 @@ describe("run() integration", () => {
 
   it("--lint exits 0 when references resolve to a populated section", () => {
     writePlan(
-      `Decision D — deferred to a follow-up.\n\n${HEADING}\n\n- [ ] the follow-up — body\n`,
+      `Decision D — deferred to a follow-up.\n\n${HEADING}\n\n` +
+        `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+        `| - | - | - | - | - | - |\n` +
+        `| the follow-up | Low | Small | genuinely novel non-trivial feature | adjacent | No |\n\n` +
+        `- [ ] the follow-up — body\n`,
     );
     const { exit, out } = captureStdout(() =>
       run(["--plan-md-file", planFile, "--lint"]),
@@ -1188,13 +1353,37 @@ describe("run() integration", () => {
 
   it("--lint exits 0 with barMisses: [] when every ticked item clears the bar", () => {
     writePlan(
-      `${HEADING}\n\n- [x] alpha — first\n  - **Verdict:** clears bar — because\n`,
+      `${HEADING}\n\n` +
+        `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+        `| - | - | - | - | - | - |\n` +
+        `| alpha | Low | Small | genuinely novel non-trivial feature | adjacent | No |\n\n` +
+        `- [x] alpha — first\n  - **Verdict:** clears bar — because\n`,
     );
     const { exit, out } = captureStdout(() =>
       run(["--plan-md-file", planFile, "--lint"]),
     );
     expect(exit).toBe(0);
     expect(JSON.parse(out).barMisses).toEqual([]);
+  });
+
+  it("--lint exits 1 on a bundlingMisses-only entry, with drift/barMisses both clean", () => {
+    writePlan(
+      `${HEADING}\n\n` +
+        `| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |\n` +
+        `| - | - | - | - | - | - |\n` +
+        `| beta | Low | Small | one-line reason with no exclusion | adjacent | No |\n\n` +
+        `- [ ] beta — first\n`,
+    );
+    const { exit, out } = captureStdout(() =>
+      run(["--plan-md-file", planFile, "--lint"]),
+    );
+    expect(exit).toBe(1);
+    const parsed = JSON.parse(out);
+    expect(parsed.drift).toBe(false);
+    expect(parsed.barMisses).toEqual([]);
+    expect(parsed.bundlingMisses).toEqual([
+      { index: 1, title: "beta", reason: "exclusion-missing" },
+    ]);
   });
 
   it("--lint checks [anchor:] paths against the plan file's own repo root, not cwd", () => {
