@@ -120,8 +120,7 @@ _flow() {
                             '--effort[per-launch effort override, wins over flowNewHints]:level:(low medium high xhigh max)'
                     elif [[ "$line[2]" == ls ]]; then
                         _arguments \
-                            '--all[include completed epics]' \
-                            '-a[include completed epics]'
+                            '(--all -a)'{--all,-a}'[include completed epics]'
                     else
                         local -a sub
                         sub=(

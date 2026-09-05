@@ -2202,6 +2202,43 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(row).toMatch(/^archived-epic\s+0\s+0\s+0\s+2 \/ 2\s+done\b/);
   });
 
+  it("ls: an archived epic (committed-only, no run.json) is hidden by default and named in the footer", () => {
+    // Sibling of the case above: that one routes through --all as the
+    // regression lock for the committed-only status derivation itself. This
+    // case asserts the OTHER half — that the same committed-only epic is
+    // actually hidden under the default (bare `ls`) filter. The committed-only
+    // path reaches the filter via `ephemeralRunState` + `readCommittedStatus`,
+    // not the `readFeatureState` seam the other hide-by-default cases use, so
+    // it needs its own lock.
+    gitInit();
+    const manifestPath = writeManifest("archived-epic-2", [
+      { id: "a" },
+      { id: "b", dependsOn: ["a"] },
+    ]);
+    fs.writeFileSync(
+      path.join(path.dirname(manifestPath), "status.json"),
+      JSON.stringify({
+        version: 1,
+        epicId: "archived-epic-2",
+        features: {
+          a: { status: "merged", pr: 21 },
+          b: { status: "merged", pr: 22 },
+        },
+      }),
+    );
+    // No run.json — `flow epic done` deleted it.
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).not.toContain("archived-epic-2");
+    expect(out).toContain("1 done — show them with 'flow epic ls --all'");
+  });
+
   it("ls: a malformed committed manifest is skipped from the table and warned on stderr", () => {
     gitInit();
     const dir = path.join(repoDir, ".flow", "epics", "broken-epic");
@@ -2365,7 +2402,12 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     // No writeManifest call for this slug — the run-state points at a
     // manifest path that was never written, so loadCommittedManifest returns
     // ok:false ("not-found") and runEpicLs takes the degraded-row branch,
-    // which hardcodes status: "running" (never "done").
+    // which hardcodes status: "running" (never "done"). Deliberately seed NO
+    // features so the row is merged: 0, total: 0 — merged === total is TRUE
+    // here, which is what actually discriminates a filter that (incorrectly)
+    // keys hidden-ness on `merged === total` rather than the row's real
+    // status. (A row seeded with merged: 0, total: 1 can't discriminate:
+    // merged !== total there regardless of whether the filter has the bug.)
     const ghostManifestPath = path.join(
       repoDir,
       ".flow",
@@ -2373,12 +2415,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       "moved-epic",
       "manifest.json",
     );
-    writeEpicRunState(
-      seedRunState("moved-epic", ghostManifestPath, {
-        features: { a: { slug: "moved-epic-a", launchedAt: "x" } },
-      }),
-      epicsDir,
-    );
+    writeEpicRunState(seedRunState("moved-epic", ghostManifestPath), epicsDir);
     const code = runEpicCli(["ls"], {
       cwd: repoDir,
       epicsDir,

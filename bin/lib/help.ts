@@ -179,7 +179,7 @@ Subcommands:
                         per-state feature counts and overall status (the
                         committed half is scoped to the current repo).
                         Completed epics are hidden by default and counted
-                        in a footer; --all shows them.
+                        in a footer; --all, -a shows them.
   done <slug>           remove the recomputable per-machine ~/.flow/epics/<slug>/
                         runtime state (does NOT close the design window or
                         pipeline state — use \`flow done <slug>\` for those)
