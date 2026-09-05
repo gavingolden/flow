@@ -57,11 +57,19 @@ export function resolveGitCommonDir(cwd: string): string | null {
  *      alone).
  *   3. At most one git spawn per distinct surviving path (memoized by the
  *      `Map` below).
- *   4. A null common-dir on either side never matches (`null !== null` is
- *      treated as `false`, not `true`).
+ *   4. A null common-dir on the ROW side never matches (`null !== null` is
+ *      treated as `false`, not `true`) — but a null common-dir on the
+ *      CALLER side fails OPEN (see below), matching invariant 1.
  */
 export function makeSameRepository(cwd: string): (repoPath: string) => boolean {
   const callerCommonDir = resolveGitCommonDir(cwd);
+  // Fail OPEN when the CALLER's own common dir is unresolvable (e.g. a
+  // slow/failed git spawn against cwd) — matches the empty-repoPath
+  // invariant above: an unclassifiable scope shows everything rather than
+  // hiding every row. This is directional: the ROW side (below) keeps
+  // null-never-matches, since a false match there would wrongly claim a
+  // no-longer-a-git-repo state row for whatever repo the caller stands in.
+  if (callerCommonDir === null) return () => true;
   const memo = new Map<string, string | null>();
   return (repoPath: string): boolean => {
     if (!repoPath || !repoPath.trim()) return true;
@@ -71,7 +79,7 @@ export function makeSameRepository(cwd: string): (repoPath: string) => boolean {
       commonDir = resolveGitCommonDir(repoPath);
       memo.set(repoPath, commonDir);
     }
-    if (commonDir === null || callerCommonDir === null) return false;
+    if (commonDir === null) return false;
     return commonDir === callerCommonDir;
   };
 }

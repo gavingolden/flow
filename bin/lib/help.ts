@@ -73,7 +73,9 @@ Usage:
   flow config launcher [get | set <plain|tmux>]
                                         get/set the recorded launcher backend (flow install
                                         asks once on interactive installs)
-  flow ls [--cost [--detail]] [--all-repos]   list this repo's pipelines (--all-repos for every repo; cost adds $ column)
+  flow ls [--cost [--detail]] [--all-repos] [--all|-a]
+                                        list this repo's pipelines (--all-repos/--all/-a for
+                                        every repo; cost adds $ column)
   flow attach [<name>]                  attach to a pipeline window — single window only  (alias: a)
   flow done <name> [<name> ...]         close one or more pipeline windows
   flow done --merged                    close every merged or cancelled window

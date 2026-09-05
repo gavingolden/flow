@@ -218,6 +218,25 @@ describe("makeSameRepository", () => {
     }
   });
 
+  it("returns false for an existing non-git directory (null row-side common dir never matches)", () => {
+    // Invariant 4: a null common-dir on the ROW side never matches
+    // `null === null`. This directory EXISTS (unlike the deleted-path
+    // case above, which short-circuits at fs.existsSync before ever
+    // resolving a common dir) but isn't a git repo, so
+    // resolveGitCommonDir(repoPath) returns null. Dropping the row-side
+    // null guard would let `null === null` evaluate true and wrongly
+    // claim this row as "same repo".
+    const nonGitDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-same-repo-nongit-"),
+    );
+    try {
+      const sameRepo = makeSameRepository(repoDir);
+      expect(sameRepo(nonGitDir)).toBe(false);
+    } finally {
+      fs.rmSync(nonGitDir, { recursive: true, force: true });
+    }
+  });
+
   it("returns false for a deleted path, with zero spawnSync calls for it", () => {
     const deleted = path.join(
       os.tmpdir(),
@@ -229,13 +248,24 @@ describe("makeSameRepository", () => {
     expect(spawnSyncMock).not.toHaveBeenCalled();
   });
 
-  it("matches a symlinked tmpdir path against its realpath'd twin", () => {
-    // On macOS, os.tmpdir() commonly resolves through a /var -> /private/var
-    // symlink; resolveGitCommonDir realpath's its result, so a caller
-    // standing in the non-realpath'd path must still match.
-    const realCwd = fs.realpathSync(repoDir);
-    const sameRepo = makeSameRepository(realCwd);
-    expect(sameRepo(repoDir)).toBe(true);
+  it("matches a symlinked path against its realpath'd twin", () => {
+    // Construct the symlink explicitly rather than relying on macOS's
+    // ambient /var -> /private/var symlink: on CI (ubuntu-latest),
+    // os.tmpdir() is /tmp with no such symlink, so realpathSync(repoDir)
+    // === repoDir and this test would otherwise silently duplicate the
+    // plain same-repo case above, never exercising the realpath divergence
+    // resolveGitCommonDir relies on.
+    const symlinkPath = path.join(
+      os.tmpdir(),
+      `flow-same-repo-symlink-${process.pid}-${Date.now()}`,
+    );
+    fs.symlinkSync(repoDir, symlinkPath);
+    try {
+      const sameRepo = makeSameRepository(symlinkPath);
+      expect(sameRepo(repoDir)).toBe(true);
+    } finally {
+      fs.rmSync(symlinkPath, { force: true });
+    }
   });
 
   it("memoizes: two calls with the same repoPath spawn git only once", () => {
@@ -245,5 +275,24 @@ describe("makeSameRepository", () => {
     const firstCallCount = spawnSyncMock.mock.calls.length;
     sameRepo(repoDir);
     expect(spawnSyncMock.mock.calls.length).toBe(firstCallCount);
+  });
+
+  it("fails open (matches everything) when the CALLER's own common dir is unresolvable", () => {
+    // If cwd's own git spawn fails/times out, there's no scope to apply —
+    // matches the empty-repoPath invariant (fail open), not the row-side
+    // null-never-matches invariant (which stays directional: a null
+    // common dir on the ROW side must still fail closed).
+    const nonGitCwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-same-repo-nongit-cwd-"),
+    );
+    try {
+      const sameRepo = makeSameRepository(nonGitCwd);
+      expect(sameRepo(repoDir)).toBe(true);
+      // Fail-open short-circuits before any repoPath-side check, so even a
+      // nonexistent path matches.
+      expect(sameRepo("/definitely/does/not/exist")).toBe(true);
+    } finally {
+      fs.rmSync(nonGitCwd, { recursive: true, force: true });
+    }
   });
 });

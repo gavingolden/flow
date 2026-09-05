@@ -54,7 +54,7 @@ To check on runs — including pipelines launched from other terminals but scope
 ```sh
 flow ls               # this repo's pipelines and their current phase
 flow ls --all-repos   # every repo's pipelines
-flow ls --cost         # add per-pipeline spend (--detail for a breakdown)
+flow ls --cost        # add per-pipeline spend (--detail for a breakdown)
 ```
 
 ## Resuming

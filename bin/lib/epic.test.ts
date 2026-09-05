@@ -2576,6 +2576,76 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     }
   });
 
+  it("ls: a COMMITTED epic run from a linked worktree labels REPO from the main checkout, not the worktree name", () => {
+    gitInit();
+    spawnSync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: repoDir });
+    fs.writeFileSync(path.join(repoDir, "README.md"), "hello\n");
+    spawnSync("git", ["add", "README.md"], { cwd: repoDir });
+    spawnSync("git", ["commit", "-q", "-m", "init"], { cwd: repoDir });
+    const worktreeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-epic-worktree-committed-"),
+    );
+    fs.rmSync(worktreeDir, { recursive: true, force: true });
+    spawnSync(
+      "git",
+      ["worktree", "add", "-b", "committed-epic-branch", worktreeDir],
+      { cwd: repoDir },
+    );
+    try {
+      // No run-state — a purely committed epic, discovered via
+      // `discoverCommittedEpics(cwd)` off the WORKTREE cwd. Before the fix,
+      // the row's REPO label was `path.basename(cwd)` (the worktree's own
+      // directory name); the fix labels from the main checkout instead, so
+      // the same repo doesn't show under two different REPO values across
+      // a run-state row (main-checkout-labelled) and a committed row
+      // (worktree-labelled).
+      // discoverCommittedEpics resolves `repo` off `cwd` (the worktree
+      // root), so the manifest must live under the WORKTREE's own
+      // `.flow/epics/`, not the main checkout's — a linked worktree has its
+      // own working tree of files, separate from the main checkout.
+      const committedDir = path.join(
+        worktreeDir,
+        ".flow",
+        "epics",
+        "committed-only-epic",
+      );
+      fs.mkdirSync(committedDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(committedDir, "manifest.json"),
+        JSON.stringify({
+          epicId: "committed-only-epic",
+          prompt: "p",
+          createdAt: "2026-06-28",
+          features: [
+            { id: "a", title: "A", description: "build a", dependsOn: [] },
+          ],
+        }),
+      );
+      const code = runEpicCli(["ls"], {
+        cwd: worktreeDir,
+        epicsDir,
+        readFeatureState: () => null,
+        readMaxParallel: () => 3,
+      });
+      expect(code).toBe(0);
+      const out = logs.join("\n");
+      const row = out
+        .split("\n")
+        .find((l) => l.startsWith("committed-only-epic"))!;
+      expect(row).toBeDefined();
+      expect(row).toContain(path.basename(fs.realpathSync(repoDir)));
+      expect(row).not.toContain(path.basename(worktreeDir));
+    } finally {
+      spawnSync("git", ["worktree", "remove", "--force", worktreeDir], {
+        cwd: repoDir,
+      });
+      fs.rmSync(worktreeDir, { recursive: true, force: true });
+    }
+  });
+
   it("ls: --done, --all-repos, and -a each widen only their own axis", () => {
     gitInit();
     const foreignRepoDir = fs.mkdtempSync(
@@ -2686,11 +2756,42 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
         "foreign-done",
         "manifest.json",
       );
+      // Write the manifest for real (mirroring `writeManifest`'s shape, just
+      // rooted under `foreignRepoDir` instead of `repoDir`) — an unwritten
+      // manifest path makes `loadCommittedManifest` fail and forces the
+      // degraded "manifest unreadable" row (`status: "running"` always),
+      // which would make this epic ALWAYS fail `passesDone` regardless of
+      // the merged feature state below, masking the done/foreign scenario
+      // this test is meant to exercise.
+      fs.mkdirSync(path.dirname(foreignManifestPath), { recursive: true });
+      fs.writeFileSync(
+        foreignManifestPath,
+        JSON.stringify({
+          epicId: "foreign-done",
+          prompt: "p",
+          createdAt: "2026-06-28",
+          features: [
+            { id: "a", title: "A", description: "build a", dependsOn: [] },
+          ],
+        }),
+      );
       writeEpicRunState(
         seedRunState("foreign-done", foreignManifestPath, {
           repo: fs.realpathSync(foreignRepoDir),
           features: { a: { slug: "foreign-done-a", launchedAt: "x" } },
         }),
+        epicsDir,
+      );
+      // A local in-flight anchor epic: without it `visible` is empty and
+      // `renderEpicList` takes the EMPTY-STATE branch (`"no epics"`), which
+      // never emits the table-footer wording ("done epic" / "epic in other
+      // repos") the assertions below quote — so this test could not fail
+      // even with the footer-symmetry bug reintroduced. The anchor forces
+      // the table branch to render, with the both-filters row genuinely
+      // absent from it.
+      const localManifestPath = writeManifest("local-anchor", [{ id: "a" }]);
+      writeEpicRunState(
+        seedRunState("local-anchor", localManifestPath, { repo: repoDir }),
         epicsDir,
       );
       const readFeatureState = (slug: string) =>
@@ -2710,6 +2811,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       });
       expect(code).toBe(0);
       const out = logs.join("\n");
+      expect(out).toContain("local-anchor");
       expect(out).not.toContain("foreign-done");
       expect(out).not.toContain("done epic");
       expect(out).not.toContain("epics in other repos");
@@ -2727,6 +2829,18 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     } finally {
       fs.rmSync(foreignRepoDir, { recursive: true, force: true });
     }
+  });
+
+  it("ls: the genuinely-empty (no visible epics, none hidden) case renders exactly 'no epics'", () => {
+    gitInit();
+    const code = runEpicCli(["ls"], {
+      cwd: repoDir,
+      epicsDir,
+      readMaxParallel: () => 3,
+      readFeatureState: () => null,
+    });
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toBe("no epics");
   });
 
   // ── bind ──────────────────────────────────────────────────────────────────

@@ -108,8 +108,9 @@ export type Row = {
 
 /**
  * CLI shim for `bin/flow`'s `ls` verb. Intercepts --help / -h before any
- * state/tmux read, then parses --cost / --detail and dispatches to
- * `runLs`. The previous inline `runLsVerb` lived in `bin/flow`.
+ * state/tmux read, then parses --cost / --detail / --all-repos /
+ * --all|-a and dispatches to `runLs`. The previous inline `runLsVerb`
+ * lived in `bin/flow`.
  */
 export async function runLsCli(args: string[]): Promise<number> {
   if (argsContainHelp(args)) {
@@ -183,15 +184,38 @@ export async function runLs(opts: LsOptions): Promise<number> {
     }
   }
 
-  const rows = await buildRows(states, windows, now, opts);
+  // Hide windows claimed by hidden (foreign-repo) states before handing
+  // `windows` to buildRows — otherwise its unclaimed-window loop (which
+  // only knows about the repo-filtered `states`, not `hidden`) re-emits
+  // every hidden pipeline's window as a synthetic `<slug> (no state)` row,
+  // contradicting the "N pipelines in other repos hidden" footer below.
+  const hiddenWindowIds = new Set(
+    hidden
+      .map((s) => findWindowBySlug(windows, s.slug)?.id)
+      .filter((id): id is string => id !== undefined),
+  );
+  const visibleWindows =
+    hiddenWindowIds.size === 0
+      ? windows
+      : windows.filter((w) => !hiddenWindowIds.has(w.id));
+
+  const rows = await buildRows(states, visibleWindows, now, opts);
 
   if (rows.length === 0) {
     if (hidden.length === 0) {
       console.log(dim("flow ls: no active pipelines"));
     } else {
+      const needsResumeCount = hidden.filter((s) =>
+        needsResume(s, findWindowBySlug(windows, s.slug)),
+      ).length;
+      const resumeVerb = needsResumeCount === 1 ? "needs" : "need";
+      const resumeSuffix =
+        needsResumeCount > 0
+          ? ` (${needsResumeCount} ${resumeVerb} resume)`
+          : "";
       console.log(
         dim(
-          `flow ls: no pipelines in this repo (${hidden.length} in other repos — show them with 'flow ls --all-repos')`,
+          `flow ls: no pipelines in this repo (${hidden.length} in other repos${resumeSuffix} — show them with 'flow ls --all-repos')`,
         ),
       );
     }
@@ -256,9 +280,11 @@ function printHiddenRepos(
   const needsResumeCount = hidden.filter((s) =>
     needsResume(s, findWindowBySlug(windows, s.slug)),
   ).length;
+  const resumeVerb = needsResumeCount === 1 ? "needs" : "need";
   const resumeSuffix =
-    needsResumeCount > 0 ? ` (${needsResumeCount} needs resume)` : "";
+    needsResumeCount > 0 ? ` (${needsResumeCount} ${resumeVerb} resume)` : "";
   const plural = hidden.length === 1 ? "" : "s";
+  console.log("");
   console.log(
     dim(
       `${hidden.length} pipeline${plural} in other repos hidden${resumeSuffix} — show them with 'flow ls --all-repos'`,

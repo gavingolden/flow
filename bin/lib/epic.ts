@@ -37,7 +37,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
-import { resolveRepoRoot, makeSameRepository } from "./repo-root";
+import {
+  resolveRepoRoot,
+  resolveGitCommonDir,
+  makeSameRepository,
+} from "./repo-root";
 import {
   FLOW_CLAUDE_HOME,
   FLOW_LAUNCH_SEM_DIR,
@@ -1763,7 +1767,9 @@ Usage:
 
 Options:
   --done                Include completed (done) epics in the listing
-  --all-repos           Include epics from every repo, not just this one
+  --all-repos           Include every repo's launched/run-state epics (not
+                        just this one); committed-only epics stay scoped to
+                        this repo regardless
   --all, -a             Drop every default filter (done epics AND every repo)
 
 Lists every epic with per-state counts + status, combining live run.json
@@ -1772,7 +1778,8 @@ state under ~/.flow/epics with committed status boards under this repo's
 epics are hidden, each counted in its own footer line; --done widens the
 done axis, --all-repos widens the repo axis, and --all/-a drop both.
 Outside a git repo, the default listing is empty with a printed reason;
---all-repos still lists every repo's epics.`);
+--all-repos still lists every repo's launched/run-state epics, plus this
+repo's own committed ones.`);
     return 0;
   }
   const allowed = new Set(["--all", "-a", "--done", "--all-repos"]);
@@ -1854,6 +1861,17 @@ Outside a git repo, the default listing is empty with a printed reason;
   // they carry live per-feature bindings the committed manifest cannot.
   const seen = new Set(entries.map((e) => e.row.slug));
   const committedRepoPath = currentRepo ?? "";
+  // Label from the MAIN checkout, not `cwd`'s own worktree: run-state rows
+  // (above) are keyed off `state.repo`, which flow always records as the
+  // main checkout, so labelling committed epics with `path.basename(cwd)`
+  // when `cwd` is a linked worktree (flow creates one per pipeline) shows
+  // the SAME repo under two different REPO values. `--git-common-dir` is
+  // byte-identical across a main checkout and every linked worktree of it,
+  // and its parent directory is the main checkout root.
+  const commonDir = currentRepo ? resolveGitCommonDir(cwd) : null;
+  const committedRepoLabel = path.basename(
+    commonDir ? path.dirname(commonDir) : committedRepoPath,
+  );
   for (const { slug, manifestPath } of discoverCommittedEpics(cwd)) {
     if (seen.has(slug)) continue;
     const loaded = loadCommittedManifest(manifestPath);
@@ -1874,7 +1892,7 @@ Outside a git repo, the default listing is empty with a printed reason;
     entries.push({
       row: {
         slug,
-        repo: path.basename(committedRepoPath),
+        repo: committedRepoLabel,
         ready: result.summary.ready,
         running: result.summary.running,
         blocked: result.summary.blocked,
