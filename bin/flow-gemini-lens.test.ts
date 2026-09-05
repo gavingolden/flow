@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { godurToSec, SYNC_DELEGATE_CEILING } from "./lib/delegate-timeouts";
 import {
   VALID_DECORATIONS,
   VALID_LABELS,
@@ -1191,10 +1192,21 @@ describe("run — retry timeout bound (Task 8 diff-only fallback)", () => {
     const retryArgv = deps.calls.delegate[1]!;
     const primaryTimeout = primaryArgv[primaryArgv.indexOf("--timeout") + 1]!;
     const retryTimeout = retryArgv[retryArgv.indexOf("--timeout") + 1]!;
-    const parseMinutes = (d: string) => parseInt(d, 10);
-    expect(parseMinutes(retryTimeout)).toBeLessThan(
-      parseMinutes(primaryTimeout),
-    );
+    // Unit-aware: a bare parseInt would read "60s" as 60 and "8m" as 8 and
+    // report the retry as the LONGER call. godurToSec is the module that owns
+    // Go-duration parsing.
+    expect(godurToSec(retryTimeout)).toBeLessThan(godurToSec(primaryTimeout));
+    // The load-bearing property is about the PAIR, not either call alone:
+    // together they must fit inside the caller's 10-minute Bash cap, which is
+    // what SYNC_DELEGATE_CEILING exists to protect. Asserting the sum rather
+    // than a literal retry value is what makes this survive a re-tune of
+    // either bound — a fixed 2m retry silently stopped satisfying it the
+    // moment the primary reached its 8m default.
+    expect(
+      godurToSec(primaryTimeout) + godurToSec(retryTimeout),
+    ).toBeLessThanOrEqual(godurToSec(SYNC_DELEGATE_CEILING));
+    // The retry is the diff-only one: no --add-dir, so no read budget needed.
+    expect(retryArgv).not.toContain("--add-dir");
   });
 
   // [conf 86] Regression test: the retry previously overwrote the primary's

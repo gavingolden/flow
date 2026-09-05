@@ -77,7 +77,9 @@ import {
 import { resolveDelegateModel } from "./lib/delegate-models";
 import {
   clampDelegateTimeout,
+  godurToSec,
   resolveDelegateTimeout,
+  SYNC_DELEGATE_CEILING,
 } from "./lib/delegate-timeouts";
 import { classifyDelegateSkip } from "./lib/delegate-skip-class";
 import {
@@ -483,16 +485,32 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     ? clampDelegateTimeout(parsed.timeout, "reviewLens")
     : resolveDelegateTimeout("reviewLens");
 
+  // The diff-only retry (addDir === null) has no read phase, so it does not
+  // need the primary's full read+review budget. Its bound is DERIVED from the
+  // primary's rather than fixed, because what must hold is a property of the
+  // PAIR: primary + retry has to fit inside the caller's 10-minute Bash cap.
+  // A fixed 2m satisfies that only while the primary stays at its 8m default —
+  // 8m + 2m is exactly 10m, i.e. no headroom, and a configured 9m primary
+  // (the SYNC_DELEGATE_CEILING) would breach it outright. Breaching is the
+  // worst outcome available: the Bash tool kills the helper and the caller
+  // gets NO envelope at all, strictly worse than the skip the retry exists to
+  // avoid. So: take whatever headroom the ceiling leaves after the primary,
+  // cap it at 2m (a diff-only turn needs no more), and floor it at 1m so the
+  // retry is always given a real chance rather than a token one.
+  const RETRY_TIMEOUT_CAP_SEC = 120;
+  const RETRY_TIMEOUT_FLOOR_SEC = 60;
+  const retryTimeoutArg = `${Math.max(
+    RETRY_TIMEOUT_FLOOR_SEC,
+    Math.min(
+      RETRY_TIMEOUT_CAP_SEC,
+      godurToSec(SYNC_DELEGATE_CEILING) - godurToSec(timeoutArg),
+    ),
+  )}s`;
+
   const dispatchArgv = (
     addDir: string | null,
     outPath: string = rawPath,
-    // The diff-only retry (addDir === null) has no read phase, so it does
-    // not need the primary's full read+review budget. A short fixed bound
-    // keeps primary+retry under the caller's 10-minute Bash cap
-    // (`bin/lib/delegate-timeouts.ts`'s SYNC_DELEGATE_CEILING) — the
-    // default 8m reviewLens timeout would otherwise let 8m+8m breach it,
-    // and a tripped ceiling leaves the caller with NO envelope at all.
-    timeout: string = addDir === null ? "2m" : timeoutArg,
+    timeout: string = addDir === null ? retryTimeoutArg : timeoutArg,
   ): string[] => [
     "--output-format",
     "json",
