@@ -188,7 +188,7 @@ describe("completion scripts stay in sync with VERBS", () => {
     }
   });
 
-  it("both scripts advertise --all and -a scoped to the `epic ls` arm", () => {
+  it("both scripts advertise --all/-a, --done, and --all-repos scoped to the `epic ls` arm", () => {
     for (const shell of ["bash", "zsh"] as const) {
       const script = fs.readFileSync(
         path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
@@ -206,6 +206,39 @@ describe("completion scripts stay in sync with VERBS", () => {
       ).toBeGreaterThan(-1);
       const armEnd = script.indexOf("else", armStart);
       const lsArm = script.slice(armStart, armEnd === -1 ? undefined : armEnd);
+      expect(lsArm).toContain("--all");
+      expect(lsArm).toContain("-a");
+      expect(lsArm).toContain("--done");
+      expect(lsArm).toContain("--all-repos");
+    }
+  });
+
+  it("both scripts advertise --cost, --detail, --all-repos, --all, and -a scoped to the TOP-LEVEL `ls` arm", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      // The top-level `ls)` case label is unique in both scripts (unlike the
+      // `epic ls` arm's `esub`/`line[2]` guard, which is nested one level
+      // deeper) — slice from there. Both scripts close this arm with `;;`,
+      // NOT `else` (that end-marker belongs to the `epic)` arm's if/elif
+      // chain), so an `else`-based slice would over-grab the rest of the
+      // script.
+      const armStart = script.indexOf("ls)");
+      expect(
+        armStart,
+        `flow.${shell} must have a top-level ls arm`,
+      ).toBeGreaterThan(-1);
+      const armEnd = script.indexOf(";;", armStart);
+      expect(
+        armEnd,
+        `flow.${shell}'s top-level ls arm must close with ';;'`,
+      ).toBeGreaterThan(-1);
+      const lsArm = script.slice(armStart, armEnd);
+      expect(lsArm).toContain("--cost");
+      expect(lsArm).toContain("--detail");
+      expect(lsArm).toContain("--all-repos");
       expect(lsArm).toContain("--all");
       expect(lsArm).toContain("-a");
     }

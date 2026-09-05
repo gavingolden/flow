@@ -66,6 +66,7 @@ export function renderBoard(
 
 export type EpicListRow = {
   slug: string;
+  repo: string;
   ready: number;
   running: number;
   blocked: number;
@@ -77,18 +78,32 @@ export type EpicListRow = {
 /**
  * The `flow epic ls` table: one row per epic with per-state counts + status.
  * `hiddenDone` is the count of `done` epics the caller already filtered out
- * before calling this renderer — it drives the footer line only, never the
+ * before calling this renderer; `hiddenOtherRepos` is the count of epics
+ * from other repos filtered out. Both drive footer lines only, never the
  * row set itself.
  */
-export function renderEpicList(rows: EpicListRow[], hiddenDone = 0): string {
+export function renderEpicList(
+  rows: EpicListRow[],
+  hiddenDone = 0,
+  hiddenOtherRepos = 0,
+): string {
   if (rows.length === 0) {
-    return hiddenDone === 0
-      ? "no epics"
-      : `no active epics (${hiddenDone} done — show them with 'flow epic ls --all')`;
+    if (hiddenDone === 0 && hiddenOtherRepos === 0) return "no epics";
+    const parts: string[] = [];
+    if (hiddenDone !== 0) {
+      parts.push(`${hiddenDone} done — show them with 'flow epic ls --done'`);
+    }
+    if (hiddenOtherRepos !== 0) {
+      parts.push(
+        `${hiddenOtherRepos} in other repos — show them with 'flow epic ls --all-repos'`,
+      );
+    }
+    return `no active epics (${parts.join("; ")})`;
   }
   const table = renderTable(
     [
       { header: "EPIC", get: (r) => r.slug },
+      { header: "REPO", get: (r) => r.repo || DASH },
       { header: "READY", get: (r) => String(r.ready) },
       { header: "RUNNING", get: (r) => String(r.running) },
       { header: "BLOCKED", get: (r) => String(r.blocked) },
@@ -97,9 +112,21 @@ export function renderEpicList(rows: EpicListRow[], hiddenDone = 0): string {
     ],
     rows,
   );
-  if (hiddenDone === 0) return table;
-  const noun = hiddenDone === 1 ? "epic" : "epics";
-  return `${table}\n\n${hiddenDone} done ${noun} hidden — show them with 'flow epic ls --all'`;
+  const footerLines: string[] = [];
+  if (hiddenDone !== 0) {
+    const noun = hiddenDone === 1 ? "epic" : "epics";
+    footerLines.push(
+      `${hiddenDone} done ${noun} hidden — show them with 'flow epic ls --done'`,
+    );
+  }
+  if (hiddenOtherRepos !== 0) {
+    const noun = hiddenOtherRepos === 1 ? "epic" : "epics";
+    footerLines.push(
+      `${hiddenOtherRepos} ${noun} in other repos hidden — show them with 'flow epic ls --all-repos'`,
+    );
+  }
+  if (footerLines.length === 0) return table;
+  return `${table}\n\n${footerLines.join("\n")}`;
 }
 
 /**

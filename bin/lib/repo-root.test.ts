@@ -1,9 +1,28 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+
+// node:child_process's built-in module namespace has non-configurable
+// properties in vitest's runtime, so a plain `vi.spyOn(childProcess,
+// "spawnSync")` throws "Cannot redefine property". Mocking the module
+// (preserving the real implementation via `importOriginal`) makes
+// `spawnSync` a `vi.fn` we can inspect, while every other test in this
+// file (which shells out to set up real git fixtures) keeps working
+// unchanged.
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawnSync: vi.fn(actual.spawnSync) };
+});
+
 import { spawnSync } from "node:child_process";
-import { resolveRepoRoot, resolveGitCommonDir } from "./repo-root";
+import {
+  resolveRepoRoot,
+  resolveGitCommonDir,
+  makeSameRepository,
+} from "./repo-root";
+
+const spawnSyncMock = vi.mocked(spawnSync);
 
 describe("resolveRepoRoot", () => {
   let repoDir: string;
@@ -133,6 +152,147 @@ describe("resolveGitCommonDir", () => {
       expect(resolveGitCommonDir(outside)).toBeNull();
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("makeSameRepository", () => {
+  let repoDir: string;
+  let worktreeDir: string;
+
+  beforeEach(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-same-repo-"));
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
+    spawnSync("git", ["config", "user.email", "test@example.com"], {
+      cwd: repoDir,
+    });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: repoDir });
+    fs.writeFileSync(path.join(repoDir, "README.md"), "hello\n");
+    spawnSync("git", ["add", "README.md"], { cwd: repoDir });
+    spawnSync("git", ["commit", "-q", "-m", "init"], { cwd: repoDir });
+  });
+
+  afterEach(() => {
+    if (worktreeDir) {
+      spawnSync("git", ["worktree", "remove", "--force", worktreeDir], {
+        cwd: repoDir,
+      });
+      fs.rmSync(worktreeDir, { recursive: true, force: true });
+      worktreeDir = "";
+    }
+    fs.rmSync(repoDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it("fails open (returns true) for an empty repoPath", () => {
+    const sameRepo = makeSameRepository(repoDir);
+    expect(sameRepo("")).toBe(true);
+    expect(sameRepo("   ")).toBe(true);
+  });
+
+  it("returns true when repoPath is the same repo as cwd", () => {
+    const sameRepo = makeSameRepository(repoDir);
+    expect(sameRepo(repoDir)).toBe(true);
+  });
+
+  it("returns true when repoPath is a linked worktree of cwd's repo", () => {
+    worktreeDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-same-repo-wt-"));
+    fs.rmSync(worktreeDir, { recursive: true, force: true });
+    spawnSync("git", ["worktree", "add", "-b", "feature-branch", worktreeDir], {
+      cwd: repoDir,
+    });
+    const sameRepo = makeSameRepository(repoDir);
+    expect(sameRepo(worktreeDir)).toBe(true);
+  });
+
+  it("returns false for two separate repos", () => {
+    const otherRepo = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-same-repo-other-"),
+    );
+    try {
+      spawnSync("git", ["init", "-q", "-b", "main"], { cwd: otherRepo });
+      const sameRepo = makeSameRepository(repoDir);
+      expect(sameRepo(otherRepo)).toBe(false);
+    } finally {
+      fs.rmSync(otherRepo, { recursive: true, force: true });
+    }
+  });
+
+  it("returns false for an existing non-git directory (null row-side common dir never matches)", () => {
+    // Invariant 4: a null common-dir on the ROW side never matches
+    // `null === null`. This directory EXISTS (unlike the deleted-path
+    // case above, which short-circuits at fs.existsSync before ever
+    // resolving a common dir) but isn't a git repo, so
+    // resolveGitCommonDir(repoPath) returns null. Dropping the row-side
+    // null guard would let `null === null` evaluate true and wrongly
+    // claim this row as "same repo".
+    const nonGitDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-same-repo-nongit-"),
+    );
+    try {
+      const sameRepo = makeSameRepository(repoDir);
+      expect(sameRepo(nonGitDir)).toBe(false);
+    } finally {
+      fs.rmSync(nonGitDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns false for a deleted path, with zero spawnSync calls for it", () => {
+    const deleted = path.join(
+      os.tmpdir(),
+      "flow-same-repo-deleted-does-not-exist",
+    );
+    const sameRepo = makeSameRepository(repoDir);
+    spawnSyncMock.mockClear(); // drop the constructor's own resolveGitCommonDir(cwd) call
+    expect(sameRepo(deleted)).toBe(false);
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("matches a symlinked path against its realpath'd twin", () => {
+    // Construct the symlink explicitly rather than relying on macOS's
+    // ambient /var -> /private/var symlink: on CI (ubuntu-latest),
+    // os.tmpdir() is /tmp with no such symlink, so realpathSync(repoDir)
+    // === repoDir and this test would otherwise silently duplicate the
+    // plain same-repo case above, never exercising the realpath divergence
+    // resolveGitCommonDir relies on.
+    const symlinkPath = path.join(
+      os.tmpdir(),
+      `flow-same-repo-symlink-${process.pid}-${Date.now()}`,
+    );
+    fs.symlinkSync(repoDir, symlinkPath);
+    try {
+      const sameRepo = makeSameRepository(symlinkPath);
+      expect(sameRepo(repoDir)).toBe(true);
+    } finally {
+      fs.rmSync(symlinkPath, { force: true });
+    }
+  });
+
+  it("memoizes: two calls with the same repoPath spawn git only once", () => {
+    const sameRepo = makeSameRepository(repoDir);
+    spawnSyncMock.mockClear();
+    sameRepo(repoDir);
+    const firstCallCount = spawnSyncMock.mock.calls.length;
+    sameRepo(repoDir);
+    expect(spawnSyncMock.mock.calls.length).toBe(firstCallCount);
+  });
+
+  it("fails open (matches everything) when the CALLER's own common dir is unresolvable", () => {
+    // If cwd's own git spawn fails/times out, there's no scope to apply —
+    // matches the empty-repoPath invariant (fail open), not the row-side
+    // null-never-matches invariant (which stays directional: a null
+    // common dir on the ROW side must still fail closed).
+    const nonGitCwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-same-repo-nongit-cwd-"),
+    );
+    try {
+      const sameRepo = makeSameRepository(nonGitCwd);
+      expect(sameRepo(repoDir)).toBe(true);
+      // Fail-open short-circuits before any repoPath-side check, so even a
+      // nonexistent path matches.
+      expect(sameRepo("/definitely/does/not/exist")).toBe(true);
+    } finally {
+      fs.rmSync(nonGitCwd, { recursive: true, force: true });
     }
   });
 });

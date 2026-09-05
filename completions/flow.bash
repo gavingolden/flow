@@ -194,7 +194,7 @@ _flow() {
             elif [ "$esub" = "ls" ]; then
                 if [[ "$cur" == -* ]]; then
                     # shellcheck disable=SC2207
-                    COMPREPLY=( $(compgen -W "--all -a" -- "$cur") )
+                    COMPREPLY=( $(compgen -W "--all -a --done --all-repos" -- "$cur") )
                 fi
             else
                 # shellcheck disable=SC2207
@@ -230,7 +230,7 @@ _flow() {
             ;;
         ls)
             # shellcheck disable=SC2207
-            COMPREPLY=( $(compgen -W "--cost --detail" -- "$cur") )
+            COMPREPLY=( $(compgen -W "--cost --detail --all-repos --all -a" -- "$cur") )
             ;;
         attach|a)
             # shellcheck disable=SC2207
