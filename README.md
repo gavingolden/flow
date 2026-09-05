@@ -90,6 +90,7 @@ flow runs the `flow-pre-commit` verify gate before every push. **Single-package 
 | ---------------------------------------- | ---------------------------------------------------------------------------------- |
 | Your first pipeline, step by step        | [docs/getting-started.md](docs/getting-started.md)                                 |
 | Config, models, install flags, upgrades  | [docs/configuration.md](docs/configuration.md)                                     |
+| Which tests earn their cost, and why     | [docs/test-quality-methodology.md](docs/test-quality-methodology.md)               |
 | Working on flow itself                   | [CONTRIBUTING.md](CONTRIBUTING.md)                                                 |
 | The supervisor skill itself              | [`skills/pipeline/flow-pipeline/SKILL.md`](skills/pipeline/flow-pipeline/SKILL.md) |
 | Project rules for agents working on flow | [`AGENTS.md`](AGENTS.md)                                                           |

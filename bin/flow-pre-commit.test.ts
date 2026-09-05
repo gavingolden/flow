@@ -38,6 +38,7 @@ import {
   findNonExecutableHelpers,
   formatJsonReport,
   formatReport,
+  resolveSelection,
   getChangedFilesForPush,
   isExecutableLibModule,
   isTestCheck,
@@ -540,12 +541,16 @@ describe(checksForScope, () => {
 
   it("emits test argv the real isTestCheck predicate matches (semaphore detection key)", () => {
     // main()'s test-check dispatch routes through the exported isTestCheck
-    // predicate (argv[1]==="run" && argv[2]==="test") rather than
-    // exact-array/join equality so the workspace form
-    // ["npm","run","test","-w",<pkg>] also matches. Asserting against the REAL
-    // exported helper (not a local copy) means a drift in the predicate — e.g.
-    // to argv[2]==="test:unit" — fails this test instead of silently changing
-    // production behavior while a private copy keeps passing.
+    // predicate — an EXPLICIT set (argv[1]==="run" && (argv[2]==="test" ||
+    // argv[2]==="test:related")), never an argv[2].startsWith("test")
+    // prefix — rather than exact-array/join equality so the workspace form
+    // ["npm","run","test","-w",<pkg>] also matches. Asserting against the
+    // REAL exported helper (not a local copy) means a drift in the
+    // predicate — e.g. widening back to a "test" prefix, which would also
+    // match the long-running "npm run test:watch" watcher and hold a
+    // host-wide semaphore slot forever — fails this test instead of
+    // silently changing production behavior while a private copy keeps
+    // passing.
     for (const scope of ["src", "docs", "root-fallback"] as const) {
       const test = checksForScope(scope).find((c) => isTestCheck(c.argv));
       expect(test, `${scope} should emit a test check`).toBeDefined();
@@ -556,6 +561,141 @@ describe(checksForScope, () => {
     // Workspace variant still matches; bare root form matches.
     expect(isTestCheck(["npm", "run", "test", "-w", "pkg"])).toBe(true);
     expect(isTestCheck(["npm", "run", "test"])).toBe(true);
+    // test:related is throttled too (the tiered-selection related check).
+    expect(isTestCheck(["npm", "run", "test:related"])).toBe(true);
+    // test:watch is the specific drift this guard exists to catch: a
+    // startsWith("test") prefix would also match it, holding a semaphore
+    // slot forever on a long-running watcher.
+    expect(isTestCheck(["npm", "run", "test:watch"])).toBe(false);
+  });
+
+  it("recognises npm run test:related as a throttled test check", () => {
+    expect(isTestCheck(["npm", "run", "test:related", "--", "a.ts"])).toBe(
+      true,
+    );
+  });
+
+  it("does not recognise npm run test:watch as a throttled test check", () => {
+    expect(isTestCheck(["npm", "run", "test:watch"])).toBe(false);
+  });
+});
+
+describe("checksForScope with tiered selection", () => {
+  const selectedPlan = {
+    mode: "selected" as const,
+    explicitFiles: ["bin/skill-md-lint.test.ts", "bin/lib/feature.test.ts"],
+    relatedInputs: ["bin/lib/feature.ts"],
+    excluded: ["bin/flow-new-worktree.test.ts"],
+    isolatedFiles: [],
+    deferredCount: 1,
+  };
+  const fullPlan = { mode: "full" as const, reason: "no changed-file list" };
+
+  it("emits two scoped test checks for src when a valid manifest and test:related both exist", () => {
+    const checks = checksForScope("src", selectedPlan);
+    const testChecks = checks.filter((c) => isTestCheck(c.argv));
+    expect(testChecks.length).toBe(2);
+    expect(testChecks[0].argv).toEqual([
+      "npm",
+      "run",
+      "test",
+      "--",
+      ...selectedPlan.explicitFiles,
+      "--no-isolate",
+    ]);
+    expect(testChecks[1].argv).toEqual([
+      "npm",
+      "run",
+      "test:related",
+      "--",
+      ...selectedPlan.relatedInputs,
+      "--exclude",
+      "bin/flow-new-worktree.test.ts",
+      "--no-isolate",
+    ]);
+  });
+
+  it("runs only the always-run set for the docs scope under tiered selection", () => {
+    const checks = checksForScope("docs", selectedPlan);
+    const testCheck = checks.find((c) => isTestCheck(c.argv))!;
+    expect(testCheck.argv).toEqual([
+      "npm",
+      "run",
+      "test",
+      "--",
+      ...selectedPlan.explicitFiles,
+      "--no-isolate",
+    ]);
+    // docs stays narrower than src/scripts/root-fallback: no test:related
+    // check, since a .md-only diff has no .ts relatedInputs by construction.
+    expect(checks.filter((c) => isTestCheck(c.argv)).length).toBe(1);
+  });
+
+  it("renders a pre-built mode:'full' plan as the plain 'npm run test' argv (does not itself exercise the fail-closed rot guard — see bin/lib/test-tiers.test.ts:95 for that)", () => {
+    const checks = checksForScope("root-fallback", fullPlan);
+    const testCheck = checks.find((c) => isTestCheck(c.argv))!;
+    expect(testCheck.argv).toEqual(["npm", "run", "test"]);
+  });
+
+  it("emits byte-identical argv to today when no selection is passed", () => {
+    const checks = checksForScope("src");
+    const testCheck = checks.find((c) => isTestCheck(c.argv))!;
+    expect(testCheck.argv).toEqual(["npm", "run", "test"]);
+  });
+});
+
+const validTiersManifest = {
+  version: 1,
+  alwaysRun: ["bin/skill-md-lint.test.ts"],
+  deferToCi: [],
+  forceFullOn: [],
+};
+
+describe(resolveSelection, () => {
+  it("returns undefined when package.json does not declare test:related, even when a manifest is present (B5)", () => {
+    const selection = resolveSelection({
+      hasTestRelatedScript: false,
+      tiersFileExists: () => true,
+      readTiersFile: () => JSON.stringify(validTiersManifest),
+      changedFiles: ["bin/lib/foo.ts"],
+      discoveredTestFiles: () => [],
+    });
+    expect(selection).toBeUndefined();
+  });
+
+  it("returns undefined when the manifest file does not exist", () => {
+    const selection = resolveSelection({
+      hasTestRelatedScript: true,
+      tiersFileExists: () => false,
+      readTiersFile: () => {
+        throw new Error("should not be called");
+      },
+      changedFiles: ["bin/lib/foo.ts"],
+      discoveredTestFiles: () => [],
+    });
+    expect(selection).toBeUndefined();
+  });
+
+  it("returns undefined when the manifest fails to parse", () => {
+    const selection = resolveSelection({
+      hasTestRelatedScript: true,
+      tiersFileExists: () => true,
+      readTiersFile: () => "not json",
+      changedFiles: ["bin/lib/foo.ts"],
+      discoveredTestFiles: () => [],
+    });
+    expect(selection).toBeUndefined();
+  });
+
+  it("returns a selection plan when test:related is declared and the manifest parses", () => {
+    const selection = resolveSelection({
+      hasTestRelatedScript: true,
+      tiersFileExists: () => true,
+      readTiersFile: () => JSON.stringify(validTiersManifest),
+      changedFiles: ["bin/lib/foo.ts"],
+      discoveredTestFiles: () => validTiersManifest.alwaysRun,
+    });
+    expect(selection?.mode).toBe("selected");
   });
 });
 

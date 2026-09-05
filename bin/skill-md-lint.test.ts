@@ -1334,9 +1334,28 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * single-digit-headroom trap" discipline of every raise above — the
    * 26_300 budget had only 15 chars of headroom left on `main`, so a
    * dedup-only path would have had to cut unrelated contract prose.
+   * Raised once more from 26_300 to 26_650 to document the optional
+   * `.flow/test-tiers.json` test-tier manifest at all three `AGENTS.md`
+   * anchors (the `## Where to look` table, the `flow-test-audit` helper
+   * name, and the `## Consumer-repo notes` paragraph). Measured via
+   * String.prototype.length (not `wc -c` bytes): pre-edit 26_285,
+   * post-edit 26_438 — a +153-char delta, additive-only per the
+   * edit-set's contract (no existing prose was reworded or reordered,
+   * so dedup-first wasn't available here). The budget goes to 26_650
+   * (212 chars of headroom), not the bare post-edit value, matching the
+   * "don't land at a single-digit-headroom trap" discipline of every
+   * raise above.
+   * Merge note: the two raises immediately above were authored
+   * independently off the same 26_285 base and collided in the merge of
+   * `origin/main` into this branch. Both prose additions survive, so the
+   * merged `AGENTS.md` measures 26_555 chars (String.prototype.length) —
+   * larger than either side's own post-edit measurement. The higher of the
+   * two budgets (26_650) is kept rather than summing the deltas: it already
+   * clears the merged size with 95 chars of headroom, so no further raise
+   * was warranted. The 26_500 side would have failed at merge time.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 26_500;
+    const CHAR_BUDGET = 26_650;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +

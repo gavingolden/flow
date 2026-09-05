@@ -83,6 +83,31 @@ never secrets; re-freeze is explicit-only. Deleting it degrades to
 fully-ephemeral. `spec.json` + reference snapshot stay pipeline-ephemeral
 under `.flow-tmp/design/`, never committed.
 
+## Optional test-tier manifest
+
+A consumer may declare `.flow/test-tiers.json` (a single OBJECT, not an
+array) to opt `flow-pre-commit`'s `npm run test` check into a tiered
+selection instead of the full suite: `{ version: 1, alwaysRun: string[],
+deferToCi: string[], forceFullOn: string[] }`, where `alwaysRun` and
+`deferToCi` are test-file paths and `forceFullOn` is a list of exact
+paths or picomatch globs. `flow-pre-commit` parses it tolerantly —
+`version !== 1`, a missing/non-array field, or a non-string array entry
+all degrade to today's full-`npm run test` behaviour, never a hard gate
+failure. Tiering also requires a declared `test:related` npm script in
+`package.json`; without one, the manifest is ignored and the full suite
+runs. When both preconditions hold and no changed file matches a
+`forceFullOn` trigger, the local run is: the manifest's `alwaysRun` set
+plus any test file colocated with a changed file, run with
+`--no-isolate`, plus a separate `npm run test:related` check for the
+rest (deferred files re-run isolated in CI). A `--no-isolate` check that
+fails is retried once isolated before being reported red, since
+`--no-isolate` can produce a false red from cross-file shared-module
+state but never a false green — a false green is the case this retry
+cannot detect, which is what isolated CI is for. Regenerate the manifest with `flow-test-audit
+--write-tiers` rather than hand-editing it — see
+`docs/test-quality-methodology.md` for the rubric behind the tier
+assignments.
+
 ## Review checklist
 
 `.flow/review-checklist.md` is freeform markdown — pattern entries with What-to-look-for /
