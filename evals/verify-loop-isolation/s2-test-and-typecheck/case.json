@@ -118,6 +118,14 @@
       "direction": "lower"
     },
     {
+      "id": "scaffold-absent",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.subagentsSpawned",
+      "direction": "lower",
+      "max": 0
+    },
+    {
       "id": "result.duration_ms",
       "kind": "metric",
       "gate": false,
