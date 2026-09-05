@@ -18,6 +18,7 @@
 import { argsContainHelp, printVerbHelp } from "./help";
 import { resolveSlugAmbient } from "./session-identity";
 import { readState, requestFilePath, statePath } from "./state";
+import { isValidSlug } from "./slug";
 import * as fs from "node:fs";
 import { renderRequestEcho } from "./request-echo";
 
@@ -31,6 +32,13 @@ export function runPromptCli(
   }
 
   const positional = args.find((a) => !a.startsWith("-"));
+  if (positional !== undefined && !isValidSlug(positional)) {
+    console.error(`flow prompt: invalid slug '${positional}'.`);
+    console.error(
+      "  expected lowercase kebab-case (a-z, 0-9, single hyphens), max 60 chars",
+    );
+    return 1;
+  }
   const slug = positional ?? resolveSlugAmbient({ env: options.env });
   if (!slug) {
     console.error(
@@ -51,11 +59,17 @@ export function runPromptCli(
   }
 
   const reqPath = requestFilePath(slug, options.stateDir);
+  if (!fs.existsSync(reqPath)) {
+    console.error(`flow prompt: no request file at ${reqPath}`);
+    return 1;
+  }
   let requestText: string;
   try {
     requestText = fs.readFileSync(reqPath, "utf8");
-  } catch {
-    console.error(`flow prompt: no request file at ${reqPath}`);
+  } catch (err) {
+    console.error(
+      `flow prompt: request file unreadable at ${reqPath} (${(err as Error).message})`,
+    );
     return 1;
   }
   if (requestText.length === 0) {

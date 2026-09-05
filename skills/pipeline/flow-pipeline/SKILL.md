@@ -479,11 +479,13 @@ no slug-bearing prefix to parse, so the bare ambient call is the only form
 that works on both a fresh launch and a resume re-entry. Document
 `flow prompt <slug>` only as the form a user types in another terminal.
 
-Extract the region between `<!-- flow-request-echo:start -->` and
-`<!-- flow-request-echo:end -->` from its stdout and echo it VERBATIM as the
-session's FIRST assistant output — prose, not a tool-call result, since
-Claude Code truncates Bash tool output. Never paraphrase, reorder, truncate,
-or re-wrap it.
+Extract the region from the FIRST `<!-- flow-request-echo:start -->` marker
+to the LAST `<!-- flow-request-echo:end -->` marker in its stdout (not the
+first end marker — a request body that itself quotes the end-marker string
+would otherwise truncate the echo) and echo it VERBATIM as the session's
+FIRST assistant output — prose, not a tool-call result, since Claude Code
+truncates Bash tool output. Never paraphrase, reorder, truncate, or re-wrap
+it.
 
 Step 0 writes no state and is inert on control flow. On any non-zero exit
 from `flow prompt`, emit one plain line noting the request could not be
@@ -495,8 +497,10 @@ sole authority for an actually-missing request.
 
 **Phase:** `triaging`
 
-**First action of the supervisor.** Extract the pipeline slug from the
-seed prompt before any bash calls. The seed is a single line whose
+**The first state-affecting action of the supervisor** (Step 0 above
+precedes it and is itself a bash call, but writes no state and is inert
+on control flow). Extract the pipeline slug from the seed prompt before
+any further bash calls. The seed is a single line whose
 prefix has the form `[pipeline-slug: <slug>]` — parse the literal
 `<slug>` value from it and embed it inline in the two calls below. The
 slug is a concrete string (e.g. `csv-export`), not a shell variable

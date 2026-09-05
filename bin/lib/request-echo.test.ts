@@ -52,9 +52,9 @@ describe(renderRequestEcho, () => {
   });
 
   it("prefixes the flag list with `flags: ` when run-shaping fields are non-default", () => {
-    const state = baseState({ launcher: "tmux", forceResearch: true });
+    const state = baseState({ forceResearch: true });
     const header = renderRequestEcho(state, "body").split("\n")[1];
-    expect(header).toContain("flags: --research --tmux");
+    expect(header).toContain("flags: --research");
   });
 
   it.each([
@@ -62,9 +62,12 @@ describe(renderRequestEcho, () => {
     [{ waitForCopilot: true }, "--wait-for-copilot"],
     [{ forceResearch: true }, "--research"],
     [{ copilotReview: "always" as const }, "--copilot-review always"],
-    [{ launcher: "tmux" as const }, "--tmux"],
     [{ model: "opus" as const }, "--model opus"],
     [{ effort: "high" as const }, "--effort high"],
+    [
+      { epic: { slug: "my-epic", featureId: "feature-a" } },
+      "--epic my-epic/feature-a",
+    ],
   ])(
     "renders each non-default run-shaping flag exactly once (%j)",
     (overrides, expectedFlag) => {
@@ -73,6 +76,29 @@ describe(renderRequestEcho, () => {
       expect(occurrences).toHaveLength(1);
     },
   );
+
+  it.each([
+    [{ autoMerge: true }],
+    [{ launcher: "plain" as const }],
+    [{ copilotReview: "auto" as const }],
+  ])("renders NO flag for an explicit-default value (%j)", (overrides) => {
+    const flags = runShapingFlags(baseState(overrides));
+    expect(flags).toEqual([]);
+  });
+
+  it("does not render `launcher` as a `--tmux`/`--no-tmux` flag, only as an informational header field", () => {
+    const state = baseState({ launcher: "tmux" });
+    const flags = runShapingFlags(state);
+    expect(flags).not.toContain("--tmux");
+    expect(flags).not.toContain("--no-tmux");
+    const header = renderRequestEcho(state, "body").split("\n")[1];
+    expect(header).toContain("launcher: tmux");
+  });
+
+  it("omits the launcher header field when launcher is absent (legacy tmux-era state)", () => {
+    const header = renderRequestEcho(baseState(), "req").split("\n")[1];
+    expect(header).not.toContain("launcher:");
+  });
 
   it("omits per-phase model overrides and interviewMode from the header", () => {
     const state = baseState({

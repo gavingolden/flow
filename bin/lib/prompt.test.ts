@@ -3,7 +3,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runPromptCli } from "./prompt";
-import { writeState, writeRequestFile, requestFilePath } from "./state";
+import {
+  writeState,
+  writeRequestFile,
+  requestFilePath,
+  statePath,
+} from "./state";
+import { renderRequestEcho } from "./request-echo";
 import type { PipelineState } from "./state";
 
 describe(runPromptCli, () => {
@@ -47,11 +53,18 @@ describe(runPromptCli, () => {
     writeRequestFile(slug, requestText, stateDir);
   }
 
-  it("should print the block and exit 0 when given an explicit slug with state and request file present", () => {
-    seed("csv-export", "add a csv export button");
+  it("should print the request-echo block byte-for-byte and exit 0 when given an explicit slug with state and request file present", () => {
+    const requestText = "add a csv export button";
+    seed("csv-export", requestText);
     const code = runPromptCli(["csv-export"], { stateDir, env: {} });
     expect(code).toBe(0);
-    expect(logged[0]).toContain("add a csv export button");
+    const state: PipelineState = {
+      slug: "csv-export",
+      phase: "implementing",
+      repo: "/work/flow",
+      updatedAt: "2026-09-05T00:00:00.000Z",
+    };
+    expect(logged[0]).toBe(renderRequestEcho(state, requestText));
     expect(errored).toEqual([]);
   });
 
@@ -93,11 +106,35 @@ describe(runPromptCli, () => {
     expect(errored[0]).toContain(requestFilePath("no-request", stateDir));
   });
 
-  it("should exit non-zero with empty stdout when the request file is empty", () => {
+  it("should exit non-zero with empty stdout and a named stderr reason when the request file is empty", () => {
     seed("empty-request", "");
     const code = runPromptCli(["empty-request"], { stateDir, env: {} });
     expect(code).not.toBe(0);
     expect(logged).toEqual([]);
+    expect(errored[0]).toMatch(/request file is empty/);
+  });
+
+  it("should exit non-zero naming the state path with empty stdout when the state file is malformed JSON", () => {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(statePath("malformed-state", stateDir), "{not json", {
+      mode: 0o600,
+    });
+    const code = runPromptCli(["malformed-state"], { stateDir, env: {} });
+    expect(code).not.toBe(0);
+    expect(logged).toEqual([]);
+    expect(errored[0]).toContain("unreadable/invalid");
+    expect(errored[0]).toContain(statePath("malformed-state", stateDir));
+  });
+
+  it("should exit non-zero with a named reason and empty stdout when the positional slug is invalid, without falling through to FLOW_SLUG", () => {
+    const code = runPromptCli([""], {
+      stateDir,
+      env: { FLOW_SLUG: "csv-export" },
+    });
+    expect(code).not.toBe(0);
+    expect(logged).toEqual([]);
+    expect(errored[0]).toMatch(/invalid slug/);
+    expect(errored[0]).not.toMatch(/FLOW_SLUG is not set/);
   });
 
   it('should print an epic pipeline\'s request when the state carries kind: "epic-design"', () => {

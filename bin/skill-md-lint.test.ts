@@ -9672,29 +9672,50 @@ describe("Step 0 request echo contract — both supervisor SKILL.md files", () =
   const REQUIRED_LITERALS = [
     "## Step 0 — Echo the originating request",
     "flow prompt",
-    "verbatim",
+    "VERBATIM",
   ];
 
+  // Slice out just the Step 0 section before asserting: "VERBATIM" alone
+  // appears dozens more times file-wide in flow-pipeline/SKILL.md, so a
+  // file-wide `.includes` check stays green even with the Step 0 section
+  // deleted entirely. Bound the slice at the next `## ` heading (or EOF when
+  // the section is the last one), and assert byte-exact case (unlike the
+  // two sibling blocks above) since all three literals are written in their
+  // canonical case in the source.
+  function step0Section(fullContent: string): string {
+    const start = fullContent.indexOf(
+      "## Step 0 — Echo the originating request",
+    );
+    if (start === -1) return "";
+    const nextHeadingRel = fullContent.slice(start + 1).search(/\n## /);
+    const end =
+      nextHeadingRel === -1 ? fullContent.length : start + 1 + nextHeadingRel;
+    return fullContent.slice(start, end);
+  }
+
+  const pipelineStep0 = step0Section(content);
+  const epicCreateStep0 = step0Section(epicCreateContent);
+
   it.each(REQUIRED_LITERALS)(
-    "flow-pipeline/SKILL.md contains the load-bearing literal %j",
+    "flow-pipeline/SKILL.md's Step 0 section contains the load-bearing literal %j",
     (literal) => {
       expect(
-        content.toLowerCase().includes(literal.toLowerCase()),
-        `skills/pipeline/flow-pipeline/SKILL.md must contain '${literal}'. ` +
-          `Dropping it breaks the Step 0 request-echo contract; restore it or ` +
-          `update this anchor in lockstep.`,
+        pipelineStep0.includes(literal),
+        `skills/pipeline/flow-pipeline/SKILL.md's Step 0 section must contain ` +
+          `'${literal}'. Dropping it breaks the Step 0 request-echo contract; ` +
+          `restore it or update this anchor in lockstep.`,
       ).toBe(true);
     },
   );
 
   it.each(REQUIRED_LITERALS)(
-    "flow-epic-create/SKILL.md contains the load-bearing literal %j",
+    "flow-epic-create/SKILL.md's Step 0 section contains the load-bearing literal %j",
     (literal) => {
       expect(
-        epicCreateContent.toLowerCase().includes(literal.toLowerCase()),
-        `skills/pipeline/flow-epic-create/SKILL.md must contain '${literal}'. ` +
-          `Dropping it breaks the Step 0 request-echo contract; restore it or ` +
-          `update this anchor in lockstep.`,
+        epicCreateStep0.includes(literal),
+        `skills/pipeline/flow-epic-create/SKILL.md's Step 0 section must contain ` +
+          `'${literal}'. Dropping it breaks the Step 0 request-echo contract; ` +
+          `restore it or update this anchor in lockstep.`,
       ).toBe(true);
     },
   );
