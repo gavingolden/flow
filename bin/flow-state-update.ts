@@ -237,8 +237,7 @@ export function applyUpdate(
       ? {
           ciFix: existing.loops?.ciFix ?? 0,
           reviewFix: existing.loops?.reviewFix ?? 0,
-          [args.incrementLoop]:
-            (existing.loops?.[args.incrementLoop] ?? 0) + 1,
+          [args.incrementLoop]: (existing.loops?.[args.incrementLoop] ?? 0) + 1,
         }
       : existing.loops;
   return {

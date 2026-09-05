@@ -309,10 +309,7 @@ describe("deriveSelectionFromManifest", () => {
     const ids = deriveSelectionFromManifest({
       version: 1,
       symlinks: [
-        record(
-          "/home/.claude/skills/flow-module-core/workflows",
-          "workflow",
-        ),
+        record("/home/.claude/skills/flow-module-core/workflows", "workflow"),
       ],
     });
     expect(new Set(ids)).toEqual(new Set(["core"]));

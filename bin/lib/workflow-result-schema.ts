@@ -28,12 +28,7 @@ export type StageAResult = {
   pr: number;
   prUrl: string;
   ran: Record<
-    | "implement"
-    | "resymlink"
-    | "verify"
-    | "ciWait"
-    | "review"
-    | "gateRead",
+    "implement" | "resymlink" | "verify" | "ciWait" | "review" | "gateRead",
     boolean
   >;
   loops: { ciFix: number; reviewFix: number };
@@ -120,7 +115,9 @@ const STAGE_B_PUSH_STATUSES: ReadonlySet<string> = new Set([
   "skipped",
 ]);
 
-function validateStageA(o: Record<string, unknown>): ValidationResult<StageAResult> {
+function validateStageA(
+  o: Record<string, unknown>,
+): ValidationResult<StageAResult> {
   for (const key of [
     "stage",
     "outcome",
@@ -163,7 +160,11 @@ function validateStageA(o: Record<string, unknown>): ValidationResult<StageAResu
       return err(`'ran.${key}' must be a boolean`);
     }
   }
-  if (typeof o.loops !== "object" || o.loops === null || Array.isArray(o.loops)) {
+  if (
+    typeof o.loops !== "object" ||
+    o.loops === null ||
+    Array.isArray(o.loops)
+  ) {
     return err(`'loops' must be an object`);
   }
   const loops = o.loops as Record<string, unknown>;
@@ -179,7 +180,9 @@ function validateStageA(o: Record<string, unknown>): ValidationResult<StageAResu
   return { ok: true, value: o as unknown as StageAResult };
 }
 
-function validateStageB(o: Record<string, unknown>): ValidationResult<StageBResult> {
+function validateStageB(
+  o: Record<string, unknown>,
+): ValidationResult<StageBResult> {
   for (const key of ["stage", "outcome", "pr", "prUrl", "sweep", "summary"]) {
     if (!(key in o)) {
       return err(`missing required top-level key '${key}' for stage B`);

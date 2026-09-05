@@ -74,7 +74,10 @@ describe("validateWorkflowResult", () => {
   });
 
   it("rejects an unknown stage value", () => {
-    const result = validateWorkflowResult({ ...(VALID_A as object), stage: "C" });
+    const result = validateWorkflowResult({
+      ...(VALID_A as object),
+      stage: "C",
+    });
     expect(result.ok).toBe(false);
   });
 

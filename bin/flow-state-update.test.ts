@@ -445,10 +445,7 @@ describe("runUpdate", () => {
   it("rejects an unknown --increment-loop key at the CLI boundary", () => {
     seed("csv-export");
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const code = runUpdate(
-      ["csv-export", "--increment-loop", "notAKey"],
-      dir,
-    );
+    const code = runUpdate(["csv-export", "--increment-loop", "notAKey"], dir);
     expect(code).toBe(2);
     expect(errSpy.mock.calls.flat().join("\n")).toContain(
       "--increment-loop must be 'ciFix' or 'reviewFix'",
