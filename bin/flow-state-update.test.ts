@@ -56,7 +56,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag (empty argv)", () => {
     expect(parseArgs([])).toEqual({
       error:
-        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin, --increment-loop is required",
     });
   });
 
@@ -72,7 +72,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag", () => {
     expect(parseArgs(["foo"])).toEqual({
       error:
-        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin, --increment-loop is required",
     });
   });
 
@@ -233,6 +233,23 @@ describe("parseArgs", () => {
     expect(result.error).toContain("implementing");
   });
 
+  it("parses --increment-loop ciFix into Args", () => {
+    const result = parseArgs(["csv-export", "--increment-loop", "ciFix"]);
+    expect(result).toEqual({ slug: "csv-export", incrementLoop: "ciFix" });
+  });
+
+  it("rejects an unknown --increment-loop key", () => {
+    const result = parseArgs(["csv-export", "--increment-loop", "typoFix"]);
+    expect(result).toEqual({
+      error: "--increment-loop must be 'ciFix' or 'reviewFix', got 'typoFix'",
+    });
+  });
+
+  it("--increment-loop alone satisfies the at-least-one-of guard", () => {
+    const result = parseArgs(["--increment-loop", "reviewFix"]);
+    expect("error" in result).toBe(false);
+  });
+
   it("parses --force as force: true alongside --phase", () => {
     expect(parseArgs(["foo", "--phase", "triaging", "--force"])).toEqual({
       slug: "foo",
@@ -353,6 +370,57 @@ describe("applyUpdate", () => {
   });
 });
 
+describe("applyUpdate + --increment-loop", () => {
+  it("bumps an absent loops field to 1", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "implementing",
+      repo: "/tmp/repo",
+      updatedAt: "2026-04-30T12:00:00Z",
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      incrementLoop: "ciFix",
+    });
+    expect(updated.loops).toEqual({ ciFix: 1, reviewFix: 0 });
+  });
+
+  it("bumps an existing counter from 1 to 2, leaving the other counter untouched", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "implementing",
+      repo: "/tmp/repo",
+      loops: { ciFix: 1, reviewFix: 1 },
+      updatedAt: "2026-04-30T12:00:00Z",
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      incrementLoop: "ciFix",
+    });
+    expect(updated.loops).toEqual({ ciFix: 2, reviewFix: 1 });
+  });
+
+  it("preserves every other field on an --increment-loop-only update", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "implementing",
+      repo: "/tmp/repo",
+      worktree: "/tmp/wt",
+      pr: 142,
+      loops: { ciFix: 0, reviewFix: 0 },
+      updatedAt: "2026-04-30T12:00:00Z",
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      incrementLoop: "reviewFix",
+    });
+    expect(updated.worktree).toBe("/tmp/wt");
+    expect(updated.pr).toBe(142);
+    expect(updated.phase).toBe("implementing");
+    expect(updated.loops).toEqual({ ciFix: 0, reviewFix: 1 });
+  });
+});
+
 describe("runUpdate", () => {
   it("returns 1 with a clear error when no state file exists", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -372,6 +440,29 @@ describe("runUpdate", () => {
       "at least one of --phase",
     );
     errSpy.mockRestore();
+  });
+
+  it("rejects an unknown --increment-loop key at the CLI boundary", () => {
+    seed("csv-export");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(
+      ["csv-export", "--increment-loop", "notAKey"],
+      dir,
+    );
+    expect(code).toBe(2);
+    expect(errSpy.mock.calls.flat().join("\n")).toContain(
+      "--increment-loop must be 'ciFix' or 'reviewFix'",
+    );
+    errSpy.mockRestore();
+  });
+
+  it("--increment-loop standalone (no --phase) writes the bumped counter", () => {
+    seed("csv-export");
+    const code = runUpdate(["csv-export", "--increment-loop", "ciFix"], dir);
+    expect(code).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.loops).toEqual({ ciFix: 1, reviewFix: 0 });
+    expect(got?.phase).toBe("starting"); // untouched — no --phase passed
   });
 
   it("merges fields and refreshes updatedAt", () => {
@@ -1104,7 +1195,7 @@ describe("parseArgs --slug flag", () => {
     const result = parseArgs(["--slug", "csv-export"]);
     expect(result).toEqual({
       error:
-        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin, --increment-loop is required",
     });
   });
 
