@@ -34,12 +34,6 @@ vi.mock("./tmux", () => tmuxMock);
 
 let stateDir!: string;
 
-// Injected through every seedState-based advancePhase/finalizePhase call in
-// this file so no test ever falls through to the real publishStateBadges
-// default and shells out to a real tmux session (belt-and-braces: the
-// `vi.mock("./tmux")` above already stubs the backend).
-const noopPublish = () => {};
-
 beforeEach(() => {
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "phase-advance-"));
 });
@@ -69,11 +63,7 @@ function seedState(
 describe("advancePhase", () => {
   it("advances forward and appends exactly one phaseLog entry", () => {
     seedState("s1", "reviewing");
-    const result = advancePhase("gating", {
-      slug: "s1",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = advancePhase("gating", { slug: "s1", dir: stateDir });
     expect(result).toEqual({
       advanced: true,
       reason: "advanced",
@@ -88,16 +78,8 @@ describe("advancePhase", () => {
 
   it("is a no-op on equal phase and adds no second phaseLog entry", () => {
     seedState("s2", "gating");
-    advancePhase("gating", {
-      slug: "s2",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
-    const result = advancePhase("gating", {
-      slug: "s2",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    advancePhase("gating", { slug: "s2", dir: stateDir });
+    const result = advancePhase("gating", { slug: "s2", dir: stateDir });
     expect(result.reason).toBe("already-at-or-past");
     expect(result.advanced).toBe(false);
     const state = readState("s2", stateDir);
@@ -106,22 +88,14 @@ describe("advancePhase", () => {
 
   it("is a no-op moving backward", () => {
     seedState("s3", "merging");
-    const result = advancePhase("gating", {
-      slug: "s3",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = advancePhase("gating", { slug: "s3", dir: stateDir });
     expect(result.reason).toBe("already-at-or-past");
     expect(readState("s3", stateDir)?.phase).toBe("merging");
   });
 
   it("is a no-op on a terminal phase", () => {
     seedState("s4", "gated");
-    const result = advancePhase("merging", {
-      slug: "s4",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = advancePhase("merging", { slug: "s4", dir: stateDir });
     expect(result).toEqual({
       advanced: false,
       reason: "terminal",
@@ -133,11 +107,7 @@ describe("advancePhase", () => {
 
   it("is a no-op on an epic-* phase", () => {
     seedState("s5", "epic-designing");
-    const result = advancePhase("gating", {
-      slug: "s5",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = advancePhase("gating", { slug: "s5", dir: stateDir });
     expect(result.reason).toBe("epic-phase");
     expect(readState("s5", stateDir)?.phase).toBe("epic-designing");
   });
@@ -145,22 +115,14 @@ describe("advancePhase", () => {
   it("anchors ci-wait-pending at ci-wait's index so a poll after a yield never regresses it", () => {
     expect(PENDING_PHASE_ANCHOR["ci-wait-pending"]).toBe("ci-wait");
     seedState("s6", "ci-wait-pending");
-    const result = advancePhase("ci-wait", {
-      slug: "s6",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = advancePhase("ci-wait", { slug: "s6", dir: stateDir });
     expect(result.reason).toBe("already-at-or-past");
     expect(readState("s6", stateDir)?.phase).toBe("ci-wait-pending");
   });
 
   it("does not advance past ci-wait-pending's anchor even when the target is later", () => {
     seedState("s6b", "ci-wait-pending");
-    const result = advancePhase("reviewing", {
-      slug: "s6b",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = advancePhase("reviewing", { slug: "s6b", dir: stateDir });
     expect(result.advanced).toBe(true);
     expect(readState("s6b", stateDir)?.phase).toBe("reviewing");
   });
@@ -169,7 +131,6 @@ describe("advancePhase", () => {
     const result = advancePhase("gating", {
       slug: null,
       dir: stateDir,
-      publishBadges: noopPublish,
       resolveSlug: () => null,
     });
     expect(result).toEqual({
@@ -180,11 +141,7 @@ describe("advancePhase", () => {
   });
 
   it("returns no-state and writes nothing when no state file exists", () => {
-    const result = advancePhase("gating", {
-      slug: "ghost",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = advancePhase("gating", { slug: "ghost", dir: stateDir });
     expect(result).toEqual({
       advanced: false,
       reason: "no-state",
@@ -198,7 +155,6 @@ describe("advancePhase", () => {
     const result = advancePhase("gating", {
       slug: "s7",
       dir: stateDir,
-      publishBadges: noopPublish,
       expectPr: 99,
     });
     expect(result.reason).toBe("pr-mismatch");
@@ -216,7 +172,6 @@ describe("advancePhase", () => {
     const result = advancePhase("gating", {
       slug: "s8",
       dir: stateDir,
-      publishBadges: noopPublish,
       expectPr: 7,
     });
     expect(result.advanced).toBe(true);
@@ -245,7 +200,6 @@ describe("advancePhase", () => {
       const result = advancePhase("ci-wait", {
         slug: "s9",
         dir: stateDir,
-        publishBadges: noopPublish,
         resolveSlug: () => null,
       });
       expect(result).toEqual({
@@ -282,7 +236,6 @@ describe("advancePhase", () => {
       const result = advancePhase("ci-wait", {
         slug: "s10",
         dir: stateDir,
-        publishBadges: noopPublish,
         resolveSlug: () => null,
       });
       expect(result.advanced).toBe(true);
@@ -413,7 +366,6 @@ describe("advancePhase — fix-loop re-entry (backward allowance)", () => {
     const result = advancePhase("implementing", {
       slug: "r1",
       dir: stateDir,
-      publishBadges: noopPublish,
       expectPr: 5,
     });
     expect(result).toEqual({
@@ -432,7 +384,6 @@ describe("advancePhase — fix-loop re-entry (backward allowance)", () => {
     const result = advancePhase("implementing", {
       slug: "r2",
       dir: stateDir,
-      publishBadges: noopPublish,
       expectPr: 5,
     });
     expect(result).toEqual({
@@ -449,7 +400,6 @@ describe("advancePhase — fix-loop re-entry (backward allowance)", () => {
     const result = advancePhase("ci-wait", {
       slug: "r3",
       dir: stateDir,
-      publishBadges: noopPublish,
       expectPr: 5,
     });
     expect(result).toEqual({
@@ -463,11 +413,7 @@ describe("advancePhase — fix-loop re-entry (backward allowance)", () => {
 
   it("refuses a table-listed backward edge with no expectPr", () => {
     seedState("r4", "ci-wait");
-    const result = advancePhase("implementing", {
-      slug: "r4",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = advancePhase("implementing", { slug: "r4", dir: stateDir });
     expect(result.reason).toBe("already-at-or-past");
     expect(result.advanced).toBe(false);
     expect(readState("r4", stateDir)?.phase).toBe("ci-wait");
@@ -484,7 +430,6 @@ describe("advancePhase — fix-loop re-entry (backward allowance)", () => {
     const result = advancePhase("implementing", {
       slug: "r5",
       dir: stateDir,
-      publishBadges: noopPublish,
       expectPr: 99,
     });
     expect(result.reason).toBe("pr-mismatch");
@@ -498,7 +443,6 @@ describe("advancePhase — fix-loop re-entry (backward allowance)", () => {
     const result = advancePhase("verifying", {
       slug: "r6",
       dir: stateDir,
-      publishBadges: noopPublish,
       expectPr: 5,
     });
     expect(result.reason).toBe("already-at-or-past");
@@ -512,7 +456,6 @@ describe("advancePhase — fix-loop re-entry (backward allowance)", () => {
     const result = advancePhase("implementing", {
       slug: "r7",
       dir: stateDir,
-      publishBadges: noopPublish,
       expectPr: 5,
     });
     expect(result.reason).toBe("already-at-or-past");
@@ -528,7 +471,6 @@ describe("finalizePhase", () => {
       const result = finalizePhase(target, {
         slug: `f-${target}`,
         dir: stateDir,
-        publishBadges: noopPublish,
       });
       expect(result).toEqual({
         advanced: true,
@@ -544,11 +486,7 @@ describe("finalizePhase", () => {
 
   it("no-ops (already-terminal) on a re-render of an already-terminal pipeline and appends no second phaseLog entry", () => {
     seedState("f-idem", "merged");
-    const result = finalizePhase("merged", {
-      slug: "f-idem",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = finalizePhase("merged", { slug: "f-idem", dir: stateDir });
     expect(result).toEqual({
       advanced: false,
       reason: "already-terminal",
@@ -560,22 +498,14 @@ describe("finalizePhase", () => {
 
   it("permits gated -> merged (gated is awaiting-human, not finished)", () => {
     seedState("f-gm", "gated");
-    const result = finalizePhase("merged", {
-      slug: "f-gm",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = finalizePhase("merged", { slug: "f-gm", dir: stateDir });
     expect(result.advanced).toBe(true);
     expect(readState("f-gm", stateDir)?.phase).toBe("merged");
   });
 
   it("refuses merged -> gated (merged is a finished phase)", () => {
     seedState("f-mg", "merged");
-    const result = finalizePhase("gated", {
-      slug: "f-mg",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = finalizePhase("gated", { slug: "f-mg", dir: stateDir });
     expect(result).toEqual({
       advanced: false,
       reason: "finished",
@@ -587,11 +517,7 @@ describe("finalizePhase", () => {
 
   it("refuses cancelled -> merged (cancelled is a finished phase)", () => {
     seedState("f-cm", "cancelled");
-    const result = finalizePhase("merged", {
-      slug: "f-cm",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = finalizePhase("merged", { slug: "f-cm", dir: stateDir });
     expect(result.reason).toBe("finished");
     expect(readState("f-cm", stateDir)?.phase).toBe("cancelled");
   });
@@ -601,7 +527,6 @@ describe("finalizePhase", () => {
     const result = finalizePhase("cancelled", {
       slug: "f-epic",
       dir: stateDir,
-      publishBadges: noopPublish,
     });
     expect(result.reason).toBe("epic-phase");
     expect(readState("f-epic", stateDir)?.phase).toBe("epic-designing");
@@ -613,7 +538,6 @@ describe("finalizePhase", () => {
     const result = finalizePhase("merged", {
       slug: "f-pr",
       dir: stateDir,
-      publishBadges: noopPublish,
       expectPr: 99,
     });
     expect(result.reason).toBe("pr-mismatch");
@@ -626,7 +550,6 @@ describe("finalizePhase", () => {
     const result = finalizePhase("merged", {
       slug: null,
       dir: stateDir,
-      publishBadges: noopPublish,
       resolveSlug: () => null,
     });
     expect(result).toEqual({
@@ -637,11 +560,7 @@ describe("finalizePhase", () => {
   });
 
   it("returns no-state and writes nothing when no state file exists", () => {
-    const result = finalizePhase("merged", {
-      slug: "ghost",
-      dir: stateDir,
-      publishBadges: noopPublish,
-    });
+    const result = finalizePhase("merged", { slug: "ghost", dir: stateDir });
     expect(result).toEqual({
       advanced: false,
       reason: "no-state",
@@ -671,7 +590,6 @@ describe("finalizePhase", () => {
       const result = finalizePhase("merged", {
         slug: "f-branch",
         dir: stateDir,
-        publishBadges: noopPublish,
         resolveSlug: () => null,
       });
       expect(result).toEqual({
@@ -786,12 +704,10 @@ describe("TERMINAL_PHASE_EMITTERS", () => {
 });
 
 describe("phase publish — refusal paths and the fix-loop re-entry edge not covered by the publishBadges seam tests above", () => {
-  // PR #775 originally asserted these against its own phase-only funnel
-  // seam; retargeted onto origin/main's state-shaped `publishBadges` seam
-  // when PR #770 landed the same fix as a whole-badge-set publish. Only the
-  // four cases the seam tests above do NOT already cover are kept: the
-  // `reentered` backward edge plus the pr-mismatch / no-state / epic-phase
-  // refusals.
+  // These four cases fill gaps left by the publishBadges seam tests above:
+  // the `reentered` backward edge (a real phase change the badge must
+  // track) plus the pr-mismatch / no-state / epic-phase refusals (writes
+  // that must publish nothing).
   it("publishes on a `reentered` fix-loop backward edge (ci-wait -> implementing)", () => {
     seedState("pub-3", "ci-wait", { pr: 5 });
     const published: Array<[string, string]> = [];
