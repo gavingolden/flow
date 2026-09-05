@@ -695,8 +695,16 @@ versa.
 Act as a cross-model code reviewer over the whole PR diff. Review from every
 angle (correctness, security, performance, consistency, test coverage,
 supply-chain) — you are the only reviewer on this model family, so do not
-narrow to a single lens. Read the changed files in full for context (the
-worktree is the agy run's current directory, also passed via `--add-dir`).
+narrow to a single lens. The worktree is passed via `--add-dir`; reach for it
+with your file-reading tools ONLY (read a file, list a directory), spot-check
+a diff-sized cap of files, and do NOT shell out — no `grep`, `find`, `ls`,
+`cat`, or `git` commands: this is a headless run in which shell commands need
+a permission nothing can grant mid-run, so they are auto-denied and your
+review ends silently with no output at all (`bin/lib/agy-read-rules.ts` is
+the shared source of truth for this block across every `--add-dir` agy
+prompt). A denied tool call or a thinking-token-dominated empty response
+triggers ONE bounded fallback retry with no filesystem access at all — a
+successful retry is a real but degraded review, not a failure.
 
 ### Output Format
 

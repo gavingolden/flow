@@ -691,12 +691,8 @@ hard-fails the review.
 
 3. **Branch on the helper's `{ran}` JSON** (the one-line stdout envelope),
    NEVER on the exit code (the helper exits 0 on every graceful path):
-   - `ran: true` → `agent-output-gemini.json` is schema-valid; it becomes the
-     SEVENTH input to the Step 3.5 Consolidator. Record `decodedVia` from
-     the envelope for Step 12's report — the report template renders it
-     ONLY when it is not `structured-output`, so a silently-degrading model
-     surface (falling back through the parse/salvage rungs) stays visible.
-   - `ran: false` → record `skipReason` and its `skipClass` (`environment` — not run, no quota spent — vs `ran-unusable` — ran but produced nothing usable — reported distinctly, never folded into one generic "skipped" phrase) and, when present, `exitCode` / `agyError` / `stderrTail` / `partialArtifactPath` and proceed. No `agent-output-gemini.json` is left on disk; the consolidator tolerates its absence (it is NOT one of the six mandatory lenses, so its absence does NOT escalate `consolidator-missing-artifact`).
+   - `ran: true` → `agent-output-gemini.json` is schema-valid; it becomes the SEVENTH input to the Step 3.5 Consolidator. Record `decodedVia` from the envelope for Step 12's report — rendered ONLY when not `structured-output`, so a silently-degrading model surface stays visible — and `degraded` / `degradedReason` when present, since the one bounded no-`--add-dir` fallback retry can land a schema-valid but WEAKER, no-filesystem-access review.
+   - `ran: false` → record `skipReason` and its `skipClass` (`environment` — not run, no quota spent — vs `ran-unusable` — ran but produced nothing usable — reported distinctly, never folded into one generic "skipped" phrase) and, when present, `exitCode` / `agyError` / `stderrTail` / `partialArtifactPath` / `deniedActions` (the agy tool names denied, e.g. `RunCommand`, on `gemini-tools-denied`) and proceed. No `agent-output-gemini.json` is left on disk; the consolidator tolerates its absence (it is NOT one of the six mandatory lenses, so its absence does NOT escalate `consolidator-missing-artifact`).
 
 Do NOT add a seventh row to the six-agent table above — the Gemini lens
 reviews the whole diff with no static-analysis lens, so it is deliberately

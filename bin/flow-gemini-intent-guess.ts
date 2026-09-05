@@ -51,8 +51,12 @@ import {
   clampDelegateTimeout,
   resolveDelegateTimeout,
 } from "./lib/delegate-timeouts";
-import { decodeDelegateArtifact } from "./lib/structured-response";
+import {
+  decodeDelegateArtifact,
+  unwrapAgyEnvelope,
+} from "./lib/structured-response";
 import { classifyDelegateSkip } from "./lib/delegate-skip-class";
+import { agyReadRules } from "./lib/agy-read-rules";
 
 // The model routes through resolveDelegateModel("intentGuess") — the default
 // lives in DELEGATE_MODEL_DEFAULTS; a `delegate.models.intentGuess` config
@@ -216,8 +220,25 @@ export function validateIntentGuess(
   };
 }
 
-function buildPrompt(diff: string, fileList: string): string {
-  return `You are guessing the purpose of a pull request from its diff alone. You have NOT been given the PR title, description, plan, or commit messages — guess blind, the same way a second independent reviewer would before reading any of that context. You have read access to the working directory for surrounding source context, but you must NOT open \`.flow-tmp/fetch.md\`, \`.flow-tmp/pr-body.md\`, \`.flow-tmp/pr-body-current.md\`, \`.flow-tmp/pr-metadata.json\`, \`.flow-tmp/pr-description-draft.md\`, \`.flow-tmp/commits.txt\`, \`.flow-tmp/plan.md\`, \`.flow-tmp/checkpoint.md\`, \`.flow-tmp/checkpoint.consumed.md\`, \`~/.flow/state/checkpoints/<slug>/checkpoint.md\`, \`~/.flow/state/checkpoints/<slug>/checkpoint.consumed.md\`, \`.flow-tmp/scout.md\`, any other \`.flow-tmp/\` PR-metadata artifact, or the git log — doing so unblinds you and defeats this check.
+// Exported so bin/lib/agy-read-rules.test.ts can pin this call site to the
+// shared read-rules block (Task 3) and bin/flow-gemini-intent-guess.test.ts
+// can assert the prompt text directly (Task 2/5).
+export function buildPrompt(
+  diff: string,
+  fileList: string,
+  worktreePath: string,
+): string {
+  const fileCap = Math.min(
+    Math.max(fileList.split("\n").filter((l) => l.trim().length > 0).length, 1),
+    10,
+  );
+  const readRules = agyReadRules({
+    worktreePath,
+    readPurpose: "find surrounding source context for the diff below",
+    fileCap,
+    outputNoun: "guess",
+  });
+  return `You are guessing the purpose of a pull request from its diff alone. You have NOT been given the PR title, description, plan, or commit messages — guess blind, the same way a second independent reviewer would before reading any of that context. ${readRules} You must NOT open \`.flow-tmp/fetch.md\`, \`.flow-tmp/pr-body.md\`, \`.flow-tmp/pr-body-current.md\`, \`.flow-tmp/pr-metadata.json\`, \`.flow-tmp/pr-description-draft.md\`, \`.flow-tmp/commits.txt\`, \`.flow-tmp/plan.md\`, \`.flow-tmp/checkpoint.md\`, \`.flow-tmp/checkpoint.consumed.md\`, \`~/.flow/state/checkpoints/<slug>/checkpoint.md\`, \`~/.flow/state/checkpoints/<slug>/checkpoint.consumed.md\`, \`.flow-tmp/scout.md\`, any other \`.flow-tmp/\` PR-metadata artifact, or the git log — doing so unblinds you and defeats this check.
 
 Changed files:
 ${fileList}
@@ -248,6 +269,8 @@ export type DelegateEnvelope = {
   stderrTail?: string;
   agyStatus?: string;
   agyError?: string;
+  deniedActions?: string[];
+  usage?: Record<string, number>;
 };
 
 export type Deps = {
@@ -322,7 +345,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     skipReason: string,
     diag?: Pick<
       DelegateEnvelope,
-      "exitCode" | "stderrTail" | "agyStatus" | "agyError"
+      "exitCode" | "stderrTail" | "agyStatus" | "agyError" | "deniedActions"
     >,
   ): number => {
     const skipClass = classifyDelegateSkip(skipReason);
@@ -340,6 +363,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     if (diag?.stderrTail) envelope.stderrTail = diag.stderrTail;
     if (diag?.agyStatus) envelope.agyStatus = diag.agyStatus;
     if (diag?.agyError) envelope.agyError = diag.agyError;
+    if (diag?.deniedActions) envelope.deniedActions = diag.deniedActions;
     if (partialArtifactPath) envelope.partialArtifactPath = partialArtifactPath;
     return emit(deps, envelope);
   };
@@ -368,7 +392,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
 
   try {
     deps.mkdirp(dirname(parsed.out));
-    deps.writeFile(promptPath, buildPrompt(diff, fileList));
+    deps.writeFile(promptPath, buildPrompt(diff, fileList, parsed.worktree));
     deps.writeFile(schemaPath, JSON.stringify(INTENT_GUESS_JSON_SCHEMA));
   } catch {
     return skip("gemini-intent-guess-prep-failed");
@@ -399,15 +423,26 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
 
   // Branch on the `ran` field (NEVER the exit code): flow-delegate exits 0
   // even on a graceful agy-absent skip. Diagnostics (exitCode/stderrTail/
-  // agyStatus/agyError) forward through so a caller can distinguish a
-  // print-timeout kill from a generic agy-error.
+  // agyStatus/agyError/deniedActions) forward through so a caller can
+  // distinguish a print-timeout kill from a generic agy-error. A denied
+  // tool call takes priority over whatever raw skipReason flow-delegate
+  // reported — the documented CANCELED reproduction of the same denial
+  // reaches this branch (never the decode ladder below), so this is the
+  // only place that can catch it.
   if (!envelope.ran) {
-    return skip(envelope.skipReason ?? "agy-skip", {
+    const diag = {
       exitCode: envelope.exitCode,
       stderrTail: envelope.stderrTail,
       agyStatus: envelope.agyStatus,
       agyError: envelope.agyError,
-    });
+      deniedActions: envelope.deniedActions,
+    };
+    return skip(
+      envelope.deniedActions && envelope.deniedActions.length > 0
+        ? "gemini-tools-denied"
+        : (envelope.skipReason ?? "agy-skip"),
+      diag,
+    );
   }
 
   let raw: string;
@@ -419,10 +454,30 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
 
   const decoded = decodeDelegateArtifact(raw, validateIntentGuess);
   if (!decoded.ok) {
-    // The former -output-unparseable and -output-schema-invalid reasons
-    // collapse into one: the ladder folds validation into decoding, so once
-    // no rung both parses AND validates, the two are no longer
-    // distinguishable from the caller's side.
+    // Self-diagnosing classification, denied check FIRST: a denied tool call
+    // or a thinking-token-dominated empty response, falling back to the
+    // prior generic reason when neither signal is present. The former
+    // -output-unparseable and -output-schema-invalid reasons already
+    // collapsed into one before this change — the ladder folds validation
+    // into decoding, so once no rung both parses AND validates, the two are
+    // no longer distinguishable from the caller's side.
+    if (envelope.deniedActions && envelope.deniedActions.length > 0) {
+      return skip("gemini-tools-denied", {
+        deniedActions: envelope.deniedActions,
+      });
+    }
+    const usage = envelope.usage;
+    const { text } = unwrapAgyEnvelope(raw);
+    if (
+      text.trim() === "" &&
+      usage &&
+      typeof usage.thinking_tokens === "number" &&
+      typeof usage.output_tokens === "number" &&
+      usage.output_tokens > 0 &&
+      usage.thinking_tokens >= usage.output_tokens * 0.9
+    ) {
+      return skip("gemini-token-exhausted");
+    }
     return skip("gemini-intent-guess-output-unparseable");
   }
 

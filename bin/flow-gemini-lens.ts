@@ -69,7 +69,13 @@ import {
   resolveDelegateTimeout,
 } from "./lib/delegate-timeouts";
 import { classifyDelegateSkip } from "./lib/delegate-skip-class";
-import { decodeDelegateArtifact } from "./lib/structured-response";
+import {
+  decodeDelegateArtifact,
+  unwrapAgyEnvelope,
+  type DecodeVia,
+} from "./lib/structured-response";
+import { agyReadRules } from "./lib/agy-read-rules";
+import type { AgentFindings } from "./lib/agent-finding-schema";
 
 // The model routes through resolveDelegateModel("reviewLens") — the default
 // lives in DELEGATE_MODEL_DEFAULTS; a `delegate.models.reviewLens` config
@@ -268,10 +274,31 @@ export const AGENT_FINDINGS_JSON_SCHEMA: Record<string, unknown> = {
   },
 };
 
-function buildPrompt(diff: string): string {
+// Counts `diff --git ` file-header occurrences to derive a diff-sized file
+// cap for agyReadRules — a one-file diff gets a floor of 1, a large diff is
+// capped at 10 so the read budget stays proportionate to review scope.
+function countDiffFiles(diff: string): number {
+  return (diff.match(/diff --git /g) ?? []).length;
+}
+
+// Exported so bin/lib/agy-read-rules.test.ts can pin this call site to the
+// shared read-rules block (Task 3) and bin/flow-gemini-lens.test.ts can
+// assert the prompt text directly (Task 2/5/8). A null worktreePath (the
+// Task 8 diff-only retry) omits agyReadRules entirely — there is no
+// filesystem to read.
+export function buildPrompt(diff: string, worktreePath: string | null): string {
+  const readSection =
+    worktreePath !== null
+      ? agyReadRules({
+          worktreePath,
+          readPurpose: "read the changed files in full for surrounding context",
+          fileCap: Math.min(Math.max(countDiffFiles(diff), 1), 10),
+          outputNoun: "review",
+        })
+      : "You are reviewing the diff below with no filesystem access.";
   return `You are a cross-model code reviewer. A separate set of reviewers running on a different model family is reviewing this same pull request; your job is to catch real issues their model family systematically under-weights. Review the whole diff below from every angle (correctness, security, performance, consistency, test coverage, supply-chain).
 
-Read the changed files in full for surrounding context — the working tree is your current directory. The full diff is at the end of this prompt.
+${readSection} The full diff is at the end of this prompt.
 
 ## Output format (LOAD-BEARING)
 
@@ -319,6 +346,8 @@ export type DelegateEnvelope = {
   stderrTail?: string;
   agyStatus?: string;
   agyError?: string;
+  deniedActions?: string[];
+  usage?: Record<string, number>;
 };
 
 export type Deps = {
@@ -402,8 +431,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     skipReason: string,
     diag?: Pick<
       DelegateEnvelope,
-      "exitCode" | "stderrTail" | "agyStatus" | "agyError"
+      "exitCode" | "stderrTail" | "agyStatus" | "agyError" | "deniedActions"
     >,
+    extra?: Record<string, unknown>,
   ): number => {
     const skipClass = classifyDelegateSkip(skipReason);
     const partialArtifactPath =
@@ -420,7 +450,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     if (diag?.stderrTail) envelope.stderrTail = diag.stderrTail;
     if (diag?.agyStatus) envelope.agyStatus = diag.agyStatus;
     if (diag?.agyError) envelope.agyError = diag.agyError;
+    if (diag?.deniedActions) envelope.deniedActions = diag.deniedActions;
     if (partialArtifactPath) envelope.partialArtifactPath = partialArtifactPath;
+    if (extra) Object.assign(envelope, extra);
     return emit(deps, envelope);
   };
 
@@ -430,15 +462,11 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   } catch {
     return skip("gemini-diff-unreadable");
   }
-  try {
-    deps.mkdirp(dirname(parsed.out));
-    deps.writeFile(promptPath, buildPrompt(diff));
-    deps.writeFile(schemaPath, JSON.stringify(AGENT_FINDINGS_JSON_SCHEMA));
-  } catch {
-    return skip("gemini-prep-failed");
-  }
+  const timeoutArg = parsed.timeout
+    ? clampDelegateTimeout(parsed.timeout, "reviewLens")
+    : resolveDelegateTimeout("reviewLens");
 
-  const envelope = deps.runDelegate([
+  const dispatchArgv = (addDir: string | null): string[] => [
     "--output-format",
     "json",
     "--json-schema",
@@ -449,95 +477,203 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     // Non-null: only the "scout" surface's default is null; reviewLens's
     // default and every well-typed override are strings.
     resolveDelegateModel("reviewLens") as string,
-    "--add-dir",
-    parsed.worktree,
+    ...(addDir !== null ? ["--add-dir", addDir] : []),
     "--out",
     rawPath,
     "--task",
     parsed.task,
     "--timeout",
-    parsed.timeout
-      ? clampDelegateTimeout(parsed.timeout, "reviewLens")
-      : resolveDelegateTimeout("reviewLens"),
+    timeoutArg,
+  ];
+
+  const decodeAgentFindings = (rawArtifact: string) =>
+    // Normalization applies to EVERY rung, including structured_output —
+    // this is what lets a model's off-enum label still land through the
+    // ladder, not just through the prose-parse rungs.
+    decodeDelegateArtifact(rawArtifact, (candidate) =>
+      validateAgentFindings(normalizeParsedFindings(candidate)),
+    );
+
+  const finalizeSuccess = (
+    decodedValue: AgentFindings,
+    decodedVia: DecodeVia,
+    extra: Record<string, unknown> = {},
+  ): number => {
+    try {
+      // MANDATORY, not cosmetic: validateAgentFindings tolerates extra
+      // top-level keys and returns the input unmodified, so writing
+      // decoded.value directly would leak a schema-supplied `reasoning` key
+      // into agent-output-gemini.json and hand the consolidator a non-
+      // {findings, rejected_alternatives, anti_patterns_found} artifact.
+      // Re-project to exactly those three keys. The two negative arrays
+      // route through the TOLERANT collectLensNegatives — a wire-schema
+      // violation on one malformed negative entry must never sink the whole
+      // cross-model review (this helper already skips with
+      // `gemini-output-unparseable` on a genuinely-broken payload; that path
+      // is for the whole artifact, not one entry).
+      const negatives = collectLensNegatives(decodedValue);
+      const state = classifyLensNegatives(decodedValue);
+      const finalized: {
+        findings: unknown;
+        rejected_alternatives?: unknown;
+        anti_patterns_found?: unknown;
+      } = { findings: decodedValue.findings };
+      // Preserve genuine absence rather than laundering it into `[]`: the
+      // wire schema now REQUIRES both keys from agy, but decodedValue may
+      // still come from a salvage rung that never enforced that
+      // requirement. Only write the key when the source actually carried an
+      // array (populated or empty), so the consolidator's
+      // `classifyLensNegatives` can still tell "lens omitted this" from
+      // "lens explicitly reported none".
+      if (state.rejected_alternatives !== "absent") {
+        finalized.rejected_alternatives = negatives.rejected_alternatives;
+      }
+      if (state.anti_patterns_found !== "absent") {
+        finalized.anti_patterns_found = negatives.anti_patterns_found;
+      }
+      deps.writeFile(parsed.out, JSON.stringify(finalized, null, 2));
+    } catch {
+      return skip("gemini-finalize-failed");
+    }
+
+    cleanScratch();
+    return emit(deps, {
+      ran: true,
+      findingsPath: parsed.out,
+      decodedVia,
+      findingCount: decodedValue.findings.length,
+      ...extra,
+    });
+  };
+
+  // Self-diagnosing classification for a dispatched-but-unusable run: a
+  // denied tool call (checked FIRST — see the header) or a thinking-token-
+  // dominated empty response, falling back to the prior generic reason when
+  // neither signal is present.
+  const classifyUnusable = (
+    rawArtifact: string,
+    env: Pick<DelegateEnvelope, "deniedActions" | "usage">,
+  ):
+    | "gemini-tools-denied"
+    | "gemini-token-exhausted"
+    | "gemini-output-unparseable" => {
+    if (env.deniedActions && env.deniedActions.length > 0) {
+      return "gemini-tools-denied";
+    }
+    const usage = env.usage;
+    const { text } = unwrapAgyEnvelope(rawArtifact);
+    if (
+      text.trim() === "" &&
+      usage &&
+      typeof usage.thinking_tokens === "number" &&
+      typeof usage.output_tokens === "number" &&
+      usage.output_tokens > 0 &&
+      usage.thinking_tokens >= usage.output_tokens * 0.9
+    ) {
+      return "gemini-token-exhausted";
+    }
+    return "gemini-output-unparseable";
+  };
+
+  const RETRYABLE_SKIP_REASONS = new Set([
+    "gemini-tools-denied",
+    "gemini-token-exhausted",
   ]);
+
+  try {
+    deps.mkdirp(dirname(parsed.out));
+    deps.writeFile(promptPath, buildPrompt(diff, parsed.worktree));
+    deps.writeFile(schemaPath, JSON.stringify(AGENT_FINDINGS_JSON_SCHEMA));
+  } catch {
+    return skip("gemini-prep-failed");
+  }
+
+  const envelope = deps.runDelegate(dispatchArgv(parsed.worktree));
 
   // Branch on the `ran` field (NEVER the exit code): flow-delegate exits 0
   // even on a graceful agy-absent skip. Diagnostics (exitCode/stderrTail/
-  // agyStatus/agyError) forward through so a caller can distinguish a
-  // print-timeout kill from a generic agy-error.
+  // agyStatus/agyError/deniedActions) forward through so a caller can
+  // distinguish a print-timeout kill from a generic agy-error. A denied
+  // tool call takes priority over whatever raw skipReason flow-delegate
+  // reported — the documented CANCELED reproduction of the same denial
+  // reaches this branch (never the decode ladder below), so this is the
+  // only place that can catch it.
+  let skipReason: string | undefined;
+  let diag: Pick<
+    DelegateEnvelope,
+    "exitCode" | "stderrTail" | "agyStatus" | "agyError" | "deniedActions"
+  > = {};
+  let raw = "";
+  let decoded: ReturnType<typeof decodeAgentFindings> | undefined;
+
   if (!envelope.ran) {
-    return skip(envelope.skipReason ?? "agy-skip", {
+    diag = {
       exitCode: envelope.exitCode,
       stderrTail: envelope.stderrTail,
       agyStatus: envelope.agyStatus,
       agyError: envelope.agyError,
-    });
-  }
-
-  let raw: string;
-  try {
-    raw = deps.readFile(envelope.artifactPath ?? rawPath);
-  } catch {
-    return skip("gemini-output-unreadable");
-  }
-
-  // Normalization applies to EVERY rung, including structured_output — this
-  // is what lets a model's off-enum label still land through the ladder,
-  // not just through the prose-parse rungs.
-  const decoded = decodeDelegateArtifact(raw, (candidate) =>
-    validateAgentFindings(normalizeParsedFindings(candidate)),
-  );
-  if (!decoded.ok) {
-    // The former -output-unparseable and -output-schema-invalid reasons
-    // collapse into one: the ladder folds validation into decoding, so once
-    // no rung both parses AND validates, the two are no longer
-    // distinguishable from the caller's side.
-    return skip("gemini-output-unparseable");
-  }
-
-  try {
-    // MANDATORY, not cosmetic: validateAgentFindings tolerates extra
-    // top-level keys and returns the input unmodified, so writing
-    // decoded.value directly would leak a schema-supplied `reasoning` key
-    // into agent-output-gemini.json and hand the consolidator a non-
-    // {findings, rejected_alternatives, anti_patterns_found} artifact.
-    // Re-project to exactly those three keys. The two negative arrays route
-    // through the TOLERANT collectLensNegatives — a wire-schema violation on
-    // one malformed negative entry must never sink the whole cross-model
-    // review (this helper already skips with `gemini-output-unparseable` on
-    // a genuinely-broken payload; that path is for the whole artifact, not
-    // one entry).
-    const negatives = collectLensNegatives(decoded.value);
-    const state = classifyLensNegatives(decoded.value);
-    const finalized: {
-      findings: unknown;
-      rejected_alternatives?: unknown;
-      anti_patterns_found?: unknown;
-    } = { findings: decoded.value.findings };
-    // Preserve genuine absence rather than laundering it into `[]`: the wire
-    // schema now REQUIRES both keys from agy, but decoded.value may still
-    // come from a salvage rung that never enforced that requirement. Only
-    // write the key when the source actually carried an array (populated or
-    // empty), so the consolidator's `classifyLensNegatives` can still tell
-    // "lens omitted this" from "lens explicitly reported none".
-    if (state.rejected_alternatives !== "absent") {
-      finalized.rejected_alternatives = negatives.rejected_alternatives;
+      deniedActions: envelope.deniedActions,
+    };
+    skipReason =
+      envelope.deniedActions && envelope.deniedActions.length > 0
+        ? "gemini-tools-denied"
+        : (envelope.skipReason ?? "agy-skip");
+  } else {
+    try {
+      raw = deps.readFile(envelope.artifactPath ?? rawPath);
+    } catch {
+      skipReason = "gemini-output-unreadable";
     }
-    if (state.anti_patterns_found !== "absent") {
-      finalized.anti_patterns_found = negatives.anti_patterns_found;
+    if (skipReason === undefined) {
+      decoded = decodeAgentFindings(raw);
+      if (!decoded.ok) {
+        skipReason = classifyUnusable(raw, envelope);
+      }
     }
-    deps.writeFile(parsed.out, JSON.stringify(finalized, null, 2));
-  } catch {
-    return skip("gemini-finalize-failed");
   }
 
-  cleanScratch();
-  return emit(deps, {
-    ran: true,
-    findingsPath: parsed.out,
-    decodedVia: decoded.via,
-    findingCount: decoded.value.findings.length,
-  });
+  if (skipReason !== undefined && RETRYABLE_SKIP_REASONS.has(skipReason)) {
+    // Task 8: exactly one bounded diff-only fallback retry, no --add-dir and
+    // no filesystem access, so a repeated prompt-constraint failure degrades
+    // to a weaker review rather than to nothing.
+    const originalSkipReason = skipReason;
+    const originalDiag = diag;
+    try {
+      deps.writeFile(promptPath, buildPrompt(diff, null));
+    } catch {
+      return skip(originalSkipReason, originalDiag, {
+        fallbackAttempted: true,
+      });
+    }
+    const retryEnvelope = deps.runDelegate(dispatchArgv(null));
+    let retryDecoded: ReturnType<typeof decodeAgentFindings> | undefined;
+    if (retryEnvelope.ran) {
+      try {
+        const retryRaw = deps.readFile(retryEnvelope.artifactPath ?? rawPath);
+        retryDecoded = decodeAgentFindings(retryRaw);
+      } catch {
+        retryDecoded = { ok: false };
+      }
+    }
+    if (retryDecoded?.ok) {
+      return finalizeSuccess(retryDecoded.value, retryDecoded.via, {
+        degraded: "diff-only",
+        degradedReason: originalSkipReason,
+      });
+    }
+    return skip(originalSkipReason, originalDiag, { fallbackAttempted: true });
+  }
+
+  if (skipReason !== undefined) {
+    return skip(skipReason, diag);
+  }
+
+  // Reachable only when skipReason stayed undefined, which happens
+  // exclusively on the `decoded.ok` branch above.
+  if (decoded && decoded.ok) {
+    return finalizeSuccess(decoded.value, decoded.via);
+  }
+  return skip("gemini-output-unparseable");
 }
 
 function resolveDeps(o?: Partial<Deps>): Deps {

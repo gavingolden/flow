@@ -18,7 +18,17 @@
  * instructs the reviewer to verify the plan's claims about existing
  * behaviour against the real code rather than assuming them, and to cite
  * the exact path any current-behaviour claim was read from.
+ *
+ * The file-reading-tools-only / no-shell-out read-access block is now
+ * composed from `bin/lib/agy-read-rules.ts` (the shared source of truth for
+ * every `--add-dir` agy prompt) rather than hand-copied here. This prompt's
+ * OWN test file pins two of its sentences to the pre-existing wording
+ * ("delegate this verification to other agents" / "third of your run on
+ * verification") that predates the extraction, so this call site is the one
+ * `agyReadRules` caller that passes the `readVerb`/`pacingPhrase` overrides.
  */
+
+import { agyReadRules } from "./agy-read-rules";
 
 /**
  * Extracts the PRD's `**Goal:**` line verbatim (including the `**Goal:**`
@@ -99,7 +109,17 @@ export function buildBatteryPrompt(input: BatteryPromptInput): string {
 
   return `${opener}
 
-Your output is INPUT the supervisor weighs against context it has and you do not — it is NOT a verdict. Reason at the end-user and PRD level (named skills, pipeline steps, consumer repos). ${input.worktreePath} is the readable repository root — READ it to VERIFY the plan's claims about existing behaviour rather than assuming them. Reach for it with your file-reading tools ONLY (read a file, list a directory). Spot-check AT MOST 8 files — you are sampling to catch a wrong claim, not auditing the repo. Do NOT spawn subagents or delegate this verification to other agents — read the files yourself. Spend at most a third of your run on verification, then STOP reading and write the review — a review that is never written is worth nothing. Emit each of the six lenses below as it is finished, never buffering the whole review to the end. Do NOT shell out — no \`grep\`, \`find\`, \`ls\`, \`cat\`, or \`git\` commands: this is a headless run in which shell commands need a permission nothing can grant mid-run, so they are auto-denied and your review ends silently with no output at all. Do NOT read the \`.flow-tmp/\` directory — it holds this pipeline's own scratch state, including any OTHER reviewer's in-flight or already-written output; your independence from the other reviewer is the entire point of running a second model, so reading their output would silently turn an "independently converged" point into an echo. Do NOT open \`.env*\` files or any credential/secret file — you never need them to review a plan, and reading them would be a pure liability with no reviewing benefit. Findings are about the PLAN's decisions, not about the current code's style — the code this plan describes does not exist yet, so do not review it. When you cannot verify a claim from the repository, flag the uncertainty explicitly — never fabricate a concrete flow to sound authoritative.
+Your output is INPUT the supervisor weighs against context it has and you do not — it is NOT a verdict. Reason at the end-user and PRD level (named skills, pipeline steps, consumer repos). ${agyReadRules(
+    {
+      worktreePath: input.worktreePath,
+      readPurpose:
+        "VERIFY the plan's claims about existing behaviour rather than assuming them",
+      fileCap: 8,
+      outputNoun: "review",
+      readVerb: "verification",
+      pacingPhrase: "on verification",
+    },
+  )} Write the review once you stop reading — a review that is never written is worth nothing. Emit each of the six lenses below as it is finished, never buffering the whole review to the end. Do NOT read the \`.flow-tmp/\` directory — it holds this pipeline's own scratch state, including any OTHER reviewer's in-flight or already-written output; your independence from the other reviewer is the entire point of running a second model, so reading their output would silently turn an "independently converged" point into an echo. Do NOT open \`.env*\` files or any credential/secret file — you never need them to review a plan, and reading them would be a pure liability with no reviewing benefit. Findings are about the PLAN's decisions, not about the current code's style — the code this plan describes does not exist yet, so do not review it. When you cannot verify a claim from the repository, flag the uncertainty explicitly — never fabricate a concrete flow to sound authoritative.
 
 Emit the six lenses below under their EXACT authored headings (e.g. \`**Goal-anchored verdicts.**\`) — do not paraphrase or rename them, so your output can be matched back to the lens it addresses. Any claim you make about CURRENT behaviour must cite the exact file path you read it from; an uncited claim about current behaviour must be labelled an assumption, not stated as fact — with repo access, a confident-but-fabricated codebase claim is the new failure mode this battery must guard against.
 
