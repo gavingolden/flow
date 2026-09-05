@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  appendPhaseLog,
   autoResumesAfterClear,
   AWAITING_HUMAN_PHASES,
   deleteState,
@@ -1673,5 +1674,57 @@ describe("shortPhase", () => {
     for (const key of Object.keys(PHASE_SHORT)) {
       expect(known.has(key), `PHASE_SHORT has stale entry '${key}'`).toBe(true);
     }
+  });
+});
+
+describe("appendPhaseLog", () => {
+  const base: PipelineState = {
+    slug: "csv-export",
+    phase: "implementing",
+    repo: "me/flow",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  it("returns the existing log unchanged when the last entry's phase already matches (same-phase tail)", () => {
+    const withLog: PipelineState = {
+      ...base,
+      phaseLog: [{ phase: "ci-wait", at: "2026-01-01T00:00:00.000Z" }],
+    };
+    const result = appendPhaseLog(withLog, "ci-wait");
+    expect(result).toEqual(withLog.phaseLog);
+    expect(result).toHaveLength(1);
+  });
+
+  it("appends when the new phase differs from the last entry", () => {
+    const withLog: PipelineState = {
+      ...base,
+      phaseLog: [{ phase: "ci-wait", at: "2026-01-01T00:00:00.000Z" }],
+    };
+    const result = appendPhaseLog(withLog, "reviewing");
+    expect(result).toHaveLength(2);
+    expect(result.at(-1)?.phase).toBe("reviewing");
+  });
+
+  it("appends when phaseLog is empty/absent", () => {
+    const result = appendPhaseLog(base, "implementing");
+    expect(result).toHaveLength(1);
+    expect(result[0]?.phase).toBe("implementing");
+  });
+
+  it("still appends a non-adjacent repeat (A, B, A)", () => {
+    const withLog: PipelineState = {
+      ...base,
+      phaseLog: [
+        { phase: "implementing", at: "2026-01-01T00:00:00.000Z" },
+        { phase: "ci-wait", at: "2026-01-01T00:05:00.000Z" },
+      ],
+    };
+    const result = appendPhaseLog(withLog, "implementing");
+    expect(result).toHaveLength(3);
+    expect(result.map((entry) => entry.phase)).toEqual([
+      "implementing",
+      "ci-wait",
+      "implementing",
+    ]);
   });
 });

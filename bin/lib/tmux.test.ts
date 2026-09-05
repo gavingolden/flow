@@ -1331,6 +1331,51 @@ describe(publishStateBadges, () => {
     ]);
   });
 
+  it("ends with a best-effort `refresh-client -S` so the new badges repaint immediately", () => {
+    // Must be LAST: the repaint has to follow every set-option, or the
+    // status line redraws with the previous values still in place.
+    const { calls, spawnTmux } = fakeSpawn();
+    publishStateBadges(
+      {
+        slug: "csv-export",
+        phase: "reviewing",
+        pr: 762,
+        kind: "feature",
+        launcher: "tmux",
+      },
+      { spawnTmux, listWindowsFn: () => windows, env: {} },
+    );
+    expect(calls.at(-1)).toEqual(["refresh-client", "-S"]);
+  });
+
+  it("still repaints when state.kind is absent (the @flow-kind write is skipped)", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    publishStateBadges(
+      { slug: "csv-export", phase: "implementing", launcher: "tmux" },
+      { spawnTmux, listWindowsFn: () => windows, env: {} },
+    );
+    expect(calls.at(-1)).toEqual(["refresh-client", "-S"]);
+  });
+
+  it("still fires refresh-client -S even when the raw @flow-phase set itself fails", () => {
+    // The docblock promises refresh-client runs unconditionally after the
+    // raw set, success or failure, and never affects the returned ok/stderr.
+    // fakeSpawn returns the same failing result for every call including
+    // refresh-client itself, so `ok` is driven by the raw @flow-phase set
+    // alone (false here) while the trailing call is still refresh-client.
+    const { calls, spawnTmux } = fakeSpawn({
+      stdout: "",
+      stderr: "boom",
+      exitCode: 1,
+    });
+    const result = publishStateBadges(
+      { slug: "csv-export", phase: "reviewing", launcher: "tmux" },
+      { spawnTmux, listWindowsFn: () => windows, env: {} },
+    );
+    expect(result.ok).toBe(false);
+    expect(calls.at(-1)).toEqual(["refresh-client", "-S"]);
+  });
+
   it("publishes @flow-pr as the empty string when state.pr is absent", () => {
     const { calls, spawnTmux } = fakeSpawn();
     publishStateBadges(

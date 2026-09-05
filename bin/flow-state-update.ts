@@ -100,7 +100,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   let rest: string[];
   const out: Args = {};
   if (argv.length > 0 && !argv[0].startsWith("--")) {
-    out.slug = argv[0];
+    // Empty/whitespace-only positional reads as "not supplied" too, for
+    // parity with the identical `--slug ""` guard below — a caller that
+    // passes an unset shell var positionally (`flow-state-update "$SLUG"
+    // --phase ...`) would otherwise bind `out.slug = ""` and defeat the
+    // `parsed.slug ?? resolveSlug()` ambient fallback the same way.
+    if (argv[0].trim() !== "") {
+      out.slug = argv[0];
+    }
     rest = argv.slice(1);
   } else {
     rest = argv;
@@ -161,6 +168,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         if (out.slug !== undefined) {
           return { error: "cannot combine positional <slug> with --slug" };
         }
+        // An EMPTY --slug reads as "not supplied", so the ambient $FLOW_SLUG
+        // fallback below still fires. `--slug "$SLUG"` in a fresh per-Bash-call
+        // shell expands to `--slug ""` whenever SLUG is unset (every flow
+        // helper call runs in its own shell, so SLUG never survives between
+        // them). Binding "" here would defeat `parsed.slug ?? resolveSlug()` —
+        // "" is not nullish — and exit 2 with the misleading "no slug given and
+        // no FLOW_SLUG in the environment", naming the one thing that WAS set.
+        if (value.trim() === "") break;
         out.slug = value;
         break;
       default:
