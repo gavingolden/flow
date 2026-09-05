@@ -925,9 +925,15 @@ describe("run — end-to-end", () => {
     expect(endIdx).toBeGreaterThan(startIdx);
     // The recap block fully precedes the snapshot header.
     expect(snapIdx).toBeGreaterThan(endIdx);
-    // Carries the bounded fields + the two click targets (no trailing punct).
-    expect(out).toContain("- PR URL: https://github.com/org/repo/pull/9");
-    expect(out).toContain("- Plan file: /w/.flow-tmp/plan.md");
+    // Carries the bounded fields + the two click targets (no trailing
+    // punct). renderEchoRecap's default mode is markdown — the recap is
+    // copied into assistant prose, not a terminal.
+    expect(out).toContain(
+      "- PR URL: [https://github.com/org/repo/pull/9](https://github.com/org/repo/pull/9)",
+    );
+    expect(out).toContain(
+      "- Plan file: [/w/.flow-tmp/plan.md](file:///w/.flow-tmp/plan.md)",
+    );
     expect(out).toContain("- branch: feat/echo");
     expect(out).toContain("- PR title: Echo recap");
     expect(out).toContain("- CI:");

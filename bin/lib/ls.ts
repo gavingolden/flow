@@ -51,6 +51,7 @@ import { reapStartingOrphans } from "./reap-orphans";
 import { relativeTime } from "./time";
 import { findWindowBySlug, listWindows, type TmuxWindow } from "./tmux";
 import { dim, dimStderr } from "./color";
+import { linkLabel, resolveLinkMode, visibleLength } from "./link";
 import {
   checkForUpdate,
   formatUpdateNotice,
@@ -88,6 +89,8 @@ export type Row = {
   epic: string;
   phase: string;
   pr: string;
+  /** state.prUrl, when persisted (flow-open-pr writes it at PR-open time). Absent ⇒ the PR cell stays bare. */
+  prUrl?: string;
   lastActivity: string;
   annotation: "" | "(no window)" | "(no state)" | "(crashed)" | "(done)";
   /** True only when this row is a genuine crashed/orphaned session the user
@@ -292,6 +295,7 @@ export async function buildRows(
       epic: state.epic?.slug ?? (rowKind === "feature" ? "" : state.slug),
       phase: state.phase || "—",
       pr: state.pr ? `#${state.pr}` : "—",
+      prUrl: state.prUrl,
       lastActivity: lastActivityFrom(state.updatedAt, nowMs),
       annotation,
       needsResumeHint,
@@ -380,6 +384,7 @@ export function formatNameCell(row: Row): string {
 }
 
 function printTable(rows: Row[], opts: LsOptions): void {
+  const mode = resolveLinkMode();
   type Col = { header: string; get: (r: Row) => string };
   const cols: Col[] = [
     { header: "NAME", get: (r) => formatNameCell(r) },
@@ -387,19 +392,31 @@ function printTable(rows: Row[], opts: LsOptions): void {
     { header: "REPO", get: (r) => formatRepoCell(r.repo) },
     { header: "EPIC", get: (r) => formatEpicCell(r.epic) },
     { header: "PHASE", get: (r) => r.phase },
-    { header: "PR", get: (r) => r.pr },
+    {
+      header: "PR",
+      // NAMED EXCEPTION to bin/lib/link.ts's label-equals-raw-target
+      // invariant: the visible label is the bare `#123` cell, not the
+      // full PR URL — a full URL would blow the very column width this
+      // fix is narrowing. Uses linkLabel (not linkUrl) for exactly that
+      // reason. Falls back to the bare cell when the row has no prUrl
+      // (state written before prUrl existed, or no PR yet).
+      get: (r) => (r.prUrl ? linkLabel(r.pr, r.prUrl, mode) : r.pr),
+    },
     { header: "LAST ACTIVITY", get: (r) => r.lastActivity },
   ];
   if (opts.cost)
     cols.push({ header: "$ COST", get: (r) => formatCostCell(r.cost) });
 
   const widths = cols.map((c) =>
-    Math.max(c.header.length, ...rows.map((r) => c.get(r).length)),
+    Math.max(c.header.length, ...rows.map((r) => visibleLength(c.get(r)))),
   );
 
   const line = (cells: string[]) =>
     cells
-      .map((cell, i) => cell.padEnd(widths[i]))
+      .map(
+        (cell, i) =>
+          cell + " ".repeat(Math.max(0, widths[i] - visibleLength(cell))),
+      )
       .join("  ")
       .trimEnd();
 

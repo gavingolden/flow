@@ -65,6 +65,7 @@ are at [references/output-style.md](references/output-style.md).
 - **Explain problems impact-first in plain language.** Problem reports lead with the user-visible impact, translate internal identifiers into their effect, and present options with each one's consequences, recommendation first.
 - **Frame every explanation impact-first for a product-lens reader.** Lead with the user-visible consequence, naming the concrete command/flag/artifact; mechanism only on "give me the technical version"; exclusions per `references/output-style.md`.
 - **Emit instructions as scannable numbered steps.** Two or more discrete actions render as `1.`/`2.` imperative steps, sub-bullets for detail, actor named when interleaved; a single action stays inline.
+- **Route every emitted path/PR/issue URL through `bin/lib/link.ts` or a raw-target-labelled markdown link.** Never a bare target at a new site.
 
 See the reference for the remaining response-hygiene conventions (no
 preambles, no sycophantic openers, no emoji unless invited, calibrate

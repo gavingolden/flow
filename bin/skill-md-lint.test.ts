@@ -1353,9 +1353,24 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * two budgets (26_650) is kept rather than summing the deltas: it already
    * clears the merged size with 95 chars of headroom, so no further raise
    * was warranted. The 26_500 side would have failed at merge time.
+   * Raised once more from 26_650 to 26_900 to fund one new `## Output
+   * style` bullet — **Route every emitted path/PR/issue URL through
+   * `bin/lib/link.ts` or a raw-target-labelled markdown link.** — the
+   * lean binding-rule opener for the clickable-output feature, whose
+   * full rationale (the label-equals-raw-target invariant, terminal vs
+   * markdown mode, the never-linkify list, the tmux prerequisite) is
+   * offloaded to references/output-style.md per the offload-then-trim
+   * playbook. Measured via String.prototype.length (not `wc -c` bytes):
+   * pre-edit 26_555, post-edit 26_700 — a +145-char delta. Trimming
+   * existing lint-anchored `## Output style` prose to make room was
+   * rejected on the same grounds as every precedent above (a small
+   * documented raise over trimming load-bearing prose); the budget goes
+   * to 26_900 (200 chars of headroom), not the bare post-edit value,
+   * matching the "don't land at a single-digit-headroom trap" discipline
+   * of every raise above.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 26_650;
+    const CHAR_BUDGET = 26_900;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -8953,8 +8968,6 @@ describe("pause-output contract wiring lint", () => {
 });
 
 describe("PM-lens supervisor wiring lint (Tasks 9/10)", () => {
-  const REPO_ROOT = path.resolve(HERE, "..");
-
   it("every flow-gate-summary --status (merged|gated|needs-human|cancelled) invocation in flow-pipeline SKILL.md carries --tldr", () => {
     const c = fs.readFileSync(SKILL_MD_PATH, "utf8");
     const stripped = c.replace(/<!--[\s\S]*?-->/g, "");

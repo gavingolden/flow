@@ -180,27 +180,50 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 
 `~/.flow/config.json` is created by `flow install` and read at launch. The keys in use today:
 
-| key                   | what it controls                                                                                                                                                                                                                                                                                                                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `modules`             | the persisted module selection from `flow install` (see above)                                                                                                                                                                                                                                                                        |
-| `models.*`            | per-phase model routing (see [Per-phase models](#per-phase-models))                                                                                                                                                                                                                                                                   |
-| `delegate.models.*`   | per-surface agy delegate-model routing (see [Delegate models](#delegate-models))                                                                                                                                                                                                                                                      |
-| `delegate.timeouts.*` | per-surface agy `--print-timeout` routing (see [Delegate timeouts](#delegate-timeouts))                                                                                                                                                                                                                                               |
-| `update.checkFor`     | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                                                                                                                                                                                                                                                |
-| `update.autoUpgrade`  | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                                                                                                                                                                                                                                             |
-| `research.discovery`  | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run)                                                                                                                                                                                                                     |
-| `interview.enabled`   | opt-in for the adaptive intent interview (default `true`), read by the supervisor via `jq` against `~/.flow/config.json` (never a `bin/lib` import — subagents run in the consumer worktree, where flow's own `bin/lib` isn't present); overridable per run with `flow feature create --interview` (force) or `--no-interview` (skip) |
-| `launcher`            | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell                                                                                                                                                                                                                            |
-| `output.lens`         | `"pm"` (default) or `"dev"` — see [Output lens](#output-lens) below                                                                                                                                                                                                                                                                   |
-| `review.gemini`       | opt-in for the cross-model Gemini review lens (default `false`); strict `true` enables                                                                                                                                                                                                                                                |
-| `review.lensGates`    | content-gates `/flow-pr-review`'s six lenses against the changed-file set, static-analysis signals, and a diff-content check for new bare-specifier imports/requires via `flow-review-scope` (default `true`); strict `false` disables — every lens always runs                                                                       |
-| `review.deltaScope`   | scopes a fix-loop re-entry's review to `last-reviewed..HEAD` when the prior run was clean and the marker is an ancestor of HEAD (default `true`); strict `false` disables — every entry reviews the full PR diff                                                                                                                      |
+| key                            | what it controls                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modules`                      | the persisted module selection from `flow install` (see above)                                                                                                                                                                                                                                                                        |
+| `models.*`                     | per-phase model routing (see [Per-phase models](#per-phase-models))                                                                                                                                                                                                                                                                   |
+| `delegate.models.*`            | per-surface agy delegate-model routing (see [Delegate models](#delegate-models))                                                                                                                                                                                                                                                      |
+| `delegate.timeouts.*`          | per-surface agy `--print-timeout` routing (see [Delegate timeouts](#delegate-timeouts))                                                                                                                                                                                                                                               |
+| `update.checkFor`              | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                                                                                                                                                                                                                                                |
+| `FLOW_NO_HYPERLINKS` (env var) | disables OSC 8 hyperlink escapes in terminal output (also suppressed by `NO_COLOR`) — see [Clickable output](#clickable-output) below                                                                                                                                                                                                 |
+| `update.autoUpgrade`           | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                                                                                                                                                                                                                                             |
+| `research.discovery`           | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run)                                                                                                                                                                                                                     |
+| `interview.enabled`            | opt-in for the adaptive intent interview (default `true`), read by the supervisor via `jq` against `~/.flow/config.json` (never a `bin/lib` import — subagents run in the consumer worktree, where flow's own `bin/lib` isn't present); overridable per run with `flow feature create --interview` (force) or `--no-interview` (skip) |
+| `launcher`                     | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell                                                                                                                                                                                                                            |
+| `output.lens`                  | `"pm"` (default) or `"dev"` — see [Output lens](#output-lens) below                                                                                                                                                                                                                                                                   |
+| `review.gemini`                | opt-in for the cross-model Gemini review lens (default `false`); strict `true` enables                                                                                                                                                                                                                                                |
+| `review.lensGates`             | content-gates `/flow-pr-review`'s six lenses against the changed-file set, static-analysis signals, and a diff-content check for new bare-specifier imports/requires via `flow-review-scope` (default `true`); strict `false` disables — every lens always runs                                                                       |
+| `review.deltaScope`            | scopes a fix-loop re-entry's review to `last-reviewed..HEAD` when the prior run was clean and the marker is an ancestor of HEAD (default `true`); strict `false` disables — every entry reviews the full PR diff                                                                                                                      |
 
 Each `/flow-pr-review` run appends one JSON line to
 `~/.flow/telemetry/review-lenses.jsonl` (per-lens tokens/findings,
 jq-readable, no rotation in v1) — see `flow-review-telemetry`.
 
 The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher set tmux`.
+
+## Clickable output
+
+flow renders absolute file paths, PR URLs, and issue URLs as real click
+targets — an OSC 8 hyperlink on a terminal, a markdown link in assistant
+prose — via `bin/lib/link.ts`, rather than a bare string you have to
+hand-copy.
+
+**tmux users:** tmux strips OSC 8 hyperlink sequences by default, so a
+rendered link shows as plain text (or stray escape bytes) inside a tmux
+pane unless you opt in:
+
+```sh
+set -as terminal-features ",*:hyperlinks"
+```
+
+**Opting out:** set `FLOW_NO_HYPERLINKS` (any value) to disable
+hyperlink rendering and fall back to bare text — `NO_COLOR` already
+suppresses it too, since a no-color terminal is usually also one without
+hyperlink support. Machine-read output (the `flow-gate-summary`
+sentinels, `flow-open-pr`'s bare-URL stdout, `flow-create-issue`'s JSON)
+is never linkified regardless of either setting.
 
 ## Output lens
 

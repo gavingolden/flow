@@ -94,6 +94,30 @@ describe(buildRows, () => {
     expect(rows[0].cost).toBeUndefined();
   });
 
+  it("populates Row.prUrl from state.prUrl when present", async () => {
+    const rows = await buildRows(
+      [
+        state({
+          slug: "csv-export",
+          pr: 142,
+          prUrl: "https://github.com/org/repo/pull/142",
+        }),
+      ],
+      [window({ name: "csv-export" })],
+      NOW,
+    );
+    expect(rows[0].prUrl).toBe("https://github.com/org/repo/pull/142");
+  });
+
+  it("leaves Row.prUrl undefined when state has no prUrl (pre-existing state files)", async () => {
+    const rows = await buildRows(
+      [state({ slug: "csv-export", pr: 142 })],
+      [window({ name: "csv-export" })],
+      NOW,
+    );
+    expect(rows[0].prUrl).toBeUndefined();
+  });
+
   it("annotates state without matching window as (no window)", async () => {
     const rows = await buildRows([state({ slug: "ghost" })], [], NOW);
     expect(rows[0].annotation).toBe("(no window)");
@@ -847,6 +871,136 @@ describe("runLs — printed table header", () => {
       )?.[0],
     );
     expect(dataLine).toContain("feature");
+  });
+});
+
+describe("runLs — PR column linking (bin/lib/link.ts)", () => {
+  let origIsTTY: boolean | undefined;
+  let origNoColor: string | undefined;
+  let origNoHyperlinks: string | undefined;
+
+  beforeEach(() => {
+    origIsTTY = process.stdout.isTTY;
+    origNoColor = process.env.NO_COLOR;
+    origNoHyperlinks = process.env.FLOW_NO_HYPERLINKS;
+    delete process.env.NO_COLOR;
+    delete process.env.FLOW_NO_HYPERLINKS;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: origIsTTY,
+      configurable: true,
+      writable: true,
+    });
+    if (origNoColor === undefined) delete process.env.NO_COLOR;
+    else process.env.NO_COLOR = origNoColor;
+    if (origNoHyperlinks === undefined) delete process.env.FLOW_NO_HYPERLINKS;
+    else process.env.FLOW_NO_HYPERLINKS = origNoHyperlinks;
+    vi.restoreAllMocks();
+  });
+
+  function setIsTTY(value: boolean | undefined): void {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  it("on a TTY, links the PR cell with the bare '#123' as its visible label", async () => {
+    setIsTTY(true);
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({
+        slug: "linked-pipeline",
+        phase: "gated",
+        pr: 123,
+        prUrl: "https://github.com/org/repo/pull/123",
+      }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "linked-pipeline" }),
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+
+    expect(code).toBe(0);
+    const dataLine = String(
+      log.mock.calls.find((call) =>
+        String(call[0]).includes("linked-pipeline"),
+      )?.[0],
+    );
+    expect(dataLine).toContain(
+      "\x1b]8;;https://github.com/org/repo/pull/123\x1b\\#123\x1b]8;;\x1b\\",
+    );
+    // The label is the narrow '#123' cell, never the full URL.
+    expect(dataLine).not.toContain(
+      "]#123https://github.com/org/repo/pull/123[",
+    );
+  });
+
+  it("a PR-less row stays bare even on a TTY", async () => {
+    setIsTTY(true);
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "no-pr-pipeline", phase: "implementing" }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "no-pr-pipeline" }),
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+
+    expect(code).toBe(0);
+    const dataLine = String(
+      log.mock.calls.find((call) =>
+        String(call[0]).includes("no-pr-pipeline"),
+      )?.[0],
+    );
+    expect(dataLine).not.toContain("\x1b]8;;");
+    expect(dataLine).toContain("—");
+  });
+
+  it("every row's visible column width is identical with and without OSC 8 escapes", async () => {
+    setIsTTY(true);
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({
+        slug: "linked-pipeline",
+        phase: "gated",
+        pr: 123,
+        prUrl: "https://github.com/org/repo/pull/123",
+      }),
+      state({ slug: "bare-pipeline", phase: "implementing" }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "linked-pipeline" }),
+      window({ name: "bare-pipeline" }),
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+    expect(code).toBe(0);
+
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    const strip = (s: string) =>
+      s.replace(/\x1b\]8;;.*?\x1b\\|\x1b\[[0-9;]*m/g, "");
+    // The LAST ACTIVITY column starts at the same visible offset on every
+    // line once escapes are stripped — proof the width math accounted for
+    // the OSC 8 bytes rather than padding to their raw byte length.
+    const lastActivityOffsets = lines.map((l) => strip(l).indexOf("ago"));
+    // Only compare lines that actually have a "last activity" cell.
+    const withOffset = lastActivityOffsets.filter((i) => i >= 0);
+    expect(new Set(withOffset).size).toBeLessThanOrEqual(1);
   });
 });
 

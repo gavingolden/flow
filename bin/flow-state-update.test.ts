@@ -46,7 +46,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag (empty argv)", () => {
     expect(parseArgs([])).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
     });
   });
 
@@ -62,7 +62,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag", () => {
     expect(parseArgs(["foo"])).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
     });
   });
 
@@ -1037,7 +1037,7 @@ describe("parseArgs --slug flag", () => {
     const result = parseArgs(["--slug", "csv-export"]);
     expect(result).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
     });
   });
 
