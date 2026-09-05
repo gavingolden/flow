@@ -19,6 +19,16 @@ import {
   type PipelineState,
 } from "./lib/state";
 
+// Mock ./lib/tmux so no test in this file can reach the real tmux backend.
+// `publishStateBadges` is the sole write-path seam this file's `runUpdate`
+// calls into.
+const tmuxMock = vi.hoisted(() => ({
+  publishStateBadges: vi.fn<
+    (state: unknown) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
+}));
+vi.mock("./lib/tmux", () => tmuxMock);
+
 let dir!: string;
 
 beforeEach(() => {
@@ -616,38 +626,62 @@ describe("runUpdate", () => {
     errSpy.mockRestore();
   });
 
-  it("publishes the phase onto @flow-phase on a successful --phase update", () => {
+  it("publishes badges on a successful --phase update", () => {
     seed("csv-export");
-    const published: Array<[string, string]> = [];
+    const published: PipelineState[] = [];
     const code = runUpdate(["csv-export", "--phase", "implementing"], dir, {
-      publishPhase: (s, p) => published.push([s, p]),
+      publishBadges: (s) => published.push(s),
     });
     expect(code).toBe(0);
-    expect(published).toEqual([["csv-export", "implementing"]]);
+    expect(published).toHaveLength(1);
+    expect(published[0]?.phase).toBe("implementing");
   });
 
-  it("does NOT publish a phase on a --pr-only update (no --phase given)", () => {
+  it("publishes badges on a --pr-only update (no --phase given)", () => {
     seed("csv-export");
-    const published: Array<[string, string]> = [];
+    const published: PipelineState[] = [];
     const code = runUpdate(["csv-export", "--pr", "142"], dir, {
-      publishPhase: (s, p) => published.push([s, p]),
+      publishBadges: (s) => published.push(s),
     });
     expect(code).toBe(0);
-    expect(published).toEqual([]);
+    expect(published).toHaveLength(1);
+    expect(published[0]?.pr).toBe(142);
   });
 
-  it("does NOT publish a phase on a branch-mismatch (exit 3, no state write)", () => {
+  it("does NOT publish badges on a branch-mismatch (exit 3, no state write)", () => {
     const fx = makeWorktreeFixture("expected-branch", "actual-branch");
     seed("csv-export", { worktree: fx.worktreeDir });
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const published: Array<[string, string]> = [];
+    const published: PipelineState[] = [];
     const code = runUpdate(["csv-export", "--phase", "implementing"], dir, {
-      publishPhase: (s, p) => published.push([s, p]),
+      publishBadges: (s) => published.push(s),
     });
     errSpy.mockRestore();
     expect(code).toBe(3);
     expect(published).toEqual([]);
     fx.cleanup();
+  });
+
+  it("publishes badges through the real tmux helper when no stub is injected", () => {
+    seed("csv-export");
+    tmuxMock.publishStateBadges.mockClear();
+    const code = runUpdate(["csv-export", "--phase", "implementing"], dir);
+    expect(code).toBe(0);
+    expect(tmuxMock.publishStateBadges).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.publishStateBadges.mock.calls[0]![0]).toMatchObject({
+      phase: "implementing",
+    });
+  });
+
+  it("still exits 0 when the badge publisher throws", () => {
+    seed("csv-export");
+    const code = runUpdate(["csv-export", "--phase", "implementing"], dir, {
+      publishBadges: () => {
+        throw new Error("tmux boom");
+      },
+    });
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("implementing");
   });
 });
 

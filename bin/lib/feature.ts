@@ -1389,11 +1389,11 @@ function runResume(
   // @flow-kind gets (re)set. Failures are ignored and never change this
   // command's exit code, but @flow-kind IS load-bearing state — see
   // AGENTS.md "Two sanctioned reads" and session-identity.ts's
-  // resolveKindAmbient. NOTE: `flow feature resume` has no epic-slug guard,
-  // so resuming a slug that is actually an epic-member window would
-  // overwrite its @flow-kind to "feature" here — a known hazard, not yet
-  // fixed.
-  setPaneKind(slug, "feature");
+  // resolveKindAmbient. Guarded against overwriting an epic-design/epic-run
+  // window's kind on resume: `preResume?.kind` (read above at readState) carries the
+  // pipeline's real kind, so a slug that is actually an epic-design window
+  // republishes "epic-design" here instead of being clobbered to "feature".
+  setPaneKind(slug, preResume?.kind ?? "feature");
 
   // Best-effort epic tree-view badge (OQ-1), mirroring runFresh: publish
   // @flow-epic once the (re)launch is confirmed live. respawnWindowVerified
