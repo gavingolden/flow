@@ -1406,15 +1406,17 @@ describe("run (end-to-end CLI)", () => {
     );
   }
 
-  it("never emits an escape byte on the sentinel line, in terminal mode, for every status", () => {
-    const cases: { args: string[]; slug: string }[] = [
+  it("keeps the sentinel line byte-exact and escape-free in EVERY link mode, for every status", () => {
+    const cases: { args: string[]; slug: string; expected: string }[] = [
       {
         args: ["--status", "merged", "--pr-url", "https://example/pr/1"],
         slug: "escape-check-merged",
+        expected: "MERGED",
       },
       {
         args: ["--status", "gated", "--pr-url", "https://example/pr/1"],
         slug: "escape-check-gated",
+        expected: "GATED: https://example/pr/1",
       },
       {
         args: [
@@ -1426,19 +1428,73 @@ describe("run (end-to-end CLI)", () => {
           "some-reason",
         ],
         slug: "escape-check-needs-human",
+        expected: "NEEDS HUMAN: some-reason",
       },
-      { args: ["--status", "cancelled"], slug: "escape-check-cancelled" },
+      {
+        args: ["--status", "cancelled"],
+        slug: "escape-check-cancelled",
+        expected: "cancelled",
+      },
     ];
-    for (const { args, slug } of cases) {
+    // Loop BOTH dimensions. Terminal mode alone under-tests the contract:
+    // a markdown-mode regression rendering `GATED: [url](url)` carries no
+    // escape bytes at all, so an escape-only assertion passes it. Asserting
+    // the exact sentinel text is what actually pins "never linkified, in
+    // any mode" — `GATED: <url>` being the trap, a sentinel that CONTAINS
+    // a URL and so looks linkifiable.
+    for (const mode of ["terminal", "markdown", "plain"] as const) {
+      for (const { args, slug, expected } of cases) {
+        const { rc, out } = captureStdout(() =>
+          run([...args, "--link-mode", mode, "--slug", `${slug}-${mode}`], {
+            stateDir: tmpRoot,
+          }),
+        );
+        expect(rc).toBe(0);
+        const lines = out.split("\n").filter((l) => l !== "");
+        const sentinel = lines[lines.length - 1];
+        expect(sentinel).not.toContain("\x1b");
+        expect(sentinel).toBe(expected);
+      }
+    }
+  });
+
+  it("renders the AWAITING-APPROVAL path bullets as links in a non-plain mode", () => {
+    // Regression pin: every other render() call omits linkMode, so under
+    // vitest resolveLinkMode() returns "plain" and linkPath() is a no-op on
+    // these two lines — 2 of Task 2's 5 call sites, and the exact surface
+    // the feature exists for. Reverting them to bare paths, or swapping
+    // linkPath->linkUrl, would otherwise keep the whole suite green.
+    for (const mode of ["terminal", "markdown"] as const) {
       const { rc, out } = captureStdout(() =>
-        run([...args, "--link-mode", "terminal", "--slug", slug], {
-          stateDir: tmpRoot,
-        }),
+        run(
+          [
+            "--status",
+            "awaiting-approval",
+            "--worktree",
+            "/tmp/wt",
+            "--plan-file",
+            "/tmp/wt/.flow-tmp/plan.md",
+            "--link-mode",
+            mode,
+            "--slug",
+            `bullets-${mode}`,
+          ],
+          { stateDir: tmpRoot },
+        ),
       );
       expect(rc).toBe(0);
-      const lines = out.split("\n").filter((l) => l !== "");
-      const sentinel = lines[lines.length - 1];
-      expect(sentinel).not.toContain("\x1b");
+      const bullets = out.split("\n").filter((l) => l.startsWith("  - "));
+      expect(bullets).toHaveLength(2);
+      for (const b of bullets) {
+        if (mode === "terminal") {
+          expect(b).toContain("\x1b]8;;file:///");
+        } else {
+          expect(b).toContain("](file:///");
+        }
+      }
+      // The visible label stays the raw path verbatim — the module invariant.
+      expect(bullets[0]).toContain("/tmp/wt");
+      expect(bullets[1]).toContain("/tmp/wt/.flow-tmp/plan.md");
     }
   });
 

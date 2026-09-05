@@ -77,7 +77,13 @@ import {
   buildUntracked,
   clampTldr,
 } from "./lib/gate-summary-rows";
-import { linkPath, linkUrl, resolveLinkMode, type LinkMode } from "./lib/link";
+import {
+  linkPath,
+  linkUrl,
+  applyLinkModeOptOut,
+  resolveLinkMode,
+  type LinkMode,
+} from "./lib/link";
 
 export type Status =
   | "merged"
@@ -577,7 +583,10 @@ function effectiveLens(inputs: GateSummaryInputs): OutputLens {
 }
 
 function effectiveLinkMode(inputs: GateSummaryInputs): LinkMode {
-  return inputs.linkMode ?? resolveLinkMode();
+  // applyLinkModeOptOut keeps an EXPLICIT `--link-mode terminal` from
+  // defeating NO_COLOR / FLOW_NO_HYPERLINKS — without it the override
+  // would force escape bytes into a piped or redirected capture.
+  return applyLinkModeOptOut(inputs.linkMode ?? resolveLinkMode());
 }
 
 function renderMerged(inputs: GateSummaryInputs): string {

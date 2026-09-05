@@ -67,11 +67,16 @@ function scanBinTs(root: string): string[] {
       if (!d.isFile()) return false;
       if (!d.name.endsWith(".ts")) return false;
       if (d.name.endsWith(".test.ts")) return false;
-      const dirName = d.parentPath.split(path.sep);
+      // `Dirent.parentPath` landed in Node 20.12; `engines.node` declares
+      // `>=20`, so fall back to the older `.path` the way every sibling walk
+      // in this repo does (bin/pane-read-lint.test.ts, bin/lib/setup.test.ts).
+      const dirName = (d.parentPath ?? d.path ?? "").split(path.sep);
       if (dirName.includes("fixtures")) return false;
       return true;
     })
-    .map((d) => path.relative(root, path.join(d.parentPath, d.name)))
+    .map((d) =>
+      path.relative(root, path.join(d.parentPath ?? d.path ?? "", d.name)),
+    )
     .sort();
 }
 
@@ -146,10 +151,14 @@ function isAllowlisted(relPath: string): boolean {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..");
 
+// Scanned once at module scope: the walk reads every `.ts` under `bin/`, and
+// both repo-wide tests below assert over the same immutable result. Matches
+// how bin/pane-read-lint.test.ts loads its scan surface exactly once.
+const REPO_VIOLATIONS = findBareTargets(REPO_ROOT);
+
 describe("target-link-lint", () => {
   it("frozen file set: the set of files producing violations equals BARE_TARGET_ALLOWLIST", () => {
-    const violations = findBareTargets(REPO_ROOT);
-    const violatingPaths = new Set(violations.map((v) => v.file));
+    const violatingPaths = new Set(REPO_VIOLATIONS.map((v) => v.file));
 
     // Completeness: a NEW file tripping the detector fails by default —
     // every violation must be explained by a named allowlist entry.
@@ -172,10 +181,9 @@ describe("target-link-lint", () => {
   });
 
   it("bin/flow-create-issue.ts is deliberately absent (does not trip the detector)", () => {
-    const violations = findBareTargets(REPO_ROOT);
-    expect(violations.some((v) => v.file === "bin/flow-create-issue.ts")).toBe(
-      false,
-    );
+    expect(
+      REPO_VIOLATIONS.some((v) => v.file === "bin/flow-create-issue.ts"),
+    ).toBe(false);
   });
 
   it("allowlist shape: every entry is a concrete .ts path, never a pattern", () => {

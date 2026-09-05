@@ -3874,6 +3874,46 @@ describe("AGENTS.md Output style anchors", () => {
     ).toBe(1);
   });
 
+  it("AGENTS.md contains the clickable-target rule anchor phrase exactly once", () => {
+    // The bolded anchor phrase **Route every emitted path/PR/issue URL
+    // through `bin/lib/link.ts` or a raw-target-labelled markdown link.**
+    // is the stable lint hook for the rule documented at AGENTS.md
+    // `## Output style`. Its rationale — the label-equals-raw-target
+    // invariant, the terminal (OSC 8) vs markdown mode split, the
+    // FORCE_COLOR carve-out in `hyperlinksEnabled`, the never-linkify
+    // list, and the tmux `terminal-features` prerequisite — lives at
+    // references/output-style.md `## Route every emitted path/PR/issue
+    // URL through bin/lib/link.ts`. Renaming the rule's anchor phrase
+    // requires updating this assertion in the same commit.
+    const matches = agentsContent.match(
+      /^- \*\*Route every emitted path\/PR\/issue URL through `bin\/lib\/link\.ts` or a raw-target-labelled markdown link\.\*\*/gm,
+    );
+    expect(
+      matches?.length ?? 0,
+      "AGENTS.md must contain the rule anchor phrase " +
+        "'- **Route every emitted path/PR/issue URL through " +
+        "`bin/lib/link.ts` or a raw-target-labelled markdown link.**' " +
+        "exactly once at the start of a list item in `## Output style`. " +
+        "Found " +
+        (matches?.length ?? 0) +
+        " match(es).",
+    ).toBe(1);
+  });
+
+  it("references/output-style.md carries the clickable-target rule section", () => {
+    // Every AGENTS.md `## Output style` bullet has a matching rationale
+    // section in references/output-style.md — the file's documented
+    // one-section-per-bullet convention. This is the second half of the
+    // anchor-test pair above.
+    const c = fs.readFileSync(
+      path.join(HERE, "..", "references", "output-style.md"),
+      "utf8",
+    );
+    expect(c).toContain(
+      "## Route every emitted path/PR/issue URL through a click target",
+    );
+  });
+
   it("AGENTS.md contains the product-lens impact-first rule anchor phrase exactly once", () => {
     // The bolded anchor phrase **Frame every explanation impact-first for
     // a product-lens reader.** is the stable lint hook for the rule

@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  applyLinkModeOptOut,
   fileUri,
   hyperlinksEnabled,
   linkLabel,
@@ -177,5 +178,76 @@ describe("linkLabel (named exception: label != raw target)", () => {
 
   it("falls back to the bare label for a falsy url", () => {
     expect(linkLabel("#123", "", "terminal")).toBe("#123");
+  });
+});
+
+describe("wrap — URI-side hardening", () => {
+  // linkLabel is the one export where label !== target, and its URI comes
+  // from state.prUrl (validated only as `typeof === "string"`). Guarding
+  // only the label would let a state-file value break out of the OSC 8
+  // payload and inject terminal control codes.
+  it("falls back to the bare label when the URI carries an ESC", () => {
+    expect(linkLabel("#123", "https://x/\x1b]8;;evil\x1b\\", "terminal")).toBe(
+      "#123",
+    );
+  });
+
+  it("falls back to the bare label when the URI carries a BEL", () => {
+    // BEL is a valid OSC terminator in xterm/iTerm2, so it escapes the
+    // payload just as an ESC does.
+    expect(linkLabel("#123", "https://x/\x07evil", "terminal")).toBe("#123");
+  });
+
+  it("falls back to the bare label when the URI carries a newline", () => {
+    expect(linkLabel("#123", "https://x/a\nb", "terminal")).toBe("#123");
+  });
+
+  it("guards the URI in markdown mode too", () => {
+    expect(linkLabel("#123", "https://x/\x1bevil", "markdown")).toBe("#123");
+  });
+
+  it("percent-encodes parens in a markdown link destination", () => {
+    // A markdown link destination ends at the first unbalanced `)`, so a
+    // raw paren silently truncates the target and desyncs it from the label.
+    const out = linkPath("/tmp/My Project (old)/plan.md", "markdown");
+    expect(out).toContain("%28");
+    expect(out).toContain("%29");
+    expect(out.endsWith(")")).toBe(true);
+    expect(out).toBe(
+      `[/tmp/My Project (old)/plan.md](${out.slice(out.indexOf("](") + 2, -1)})`,
+    );
+  });
+
+  it("leaves parens alone in terminal mode (OSC 8 has no paren delimiter)", () => {
+    const out = linkPath("/tmp/a (b)/p.md", "terminal");
+    expect(out).toContain("(b)");
+  });
+});
+
+describe("applyLinkModeOptOut", () => {
+  const saved = { ...process.env };
+  afterEach(() => {
+    process.env = { ...saved };
+  });
+
+  it("downgrades an explicit terminal mode when FLOW_NO_HYPERLINKS is set", () => {
+    process.env.FLOW_NO_HYPERLINKS = "1";
+    expect(applyLinkModeOptOut("terminal")).toBe("plain");
+  });
+
+  it("downgrades an explicit terminal mode when NO_COLOR is set", () => {
+    process.env.NO_COLOR = "";
+    expect(applyLinkModeOptOut("terminal")).toBe("plain");
+  });
+
+  it("leaves terminal mode alone when neither opt-out is set", () => {
+    delete process.env.FLOW_NO_HYPERLINKS;
+    delete process.env.NO_COLOR;
+    expect(applyLinkModeOptOut("terminal")).toBe("terminal");
+  });
+
+  it("never downgrades markdown mode — it emits no escape bytes", () => {
+    process.env.FLOW_NO_HYPERLINKS = "1";
+    expect(applyLinkModeOptOut("markdown")).toBe("markdown");
   });
 });

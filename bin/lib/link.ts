@@ -35,16 +35,32 @@ import { pathToFileURL } from "node:url";
 
 export type LinkMode = "terminal" | "markdown" | "plain";
 
+/**
+ * The user's explicit opt-out, independent of where stdout points. Split out
+ * from `hyperlinksEnabled` so an EXPLICIT `--link-mode terminal` still honours
+ * it: without this, the override would force escape bytes into a piped or
+ * redirected capture even with `NO_COLOR` / `FLOW_NO_HYPERLINKS` set — an
+ * opt-out any caller could silently defeat.
+ */
+export function hyperlinksSuppressed(): boolean {
+  return "NO_COLOR" in process.env || "FLOW_NO_HYPERLINKS" in process.env;
+}
+
 export function hyperlinksEnabled(): boolean {
-  return (
-    process.stdout.isTTY === true &&
-    !("NO_COLOR" in process.env) &&
-    !("FLOW_NO_HYPERLINKS" in process.env)
-  );
+  return process.stdout.isTTY === true && !hyperlinksSuppressed();
 }
 
 export function resolveLinkMode(): LinkMode {
   return hyperlinksEnabled() ? "terminal" : "plain";
+}
+
+/**
+ * Applies the opt-out to a caller-supplied mode. `terminal` is the only mode
+ * that emits escape bytes, so it is the only one downgraded; `markdown` is
+ * plain text and stays legible under `NO_COLOR`.
+ */
+export function applyLinkModeOptOut(mode: LinkMode): LinkMode {
+  return mode === "terminal" && hyperlinksSuppressed() ? "plain" : mode;
 }
 
 /**
@@ -70,10 +86,28 @@ export function visibleLength(s: string): number {
   return s.replace(VISIBLE_LENGTH_RE, "").length;
 }
 
+// Guard BOTH sides, not just the label. `linkUrl`/`linkPath` pass label ===
+// target, so checking the label incidentally covers them — but `linkLabel` is
+// the one export where the two differ, and its URI comes from `state.prUrl`,
+// validated only as `typeof === "string"`. An ESC or BEL there terminates the
+// OSC 8 payload early (BEL is a valid OSC terminator in xterm/iTerm2), letting
+// a state-file value inject terminal control codes and mis-align every
+// `flow ls` row — the exact failure the width math exists to prevent.
+const URI_CTRL_RE = /[\x00-\x1f\x7f]/;
+
+// `pathToFileURL` percent-encodes control characters and spaces but leaves
+// `(` and `)` intact, and a markdown link destination ends at the first
+// unbalanced `)`. Left raw, `/tmp/My Project (old)/plan.md` yields a link
+// whose target truncates mid-path — label and destination silently disagree,
+// which is the invariant this module exists to protect.
+function encodeMarkdownUri(uri: string): string {
+  return uri.replace(/\(/g, "%28").replace(/\)/g, "%29");
+}
+
 function wrap(label: string, uri: string | null, mode: LinkMode): string {
-  if (!uri || label.includes("\x1b")) return label;
+  if (!uri || label.includes("\x1b") || URI_CTRL_RE.test(uri)) return label;
   if (mode === "terminal") return `\x1b]8;;${uri}\x1b\\${label}\x1b]8;;\x1b\\`;
-  if (mode === "markdown") return `[${label}](${uri})`;
+  if (mode === "markdown") return `[${label}](${encodeMarkdownUri(uri)})`;
   return label;
 }
 
