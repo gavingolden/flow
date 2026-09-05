@@ -74,10 +74,19 @@ export type EpicListRow = {
   status: EpicStatus;
 };
 
-/** The `flow epic ls` table: one row per epic with per-state counts + status. */
-export function renderEpicList(rows: EpicListRow[]): string {
-  if (rows.length === 0) return "no epics";
-  return renderTable(
+/**
+ * The `flow epic ls` table: one row per epic with per-state counts + status.
+ * `hiddenDone` is the count of `done` epics the caller already filtered out
+ * before calling this renderer — it drives the footer line only, never the
+ * row set itself.
+ */
+export function renderEpicList(rows: EpicListRow[], hiddenDone = 0): string {
+  if (rows.length === 0) {
+    return hiddenDone === 0
+      ? "no epics"
+      : `no active epics (${hiddenDone} done — show them with 'flow epic ls --all')`;
+  }
+  const table = renderTable(
     [
       { header: "EPIC", get: (r) => r.slug },
       { header: "READY", get: (r) => String(r.ready) },
@@ -88,6 +97,9 @@ export function renderEpicList(rows: EpicListRow[]): string {
     ],
     rows,
   );
+  if (hiddenDone === 0) return table;
+  const noun = hiddenDone === 1 ? "epic" : "epics";
+  return `${table}\n\n${hiddenDone} done ${noun} hidden — show them with 'flow epic ls --all'`;
 }
 
 /**

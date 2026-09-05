@@ -7707,14 +7707,14 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
     ).toBe(false);
   });
 
-  it("discovery-instructions.md names the three bundle exclusions and the cumulative size rule", () => {
+  it("discovery-instructions.md names the four bundle exclusions and the cumulative size rule", () => {
     const di = read(
       "flow-product-planning/references/discovery-instructions.md",
     );
     expect(
       di.includes("genuinely novel non-trivial feature"),
       "discovery-instructions.md must name the verbatim exclusion phrase " +
-        "'genuinely novel non-trivial feature' — one of the three named " +
+        "'genuinely novel non-trivial feature' — one of the four named " +
         "exclusions from bundle-by-default triage.",
     ).toBe(true);
     expect(
@@ -7729,6 +7729,73 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
       "discovery-instructions.md must require the `- **Bundled:**` marker " +
         "bullet on every task that originated as a folded-in candidate.",
     ).toBe(true);
+    expect(
+      di.includes("**user-foreclosed**"),
+      "discovery-instructions.md must name the fourth named exclusion, " +
+        "'user-foreclosed', added alongside the original three.",
+    ).toBe(true);
+  });
+
+  it("discovery-instructions.md names the Small/Low rule and its --lint self-check", () => {
+    const di = read(
+      "flow-product-planning/references/discovery-instructions.md",
+    );
+    expect(
+      di.includes("user-foreclosed") && di.includes("the open decision is"),
+      "discovery-instructions.md must name 'user-foreclosed' and the " +
+        "verbatim Small/Low decision-naming clause 'the open decision is'.",
+    ).toBe(true);
+    expect(
+      di.includes(
+        "flow-candidate-issues --lint --plan-md-file <the plan.md path>",
+      ),
+      "discovery-instructions.md's Verification self-check must name " +
+        "`flow-candidate-issues --lint --plan-md-file <the plan.md path>`.",
+    ).toBe(true);
+  });
+
+  it("prd-template.md names the fourth exclusion, user-foreclosed", () => {
+    const tpl = read("flow-product-planning/templates/prd-template.md");
+    expect(
+      tpl.includes("user-foreclosed"),
+      "prd-template.md's ranking-table sketch must name the fourth " +
+        "exclusion, 'user-foreclosed', alongside the other three.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline/SKILL.md names the auto-bundle revision pass and the defer-task foreclosure guard", () => {
+    const fp = read("flow-pipeline/SKILL.md");
+    expect(
+      fp.includes("auto-bundle-pass") &&
+        fp.includes("Auto-bundle revision pass"),
+      "flow-pipeline/SKILL.md must name the auto-bundle marker file " +
+        "('auto-bundle-pass') and the 'Auto-bundle revision pass' pointer " +
+        "paragraph.",
+    ).toBe(true);
+    expect(
+      fp.includes('user-foreclosed: "defer task #N"'),
+      "flow-pipeline/SKILL.md's defer-task drift guard must require the " +
+        'verbatim Rationale `user-foreclosed: "defer task #N"` so the ' +
+        "auto-bundle pass never pulls a deferred item back in.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline/references/step3-threading.md names the auto-bundle revision pass contract", () => {
+    const t3 = read("flow-pipeline/references/step3-threading.md");
+    for (const needle of [
+      "AUTO-BUNDLE REDIRECT",
+      "bundlingMisses",
+      "auto-bundle-pass",
+      "exclusion-missing",
+      "decision-unnamed",
+      "small-low-risk",
+    ]) {
+      expect(
+        t3.includes(needle),
+        `step3-threading.md must name '${needle}' as part of the ` +
+          "auto-bundle revision pass contract.",
+      ).toBe(true);
+    }
   });
 
   it("prd-template.md carries a ticked (bar-clearing) candidate sketch", () => {

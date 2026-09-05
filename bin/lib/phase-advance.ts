@@ -35,10 +35,12 @@ import {
   FINISHED_PHASE_SET,
   nowIso,
   type PipelinePhase,
+  type PipelineState,
 } from "./state";
 import { resolveSlugAmbient } from "./session-identity";
 import { FLOW_STATE_DIR } from "./paths";
 import { checkWorktreeBranch } from "./worktree-marker";
+import { publishStateBadges } from "./tmux";
 
 export type PhaseAdvanceReason =
   | "advanced"
@@ -66,6 +68,14 @@ export type AdvancePhaseOpts = {
   expectPr?: number | null;
   dir?: string;
   resolveSlug?: () => string | null;
+  /**
+   * Best-effort tmux badge publisher, fired once per successful write with
+   * the freshly-written state (never the pre-write state — that would leave
+   * every badge one transition behind). Defaults to the real
+   * `publishStateBadges`. Void-discarded: a throwing publisher can never
+   * alter `advanced`/`reason`/the exit code. Tests inject a stub.
+   */
+  publishBadges?: (state: PipelineState) => void;
 };
 
 /**
@@ -246,15 +256,22 @@ export function advancePhase(
     };
   }
 
-  writeState(
-    {
-      ...state,
-      phase: target,
-      phaseLog: appendPhaseLog(state, target),
-      updatedAt: nowIso(),
-    },
-    dir,
-  );
+  const written = {
+    ...state,
+    phase: target,
+    phaseLog: appendPhaseLog(state, target),
+    updatedAt: nowIso(),
+  };
+  writeState(written, dir);
+  const publishBadges =
+    opts.publishBadges ?? ((s) => void publishStateBadges(s));
+  // Best-effort: a throwing publisher must never fail a successful phase
+  // write. state.json is already durable at this point.
+  try {
+    publishBadges(written);
+  } catch {
+    // swallowed — see comment above.
+  }
   return {
     advanced: true,
     reason: isReentry ? "reentered" : "advanced",
@@ -352,15 +369,22 @@ export function finalizePhase(
     };
   }
 
-  writeState(
-    {
-      ...state,
-      phase: target,
-      phaseLog: appendPhaseLog(state, target),
-      updatedAt: nowIso(),
-    },
-    dir,
-  );
+  const written = {
+    ...state,
+    phase: target,
+    phaseLog: appendPhaseLog(state, target),
+    updatedAt: nowIso(),
+  };
+  writeState(written, dir);
+  const publishBadges =
+    opts.publishBadges ?? ((s) => void publishStateBadges(s));
+  // Best-effort: a throwing publisher must never fail a successful phase
+  // write. state.json is already durable at this point.
+  try {
+    publishBadges(written);
+  } catch {
+    // swallowed — see comment above.
+  }
   return {
     advanced: true,
     reason: "finalized",

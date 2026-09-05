@@ -191,9 +191,14 @@ _flow() {
                     # shellcheck disable=SC2207
                     COMPREPLY=( $(compgen -W "--force --model --effort" -- "$cur") )
                 fi
+            elif [ "$esub" = "ls" ]; then
+                if [[ "$cur" == -* ]]; then
+                    # shellcheck disable=SC2207
+                    COMPREPLY=( $(compgen -W "--all -a" -- "$cur") )
+                fi
             else
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "create run status bind launch ls" -- "$cur") )
+                COMPREPLY=( $(compgen -W "create run status bind launch ls done" -- "$cur") )
             fi
             ;;
         config)

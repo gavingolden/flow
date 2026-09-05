@@ -796,7 +796,7 @@ Discovery exemption, #2 in Hard rules):
   append `RESEARCH: force-on (flow feature create --research)`.
 - **Revision-pass threading (on step-3 re-entry)** — when
   `<worktree>/.flow-tmp/plan.md` already exists, append `REVISION: <n>` so
-  discovery runs its Revision pass mode.
+  discovery runs its Revision pass mode (also on the auto-bundle re-entry).
 - **Epic-membership threading** — when `.epic` is set, append
   `EPIC: <slug>/<featureId> (design at .flow/epics/<slug>/design.md)`.
 - **Prompt-sanity threading** — on a `suspect` step-1 verdict, append `PROMPT-SANITY: <note>`.
@@ -884,6 +884,17 @@ the note backstop and BEFORE the cross-model plan review below, run
 non-blocking** — a non-zero exit surfaces a one-line note in the chat
 summary, never blocks planning. Full contract in
 [references/step3-threading.md](references/step3-threading.md#follow-up-reference-consistency-backstop-advisory-deterministic).
+
+**Auto-bundle revision pass (bounded, once per pipeline).** A
+`bundlingMisses` entry additionally composes an `AUTO-BUNDLE REDIRECT`
+payload from `flow-candidate-issues --lint`'s `.bundlingMisses[].index`
+(the same `pull #N into the plan` payload step 4 documents) and re-enters
+`/flow-product-planning` once, gated by the
+`$WORKTREE/.flow-tmp/auto-bundle-pass` marker file — a persisted miss
+after that single pass surfaces in `**Needs attention:**` and the
+pipeline proceeds. No new pause phase, no `AskUserQuestion`, rides
+Discovery exemption #2. Full contract in
+[references/step3-threading.md](references/step3-threading.md#auto-bundle-revision-pass-bounded-once-per-pipeline).
 
 **Plan-shape backstop (advisory, deterministic).** Right after the
 follow-up-reference backstop above, independently lint the plan's shape via
@@ -1284,7 +1295,8 @@ typed something into the tmux chat. Classify the input using
     (step 3's End condition above) RE-FIRES over the full candidate
     list (`renderDetails` prints every candidate, grouped by state, not
     only unticked ones), so pulling one never silently drops the
-    others.
+    others. The step-3 auto-bundle pass composes this same payload
+    itself, once, before the first render.
   - `defer task #N` (one or many task numbers in a single reply, e.g.
     `defer tasks #2 and #4`) → batch ALL deferred targets into ONE
     `USER REDIRECT: defer task(s) <N[, M...]> (<titles>) to follow-up
@@ -1295,13 +1307,15 @@ typed something into the tmux chat. Classify the input using
     task(s), renumber/repair the dependency table, update the Skills
     Summary if a removed task was its only user of a named skill, and
     append the item as a ticked candidate with a matching ranking-table
-    row and a value-prop block whose Problem anchor is the user's
+    row — its Rationale MUST read `user-foreclosed: "defer task #N"` —
+    and a value-prop block whose Problem anchor is the user's
     `defer task #N` instruction — every other section of plan.md is
     preserved byte-for-byte. **Batched-defer corruption guard:** step 3's
     existing deterministic backstops (`flow-plan-lint`,
     `flow-candidate-issues --lint`) already re-validate the revised
-    plan's structure on re-entry, so this drift guard adds zero new
-    machinery.
+    plan's structure on re-entry — that re-validation now also carries
+    `bundlingMisses`, and the `user-foreclosed` Rationale above is what
+    keeps the deferred item from being auto-bundled straight back.
 - **Cancel** ("cancel", "abort") → run `flow-remove-worktree
   <slug>`, run
   `flow-browser-teardown --reap --record` (registry-driven; records
