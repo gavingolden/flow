@@ -10,11 +10,11 @@ authoritative record of which scaffolds were removed, kept, or reverted.
 
 ## Verdicts
 
-| Candidate                        | Outcome | Scope | Decision metric                                                          | Before report                                            | After report                                            | Note                                                                     |
-| -------------------------------- | ------- | ----- | ------------------------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `verify-loop-subagent-isolation` | remove  | full  | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/verify-loop-isolation/report.json    | docs/eval/f2/after/verify-loop-isolation/report.json    | Removed on 8c6b8c4; delta clean (see Evidence)                           |
-| `haiku-gatekeeper`               | TBD     | TBD   | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/haiku-gatekeeper/report.json         | docs/eval/f2/after/haiku-gatekeeper/report.json         | Sonnet-parent sibling arm recorded alongside at haiku-gatekeeper-sonnet/ |
-| `checkpoint-pending-clear`       | TBD     | TBD   | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/checkpoint-pending-clear/report.json | docs/eval/f2/after/checkpoint-pending-clear/report.json |                                                                          |
+| Candidate                        | Outcome | Scope | Decision metric                                                          | Before report                                            | After report                                            | Note                                                                                                                         |
+| -------------------------------- | ------- | ----- | ------------------------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `verify-loop-subagent-isolation` | remove  | full  | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/verify-loop-isolation/report.json    | docs/eval/f2/after/verify-loop-isolation/report.json    | Removed on 8c6b8c4; delta clean (see Evidence)                                                                               |
+| `haiku-gatekeeper`               | remove  | full  | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/haiku-gatekeeper/report.json         | docs/eval/f2/after/haiku-gatekeeper/report.json         | Removed on 2b7fb49; delta better at both parent models (see Evidence); sonnet-parent sibling arm at haiku-gatekeeper-sonnet/ |
+| `checkpoint-pending-clear`       | TBD     | TBD   | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/checkpoint-pending-clear/report.json | docs/eval/f2/after/checkpoint-pending-clear/report.json |                                                                                                                              |
 
 ## Scope of each removal
 
@@ -94,7 +94,13 @@ controls (s2, s3) unmoved.
 
 ### haiku-gatekeeper
 
-TBD — filled when the arm is recorded.
+- **Outcome:** remove. Removal commits `2b7fb49` + `befd0d5`. After arms recorded at tree `befd0d54a63d1b03edfc52bc6e2316e05a57606f`, `--runs 2`, at BOTH parent models (Fork A option (c)): as pinned (haiku child) and `--model sonnet`.
+- **Gate score:** as pinned 0.917 → 0.917 (5/6 both arms); sonnet-parent 0.898 → 0.917.
+- **Decision metrics** (medians, `compare --tolerance 0.10`): as pinned — `result.total_cost_usd` summed over the six scenarios $1.202 → $0.858 (−29%, every scenario `better`), `transcript.finalContextTokens` mean 67,717 → 61,221 (−10%; four scenarios `better`, two `same`). Sonnet-parent — cost $2.899 → $2.124 (−27%, every scenario `better`), context 93,209 → 82,499 (−11%; five `better`, one `same`).
+- **Scaffold-absent check:** `transcript.subagentsSpawned` 1 → 0 on every scenario at both models.
+- **The routing-saving question, measured:** with a supervisor-class (sonnet) parent, spawning a haiku gatekeeper cost MORE than doing the triage inline — the subagent's own bootstrap and result round-trip outweighed the cheaper model's per-token price at this triage size. The scaffold's stated purpose (routing triage off an expensive parent) does not hold at this fixture scale.
+- **`compare` flagged one regression, not attributable to the removal:** `s6-no-new-commits-skip` scored 0.667 → 0.5 as pinned (0.5 → 0.5 sonnet-parent). Its failing graders (`decision-matches-truth`, `skip-kind-matches-truth`, `gatekeeper-result-decision`) fail on 2/3 before-arm runs and 3/3 sonnet before-arm runs too — the no-new-commits skip rule is mis-applied with or without the subagent (the f1 baseline at tree `98bba534` had it passing, so this is drift since then, worth its own look). The inline triage inherits the rule text verbatim.
+- **Non-decisional:** `result.num_turns` n/a for this suite; `result.duration_ms` `noisy`.
 
 ### checkpoint-pending-clear
 
