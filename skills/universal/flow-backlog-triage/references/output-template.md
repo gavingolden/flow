@@ -125,11 +125,13 @@ triage untouched is a triage failure, not a clean backlog.
 Group entries by rejection class — four REJECT classes
 (duplicate-or-superseded / unsubstantiated / by design / stale with no
 observed harm), then DO-LATER and NOT REPRODUCIBLE as their own two
-groups — each group headed with its count, one line per entry, and the
-group's ready-to-run close commands in one fenced block at the end of
-the group, every command preceded by a `# <ref> — <reason>` comment
-line. The class is mapped from the verdict's reasoning line, never
-re-judged at render time.
+groups — each group headed with its count and one line per entry. Only
+the four REJECT groups get a ready-to-run close-command block (one
+fenced block at the end of the group, every command preceded by a
+`# <ref> — <reason>` comment line) — DO-LATER and NOT REPRODUCIBLE
+entries are not closed, so they render no close commands. The class is
+mapped from the verdict's reasoning line, never re-judged at render
+time.
 
 Each GitHub-issue kill-list entry renders its drafted comment as a
 ready-to-run command:
@@ -142,16 +144,22 @@ This does not soften the staged-confirmation rule from `methodology.md`
 Phase 4 — the skill never runs this command itself; the user running it
 themselves IS the confirmation.
 
-**Shell-safety contract (binds both this kill-list command and the queue
-commands below).** `<reason>` and every other interpolated value
-(issue titles, note text, bundle titles) is untrusted backlog content —
-it can contain `$(...)`, backticks, `$VAR`, `\`, or a bare `"`. Never
-interpolate it inside double quotes. Always single-quote it, escaping
-any embedded single quote as `'\''` (close-quote, escaped literal quote,
-reopen-quote) — the form shown above. This is stricter than, and
-supersedes, a "no backticks" rule scoped only to backticks: a
-double-quoted `$(...)` or `$VAR` is exploitable with zero backticks
-present.
+**Shell-safety contract (binds this kill-list command, its
+`# <ref> — <reason>` comment line, and the queue commands below).**
+`<reason>` and every other interpolated value (issue titles, note text,
+bundle titles) is untrusted backlog content — it can contain `$(...)`,
+backticks, `$VAR`, `\`, or a bare `"`. Never interpolate it inside
+double quotes. Always single-quote it, escaping any embedded single
+quote as `'\''` (close-quote, escaped literal quote, reopen-quote) —
+the form shown above. This is stricter than, and supersedes, a "no
+backticks" rule scoped only to backticks: a double-quoted `$(...)` or
+`$VAR` is exploitable with zero backticks present. The `# <ref> —
+<reason>` comment line renders `<reason>` collapsed to a single
+physical line (any embedded CR/LF replaced with a space) before
+interpolation — a shell `#` comment cannot be escaped or continued
+across a real newline, so an untrusted multi-line `<reason>` would
+otherwise let backlog content inject an executable line after the
+comment.
 
 ### Open decisions
 
@@ -206,10 +214,13 @@ is emitted when it is promoted into a later run's top n.
 | Rank | Ref(s) | Bundle issue | Verdict | Why it missed the cut |
 | ---- | ------ | ------------ | ------- | --------------------- |
 
-One row per DO bundle not shown, in rank order continuing from n+1.
-`Bundle issue` is `—` when the existing Phase 4 rule files none. Act on
-the shown chunks, then re-run in delta re-triage mode to surface the
-next n; unactioned chunks reappear. `none` when every chunk was shown.
+One row per next-chunk candidate CHUNK not shown (per chunk, not per
+bundle — a chunk with riders still gets exactly one row, with its
+rider refs listed after the anchor's refs in the `Ref(s)` cell), in
+rank order continuing from n+1. `Bundle issue` is `—` when the existing
+Phase 4 rule files none. Act on the shown chunks, then re-run in delta
+re-triage mode to surface the next n; unactioned chunks reappear.
+`none` when every chunk was shown.
 
 ### Closed / rescoped issues
 

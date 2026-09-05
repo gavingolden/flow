@@ -41,6 +41,9 @@ table must carry exactly 6 rows.
   secret names") is not part of the six-item inventory above — like
   `#399` in Phase 4, it is introduced later, at Phase 3, purely to
   illustrate chunking. **CONFIRMED** against the deploy runbook file.
+  It is treated as inventoried for root-cause-leverage purposes only —
+  the tie-break a rider's ref can decide per Chunking above — without
+  adding a seventh row to the six-item inventory table.
 
 ## Phase 2 — Adjudicate
 
@@ -58,6 +61,9 @@ table must carry exactly 6 rows.
   scans for, removing them (H7) loses that signal entirely; a dedicated
   column keeps the information without the current inline crowding H7
   is actually complaining about.
+- Rider `#433` — verdict: **DO** — small, correctness-adjacent docs fix
+  (the runbook still names pre-rotation secrets) riding on Bundle B's
+  surface; too small to earn its own bundle-sized review.
 - A seventh, illustrative note not in the six above — "revisit the retry
   backoff constants" — is **DO-LATER**, with a concrete promotion
   trigger: "revisit when the next incident review touches the retry
@@ -119,6 +125,11 @@ for no incremental user value.`
   ```
   flow feature create --tmux --model opus --effort low --slug audit-log-retention 'implement bundle issue #441 — configurable audit-log retention window (default retention: <value required>)'
   ```
+
+  Bundle C is introduced here solely to illustrate the fire-time
+  `<value required>` placeholder — like `#399` above, it sits outside
+  the six-item inventory and the ranked chunk set below, so it does not
+  appear in `Shown` or the Next-chunk candidates ledger.
 
 ## Verbatim note attachment
 
@@ -223,8 +234,8 @@ absent features; name a milestone for feature-led chunks
 - **Riders:** #433 — deploy runbook still names the pre-rotation
   secret names
 - **Why it beat the next one down:** root-cause leverage — closes
-  #431, H3, #433 vs one ref for the session-drop fix [anchor: gh run
-  list → both nightly checks red since the rotation commit]
+  #431, H3, #433 vs one ref for the session-drop fix [anchor: the ref
+  list itself — #431, H3, #433 vs #412]
 - **In-chunk PR order:** restore secrets → runbook update
 - **File-overlap warnings:** none
 - **Tier:** Fix now (active problems)
@@ -234,6 +245,7 @@ Launch queue (Fix now tier):
 
 ```
 flow feature create --tmux --model opus --effort high --slug restore-deploy-secrets 'implement bundle issue #440 — restore rotated deploy secrets (fixes #431, H3)'
+flow feature create --tmux --model opus --effort low --slug deploy-runbook-secret-names 'implement bundle issue #433 — update deploy runbook to drop pre-rotation secret names (rider on #440)'
 ```
 
 ## Next-chunk candidates excerpt

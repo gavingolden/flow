@@ -41,8 +41,10 @@ adopted even when the notes source names an explicit goal item. Absent
 either argument, grooming mode is the default and inference stays live.
 Grooming mode's default lens, absent any other signal, is PM-shaped:
 app stability, bug fixes, and high-value features/enhancements.
-`top: <n>` caps the Decision Brief at n chunk cards (default 5); an
-invalid value falls back to 5 and the opener says so.
+`top: <n>` caps the Decision Brief at n chunk cards (default 5); a
+valid `<n>` is a positive integer (1, 2, 3, …) — anything else
+(non-numeric, zero, negative, fractional) is invalid and falls back to
+5, and the opener says so.
 
 **Surfaced-never-silent milestone inference.** In grooming mode, when the
 notes source contains an explicit goal item, adopt it as a **provisional**
@@ -256,17 +258,18 @@ text, and do not violate the zero-backticks rule.
 A **chunk** is one **anchor bundle** plus zero or more **riders**. A
 rider is a separate DO bundle that did not itself earn a bundle-sized
 review but is small enough to ride along with an anchor it shares a
-surface with — riders share the anchor's root cause, surface/files, or
-review context, never a theme. Note that the one-reviewable-PR test and
+surface with — riders share the anchor's root cause or surface/files,
+never a theme. Note that the one-reviewable-PR test and
 the never-by-theme rule apply per bundle, never per chunk: a chunk can
 carry several sequenced PRs, but each constituent bundle still has to
 pass the test on its own. Keep a chunk to ordinarily at most three
 sequenced one-PR bundles — beyond that, split the excess into its own
 chunk rather than growing one card past what a reviewer can hold in
-their head. Note also that a rider never inflates the chunk's rank: the
-chunk ranks on the anchor bundle's value alone, and a rider is included
-because it is cheap to ship alongside, not because it adds value rank of
-its own.
+their head. Note also that a rider never inflates the chunk's **Value
+rank**: Value rank is scored on the anchor bundle alone. Rider refs
+count toward root-cause leverage (tie-break key 1 below) — a rider is
+included because it is cheap to ship alongside AND because its ref
+count can decide a tie between chunks of equal Value rank.
 
 ### Ranking layer
 
@@ -306,20 +309,25 @@ are.
 
 ### Top-n cut and bias
 
-Show the top n chunks (default 5, `top: <n>`) as cards; every other DO
-bundle goes to the `### Next-chunk candidates` ledger in the Audit
-Appendix, in rank order. When fewer than n chunks exist, show them all
-and the ledger states `none`.
+Show the top n chunks (default 5, `top: <n>`) as cards, one row per
+chunk in the ledger below; every chunk not shown goes to the
+`### Next-chunk candidates` ledger in the Audit Appendix, in rank
+order. When the total chunk count M is less than n, the opener states
+`Shown: top M of M` (not `top n of M`) and shows every chunk; the
+ledger then states `0 next-chunk candidates` / `none`.
 
-**Stability-first bias.** In grooming mode, an observed failure outranks
-an absence at equal effort — a reproducible bug or a red signal beats an
-unbuilt feature when their anchor-backed keys otherwise tie. And note
-that the Decision Brief's opener states the bias in force so the reader
-knows what the ranking optimized for. It's important to name a milestone
-(`milestone: <goal>`) for feature-led chunks, where on-milestone
-features compete on equal terms rather than losing by default to the
-stability bias. And every shown card says which key beat the next chunk
-down, so the ranking stays falsifiable from the card alone.
+**Stability-first bias.** In grooming mode, the anchor-backed keys
+above tend to favor observed failures over absences at equal effort —
+a reproducible bug or a red signal supplies an anchor (a run id, a
+reproduction) that an unbuilt feature cannot, so a stability chunk
+more often wins the tie-break, not because failures get a class-based
+edge. And note that the Decision Brief's opener states the bias in
+force so the reader knows what the ranking tends to optimize for. It's
+important to name a milestone (`milestone: <goal>`) for feature-led
+chunks, where on-milestone features compete on equal terms rather than
+losing by default to the stability bias. And every shown card says
+which key beat the next chunk down, so the ranking stays falsifiable
+from the card alone.
 
 ## Phase 4 — act
 
@@ -338,7 +346,7 @@ distinction: **evidence-based closures are automated, judgment-based closures ar
       issue per BUNDLE (not per note), carrying the verified evidence and the bundle
       contents — the groomed backlog must live in the tracker, not in a notes file.
     - Pipeline launching is OFF by default in grooming mode: output a ready-to-launch
-      queue instead — exact launch command per DO bundle, ordered by value, with
+      queue instead — the shown chunks' bundles, in chunk-rank order, with
       size→model already applied. In milestone mode, or when the user opts in, launch
       DO bundles that are bugs/hardening and Medium-or-smaller, capped at a configurable
       concurrency (default 4), and queue the rest.

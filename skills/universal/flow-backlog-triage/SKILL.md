@@ -203,8 +203,10 @@ document is wanted.
 
 Print the document's absolute path both at the top of the document
 itself and in the chat summary at the end of the run. The chat summary
-opens with that path, then the Decision Brief's top recommendation
-tier(s) given inline, not a pointer back into the document.
+opens with that path, then states how many chunks were shown (`n` of
+`M` total DO chunks) and how many next-chunk candidates remain, then
+the Decision Brief's top recommendation tier(s) given inline, not a
+pointer back into the document.
 
 # Verification
 
@@ -236,8 +238,9 @@ Appendix`) is filled in, not left as a template.
   guessed one.
 - The emitted document's first section is `## Decision Brief`, not
   `## Audit Appendix` or anything else.
-- The chat summary carries the document's absolute path and the
-  Decision Brief's top recommendation tier(s).
+- The chat summary carries the document's absolute path, the shown-vs-
+  total chunk count and next-chunk-candidate count, and the Decision
+  Brief's top recommendation tier(s).
 - On any run with a notes source, the capture file exists and its
   ref-block count equals `M` from the Phase-0 count assertion.
 - Every `flow-verbatim-notes attach` attachment is reported with its
@@ -246,8 +249,9 @@ Appendix`) is filled in, not left as a template.
   every ref that landed on no issue is listed in the
   `### Verbatim note attachment` section.
 - The Decision Brief carries at most n chunk cards (n from `top: <n>`,
-  default 5), in rank order, and every DO bundle not in a shown chunk
-  has a `### Next-chunk candidates` row.
+  default 5), in rank order, and every chunk not shown has exactly one
+  `### Next-chunk candidates` row (a chunk with riders still gets one
+  row, not one per constituent bundle).
 - The Decision Brief's opener carries the `**Shown:**` and
   `**Ranking bias:**` lines.
 

@@ -859,6 +859,52 @@ describe("flow-backlog-triage top-n chunk anchors", () => {
     ).toBe(true);
   });
 
+  it("methodology.md defines the valid top: <n> domain and its invalid-value fallback", () => {
+    const normalized = methodologyContent.replace(/\s+/g, " ");
+    expect(
+      normalized.includes("a positive integer"),
+      "methodology.md must define a valid `top: <n>` as a positive integer.",
+    ).toBe(true);
+    expect(
+      normalized.includes("falls back to 5"),
+      "methodology.md must state an invalid `top: <n>` falls back to 5.",
+    ).toBe(true);
+  });
+
+  it("methodology.md renders the M<n opener and ledger forms", () => {
+    expect(
+      methodologyContent.includes("`Shown: top M of M`"),
+      "methodology.md must state the M<n opener renders `Shown: top M of M`.",
+    ).toBe(true);
+    expect(
+      methodologyContent.includes("`0 next-chunk candidates` / `none`"),
+      "methodology.md must state the M<n ledger renders " +
+        "`0 next-chunk candidates` / `none`.",
+    ).toBe(true);
+  });
+
+  it("output-template.md's shell-safety contract collapses the close-comment reason to one physical line", () => {
+    const normalized = outputTemplateContent.replace(/\s+/g, " ");
+    expect(
+      normalized.includes("single physical line"),
+      "output-template.md's shell-safety contract must state the " +
+        "`# <ref> — <reason>` comment line is collapsed to a single " +
+        "physical line (CR/LF stripped) before interpolation.",
+    ).toBe(true);
+  });
+
+  it("output-template.md restricts close-command blocks to the four REJECT groups", () => {
+    const normalized = outputTemplateContent.replace(/\s+/g, " ");
+    expect(
+      normalized.includes(
+        "Only the four REJECT groups get a ready-to-run close-command block",
+      ),
+      "output-template.md must restrict close-command blocks to the four " +
+        "REJECT groups — DO-LATER and NOT REPRODUCIBLE render no close " +
+        "commands.",
+    ).toBe(true);
+  });
+
   it("methodology.md names Value rank as the primary key and orders the tie-breaks", () => {
     const start = methodologyContent.indexOf("### Ranking layer");
     expect(
@@ -874,12 +920,16 @@ describe("flow-backlog-triage top-n chunk anchors", () => {
       slice.includes("Value rank is the primary key"),
       "methodology.md's Ranking layer must name Value rank as the primary key.",
     ).toBe(true);
-    // Sequential indexOf (each search starts after the previous match)
-    // rather than a bare indexOf from 0: "root-cause leverage" itself
-    // contains the substring "age" (lever-AGE), which would otherwise
-    // make a bare indexOf("age") resolve inside item 1 and falsely fail
-    // the strictly-increasing check before ever reaching item 6's real
-    // "age" heading.
+    // Extract the numbered, bolded tie-break headers directly (a
+    // `^\d+\.\s+\*\*key\*\*` match per list item) instead of scanning for
+    // each expected key by sequential indexOf: the sequential-indexOf
+    // approach can never detect an inserted 8th key or a duplicated key
+    // (it only walks forward through the seven it's told to expect), and
+    // its "strictly increasing" assertion was dead — cursor already
+    // advances past each found index before the next search, so the
+    // indices it checks are increasing by construction. Comparing the
+    // exact ordered array of extracted headers against orderedKeys
+    // catches both an addition and a duplicate.
     const orderedKeys = [
       "root-cause leverage",
       "system value",
@@ -889,24 +939,16 @@ describe("flow-backlog-triage top-n chunk anchors", () => {
       "age",
       "effort",
     ];
-    let cursor = 0;
-    const indices: number[] = [];
-    for (const key of orderedKeys) {
-      const idx = slice.indexOf(key, cursor);
-      indices.push(idx);
-      cursor = idx === -1 ? cursor : idx + key.length;
-    }
+    const headerMatches = [...slice.matchAll(/^\d+\.\s+\*\*([^*]+)\*\*/gm)].map(
+      (m) => m[1],
+    );
     expect(
-      indices.every((idx) => idx >= 0),
-      `methodology.md's Ranking layer must name all seven tie-break keys ` +
-        `in order: ${JSON.stringify(orderedKeys)}.`,
-    ).toBe(true);
-    expect(
-      indices.every((idx, i) => i === 0 || idx > indices[i - 1]),
-      "methodology.md's Ranking layer must list the seven tie-break keys " +
-        "in the exact order root-cause leverage, system value, carrying " +
-        "cost / tech debt, test-coverage gap, reach/frequency, age, effort.",
-    ).toBe(true);
+      headerMatches,
+      "methodology.md's Ranking layer must list exactly the seven " +
+        "tie-break keys, in order, as numbered bold headers — no key " +
+        "added, removed, or duplicated: " +
+        JSON.stringify(orderedKeys),
+    ).toEqual(orderedKeys);
   });
 
   it("methodology.md forbids a weighted numeric sum (polarity-anchored)", () => {
@@ -944,10 +986,19 @@ describe("flow-backlog-triage top-n chunk anchors", () => {
       "SKILL.md must contain a '**Mode selection.**' paragraph.",
     ).toBeGreaterThanOrEqual(0);
     const nextParagraph = skillContent.indexOf("\n\n", start + 1);
+    // Bound the slice to the actual paragraph (up to the blank-line break),
+    // not `nextParagraph + 400`: the +400 slop let the bias sentence live
+    // in the FOLLOWING paragraph and still pass, and never separately
+    // checked for `top: <n>` even though the assertion claims it's
+    // declared "alongside" that argument.
     const slice = skillContent.slice(
       start,
-      nextParagraph === -1 ? undefined : nextParagraph + 400,
+      nextParagraph === -1 ? undefined : nextParagraph,
     );
+    expect(
+      slice.includes("top: <n>"),
+      "SKILL.md's Mode selection paragraph must declare the top: <n> argument.",
+    ).toBe(true);
     expect(
       slice.includes("stability-first"),
       "SKILL.md's Mode selection paragraph must declare the stability-first " +
