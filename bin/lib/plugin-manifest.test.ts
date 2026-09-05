@@ -8,7 +8,7 @@ import {
 } from "./plugin-manifest";
 
 describe(pluginManifestFor, () => {
-  it("emits exactly the five keys $schema,name,version,description,author when includeSkills is false", () => {
+  it("emits exactly the six keys $schema,name,version,description,author,workflows for core (core declares workflows) when includeSkills is false", () => {
     const m = pluginManifestFor("core", {
       version: "1.0.0",
       includeSkills: false,
@@ -19,7 +19,34 @@ describe(pluginManifestFor, () => {
       "version",
       "description",
       "author",
+      "workflows",
     ]);
+  });
+
+  it('emits relative-only workflows: ["./workflows"] for core', () => {
+    const m = pluginManifestFor("core", {
+      version: "1.0.0",
+      includeSkills: false,
+    });
+    expect(m.workflows).toEqual(["./workflows"]);
+    for (const entry of m.workflows ?? []) {
+      expect(entry.startsWith("/")).toBe(false);
+    }
+  });
+
+  it("omits the `workflows` key entirely for a module with no workflows", () => {
+    const idWithoutWorkflows = MODULES.find(
+      (m) => m.workflows.length === 0,
+    )!.id;
+    const m = pluginManifestFor(idWithoutWorkflows, {
+      version: "1.0.0",
+      includeSkills: false,
+    });
+    const roundTripped = JSON.parse(JSON.stringify(m)) as Record<
+      string,
+      unknown
+    >;
+    expect("workflows" in roundTripped).toBe(false);
   });
 
   it("omits the `skills` key entirely when includeSkills is false", () => {
