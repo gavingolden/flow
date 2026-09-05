@@ -14,7 +14,7 @@ authoritative record of which scaffolds were removed, kept, or reverted.
 | -------------------------------- | ------- | ----- | ------------------------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `verify-loop-subagent-isolation` | remove  | full  | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/verify-loop-isolation/report.json    | docs/eval/f2/after/verify-loop-isolation/report.json    | Removed on 8c6b8c4; delta clean (see Evidence)                                                                               |
 | `haiku-gatekeeper`               | remove  | full  | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/haiku-gatekeeper/report.json         | docs/eval/f2/after/haiku-gatekeeper/report.json         | Removed on 2b7fb49; delta better at both parent models (see Evidence); sonnet-parent sibling arm at haiku-gatekeeper-sonnet/ |
-| `checkpoint-pending-clear`       | TBD     | TBD   | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/checkpoint-pending-clear/report.json | docs/eval/f2/after/checkpoint-pending-clear/report.json |                                                                                                                              |
+| `checkpoint-pending-clear`       | keep    | full  | transcript.finalContextTokens + result.total_cost_usd + suite gate score | docs/eval/f2/before/checkpoint-pending-clear/report.json | docs/eval/f2/after/checkpoint-pending-clear/report.json | Removal 8623b79 reverted by 98e6e1e; gate score fell under keep-bias (see Evidence)                                          |
 
 ## Scope of each removal
 
@@ -104,4 +104,9 @@ controls (s2, s3) unmoved.
 
 ### checkpoint-pending-clear
 
-TBD — filled when the arm is recorded.
+- **Outcome:** keep (keep-biased candidate). Removal commit `8623b79` measured, then reverted by `98e6e1e`. After arm recorded at tree `8623b791e35e3647058b861d3eb0a8ef9e7163f2`, `--runs 2`.
+- **Gate score:** 0.983 → 0.975 — LOWER. Per-scenario: `s1-resume-step5-addendum` 1.0 → 1.0; `s4-resume-step5-plain` (the second candidate-covering scenario) 1.0 → 0.9; controls `s2` 0.933 → 1.0, `s3` 1.0 → 1.0.
+- **Decision metrics** (medians): every one `same` — `transcript.finalContextTokens` s1 109,217 → 105,896, s4 109,124 → 105,348; `result.total_cost_usd` s1 $1.298 → $1.296, s4 $1.181 → $1.160. `compare` flagged 3 regressions (the s4 score, and `result.num_turns` 6 → 7 on the s2 control — non-decisional).
+- **What broke on the removal arm:** with the phase gone from `PENDING_PHASES`/`POST_APPROVAL_PHASES`, one of s4's two runs failed the gating `addenda-empty` grader — the resumed session re-read the plain `approved` checkpoint body as a plan-approval addendum "re-injected at step 4 and honored as if just given" instead of treating it as an empty plain resume. That is the post-`/clear` resume path the epic required this eval to cover, degrading exactly where the scaffold's state lives.
+- **Reading:** the removal buys no measurable context or cost (all `same`), and the only movement is a gate-score drop on the candidate-covering scenario. Under the epic's keep-bias the burden of proof sits on removal; it did not clear the bar, so the scaffold stays. Not a noise-immune result (n=2 runs), but a keep verdict on a keep-biased candidate is the safe reading of a same-or-worse delta.
+- **Non-decisional:** `result.num_turns` 7 → 7 (s1, s4); `result.duration_ms` `noisy`.

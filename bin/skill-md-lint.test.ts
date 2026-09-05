@@ -1319,9 +1319,15 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * two budgets (26_650) is kept rather than summing the deltas: it already
    * clears the merged size with 95 chars of headroom, so no further raise
    * was warranted. The 26_500 side would have failed at merge time.
+   * Trimmed from 26_650 to 25_600 by f2-scaffold-stress-test: removing the
+   * verify-loop and gatekeeper exemption bullets shrank `AGENTS.md` to
+   * 25_449 chars (String.prototype.length). The budget is trimmed toward
+   * the new size (151 chars of headroom) rather than left as silent
+   * headroom, per the plan's offload-then-trim rule — the first downward
+   * move in this ledger.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 26_650;
+    const CHAR_BUDGET = 25_600;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
