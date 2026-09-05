@@ -141,7 +141,7 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
     const { deps, dispatched } = makeDeps({
       stdin: JSON.stringify({ hook_event_name: "SessionStart" }),
       slug: "demo",
-      state: fakeState("checkpoint-pending-clear"),
+      state: fakeState("plan-pending-review"),
       markerExists: true,
     });
     expect(await run(deps)).toBe(0);
@@ -167,7 +167,7 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
       readStdin: async () => "",
       flowSlugEnv: "demo",
       tmuxPaneEnv: "%1",
-      loadState: () => fakeState("checkpoint-pending-clear"),
+      loadState: () => fakeState("plan-pending-review"),
       markerExists: () => true,
       readCheckpointBody: () => null,
       retireCheckpoint: () => undefined,
@@ -194,7 +194,7 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
     // inside that pane must degrade to the passive emit, never send-keys.
     const { deps, dispatched, emitted } = makeDeps({
       slug: "demo",
-      state: fakeState("checkpoint-pending-clear"),
+      state: fakeState("plan-pending-review"),
       markerExists: true,
       tmuxPaneEnv: "",
     });
@@ -206,7 +206,7 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
   it("still dispatches send-keys when launcher is tmux AND TMUX_PANE is live", async () => {
     const { deps, dispatched } = makeDeps({
       slug: "demo",
-      state: fakeState("checkpoint-pending-clear"),
+      state: fakeState("plan-pending-review"),
       markerExists: true,
       tmuxPaneEnv: "%3",
     });
@@ -283,7 +283,7 @@ describe("flow-session-start-hook — silent no-op paths", () => {
   it("no-op for a non-terminal slug when the checkpoint.pending marker is absent", async () => {
     const { deps, dispatched } = makeDeps({
       slug: "demo",
-      state: fakeState("checkpoint-pending-clear"),
+      state: fakeState("plan-pending-review"),
       markerExists: false,
     });
     expect(await run(deps)).toBe(0);
@@ -298,7 +298,7 @@ describe("flow-session-start-hook — silent no-op paths", () => {
     // reaches the normal dispatch path.
     const { deps, dispatched } = makeDeps({
       slug: "demo",
-      state: { ...fakeState("checkpoint-pending-clear"), worktree: undefined },
+      state: { ...fakeState("plan-pending-review"), worktree: undefined },
       markerExists: true,
     });
     expect(await run(deps)).toBe(0);
@@ -969,7 +969,7 @@ describe('plain-mode additionalContext fallback (state.launcher === "plain")', (
   it("emits the resume seed as additionalContext instead of send-keys", async () => {
     const { deps, dispatched, emitted } = makeDeps({
       flowSlugEnv: "demo",
-      state: { ...fakeState("checkpoint-pending-clear"), launcher: "plain" },
+      state: { ...fakeState("plan-pending-review"), launcher: "plain" },
       markerExists: true,
     });
     expect(await run(deps)).toBe(0);
@@ -980,7 +980,7 @@ describe('plain-mode additionalContext fallback (state.launcher === "plain")', (
   it("no-ops (no emit) when the checkpoint marker is absent", async () => {
     const { deps, dispatched, emitted } = makeDeps({
       flowSlugEnv: "demo",
-      state: { ...fakeState("checkpoint-pending-clear"), launcher: "plain" },
+      state: { ...fakeState("plan-pending-review"), launcher: "plain" },
       markerExists: false,
     });
     expect(await run(deps)).toBe(0);
@@ -991,7 +991,7 @@ describe('plain-mode additionalContext fallback (state.launcher === "plain")', (
   it("tmux path is unchanged: a resolved slug still dispatches send-keys, never emits context", async () => {
     const { deps, dispatched, emitted } = makeDeps({
       slug: "demo",
-      state: fakeState("checkpoint-pending-clear"),
+      state: fakeState("plan-pending-review"),
       markerExists: true,
     });
     expect(await run(deps)).toBe(0);

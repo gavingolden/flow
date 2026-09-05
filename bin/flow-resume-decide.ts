@@ -226,7 +226,6 @@ export const NO_INFLIGHT_WORK_PHASES = new Set<string>([
 // implies every earlier phase is complete, so it belongs in all three
 // "phase advanced past row N" sets below alongside `ci-wait`.
 const POST_APPROVAL_PHASES = new Set([
-  "checkpoint-pending-clear",
   "implementing",
   "installing-skills",
   "verifying",

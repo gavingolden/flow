@@ -440,13 +440,6 @@ export const PENDING_PHASES = [
   "triage-pending-interview",
   "approval-pending-clarification",
   "ci-wait-pending",
-  // Auto-checkpoint at the approval → implement hand-off (step 4 affirmative
-  // branch). The supervisor flushes conversational state to
-  // `~/.flow/state/checkpoints/<slug>/checkpoint.md`, nudges "safe to
-  // /clear", and ends the turn here — a legitimate turn-end so
-  // `flow-stop-guard` permits the yield. On resume it resolves to step-5
-  // (implement).
-  "checkpoint-pending-clear",
   // /flow-epic-create step 4.5's async cross-model plan review wake ladder,
   // the epic-window sibling of `plan-review-pending` above. Must start with
   // `epic-` — EPIC_PHASES derives via startsWith("epic-") and
@@ -681,7 +674,6 @@ export const PHASE_SHORT: Record<PipelinePhase, string> = {
   "triage-pending-interview": "intq?",
   "approval-pending-clarification": "appr?",
   "ci-wait-pending": "ci?",
-  "checkpoint-pending-clear": "ckpt?",
   merged: "merged",
   gated: "gated",
   "needs-human": "human",

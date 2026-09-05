@@ -146,7 +146,7 @@ flow-checkpoint
 
 The bare call above keeps no `--site` flag, so it defaults to
 `--site manual` — this is what makes the note you just wrote outrank
-every pipeline auto-checkpoint (plan-review, plan-approval, gate) until
+every pipeline auto-checkpoint (plan-review, gate, terminal) until
 the pipeline itself changes phase: a manual note's freshness is judged
 against `state.phaseLog`, and it reads as fresh for as long as no phase
 transition has happened since you armed it. Once the pipeline advances,
@@ -176,8 +176,8 @@ non-empty, then emits one JSON object on stdout. Branch on `.status`:
   is not available here and end.
 
 This skill never probes (`--probe`) — that branch exists only for the
-pipeline auto-checkpoint sites (`plan-review`, `plan-approval`, `gate`,
-`terminal`) deciding whether to overwrite an existing note, so `.status`
+pipeline auto-checkpoint sites (`plan-review`, `gate`, `terminal`)
+deciding whether to overwrite an existing note, so `.status`
 here only ever takes `ready` or `needs`.
 
 ## 3. Tell the user it is safe to `/clear`, then end the turn

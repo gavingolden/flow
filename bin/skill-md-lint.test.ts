@@ -5395,32 +5395,17 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
-  it("flow-pipeline SKILL.md step 4 has the auto-checkpoint sub-step body arming flow-checkpoint at checkpoint-pending-clear", () => {
+  it("flow-pipeline SKILL.md step 4 approval Affirmative branch proceeds straight to step 5 (no auto-checkpoint sub-step)", () => {
     expect(
       content.includes("### Auto-checkpoint sub-step"),
-      "flow-pipeline SKILL.md step 4 must contain the 'Auto-checkpoint " +
-        "sub-step' body PR #407 referenced but never authored — the three " +
-        "forward-references resolve to this heading.",
-    ).toBe(true);
+      "the step-4 approval → implement auto-checkpoint sub-step was removed " +
+        "(Candidate C) — it must not be re-introduced.",
+    ).toBe(false);
     expect(
-      content.includes(
-        "Flush approval state to `checkpoint.md` (non-clobbering).",
-      ),
-      "the step 4 auto-checkpoint sub-step must flush approval state to " +
-        "checkpoint.md non-clobberingly (the fuller /checkpoint-style flush).",
-    ).toBe(true);
-    expect(
-      // Matches the ARM specifically (`flow-checkpoint --site plan-approval`),
-      // not a bare `flow-checkpoint` substring — a `--probe` call inserted
-      // before the arm would otherwise satisfy a looser regex and silently
-      // stop proving the arm-before-phase-write ordering this test exists
-      // for.
-      /### Auto-checkpoint sub-step[\s\S]*?flow-checkpoint --site plan-approval[\s\S]*?flow-state-update --phase checkpoint-pending-clear/.test(
-        content,
-      ),
-      "the step 4 auto-checkpoint sub-step must arm `flow-checkpoint --site " +
-        "plan-approval` BEFORE writing `flow-state-update --phase " +
-        "checkpoint-pending-clear`.",
+      content.includes("proceed straight to step 5 in the same turn"),
+      "flow-pipeline SKILL.md step 4's Affirmative branch must proceed " +
+        "straight to step 5 in the same turn now that the auto-checkpoint " +
+        "sub-step is gone.",
     ).toBe(true);
   });
 
@@ -5443,7 +5428,15 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
-  it.each(CHECKPOINT_SITES.filter((site) => site !== "manual"))(
+  it.each(
+    // `plan-approval` stays a valid CheckpointSite (eval fixtures validate
+    // against it — see bin/lib/checkpoint-freshness.ts), but Candidate C
+    // removed the step-4 approval→implement auto-checkpoint sub-step that
+    // used to probe/arm it, so it is no longer a pipeline-invoked site here.
+    CHECKPOINT_SITES.filter(
+      (site) => site !== "manual" && site !== "plan-approval",
+    ),
+  )(
     "flow-pipeline SKILL.md probes and arms --site %s at its auto-checkpoint sub-step",
     (site) => {
       expect(
