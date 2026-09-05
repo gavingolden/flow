@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "epicId": "build-the-epic-designer",
+  "features": {
+    "f1-manifest-schema": {
+      "status": "merged",
+      "pr": 336
+    },
+    "f2-dag-validator": {
+      "status": "merged",
+      "pr": 351
+    },
+    "f3-epic-cli": {
+      "status": "merged",
+      "pr": 352
+    },
+    "f4-designer-logic": {
+      "status": "merged",
+      "pr": 353
+    },
+    "f5-end-to-end": {
+      "status": "merged",
+      "pr": 359
+    }
+  }
+}
