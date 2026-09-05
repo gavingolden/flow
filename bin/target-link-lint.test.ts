@@ -114,6 +114,10 @@ export const BARE_TARGET_ALLOWLIST: readonly string[] = [
   // `worktreeDir`/`planFile` local variables for file I/O — no bare
   // click target is printed from this file.
   "bin/flow-research-note.ts",
+  // process.stdout.write emits only `{ ok: true }` from the CLI
+  // entrypoint; the file's `prUrl` mentions are schema field names/type
+  // declarations for stage-A/B result validation, never printed.
+  "bin/lib/workflow-result-schema.ts",
   // Emits progress output to stdout and separately reads `worktreeDir`
   // for filesystem operations (removal) — never printed.
   "bin/flow-remove-worktree.ts",

@@ -166,6 +166,13 @@ const MERGE_RESOLVER_INSTRUCTIONS_PATH = path.resolve(
   "flow-merge-resolver-instructions",
   "SKILL.md",
 );
+const STAGE_B_WORKFLOW_PATH = path.resolve(
+  HERE,
+  "..",
+  "workflows",
+  "core",
+  "flow-stage-b.workflow.js",
+);
 const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   HERE,
   "..",
@@ -372,6 +379,7 @@ const mergeResolverInstructionsContent = fs.readFileSync(
   MERGE_RESOLVER_INSTRUCTIONS_PATH,
   "utf8",
 );
+const stageBWorkflowContent = fs.readFileSync(STAGE_B_WORKFLOW_PATH, "utf8");
 const discoveryPlaybookContent = fs.readFileSync(
   DISCOVERY_PLAYBOOK_PATH,
   "utf8",
@@ -1966,10 +1974,20 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
           "real guard notices as long as the prose mention survives.",
       ).toBe(true);
     }
+    // LEG A (f6-workflow-port): the merge-resolver spawn moved from a
+    // guarded-fallback SKILL.md prose site into workflows/core/
+    // flow-stage-b.workflow.js's unconditional `agent()` call — the
+    // Workflow-tool script has no general-purpose fallback branch to
+    // guard (the plugin-contract lint already ensures the agent
+    // definition ships alongside the script), so this assertion re-points
+    // to the script's literal agentType instead of a dissolved SKILL.md
+    // guard notice.
     expect(
-      content.includes("agent-fallback: flow-merge-resolver → general-purpose"),
-      "flow-pipeline SKILL.md step-10 merge-resolver guard must emit the named " +
-        "agent-fallback notice on its general-purpose fallback branch.",
+      stageBWorkflowContent.includes(
+        'agentType: "flow-module-core:flow-merge-resolver"',
+      ),
+      "workflows/core/flow-stage-b.workflow.js must resolve the resolver " +
+        "agent()'s agentType to `flow-module-core:flow-merge-resolver`.",
     ).toBe(true);
     expect(
       newFeatureContent.includes(
@@ -2029,22 +2047,22 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "flow-product-planning SKILL.md discovery spawn must pass `subagent_type: $DISCOVERY_SUBAGENT`.",
     ).toBe(true);
 
+    // LEG A (f6-workflow-port): same re-point as the agent-fallback check
+    // above — the merge-resolver spawn's SKILL.md variable-resolution +
+    // guard-file + subagent_type wiring dissolved into
+    // flow-stage-b.workflow.js's unconditional `agent()` call.
     expect(
-      content.includes(
-        "MERGE_RESOLVER_SUBAGENT=flow-module-core:flow-merge-resolver",
+      stageBWorkflowContent.includes(
+        'agentType: "flow-module-core:flow-merge-resolver"',
       ),
-      "flow-pipeline SKILL.md step 10 must resolve MERGE_RESOLVER_SUBAGENT to " +
-        "`flow-module-core:flow-merge-resolver`.",
+      "workflows/core/flow-stage-b.workflow.js must resolve the resolver " +
+        "agent()'s agentType to `flow-module-core:flow-merge-resolver`.",
     ).toBe(true);
     expect(
-      content.includes(
-        "[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-merge-resolver.md ]",
-      ),
-      "flow-pipeline SKILL.md merge-resolver site must guard on the installed definition file.",
-    ).toBe(true);
-    expect(
-      content.includes("subagent_type: $MERGE_RESOLVER_SUBAGENT"),
-      "flow-pipeline SKILL.md merge-resolver spawn must pass `subagent_type: $MERGE_RESOLVER_SUBAGENT`.",
+      stageBWorkflowContent.includes("label: \"resolver\""),
+      "workflows/core/flow-stage-b.workflow.js must label the resolver " +
+        "agent() call 'resolver' so it resolves from " +
+        "references/workflow-agent-sites.md.",
     ).toBe(true);
 
     expect(
@@ -4427,10 +4445,11 @@ describe("Task-tool ToolSearch-load preamble at all seven top-level spawn sites"
       file: "skills/pipeline/flow-coder/SKILL.md",
       exemption_name: "coder-edit-applier",
     },
-    {
-      file: "skills/pipeline/flow-pipeline/SKILL.md",
-      exemption_name: "flow-pipeline-merge-resolver",
-    },
+    // LEG A (f6-workflow-port): the flow-pipeline-merge-resolver Task-tool
+    // spawn site dissolved into workflows/core/flow-stage-b.workflow.js's
+    // Workflow-tool `agent()` call — no SKILL.md Task-tool spawn remains
+    // to carry the "Load the Task tool before spawning" preamble or the
+    // escalation tag, so the row is dropped rather than re-pointed.
   ];
 
   it.each(SITES)(
@@ -6885,20 +6904,16 @@ describe("terminal-state reap wiring lint", () => {
   }
 
   it("every wired terminal flow-gate-summary occurrence in SKILL.md has its own preceding reap call", () => {
-    // 8 deliberately unwired: 5 step-10 merge-resolution escalations that
-    // delegate to the (already-wired) `# Failure paths` chain, and 3
-    // elliptical resume-path back-references. Was pinned at 7 before the
-    // PM-lens TLDR/--lens sweep (Task 9): the step-10 conflict-class
-    // "On retry failure" escalation's `flow-gate-summary --status
-    // needs-human` text originally wrapped `--status` and `needs-human`
-    // onto separate lines, which made TERMINAL_STATUS_RE silently miss it
-    // — a pre-existing formatting fluke, not a deliberate gap. Adding the
-    // `--tldr`/`--lens` flags there reflowed the paragraph so the two
-    // words landed on one line, making the site newly visible to this
-    // lint (still correctly unwired — it delegates to the same `#
-    // Failure paths` chain as its siblings). Bumped 7 → 8 to reflect the
-    // true count, not to loosen the check.
-    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 8);
+    // 3 deliberately unwired: the elliptical resume-path back-references.
+    // Was 8 pre-LEG-A (f6-workflow-port): the 5 step-10 merge-resolution
+    // escalations that delegated to the (already-wired) `# Failure paths`
+    // chain are gone — that whole "Independent Merge-Conflict Resolver
+    // Subagent" section (and its NEEDS-HUMAN escalation branches) dissolved
+    // into workflows/core/flow-stage-b.workflow.js's `terminal()` helper,
+    // which returns a result object for the supervisor to render, not
+    // inline SKILL.md prose with its own flow-gate-summary calls. Dropped
+    // 8 → 3 to reflect the true count, not to loosen the check.
+    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 3);
   });
 
   it("every wired terminal flow-gate-summary occurrence in the reference docs has its own preceding reap call", () => {
