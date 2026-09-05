@@ -20,9 +20,6 @@ import { readState } from "./state";
 // invocations otherwise have no seam at all. Mirrors bin/lib/epic.test.ts's
 // tmuxMock shape.
 const tmuxMock = vi.hoisted(() => ({
-  setWindowPhase: vi.fn<
-    (slug: string, phase: string) => { ok: boolean; stderr: string }
-  >(() => ({ ok: true, stderr: "" })),
   setWindowEpic: vi.fn<
     (slug: string, epicSlug: string) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
@@ -260,6 +257,16 @@ describe("advancePhase", () => {
     // Named one-transition-behind failure mode: the state handed to the
     // seam must already carry the NEW phase, not the pre-write one.
     expect((published[0] as { phase: string }).phase).toBe("gating");
+  });
+
+  it("publishes badges through the real tmux helper when no stub is injected", () => {
+    tmuxMock.publishStateBadges.mockClear();
+    seedState("s15", "reviewing");
+    advancePhase("gating", { slug: "s15", dir: stateDir });
+    expect(tmuxMock.publishStateBadges).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.publishStateBadges.mock.calls[0]![0]).toMatchObject({
+      phase: "gating",
+    });
   });
 
   it("does not invoke publishBadges on a refused write (branch-mismatch)", () => {
@@ -611,6 +618,16 @@ describe("finalizePhase", () => {
     // Named one-transition-behind failure mode: the state handed to the
     // seam must already carry the NEW phase, not the pre-write one.
     expect((published[0] as { phase: string }).phase).toBe("merged");
+  });
+
+  it("publishes badges through the real tmux helper when no stub is injected", () => {
+    tmuxMock.publishStateBadges.mockClear();
+    seedState("f-real-pub", "gating");
+    finalizePhase("merged", { slug: "f-real-pub", dir: stateDir });
+    expect(tmuxMock.publishStateBadges).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.publishStateBadges.mock.calls[0]![0]).toMatchObject({
+      phase: "merged",
+    });
   });
 
   it("does not invoke publishBadges on a refused write (branch-mismatch)", () => {

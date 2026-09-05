@@ -4,15 +4,22 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Structural lint pinning that no pane-option read exists outside
- * `bin/lib/tmux.ts` and the named `@flow-kind` surfaces — in code *or* in
- * skill prose. Mirrors `bin/skill-md-lint.test.ts` /
- * `bin/slug-flag-contract-lint.test.ts`: read the tree, extract the
- * contract, assert the code honours it. No glob dependency — hand-rolled
- * `readdirSync(dir, { recursive: true })` + extension filters, same as
- * those two sibling lints (`picomatch` has a documented recurring failure
- * mode in this repo: a canonical checkout missing it degrades PATH helpers
- * silently).
+ * Four structural lints share this file:
+ * 1. Pinning that no pane-option read exists outside `bin/lib/tmux.ts` and
+ *    the named `@flow-kind` surfaces — in code *or* in skill prose.
+ * 2. Write-site parity: every top-level `phase:`/`pr:` write via
+ *    `writeState(...)` lives in `phase-advance.ts`/`flow-state-update.ts`,
+ *    or carries a named `WRITE_SITE_PARITY_EXEMPTIONS` entry.
+ * 3. Publisher parity: `publishStateBadges` publishes the full option set
+ *    `PUBLISHER_PARITY_EXEMPTIONS` predicts, with no stale exemption.
+ * 4. Frozen allowlist completeness/dead-entry checks for (1).
+ *
+ * Mirrors `bin/skill-md-lint.test.ts` / `bin/slug-flag-contract-lint.test.ts`:
+ * read the tree, extract the contract, assert the code honours it. No glob
+ * dependency — hand-rolled `readdirSync(dir, { recursive: true })` +
+ * extension filters, same as those two sibling lints (`picomatch` has a
+ * documented recurring failure mode in this repo: a canonical checkout
+ * missing it degrades PATH helpers silently).
  *
  * Detection is FILE-LEVEL, not line-windowed, by design: `bin/lib/tmux.ts`'s
  * own reads are multi-line `spawn([...])` array literals, so any fixed
@@ -266,11 +273,16 @@ function extractBalanced(source: string, openIndex: number): string {
   throw new Error(`unbalanced '${openChar}' from index ${openIndex}`);
 }
 
-/** Depth-aware: true only when the literal sets `phase:` or `pr:` at DEPTH
- * 1 of its OWN body (not nested inside a sub-object, and not a spread — a
- * spread token never matches the `IDENT:` shape). `expectKeyStart` gates
- * matching to "right after `{` or a depth-1 comma" so a value-position
- * ternary colon (`cond ? a : b`) can never be mistaken for a key. */
+/** Depth-aware: true only when the literal sets `phase:`/`pr:` (colon,
+ * shorthand, or quoted-key form) at DEPTH 1 of its OWN body — not nested
+ * inside a sub-object. `expectKeyStart` gates matching to "right after `{`
+ * or a depth-1 comma" so a value-position ternary colon (`cond ? a : b`)
+ * can never be mistaken for a key. Comments must be skipped BEFORE the
+ * quote check — same comment-before-quote ordering as `extractBalanced`/
+ * `splitTopLevelFirstArg`: a `//` comment containing an apostrophe would
+ * otherwise be misread as an open quote. The key match itself runs before
+ * the generic quote-skip so a quoted key (`"phase": x`) is recognised
+ * rather than swallowed as an ordinary string literal. */
 function literalSetsTopLevelPhaseOrPr(literal: string): boolean {
   let depth = 0;
   let expectKeyStart = false;
@@ -278,17 +290,6 @@ function literalSetsTopLevelPhaseOrPr(literal: string): boolean {
   const n = literal.length;
   while (i < n) {
     const ch = literal[i]!;
-    if (ch === '"' || ch === "'" || ch === "`") {
-      const quote = ch;
-      i++;
-      while (i < n && literal[i] !== quote) {
-        if (literal[i] === "\\") i++;
-        i++;
-      }
-      i++;
-      expectKeyStart = false;
-      continue;
-    }
     if (ch === "/" && literal[i + 1] === "/") {
       while (i < n && literal[i] !== "\n") i++;
       continue;
@@ -297,6 +298,33 @@ function literalSetsTopLevelPhaseOrPr(literal: string): boolean {
       i += 2;
       while (i < n && !(literal[i] === "*" && literal[i + 1] === "/")) i++;
       i += 2;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (depth === 1 && expectKeyStart) {
+      const rest = literal.slice(i);
+      if (
+        /^(phase|pr)\s*:/.exec(rest) ||
+        /^["'](phase|pr)["']\s*:/.exec(rest) ||
+        /^(phase|pr)\s*[,}]/.exec(rest)
+      ) {
+        return true;
+      }
+      expectKeyStart = false;
+      // fall through — the current char still needs normal handling below
+      // (it may open a string, a nested brace, etc.)
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      i++;
+      while (i < n && literal[i] !== quote) {
+        if (literal[i] === "\\") i++;
+        i++;
+      }
+      i++;
       continue;
     }
     if (ch === "{" || ch === "[" || ch === "(") {
@@ -319,15 +347,83 @@ function literalSetsTopLevelPhaseOrPr(literal: string): boolean {
       i++;
       continue;
     }
-    if (depth === 1 && expectKeyStart) {
-      if (/^(phase|pr)\s*:/.exec(literal.slice(i))) return true;
-      expectKeyStart = false;
+    i++;
+  }
+  return false;
+}
+
+/** Depth-1 spread expressions in an object literal (`...IDENT` or
+ * `...IDENT(args)`), verbatim expression text, comment/string-aware. Used
+ * by `callSiteSetsTopLevelPhaseOrPr` to resolve a spread-of-a-traced-helper
+ * the same way a bare identifier argument is resolved — e.g.
+ * `writeState({ ...makeBaseState("tmux"), seed }, dir)` must be traced
+ * through to `makeBaseState`'s own returned literal, not judged solely on
+ * the visible depth-1 keys (`seed`). */
+function extractTopLevelSpreadTargets(literal: string): string[] {
+  const targets: string[] = [];
+  let depth = 0;
+  let i = 0;
+  const n = literal.length;
+  while (i < n) {
+    const ch = literal[i]!;
+    if (ch === "/" && literal[i + 1] === "/") {
+      while (i < n && literal[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && literal[i + 1] === "*") {
+      i += 2;
+      while (i < n && !(literal[i] === "*" && literal[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      i++;
+      while (i < n && literal[i] !== quote) {
+        if (literal[i] === "\\") i++;
+        i++;
+      }
+      i++;
+      continue;
+    }
+    if (
+      depth === 1 &&
+      ch === "." &&
+      literal[i + 1] === "." &&
+      literal[i + 2] === "."
+    ) {
+      let j = i + 3;
+      let localDepth = 0;
+      const start = j;
+      while (j < n) {
+        const c = literal[j];
+        if (c === "(" || c === "[" || c === "{") {
+          localDepth++;
+        } else if (c === ")" || c === "]" || c === "}") {
+          if (localDepth === 0) break;
+          localDepth--;
+        } else if (c === "," && localDepth === 0) {
+          break;
+        }
+        j++;
+      }
+      targets.push(literal.slice(start, j).trim());
+      i = j;
+      continue;
+    }
+    if (ch === "{" || ch === "[" || ch === "(") {
+      depth++;
+      i++;
+      continue;
+    }
+    if (ch === "}" || ch === "]" || ch === ")") {
+      depth--;
       i++;
       continue;
     }
     i++;
   }
-  return false;
+  return targets;
 }
 
 /** Splits a `writeState(...)`'s inner argument text at the first
@@ -458,6 +554,12 @@ function findWriteStateCallSites(): {
   const sites: { file: string; argText: string; contextText: string }[] = [];
   for (const relPath of files) {
     const contents = fs.readFileSync(path.join(REPO_ROOT, relPath), "utf8");
+    // Cheap pre-filter: only 12 of the ~451 scanned files contain
+    // `writeState(` at all, and stripping comments below can never CREATE
+    // a match the raw source lacks (it only replaces characters with
+    // spaces) — so a file with no literal `writeState(` can never produce
+    // a call site, and skipping it here is provably sound, not a heuristic.
+    if (!contents.includes("writeState(")) continue;
     const searchable = stripCommentsPreserveLength(contents);
     const re = /\bwriteState\(/g;
     let m: RegExpExecArray | null;
@@ -467,6 +569,16 @@ function findWriteStateCallSites(): {
       try {
         argsBlock = extractBalanced(contents, parenIdx);
       } catch {
+        // Fail closed — same discipline as callSiteSetsTopLevelPhaseOrPr's
+        // "unresolved" contract: an unparseable call site must be NAMED as
+        // a violation candidate, not silently dropped from `sites`. The
+        // sentinel argText below always resolves to "unresolved" through
+        // callSiteSetsTopLevelPhaseOrPr's final fallback branch.
+        sites.push({
+          file: relPath,
+          argText: "<unparseable>",
+          contextText: contents.slice(Math.max(0, m.index - 80), m.index + 80),
+        });
         continue;
       }
       const inner = argsBlock.slice(1, -1);
@@ -578,7 +690,33 @@ function callSiteSetsTopLevelPhaseOrPr(
   fileContents: string,
 ): boolean | "unresolved" {
   if (argText.startsWith("{")) {
-    return literalSetsTopLevelPhaseOrPr(argText);
+    if (literalSetsTopLevelPhaseOrPr(argText)) return true;
+    // A spread's own depth-1 keys never match `phase:`/`pr:` directly (a
+    // spread token never has an `IDENT:` shape), but the SOURCE it spreads
+    // in may set one — resolve each depth-1 spread the same way a bare
+    // identifier/call argument is resolved below.
+    // Only ESCALATE to a violation when a spread target resolves to a
+    // same-file literal that itself sets phase:/pr: — deliberately narrow,
+    // scoped to the traced-helper case (`makeBaseState`-shaped spreads),
+    // not a general "any unresolved spread is a violation" rule. An
+    // ordinary runtime variable spread (`...current`, `...preClear`) that
+    // resolveIdentifierLiteral/resolveCalleeLiteral can't trace stays
+    // `false`, same as before this fix — escalating those to "unresolved"
+    // would flag dozens of pre-existing, already-reviewed call sites well
+    // outside this finding's scope.
+    for (const target of extractTopLevelSpreadTargets(argText)) {
+      const callMatch = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(target);
+      const literal = callMatch
+        ? resolveCalleeLiteral(fileContents, callMatch[1]!)
+        : /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(target)
+          ? (resolveIdentifierLiteral(fileContents, target) ??
+            resolveCalleeLiteral(fileContents, target))
+          : null;
+      if (literal !== null && literalSetsTopLevelPhaseOrPr(literal)) {
+        return true;
+      }
+    }
+    return false;
   }
   if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(argText)) {
     const literal = resolveIdentifierLiteral(fileContents, argText);
@@ -595,6 +733,61 @@ function callSiteSetsTopLevelPhaseOrPr(
   }
   return "unresolved";
 }
+
+describe("literalSetsTopLevelPhaseOrPr (classifier positive controls)", () => {
+  it("detects a colon-form key alongside a spread", () => {
+    expect(literalSetsTopLevelPhaseOrPr("{ ...state, phase: t }")).toBe(true);
+  });
+
+  it("detects a SHORTHAND key alongside a spread", () => {
+    expect(literalSetsTopLevelPhaseOrPr("{ ...state, phase }")).toBe(true);
+  });
+
+  it("detects a quoted key", () => {
+    expect(literalSetsTopLevelPhaseOrPr('{ "phase": target }')).toBe(true);
+  });
+
+  it("does NOT flag a phase: key nested one level deep (depth-awareness pin for flow-checkpoint.ts:422)", () => {
+    expect(
+      literalSetsTopLevelPhaseOrPr("{ ...s, checkpoint: { phase: s.phase } }"),
+    ).toBe(false);
+  });
+
+  it("does not mistake a value-position ternary colon for a key", () => {
+    expect(
+      literalSetsTopLevelPhaseOrPr('{ slug, launcher: cond ? "a" : "b" }'),
+    ).toBe(false);
+  });
+});
+
+describe("findWriteStateCallSites / callSiteSetsTopLevelPhaseOrPr (spread tracing)", () => {
+  it("traces a spread-of-a-traced-helper through to its own phase: key (feature.ts's makeBaseState shape)", () => {
+    const fileContents = `
+const makeBaseState = (launcher) => ({
+  slug,
+  phase: "starting",
+  launcher,
+});
+writeState({ ...makeBaseState("tmux"), seed }, dir);
+`;
+    expect(
+      callSiteSetsTopLevelPhaseOrPr(
+        '{ ...makeBaseState("tmux"), seed }',
+        fileContents,
+      ),
+    ).toBe(true);
+  });
+
+  it("leaves an unresolvable runtime-variable spread as false, not 'unresolved' (narrow scope: only traced helpers escalate)", () => {
+    const fileContents = `writeState({ ...current, pid, procStartedAt }, dir);`;
+    expect(
+      callSiteSetsTopLevelPhaseOrPr(
+        "{ ...current, pid, procStartedAt }",
+        fileContents,
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("pane-read-lint", () => {
   it("frozen file set: the set of files producing violations equals PANE_READ_ALLOWLIST's resolved set", () => {
@@ -810,6 +1003,12 @@ describe("pane-read-lint", () => {
       marker: 'writeState(makeBaseState("plain")',
       reason:
         'creation-path write via makeBaseState (same-file helper whose object literal sets phase: "starting") — seedWindowOptions already seeds @flow-phase at window creation.',
+    },
+    {
+      file: "bin/lib/feature.ts",
+      marker: 'writeState({ ...makeBaseState("tmux"), seed }',
+      reason:
+        'same creation-path write as the "plain" makeBaseState call above, spread with an added `seed` field — makeBaseState still sets phase: "starting" and seedWindowOptions still seeds @flow-phase at window creation, so this is the tmux-launcher twin of the already-exempted plain-launcher write, not a new violation.',
     },
     {
       file: "bin/flow-seed-ingested-hook.ts",

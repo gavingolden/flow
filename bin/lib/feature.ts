@@ -1389,8 +1389,8 @@ function runResume(
   // @flow-kind gets (re)set. Failures are ignored and never change this
   // command's exit code, but @flow-kind IS load-bearing state — see
   // AGENTS.md "Two sanctioned reads" and session-identity.ts's
-  // resolveKindAmbient. Guarded against overwriting an epic-member window's
-  // kind on resume: `preResume?.kind` (read above at readState) carries the
+  // resolveKindAmbient. Guarded against overwriting an epic-design/epic-run
+  // window's kind on resume: `preResume?.kind` (read above at readState) carries the
   // pipeline's real kind, so a slug that is actually an epic-design window
   // republishes "epic-design" here instead of being clobbered to "feature".
   setPaneKind(slug, preResume?.kind ?? "feature");

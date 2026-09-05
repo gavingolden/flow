@@ -14,6 +14,7 @@
 
 import * as path from "node:path";
 import {
+  isEpicPhase,
   isPipelineKind,
   shortPhase,
   type PipelineKind,
@@ -846,53 +847,23 @@ export type SetWindowPhaseDeps = {
 };
 
 /**
- * Mirrors `phase` onto the window's `@flow-phase` user option (and its compact
- * `@flow-phase-short` abbreviation), resolving the target window by `@flow-slug`
- * (not display name) so a renamed window still receives the update. Best-effort:
- * a missing window or a non-zero `set-option` exit is a soft failure returned as
- * `{ ok: false }`, never a throw — callers (notably `flow-state-update`) ignore
- * the result so a tmux hiccup can never block a state write. The raw `@flow-phase`
- * set drives the returned `ok`; the additive `@flow-phase-short` set is swallowed.
- */
-export function setWindowPhase(
-  slug: string,
-  phase: string,
-  deps: SetWindowPhaseDeps = {},
-): { ok: boolean; stderr: string } {
-  const spawn = deps.spawnTmux ?? tmux;
-  const list = deps.listWindowsFn ?? listWindows;
-  const window = findWindowBySlug(list(deps.session), slug);
-  if (!window) {
-    return {
-      ok: false,
-      stderr: `setWindowPhase: no window for slug '${slug}'`,
-    };
-  }
-  const r = spawn(buildSetOptionArgs(window.id, FLOW_PHASE_OPTION, phase));
-  // Additive best-effort mirror — swallowed so it can't change the soft-fail
-  // contract above (callers gate on the raw @flow-phase set only).
-  spawn(
-    buildSetOptionArgs(window.id, FLOW_PHASE_SHORT_OPTION, shortPhase(phase)),
-  );
-  return { ok: r.exitCode === 0, stderr: r.stderr };
-}
-
-/**
  * Publishes the full badge set (`@flow-phase`, `@flow-phase-short`,
  * `@flow-pr`, `@flow-epic`, and — pane-scoped — `@flow-kind`) from a single
  * post-write `PipelineState`, resolving the target window once by
- * `@flow-slug` (mirrors `setWindowPhase`'s resolve-then-soft-fail shape).
- * Returns early with `{ ok: false }` and issues NO set-option calls when
- * `state.launcher === "plain"` (that EXACT equality, never `!== "tmux"` — an
- * epic state literal never sets `launcher` and must still publish). Every
- * set-option beyond the raw `@flow-phase` set is swallowed — the returned
- * `ok` mirrors `setWindowPhase`'s contract, driven by the raw `@flow-phase`
- * set only.
+ * `@flow-slug` (resolve-then-soft-fail: a missing window is a soft failure,
+ * never a throw). Returns early with `{ ok: false }` and issues NO
+ * set-option calls when `state.launcher === "plain"` (that EXACT equality,
+ * never `!== "tmux"` — an epic state literal never sets `launcher` and must
+ * still publish). Every set-option beyond the raw `@flow-phase` set is
+ * swallowed — the returned `ok` is driven by the raw `@flow-phase` set only.
  *
- * `@flow-epic` resolves to `state.epic?.slug ?? (state.kind === "feature" ?
- * "" : state.slug)` — deliberately NOT simplified to `?? ""`, which would
- * blank an epic-design window's own badge (its `@flow-epic` is its own
- * slug, not a parent epic's).
+ * `@flow-epic` resolves to `state.epic?.slug ?? (resolvedKind === "feature"
+ * ? "" : state.slug)`, where `resolvedKind` falls back through the SAME
+ * `isEpicPhase`-driven rule `resolveRowKind` (`./ls`) uses when `state.kind`
+ * is absent — never a bare `state.kind === "feature"` check, which would
+ * mis-publish a kind-less feature's OWN slug as its epic badge. Deliberately
+ * NOT simplified to `?? ""`, which would blank an epic-design window's own
+ * badge (its `@flow-epic` is its own slug, not a parent epic's).
  *
  * `@flow-kind` is SKIPPED entirely when `state.kind` is absent — never a
  * derived guess. Named goal-deviation carve-out (least-bad, not full goal
@@ -949,12 +920,21 @@ export function publishStateBadges(
       state.pr !== undefined ? String(state.pr) : "",
     ),
   );
+  const resolvedKind =
+    state.kind ?? (isEpicPhase(state.phase) ? "epic-design" : "feature");
   const epicBadge =
-    state.epic?.slug ?? (state.kind === "feature" ? "" : state.slug);
+    state.epic?.slug ?? (resolvedKind === "feature" ? "" : state.slug);
   spawn(buildSetOptionArgs(window.id, FLOW_EPIC_OPTION, epicBadge));
   if (state.kind !== undefined) {
+    // Shape-validate $TMUX_PANE before it becomes a `-t` target: tmux's `-t`
+    // accepts full target specs (`flow:2.0`), so a stale or hand-exported
+    // value would otherwise silently redirect this load-bearing write.
+    // window.id is the safe-by-construction fallback.
+    const tmuxPane = env.TMUX_PANE;
     const targetPane =
-      env.TMUX_PANE && env.FLOW_SLUG === state.slug ? env.TMUX_PANE : window.id;
+      tmuxPane && /^%\d+$/.test(tmuxPane) && env.FLOW_SLUG === state.slug
+        ? tmuxPane
+        : window.id;
     spawn(["set-option", "-p", "-t", targetPane, FLOW_KIND_OPTION, state.kind]);
   }
   return { ok: r.exitCode === 0, stderr: r.stderr };
@@ -962,10 +942,10 @@ export function publishStateBadges(
 
 /**
  * Publishes `epicSlug` onto the window's `@flow-epic` user option, resolving
- * the target window by `@flow-slug` (not display name), mirroring
- * `setWindowPhase`'s resolve-then-soft-fail shape. Unlike `setWindowPhase`,
- * which also mirrors a `-short` companion option, this fires a single
- * `set-option`: `@flow-epic` has no compact form. Best-effort: a missing
+ * the target window by `@flow-slug` (not display name), same
+ * resolve-then-soft-fail shape as `publishStateBadges`. Unlike
+ * `@flow-phase`, which also mirrors a `-short` companion option, this fires
+ * a single `set-option`: `@flow-epic` has no compact form. Best-effort: a missing
  * window or a non-zero `set-option` exit is a soft failure returned as
  * `{ ok: false }`, never a throw — callers ignore the result so a tmux
  * hiccup can never block a launch.
@@ -990,8 +970,8 @@ export function setWindowEpic(
 
 /**
  * Publishes `kind` onto the CURRENT pane's `@flow-kind` option, resolving the
- * target window by `@flow-slug` (not display name), mirroring
- * `setWindowPhase`'s resolve-then-soft-fail shape. Deliberately PANE-scoped
+ * target window by `@flow-slug` (not display name), same
+ * resolve-then-soft-fail shape as `publishStateBadges`. Deliberately PANE-scoped
  * (`-p`, not `-w`) — see `FLOW_KIND_OPTION`'s doc comment — so the argv is
  * built inline rather than through `buildSetOptionArgs`, which hard-codes
  * `-w` and is pinned byte-exactly by its own tests. Best-effort: never

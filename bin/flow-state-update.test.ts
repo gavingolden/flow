@@ -20,13 +20,9 @@ import {
 } from "./lib/state";
 
 // Mock ./lib/tmux so no test in this file can reach the real tmux backend.
-// This file already carries the latent exposure today via the default
-// `setWindowPhase` seam; Task 2 widens the default to `publishStateBadges`
-// (five options), so close the seam before it widens.
+// `publishStateBadges` is the sole write-path seam this file's `runUpdate`
+// calls into.
 const tmuxMock = vi.hoisted(() => ({
-  setWindowPhase: vi.fn<
-    (slug: string, phase: string) => { ok: boolean; stderr: string }
-  >(() => ({ ok: true, stderr: "" })),
   publishStateBadges: vi.fn<
     (state: unknown) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
@@ -664,6 +660,28 @@ describe("runUpdate", () => {
     expect(code).toBe(3);
     expect(published).toEqual([]);
     fx.cleanup();
+  });
+
+  it("publishes badges through the real tmux helper when no stub is injected", () => {
+    seed("csv-export");
+    tmuxMock.publishStateBadges.mockClear();
+    const code = runUpdate(["csv-export", "--phase", "implementing"], dir);
+    expect(code).toBe(0);
+    expect(tmuxMock.publishStateBadges).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.publishStateBadges.mock.calls[0]![0]).toMatchObject({
+      phase: "implementing",
+    });
+  });
+
+  it("still exits 0 when the badge publisher throws", () => {
+    seed("csv-export");
+    const code = runUpdate(["csv-export", "--phase", "implementing"], dir, {
+      publishBadges: () => {
+        throw new Error("tmux boom");
+      },
+    });
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("implementing");
   });
 });
 
