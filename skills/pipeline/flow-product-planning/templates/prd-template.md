@@ -354,16 +354,17 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      otherwise `- [ ]`
      (flow-candidate-issues parses both `- [ ]` and `- [x]` lines). The `Pull into
      this pipeline?` column is plain Yes/No text, NEVER a checkbox. Full contract —
-     ranking-table mandate, the exclusion-naming rule each Rationale cell must
-     satisfy, and the follow-up-reference consistency rubric — lives in
+     ranking-table mandate, the four-exclusion naming rule each Rationale cell must
+     satisfy (lint-enforced by `flow-candidate-issues --lint`), and the
+     follow-up-reference consistency rubric — lives in
      skills/pipeline/flow-product-planning/references/discovery-instructions.md
      "Candidate follow-up issues (optional)" — the single source of truth. Do NOT inline
      the contract here; this is a thin sketch.
      Columns (exact, keep verbatim): Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? -->
 
-| Candidate         | Value             | Complexity                   | Rationale      | Relation to current request | Pull into this pipeline? |
-| ----------------- | ----------------- | ---------------------------- | -------------- | --------------------------- | ------------------------ |
-| [orthogonal idea] | [High/Medium/Low] | [Trivial/Small/Medium/Large] | [one-line why] | [how it relates]            | [Yes/No]                 |
+| Candidate         | Value             | Complexity                   | Rationale                                                                                                                                                                                            | Relation to current request | Pull into this pipeline? |
+| ----------------- | ----------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ------------------------ |
+| [orthogonal idea] | [High/Medium/Low] | [Trivial/Small/Medium/Large] | [<exclusion>: one-line why — genuinely novel non-trivial feature / needs its own design/decision session: the open decision is … / large refactor that is not a prerequisite / user-foreclosed: "…"] | [how it relates]            | [Yes/No]                 |
 
 - [x] [orthogonal idea] — [one-line body; the machine-readable candidate the post-merge sweep files]
   - **UX:** [who notices, what changes, how often] `[anchor: …]` — or `none`

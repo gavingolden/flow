@@ -11,7 +11,7 @@ generic gaps to a filed issue; edits land only via a maintainer PR against the f
 ## Bundled-work disclosure
 
 For each `Bundled during implementation:` line in the PR body's `## Key decisions`, verify:
-(a) the bundled work actually passes the three-exclusion triage in
+(a) the bundled work actually passes the four-exclusion triage in
 `skills/pipeline/flow-product-planning/references/discovery-instructions.md`
 ("Objective-item triage") — including its cumulative bundle-size test — and (b) a matching
 `- **Bundled:**` bullet was appended to the relevant task in `.flow-tmp/plan.md`. A violation

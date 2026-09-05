@@ -14,13 +14,13 @@ import {
   parsePaneNonEmpty,
   parsePanePid,
   parseWindowList,
+  publishStateBadges,
   resolveKindFromPane,
   respawnWindowVerified,
   SEED_CORRUPTED_STDERR,
   seedWindowOptions,
   setPaneKind,
   setWindowEpic,
-  setWindowPhase,
   type SpawnResult,
   type TmuxWindow,
 } from "./tmux";
@@ -1305,73 +1305,283 @@ describe(respawnWindowVerified, () => {
   });
 });
 
-describe(setWindowPhase, () => {
+describe(publishStateBadges, () => {
   const windows: TmuxWindow[] = [
     { id: "@2", name: "renamed by user", slug: "csv-export", activity: 0 },
   ];
 
-  it("resolves the window by @flow-slug and sets @flow-phase + @flow-phase-short on its id (rename-safe)", () => {
-    // Display name diverges from the slug — the helper must target @2 via the
-    // @flow-slug match, not the name. Both the raw phase and its abbreviation
-    // are mirrored (shortPhase("reviewing") === "review").
+  it("publishes the four window-scoped badges, including the byte-exact @flow-pr set", () => {
     const { calls, spawnTmux } = fakeSpawn();
-    const result = setWindowPhase("csv-export", "reviewing", {
-      spawnTmux,
-      listWindowsFn: () => windows,
-    });
+    const result = publishStateBadges(
+      {
+        slug: "csv-export",
+        phase: "reviewing",
+        pr: 762,
+        kind: "feature",
+        launcher: "tmux",
+      },
+      { spawnTmux, listWindowsFn: () => windows, env: {} },
+    );
     expect(result).toEqual({ ok: true, stderr: "" });
-    expect(calls).toEqual([
+    expect(calls.slice(0, 4)).toEqual([
       ["set-option", "-w", "-t", "@2", "@flow-phase", "reviewing"],
       ["set-option", "-w", "-t", "@2", "@flow-phase-short", "review"],
+      ["set-option", "-w", "-t", "@2", "@flow-pr", "762"],
+      ["set-option", "-w", "-t", "@2", "@flow-epic", ""],
     ]);
   });
 
-  it("preserves ok:true when only the @flow-phase-short mirror fails (best-effort)", () => {
-    // The raw @flow-phase set drives the return; a non-zero exit on the
-    // additive @flow-phase-short mirror is swallowed and never flips ok.
-    const calls: string[][] = [];
-    const spawnTmux = (args: string[]): SpawnResult => {
-      calls.push(args);
-      const isShort = args.includes("@flow-phase-short");
-      return {
-        stdout: "",
-        stderr: isShort ? "nope" : "",
-        exitCode: isShort ? 1 : 0,
-      };
-    };
-    const result = setWindowPhase("csv-export", "reviewing", {
-      spawnTmux,
-      listWindowsFn: () => windows,
-    });
-    expect(result).toEqual({ ok: true, stderr: "" });
-    expect(calls).toEqual([
-      ["set-option", "-w", "-t", "@2", "@flow-phase", "reviewing"],
-      ["set-option", "-w", "-t", "@2", "@flow-phase-short", "review"],
+  it("publishes @flow-pr as the empty string when state.pr is absent", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    publishStateBadges(
+      { slug: "csv-export", phase: "implementing", launcher: "tmux" },
+      { spawnTmux, listWindowsFn: () => windows, env: {} },
+    );
+    expect(calls).toContainEqual([
+      "set-option",
+      "-w",
+      "-t",
+      "@2",
+      "@flow-pr",
+      "",
     ]);
   });
 
-  it("soft-fails without throwing or spawning when no window owns the slug", () => {
+  it("republishes @flow-kind from state.kind onto the pane", () => {
     const { calls, spawnTmux } = fakeSpawn();
-    const result = setWindowPhase("missing", "gating", {
-      spawnTmux,
-      listWindowsFn: () => windows,
-    });
+    publishStateBadges(
+      {
+        slug: "csv-export",
+        phase: "implementing",
+        kind: "epic-run",
+        launcher: "tmux",
+      },
+      { spawnTmux, listWindowsFn: () => windows, env: {} },
+    );
+    expect(calls).toContainEqual([
+      "set-option",
+      "-p",
+      "-t",
+      "@2",
+      "@flow-kind",
+      "epic-run",
+    ]);
+  });
+
+  it("issues ZERO @flow-kind set-option calls when state.kind is absent", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    publishStateBadges(
+      { slug: "csv-export", phase: "implementing", launcher: "tmux" },
+      { spawnTmux, listWindowsFn: () => windows, env: {} },
+    );
+    expect(calls.some((c) => c.includes("@flow-kind"))).toBe(false);
+  });
+
+  it("publishes state.slug as @flow-epic for a kind-less EPIC-phase state (isEpicPhase fallback)", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    publishStateBadges(
+      {
+        slug: "checkout-revamp",
+        phase: "epic-designing",
+        launcher: "tmux",
+      },
+      {
+        spawnTmux,
+        listWindowsFn: () => [
+          {
+            id: "@9",
+            name: "checkout-revamp",
+            slug: "checkout-revamp",
+            activity: 0,
+          },
+        ],
+        env: {},
+      },
+    );
+    expect(calls).toContainEqual([
+      "set-option",
+      "-w",
+      "-t",
+      "@9",
+      "@flow-epic",
+      "checkout-revamp",
+    ]);
+  });
+
+  it("publishes an EMPTY @flow-epic (not its own slug) for a kind-less feature-phase state", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    publishStateBadges(
+      { slug: "csv-export", phase: "implementing", launcher: "tmux" },
+      { spawnTmux, listWindowsFn: () => windows, env: {} },
+    );
+    expect(calls).toContainEqual([
+      "set-option",
+      "-w",
+      "-t",
+      "@2",
+      "@flow-epic",
+      "",
+    ]);
+  });
+
+  it("D4: targets $TMUX_PANE when set AND the ambient FLOW_SLUG matches state.slug", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    publishStateBadges(
+      {
+        slug: "csv-export",
+        phase: "implementing",
+        kind: "feature",
+        launcher: "tmux",
+      },
+      {
+        spawnTmux,
+        listWindowsFn: () => windows,
+        env: { TMUX_PANE: "%7", FLOW_SLUG: "csv-export" },
+      },
+    );
+    expect(calls).toContainEqual([
+      "set-option",
+      "-p",
+      "-t",
+      "%7",
+      "@flow-kind",
+      "feature",
+    ]);
+  });
+
+  it("D4: falls back to window.id when $TMUX_PANE is absent or FLOW_SLUG mismatches", () => {
+    const { calls: callsAbsent, spawnTmux: spawnAbsent } = fakeSpawn();
+    publishStateBadges(
+      {
+        slug: "csv-export",
+        phase: "implementing",
+        kind: "feature",
+        launcher: "tmux",
+      },
+      { spawnTmux: spawnAbsent, listWindowsFn: () => windows, env: {} },
+    );
+    expect(callsAbsent).toContainEqual([
+      "set-option",
+      "-p",
+      "-t",
+      "@2",
+      "@flow-kind",
+      "feature",
+    ]);
+
+    const { calls: callsMismatch, spawnTmux: spawnMismatch } = fakeSpawn();
+    publishStateBadges(
+      {
+        slug: "csv-export",
+        phase: "implementing",
+        kind: "feature",
+        launcher: "tmux",
+      },
+      {
+        spawnTmux: spawnMismatch,
+        listWindowsFn: () => windows,
+        env: { TMUX_PANE: "%7", FLOW_SLUG: "other-pipeline" },
+      },
+    );
+    expect(callsMismatch).toContainEqual([
+      "set-option",
+      "-p",
+      "-t",
+      "@2",
+      "@flow-kind",
+      "feature",
+    ]);
+  });
+
+  it("D4: falls back to window.id when $TMUX_PANE is shape-invalid (a full target spec, not a bare pane id)", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    publishStateBadges(
+      {
+        slug: "csv-export",
+        phase: "implementing",
+        kind: "feature",
+        launcher: "tmux",
+      },
+      {
+        spawnTmux,
+        listWindowsFn: () => windows,
+        env: { TMUX_PANE: "flow:2.0", FLOW_SLUG: "csv-export" },
+      },
+    );
+    expect(calls).toContainEqual([
+      "set-option",
+      "-p",
+      "-t",
+      "@2",
+      "@flow-kind",
+      "feature",
+    ]);
+  });
+
+  it("issues no set-option calls at all when launcher is 'plain'", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    const result = publishStateBadges(
+      {
+        slug: "csv-export",
+        phase: "implementing",
+        kind: "feature",
+        launcher: "plain",
+      },
+      { spawnTmux, listWindowsFn: () => windows, env: {} },
+    );
     expect(result.ok).toBe(false);
-    expect(result.stderr).toContain("missing");
-    expect(calls).toEqual([]); // never shelled out
+    expect(calls).toEqual([]);
   });
 
-  it("returns ok:false when the set-option exits non-zero (tmux hiccup)", () => {
-    const { spawnTmux } = fakeSpawn({
-      stdout: "",
-      stderr: "nope",
-      exitCode: 1,
-    });
-    const result = setWindowPhase("csv-export", "merging", {
-      spawnTmux,
-      listWindowsFn: () => windows,
-    });
-    expect(result).toEqual({ ok: false, stderr: "nope" });
+  it("@flow-epic resolves to state.slug for an epic-design kind with no epic membership, and to empty for a feature with no epic", () => {
+    const { calls: designCalls, spawnTmux: designSpawn } = fakeSpawn();
+    publishStateBadges(
+      {
+        slug: "checkout-revamp",
+        phase: "epic-designing",
+        kind: "epic-design",
+        launcher: "tmux",
+      },
+      {
+        spawnTmux: designSpawn,
+        listWindowsFn: () => [
+          {
+            id: "@9",
+            name: "checkout-revamp",
+            slug: "checkout-revamp",
+            activity: 0,
+          },
+        ],
+        env: {},
+      },
+    );
+    expect(designCalls).toContainEqual([
+      "set-option",
+      "-w",
+      "-t",
+      "@9",
+      "@flow-epic",
+      "checkout-revamp",
+    ]);
+
+    const { calls: featureCalls, spawnTmux: featureSpawn } = fakeSpawn();
+    publishStateBadges(
+      {
+        slug: "csv-export",
+        phase: "implementing",
+        kind: "feature",
+        launcher: "tmux",
+      },
+      { spawnTmux: featureSpawn, listWindowsFn: () => windows, env: {} },
+    );
+    expect(featureCalls).toContainEqual([
+      "set-option",
+      "-w",
+      "-t",
+      "@2",
+      "@flow-epic",
+      "",
+    ]);
   });
 });
 
@@ -1381,7 +1591,7 @@ describe(setWindowEpic, () => {
   ];
 
   it("resolves the window by @flow-slug and sets @flow-epic on its id (rename-safe), single set-option", () => {
-    // Unlike setWindowPhase, there is no compact-form companion mirror —
+    // Unlike @flow-phase, there is no compact-form companion mirror —
     // exactly one set-option call.
     const { calls, spawnTmux } = fakeSpawn();
     const result = setWindowEpic("csv-export", "checkout-revamp", {

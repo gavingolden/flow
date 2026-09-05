@@ -1262,6 +1262,34 @@ describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () 
     );
   });
 
+  it("republishes the persisted non-feature kind on resume instead of clobbering it to 'feature'", () => {
+    // Same shape as the case above, but seeded as an epic-design window —
+    // guards the resume path against overwriting an epic-member window's
+    // @flow-kind badge with the "feature" default.
+    writeState(
+      {
+        slug: "resumed-epic-design",
+        phase: "verifying",
+        repo: repoDir,
+        kind: "epic-design",
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const code = runNew("resumed-epic-design", {
+      resume: true,
+      stateDir,
+      launchSettingsPath: path.join(stateDir, "launch-settings.json"),
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.setPaneKind).toHaveBeenCalledWith(
+      "resumed-epic-design",
+      "epic-design",
+    );
+  });
+
   it("stamps kind: 'feature' but issues NO @flow-kind publish on the plain launcher path", async () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const calls: Array<{ argv: string[] }> = [];

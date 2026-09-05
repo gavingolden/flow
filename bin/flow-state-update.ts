@@ -44,6 +44,7 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import {
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
@@ -57,7 +58,7 @@ import {
   type PipelineState,
 } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
-import { writePhaseState } from "./lib/phase-write";
+import { publishStateBadges } from "./lib/tmux";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import {
   BRANCH_MARKER_FILENAME,
@@ -234,13 +235,13 @@ export type RunUpdateDeps = {
    */
   resolveSlug?: () => string | null;
   /**
-   * Publishes the new phase onto the window's `@flow-phase` option, threaded
-   * through to `writePhaseState`'s funnel. Defaults to the funnel's own
-   * inline default publisher. Best-effort — the result is ignored and never
-   * alters the exit code. Tests inject a stub to assert it fires on
-   * `--phase` updates only.
+   * Publishes the freshly-written state onto the window's badge options
+   * (`@flow-phase`, `@flow-pr`, etc). Defaults to the real
+   * `publishStateBadges` helper. Best-effort — the result is ignored and
+   * never alters the exit code. Tests inject a stub to assert it fires on
+   * `--phase` and `--pr` updates only.
    */
-  publishPhase?: (slug: string, phase: string) => void;
+  publishBadges?: (state: PipelineState) => void;
 };
 
 export function runUpdate(
@@ -351,16 +352,21 @@ export function runUpdate(
   }
 
   const next = applyUpdate(existing, parsed);
+  writeState(next, dir);
 
-  // Route through the shared writePhaseState funnel only on a --phase
-  // transition (never a --pr-only update) — the funnel writes state first,
-  // then best-effort mirrors the phase onto the window's @flow-phase option
-  // so a user's status bar can read it. The result is ignored: state.json is
-  // the source of truth and a tmux hiccup must not change the exit code.
-  if (parsed.phase !== undefined) {
-    writePhaseState(next, dir, deps.publishPhase);
-  } else {
-    writeState(next, dir);
+  // Best-effort mirror of the state onto the window's badge options so a
+  // user's status bar can read it. Fires on a --phase or --pr transition and
+  // only after the branch guard + write succeed (never on the exit-3
+  // mismatch path above). The result is ignored: state.json is the source of
+  // truth and a tmux hiccup must not change the exit code.
+  if (parsed.phase !== undefined || parsed.pr !== undefined) {
+    const publishBadges =
+      deps.publishBadges ?? ((s) => void publishStateBadges(s));
+    try {
+      publishBadges(next);
+    } catch {
+      // swallowed — see comment above.
+    }
   }
   return 0;
 }

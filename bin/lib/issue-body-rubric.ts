@@ -52,7 +52,7 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function labelValueLine(body: string, label: string): string | null {
+export function labelValueLine(body: string, label: string): string | null {
   const re = new RegExp(`-\\s*\\*\\*${escapeRegExp(label)}:\\*\\*\\s*(.*)`);
   const m = body.match(re);
   return m ? m[1].trim() : null;
