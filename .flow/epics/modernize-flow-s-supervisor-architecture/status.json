@@ -7,7 +7,8 @@
       "pr": 660
     },
     "f2-scaffold-stress-test": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 776
     },
     "f3-ci-check-split": {
       "status": "merged",
