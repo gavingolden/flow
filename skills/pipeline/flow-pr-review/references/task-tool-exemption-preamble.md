@@ -2,9 +2,8 @@
 
 This file carries the canonical "Load the Task tool before spawning"
 preamble once. It is consulted on demand from each Task-tool exemption
-spawn site that links here — `/flow-pr-review`'s Multi-Agent Review and
-Fix-Applier spawn sites, and `/flow-pipeline`'s Merge-Conflict Resolver
-spawn site. Read this file when the per-site one-line summary in
+spawn site that links here — `/flow-pr-review`'s Multi-Agent Review,
+Fix-Applier, and Consolidator-Validator spawn sites. Read this file when the per-site one-line summary in
 SKILL.md points you here for the full rationale and alias-tolerance
 contract.
 
@@ -44,7 +43,7 @@ contract that prevents the regression recurring.
 
 ## Cross-references
 
-The bidirectional-contract source of truth for all seven Task-tool
+The bidirectional-contract source of truth for all two Task-tool
 exemptions lives in `AGENTS.md` under the `## Don'ts` section — every
 exemption is named there, scoped, and rationale'd. The supervisor-side
 canonical preamble lives in `skills/pipeline/flow-pipeline/SKILL.md`

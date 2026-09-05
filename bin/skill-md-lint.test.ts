@@ -926,29 +926,28 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     );
   }
 
-  it("flow-pipeline/SKILL.md Hard rules lists exactly 7 Task-tool exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules lists exactly 2 Task-tool exemptions", () => {
     const exemptions = extractSkillExemptions();
     expect(
       exemptions.length,
-      "flow-pipeline/SKILL.md must list exactly 7 Task-tool exemption blocks " +
-        "(one each for /flow-pr-review Multi-Agent Review, /flow-product-planning Discovery " +
-        "Subagent, /flow-new-feature Scout Subagent, /flow-pr-review Fix-Applier Subagent, " +
-        "/flow-pipeline step 10's Merge-Conflict Resolver Subagent, /flow-coder " +
-        "Edit-Applier Subagent, and " +
-        "/flow-pr-review Step 3.5 Consolidator-Validator Subagent). " +
+      "flow-pipeline/SKILL.md must list exactly 2 Task-tool exemption blocks " +
+        "(one each for /flow-product-planning Discovery Subagent and /flow-coder " +
+        "Edit-Applier Subagent). The remaining five sites (Multi-Agent Review, " +
+        "Scout, Fix-Applier, Merge-Conflict Resolver, Consolidator-Validator) " +
+        "dissolved into the flow-stage-a/flow-stage-b Workflow scripts. " +
         "Found: " +
         JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(2);
   });
 
-  it("AGENTS.md ## Don'ts lists exactly 7 Task-tool exemption bullets", () => {
+  it("AGENTS.md ## Don'ts lists exactly 2 Task-tool exemption bullets", () => {
     const exemptions = extractAgentsExemptions();
     expect(
       exemptions.length,
-      "AGENTS.md ## Don'ts must list exactly 7 Task-tool exemption bullets. " +
+      "AGENTS.md ## Don'ts must list exactly 2 Task-tool exemption bullets. " +
         "Found: " +
         JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(2);
   });
 
   it("AGENTS.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
@@ -970,14 +969,14 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("references/exemption-contracts.md lists exactly 7 contract sections", () => {
+  it("references/exemption-contracts.md lists exactly 2 contract sections", () => {
     const exemptions = extractContractsExemptions();
     expect(
       exemptions.length,
-      "references/exemption-contracts.md must hold exactly 7 `## ` contract " +
+      "references/exemption-contracts.md must hold exactly 2 `## ` contract " +
         "sections (one per Task-tool exemption). Found: " +
         JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(2);
   });
 
   it("references/exemption-contracts.md matches the AGENTS.md exemption set", () => {
@@ -989,7 +988,7 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       onlyInContracts.length,
       `Sections in references/exemption-contracts.md but missing from AGENTS.md openers: ${JSON.stringify(onlyInContracts)}. ` +
         "The offloaded contract file and the AGENTS.md `## Don'ts` openers enumerate the same " +
-        "seven exemptions; a section heading must match its AGENTS.md opener name (minus the " +
+        "two exemptions; a section heading must match its AGENTS.md opener name (minus the " +
         "`/flow-pipeline → ` prefix) so a reader hopping AGENTS.md → references lands on the right section.",
     ).toBe(0);
     expect(
@@ -1000,91 +999,62 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("flow-pipeline/SKILL.md Hard rules preamble references seven exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules preamble references two exemptions", () => {
     expect(
       skillStripped.match(
-        /the\s+\*\*only seven\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
+        /the\s+\*\*only two\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
       ),
-      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only seven** authorised " +
+      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only two** authorised " +
         "Task-tool fan-out sites'. If you added or removed an exemption, update the count " +
         "in the preamble too — the count is bidirectional with the block list below.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Hard rules opening references seven Task-tool exceptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules opening references two Task-tool exceptions", () => {
     expect(
       skillStripped.match(
-        /the\s+seven\s+narrowly-named Task-tool exceptions that\s+follow/,
+        /the\s+two\s+narrowly-named Task-tool exceptions that\s+follow/,
       ),
-      "flow-pipeline/SKILL.md Hard rules opening must say 'the seven narrowly-named " +
+      "flow-pipeline/SKILL.md Hard rules opening must say 'the two narrowly-named " +
         "Task-tool exceptions that follow'. Drift here means a future reader sees a count " +
         "that doesn't match the exemption blocks.",
     ).toBeTruthy();
   });
 
-  it("AGENTS.md upstream prose references seven exceptions", () => {
+  it("AGENTS.md upstream prose references two exceptions", () => {
     expect(
-      agentsContent.match(/\*\*with seven narrowly-named exceptions\*\*/),
-      "AGENTS.md ## Supervisor and sub-skills must say '**with seven narrowly-named exceptions**'. " +
+      agentsContent.match(/\*\*with two narrowly-named exceptions\*\*/),
+      "AGENTS.md ## Supervisor and sub-skills must say '**with two narrowly-named exceptions**'. " +
         "The count must match the bullet list under ## Don'ts.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/The seven\s+named exceptions are/),
-      "AGENTS.md ## Don'ts parent bullet must say 'The seven named exceptions are'. " +
+      agentsContent.match(/The two\s+named exceptions are/),
+      "AGENTS.md ## Don'ts parent bullet must say 'The two named exceptions are'. " +
         "Drift here is the most likely landmine when adding a new exemption.",
     ).toBeTruthy();
     expect(
       agentsContent.match(
-        /the\s+\*\*only seven\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
+        /the\s+\*\*only two\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
       ),
-      "AGENTS.md ## Don'ts closer must say 'the **only seven** authorised Task-tool fan-out sites'. " +
+      "AGENTS.md ## Don'ts closer must say 'the **only two** authorised Task-tool fan-out sites'. " +
         "Same count, same wording as flow-pipeline/SKILL.md's closer.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Verification (this skill) lists all seven exemptions by name", () => {
+  it("flow-pipeline/SKILL.md Verification (this skill) lists both exemptions by name", () => {
     const verificationSection =
       content.split("# Verification")[1] ??
       content.split("# Verification (this skill)")[1] ??
       "";
-    expect(
-      verificationSection.includes("Independent Multi-Agent Review"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Independent Multi-Agent Review' " +
-        "as one of the named Task-tool exemptions.",
-    ).toBe(true);
     expect(
       verificationSection.includes("Independent Discovery Subagent"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Discovery Subagent' " +
         "as one of the named Task-tool exemptions.",
     ).toBe(true);
     expect(
-      verificationSection.includes("Independent Scout Subagent"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Independent Scout Subagent' " +
-        "as one of the named Task-tool exemptions.",
-    ).toBe(true);
-    expect(
-      verificationSection.includes("Fix-Applier Subagent"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Fix-Applier Subagent' " +
-        "as one of the named Task-tool exemptions.",
-    ).toBe(true);
-    expect(
-      verificationSection.includes("Merge-Conflict Resolver Subagent"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Merge-Conflict Resolver Subagent' " +
-        "as one of the named Task-tool exemptions.",
-    ).toBe(true);
-    expect(
       verificationSection.includes("Independent Edit-Applier Subagent"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Edit-Applier Subagent' " +
-        "as one of the named Task-tool exemptions. The sixth exemption was added in the " +
-        "/flow-coder refactor; this list must enumerate all seven.",
-    ).toBe(true);
-    expect(
-      verificationSection.includes(
-        "Independent Consolidator-Validator Subagent",
-      ),
-      "flow-pipeline/SKILL.md Verification section must reference 'Independent Consolidator-Validator Subagent' " +
-        "as one of the named Task-tool exemptions. The seventh exemption was added in the " +
-        "/flow-pr-review Step 3.5 Consolidator-Validator refactor; this list must enumerate all seven.",
+        "as one of the named Task-tool exemptions. This list must enumerate both.",
     ).toBe(true);
   });
 
@@ -2572,7 +2542,7 @@ describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
    * /flow-refactoring step 3. The caller list is documented in three places:
    *
    *   - AGENTS.md `## Don'ts` — /flow-coder Task-tool exemption bullet body prose.
-   *   - flow-pipeline/SKILL.md "Hard rules" — Task-tool exemption #6 block.
+   *   - flow-pipeline/SKILL.md "Hard rules" — Task-tool exemption #2 block.
    *   - flow-coder/SKILL.md frontmatter `description:` field.
    *
    * If a future change adds or removes a caller (e.g. a new skill starts
@@ -2603,19 +2573,26 @@ describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
   }
 
   /**
-   * Slice the Task-tool exemption #6 block from flow-pipeline/SKILL.md,
+   * Slice the Task-tool exemption #2 block from flow-pipeline/SKILL.md,
    * bounded by the next `**Task-tool exemption` marker. Strip blockquote
    * `> ` prefixes so cross-line regexes match contiguous prose.
    */
   function slicePipelineCoderSection(): string {
     const stripped = stripBlockquoteMarkers(content);
     const startMarker =
-      "**Task-tool exemption #6: `/flow-coder` Independent Edit-Applier Subagent.**";
+      "**Task-tool exemption #2: `/flow-coder` Independent Edit-Applier Subagent.**";
     const startIdx = stripped.indexOf(startMarker);
     if (startIdx === -1) return "";
     const rest = stripped.slice(startIdx + startMarker.length);
-    const nextMarkerIdx = rest.indexOf("**Task-tool exemption");
-    return nextMarkerIdx === -1 ? rest : rest.slice(0, nextMarkerIdx);
+    // The block ends at the next exemption marker, the "Stage workflows"
+    // sibling note, or the end of Hard rules — whichever comes first (the
+    // last exemption block has no successor marker to bound it).
+    const ends = [
+      rest.indexOf("**Task-tool exemption"),
+      rest.indexOf("**Stage workflows are a Workflow-tool fan-out"),
+      rest.indexOf("\n# "),
+    ].filter((i) => i !== -1);
+    return ends.length === 0 ? rest : rest.slice(0, Math.min(...ends));
   }
 
   /**
@@ -2674,7 +2651,7 @@ describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
     ).toBe(3);
     expect(
       pipelineCallers.length,
-      `flow-pipeline/SKILL.md Task-tool exemption #6 block must list exactly 3 callers ` +
+      `flow-pipeline/SKILL.md Task-tool exemption #2 block must list exactly 3 callers ` +
         `(/flow-new-feature, /flow-verify, /flow-refactoring). Found: ${JSON.stringify(pipelineCallers)}. ` +
         `If you are intentionally adding a 4th caller, update this assertion in lockstep with the three docs.`,
     ).toBe(3);
@@ -4419,7 +4396,7 @@ describe("pr-review result-artifact contract lint", () => {
   );
 });
 
-describe("Task-tool ToolSearch-load preamble at all seven top-level spawn sites", () => {
+describe("Task-tool ToolSearch-load preamble at all six top-level spawn sites", () => {
   const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
     {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
@@ -4487,7 +4464,6 @@ describe("Task-tool ToolSearch-load preamble at all seven top-level spawn sites"
     "pr-review-fix-applier",
     "pr-review-consolidator-validator",
     "flow-pipeline-merge-resolver",
-    "flow-pipeline-verify-loop",
   ]);
   const PREAMBLE_REF_PATH = path.resolve(
     HERE,
@@ -8224,9 +8200,9 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     ).toBeGreaterThanOrEqual(5);
   });
 
-  it("flow-pipeline/SKILL.md agent table Multi-Agent Review exemption still counts seven total", () => {
+  it("flow-pipeline/SKILL.md agent table Multi-Agent Review exemption still counts two total", () => {
     const matches = content.match(/Task-tool exemption #\d+:/g) ?? [];
-    expect(matches.length).toBe(7);
+    expect(matches.length).toBe(2);
   });
 });
 

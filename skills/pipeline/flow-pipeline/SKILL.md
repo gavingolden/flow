@@ -65,17 +65,18 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > standalone leaf skill like `/flow-research` run directly is a separate
 > context this rule never governed. The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
-> calls, and (c) the seven narrowly-named Task-tool exceptions that
-> follow.
+> calls, (c) the two narrowly-named Task-tool exceptions that
+> follow, and (d) the `Workflow`-tool stage launches below (a
+> fixed-shape script fan-out, not a Task-tool exemption).
 >
 > The two constraints behind the rule above are (1) flow's deliberate
 > flat-fan-out policy (rationale: `docs/nested-subagents-assessment.md`,
 > not shipped by `flow install`), and (2) a long-running supervisor with
 > sub-agents would bloat past the context window. Constraint (1) is not a
 > platform limit on the supervisor's own Task calls — it is flow's policy,
-> and it is why exactly seven top-level sites are enumerated below and
-> none nests. All seven are one-shot, not long-running, so constraint (2)
-> doesn't apply either. They are the **only seven** authorised Task-tool
+> and it is why exactly two top-level sites are enumerated below and
+> none nests. Both are one-shot, not long-running, so constraint (2)
+> doesn't apply either. They are the **only two** authorised Task-tool
 > fan-out sites from this supervisor; no other skill or step may call
 > Task. Each is anchored on its step heading name rather than its number
 > so it survives future renumbering. Same narrow-and-named contract as the
@@ -88,7 +89,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > plugin-root install), falling back to `general-purpose` with a loud
 > `NOTICE — agent-fallback:` line when the definition is not installed.
 >
-> **Load the Task tool at each spawn site.** Each of the seven spawn
+> **Load the Task tool at each spawn site.** Each of the two spawn
 > procedures below must instruct the supervisor to load the Task tool
 > schema via `ToolSearch query="select:Task"` *before* invoking Task (or
 > its alias `Agent`). Where neither is surfaced top-level by the harness
@@ -100,57 +101,56 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > for the canonical "Load the Task tool before spawning" paragraph and
 > `# Failure paths` for the escalation script.
 >
-> **A `SendMessage` continuation of a partial (`maxTurns`) agent stays inside its exemption — not an eighth site.** See `references/partial-result-continuation.md`.
+> **A `SendMessage` continuation of a partial (`maxTurns`) agent stays inside its exemption — not a third site.** See `references/partial-result-continuation.md`.
 >
-> **Task-tool exemption #1: `/flow-pr-review` Independent Multi-Agent
-> Review.** Step 8's six review agents + one diff-only intent-guess agent,
-> spawned together ([references/exemption-contracts.md](../../../references/exemption-contracts.md)).
->
-> **Task-tool exemption #2: `/flow-product-planning` Independent Discovery
+> **Task-tool exemption #1: `/flow-product-planning` Independent Discovery
 > Subagent.** Step 3's one discovery agent (`flow-discovery`), writing
 > `.flow-tmp/plan.md` + `.flow-tmp/pr-description-draft.md`; full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
-> **Task-tool exemption #3: `/flow-new-feature` Independent Scout
-> Subagent.** Step 5's one scout agent (`flow-scout`; wider-scope path
-> only — ≤3 affected files skip it), writing `.flow-tmp/scout.md`; full
-> contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
->
-> **Task-tool exemption #4: `/flow-pr-review` Fix-Applier Subagent.** Step
-> 8's one fix-applier agent (`flow-fix-applier`) for the per-finding
-> address loop + commit/push, writing `.flow-tmp/fix-applier-result.json`;
-> full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
->
-> **Task-tool exemption #5: Merge-Conflict Resolver Subagent.** Step
-> 10's one resolver agent (`flow-merge-resolver`) for the base-branch
-> merge + per-file resolution + push (per-pipeline branch only), writing
-> `.flow-tmp/merge-resolver-result.json`; full contract in
-> [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
-> `../flow-merge-resolver-instructions/SKILL.md`. `maxTurns: 80`; partial-result continuation per `references/partial-result-continuation.md`.
->
-> **Task-tool exemption #6: `/flow-coder` Independent Edit-Applier Subagent.**
+> **Task-tool exemption #2: `/flow-coder` Independent Edit-Applier Subagent.**
 > The one edit-applier agent (`flow-edit-applier`) `/flow-coder` spawns when
-> `/flow-new-feature` step 5, `/flow-verify` step 3, or `/flow-refactoring` step 3
-> takes its wider-scope path — or the `/flow-pipeline` supervisor's interactive
+> the `/flow-pipeline` supervisor's interactive
 > code-change redirect path fires (see the "Mid-flight code-change redirects"
-> section and `references/redirect-handling.md`) — writing
+> section and `references/redirect-handling.md`), or the `gated`-feedback
+> loop composes an edit-set at the gate — writing
 > `.flow-tmp/coder-result.json`; full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md) and `skills/pipeline/flow-coder/SKILL.md`.
+> The wider-scope `/flow-coder` spawns from `/flow-new-feature` step 5, `/flow-verify` step 3,
+> and `/flow-refactoring` step 3 moved into stage A's
+> `implement`/`verify` agents (depth 2, not this supervisor's own Task
+> call) — see "Stage workflows are a Workflow-tool fan-out" below.
 >
-> **Task-tool exemption #7: `/flow-pr-review` Independent Consolidator-Validator
-> Subagent.** `/flow-pr-review` Step 3.5's one consolidator-validator agent
-> (`flow-consolidator`; default Sonnet, no model override), writing
-> `.flow-tmp/consolidator-result.json`; full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
+> **Stage workflows are a Workflow-tool fan-out, not a Task-tool
+> exemption.** Steps 5–10 run as two fixed-shape scripts —
+> `flow-module-core:flow-stage-a` (implement → verify → CI wait → review →
+> gate read) and `flow-module-core:flow-stage-b` (merge guard → squash
+> merge → conflict resolve → post-merge sweep) — launched via the
+> `Workflow` tool, never `Task`/`Agent`, from steps 5 and 10 respectively.
+> Every `agent()` call inside those scripts is enumerated by label,
+> `agentType`, model key, effort, and nesting in
+> `references/workflow-agent-sites.md`, lint-pinned against
+> `agents/core/*.md`. This is a sibling note in the same F2 "not an
+> extra exemption" shape as the Bash-fan-out notes below — the two
+> Task-tool exemption count above is unchanged, because the supervisor
+> itself never calls Task for these steps; the `Workflow` tool call is a
+> single script invocation, and any Task spawn inside the script runs at
+> depth 2 under the flat one-shot-per-site policy
+> `docs/nested-subagents-assessment.md` documents.
 >
 > **The `/flow-pr-review` Gemini cross-model lens is a Bash fan-out, not an
-> eighth exemption.** When the supervisor invokes `/flow-pr-review` in step 8
-> and the consumer has opted into `review.gemini`, `/flow-pr-review` Step 3
+> extra exemption.** When stage A's review-prep agent runs
+> `/flow-pr-review` and the consumer has opted into `review.gemini`,
+> `/flow-pr-review` Step 3
 > runs ONE additional cross-model reviewer (Gemini) via `flow-delegate`
-> (agy) as a Bash subprocess (`flow-gemini-lens`), ALONGSIDE exemption
-> #1's six-agent Multi-Agent Review Task fan-out. It spawns no Task, so
-> the seven-exemption count above is unchanged — this is a sibling note in
+> (agy) as a Bash subprocess (`flow-gemini-lens`), ALONGSIDE the
+> Multi-Agent Review Task fan-out `/flow-pr-review` runs on its own (a
+> standalone-run Task site documented in that skill's own SKILL.md, not
+> one of this supervisor's two exemptions). It spawns no Task from this
+> supervisor, so
+> the two-exemption count above is unchanged — this is a sibling note in
 > the same F2 "not an eighth exemption" shape as the "Load the Task tool at
-> each spawn site" guard above, NOT an `#8` exemption block. The lens is
+> each spawn site" guard above, NOT a third exemption block. The lens is
 > config-gated, default off, and a graceful skip on any failure (it never
 > hard-fails the review). Documented bidirectionally in `AGENTS.md`
 > `## Don'ts` and `skills/pipeline/flow-pr-review/SKILL.md` Step 3.
@@ -161,8 +161,8 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > reviewer (AGY / Gemini) via `flow-delegate` as a Bash subprocess
 > (`flow-plan-review`) to pressure-test the PRD's consequential decisions
 > before the plan-pending-review gate. It spawns no Task, so the
-> seven-exemption count above is unchanged — a sibling note in the same F2
-> "not an eighth exemption" shape as the Gemini-lens note above, NOT an `#8`
+> two-exemption count above is unchanged — a sibling note in the same F2
+> "not an eighth exemption" shape as the Gemini-lens note above, NOT a third
 > exemption block. It reuses the SAME `review.gemini` gate key, is default
 > off, and gracefully skips on any failure (it never blocks the plan gate).
 > Documented bidirectionally in `AGENTS.md` `## Don'ts` and this file's
@@ -173,17 +173,17 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > discovery, step 3 runs two model-pinned agy judges over a goal-only
 > brief (`flow-blind-survey`) via `flow-delegate-fanout` as a Bash
 > subprocess. It spawns no Task — a sibling note in the same F2 shape as
-> the two notes above, NOT an `#8` exemption. Gated on `state.interview`
+> the notes above, NOT a third exemption. Gated on `state.interview`
 > non-empty; gracefully skips on any failure. Documented bidirectionally
 > in `AGENTS.md` `## Don'ts` and `references/blind-survey.md`.
 
 > **Headless Claude via `flow-claude-headless` is a Bash fan-out, not an
-> eighth exemption.** Any skill the supervisor loads — including
+> extra exemption.** Any skill the supervisor loads — including
 > consumer-repo skills invoked during implement — may run a fixed-model,
 > fixed-effort `claude -p` ONLY through `flow-claude-headless`, which
 > allowlists the child env (`FLOW_SLUG`/`TMUX_PANE` never leak, issue
 > #618), caps spend, refuses to nest, and returns one envelope carrying
-> `total_cost_usd`. It spawns no Task, so the seven-exemption count is
+> `total_cost_usd`. It spawns no Task, so the two-exemption count is
 > unchanged. Documented bidirectionally in `AGENTS.md` `## Don'ts` and
 > `references/headless-claude.md`.
 
@@ -2352,15 +2352,13 @@ After each phase transition:
 - `flow ls` (run from any terminal) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
-  via the seven named exceptions in "Hard rules" above:
-  `/flow-pr-review`'s "Independent Multi-Agent Review",
-  `/flow-product-planning`'s "Independent Discovery Subagent",
-  `/flow-new-feature`'s "Independent Scout Subagent",
-  `/flow-pr-review`'s "Fix-Applier Subagent",
-  step 10's "Merge-Conflict Resolver Subagent",
-  `/flow-coder`'s "Independent Edit-Applier Subagent",
-  and `/flow-pr-review`'s "Independent Consolidator-Validator Subagent".
-  No other skill or step may call Task.
+  via the two named exceptions in "Hard rules" above:
+  `/flow-product-planning`'s "Independent Discovery Subagent"
+  and `/flow-coder`'s "Independent Edit-Applier Subagent".
+  No other skill or step may call Task. Steps 5–10 instead launch the
+  `flow-stage-a` / `flow-stage-b` `Workflow` scripts (a fixed-shape
+  script fan-out, not a Task-tool exemption); their `agent()` sites are
+  enumerated in `references/workflow-agent-sites.md`.
 - The supervisor never spawned a raw `claude -p` subprocess — only
   `flow-claude-headless` calls.
 
