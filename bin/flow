@@ -12,6 +12,7 @@
  *                                      kill window + remove state
  *   flow reap [--slug <s>] [--yes]     report (and clean up) processes left
  *                                      by dead pipelines
+ *   flow prompt [<slug>]               print a pipeline's originating request
  *
  * Per-verb argument parsing lives in `bin/lib/<verb>.ts` as `run<Verb>Cli`.
  * Each shim short-circuits `--help` / `-h` before producing side-effects so
@@ -25,6 +26,7 @@ import { runHelpVerb } from "./lib/help";
 import { runLaunchCli } from "./lib/launch";
 import { runDoneCli } from "./lib/done";
 import { runReapCli } from "./lib/reap-cli";
+import { runPromptCli } from "./lib/prompt";
 import { runEpicCli } from "./lib/epic";
 import { runConfigCli } from "./lib/config";
 import { runLsCli } from "./lib/ls";
@@ -74,6 +76,8 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
       return runDoneCli(args);
     case "reap":
       return runReapCli(args);
+    case "prompt":
+      return runPromptCli(args);
     case "ls":
       // runLsCli/runVersionCli supply the real checkInstallDrift themselves
       // (no options object here) — see ls.ts / version.ts.
