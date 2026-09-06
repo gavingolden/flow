@@ -22,6 +22,11 @@ export const meta = {
  * { stage: "B", outcome, reason?, pr, prUrl, resolver?, sweep, summary }
  */
 
+// A supervisor that omits the optional `models` block must not crash the
+// script on its first per-phase model lookup — the eval harness's s5 run
+// died on `args.models.implement` of undefined before this default.
+args.models = args.models || {};
+
 const RESULT_PATH = `${args.worktree}/.flow-tmp/stage-b-result.json`;
 const VALIDATE_CMD =
   `flow-workflow-result-schema --validate ${RESULT_PATH} 2>/dev/null || ` +

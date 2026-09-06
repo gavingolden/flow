@@ -25,6 +25,11 @@ export const meta = {
  * { stage: "A", outcome, decision?, reason?, pr, prUrl, ran, loops, artifacts, summary }
  */
 
+// A supervisor that omits the optional `models` block must not crash the
+// script on its first per-phase model lookup — the eval harness's s5 run
+// died on `args.models.implement` of undefined before this default.
+args.models = args.models || {};
+
 const RESULT_PATH = `${args.worktree}/.flow-tmp/stage-a-result.json`;
 // flow-workflow-result-schema is not on PATH until `flow install --upgrade`
 // re-symlinks it; fall back to invoking the source module directly.

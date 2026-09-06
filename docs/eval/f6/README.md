@@ -18,7 +18,31 @@ bun bin/flow-plugin-probe.ts --live --json --probe workflow-headless-await --pro
 
 ## Gate applied
 
-pending — maintainer-run. Decision E in the plan:
+**Path (i) was attempted on 2026-09-06 and did NOT pass.** Both probes
+recorded `confirmed` (probes.md), so every suite was recorded before/after
+(`--runs 2`, claude 2.1.263, `claude-version.txt`), and
+`compare --tolerance 0.10 --fail-on-regression` exits **1 for all four
+suites** (table below). The stage-A scenarios are not a port regression the
+compare can see — they are unmeasurable under `claude -p` as the harness
+runs it: the supervisor launches `flow-module-core:flow-stage-a` in the
+background, then ends its turn with the eval's structured verdict "pending
+the completion notification", and the print-mode session's turn-end stops
+the background workflow (`task_notification status: stopped` ~90s in), so
+`stage-a-result.json` never lands (`stage-result-written` null in every
+stage-A run; the stage-B scenario `s4-step10-merging`, whose workflow is
+short enough to finish inside the turn, passed 2/2). `haiku-gatekeeper` and
+`checkpoint-pending-clear` do not touch the port; their compare failures
+are per-run `total_cost_usd`/`duration_ms` beyond the 10% tolerance at
+n=2 plus one flaky `s2-resume-gated-feedback` run. So **the workflow path
+was not measured by `flow-eval`**; the stage-A evidence is the live fixture
+run in [live-run.md](live-run.md) (path (ii)'s artifact), which also
+surfaced and fixed a null-deref crash in the stage-A script. Whether that
+substitutes for the (i) gate, or the harness should learn to hold the turn
+open until the stage result lands (a Monitor `until [ -s stage-a-result.json ]`
+in the scenario prompt, plus a longer `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`),
+is a maintainer decision recorded on PR #789.
+
+Decision E in the plan, as written before the arms ran:
 
 - (i) when `workflow-headless-await` is `confirmed`: record every suite
   before/after (`phase-write-fidelity`, `verify-loop-isolation`,
@@ -33,8 +57,12 @@ pending — maintainer-run. Decision E in the plan:
 
 ## Verdicts
 
-| Suite | Score before | Score after | finalContextTokens | total_cost_usd | Verdict |
-| ----- | ------------ | ----------- | ------------------ | -------------- | ------- |
+| Suite                    | Score before | Score after | finalContextTokens | total_cost_usd | Verdict                                             |
+| ------------------------ | ------------ | ----------- | ------------------ | -------------- | --------------------------------------------------- |
+| phase-write-fidelity     | 0.980 (4/5)  | 0.633 (1/5) | 128k → 127k        | $5.61 → $20.86 | fail (unmeasured: stage A stopped at turn-end)      |
+| verify-loop-isolation    | 0.964 (1/2)  | 0.700 (0/2) | 145k → 148k        | $3.44 → $6.62  | fail (unmeasured: stage A stopped at turn-end)      |
+| checkpoint-pending-clear | 1.000 (4/4)  | 0.950 (3/4) | 87k → 75k          | $7.65 → $6.36  | fail (cost/duration noise at n=2; not port-related) |
+| haiku-gatekeeper         | 0.875 (3/6)  | 0.917 (5/6) | 62k → 62k          | $1.80 → $1.75  | fail (cost/duration noise at n=2; not port-related) |
 
 ## Measurement protocol
 

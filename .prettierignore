@@ -57,6 +57,8 @@ bin/fixtures/eval/
 # by the baseline writer between markers — none of these are hand-formatted.
 docs/eval/baseline/
 docs/eval/f2/
+docs/eval/f6/before/
+docs/eval/f6/after/
 
 # The two Workflow-tool scripts are structurally capped at <=600 lines by
 # bin/workflow-script-lint.test.ts (the load-bearing budget for their dense
