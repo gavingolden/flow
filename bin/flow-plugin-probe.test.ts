@@ -430,7 +430,7 @@ describe(parseArgs, () => {
   it("--probe <id> narrows the CLI to that single id", () => {
     expect(parseArgs(["--probe", "enabled-plugins"])).toEqual({
       json: false,
-      probe: "enabled-plugins",
+      probes: ["enabled-plugins"],
       live: false,
     });
   });
@@ -438,7 +438,7 @@ describe(parseArgs, () => {
   it("--json sets json:true independent of --probe", () => {
     expect(parseArgs(["--json", "--probe", "bin-path-injection"])).toEqual({
       json: true,
-      probe: "bin-path-injection",
+      probes: ["bin-path-injection"],
       live: false,
     });
   });
@@ -446,7 +446,7 @@ describe(parseArgs, () => {
   it("an unrecognized --probe value leaves probe undefined (falls through to running every id)", () => {
     expect(parseArgs(["--probe", "not-a-real-probe"])).toEqual({
       json: false,
-      probe: undefined,
+      probes: [],
       live: false,
     });
   });
@@ -454,7 +454,24 @@ describe(parseArgs, () => {
   it("no flags at all: json:false, probe:undefined, live:false", () => {
     expect(parseArgs([])).toEqual({
       json: false,
-      probe: undefined,
+      probes: [],
+      live: false,
+    });
+  });
+
+  it("repeated --probe flags accumulate in order, deduped", () => {
+    expect(
+      parseArgs([
+        "--probe",
+        "workflow-headless-await",
+        "--probe",
+        "workflow-plugin-command",
+        "--probe",
+        "workflow-headless-await",
+      ]),
+    ).toEqual({
+      json: false,
+      probes: ["workflow-headless-await", "workflow-plugin-command"],
       live: false,
     });
   });
@@ -462,7 +479,7 @@ describe(parseArgs, () => {
   it("--live sets live:true independent of other flags", () => {
     expect(parseArgs(["--live"])).toEqual({
       json: false,
-      probe: undefined,
+      probes: [],
       live: true,
     });
   });
