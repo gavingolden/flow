@@ -26,7 +26,7 @@ $ flow feature create "add CSV export"
 MERGED
 ```
 
-Every run works in its own git worktree (your checkout is never touched), pauses once for plan approval on feature work, and ends in a clear terminal state: `MERGED`, `GATED: <url>`, `NEEDS HUMAN: <reason>`, or `cancelled`. flow also ships a curated skill library that any Claude Code project can use on its own.
+Every run works in its own git worktree (your checkout is never touched), pauses for plan approval on feature work (and can pause earlier for a short clarifying interview), and ends in a clear terminal state: `MERGED`, `GATED: <url>`, `NEEDS HUMAN: <reason>`, or `cancelled`. flow also ships a curated skill library that any Claude Code project can use on its own.
 
 ## Quickstart
 
