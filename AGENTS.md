@@ -213,8 +213,10 @@ workflow-enforceable.
 resolution for `apps/<pkg>/`/`packages/<pkg>/` workspaces, a host-wide
 test-concurrency cap, a host-wide research cache, an optional
 `.flow/ui-validation.json` manifest, an optional
-`.flow/design/foundation.md` design contract, and an optional
-`.flow/test-tiers.json` test-tier manifest. Full surface area —
+`.flow/design/foundation.md` design contract, an optional
+`.flow/test-tiers.json` test-tier manifest, and an optional
+`.flow/product.md` product brief (with a `~/.flow/product.md` user-level
+fallback) read by `flow-product-brief`. Full surface area —
 scope-detection rules, the concurrency-cap formula, the cache TTL, the
 three-layer resolution table, and the manifest/foundation fields — is at
 [references/consumer-repo-contract.md](references/consumer-repo-contract.md).

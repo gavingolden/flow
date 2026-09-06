@@ -283,6 +283,26 @@ Per-helper `--lens pm|dev` always wins over the config value. In chat,
 saying "give me the technical version" expands one reply to the `dev`
 shape without touching config.
 
+## Product brief
+
+`~/.flow/product.md` is the **user-level** product brief — a short markdown
+statement of what you optimize for, applied to every repo you own. A repo's
+own `.flow/product.md` wins over it; with neither present, flow behaves
+exactly as it does without a brief.
+
+It is not a `config.json` key: precedence is fixed at repo-then-user, and
+there is no override. Read it with:
+
+```sh
+flow-product-brief
+```
+
+which prints one JSON line — `{"found":true,"scope":"repo"|"user",
+"path":"<abs>","text":"<contents>"}` or `{"found":false}` — and always exits 0. `scope` tells you which of the two files answered. The full field
+vocabulary and the conventions for writing one are in
+`templates/AGENTS.md.template` ("Product brief") and
+`references/consumer-repo-contract.md` ("Product brief").
+
 ## Delegate models
 
 `delegate.models.<surface>` (`bin/lib/delegate-models.ts`) routes the agy

@@ -10106,3 +10106,121 @@ describe("no stale references/<agent>-instructions.md anchors (pr-review #756 Te
     }
   });
 });
+
+/**
+ * Structural lint for f1's ONE prose threading site: the product-brief
+ * read-obligation in `discovery-instructions.md`. Site 2 (the cross-model
+ * battery prompt) renders a string, so its zero-cost-when-absent guarantee
+ * is a real byte-identity assertion in `bin/lib/plan-review-prompt.test.ts`.
+ * A prose obligation has no string to diff, so this is the honest,
+ * machine-checkable half: the block exists, it still obliges the agent to
+ * CITE the brief, and it still names the "no brief resolved ⇒ change
+ * nothing" branch.
+ *
+ * Every assertion anchors on a STABLE STRUCTURAL MARKER — the section
+ * heading, the helper name, the envelope's literal `found` values — never on
+ * an exact English sentence, so ordinary prose rewording does not turn the
+ * suite red.
+ *
+ * Deliberately no assertions over `skills/pipeline/flow-pipeline/`: the
+ * TLDR-authoring sites are f2-explanation-judge's, and a lint here would go
+ * red on an f1-only merge.
+ */
+describe("product-brief threading site (discovery read-obligation)", () => {
+  const PRODUCT_BRIEF_HEADING = "## 1.9. Product brief";
+
+  function briefSection(): string {
+    const c = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+    const start = c.indexOf(PRODUCT_BRIEF_HEADING);
+    expect(
+      start,
+      `discovery-instructions.md must carry a '${PRODUCT_BRIEF_HEADING}' ` +
+        "section — the product brief's only prose read site. Removing it " +
+        "leaves f2-explanation-judge and f3-product-critic consuming a " +
+        "read-obligation that no longer exists.",
+    ).toBeGreaterThan(-1);
+    const rest = c.slice(start + PRODUCT_BRIEF_HEADING.length);
+    const next = rest.search(/^## /m);
+    return rest.slice(0, next === -1 ? rest.length : next);
+  }
+
+  it("sits before the scope check, so the brief is loaded as project context", () => {
+    const c = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+    expect(c.indexOf(PRODUCT_BRIEF_HEADING)).toBeLessThan(
+      c.indexOf("## 2. Scope Check"),
+    );
+  });
+
+  it("reads the brief by bare PATH name, never a bin/lib import", () => {
+    const section = briefSection();
+    expect(
+      section.includes("flow-product-brief"),
+      "the section must name the `flow-product-brief` helper — the bare " +
+        "PATH name is how a subagent running in the consumer worktree " +
+        "reaches the resolver at all.",
+    ).toBe(true);
+    expect(
+      /bin\/lib/.test(section) === false ||
+        /never an? `?import`?/i.test(section),
+      "the section must not direct discovery at a bin/lib import; " +
+        "discovery runs in the consumer/target worktree, where flow's own " +
+        "source tree does not exist.",
+    ).toBe(true);
+  });
+
+  it("states the read as a REQUIRED obligation and names the sites to cite", () => {
+    const section = briefSection();
+    expect(
+      section.includes("REQUIRED"),
+      "the section must mark a resolved brief as REQUIRED context — the " +
+        "same obligation shape as the committed-foundation rule in step " +
+        "1.6(e). A read with no obligation to cite would pass silently.",
+    ).toBe(true);
+    expect(
+      /\bcite\b/i.test(section),
+      "the section must oblige the agent to CITE the brief, not merely " +
+        "read it (a future edit that keeps the read and drops the " +
+        "citation is the regression this pins).",
+    ).toBe(true);
+    for (const site of [
+      "## Problem Statement",
+      "Stakes:",
+      "## Decision analysis",
+      "Value rank:",
+    ]) {
+      expect(
+        section.includes(site),
+        `the section must name '${site}' as a citation site.`,
+      ).toBe(true);
+    }
+  });
+
+  it("names the absent branch: no brief resolved ⇒ change nothing", () => {
+    const section = briefSection();
+    expect(
+      section.includes('"found":false') || /found:\s*false/.test(section),
+      "the section must name the resolver's absent envelope, so a future " +
+        "edit cannot quietly make the read-obligation unconditional.",
+    ).toBe(true);
+    expect(
+      /change NOTHING|change nothing/.test(section),
+      "the section must state that an absent brief changes nothing — the " +
+        "prose half of the zero-cost-when-absent guarantee.",
+    ).toBe(true);
+    expect(
+      /byte-identical/.test(section),
+      "the section must state that the resulting plan.md is byte-identical " +
+        "to today's when no brief resolves.",
+    ).toBe(true);
+  });
+
+  it("gates the subprocess behind an existence check, so a brief-less repo pays nothing", () => {
+    const section = briefSection();
+    expect(
+      section.includes("test -f"),
+      "the section must probe `.flow/product.md` / `~/.flow/product.md` " +
+        "with `test -f` BEFORE invoking the helper — a brief-less repo " +
+        "must pay zero extra subprocesses per discovery pass.",
+    ).toBe(true);
+  });
+});
