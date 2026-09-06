@@ -1152,6 +1152,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   }
 
   const depth = parsed.depth === "auto" ? computeDepth(plan) : parsed.depth;
+  const productBrief = deps.readProductBrief(parsed.worktree);
 
   try {
     deps.mkdirp(dirname(parsed.out));
@@ -1161,7 +1162,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
         planText: plan,
         goalLine: extractGoalLine(plan),
         worktreePath: parsed.worktree,
-        productBrief: deps.readProductBrief(parsed.worktree),
+        productBrief,
       }),
     );
   } catch {
@@ -1274,7 +1275,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
         goalLine: extractGoalLine(plan),
         sameFamilyAsAuthor: true,
         worktreePath: parsed.worktree,
-        productBrief: deps.readProductBrief(parsed.worktree),
+        productBrief,
       }),
     );
   } catch {

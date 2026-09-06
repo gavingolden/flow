@@ -115,7 +115,7 @@ function renderProductBriefBlock(brief: string | null | undefined): string {
   // authoritative — cite it as what it is rather than as a complete
   // ordering. The caveat lives here, not in the resolver's envelope, whose
   // exact shape downstream consumers branch on.
-  const caveat = /^##\s+Ranked priorities\s*$/m.test(text)
+  const caveat = /^##\s+Ranked priorities\s*$/im.test(text)
     ? ""
     : "\n\nThis brief does not state ranked priorities; weigh it as context, not as an ordering.";
   return `

@@ -303,6 +303,11 @@ vocabulary and the conventions for writing one are in
 `templates/AGENTS.md.template` ("Product brief") and
 `references/consumer-repo-contract.md` ("Product brief").
 
+**No secrets, ever.** A resolved brief's full text is quoted verbatim into
+the cross-model plan-review prompt and sent to the external provider — and
+the user-level file applies to every repo you run flow in, with no
+per-repo opt-out. Keep it to standing priorities and vocabulary.
+
 ## Delegate models
 
 `delegate.models.<surface>` (`bin/lib/delegate-models.ts`) routes the agy

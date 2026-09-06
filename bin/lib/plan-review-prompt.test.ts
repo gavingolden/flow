@@ -74,6 +74,16 @@ describe("buildBatteryPrompt — product brief block", () => {
     }
   });
 
+  it("pins the pre-change joint the brief block is interpolated into", () => {
+    // The four absent-brief cases above only prove they agree with each
+    // other, not with the pre-f1 prompt — this pins the literal
+    // goal-anchor-to-lenses joint so a stray newline in
+    // renderProductBriefBlock's absent path goes red here.
+    expect(buildBatteryPrompt(BASE_INPUT)).toContain(
+      '"""\n\nApply these lenses, in this order:',
+    );
+  });
+
   it("emits no heading, delimiter or instruction sentence when absent", () => {
     const prompt = buildBatteryPrompt({ ...BASE_INPUT, productBrief: null });
     expect(prompt).not.toContain("## Product brief");

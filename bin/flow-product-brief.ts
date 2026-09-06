@@ -55,14 +55,16 @@ export const BRIEF_CHAR_CAP = 4000;
 export const TRUNCATION_MARKER = `… [brief truncated at ${BRIEF_CHAR_CAP} chars]`;
 
 /**
- * The closing delimiter a consuming prompt fences the brief with
+ * The delimiters a consuming prompt fences the brief with
  * (`bin/lib/plan-review-prompt.ts`). Neutralised HERE rather than at each
  * call site so every present and future consumer inherits the fix: a fence
  * is only as strong as the fenced text's inability to close it early, and
  * the brief is committed repo text sent verbatim to an external provider.
+ * Case- and whitespace-tolerant, and covers the opening tag too, so
+ * `</PRODUCT_BRIEF>`, `</product_brief >`, or a nested `<product_brief>`
+ * cannot restructure the fenced block.
  */
-const CLOSING_DELIMITER = "</product_brief>";
-const NEUTRALISED_DELIMITER = "<\\/product_brief>";
+const DELIMITER_RE = /<\s*\/?\s*product_brief\s*>/gi;
 
 type FenceState = { open: boolean; marker: string };
 
@@ -80,7 +82,11 @@ function scanFences(text: string): FenceState {
     if (!open) {
       open = true;
       marker = m[1];
-    } else if (m[1][0] === marker[0] && m[1].length >= marker.length) {
+    } else if (
+      m[1][0] === marker[0] &&
+      m[1].length >= marker.length &&
+      line.trim().length === m[1].length
+    ) {
       open = false;
     }
   }
@@ -107,7 +113,7 @@ function capBriefText(text: string): string {
 
 /** Neutralise, then cap. Order matters: escaping lengthens the text. */
 function normaliseBriefText(raw: string): string {
-  return capBriefText(raw.split(CLOSING_DELIMITER).join(NEUTRALISED_DELIMITER));
+  return capBriefText(raw.replace(DELIMITER_RE, (m) => m.replace("<", "<\\")));
 }
 
 export type ResolveOptions = {
@@ -189,10 +195,12 @@ export function resolveProductBrief(opts: ResolveOptions = {}): ProductBrief {
  * library seam (`resolveProductBrief`'s options), not a CLI surface.
  * Returns 0 unconditionally so no caller needs a guard.
  */
-export function main(): number {
+export function main(
+  resolve: () => ProductBrief = resolveProductBrief,
+): number {
   let envelope: ProductBrief;
   try {
-    envelope = resolveProductBrief();
+    envelope = resolve();
   } catch {
     envelope = { found: false };
   }
