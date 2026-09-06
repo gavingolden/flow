@@ -447,18 +447,17 @@ export async function waitForStageResult(
   // 60s replaces the old blanket 600s the allowedTools-only gate paid.
   const maxWaitMs = opts.maxWaitMs ?? 60_000;
   const existsOne = opts.exists ?? ((p: string) => fs.existsSync(p));
-  const exists = (_: string) => candidates.some(existsOne);
-  const filePath = candidates[0];
+  const anyCandidateExists = () => candidates.some(existsOne);
   const sleep =
     opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
 
   const start = Date.now();
-  if (exists(filePath)) {
+  if (anyCandidateExists()) {
     return { found: true, waitedSec: 0 };
   }
   while (Date.now() - start < maxWaitMs) {
     await sleep(pollMs);
-    if (exists(filePath)) {
+    if (anyCandidateExists()) {
       return {
         found: true,
         waitedSec: Math.round((Date.now() - start) / 1000),

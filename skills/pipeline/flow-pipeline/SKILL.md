@@ -27,8 +27,10 @@ in-process when you invoke it; every helper script
 (`flow-new-worktree`, `flow-remove-worktree`, `gh`, etc.) is a Bash
 tool call. **You never spawn a Task-tool sub-agent.** flow's flat-fan-out
 policy (deliberate, not a platform limit — `docs/nested-subagents-assessment.md`,
-repo-only, not shipped) allows zero nesting exceptions — the seven
-Task-tool exemptions in `AGENTS.md` are each a flat, one-shot spawn; a
+repo-only, not shipped) allows zero nesting exceptions — the two
+Task-tool exemptions in `AGENTS.md` (the rest moved into the two
+`Workflow`-tool stage scripts with the f6 port) are each a flat,
+one-shot spawn; a
 long-running supervisor with sub-agents would also blow the context window.
 Stay in-process for skills; shell out for scripts; never delegate.
 

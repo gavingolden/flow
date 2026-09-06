@@ -227,8 +227,8 @@ Shipped contract:
 
 ## Post-f6 topology
 
-The f6 workflow port moved five of the nine (historically seven, at time
-of writing) top-level Task-tool exemptions — Multi-Agent Review, Scout,
+The f6 workflow port moved five of the seven top-level Task-tool
+exemptions — Multi-Agent Review, Scout,
 Fix-Applier, Merge-Conflict Resolver, Consolidator-Validator — off the
 supervisor's own Task-tool budget entirely: steps 5–10 now run inside two
 `Workflow`-tool scripts (`flow-stage-a`, `flow-stage-b`), and every

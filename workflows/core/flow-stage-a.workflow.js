@@ -172,7 +172,7 @@ if (implementDone) {
   ran.implement = true;
 
   const openPr = await helperAgent(
-    `Using the Bash tool: 1) compose the PR body at ${args.worktree}/.flow-tmp/pr-body.md from ${args.worktree}/.flow-tmp/pr-description-draft.md if present (else a minimal conventional body), 2) run: PR_URL=$(flow-open-pr --body-file "${args.worktree}/.flow-tmp/pr-body.md" --title "<conventional-commit summary>"); SLUG=${args.slug}; PR=$(jq -r '.pr' ~/.flow/state/"$SLUG".json). 3) then inline step 5.5: DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|^refs/remotes/origin/||'); DEFAULT_BRANCH="\${DEFAULT_BRANCH:-main}"; ADDED=$(git diff --name-only --diff-filter=A "origin/$DEFAULT_BRANCH...HEAD" | grep -E '^(skills|agents|workflows)/' || true); if [ -n "$ADDED" ]; then flow install --upgrade --source "${args.worktree}"; flow-followups add --command "flow install --upgrade" --reason "new skills/agents/workflows added on this branch — re-symlink home install post-merge" --auto --registered-by "flow-stage-a:step-5.5"; fi. Report pr (number), prUrl (string), and resymlinked (true iff ADDED was non-empty).`,
+    `Using the Bash tool: 1) compose the PR body at ${args.worktree}/.flow-tmp/pr-body.md from ${args.worktree}/.flow-tmp/pr-description-draft.md if present (else a minimal conventional body), 2) run: PR_URL=$(FLOW_SLUG=${args.slug} flow-open-pr --body-file "${args.worktree}/.flow-tmp/pr-body.md" --title "<conventional-commit summary>" --slug ${args.slug}); SLUG=${args.slug}; PR=$(jq -r '.pr' ~/.flow/state/"$SLUG".json). 3) then inline step 5.5: DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|^refs/remotes/origin/||'); DEFAULT_BRANCH="\${DEFAULT_BRANCH:-main}"; ADDED=$(git diff --name-only --diff-filter=A "origin/$DEFAULT_BRANCH...HEAD" | grep -E '^(skills|agents|workflows)/' || true); if [ -n "$ADDED" ]; then flow install --upgrade --source "${args.worktree}"; flow-followups add --command "flow install --upgrade" --reason "new skills/agents/workflows added on this branch — re-symlink home install post-merge" --auto --registered-by "flow-stage-a:step-5.5"; fi. Report pr (number), prUrl (string), and resymlinked (true iff ADDED was non-empty).`,
     "open-pr",
     "Implement",
     { type: "object", required: ["pr", "prUrl", "resymlinked"], properties: { pr: { type: "number" }, prUrl: { type: "string" }, resymlinked: { type: "boolean" } } },
@@ -215,16 +215,21 @@ await helperAgent(
   BOOL("ok"),
 );
 
-async function ciCheckOnce() {
+// The Copilot precheck + request decision is the same answer for the whole
+// stage-A run (Copilot's deselect state and the PR's diff-classified
+// override decision don't change mid-run) — compute it once and cache it
+// rather than re-running it on every ciCheckOnce() poll iteration.
+let cachedNotRequestedFlag;
+async function notRequestedFlagOnce() {
+  if (cachedNotRequestedFlag !== undefined) return cachedNotRequestedFlag;
   const copilotCheck = await helperAgent(
     `Using the Bash tool, run: flow-module-status --check copilot >/dev/null 2>&1; echo $?. Report copilotDeselected true iff the printed exit code is non-zero.`,
     "copilot-precheck",
     "CI wait",
     BOOL("copilotDeselected"),
   );
-  let notRequestedFlag = "";
   if (copilotCheck.copilotDeselected) {
-    notRequestedFlag = "--copilot-not-requested";
+    cachedNotRequestedFlag = "--copilot-not-requested";
   } else {
     const req = await helperAgent(
       `Using the Bash tool against PR ${pr}: OVERRIDE=$(jq -r '.copilotReview // "auto"' ~/.flow/state/${args.slug}.json); GLOB_CLASS=$(gh pr diff ${pr} --name-only | flow-request-copilot --classify); DECISION_ARG=""; if [ "$GLOB_CLASS" = "ambiguous" ]; then DECISION_ARG="--decision non-trivial"; fi; VERDICT=$(gh pr diff ${pr} --name-only | flow-request-copilot --pr ${pr} --override "$OVERRIDE" $DECISION_ARG); echo "$VERDICT". Report requested (VERDICT.requestCopilot), requestable (VERDICT.copilotRequestable, default true), declineKind (VERDICT.declineKind or empty string).`,
@@ -232,8 +237,13 @@ async function ciCheckOnce() {
       "CI wait",
       { type: "object", required: ["requested", "requestable", "declineKind"], properties: { requested: { type: "boolean" }, requestable: { type: "boolean" }, declineKind: { type: "string" } } },
     );
-    if (req.requested === false || req.requestable === false) notRequestedFlag = "--copilot-not-requested";
+    cachedNotRequestedFlag = req.requested === false || req.requestable === false ? "--copilot-not-requested" : "";
   }
+  return cachedNotRequestedFlag;
+}
+
+async function ciCheckOnce() {
+  const notRequestedFlag = await notRequestedFlagOnce();
   const waitFlag = args.waitForCopilot ? "--wait-for-copilot" : "";
   return helperAgent(
     `Using the Bash tool: VERDICT_FILE="${args.worktree}/.flow-tmp/ci-wait-result.json"; rm -f "$VERDICT_FILE"; FLOW_SLUG=${args.slug} flow-ci-check ${pr} ${notRequestedFlag} ${waitFlag} --out "$VERDICT_FILE" > "${args.worktree}/.flow-tmp/ci-check-stdout.json"; cat "${args.worktree}/.flow-tmp/ci-check-stdout.json". Report the printed JSON's status, decision (or empty string), nextCheckSec (or 60), and ciFailedChecks (array of strings, or empty array).`,
