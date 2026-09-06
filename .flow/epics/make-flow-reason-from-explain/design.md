@@ -64,7 +64,7 @@ Per-feature acceptance lives in each feature's `acceptanceCriteria[]` in
   verdict — never blocking a terminal state, never changing
   `flow-gate-decide`'s verdict, never looping.
 - **R5 — measured, not asserted.** WHEN `flow-eval run --suite
-  pm-explanation-quality --ablation with-without` runs THE SYSTEM SHALL report
+pm-explanation-quality --ablation with-without` runs THE SYSTEM SHALL report
   a scored PM-readability delta between the with- and without- arms, so the
   effect is recorded before merge and regressions are caught later.
 - **R6 — a code-blind critic at plan time.** WHEN step 3's discovery has
@@ -82,14 +82,14 @@ Per-feature acceptance lives in each feature's `acceptanceCriteria[]` in
 
 ### Before → after
 
-| Surface | Today | After this epic |
-|---|---|---|
-| What a decision cites | `output.lens=pm` (render verbosity only) — no stated priorities exist | A resolved `.flow/product.md` (repo) or `~/.flow/product.md` (user), quoted at five authoring sites |
-| A technical explanation at a pause | Passes; the pause lint checks slot structure only | Judged against a code-blind-reader rubric; one advisory rewrite, then proceed |
-| Plan review perspective | Cross-model reviewer with repo access; discovery author is the only product voice | Adds a critic that read the plan and brief and **never** the code, reconciled point-by-point |
-| PR review lenses | Six content-gated Claude lenses + an optional Gemini lens | Seven, the seventh gated on a brief resolving |
-| Evidence the prose rule works | None — no explanation-quality grader in `evals/` | A committed suite with an `--ablation with-without` delta |
-| A repo with no brief | — | Unchanged, byte-for-byte (R1) |
+| Surface                            | Today                                                                             | After this epic                                                                                     |
+| ---------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| What a decision cites              | `output.lens=pm` (render verbosity only) — no stated priorities exist             | A resolved `.flow/product.md` (repo) or `~/.flow/product.md` (user), quoted at five authoring sites |
+| A technical explanation at a pause | Passes; the pause lint checks slot structure only                                 | Judged against a code-blind-reader rubric; one advisory rewrite, then proceed                       |
+| Plan review perspective            | Cross-model reviewer with repo access; discovery author is the only product voice | Adds a critic that read the plan and brief and **never** the code, reconciled point-by-point        |
+| PR review lenses                   | Six content-gated Claude lenses + an optional Gemini lens                         | Seven, the seventh gated on a brief resolving                                                       |
+| Evidence the prose rule works      | None — no explanation-quality grader in `evals/`                                  | A committed suite with an `--ablation with-without` delta                                           |
+| A repo with no brief               | —                                                                                 | Unchanged, byte-for-byte (R1)                                                                       |
 
 **Lost:** not nothing. (a) Spend and latency rise: on the order of a few cents
 per judged pause point, plus one extra Task spawn at step 3 and one more lens
@@ -167,10 +167,10 @@ stable interface, and the interfaces are what ride the DAG edges.
   — but the lens count becomes a cross-file ledger that must move atomically.
   → **f3-product-critic**
 
-**Why these cuts (Parnas + Simon):** f1 hides *what a product brief is and how
-it is resolved* behind one JSON envelope; f2 hides *what "good enough to act
-on" means* behind one verdict string; f3 hides *how an independent product
-perspective is produced* behind two artifact files. The edges carry only those
+**Why these cuts (Parnas + Simon):** f1 hides _what a product brief is and how
+it is resolved_ behind one JSON envelope; f2 hides _what "good enough to act
+on" means_ behind one verdict string; f3 hides _how an independent product
+perspective is produced_ behind two artifact files. The edges carry only those
 stable interfaces. f2 and f3 share no surface with each other — f2 touches
 helper + pause-render prose + `evals/`; f3 touches agent definitions + the lens
 ledger + the discovery revision pass — which is why they are genuinely
@@ -209,8 +209,8 @@ own gate. Ids, titles and edges here match `manifest.json` exactly.
   and `templates/AGENTS.md.template`; and flow's own committed
   `.flow/product.md`.
 - **Honest limitation (feeds f2):** every site f1 threads is prose the agent
-  may ignore. f1 makes the priorities *citable*; it does not make citing them
-  *checked*. That gap is the whole reason f2 exists and is stated here so the
+  may ignore. f1 makes the priorities _citable_; it does not make citing them
+  _checked_. That gap is the whole reason f2 exists and is stated here so the
   reviewer does not mistake f1 for the fix.
 
 ### f2-explanation-judge · Code-blind-reader judge + eval scenario
@@ -270,8 +270,8 @@ own gate. Ids, titles and edges here match `manifest.json` exactly.
 
 **Walking-skeleton root, stated honestly:** f1 is the thinnest end-to-end slice
 — a file contract, one resolver, and its first readers — and it is the sole
-thing both other features consume. But its standalone value is the *resolver
-plus the two structural read sites* (discovery and the plan-review battery
+thing both other features consume. But its standalone value is the _resolver
+plus the two structural read sites_ (discovery and the plan-review battery
 prompt), where the brief actually enters a decision. The remaining threading
 sites (the TLDR-authoring instructions, `failure-recovery.md`, the PR-body
 template) are **preparatory wiring, not the fix** — they are more prose inside
@@ -338,7 +338,7 @@ graph TD
   delete the product brief, which also disables f1 and f3.
 - **"The f1-eval-harness suite" resolves to the existing harness, not a
   missing file.** No suite is named `f1-eval-harness`; that id is the feature
-  in the `modernize-flow-s-supervisor-architecture` epic that *built* the
+  in the `modernize-flow-s-supervisor-architecture` epic that _built_ the
   harness. I read the instruction as "add a scenario to the committed eval
   harness."
   **Recommended:** add a new sibling suite `evals/pm-explanation-quality/`
@@ -377,8 +377,8 @@ graph TD
   **Recommended:** ship exactly that in f1 and let it be revised in place later
   — it is a committed markdown file with no schema, so revising it costs one
   commit. `[confidence: high] [anchor: user: "the flow repo's PM is its single
-  user; priorities: reads outcomes not mechanisms, weighs cost/UX/content
-  quality, never assumes the code was read"]`
+user; priorities: reads outcomes not mechanisms, weighs cost/UX/content
+quality, never assumes the code was read"]`
   **Stakes:** both — this file is what every downstream citation resolves to,
   so a vague version makes every citation vague.
 - **What happens when the rewrite also fails.** R4 fixes the judge as advisory —
@@ -412,7 +412,7 @@ graph TD
   **Recommended:** no `.flow/design/foundation.md` work and no
   `flow-ui-validate` pass in any of the three features.
   `[confidence: high] [anchor: user: "no UI surfaces are touched, so no design
-  foundation or browser pass applies"]`
+foundation or browser pass applies"]`
   **Stakes:** system — a spurious UI gate would block three PRs on a browser
   pass with nothing to validate.
 
