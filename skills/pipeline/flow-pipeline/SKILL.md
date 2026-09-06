@@ -1438,10 +1438,15 @@ PRIOR FAILURE LOG:
 <truncated log>
 ```
 
-Re-entry replays only the implement step inside a fresh stage A launch
-(state.json's phase skip resumes here) — never a separate invocation. On
-implement failure with no PR, stage A retries once internally before
-surfacing `needs-human: implement-failed`.
+Re-entry replays only the implement step inside a fresh stage A launch —
+never a separate invocation — via the one skip stage A actually implements:
+`implementDone = pr !== null` (Implement is skipped once a PR exists; Verify
+and CI wait always re-run on resume today). `state.phases`/`ciWaitDecided`
+are read at "Read state" but a fuller phase-skip resume for Verify/CI wait
+is not yet implemented (tracked:
+https://github.com/gavingolden/flow/issues/790). On implement failure with
+no PR, stage A retries once internally before surfacing
+`needs-human: implement-failed`.
 
 ## Step 5.5 — Re-symlink if worktree adds skills/agents
 

@@ -261,22 +261,33 @@ async function waitUntilDecided(initial, waitLabel) {
 
 let check = await waitUntilDecided(await ciCheckOnce(), "ci-wait-sleep");
 let ciOutcome = check.decision;
+// waitUntilDecided caps at 3 polls; a status still "waiting" (empty
+// decision) after that cap means CI genuinely never resolved — escalate
+// rather than silently falling through to Review with an undecided CI run.
+if (check.status === "waiting" && ciOutcome === "") {
+  return needsHuman("ci-wait-undecided", `flow-ci-check still reported status=waiting after the poll cap; last checks: ${check.ciFailedChecks.join("\n")}`, { pr, prUrl, ran, loops, artifacts });
+}
 if (ciOutcome === "ci-failed") {
-  const incr = await helperAgent(
-    `Using the Bash tool, run: FLOW_SLUG=${args.slug} flow-state-update --increment-loop ciFix --slug ${args.slug}; jq -r '.loops.ciFix // 0' ~/.flow/state/${args.slug}.json. Report ciFix as that printed number.`,
-    "loop-prep-ci",
-    "CI wait",
-    NUM("ciFix"),
-  );
-  loops.ciFix = incr.ciFix;
-  if (loops.ciFix < 3) {
+  // Bounded fix-loop: keep retrying implement-ci-fix while the ciFix
+  // counter is still under budget (3), not just once per run.
+  while (ciOutcome === "ci-failed" && loops.ciFix < 3) {
+    const incr = await helperAgent(
+      `Using the Bash tool, run: FLOW_SLUG=${args.slug} flow-state-update --increment-loop ciFix --slug ${args.slug}; jq -r '.loops.ciFix // 0' ~/.flow/state/${args.slug}.json. Report ciFix as that printed number.`,
+      "loop-prep-ci",
+      "CI wait",
+      NUM("ciFix"),
+    );
+    loops.ciFix = incr.ciFix;
+    if (loops.ciFix > 3) break;
     const fixed = await implementAgent(
       `/flow-new-feature mode:fix\nPRIOR FAILURE LOG:\n${check.ciFailedChecks.join("\n")}\nRead ${args.skillDir}/flow-new-feature/SKILL.md and execute it in ${args.worktree}. Commit and push; do NOT open a new PR.`,
       "implement-ci-fix",
     );
-    if (fixed.committed) {
-      check = await ciCheckOnce();
-      ciOutcome = check.decision;
+    if (!fixed.committed) break;
+    check = await waitUntilDecided(await ciCheckOnce(), "ci-wait-sleep-after-fix");
+    ciOutcome = check.decision;
+    if (check.status === "waiting" && ciOutcome === "") {
+      return needsHuman("ci-wait-undecided", `flow-ci-check still reported status=waiting after a ci-fix retry; last checks: ${check.ciFailedChecks.join("\n")}`, { pr, prUrl, ran, loops, artifacts });
     }
   }
   if (ciOutcome === "ci-failed" || loops.ciFix >= 3) {
@@ -341,8 +352,8 @@ for (let reviewAttempt = 0; reviewAttempt < 2 && !reviewClean; reviewAttempt += 
     );
 
     const fixApplier = await agent(
-      `Read ${args.skillDir}/flow-fix-applier-instructions/SKILL.md and apply the findings the consolidator/tail recorded against PR ${pr}. Run flow-pre-commit, commit, push. Write ${args.worktree}/.flow-tmp/fix-applier-result.json.`,
-      { agentType: "flow-module-core:flow-fix-applier", label: "fix-applier", phase: "Review", effort: "low", ...modelArg(args.models.fixApplier), schema: BOOL("written") },
+      `Read ${args.skillDir}/flow-fix-applier-instructions/SKILL.md and apply the findings the consolidator/tail recorded against PR ${pr}. Run flow-pre-commit, commit, push. Write ${args.worktree}/.flow-tmp/fix-applier-result.json. Report written (true iff the artifact was written) and commitCount (the number of entries in the artifact's top-level "commits" array — read it back with \`jq '.commits | length' ${args.worktree}/.flow-tmp/fix-applier-result.json\`, 0 if absent/missing).`,
+      { agentType: "flow-module-core:flow-fix-applier", label: "fix-applier", phase: "Review", effort: "low", ...modelArg(args.models.fixApplier), schema: { type: "object", required: ["written", "commitCount"], properties: { written: { type: "boolean" }, commitCount: { type: "number" } } } },
     );
 
     await agent(
@@ -380,7 +391,7 @@ for (let reviewAttempt = 0; reviewAttempt < 2 && !reviewClean; reviewAttempt += 
       }
     }
 
-    if (fixApplier.written || tail1.fixCount > 0) {
+    if (fixApplier.commitCount > 0 || tail1.fixCount > 0) {
       reviewFixed = true;
       const incr = await helperAgent(
         `Using the Bash tool, run: FLOW_SLUG=${args.slug} flow-state-update --increment-loop reviewFix --slug ${args.slug}; jq -r '.loops.reviewFix // 0' ~/.flow/state/${args.slug}.json. Report reviewFix as that number.`,

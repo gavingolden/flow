@@ -11,6 +11,7 @@ import {
   renderPrompt,
   runScenarioOnce,
   waitForStageResult,
+  declaresStageResultGrader,
   type SpawnFn,
 } from "./eval-runner";
 import type { MaterializedFixture } from "./eval-fixture";
@@ -737,8 +738,11 @@ describe("runScenarioOnce", () => {
     }
   });
 
-  it("skips the stage-result wait when the scenario does not allow Workflow", async () => {
-    const scenario = makeScenario({ allowedTools: ["Bash", "Read"] });
+  it("skips the stage-result wait when the scenario allows Workflow but declares no json-file grader on a stage result", async () => {
+    const scenario = makeScenario({
+      allowedTools: ["Bash", "Workflow"],
+      graders: [{ id: "g1", kind: "file", file: "$REPO/x.txt", exists: true }],
+    });
     const fixture = makeFixture();
     const files: Record<string, string> = {
       [path.join(scenario.dir, "prompt.md")]: "hi",
@@ -763,8 +767,43 @@ describe("runScenarioOnce", () => {
     expect(outcome.stageResultWaitNote).toBeUndefined();
   });
 
-  it("records a stage-result-wait note when the scenario allows Workflow", async () => {
-    const scenario = makeScenario({ allowedTools: ["Bash", "Workflow"] });
+  it("declaresStageResultGrader is false when allowedTools has Workflow but no json-file grader targets a stage result", () => {
+    const scenario = makeScenario({
+      allowedTools: ["Bash", "Workflow"],
+      graders: [{ id: "g1", kind: "file", file: "$REPO/x.txt", exists: true }],
+    });
+    expect(declaresStageResultGrader(scenario)).toBe(false);
+  });
+
+  it("declaresStageResultGrader is true for a json-file grader on stage-a-result.json", () => {
+    const scenario = makeScenario({
+      allowedTools: ["Bash", "Workflow"],
+      graders: [
+        {
+          id: "g1",
+          kind: "json-file",
+          path: "outcome",
+          file: "$REPO/.flow-tmp/stage-a-result.json",
+          equals: "gate-ready",
+        },
+      ],
+    });
+    expect(declaresStageResultGrader(scenario)).toBe(true);
+  });
+
+  it("records a stage-result-wait note when the scenario declares a json-file grader on a stage result", async () => {
+    const scenario = makeScenario({
+      allowedTools: ["Bash", "Workflow"],
+      graders: [
+        {
+          id: "g1",
+          kind: "json-file",
+          path: "outcome",
+          file: "$REPO/.flow-tmp/stage-a-result.json",
+          equals: "gate-ready",
+        },
+      ],
+    });
     const fixture = makeFixture({ repoDir: outDir });
     const files: Record<string, string> = {
       [path.join(scenario.dir, "prompt.md")]: "hi",

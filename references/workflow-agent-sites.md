@@ -42,6 +42,7 @@ that spawns nothing further.
 | `ci-wait-sleep`              | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
 | `loop-prep-ci`               | `general-purpose`                                  | inherit      | low         | state.json `loops.ciFix`                          | —                   |
 | `implement-ci-fix`           | `general-purpose`                                  | implement    | args.effort | commit+push                                       | scout, edit-applier |
+| `ci-wait-sleep-after-fix`    | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
 | `ci-wait-sleep-review`       | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
 | `reviewing-phase-write`      | `general-purpose`                                  | inherit      | low         | state.json `phase`                                | —                   |
 | `review-prep`                | `general-purpose`                                  | review       | args.effort | `.flow-tmp/lens-prompt-*.md`                      | —                   |

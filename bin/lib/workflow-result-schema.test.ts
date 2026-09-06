@@ -120,4 +120,33 @@ describe("validateWorkflowResult", () => {
       expect(JSON.parse(result.stderr).ok).toBe(false);
     });
   });
+
+  it("accepts a needs-human stage A artifact with empty prUrl and empty summary (implement-failed before a PR ever opened)", () => {
+    const result = validateWorkflowResult({
+      ...(VALID_A as object),
+      outcome: "needs-human",
+      decision: undefined,
+      reason: "implement-failed",
+      pr: 0,
+      prUrl: "",
+      summary: "",
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("still rejects a non-needs-human stage A artifact with empty prUrl", () => {
+    const result = validateWorkflowResult({
+      ...(VALID_A as object),
+      prUrl: "",
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("still rejects a non-needs-human stage A artifact with empty summary", () => {
+    const result = validateWorkflowResult({
+      ...(VALID_A as object),
+      summary: "",
+    });
+    expect(result.ok).toBe(false);
+  });
 });

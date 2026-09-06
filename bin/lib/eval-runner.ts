@@ -398,16 +398,31 @@ export type RunOutcome = {
    * `runSuite` can stamp `EvalReport.runner.childArgvDigest` without
    * recomputing the argv shape itself. */
   childArgvDigest: string;
-  /** Set only when `scenario.allowedTools` includes `"Workflow"` — a
+  /** Set only when the scenario declares a `json-file` grader targeting a
+   * stage result artifact (see `declaresStageResultGrader`) — a
    * `stage-result-wait: <n>s (<found|timeout>)` note the caller folds into
    * `EvalReport.runner.notes`. */
   stageResultWaitNote?: string;
 };
 
-/** Bounded poll (5s cadence, ≤600s) for a stage Workflow script's
- * result artifact to land under the fixture repo — only meaningful when
- * the scenario allows the `Workflow` tool, since a non-Workflow scenario
- * never produces this file. Exported for direct unit coverage; never
+/** True iff the scenario declares a `json-file` grader targeting one of the
+ * stage result artifacts (`stage-a-result.json` / `stage-b-result.json`).
+ * `allowedTools` including `"Workflow"` is necessary but not sufficient —
+ * plenty of scenarios grant the tool without a case that actually expects
+ * the artifact to land, and gating the wait on `allowedTools` alone made
+ * every retained suite pay the full poll budget on every run regardless of
+ * whether anything ever graded the file. */
+export function declaresStageResultGrader(scenario: ResolvedScenario): boolean {
+  return (scenario.graders ?? []).some(
+    (g) =>
+      g.kind === "json-file" && /stage-[ab]-result\.json$/.test(g.file ?? ""),
+  );
+}
+
+/** Bounded poll (5s cadence, ≤60s) for a stage Workflow script's result
+ * artifact to land under the fixture repo — only invoked when the scenario
+ * declares a `json-file` grader targeting a stage result artifact (see
+ * `declaresStageResultGrader`). Exported for direct unit coverage; never
  * throws. */
 export async function waitForStageResult(
   repoDir: string,
@@ -427,7 +442,10 @@ export async function waitForStageResult(
         path.join(repoDir, ".flow-tmp", name),
       );
   const pollMs = opts.pollMs ?? 5_000;
-  const maxWaitMs = opts.maxWaitMs ?? 600_000;
+  // Bounded short wait: a scenario declaring the json-file grader still
+  // expects the artifact promptly (it is graded once the child exits), so
+  // 60s replaces the old blanket 600s the allowedTools-only gate paid.
+  const maxWaitMs = opts.maxWaitMs ?? 60_000;
   const existsOne = opts.exists ?? ((p: string) => fs.existsSync(p));
   const exists = (_: string) => candidates.some(existsOne);
   const filePath = candidates[0];
@@ -522,7 +540,7 @@ export async function runScenarioOnce(
   const error = result?.is_error ? (result.subtype ?? "error") : undefined;
 
   let stageResultWaitNote: string | undefined;
-  if (scenario.allowedTools?.includes("Workflow")) {
+  if (declaresStageResultGrader(scenario)) {
     const { found, waitedSec } = await waitForStageResult(fixture.repoDir);
     stageResultWaitNote = `stage-result-wait: ${waitedSec}s (${found ? "found" : "timeout"})`;
   }

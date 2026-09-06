@@ -148,8 +148,15 @@ function validateStageA(
   if (typeof o.pr !== "number") {
     return err(`'pr' must be a number`);
   }
-  if (!isNonEmptyString(o.prUrl)) {
-    return err(`'prUrl' must be a non-empty string`);
+  // A "needs-human" outcome can fire before the Implement phase ever opens a
+  // PR (e.g. implement-failed) — prUrl legitimately has nothing to hold yet.
+  // Every other outcome always has a real PR by the time it finishes.
+  if (o.outcome !== "needs-human") {
+    if (!isNonEmptyString(o.prUrl)) {
+      return err(`'prUrl' must be a non-empty string`);
+    }
+  } else if (!isString(o.prUrl)) {
+    return err(`'prUrl' must be a string`);
   }
   if (typeof o.ran !== "object" || o.ran === null || Array.isArray(o.ran)) {
     return err(`'ran' must be an object`);
@@ -174,8 +181,15 @@ function validateStageA(
   if (!isStringArray(o.artifacts)) {
     return err(`'artifacts' must be an array of strings`);
   }
-  if (!isNonEmptyString(o.summary)) {
-    return err(`'summary' must be a non-empty string`);
+  // A "needs-human" summary can legitimately be empty (e.g. the implement
+  // agent returned an empty excerpt/join). Every other outcome must carry a
+  // real, non-empty summary.
+  if (o.outcome !== "needs-human") {
+    if (!isNonEmptyString(o.summary)) {
+      return err(`'summary' must be a non-empty string`);
+    }
+  } else if (!isString(o.summary)) {
+    return err(`'summary' must be a string`);
   }
   return { ok: true, value: o as unknown as StageAResult };
 }

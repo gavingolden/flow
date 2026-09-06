@@ -120,6 +120,18 @@ describe("workflow scripts — structural lint", () => {
     expect(stageB.includes("--record-override")).toBe(false);
   });
 
+  it('flow-stage-b.workflow.js: only guard.rc === 0 may reach phase("Merge") — every other rc is guard-blocked', () => {
+    const mergePhaseIdx = stageB.indexOf('phase("Merge")');
+    expect(mergePhaseIdx).toBeGreaterThan(-1);
+    const beforeMerge = stageB.slice(0, mergePhaseIdx);
+    // The rc !== 0 fail-closed gate must appear before the Merge phase, and
+    // its guard-blocked terminal branch must reference the helper-missing
+    // hint so an unexpected exit code never falls through to `gh pr merge`.
+    expect(beforeMerge.includes("guard.rc !== 0")).toBe(true);
+    expect(beforeMerge.includes("guard-blocked")).toBe(true);
+    expect(beforeMerge).toMatch(/flow-merge-guard installed and on PATH/);
+  });
+
   it.each([
     ["flow-stage-a.workflow.js", stageA],
     ["flow-stage-b.workflow.js", stageB],

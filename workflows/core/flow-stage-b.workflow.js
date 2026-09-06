@@ -78,6 +78,17 @@ if (guard.rc === 1) {
 if (guard.rc === 2) {
   return terminal("merge-failed", "merge-failed", `flow-merge-guard error: ${guard.reason}`, {});
 }
+// Fail closed: ONLY rc === 0 (guard cleared) may proceed to Merge. Any
+// other rc (unexpected helper output, missing flow-merge-guard binary,
+// a crash) must not fall through to `gh pr merge` unguarded.
+if (guard.rc !== 0) {
+  return terminal(
+    "guard-blocked",
+    "guard-blocked",
+    guard.reason || `flow-merge-guard returned unexpected rc=${guard.rc} (expected 0, 1, or 2) — is flow-merge-guard installed and on PATH?`,
+    {},
+  );
+}
 
 phase("Merge");
 
