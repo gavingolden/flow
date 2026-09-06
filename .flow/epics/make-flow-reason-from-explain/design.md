@@ -546,3 +546,26 @@ only the resolver envelope and not the five threaded read-obligations, f1's
 real content collapses to one helper plus a documented file, and the
 decomposition will have spent a full PR and review cycle on the exact
 intervention it was written to distrust.
+
+## Revision 1 (post-merge, 2026-09-06)
+
+Two changes applied to `manifest.json` after the design PR (#792) merged, from
+the supervisor's own critical review of the design:
+
+1. **f1 trimmed to its structural read sites.** The TLDR-authoring
+   instructions (sites 3–4) and the PR-body `## Why` / `## User-facing changes`
+   template (site 5) leave f1 and move to f2. §1's own diagnosis is that
+   unchecked prose in those files does not land; f2 is where each site lands
+   together with the judge that checks it. f1 keeps the resolver, flow's own
+   `.flow/product.md`, the discovery read-obligation, the plan-review battery
+   prompt, and the documentation. The walking-skeleton framing in §4 already
+   said this; the manifest now matches it.
+2. **f2 ships the PR-body judge before the pause sites.** Both cross-model
+   reviewers ranked "judge only the PR body" as the dominant alternative; it was
+   overridden only because the epic prompt enumerated the pause sites. That
+   constraint is relaxed: the PR-body judge and the eval suite (known-bad
+   fixture first) land first, the moved threading sites second, and the
+   per-pause sites last and only behind a recorded ablation delta.
+
+The DAG (`f1 → (f2 ∥ f3)`) and every acceptance criterion not named above are
+unchanged.
