@@ -141,7 +141,15 @@ export type ModuleSelectionSource =
  * `moduleForArtifactName`. An "agent" record's target is the module's
  * `agents/` directory symlink itself (`sources.ts`'s `discoverAgents`), not
  * an `agents/*.md` basename, so its owner is read off the enclosing
- * plugin-root directory name (`flow-module-<id>`) instead. Records that map
+ * plugin-root directory name (`flow-module-<id>`) instead. A "workflow"
+ * record needs that same plugin-root lookup but one directory level
+ * FURTHER up: `discoverWorkflows` materializes one COPY per `.workflow.js`
+ * FILE at `<root>/workflows/<file>` (never a directory symlink — Claude
+ * Code 2.1.261 rejects one that escapes the plugin root), so the record's
+ * immediate parent is the literal `workflows` and its owning root is the
+ * grandparent. Sharing the agent branch's single `dirname` here would read
+ * `"workflows"` as a plugin-root name and silently derive NO module.
+ * Records that map
  * to no module (the `flow` wrapper, shell completions, or a
  * registry-unknown artifact) contribute nothing. Used by
  * `resolveEntriesForRun` to preserve an existing install's breadth when
@@ -151,10 +159,18 @@ export type ModuleSelectionSource =
 export function deriveSelectionFromManifest(manifest: Manifest): ModuleId[] {
   const ids = new Set<ModuleId>([MANDATORY_MODULE]);
   for (const record of manifest.symlinks) {
-    const mod =
-      record.kind === "agent" || record.kind === "workflow"
-        ? moduleIdFromPluginRootName(path.basename(path.dirname(record.target)))
-        : moduleForArtifactName(path.basename(record.target));
+    let mod: ModuleId | undefined;
+    if (record.kind === "workflow") {
+      mod = moduleIdFromPluginRootName(
+        path.basename(path.dirname(path.dirname(record.target))),
+      );
+    } else if (record.kind === "agent") {
+      mod = moduleIdFromPluginRootName(
+        path.basename(path.dirname(record.target)),
+      );
+    } else {
+      mod = moduleForArtifactName(path.basename(record.target));
+    }
     if (mod !== undefined) ids.add(mod);
   }
   return [...ids];
