@@ -406,7 +406,7 @@ describe("run() — phase advance", () => {
     expect((written.phaseLog as unknown[]) ?? []).toHaveLength(1);
   });
 
-  it("does not advance on the gated terminal phase (the --record-override override path is the only way out)", () => {
+  it("advances gated -> merging when the guard clears (the gate-override merge path records its merging row)", () => {
     seedState("kappa", { phase: "gated", pr: 5 });
     const exit = run(["5", "--slug", "kappa"], {
       gh: ghBody(NO_UNCHECKED),
@@ -414,7 +414,18 @@ describe("run() — phase advance", () => {
       now: () => NOW,
     });
     expect(exit).toBe(0);
-    expect(readWritten("kappa").phase).toBe("gated");
+    expect(readWritten("kappa").phase).toBe("merging");
+  });
+
+  it("leaves a gated pipeline at gated when the guard blocks (no override, unchecked items)", () => {
+    seedState("kappa2", { phase: "gated", pr: 5 });
+    const exit = run(["5", "--slug", "kappa2"], {
+      gh: ghBody(HAS_UNCHECKED),
+      stateDir,
+      now: () => NOW,
+    });
+    expect(exit).toBe(1);
+    expect(readWritten("kappa2").phase).toBe("gated");
   });
 
   it("advances phase to merging even when the decision is blocked (unchecked items present)", () => {

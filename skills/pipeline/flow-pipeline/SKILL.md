@@ -1711,7 +1711,7 @@ squash merge → conflict resolve (on a conflict-class failure only) →
 post-merge sweep.
 
 ```bash
-ARGS=$(jq -n --arg slug "$FLOW_SLUG" --arg worktree "$WORKTREE" --arg pr "$PR" \
+ARGS=$(jq -n --arg slug "$FLOW_SLUG" --arg worktree "$WORKTREE" --argjson pr "$PR" \
   --arg prUrl "$PR_URL" --arg planPath "$WORKTREE/.flow-tmp/plan.md" \
   --arg skillDir "$(cd -P "$SKILL_DIR/.." && pwd -P)" \
   --arg effort "$(jq -r '.effort // "high"' ~/.flow/state/"$FLOW_SLUG".json)" \

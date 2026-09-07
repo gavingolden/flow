@@ -42,6 +42,17 @@ open until the stage result lands (a Monitor `until [ -s stage-a-result.json ]`
 in the scenario prompt, plus a longer `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`),
 is a maintainer decision recorded on PR #789.
 
+**Path (ii)'s artifact is complete.** The live fixture run in
+[live-run.md](live-run.md) now also covers the gate-override merge path
+(Test Steps item 4: one `AskUserQuestion` form, override token, stage B
+squash merge, `phase: merged`), and surfaced two further defects fixed on
+this branch (string `pr` in the stage-B args; `merging` refused out of
+`gated`). Path (i) stays unmet: making the stage-A scenarios measurable
+needs the harness to hold the print-mode turn open until
+`stage-a-result.json` lands AND the `state-phase-*` graders re-authored
+against `phaseLog[]` (a whole-stage run advances `phase` past the step
+under test), which is scoped as a follow-up rather than this port.
+
 Decision E in the plan, as written before the arms ran:
 
 - (i) when `workflow-headless-await` is `confirmed`: record every suite

@@ -26,6 +26,10 @@ export const meta = {
 // script on its first per-phase model lookup — the eval harness's s5 run
 // died on `args.models.implement` of undefined before this default.
 args.models = args.models || {};
+// The result envelope requires a numeric `pr`; a supervisor that built args
+// with jq --arg (a string) otherwise fails flow-workflow-result-schema on
+// every stage exit ({"written":true,"validated":false} on the f6 fixture).
+args.pr = Number(args.pr);
 
 const RESULT_PATH = `${args.worktree}/.flow-tmp/stage-b-result.json`;
 const VALIDATE_CMD =

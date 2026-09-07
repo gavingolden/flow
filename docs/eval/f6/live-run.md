@@ -50,11 +50,33 @@ the review fan-out is dropped with a log line. Pinned by
 `bin/workflow-script-guard.test.ts`, which executes both scripts under a
 stubbed runtime.
 
-## Not measured here
+## Gate-override merge path (Test Steps item 4)
 
-Test Steps item 4 (tick every box, reply `merge`, confirm the
-`AskUserQuestion` form fires exactly once, phase reads `merged`) needs a
-human at the fixture window: the supervisor session that drives this record
-cannot type into another Claude session (its `tmux send-keys` was refused
-by the same classifier). The window `flow:docs-touch-the-getting-started-note`
-is left open at `gated` for that step.
+Driven 2026-09-07 from the `f6-workflow-port` supervisor window on the
+user's instruction, since the fixture window's own session cannot receive
+typed input from another session. All six Test Steps boxes on #793 were
+already ticked; `flow-gate-decide 793` still returned `gated`
+(`autoMerge:false`), so the override path fired.
+
+| Check                  | Observed                                                                                                                                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AskUserQuestion` form | fired exactly once (naming PR #793 and the 0-unchecked count); answered affirmatively                                                                                                            |
+| Override token         | `flow-merge-guard 793 --record-override` → `{"recorded":true,"pr":793,"confirmedAt":"2026-09-07T00:08:28.472Z"}`                                                                                 |
+| Workflow dispatch      | `name: "flow-module-core:flow-stage-b"` was NOT resolvable in the driving session (its plugin root was materialized after session start); the documented `scriptPath` fallback ran the same file |
+| Stage-B agents         | 5 × `general-purpose` (precheck, guard, merge, sweep, write-result); guard `rc=0`, merge `rc=0`, sweep empty                                                                                     |
+| Result                 | `{"stage":"B","outcome":"merged","pr":"793",…}`; `gh pr view 793` → `MERGED`, `mergedAt: 2026-09-07T00:09:28Z`; 118 s, 5 agents, 243k subagent tokens                                            |
+| `phaseLog`             | `…,"gating","gated","merged"` after the step-11 `flow-gate-summary --status merged` render; `jq -r .phase` reads `merged`                                                                        |
+
+## Defects surfaced by the merge path (fixed on this branch)
+
+- **`validated:false` on every stage-B exit.** SKILL.md's stage-B args
+  block built `pr` with `jq --arg` (a string); the result envelope requires
+  a number, so `flow-workflow-result-schema --validate` returned
+  `{"ok":false,"reason":"'pr' must be a number"}`. Fixed by `--argjson pr`
+  in SKILL.md and a defensive `args.pr = Number(args.pr)` in the script.
+- **`merging` never recorded on the override path.** `advancePhase` refused
+  every write out of a terminal phase, so `flow-merge-guard`'s `merging`
+  emission was a no-op from `gated` and phaseLog jumped `gated → merged`.
+  `advancePhase` now honours `TERMINAL_EXIT_TRANSITIONS` (`gated →
+verifying/gating/merging`), and `flow-merge-guard` writes `merging` out
+  of `gated` only when the guard clears.
