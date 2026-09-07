@@ -30,3 +30,28 @@ names WHAT to look for; entries never suppress findings.
 ## Sibling-file term domains (PR #769)
 
 - **A term's domain must match across sibling reference files.** When a skill defines a term in one file (a rider "shares root cause, surface/files, or review context"; an "invalid" argument value) and constrains it in a sibling (`SKILL.md`: riders share root cause, surface, or files; the fallback fires on "invalid"), flag any definition wider than, or left undefined by, its constraint — the run follows whichever file it read last.
+
+## Degrade-to-skip vs. the downstream mandatory-input contract (PR #802)
+
+- **A "drop the dead one and continue" change is only graceful if every downstream
+  consumer tolerates the absence.** When a PR removes a `guard()`/fail-fast so a dead
+  producer is filtered out instead of aborting (e.g. dropping a review lens from the
+  stage-A fan-out), open the consumer's contract file and check whether that input is
+  mandatory — `flow-consolidator-instructions/SKILL.md` requires all six
+  `agent-output-<lens>.json` files and escalates `consolidator-missing-artifact` when
+  one is absent, so filtering converts a loud abort into a _later_ escalation or, worse,
+  a silent consume of a stale artifact left at the same path by a previous run.
+  **What to look for:** a diff that relaxes a guard on a producer whose artifact path is
+  named as required in another skill's or helper's contract, with no matching relaxation
+  on the consumer side.
+
+## Escalation recipes must be executable in the state they describe (PR #802)
+
+- **A new `NEXT_ACTION_BY_REASON` entry has to fix the failure it is mapped to.**
+  `flow-setup-upgrade-failed` fires when `flow install --upgrade --source <worktree>`
+  failed twice for a _branch-added_ helper, so a recipe that says to run
+  `flow install --upgrade` from the canonical install root cannot work — the canonical
+  root does not yet carry the branch's file. **What to look for:** for every reason tag
+  added to `bin/flow-gate-summary.ts`, read the producing `needsHuman(...)` site and ask
+  whether the recipe's first command operates on the same tree/state that failed; a
+  recipe that silently targets a different root is a stale recipe, not a nit.

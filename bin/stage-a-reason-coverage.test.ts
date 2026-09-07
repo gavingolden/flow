@@ -63,6 +63,11 @@ const DYNAMIC_REASON_SETS: Record<string, readonly string[]> = {
   // whose message is always `agent-unavailable: <label>`; the renderer
   // splits on the first ':' and looks up the head.
   "err.message": ["agent-unavailable"],
+  // The two review fan-out sites: a lens that died on BOTH attempts is not
+  // droppable (every per-lens artifact is mandatory consolidator input), so
+  // it escalates with the dead lens's label after the ':'.
+  "`agent-unavailable: ${deadLens}`": ["agent-unavailable"],
+  "`agent-unavailable: ${deadWidened}`": ["agent-unavailable"],
 };
 
 /** Balanced-paren scan for the FIRST argument of every `needsHuman(` call
@@ -167,7 +172,7 @@ describe("stage A reason coverage — extraction", () => {
     expect(args.every((a) => a.length > 0)).toBe(true);
   });
 
-  it("finds all four dynamic reason expressions, verbatim", () => {
+  it("finds every dynamic reason expression, verbatim", () => {
     const args = new Set(extractNeedsHumanArgs(STAGE_A));
     for (const expr of Object.keys(DYNAMIC_REASON_SETS)) {
       expect(args.has(expr), `dynamic expression not found: ${expr}`).toBe(
@@ -220,6 +225,31 @@ describe("stage A reason coverage — renderer parity", () => {
         true,
       );
     }
+  });
+
+  it("every escalation_tag in escalation-recipes.md is a PR_REVIEW_ESCALATION_TAGS member", () => {
+    // The array's doc comment rejects scraping the SKILL.md table so a
+    // reformat cannot turn a lint red — that covers the false-RED direction
+    // only. This is the false-GREEN one: /flow-pr-review gains a sixth tag,
+    // stage A forwards it verbatim via readBack.escalation_tag, and the
+    // user gets DEFAULT_NEXT_ACTION again. Keyed on the JSON field, which a
+    // reflow or a column-width change cannot move.
+    const md = readFileSync(
+      join(
+        ROOT,
+        "skills/pipeline/flow-pr-review/references/escalation-recipes.md",
+      ),
+      "utf8",
+    );
+    const documented = [...md.matchAll(/"escalation_tag":\s*"([^"]+)"/g)].map(
+      (m) => m[1].split(":")[0].trim(),
+    );
+    expect(documented.length).toBeGreaterThan(0);
+    expect(
+      [...new Set(documented)].filter(
+        (t) => !(PR_REVIEW_ESCALATION_TAGS as readonly string[]).includes(t),
+      ),
+    ).toEqual([]);
   });
 
   it("[negative] an unknown static tag fails the STATIC branch", () => {

@@ -286,8 +286,14 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
     "Run flow feature create <description> afresh; ~/.flow/state/<slug>.json is missing so resume cannot proceed",
   "worktree-missing-on-resume":
     "Decide: recreate the worktree manually (git worktree add) or run flow done <slug> to clean up",
-  "flow-setup-upgrade-failed":
-    "Run flow install --upgrade manually from the canonical install root and inspect its output",
+  // The failure is a WORKTREE install: the branch-added helper/skill does not
+  // exist in the canonical install root yet, so a canonical-root install
+  // cannot fix it. Retry against the worktree first; the canonical install is
+  // the post-merge step, not the recovery.
+  "flow-setup-upgrade-failed": `Branch-added skills/agents/helpers are not symlinked — the worktree install failed twice.
+  1. Retry it and read its output: flow install --upgrade --source <worktree>
+  2. Once it succeeds, resume: flow feature resume <slug>
+  3. After the branch merges (and the worktree is gone), re-point the links at canonical: flow install --upgrade`,
   "fix-applier-missing-artifact": `Fix-applier's result artifact is missing.
   1. Inspect git log on the feature branch and the PR body's Local Follow-ups section.
   2. Then re-invoke /flow-pr-review`,
@@ -408,7 +414,11 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
   "task-tool-unavailable": ["flow feature resume <slug>"],
   "state-missing-on-resume": ["flow feature create <description>"],
   "worktree-missing-on-resume": ["git worktree add", "flow done <slug>"],
-  "flow-setup-upgrade-failed": ["flow install --upgrade"],
+  "flow-setup-upgrade-failed": [
+    "flow install --upgrade --source <worktree>",
+    "flow feature resume <slug>",
+    "flow install --upgrade",
+  ],
   "fix-applier-missing-artifact": ["git log"],
   "pr-review-missing-artifact": ["flow attach <slug>"],
   "coder-failed": ["flow attach <slug>"],
@@ -598,18 +608,24 @@ function nextActionForReason(reason: string | undefined): string {
       : head === "agent-unavailable"
         ? "agent"
         : null;
-  if (suffixLabel && suffix.length > 0) {
+  // Collapsed like every other free-form field in this renderer: `--reason`
+  // can carry an agent-written escalation_tag, and pushNextAction() splits
+  // the result on "\n" — an embedded newline would otherwise forge an extra,
+  // well-formed-looking row inside a NEEDS HUMAN block that the supervisor
+  // and flow-stop-guard read back as structured scrollback.
+  const safeSuffix = oneLine(suffix);
+  if (suffixLabel && safeSuffix.length > 0) {
     // For a multi-line recipe the suffix belongs on the header (first)
     // line, never on the last numbered step — it names the spawn site
     // (or the dead agent) the escalation is about, not a qualifier on
     // the final action.
     const newlineIdx = mapped.indexOf("\n");
     if (newlineIdx === -1) {
-      return `${mapped} (${suffixLabel}: ${suffix})`;
+      return `${mapped} (${suffixLabel}: ${safeSuffix})`;
     }
     const header = mapped.slice(0, newlineIdx);
     const rest = mapped.slice(newlineIdx);
-    return `${header} (${suffixLabel}: ${suffix})${rest}`;
+    return `${header} (${suffixLabel}: ${safeSuffix})${rest}`;
   }
   return mapped;
 }

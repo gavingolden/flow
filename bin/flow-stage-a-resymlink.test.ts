@@ -96,12 +96,33 @@ describe("flow-stage-a-resymlink — branch + path parsing", () => {
     expect(parseDefaultBranch({ ...OK, stdout: "garbage\n" })).toBe("main");
   });
 
-  it("selects only added paths under skills/, agents/, or workflows/", () => {
+  it("probes origin/main then origin/master when symbolic-ref is unset", () => {
+    // refs/remotes/origin/HEAD is only written by `git clone`, so it is
+    // routinely absent. Assuming `main` on a master/trunk repo makes every
+    // later `git diff origin/main...HEAD` exit 128 — a PERMANENT no-op, not
+    // the transient failure the fail-open diff is meant to tolerate.
+    const probed: string[] = [];
+    const probe = (b: string) => {
+      probed.push(b);
+      return b === "master";
+    };
+    expect(parseDefaultBranch({ ...OK, exitCode: 128 }, probe)).toBe("master");
+    expect(probed).toEqual(["main", "master"]);
+    expect(parseDefaultBranch({ ...OK, exitCode: 128 }, () => false)).toBe(
+      "main",
+    );
+  });
+
+  it("selects added paths under skills/, agents/, workflows/ and bin/, minus tests", () => {
     const diff = [
       "skills/pipeline/flow-x/SKILL.md",
       "agents/core/flow-y.md",
       "workflows/core/z.workflow.js",
-      "bin/flow-unrelated.ts",
+      // `flow install` auto-picks up every top-level bin/*.ts helper, so a
+      // helper-only branch still has to re-symlink...
+      "bin/flow-new-helper.ts",
+      // ...but a test file is never symlinked onto PATH.
+      "bin/flow-new-helper.test.ts",
       "docs/notes.md",
       "skillsets/not-a-match.md",
     ].join("\n");
@@ -109,13 +130,16 @@ describe("flow-stage-a-resymlink — branch + path parsing", () => {
       "skills/pipeline/flow-x/SKILL.md",
       "agents/core/flow-y.md",
       "workflows/core/z.workflow.js",
+      "bin/flow-new-helper.ts",
     ]);
   });
 });
 
 describe("flow-stage-a-resymlink — no-op path", () => {
   it("reports added:false and runs no install when the branch adds nothing", () => {
-    const s = stub({ diff: { ...OK, stdout: "bin/flow-unrelated.ts\n" } });
+    const s = stub({
+      diff: { ...OK, stdout: "docs/notes.md\nbin/flow-unrelated.test.ts\n" },
+    });
     expect(resymlink("/w", "slug", s.run)).toEqual({
       added: false,
       installOk: true,
@@ -194,6 +218,46 @@ describe("flow-stage-a-resymlink — install path", () => {
     });
     resymlink("/w", "slug", s.run);
     expect(installCalls(s.calls)).toHaveLength(2);
+  });
+
+  it("names the install's stderr on both the retry and the give-up NOTICE", () => {
+    // Stage A's escalation carries a FIXED summary, so without these lines
+    // nothing anywhere says WHY the install failed.
+    const warnings: string[] = [];
+    const s = stub({
+      diff: ADDED,
+      install: [
+        { ...OK, exitCode: 1, stderr: "first boom" },
+        { ...OK, exitCode: 1, stderr: "second boom" },
+      ],
+    });
+    resymlink("/w", "slug", s.run, (l) => warnings.push(l));
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain("retrying once");
+    expect(warnings[0]).toContain("first boom");
+    expect(warnings[1]).toContain("failed twice");
+    expect(warnings[1]).toContain("second boom");
+  });
+
+  it("warns when the post-merge follow-up registration fails", () => {
+    // That follow-up is the only thing that re-points a --source link back
+    // at canonical once the worktree is removed.
+    const warnings: string[] = [];
+    const run: Runner = (argv) => {
+      if (argv[1] === "symbolic-ref")
+        return { ...OK, stdout: "refs/remotes/origin/main\n" };
+      if (argv[1] === "diff") return ADDED;
+      if (argv[0] === "flow-followups")
+        return { ...OK, exitCode: 127, stderr: "command not found" };
+      return OK;
+    };
+    expect(resymlink("/w", "slug", run, (l) => warnings.push(l))).toEqual({
+      added: true,
+      installOk: true,
+      attempts: 1,
+    });
+    expect(warnings.join("\n")).toContain("was NOT registered");
+    expect(warnings.join("\n")).toContain("command not found");
   });
 
   it("threads FLOW_SLUG to the install and follow-up subprocesses", () => {

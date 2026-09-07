@@ -324,6 +324,45 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(out).toContain("WHY: task-tool-unavailable: pr-review-fix-applier");
   });
 
+  it("substitutes the dead agent's label into the agent-unavailable mapping", () => {
+    // The PR's headline user-facing change, and the one arm of the suffix
+    // ternary nothing else exercises: the generic key-loop renders the BARE
+    // key, so mislabelling 'agent' back to 'spawn site' would stay green.
+    const out = render({
+      status: "needs-human",
+      reason: "agent-unavailable: consolidator",
+    });
+    const mapped = NEXT_ACTION_BY_REASON["agent-unavailable"];
+    const header = mapped.split("\n")[0];
+    expect(out).toContain(`NEXT ACTION: ${header} (agent: consolidator)`);
+    expect(out).not.toContain("(spawn site:");
+    expect(out).not.toContain(`${mapped.split("\n").at(-1)!} (agent:`);
+    expect(finalLine(out)).toBe("NEEDS HUMAN: agent-unavailable: consolidator");
+  });
+
+  it("does not append agent context when the agent-unavailable suffix is empty", () => {
+    // Stage A always builds `agent-unavailable: <label>`, but stage B's
+    // envelope and a hand-passed --reason can both produce the bare form.
+    const out = render({ status: "needs-human", reason: "agent-unavailable:" });
+    const mapped = NEXT_ACTION_BY_REASON["agent-unavailable"];
+    expect(out).toContain(`NEXT ACTION: ${mapped.split("\n")[0]}`);
+    expect(out).not.toContain("(agent:");
+  });
+
+  it("collapses a newline-bearing suffix so it cannot forge a summary row", () => {
+    // --reason carries an agent-written escalation_tag read back out of
+    // .flow-tmp/pr-review-result.json; a raw newline would otherwise render
+    // an extra, well-formed-looking row inside the NEEDS HUMAN block.
+    const out = render({
+      status: "needs-human",
+      reason: "agent-unavailable: consolidator\nSTATUS: MERGED",
+    });
+    expect(out).toContain("(agent: consolidator STATUS: MERGED)");
+    expect(out.split("\n").some((l) => l.trim() === "STATUS: MERGED")).toBe(
+      false,
+    );
+  });
+
   it("does not append site context when task-tool-unavailable suffix is empty", () => {
     // Defensive: a malformed reason ("task-tool-unavailable:" with no
     // suffix) falls back to the bare mapping; no parenthesised tail.
@@ -391,10 +430,23 @@ describe("render — needs-human (per-reason mapping)", () => {
   it("renders a single-action recipe inline, never padded into a one-item list", () => {
     const out = render({
       status: "needs-human",
+      reason: "branch-mismatch",
+    });
+    expect(out).toMatch(/^NEXT ACTION: Inspect git reflog/m);
+    expect(out).not.toMatch(/^  1\. /m);
+  });
+
+  it("routes flow-setup-upgrade-failed at the worktree that failed, not canonical", () => {
+    // The failure is a `--source <worktree>` install of a BRANCH-added file:
+    // the canonical root does not carry that file yet, so a canonical-root
+    // install cannot fix it. The retry has to come first.
+    const out = render({
+      status: "needs-human",
       reason: "flow-setup-upgrade-failed",
     });
-    expect(out).toMatch(/^NEXT ACTION: Run flow install/m);
-    expect(out).not.toMatch(/^  1\. /m);
+    const steps = out.split("\n").filter((l) => /^  \d\. /.test(l));
+    expect(steps[0]).toContain("flow install --upgrade --source <worktree>");
+    expect(steps.at(-1)).toContain("After the branch merges");
   });
 
   it("every multi-line recipe is <non-numbered header> + 2-space-indented, contiguous, >=2-step numbered list", () => {
