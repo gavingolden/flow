@@ -116,6 +116,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-state-update",
       "flow-rename-window",
       "flow-open-pr",
+      "flow-stage-a-resymlink",
       "flow-pre-commit",
       "flow-gate-decide",
       "flow-gate-summary",

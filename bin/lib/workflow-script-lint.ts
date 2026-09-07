@@ -401,3 +401,50 @@ export function checkWorkflowScriptSyntax(source: string): {
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+export type LoopCaps = {
+  verify: number | null;
+  ciFix: number | null;
+  reviewFix: number | null;
+};
+
+/**
+ * The three retry-loop caps as they appear as bare literals in a stage
+ * script: `verifyAttempts < N`, `loops.ciFix < N`, `loops.reviewFix >= N`.
+ * `null` for any the patterns cannot find — a missing cap must surface as a
+ * lint failure, never as a silently-agreeing zero.
+ */
+export function extractLoopCaps(source: string): LoopCaps {
+  const num = (re: RegExp): number | null => {
+    const m = source.match(re);
+    return m ? Number(m[1]) : null;
+  };
+  return {
+    verify: num(/verifyAttempts\s*<\s*(\d+)/),
+    ciFix: num(/loops\.ciFix\s*<\s*(\d+)/),
+    reviewFix: num(/loops\.reviewFix\s*>=\s*(\d+)/),
+  };
+}
+
+/**
+ * The same three caps as DOCUMENTED in
+ * `skills/pipeline/flow-pipeline/references/failure-recovery.md`'s per-step
+ * cap table: the bolded Budget cell of the `6 — verify` row
+ * (`**3 outer attempts**`), the `7 — ci-wait` CI-red row and the
+ * `8 — review` row (`**N fix-loops total**`). Pairing this with
+ * `extractLoopCaps` is what makes a drift in EITHER direction fail CI.
+ */
+export function parseDocumentedCaps(md: string): LoopCaps {
+  const caps: LoopCaps = { verify: null, ciFix: null, reviewFix: null };
+  for (const line of md.split("\n")) {
+    if (!line.trimStart().startsWith("|")) continue;
+    const cells = line.split("|").slice(1, -1);
+    const step = (cells[0] ?? "").trim();
+    const outer = line.match(/\*\*(\d+) outer attempts\*\*/);
+    const fixLoops = line.match(/\*\*(\d+) fix-loops total\*\*/);
+    if (outer && /verify/.test(step)) caps.verify = Number(outer[1]);
+    if (fixLoops && /ci-wait/.test(step)) caps.ciFix = Number(fixLoops[1]);
+    if (fixLoops && /review/.test(step)) caps.reviewFix = Number(fixLoops[1]);
+  }
+  return caps;
+}

@@ -26,44 +26,47 @@ that spawns nothing further.
 
 ## `flow-stage-a.workflow.js`
 
-| Label                        | agentType                                          | Model key    | Effort      | Artifact                                          | May nest            |
-| ---------------------------- | -------------------------------------------------- | ------------ | ----------- | ------------------------------------------------- | ------------------- |
-| `read-state`                 | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
-| `implement-phase-write`      | `general-purpose`                                  | inherit      | low         | state.json `phase`                                | —                   |
-| `implement`                  | `general-purpose`                                  | implement    | args.effort | commit+push                                       | scout, edit-applier |
-| `implement-retry`            | `general-purpose`                                  | implement    | args.effort | commit+push                                       | scout, edit-applier |
-| `open-pr`                    | `general-purpose`                                  | inherit      | low         | `.flow-tmp/pr-body.md`                            | —                   |
-| `verify-phase-write`         | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
-| `verify`                     | `general-purpose`                                  | implement    | args.effort | UI-smoke excerpt/screenshots                      | edit-applier        |
-| `ci-wait-phase-write`        | `general-purpose`                                  | inherit      | low         | state.json `phase`                                | —                   |
-| `copilot-precheck`           | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
-| `ci-copilot-request`         | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
-| `ci-check`                   | `general-purpose`                                  | inherit      | low         | `.flow-tmp/ci-wait-result.json`                   | —                   |
-| `ci-wait-sleep`              | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
-| `loop-prep-ci`               | `general-purpose`                                  | inherit      | low         | state.json `loops.ciFix`                          | —                   |
-| `implement-ci-fix`           | `general-purpose`                                  | implement    | args.effort | commit+push                                       | scout, edit-applier |
-| `ci-wait-sleep-after-fix`    | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
-| `ci-wait-sleep-review`       | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
-| `reviewing-phase-write`      | `general-purpose`                                  | inherit      | low         | state.json `phase`                                | —                   |
-| `review-prep`                | `general-purpose`                                  | review       | args.effort | `.flow-tmp/lens-prompt-*.md`                      | —                   |
-| `review:bug-detection`       | `flow-module-core:flow-review-bug-detection`       | review       | args.effort | `.flow-tmp/agent-output-bug-detection.json`       | —                   |
-| `review:security`            | `flow-module-core:flow-review-security`            | review       | args.effort | `.flow-tmp/agent-output-security.json`            | —                   |
-| `review:pattern-consistency` | `flow-module-core:flow-review-pattern-consistency` | review       | args.effort | `.flow-tmp/agent-output-pattern-consistency.json` | —                   |
-| `review:performance`         | `flow-module-core:flow-review-performance`         | review       | args.effort | `.flow-tmp/agent-output-performance.json`         | —                   |
-| `review:supply-chain`        | `flow-module-core:flow-review-supply-chain`        | review       | args.effort | `.flow-tmp/agent-output-supply-chain.json`        | —                   |
-| `review:test-coverage`       | `flow-module-core:flow-review-test-coverage`       | review       | args.effort | `.flow-tmp/agent-output-test-coverage.json`       | —                   |
-| `review:intent-guess`        | `flow-module-core:flow-review-intent-guess`        | review       | args.effort | `.flow-tmp/intent-guess.json`                     | —                   |
-| `consolidator`               | `flow-module-core:flow-consolidator`               | consolidator | args.effort | `.flow-tmp/consolidator-result.json`              | —                   |
-| `consolidator-widen`         | `flow-module-core:flow-consolidator`               | consolidator | args.effort | `.flow-tmp/consolidator-result.json`              | —                   |
-| `review-tail-1`              | `general-purpose`                                  | review       | args.effort | —                                                 | —                   |
-| `fix-applier`                | `flow-module-core:flow-fix-applier`                | fixApplier   | low         | `.flow-tmp/fix-applier-result.json`               | —                   |
-| `review-tail-2`              | `general-purpose`                                  | review       | args.effort | `.flow-tmp/pr-review-result.json`                 | —                   |
-| `validate-review`            | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
-| `read-review-result`         | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
-| `review-partial-retry`       | `general-purpose`                                  | review       | args.effort | —                                                 | —                   |
-| `loop-prep-review`           | `general-purpose`                                  | inherit      | low         | state.json `loops.reviewFix`                      | —                   |
-| `gate-read`                  | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
-| `write-result`               | `general-purpose`                                  | inherit      | low         | `.flow-tmp/stage-a-result.json`                   | —                   |
+| Label                           | agentType                                          | Model key    | Effort      | Artifact                                          | May nest            |
+| ------------------------------- | -------------------------------------------------- | ------------ | ----------- | ------------------------------------------------- | ------------------- |
+| `read-state`                    | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
+| `implement-phase-write`         | `general-purpose`                                  | inherit      | low         | state.json `phase`                                | —                   |
+| `implement`                     | `general-purpose`                                  | implement    | args.effort | commit+push                                       | scout, edit-applier |
+| `implement-retry`               | `general-purpose`                                  | implement    | args.effort | commit+push                                       | scout, edit-applier |
+| `open-pr`                       | `general-purpose`                                  | inherit      | low         | `.flow-tmp/pr-body.md`                            | —                   |
+| `installing-skills-phase-write` | `general-purpose`                                  | inherit      | low         | state.json `phase`                                | —                   |
+| `verify-phase-write`            | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
+| `verify`                        | `general-purpose`                                  | implement    | args.effort | UI-smoke excerpt/screenshots                      | edit-applier        |
+| `write-verify-caution`          | `general-purpose`                                  | inherit      | low         | `.flow-tmp/verify-caution.txt` + PR-body upsert   | —                   |
+| `write-ui-smoke-note`           | `general-purpose`                                  | inherit      | low         | PR-body upsert                                    | —                   |
+| `ci-wait-phase-write`           | `general-purpose`                                  | inherit      | low         | state.json `phase`                                | —                   |
+| `copilot-precheck`              | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
+| `ci-copilot-request`            | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
+| `ci-check`                      | `general-purpose`                                  | inherit      | low         | `.flow-tmp/ci-wait-result.json`                   | —                   |
+| `ci-wait-sleep`                 | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
+| `loop-prep-ci`                  | `general-purpose`                                  | inherit      | low         | state.json `loops.ciFix`                          | —                   |
+| `implement-ci-fix`              | `general-purpose`                                  | implement    | args.effort | commit+push                                       | scout, edit-applier |
+| `ci-wait-sleep-after-fix`       | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
+| `ci-wait-sleep-review`          | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
+| `reviewing-phase-write`         | `general-purpose`                                  | inherit      | low         | state.json `phase`                                | —                   |
+| `review-prep`                   | `general-purpose`                                  | review       | args.effort | `.flow-tmp/lens-prompt-*.md`                      | —                   |
+| `review:bug-detection`          | `flow-module-core:flow-review-bug-detection`       | review       | args.effort | `.flow-tmp/agent-output-bug-detection.json`       | —                   |
+| `review:security`               | `flow-module-core:flow-review-security`            | review       | args.effort | `.flow-tmp/agent-output-security.json`            | —                   |
+| `review:pattern-consistency`    | `flow-module-core:flow-review-pattern-consistency` | review       | args.effort | `.flow-tmp/agent-output-pattern-consistency.json` | —                   |
+| `review:performance`            | `flow-module-core:flow-review-performance`         | review       | args.effort | `.flow-tmp/agent-output-performance.json`         | —                   |
+| `review:supply-chain`           | `flow-module-core:flow-review-supply-chain`        | review       | args.effort | `.flow-tmp/agent-output-supply-chain.json`        | —                   |
+| `review:test-coverage`          | `flow-module-core:flow-review-test-coverage`       | review       | args.effort | `.flow-tmp/agent-output-test-coverage.json`       | —                   |
+| `review:intent-guess`           | `flow-module-core:flow-review-intent-guess`        | review       | args.effort | `.flow-tmp/intent-guess.json`                     | —                   |
+| `consolidator`                  | `flow-module-core:flow-consolidator`               | consolidator | args.effort | `.flow-tmp/consolidator-result.json`              | —                   |
+| `consolidator-widen`            | `flow-module-core:flow-consolidator`               | consolidator | args.effort | `.flow-tmp/consolidator-result.json`              | —                   |
+| `review-tail-1`                 | `general-purpose`                                  | review       | args.effort | —                                                 | —                   |
+| `fix-applier`                   | `flow-module-core:flow-fix-applier`                | fixApplier   | low         | `.flow-tmp/fix-applier-result.json`               | —                   |
+| `review-tail-2`                 | `general-purpose`                                  | review       | args.effort | `.flow-tmp/pr-review-result.json`                 | —                   |
+| `validate-review`               | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
+| `read-review-result`            | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
+| `review-partial-retry`          | `general-purpose`                                  | review       | args.effort | —                                                 | —                   |
+| `loop-prep-review`              | `general-purpose`                                  | inherit      | low         | state.json `loops.reviewFix`                      | —                   |
+| `gate-read`                     | `general-purpose`                                  | inherit      | low         | —                                                 | —                   |
+| `write-result`                  | `general-purpose`                                  | inherit      | low         | `.flow-tmp/stage-a-result.json`                   | —                   |
 
 The six `review:<lens>` labels enumerate `AGENT_LENS_MAP`'s keys
 (`bin/flow-pr-agent-lens.ts`); every `flow-review-<lens>.md` +

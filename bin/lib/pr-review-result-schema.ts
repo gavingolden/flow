@@ -32,6 +32,27 @@
 
 export type PrReviewStatus = "clean" | "partial" | "escalated";
 
+/**
+ * Every `escalation_tag` head `/flow-pr-review` actually writes, per its
+ * SKILL.md `# Result artifact` "Exit-path wiring" table (the parameterised
+ * `task-tool-unavailable: <site>` form appears here as its colon head).
+ * The field itself stays typed `string | null` and the validator stays
+ * permissive on content — this array is the DOCUMENTED set, kept here
+ * rather than scraped out of that markdown table, so a harmless reformat
+ * of the table cannot turn a lint red. Consumed by
+ * `bin/stage-a-reason-coverage.test.ts`: stage A forwards this tag
+ * verbatim as a `flow-gate-summary --reason`, so every member needs a
+ * `NEXT_ACTION_BY_REASON` entry. Adding a tag to that table means adding
+ * it here and to the renderer in the same commit.
+ */
+export const PR_REVIEW_ESCALATION_TAGS = [
+  "task-tool-unavailable",
+  "consolidator-schema-failure",
+  "consolidator-missing-artifact",
+  "fix-applier-missing-artifact",
+  "intent-drift",
+] as const;
+
 export type PrReviewResult = {
   status: PrReviewStatus;
   completed_steps: string[];

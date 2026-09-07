@@ -28,8 +28,14 @@ function runScript(
     calls.push(call);
     return respond(String(opts.label), call);
   };
+  // Strict semantics on purpose: the real `parallel()` is undocumented for a
+  // THROWN thunk, so the stub does NOT swallow rejections. A lens whose
+  // result must be dropped has to resolve null on its own (stage A's fan-out
+  // members are deliberately unguarded) — a `.catch(() => null)` here would
+  // mask a re-introduced guard() and pass a script that aborts the whole
+  // review phase on one dead lens in production.
   const parallel = async (thunks: Array<() => Promise<unknown>>) =>
-    Promise.all(thunks.map((t) => t().catch(() => null)));
+    Promise.all(thunks.map((t) => t()));
   const body = new Function(
     "agent",
     "parallel",
@@ -51,6 +57,39 @@ function runScript(
     { total: null, spent: () => 0, remaining: () => Infinity },
     undefined,
   ).then((result: unknown) => ({ result, calls, logs }));
+}
+
+/**
+ * A schema-shaped stand-in for any helper agent the test does not care
+ * about: every declared property answered with its type's zero value (an
+ * enum's first member), so the script's field reads all succeed and the run
+ * reaches the site under test.
+ */
+function synthesizeFromSchema(call: Call): Record<string, unknown> {
+  const schema = call.opts.schema as
+    | {
+        properties?: Record<
+          string,
+          { type?: string | string[]; enum?: string[]; items?: unknown }
+        >;
+      }
+    | undefined;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(schema?.properties ?? {})) {
+    const t = Array.isArray(v.type) ? v.type[0] : v.type;
+    out[k] = v.enum
+      ? v.enum[0]
+      : t === "boolean"
+        ? true
+        : t === "number"
+          ? 0
+          : t === "array"
+            ? []
+            : t === "object"
+              ? {}
+              : "";
+  }
+  return out;
 }
 
 const STAGE_A_ARGS = {
@@ -125,29 +164,7 @@ describe("workflow scripts — AgentUnavailable guard", () => {
         if (label.startsWith("review:"))
           return { written: true, artifact: `/tmp/${label}.json` };
         if (label === "consolidator") return null;
-        const schema = call.opts.schema as
-          | {
-              properties?: Record<
-                string,
-                { type?: string | string[]; enum?: string[]; items?: unknown }
-              >;
-            }
-          | undefined;
-        const out: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(schema?.properties ?? {})) {
-          const t = Array.isArray(v.type) ? v.type[0] : v.type;
-          out[k] = v.enum
-            ? v.enum[0]
-            : t === "boolean"
-              ? true
-              : t === "number"
-                ? 0
-                : t === "array"
-                  ? []
-                  : t === "object"
-                    ? {}
-                    : "";
-        }
+        const out = synthesizeFromSchema(call);
         if (label === "review-prep")
           Object.assign(out, {
             skip: false,
@@ -162,6 +179,48 @@ describe("workflow scripts — AgentUnavailable guard", () => {
       reason: "agent-unavailable: consolidator",
     });
     expect(logs.some((l) => /1 review agents died/.test(l))).toBe(true);
+  });
+
+  it("stage A: a null review-prep agent becomes a needs-human envelope, not a TypeError", async () => {
+    // 97d25e7's null-guard sweep missed this one site: `prep.skip` was read
+    // off a bare `await agent(...)`, so a denied/died review-prep spawn
+    // crashed the script with a raw TypeError and wrote no result artifact.
+    const { result, calls } = await runScript(
+      "flow-stage-a.workflow.js",
+      STAGE_A_ARGS,
+      (label, call) => {
+        if (label === "read-state")
+          return {
+            phases: ["implementing"],
+            pr: 7,
+            prUrl: "https://x/7",
+            loops: { ciFix: 0, reviewFix: 0 },
+            ciWaitDecided: false,
+          };
+        if (label === "verify")
+          return { clean: true, excerpt: "", uiSmoke: "n/a", screenshots: [] };
+        if (label.startsWith("ci-check"))
+          return {
+            status: "decided",
+            decision: "proceed-to-review",
+            reason: "",
+            ciFailedChecks: "",
+            copilotSkipReason: "",
+          };
+        if (label === "review-prep") return null;
+        return synthesizeFromSchema(call);
+      },
+    );
+    expect(result).toMatchObject({
+      stage: "A",
+      outcome: "needs-human",
+      reason: "agent-unavailable: review-prep",
+      pr: 7,
+    });
+    const write = calls.find((c) => c.opts.label === "write-result");
+    expect(write?.prompt).toContain(
+      '"reason":"agent-unavailable: review-prep"',
+    );
   });
 
   it("stage B: a null precheck agent becomes a merge-failed envelope, nothing merged", async () => {

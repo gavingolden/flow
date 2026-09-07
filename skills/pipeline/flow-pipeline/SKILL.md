@@ -1434,10 +1434,12 @@ Branch on `.outcome`: **`gate-ready`** → continue to "Step 9 — Auto-merge
 gate" below with `.decision` already resolved by stage A's gate-read
 step. **`needs-stage-b`** (`.reason: pr-conflicted`) → skip straight to
 "## Stage B launch" (the conflict-resolve path). **`needs-human`** →
-the standard `# Failure paths` block keyed on `.reason` (`verify-exhausted`
-additionally upserts the PR-body `> [!CAUTION]` block from
-`.artifacts.verifyCaution`; `merged-externally` routes to the render
-below).
+the standard `# Failure paths` block keyed on `.reason` (on
+`verify-exhausted` stage A has already written the caution artifact named
+at step 6 (Local verify) and upserted its PR-body `> [!CAUTION]`
+block itself — that path is one entry in `.artifacts[]`, which the result
+schema types as `string[]`, so there is no `.artifacts.<name>` field to
+read; `merged-externally` routes to the render below).
 
 ### Stage A `needs-human: merged-externally` render
 
@@ -1478,16 +1480,23 @@ no PR, stage A retries once internally before surfacing
 
 ## Step 5.5 — Re-symlink if worktree adds skills/agents
 
-**Phase:** `installing-skills` — written by stage A's implement step as
-it hands off to re-symlink; no standalone helper call from here.
+**Phase:** `installing-skills` — written by stage A's own
+`installing-skills-phase-write` agent, fired only when the branch actually
+adds installable files; no standalone helper call from here.
 
-Stage A detects new files under `skills/`/`agents/` added on this branch
-(same `git diff --diff-filter=A` check as before) and runs `flow install
---upgrade --source "$WORKTREE"` when any exist, registering the same
+Stage A's implement step runs `flow-stage-a-resymlink --worktree
+"$WORKTREE" --slug "$SLUG"` (one Bash call inside the `open-pr` agent).
+That helper detects files added on this branch under
+`skills/`/`agents/`/`workflows/` (the same `git diff --diff-filter=A`
+check as before), runs `flow install --upgrade --source "$WORKTREE"` when
+any exist — retrying ONCE on a non-zero exit — and registers the same
 `flow-followups add --command "flow install --upgrade" --auto` entry for
-the post-merge home-install re-symlink. No user-visible change from the
-pre-stage-A behaviour. On a non-zero exit, stage A retries once, then
-surfaces `needs-human: flow-setup-upgrade-failed`.
+the post-merge home-install re-symlink. It prints one JSON envelope,
+`{added, installOk, attempts}`. No user-visible change from the
+pre-stage-A behaviour on the happy path; when `installOk` is false (both
+attempts failed), stage A surfaces
+`needs-human: flow-setup-upgrade-failed` rather than continuing with
+branch-added helpers off PATH.
 
 ## Step 6 — Local verify
 
@@ -1501,23 +1510,29 @@ flow-state-update --phase verifying
 Stage A's verify step runs `/flow-verify` inline (its own inner 5-attempt
 cap; stage A's outer cap is 3), including the **Automated UI-smoke pass.**
 See [references/ui-smoke-pass.md](references/ui-smoke-pass.md). When
-skipped on a UI-touching diff, upsert the sibling line "> [!NOTE] UI changed;
-browser validation did not run — <reason>" under `## Test Steps`:
+skipped on a UI-touching diff, stage A's `write-ui-smoke-note` agent runs
+the repair pair below to upsert the sibling line "> [!NOTE] UI changed;
+browser validation did not run — <reason>" under `## Test Steps`
+(`<reason>` is the verify agent's `uiSmokeReason`, defaulted so the line
+can never render a dangling em-dash):
 
 ```bash
 flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/body.md" && gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
-On exhaustion (3 failed outer attempts), the final failure excerpt lands
-in `$WORKTREE/.flow-tmp/verify-caution.txt` and the same repair pair
-upserts a `> [!CAUTION]` block:
+On exhaustion (3 failed outer attempts), stage A's `write-verify-caution`
+agent lands the final failure excerpt in
+`$WORKTREE/.flow-tmp/verify-caution.txt` (recorded in the result's
+`artifacts[]`) and the same repair pair upserts a `> [!CAUTION]` block:
 
 ```bash
 flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/body.md" && gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
 then `needs-human: verify-exhausted` (surfaced by the "## Stage A launch"
-branch above). Re-entry: a state.json phase of `verifying` resumes stage A
+branch above). Both upserts are best-effort: neither is guarded, so a
+failed PR-body edit logs and continues rather than replacing the real
+escalation reason with `agent-unavailable`. Re-entry: a state.json phase of `verifying` resumes stage A
 directly at this step.
 
 ## Step 7 — CI + Copilot wait

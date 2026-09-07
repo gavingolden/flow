@@ -232,7 +232,7 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
     ).toEqual([]);
   });
 
-  it("structurally pins the merge-resolver-spawn-denied escalation branch", () => {
+  it("a denied or died merge-resolver spawn folds into resolver-missing-artifact", () => {
     // The resolver's Task spawn now runs inside stage B
     // (workflows/core/flow-stage-b.workflow.js), not SKILL.md prose. A
     // denied/died spawn surfaces as a null agent() result; stage B must

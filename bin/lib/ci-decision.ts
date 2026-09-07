@@ -12,15 +12,25 @@ import { copilotAuthorMatch, matchesCopilot } from "./copilot-config";
 
 // --- Types -----------------------------------------------------------------
 
-export type Decision =
-  | "proceed-to-review"
-  | "proceed-to-review-no-bot"
-  | "ci-failed"
-  | "merged-externally"
-  | "pr-closed"
-  | "pr-conflicted"
-  | "pr-blocked"
-  | "ci-hang";
+/**
+ * Every value `decideOnPoll` can return, as a RUNTIME array so a consumer
+ * can enumerate the union instead of retyping it. `Decision` is derived
+ * from it, so the type and the array can never drift apart.
+ * `bin/stage-a-reason-coverage.test.ts` reads this to prove every decision
+ * stage A can forward to `flow-gate-summary --reason` has a renderer entry.
+ */
+export const CI_DECISIONS = [
+  "proceed-to-review",
+  "proceed-to-review-no-bot",
+  "ci-failed",
+  "merged-externally",
+  "pr-closed",
+  "pr-conflicted",
+  "pr-blocked",
+  "ci-hang",
+] as const;
+
+export type Decision = (typeof CI_DECISIONS)[number];
 
 export type Check = { name: string; state: string };
 

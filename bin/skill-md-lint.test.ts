@@ -4939,7 +4939,7 @@ describe("pr-review include-by-reference structure", () => {
     // tension this same PR's Test Steps hit at exactly 2,700 — regrowth
     // past 2750 should be treated as bloat creeping back in, the failure
     // mode this diet exists to prevent. Raised from 2750 to 2760 to fund the
-    // rebase-to-merge conversion's `merge-resolver-spawn-denied` escalation
+    // rebase-to-merge conversion's denied-resolver-spawn escalation
     // branch in the Independent Merge-Conflict Resolver Subagent section — a
     // few lines naming the new NEEDS HUMAN reason and its no-re-spawn /
     // no-inline-resolution invariants. Kept deliberately tight rather than
@@ -6859,7 +6859,7 @@ describe("terminal-state reap wiring lint", () => {
    * are genuinely out of scope for this feature: the deep interior NEEDS
    * HUMAN escalation branches inside the step-10 merge-conflict-resolution
    * flow that explicitly delegate to "the standard `# Failure paths`
-   * chain" (merge-resolver-spawn-denied, merge-failed x3) — that chain is
+   * chain" (the denied resolver spawn, merge-failed x3) — that chain is
    * itself wired, so wiring them separately would double-render — and the
    * elliptical step-9/step-10 resume-path back-references that cite the
    * SAME render used elsewhere via `...` rather than a full argument list.

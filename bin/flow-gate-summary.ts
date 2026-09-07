@@ -255,11 +255,13 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   1. Inspect <worktree>/.flow-tmp/merge-resolver-result.json (if present).
   2. Resolve conflicts manually.
   3. Then run (cd <repo> && gh pr merge --squash <pr>).`,
-  "merge-resolver-missing-artifact": `The merge-conflict resolver artifact is missing.
-  1. Inspect <worktree>/.flow-tmp/ for partial resolver state.
-  2. Resolve conflicts manually.
-  3. Then run (cd <repo> && gh pr merge --squash <pr>).`,
-  "merge-resolver-spawn-denied": `The permission system refused the merge-resolver subagent spawn.
+  // Folded recipe: stage B maps a DENIED or died resolver spawn onto this
+  // same outcome (its `resolverAgentResult === null` branch returns
+  // `resolver-missing-artifact`), so the old spawn-denied key had no
+  // producer left anywhere in the tree. Its five-step manual
+  // `git merge` body — strictly better than the three-line stub this key
+  // used to carry — moved here rather than being deleted with the key.
+  "merge-resolver-missing-artifact": `The merge-conflict resolver produced no artifact (a denied or died spawn, or a crashed run).
   1. Recover manually: run cd <worktree> && git fetch origin <base> && git merge origin/<base>
   2. STOP and resolve every conflict marker in your editor before committing.
   3. Once resolved, run git add <resolved-files>, git commit, git push
@@ -303,6 +305,52 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "state-file-missing-on-start": `The launch likely died before writing state.
   1. Check ~/.flow/state/<slug>.json
   2. If it is missing, never work inline on the base branch — re-run flow feature create "<description>"`,
+
+  // --- Stage-A reason tags -------------------------------------------------
+  // Every reason `workflows/core/flow-stage-a.workflow.js` can pass to
+  // `--reason`, including the four dynamic expressions (`ciOutcome`,
+  // `check.decision`, `readBack.escalation_tag`, and the terminal catch's
+  // `err.message`). `bin/stage-a-reason-coverage.test.ts` enumerates the
+  // script's `needsHuman()` call sites and fails when one lands here
+  // unmapped — add the entry there and here together.
+  "ci-wait-undecided": `CI never reached a decision inside stage A's poll cap.
+  1. Inspect the run's checks with gh pr checks <pr>
+  2. Once CI reports a terminal state, run flow feature resume <slug>`,
+  "pr-closed": `The PR was closed without merging while stage A was waiting on CI.
+  1. Decide: reopen it with gh pr reopen <pr>, or abandon the run.
+  2. If reopened, run flow feature resume <slug>
+  3. If abandoning, run flow done <slug> to clean up the worktree and branch.`,
+  "merged-externally": `The PR was merged outside the pipeline while stage A was running.
+  1. Confirm the merge with gh pr view <pr> --json state,mergedAt
+  2. Then run flow done <slug> to clean up the worktree and branch.`,
+  "ci-failed": `CI is red on the PR and stage A stopped before the gate.
+  1. Read the failing job with gh run view --log-failed
+  2. Fix it in the worktree, then re-verify with cd <worktree> && flow-pre-commit --json
+  3. Once the fix is committed and pushed, run flow feature resume <slug>`,
+  "pr-conflicted": `The branch conflicts with its base, discovered after a review-fix commit.
+  1. Recover manually: run cd <worktree> && git fetch origin <base> && git merge origin/<base>
+  2. STOP and resolve every conflict marker in your editor before committing.
+  3. Once resolved, run git add <resolved-files>, git commit, git push
+  4. Then run flow feature resume <slug>`,
+  "review-escalated": `/flow-pr-review escalated without a more specific tag.
+  1. Attach (flow attach <slug>).
+  2. Inspect <worktree>/.flow-tmp/pr-review-result.json's escalation_tag and missed_steps.
+  3. Re-invoke /flow-pr-review <PR> --resume-from <step>`,
+  "consolidator-schema-failure": `The review consolidator's artifact failed schema validation.
+  1. Attach (flow attach <slug>).
+  2. Repair the malformed agent-output JSON under <worktree>/.flow-tmp/ in place.
+  3. Re-invoke /flow-pr-review <PR> --resume-from 3.5`,
+  "consolidator-missing-artifact": `The review consolidator wrote no result artifact.
+  1. Attach (flow attach <slug>).
+  2. Inspect <worktree>/.flow-tmp/ for the per-lens agent-output files that did land.
+  3. Re-invoke /flow-pr-review <PR> --resume-from 3.5`,
+  "intent-drift": `The review's intent guess diverged from the request the pipeline was launched with.
+  1. Attach (flow attach <slug>).
+  2. Compare <worktree>/.flow-tmp/intent-resolution.json against the plan's Prompt interpretation section.
+  3. Redirect with a corrected description, or re-invoke /flow-pr-review <PR> --resume-from 3.6`,
+  "agent-unavailable": `A subagent returned no result after retries (a terminal API error or a classifier block), so the stage stopped where it stood.
+  1. Attach (flow attach <slug>) and read the scrollback for the dead spawn.
+  2. Once the API or session is healthy again, run flow feature resume <slug>`,
 };
 
 // One entry per NEXT_ACTION_BY_REASON key, listing the EXACT
@@ -342,8 +390,7 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
   ],
   "gate-override-without-confirmation": [],
   "merge-failed": ["cd <repo> && gh pr merge --squash <pr>"],
-  "merge-resolver-missing-artifact": ["cd <repo> && gh pr merge --squash <pr>"],
-  "merge-resolver-spawn-denied": [
+  "merge-resolver-missing-artifact": [
     "cd <worktree> && git fetch origin <base> && git merge origin/<base>",
     "git add <resolved-files>",
     "git commit",
@@ -367,6 +414,33 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
   "coder-failed": ["flow attach <slug>"],
   "smoketest-needs-creds": ["flow feature resume <slug>"],
   "state-file-missing-on-start": ['flow feature create "<description>"'],
+  "ci-wait-undecided": ["gh pr checks <pr>", "flow feature resume <slug>"],
+  "pr-closed": [
+    "gh pr reopen <pr>",
+    "flow feature resume <slug>",
+    "flow done <slug>",
+  ],
+  "merged-externally": [
+    "gh pr view <pr> --json state,mergedAt",
+    "flow done <slug>",
+  ],
+  "ci-failed": [
+    "gh run view --log-failed",
+    "cd <worktree> && flow-pre-commit --json",
+    "flow feature resume <slug>",
+  ],
+  "pr-conflicted": [
+    "cd <worktree> && git fetch origin <base> && git merge origin/<base>",
+    "git add <resolved-files>",
+    "git commit",
+    "git push",
+    "flow feature resume <slug>",
+  ],
+  "review-escalated": ["flow attach <slug>"],
+  "consolidator-schema-failure": ["flow attach <slug>"],
+  "consolidator-missing-artifact": ["flow attach <slug>"],
+  "intent-drift": ["flow attach <slug>"],
+  "agent-unavailable": ["flow attach <slug>", "flow feature resume <slug>"],
 };
 
 // Rule-3 escape hatch: tags whose prose trips the high-recall
@@ -499,6 +573,15 @@ export function parseArgs(argv: string[]): Args | { error: string } {
  * its Task tool — without this, all six exemption sites collapse to
  * the same generic remediation line, defeating the per-tag mapping
  * pattern. Other unmapped reasons fall back to DEFAULT_NEXT_ACTION.
+ *
+ * `agent-unavailable:<label>` is the second parameterised reason, on the
+ * identical mechanism: a stage script's terminal catch emits one tag per
+ * dead subagent label (14 and counting across the two scripts), so one
+ * entry plus the label on the header line beats 14 near-identical keys —
+ * and `RECIPE_COMMANDS`' exact-parity rule would reject them anyway. The
+ * suffix NEVER reaches a `RECIPE_COMMANDS` entry: it is header prose, not
+ * a command, so the recipe lint's verbatim-substring and `bash -n` rules
+ * stay unaffected.
  */
 function nextActionForReason(reason: string | undefined): string {
   if (!reason) return DEFAULT_NEXT_ACTION;
@@ -509,17 +592,24 @@ function nextActionForReason(reason: string | undefined): string {
   const suffix = colonIdx >= 0 ? reason.slice(colonIdx + 1).trim() : "";
   const mapped = NEXT_ACTION_BY_REASON[head];
   if (!mapped) return DEFAULT_NEXT_ACTION;
-  if (head === "task-tool-unavailable" && suffix.length > 0) {
+  const suffixLabel =
+    head === "task-tool-unavailable"
+      ? "spawn site"
+      : head === "agent-unavailable"
+        ? "agent"
+        : null;
+  if (suffixLabel && suffix.length > 0) {
     // For a multi-line recipe the suffix belongs on the header (first)
     // line, never on the last numbered step — it names the spawn site
-    // the escalation is about, not a qualifier on the final action.
+    // (or the dead agent) the escalation is about, not a qualifier on
+    // the final action.
     const newlineIdx = mapped.indexOf("\n");
     if (newlineIdx === -1) {
-      return `${mapped} (spawn site: ${suffix})`;
+      return `${mapped} (${suffixLabel}: ${suffix})`;
     }
     const header = mapped.slice(0, newlineIdx);
     const rest = mapped.slice(newlineIdx);
-    return `${header} (spawn site: ${suffix})${rest}`;
+    return `${header} (${suffixLabel}: ${suffix})${rest}`;
   }
   return mapped;
 }

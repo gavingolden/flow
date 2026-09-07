@@ -51,9 +51,11 @@ function modelArg(model) {
 
 // An agent call resolves null when the subagent dies on a terminal API error after
 // retries (a classifier block, a dead session) instead of throwing. Every
-// result passes through guard() so a null becomes a typed AgentUnavailable,
-// caught once at the bottom into a needs-human envelope — never a TypeError
-// on the next field read.
+// result whose absence is fatal passes through guard(), so a null becomes a
+// typed AgentUnavailable, caught once at the bottom into a needs-human
+// envelope — never a TypeError on the next field read. The three deliberate
+// exceptions are named at their definitions: the two PR-body upserts
+// (courtesy writes) and the review fan-out members (dropped, not fatal).
 class AgentUnavailable extends Error {
   constructor(label) {
     super(`agent-unavailable: ${label}`);
@@ -89,30 +91,72 @@ function verifyAgent(prompt) {
     phase: "Verify",
     effort: args.effort,
     ...modelArg(args.models.implement),
-    schema: { type: "object", required: ["clean", "excerpt", "uiSmoke"], properties: { clean: { type: "boolean" }, excerpt: { type: "string" }, uiSmoke: { type: "string", enum: ["passed", "skipped", "n/a"] }, screenshots: { type: "array", items: { type: "string" } } } },
+    schema: { type: "object", required: ["clean", "excerpt", "uiSmoke"], properties: { clean: { type: "boolean" }, excerpt: { type: "string" }, uiSmoke: { type: "string", enum: ["passed", "skipped", "n/a"] }, uiSmokeReason: { type: "string" }, screenshots: { type: "array", items: { type: "string" } } } },
   }));
 }
 
+// The two PR-body upserts SKILL.md step 6 promises. Deliberately NOT
+// guard()ed: a failed courtesy upsert must never replace the real
+// escalation — the user has to read `NEEDS HUMAN: verify-exhausted`, not
+// `agent-unavailable: write-verify-caution`. Each call site logs the null
+// and continues. Both labels are literal at their own call site so
+// references/workflow-agent-sites.md's symmetry lint can see them.
+function bodyUpsertPrompt(sourceStep, buildStep) {
+  return `Using the Bash tool against PR ${pr}: 1) ${sourceStep} 2) run: gh pr view ${pr} --json body --jq .body > "${args.worktree}/.flow-tmp/body.md"; if body.md has no '## Test Steps' heading, append one on its own line. 3) ${buildStep} — replace a block this stage already upserted rather than appending a second copy. 4) run exactly: flow-md-validate --fix-pr-body "${args.worktree}/.flow-tmp/body.md" && gh pr edit ${pr} --body-file "${args.worktree}/.flow-tmp/body.md". Report written:true iff step 4 exited 0. Do nothing else.`;
+}
+
+async function writeVerifyCaution(excerpt) {
+  const result = await agent(
+    bodyUpsertPrompt(
+      `write this final verify failure excerpt to ${args.worktree}/.flow-tmp/verify-caution.txt (create parent dirs first): ${excerpt}`,
+      `under '## Test Steps', upsert a '> [!CAUTION]' block quoting that excerpt`,
+    ),
+    { agentType: "general-purpose", label: "write-verify-caution", phase: "Verify", effort: "low", schema: BOOL("written") },
+  );
+  if (result === null) log("write-verify-caution returned no result — PR body not updated; continuing (the escalation reason is the payload)");
+  return result;
+}
+
+async function writeUiSmokeNote(reason) {
+  const result = await agent(
+    bodyUpsertPrompt(
+      `nothing to write for this one — go straight to step 2.`,
+      `under '## Test Steps', upsert the sibling line '> [!NOTE] UI changed; browser validation did not run — ${reason}'`,
+    ),
+    { agentType: "general-purpose", label: "write-ui-smoke-note", phase: "Verify", effort: "low", schema: BOOL("written") },
+  );
+  if (result === null) log("write-ui-smoke-note returned no result — PR body not updated; continuing");
+  return result;
+}
+
+// Lens + intent-guess fan-out members are deliberately UNGUARDED: an agent
+// call resolves null on a terminal API error rather than rejecting, and the
+// documented fan-out idiom is `.filter(Boolean)` — one dead lens is dropped
+// (with a log line) instead of aborting the whole review phase. Guarding
+// here would also make correctness depend on parallel()'s undocumented
+// behaviour for a THROWN thunk.
 function reviewLensAgent(lens) {
-  return guard(`review:${lens}`, agent(`Read ${args.worktree}/.flow-tmp/lens-prompt-${lens}.md and follow it exactly.`, {
+  return agent(`Read ${args.worktree}/.flow-tmp/lens-prompt-${lens}.md and follow it exactly.`, {
     agentType: `flow-module-core:flow-review-${lens}`,
     label: `review:${lens}`,
     phase: "Review",
     effort: args.effort,
     ...modelArg(args.models.review),
     schema: WRITTEN_ARTIFACT,
-  }));
+  });
 }
 
+/** Unguarded for the same reason as `reviewLensAgent` — a dead intent-guess
+ * is dropped by the fan-out's `.filter(Boolean)`, never an escalation. */
 function intentGuessAgent() {
-  return guard("review:intent-guess", agent(`Read ${args.worktree}/.flow-tmp/lens-prompt-intent-guess.md and follow it exactly.`, {
+  return agent(`Read ${args.worktree}/.flow-tmp/lens-prompt-intent-guess.md and follow it exactly.`, {
     agentType: "flow-module-core:flow-review-intent-guess",
     label: "review:intent-guess",
     phase: "Review",
     effort: args.effort,
     ...modelArg(args.models.review),
     schema: WRITTEN_ARTIFACT,
-  }));
+  });
 }
 
 async function writeAndValidate(path, jsonText, label, phaseTitle) {
@@ -202,13 +246,28 @@ async function stageA() {
     ran.implement = true;
 
     const openPr = await helperAgent(
-      `Using the Bash tool: 1) compose the PR body at ${args.worktree}/.flow-tmp/pr-body.md from ${args.worktree}/.flow-tmp/pr-description-draft.md if present (else a minimal conventional body), 2) run: PR_URL=$(FLOW_SLUG=${args.slug} flow-open-pr --body-file "${args.worktree}/.flow-tmp/pr-body.md" --title "<conventional-commit summary>" --slug ${args.slug}); SLUG=${args.slug}; PR=$(jq -r '.pr' ~/.flow/state/"$SLUG".json). 3) then inline step 5.5: DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|^refs/remotes/origin/||'); DEFAULT_BRANCH="\${DEFAULT_BRANCH:-main}"; ADDED=$(git diff --name-only --diff-filter=A "origin/$DEFAULT_BRANCH...HEAD" | grep -E '^(skills|agents|workflows)/' || true); if [ -n "$ADDED" ]; then flow install --upgrade --source "${args.worktree}"; flow-followups add --command "flow install --upgrade" --reason "new skills/agents/workflows added on this branch — re-symlink home install post-merge" --auto --registered-by "flow-stage-a:step-5.5"; fi. Report pr (number), prUrl (string), and resymlinked (true iff ADDED was non-empty).`,
+      `Using the Bash tool: 1) compose the PR body at ${args.worktree}/.flow-tmp/pr-body.md from ${args.worktree}/.flow-tmp/pr-description-draft.md if present (else a minimal conventional body), 2) run: PR_URL=$(FLOW_SLUG=${args.slug} flow-open-pr --body-file "${args.worktree}/.flow-tmp/pr-body.md" --title "<conventional-commit summary>" --slug ${args.slug}); SLUG=${args.slug}; PR=$(jq -r '.pr' ~/.flow/state/"$SLUG".json). 3) then step 5.5, exactly one command (it detects branch-added skills/agents/workflows itself, installs with one retry, and registers the post-merge follow-up): flow-stage-a-resymlink --worktree "${args.worktree}" --slug ${args.slug}; capture its stdout JSON and do NOT fail the step on a non-zero exit. Report pr (number), prUrl (string), resymlinked (that JSON's .added), and installOk (that JSON's .installOk).`,
       "open-pr",
       "Implement",
-      { type: "object", required: ["pr", "prUrl", "resymlinked"], properties: { pr: { type: "number" }, prUrl: { type: "string" }, resymlinked: { type: "boolean" } } },
+      { type: "object", required: ["pr", "prUrl", "resymlinked", "installOk"], properties: { pr: { type: "number" }, prUrl: { type: "string" }, resymlinked: { type: "boolean" }, installOk: { type: "boolean" } } },
     );
     pr = openPr.pr;
     prUrl = openPr.prUrl;
+    // Step 5.5's phase write is its own agent (never folded into the
+    // open-pr shell block above) so a failing install cannot swallow it —
+    // `installing-skills` is what flow-resume-decide and flow-stop-guard
+    // key their step-6 resume rows on.
+    if (openPr.resymlinked) {
+      await helperAgent(
+        `Using the Bash tool, run exactly: FLOW_SLUG=${args.slug} flow-state-update --phase installing-skills --slug ${args.slug}`,
+        "installing-skills-phase-write",
+        "Implement",
+        BOOL("ok"),
+      );
+    }
+    if (openPr.resymlinked && !openPr.installOk) {
+      return needsHuman("flow-setup-upgrade-failed", "flow install --upgrade --source failed twice; branch-added skills/agents are not symlinked.", { pr: openPr.pr, prUrl: openPr.prUrl, ran, loops, artifacts });
+    }
     ran.resymlink = openPr.resymlinked;
   }
 
@@ -222,7 +281,7 @@ async function stageA() {
   );
 
   let verify = await verifyAgent(
-    `Read ${args.skillDir}/flow-verify/SKILL.md and execute it in ${args.worktree} (its own inner loop caps at 5 re-runs). Return clean, a failure excerpt (empty string when clean), uiSmoke ('passed'|'skipped'|'n/a'), and any screenshot paths.`,
+    `Read ${args.skillDir}/flow-verify/SKILL.md and execute it in ${args.worktree} (its own inner loop caps at 5 re-runs). Return clean, a failure excerpt (empty string when clean), uiSmoke ('passed'|'skipped'|'n/a'), uiSmokeReason (one short clause naming why, when uiSmoke is 'skipped'), and any screenshot paths.`,
   );
   let verifyAttempts = 1;
   while (!verify.clean && verifyAttempts < 3) {
@@ -232,9 +291,16 @@ async function stageA() {
     );
   }
   if (!verify.clean) {
+    if (pr !== null) {
+      await writeVerifyCaution(verify.excerpt);
+      artifacts.push(`${args.worktree}/.flow-tmp/verify-caution.txt`);
+    }
     return needsHuman("verify-exhausted", verify.excerpt, { pr, prUrl, ran, loops, artifacts });
   }
   ran.verify = true;
+  if (pr !== null && verify.uiSmoke === "skipped") {
+    await writeUiSmokeNote(verify.uiSmokeReason || "browser validation did not run");
+  }
 
   phase("CI wait");
 
@@ -354,7 +420,7 @@ async function stageA() {
   let reviewClean = false;
   let reviewFixed = false;
   for (let reviewAttempt = 0; reviewAttempt < 2 && !reviewClean; reviewAttempt += 1) {
-    const prep = await agent(
+    const prep = await guard("review-prep", agent(
       `Read ${args.skillDir}/flow-pr-review/SKILL.md and run it against PR ${pr} with \`${pr} --stop-after 3-prep\`. Write each filled lens prompt to ${args.worktree}/.flow-tmp/lens-prompt-<lens>.md and the intent-guess prompt to ${args.worktree}/.flow-tmp/lens-prompt-intent-guess.md.`,
       {
         agentType: "general-purpose",
@@ -364,7 +430,7 @@ async function stageA() {
         ...modelArg(args.models.review),
         schema: { type: "object", required: ["skip", "lenses", "widenAllowed"], properties: { skip: { type: "boolean" }, skipKind: { type: "string" }, lenses: { type: "array", items: { type: "string" } }, widenAllowed: { type: "boolean" } } },
       },
-    );
+    ));
 
     if (!prep.skip) {
       const results = await parallel([...prep.lenses.map((lens) => () => reviewLensAgent(lens)), () => intentGuessAgent()]);

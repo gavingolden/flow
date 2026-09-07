@@ -250,17 +250,17 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect("smoketest-needs-creds".includes(":")).toBe(false);
   });
 
-  it("maps merge-resolver-spawn-denied to a manual git-merge recovery recipe", () => {
+  it("maps merge-resolver-missing-artifact to a manual git-merge recovery recipe", () => {
     const out = render({
       status: "needs-human",
-      reason: "merge-resolver-spawn-denied",
+      reason: "merge-resolver-missing-artifact",
     });
     expect(out).toContain("git merge origin/");
-    expect(finalLine(out)).toBe("NEEDS HUMAN: merge-resolver-spawn-denied");
+    expect(finalLine(out)).toBe("NEEDS HUMAN: merge-resolver-missing-artifact");
     // Pin the recipe's load-bearing negatives — the generic
     // Object.keys(NEXT_ACTION_BY_REASON) loop above only checks the
     // reason renders at all, not that its content stays correct.
-    const recipe = NEXT_ACTION_BY_REASON["merge-resolver-spawn-denied"];
+    const recipe = NEXT_ACTION_BY_REASON["merge-resolver-missing-artifact"];
     expect(recipe).toContain("do NOT force");
     // The resolve step must visibly interrupt any `&&` chain rather than
     // being buried inside one — a bare `&&`-chained "resolve conflicts"
@@ -381,11 +381,11 @@ describe("render — needs-human (per-reason mapping)", () => {
   it("renders a multi-action recipe as a numbered step list ending in the sentinel", () => {
     const out = render({
       status: "needs-human",
-      reason: "merge-resolver-spawn-denied",
+      reason: "merge-resolver-missing-artifact",
     });
     expect(out).toMatch(/^  1\. /m);
     const lines = out.split("\n").filter((l) => l !== "");
-    expect(lines.at(-1)).toBe("NEEDS HUMAN: merge-resolver-spawn-denied");
+    expect(lines.at(-1)).toBe("NEEDS HUMAN: merge-resolver-missing-artifact");
   });
 
   it("renders a single-action recipe inline, never padded into a one-item list", () => {

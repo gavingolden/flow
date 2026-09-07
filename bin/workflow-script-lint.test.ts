@@ -6,9 +6,12 @@ import {
   allAgentTypes,
   checkWorkflowScriptSyntax,
   everyAgentCallHasEffortAndModel,
+  extractLoopCaps,
   extractWorkflowAgentSites,
   findAgentCallSites,
   parseAgentSitesDoc,
+  parseDocumentedCaps,
+  pluginAgentTypes,
   reviewLensAgentTypeSuffixes,
 } from "./lib/workflow-script-lint";
 
@@ -16,6 +19,10 @@ const ROOT = join(import.meta.dirname, "..");
 const STAGE_A = join(ROOT, "workflows/core/flow-stage-a.workflow.js");
 const STAGE_B = join(ROOT, "workflows/core/flow-stage-b.workflow.js");
 const SITES_DOC = join(ROOT, "references/workflow-agent-sites.md");
+const FAILURE_RECOVERY = join(
+  ROOT,
+  "skills/pipeline/flow-pipeline/references/failure-recovery.md",
+);
 
 const stageA = readFileSync(STAGE_A, "utf8");
 const stageB = readFileSync(STAGE_B, "utf8");
@@ -196,5 +203,126 @@ describe("workflow scripts — structural lint", () => {
       `doc rows missing sites the scripts declare: ${JSON.stringify(missingFromDoc)}; ` +
         `doc rows with no matching script site: ${JSON.stringify(missingFromScript)}`,
     ).toEqual({ missingFromDoc: [], missingFromScript: [] });
+  });
+});
+
+describe("workflow scripts — loop-cap parity with failure-recovery.md", () => {
+  const documented = parseDocumentedCaps(
+    readFileSync(FAILURE_RECOVERY, "utf8"),
+  );
+
+  it("loop caps in the script match the documented caps in failure-recovery.md", () => {
+    const inScript = extractLoopCaps(stageA);
+    // No null on either side: a cap the extractor or the doc parser cannot
+    // find must fail loudly rather than compare equal by absence.
+    for (const [side, caps] of [
+      ["script", inScript],
+      ["failure-recovery.md", documented],
+    ] as const) {
+      for (const [name, value] of Object.entries(caps)) {
+        expect(value, `${side}: cap '${name}' not found`).not.toBeNull();
+      }
+    }
+    expect(inScript).toEqual(documented);
+  });
+
+  it("[negative] a doctored script literal breaks the parity", () => {
+    const doctored = stageA.replace("verifyAttempts < 3", "verifyAttempts < 4");
+    expect(doctored).not.toBe(stageA);
+    expect(extractLoopCaps(doctored)).not.toEqual(documented);
+  });
+
+  it("[negative] a doctored doc cell breaks the parity", () => {
+    const md = readFileSync(FAILURE_RECOVERY, "utf8").replace(
+      "**2 fix-loops total**",
+      "**5 fix-loops total**",
+    );
+    expect(parseDocumentedCaps(md)).not.toEqual(extractLoopCaps(stageA));
+  });
+
+  it("[negative] each helper returns null rather than a wrong number when its pattern is absent", () => {
+    expect(extractLoopCaps("const x = 1;")).toEqual({
+      verify: null,
+      ciFix: null,
+      reviewFix: null,
+    });
+    expect(parseDocumentedCaps("no table here")).toEqual({
+      verify: null,
+      ciFix: null,
+      reviewFix: null,
+    });
+  });
+});
+
+describe("workflow script lint — negative fixtures", () => {
+  // Every exported helper in bin/lib/workflow-script-lint.ts gets at least
+  // one synthetic source proving the lint can FAIL. Without these the suite
+  // only ever ran against the two real scripts, which pass — so a helper
+  // silently returning nothing would have looked identical to a clean tree.
+
+  it("[negative] findAgentCallSites: a source whose only `agent(` is inside `helperAgent(` yields zero sites", () => {
+    const src = 'const r = helperAgent("p", "l", "Phase", BOOL("ok"));';
+    expect(findAgentCallSites(src)).toEqual([]);
+  });
+
+  it("findAgentCallSites: balances nested and quoted parens inside a call body", () => {
+    const src =
+      'await agent(`p (with paren) ${f(1)}`, { label: "l", effort: "low", note: ")" });\nconst after = 1;';
+    const sites = findAgentCallSites(src);
+    expect(sites).toHaveLength(1);
+    expect(sites[0].body.endsWith(")")).toBe(true);
+    expect(sites[0].body.includes("const after")).toBe(false);
+  });
+
+  it("[negative] everyAgentCallHasEffortAndModel: a call with no effort: reports its offset", () => {
+    const src =
+      'await agent("p", { agentType: "general-purpose", label: "l", model: "opus" });';
+    const result = everyAgentCallHasEffortAndModel(src);
+    expect(result.ok).toBe(false);
+    expect(result.offenders).toHaveLength(1);
+  });
+
+  it("[negative] everyAgentCallHasEffortAndModel: general-purpose + non-low effort with no model is rejected, low is accepted", () => {
+    const high =
+      'await agent("p", { agentType: "general-purpose", label: "l", effort: "high" });';
+    const low =
+      'await agent("p", { agentType: "general-purpose", label: "l", effort: "low" });';
+    expect(everyAgentCallHasEffortAndModel(high).ok).toBe(false);
+    expect(everyAgentCallHasEffortAndModel(low).ok).toBe(true);
+  });
+
+  it("[negative] pluginAgentTypes/allAgentTypes: a non-core plugin prefix is not collected as a core type", () => {
+    const src = 'agentType: "flow-module-other:flow-review-security"';
+    expect(pluginAgentTypes(src)).toEqual([]);
+    expect(allAgentTypes(src)).toEqual([
+      "flow-module-other:flow-review-security",
+    ]);
+  });
+
+  it("[negative] reviewLensAgentTypeSuffixes: a lens outside AGENT_LENS_MAP is surfaced, not dropped", () => {
+    const src = 'agentType: "flow-module-core:flow-review-made-up-lens"';
+    const suffixes = reviewLensAgentTypeSuffixes(src);
+    expect(suffixes).toEqual(["made-up-lens"]);
+    expect(Object.keys(AGENT_LENS_MAP)).not.toContain("made-up-lens");
+  });
+
+  it("[negative] extractWorkflowAgentSites: a call with a label but no agentType emits no half-filled row", () => {
+    const src = 'await agent("p", { label: "orphan", effort: "low" });';
+    expect(extractWorkflowAgentSites(src)).toEqual([]);
+  });
+
+  it("[negative] parseAgentSitesDoc: a row missing the agentType column is not parsed as a valid row", () => {
+    const doc = ["| Label | agentType |", "| --- | --- |", "| `lonely` |"].join(
+      "\n",
+    );
+    expect(parseAgentSitesDoc(doc)).toEqual([]);
+  });
+
+  it("[negative] checkWorkflowScriptSyntax: an unbalanced brace returns ok:false with a non-empty stderr", () => {
+    const result = checkWorkflowScriptSyntax(
+      'export const meta = {\n  name: "x",\n};\nif (true) {\n',
+    );
+    expect(result.ok).toBe(false);
+    expect(result.stderr.length).toBeGreaterThan(0);
   });
 });
