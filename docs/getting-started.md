@@ -14,7 +14,9 @@ Follow the Quickstart in the [README](../README.md#quickstart): clone, `npm inst
 flow feature create "add CSV export"
 ```
 
-Claude Code launches as a foreground process in your terminal (the plain shell is the default; tmux is a separate opt-in — see [the README's power-users section](../README.md#power-users-the-tmux-launcher)). The supervisor triages the request, drafts a plan, and — because this is feature work — pauses once for your approval. Type `approved`, type a redirection to reshape the plan, or type `cancel` to stop.
+Claude Code launches as a foreground process in your terminal (the plain shell is the default; tmux is a separate opt-in — see [the README's power-users section](../README.md#power-users-the-tmux-launcher)). The supervisor triages the request, drafts a plan, and — because this is feature work — pauses for your approval before it writes any code. Type `approved`, type a redirection to reshape the plan, or type `cancel` to stop.
+
+Expect more than one pause. Before the planning pause, the adaptive intent interview may ask one or more rounds of clarifying questions when your description leaves something load-bearing unspecified — it can fire on any intent, not just feature work, and it is on by default; `flow feature create --no-interview` skips it for a single run, and [configuration.md](configuration.md) carries the authoritative default and the config key.
 
 The transcript below is **illustrative — not exact output**:
 
@@ -36,7 +38,7 @@ $ flow feature create "add CSV export"
 MERGED
 ```
 
-Everything happens in a dedicated git worktree in a sibling directory (`<repo>-<slug>`), so your own checkout is never touched and parallel pipelines stay isolated. Non-feature changes (a bugfix, a docs tweak) run straight through with no approval pause.
+Everything happens in a dedicated git worktree in a sibling directory (`<repo>-<slug>`), so your own checkout is never touched and parallel pipelines stay isolated. Non-feature changes (a bugfix, a docs tweak) usually skip the plan-approval pause, but nothing runs start to finish untouched by guarantee: the intent interview can pause any intent, so can a method checkpoint when flow's survey of approaches disagrees with the one you asked for, and a plan whose approach diverges from what you asked for still stops for your approval.
 
 ## Reading the run
 
@@ -47,7 +49,7 @@ Every pipeline ends by printing one of four terminal states:
 | `MERGED`                | the PR merged. Done.                                                                                                                                 |
 | `GATED: <url>`          | the run finished but the merge gate wasn't clear (an unchecked Test Steps item, or you passed `--no-auto-merge`). Open the URL and merge when ready. |
 | `NEEDS HUMAN: <reason>` | the supervisor hit something it can't resolve alone — read the reason and step in.                                                                   |
-| `cancelled`             | you cancelled at the plan-approval pause.                                                                                                            |
+| `cancelled`             | you cancelled the run at one of its pauses.                                                                                                          |
 
 To check on runs — including pipelines launched from other terminals but scoped to this repo by default — use:
 
