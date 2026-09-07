@@ -98,6 +98,10 @@ export function resolveModuleActivity(deps: Deps = {}): ModuleActivity[] {
   const linkedCount = new Map<ModuleId, number>();
   let relevantRecords = 0;
   for (const rec of manifest.symlinks) {
+    // Workflow-blind on BOTH sides — see declaredCount. Explicit skip
+    // rather than relying on the registry's extensionless workflows[]
+    // naming to accidentally miss every moduleForArtifactName lookup.
+    if (rec.kind === "workflow") continue;
     const owner =
       rec.kind === "agent"
         ? moduleIdFromPluginRootName(basename(dirname(rec.target)))
