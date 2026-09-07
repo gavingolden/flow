@@ -85,6 +85,16 @@ export function resolveModuleActivity(deps: Deps = {}): ModuleActivity[] {
   // `agents/` directory symlink itself (`sources.ts`'s `discoverAgents`),
   // not a `.md` basename, so its owner is read off the enclosing plugin-root
   // directory name (`flow-module-<id>`) instead of `moduleForArtifactName`.
+  //
+  // A "workflow" record is DELIBERATELY not resolved to an owner here, and
+  // that is not the same latent bug `deriveSelectionFromManifest` carried:
+  // `declaredCount` above excludes `m.workflows.length` too, so both sides
+  // of the ratio stay workflow-blind and consistent. Resolving the owner on
+  // the linked side ALONE would let a workflow record push a partially
+  // installed module over its activity threshold and report it `linked`
+  // when it is not — a wrong `flow-module-status --check` verdict silently
+  // skips or silently runs an optional-module skill. Change both sides
+  // together or neither.
   const linkedCount = new Map<ModuleId, number>();
   let relevantRecords = 0;
   for (const rec of manifest.symlinks) {

@@ -305,14 +305,55 @@ describe("deriveSelectionFromManifest", () => {
     expect(new Set(ids)).toEqual(new Set(["core", "stack-svelte", "research"]));
   });
 
-  it("resolves a workflow-kind record via its plugin-root parent dir, mirroring agent-kind", () => {
+  // The fixture target below is the shape `discoverWorkflows` actually
+  // emits — one copy per `.workflow.js` FILE at `<root>/workflows/<file>`,
+  // never the `<root>/workflows` DIRECTORY (Claude Code 2.1.261 rejects a
+  // workflows dir symlink that escapes the plugin root). A directory-shaped
+  // fixture would pass vacuously here whether or not the derivation is
+  // correct, because `core` is folded in unconditionally.
+  it("resolves a workflow-kind record via its plugin-root GRANDparent dir", () => {
     const ids = deriveSelectionFromManifest({
       version: 1,
       symlinks: [
-        record("/home/.claude/skills/flow-module-core/workflows", "workflow"),
+        record(
+          "/home/.claude/skills/flow-module-core/workflows/flow-stage-a.workflow.js",
+          "workflow",
+        ),
       ],
     });
     expect(new Set(ids)).toEqual(new Set(["core"]));
+  });
+
+  // The regression that actually bites: a NON-core module's workflow. Only
+  // `core` owns workflow rows today and `core` is MANDATORY_MODULE (folded
+  // in unconditionally), so the one-`dirname`-short derivation was inert —
+  // it goes live the first time an optional module ships a workflow, and a
+  // non-interactive `flow install --upgrade` would then collapse that
+  // user's install toward core-only.
+  it("preserves a non-core module's breadth from a workflow-kind record alone", () => {
+    const ids = deriveSelectionFromManifest({
+      version: 1,
+      symlinks: [
+        record(
+          "/home/.claude/skills/flow-module-stack-svelte/workflows/x.workflow.js",
+          "workflow",
+        ),
+      ],
+    });
+    expect(new Set(ids)).toEqual(new Set(["core", "stack-svelte"]));
+  });
+
+  // Parity guard: the agent branch keeps its SINGLE `dirname` — its target
+  // is the module's `agents/` directory symlink itself, one level shallower
+  // than a workflow file. Splitting the shared ternary must not shift it.
+  it("keeps an agent-kind record resolving via its immediate parent dir", () => {
+    const ids = deriveSelectionFromManifest({
+      version: 1,
+      symlinks: [
+        record("/home/.claude/skills/flow-module-stack-svelte/agents", "agent"),
+      ],
+    });
+    expect(new Set(ids)).toEqual(new Set(["core", "stack-svelte"]));
   });
 
   it("derives breadth from a pre-retarget manifest by basename, location-independent", () => {
