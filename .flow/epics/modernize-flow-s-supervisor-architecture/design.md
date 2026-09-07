@@ -156,6 +156,32 @@ decision is one feature boundary.
   exemption prose for ported sites dissolves into workflow code only if
   the port lands. → **f5-workflow-spike**, **f6-workflow-port**
 
+- **D6 — Scope of the workflow substrate (post-f6 retrospective,
+  2026-09-07).** _Context:_ f6 shipped (PR #789) and the maintainer's
+  concern that the root agent is now "kept in the dark" prompted a
+  measured + web-grounded re-check, recorded at
+  `docs/workflow-spike/subagent-design-research.md`. Findings: (a) the f5
+  go/no-go rubric tested platform capability only and never asked whether
+  the substrate should carry the sequential write path; (b) a mechanical
+  helper inside a cold `agent()` costs ~48k cache-write + ~46k cache-read
+  tokens for one shell command (stage-B run, 5 agents, 241k tokens), an
+  order of magnitude above a supervisor Bash call; (c) the external
+  evidence (Cognition, MAST, Agentless, Anthropic's research-system post)
+  supports parallel read-only fan-out and argues against sequential write
+  handoffs across cold workers; (d) the pre-port prose scored 0.875–1.0 on
+  the f1 suites, so the step-skip problem f6 was justified by was real but
+  small; (e) a stage failure is diagnosable only from `journal.jsonl`
+  today. _Decision:_ two-stage again, observability first — f7 gives every
+  stage failure a predictable tag, index, and diagnosis; f8 then shrinks
+  the substrate to the read-only review fan-out + gate read and returns
+  implement/verify/CI-wait/merge to the supervisor inline, gated on a
+  cost-per-pipeline eval metric against BOTH prior arms. _Consequences:_
+  the typed result envelope, mechanical loop caps, and null-guard pattern
+  survive as f6's durable wins; the visibility loss is bounded to the one
+  phase the evidence says should be isolated; `flow-stage-b` is deleted.
+  Issue #800 (extend the substrate to manual skills) is paused pending f8.
+  → **f7-workflow-observability-floor**, **f8-write-path-inline**
+
 **Why these cuts (Parnas + Simon):** each feature hides exactly one
 volatile decision; every edge is a produced/consumed artifact (eval suites,
 a verdict table, a helper CLI, an ADR); f3 and f4 are deliberately
@@ -234,6 +260,39 @@ vertical slice. Ids, titles, and edges match `manifest.json` exactly.
   epic-run checkpoint if f5 records no-go or f2's measurements undercut
   the port's premise — never force-run.
 
+### f7-workflow-observability-floor · Error grammar, run index, needs-human triage
+
+- **Secret hidden (D6, precondition half):** how a stage failure is named
+  and located. Closed-enum error grammar in the scripts (lint-pinned), a
+  per-run `.flow-tmp/workflow-index.json` (label → agentId → outcome →
+  transcript path) rendered into the NEEDS HUMAN block, and a Haiku triage
+  diagnosis fired only on `needs-human`. Consumes issue #799's
+  `workflow.result` event; sibling to #795.
+- **Depends on:** nothing in the epic (f6 merged). External: #799 in flight.
+- **Produces:** the grammar enum + lint, `flow-workflow-index`, the triage
+  hook — the measurement surface f8's comparison needs on both arms.
+- **Pre-derived evidence:** `docs/workflow-spike/subagent-design-research.md`
+  (read first; re-verify only its "NOT settled" items).
+
+### f8-write-path-inline · Return the write path to the supervisor; keep the read-only fan-out — **[eval-gated]**
+
+- **Secret hidden (D6, commitment half):** which steps the workflow
+  substrate carries. Steps 5, 5.5, 6, 7, and 10 return to inline supervisor
+  Bash + in-process skills (single writer, disk scratchpad); stage A shrinks
+  to the Review fan-out + gate read (`flow-review-stage`); `flow-stage-b` is
+  deleted; no mechanical helper runs inside a model agent.
+- **Depends on:** **f7** — *edge artifact: the error grammar + index the
+  eval comparison and the NEEDS HUMAN render rely on.* External: issue #796
+  (stage-A scenarios measurable under `claude -p`); fall back to the
+  `docs/eval/f6/live-run.md` protocol if it has not landed, and say so.
+- **Produces:** the hybrid supervisor; SKILL.md prose for the inlined steps
+  restored from the parent of 8e00a43 and reconciled with #798; a
+  cost-per-pipeline eval metric; `docs/eval/f8/` with both arms.
+- **Gate:** score ≥ max(pre-port, post-f6) on every suite AND cost ≤ 1.5×
+  the pre-port arm. A miss keeps the current design and records why.
+- **Pre-derived evidence:** same record as f7; the expected magnitudes are
+  in its measurement table and are estimates until f8 measures them.
+
 The walking-skeleton root is **f1**: it is the thin slice the epic's core
 bet (measured removals) hangs off, and it de-risks the methodology before
 any behavior changes ship. f3, f4, and f5 are legal disconnected strands.
@@ -252,6 +311,10 @@ graph TD
   f2 -->|scaffold verdict table| f6
   f3 -->|flow-ci-check helper| f6
   f5 -->|go/no-go ADR| f6
+  f7[f7-workflow-observability-floor]
+  f8[f8-write-path-inline<br/>eval-gated]
+  f6 -.->|retrospective D6| f7
+  f7 -->|error grammar + run index| f8
 ```
 
 ## 6. Open Questions
