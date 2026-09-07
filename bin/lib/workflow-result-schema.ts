@@ -12,7 +12,17 @@
  * ("A" | "B") before applying the matching per-stage shape check, so a
  * caller that doesn't yet know which stage produced an artifact can still
  * validate it in one call.
+ *
+ * The `--validate` CLI mode is also the chokepoint every stage exit passes
+ * through, so it emits one best-effort `workflow.result` telemetry event per
+ * invocation that gets as far as a parsed JSON object — see
+ * `buildWorkflowResultAttrs` below and `docs/configuration.md`'s telemetry
+ * contract. Emission never changes this module's stdout, stderr, or exit
+ * codes.
  */
+
+import { createHash } from "node:crypto";
+import { recordEvent } from "./telemetry";
 
 export type StageAResult = {
   stage: "A";
@@ -272,6 +282,84 @@ export function validateWorkflowResult(
   return err(`'stage' must be "A" or "B" (got ${JSON.stringify(o.stage)})`);
 }
 
+/**
+ * The class of a `reason`: everything before its first ":", trimmed. Stage
+ * reasons are built as `` `agent-unavailable: ${label}` `` in
+ * `workflows/core/flow-stage-a.workflow.js`, so the label suffix would force
+ * every documented query into a `startswith` against a free-form string.
+ * Deriving the class once here keeps those queries plain equalities.
+ */
+function reasonClass(reason: string): string {
+  const idx = reason.indexOf(":");
+  return (idx === -1 ? reason : reason.slice(0, idx)).trim();
+}
+
+/**
+ * Builds the `workflow.result` telemetry attrs for one validated (or
+ * rejected) stage-result artifact. Pure — no I/O, no throw — so the emit site
+ * in `cliMain` stays a single statement and the shape is unit-testable
+ * without spawning a process.
+ *
+ * Two branches, deliberately: on `result.ok` every field is read off the
+ * already-proven `result.value`, so no per-property `unknown` guard is needed;
+ * on rejection `parsed` has an unproven shape, so it is strict-object-guarded
+ * first and a primitive / `null` / array artifact yields the verdict fields
+ * alone with no property access at all.
+ *
+ * `result_sha` is a short digest of the artifact's raw text. One stage exit
+ * passes this chokepoint two or three times (the stage script's own validate,
+ * the supervisor's re-validate, and `VALIDATE_CMD`'s `||` fallback on a
+ * non-zero first exit), so readers dedupe on it rather than counting lines.
+ */
+export function buildWorkflowResultAttrs(
+  parsed: unknown,
+  result: ValidationResult<WorkflowResult>,
+  rawText: string,
+): Record<string, unknown> {
+  const result_sha = createHash("sha256")
+    .update(rawText)
+    .digest("hex")
+    .slice(0, 12);
+
+  if (result.ok) {
+    const value = result.value;
+    const attrs: Record<string, unknown> = {
+      stage: value.stage,
+      outcome: value.outcome,
+    };
+    if (value.stage === "A" && value.decision !== undefined) {
+      attrs.decision = value.decision;
+    }
+    if (value.reason !== undefined) {
+      attrs.reason = value.reason;
+      attrs.reason_class = reasonClass(value.reason);
+    }
+    if (value.stage === "A") {
+      attrs.loops = {
+        ciFix: value.loops.ciFix,
+        reviewFix: value.loops.reviewFix,
+      };
+      const ran: Record<string, boolean> = {};
+      for (const key of STAGE_A_RAN_KEYS) ran[key] = value.ran[key];
+      attrs.ran = ran;
+    }
+    attrs.valid = true;
+    attrs.result_sha = result_sha;
+    return attrs;
+  }
+
+  const attrs: Record<string, unknown> = {};
+  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+    const o = parsed as Record<string, unknown>;
+    if (typeof o.stage === "string") attrs.stage = o.stage;
+    if (typeof o.outcome === "string") attrs.outcome = o.outcome;
+  }
+  attrs.valid = false;
+  attrs.schema_error = result.reason;
+  attrs.result_sha = result_sha;
+  return attrs;
+}
+
 async function cliMain(argv: string[]): Promise<number> {
   const flagIdx = argv.indexOf("--validate");
   if (flagIdx === -1 || flagIdx === argv.length - 1) {
@@ -312,6 +400,10 @@ async function cliMain(argv: string[]): Promise<number> {
     return 1;
   }
   const result = validateWorkflowResult(parsed);
+  // Best-effort and deliberately unguarded: `recordEvent` never throws and
+  // never changes a caller's control flow (`bin/lib/telemetry.ts`). Placed
+  // before both returns below so a rejected artifact is counted too.
+  recordEvent("workflow.result", buildWorkflowResultAttrs(parsed, result, raw));
   if (result.ok) {
     process.stdout.write(JSON.stringify({ ok: true }) + "\n");
     return 0;
