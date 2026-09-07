@@ -214,6 +214,22 @@ describe("resolveProductBrief — bounded, fence-safe text", () => {
     const body = brief.text.slice(0, brief.text.indexOf(TRUNCATION_MARKER));
     expect((body.match(/^\s{0,3}`{3,}/gm) ?? []).length % 2).toBe(0);
   });
+
+  it("closes an author-left-open fence in a brief that never reached the cap", () => {
+    const text = "# Brief\n\n## Ranked priorities\n\n```ts\nconst x = 1;\n";
+    const brief = resolve({ [REPO_BRIEF]: text });
+    if (!brief.found) throw new Error("expected a resolved brief");
+    expect(brief.text).not.toContain(TRUNCATION_MARKER);
+    expect(brief.text.endsWith("\n```")).toBe(true);
+    expect((brief.text.match(/^\s{0,3}`{3,}/gm) ?? []).length % 2).toBe(0);
+  });
+
+  it("does not let an info-string line inside a fence close it", () => {
+    const text = `\`\`\`ts\n\`\`\`javascript\n${"const x = 1;\n".repeat(500)}`;
+    const brief = resolve({ [REPO_BRIEF]: text });
+    if (!brief.found) throw new Error("expected a resolved brief");
+    expect(brief.text).toContain(`\n\`\`\`\n\n${TRUNCATION_MARKER}`);
+  });
 });
 
 describe("main — the CLI envelope", () => {

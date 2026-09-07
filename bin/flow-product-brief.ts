@@ -94,21 +94,31 @@ function scanFences(text: string): FenceState {
 }
 
 /**
+ * Closes a code fence `text` leaves dangling. A truncation cut is one way a
+ * brief ends mid-fence, but a hand-authored brief can ship an unclosed
+ * fence at any length — and either way the dangling fence swallows the rest
+ * of the prompt block the brief is embedded in, so the repair is
+ * unconditional rather than truncation-only.
+ */
+function closeDanglingFence(text: string): string {
+  const fence = scanFences(text);
+  return fence.open ? `${text}\n${fence.marker}` : text;
+}
+
+/**
  * Caps `text` at `BRIEF_CHAR_CAP`, cutting on a NEWLINE boundary rather
- * than mid-token, then closing any code fence the cut left dangling before
- * appending the truncation marker. A cut inside an unclosed fence would
- * corrupt the prompt block the brief is embedded in — which is the whole
- * hazard the cap exists to prevent, not a cosmetic detail. Falls back to a
- * hard cut only when the very first line already exceeds the cap.
+ * than mid-token, then closing any code fence left dangling — by the cut or
+ * by the author — before appending the truncation marker. An unclosed fence
+ * corrupts the prompt block the brief is embedded in, so a brief UNDER the
+ * cap gets the same repair with no truncation marker. Falls back to a hard
+ * cut only when the very first line already exceeds the cap.
  */
 function capBriefText(text: string): string {
-  if (text.length <= BRIEF_CHAR_CAP) return text;
+  if (text.length <= BRIEF_CHAR_CAP) return closeDanglingFence(text);
   const head = text.slice(0, BRIEF_CHAR_CAP);
   const lastNewline = head.lastIndexOf("\n");
   const cut = lastNewline > 0 ? head.slice(0, lastNewline) : head;
-  const fence = scanFences(cut);
-  const closed = fence.open ? `${cut}\n${fence.marker}` : cut;
-  return `${closed}\n\n${TRUNCATION_MARKER}`;
+  return `${closeDanglingFence(cut)}\n\n${TRUNCATION_MARKER}`;
 }
 
 /** Neutralise, then cap. Order matters: escaping lengthens the text. */
