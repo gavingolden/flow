@@ -66,24 +66,33 @@ function readdirNames(dir: string): string[] {
 }
 
 /**
- * Whether `root`'s manifest declares a `skills` key — mirroring
- * `pluginManifestFor`'s writer SHAPE, not mere key presence:
- * `pluginManifestFor` emits exactly `skills: ["./skills"]` (an array of
- * strings) and otherwise omits the key entirely, so a declared `skills` key
+ * Whether `root`'s manifest declares `key` (`skills` or `workflows`) —
+ * mirroring `pluginManifestFor`'s writer SHAPE, not mere key presence:
+ * `pluginManifestFor` emits exactly `skills: ["./skills"]` /
+ * `workflows: ["./workflows"]` (an array of
+ * strings) and otherwise omits the key entirely, so a declared key
  * is only genuine when the parsed value is a NON-EMPTY array of strings.
  * Plain key presence would let a hand-edited-but-valid `plugin.json` declare
  * `"skills": []` (or `null`, or a scalar) to make `<root>/skills/**` an
  * unwalked, unreported subtree while the root stays loaded — an evasion
  * vector this stricter shape check closes. Deliberately NOT built on
  * `plugin-root.ts`'s `readFileOrNull` — that helper returns `string | null`
- * with no JSON parse, and treating a read/parse failure as "no skills key"
+ * with no JSON parse, and treating a read/parse failure as "no such key"
  * would turn an unrelated read error into a false `unexpected-child` report
  * on a legitimate `skills/` directory. Any read or parse failure, OR a
  * parseable-but-non-object manifest (bare `null`/string/number), is instead
- * treated as "unknown, so don't flag skills/" — a correct silent skip,
+ * treated as "unknown, so don't flag that subtree" — a correct silent skip,
  * never a false positive.
+ *
+ * The two keys are checked by ONE parameterized helper rather than two
+ * near-identical ones: their behaviour must not drift apart, and a shape
+ * rule relaxed for one key but not the other would reopen the evasion
+ * vector on that side alone.
  */
-function manifestDeclaresSkills(root: string): boolean {
+function manifestDeclaresKey(
+  root: string,
+  key: "skills" | "workflows",
+): boolean {
   try {
     const raw = fs.readFileSync(
       path.join(root, ".claude-plugin", "plugin.json"),
@@ -91,35 +100,11 @@ function manifestDeclaresSkills(root: string): boolean {
     );
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return true;
-    const value = (parsed as Record<string, unknown>).skills;
+    const value = (parsed as Record<string, unknown>)[key];
     if (value === undefined) return false;
     // Non-EMPTY is load-bearing: `"skills": []` is the evasion the shape
     // check exists to close, and an empty array is vacuously "an array of
     // strings".
-    return (
-      Array.isArray(value) &&
-      value.length > 0 &&
-      value.every((v) => typeof v === "string")
-    );
-  } catch {
-    return true;
-  }
-}
-
-/**
- * Mirrors `manifestDeclaresSkills` exactly, checking the manifest's
- * `workflows` key instead of `skills`.
- */
-function manifestDeclaresWorkflows(root: string): boolean {
-  try {
-    const raw = fs.readFileSync(
-      path.join(root, ".claude-plugin", "plugin.json"),
-      "utf8",
-    );
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return true;
-    const value = (parsed as Record<string, unknown>).workflows;
-    if (value === undefined) return false;
     return (
       Array.isArray(value) &&
       value.length > 0 &&
@@ -135,12 +120,12 @@ function expectedRootChildren(root: string): Set<string> {
   // flow-owned root is always legitimate, whether or not the module owns
   // any agent rows — an absent expected child is not itself drift (only an
   // UNEXPECTED one is), so there is no manifest-declaration gate to mirror
-  // `manifestDeclaresSkills`' — a plugin manifest carries no `agents` key
+  // `manifestDeclaresKey`'s — a plugin manifest carries no `agents` key
   // to declare in the first place (`plugin-manifest.ts`'s `PluginManifest`
   // type has none).
   const expected = new Set([".claude-plugin", "bin", "agents"]);
-  if (manifestDeclaresSkills(root)) expected.add("skills");
-  if (manifestDeclaresWorkflows(root)) expected.add("workflows");
+  if (manifestDeclaresKey(root, "skills")) expected.add("skills");
+  if (manifestDeclaresKey(root, "workflows")) expected.add("workflows");
   return expected;
 }
 
