@@ -26,6 +26,7 @@ import { resolveFlowSource } from "./paths";
 import type { FastForwardResult } from "./git";
 import { moduleIds } from "./modules";
 import type { InstallDriftResult } from "./install-drift";
+import { sha256File } from "./content-hash";
 import {
   discoverAgents,
   discoverAll,
@@ -2158,7 +2159,25 @@ describe("workflow copies (materialize: 'copy')", () => {
     expect(record).toBeDefined();
     expect(record!.kind).toBe("workflow");
     expect(record!.materialize).toBe("copy");
-    expect(record!.sha256).toMatch(/^[0-9a-f]{64}$/);
+    // A value check, not just a shape check: pins the record to the bytes
+    // actually on disk, not merely the hash of *some* file.
+    expect(record!.sha256).toBe(sha256File(target));
+  });
+
+  it("records the hash of the bytes actually copied when --source diverges from the install root", async () => {
+    const worktree = path.join(scratch, "worktree");
+    buildFakeFlowSource(worktree);
+    fs.writeFileSync(
+      path.join(worktree, "workflows", "core", FIXTURE_WORKFLOW),
+      "// worktree edit\n",
+    );
+    await setup({ flowSourceOverride: worktree });
+    const target = workflowTarget();
+    // The invariant checkWorkflowsRoot depends on: the record describes the
+    // bytes actually on disk, whichever root (canonical vs --source) they
+    // came from — the bug this PR fixes was a writer/reader disagreement
+    // here.
+    expect(workflowRecord()!.sha256).toBe(sha256File(target));
   });
 
   it("is idempotent: a second install with unchanged bytes re-copies nothing", async () => {
@@ -2208,6 +2227,22 @@ describe("workflow copies (materialize: 'copy')", () => {
     expect(summary.blocked).toBeGreaterThan(0);
     expect(fs.readFileSync(alphaTarget, "utf8")).toBe("user content");
     expect(fs.lstatSync(workflowTarget()).isFile()).toBe(true);
+  });
+
+  it("never writes through a symlink planted at a copy target", async () => {
+    const target = workflowTarget();
+    const scratchFile = path.join(scratch, "planted-scratch-file");
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(scratchFile, "// untouched scratch content\n");
+    fs.symlinkSync(scratchFile, target);
+    await setup();
+    // The write must land on `target` as a real file, never through the
+    // link onto `scratchFile` — see ensureCopy's rmSync-before-copy guard.
+    expect(fs.readFileSync(scratchFile, "utf8")).toBe(
+      "// untouched scratch content\n",
+    );
+    expect(fs.lstatSync(target).isSymbolicLink()).toBe(false);
+    expect(fs.lstatSync(target).isFile()).toBe(true);
   });
 });
 
