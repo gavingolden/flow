@@ -12,6 +12,7 @@ import {
   unexpectedPluginRootEntries,
   type PluginRootOwnership,
 } from "./plugin-root-audit";
+import { sha256File } from "./content-hash";
 
 let scratch!: string;
 let root!: string;
@@ -485,6 +486,123 @@ describe(unexpectedPluginRootEntries, () => {
       writeManifest({ skills: ["./skills"] });
       fs.mkdirSync(path.join(root, "skills"), { recursive: true });
       fs.writeFileSync(path.join(root, "skills", ".DS_Store"), "");
+      expect(audit(root)).toEqual([]);
+    });
+  });
+
+  /**
+   * The `workflows/` arm — `checkWorkflowsRoot`, `manifestDeclaresKey`'s
+   * workflows shape check, and the `workflows` expected-child rule. Unlike every other
+   * subdirectory audited here, these children are COPY-materialized real
+   * files (`discoverWorkflows`), so the symlink-shaped checks do not apply
+   * and drift is detected by comparing the manifest's recorded sha256
+   * against the bytes on disk. This block turns PR #789's hand-run
+   * verification into assertions.
+   */
+  describe("workflows/ (copy-materialized)", () => {
+    const WORKFLOW = "flow-stage-a.workflow.js";
+
+    /** A clean root that declares `workflows` and holds one copied file. */
+    function materializeWorkflowsRoot(body = "// stage a\n"): string {
+      writeManifest({ workflows: ["./workflows"] });
+      fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+      fs.mkdirSync(path.join(root, "workflows"), { recursive: true });
+      const file = path.join(root, "workflows", WORKFLOW);
+      fs.writeFileSync(file, body);
+      return file;
+    }
+
+    /** The ownership argument carrying one manifest record for `file`. */
+    function withRecord(
+      file: string,
+      sha256: string | undefined,
+    ): PluginRootOwnership {
+      return {
+        flowSource: flowSrc,
+        installRoot: flowSrc,
+        workflowRecords: [{ target: file, sha256 }],
+      };
+    }
+
+    it("a freshly installed copy whose sha256 matches its record reports no issues", () => {
+      const file = materializeWorkflowsRoot();
+      expect(audit(root, withRecord(file, sha256File(file)))).toEqual([]);
+    });
+
+    it("a copy whose bytes changed since install is a drifted-copy", () => {
+      const file = materializeWorkflowsRoot();
+      const recorded = sha256File(file);
+      fs.writeFileSync(file, "// hand-edited\n");
+      expect(audit(root, withRecord(file, recorded))).toEqual([
+        { relPath: path.join("workflows", WORKFLOW), reason: "drifted-copy" },
+      ]);
+    });
+
+    it("a record with no recorded sha256 has nothing to compare against, so no issue", () => {
+      const file = materializeWorkflowsRoot();
+      expect(audit(root, withRecord(file, undefined))).toEqual([]);
+    });
+
+    it("a file with NO manifest record at all is not flagged (a not-yet-recorded copy is indistinguishable from a foreign file here)", () => {
+      materializeWorkflowsRoot();
+      expect(audit(root)).toEqual([]);
+    });
+
+    it("a declared but absent workflows/ directory is not itself drift", () => {
+      writeManifest({ workflows: ["./workflows"] });
+      fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+      expect(audit(root)).toEqual([]);
+    });
+
+    it("a subdirectory inside workflows/ is skipped (only regular files are hashed)", () => {
+      const file = materializeWorkflowsRoot();
+      fs.mkdirSync(path.join(root, "workflows", "nested"), { recursive: true });
+      expect(audit(root, withRecord(file, sha256File(file)))).toEqual([]);
+    });
+
+    it(".DS_Store is ignored in workflows/", () => {
+      const file = materializeWorkflowsRoot();
+      fs.writeFileSync(path.join(root, "workflows", ".DS_Store"), "");
+      expect(audit(root, withRecord(file, sha256File(file)))).toEqual([]);
+    });
+
+    // The expected-child half: `workflows/` is only an expected top-level
+    // child when the manifest DECLARES it in `pluginManifestFor`'s writer
+    // shape (a non-empty array of strings). Every other shape — absent,
+    // empty array, scalar, mixed-type array — leaves the directory
+    // unexpected, closing the same evasion vector `manifestDeclaresKey`
+    // closes for `skills/`.
+    const undeclared: [string, Record<string, unknown>][] = [
+      ["the key is absent", {}],
+      ["the key is an empty array", { workflows: [] }],
+      ["the key is a scalar", { workflows: "yes" }],
+      ["the array holds a non-string", { workflows: ["./workflows", 1] }],
+    ];
+    for (const [label, overrides] of undeclared) {
+      it(`workflows/ is an unexpected-child when ${label}`, () => {
+        writeManifest(overrides);
+        fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+        fs.mkdirSync(path.join(root, "workflows"), { recursive: true });
+        fs.writeFileSync(path.join(root, "workflows", WORKFLOW), "// x\n");
+        expect(audit(root)).toEqual([
+          { relPath: "workflows", reason: "unexpected-child" },
+        ]);
+      });
+    }
+
+    // The module's "MUST NEVER THROW" contract: an unreadable or corrupt
+    // plugin.json must degrade to "unknown, so don't flag it", never to a
+    // false unexpected-child on a legitimate directory.
+    it("a corrupt plugin.json leaves workflows/ unflagged and does not throw", () => {
+      fs.mkdirSync(path.join(root, ".claude-plugin"), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, ".claude-plugin", "plugin.json"),
+        "{ not json",
+      );
+      fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+      fs.mkdirSync(path.join(root, "workflows"), { recursive: true });
+      fs.writeFileSync(path.join(root, "workflows", WORKFLOW), "// x\n");
+      expect(() => audit(root)).not.toThrow();
       expect(audit(root)).toEqual([]);
     });
   });
