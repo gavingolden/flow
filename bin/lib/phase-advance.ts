@@ -33,6 +33,7 @@ import {
   STEP_PHASES,
   TERMINAL_PHASE_SET,
   FINISHED_PHASE_SET,
+  isAllowedTerminalExit,
   nowIso,
   type PipelinePhase,
   type PipelineState,
@@ -220,7 +221,16 @@ export function advancePhase(
     return { advanced: false, reason: "no-state", to: target };
   }
 
-  if (TERMINAL_PHASE_SET.has(state.phase)) {
+  // `gated` is the one terminal phase with sanctioned exits
+  // (`TERMINAL_EXIT_TRANSITIONS`): the gate-override merge writes `merging`
+  // out of it via flow-merge-guard, and the gated-feedback loop re-enters
+  // `verifying`/`gating`. Without this carve-out the override merge left
+  // `merging` out of phaseLog entirely (gated -> merged), observed on the
+  // f6 live fixture run.
+  if (
+    TERMINAL_PHASE_SET.has(state.phase) &&
+    !isAllowedTerminalExit(state.phase, target)
+  ) {
     return {
       advanced: false,
       reason: "terminal",

@@ -385,6 +385,9 @@ async function runOneScenarioRun(
       error: outcome.error,
       childArgvDigest: outcome.childArgvDigest,
       ...(arm ? { arm } : {}),
+      ...(outcome.stageResultWaitNote
+        ? { stageResultWaitNote: outcome.stageResultWaitNote }
+        : {}),
     };
   } finally {
     activeFixtureTeardowns.delete(fixture.teardown);
@@ -571,6 +574,13 @@ async function runSuite(
           .digest("hex")
           .slice(0, 16)
       : undefined;
+  const stageResultWaitNotes = [
+    ...new Set(
+      allRecords
+        .map((r) => r.stageResultWaitNote)
+        .filter((n): n is string => Boolean(n)),
+    ),
+  ];
 
   return buildReport({
     suite: spec,
@@ -579,6 +589,9 @@ async function runSuite(
       name: "flow-eval-headless",
       model: args.model,
       effort: args.effort,
+      ...(stageResultWaitNotes.length > 0
+        ? { notes: stageResultWaitNotes }
+        : {}),
       claudeVersion: availability.ok ? availability.version : undefined,
       ...(childArgvDigest ? { childArgvDigest } : {}),
     },

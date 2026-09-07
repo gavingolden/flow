@@ -41,6 +41,7 @@ import {
   removeIfManagedSymlink,
   type LinkResult,
 } from "./symlink";
+import { sha256File } from "./content-hash";
 import {
   ensurePluginRoot,
   removePluginRoot,
@@ -644,6 +645,15 @@ async function runUnderLock(
     ) {
       worktreeOnlyNames.push(entry.displayName);
     }
+    if (entry.materialize === "copy") {
+      // `discoverWorkflows`' copy-materialized entries: Claude Code 2.1.261
+      // rejects a `workflows` dir symlink-out, so these land as real file
+      // bytes instead of going through `ensureSymlink` at all.
+      const result = ensureCopy(entry.target, liveSource);
+      logResult(entry, result, log);
+      summary[bucketFor(result)]++;
+      continue;
+    }
     if (entry.kind === "agent") {
       // Legacy-layout migration, load-bearing BEFORE `ensureSymlink` below:
       // `ensureSymlink` returns "blocked" for ANY existing directory at the
@@ -1053,6 +1063,20 @@ function preflight(targets: InstallTargets, options: SetupOptions): void {
   }
 }
 
+/** Removes an orphaned copy-materialized file — a real (non-symlink)
+ * regular file only; never a directory or an already-gone target. */
+function removeManagedCopy(target: string): boolean {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(target);
+  } catch {
+    return false;
+  }
+  if (!stat.isFile()) return false;
+  fs.unlinkSync(target);
+  return true;
+}
+
 function reapOrphans(
   currentEntries: SourceEntry[],
   manifestPath: string | undefined,
@@ -1078,6 +1102,18 @@ function reapOrphans(
             `  - ${path.basename(record.target)}  (orphan plugin root removed)`,
           ),
         );
+        removed++;
+      }
+      continue;
+    }
+    if (record.materialize === "copy") {
+      // A copy-materialized target is a REAL file, not a symlink —
+      // `removeIfManagedSymlink` reads a symlink and would silently no-op
+      // on it. Ownership is the manifest record itself (this namespace is
+      // entirely flow-owned; see `ensureCopy`'s doc comment), so an
+      // orphaned copy is simply unlinked.
+      if (removeManagedCopy(record.target)) {
+        log(dim(`  - ${path.basename(record.target)}  (orphan removed)`));
         removed++;
       }
       continue;
@@ -1289,6 +1325,30 @@ function mergeManifest(
     entryToRecord(e, flowSource, installRoot),
   );
   return { version: 1, symlinks: records };
+}
+
+/**
+ * `ensureSymlink`'s counterpart for a `materialize: "copy"` entry
+ * (`discoverWorkflows`'s `.workflow.js` files): writes real file bytes at
+ * `target` instead of a symlink. Content-hash-gated so a second identical
+ * run reports "exists" rather than "updated" every time (mirrors
+ * `ensureSymlink`'s own no-op-when-already-correct idempotence) — no
+ * `force` parameter, since a real file at this target namespace is always
+ * flow-owned content, never a user's.
+ */
+function ensureCopy(target: string, source: string): LinkResult {
+  const existedBefore = fs.existsSync(target);
+  if (existedBefore) {
+    const existingHash = sha256File(target);
+    const sourceHash = sha256File(source);
+    if (existingHash !== undefined && existingHash === sourceHash) {
+      return "exists";
+    }
+  }
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.copyFileSync(source, target);
+  fs.chmodSync(target, 0o644);
+  return existedBefore ? "updated" : "created";
 }
 
 function bucketFor(

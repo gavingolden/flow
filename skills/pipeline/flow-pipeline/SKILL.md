@@ -27,8 +27,10 @@ in-process when you invoke it; every helper script
 (`flow-new-worktree`, `flow-remove-worktree`, `gh`, etc.) is a Bash
 tool call. **You never spawn a Task-tool sub-agent.** flow's flat-fan-out
 policy (deliberate, not a platform limit — `docs/nested-subagents-assessment.md`,
-repo-only, not shipped) allows zero nesting exceptions — the seven
-Task-tool exemptions in `AGENTS.md` are each a flat, one-shot spawn; a
+repo-only, not shipped) allows zero nesting exceptions — the two
+Task-tool exemptions in `AGENTS.md` (the rest moved into the two
+`Workflow`-tool stage scripts with the f6 port) are each a flat,
+one-shot spawn; a
 long-running supervisor with sub-agents would also blow the context window.
 Stay in-process for skills; shell out for scripts; never delegate.
 
@@ -65,17 +67,18 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > standalone leaf skill like `/flow-research` run directly is a separate
 > context this rule never governed. The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
-> calls, and (c) the seven narrowly-named Task-tool exceptions that
-> follow.
+> calls, (c) the two narrowly-named Task-tool exceptions that
+> follow, and (d) the `Workflow`-tool stage launches below (a
+> fixed-shape script fan-out, not a Task-tool exemption).
 >
 > The two constraints behind the rule above are (1) flow's deliberate
 > flat-fan-out policy (rationale: `docs/nested-subagents-assessment.md`,
 > not shipped by `flow install`), and (2) a long-running supervisor with
 > sub-agents would bloat past the context window. Constraint (1) is not a
 > platform limit on the supervisor's own Task calls — it is flow's policy,
-> and it is why exactly seven top-level sites are enumerated below and
-> none nests. All seven are one-shot, not long-running, so constraint (2)
-> doesn't apply either. They are the **only seven** authorised Task-tool
+> and it is why exactly two top-level sites are enumerated below and
+> none nests. Both are one-shot, not long-running, so constraint (2)
+> doesn't apply either. They are the **only two** authorised Task-tool
 > fan-out sites from this supervisor; no other skill or step may call
 > Task. Each is anchored on its step heading name rather than its number
 > so it survives future renumbering. Same narrow-and-named contract as the
@@ -88,7 +91,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > plugin-root install), falling back to `general-purpose` with a loud
 > `NOTICE — agent-fallback:` line when the definition is not installed.
 >
-> **Load the Task tool at each spawn site.** Each of the seven spawn
+> **Load the Task tool at each spawn site.** Each of the two spawn
 > procedures below must instruct the supervisor to load the Task tool
 > schema via `ToolSearch query="select:Task"` *before* invoking Task (or
 > its alias `Agent`). Where neither is surfaced top-level by the harness
@@ -100,57 +103,56 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > for the canonical "Load the Task tool before spawning" paragraph and
 > `# Failure paths` for the escalation script.
 >
-> **A `SendMessage` continuation of a partial (`maxTurns`) agent stays inside its exemption — not an eighth site.** See `references/partial-result-continuation.md`.
+> **A `SendMessage` continuation of a partial (`maxTurns`) agent stays inside its exemption — not a third site.** See `references/partial-result-continuation.md`.
 >
-> **Task-tool exemption #1: `/flow-pr-review` Independent Multi-Agent
-> Review.** Step 8's six review agents + one diff-only intent-guess agent,
-> spawned together ([references/exemption-contracts.md](../../../references/exemption-contracts.md)).
->
-> **Task-tool exemption #2: `/flow-product-planning` Independent Discovery
+> **Task-tool exemption #1: `/flow-product-planning` Independent Discovery
 > Subagent.** Step 3's one discovery agent (`flow-discovery`), writing
 > `.flow-tmp/plan.md` + `.flow-tmp/pr-description-draft.md`; full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
-> **Task-tool exemption #3: `/flow-new-feature` Independent Scout
-> Subagent.** Step 5's one scout agent (`flow-scout`; wider-scope path
-> only — ≤3 affected files skip it), writing `.flow-tmp/scout.md`; full
-> contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
->
-> **Task-tool exemption #4: `/flow-pr-review` Fix-Applier Subagent.** Step
-> 8's one fix-applier agent (`flow-fix-applier`) for the per-finding
-> address loop + commit/push, writing `.flow-tmp/fix-applier-result.json`;
-> full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
->
-> **Task-tool exemption #5: Merge-Conflict Resolver Subagent.** Step
-> 10's one resolver agent (`flow-merge-resolver`) for the base-branch
-> merge + per-file resolution + push (per-pipeline branch only), writing
-> `.flow-tmp/merge-resolver-result.json`; full contract in
-> [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
-> `../flow-merge-resolver-instructions/SKILL.md`. `maxTurns: 80`; partial-result continuation per `references/partial-result-continuation.md`.
->
-> **Task-tool exemption #6: `/flow-coder` Independent Edit-Applier Subagent.**
+> **Task-tool exemption #2: `/flow-coder` Independent Edit-Applier Subagent.**
 > The one edit-applier agent (`flow-edit-applier`) `/flow-coder` spawns when
-> `/flow-new-feature` step 5, `/flow-verify` step 3, or `/flow-refactoring` step 3
-> takes its wider-scope path — or the `/flow-pipeline` supervisor's interactive
+> the `/flow-pipeline` supervisor's interactive
 > code-change redirect path fires (see the "Mid-flight code-change redirects"
-> section and `references/redirect-handling.md`) — writing
+> section and `references/redirect-handling.md`), or the `gated`-feedback
+> loop composes an edit-set at the gate — writing
 > `.flow-tmp/coder-result.json`; full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md) and `skills/pipeline/flow-coder/SKILL.md`.
+> The wider-scope `/flow-coder` spawns from `/flow-new-feature` step 5, `/flow-verify` step 3,
+> and `/flow-refactoring` step 3 moved into stage A's
+> `implement`/`verify` agents (depth 2, not this supervisor's own Task
+> call) — see "Stage workflows are a Workflow-tool fan-out" below.
 >
-> **Task-tool exemption #7: `/flow-pr-review` Independent Consolidator-Validator
-> Subagent.** `/flow-pr-review` Step 3.5's one consolidator-validator agent
-> (`flow-consolidator`; default Sonnet, no model override), writing
-> `.flow-tmp/consolidator-result.json`; full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
+> **Stage workflows are a Workflow-tool fan-out, not a Task-tool
+> exemption.** Steps 5–10 run as two fixed-shape scripts —
+> `flow-module-core:flow-stage-a` (implement → verify → CI wait → review →
+> gate read) and `flow-module-core:flow-stage-b` (merge guard → squash
+> merge → conflict resolve → post-merge sweep) — launched via the
+> `Workflow` tool, never `Task`/`Agent`, from steps 5 and 10 respectively.
+> Every `agent()` call inside those scripts is enumerated by label,
+> `agentType`, model key, effort, and nesting in
+> `references/workflow-agent-sites.md`, lint-pinned against
+> `agents/core/*.md`. This is a sibling note in the same F2 "not an
+> extra exemption" shape as the Bash-fan-out notes below — the two
+> Task-tool exemption count above is unchanged, because the supervisor
+> itself never calls Task for these steps; the `Workflow` tool call is a
+> single script invocation, and any Task spawn inside the script runs at
+> depth 2 under the flat one-shot-per-site policy
+> `docs/nested-subagents-assessment.md` documents.
 >
 > **The `/flow-pr-review` Gemini cross-model lens is a Bash fan-out, not an
-> eighth exemption.** When the supervisor invokes `/flow-pr-review` in step 8
-> and the consumer has opted into `review.gemini`, `/flow-pr-review` Step 3
+> extra exemption.** When stage A's review-prep agent runs
+> `/flow-pr-review` and the consumer has opted into `review.gemini`,
+> `/flow-pr-review` Step 3
 > runs ONE additional cross-model reviewer (Gemini) via `flow-delegate`
-> (agy) as a Bash subprocess (`flow-gemini-lens`), ALONGSIDE exemption
-> #1's six-agent Multi-Agent Review Task fan-out. It spawns no Task, so
-> the seven-exemption count above is unchanged — this is a sibling note in
+> (agy) as a Bash subprocess (`flow-gemini-lens`), ALONGSIDE the
+> Multi-Agent Review Task fan-out `/flow-pr-review` runs on its own (a
+> standalone-run Task site documented in that skill's own SKILL.md, not
+> one of this supervisor's two exemptions). It spawns no Task from this
+> supervisor, so
+> the two-exemption count above is unchanged — this is a sibling note in
 > the same F2 "not an eighth exemption" shape as the "Load the Task tool at
-> each spawn site" guard above, NOT an `#8` exemption block. The lens is
+> each spawn site" guard above, NOT a third exemption block. The lens is
 > config-gated, default off, and a graceful skip on any failure (it never
 > hard-fails the review). Documented bidirectionally in `AGENTS.md`
 > `## Don'ts` and `skills/pipeline/flow-pr-review/SKILL.md` Step 3.
@@ -161,8 +163,8 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > reviewer (AGY / Gemini) via `flow-delegate` as a Bash subprocess
 > (`flow-plan-review`) to pressure-test the PRD's consequential decisions
 > before the plan-pending-review gate. It spawns no Task, so the
-> seven-exemption count above is unchanged — a sibling note in the same F2
-> "not an eighth exemption" shape as the Gemini-lens note above, NOT an `#8`
+> two-exemption count above is unchanged — a sibling note in the same F2
+> "not an eighth exemption" shape as the Gemini-lens note above, NOT a third
 > exemption block. It reuses the SAME `review.gemini` gate key, is default
 > off, and gracefully skips on any failure (it never blocks the plan gate).
 > Documented bidirectionally in `AGENTS.md` `## Don'ts` and this file's
@@ -173,17 +175,17 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > discovery, step 3 runs two model-pinned agy judges over a goal-only
 > brief (`flow-blind-survey`) via `flow-delegate-fanout` as a Bash
 > subprocess. It spawns no Task — a sibling note in the same F2 shape as
-> the two notes above, NOT an `#8` exemption. Gated on `state.interview`
+> the notes above, NOT a third exemption. Gated on `state.interview`
 > non-empty; gracefully skips on any failure. Documented bidirectionally
 > in `AGENTS.md` `## Don'ts` and `references/blind-survey.md`.
 
 > **Headless Claude via `flow-claude-headless` is a Bash fan-out, not an
-> eighth exemption.** Any skill the supervisor loads — including
+> extra exemption.** Any skill the supervisor loads — including
 > consumer-repo skills invoked during implement — may run a fixed-model,
 > fixed-effort `claude -p` ONLY through `flow-claude-headless`, which
 > allowlists the child env (`FLOW_SLUG`/`TMUX_PANE` never leak, issue
 > #618), caps spend, refuses to nest, and returns one envelope carrying
-> `total_cost_usd`. It spawns no Task, so the seven-exemption count is
+> `total_cost_usd`. It spawns no Task, so the two-exemption count is
 > unchanged. Documented bidirectionally in `AGENTS.md` `## Don'ts` and
 > `references/headless-claude.md`.
 
@@ -1381,641 +1383,202 @@ On resume, Resume mode re-injects `checkpoint.md` and runs
 implement with the approval addenda folded in (no helper change needed —
 it's a non-terminal phase the resume + hook machinery already handles).
 
+## Stage A launch
+
+Steps 5–8 below run as **one Workflow-tool call**, `flow-stage-a`
+(`workflows/core/flow-stage-a.workflow.js`) — implement → re-symlink →
+verify → CI wait → review → gate-read, never merging. The supervisor
+never sees the per-step transcript, only the final `stage-a-result.json`
+this section reads. **Stage workflows are a Workflow-tool fan-out, not a
+Task-tool exemption** — same shape as the Gemini-lens / headless-Claude
+Bash fan-outs: no Task call, no nested-agent-depth concern at this call
+site itself (the `implement`/`verify` agents *inside* the script still
+nest the scout / edit-applier Task exemptions one level down).
+
+Resolve args via jq, then call the Workflow tool:
+
+```bash
+SLUG="$FLOW_SLUG"
+WORKTREE="$WORKTREE"; SKILL_DIR="$SKILL_DIR"
+ARGS=$(jq -n --arg slug "$SLUG" --arg worktree "$WORKTREE" \
+  --arg skillDir "$(cd -P "$SKILL_DIR/.." && pwd -P)" \
+  --arg request "$(cat "$REQUEST_FILE")" \
+  --arg planPath "$WORKTREE/.flow-tmp/plan.md" \
+  --arg effort "$(jq -r '.effort // "high"' ~/.flow/state/"$SLUG".json)" \
+  --arg launchedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg lens "$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)" \
+  '{slug:$slug, worktree:$worktree, skillDir:$skillDir, request:$request,
+    planPath:$planPath, effort:$effort, launchedAt:$launchedAt, lens:$lens,
+    models: $models, copilotReview: $copilotReview, waitForCopilot: $waitForCopilot}')
+# $models/$copilotReview/$waitForCopilot are resolved the same way the old
+# per-step bodies resolved them (state.json + config.json precedence per
+# references/model-routing.md) — no new keys, same precedence order.
+```
+
+Then `{ name: "flow-module-core:flow-stage-a", args: $ARGS }` via the
+Workflow tool; if the harness reports the name unknown, retry once with
+`{ scriptPath: "$SKILL_DIR/../workflows/flow-stage-a.workflow.js", args: $ARGS }`
+(an addressing fallback, not a second substrate). Wake ladder mirrors
+step 7's below: completion notification → bounded Monitor `until [ -s
+"$WORKTREE/.flow-tmp/stage-a-result.json" ]` → `flow-stop-guard` nudge
+relaunch (idempotent — a state.json phase skip resumes mid-stage).
+
+```bash
+flow-workflow-result-schema --validate "$WORKTREE/.flow-tmp/stage-a-result.json" 2>/dev/null || \
+  bun "$(dirname "$(readlink -f "$(command -v flow-state-update)")")/lib/workflow-result-schema.ts" \
+    --validate "$WORKTREE/.flow-tmp/stage-a-result.json"
+OUTCOME=$(jq -r '.outcome' "$WORKTREE/.flow-tmp/stage-a-result.json")
+```
+
+Branch on `.outcome`: **`gate-ready`** → continue to "Step 9 — Auto-merge
+gate" below with `.decision` already resolved by stage A's gate-read
+step. **`needs-stage-b`** (`.reason: pr-conflicted`) → skip straight to
+"## Stage B launch" (the conflict-resolve path). **`needs-human`** →
+the standard `# Failure paths` block keyed on `.reason` (`verify-exhausted`
+additionally upserts the PR-body `> [!CAUTION]` block from
+`.artifacts.verifyCaution`; `merged-externally` routes to the render
+below).
+
+### Stage A `needs-human: merged-externally` render
+
+Stage A's ci-check step can discover mid-flight that the PR was already
+merged externally (same short-circuit `flow-ci-check`'s `merged-externally`
+decision covered before the port). Capture follow-ups output to a file:
+`flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (still executes auto-allowlisted entries; `>` captures the rendered block). Set `SLUG="$FLOW_SLUG"`, in ONE `gh pr view` round-trip guarded by `[ -n "$PR" ]`, capture the diff-size source AND the echo-recap fields (`[ -n "$PR" ] && gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json" && IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] | @tsv' "$WORKTREE/.flow-tmp/pr-view.json") && jq '{additions,deletions,changedFiles,commits:(.commits|length)}' "$WORKTREE/.flow-tmp/pr-view.json" > "$WORKTREE/.flow-tmp/pr-changes.json"`), then render the snapshot ABOVE the gate block via `flow-pipeline-summary --status merged --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --post-comment "$PR" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH" --lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)` (`--post-comment` durably persists the snapshot as an idempotent PR comment on the MERGED path; it no-ops when `$PR` is empty), then capture `COUNTS_LINE=$(flow-pipeline-summary --status merged --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)` — then **extract the block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as markdown bullets in your assistant message (prose, not tool output)**; see the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection. Then render the epic-membership block via `flow-epic-membership --slug "$SLUG" --terminal-state merged-externally` (no-op for non-epic features). Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then author `TLDR="<one-sentence outcome>"` and render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally mid-flight; supervisor cleaned up the worktree" --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"` — which records `phase: merged` itself, only after its block reaches stdout, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry (the helper silently suppresses the FOLLOW-UPS slot when the file is empty; its final stdout line is the byte-exact sentinel `MERGED`). Then, since arming first would be stale on arrival, best-effort checkpoint: `[ "$(flow-checkpoint --probe --site terminal | jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED (externally) at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null` (stdout muted, stderr deliberately left connected — echo the `checkpointed: ` line verbatim per the [Checkpoint arm signal (echo-verbatim)](#checkpoint-arm-signal-echo-verbatim) subsection). Then `flow-remove-worktree --delete-branch`, call `flow-notify --status merged --url "$PR_URL" --reason "$TLDR"`. End. The roadmap row was self-marked in the PR's diff by `/flow-pr-review` step 7.5; no post-merge sweep required.
+
 ## Step 5 — Implement
 
-**Phase:** `implementing`
+**Phase:** `implementing` — written at the step head by stage A's
+`implement-phase-write` agent (an `EARLY_PHASE_WRITES` member,
+`bin/lib/phase-advance.ts`), with `flow-open-pr`'s tail emission inside
+the same implement step as the idempotent backstop. No supervisor-side
+write: the lint pins the step-head write to the script.
 
-Write the phase BEFORE invoking the implement sub-skill below, so the
-phase names the step the run is actually inside:
-
-```bash
-flow-state-update --phase implementing
-```
-
-`flow-open-pr` still emits `implementing` at this step's tail as an
-idempotent backstop — by then `advancePhase` returns `already-at-or-past`,
-so the backstop adds no duplicate `phaseLog[]` row.
-
-Invoke `/flow-new-feature` in-process. On the first entry to this step,
-pass the user's request plus the approved plan's path:
+Stage A's implement agent runs `/flow-new-feature` in-process (its own
+Task-tool scout exemption still applies one level down), writes code +
+tests, commits, pushes, and opens the PR via `flow-open-pr`; it carries
+the `PLAN: $WORKTREE/.flow-tmp/plan.md` line on first entry and, on a
+ci-red/review-critical re-entry, the two-line re-entry form:
 
 ```
-/flow-new-feature <verbatim user description>
-PLAN: $WORKTREE/.flow-tmp/plan.md
-```
-
-The `PLAN:` line (same append convention as the `mode:fix` /
-`PRIOR FAILURE LOG:` re-entry below) is appended on every first-entry
-invocation when `.flow-tmp/plan.md` exists — feature and non-feature
-intents alike, since discovery's Contract block is required on every
-task regardless of intent and step 3's non-feature `advance-to-step-5`
-branch already keeps plan.md on disk for traceability. It hands
-`/flow-new-feature` the approved plan so its scout verifies the plan's Task
-breakdown contracts against the code instead of re-deriving them, and
-its edit-set composition inherits the per-task Contract blocks.
-`/flow-new-feature` tolerates plan absence — a missing file or a plan with
-no heading matching `Task breakdown` leaves its behaviour exactly as it
-is without the line — and `mode:fix` re-entries do NOT carry the
-`PLAN:` line.
-
-`/flow-new-feature` is itself a thin wrapper that spawns one **Independent
-Scout Subagent** via the Task tool (the third of the seven named
-Task-tool exemptions in "Hard rules" above) on its wider-scope path.
-The subagent reads the codebase in its isolated context — affected
-modules, relevant tests, public API surface, anti-patterns / off-limits
-surfaces — and writes the consolidated artifact to
-`<worktree>/.flow-tmp/scout.md`. The wrapper creates `.flow-tmp/`
-before spawning so the subagent can write directly. The supervisor
-never sees the scouting transcript, only the wrapper's brief return
-summary. Trivially scoped features (≤3 affected files) skip the
-subagent via the wrapper's hybrid threshold and proceed inline.
-
-If `/flow-new-feature` took the wider-scope path and `.flow-tmp/scout.md`
-is missing after the call returns, re-invoke `/flow-new-feature` once with
-an explicit instruction to spawn the scout and write the artifact
-(this counts as a fresh `/flow-new-feature` invocation with its own
-one-shot Task call, per the wrapper's "exactly one Task-tool call per
-invocation" constraint). If the second attempt also fails, escalate
-`NEEDS HUMAN: scout-missing`. Same retry-once-then-escalate semantics
-as step 3's `plan-missing` handling for `/flow-product-planning`.
-
-The skill writes code + tests, runs verify internally as a
-pre-commit gate, commits, and pushes. **Opening the PR is the
-supervisor's job, not the implement skill's** — the supervisor calls
-`flow-open-pr` so the PR number lands in state.json atomically.
-
-**Discharging the `advance-to-step-5` disclosure obligation:** if step 3
-took the `advance-to-step-5` route (see "Step 3 — Product planning" End
-condition above), the PR body's Key decisions section MUST include a
-`Bundled:` bullet naming any task-breakdown items and ticked (bar-clearing)
-`# Candidate follow-up issues` items discovery authored without a
-plan-review checkpoint — this is where that obligation gets discharged,
-not just asserted.
-
-Write the PR body to the worktree's scratch dir, then call
-`flow-open-pr` once and capture both the URL (from stdout) and the
-PR number (from the state.json the helper just wrote):
-
-```bash
-mkdir -p "$WORKTREE/.flow-tmp"
-# Compose the PR body (typically copied from .flow-tmp/pr-description-draft.md
-# that /flow-new-feature wrote, then templated with the final commit list). Both
-# the source draft and the rendered body live under .flow-tmp/ so the
-# worktree root stays clean for the post-merge git worktree remove.
-PR_URL=$(flow-open-pr \
-  --body-file "$WORKTREE/.flow-tmp/pr-body.md" \
-  --title "<conventional-commit summary>")
-# Read the PR number back. `~/.flow/state/<slug>.json` is keyed by slug.
-SLUG="$FLOW_SLUG"
-PR=$(jq -r '.pr' ~/.flow/state/"$SLUG".json)
-```
-
-`flow-open-pr` runs `gh pr create`, reads the PR number back via
-`gh pr view`, and writes it to `~/.flow/state/<slug>.json` in one
-step. It is **idempotent**: if the branch already has a PR (resume
-after a crash), the helper falls through to the read-back path
-instead of failing on `gh pr create`'s "already exists" error.
-
-Do **not** call `gh pr create` directly and do **not** call
-`flow-state-update --pr` separately — both are subsumed by
-`flow-open-pr`. Bypassing the helper is the regression Item 15
-closed: the previous three-call sequence stranded PRs in `pr: —`
-when the supervisor crashed between `gh pr create` and the state
-write.
-
-`flow-open-pr` also advances `phase` to `implementing` as it records
-`pr` — the tail backstop for the step-head fence above, not a second
-write: `advancePhase` returns `already-at-or-past` and appends no
-duplicate `phaseLog[]` row. Do not add a third hand-written phase call
-here; the step-head fence at the top of this step is the only one.
-
-**Re-entry from a fix loop** (called from step 7 ci-red or step 8
-review-critical): pass mode=fix and the failure log:
-
-```
-/flow-new-feature mode:fix
+mode:fix
 PRIOR FAILURE LOG:
 <truncated log>
 ```
 
-`/flow-new-feature` knows to make a focused fix commit on the existing
-branch and push, without opening a new PR. After re-entry, return
-to step 7 (CI wait), **not** directly to step 8 — a fix can break
-CI just as easily as it can resolve a review finding.
-
-**End condition:** `$PR` is set; the branch has been pushed.
-
-On non-zero exit without a PR: retry once with the failure context
-appended. If the retry also fails, escalate `NEEDS HUMAN:
-implement-failed`.
+Re-entry replays only the implement step inside a fresh stage A launch —
+never a separate invocation — via the one skip stage A actually implements:
+`implementDone = pr !== null` (Implement is skipped once a PR exists; Verify
+and CI wait always re-run on resume today). `state.phases`/`ciWaitDecided`
+are read at "Read state" but a fuller phase-skip resume for Verify/CI wait
+is not yet implemented (tracked:
+https://github.com/gavingolden/flow/issues/790). On implement failure with
+no PR, stage A retries once internally before surfacing
+`needs-human: implement-failed`.
 
 ## Step 5.5 — Re-symlink if worktree adds skills/agents
 
-**Phase:** `installing-skills`
+**Phase:** `installing-skills` — written by stage A's implement step as
+it hands off to re-symlink; no standalone helper call from here.
 
-Sub-skills loaded by the supervisor in steps 6–8 (`/flow-verify`,
-`/flow-pr-review`) are read from `~/.flow/claude-home/.claude/skills/`
-(loaded into the supervisor session via the seed session's
-`--add-dir ~/.flow/claude-home`), and agents from the same tree, nested
-inside each artifact's owning module's plugin root
-(`~/.flow/claude-home/.claude/skills/flow-module-<id>/agents/`)
-— both populated by `flow install` (and `flow install --upgrade`) via symlink.
-A worktree that adds new files under `skills/` or `agents/` in step 5
-does not get those files symlinked automatically; the same supervisor
-session cannot use them downstream until `flow install --upgrade` runs.
-This step closes that gap. Note that a skill ADDED into the already-existing
-claude-home skills dir hot-reloads into the running session (Claude Code's
-live change detection), and the non-interactive `flow install --upgrade`
-below now preserves the existing installed breadth via the install manifest
-(gh#435) rather than collapsing to core — the invocation itself is unchanged.
-
-```bash
-flow-state-update --phase installing-skills
-
-# Resolve the default branch dynamically — same approach as
-# flow-new-worktree.ts and flow-pre-commit.ts. Hardcoding origin/main
-# silently breaks on any repo whose default is `master` (or anything
-# else): `git diff origin/main...HEAD` would fail, `|| true` would
-# swallow the error, and the re-symlink would be silently skipped.
-DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \
-                  | sed 's|^refs/remotes/origin/||')
-DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
-
-ADDED=$(git diff --name-only --diff-filter=A "origin/$DEFAULT_BRANCH...HEAD" | \
-          grep -E '^(skills|agents)/' || true)
-
-if [ -n "$ADDED" ]; then
-  echo "Detected new skill/agent files; re-symlinking:"
-  echo "$ADDED" | sed 's/^/  /'
-  flow install --upgrade --source "$WORKTREE"
-  # Register a post-merge follow-up so the user's home install also gets
-  # re-symlinked against the canonical (post-merge) main, not just this
-  # supervisor's in-flight worktree. `--auto` plus the `flow install --upgrade`
-  # allowlist entry means step 11 runs it automatically on the MERGED path.
-  flow-followups add \
-    --command "flow install --upgrade" \
-    --reason "new skills/agents added on this branch — re-symlink home install post-merge" \
-    --auto \
-    --registered-by "flow-pipeline:step-5.5"
-else
-  echo "No skill/agent additions; skipping re-symlink."
-fi
-```
-
-The detection grep uses `--name-only --diff-filter=A` and the triple-dot
-range so only genuine file *additions* under `skills/`/`agents/` trigger a
-re-symlink (modifications/deletions do not); the default-branch resolution
-mirrors `bin/flow-new-worktree.ts` / `bin/flow-pre-commit.ts` — do not
-hardcode `origin/main`.
-
-`--source "$WORKTREE"` forces `flow install` to read its content tree from
-the in-flight worktree (so a flow-self PR adding a skill sees the new files
-this session); for non-flow repos the worktree has no `skills/`/`agents/`
-tree, so the detection guard above keeps this branch from running. The
-override swaps only the **content source** — the **recorded owner** in
-`~/.flow/installed.json` stays on the canonical install root via
-`resolveFlowSource()`, so a worktree's post-merge removal can't strand
-manifest entries, and dangling symlinks from past `--source` runs get
-reaped on the next `flow install --upgrade`.
-
-**Concurrency.** `flow install` wraps its symlink work in
-`~/.flow/setup.lock` (`bin/lib/lock.ts`), so parallel pipelines that
-both add skills/agents serialise here rather than racing on
-`~/.flow/claude-home/.claude/skills/` (skills and agents both, each
-nested under its owning module's plugin root). Do not add an ad-hoc
-lock at this call site.
-
-**End condition:** the helper exits 0. On non-zero exit (the verb
-maps `summary.blocked > 0` to exit 1; parser errors map to 2):
-retry once. If the retry also fails, escalate
-`NEEDS HUMAN: flow-setup-upgrade-failed <stderr>` — the supervisor
-cannot safely continue to step 6 without the new skill/agent files
-visible.
+Stage A detects new files under `skills/`/`agents/` added on this branch
+(same `git diff --diff-filter=A` check as before) and runs `flow install
+--upgrade --source "$WORKTREE"` when any exist, registering the same
+`flow-followups add --command "flow install --upgrade" --auto` entry for
+the post-merge home-install re-symlink. No user-visible change from the
+pre-stage-A behaviour. On a non-zero exit, stage A retries once, then
+surfaces `needs-human: flow-setup-upgrade-failed`.
 
 ## Step 6 — Local verify
 
-**Phase:** `verifying`
-
-Write the phase explicitly before invoking verify:
+**Phase:** `verifying` — the one phase written by explicit prose, not a
+helper side effect:
 
 ```bash
 flow-state-update --phase verifying
 ```
 
-The verify work runs **inline** now — the supervisor invokes `/flow-verify`
-in-process via the Skill tool and observes its output directly in its own
-context (no subagent isolation, no separate artifact). Each `/flow-verify`
-invocation makes one fix attempt per failing check and re-runs the checks
-**at most 5 times** before returning its report (the inner cap in
-`skills/pipeline/flow-verify/SKILL.md` Step 4 — the hard ceiling on how
-much `flow-pre-commit --json` output can land in this session, replacing
-the `maxTurns` bound the removed subagent carried). The supervisor owns the
-outer ceiling: it re-invokes `/flow-verify` at most 3 times total (the
-3-outer-attempt cap) when an attempt does not end clean, then stops and
-returns the report rather than looping further. Each
-re-invocation observes the worktree fresh (it re-runs `flow-pre-commit
---json` itself), so a re-invocation is idempotent.
-
-**Automated UI-smoke pass.** `/flow-verify` Step 1 already runs the
-browser-driven UI-smoke pass inline (when the diff touches a meaningful UI
-surface and the `chrome-devtools` MCP is present), following
-[references/ui-smoke-pass.md](references/ui-smoke-pass.md), and reports the
-outcome — passed / skipped (with a reason) / not-applicable — as part of
-its own turn output. Because `/flow-verify` now runs in-process, that
-report is directly visible to the supervisor; there is no separate
-artifact to read it from. When `/flow-verify`'s report shows the UI-smoke
-pass was skipped on a UI-touching diff, upsert a user-visible sibling line
-under the PR body's `> [!CAUTION]` verify block (idempotent, edit-in-place,
-do not stack) using the reason `/flow-verify` reported:
+Stage A's verify step runs `/flow-verify` inline (its own inner 5-attempt
+cap; stage A's outer cap is 3), including the **Automated UI-smoke pass.**
+See [references/ui-smoke-pass.md](references/ui-smoke-pass.md). When
+skipped on a UI-touching diff, upsert the sibling line "> [!NOTE] UI changed;
+browser validation did not run — <reason>" under `## Test Steps`:
 
 ```bash
-gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
-# upsert the sibling line "> [!NOTE] UI changed; browser validation did
-# not run — <reason>" under ## Test Steps, then
 flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/body.md" && gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
-Also echo the same line to the user in-session (a plain assistant-message
-line, not only the PR-body upsert above) so the gap is visible without
-opening the PR.
-
-**Surface UI screenshots.** When `/flow-verify`'s UI-smoke pass captured
-screenshots, it names their absolute paths directly in its own report
-(sourced from `flow-ui-validate --captures`' `evidence_paths[]`) — print
-each surviving path as a markdown link, `[<abs path>](file://<abs path>)`,
-one per line, no bullet marker, no trailing punctuation, all of them, no
-cap.
-
-**Layer-3 proactive config-authoring branch.** `/flow-verify` owns this
-directly (see `skills/pipeline/flow-verify/SKILL.md`): when
-`flow-pre-commit --json` returns `reason: "unmatched-files"`, it calls the
-pure `draftConfigEntryForOrphans` helper (`bin/lib/monorepo-scopes.ts`)
-before treating the orphan as a failure, and commits a matched entry to
-`.flow/pre-commit.json`. A config-authoring re-run does not consume an
-outer attempt.
-
-**Exhaustion.** After 3 failed outer attempts, escalate `NEEDS HUMAN:
-verify-exhausted`. `$FINAL_FAILURE_EXCERPT` is the third attempt's
-`flow-pre-commit --json` failure excerpt as `/flow-verify` reported it in
-its own turn output (there is no separate artifact to read it from — copy
-it directly from the visible report). Surface that excerpt on the PR
-body's `## Test Steps` section as a `> [!CAUTION]` block (idempotent —
-edit-in-place, do not stack), then follow the standard `# Failure paths`
-escalation:
+On exhaustion (3 failed outer attempts), the final failure excerpt lands
+in `$WORKTREE/.flow-tmp/verify-caution.txt` and the same repair pair
+upserts a `> [!CAUTION]` block:
 
 ```bash
-mkdir -p "$WORKTREE/.flow-tmp"
-printf '%s\n' "$FINAL_FAILURE_EXCERPT" > "$WORKTREE/.flow-tmp/verify-caution.txt"
-gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
-# upsert the > [!CAUTION] block (built from verify-caution.txt) under
-# ## Test Steps, then
 flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/body.md" && gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
-**Re-entry / resume.** Phase stays `verifying` and the resume `step-6` row
-re-enters here and re-invokes `/flow-verify` inline (it observes the
-worktree fresh, so a re-invocation is idempotent). `/flow-verify`'s own
-Step 3 hybrid threshold still decides narrow-inline vs.
-`/flow-coder`-delegated fixes (the sixth named Task-tool exemption); the
-work now happens directly in the supervisor's own context — there is no
-longer a diff-bytes isolation boundary to preserve at this step.
-
-**End condition:** `/flow-verify` reports a clean pass. Continue to step 7.
+then `needs-human: verify-exhausted` (surfaced by the "## Stage A launch"
+branch above). Re-entry: a state.json phase of `verifying` resumes stage A
+directly at this step.
 
 ## Step 7 — CI + Copilot wait
 
-**Phase:** `ci-wait`
+**Phase:** `ci-wait` — written at the step head by stage A's
+`ci-wait-phase-write` agent (an `EARLY_PHASE_WRITES` member), with
+`flow-ci-check`'s emission inside stage A's ci-check step as the
+idempotent backstop. No supervisor-side write.
 
-Write the phase BEFORE the module precheck and the `flow-ci-check`
-call below, so the phase names the step the run is actually inside:
-
-```bash
-flow-state-update --phase ci-wait
-```
-
-`flow-ci-check` still emits `ci-wait` at this step's tail as an
-idempotent backstop — by then `advancePhase` returns
-`already-at-or-past`, so the backstop adds no duplicate `phaseLog[]` row.
-
-**Copilot-module precheck (before any of this).** Probe
-`flow-module-status --check copilot >/dev/null 2>&1` — non-zero means the
-`copilot` module is deselected (`flow-request-copilot` never on PATH): skip
-the request/classify subsection below (PR treated as declined), note the
-skip quietly, and invoke `flow-ci-check` below with `--copilot-not-requested`
-(its self-guard prints the one user-facing notice — hence the discarded
-stderr). Full rationale in
-[references/polling-protocol.md](references/polling-protocol.md#copilot-module-precheck).
-
-**Copilot request decision (before the wait).** Copilot review is opt-in
-for non-trivial changes only; decide *before* invoking `flow-ci-check`, so a
-declined PR can collapse the bot wait. The decision combines the
-per-pipeline `copilotReview` override (from state.json) with
-`flow-request-copilot`'s deterministic glob classifier:
+Stage A's ci-check step runs the same Copilot precheck
+(`flow-module-status --check copilot`) and request-decision logic, then:
 
 ```bash
-OVERRIDE=$(jq -r '.copilotReview // "auto"' ~/.flow/state/"$SLUG".json)
-GLOB_CLASS=$(gh pr diff "$PR" --name-only | flow-request-copilot --classify)
+flow-ci-check "$PR" $NOT_REQUESTED_FLAG $WAIT_FLAG --out "$VERDICT_FILE"
 ```
 
-Branch on `$GLOB_CLASS`:
+waiting on a `waiting` verdict via `flow-spawn --class default -- flow-ci-wait
+"$PR" --min-sec "$NEXT" --max-sec 540`, never a bare unwrapped launch.
+Full decision matrix, fix-loop cap (3 total), and anchors-not-a-clock
+contract are unchanged — see
+[references/polling-protocol.md](references/polling-protocol.md). On
+`ci-failed`, stage A loops back to its own implement step (mode=fix)
+internally rather than re-launching; on `pr-conflicted`, stage A returns
+`needs-stage-b` (see "## Stage A launch" above). Re-entry resumes stage A
+at this step from a `ci-wait`/`ci-wait-pending` phase.
 
-- `always-review` / `never-alone` — the classifier is decisive; the
-  supervisor does **NOT** judge. (`always-review` → request;
-  `never-alone` → decline, unless `$OVERRIDE` is `always`.)
-- `ambiguous` — the supervisor makes its own **inline** trivial /
-  non-trivial judgment against the rubric *"would a reviewer plausibly
-  catch a bug here that CI and the author would miss?"* — with **NO
-  `claude -p` subprocess and NO Task spawn** (the load-bearing
-  no-nested-LLM constraint). When uncertain, **fail open** to
-  requesting. Set `DECISION=non-trivial` (request) or `DECISION=trivial`
-  (decline).
+On `merged-externally` (the PR was merged externally, outside the
+pipeline, mid-flight), stage A returns `needs-human: merged-externally`;
+the decision row still renders via the existing [Stage A `needs-human:
+merged-externally` render](#stage-a-needs-human-merged-externally-render)
+above — still `flow-remove-worktree --delete-branch` then
+`flow-gate-summary --status merged ...` (same `--tldr`/`--lens`
+augmentation as step 11's MERGED block).
 
-Then fire the helper's request mode (it owns the `requested_reviewers`
-POST + the queued-verification re-read):
+If the supervisor's own turn must end while stage A is still
+backgrounded in `ci-wait`, it writes `ci-wait-pending` and ends cleanly
+rather than hand-rolling a manual poll loop:
 
 ```bash
-DECISION_ARG=""    # set to "--decision non-trivial" or "--decision trivial" only for the ambiguous branch
-VERDICT=$(gh pr diff "$PR" --name-only \
-  | flow-request-copilot --pr "$PR" --override "$OVERRIDE" $DECISION_ARG)
-REQUESTED=$(printf '%s' "$VERDICT" | jq -r '.requestCopilot')
+flow-state-update --phase ci-wait-pending --slug "$FLOW_SLUG"
 ```
 
-Two helpers split the old single-file poll loop: `flow-ci-check` is the
-one-shot decider (presence checks → conflict/blocked short-circuits →
-CI/Copilot/PR-state decision matrix, one fresh `gh` observation per call,
-wall-clock anchors durably persisted in `~/.flow/state/<slug>.json`'s
-`ciWait` record) and `flow-ci-wait` is the dumb bounded waiter (owns zero
-state, zero decisions — it only sleeps). Wake precedence: the Bash
-`run_in_background` completion notification on the backgrounded waiter →
-a bounded Monitor `until` loop (or `ScheduleWakeup`, equivalent, when
-present) → the `ci-wait-pending` yield-and-resume as the last resort —
-every layer ends in the same foreground `flow-ci-check` call, so the wake
-primitive never changes the verdict. Full contract in
-`references/polling-protocol.md`, unit-tested at `bin/lib/ci-decision.test.ts`,
-`bin/lib/ci-observe.test.ts`, `bin/flow-ci-check.test.ts`.
-
-Append `--copilot-not-requested` to the `flow-ci-check` call only when no
-Copilot review is coming — **two** signals: the request decision was to
-**decline** (`$REQUESTED` is `false` — trivial PR or the
-`bots.copilotSkipWait` budget short-circuit), or the verdict reports
-`copilotRequestable:false` (Copilot unavailable on this repo). Read
-`$REQUESTABLE` via `jq` alongside `$REQUESTED`; the verdict's `declineKind`
-field (`skip-wait` vs `skip-request`) makes the decline reason
-machine-checkable instead of string-sniffing `reason`.
-
-A `requestSkipReason` (auto-review already enabled, so the helper skipped
-the redundant request) **deliberately does NOT** append the flag — the
-auto-review will still post, so the supervisor keeps waiting and picks it up
-via the historical/author-match path. The flag hard-forces
-`copilotConfigured=false`, bypassing both the in-flight `reviewRequests`
-check and the historical-PR fallback; `$SKIP_REASON` is logged only, never a
-driver. A forced request (`--override always`) never yields a
-`requestSkipReason` — the POST always fires (the #260 fix).
-
-**(1) Foreground decider call** — `flow-ci-check` directly, NOT backgrounded (one fresh `gh` observation completes in seconds):
-
-```bash
-VERDICT_FILE="$WORKTREE/.flow-tmp/ci-wait-result.json"
-rm -f "$VERDICT_FILE"   # clear any stale verdict from a prior CI cycle
-REQUESTABLE=$(printf '%s' "$VERDICT" | jq -r '.copilotRequestable // empty')
-SKIP_REASON=$(printf '%s' "$VERDICT" | jq -r '.requestSkipReason // empty')  # logged only
-NOT_REQUESTED_FLAG=""
-# A genuine decline or unavailability collapses the wait; an auto-review skip keeps it.
-[ "$REQUESTED" = "false" ] || [ "$REQUESTABLE" = "false" ] && NOT_REQUESTED_FLAG="--copilot-not-requested"
-# WAIT_FLAG mirrors state.json's waitForCopilot — a per-call shell loses any prior `SLUG=...`, so re-set it from $FLOW_SLUG.
-SLUG="$FLOW_SLUG"; WAIT_FLAG=""
-[ "$(jq -r '.waitForCopilot // empty' ~/.flow/state/"$SLUG".json)" = "true" ] && WAIT_FLAG="--wait-for-copilot"
-flow-ci-check "$PR" $NOT_REQUESTED_FLAG $WAIT_FLAG --out "$VERDICT_FILE" > "$WORKTREE/.flow-tmp/ci-check-stdout.json"
-CHECK=$(cat "$WORKTREE/.flow-tmp/ci-check-stdout.json"); STATUS=$(printf '%s' "$CHECK" | jq -r '.status')
-```
-
-Branch on `.status`: **`decided`** — go straight to "Branch on `.decision`"
-below (`$CHECK` already carries every `RunResult` field; `$VERDICT_FILE`
-was written since the exit was decided). **`waiting`** — go to step (2).
-
-**(2) Backgrounded waiter, primary wake** — read `nextCheckSec` (flat 60s,
-`FLAT_CADENCE_SEC`) and arm the dumb waiter with `run_in_background: true`:
-
-```bash
-NEXT=$(printf '%s' "$CHECK" | jq -r '.nextCheckSec')
-flow-spawn --class default -- flow-ci-wait "$PR" --min-sec "$NEXT" --max-sec 540
-```
-
-The Bash completion notification (waiter exit, up to 540s later) is the
-wake: **on wake, re-run step (1)** — a fresh `flow-ci-check` call, never a
-resumed loop.
-
-**(3) Fallback ladder**, only when the primary wake misses a turn: a
-bounded Monitor `until` loop (`until flow-ci-check "$PR"
-$NOT_REQUESTED_FLAG $WAIT_FLAG --out "$VERDICT_FILE" | jq -e
-'.status=="decided"' >/dev/null; do sleep "$NEXT"; done`, ≤3600000 ms) or
-`ScheduleWakeup` (same 60s floor, equivalent, when present) — both end in
-the same `flow-ci-check` call. If neither fires before turn-end:
-**yield-and-resume (`ci-wait-pending`)** — write `flow-state-update --phase
-ci-wait-pending` and end the turn cleanly (a pending phase; `flow-stop-guard`
-treats it as a legitimate turn-end, no loop-break budget consumed). On
-re-invocation, re-run step (1): a parsing `$VERDICT_FILE` short-circuits to
-"Branch on `.decision`"; otherwise `flow-ci-check` runs fresh.
-
-**(4) Failed observation.** A `flow-ci-check` call whose `gh` read itself
-failed emits `waiting` + `observation:"failed"` + `observationFailedSec`
-(from `ciWait.lastObservedAt ?? ciWait.startedAt`) — never a fabricated
-decision. Rule: `observationFailedSec >= 1200` ⇒ `NEEDS HUMAN: gh-unavailable`.
-
-**Anchors, not an in-process clock.** Every `elapsedSec` re-derives from
-`ciWait.startedAt` in state.json; `ciTerminalAt` prefers GitHub's own
-`completedAt` (floored at `startedAt`) over observation time — a
-suspended/parked waiter can delay the next `flow-ci-check` call but never
-inflate what it reports as elapsed, immune to fabricating `ci-hang`.
-`$VERDICT_FILE` is written only on `decided`, so "file exists and parses
-⇒ branch" resume logic and `flow-pipeline-summary --ci-wait-result` keep
-working unchanged.
-
-Branch on `.decision`. Resolve the render lens once for the whole table: `LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)`. At every terminal `flow-gate-summary` render below (status: merged, gated, needs-human, or cancelled), first author `TLDR="<one sentence, ≤25 words, the user-visible outcome>"` and pass `--tldr "$TLDR"`; a `flow-notify` call in the same row passes `--reason "$TLDR"` (needs-human also passes `--tag <reason-tag>`); a `flow-pipeline-summary` call in the same row adds `--lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)` and, right after, captures `COUNTS_LINE=$(flow-pipeline-summary --status <status> --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)`, threaded into `flow-gate-summary --counts-line "$COUNTS_LINE" --untracked-file <(flow-untracked render --format gate --unfiled-only)`.
-
-| `.decision` | Action |
-|---|---|
-| `proceed-to-review` | Continue to step 8. |
-| `proceed-to-review-no-bot` | Same as above; the bot review timed out 10 min after CI went terminal, or the Copilot auto-detect short-circuited (see `copilotSkipReason` JSON field — one of `unclaimed-after-deadline`, `self-dismissed`, or `null` when the 10-min timeout fired). |
-| `ci-failed` | Continue to step 5 mode=fix. Pass `$CI_FAILED_CHECKS` (extracted above) as the failure log. Subject to the 3-loop ci-fix cap below. |
-| `merged-externally` | PR was merged externally mid-flight. Capture follow-ups output to a file: `flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (still executes auto-allowlisted entries; `>` captures the rendered block). Set `SLUG="$FLOW_SLUG"`, in ONE `gh pr view` round-trip guarded by `[ -n "$PR" ]`, capture the diff-size source AND the echo-recap fields (`[ -n "$PR" ] && gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json" && IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] \| @tsv' "$WORKTREE/.flow-tmp/pr-view.json") && jq '{additions,deletions,changedFiles,commits:(.commits\|length)}' "$WORKTREE/.flow-tmp/pr-view.json" > "$WORKTREE/.flow-tmp/pr-changes.json"`), then render the snapshot ABOVE the gate block via `flow-pipeline-summary --status merged --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --post-comment "$PR" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH" --lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)` (`--post-comment` durably persists the snapshot as an idempotent PR comment on the MERGED path; it no-ops when `$PR` is empty), then capture `COUNTS_LINE=$(flow-pipeline-summary --status merged --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)` — then **extract the block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as markdown bullets in your assistant message (prose, not tool output)**; see the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection. Then render the epic-membership block via `flow-epic-membership --slug "$SLUG" --terminal-state merged-externally` (no-op for non-epic features). Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then author `TLDR="<one-sentence outcome>"` and render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally mid-flight; supervisor cleaned up the worktree" --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"` — which records `phase: merged` itself, only after its block reaches stdout, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry (the helper silently suppresses the FOLLOW-UPS slot when the file is empty; its final stdout line is the byte-exact sentinel `MERGED`). Then, since arming first would be stale on arrival, best-effort checkpoint: `[ "$(flow-checkpoint --probe --site terminal \| jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED (externally) at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null` (stdout muted, stderr deliberately left connected — echo the `checkpointed: ` line verbatim per the [Checkpoint arm signal (echo-verbatim)](#checkpoint-arm-signal-echo-verbatim) subsection). Then `flow-remove-worktree --delete-branch`, call `flow-notify --status merged --url "$PR_URL" --reason "$TLDR"`. End. The roadmap row was self-marked in the PR's diff by `/flow-pr-review` step 7.5; no post-merge sweep required. |
-| `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
-| `pr-conflicted` | Branch conflicts with base; CI can never run. Advance to the step-10 merge path — `gh pr merge --squash` surfaces the conflict-class failure and the existing Merge-Conflict Resolver Subagent merges base into the branch, resolves, and pushes, after which CI re-runs on the clean head and the pipeline re-enters step 7. Does NOT consume a ci-fix-loop budget slot (conflict remediation is a merge, not a code fix). |
-| `pr-blocked` | Branch protection blocks the merge — `mergeStateStatus` is still `BLOCKED` (a failing required check, a missing required review, CODEOWNERS, or a linear-history rule outside the `gh pr checks` surface) **after** CI reached terminal and passed. Unlike `pr-conflicted`, this fires only post-CI-terminal (a PR is legitimately `BLOCKED` while required checks are still pending, so `flow-ci-check` waits CI out first), and unlike a conflict it has no universal mechanical fix the pipeline owns. Escalate `NEEDS HUMAN: pr-blocked` via the standard `# Failure paths` block. Does NOT route to the step-10 merge path and does NOT consume a ci-fix-loop budget slot. |
-| `ci-hang` | Escalate `NEEDS HUMAN: ci-hang`. |
-
-`--copilot-login <login>` overrides the bot login (default reads
-`~/.flow/config.json` `bots.copilot`, falling back to
-`copilot-pull-request-reviewer`). The helper applies the
-`CI_CONFIGURED=0` and `COPILOT_REQUESTED=0` presence overrides
-internally — no workflows in `.github/workflows/` collapses to
-vacuously-passing CI; bot not requested as a reviewer collapses to
-vacuously-posted (skipping the 10-min timeout).
-
-`--wait-for-copilot` is a per-pipeline opt-out of the Copilot
-auto-detect short-circuits (see
-`references/polling-protocol.md` "Claim-deadline auto-detect" and
-"Self-dismissal short-circuit"). The supervisor reads the
-`waitForCopilot` field from state.json (`jq -r '.waitForCopilot //
-empty'`) and appends `--wait-for-copilot` to the `flow-ci-check` call
-when the value is the literal `true`. Absent ≡ false ≡ auto-detect ON
-(the documented default). The flag is set per-pipeline via
-`flow feature create --wait-for-copilot "<description>"`.
-
-**Fix-loop cap: 3 total ci-fix loops** across the whole pipeline.
-After the third red CI, escalate `NEEDS HUMAN: ci-fix-exhausted`.
-
-**End condition:** the helper exits 0 with one of the decisions
-above. On `proceed-to-review` / `proceed-to-review-no-bot`, continue
-to step 8. On `ci-failed`, continue to step 5 mode=fix. On
-`pr-conflicted`, advance to the step-10 merge path (the existing
-Merge-Conflict Resolver Subagent merges base in + resolves + pushes; no
-ci-fix-loop budget consumed) and re-enter step 7 once CI re-runs on the
-clean head. On `merged-externally`, run cleanup and end. On `pr-blocked`
-/ `pr-closed` / `ci-hang`, escalate and end.
+On resume, the step-7 row above relaunches stage A (state.json skip).
 
 ## Step 8 — Review
 
-**Phase:** `reviewing`
+**Phase:** `reviewing` — written at the step head by stage A's
+`reviewing-phase-write` agent (an `EARLY_PHASE_WRITES` member), with
+`flow-fetch-pr-review`'s emission inside stage A's review step as the
+idempotent backstop — so a review-skip short-circuit (closed/merged/
+trivial PR) still leaves a `reviewing` row in `phaseLog[]`. No
+supervisor-side write.
 
-Write the phase BEFORE invoking the review sub-skill below, so the
-phase names the step the run is actually inside:
-
-```bash
-flow-state-update --phase reviewing
-```
-
-`flow-fetch-pr-review` (from the review sub-skill's Step 2) still emits
-`reviewing` at this step's tail as an idempotent backstop — by then
-`advancePhase` returns `already-at-or-past`, so the backstop adds no
-duplicate `phaseLog[]` row. An inline metadata triage `skip`
-short-circuit (Step 1.5, closed/merged/trivial PR) bypasses Step 2's
-fetch, so the backstop never fires — but the step-head write above has
-already recorded `reviewing` regardless, closing the `phaseLog[]` audit
-hole that short-circuit used to leave.
-
-Invoke `/flow-pr-review` in-process with the PR number:
-
-```
-/flow-pr-review <PR>
-```
-
-Every entry — including fix-loop re-entries — is delta-scoped and
-lens-gated by `flow-review-scope` (`flow-pr-review`
-`references/review-scope.md`); opt-outs `review.deltaScope` /
-`review.lensGates` restore today's full-diff, all-six-lenses behaviour.
-
-When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are present, `/flow-pr-review` Step 8c runs the subjective visual-appearance pass against the browser-validation capability (opening each page in a per-pipeline `isolatedContext`): it drives each enumerated visual-appearance item, judges it via the `ui-ux` skill, captures an a11y snapshot as primary evidence (injected via `flow-inject-evidence`) plus a screenshot referenced by path under `.flow-tmp/ui-evidence/`, and ticks the box. This adds no new Task-tool exemption — Step 8c runs inside the already-exempt Fix-Applier surface. `/flow-pr-review` Step 3.6's intent-mismatch resolution sub-step also runs in this in-process review, comparing the diff-only intent-guess agent's blind guess against the actual request; it may escalate `NEEDS HUMAN: intent-drift` or append an unchecked `- [ ] SUBJECTIVE: confirm scope drift is intentional` item to the PR's Test Steps.
-
-`/flow-pr-review` itself spawns one **Fix-Applier Subagent** via the Task
-tool (the fourth of the seven named Task-tool exemptions in "Hard
-rules" above) to handle the per-finding address loop, the pre-commit
-run, the commit + push, and the `/flow-verify` re-run — all inside the
-subagent's isolated context. The subagent writes a structured
-artifact to `<worktree>/.flow-tmp/fix-applier-result.json`; the
-wrapper reads it once and reuses the parsed object across its
-remaining steps. The supervisor never sees the per-finding fix
-prose, only `/flow-pr-review`'s brief return summary.
-
-**Surface UI screenshots (review-time).** `/flow-pr-review` Step 8c's
-browser pass (above) merges its captured screenshot paths into this same
-`fix-applier-result.json`'s `ui_screenshots[]` before this read, so mirror
-the same recipe used at step 6 against it:
-
-  ```bash
-  jq -r '.ui_screenshots[]?' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r p; do
-    [ -f "$p" ] && printf '%s\n' "$p"
-  done
-  ```
-
-  Print each surviving absolute path as a markdown link,
-  `[<abs path>](file://<abs path>)` — one per line, no bullet marker, no
-  trailing punctuation — all of them, no cap.
-
-`/flow-pr-review` Step 1.5 runs an inline metadata triage — performed by
-the reviewing session itself, no Task-tool spawn — before any Task-tool
-fan-out fires. This short-circuit fetches PR metadata (`gh pr view`) and
-applies deterministic skip rules to skip closed/merged/trivial/no-new-commits
-PRs cheaply without paying for the four-agent Sonnet review. On a skip
-verdict the wrapper writes a `status: "clean"` artifact and the supervisor
-proceeds to the auto-merge gate; on a proceed verdict it falls through to
-the full review. Full contract in
-[references/exemption-contracts.md](../../../references/exemption-contracts.md).
-
-The skill auto-detects Address vs Review mode from the existing PR
-state and:
-
-- In Address mode (existing inline review comments to address):
-  resolves each, commits, pushes.
-- In Review mode (no existing comments to address): runs the
-  multi-agent independent review, posts findings as inline
-  comments, auto-fixes any critical findings, commits, pushes.
-
-**Fix-loop cap: 2 total review-fix loops.** If `/flow-pr-review`
-surfaces critical findings that it can't auto-fix, loop back to
-step 5 with mode=fix and the finding details. After the second
-loop-back, escalate `NEEDS HUMAN: review-fix-exhausted`.
-
-After `/flow-pr-review` commits + pushes, return to step 7 (CI wait),
-not directly to step 9. The fix commit may have changed CI.
-
-**End condition:** `/flow-pr-review` returns clean (no critical
-findings outstanding) AND the most recent CI cycle is green.
-Continue to step 9.
-
-### Read the `/flow-pr-review` result artifact and branch on `.status`
-
-After `/flow-pr-review` returns, the wrapper has written a structured
-result artifact at `<worktree>/.flow-tmp/pr-review-result.json`
-(documented in `skills/pipeline/flow-pr-review/SKILL.md`'s `# Result
-artifact` section). Read it exactly once and validate the shape
-before branching:
-
-```bash
-flow-pr-review-result-schema --validate \
-  "$WORKTREE/.flow-tmp/pr-review-result.json"
-```
-
-The validator exits 0 and prints `{ok: true}` on a well-formed artifact;
-on a malformed or missing file it exits non-zero with
-`{ok: false, reason, path?}` on stderr.
-
-**Missing or empty artifact** → escalate `NEEDS HUMAN:
-pr-review-missing-artifact` (no retry; mirrors
-`fix-applier-missing-artifact`). The wrapper writes the artifact on every
-documented exit path, so absence signals a catastrophic crash.
-
-Branch on the artifact's `.status` field — exactly one of the
-three string literals `"clean"`, `"partial"`, or `"escalated"`:
-
-- `"clean"` → the skill ran to completion; continue to step 7 (CI
-  wait) per the existing flow above, then step 9.
-- `"partial"` (with non-empty `.missed_steps`) → re-invoke
-  `/flow-pr-review <PR> --resume-from <first-missed-step>` exactly once (the
-  `--resume-from` flag skips the steps already in `.completed_steps` and
-  resumes at the named step). After the retry returns, re-validate the
-  artifact and re-branch on `.status`:
-    - retry-`"clean"` → continue per the `"clean"` branch above.
-    - retry-`"partial"` → escalate `NEEDS HUMAN: review-partial:
-      <missed_steps joined with commas>`.
-    - retry-`"escalated"` → propagate `.escalation_tag` verbatim
-      into `NEEDS HUMAN: <escalation_tag>` (same as the
-      first-call `"escalated"` branch below — collapsing it into
-      `review-partial` would drop the actionable tag, e.g.
-      `task-tool-unavailable: pr-review-fix-applier`, in favour
-      of a generic missed-step list).
-  The partial-retry budget is one, **independent of the 2-loop
-  review-fix cap above** (that cap counts auto-fixed critical findings;
-  this counter tracks structural missed-step retries).
-- `"escalated"` → propagate the `.escalation_tag` verbatim into
-  `NEEDS HUMAN: <escalation_tag>` and bail. No retry: the tag names a
-  documented bail-out site (e.g. `task-tool-unavailable: pr-review-*`,
-  `fix-applier-missing-artifact`) whose
-  resolution is user-action.
-
-On non-zero exit from `/flow-pr-review` itself (Bun-level / shell-level
-failure with no artifact written): retry once. If the retry also
-fails, escalate `NEEDS HUMAN: review-failed`.
+Stage A's review step runs `/flow-pr-review <PR>` in-process (delta-scoped,
+lens-gated), including the Step 8c subjective visual-appearance pass against the browser-validation capability
+when a UI-validation manifest is present. It reads the result artifact and branches on `.status` exactly as
+before — `"clean"` continues, `"partial"` retries once with
+`--resume-from <step>`, `"escalated"` propagates `.escalation_tag`. The
+2-total review-fix-loop cap is enforced inside stage A; after the second
+loop-back, stage A returns `needs-human: review-fix-exhausted`. Re-entry
+resumes stage A at this step from a `reviewing` phase.
 
 ## Step 9 — Auto-merge gate
 
@@ -2053,7 +1616,7 @@ Branch on `.decision`. Resolve the render lens once for the whole table: `LENS=$
 
 | `.decision` | Action |
 |---|---|
-| `auto-merge` | Run `flow-followups pr-body-upsert "$PR"` (no-op when log is empty; otherwise idempotent in-place upsert of `## Local Follow-ups` so the section survives the squash-merge), then run `flow-foreclosed-paths pr-body-upsert "$PR"` (idempotent; no-ops when there are no foreclosed paths). Continue to step 10 (auto-merge). |
+| `auto-merge` | Run `flow-followups pr-body-upsert "$PR"` (no-op when log is empty; otherwise idempotent in-place upsert of `## Local Follow-ups` so the section survives the squash-merge), then run `flow-foreclosed-paths pr-body-upsert "$PR"` (idempotent; no-ops when there are no foreclosed paths). Launch stage B (step 10). |
 | `gated` | Run `flow-followups pr-body-upsert "$PR"` (idempotent), then run `flow-foreclosed-paths pr-body-upsert "$PR"` (idempotent; no-ops when there are no foreclosed paths), then capture the deferred follow-ups block via `flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"` (the renderer suppresses the FOLLOW-UPS slot when the file is empty). Set `SLUG="$FLOW_SLUG"`, in ONE `gh pr view` round-trip, capture the diff-size source AND the echo-recap fields (`gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json" && IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] \| @tsv' "$WORKTREE/.flow-tmp/pr-view.json") && jq '{additions,deletions,changedFiles,commits:(.commits\|length)}' "$WORKTREE/.flow-tmp/pr-view.json" > "$WORKTREE/.flow-tmp/pr-changes.json"`), then render the snapshot ABOVE the gate block via `flow-pipeline-summary --status gated --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH" --lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)`, then capture `COUNTS_LINE=$(flow-pipeline-summary --status gated --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)` — then **extract the block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as markdown bullets in your assistant message (prose, not tool output)**; see the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection. Then render the epic-membership block via `flow-epic-membership --slug "$SLUG" --terminal-state gated` (prints nothing for non-epic features). Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then author `TLDR="<one-sentence outcome + count of items needing you>"` and render the GATED block via `flow-gate-summary --status gated --pr-url "$PR_URL" --why "$REASON" --validation-items-file <(printf '%s\n' "$VALIDATION_ITEMS") --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"` — which records `phase: gated` itself, only after its block reaches stdout, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry. Call `flow-notify --status gated --url "$PR_URL" --reason "$TLDR"`. End. |
 | `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Capture follow-ups output: `flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (executes allowlisted+auto entries while the worktree is still alive; `>` captures the rendered block). Set `SLUG="$FLOW_SLUG"`, in ONE `gh pr view` round-trip guarded by `[ -n "$PR" ]`, capture the diff-size source AND the echo-recap fields (`[ -n "$PR" ] && gh pr view "$PR" --json additions,deletions,changedFiles,commits,url,title,headRefName > "$WORKTREE/.flow-tmp/pr-view.json" && IFS=$'\t' read -r PR_URL PR_TITLE PR_BRANCH < <(jq -r '[.url, .title, .headRefName] \| @tsv' "$WORKTREE/.flow-tmp/pr-view.json") && jq '{additions,deletions,changedFiles,commits:(.commits\|length)}' "$WORKTREE/.flow-tmp/pr-view.json" > "$WORKTREE/.flow-tmp/pr-changes.json"`), then render the snapshot ABOVE the gate block via `flow-pipeline-summary --status merged --state-file ~/.flow/state/"$SLUG".json --pr-changes-file "$WORKTREE/.flow-tmp/pr-changes.json" --pr-review-result "$WORKTREE/.flow-tmp/pr-review-result.json" --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --consolidator-result "$WORKTREE/.flow-tmp/consolidator-result.json" --ci-wait-result "$WORKTREE/.flow-tmp/ci-wait-result.json" --followups-block-file "$WORKTREE/.flow-tmp/followups-block.txt" --filed-issues-file "$WORKTREE/.flow-tmp/filed-issues.txt" --intent-resolution "$WORKTREE/.flow-tmp/intent-resolution.json" --post-comment "$PR" --echo-prose --pr-url "$PR_URL" --plan-file "$WORKTREE/.flow-tmp/plan.md" --pr-title "$PR_TITLE" --branch "$PR_BRANCH" --lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)` (the helper yields `none` for absent artifacts, so a thin merged-externally snapshot is expected; `--post-comment` durably persists the snapshot as an idempotent PR comment and no-ops when `$PR` is empty), then capture `COUNTS_LINE=$(flow-pipeline-summary --status merged --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)` — then **extract the block between `<!-- flow-echo-recap:start -->` and `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM as markdown bullets in your assistant message (prose, not tool output)**; see the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection. Then render the epic-membership block via `flow-epic-membership --slug "$SLUG" --terminal-state merged-externally` (no-op for non-epic features). Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then author `TLDR="<one-sentence outcome>"` and render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally; supervisor cleaned up worktree only" --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"` — which records `phase: merged` itself, only after its block reaches stdout, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry. Then, since arming first would be stale on arrival, best-effort checkpoint: `[ "$(flow-checkpoint --probe --site terminal \| jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED (externally) at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null` (stdout muted, stderr deliberately left connected — echo the `checkpointed: ` line verbatim per the [Checkpoint arm signal (echo-verbatim)](#checkpoint-arm-signal-echo-verbatim) subsection). Then `flow-remove-worktree --delete-branch`, call `flow-notify --status merged --url "$PR_URL" --reason "$TLDR"`. End. (The roadmap row was self-marked in the PR's diff by `/flow-pr-review` step 7.5; no post-merge sweep is needed.) |
 | `closed-no-merge` | Author `TLDR="The PR was closed without merging; nothing was shipped."`. Call `flow-notify --status needs-human --url "$PR_URL" --reason "$TLDR" --tag pr-closed-without-merge`. Run `flow-browser-teardown --reap --record` (registry-driven reap; records its outcome in state.json and always exits 0 — never blocked, never swallowed) as its own standalone step, then render the NEEDS HUMAN block via `flow-gate-summary --status needs-human --reason pr-closed-without-merge --pr-url "$PR_URL" --why "PR closed without merge" --cleanup --tldr "$TLDR" --lens "$LENS"`. End. |
@@ -2134,7 +1697,7 @@ below; any other decision ⇒ route per step 9's main decision table.
 When the three tests pass, fire exactly one `AskUserQuestion`
 confirmation naming the PR and the unchecked-step count (the named
 exemption in "Hard rules"); on an affirmative answer, run
-`flow-merge-guard "$PR" --record-override` and re-enter step 10 — the
+`flow-merge-guard "$PR" --record-override` and launch stage B (step 10) — the
 backstop there reads the token and lets the merge through. On any
 non-affirmative answer, or when the instruction fails the "fresh" or
 "in-context" test, do **not** fire the confirmation and do **not**
@@ -2152,290 +1715,76 @@ purely on the step 9 supervisor-prose decision path.
 
 ## Step 10 — Merge
 
-**Phase:** `merging`
-
-Emitted by `flow-merge-guard` as a side effect of returning the
-pass/block verdict this step cannot proceed without; there is no
-separate phase-write command.
+**Phase:** `merging` — written by `flow-merge-guard` inside stage B's
+guard step, the same side effect as before.
 
 **Mechanical merge guard — run before every merge.** `flow-merge-guard`
 is the backstop that makes the merge path mechanically unreachable on a
-`gated` verdict the supervisor reached step 10 with anyway. It re-fetches
-the *live* PR body and re-parses the `## Test Steps` section (reusing the
-same audited parse as `flow-gate-decide`), and blocks unless the section
-has zero unchecked items **or** a fresh gate-override token is recorded
-(written by the step 9 "Gate override" sub-step). It is mandatory on
-every merge path: on a legitimate `auto-merge` verdict it is a no-op
-pass, so running it always costs nothing and closes the override hole.
+`gated` verdict the pipeline reached step 10 with anyway — it blocks
+unless the live PR body's `## Test Steps` section has zero unchecked
+items **or** a fresh gate-override token is recorded (written by the
+step 9 "Gate override" sub-step). On a guard block, stage B returns
+`guard-blocked` and the supervisor escalates
+`NEEDS HUMAN: gate-override-without-confirmation` and ends — it never
+merges past the guard and never retries it.
+
+## Stage B launch
+
+Runs only after `gate-ready`/auto-merge (step 9), the fresh-confirmation
+gate override, or `needs-stage-b` from stage A. One Workflow-tool call,
+`flow-stage-b` (`workflows/core/flow-stage-b.workflow.js`): guard →
+squash merge → conflict resolve (on a conflict-class failure only) →
+post-merge sweep.
 
 ```bash
-GUARD_JSON=$(flow-merge-guard "$PR")
-GUARD_RC=$?
-if [ "$GUARD_RC" -ne 0 ]; then
-  PR_URL=$(gh pr view "$PR" --json url -q .url 2>/dev/null)
-  GUARD_REASON=$(printf '%s' "$GUARD_JSON" | jq -r '.reason // empty' 2>/dev/null)
-  GUARD_REASON=${GUARD_REASON:-"flow-merge-guard exited $GUARD_RC (helper missing from PATH? run flow install --upgrade)"}
-  flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"
-  flow-browser-teardown --reap --record  # registry-driven; records outcome; always exits 0
-  TLDR="Merge is blocked: it needs your fresh confirmation before it can proceed."
-  LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)
-  flow-gate-summary --status needs-human \
-    --reason gate-override-without-confirmation --cleanup \
-    --pr-url "$PR_URL" --why "$GUARD_REASON" \
-    --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" \
-    --tldr "$TLDR" --lens "$LENS"  # records phase: needs-human itself (flow-gate-summary is the sole terminal-phase emitter)
-  flow-notify --status needs-human --url "$PR_URL" \
-    --reason "$TLDR" --tag gate-override-without-confirmation
-  # End. Do NOT merge, do NOT retry the guard.
-  exit 1
-fi
+ARGS=$(jq -n --arg slug "$FLOW_SLUG" --arg worktree "$WORKTREE" --argjson pr "$PR" \
+  --arg prUrl "$PR_URL" --arg planPath "$WORKTREE/.flow-tmp/plan.md" \
+  --arg skillDir "$(cd -P "$SKILL_DIR/.." && pwd -P)" \
+  --arg effort "$(jq -r '.effort // "high"' ~/.flow/state/"$FLOW_SLUG".json)" \
+  --arg launchedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg modelMergeResolver "$(jq -r '.modelMergeResolver // empty' ~/.flow/state/"$FLOW_SLUG".json)" \
+  '{slug:$slug, worktree:$worktree, pr:$pr, prUrl:$prUrl, planPath:$planPath,
+    skillDir:$skillDir, effort:$effort, launchedAt:$launchedAt,
+    models: {mergeResolver: $modelMergeResolver}}')
+# modelMergeResolver resolution: state.modelMergeResolver > config.models.mergeResolver
+# > inherited (empty ⇒ inherit) — same precedence as before, see
+# references/model-routing.md.
 ```
 
-A non-zero `flow-merge-guard` exit means a `gated` verdict was reached
-without the fresh-confirmation override (exit 1 = blocked), or the guard
-could not run (exit 2 = gh error / bad args, or 127 = helper not yet on
-PATH — the user must run `flow install --upgrade`). In **every** non-zero
-case the supervisor escalates `NEEDS HUMAN: gate-override-without-confirmation`
-and ends — it never merges past the guard and never retries it. Only
-when `GUARD_RC` is `0` does the supervisor continue to the merge below.
+`{ name: "flow-module-core:flow-stage-b", args: $ARGS }` via the Workflow
+tool (same unknown-name → `scriptPath` fallback and wake ladder as stage
+A). Validate the same way as stage A, against `stage-b-result.json`, then
+branch on `.outcome`:
 
-```bash
-PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
-MERGE_STDERR=$(cd "$PRIMARY" && gh pr merge --squash "$PR" 2>&1 1>/dev/null)
-MERGE_RC=$?
-```
+| `.outcome` | Action |
+|---|---|
+| `merged` | Continue to step 11 (local follow-ups) — the sweep already ran inside stage B. |
+| `guard-blocked` | Escalate `NEEDS HUMAN: gate-override-without-confirmation` per the guard note above. End. |
+| `merge-failed` | Escalate `NEEDS HUMAN: merge-failed` with `.reason`. End. |
+| `resolver-missing-artifact` | Escalate `NEEDS HUMAN: merge-resolver-missing-artifact`. End. |
+| `resolver-push-failed` | Escalate `NEEDS HUMAN: merge-failed` — `.resolver.push_status` was not `succeeded`. End. |
 
-**Retry self-containment.** The supervisor runs each retry below as a
-separate Bash tool call, and a fresh shell does not inherit `$PRIMARY`
-from the block above (a shell-state-loss hazard). So every retry call
-site re-derives `PRIMARY=$(git worktree list ...)` in its own block
-before invoking `gh pr merge` — the merge command itself takes no extra
-flags, so there is nothing else to carry across.
-
-Step 10 runs a bare `gh pr merge --squash` — no `--body`, no `--subject` —
-so gh builds the squash-commit body from its default concatenation of the
-branch's commit messages. The `Claude-Code-Session-Id:` trailer reaches
-`git log` / `git blame` via the per-commit `prepare-commit-msg` hook
-`flow-new-worktree` installs (gh's concatenation carries it into the squash
-commit for free); the step 9 gate is unaffected — it inspects only the live
-PR body. The merge runs from `$PRIMARY` (which has the base branch checked
-out) because gh's post-merge `git checkout <base>` would collide with the
-primary worktree if run from the feature-branch `$WORKTREE`. Issue #486 re-litigated the bare-squash choice and lost; see [references/git-workflow.md](../../../references/git-workflow.md).
-
-On `MERGE_RC == 0`: continue to the post-merge sweep below.
-
-On non-zero exit, branch on the failure class:
-
-- **Conflict-class** — `MERGE_STDERR` matches any of:
-  `Pull Request is not mergeable`, `not mergeable: the merge commit
-  cannot be cleanly created`, `merge conflict between`. Spawn the
-  Independent Merge-Conflict Resolver Subagent (see below), then
-  retry the merge **exactly once** with `$PRIMARY` re-derived in the
-  same Bash call:
-
-  ```bash
-  PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
-  (cd "$PRIMARY" && gh pr merge --squash "$PR")
-  ```
-
-  On retry success, continue to the post-merge sweep. On retry
-  failure, author `TLDR="The merge failed after a conflict resolve and
-  retry; nothing was lost."` and render the NEEDS HUMAN block via
-  `flow-gate-summary --status needs-human --reason merge-failed
-  --pr-url "$PR_URL" --why "$(jq -r .summary "$ARTIFACT_PATH" | head
-  -1)" --tldr "$TLDR" --lens "$(jq -r '.output.lens // "pm"'
-  ~/.flow/config.json 2>/dev/null)"`. End.
-  Then the standard `# Failure paths` chain.
-- **Non-conflict** (auth, network, branch-protection denied, required
-  check failed, PR closed externally, any unrecognised stderr) —
-  retry the merge once with `$PRIMARY` re-derived in the same Bash
-  call:
-
-  ```bash
-  PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
-  (cd "$PRIMARY" && gh pr merge --squash "$PR")
-  ```
-
-  If still
-  failing, author `TLDR="The merge failed for a reason other than a
-  conflict; nothing was lost."` and escalate via the standard
-  `# Failure paths` block (capture follow-ups via `flow-followups run
-  --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"` → render via
-  `flow-gate-summary --status needs-human --reason merge-failed
-  --pr-url "$PR_URL" --why "$MERGE_STDERR" --deferred-file
-  "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens
-  "$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)"`
-  (records `phase: needs-human` itself) → `flow-notify --status
-  needs-human --url "<pr-url>" --reason "$TLDR" --tag merge-failed`. Leave the worktree intact. Do **not** spawn the resolver — it can't help with
-  non-conflict failures and would waste a Task call.
-
-### Independent Merge-Conflict Resolver Subagent
-
-Fires only on the conflict-class branch above. The subagent merges
-`origin/<base>` into the branch, resolves each conflicted file,
-records actions taken + ambiguous calls in a structured artifact,
-pushes, and returns a brief summary. The supervisor never sees
-the merge output, the per-file resolution prose, or the push
-transcript — only the artifact and the summary.
-
-**Load the Task tool before spawning** — i.e. before the Task call below. See [../flow-pr-review/references/task-tool-exemption-preamble.md](../flow-pr-review/references/task-tool-exemption-preamble.md) for the full rationale. On missing schema: escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-merge-resolver` and exit (do not fall back to in-line execution).
-
-Resolve the inputs the subagent needs, then make exactly **one**
-Task call:
-
-```bash
-ARTIFACT_PATH="$WORKTREE/.flow-tmp/merge-resolver-result.json"
-INSTRUCTIONS_PATH="$SKILL_DIR/../flow-merge-resolver-instructions/SKILL.md"; FLOW_ROOT=$(cd -P "$SKILL_DIR/../../.." && pwd -P); MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"  # cd -P+pwd -P load-bearing: a logical cd lands in ~/.flow/claude-home
-BASE_BRANCH=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
-mkdir -p "$WORKTREE/.flow-tmp"
-rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior re-entry (step 10 is re-enterable via the step-7 pr-conflicted row)
-# Per-phase model (mergeResolver) — resolution field: state.modelMergeResolver.
-# Precedence: --model-merge-resolver > config.models.mergeResolver > inherited.
-# Empty ⇒ omit model: from the Task call (inherit). See references/model-routing.md.
-SLUG="$FLOW_SLUG"
-MERGE_RESOLVER_MODEL=$(jq -r '.modelMergeResolver // empty' ~/.flow/state/"$SLUG".json)
-[ -z "$MERGE_RESOLVER_MODEL" ] && MERGE_RESOLVER_MODEL=$(jq -r '.models.mergeResolver // empty' ~/.flow/config.json 2>/dev/null)
-# Best-effort conflicting-file list — only non-empty when an outer
-# process already left the worktree mid-merge (the resolver runs the
-# merge itself in Step 2). `git diff --name-only --diff-filter=U`
-# catches every U-class status (UU/AU/UA/DU/UD), unlike a porcelain
-# prefix grep which misses the AU/DU pair where U is in column 2.
-(cd "$WORKTREE" && git fetch origin "$BASE_BRANCH") || echo "warn: git fetch origin $BASE_BRANCH failed; resolver will retry the fetch in Step 2" >&2
-CONFLICTING_FILES=$(cd "$WORKTREE" && git diff --name-only --diff-filter=U)
-PR_DESCRIPTION=$(gh pr view "$PR" --json body -q .body)
-# Guarded agent resolution — contract in references/exemption-contracts.md (exemption #5).
-# Plugin-hosted agents resolve ONLY by the plugin-qualified name
-# <pluginRootName>:<agentBasename> — a bare name fails Task-tool
-# resolution outright (measured: "Agent type 'flow-scout' not found").
-MERGE_RESOLVER_SUBAGENT=general-purpose
-if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-merge-resolver.md ]; then
-  MERGE_RESOLVER_SUBAGENT=flow-module-core:flow-merge-resolver
-else
-  echo "NOTICE — agent-fallback: flow-merge-resolver → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."
-fi
-```
-
-See [references/merge-resolver-spawn-prompt.md](references/merge-resolver-spawn-prompt.md) for the verbatim spawn-prompt template (nine `{{...}}` placeholders). Fill the placeholders from the resolve-inputs block above before passing it to the Task tool.
-
-Make the Task call with `subagent_type: $MERGE_RESOLVER_SUBAGENT` (resolved
-above — `flow-module-core:flow-merge-resolver` on a plugin-root install, else
-`general-purpose`), the per-spawn
-`model: "$MERGE_RESOLVER_MODEL"` argument resolved above (precedence
-`--model-merge-resolver > config.models.mergeResolver > inherited`; when
-`$MERGE_RESOLVER_MODEL` is empty, omit `model:` so the resolver inherits the
-session model — see [references/model-routing.md](references/model-routing.md)),
-and the filled prompt. After it returns:
-
-1. Spawn-denial check: if the Task call itself returns a permission
-   denial / refusal (not a subagent result) AND no artifact was
-   written, author `TLDR="The merge-conflict resolver couldn't start;
-   nothing was touched."` and escalate `NEEDS HUMAN:
-   merge-resolver-spawn-denied` via `flow-gate-summary --status needs-human
-   --reason merge-resolver-spawn-denied --pr-url
-   "$PR_URL" --tldr "$TLDR" --lens "$(jq -r '.output.lens // "pm"'
-   ~/.flow/config.json 2>/dev/null)"`, leave the worktree intact, and
-   end — do **not** resolve inline in the supervisor
-   (see [references/exemption-contracts.md](../../../references/exemption-contracts.md)
-   for why). Then the standard `# Failure paths` chain. **Partial-result continuation:** a Task result marked partial with an agent id and a missing artifact gets one `SendMessage` continuation per `references/partial-result-continuation.md` before escalating.
-2. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
-   `NEEDS HUMAN: merge-resolver-missing-artifact` and end. (Do not
-   re-spawn the resolver — exactly one Task call per run, per the
-   exemption contract.) Then the standard `# Failure paths` chain.
-3. Read the artifact's `push_status`. If `succeeded`, retry the
-   merge **exactly once** with `$PRIMARY` re-derived in the same Bash
-   call (the supervisor runs this as a fresh shell — `$PRIMARY` from
-   the Step 10 block above is not in scope):
-
-   ```bash
-   PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
-   (cd "$PRIMARY" && gh pr merge --squash "$PR")
-   ```
-
-   If `failed` or `skipped`, do not retry — author `TLDR="The
-   conflict-resolver's push didn't take; the merge still needs you."`
-   and render the NEEDS HUMAN block via `flow-gate-summary --status needs-human
-   --reason merge-failed --pr-url "$PR_URL" --why "$(jq -r
-   .summary "$ARTIFACT_PATH" | head -1)" --tldr "$TLDR" --lens "$(jq -r
-   '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)"`. End.
-   Then the standard `# Failure paths` chain.
-4. On retry success, continue to the post-merge sweep below.
-5. On retry failure, author `TLDR="The retried merge still failed;
-   nothing was lost — the resolved branch is on disk."` and render the
-   NEEDS HUMAN block via `flow-gate-summary --status needs-human
-   --reason merge-failed --pr-url "$PR_URL" --why "$(jq -r .summary
-   "$ARTIFACT_PATH" | head -1)" --tldr "$TLDR" --lens "$(jq -r
-   '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)"`. End. Then
-   the standard `# Failure paths` chain. The artifact stays on disk in
-   the worktree for human inspection.
-
-On success, the roadmap row for this PR was already flipped to
-`✅ shipped (#$PR)` in the PR's own diff by `/flow-pr-review` step 7.5
-(self-mark + sweep), so no post-merge metadata sweep is required.
+Stage B's conflict-resolve step spawns the merge-resolver agent internally
+(`flow-module-core:flow-merge-resolver`, model `models.mergeResolver`) —
+this is the Workflow-tool `agent()` call enumerated in
+[references/workflow-agent-sites.md](../../../references/workflow-agent-sites.md),
+not a supervisor-level Task-tool exemption. On success, the roadmap row
+for this PR was already flipped to `✅ shipped (#$PR)` in the PR's own
+diff by `/flow-pr-review` step 7.5, so no post-merge metadata sweep is
+required here.
 
 ### Post-merge follow-up sweep
 
-Runs **before** `flow-remove-worktree` (which would delete plan.md
-and orphan the candidate-issue list) and before step 11. Reads
-`$WORKTREE/.flow-tmp/plan.md`'s `# Candidate follow-up issues`
-section, fires `flow-create-issue` once per `- [x]` item, prints a
-summary line above `MERGED`. No-op if plan.md is absent (non-feature
-pipelines won't have one) or the section is missing or has zero
-ticked items.
-
-```bash
-PLAN="$WORKTREE/.flow-tmp/plan.md"
-FILED=()
-WARN=()
-REJECTED=()
-if [ -f "$PLAN" ] && grep -q '^# Candidate follow-up issues' "$PLAN"; then
-  # `--ticked` owns the section parse + em-dash split; metadata fields
-  # are `null` sans a matching ranking-table row.
-  TICKED_JSON=$(flow-candidate-issues --plan-md-file "$PLAN" --ticked)
-  COUNT=$(printf '%s' "$TICKED_JSON" | jq -r '.ticked | length')
-  for ((i = 0; i < COUNT; i++)); do
-    ITEM=$(printf '%s' "$TICKED_JSON" | jq -c ".ticked[$i]")
-    TITLE=$(printf '%s' "$ITEM" | jq -r '.title')
-    BODY_FILE="$WORKTREE/.flow-tmp/sweep-$(echo "$TITLE" | tr ' /' '__').md"
-    # Body, then the value-prop block (details), then a Rationale/Relation
-    # line per non-null field, then the sweep attribution footer.
-    printf '%s' "$ITEM" | jq -r --arg pr "$PR" '[.body, (if .details != "" then "\n" + .details else empty end), (if .rationale then "\n**Rationale:** " + .rationale else empty end), (if .relation then "\n**Relation to current request:** " + .relation else empty end), "\nSurfaced by /flow-product-planning during the pipeline that landed PR #" + $pr + "."] | join("\n")' > "$BODY_FILE"
-    JSON=$(flow-create-issue \
-      --title "$TITLE" \
-      --body-file "$BODY_FILE" \
-      --label flow-agent,out-of-scope-discovery)
-    RC=$?
-    # RC=3 (REJECTED, distinct from a WARN gh/Issues-surface failure): the
-    # body was rejected by the value-rubric contract; `$JSON` is the
-    # rejection envelope, not a URL. Folding it into WARN would launder it.
-    if [ $RC -eq 0 ]; then FILED+=("$(printf '%s' "$JSON" | jq -r '.url')")
-    elif [ $RC -eq 3 ]; then REJECTED+=("$TITLE")
-    else WARN+=("$TITLE"); fi
-  done
-fi
-if [ "${#FILED[@]}" -eq 0 ] && [ "${#WARN[@]}" -eq 0 ] && [ "${#REJECTED[@]}" -eq 0 ]; then
-  echo "No follow-up issues filed"
-else
-  [ "${#WARN[@]}" -gt 0 ] && echo "WARN: no Issues surface for: ${WARN[*]}"
-  [ "${#REJECTED[@]}" -gt 0 ] && echo "REJECTED (exit 3, needs repair): ${REJECTED[*]}"
-  [ "${#FILED[@]}" -gt 0 ] && { echo "Filed ${#FILED[@]} follow-up issues:"; printf '  %s\n' "${FILED[@]}"; }; fi
-# Capture filed/unfiled/rejected entries as filed\t<url> / unfiled\t<title>
-# / rejected\t<title> lines; ## PIPELINE SNAPSHOT reads this file. Truncate first.
-: > "$WORKTREE/.flow-tmp/filed-issues.txt"
-if [ "${#FILED[@]}" -gt 0 ]; then printf 'filed\t%s\n' "${FILED[@]}" >> "$WORKTREE/.flow-tmp/filed-issues.txt"; fi
-if [ "${#WARN[@]}" -gt 0 ]; then printf 'unfiled\t%s\n' "${WARN[@]}" >> "$WORKTREE/.flow-tmp/filed-issues.txt"; fi
-if [ "${#REJECTED[@]}" -gt 0 ]; then printf 'rejected\t%s\n' "${REJECTED[@]}" >> "$WORKTREE/.flow-tmp/filed-issues.txt"; fi
-```
-
-The sweep is best-effort: per-call failure surfaces as a `WARN:` line
-but does not fail the pipeline — the merge already shipped.
-`flow-create-issue`'s title-collision idempotency makes a sweep re-run
-on resume safe (re-firing yields `flow-create-issue`'s `action:
-"existing"` and the same URL — distinct from `flow-candidate-issues`'
-decision enum).
+Runs inside stage B, **before** `flow-remove-worktree` — reads
+`$WORKTREE/.flow-tmp/plan.md`'s `# Candidate follow-up issues` section
+and files one `flow-create-issue` per `- [x]` item; a summary line
+renders above `MERGED`. See `.sweep.filed`/`.unfiled`/`.rejected` on the
+stage-B result artifact. No-op if plan.md is absent or the section has
+zero ticked items.
 
 Continue to step 11 — local follow-ups must run *before*
-`flow-remove-worktree` so the JSONL log is still on disk when the
-report builds.
+`flow-remove-worktree` so the JSONL log is still on disk when the report
+builds.
 
 ## Step 11 — Local follow-ups
 
@@ -2728,12 +2077,12 @@ Branch on `.resumeAt`:
 | `step-2` | Re-enter step 2 (worktree). Recreate via `flow-new-worktree`. |
 | `step-3` | Re-enter step 3 (plan). If `state.phase` was `plan-pending-interview`, re-render the battery from `.flow-tmp/interview-questions.md` on disk (the file, not `.context.interview`) instead of blindly re-invoking discovery; `.context.interview`, when present, carries only the prior triage-side digest as background context for framing the re-render, never the battery itself. Otherwise re-invoke `/flow-product-planning`. `!inputs.planExists`-guarded (the `plan-pending-interview` row in `bin/flow-resume-decide.ts`, identified by name rather than line number since the file reflows), so this row is discovery's own question gate only — the method pause (`references/blind-survey.md`) fires AFTER `plan.md` exists and lands on `step-4` instead, a safe, lossy degrade. |
 | `step-4` | Re-enter step 4 (approval). Re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
-| `step-5` | Re-enter step 5 (implement). Re-invoke `/flow-new-feature`. |
-| `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow install --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
-| `step-6` | Re-enter step 6 (verify). Re-invoke `/flow-verify` inline (phase stays `verifying`; `/flow-verify` observes the worktree fresh, so a re-invocation is idempotent). |
-| `step-7` | Re-enter step 7 (ci-wait). A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-waiting pending phase) both resolve here. **Read `$WORKTREE/.flow-tmp/ci-wait-result.json` first**: if it exists and parses, a prior `flow-ci-check` call already reached `decided` — read the persisted verdict and branch on `.decision` without re-running anything. Only when the file is absent or unparseable does the supervisor re-run `flow-ci-check` fresh (never re-launch the old poll loop — there is none; a `waiting` verdict re-arms the dumb `flow-ci-wait` waiter per step 7's wake ladder). |
-| `step-8` | Re-enter step 8 (review). Re-invoke `/flow-pr-review <PR>`. |
-| `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — which re-runs `flow-pipeline-summary ... --echo-prose ...` and re-echoes the recap verbatim per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection — then render the MERGED block via `flow-gate-summary --status merged ...` (same `--tldr`/`--lens` augmentation as step 11's MERGED block; records `phase: merged` itself, only after its block reaches stdout) then, since arming first would be stale on arrival, best-effort checkpoint: `[ "$(flow-checkpoint --probe --site terminal \| jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null` (stdout muted, stderr deliberately left connected — echo the `checkpointed: ` line verbatim per the [Checkpoint arm signal (echo-verbatim)](#checkpoint-arm-signal-echo-verbatim) subsection) and run `flow-remove-worktree --delete-branch`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
+| `step-5` | Launch stage A (state.json skip resumes at this step — the stage-A launch reads state.json's phase to skip already-completed internal steps). |
+| `step-5.5` | Launch stage A (state.json skip resumes at this step). |
+| `step-6` | Launch stage A (state.json skip resumes at this step). |
+| `step-7` | Launch stage A (state.json skip resumes at this step). A `state.json` phase of `ci-wait` **or** `ci-wait-pending` both resolve here — stage A's own ci-check step re-reads `$WORKTREE/.flow-tmp/ci-wait-result.json` first before re-running `flow-ci-check` fresh. |
+| `step-8` | Launch stage A (state.json skip resumes at this step). |
+| `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — which re-runs `flow-pipeline-summary ... --echo-prose ...` and re-echoes the recap verbatim per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection — then render the MERGED block via `flow-gate-summary --status merged ...` (same `--tldr`/`--lens` augmentation as step 11's MERGED block; records `phase: merged` itself, only after its block reaches stdout) then, since arming first would be stale on arrival, best-effort checkpoint: `[ "$(flow-checkpoint --probe --site terminal \| jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null` (stdout muted, stderr deliberately left connected — echo the `checkpointed: ` line verbatim per the [Checkpoint arm signal (echo-verbatim)](#checkpoint-arm-signal-echo-verbatim) subsection) and run `flow-remove-worktree --delete-branch`, end; **do not** fall through to a bare merge on an already-merged PR) vs. `at-auto-merge-gate` (re-run `flow-gate-decide` and, on an `auto-merge` decision, launch stage B — this is how a crashed stage B relaunches; any other decision routes per step 9's main decision table). |
 | `gated-feedback` | Re-enter feedback mode for a `gated` PR carrying a checkpoint marker. Print `RESUMING AT: gated-feedback (gated-with-checkpoint-marker)`, re-inject `$CHECKPOINT_PATH` (the generic checkpoint re-injection above), then position to take a bug callout → route it through the `/flow-coder` interactive redirect → re-verify (step 6) → re-gate (step 9). **This loop introduces no new merge path and never merges on its own authority:** its re-gate re-enters the normal step 9 gate, which routes every merge through the existing `flow-merge-guard` backstop (Decision A1) — a still-`gated` PR ends terminally at `gated`; the only merge routes are the user ticking all Test Steps boxes (gate re-reads `auto-merge`, `flow-merge-guard` confirms zero-unchecked) or the existing gate-override token. Then `flow-checkpoint --consume` to retire the body (archive to `checkpoint.consumed.md`, clear the freshness record) and drop the one-shot marker. The loop's phase writes are exactly `verifying` (step 6) and `gating` (step 9) — the `/flow-coder` step itself writes no phase — and both are allowlisted in `TERMINAL_EXIT_TRANSITIONS` (`bin/lib/state.ts`) so they no longer trip the exit-4 terminal-regression guard. |
 | `terminal` | Already in a terminal state. Re-run the corresponding gate render (the same helpers every gate-emission site uses) and end without re-running anything else. On `merged`/`gated` the render re-runs `flow-pipeline-summary ... --echo-prose ...` above `flow-gate-summary --status <merged\|gated> ...`, so the echo recap re-surfaces on resume re-entry — extract the `<!-- flow-echo-recap:start -->`…`<!-- flow-echo-recap:end -->` block and echo it VERBATIM per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection (re-orientation is exactly the resume use case). `cancelled` has no PR, so `--echo-prose` is a no-op there. `needs-human` re-renders the escalation via `flow-gate-summary --status needs-human ...` (same `--tldr`/`--lens` augmentation as its originating render). The two no-in-flight-work pending phases short-circuit here pre-tree (reasons `no-change-investigation-complete` for `triaged-no-change`, `awaiting-triage-clarification` for `triage-pending-clarification`): they carry no PR/worktree and have no gate-summary status, so print a one-line note that the pipeline already completed (a no-change investigation, or one awaiting a clarification a resume can't re-ask) and end — do NOT build a worktree. On the `triaged-no-change` path, when `$ANSWER` is non-empty, re-print the saved `$ANSWER` (as markdown) so the user re-reads the original answer instead of the generic terminal note; fall back to the generic note when `$ANSWER` is empty. The re-rendered UNTRACKED row still accepts `file #N` / `drop #N` (`flow-untracked file|drop <N>`) on the very next reply — the resume terminal row is not read-only. |
 | `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
@@ -3049,15 +2398,13 @@ After each phase transition:
   `--all-repos` from anywhere else) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
-  via the seven named exceptions in "Hard rules" above:
-  `/flow-pr-review`'s "Independent Multi-Agent Review",
-  `/flow-product-planning`'s "Independent Discovery Subagent",
-  `/flow-new-feature`'s "Independent Scout Subagent",
-  `/flow-pr-review`'s "Fix-Applier Subagent",
-  step 10's "Merge-Conflict Resolver Subagent",
-  `/flow-coder`'s "Independent Edit-Applier Subagent",
-  and `/flow-pr-review`'s "Independent Consolidator-Validator Subagent".
-  No other skill or step may call Task.
+  via the two named exceptions in "Hard rules" above:
+  `/flow-product-planning`'s "Independent Discovery Subagent"
+  and `/flow-coder`'s "Independent Edit-Applier Subagent".
+  No other skill or step may call Task. Steps 5–10 instead launch the
+  `flow-stage-a` / `flow-stage-b` `Workflow` scripts (a fixed-shape
+  script fan-out, not a Task-tool exemption); their `agent()` sites are
+  enumerated in `references/workflow-agent-sites.md`.
 - The supervisor never spawned a raw `claude -p` subprocess — only
   `flow-claude-headless` calls.
 

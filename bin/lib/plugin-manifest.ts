@@ -26,6 +26,7 @@ export type PluginManifest = {
   description: string;
   author: { name: string };
   skills?: string[];
+  workflows?: string[];
 };
 
 export function pluginRootName(id: ModuleId): string {
@@ -66,5 +67,6 @@ export function pluginManifestFor(
   // includeSkills is false — only assigning the key when true keeps it out
   // of both the object and its JSON.stringify output.
   if (opts.includeSkills) manifest.skills = ["./skills"];
+  if (row.workflows.length > 0) manifest.workflows = ["./workflows"];
   return manifest;
 }

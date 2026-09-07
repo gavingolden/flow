@@ -1,14 +1,16 @@
 {
   "id": "s1-step7-ci-wait",
   "title": "Step 7 entry advances state.phase to ci-wait",
-  "provenance": "Synthetic fixture authored against bin/flow-ci-check.ts's advancePhase wiring (plan.md Task 2) and skills/pipeline/flow-pipeline/SKILL.md's Step 7 — the four phases (ci-wait/reviewing/gating/merging) this suite measures had no eval coverage before this PR (issue #679).",
+  "provenance": "Synthetic fixture authored against bin/flow-ci-check.ts's advancePhase wiring (plan.md Task 2) and skills/pipeline/flow-pipeline/SKILL.md's Step 7 — the four phases (ci-wait/reviewing/gating/merging) this suite measures had no eval coverage before this PR (issue #679). Bumped for Task 10 (issue-tracked f6-workflow-port): re-authored to launch stage A/B per SKILL.md's Stage launch sections instead of hand-invoking the retired per-step Bash prose, plus the stage-result-written gate grader confirming the workflow actually wrote its result artifact.",
   "prompt": "prompt.md",
   "fixture": {
     "repo": "fixture",
     "state": "state.json",
     "shims": ["../../_shims/gh"]
   },
-  "env": { "flowSlug": true },
+  "env": {
+    "flowSlug": true
+  },
   "ghCalls": [
     ["pr", "view", "1", "--json", "state,url,reviews,headRefOid"],
     ["pr", "view", "1", "--json", "mergeable,mergeStateStatus"]
@@ -21,6 +23,14 @@
       "file": "$STATE",
       "path": "phase",
       "equals": "ci-wait"
+    },
+    {
+      "id": "stage-result-written",
+      "kind": "json-file",
+      "file": "$REPO/.flow-tmp/stage-a-result.json",
+      "path": "stage",
+      "equals": "A",
+      "gate": true
     },
     {
       "id": "no-agent-fallback",

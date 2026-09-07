@@ -305,6 +305,16 @@ describe("deriveSelectionFromManifest", () => {
     expect(new Set(ids)).toEqual(new Set(["core", "stack-svelte", "research"]));
   });
 
+  it("resolves a workflow-kind record via its plugin-root parent dir, mirroring agent-kind", () => {
+    const ids = deriveSelectionFromManifest({
+      version: 1,
+      symlinks: [
+        record("/home/.claude/skills/flow-module-core/workflows", "workflow"),
+      ],
+    });
+    expect(new Set(ids)).toEqual(new Set(["core"]));
+  });
+
   it("derives breadth from a pre-retarget manifest by basename, location-independent", () => {
     const post = deriveSelectionFromManifest({
       version: 1,

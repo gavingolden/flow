@@ -57,6 +57,10 @@ export type RunRecord = {
    * requirement.
    */
   childArgvDigest?: string;
+  /** `eval-runner.ts`'s `RunOutcome.stageResultWaitNote` — set only when
+   * the scenario allows the `Workflow` tool. `runSuite` folds every run's
+   * note into the report-level `runner.notes` array. */
+  stageResultWaitNote?: string;
 };
 
 export type MetricSummary = {

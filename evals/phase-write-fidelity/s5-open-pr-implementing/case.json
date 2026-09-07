@@ -1,14 +1,16 @@
 {
   "id": "s5-open-pr-implementing",
   "title": "Step 5's PR-open tail advances state.phase to implementing",
-  "provenance": "Issue #694: the phase-write-fidelity suite covered Steps 7-10's five helper-side advancePhase writes but not Step 5's, the earliest and PHASE_EMITTERS.implementing-mapped one (bin/lib/phase-advance.ts's PHASE_EMITTERS.implementing: \"flow-open-pr\"). This scenario closes that gap the same way s1-s4 cover their steps.",
+  "provenance": "Issue #694: the phase-write-fidelity suite covered Steps 7-10's five helper-side advancePhase writes but not Step 5's, the earliest and PHASE_EMITTERS.implementing-mapped one (bin/lib/phase-advance.ts's PHASE_EMITTERS.implementing: \"flow-open-pr\"). This scenario closes that gap the same way s1-s4 cover their steps. Bumped for Task 10 (issue-tracked f6-workflow-port): re-authored to launch stage A/B per SKILL.md's Stage launch sections instead of hand-invoking the retired per-step Bash prose, plus the stage-result-written gate grader confirming the workflow actually wrote its result artifact.",
   "prompt": "prompt.md",
   "fixture": {
     "repo": "fixture",
     "state": "state.json",
     "shims": ["../../_shims/gh"]
   },
-  "env": { "flowSlug": true },
+  "env": {
+    "flowSlug": true
+  },
   "ghCalls": [["pr", "view", "--json", "number,url"]],
   "resultSchema": "result-schema.json",
   "graders": [
@@ -18,6 +20,14 @@
       "file": "$STATE",
       "path": "phase",
       "equals": "implementing"
+    },
+    {
+      "id": "stage-result-written",
+      "kind": "json-file",
+      "file": "$REPO/.flow-tmp/stage-a-result.json",
+      "path": "stage",
+      "equals": "A",
+      "gate": true
     },
     {
       "id": "state-pr-recorded",

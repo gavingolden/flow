@@ -25,6 +25,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isFlowOwnedSymlink, ownershipRoots } from "./flow-owned-symlink";
+import { sha256File } from "./content-hash";
 
 export type PluginRootEntryIssue = {
   relPath: string;
@@ -32,7 +33,12 @@ export type PluginRootEntryIssue = {
     | "unexpected-child"
     | "unmanaged-entry"
     | "dangling-symlink"
-    | "foreign-live-bin-symlink";
+    | "foreign-live-bin-symlink"
+    // A `workflows/<file>` copy whose on-disk sha256 no longer matches the
+    // manifest's recorded `sha256` for that target — the copy-materialize
+    // counterpart of "stale" (`install-drift.ts`), surfaced here because a
+    // copy has no symlink for the generic dangling/foreign checks to see.
+    | "drifted-copy";
 };
 
 /** The ownership roots a live `bin/` symlink is checked against — the same
@@ -40,6 +46,11 @@ export type PluginRootEntryIssue = {
 export type PluginRootOwnership = {
   flowSource: string;
   installRoot: string;
+  /** Manifest records for this root's `workflows/*.workflow.js` copies
+   * (target + recorded sha256), so `checkWorkflowsRoot` can detect a copy
+   * whose bytes drifted from what was last installed. Optional — absent
+   * (or `[]`) simply skips the drift check, never a false positive. */
+  workflowRecords?: readonly { target: string; sha256?: string }[];
 };
 
 /** Ignored at every level — an OS-written artifact, never flow's and never
@@ -95,6 +106,30 @@ function manifestDeclaresSkills(root: string): boolean {
   }
 }
 
+/**
+ * Mirrors `manifestDeclaresSkills` exactly, checking the manifest's
+ * `workflows` key instead of `skills`.
+ */
+function manifestDeclaresWorkflows(root: string): boolean {
+  try {
+    const raw = fs.readFileSync(
+      path.join(root, ".claude-plugin", "plugin.json"),
+      "utf8",
+    );
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return true;
+    const value = (parsed as Record<string, unknown>).workflows;
+    if (value === undefined) return false;
+    return (
+      Array.isArray(value) &&
+      value.length > 0 &&
+      value.every((v) => typeof v === "string")
+    );
+  } catch {
+    return true;
+  }
+}
+
 function expectedRootChildren(root: string): Set<string> {
   // `agents` is unconditional (Task 5): an `agents/` directory inside a
   // flow-owned root is always legitimate, whether or not the module owns
@@ -105,6 +140,7 @@ function expectedRootChildren(root: string): Set<string> {
   // type has none).
   const expected = new Set([".claude-plugin", "bin", "agents"]);
   if (manifestDeclaresSkills(root)) expected.add("skills");
+  if (manifestDeclaresWorkflows(root)) expected.add("workflows");
   return expected;
 }
 
@@ -218,6 +254,45 @@ function checkAgentsRoot(root: string, issues: PluginRootEntryIssue[]): void {
   // A live directory symlink is healthy as-is — no further per-child check.
 }
 
+/**
+ * Walks one level into `<root>/workflows/`, mirroring `checkAgentsRoot`'s
+ * shape but for COPY-materialized files (`discoverWorkflows`, `sources.ts`)
+ * rather than a single directory symlink: each child is a real
+ * `.workflow.js` file, never a symlink. A child is flagged `drifted-copy`
+ * only when a manifest record for that exact target carries a `sha256` AND
+ * the file's current hash no longer matches it — no record (or no
+ * recorded hash) means "nothing to compare against", not "unexpected",
+ * since this walk has no independent way to tell a not-yet-recorded flow
+ * copy from a foreign file.
+ */
+function checkWorkflowsRoot(
+  root: string,
+  issues: PluginRootEntryIssue[],
+  workflowRecords: readonly { target: string; sha256?: string }[],
+): void {
+  const dir = path.join(root, "workflows");
+  for (const name of readdirNames(dir)) {
+    if (IGNORED_ENTRIES.has(name)) continue;
+    const entryPath = path.join(dir, name);
+    let lst: fs.Stats;
+    try {
+      lst = fs.lstatSync(entryPath);
+    } catch {
+      continue;
+    }
+    if (!lst.isFile()) continue;
+    const record = workflowRecords.find((r) => r.target === entryPath);
+    if (!record?.sha256) continue;
+    const actual = sha256File(entryPath);
+    if (actual !== undefined && actual !== record.sha256) {
+      issues.push({
+        relPath: path.join("workflows", name),
+        reason: "drifted-copy",
+      });
+    }
+  }
+}
+
 export function unexpectedPluginRootEntries(
   root: string,
   ownership: PluginRootOwnership,
@@ -240,6 +315,7 @@ export function unexpectedPluginRootEntries(
   walkOneLevel(root, "bin", issues, roots);
   walkOneLevel(root, "skills", issues);
   checkAgentsRoot(root, issues);
+  checkWorkflowsRoot(root, issues, ownership.workflowRecords ?? []);
 
   const manifestDir = path.join(root, ".claude-plugin");
   for (const name of readdirNames(manifestDir)) {

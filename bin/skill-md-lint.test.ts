@@ -170,6 +170,20 @@ const MERGE_RESOLVER_INSTRUCTIONS_PATH = path.resolve(
   "flow-merge-resolver-instructions",
   "SKILL.md",
 );
+const STAGE_B_WORKFLOW_PATH = path.resolve(
+  HERE,
+  "..",
+  "workflows",
+  "core",
+  "flow-stage-b.workflow.js",
+);
+const STAGE_A_WORKFLOW_PATH = path.resolve(
+  HERE,
+  "..",
+  "workflows",
+  "core",
+  "flow-stage-a.workflow.js",
+);
 const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   HERE,
   "..",
@@ -376,6 +390,8 @@ const mergeResolverInstructionsContent = fs.readFileSync(
   MERGE_RESOLVER_INSTRUCTIONS_PATH,
   "utf8",
 );
+const stageBWorkflowContent = fs.readFileSync(STAGE_B_WORKFLOW_PATH, "utf8");
+const stageAWorkflowContent = fs.readFileSync(STAGE_A_WORKFLOW_PATH, "utf8");
 const discoveryPlaybookContent = fs.readFileSync(
   DISCOVERY_PLAYBOOK_PATH,
   "utf8",
@@ -922,29 +938,28 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     );
   }
 
-  it("flow-pipeline/SKILL.md Hard rules lists exactly 7 Task-tool exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules lists exactly 2 Task-tool exemptions", () => {
     const exemptions = extractSkillExemptions();
     expect(
       exemptions.length,
-      "flow-pipeline/SKILL.md must list exactly 7 Task-tool exemption blocks " +
-        "(one each for /flow-pr-review Multi-Agent Review, /flow-product-planning Discovery " +
-        "Subagent, /flow-new-feature Scout Subagent, /flow-pr-review Fix-Applier Subagent, " +
-        "/flow-pipeline step 10's Merge-Conflict Resolver Subagent, /flow-coder " +
-        "Edit-Applier Subagent, and " +
-        "/flow-pr-review Step 3.5 Consolidator-Validator Subagent). " +
+      "flow-pipeline/SKILL.md must list exactly 2 Task-tool exemption blocks " +
+        "(one each for /flow-product-planning Discovery Subagent and /flow-coder " +
+        "Edit-Applier Subagent). The remaining five sites (Multi-Agent Review, " +
+        "Scout, Fix-Applier, Merge-Conflict Resolver, Consolidator-Validator) " +
+        "dissolved into the flow-stage-a/flow-stage-b Workflow scripts. " +
         "Found: " +
         JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(2);
   });
 
-  it("AGENTS.md ## Don'ts lists exactly 7 Task-tool exemption bullets", () => {
+  it("AGENTS.md ## Don'ts lists exactly 2 Task-tool exemption bullets", () => {
     const exemptions = extractAgentsExemptions();
     expect(
       exemptions.length,
-      "AGENTS.md ## Don'ts must list exactly 7 Task-tool exemption bullets. " +
+      "AGENTS.md ## Don'ts must list exactly 2 Task-tool exemption bullets. " +
         "Found: " +
         JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(2);
   });
 
   it("AGENTS.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
@@ -966,14 +981,14 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("references/exemption-contracts.md lists exactly 7 contract sections", () => {
+  it("references/exemption-contracts.md lists exactly 2 contract sections", () => {
     const exemptions = extractContractsExemptions();
     expect(
       exemptions.length,
-      "references/exemption-contracts.md must hold exactly 7 `## ` contract " +
+      "references/exemption-contracts.md must hold exactly 2 `## ` contract " +
         "sections (one per Task-tool exemption). Found: " +
         JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(2);
   });
 
   it("references/exemption-contracts.md matches the AGENTS.md exemption set", () => {
@@ -985,7 +1000,7 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       onlyInContracts.length,
       `Sections in references/exemption-contracts.md but missing from AGENTS.md openers: ${JSON.stringify(onlyInContracts)}. ` +
         "The offloaded contract file and the AGENTS.md `## Don'ts` openers enumerate the same " +
-        "seven exemptions; a section heading must match its AGENTS.md opener name (minus the " +
+        "two exemptions; a section heading must match its AGENTS.md opener name (minus the " +
         "`/flow-pipeline → ` prefix) so a reader hopping AGENTS.md → references lands on the right section.",
     ).toBe(0);
     expect(
@@ -996,91 +1011,62 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("flow-pipeline/SKILL.md Hard rules preamble references seven exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules preamble references two exemptions", () => {
     expect(
       skillStripped.match(
-        /the\s+\*\*only seven\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
+        /the\s+\*\*only two\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
       ),
-      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only seven** authorised " +
+      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only two** authorised " +
         "Task-tool fan-out sites'. If you added or removed an exemption, update the count " +
         "in the preamble too — the count is bidirectional with the block list below.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Hard rules opening references seven Task-tool exceptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules opening references two Task-tool exceptions", () => {
     expect(
       skillStripped.match(
-        /the\s+seven\s+narrowly-named Task-tool exceptions that\s+follow/,
+        /the\s+two\s+narrowly-named Task-tool exceptions that\s+follow/,
       ),
-      "flow-pipeline/SKILL.md Hard rules opening must say 'the seven narrowly-named " +
+      "flow-pipeline/SKILL.md Hard rules opening must say 'the two narrowly-named " +
         "Task-tool exceptions that follow'. Drift here means a future reader sees a count " +
         "that doesn't match the exemption blocks.",
     ).toBeTruthy();
   });
 
-  it("AGENTS.md upstream prose references seven exceptions", () => {
+  it("AGENTS.md upstream prose references two exceptions", () => {
     expect(
-      agentsContent.match(/\*\*with seven narrowly-named exceptions\*\*/),
-      "AGENTS.md ## Supervisor and sub-skills must say '**with seven narrowly-named exceptions**'. " +
+      agentsContent.match(/\*\*with two narrowly-named exceptions\*\*/),
+      "AGENTS.md ## Supervisor and sub-skills must say '**with two narrowly-named exceptions**'. " +
         "The count must match the bullet list under ## Don'ts.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/The seven\s+named exceptions are/),
-      "AGENTS.md ## Don'ts parent bullet must say 'The seven named exceptions are'. " +
+      agentsContent.match(/The two\s+named exceptions are/),
+      "AGENTS.md ## Don'ts parent bullet must say 'The two named exceptions are'. " +
         "Drift here is the most likely landmine when adding a new exemption.",
     ).toBeTruthy();
     expect(
       agentsContent.match(
-        /the\s+\*\*only seven\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
+        /the\s+\*\*only two\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
       ),
-      "AGENTS.md ## Don'ts closer must say 'the **only seven** authorised Task-tool fan-out sites'. " +
+      "AGENTS.md ## Don'ts closer must say 'the **only two** authorised Task-tool fan-out sites'. " +
         "Same count, same wording as flow-pipeline/SKILL.md's closer.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Verification (this skill) lists all seven exemptions by name", () => {
+  it("flow-pipeline/SKILL.md Verification (this skill) lists both exemptions by name", () => {
     const verificationSection =
       content.split("# Verification")[1] ??
       content.split("# Verification (this skill)")[1] ??
       "";
-    expect(
-      verificationSection.includes("Independent Multi-Agent Review"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Independent Multi-Agent Review' " +
-        "as one of the named Task-tool exemptions.",
-    ).toBe(true);
     expect(
       verificationSection.includes("Independent Discovery Subagent"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Discovery Subagent' " +
         "as one of the named Task-tool exemptions.",
     ).toBe(true);
     expect(
-      verificationSection.includes("Independent Scout Subagent"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Independent Scout Subagent' " +
-        "as one of the named Task-tool exemptions.",
-    ).toBe(true);
-    expect(
-      verificationSection.includes("Fix-Applier Subagent"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Fix-Applier Subagent' " +
-        "as one of the named Task-tool exemptions.",
-    ).toBe(true);
-    expect(
-      verificationSection.includes("Merge-Conflict Resolver Subagent"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Merge-Conflict Resolver Subagent' " +
-        "as one of the named Task-tool exemptions.",
-    ).toBe(true);
-    expect(
       verificationSection.includes("Independent Edit-Applier Subagent"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Edit-Applier Subagent' " +
-        "as one of the named Task-tool exemptions. The sixth exemption was added in the " +
-        "/flow-coder refactor; this list must enumerate all seven.",
-    ).toBe(true);
-    expect(
-      verificationSection.includes(
-        "Independent Consolidator-Validator Subagent",
-      ),
-      "flow-pipeline/SKILL.md Verification section must reference 'Independent Consolidator-Validator Subagent' " +
-        "as one of the named Task-tool exemptions. The seventh exemption was added in the " +
-        "/flow-pr-review Step 3.5 Consolidator-Validator refactor; this list must enumerate all seven.",
+        "as one of the named Task-tool exemptions. This list must enumerate both.",
     ).toBe(true);
   });
 
@@ -2000,10 +1986,20 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
           "real guard notices as long as the prose mention survives.",
       ).toBe(true);
     }
+    // LEG A (f6-workflow-port): the merge-resolver spawn moved from a
+    // guarded-fallback SKILL.md prose site into workflows/core/
+    // flow-stage-b.workflow.js's unconditional `agent()` call — the
+    // Workflow-tool script has no general-purpose fallback branch to
+    // guard (the plugin-contract lint already ensures the agent
+    // definition ships alongside the script), so this assertion re-points
+    // to the script's literal agentType instead of a dissolved SKILL.md
+    // guard notice.
     expect(
-      content.includes("agent-fallback: flow-merge-resolver → general-purpose"),
-      "flow-pipeline SKILL.md step-10 merge-resolver guard must emit the named " +
-        "agent-fallback notice on its general-purpose fallback branch.",
+      stageBWorkflowContent.includes(
+        'agentType: "flow-module-core:flow-merge-resolver"',
+      ),
+      "workflows/core/flow-stage-b.workflow.js must resolve the resolver " +
+        "agent()'s agentType to `flow-module-core:flow-merge-resolver`.",
     ).toBe(true);
     expect(
       newFeatureContent.includes(
@@ -2063,22 +2059,22 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "flow-product-planning SKILL.md discovery spawn must pass `subagent_type: $DISCOVERY_SUBAGENT`.",
     ).toBe(true);
 
+    // LEG A (f6-workflow-port): same re-point as the agent-fallback check
+    // above — the merge-resolver spawn's SKILL.md variable-resolution +
+    // guard-file + subagent_type wiring dissolved into
+    // flow-stage-b.workflow.js's unconditional `agent()` call.
     expect(
-      content.includes(
-        "MERGE_RESOLVER_SUBAGENT=flow-module-core:flow-merge-resolver",
+      stageBWorkflowContent.includes(
+        'agentType: "flow-module-core:flow-merge-resolver"',
       ),
-      "flow-pipeline SKILL.md step 10 must resolve MERGE_RESOLVER_SUBAGENT to " +
-        "`flow-module-core:flow-merge-resolver`.",
+      "workflows/core/flow-stage-b.workflow.js must resolve the resolver " +
+        "agent()'s agentType to `flow-module-core:flow-merge-resolver`.",
     ).toBe(true);
     expect(
-      content.includes(
-        "[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-merge-resolver.md ]",
-      ),
-      "flow-pipeline SKILL.md merge-resolver site must guard on the installed definition file.",
-    ).toBe(true);
-    expect(
-      content.includes("subagent_type: $MERGE_RESOLVER_SUBAGENT"),
-      "flow-pipeline SKILL.md merge-resolver spawn must pass `subagent_type: $MERGE_RESOLVER_SUBAGENT`.",
+      stageBWorkflowContent.includes('label: "resolver"'),
+      "workflows/core/flow-stage-b.workflow.js must label the resolver " +
+        "agent() call 'resolver' so it resolves from " +
+        "references/workflow-agent-sites.md.",
     ).toBe(true);
 
     expect(
@@ -2588,7 +2584,7 @@ describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
    * /flow-refactoring step 3. The caller list is documented in three places:
    *
    *   - AGENTS.md `## Don'ts` — /flow-coder Task-tool exemption bullet body prose.
-   *   - flow-pipeline/SKILL.md "Hard rules" — Task-tool exemption #6 block.
+   *   - flow-pipeline/SKILL.md "Hard rules" — Task-tool exemption #2 block.
    *   - flow-coder/SKILL.md frontmatter `description:` field.
    *
    * If a future change adds or removes a caller (e.g. a new skill starts
@@ -2619,19 +2615,26 @@ describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
   }
 
   /**
-   * Slice the Task-tool exemption #6 block from flow-pipeline/SKILL.md,
+   * Slice the Task-tool exemption #2 block from flow-pipeline/SKILL.md,
    * bounded by the next `**Task-tool exemption` marker. Strip blockquote
    * `> ` prefixes so cross-line regexes match contiguous prose.
    */
   function slicePipelineCoderSection(): string {
     const stripped = stripBlockquoteMarkers(content);
     const startMarker =
-      "**Task-tool exemption #6: `/flow-coder` Independent Edit-Applier Subagent.**";
+      "**Task-tool exemption #2: `/flow-coder` Independent Edit-Applier Subagent.**";
     const startIdx = stripped.indexOf(startMarker);
     if (startIdx === -1) return "";
     const rest = stripped.slice(startIdx + startMarker.length);
-    const nextMarkerIdx = rest.indexOf("**Task-tool exemption");
-    return nextMarkerIdx === -1 ? rest : rest.slice(0, nextMarkerIdx);
+    // The block ends at the next exemption marker, the "Stage workflows"
+    // sibling note, or the end of Hard rules — whichever comes first (the
+    // last exemption block has no successor marker to bound it).
+    const ends = [
+      rest.indexOf("**Task-tool exemption"),
+      rest.indexOf("**Stage workflows are a Workflow-tool fan-out"),
+      rest.indexOf("\n# "),
+    ].filter((i) => i !== -1);
+    return ends.length === 0 ? rest : rest.slice(0, Math.min(...ends));
   }
 
   /**
@@ -2690,7 +2693,7 @@ describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
     ).toBe(3);
     expect(
       pipelineCallers.length,
-      `flow-pipeline/SKILL.md Task-tool exemption #6 block must list exactly 3 callers ` +
+      `flow-pipeline/SKILL.md Task-tool exemption #2 block must list exactly 3 callers ` +
         `(/flow-new-feature, /flow-verify, /flow-refactoring). Found: ${JSON.stringify(pipelineCallers)}. ` +
         `If you are intentionally adding a 4th caller, update this assertion in lockstep with the three docs.`,
     ).toBe(3);
@@ -4435,7 +4438,7 @@ describe("pr-review result-artifact contract lint", () => {
   );
 });
 
-describe("Task-tool ToolSearch-load preamble at all seven top-level spawn sites", () => {
+describe("Task-tool ToolSearch-load preamble at all six top-level spawn sites", () => {
   const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
     {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
@@ -4461,10 +4464,11 @@ describe("Task-tool ToolSearch-load preamble at all seven top-level spawn sites"
       file: "skills/pipeline/flow-coder/SKILL.md",
       exemption_name: "coder-edit-applier",
     },
-    {
-      file: "skills/pipeline/flow-pipeline/SKILL.md",
-      exemption_name: "flow-pipeline-merge-resolver",
-    },
+    // LEG A (f6-workflow-port): the flow-pipeline-merge-resolver Task-tool
+    // spawn site dissolved into workflows/core/flow-stage-b.workflow.js's
+    // Workflow-tool `agent()` call — no SKILL.md Task-tool spawn remains
+    // to carry the "Load the Task tool before spawning" preamble or the
+    // escalation tag, so the row is dropped rather than re-pointed.
   ];
 
   it.each(SITES)(
@@ -4502,7 +4506,6 @@ describe("Task-tool ToolSearch-load preamble at all seven top-level spawn sites"
     "pr-review-fix-applier",
     "pr-review-consolidator-validator",
     "flow-pipeline-merge-resolver",
-    "flow-pipeline-verify-loop",
   ]);
   const PREAMBLE_REF_PATH = path.resolve(
     HERE,
@@ -6919,20 +6922,21 @@ describe("terminal-state reap wiring lint", () => {
   }
 
   it("every wired terminal flow-gate-summary occurrence in SKILL.md has its own preceding reap call", () => {
-    // 8 deliberately unwired: 5 step-10 merge-resolution escalations that
-    // delegate to the (already-wired) `# Failure paths` chain, and 3
-    // elliptical resume-path back-references. Was pinned at 7 before the
-    // PM-lens TLDR/--lens sweep (Task 9): the step-10 conflict-class
-    // "On retry failure" escalation's `flow-gate-summary --status
-    // needs-human` text originally wrapped `--status` and `needs-human`
-    // onto separate lines, which made TERMINAL_STATUS_RE silently miss it
-    // — a pre-existing formatting fluke, not a deliberate gap. Adding the
-    // `--tldr`/`--lens` flags there reflowed the paragraph so the two
-    // words landed on one line, making the site newly visible to this
-    // lint (still correctly unwired — it delegates to the same `#
-    // Failure paths` chain as its siblings). Bumped 7 → 8 to reflect the
-    // true count, not to loosen the check.
-    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 8);
+    // 4 deliberately unwired: the elliptical resume-path back-references.
+    // Was 8 pre-LEG-A (f6-workflow-port): the 5 step-10 merge-resolution
+    // escalations that delegated to the (already-wired) `# Failure paths`
+    // chain are gone — that whole "Independent Merge-Conflict Resolver
+    // Subagent" section (and its NEEDS-HUMAN escalation branches) dissolved
+    // into workflows/core/flow-stage-b.workflow.js's `terminal()` helper,
+    // which returns a result object for the supervisor to render, not
+    // inline SKILL.md prose with its own flow-gate-summary calls. Dropped
+    // 8 → 3 to reflect the true count, not to loosen the check. LEG A2
+    // bumped 3 → 4: Step 7's new merged-externally sentence adds a 4th
+    // elliptical back-reference (`flow-gate-summary --status merged ...`)
+    // pointing at the ALREADY-wired "Stage A `needs-human:
+    // merged-externally` render" section above — same shape as the
+    // step-9/step-10 resume-path back-references, not a new unwired site.
+    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 4);
   });
 
   it("every wired terminal flow-gate-summary occurrence in the reference docs has its own preceding reap call", () => {
@@ -8238,9 +8242,9 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     ).toBeGreaterThanOrEqual(5);
   });
 
-  it("flow-pipeline/SKILL.md agent table Multi-Agent Review exemption still counts seven total", () => {
+  it("flow-pipeline/SKILL.md agent table Multi-Agent Review exemption still counts two total", () => {
     const matches = content.match(/Task-tool exemption #\d+:/g) ?? [];
-    expect(matches.length).toBe(7);
+    expect(matches.length).toBe(2);
   });
 });
 
@@ -9406,27 +9410,27 @@ describe("phase-write emitter lint (bin/lib/phase-advance.ts's PHASE_EMITTERS)",
   }
 
   /**
-   * The marker each EARLY_PHASE_WRITES step's phase fence must PRECEDE —
+   * The marker each EARLY_PHASE_WRITES step's phase write must PRECEDE —
    * the first thing that step actually does after recording the phase.
-   * An existence-only lint would happily pass a fence appended to the
-   * step's tail, which is exactly the bug the step-head fences fix (the
+   * An existence-only lint would happily pass a write appended to the
+   * step's tail, which is exactly the bug the step-head writes fix (the
    * phase named the previous step for the whole of the current one), so
    * the ordering assertion below is the load-bearing half.
    *
-   * Each marker is LINE-ANCHORED (`^`, optionally after a `**` bold
-   * lead-in), never a bare substring: the invocation sites are a fenced
-   * `/flow-new-feature` / `/flow-pr-review` command line and the
-   * `**Copilot-module precheck …**` lead-in, all of which start their
-   * line. A bare `indexOf` would instead match the FIRST prose mention of
-   * the marker anywhere in the section, so ordinary explanatory prose
-   * above a correctly-placed fence would fail the lint — a doc-wording
-   * coupling, not a contract violation. Anchoring keeps the assertion
-   * about where the step starts working, not about how it is described.
+   * f6-workflow-port: steps 5/7/8 run inside workflows/core/
+   * flow-stage-a.workflow.js, so the step-head write and its invocation
+   * marker are pinned in the SCRIPT (the `<step>-phase-write` helperAgent
+   * before the step's first real agent prompt), not in SKILL.md prose the
+   * supervisor no longer executes. Each marker is the first occurrence of
+   * the step's invocation token in the script: the implement agent's
+   * `flow-new-feature/SKILL.md` read, the ci-check step's
+   * `flow-module-status --check copilot` precheck, and the review-prep
+   * agent's `flow-pr-review/SKILL.md` read.
    */
   const STEP_INVOCATION_MARKER: Record<string, RegExp> = {
-    implementing: /^[ \t]*(?:\*\*)?\/flow-new-feature\b/m,
-    "ci-wait": /^[ \t]*(?:\*\*)?Copilot-module precheck\b/m,
-    reviewing: /^[ \t]*(?:\*\*)?\/flow-pr-review\b/m,
+    implementing: /flow-new-feature\/SKILL\.md/,
+    "ci-wait": /flow-module-status --check copilot/,
+    reviewing: /flow-pr-review\/SKILL\.md/,
   };
 
   it.each(Object.entries(PHASE_EMITTERS))(
@@ -9441,39 +9445,50 @@ describe("phase-write emitter lint (bin/lib/phase-advance.ts's PHASE_EMITTERS)",
       const section = sliceStepSection(heading);
 
       if (EARLY_PHASE_WRITES.has(phase as keyof typeof PHASE_EMITTERS)) {
-        // Step-head class: the fence is REQUIRED inside its own step
-        // section and forbidden everywhere else, so the helper stays a
-        // backstop rather than the sole writer.
-        const fence = standaloneWrite.exec(section);
+        // Step-head class: the write is REQUIRED in stage A's script,
+        // before the step's invocation marker, and forbidden in SKILL.md
+        // (the supervisor no longer runs these steps, so a prose fence
+        // would be a second writer from outside the step), so the helper
+        // stays a backstop rather than the sole writer.
+        const fence = standaloneWrite.exec(stageAWorkflowContent);
         expect(
           fence !== null,
-          `the '${heading}' section must carry a step-head ` +
-            `'flow-state-update --phase ${phase}' fence — '${phase}' is an ` +
+          `workflows/core/flow-stage-a.workflow.js must carry a step-head ` +
+            `'flow-state-update --phase ${phase}' write — '${phase}' is an ` +
             "EARLY_PHASE_WRITES member (bin/lib/phase-advance.ts), so the " +
             `${helper} emission is only its idempotent backstop.`,
         ).toBe(true);
         expect(
-          standaloneWrite.test(content.replace(section, "")),
-          `flow-pipeline SKILL.md must carry exactly ONE '--phase ${phase}' ` +
-            `fence — a second one outside the '${heading}' section would ` +
-            "re-record the phase from a step that is not this one.",
+          standaloneWrite.test(
+            stageAWorkflowContent.slice(fence!.index + fence![0].length),
+          ),
+          `workflows/core/flow-stage-a.workflow.js must carry exactly ONE ` +
+            `'--phase ${phase}' write — a second one would re-record the ` +
+            "phase from a step that is not this one.",
+        ).toBe(false);
+        expect(
+          standaloneWrite.test(content),
+          `flow-pipeline SKILL.md must carry no standalone '--phase ${phase}' ` +
+            `write — the step-head write lives in stage A's script and ` +
+            `${helper} is its backstop; a supervisor-side fence would be a ` +
+            "third writer from outside the step.",
         ).toBe(false);
 
         const marker = STEP_INVOCATION_MARKER[phase];
-        const markerMatch = marker.exec(section);
+        const markerMatch = marker.exec(stageAWorkflowContent);
         expect(
           markerMatch !== null,
-          `the '${heading}' section must still name its invocation marker ` +
-            `(${marker}) at the start of a line for the fence-ordering ` +
+          `workflows/core/flow-stage-a.workflow.js must still name its ` +
+            `invocation marker (${marker}) for the write-ordering ` +
             "assertion to mean anything.",
         ).toBe(true);
         const markerAt = markerMatch!.index;
         expect(
           fence!.index < markerAt,
-          `the '--phase ${phase}' fence must appear BEFORE ${marker} in ` +
-            `the '${heading}' section. A tail-placed fence passes an ` +
-            "existence-only check while reproducing the exact bug this " +
-            "contract fixes: the phase would name the PREVIOUS step for " +
+          `the '--phase ${phase}' write must appear BEFORE ${marker} in ` +
+            `workflows/core/flow-stage-a.workflow.js. A tail-placed write ` +
+            "passes an existence-only check while reproducing the exact bug " +
+            "this contract fixes: the phase would name the PREVIOUS step for " +
             "the whole of this one.",
         ).toBe(true);
       } else {

@@ -11,6 +11,7 @@ import { FLOW_MANIFEST } from "./paths";
 export type SymlinkKind =
   | "skill"
   | "agent"
+  | "workflow"
   | "bin"
   | "completion"
   // A "plugin" record's target is a real directory materialized by
@@ -23,6 +24,17 @@ export type SymlinkRecord = {
   source: string;
   target: string;
   kind: SymlinkKind;
+  /** `"copy"` for a `kind: "workflow"` record — `target` is real file
+   * bytes, not a symlink (Claude Code 2.1.261 rejects a `workflows` dir
+   * symlink-out; see `sources.ts`'s `discoverWorkflows`). Undefined
+   * (symlink) for every other kind. */
+  materialize?: "symlink" | "copy";
+  /** sha256 of the copied file's content at the time it was written —
+   * lets `flow install --upgrade` refresh a stale copy without re-reading
+   * every byte, and lets the drift audit report a copy whose on-disk hash
+   * no longer matches this recorded value as drift. Only set alongside
+   * `materialize: "copy"`. */
+  sha256?: string;
 };
 
 export type Manifest = {

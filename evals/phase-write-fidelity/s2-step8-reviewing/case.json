@@ -1,14 +1,16 @@
 {
   "id": "s2-step8-reviewing",
   "title": "Step 8 entry advances state.phase to reviewing",
-  "provenance": "Synthetic fixture authored against bin/flow-fetch-pr-review.ts's advancePhase wiring (plan.md Task 4) and skills/pipeline/flow-pipeline/SKILL.md's Step 8. PR record shaped after evals/haiku-gatekeeper/s5-proceed-normal so Step 1.5's gatekeeper reaches 'proceed', not a skip.",
+  "provenance": "Synthetic fixture authored against bin/flow-fetch-pr-review.ts's advancePhase wiring (plan.md Task 4) and skills/pipeline/flow-pipeline/SKILL.md's Step 8. PR record shaped after evals/haiku-gatekeeper/s5-proceed-normal so Step 1.5's gatekeeper reaches 'proceed', not a skip. Bumped for Task 10 (issue-tracked f6-workflow-port): re-authored to launch stage A/B per SKILL.md's Stage launch sections instead of hand-invoking the retired per-step Bash prose, plus the stage-result-written gate grader confirming the workflow actually wrote its result artifact.",
   "prompt": "prompt.md",
   "fixture": {
     "repo": "fixture",
     "state": "state.json",
     "shims": ["../../_shims/gh"]
   },
-  "env": { "flowSlug": true },
+  "env": {
+    "flowSlug": true
+  },
   "ghCalls": [
     [
       "pr",
@@ -47,6 +49,14 @@
       "file": "$STATE",
       "path": "phase",
       "equals": "reviewing"
+    },
+    {
+      "id": "stage-result-written",
+      "kind": "json-file",
+      "file": "$REPO/.flow-tmp/stage-a-result.json",
+      "path": "stage",
+      "equals": "A",
+      "gate": true
     },
     {
       "id": "no-agent-fallback",

@@ -136,6 +136,63 @@ describe(checkInstallDrift, () => {
     expect(result).toEqual({ status: "clean" });
   });
 
+  it("reports clean for a copy-materialized (workflow) entry whose on-disk hash matches its source", () => {
+    const dir = makeScratch();
+    const source = path.join(dir, "flow-stage-a.workflow.js");
+    fs.writeFileSync(source, "// fixture\n");
+    const target = path.join(dir, "workflows", "flow-stage-a.workflow.js");
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(source, target);
+
+    const result = run({
+      readManifest: () => manifest([record({ target, kind: "workflow" })]),
+      discover: () => [
+        entry({ source, target, kind: "workflow", materialize: "copy" }),
+      ],
+    });
+    expect(result).toEqual({ status: "clean" });
+  });
+
+  it("reports 'missing' for a copy-materialized entry whose target file is absent", () => {
+    const dir = makeScratch();
+    const source = path.join(dir, "flow-stage-a.workflow.js");
+    fs.writeFileSync(source, "// fixture\n");
+    const target = path.join(dir, "workflows", "flow-stage-a.workflow.js");
+
+    const result = run({
+      readManifest: () => manifest([record({ target, kind: "workflow" })]),
+      discover: () => [
+        entry({ source, target, kind: "workflow", materialize: "copy" }),
+      ],
+    });
+    expect(result).toEqual({
+      status: "drifted",
+      entries: [{ kind: "missing", displayName: "flow-new-feature", target }],
+    });
+  });
+
+  it("reports 'stale' for a copy-materialized entry whose on-disk hash no longer matches its (updated) source", () => {
+    const dir = makeScratch();
+    const source = path.join(dir, "flow-stage-a.workflow.js");
+    fs.writeFileSync(source, "// v1\n");
+    const target = path.join(dir, "workflows", "flow-stage-a.workflow.js");
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(source, target);
+    // Source changed after the copy was materialized.
+    fs.writeFileSync(source, "// v2\n");
+
+    const result = run({
+      readManifest: () => manifest([record({ target, kind: "workflow" })]),
+      discover: () => [
+        entry({ source, target, kind: "workflow", materialize: "copy" }),
+      ],
+    });
+    expect(result).toEqual({
+      status: "drifted",
+      entries: [{ kind: "stale", displayName: "flow-new-feature", target }],
+    });
+  });
+
   it("reports 'dangling' when the symlink's recorded source no longer exists", () => {
     const dir = makeScratch();
     const source = path.join(dir, "gone-source.txt");
