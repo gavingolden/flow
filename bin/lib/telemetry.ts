@@ -15,7 +15,11 @@
  * whose `from` is `"plan-pending-review"` and whose `to` is `"planning"` —
  * see `docs/configuration.md`'s worked jq one-liner. No agent-authored
  * telemetry emission surface exists; every event is emitted by a helper at
- * an existing chokepoint (`AGENTS.md`, "derive, don't emit").
+ * an existing chokepoint (`AGENTS.md`, "derive, don't emit"). `workflow.result`
+ * follows the same rule: it is emitted by `flow-workflow-result-schema
+ * --validate`, the chokepoint every stage-A/stage-B exit already passes
+ * through — note it passes through it two or three times per exit, so readers
+ * dedupe on the event's `result_sha` attr (`docs/configuration.md`).
  */
 
 import * as fs from "node:fs";
@@ -35,6 +39,7 @@ export const TELEMETRY_EVENTS = [
   "phase.transition",
   "verify.attempt",
   "run.terminal",
+  "workflow.result",
 ] as const;
 
 export type TelemetryEventName = (typeof TELEMETRY_EVENTS)[number];
