@@ -213,7 +213,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   3. Redirect /flow-new-feature with a fix hint.`,
   "verify-exhausted": `Verify retries are exhausted.
   1. Attach (flow attach <slug>).
-  2. Redirect /flow-verify with the failure hint from <worktree>/.flow-tmp/verify-failure-N.log`,
+  2. Redirect /flow-verify with the failure hint from <worktree>/.flow-tmp/verify-caution.txt`,
   "ci-hang": `CI appears stalled.
   1. Attach (flow attach <slug>).
   2. Inspect GitHub Actions for the stalled check.

@@ -513,4 +513,55 @@ describe("workflow scripts — AgentUnavailable guard", () => {
     });
     expect(calls.some((c) => /gh pr merge/.test(c.prompt))).toBe(false);
   });
+
+  it("stage A: a SUCCESSFUL third CI fix is not escalated as ci-fix-exhausted", async () => {
+    // Regression: the escalation used to read `ciOutcome === "ci-failed" ||
+    // loops.ciFix >= 3`. A third fix that actually turns CI green leaves the
+    // counter at exactly 3, so the counter disjunct escalated on green CI —
+    // and it also hijacked a post-fix pr-conflicted/pr-closed verdict away
+    // from its own handler. Every path that genuinely exhausts the budget
+    // already leaves ciOutcome === "ci-failed", so the verdict alone decides.
+    let ciChecks = 0;
+    let ciFix = 0;
+    const { result } = await runScript(
+      "flow-stage-a.workflow.js",
+      STAGE_A_ARGS,
+      (label, call) => {
+        if (label === "read-state")
+          return {
+            phases: ["implementing"],
+            pr: 7,
+            prUrl: "https://x/7",
+            loops: { ciFix: 0, reviewFix: 0 },
+            ciWaitDecided: false,
+          };
+        if (label === "verify")
+          return { clean: true, excerpt: "", uiSmoke: "n/a", screenshots: [] };
+        if (label === "loop-prep-ci") {
+          ciFix += 1;
+          return { ciFix };
+        }
+        if (label.startsWith("ci-check")) {
+          ciChecks += 1;
+          // Red for the first three verdicts (initial + after fixes 1 and 2),
+          // green on the fourth — i.e. the THIRD fix succeeds.
+          const decision = ciChecks <= 3 ? "ci-failed" : "proceed-to-review";
+          return {
+            status: "decided",
+            decision,
+            reason: "",
+            ciFailedChecks: ["verify"],
+            copilotSkipReason: "",
+          };
+        }
+        if (label === "implement-ci-fix")
+          return { committed: true, pr: 7, prUrl: "https://x/7" };
+        return synthesizeFromSchema(call);
+      },
+    );
+    // The counter reached the cap, but CI is green — the run must proceed,
+    // not escalate.
+    expect(ciFix).toBe(3);
+    expect(result).not.toMatchObject({ reason: "ci-fix-exhausted" });
+  });
 });

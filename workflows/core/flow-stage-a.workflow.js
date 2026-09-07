@@ -424,7 +424,8 @@ async function stageA() {
         return needsHuman("ci-wait-undecided", `flow-ci-check still reported status=waiting after a ci-fix retry; last checks: ${check.ciFailedChecks.join("\n")}`, { pr, prUrl, ran, loops, artifacts });
       }
     }
-    if (ciOutcome === "ci-failed" || loops.ciFix >= 3) {
+    // Verdict, never the counter: a successful 3rd fix leaves ciFix === 3.
+    if (ciOutcome === "ci-failed") {
       return needsHuman("ci-fix-exhausted", check.ciFailedChecks.join("\n"), { pr, prUrl, ran, loops, artifacts });
     }
   }
