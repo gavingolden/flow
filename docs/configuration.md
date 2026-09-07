@@ -231,14 +231,47 @@ jq-readable, no rotation in v1) — see `flow-review-telemetry`.
 
 Separately, a handful of helpers append one JSON line per event to
 `~/.flow/telemetry/events.jsonl` (`bin/lib/telemetry.ts`'s `recordEvent`),
-covering four event names: `delegate.call` (one per `flow-delegate`
+covering five event names: `delegate.call` (one per `flow-delegate`
 invocation), `phase.transition` (one per `flow-state-update` `--phase`
 write, OR per `bin/lib/phase-advance.ts` phase advance — `phase-advance.ts`
 is the SOLE emitter for six phases in the implement→merge half of the
 pipeline, so reading only `flow-state-update` call sites undercounts this
 event), `verify.attempt` (one per `flow-pre-commit` run, scopes/verdict/
-failing-check-names only, never output text), and `run.terminal` (one per
-`flow-gate-summary` render that reaches a terminal status). Every event
+failing-check-names only, never output text), `run.terminal` (one per
+`flow-gate-summary` render that reaches a terminal status), and
+`workflow.result` (one per `flow-workflow-result-schema --validate`
+invocation that gets as far as a parsed JSON object, carrying `stage`,
+`outcome`, `decision`, `reason`, a derived `reason_class`, `loops.ciFix`,
+`loops.reviewFix`, the `ran` map, `valid`, and `result_sha`).
+
+`workflow.result` has three properties a reader has to know before
+counting it. **First, one stage exit passes the chokepoint two or three
+times**, not once: the stage script's own `write-result` validate, the
+supervisor's independent re-validate, and — whenever the first invocation
+exits non-zero — `VALIDATE_CMD`'s `||` fallback, which re-runs the same
+check against the source module. So `wc -l` overcounts; dedupe on
+`result_sha`, a short SHA-256 of the artifact's raw text, as every query
+below does. That key dedupes byte-identical re-validates of the _same_
+artifact, which is the 2-3x inflation it exists to remove. It deliberately
+does **not** collapse a resume that legitimately re-writes the artifact
+with different bytes — that is a second real stage exit and counts twice by
+design. A reader who wants one row per _logical_ stage exit across resumes
+groups on the coarser `slug` + `attrs.stage` pair instead. **Second, a
+schema-invalid artifact is recorded too**, with `valid: false` and
+`attrs.schema_error` naming the rejection, so schema drift between the
+stage scripts and the result envelope is countable rather than silent;
+outcome tallies should filter `.attrs.valid == true`. **Third, the event
+counts stage exits that reached the result-write step** — a stage that
+crashes upstream of it emits nothing at all, so a slug carrying a
+`phase.transition` into `implementing` with no `workflow.result` line is
+exactly that case, and the third query below reads the headline rate
+against that measured denominator rather than an assumed one. Stage
+duration is not an attr: it derives from `phase.transition`'s
+`since_prev_ms`. There is no config key and no opt-out for this event —
+like the other four it appends unconditionally to the same local,
+user-owned, `0600` log.
+
+Every event
 carries the same `slug` / `pr` / `repo` / `session_id` correlation
 quadruple (`resolveCorrelation` in `bin/lib/telemetry.ts`) so a reader can
 reconstruct one pipeline run by filtering on any one of the four. The log
@@ -253,7 +286,7 @@ event is emitted by a helper at an existing chokepoint, and a signal an
 agent would otherwise have to remember to emit is instead DERIVED from an
 event a helper already writes.
 
-Two worked `jq` one-liners:
+Five worked `jq` one-liners:
 
 ```sh
 # Reconstruct one pipeline run's full event timeline.
@@ -265,6 +298,25 @@ jq -c 'select(.slug == "csv-export")' ~/.flow/telemetry/events.jsonl
 # this counts).
 jq -c 'select(.event == "phase.transition" and .attrs.from == "plan-pending-review" and .attrs.to == "planning")' \
   ~/.flow/telemetry/events.jsonl | wc -l
+
+# How often does a stage end `needs-human` on a harness safety-classifier
+# kill? Deduped on result_sha, so the 2-3 validates of one exit count once.
+jq -c 'select(.event == "workflow.result" and .attrs.valid == true and .attrs.outcome == "needs-human" and .attrs.reason_class == "agent-unavailable")' \
+  ~/.flow/telemetry/events.jsonl | jq -s 'unique_by(.attrs.result_sha) | length'
+
+# The fix-loop distribution: one [ciFix, reviewFix] pair per stage-A exit.
+jq -c 'select(.event == "workflow.result" and .attrs.valid == true and .attrs.stage == "A")' \
+  ~/.flow/telemetry/events.jsonl \
+  | jq -s 'unique_by(.attrs.result_sha) | map([.attrs.loops.ciFix, .attrs.loops.reviewFix])'
+
+# Completeness cross-check: stage-A exits that wrote a result envelope,
+# over pipelines that entered `implementing`. A shortfall is the count of
+# stages that died upstream of the result write and emitted nothing — read
+# the rate above against this denominator, not an assumed one.
+jq -s '{
+  stage_a_results: ([.[] | select(.event == "workflow.result" and .attrs.stage == "A")] | unique_by(.attrs.result_sha) | length),
+  entered_implementing: ([.[] | select(.event == "phase.transition" and .attrs.to == "implementing")] | length)
+}' ~/.flow/telemetry/events.jsonl
 ```
 
 The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher set tmux`.
