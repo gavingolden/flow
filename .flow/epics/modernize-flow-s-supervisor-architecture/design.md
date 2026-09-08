@@ -281,8 +281,8 @@ vertical slice. Ids, titles, and edges match `manifest.json` exactly.
   Bash + in-process skills (single writer, disk scratchpad); stage A shrinks
   to the Review fan-out + gate read (`flow-review-stage`); `flow-stage-b` is
   deleted; no mechanical helper runs inside a model agent.
-- **Depends on:** **f7** — *edge artifact: the error grammar + index the
-  eval comparison and the NEEDS HUMAN render rely on.* External: issue #796
+- **Depends on:** **f7** — _edge artifact: the error grammar + index the
+  eval comparison and the NEEDS HUMAN render rely on._ External: issue #796
   (stage-A scenarios measurable under `claude -p`); fall back to the
   `docs/eval/f6/live-run.md` protocol if it has not landed, and say so.
 - **Produces:** the hybrid supervisor; SKILL.md prose for the inlined steps
