@@ -44,7 +44,9 @@ export type ProbeId =
   | "skills-preload-name"
   | "max-turns-partial"
   | "cache-ttl-1h"
-  | "plugin-eval-availability";
+  | "plugin-eval-availability"
+  | "workflow-headless-await"
+  | "workflow-plugin-command";
 
 export type ProbeVerdict = {
   id: ProbeId;
@@ -65,6 +67,8 @@ const PROBE_IDS: ProbeId[] = [
   "max-turns-partial",
   "cache-ttl-1h",
   "plugin-eval-availability",
+  "workflow-headless-await",
+  "workflow-plugin-command",
 ];
 
 /** Probes that touch the REAL logged-in HOME and spawn real Task-tool
@@ -76,6 +80,8 @@ const LIVE_ONLY_IDS: ProbeId[] = [
   "skills-preload-name",
   "max-turns-partial",
   "cache-ttl-1h",
+  "workflow-headless-await",
+  "workflow-plugin-command",
 ];
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -1002,6 +1008,98 @@ async function probeCacheTtl1h(fixtureHome: string): Promise<ProbeVerdict> {
   };
 }
 
+/** Settles whether the Workflow tool can run an inline one-agent script and
+ * surface its return value to the top-level `-p` session, mirroring
+ * `probeMaxTurnsPartial`'s Task-tool live-probe shape. */
+async function probeWorkflowHeadlessAwait(
+  fixtureHome: string,
+): Promise<ProbeVerdict> {
+  const id: ProbeId = "workflow-headless-await";
+  const nonce = `wf-nonce-${Math.random().toString(36).slice(2, 10)}`;
+  const result = await runClaude(
+    [
+      "--allowedTools",
+      "Workflow",
+      "--permission-mode",
+      "dontAsk",
+      "-p",
+      `Call the Workflow tool with an inline script whose single agent() call returns the fixed string "${nonce}" and nothing else. Print the workflow's return value verbatim.`,
+    ],
+    { timeoutMs: LIVE_TIMEOUT_MS },
+  );
+  const notRun = unrunnable(result, LIVE_TIMEOUT_MS);
+  if (notRun) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `workflow-headless-await live probe ${notRun}`,
+      fallback:
+        "assume the Workflow tool return value surfaces to -p output, unverified",
+    };
+  }
+  const confirmed = result.stdout.includes(nonce);
+  return {
+    id,
+    verdict: confirmed ? "confirmed" : "refuted",
+    evidence: `Workflow tool inline one-agent script (exit ${result.exitCode}, nonce ${confirmed ? "found" : "absent"} in stdout): ${result.stdout.trim().slice(0, 500)}`,
+  };
+}
+
+/** Settles whether a plugin-supplied Workflow script is dispatchable by its
+ * plugin-qualified command name, mirroring `probeSkillInvocationName`'s
+ * bare-vs-qualified materialization shape but for `workflows:` manifest
+ * entries. */
+async function probeWorkflowPluginCommand(
+  fixtureHome: string,
+): Promise<ProbeVerdict> {
+  const id: ProbeId = "workflow-plugin-command";
+  const nonce = `wf-plugin-nonce-${Math.random().toString(36).slice(2, 10)}`;
+  const root = materializeRoot(fixtureHome);
+  const workflowsDir = path.join(root, "workflows");
+  fs.mkdirSync(workflowsDir, { recursive: true });
+  // The shape Claude Code's plugin loader expects of a workflow script: an
+  // `export const meta` literal, then a bare body using the agent() primitive.
+  fs.writeFileSync(
+    path.join(workflowsDir, "probe.workflow.js"),
+    `export const meta = {\n  name: "flow-probe-wf",\n  description: "flow plugin workflow dispatch probe",\n};\nconst result = await agent("Reply with exactly: ${nonce}", { label: "probe" });\nreturn result;\n`,
+  );
+  const manifestPath = path.join(root, ".claude-plugin", "plugin.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  manifest.workflows = ["./workflows"];
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+  const result = await runClaude(
+    [
+      "--plugin-dir",
+      root,
+      "--allowedTools",
+      "Workflow",
+      "--permission-mode",
+      "dontAsk",
+      "-p",
+      `Call the Workflow tool with name "flow-module-core:flow-probe-wf" (a plugin-supplied workflow; if that name is unknown, retry once with name "flow-probe-wf"). Print the workflow's return value verbatim.`,
+    ],
+    { timeoutMs: LIVE_TIMEOUT_MS },
+  );
+  const notRun = unrunnable(result, LIVE_TIMEOUT_MS);
+  if (notRun) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `workflow-plugin-command live probe ${notRun}`,
+      fallback: "assume plugin-qualified workflow dispatch works, unverified",
+    };
+  }
+  // The prompt itself names the workflow, so a stdout mention of it proves
+  // nothing — only the nonce (which lives solely in the fixture file) does.
+  const confirmed = result.stdout.includes(nonce);
+  return {
+    id,
+    verdict: confirmed ? "confirmed" : "refuted",
+    evidence: `plugin-dir workflows: ["./workflows"] manifest entry, dispatched by plugin-qualified name (exit ${result.exitCode}, nonce found=${confirmed}): ${result.stdout.trim().slice(0, 500)}`,
+  };
+}
+
 const PROBE_FNS: Record<
   ProbeId,
   (fixtureHome: string) => Promise<ProbeVerdict>
@@ -1017,6 +1115,8 @@ const PROBE_FNS: Record<
   "max-turns-partial": probeMaxTurnsPartial,
   "cache-ttl-1h": probeCacheTtl1h,
   "plugin-eval-availability": probePluginEvalAvailability,
+  "workflow-headless-await": probeWorkflowHeadlessAwait,
+  "workflow-plugin-command": probeWorkflowPluginCommand,
 };
 
 export function runProbes(
@@ -1092,22 +1192,26 @@ export async function runProbesFiltered(
 
 export function parseArgs(argv: string[]): {
   json: boolean;
-  probe?: ProbeId;
+  probes: ProbeId[];
   live: boolean;
 } {
   const json = argv.includes("--json");
   const live = argv.includes("--live");
-  const probeIdx = argv.indexOf("--probe");
-  const probeRaw = probeIdx >= 0 ? argv[probeIdx + 1] : undefined;
-  const probe = PROBE_IDS.includes(probeRaw as ProbeId)
-    ? (probeRaw as ProbeId)
-    : undefined;
-  return { json, probe, live };
+  // Every `--probe <id>` is honored (the maintainer runbooks pass several);
+  // unrecognized ids are dropped, and zero recognized ids means every probe.
+  const probes: ProbeId[] = [];
+  argv.forEach((tok, i) => {
+    if (tok !== "--probe") return;
+    const raw = argv[i + 1];
+    if (PROBE_IDS.includes(raw as ProbeId) && !probes.includes(raw as ProbeId))
+      probes.push(raw as ProbeId);
+  });
+  return { json, probes, live };
 }
 
 async function main(): Promise<void> {
-  const { json, probe, live } = parseArgs(process.argv.slice(2));
-  const ids = probe ? [probe] : PROBE_IDS;
+  const { json, probes, live } = parseArgs(process.argv.slice(2));
+  const ids = probes.length > 0 ? probes : PROBE_IDS;
   const verdicts = await runProbesFiltered(ids, { live });
   if (json) {
     console.log(JSON.stringify(verdicts, null, 2));
