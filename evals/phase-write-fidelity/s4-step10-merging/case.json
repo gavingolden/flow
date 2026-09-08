@@ -1,16 +1,14 @@
 {
   "id": "s4-step10-merging",
   "title": "Step 10 entry advances state.phase to merging",
-  "provenance": "Synthetic fixture authored against bin/flow-merge-guard.ts's advancePhase wiring (plan.md Task 3, corrected call site inside checkGuard, not recordOverrideToken) and skills/pipeline/flow-pipeline/SKILL.md's Step 10. Bumped for Task 10 (issue-tracked f6-workflow-port): re-authored to launch stage B per SKILL.md's Stage B launch section (step 10's flow-merge-guard call moved off stage A), plus the stage-result-written gate grader confirming the workflow actually wrote its result artifact.",
+  "provenance": "Synthetic fixture authored against bin/flow-merge-guard.ts's advancePhase wiring (plan.md Task 3, corrected call site inside checkGuard, not recordOverrideToken) and skills/pipeline/flow-pipeline/SKILL.md's Step 10.",
   "prompt": "prompt.md",
   "fixture": {
     "repo": "fixture",
     "state": "state.json",
     "shims": ["../../_shims/gh"]
   },
-  "env": {
-    "flowSlug": true
-  },
+  "env": { "flowSlug": true },
   "ghCalls": [["pr", "view", "1", "--json", "body,state,url"]],
   "resultSchema": "result-schema.json",
   "graders": [
@@ -20,14 +18,6 @@
       "file": "$STATE",
       "path": "phase",
       "equals": "merging"
-    },
-    {
-      "id": "stage-result-written",
-      "kind": "json-file",
-      "file": "$REPO/.flow-tmp/stage-b-result.json",
-      "path": "stage",
-      "equals": "B",
-      "gate": true
     },
     {
       "id": "no-agent-fallback",

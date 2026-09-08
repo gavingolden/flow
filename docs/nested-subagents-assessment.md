@@ -90,12 +90,12 @@ Independent of any single site, nesting anywhere carries these costs:
 
 ## Verdict
 
-The current flat, one-shot design stands with no
-nested site at the supervisor's own two remaining top-level exemptions
-(post-f6; see "Post-f6 topology" below). **verify-loop → edit-applier** was adopted for a time (see
+The current flat, one-shot, seven-named-exemption design stands with no
+nested site. **verify-loop → edit-applier** was adopted for a time (see
 below) but has since been **removed**: `/flow-pipeline` step 6 now
 invokes `/flow-verify` in-process instead of spawning a Verify-Retry-Loop
-subagent, so there is no longer a verify-loop parent to nest under.
+subagent, so there is no longer a verify-loop parent to nest under. The
+exactly-seven top-level-exemption rule is unchanged.
 
 While it was live, the adoption was deliberately conservative given the
 depth-3 swallowed-failure pre-mortem (a grandchild subagent's failure
@@ -224,25 +224,3 @@ fallback.
 
 Shipped contract:
 `skills/pipeline/flow-pipeline/references/headless-claude.md`.
-
-## Post-f6 topology
-
-The f6 workflow port moved five of the seven top-level Task-tool
-exemptions — Multi-Agent Review, Scout,
-Fix-Applier, Merge-Conflict Resolver, Consolidator-Validator — off the
-supervisor's own Task-tool budget entirely: steps 5–10 now run inside two
-`Workflow`-tool scripts (`flow-stage-a`, `flow-stage-b`), and every
-`agent()` call those scripts make is depth 1 relative to the script, not
-a nested Task call from the supervisor. The supervisor's own Task-tool
-surface is now exactly two named exemptions (Discovery,
-`/flow-coder` Edit-Applier — see `AGENTS.md` `## Don'ts`). The flat
-one-shot-per-site policy this document argues for now governs those two
-sites plus the depth-2 nesting already assessed above: stage A's
-`implement`/`verify` `agent()` calls may themselves spawn `/flow-new-feature`'s
-scout or `/flow-coder`'s edit-applier (the same depth-2 shape the
-verify-loop → edit-applier design explored and later removed, now
-revived one level down inside the script rather than as a Task-tool
-exemption). `references/workflow-agent-sites.md` enumerates every
-script-level `agent()` site so the reduced exemption count doesn't read
-as a reduced agent surface — the agents still run, just as code-level
-fan-out instead of supervisor-level Task calls.

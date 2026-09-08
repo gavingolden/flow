@@ -152,7 +152,7 @@ export function deriveSelectionFromManifest(manifest: Manifest): ModuleId[] {
   const ids = new Set<ModuleId>([MANDATORY_MODULE]);
   for (const record of manifest.symlinks) {
     const mod =
-      record.kind === "agent" || record.kind === "workflow"
+      record.kind === "agent"
         ? moduleIdFromPluginRootName(path.basename(path.dirname(record.target)))
         : moduleForArtifactName(path.basename(record.target));
     if (mod !== undefined) ids.add(mod);

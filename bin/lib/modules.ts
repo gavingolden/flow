@@ -56,7 +56,6 @@ export type ModuleDefinition = {
   description: string;
   skills: string[];
   agents: string[];
-  workflows: string[];
   helpers: string[];
   validators: string[];
 };
@@ -109,7 +108,6 @@ export const MODULES: ModuleDefinition[] = [
       "flow-review-test-coverage.md",
       "flow-scout.md",
     ],
-    workflows: ["flow-stage-a", "flow-stage-b"],
     helpers: [
       "flow-new-worktree",
       "flow-remove-worktree",
@@ -171,7 +169,6 @@ export const MODULES: ModuleDefinition[] = [
       "flow-fix-applier-schema",
       "flow-epic-manifest-schema",
       "flow-intent-resolution-schema",
-      "flow-workflow-result-schema",
     ],
   },
   {
@@ -179,7 +176,6 @@ export const MODULES: ModuleDefinition[] = [
     description: "Svelte 5 / SvelteKit authoring + review.",
     skills: ["flow-svelte", "flow-testing-svelte"],
     agents: [],
-    workflows: [],
     helpers: [],
     validators: [],
   },
@@ -188,7 +184,6 @@ export const MODULES: ModuleDefinition[] = [
     description: "Tailwind v4 / shadcn-svelte UI.",
     skills: ["flow-tailwind-shadcn"],
     agents: [],
-    workflows: [],
     helpers: [],
     validators: [],
   },
@@ -197,7 +192,6 @@ export const MODULES: ModuleDefinition[] = [
     description: "Project-specific Supabase adapter.",
     skills: ["flow-supabase-project"],
     agents: [],
-    workflows: [],
     helpers: [],
     validators: [],
   },
@@ -206,7 +200,6 @@ export const MODULES: ModuleDefinition[] = [
     description: "Cloudflare Pages deploy conventions.",
     skills: ["flow-cloudflare-pages"],
     agents: [],
-    workflows: [],
     helpers: [],
     validators: [],
   },
@@ -216,7 +209,6 @@ export const MODULES: ModuleDefinition[] = [
       "The GitHub Copilot bot-review integration. Deselecting skips the pipeline's Copilot request/wait path with a named notice.",
     skills: [],
     agents: [],
-    workflows: [],
     helpers: ["flow-request-copilot"],
     validators: [],
   },
@@ -226,7 +218,6 @@ export const MODULES: ModuleDefinition[] = [
       "The Google-AI-Ultra (agy) delegation engine, the research helpers built on it, and the four agy-dependent cross-model reviewers.",
     skills: ["flow-research"],
     agents: [],
-    workflows: [],
     helpers: [
       "flow-delegate",
       "flow-delegate-fanout",
@@ -254,7 +245,6 @@ export function isKnownModule(id: string): id is ModuleId {
 export type ArtifactSet = {
   skills: string[];
   agents: string[];
-  workflows: string[];
   helpers: string[];
   validators: string[];
 };
@@ -273,21 +263,18 @@ export function resolveArtifactSet(
   ids.add(MANDATORY_MODULE);
   const skills = new Set<string>();
   const agents = new Set<string>();
-  const workflows = new Set<string>();
   const helpers = new Set<string>();
   const validators = new Set<string>();
   for (const m of MODULES) {
     if (!ids.has(m.id)) continue;
     for (const s of m.skills) skills.add(s);
     for (const a of m.agents) agents.add(a);
-    for (const w of m.workflows) workflows.add(w);
     for (const h of m.helpers) helpers.add(h);
     for (const v of m.validators) validators.add(v);
   }
   return {
     skills: [...skills],
     agents: [...agents],
-    workflows: [...workflows],
     helpers: [...helpers],
     validators: [...validators],
   };
@@ -308,7 +295,6 @@ export function moduleForArtifactName(name: string): ModuleId | undefined {
     if (
       m.skills.includes(name) ||
       m.agents.includes(name) ||
-      m.workflows.includes(name) ||
       m.helpers.includes(name) ||
       m.validators.includes(name)
     ) {

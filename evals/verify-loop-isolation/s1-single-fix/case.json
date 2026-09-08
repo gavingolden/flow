@@ -1,7 +1,7 @@
 {
   "id": "s1-single-fix",
   "title": "Step 6 verify-retry-loop fixes a single planted test failure",
-  "provenance": "Synthetic zero-dependency Bun fixture authored for this suite; preload/plan-digest.md is a ~40KB sanitized excerpt of this feature's own approved plan.md (PRD + architecture-decisions sections, no relative links). Bumped for Task 10 (issue-tracked f6-workflow-port): re-authored to launch stage A/B per SKILL.md's Stage launch sections instead of hand-invoking the retired per-step Bash prose, plus the stage-result-written gate grader confirming the workflow actually wrote its result artifact.",
+  "provenance": "Synthetic zero-dependency Bun fixture authored for this suite; preload/plan-digest.md is a ~40KB sanitized excerpt of this feature's own approved plan.md (PRD + architecture-decisions sections, no relative links).",
   "prompt": "prompt.md",
   "preload": ["preload/plan-digest.md"],
   "fixture": {
@@ -20,14 +20,6 @@
       "argv": ["bun", "test"],
       "cwd": "$REPO",
       "expectExit": 0
-    },
-    {
-      "id": "stage-result-written",
-      "kind": "json-file",
-      "file": "$REPO/.flow-tmp/stage-a-result.json",
-      "path": "stage",
-      "equals": "A",
-      "gate": true
     },
     {
       "id": "verify-status-pass",

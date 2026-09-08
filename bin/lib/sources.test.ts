@@ -16,8 +16,6 @@ import {
   discoverPluginRoots,
   discoverSelected,
   discoverSkills,
-  discoverWorkflows,
-  entryToRecord,
   isPathBoundHelper,
 } from "./sources";
 import { MANDATORY_MODULE, moduleForArtifactName, moduleIds } from "./modules";
@@ -211,87 +209,6 @@ describe("discoverAgents root-internal targets", () => {
       // README, an editor scratch file) must never surface as an entry.
       fs.writeFileSync(path.join(tmpSource, "agents", "NOTES.md"), "# n\n");
       expect(discoverAgents(tmpSource)).toHaveLength(1);
-    } finally {
-      fs.rmSync(tmpSource, { recursive: true, force: true });
-    }
-  });
-});
-
-describe(discoverWorkflows, () => {
-  // Regression guard for the Claude Code 2.1.261 defect this pass fixes:
-  // the plugin loader rejects a `workflows` DIRECTORY symlink whose
-  // realpath leaves the plugin root ("Path escapes plugin directory"),
-  // while the `agents` dir symlink-out passes — so workflows must
-  // materialize as one COPY entry per `.workflow.js` FILE, never a
-  // per-module directory symlink the way `discoverAgents` does.
-  it("emits one materialize:'copy' entry per .workflow.js file, targeting <root>/workflows/<file> (never a directory)", () => {
-    const tmpSource = fs.mkdtempSync(
-      path.join(os.tmpdir(), "sources-workflows-"),
-    );
-    try {
-      const moduleDir = path.join(tmpSource, "workflows", "core");
-      fs.mkdirSync(moduleDir, { recursive: true });
-      fs.writeFileSync(path.join(moduleDir, "flow-stage-a.workflow.js"), "");
-      fs.writeFileSync(path.join(moduleDir, "flow-stage-b.workflow.js"), "");
-      // A non-.workflow.js file in the same directory must never surface.
-      fs.writeFileSync(path.join(moduleDir, "README.md"), "");
-      const entries = discoverWorkflows(tmpSource);
-      expect(entries).toHaveLength(2);
-      for (const entry of entries) {
-        expect(entry.kind).toBe("workflow");
-        expect(entry.materialize).toBe("copy");
-        expect(entry.displayName.startsWith("workflows/core/")).toBe(true);
-        expect(entry.target).toBe(
-          path.join(
-            DEFAULT_TARGETS.skillsDir,
-            pluginRootName(MANDATORY_MODULE),
-            "workflows",
-            path.basename(entry.source),
-          ),
-        );
-      }
-    } finally {
-      fs.rmSync(tmpSource, { recursive: true, force: true });
-    }
-  });
-
-  it("returns [] when the workflows/ root is absent", () => {
-    const tmpSource = fs.mkdtempSync(
-      path.join(os.tmpdir(), "sources-no-workflows-"),
-    );
-    try {
-      expect(discoverWorkflows(tmpSource)).toEqual([]);
-    } finally {
-      fs.rmSync(tmpSource, { recursive: true, force: true });
-    }
-  });
-});
-
-describe(entryToRecord, () => {
-  it("records materialize:'copy' and a content sha256 for a workflow entry, and neither for a symlinked entry", () => {
-    const tmpSource = fs.mkdtempSync(
-      path.join(os.tmpdir(), "sources-entry-record-"),
-    );
-    try {
-      const moduleDir = path.join(tmpSource, "workflows", "core");
-      fs.mkdirSync(moduleDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(moduleDir, "flow-stage-a.workflow.js"),
-        "// fixture\n",
-      );
-      const [workflowEntry] = discoverWorkflows(tmpSource);
-      const record = entryToRecord(workflowEntry, tmpSource, tmpSource);
-      expect(record.materialize).toBe("copy");
-      expect(record.sha256).toMatch(/^[0-9a-f]{64}$/);
-
-      const [skillEntry] = discoverSkills(realFlowSource);
-      const skillRecord = entryToRecord(
-        skillEntry,
-        realFlowSource,
-        realFlowSource,
-      );
-      expect(skillRecord.materialize).toBeUndefined();
-      expect(skillRecord.sha256).toBeUndefined();
     } finally {
       fs.rmSync(tmpSource, { recursive: true, force: true });
     }

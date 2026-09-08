@@ -96,35 +96,15 @@ describe("advancePhase", () => {
   });
 
   it("is a no-op on a terminal phase", () => {
-    seedState("s4", "needs-human");
+    seedState("s4", "gated");
     const result = advancePhase("merging", { slug: "s4", dir: stateDir });
     expect(result).toEqual({
       advanced: false,
       reason: "terminal",
-      from: "needs-human",
+      from: "gated",
       to: "merging",
     });
-    expect(readState("s4", stateDir)?.phase).toBe("needs-human");
-  });
-
-  it("permits the allowlisted gated -> merging exit (gate-override merge path)", () => {
-    seedState("s4b", "gated", { pr: 7 });
-    const result = advancePhase("merging", {
-      slug: "s4b",
-      dir: stateDir,
-      expectPr: 7,
-    });
-    expect(result.advanced).toBe(true);
-    const state = readState("s4b", stateDir);
-    expect(state?.phase).toBe("merging");
-    expect(state?.phaseLog?.map((e) => e.phase)).toEqual(["merging"]);
-  });
-
-  it("still refuses a non-allowlisted exit out of a terminal phase (merged -> merging)", () => {
-    seedState("s4c", "merged");
-    const result = advancePhase("merging", { slug: "s4c", dir: stateDir });
-    expect(result.reason).toBe("terminal");
-    expect(readState("s4c", stateDir)?.phase).toBe("merged");
+    expect(readState("s4", stateDir)?.phase).toBe("gated");
   });
 
   it("is a no-op on an epic-* phase", () => {

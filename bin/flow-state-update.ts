@@ -11,13 +11,8 @@
  *   flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]
  *                              [--pr-url <url>] [--worktree <path>] [--auto-merge | --no-auto-merge]
  *                              [--session-id <value>] [--answer <text> | --answer-stdin]
- *                              [--interview-stdin] [--increment-loop <ciFix|reviewFix>]
+ *                              [--interview-stdin]
  *                              [--slug <slug>] [--force]
- *
- * `--increment-loop <ciFix|reviewFix>` bumps `state.loops.<key>` by one
- * (absent `loops` starts at `{ciFix: 0, reviewFix: 0}` before the bump),
- * preserving every other field. Stands alone or combines with `--phase`;
- * any other key is rejected at the parse boundary.
  *
  * `--phase-outcome <text>` records a short outcome string on the phaseLog
  * entry appended by the same `--phase` write (no-op without `--phase`).
@@ -88,8 +83,6 @@ type Args = {
   phaseOutcome?: string;
   /** When true, bypass the terminal-phase regression guard. */
   force?: boolean;
-  /** The fix-loop counter key to increment by one, when `--increment-loop <key>` is passed. */
-  incrementLoop?: "ciFix" | "reviewFix";
 };
 
 /**
@@ -171,14 +164,6 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--phase-outcome":
         out.phaseOutcome = value;
         break;
-      case "--increment-loop":
-        if (value !== "ciFix" && value !== "reviewFix") {
-          return {
-            error: `--increment-loop must be 'ciFix' or 'reviewFix', got '${value}'`,
-          };
-        }
-        out.incrementLoop = value;
-        break;
       case "--slug":
         if (out.slug !== undefined) {
           return { error: "cannot combine positional <slug> with --slug" };
@@ -213,12 +198,11 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     out.sessionId === undefined &&
     out.answer === undefined &&
     !out.answerStdin &&
-    !out.interviewStdin &&
-    out.incrementLoop === undefined
+    !out.interviewStdin
   ) {
     return {
       error:
-        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin, --increment-loop is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
     };
   }
   return out;
@@ -248,14 +232,6 @@ export function applyUpdate(
   const reap = TERMINAL_PHASE_SET.has(resolvedPhase)
     ? existing.reap
     : undefined;
-  const loops =
-    args.incrementLoop !== undefined
-      ? {
-          ciFix: existing.loops?.ciFix ?? 0,
-          reviewFix: existing.loops?.reviewFix ?? 0,
-          [args.incrementLoop]: (existing.loops?.[args.incrementLoop] ?? 0) + 1,
-        }
-      : existing.loops;
   return {
     ...existing,
     phase: resolvedPhase,
@@ -268,7 +244,6 @@ export function applyUpdate(
     interview: args.interview ?? existing.interview,
     phaseLog,
     reap,
-    loops,
     updatedAt: nowIso(),
   };
 }
@@ -302,7 +277,7 @@ export function runUpdate(
       "usage: flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]\n" +
         "                                 [--pr-url <url>] [--worktree <path>] [--auto-merge | --no-auto-merge]\n" +
         "                                 [--session-id <value>] [--answer <text> | --answer-stdin]\n" +
-        "                                 [--interview-stdin] [--increment-loop <ciFix|reviewFix>]\n" +
+        "                                 [--interview-stdin]\n" +
         "                                 [--slug <slug>] [--force]",
     );
     return 2;

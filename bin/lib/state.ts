@@ -327,16 +327,6 @@ export type PipelineState = {
    * fabricate a false `review-timed-out`.
    */
   planReview?: PlanReviewRecord;
-  /**
-   * Fix-loop counters stage A's `flow-stage-a.workflow.js` enforces: how
-   * many CI-fix and review-fix re-entries have run this pipeline, against
-   * budgets of 3 (ciFix) and 2 (reviewFix). A plain state write via
-   * `flow-state-update --increment-loop`, never reset except by a fresh
-   * pipeline — absence means no fix loop has run yet (equivalent to
-   * `{ciFix: 0, reviewFix: 0}`), so this field survives a wiped
-   * `.flow-tmp/` (worktree-scoped, unlike this file).
-   */
-  loops?: { ciFix: number; reviewFix: number };
   updatedAt: string;
 };
 

@@ -174,28 +174,21 @@ describe("flow-value-rubric: discovery tick-only-when-clears-bar rule", () => {
 });
 
 describe("flow-value-rubric: step-10 sweep carries .details", () => {
-  it("flow-pipeline/SKILL.md carries a Post-merge follow-up sweep heading", () => {
+  it("flow-pipeline/SKILL.md's Post-merge follow-up sweep folds .details into the filed issue body", () => {
     const skill = read("skills/pipeline/flow-pipeline/SKILL.md");
-    expect(
-      skill.includes("### Post-merge follow-up sweep"),
-      "flow-pipeline/SKILL.md must carry a '### Post-merge follow-up sweep' heading.",
-    ).toBe(true);
-  });
-
-  it("stage B's sweep jq folds .details into the filed issue body", () => {
-    // The sweep's jq moved out of SKILL.md prose and into stage B's sweep
-    // agent prompt (workflows/core/flow-stage-b.workflow.js) — the
-    // '### Post-merge follow-up sweep' heading in SKILL.md is now just a
-    // pointer to where it runs, not the jq itself.
-    const stageB = read("workflows/core/flow-stage-b.workflow.js");
-    const start = stageB.indexOf('"sweep"');
+    const start = skill.indexOf("### Post-merge follow-up sweep");
     expect(
       start,
-      'flow-stage-b.workflow.js must carry the sweep agent (labeled "sweep").',
+      "flow-pipeline/SKILL.md must carry a '### Post-merge follow-up sweep' heading.",
     ).toBeGreaterThanOrEqual(0);
+    const nextHeading = skill.indexOf("\n## ", start + 1);
+    const slice = skill.slice(
+      start,
+      nextHeading === -1 ? undefined : nextHeading,
+    );
     expect(
-      stageB.includes(".details"),
-      "stage B's sweep jq must read the ticked item's " +
+      slice.includes(".details"),
+      "the Post-merge follow-up sweep's jq must read the ticked item's " +
         "'.details' field into the filed issue body — dropping it silently " +
         "loses the value-prop block on every filed follow-up issue.",
     ).toBe(true);
