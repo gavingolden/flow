@@ -330,8 +330,8 @@ plan review, and explanation should be weighed against, so those decisions
 stop falling back to generic engineering defaults.
 
 Five sections, in this order: **Who the PM is** (a real person or role, not a
-persona), **Ranked priorities** (an explicit ordering — cost/token spend, UX,
-content quality, reliability, whatever this product actually trades off),
+persona), **Ranked priorities** (an explicit ordering — user experience, cost,
+architecture, product quality, whatever this product actually trades off),
 **What "good" looks like**, **Non-goals**, and **Vocabulary** (words to use
 and words to avoid).
 
