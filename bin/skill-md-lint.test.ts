@@ -630,6 +630,56 @@ describe("flow-pipeline SKILL.md structural lint", () => {
   });
 });
 
+describe("fix-loop cap wiring lint (state.json counters, not context)", () => {
+  function stepSection(heading: string): string {
+    const start = content.indexOf(`\n${heading} `);
+    if (start === -1) return "";
+    const next = content.indexOf("\n## ", start + 1);
+    return content.slice(start, next === -1 ? content.length : next);
+  }
+
+  it.each([
+    ["## Step 7", "ciFix", "3", "ci-fix-exhausted"],
+    ["## Step 8", "reviewFix", "2", "review-fix-exhausted"],
+  ])(
+    "%s counts its fix-loop cap in state.json and gates on the read-back",
+    (heading, key, cap, tag) => {
+      const section = stepSection(heading);
+      expect(section.length, `${heading} section not found`).toBeGreaterThan(0);
+      expect(
+        section.includes(`flow-state-update --increment-loop ${key}`),
+        `${heading} must bump the '${key}' counter so the cap survives a compaction.`,
+      ).toBe(true);
+      expect(
+        section.includes(`.loops.${key} // 0`),
+        `${heading} must read the '${key}' counter back from state.json.`,
+      ).toBe(true);
+      expect(
+        section.includes(cap),
+        `${heading} must name its numeric cap ${cap}.`,
+      ).toBe(true);
+      expect(
+        section.includes(tag),
+        `${heading} must escalate 'NEEDS HUMAN: ${tag}' at the cap.`,
+      ).toBe(true);
+      const readBack = section
+        .split("\n")
+        .filter((line) => line.includes(`.loops.${key} // 0`));
+      for (const line of readBack) {
+        expect(
+          line.includes("<slug>"),
+          `The '${key}' read-back must not use the literal <slug> placeholder inside a runnable ` +
+            `bash fence — the shell parses it as redirection. Use ~/.flow/state/"$SLUG".json.`,
+        ).toBe(false);
+        expect(
+          line.includes('~/.flow/state/"$SLUG".json'),
+          `The '${key}' read-back must use ~/.flow/state/"$SLUG".json, matching the file's own idiom.`,
+        ).toBe(true);
+      }
+    },
+  );
+});
+
 describe("pipeline-snapshot wiring lint", () => {
   // Pins the four post-review terminal `flow-pipeline-summary` call sites so
   // a future edit cannot silently drop the snapshot. The helper renders the

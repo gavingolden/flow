@@ -2,9 +2,9 @@
 
 This file carries the canonical "Load the Task tool before spawning"
 preamble once. It is consulted on demand from each Task-tool exemption
-spawn site that links here — `/flow-pr-review`'s Multi-Agent Review and
-Fix-Applier spawn sites, and `/flow-pipeline`'s Merge-Conflict Resolver
-spawn site. Read this file when the per-site one-line summary in
+spawn site that links here — `/flow-pr-review`'s Multi-Agent Review,
+Consolidator-Validator, and Fix-Applier spawn sites, and
+`/flow-pipeline`'s Merge-Conflict Resolver spawn site. Read this file when the per-site one-line summary in
 SKILL.md points you here for the full rationale and alias-tolerance
 contract.
 

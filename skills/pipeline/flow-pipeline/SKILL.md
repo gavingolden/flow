@@ -1863,25 +1863,26 @@ when the value is the literal `true`. Absent ≡ false ≡ auto-detect ON
 `flow feature create --wait-for-copilot "<description>"`.
 
 **Fix-loop cap: 3 total ci-fix loops** across the whole pipeline.
-After the third red CI, escalate `NEEDS HUMAN: ci-fix-exhausted`.
+When the third ci-fix loop still leaves CI red, escalate
+`NEEDS HUMAN: ci-fix-exhausted`.
 
 The cap is counted in `state.json`, not in context, so it survives a
-compaction or a resume. On every ci-fix re-entry, bump the counter
-before looping back to step 5:
+compaction or a resume. On every ci-fix re-entry, read the counter
+BEFORE bumping it and gate the re-entry on the cap (absent `loops` ≡
+`{ciFix: 0, reviewFix: 0}`):
+
+```bash
+SLUG="$FLOW_SLUG"
+CI_FIX=$(jq -r '.loops.ciFix // 0' ~/.flow/state/"$SLUG".json)
+```
+
+When `CI_FIX` is already 3, do not re-enter step 5 — escalate
+`NEEDS HUMAN: ci-fix-exhausted` and end. Otherwise bump the counter and
+loop back to step 5:
 
 ```bash
 flow-state-update --increment-loop ciFix
 ```
-
-Then read it back and gate the re-entry on the cap (absent `loops` ≡
-`{ciFix: 0, reviewFix: 0}`):
-
-```bash
-CI_FIX=$(jq -r '.loops.ciFix // 0' ~/.flow/state/<slug>.json)
-```
-
-When `CI_FIX` has reached 3, do not re-enter step 5 — escalate
-`NEEDS HUMAN: ci-fix-exhausted` and end.
 
 **End condition:** the helper exits 0 with one of the decisions
 above. On `proceed-to-review` / `proceed-to-review-no-bot`, continue
@@ -1975,17 +1976,22 @@ step 5 with mode=fix and the finding details. After the second
 loop-back, escalate `NEEDS HUMAN: review-fix-exhausted`.
 
 Like the step-7 cap, this one is counted in `state.json` rather than in
-context, so it survives a compaction or a resume. Bump it on every
-review-fix re-entry, then gate the re-entry on the counter (absent
-`loops` ≡ `{ciFix: 0, reviewFix: 0}`):
+context, so it survives a compaction or a resume. On every review-fix
+re-entry, read the counter BEFORE bumping it and gate the re-entry on it
+(absent `loops` ≡ `{ciFix: 0, reviewFix: 0}`):
+
+```bash
+SLUG="$FLOW_SLUG"
+REVIEW_FIX=$(jq -r '.loops.reviewFix // 0' ~/.flow/state/"$SLUG".json)
+```
+
+When `REVIEW_FIX` is already 2, do not re-enter step 5 — escalate
+`NEEDS HUMAN: review-fix-exhausted` and end. Otherwise bump the counter
+and loop back to step 5 with mode=fix:
 
 ```bash
 flow-state-update --increment-loop reviewFix
-REVIEW_FIX=$(jq -r '.loops.reviewFix // 0' ~/.flow/state/<slug>.json)
 ```
-
-When `REVIEW_FIX` has reached 2, do not re-enter step 5 — escalate
-`NEEDS HUMAN: review-fix-exhausted` and end.
 
 After `/flow-pr-review` commits + pushes, return to step 7 (CI wait),
 not directly to step 9. The fix commit may have changed CI.

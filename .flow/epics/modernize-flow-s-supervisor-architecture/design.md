@@ -185,8 +185,10 @@ decision is one feature boundary.
   _Superseded in part (2026-09-08)._ The maintainer reverted PR #789 and
   PR #801 outright rather than shrinking the substrate in place: f8 was
   gated on f7 plus external issue #796 and was weeks out, while every
-  pipeline in the interval kept paying the +138%–+405% recorded in
-  `docs/eval/f6/README.md`. Steps 5–10 run in the supervisor's own context
+  pipeline in the interval kept paying the +272% (phase-write-fidelity,
+  $5.61 → $20.86) and +92% (verify-loop-isolation, $3.44 → $6.62) suite
+  cost recorded in `docs/eval/f6/README.md` — per scenario, +2% to +561%
+  (`docs/eval/f6/{before,after}/*/summary.md`). Steps 5–10 run in the supervisor's own context
   again, restored byte-exactly from `8e00a43^`. Kept from f6 by hand:
   `flow-state-update --increment-loop` / `state.loops` (now wired into the
   restored step 7/8 caps, so the 3/2 budgets survive a compaction or a
@@ -285,10 +287,13 @@ vertical slice. Ids, titles, and edges match `manifest.json` exactly.
   ships. A closed-enum error grammar for whatever carries the review
   stage, a per-run index (label → agentId → outcome tag → transcript
   path) rendered into the NEEDS HUMAN block, and a Haiku triage diagnosis
-  fired only on a needs-human outcome. Consumes issue #799's
-  `workflow.result` event; sibling to #795.
+  fired only on a needs-human outcome. Emits its own review-stage
+  completion event — issue #799's `workflow.result` has no surviving
+  emitter after this revert, so the event is an f7 deliverable rather
+  than a consumed dependency; sibling to #795.
 - **Depends on:** nothing in the epic (the f6 substrate is reverted, so f7
-  builds on the prose supervisor). External: #799 in flight.
+  builds on the prose supervisor). External: none — #799 is cancelled or
+  re-scoped with PR #806.
 - **Produces:** the grammar enum + its lint, the run-index helper, and the
   triage hook — the failure-visibility surface f8's review stage needs on
   day one, and the measurement surface its comparison needs on both arms.
