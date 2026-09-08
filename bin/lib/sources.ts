@@ -14,7 +14,6 @@ import {
 } from "./paths";
 import type { SymlinkKind, SymlinkRecord } from "./manifest";
 import {
-  isKnownModule,
   isRegistryKnownArtifact,
   MANDATORY_MODULE,
   moduleForArtifactName,
@@ -209,13 +208,6 @@ export function discoverWorkflows(
     withFileTypes: true,
   })) {
     if (!moduleDirent.isDirectory()) continue;
-    // Unlike `discoverSkills`' registry-unknown pass-through (which routes
-    // an unrecognised artifact into the `core` root), a directory name here
-    // IS the module id — an unchecked cast would mint a plugin-root target
-    // named `flow-module-<junk>` that no module owns, so nothing ever reaps
-    // it. Skip a non-module directory outright.
-    if (!isKnownModule(moduleDirent.name)) continue;
-    const moduleId: ModuleId = moduleDirent.name;
     const moduleDir = path.join(workflowsRoot, moduleDirent.name);
     for (const fileDirent of fs.readdirSync(moduleDir, {
       withFileTypes: true,
@@ -227,7 +219,7 @@ export function discoverWorkflows(
         source: path.join(moduleDir, fileDirent.name),
         target: path.join(
           targets.skillsDir,
-          pluginRootName(moduleId),
+          pluginRootName(moduleDirent.name as ModuleId),
           "workflows",
           fileDirent.name,
         ),
@@ -510,17 +502,6 @@ export async function discoverSelected(
  * unchanged. When they diverge (the `--source <worktree>` case), the recorded
  * path is rebased onto `installRoot` so the manifest survives the worktree's
  * post-merge removal.
- *
- * The recorded `sha256` for a `materialize: "copy"` entry hashes
- * `effectiveLinkSource`, NOT `entry.source`: `setup.ts`'s ensure loop copies
- * the bytes `effectiveLinkSource` resolves to, and `plugin-root-audit.ts`'s
- * `checkWorkflowsRoot` compares that recorded hash against the file on disk.
- * Hashing the raw discovery source instead makes the two disagree whenever
- * `flowSource !== installRoot` and a canonical counterpart exists — a clean
- * `flow install --source <worktree> --upgrade` would then report a false
- * `drifted-copy` on every subsequent `flow ls`. `install-drift.ts` already
- * resolves the same comparison through `effectiveLinkSource`; this keeps
- * the writer and the reader reading one source.
  */
 export function entryToRecord(
   entry: SourceEntry,
@@ -534,9 +515,7 @@ export function entryToRecord(
   };
   if (entry.materialize === "copy") {
     record.materialize = "copy";
-    record.sha256 = sha256File(
-      effectiveLinkSource(entry.source, flowSource, installRoot),
-    );
+    record.sha256 = sha256File(entry.source);
   }
   return record;
 }

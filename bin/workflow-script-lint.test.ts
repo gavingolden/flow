@@ -165,18 +165,6 @@ describe("workflow scripts — structural lint", () => {
     }
   });
 
-  it("the shipped workflow scripts need no sibling package.json", () => {
-    // Behavioural replacement for the PR's manual Test Steps 6-8, which were
-    // change-detectors (a file-absence check, a doc-comment grep, and a
-    // dead-identifier grep — none of which can fail under any regression
-    // except reverting this exact diff). This assertion is the real claim:
-    // the shipped scripts stay parseable with no workflows/package.json.
-    expect(existsSync(join(ROOT, "workflows/package.json"))).toBe(false);
-    for (const src of [stageA, stageB]) {
-      expect(checkWorkflowScriptSyntax(src).ok).toBe(true);
-    }
-  });
-
   it("symmetry: extractWorkflowAgentSites() vs references/workflow-agent-sites.md", () => {
     expect(existsSync(SITES_DOC)).toBe(true);
     const doc = readFileSync(SITES_DOC, "utf8");

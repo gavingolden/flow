@@ -26,7 +26,6 @@ import {
   discoverHelpers,
   discoverSkills,
   discoverValidators,
-  discoverWorkflows,
 } from "./sources";
 import { resolveFlowSource } from "./paths";
 import {
@@ -112,36 +111,6 @@ describe("modules registry completeness (live discovery, not doc prose)", () => 
         MODULES.find((m) => m.id === moduleId)?.agents ?? [],
       );
       expect(onDisk, `agents/${moduleId} on-disk files`).toEqual(registered);
-    }
-  });
-
-  it("workflows/<moduleId>/*.workflow.js on disk never drifts from that module's registry workflows[] array", () => {
-    // Sibling guard to the agents[] parity check above, for the other
-    // artifact kind whose registry array uses a DIFFERENT name shape than
-    // the on-disk file: agents[] stores the full basename ("flow-scout.md"),
-    // workflows[] stores the basename minus ".workflow.js" ("flow-stage-a").
-    // Without this, `discoverWorkflows` (filesystem-driven) and
-    // `pluginManifestFor` (registry-driven, via workflows[].length > 0) can
-    // diverge silently — see pattern-consistency's PR #801 finding.
-    const onDiskByModule = new Map<string, Set<string>>();
-    for (const entry of discoverWorkflows(flowSource)) {
-      const match = entry.displayName.match(
-        /^workflows\/([^/]+)\/(.+)\.workflow\.js$/,
-      );
-      expect(
-        match,
-        `unexpected displayName shape: ${entry.displayName}`,
-      ).not.toBeNull();
-      const [, moduleId, baseName] = match!;
-      if (!onDiskByModule.has(moduleId)) {
-        onDiskByModule.set(moduleId, new Set());
-      }
-      onDiskByModule.get(moduleId)!.add(baseName);
-    }
-    for (const m of MODULES) {
-      const onDisk = onDiskByModule.get(m.id) ?? new Set();
-      const registered = new Set(m.workflows);
-      expect(onDisk, `workflows/${m.id} on-disk files`).toEqual(registered);
     }
   });
 

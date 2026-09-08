@@ -382,16 +382,6 @@ export function parseAgentSitesDoc(doc: string): AgentSitesDocRow[] {
  * evaluating it, so this check mirrors that: strip the `export ` keyword off
  * the `meta` declaration, wrap the rest in `async function __wf(args, agent,
  * phase, log, parallel) { ... }`, and check THAT for real syntax errors.
- *
- * The wrapped source is written to a `mkdtempSync` tmpdir as `check.cjs`, so
- * the CommonJS parse comes from that FILE EXTENSION — no repo-level
- * `package.json` participates in this check, and none can. A
- * `workflows/package.json` pinning `"type": "commonjs"` used to sit next to
- * the scripts on the stated rationale that it made `node --check` validate
- * real syntax; it did not, and was removed. `node --check` on the real
- * scripts exits 1 either way (unparseable as ESM on the top-level `return`,
- * unparseable as CJS on `export const meta`), and the installed copies the
- * Workflow runtime actually loads have no `package.json` in any ancestor.
  */
 export function checkWorkflowScriptSyntax(source: string): {
   ok: boolean;

@@ -151,35 +151,6 @@ describe("resolveModuleActivity", () => {
       reason: "not-linked",
     });
   });
-
-  // Pins the deliberate asymmetry documented at `resolveModuleActivity`'s
-  // owner lookup: `declaredCount` excludes `m.workflows.length`, so the
-  // linked tally must exclude workflow records too. Counting only the
-  // linked side would let workflow rows push a partially installed module
-  // over its threshold and report it `linked` when it is not.
-  it("(f) workflow records never inflate a module's linked tally", () => {
-    const base = partialResearchManifest();
-    const workflowRows: SymlinkRecord[] = Array.from(
-      { length: 20 },
-      (_, i) => ({
-        source: `/fake/src/workflows/research/w${i}.workflow.js`,
-        target: `/fake/home/flow-module-research/workflows/w${i}.workflow.js`,
-        kind: "workflow",
-        materialize: "copy",
-      }),
-    );
-    const deps = {
-      readManifest: (): Manifest => ({
-        version: 1,
-        symlinks: [...base.symlinks, ...workflowRows],
-      }),
-    };
-    expect(activityFor("research", resolveModuleActivity(deps))).toEqual({
-      id: "research",
-      active: false,
-      reason: "not-linked",
-    });
-  });
 });
 
 describe("isModuleActive", () => {

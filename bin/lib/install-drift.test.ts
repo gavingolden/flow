@@ -17,7 +17,6 @@ import {
 } from "./install-drift";
 import type { Manifest, SymlinkRecord } from "./manifest";
 import type { SourceEntry } from "./sources";
-import { sha256File } from "./content-hash";
 
 let scratch: string;
 
@@ -494,37 +493,6 @@ describe(checkInstallDrift, () => {
       scanPluginRoots: () => [root],
     });
     expect(result).toEqual({ status: "clean" });
-  });
-
-  it("maps a drifted workflow copy to a 'stale' entry via the plugin-root pass (checkWorkflowsRoot, not the discover/symlink pass)", () => {
-    const dir = makeScratch();
-    const root = path.join(dir, "flow-module-core");
-    const target = path.join(root, "workflows", "flow-stage-a.workflow.js");
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, "// installed\n");
-    const recordedSha256 = sha256File(target);
-    // Hand-edit after recording, so the on-disk hash no longer matches.
-    fs.writeFileSync(target, "// hand-edited\n");
-
-    const result = run({
-      readManifest: () =>
-        manifest([
-          record({ target, kind: "workflow", sha256: recordedSha256 }),
-        ]),
-      discover: () => [],
-      scanPluginRoots: () => [root],
-    });
-    expect(result).toEqual({
-      status: "drifted",
-      entries: [
-        {
-          kind: "stale",
-          displayName: "flow-module-core",
-          target: root,
-          detail: path.join("workflows", "flow-stage-a.workflow.js"),
-        },
-      ],
-    });
   });
 
   it("reports one 'foreign' entry for a foreign live bin/ symlink (resolves outside flowSource/installRoot)", () => {

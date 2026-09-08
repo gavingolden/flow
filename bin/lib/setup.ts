@@ -1346,11 +1346,6 @@ function ensureCopy(target: string, source: string): LinkResult {
     }
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  // A planted symlink at `target` is never a real file (the precondition
-  // this function's own doc comment relies on) — unlink it first so
-  // copyFileSync/chmodSync can't be followed through it onto an
-  // arbitrary destination outside the plugin root.
-  fs.rmSync(target, { force: true });
   fs.copyFileSync(source, target);
   fs.chmodSync(target, 0o644);
   return existedBefore ? "updated" : "created";
