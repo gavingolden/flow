@@ -17,9 +17,11 @@ import {
   discoverSelected,
   discoverSkills,
   discoverWorkflows,
+  effectiveLinkSource,
   entryToRecord,
   isPathBoundHelper,
 } from "./sources";
+import { sha256File } from "./content-hash";
 import { MANDATORY_MODULE, moduleForArtifactName, moduleIds } from "./modules";
 import { pluginRootName } from "./plugin-manifest";
 import { resolveFlowSource } from "./paths";
@@ -265,6 +267,31 @@ describe(discoverWorkflows, () => {
       fs.rmSync(tmpSource, { recursive: true, force: true });
     }
   });
+
+  // Unlike a skill name (which falls through to the `core` root when the
+  // registry doesn't claim it), a directory name under `workflows/` IS the
+  // module id. Casting an arbitrary one would mint a `flow-module-<junk>`
+  // plugin-root target that no module owns and nothing ever reaps.
+  it("skips a directory under workflows/ whose name is not a known module id", () => {
+    const tmpSource = fs.mkdtempSync(
+      path.join(os.tmpdir(), "sources-workflows-junk-"),
+    );
+    try {
+      for (const dir of ["core", "not-a-module"]) {
+        const moduleDir = path.join(tmpSource, "workflows", dir);
+        fs.mkdirSync(moduleDir, { recursive: true });
+        fs.writeFileSync(path.join(moduleDir, "x.workflow.js"), "");
+      }
+      const entries = discoverWorkflows(tmpSource);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].displayName).toBe("workflows/core/x.workflow.js");
+      expect(
+        entries.some((e) => e.target.includes("flow-module-not-a-module")),
+      ).toBe(false);
+    } finally {
+      fs.rmSync(tmpSource, { recursive: true, force: true });
+    }
+  });
 });
 
 describe(entryToRecord, () => {
@@ -294,6 +321,68 @@ describe(entryToRecord, () => {
       expect(skillRecord.sha256).toBeUndefined();
     } finally {
       fs.rmSync(tmpSource, { recursive: true, force: true });
+    }
+  });
+
+  /** canonical/ + worktree/ siblings, each holding one workflow file whose
+   * bytes are given. Returns the two roots; `canonicalBody: null` omits the
+   * canonical counterpart entirely. */
+  function twoRootFixture(
+    canonicalBody: string | null,
+    worktreeBody: string,
+  ): { scratch: string; canonical: string; worktree: string; rel: string } {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "sources-source-"));
+    const rel = path.join("workflows", "core", "flow-stage-a.workflow.js");
+    const canonical = path.join(scratch, "flow");
+    const worktree = path.join(scratch, "flow-slug");
+    for (const [root, body] of [
+      [canonical, canonicalBody],
+      [worktree, worktreeBody],
+    ] as const) {
+      if (body === null) continue;
+      fs.mkdirSync(path.join(root, "workflows", "core"), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), body);
+    }
+    return { scratch, canonical, worktree, rel };
+  }
+
+  // The bug this pins: `setup.ts`'s ensure loop copies the bytes
+  // `effectiveLinkSource` resolves to (canonical, when it exists), while the
+  // record used to hash `entry.source` (the worktree). The audit compares
+  // the record against the on-disk copy, so the disagreement surfaced as a
+  // false `drifted-copy` on every `flow ls` after a clean `--source` install.
+  it("records the hash of the bytes actually copied when --source diverges from the install root", () => {
+    const { scratch, canonical, worktree, rel } = twoRootFixture(
+      "// canonical\n",
+      "// worktree\n",
+    );
+    try {
+      const [entry] = discoverWorkflows(worktree);
+      const record = entryToRecord(entry, worktree, canonical);
+      expect(effectiveLinkSource(entry.source, worktree, canonical)).toBe(
+        path.join(canonical, rel),
+      );
+      expect(record.sha256).toBe(sha256File(path.join(canonical, rel)));
+      expect(record.sha256).not.toBe(sha256File(path.join(worktree, rel)));
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  // The fallback half: a genuinely worktree-only workflow has no canonical
+  // counterpart, so `effectiveLinkSource` stays worktree-pointed and the
+  // record must hash the worktree bytes — the copy on disk is those bytes.
+  it("records the worktree hash when no canonical counterpart exists", () => {
+    const { scratch, canonical, worktree, rel } = twoRootFixture(
+      null,
+      "// worktree only\n",
+    );
+    try {
+      const [entry] = discoverWorkflows(worktree);
+      const record = entryToRecord(entry, worktree, canonical);
+      expect(record.sha256).toBe(sha256File(path.join(worktree, rel)));
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
     }
   });
 });
