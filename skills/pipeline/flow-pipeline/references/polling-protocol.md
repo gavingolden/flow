@@ -677,6 +677,11 @@ red CI, escalate `NEEDS HUMAN: ci-fix-exhausted` and end. Each
 fix-loop counts regardless of whether CI was failing for the same
 reason (a different test failing on attempt 2 still counts).
 
+The count lives in `state.json` as `state.loops.ciFix` (bumped by
+`flow-state-update --increment-loop ciFix`), not in the supervisor's
+context, so it survives a compaction or a resume — see SKILL.md step 7
+for the read-back and the gate.
+
 ## Bot reviewer name
 
 Default reviewer login: `copilot-pull-request-reviewer`. The supervisor

@@ -66,6 +66,12 @@ The two fix-loop caps (3 for ci-fail, 2 for review-critical) are
 counted independently. A pipeline can in principle do up to 3
 ci-fix loops _and_ 2 review-fix loops before escalating.
 
+Both counts live in `state.json` as `state.loops.ciFix` and
+`state.loops.reviewFix` (bumped by `flow-state-update --increment-loop
+ciFix|reviewFix`), not in the supervisor's context, so they survive a
+compaction or a resume — see SKILL.md steps 7 and 8 for the read-back
+and the gate.
+
 ### What "escalate" means
 
 The order below is load-bearing: the NEEDS HUMAN block renders BEFORE
