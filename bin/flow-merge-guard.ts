@@ -272,8 +272,13 @@ function checkGuard(
   // `--record-override` fresh-confirmation path, not a pipeline
   // transition, and its own `writeState` at the end of this file would
   // clobber an advance recorded there.
-  advancePhase("merging", { slug, expectPr: pr, dir: stateDir });
   const result = evaluateMergeGuard(fetched.body, state, pr, now());
+  // Out of `gated` (the gate-override path), `merging` lands only when the
+  // guard clears — a blocked override must leave the pipeline visibly gated,
+  // not parked at `merging` with nothing merging.
+  if (state?.phase !== "gated" || result.decision === "clear") {
+    advancePhase("merging", { slug, expectPr: pr, dir: stateDir });
+  }
   process.stdout.write(JSON.stringify(result) + "\n");
   return result.decision === "clear" ? 0 : 1;
 }
