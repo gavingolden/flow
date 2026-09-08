@@ -23,7 +23,8 @@
       "pr": 677
     },
     "f6-workflow-port": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 789
     }
   }
 }

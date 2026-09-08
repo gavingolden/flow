@@ -57,3 +57,5 @@ bin/fixtures/eval/
 # by the baseline writer between markers — none of these are hand-formatted.
 docs/eval/baseline/
 docs/eval/f2/
+docs/eval/f6/before/
+docs/eval/f6/after/
