@@ -211,10 +211,23 @@ The rules:
    migration, interface, file, or exported symbol that must exist first.
    "Feels later" is not an edge. State the concrete produced/consumed
    artifact on each edge.
-5. **Sparse edges by construction (Simon near-decomposability).** A dense
+5. **A shared generated artifact is a dependency class, not a coincidence.**
+   A file several features regenerate (e.g. an eval baseline such as
+   `backend/eval/baseline/scorecard.json`) is a shared generated artifact:
+   every producer lists it under `sharedArtifacts` and carries a
+   `dependsOn` edge against the previous producer so the runner serializes
+   them — the edge points from the later producer to the earlier one. The
+   very first producer of a new artifact has nothing to order against and
+   carries no edge. The converse also holds: a feature that does NOT touch
+   the artifact MUST NOT carry such an edge, so it stays parallel-safe. On
+   adopting this rule, an existing epic back-fills `sharedArtifacts` on
+   every feature that already regenerates the file (one-time migration).
+   `flow-epic-dag --validate` refuses an unordered producer pair
+   (`unordered-producers`).
+6. **Sparse edges by construction (Simon near-decomposability).** A dense
    edge set is a diagnostic that a boundary was drawn at a strong-coupling
    place — re-cut rather than ship the dense DAG.
-6. **Prefer a walking-skeleton root (Story Mapping).** The first feature is
+7. **Prefer a walking-skeleton root (Story Mapping).** The first feature is
    a thin end-to-end slice (the schema/seam everything else hangs off), so
    the DAG has a clear root and early features de-risk the architecture.
 
@@ -365,14 +378,25 @@ Write `manifest.json` matching the `EpicManifest` / `Feature` shape owned by
   verbatim epic prompt), `createdAt` (ISO-8601 by convention — the validator
   accepts any non-empty string), and `features[]`.
 - Each feature (required: `id`, `title`, `description`, `dependsOn[]`;
-  optional: `rationale`, `acceptanceCriteria[]`, `flowNewHints`, `mvp`) as
-  captured in §4c. Keep it 100% consistent with `design.md`'s §4/§5 (same
+  optional: `rationale`, `acceptanceCriteria[]`, `flowNewHints`, `mvp`,
+  `sharedArtifacts[]` — repo-relative paths of shared generated artifacts
+  this feature regenerates) as captured in §4c. Keep it 100% consistent with `design.md`'s §4/§5 (same
   ids, titles, and edges). Every `description` ends with the §4c
   pointer sentence ``Part of epic `<slug>` (feature `<id>`) — design at
 `.flow/epics/<slug>/design.md`.`` — the manifest's `description` is what
   `flow epic launch` dispatches verbatim as the pipeline prompt
   (`bin/lib/epic-launch.ts`), so the pointer must be present there, not only
   in `design.md`'s prose.
+
+**Follow-ups are a ledger, not a queue.** A manifest `followups` array is a
+ledger entry the runner never reads (`flow epic launch` resolves ids from
+`features[]` only, and the DAG walks `dependsOn` between features) — an
+item must be promoted to a `features[]` entry (id, description, dependsOn,
+and the pointer sentence) before it can be scheduled. Before filing
+anything into an epic, confirm the epic is runner-driven: `flow epic ls`
+lists it on this machine (a `run.json` exists) or its manifest `note` says
+so; absent both, promote-and-`flow epic run`, or file a GitHub issue via
+`flow-create-issue` — otherwise the item is a dead letter.
 
 ## 6. Self-validate — the MANDATORY correctness loop
 
@@ -429,7 +453,8 @@ Before returning, self-check:
   `flow-epic-manifest-schema --validate`, `flow-epic-dag --validate`, and
   `flow-plan-lint --design-md-file` exit 0 against it/`design.md`.
 - Every feature is a vertical slice with a self-contained `description`,
-  every `dependsOn` edge names a produced/consumed artifact, and there is a
+  every `dependsOn` edge names a produced/consumed artifact or a shared
+  generated artifact listed under `sharedArtifacts`, and there is a
   walking-skeleton root.
 - Every assumption made under ambiguity is surfaced in Open Questions.
 

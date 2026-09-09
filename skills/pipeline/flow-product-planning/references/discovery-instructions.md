@@ -261,8 +261,17 @@ epic, using this precedence — stop at the first layer that resolves:
    verbatim feature description (preferred) or whose id, slugified, matches the worktree
    slug (worktree slugs may be truncated or collision-suffixed, so description-match wins
    on conflict).
+4. **Shared-artifact scan (standalone producers).** When layers 1-3 do not resolve,
+   scan every manifest with the one-line probe
+   `jq -r --arg p "<path>" 'input_filename as $f | .features[] | select((.sharedArtifacts // []) | index($p)) | "\($f)\t\(.id)"' .flow/epics/*/manifest.json`
+   for each repo-relative path the plan will create or edit; the probe emits the
+   manifest path alongside the id so the hit is attributable to a specific epic —
+   the slug is the `.flow/epics/<slug>/` path segment of that manifest path. A hit
+   resolves membership as a standalone producer: ``Standalone producer of
+`<artifact>` in epic `<slug>` — no feature id`` (never fabricate a feature id;
+   the source-traceability rule still applies to the slug/artifact/producer ids).
 
-When none of the three layers resolves, the feature is not epic-launched — proceed to
+When none of the four layers resolves, the feature is not epic-launched — proceed to
 step 1.8 with `## Epic context` omitted.
 
 **Source-traceability rule (MUST).** Whichever layer detected membership, you MUST read
@@ -576,7 +585,8 @@ effect on model comprehension either way) — never required.
   sub-section below for the full contract.
 - **Epic context** (omit-when-empty) — only when step 1.7 detects epic membership: the
   epic slug, this feature's id and rationale, its `dependsOn` edges with produced/consumed
-  artifacts, and its downstream dependents. See the "Epic context" sub-section below.
+  artifacts, its downstream dependents, and a `**Manifest write-back:**` line. See the
+  "Epic context" sub-section below.
 - **Method selection** (omit-when-no-`SURVEY:`-marker) — only when step 1.8's blind
   method survey ran: five bullet lines plus a table — `- **User's method:**`, `- **Judge A (<model>):** "<its
 top recommendation's first sentence, verbatim>" — <paraphrase>` (a skipped judge writes
@@ -978,7 +988,19 @@ Populated only when step 1.7 detects epic membership (omit-when-empty — same
 never-an-empty-heading discipline as the sections above). Names: the epic slug, this
 feature's id and its rationale within the epic, its `dependsOn` edges (naming the
 produced/consumed artifact for each), and its downstream dependents whose consumed
-interfaces must stay stable. **Source-traceability rule:** every claim here MUST be
+interfaces must stay stable.
+
+A required `**Manifest write-back:**` line follows — `none` when this run changes no
+edge, otherwise every edge to add or remove, each naming its produced/consumed or
+shared artifact. A non-`none` value MUST appear as a task in `# Task breakdown` that
+edits `.flow/epics/<slug>/manifest.json` — the write-back lands in THIS PR (same-PR
+obligation), never a later amend. A standalone producer adds itself to
+`sharedArtifacts` and an edge against the previous producer only; a discovered-invalid
+edge is removed the same way. `flow-epic-dag --touched-files` in the fix-applier's
+epic step fails a PR that touches a declared shared artifact without touching the
+manifest.
+
+**Source-traceability rule:** every claim here MUST be
 traceable to `design.md` and `manifest.json` — read both on detection (step 1.7); never
 infer epic context from the slug or the pointer sentence alone.
 
@@ -1857,7 +1879,8 @@ Common failure modes during planning:
   entries with a concrete, verifiable rejection reason each; when present, a sibling
   `.flow-tmp/excluded-paths.json` mirrors it 1:1.
 - `## Epic context` is either omitted (not epic-launched) or every claim in it traces
-  to a `design.md` / `manifest.json` read from step 1.7.
+  to a `design.md` / `manifest.json` read from step 1.7, and carries the Manifest
+  write-back line.
 - `## Method selection` is either omitted (no `SURVEY:` marker in the invocation) or
   present with a `- **Survey verdict:**` line that is exactly one of `converge-against`,
   `split`, `converge-with`.

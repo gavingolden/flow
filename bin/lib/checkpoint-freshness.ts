@@ -21,6 +21,7 @@ export const CHECKPOINT_SITES = [
   "manual",
   "plan-review",
   "plan-approval",
+  "pre-review",
   "gate",
   "terminal",
 ] as const;
