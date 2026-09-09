@@ -41,10 +41,47 @@ the file doesn't already exist", so the invariant is ordering:
 `flow-pr-diff "$PR_NUMBER" > "$DIFF_PATH"` re-generate would silently
 clobber the delta scoping.
 
+## Risk tier
+
+`flow-review-scope` also resolves a `light | standard | deep` risk tier
+(`bin/lib/review-tier.ts`) from diff size, security-sensitive paths, a
+dependency change, the plan's high-stakes flag, and the
+conventional-commit prefix, and writes `tier` / `tier_reasons` into
+`review-scope.json` alongside `gates`. Default is `standard`; any single
+HIGH signal (a security-sensitive path, a dependency change, a plan
+high-stakes flag, or a large diff) forces `deep`; `light` requires EVERY
+signal to be low at once. `light` is defined by SUBTRACTING the three
+lowest-yield lenses (security, performance, supply-chain) — never by
+`ALWAYS_ON_LENSES`, which is a vacuity classification, not a yield
+ranking. Each lens the tier keeps is still subject to its own content
+gate above. The commit prefix is a weak, asymmetric signal: a low-risk
+prefix (docs/chore/style/test) may lower `standard` to `light`, but may
+never raise a tier, override a path/dependency/high-stakes signal, or by
+itself force `deep`.
+
+The tier and the content gate reconcile at exactly one site,
+`composeSpawnSet`, in this FOUR-LEVEL precedence:
+
+1. A lens named in the static-analysis hit set is forced ON regardless
+   of gate or tier (the "never-skip-on-signal" override, moved here out
+   of `evaluateGates` — see D3's single-site correction).
+2. Otherwise a lens the content gate skips (`gates.<lens>.run == false`)
+   stays skipped, preserving the gate's own reason.
+3. Otherwise a lens the tier drops (`tier === "light"` and the lens is
+   one of the three above) is skipped with a reason naming the tier.
+4. Otherwise the lens runs.
+
+`review-scope.json`'s `gates` field already reflects this composed
+result — `--force-full` bypasses the tier the same way it bypasses
+delta scoping, so a forced-full run's composed gates are never
+tier-dropped.
+
 ## Spawn only the ungated lenses
 
 Loop only over lenses where `gates.<lens>.run == true` (from
-`review-scope.json`). Each Task carries `description: "review lens:
+`review-scope.json`) — the tier's drops are already folded into this
+same field, so no separate tier check is needed at the spawn loop. Each
+Task carries `description: "review lens:
 <lens>"` — the telemetry collector attributes subagent-transcript usage
 by this description string when a lens falls back to `general-purpose`
 (whose `agentType` carries no lens suffix).
@@ -92,6 +129,23 @@ for t in "${LENS_TOKENS[@]}"; do LENS_TOKEN_ARGS+=(--lens-tokens "$t"); done
 flow-review-telemetry collect --worktree "$WORKTREE" --pr "$PR_NUMBER" \
   --session-id "$CLAUDE_CODE_SESSION_ID" "${LENS_TOKEN_ARGS[@]}" --append \
   ${WIDEN_REASON:+--widened "$WIDEN_REASON"}
+```
+
+As each lens is spawned, record its resolved model the same way:
+
+```bash
+LENS_MODELS+=("<lens>=<resolved-model>")
+```
+
+At Step 12, build the `--lens-model` flags the same way as
+`LENS_TOKEN_ARGS` — one `--lens-model` flag word per pair, never glued:
+
+```bash
+LENS_MODEL_ARGS=()
+for m in "${LENS_MODELS[@]}"; do LENS_MODEL_ARGS+=(--lens-model "$m"); done
+flow-review-telemetry collect --worktree "$WORKTREE" --pr "$PR_NUMBER" \
+  --session-id "$CLAUDE_CODE_SESSION_ID" "${LENS_TOKEN_ARGS[@]}" \
+  "${LENS_MODEL_ARGS[@]}" --append ${WIDEN_REASON:+--widened "$WIDEN_REASON"}
 ```
 
 ## Widen (consolidator authority, once)

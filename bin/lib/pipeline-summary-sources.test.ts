@@ -1108,7 +1108,7 @@ describe(renderLenses, () => {
   it("renders one dev line per lens plus the scope line from a fixture telemetry JSON", () => {
     const { dev } = renderLenses(fixture);
     expect(dev[0]).toBe("scope: delta (1 files)");
-    expect(dev).toContain("bug-detection: ran · 100 tok · 2→1→1");
+    expect(dev).toContain("bug-detection: ran · model - · 100 tok · 2→1→1");
   });
 
   it("renders `gated (<reason>)` for a lens with ran:false", () => {
@@ -1131,7 +1131,7 @@ describe(renderLenses, () => {
       },
     });
     const { dev } = renderLenses(raw);
-    expect(dev).toContain("bug-detection: ran · n/a tok · 0→0→0");
+    expect(dev).toContain("bug-detection: ran · model - · n/a tok · 0→0→0");
   });
 
   it("returns dev ['none'] / pm 'lenses: none' for undefined/empty raw", () => {
@@ -1146,5 +1146,91 @@ describe(renderLenses, () => {
     const result = renderLenses("{not json");
     expect(result.dev).toEqual(["(unreadable)"]);
     expect(result.pm).toBe("lenses: (unreadable)");
+  });
+
+  it("renders the model per lens, with '-' for a null/absent model", () => {
+    const raw = JSON.stringify({
+      scope: { kind: "full", delta_files: 0 },
+      widened: { value: false, reason: null },
+      lenses: {
+        "bug-detection": {
+          ran: true,
+          model: "opus",
+          tokens: { total: 10 },
+          tokens_source: "task-notification",
+          findings_emitted: 0,
+          findings_survived: 0,
+          findings_acted: 0,
+        },
+        security: {
+          ran: true,
+          model: null,
+          tokens: { total: 5 },
+          tokens_source: "task-notification",
+          findings_emitted: 0,
+          findings_survived: 0,
+          findings_acted: 0,
+        },
+      },
+    });
+    const { dev } = renderLenses(raw);
+    expect(dev).toContain("bug-detection: ran · model opus · 10 tok · 0→0→0");
+    expect(dev).toContain("security: ran · model - · 5 tok · 0→0→0");
+  });
+
+  it("renders a single labelled total unchanged from today when every lens shares one tokens_source", () => {
+    const raw = JSON.stringify({
+      scope: { kind: "full", delta_files: 0 },
+      widened: { value: false, reason: null },
+      lenses: {
+        "bug-detection": {
+          ran: true,
+          tokens: { total: 100 },
+          tokens_source: "task-notification",
+          findings_emitted: 0,
+          findings_survived: 0,
+          findings_acted: 0,
+        },
+        security: {
+          ran: true,
+          tokens: { total: 50 },
+          tokens_source: "task-notification",
+          findings_emitted: 0,
+          findings_survived: 0,
+          findings_acted: 0,
+        },
+      },
+    });
+    const { pm } = renderLenses(raw);
+    expect(pm).toBe("lenses: 2/2 ran, scope full, ~150 tokens");
+  });
+
+  it("never sums two different tokens_source totals — renders one labelled total per source instead", () => {
+    const raw = JSON.stringify({
+      scope: { kind: "full", delta_files: 0 },
+      widened: { value: false, reason: null },
+      lenses: {
+        "bug-detection": {
+          ran: true,
+          tokens: { total: 100 },
+          tokens_source: "task-notification",
+          findings_emitted: 0,
+          findings_survived: 0,
+          findings_acted: 0,
+        },
+        security: {
+          ran: true,
+          tokens: { total: 50 },
+          tokens_source: "subagent-transcript",
+          findings_emitted: 0,
+          findings_survived: 0,
+          findings_acted: 0,
+        },
+      },
+    });
+    const { pm } = renderLenses(raw);
+    expect(pm).not.toContain("150");
+    expect(pm).toContain("~100 tokens (task-notification)");
+    expect(pm).toContain("~50 tokens (subagent-transcript)");
   });
 });

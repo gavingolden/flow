@@ -367,7 +367,9 @@ export function renderLenses(raw: string | undefined): {
         {
           ran?: boolean;
           skip_reason?: string;
+          model?: string | null;
           tokens?: { total?: number } | null;
+          tokens_source?: string;
           findings_emitted?: number;
           findings_survived?: number;
           findings_acted?: number;
@@ -391,7 +393,11 @@ export function renderLenses(raw: string | undefined): {
 
   let ranCount = 0;
   let totalCount = 0;
-  let tokenTotal = 0;
+  // Partitioned by tokens_source: a task-notification total and a
+  // subagent-transcript total are two INCOMPATIBLE accountings (one is a
+  // real usage figure, the other a transcript-derived estimate) and must
+  // never be added together into one number.
+  const tokenTotalsBySource: Record<string, number> = {};
   let anyTokens = false;
   for (const [lens, l] of Object.entries(lenses)) {
     if (lens === "gemini" && l.skip_reason === "no artifact") {
@@ -408,19 +414,32 @@ export function renderLenses(raw: string | undefined): {
         l.tokens && typeof l.tokens.total === "number"
           ? String(l.tokens.total)
           : "n/a";
+      const modelStr = l.model ?? "-";
       if (l.tokens && typeof l.tokens.total === "number") {
-        tokenTotal += l.tokens.total;
+        const source =
+          typeof l.tokens_source === "string" ? l.tokens_source : "unknown";
+        tokenTotalsBySource[source] =
+          (tokenTotalsBySource[source] ?? 0) + l.tokens.total;
         anyTokens = true;
       }
       devLines.push(
-        `${lens}: ran · ${tokStr} tok · ${l.findings_emitted ?? 0}→${l.findings_survived ?? 0}→${l.findings_acted ?? 0}`,
+        `${lens}: ran · model ${modelStr} · ${tokStr} tok · ${l.findings_emitted ?? 0}→${l.findings_survived ?? 0}→${l.findings_acted ?? 0}`,
       );
     } else {
       devLines.push(`${lens}: gated (${l.skip_reason ?? "unknown"})`);
     }
   }
 
-  const pmLine = `lenses: ${ranCount}/${totalCount} ran, scope ${kind}, ~${anyTokens ? tokenTotal : "n/a"} tokens`;
+  const sources = Object.keys(tokenTotalsBySource);
+  const tokensPart = !anyTokens
+    ? "~n/a tokens"
+    : sources.length === 1
+      ? `~${tokenTotalsBySource[sources[0]]} tokens`
+      : sources
+          .map((s) => `~${tokenTotalsBySource[s]} tokens (${s})`)
+          .join(", ");
+
+  const pmLine = `lenses: ${ranCount}/${totalCount} ran, scope ${kind}, ${tokensPart}`;
   return { dev: devLines, pm: pmLine };
 }
 

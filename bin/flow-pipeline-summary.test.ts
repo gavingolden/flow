@@ -1226,7 +1226,7 @@ describe("run — end-to-end", () => {
     });
     expect(out).toContain("LENSES:");
     expect(out).toContain("scope: delta (1 files)");
-    expect(out).toContain("bug-detection: ran · 555 tok · 1→1→0");
+    expect(out).toContain("bug-detection: ran · model - · 555 tok · 1→1→0");
   });
 
   it("should render `lenses: none` / `LENSES:` + `none` when the sidecar is absent", () => {
@@ -1735,7 +1735,7 @@ describe("renderComment — slim PR-comment block (dev)", () => {
       }),
     }).dev;
     expect(block).toContain("LENSES:");
-    expect(block).toContain("bug-detection: ran · 5 tok · 0→0→0");
+    expect(block).toContain("bug-detection: ran · model - · 5 tok · 0→0→0");
   });
 });
 

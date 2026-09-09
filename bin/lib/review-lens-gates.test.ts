@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_LENS_MAP } from "../flow-pr-agent-lens";
 import type { AnalysisResult } from "../flow-pr-static-analysis/types";
+import { composeSpawnSet } from "./review-tier";
 import {
   evaluateGates,
   hasNewBareImports,
@@ -55,7 +56,7 @@ describe("evaluateGates", () => {
     }
   });
 
-  it("runs supply-chain when staticAnalysis.dependencies is non-empty even with no manifest change", () => {
+  it("gate-skips supply-chain when staticAnalysis.dependencies is non-empty but no manifest changed and no bare import — composeSpawnSet is now the site that forces it back on", () => {
     const analysis: AnalysisResult = {
       ...EMPTY_ANALYSIS,
       dependencies: [
@@ -73,7 +74,14 @@ describe("evaluateGates", () => {
       enabled: true,
       staticAnalysis: analysis,
     });
-    expect(gates["supply-chain"].run).toBe(true);
+    expect(gates["supply-chain"].run).toBe(false);
+
+    const composed = composeSpawnSet({
+      gates,
+      tier: "standard",
+      staticAnalysisHits: ["supply-chain"],
+    });
+    expect(composed["supply-chain"].run).toBe(true);
   });
 
   it("gates performance, security and test-coverage off on a docs-only file set and keeps bug-detection and pattern-consistency on", () => {
@@ -102,7 +110,7 @@ describe("evaluateGates", () => {
     }
   });
 
-  it("keeps security on for a docs-only set when staticAnalysis.security is non-empty", () => {
+  it("gate-skips security on a docs-only set even when staticAnalysis.security is non-empty — composeSpawnSet is now the site that forces it back on", () => {
     const analysis: AnalysisResult = {
       ...EMPTY_ANALYSIS,
       security: [
@@ -120,7 +128,14 @@ describe("evaluateGates", () => {
       enabled: true,
       staticAnalysis: analysis,
     });
-    expect(gates.security.run).toBe(true);
+    expect(gates.security.run).toBe(false);
+
+    const composed = composeSpawnSet({
+      gates,
+      tier: "standard",
+      staticAnalysisHits: ["security"],
+    });
+    expect(composed.security.run).toBe(true);
   });
 
   it("returns run:true reason 'gates disabled' for every lens when enabled:false", () => {

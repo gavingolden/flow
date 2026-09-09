@@ -31,8 +31,15 @@ import { capDiff, DEFAULT_MAX_LINES, DEFAULT_MAX_TOTAL } from "./flow-pr-diff";
 import {
   evaluateGates,
   hasNewBareImports,
+  MANIFEST_GLOBS,
+  matchesAny,
   type GateVerdict,
 } from "./lib/review-lens-gates";
+import {
+  composeSpawnSet,
+  resolveTier,
+  type ReviewTier,
+} from "./lib/review-tier";
 import type { AnalysisResult } from "./flow-pr-static-analysis/types";
 
 export const DELTA_RATIO_THRESHOLD = 0.75;
@@ -51,6 +58,8 @@ export type ReviewScope = {
   gates_enabled: boolean;
   delta_enabled: boolean;
   forced_full: boolean;
+  tier: ReviewTier;
+  tier_reasons: string[];
 };
 
 export function resolveScope(input: {
@@ -149,6 +158,9 @@ export function renderNotices(scope: ReviewScope): string[] {
       `NOTICE — review-scope: delta ${base7}..${head7} (${scope.delta_files.length} files, ${pct}% of PR diff)`,
     );
   }
+  notices.push(
+    `NOTICE — review-tier: ${scope.tier} — ${scope.tier_reasons.join("; ")}`,
+  );
   for (const [lens, verdict] of Object.entries(scope.gates)) {
     if (!verdict.run) {
       notices.push(`NOTICE — lens-gated: ${lens} skipped (${verdict.reason})`);
@@ -277,6 +289,36 @@ function countLines(diff: string): number {
   const lines = diff.split("\n");
   if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
   return lines.length;
+}
+
+/** Added/removed line counts from a unified diff, excluding the `+++`/`---` file headers. */
+function countAdditionsDeletions(diff: string): {
+  additions: number;
+  deletions: number;
+} {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) additions++;
+    else if (line.startsWith("-")) deletions++;
+  }
+  return { additions, deletions };
+}
+
+/**
+ * True iff `.flow-tmp/plan.md` exists and names this work high-stakes.
+ * There is no structured high-stakes field on plan.md today — it is prose
+ * under `## Decision analysis` — so this is a conservative substring
+ * heuristic, not a schema read. Absent/unreadable plan reads as false.
+ */
+function readPlanHighStakes(
+  readFile: (p: string) => string | null,
+  worktree: string,
+): boolean {
+  const raw = readFile(path.join(worktree, ".flow-tmp", "plan.md"));
+  if (raw === null) return false;
+  return /high[- ]stakes/i.test(raw);
 }
 
 function readTolerantBool(
@@ -446,6 +488,44 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     newBareImports,
   });
 
+  const hasManifestChange = scopeFiles.some((f) =>
+    matchesAny(f, MANIFEST_GLOBS),
+  );
+  const { additions, deletions } = countAdditionsDeletions(diffRaw);
+  const { tier, reasons: tierReasons } = resolveTier({
+    additions,
+    deletions,
+    files: scopeFiles,
+    hasDependencyChange: hasManifestChange || newBareImports,
+    planHighStakes: readPlanHighStakes(deps.readFile, worktree),
+    // Not yet threaded through this CLI's inputs (no PR title/branch-commit
+    // read on hand here) — the weak/asymmetric prefix signal simply never
+    // fires rather than being guessed at.
+    commitPrefix: null,
+  });
+
+  const hasDependencySignal = (staticAnalysis?.dependencies?.length ?? 0) > 0;
+  const hasSecuritySignal = (staticAnalysis?.security?.length ?? 0) > 0;
+  const staticAnalysisHits: AgentName[] = [
+    ...(hasDependencySignal ? (["supply-chain"] as const) : []),
+    ...(hasSecuritySignal ? (["security"] as const) : []),
+  ];
+
+  // --force-full is the documented manual escape hatch for the tier (see
+  // plan.md's rejected-alternative note ruling out a second override flag)
+  // the same way it already forces scope=full instead of delta — it
+  // bypasses tier-based DROPPING only; the content gate and the
+  // static-analysis force-on above are untouched. `!gatesEnabled` (i.e.
+  // --no-gates or review.lensGates:false) bypasses the tier drop too — it
+  // is the umbrella "ignore all gating" escape hatch the existing
+  // every-lens-on contract already relies on; passing "deep" here never
+  // drops a lens (composeSpawnSet only drops on tier === "light").
+  const composedGates = composeSpawnSet({
+    gates,
+    tier: parsed.forceFull || !gatesEnabled ? "deep" : tier,
+    staticAnalysisHits,
+  });
+
   const scope: ReviewScope = {
     version: 1,
     started_at: deps.now().toISOString(),
@@ -456,10 +536,12 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     pr_files: prFiles,
     delta_files: resolved.delta_files,
     delta_ratio: resolved.delta_ratio,
-    gates,
+    gates: composedGates,
     gates_enabled: gatesEnabled,
     delta_enabled: deltaEnabled,
     forced_full: parsed.forceFull,
+    tier,
+    tier_reasons: tierReasons,
   };
 
   const cappedDiff = capDiff(
@@ -472,7 +554,7 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     parsed.diffOut ?? path.join(worktree, ".flow-tmp", "diff.txt");
   atomicWrite(deps, diffOutPath, cappedDiff);
 
-  for (const [lens, verdict] of Object.entries(gates)) {
+  for (const [lens, verdict] of Object.entries(scope.gates)) {
     if (!verdict.run) {
       const artifactPath = path.join(
         worktree,

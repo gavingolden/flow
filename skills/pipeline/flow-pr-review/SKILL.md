@@ -1542,7 +1542,7 @@ pass-through `lens_anti_patterns_found[]` entries above have no such flag (three
 Render the boolean in **Anti-Patterns Observed**, and append the new-file audit's
 WARNING lines (Step 9a above) so a misclassified introduced-in-PR entry stays visible.
 
-**Lens telemetry.** Build `LENS_TOKEN_ARGS` per `references/review-scope.md` "Record lens tokens" (quoted `"${LENS_TOKENS[@]/#/--lens-tokens }"` glues each pair into one argv word and `parseArgs` rejects it), then run `flow-review-telemetry collect --worktree "$WORKTREE" --pr "$PR_NUMBER" --session-id "$CLAUDE_CODE_SESSION_ID" "${LENS_TOKEN_ARGS[@]}" --append ${WIDEN_REASON:+--widened "$WIDEN_REASON"}` then `flow-review-telemetry print --in "$WORKTREE/.flow-tmp/review-telemetry.json"`; paste `print`'s stdout under `### Lens telemetry` (`references/report-template.md`).
+**Lens telemetry.** Build `LENS_TOKEN_ARGS` per `references/review-scope.md` "Record lens tokens" (quoted `"${LENS_TOKENS[@]/#/--lens-tokens }"` glues each pair into one argv word and `parseArgs` rejects it), then run `flow-review-telemetry collect --worktree "$WORKTREE" --pr "$PR_NUMBER" --session-id "$CLAUDE_CODE_SESSION_ID" "${LENS_TOKEN_ARGS[@]}" "${LENS_MODEL_ARGS[@]}" --append ${WIDEN_REASON:+--widened "$WIDEN_REASON"}` then `flow-review-telemetry print --in "$WORKTREE/.flow-tmp/review-telemetry.json"`; paste `print`'s stdout under `### Lens telemetry` (`references/report-template.md`).
 
 **Agent-fallback notices.** When any spawn site's file-exists guard fired its
 `NOTICE — agent-fallback: ...` line during this run (per-lens,
