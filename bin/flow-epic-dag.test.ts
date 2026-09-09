@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -666,6 +666,33 @@ describe("findUndeclaredProducers / --touched-files CLI", () => {
     expect(r.stderr).toContain("usage:");
   });
 
+  it("exits 2 with usage on a bare trailing --feature", () => {
+    withTmpFile(manifest(withProducer), (filePath) => {
+      const r = runCli([
+        "--touched-files",
+        filePath,
+        "backend/eval/baseline/scorecard.json",
+        "--feature",
+      ]);
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain("usage:");
+    });
+  });
+
+  it("--feature '' falls back to the legacy manifest-in-diff rule", () => {
+    withTmpFile(manifest(withProducer), (filePath) => {
+      const r = runCli([
+        "--touched-files",
+        filePath,
+        "--feature",
+        "",
+        "backend/eval/baseline/scorecard.json",
+      ]);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("is not in this diff");
+    });
+  });
+
   it("propagates a DAG violation from the manifest as exit 1 before the touched scan", () => {
     withTmpFile(manifest([feat("a", ["b"]), feat("b", ["a"])]), (filePath) => {
       const r = runCli(["--touched-files", filePath, "some/file.ts"]);
@@ -699,8 +726,10 @@ describe("findUndeclaredProducers / --touched-files CLI", () => {
       { featureId: "a" },
     );
     expect(violations.map((v) => v.offendingIds)).toEqual([["c"]]);
-    expect(violations[0].message).toContain("a");
-    expect(violations[0].message).toContain("declare");
+    expect(violations[0].message).toContain('feature "a" is not among them');
+    expect(violations[0].message).toContain(
+      'declare "a" under sharedArtifacts',
+    );
   });
 
   it("--feature a: exits 0 when the PR's own feature declares the touched artifact", () => {
@@ -743,8 +772,8 @@ describe("findUndeclaredProducers / --touched-files CLI", () => {
         "backend/eval/baseline/scorecard.json",
       ]);
       expect(r.status).toBe(1);
-      expect(r.stderr).toContain("c");
-      expect(r.stderr).toContain("declare");
+      expect(r.stderr).toContain('feature "c" is not among them');
+      expect(r.stderr).toContain('declare "c" under sharedArtifacts');
     });
   });
 
@@ -763,7 +792,7 @@ describe("findUndeclaredProducers / --touched-files CLI", () => {
         { cwd: dir },
       );
       expect(r.status).toBe(1);
-      expect(r.stderr).toContain("c");
+      expect(r.stderr).toContain('feature "c" is not among them');
     });
   });
 
@@ -798,20 +827,51 @@ describe("findUndeclaredProducers / --touched-files CLI", () => {
     });
   });
 
-  it("an absolute manifest path with cwd = the tmp dir (no git repo) and manifest.json among touched exits 0", () => {
-    withTmpFile(manifest(withProducer), (filePath) => {
-      const dir = path.dirname(filePath);
-      const r = runCli(
+  it("relative manifest path resolved against the git root matches git-diff-style touched paths", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "epic-dag-git-"));
+    try {
+      spawnSync("git", ["init", "-q"], { cwd: dir });
+      mkdirSync(path.join(dir, ".flow/epics/e"), { recursive: true });
+      writeFileSync(
+        path.join(dir, ".flow/epics/e/manifest.json"),
+        manifest(withProducer),
+      );
+      const ok = runCli(
         [
           "--touched-files",
-          filePath,
+          ".flow/epics/e/manifest.json",
+          "--feature",
+          "a",
           "backend/eval/baseline/scorecard.json",
-          "manifest.json",
         ],
         { cwd: dir },
       );
-      expect(r.status).toBe(0);
-    });
+      expect(ok.status).toBe(0);
+      const legacy = runCli(
+        [
+          "--touched-files",
+          ".flow/epics/e/manifest.json",
+          "backend/eval/baseline/scorecard.json",
+          ".flow/epics/e/manifest.json",
+        ],
+        { cwd: dir },
+      );
+      expect(legacy.status).toBe(0);
+      const bad = runCli(
+        [
+          "--touched-files",
+          ".flow/epics/e/manifest.json",
+          "--feature",
+          "zzz",
+          ".flow/epics/e/manifest.json",
+          "backend/eval/baseline/scorecard.json",
+        ],
+        { cwd: dir },
+      );
+      expect(bad.status).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

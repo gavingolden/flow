@@ -408,11 +408,16 @@ else
     echo "epic-dag: flow-epic-dag not installed — skipped"
   else
     FAIL=0
+    EPIC_SLUG=$(jq -r '.epic.slug // empty' ~/.flow/state/"${FLOW_SLUG:-}".json 2>/dev/null)
     FEATURE_ID=$(jq -r '.epic.featureId // empty' ~/.flow/state/"${FLOW_SLUG:-}".json 2>/dev/null)
     for m in .flow/epics/*/manifest.json; do
       [ -f "$m" ] || continue
+      FEAT_ARGS=()
+      if [ -n "$FEATURE_ID" ] && [ "$m" = ".flow/epics/$EPIC_SLUG/manifest.json" ]; then
+        FEAT_ARGS=(--feature "$FEATURE_ID")
+      fi
       git diff -z --name-only "origin/$BASE_REF...HEAD" \
-        | xargs -0 flow-epic-dag --touched-files "$m" ${FEATURE_ID:+--feature "$FEATURE_ID"} || FAIL=1
+        | xargs -0 flow-epic-dag --touched-files "$m" "${FEAT_ARGS[@]}" || FAIL=1
       if git diff --name-only "origin/$BASE_REF...HEAD" | grep -qxF "$m"; then
         flow-epic-dag --validate "$m" || FAIL=1
       fi

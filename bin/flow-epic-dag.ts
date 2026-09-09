@@ -386,13 +386,18 @@ async function cliMain(argv: string[]): Promise<number> {
       process.stderr.write(USAGE);
       return 2;
     }
+    // `--feature` is located by scanning the whole argv (not a fixed
+    // position) because `xargs` appends the diff's touched paths after
+    // whatever the caller passed, so the flag can land anywhere before
+    // them. This means a committed file literally named `--feature` would
+    // be misread as the flag; not fixed here because a git-tracked path
+    // named `--feature` is not a realistic input (see PR #833 review).
     const featureFlagIdx = argv.indexOf("--feature");
     if (featureFlagIdx === argv.length - 1 && featureFlagIdx !== -1) {
       process.stderr.write(USAGE);
       return 2;
     }
-    const rawFeatureId =
-      featureFlagIdx === -1 ? undefined : argv[featureFlagIdx + 1];
+    const rawFeatureId = flagValue(argv, "--feature");
     const featureId =
       rawFeatureId === undefined || rawFeatureId.length === 0
         ? undefined
