@@ -53,6 +53,8 @@ function makeExec(
     metaChangedFiles?: number;
     failFetch?: boolean;
     failIntent?: boolean;
+    failCommits?: boolean;
+    failStaticAnalysis?: boolean;
     reviewScopeExtra?: Record<string, unknown>;
     staticAnalysisStderr?: string;
   } = {},
@@ -66,6 +68,9 @@ function makeExec(
       return { stdout: "# PR #1: title\n", ...OK };
     }
     if (cmd === "gh" && argv.includes("commits")) {
+      if (opts.failCommits) {
+        return { stdout: "", stderr: "gh: commits fetch failed", exitCode: 1 };
+      }
       return { stdout: "abc1234 fix: thing\nbody\n---\n", ...OK };
     }
     if (cmd === "gh") {
@@ -81,6 +86,13 @@ function makeExec(
       };
     }
     if (cmd === "flow-pr-static-analysis") {
+      if (opts.failStaticAnalysis) {
+        return {
+          stdout: "",
+          stderr: "flow-pr-static-analysis crashed",
+          exitCode: 1,
+        };
+      }
       return {
         stdout: JSON.stringify({ security: [], meta: {} }),
         stderr: opts.staticAnalysisStderr ?? "",
@@ -161,6 +173,36 @@ describe("runReviewPrep", () => {
     ]);
   });
 
+  it("a non-critical sub-step failure (commits) yields completeness=partial with an EMPTY critical_skips", async () => {
+    const prep = await runReviewPrep({
+      pr: 1,
+      worktree,
+      exec: makeExec({ failCommits: true }),
+    });
+    expect(prep.completeness).toBe("partial");
+    expect(prep.critical_skips).toEqual([]);
+    expect(prep.skips).toEqual([
+      { step: "commits", reason: "gh: commits fetch failed", critical: false },
+    ]);
+  });
+
+  it("a non-critical sub-step failure (static_analysis) yields completeness=partial with an EMPTY critical_skips and does not silently drop the gate impact", async () => {
+    const prep = await runReviewPrep({
+      pr: 1,
+      worktree,
+      exec: makeExec({ failStaticAnalysis: true }),
+    });
+    expect(prep.completeness).toBe("partial");
+    expect(prep.critical_skips).toEqual([]);
+    expect(prep.skips).toEqual([
+      {
+        step: "static_analysis",
+        reason: "flow-pr-static-analysis crashed",
+        critical: false,
+      },
+    ]);
+  });
+
   it("a critical sub-step failure (the PR fetch) populates critical_skips", async () => {
     const prep = await runReviewPrep({
       pr: 1,
@@ -169,8 +211,25 @@ describe("runReviewPrep", () => {
     });
     expect(prep.completeness).toBe("partial");
     expect(prep.critical_skips).toEqual(["fetch"]);
-    expect(prep.state).toBe("");
+    // Never "" — an empty state would silently pass SKILL.md's
+    // closed/merged pre-flight (`.state == "closed"` / `"merged"`) even
+    // though the metadata fetch never ran.
+    expect(prep.state).toBe("UNKNOWN");
     expect(prep.additions).toBe(0);
+  });
+
+  it("deletes a stale static-analysis.json and surfaces a gate-impact notice when the fetch fails", async () => {
+    const deleted: string[] = [];
+    const prep = await runReviewPrep({
+      pr: 1,
+      worktree,
+      exec: makeExec({ failStaticAnalysis: true }),
+      deleteFile: (p) => deleted.push(p),
+    });
+    expect(deleted).toEqual([prep.paths.static_analysis]);
+    expect(
+      prep.notices.some((n) => n.startsWith("NOTICE — static-analysis:")),
+    ).toBe(true);
   });
 
   describe("size_band boundaries", () => {

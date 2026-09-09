@@ -273,7 +273,7 @@ export function parseArgs(argv: string[]): Args {
 }
 
 const USAGE =
-  "usage: flow-checkpoint [<slug>] [--consume | --probe | --path] [--site manual|plan-review|plan-approval|gate|terminal]";
+  "usage: flow-checkpoint [<slug>] [--consume | --probe | --path] [--site manual|plan-review|plan-approval|pre-review|gate|terminal]";
 
 function emit(result: CheckpointResult): void {
   process.stdout.write(JSON.stringify(result) + "\n");

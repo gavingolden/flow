@@ -2,7 +2,20 @@
 // review segment, it records the CONTEXT SIZE at three phase boundaries per session.
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
-const ROOT = `${process.env.HOME}/.claude/projects`;
+// Both overridable so this runs on a machine/user/repo-set other than the
+// one it was authored on: --home <dir> (default $HOME) and --repos <csv>
+// (default flow,pokemon,econ-data).
+const argv = process.argv.slice(2);
+const flagValue = (name: string): string | undefined => {
+  const i = argv.indexOf(name);
+  return i >= 0 ? argv[i + 1] : undefined;
+};
+const HOME = flagValue("--home") ?? process.env.HOME;
+const REPOS = (flagValue("--repos") ?? "flow,pokemon,econ-data")
+  .split(",")
+  .filter(Boolean);
+const ROOT = `${HOME}/.claude/projects`;
+const REPO_PATTERN = new RegExp(`^-Users-[^-]+-code-me-(${REPOS.join("|")})`);
 const ctxOf = (u: any) =>
   (u.cache_read_input_tokens || 0) +
   (u.cache_creation_input_tokens || 0) +
@@ -11,9 +24,7 @@ const atPipeline: number[] = [],
   atReview: number[] = [],
   maxPer: number[] = [];
 const dirs = readdirSync(ROOT).filter(
-  (d) =>
-    /^-Users-gavingolden-code-me-(flow|pokemon|econ-data)/.test(d) &&
-    !d.includes("scratchpad"),
+  (d) => REPO_PATTERN.test(d) && !d.includes("scratchpad"),
 );
 for (const d of dirs)
   for (const f of readdirSync(join(ROOT, d)).filter((f) =>

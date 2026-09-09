@@ -38,6 +38,9 @@ artifacts under `.flow-tmp/`, not in the transcript. Keep their paths:
 - `.flow-tmp/pr-review-result.json` — the wrapper's status envelope
   (`clean` / `partial` / `escalated`) and, on `partial`, the missed-step
   list the retry resumes from.
+- `.flow-tmp/review-prep.json` — `flow-review-prep`'s setup envelope (scope,
+  gated lenses, size band, completeness, critical skips); losing it forces
+  Steps 2-7 to re-derive scope from scratch instead of resuming.
 - `.flow-tmp/fix-applier-result.json` — what the fix-applier changed,
   its rejected alternatives and anti-patterns, and any UI screenshots.
 - `.flow-tmp/consolidator-result.json` — the merged, deduped,

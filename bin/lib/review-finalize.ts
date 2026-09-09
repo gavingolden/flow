@@ -34,8 +34,27 @@ export type ReviewFinalize = {
   last_sha: string;
   tier_copied: boolean;
   lens_models_forwarded: number;
+  lens_tokens_forwarded: number;
   skips: ReviewFinalizeSkip[];
 };
+
+/** Isolates one sub-step: a thrown error becomes a named `skips[]` entry
+ * rather than aborting the whole wrap-up — mirrors `bin/lib/review-prep.ts`'s
+ * `runStep`. A missing PATH binary (e.g. a helper this PR just added, not
+ * yet picked up by `flow install --upgrade`) throws from `Bun.spawnSync`;
+ * without this wrapper that abort could land after the PR body was already
+ * pushed, leaving the rest of the wrap-up silently undone. */
+function runStep(
+  skips: ReviewFinalizeSkip[],
+  step: string,
+  fn: () => void,
+): void {
+  try {
+    fn();
+  } catch (err) {
+    skips.push({ step, reason: errMessage(err) });
+  }
+}
 
 // Canonical step labels this skill numbers — see flow-pr-review/SKILL.md's
 // "# Result artifact" contract. Default `completed_steps` on the clean
@@ -77,6 +96,12 @@ export type ReviewFinalizeOptions = {
   reasons?: string[];
   /** Repeatable `--lens-model <lens>=<alias>` pairs, forwarded verbatim. */
   lensModels?: string[];
+  /** Repeatable `--lens-tokens <lens>=<n>` pairs — the real, currently
+   * supported `flow-review-telemetry collect` flag (see `bin/flow-review-telemetry.ts`). */
+  lensTokens?: string[];
+  /** Forwarded verbatim as `--widened <reason>` when the consolidator
+   * widened scope this run. */
+  widened?: string;
   exec?: ExecFn;
   readFile?: (p: string) => string | null;
   writeFile?: (p: string, content: string) => void;
@@ -128,28 +153,40 @@ export async function runReviewFinalize(
   // so a non-zero exitCode here means the process itself failed to run.
   let body_updated = false;
   {
-    const fix = exec(["flow-md-validate", "--fix-pr-body", opts.bodyFile]);
-    if (fix.exitCode !== 0) {
-      skips.push({
-        step: "body_repair",
-        reason: fix.stderr || "flow-md-validate --fix-pr-body failed",
-      });
-    }
-    const edit = exec([
-      "gh",
-      "pr",
-      "edit",
-      prStr,
-      "--body-file",
-      opts.bodyFile,
-    ]);
-    if (edit.exitCode !== 0) {
-      skips.push({
-        step: "body_edit",
-        reason: edit.stderr || "gh pr edit --body-file failed",
+    let bodyStale = false;
+    runStep(skips, "body_repair", () => {
+      // A stale `.flow-tmp/body.md` from a prior run must never clobber
+      // the live PR body — verify it exists and is non-empty first.
+      const existing = readFile(opts.bodyFile);
+      if (existing === null || existing.trim() === "") {
+        bodyStale = true;
+        throw new Error(`body file missing or empty: ${opts.bodyFile}`);
+      }
+      const fix = exec(["flow-md-validate", "--fix-pr-body", opts.bodyFile]);
+      if (fix.exitCode !== 0) {
+        throw new Error(fix.stderr || "flow-md-validate --fix-pr-body failed");
+      }
+    });
+    if (!bodyStale) {
+      runStep(skips, "body_edit", () => {
+        const edit = exec([
+          "gh",
+          "pr",
+          "edit",
+          prStr,
+          "--body-file",
+          opts.bodyFile,
+        ]);
+        if (edit.exitCode !== 0) {
+          throw new Error(edit.stderr || "gh pr edit --body-file failed");
+        }
+        body_updated = true;
       });
     } else {
-      body_updated = true;
+      skips.push({
+        step: "body_edit",
+        reason: "skipped — no fresh body file to push",
+      });
     }
   }
 
@@ -157,16 +194,19 @@ export async function runReviewFinalize(
   // not have landed yet, so forwarding has to work in BOTH merge orders.
   //
   // Try-then-fall-back rather than a `--help` probe: `flow-review-telemetry`
-  // has no `--help` at all — it answers `unknown flag: --help` and still
-  // exits 0 — so a probe that reads help output would report "unsupported"
-  // forever and silently drop the flag even after the sibling lands it.
-  // Exit code is no better a signal for the same reason. So attempt the
-  // call with the flags, detect the helper's own `unknown flag:` reply for
-  // this flag in its output, and on that one signal retry without them.
+  // has no working `--help` — it answers `unknown flag: --help` on stderr
+  // AND exits 2, same as any other unrecognised flag — so a probe that
+  // reads help output would report "unsupported" forever, and the exit
+  // code alone can't distinguish "unknown flag" from a genuine failure
+  // (both are non-zero). So attempt the call with the flags, detect the
+  // helper's own `unknown flag:` reply for this flag in its output, and
+  // on that one signal retry without them.
   let lens_models_forwarded = 0;
+  let lens_tokens_forwarded = 0;
   let telemetry_recorded = false;
   {
     const lensModels = opts.lensModels ?? [];
+    const lensTokens = opts.lensTokens ?? [];
     const baseArgs = [
       "flow-review-telemetry",
       "collect",
@@ -175,7 +215,10 @@ export async function runReviewFinalize(
       "--pr",
       prStr,
       ...(opts.sessionId ? ["--session-id", opts.sessionId] : []),
+      ...lensTokens.flatMap((pair) => ["--lens-tokens", pair]),
+      ...(opts.widened ? ["--widened", opts.widened] : []),
     ];
+    if (lensTokens.length > 0) lens_tokens_forwarded = lensTokens.length;
     const lensModelArgs = lensModels.flatMap((pair) => ["--lens-model", pair]);
     let collect = exec([...baseArgs, ...lensModelArgs, "--append"]);
     const rejectedFlag =
@@ -223,6 +266,24 @@ export async function runReviewFinalize(
     }
   }
 
+  // 3b. Read-before-overwrite escalation guard — computed ONCE and reused
+  // by both the marker write below and the result-artifact write in step
+  // 5, so an already-escalated review can never be re-marked "reviewed as
+  // of this sha" by a later clean/partial run through this same path.
+  const resultPath = path.join(dir, "pr-review-result.json");
+  let existingEscalated = false;
+  {
+    const existingRaw = readFile(resultPath);
+    if (existingRaw !== null) {
+      try {
+        existingEscalated = JSON.parse(existingRaw).status === "escalated";
+      } catch {
+        // unparsable prior artifact — treated as not-escalated
+      }
+    }
+  }
+  const escalationWins = existingEscalated && opts.status !== "escalated";
+
   // 4. last_sha — LOCAL HEAD only, never `gh pr view` (head-sync stall).
   let last_sha = "";
   {
@@ -238,7 +299,10 @@ export async function runReviewFinalize(
   }
   // The marker is scoped ONLY to the clean-completion path — escalated/
   // partial runs must not write it (see flow-pr-review/SKILL.md Step 13).
-  if (opts.status === "clean" && last_sha) {
+  // It also must not overwrite when a PRIOR run already escalated this PR
+  // — otherwise the next run's metadata triage reads the marker and
+  // wrongly skips the re-review the escalation demands.
+  if (opts.status === "clean" && last_sha && !escalationWins) {
     writeFile(path.join(dir, "pr-review-last-sha"), `${last_sha}\n`);
   }
 
@@ -273,23 +337,13 @@ export async function runReviewFinalize(
     }
   }
 
-  // 5. Result artifact — read-before-overwrite guard first (escalation
-  // always wins over a later clean/partial write from this same path),
-  // then validate before writing to the real path; on failure leave the
-  // invalid candidate at `<path>.tmp` for inspection.
-  const resultPath = path.join(dir, "pr-review-result.json");
+  // 5. Result artifact — reuses the escalation guard computed in step 3b
+  // (escalation always wins over a later clean/partial write from this
+  // same path), then validates before writing to the real path; on
+  // failure leave the invalid candidate at `<path>.tmp` for inspection.
   let result_valid = false;
   {
-    const existingRaw = readFile(resultPath);
-    let existingEscalated = false;
-    if (existingRaw !== null) {
-      try {
-        existingEscalated = JSON.parse(existingRaw).status === "escalated";
-      } catch {
-        // unparsable prior artifact — fall through and overwrite below
-      }
-    }
-    if (existingEscalated && opts.status !== "escalated") {
+    if (escalationWins) {
       skips.push({
         step: "result_artifact",
         reason: "prior status=escalated wins — left untouched",
@@ -382,6 +436,7 @@ export async function runReviewFinalize(
     last_sha,
     tier_copied,
     lens_models_forwarded,
+    lens_tokens_forwarded,
     skips,
   };
 }

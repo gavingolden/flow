@@ -442,6 +442,10 @@ SUMMARY=$(flow-review-prep --pr <number> --worktree "$WORKTREE")
 Then perform pre-flight checks against the summary:
 
 1. **Closed/merged**: If `.state` is `closed` or `merged`, tell the user and stop.
+   `.state` is `UNKNOWN` — never empty — when the metadata fetch itself failed (a
+   critical `flow-review-prep` skip); treat `UNKNOWN` the same as closed/merged and
+   stop rather than assuming an open PR, since the closed/merged check itself
+   couldn't run.
 2. **Draft**: If `.draft` is true, warn the user ("PR is a draft — findings may change
    before it's ready for review") and continue.
 3. **PR size**: Check `.size_band`:
@@ -493,7 +497,11 @@ subagent rather than landing in the supervisor's transcript.
    and the lens emits `[]`.
 
 5. The metadata-triage prompt-interpretation tension flag is already computed on the
-   summary (default `false` when Step 1.5 wrote no triage artifact):
+   summary (default `false` when Step 1.5 wrote no triage artifact) — `$SUMMARY` is
+   `flow-review-prep`'s printed JSON from the call above, already in this turn's
+   transcript, so read `.prompt_interpretation_tension` off it directly (a separate
+   `jq` call in its own turn just to extract one already-visible boolean costs a
+   whole extra supervisor turn for no new information):
 
    ```bash
    PROMPT_INTERPRETATION_TENSION=$(jq -r '.prompt_interpretation_tension' <<< "$SUMMARY")
@@ -1546,11 +1554,11 @@ pass-through `lens_anti_patterns_found[]` entries above have no such flag (three
 Render the boolean in **Anti-Patterns Observed**, and append the new-file audit's
 WARNING lines (Step 9a above) so a misclassified introduced-in-PR entry stays visible.
 
-**The mechanical wrap-up runs once, here, via `flow-review-finalize`.** This single call
-absorbs what used to be four separate mechanical recipes spread across 11e/12/13: the
-PR-body upsert (whichever `.flow-tmp/body.md` draft 11e produced — or, if no branch fired,
-the current live body, fetched first via `gh pr view <number> --json body -q .body >
-.flow-tmp/body.md` so the upsert never runs against a missing file), lens telemetry
+**The mechanical wrap-up runs once, here, via `flow-review-finalize`.** This single
+supervisor call absorbs what used to be four separate mechanical recipes spread across
+11e/12/13: the PR-body upsert (whichever `.flow-tmp/body.md` draft 11e produced — or, if
+no branch fired, the current live body, fetched first via `gh pr view <number> --json body
+-q .body > .flow-tmp/body.md` so the upsert never runs against a missing file), lens telemetry
 collection, the Automation-precedence audit line, the result artifact, the
 `pr-review-last-sha` marker, and the untracked-follow-up seed. It runs
 `flow-md-validate --fix-pr-body` immediately before pushing the body via `gh pr edit`,
@@ -1562,12 +1570,29 @@ flow-review-finalize --pr "$PR_NUMBER" --worktree "$WORKTREE" \
   --session-id "$CLAUDE_CODE_SESSION_ID" \
   --ran $N --total $M --prose-promoted $X \
   --reason subjective-UX --reason production-only \
-  "${LENS_TOKEN_ARGS[@]/#/--lens-model }" ${WIDEN_REASON:+--widened "$WIDEN_REASON"}
+  "${LENS_TOKEN_ARGS[@]}" ${WIDEN_REASON:+--widened "$WIDEN_REASON"}
+RC=$?
+if [ "$RC" -ne 0 ]; then
+  echo "NOTICE — flow-review-finalize exited $RC; wrap-up (body/telemetry/result artifact) did not complete" >&2
+fi
 ```
 
-(`LENS_TOKEN_ARGS` built per `references/review-scope.md` "Record lens tokens"; `N`/`M`/`X`
+(`LENS_TOKEN_ARGS` built per `references/review-scope.md` "Record lens tokens" — an
+array of `--lens-tokens <lens>=<n>` pairs, passed through UNQUOTED-element expansion
+(`"${LENS_TOKEN_ARGS[@]}"`, never the quoted `${ARR[@]/#/PREFIX }` glue-into-one-word
+form, which `parseArgs` rejects with exit 2) — and forwarded verbatim by
+`flow-review-finalize` to `flow-review-telemetry collect`; `N`/`M`/`X`
 are Step 8c's ran/total/prose-promoted counts, `--reason` one per applicable
-manual-test-rubric category.) Then run
+manual-test-rubric category; check `$RC` — a non-zero exit means the wrap-up did
+not run and must not be assumed to have happened.)
+
+**Completeness rule (mirrors Step 3's `flow-review-prep` rule above).** Read the
+printed `ReviewFinalize` envelope's `.skips[]`. A non-empty `.skips[]` means one or
+more sub-steps (body upsert, telemetry, result artifact, `pr-review-last-sha`
+marker, or untracked-follow-up seed) did not complete — do not assume the wrap-up
+fully happened just because the call exited 0 (sub-step skips still exit 0 by
+design; only bad CLI arguments exit 2). Surface every skip's `step`/`reason` in the
+report so a partial wrap-up is visible rather than silently swallowed. Then run
 `flow-review-telemetry print --in "$WORKTREE/.flow-tmp/review-telemetry.json"` and paste
 its stdout under `### Lens telemetry`
 (`references/report-template.md`); read the Automation-precedence audit line back from

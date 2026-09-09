@@ -21,6 +21,17 @@ Reproduce with:
 bun ~/.flow/audits/transcript-review-segment.ts
 ```
 
+**Limitation:** `~/.flow/audits/transcript-review-segment.ts` is a machine-local
+audit script, not committed to this repo, so the exact reproduce command above
+only runs on the machine it was authored on. `docs/eval/review-context-boundaries.ts`
+is the closest committed sibling — same rolling-window transcript scan, same
+per-turn `usage` read — but it measures **context size at phase boundaries**, not
+the segment-cost/turn-count/agent-count figures in the table below, so it does
+not reproduce this table byte-for-byte. Re-deriving this exact table on a fresh
+machine currently requires re-authoring `transcript-review-segment.ts` from this
+description; committing that script (parameterized per
+`review-context-boundaries.ts`'s `HOME`/repo-regex fix) is the durable follow-up.
+
 | What was measured                                   | Value                               |
 | --------------------------------------------------- | ----------------------------------- |
 | Pipelines whose review phase was measured           | 141                                 |

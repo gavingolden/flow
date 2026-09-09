@@ -8,7 +8,8 @@
  *   flow-review-finalize --pr <number> --worktree <path> --body-file <path>
  *     --status <clean|partial|escalated>
  *     [--ran <n> --total <n> --prose-promoted <n>]
- *     [--lens-model <lens>=<alias> ...] [--session-id <id>]
+ *     [--lens-model <lens>=<alias> ...] [--lens-tokens <lens>=<n> ...]
+ *     [--widened <reason>] [--session-id <id>]
  *     [--summary <text>] [--completed-steps <csv>] [--missed-steps <csv>]
  *     [--escalation-tag <tag>]
  *
@@ -40,6 +41,9 @@ Arguments:
   --total <n>               Test-steps total count (optional)
   --prose-promoted <n>     Prose-promoted count (optional)
   --lens-model <l>=<a>     Repeatable lens->model-alias pair
+  --lens-tokens <l>=<n>    Repeatable lens->token-count pair (forwarded to
+                           flow-review-telemetry collect)
+  --widened <reason>       Forwarded to flow-review-telemetry collect
   --session-id <id>        Claude session id for telemetry
   --summary <text>         Result-artifact summary (default: generated)
   --completed-steps <csv>  Comma-separated step labels
@@ -59,6 +63,8 @@ export type ParsedArgs =
       prosePromoted?: number;
       reasons?: string[];
       lensModels: string[];
+      lensTokens: string[];
+      widened?: string;
       sessionId?: string;
       summary?: string;
       completedSteps?: string[];
@@ -79,6 +85,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let prosePromoted: number | undefined;
   const reasons: string[] = [];
   const lensModels: string[] = [];
+  const lensTokens: string[] = [];
+  let widened: string | undefined;
   let sessionId: string | undefined;
   let summary: string | undefined;
   let completedSteps: string[] | undefined;
@@ -144,6 +152,17 @@ export function parseArgs(argv: string[]): ParsedArgs {
         lensModels.push(value);
         i++;
         break;
+      case "--lens-tokens":
+        if (value === undefined)
+          return { error: "--lens-tokens requires a value" };
+        lensTokens.push(value);
+        i++;
+        break;
+      case "--widened":
+        if (value === undefined) return { error: "--widened requires a value" };
+        widened = value;
+        i++;
+        break;
       case "--session-id":
         if (value === undefined)
           return { error: "--session-id requires a value" };
@@ -192,6 +211,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
     prosePromoted,
     reasons,
     lensModels,
+    lensTokens,
+    widened,
     sessionId,
     summary,
     completedSteps,

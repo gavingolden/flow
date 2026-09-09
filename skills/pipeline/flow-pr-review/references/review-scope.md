@@ -84,8 +84,7 @@ delta pass plus the full pass. A lens whose notification carries no
 `subagent_tokens` is simply omitted from `LENS_TOKENS`; the Step-12
 collector falls back to the subagent transcript for that lens.
 
-At Step 12, build the `--lens-tokens` flags as a proper array before
-calling `flow-review-telemetry collect` — quoted
+Build the `--lens-tokens` flags as a proper array — quoted
 `"${LENS_TOKENS[@]/#/--lens-tokens }"` glues each `--lens-tokens
 <lens>=<n>` pair into ONE argv word, which `parseArgs` rejects with
 exit 2:
@@ -93,10 +92,15 @@ exit 2:
 ```bash
 LENS_TOKEN_ARGS=()
 for t in "${LENS_TOKENS[@]}"; do LENS_TOKEN_ARGS+=(--lens-tokens "$t"); done
-flow-review-telemetry collect --worktree "$WORKTREE" --pr "$PR_NUMBER" \
-  --session-id "$CLAUDE_CODE_SESSION_ID" "${LENS_TOKEN_ARGS[@]}" --append \
-  ${WIDEN_REASON:+--widened "$WIDEN_REASON"}
 ```
+
+Step 12 no longer calls `flow-review-telemetry collect` directly — that call, the
+body upsert, and the result-artifact write are folded into the single
+`flow-review-finalize` call (`SKILL.md` "The mechanical wrap-up runs once, here"),
+which forwards `LENS_TOKEN_ARGS` (unquoted-element expansion, `"${LENS_TOKEN_ARGS[@]}"`)
+and `${WIDEN_REASON:+--widened "$WIDEN_REASON"}` to `flow-review-telemetry collect`
+internally. `LENS_TOKEN_ARGS` and `WIDEN_REASON`/`WIDENED` built here are the values
+Step 12 passes straight through to that call.
 
 ## Widen (consolidator authority, once)
 

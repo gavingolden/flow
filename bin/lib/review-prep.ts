@@ -62,6 +62,7 @@ export type ReviewPrepOptions = {
   exec?: ExecFn;
   readFile?: (p: string) => string | null;
   writeFile?: (p: string, content: string) => void;
+  deleteFile?: (p: string) => void;
 };
 
 const COMMITS_JQ =
@@ -91,6 +92,14 @@ function defaultReadFile(p: string): string | null {
 function defaultWriteFile(p: string, content: string): void {
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, content);
+}
+
+function defaultDeleteFile(p: string): void {
+  try {
+    fs.rmSync(p, { force: true });
+  } catch {
+    // best-effort — a missing file is not an error here
+  }
 }
 
 function errMessage(err: unknown): string {
@@ -123,6 +132,7 @@ export async function runReviewPrep(
   const exec = opts.exec ?? defaultExec;
   const readFile = opts.readFile ?? defaultReadFile;
   const writeFile = opts.writeFile ?? defaultWriteFile;
+  const deleteFile = opts.deleteFile ?? defaultDeleteFile;
   const dir = path.join(opts.worktree, ".flow-tmp");
   const prStr = String(opts.pr);
 
@@ -137,7 +147,11 @@ export async function runReviewPrep(
 
   const skips: ReviewPrepSkip[] = [];
   const notices: string[] = [];
-  let state = "";
+  // "UNKNOWN" — never "" — so a critical fetch skip can't be silently read
+  // as "not CLOSED/MERGED" by the closed/merged pre-flight (SKILL.md Step 2
+  // item 1 checks `.state == "closed"` / `"merged"`; an empty string passes
+  // that check even though metadata was never actually fetched).
+  let state = "UNKNOWN";
   let draft = false;
   let additions = 0;
   let deletions = 0;
@@ -168,7 +182,10 @@ export async function runReviewPrep(
       throw new Error(metaResult.stderr || "gh pr view (metadata) failed");
     }
     const meta = JSON.parse(metaResult.stdout);
-    state = typeof meta.state === "string" ? meta.state : "";
+    state =
+      typeof meta.state === "string" && meta.state !== ""
+        ? meta.state
+        : "UNKNOWN";
     draft = Boolean(meta.isDraft);
     additions = Number(meta.additions) || 0;
     deletions = Number(meta.deletions) || 0;
@@ -195,8 +212,18 @@ export async function runReviewPrep(
     // Stdout-only — progress lines go to stderr; merging them in would
     // corrupt the JSON envelope this reads back.
     const r = exec(["flow-pr-static-analysis", prStr]);
-    if (r.exitCode !== 0)
+    if (r.exitCode !== 0) {
+      // A stale artifact from a PRIOR run must not survive a failed
+      // re-run — a lens reading it back would silently review last
+      // time's findings as if they were current, weakening the gate
+      // this artifact feeds without any visible signal.
+      deleteFile(paths.static_analysis);
+      notices.push(
+        "NOTICE — static-analysis: fetch failed, no static-analysis.json this run; " +
+          "lenses that gate on it run un-pre-digested",
+      );
       throw new Error(r.stderr || "flow-pr-static-analysis failed");
+    }
     writeFile(paths.static_analysis, r.stdout);
   });
 

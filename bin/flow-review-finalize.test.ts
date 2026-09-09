@@ -17,6 +17,10 @@ beforeEach(() => {
     path.join(os.tmpdir(), "flow-review-finalize-test-"),
   );
   fs.mkdirSync(path.join(worktree, ".flow-tmp"), { recursive: true });
+  fs.writeFileSync(
+    path.join(worktree, ".flow-tmp", "body.md"),
+    "## Summary\nfresh body\n",
+  );
 });
 
 afterEach(() => {
@@ -45,9 +49,11 @@ function makeExec(
     bodyEditFails?: boolean;
     untrackedGuardFails?: boolean;
   } = {},
+  cwds: (string | undefined)[] = [],
 ) {
-  return (argv: string[]): ExecResult => {
+  return (argv: string[], execOpts?: { cwd?: string }): ExecResult => {
     calls.push(argv);
+    cwds.push(execOpts?.cwd);
     const [cmd, sub] = argv;
     if (cmd === "flow-md-validate") return { stdout: "", ...OK };
     if (cmd === "gh") {
@@ -61,12 +67,14 @@ function makeExec(
       argv.includes("--lens-model") &&
       !opts.lensModelSupported
     ) {
-      // Mirrors the real helper: it answers `unknown flag: <flag>` and
-      // still exits 0, which is why the caller cannot probe with --help
-      // or key off the exit code.
+      // Mirrors the real helper: it answers `unknown flag: <flag>` on
+      // stderr AND exits 2 — a real failure also exits non-zero, so the
+      // exit code alone cannot distinguish "unknown flag" from a genuine
+      // failure; the caller keys off the `unknown flag:` string instead.
       return {
-        stdout: "flow-review-telemetry: unknown flag: --lens-model",
-        ...OK,
+        stdout: "",
+        stderr: "flow-review-telemetry: unknown flag: --lens-model",
+        exitCode: 2,
       };
     }
     if (cmd === "flow-review-telemetry") {
@@ -81,6 +89,12 @@ function makeExec(
     }
     if (cmd === "flow-untracked" && sub === "add") return { stdout: "", ...OK };
     if (cmd === "git") return { stdout: "deadbeef1234\n", ...OK };
+    if (cmd === "flow-classify-step") {
+      return {
+        stdout: "ran 1/1 items (0 prose-promoted, 0 left manual)",
+        ...OK,
+      };
+    }
     throw new Error(`unexpected exec call: ${argv.join(" ")}`);
   };
 }
@@ -220,6 +234,22 @@ describe("runReviewFinalize", () => {
     expect(calls.some((c) => c[0] === "gh" && c.includes("view"))).toBe(false);
   });
 
+  it("(e2) resolves last_sha IN the PR's worktree (cwd), not the process's own cwd", async () => {
+    const calls: string[][] = [];
+    const cwds: (string | undefined)[] = [];
+    const result = await runReviewFinalize({
+      pr: 42,
+      worktree,
+      bodyFile: path.join(worktree, ".flow-tmp", "body.md"),
+      status: "clean",
+      exec: makeExec(calls, {}, cwds),
+    });
+    expect(result.last_sha).toBe("deadbeef1234");
+    const gitIdx = calls.findIndex((c) => c[0] === "git");
+    expect(gitIdx).toBeGreaterThanOrEqual(0);
+    expect(cwds[gitIdx]).toBe(worktree);
+  });
+
   it("writes the pr-review-last-sha marker only on the clean-completion path", async () => {
     const calls: string[][] = [];
     await runReviewFinalize(baseOpts(calls, {}, { status: "clean" }));
@@ -237,6 +267,27 @@ describe("runReviewFinalize", () => {
     expect(
       fs.existsSync(path.join(worktree, ".flow-tmp", "pr-review-last-sha")),
     ).toBe(false);
+  });
+
+  it("folds flow-classify-step's stdout into the result artifact's summary as the default Automation-precedence audit line", async () => {
+    const calls: string[][] = [];
+    const result = await runReviewFinalize(
+      baseOpts(calls, {}, { ran: 1, total: 1, prosePromoted: 0 }),
+    );
+    const classifyCall = calls.find((c) => c[0] === "flow-classify-step");
+    expect(classifyCall).toEqual([
+      "flow-classify-step",
+      "--ran",
+      "1",
+      "--total",
+      "1",
+      "--prose-promoted",
+      "0",
+    ]);
+    const written = JSON.parse(fs.readFileSync(result.result_artifact, "utf8"));
+    expect(written.summary).toBe(
+      "ran 1/1 items (0 prose-promoted, 0 left manual)",
+    );
   });
 
   it("(f) a schema-invalid artifact yields result_valid:false rather than throwing", async () => {
@@ -306,6 +357,60 @@ describe("runReviewFinalize", () => {
     expect(result.body_updated).toBe(false);
     expect(result.skips.some((s) => s.step === "body_edit")).toBe(true);
   });
+
+  it("skips gh pr edit (never fires) when body.md is missing or empty — guards against a stale body clobbering the live PR", async () => {
+    fs.writeFileSync(path.join(worktree, ".flow-tmp", "body.md"), "");
+    const calls: string[][] = [];
+    const result = await runReviewFinalize(baseOpts(calls));
+    expect(result.body_updated).toBe(false);
+    expect(calls.some((c) => c[0] === "gh")).toBe(false);
+    expect(result.skips.some((s) => s.step === "body_edit")).toBe(true);
+  });
+
+  it("forwards --lens-tokens and --widened to flow-review-telemetry collect", async () => {
+    const calls: string[][] = [];
+    const result = await runReviewFinalize(
+      baseOpts(
+        calls,
+        {},
+        {
+          lensTokens: ["security=12345", "correctness=6789"],
+          widened: "consolidator asked for full scope",
+        },
+      ),
+    );
+    expect(result.lens_tokens_forwarded).toBe(2);
+    const collectCall = calls.find(
+      (c) => c[0] === "flow-review-telemetry" && c[1] === "collect",
+    );
+    expect(collectCall).toContain("--lens-tokens");
+    expect(collectCall).toContain("security=12345");
+    expect(collectCall).toContain("correctness=6789");
+    expect(collectCall).toContain("--widened");
+    expect(collectCall).toContain("consolidator asked for full scope");
+  });
+
+  it("does not overwrite an existing status:escalated result artifact, and does NOT write pr-review-last-sha either", async () => {
+    fs.writeFileSync(
+      path.join(worktree, ".flow-tmp", "pr-review-result.json"),
+      JSON.stringify({
+        status: "escalated",
+        completed_steps: [],
+        missed_steps: ["9"],
+        escalation_tag: "intent-mismatch",
+        summary: "prior escalation",
+      }),
+    );
+    const calls: string[][] = [];
+    const result = await runReviewFinalize(
+      baseOpts(calls, {}, { status: "clean" }),
+    );
+    const written = JSON.parse(fs.readFileSync(result.result_artifact, "utf8"));
+    expect(written.status).toBe("escalated");
+    expect(
+      fs.existsSync(path.join(worktree, ".flow-tmp", "pr-review-last-sha")),
+    ).toBe(false);
+  });
 });
 
 describe("parseArgs", () => {
@@ -371,6 +476,30 @@ describe("parseArgs", () => {
   it("rejects an unknown flag", () => {
     expect(parseArgs(["--bogus"])).toEqual({ error: "unknown flag: --bogus" });
   });
+
+  it("accepts repeatable --lens-tokens and a single --widened", () => {
+    const parsed = parseArgs([
+      "--pr",
+      "1",
+      "--worktree",
+      "/tmp/x",
+      "--body-file",
+      "/tmp/x/b.md",
+      "--status",
+      "clean",
+      "--lens-tokens",
+      "security=12345",
+      "--lens-tokens",
+      "correctness=6789",
+      "--widened",
+      "consolidator asked for full scope",
+    ]);
+    expect("error" in parsed).toBe(false);
+    if (!("error" in parsed)) {
+      expect(parsed.lensTokens).toEqual(["security=12345", "correctness=6789"]);
+      expect(parsed.widened).toBe("consolidator asked for full scope");
+    }
+  });
 });
 
 describe("run()", () => {
@@ -383,6 +512,7 @@ describe("run()", () => {
     last_sha: "deadbeef",
     tier_copied: false,
     lens_models_forwarded: 0,
+    lens_tokens_forwarded: 0,
     skips: [],
   };
 
