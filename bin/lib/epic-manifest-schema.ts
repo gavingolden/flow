@@ -46,6 +46,7 @@ export interface Feature {
     effort?: EffortLevel;
   };
   mvp?: boolean;
+  sharedArtifacts?: string[];
 }
 
 export interface EpicManifest {
@@ -158,6 +159,20 @@ function validateFeature(feature: unknown, path: string): ValidationErr | null {
   }
   if (f.mvp !== undefined && typeof f.mvp !== "boolean") {
     return err(`${path}.mvp must be a boolean when present`);
+  }
+  if (f.sharedArtifacts !== undefined) {
+    if (!Array.isArray(f.sharedArtifacts)) {
+      return err(
+        `${path}.sharedArtifacts must be an array of non-empty strings when present`,
+      );
+    }
+    for (let i = 0; i < f.sharedArtifacts.length; i++) {
+      if (!isNonEmptyString(f.sharedArtifacts[i])) {
+        return err(
+          `${path}.sharedArtifacts must be an array of non-empty strings when present`,
+        );
+      }
+    }
   }
   if (f.flowNewHints !== undefined) {
     const e = validateFlowNewHints(f.flowNewHints, `${path}.flowNewHints`);
