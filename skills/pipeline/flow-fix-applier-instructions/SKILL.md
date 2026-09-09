@@ -395,7 +395,9 @@ never blocks this step.
 
 **Validate the epic manifests against this PR's diff.** This fires whether
 or not the diff touches a manifest — that is what catches a forgotten
-write-back (`undeclared-producer`):
+write-back (`undeclared-producer`: this PR's feature regenerates a
+declared shared artifact it does not itself declare, or a non-epic PR
+touches one without the manifest):
 
 ```bash
 BASE_REF=$(gh pr view "$PR_NUMBER" --json baseRefName --jq .baseRefName)
@@ -406,10 +408,11 @@ else
     echo "epic-dag: flow-epic-dag not installed — skipped"
   else
     FAIL=0
+    FEATURE_ID=$(jq -r '.epic.featureId // empty' ~/.flow/state/"${FLOW_SLUG:-}".json 2>/dev/null)
     for m in .flow/epics/*/manifest.json; do
       [ -f "$m" ] || continue
       git diff -z --name-only "origin/$BASE_REF...HEAD" \
-        | xargs -0 flow-epic-dag --touched-files "$m" || FAIL=1
+        | xargs -0 flow-epic-dag --touched-files "$m" ${FEATURE_ID:+--feature "$FEATURE_ID"} || FAIL=1
       if git diff --name-only "origin/$BASE_REF...HEAD" | grep -qxF "$m"; then
         flow-epic-dag --validate "$m" || FAIL=1
       fi

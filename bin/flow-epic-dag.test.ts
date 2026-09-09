@@ -18,12 +18,18 @@ import {
 
 const SCRIPT = path.resolve(__dirname, "flow-epic-dag.ts");
 
-function runCli(args: string[]): {
+function runCli(
+  args: string[],
+  opts: { cwd?: string } = {},
+): {
   status: number;
   stdout: string;
   stderr: string;
 } {
-  const result = spawnSync("bun", [SCRIPT, ...args], { encoding: "utf8" });
+  const result = spawnSync("bun", [SCRIPT, ...args], {
+    encoding: "utf8",
+    ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+  });
   return {
     status: result.status ?? -1,
     stdout: result.stdout ?? "",
@@ -594,12 +600,16 @@ describe("findUndeclaredProducers / --touched-files CLI", () => {
 
   it("exits 0 when the touched artifact's manifest is also in the touched list", () => {
     withTmpFile(manifest(withProducer), (filePath) => {
-      const r = runCli([
-        "--touched-files",
-        filePath,
-        "backend/eval/baseline/scorecard.json",
-        filePath,
-      ]);
+      const dir = path.dirname(filePath);
+      const r = runCli(
+        [
+          "--touched-files",
+          filePath,
+          "backend/eval/baseline/scorecard.json",
+          "manifest.json",
+        ],
+        { cwd: dir },
+      );
       expect(r.status).toBe(0);
       expect(JSON.parse(r.stdout.trim())).toEqual({ ok: true });
     });
@@ -678,6 +688,130 @@ describe("findUndeclaredProducers / --touched-files CLI", () => {
       ["undeclared-producer", ["a", "b"]],
       ["undeclared-producer", ["a"]],
     ]);
+  });
+
+  it("findUndeclaredProducers with featureId: skips a path declared by the given feature, flags one that isn't", () => {
+    const features = [feat("a", [], ["x.json"]), feat("c", [], ["y.json"])];
+    const violations = findUndeclaredProducers(
+      features,
+      "manifest.json",
+      ["x.json", "y.json"],
+      { featureId: "a" },
+    );
+    expect(violations.map((v) => v.offendingIds)).toEqual([["c"]]);
+    expect(violations[0].message).toContain("a");
+    expect(violations[0].message).toContain("declare");
+  });
+
+  it("--feature a: exits 0 when the PR's own feature declares the touched artifact", () => {
+    withTmpFile(manifest(withProducer), (filePath) => {
+      const r = runCli([
+        "--touched-files",
+        filePath,
+        "--feature",
+        "a",
+        "backend/eval/baseline/scorecard.json",
+      ]);
+      expect(r.status).toBe(0);
+    });
+  });
+
+  it("--feature b: exits 0 for an ordered second producer (b dependsOn a)", () => {
+    const ordered = [
+      feat("a", [], ["shared/x.json"]),
+      feat("b", ["a"], ["shared/x.json"]),
+    ];
+    withTmpFile(manifest(ordered), (filePath) => {
+      const r = runCli([
+        "--touched-files",
+        filePath,
+        "--feature",
+        "b",
+        "shared/x.json",
+      ]);
+      expect(r.status).toBe(0);
+    });
+  });
+
+  it("--feature c: exits 1 naming the feature and 'declare' when the feature doesn't declare the artifact", () => {
+    withTmpFile(manifest(withProducer), (filePath) => {
+      const r = runCli([
+        "--touched-files",
+        filePath,
+        "--feature",
+        "c",
+        "backend/eval/baseline/scorecard.json",
+      ]);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("c");
+      expect(r.stderr).toContain("declare");
+    });
+  });
+
+  it("manifest in touched but --feature c undeclared still exits 1", () => {
+    withTmpFile(manifest(withProducer), (filePath) => {
+      const dir = path.dirname(filePath);
+      const r = runCli(
+        [
+          "--touched-files",
+          filePath,
+          "--feature",
+          "c",
+          "backend/eval/baseline/scorecard.json",
+          "manifest.json",
+        ],
+        { cwd: dir },
+      );
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("c");
+    });
+  });
+
+  it("--feature placed after the touched paths is still parsed", () => {
+    withTmpFile(manifest(withProducer), (filePath) => {
+      const r = runCli([
+        "--touched-files",
+        filePath,
+        "backend/eval/baseline/scorecard.json",
+        "--feature",
+        "a",
+      ]);
+      expect(r.status).toBe(0);
+    });
+  });
+
+  it("--feature a: exits 1 with the unordered-producers message when a and b are unordered producers", () => {
+    const unordered = [
+      feat("a", [], ["shared/x.json"]),
+      feat("b", [], ["shared/x.json"]),
+    ];
+    withTmpFile(manifest(unordered), (filePath) => {
+      const r = runCli([
+        "--touched-files",
+        filePath,
+        "--feature",
+        "a",
+        "shared/x.json",
+      ]);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/neither depends on the other/);
+    });
+  });
+
+  it("an absolute manifest path with cwd = the tmp dir (no git repo) and manifest.json among touched exits 0", () => {
+    withTmpFile(manifest(withProducer), (filePath) => {
+      const dir = path.dirname(filePath);
+      const r = runCli(
+        [
+          "--touched-files",
+          filePath,
+          "backend/eval/baseline/scorecard.json",
+          "manifest.json",
+        ],
+        { cwd: dir },
+      );
+      expect(r.status).toBe(0);
+    });
   });
 });
 

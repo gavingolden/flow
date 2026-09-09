@@ -2379,7 +2379,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        499,
+        502,
         "NEVER commit to or push the base branch",
       ],
       [

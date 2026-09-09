@@ -35,11 +35,14 @@
  * launched), and the run-state lives in the orchestrator (`epic-run-state.ts`).
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { type Feature, validateEpicManifest } from "./lib/epic-manifest-schema";
 import {
   findUndeclaredProducers,
   findUnorderedProducers,
 } from "./lib/epic-dag-producers";
+import { resolveRepoRoot } from "./lib/repo-root";
 export { findUndeclaredProducers, findUnorderedProducers };
 
 export type DagViolationKind =
@@ -252,7 +255,33 @@ export function computeFrontier(
 const USAGE =
   "usage: flow-epic-dag --validate <path-to-manifest.json>\n" +
   "       flow-epic-dag --frontier <path-to-manifest.json> --completed <id,id,...> [--launched <id,id,...>]\n" +
-  "       flow-epic-dag --touched-files <path-to-manifest.json> <path> [<path> ...]\n";
+  "       flow-epic-dag --touched-files <path-to-manifest.json> [--feature <id>] <path> [<path> ...]\n";
+
+/**
+ * Relativizes a manifest path against the repo root (falling back to cwd
+ * when not inside a git repo) so `findUndeclaredProducers`'s touched-path
+ * comparison and its violation message are stable regardless of whether the
+ * caller passed an absolute or repo-relative manifest path — the file is
+ * still read from the original `p`.
+ */
+function relativizeManifestPath(p: string): string {
+  const base = resolveRepoRoot(process.cwd()) ?? process.cwd();
+  const resolved = path.resolve(process.cwd(), p);
+  // macOS resolves /var -> /private/var (and similar symlinked tmp roots);
+  // realpath both sides so a caller-passed non-realpath'd absolute path
+  // still relativizes cleanly instead of producing a spurious ../.. chain.
+  const realBase = realpathIfExists(base);
+  const realResolved = realpathIfExists(resolved);
+  return path.relative(realBase, realResolved);
+}
+
+function realpathIfExists(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
 
 /** Read the value token after `--flag`, or undefined when absent/at end. */
 function flagValue(argv: string[], flag: string): string | undefined {
@@ -357,13 +386,29 @@ async function cliMain(argv: string[]): Promise<number> {
       process.stderr.write(USAGE);
       return 2;
     }
-    const touched = argv.slice(i + 2);
+    const featureFlagIdx = argv.indexOf("--feature");
+    if (featureFlagIdx === argv.length - 1 && featureFlagIdx !== -1) {
+      process.stderr.write(USAGE);
+      return 2;
+    }
+    const rawFeatureId =
+      featureFlagIdx === -1 ? undefined : argv[featureFlagIdx + 1];
+    const featureId =
+      rawFeatureId === undefined || rawFeatureId.length === 0
+        ? undefined
+        : rawFeatureId;
+    const rest =
+      featureFlagIdx === -1
+        ? argv
+        : [...argv.slice(0, featureFlagIdx), ...argv.slice(featureFlagIdx + 2)];
+    const touched = rest.slice(rest.indexOf("--touched-files") + 2);
     const loaded = await loadValidatedFeatures(manifestPath);
     if (!loaded.ok) return loaded.code;
     const violations = findUndeclaredProducers(
       loaded.features,
-      manifestPath,
+      relativizeManifestPath(manifestPath),
       touched,
+      { featureId },
     );
     if (violations.length > 0) {
       for (const v of violations) process.stderr.write(v.message + "\n");
