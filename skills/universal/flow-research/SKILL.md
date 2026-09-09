@@ -31,7 +31,7 @@ have the `Skill` tool, so it cannot load this skill in-process; it `Read`s this
 skill's procedure and runs the fan-out itself. That F2 use is a **Bash fan-out**
 (`flow-delegate-fanout`), **not a nested Task** — the discovery sub-agent
 itself is this pipeline's orchestrating "Claude", so the no-nested-LLM
-invariant and the nine-exemption count are preserved (no new exemption). The
+invariant and the eight-exemption count are preserved (no new exemption). The
 F2 caller runs a **tightened budget** (`--max-calls 12` plus a 3-minute
 per-entry `timeout: "3m"`) per the "Tighten for the #338 supervisor context"
 guidance in Constraints below, because a one-shot sub-agent has no

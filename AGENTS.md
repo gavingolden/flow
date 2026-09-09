@@ -354,13 +354,13 @@ three-layer resolution table, and the manifest/foundation fields — is at
     `/flow-pr-review` 8c.iii. These are the **only eight**
     authorised Task-tool fan-out sites from `/flow-pipeline`; no other
     skill or step may call Task.
-  - **Task-tool spawn sites must load Task first.** Each of the eight
+  - **Task-tool spawn sites must load Task first.** Each of the nine
     sites above must load the Task schema via
     `ToolSearch query="select:Task"` before invoking Task (or its alias
     `Agent`); on a missing schema, escalate
     `NEEDS HUMAN: task-tool-unavailable: <exemption-name>` rather than
     falling back inline. Enforced by `bin/skill-md-lint.test.ts`'s "Load
-    the Task tool before spawning" check at all seven sites.
+    the Task tool before spawning" check at all nine sites.
   - **A `SendMessage` continuation of a partial agent stays inside its
     exemption — not an eighth site** (`references/partial-result-continuation.md`).
   - The `/flow-pr-review` Gemini lens, the cross-model intent guess

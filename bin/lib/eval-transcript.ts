@@ -195,6 +195,10 @@ export function transcriptMetrics(
     for (const block of event.message.content ?? []) {
       if (block.type === "tool_use" && block.name) {
         toolCalls[block.name] = (toolCalls[block.name] ?? 0) + 1;
+        // Seed a zero so a name seen ONLY in a subagent turn is still
+        // addressable as `topLevelToolCalls.<name>` === 0 by a metric
+        // grader, rather than an absent key resolving to `undefined`.
+        topLevelToolCalls[block.name] ??= 0;
         if (isTopLevel) {
           topLevelToolCalls[block.name] =
             (topLevelToolCalls[block.name] ?? 0) + 1;

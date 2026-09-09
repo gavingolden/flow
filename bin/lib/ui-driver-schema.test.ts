@@ -222,6 +222,39 @@ describe("validateUiDriverResult", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("rejects a consoleErrors array over the 20-item cap", () => {
+    const result = validateUiDriverResult({
+      ...VALID_FULL,
+      fix_context: [
+        {
+          route: "/",
+          consoleErrors: Array.from({ length: 21 }, (_, i) => `e${i}`),
+          failedRequests: [],
+          missingSelectors: [],
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.includes("20-item cap"))).toBe(true);
+    }
+  });
+
+  it("accepts a consoleErrors array at exactly 20 items", () => {
+    const result = validateUiDriverResult({
+      ...VALID_FULL,
+      fix_context: [
+        {
+          route: "/",
+          consoleErrors: Array.from({ length: 20 }, (_, i) => `e${i}`),
+          failedRequests: [],
+          missingSelectors: [],
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+  });
+
   it("rejects a consoleErrors entry over 300 chars", () => {
     const result = validateUiDriverResult({
       ...VALID_FULL,

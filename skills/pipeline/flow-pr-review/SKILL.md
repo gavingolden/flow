@@ -607,7 +607,7 @@ agent below, unless skipped on delta re-entry), same fan-out message.
 
 This sub-step is a **`flow-delegate` (agy) Bash fan-out, NOT a Task**. It runs
 ALONGSIDE the six-agent Task fan-out above and adds **no new Task-tool
-exemption** — the seven-exemption count stays seven. It adds ONE additional
+exemption** — the eight-exemption count stays eight. It adds ONE additional
 reviewer on a genuinely different model family (Gemini, on the user's idle
 Google AI Ultra quota) so the review catches issues the six same-family
 Claude lenses share a blind spot on, at no Claude-credit cost, producing

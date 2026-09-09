@@ -18,9 +18,10 @@
  *
  * `fix_context` is capped at 10 entries; every string field within an
  * entry (`route` and each string in `consoleErrors` / `failedRequests` /
- * `missingSelectors`) is capped at 300 characters. These caps ARE the
- * contract (D-p) — the validator must reject artifacts that exceed
- * either, not merely truncate them.
+ * `missingSelectors`) is capped at 300 characters; and each of those three
+ * inner arrays is separately capped at 20 items. These caps ARE the
+ * contract (D-p) — the validator must reject artifacts that exceed any of
+ * them, not merely truncate.
  */
 
 const SKIPPED_REASONS = [
@@ -36,6 +37,11 @@ export type UiDriverSkippedReason = (typeof SKIPPED_REASONS)[number];
 
 export type UiDriverFixContextEntry = {
   route: string;
+  // Optional: which checklist item this entry maps to when the driver ran
+  // under `MODE: visual-appearance` (the /flow-pr-review 8c.iii caller) with
+  // an enumerated item list — absent for the `/flow-verify` default drive,
+  // which has no per-item checklist to map against.
+  item?: string;
   consoleErrors: string[];
   failedRequests: string[];
   missingSelectors: string[];
@@ -58,6 +64,13 @@ export type ValidationResult = ValidationOk | ValidationErr;
 
 const FIX_CONTEXT_MAX_ENTRIES = 10;
 const FIX_CONTEXT_STRING_MAX_CHARS = 300;
+// Caps the LENGTH of each inner array independently of the 10-entry outer
+// cap and the 300-char per-string cap — without this, a single entry's
+// `consoleErrors`/`failedRequests`/`missingSelectors` array could carry an
+// unbounded number of 299-char strings (e.g. 5,000 entries ~= 1.5MB) and
+// re-introduce exactly the artifact bloat the 10-entry cap was meant to
+// foreclose.
+const FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS = 20;
 
 function isString(v: unknown): v is string {
   return typeof v === "string";
@@ -84,6 +97,15 @@ function validateFixContextEntry(entry: unknown, path: string): string[] {
       `'${path}.route' exceeds the ${FIX_CONTEXT_STRING_MAX_CHARS}-char cap`,
     );
   }
+  if (o.item !== undefined) {
+    if (!isString(o.item)) {
+      errors.push(`'${path}.item' must be a string when present`);
+    } else if (o.item.length > FIX_CONTEXT_STRING_MAX_CHARS) {
+      errors.push(
+        `'${path}.item' exceeds the ${FIX_CONTEXT_STRING_MAX_CHARS}-char cap`,
+      );
+    }
+  }
   for (const field of [
     "consoleErrors",
     "failedRequests",
@@ -93,6 +115,11 @@ function validateFixContextEntry(entry: unknown, path: string): string[] {
     if (!isStringArray(arr)) {
       errors.push(`'${path}.${field}' must be an array of strings`);
       continue;
+    }
+    if (arr.length > FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS) {
+      errors.push(
+        `'${path}.${field}' exceeds the ${FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS}-item cap`,
+      );
     }
     arr.forEach((s, i) => {
       if (s.length > FIX_CONTEXT_STRING_MAX_CHARS) {

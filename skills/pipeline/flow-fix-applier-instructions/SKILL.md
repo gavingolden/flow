@@ -579,17 +579,22 @@ The artifact MUST conform to this JSON schema:
 }
 ```
 
-`ui_screenshots` is typically **ABSENT** from what this subagent writes: it
-is `/flow-pr-review` Step 8c's post-spawn step that populates it, and Step 8c
-runs AFTER this subagent has already written and returned this artifact and
-exited — the browser capture happens outside this subagent's session. The
-wrapper merges the captured paths into this same artifact file on disk
-before `/flow-pr-review` Step 9's single read (see
+`ui_screenshots` should be **ABSENT** from what this subagent writes: the
+browser capture happens entirely outside this subagent's session, in the
+spawned UI-Driver Subagent's own isolated context (`/flow-pr-review` Step
+8c, which runs AFTER this subagent has already written and returned this
+artifact and exited). The UI-Driver Subagent owns the
+`evidence_paths[] → ui_screenshots[]` mapping itself and writes it directly
+into its OWN `.flow-tmp/ui-driver-result.json` artifact — there is no
+wrapper-side merge-back into THIS artifact (`fix-applier-result.json`); that
+patch step was removed once the driver started writing its own field
+directly (see
 [ui-validation-evidence.md](../flow-pr-review/references/ui-validation-evidence.md)'s "Snapshot-primary,
-screenshot-by-reference" and "Merge-back into `fix-applier-result.json`"
+screenshot-by-reference" and "Merge-back into `ui-driver-result.json`"
 sections for the concrete recipe). Only set `ui_screenshots` yourself if a
 fix you applied in step 3 above itself captured a screenshot (rare);
-otherwise omit the field entirely and let Step 8c populate it later.
+otherwise omit the field entirely — `/flow-pr-review` Step 9 reads
+`ui-driver-result.json` separately for that evidence, never this artifact.
 
 **Negative-findings slots are required.** `rejected_alternatives` and
 `anti_patterns_found` are not optional decorations — they are the slots

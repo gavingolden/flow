@@ -328,6 +328,14 @@ const UI_SMOKE_PASS_PATH = path.resolve(
   "references",
   "ui-smoke-pass.md",
 );
+const UI_DRIVER_INSTRUCTIONS_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-ui-driver-instructions",
+  "SKILL.md",
+);
 const FLOW_UI_VALIDATE_PATH = path.resolve(HERE, "flow-ui-validate.ts");
 const UI_VALIDATION_SCHEMA_PATH = path.resolve(
   HERE,
@@ -429,6 +437,10 @@ const uiValidationEvidenceContent = fs.readFileSync(
   "utf8",
 );
 const uiSmokePassContent = fs.readFileSync(UI_SMOKE_PASS_PATH, "utf8");
+const uiDriverInstructionsContent = fs.readFileSync(
+  UI_DRIVER_INSTRUCTIONS_PATH,
+  "utf8",
+);
 const flowUiValidateContent = fs.readFileSync(FLOW_UI_VALIDATE_PATH, "utf8");
 const uiValidationSchemaContent = fs.readFileSync(
   UI_VALIDATION_SCHEMA_PATH,
@@ -7065,6 +7077,7 @@ describe("browser-driven UI-validation structural anchors", () => {
       content,
       verifyContent,
       uiValidationEvidenceContent,
+      uiDriverInstructionsContent,
     ].filter((c) => c.includes(driveMcpSentence)).length;
     expect(
       copiesUnderSkills,
@@ -10349,6 +10362,7 @@ describe("Preloaded instructions SKILL.md frontmatter + sentinel lint", () => {
     "flow-merge-resolver-instructions",
     "flow-scout-instructions",
     "flow-consolidator-instructions",
+    "flow-ui-driver-instructions",
   ];
 
   it.each(PRELOAD_SKILLS)(

@@ -27,7 +27,7 @@ in-process when you invoke it; every helper script
 (`flow-new-worktree`, `flow-remove-worktree`, `gh`, etc.) is a Bash
 tool call. **You never spawn a Task-tool sub-agent.** flow's flat-fan-out
 policy (deliberate, not a platform limit — `docs/nested-subagents-assessment.md`,
-repo-only, not shipped) allows zero nesting exceptions — the seven
+repo-only, not shipped) allows zero nesting exceptions — the eight
 Task-tool exemptions in `AGENTS.md` are each a flat, one-shot spawn; a
 long-running supervisor with sub-agents would also blow the context window.
 Stay in-process for skills; shell out for scripts; never delegate.
@@ -157,7 +157,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > runs ONE additional cross-model reviewer (Gemini) via `flow-delegate`
 > (agy) as a Bash subprocess (`flow-gemini-lens`), ALONGSIDE exemption
 > #1's six-agent Multi-Agent Review Task fan-out. It spawns no Task, so
-> the seven-exemption count above is unchanged — this is a sibling note in
+> the eight-exemption count above is unchanged — this is a sibling note in
 > the same F2 "not an eighth exemption" shape as the "Load the Task tool at
 > each spawn site" guard above, NOT an `#8` exemption block. The lens is
 > config-gated, default off, and a graceful skip on any failure (it never
@@ -170,7 +170,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > reviewer (AGY / Gemini) via `flow-delegate` as a Bash subprocess
 > (`flow-plan-review`) to pressure-test the PRD's consequential decisions
 > before the plan-pending-review gate. It spawns no Task, so the
-> seven-exemption count above is unchanged — a sibling note in the same F2
+> eight-exemption count above is unchanged — a sibling note in the same F2
 > "not an eighth exemption" shape as the Gemini-lens note above, NOT an `#8`
 > exemption block. It reuses the SAME `review.gemini` gate key, is default
 > off, and gracefully skips on any failure (it never blocks the plan gate).
@@ -192,7 +192,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > fixed-effort `claude -p` ONLY through `flow-claude-headless`, which
 > allowlists the child env (`FLOW_SLUG`/`TMUX_PANE` never leak, issue
 > #618), caps spend, refuses to nest, and returns one envelope carrying
-> `total_cost_usd`. It spawns no Task, so the seven-exemption count is
+> `total_cost_usd`. It spawns no Task, so the eight-exemption count is
 > unchanged. Documented bidirectionally in `AGENTS.md` `## Don'ts` and
 > `references/headless-claude.md`.
 
@@ -1446,7 +1446,7 @@ is without the line — and `mode:fix` re-entries do NOT carry the
 `PLAN:` line.
 
 `/flow-new-feature` is itself a thin wrapper that spawns one **Independent
-Scout Subagent** via the Task tool (the third of the seven named
+Scout Subagent** via the Task tool (the third of the eight named
 Task-tool exemptions in "Hard rules" above) on its wider-scope path.
 The subagent reads the codebase in its isolated context — affected
 modules, relevant tests, public API surface, anti-patterns / off-limits

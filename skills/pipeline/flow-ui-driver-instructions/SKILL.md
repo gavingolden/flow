@@ -46,6 +46,13 @@ The wrapper passes you these inputs in its spawn prompt:
   (`.flow-tmp/ui-driver-result.json` under the worktree).
 - `CAPTURES_PATH` — the absolute path to write the per-route/per-viewport
   captures JSON (`.flow-tmp/ui-captures.json` under the worktree).
+- `MODE` — optional. Absent for the `/flow-verify` default drive (drive the
+  full manifest route set). Set to the literal `visual-appearance` by the
+  `/flow-pr-review` 8c.iii caller, always paired with an enumerated checklist
+  item list in the same spawn prompt: drive only the routes needed to cover
+  those items, apply `ui-smoke-pass.md`'s per-viewport `## UI traits to
+verify` rubric, and set each `fix_context[]` entry's optional `item` field
+  to the checklist item it maps evidence back to (see step 4 below).
 - `SKILL_DIR` — the absolute skill base directory. Resolve
   `../flow-pipeline/references/ui-smoke-pass.md` relative to this path, not
   the worktree you `cd`'d into.
@@ -63,14 +70,15 @@ The wrapper passes you these inputs in its spawn prompt:
 ## 2. Drive
 
 Follow `ui-smoke-pass.md`'s "Probe and skip (and bootstrap)" and "Launch and
-drive" sections verbatim: bring the launch up via `flow-spawn --class default
--- sh -c '<meta.launch>'` with `meta.env` injected inline (never a
-`.env.local`/`.env`/config file), open a per-pipeline isolated page keyed on
-`SLUG`, run the Login step when the manifest declares a login wall and the
-credential VALUES resolve from the local env, then drive each route × each
-declared viewport (`navigate_page` → `wait_for` → `take_snapshot` →
-`list_console_messages` → `list_network_requests` → `evaluate_script` for the
-geometry numbers → `take_screenshot`).
+drive" sections verbatim — that shared file carries the canonical
+per-route/per-viewport drive-MCP call sequence (issue #318 de-duplicated it
+into one shared reference; do not re-copy it here). In short: bring the
+launch up via `flow-spawn --class default -- sh -c '<meta.launch>'` with
+`meta.env` injected inline (never a `.env.local`/`.env`/config file), open a
+per-pipeline isolated page keyed on `SLUG`, run the Login step when the
+manifest declares a login wall and the credential VALUES resolve from the
+local env, then drive each route × each declared viewport per
+`ui-smoke-pass.md`'s "Launch and drive" section.
 
 **Never capture the login form, and never persist a credential VALUE.** The
 email/username field renders in plaintext in both a screenshot and an a11y
@@ -120,11 +128,21 @@ Two mappings this agent owns that the caller does not do for you:
 - **`fix_context[]` assembly.** For each route whose captures produced an
   `ok:false` (a console error, a failed request, or a missing
   `expectSelectors` element) that survived the noise filter, add one
-  `{route, consoleErrors, failedRequests, missingSelectors}` entry — capped
-  at 10 entries and 300 characters per string (`bin/lib/ui-driver-schema.ts`
-  rejects an artifact that exceeds either cap, so truncate rather than
-  drop). This is the context `/flow-verify`'s fix loop reads to fix the
-  right thing without re-driving the browser itself.
+  `{route, consoleErrors, failedRequests, missingSelectors}` entry (plus
+  `item` — the checklist item this route's evidence maps back to — when
+  `MODE: visual-appearance` supplied an enumerated item list; omit `item`
+  entirely for the default `/flow-verify` drive, which has no per-item
+  checklist).
+  `bin/lib/ui-driver-schema.ts` rejects an artifact that exceeds any of
+  three independent caps: 10 entries total, 20 items per
+  `consoleErrors`/`failedRequests`/`missingSelectors` array, and 300
+  characters per string within those arrays. Apply the caps in this order
+  so nothing is silently rejected downstream: truncate each individual
+  string to 300 characters; then, if an inner array still has more than 20
+  items, keep the first 20 and drop the rest (an item count cannot be
+  "truncated" — only a string can); then, if you have more than 10 route
+  entries, keep the 10 most actionable (routes with the most captures, or
+  the earliest in `routes[]` on a tie) and drop the rest.
 
 ## 5. Write the artifact (last act)
 
@@ -135,8 +153,8 @@ Write `ARTIFACT_PATH` as the LAST act, after teardown, conforming to
 {
   "ran": true,
   "ok": true,
-  "captures_path": "<CAPTURES_PATH, repo-relative>",
-  "ui_screenshots": ["<repo-relative path>", "..."],
+  "captures_path": "<CAPTURES_PATH, absolute>",
+  "ui_screenshots": ["<absolute path>", "..."],
   "fix_context": [
     {
       "route": "/",

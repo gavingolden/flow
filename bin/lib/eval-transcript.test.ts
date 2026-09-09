@@ -192,7 +192,15 @@ describe("transcriptMetrics", () => {
       Task: 1,
       "mcp__chrome-devtools__navigate_page": 1,
     });
-    expect(metrics.topLevelToolCalls).toEqual({ Bash: 2, Task: 1 });
+    // A name seen ONLY in a subagent turn must still be zero-filled so a
+    // metric grader reading `transcript.topLevelToolCalls.<name>` resolves
+    // an explicit `0` rather than `undefined` (undefined is dropped by
+    // gradeAll and reported as "metric source unresolved").
+    expect(metrics.topLevelToolCalls).toEqual({
+      Bash: 2,
+      Task: 1,
+      "mcp__chrome-devtools__navigate_page": 0,
+    });
   });
 
   it("computes modelShare including alias buckets by substring match", () => {

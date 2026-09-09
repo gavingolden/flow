@@ -22,6 +22,13 @@
       "min": 1
     },
     {
+      "id": "drive-not-inline",
+      "kind": "metric",
+      "source": "transcript.topLevelToolCalls.mcp__chrome-devtools__navigate_page",
+      "direction": "lower",
+      "max": 0
+    },
+    {
       "id": "captures-written",
       "kind": "file",
       "file": "$REPO/.flow-tmp/ui-captures.json",
