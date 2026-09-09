@@ -39,6 +39,7 @@ const VALIDATOR_MODULES = [
   "fix-applier-schema.ts",
   "epic-manifest-schema.ts",
   "intent-resolution-schema.ts",
+  "ui-driver-schema.ts",
 ] as const;
 
 /**

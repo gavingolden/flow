@@ -53,9 +53,9 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
     }
   });
 
-  it("only fix-applier pins effort; every other row inherits", () => {
+  it("fix-applier and ui-driver pin effort; every other row inherits", () => {
     for (const r of rows) {
-      const pinned = r.phase === "fix-applier";
+      const pinned = r.phase === "fix-applier" || r.phase === "ui-driver";
       expect(r.effort).toBe(pinned ? "low (pinned)" : "inherited");
     }
   });
@@ -94,6 +94,35 @@ describe("resolveRouting — config values", () => {
     expect(row(rows, "review")).toMatchObject({
       model: "opus",
       source: "config (models.review)",
+    });
+  });
+
+  it("ui-driver has no CLI flag: config.models.uiDriver resolves, and a session state.model never leaks in", () => {
+    const defaults = resolveRouting({ state: null, config: {} });
+    expect(row(defaults, "ui-driver")).toMatchObject({
+      model: "sonnet",
+      source: "built-in (sonnet)",
+      effort: "low (pinned)",
+    });
+
+    const configured = resolveRouting({
+      state: null,
+      config: { uiDriver: "haiku" },
+    });
+    expect(row(configured, "ui-driver")).toMatchObject({
+      model: "haiku",
+      source: "config (models.uiDriver)",
+    });
+
+    // Config-only, no stateField: an inherited session model must never leak
+    // into this row even when one is set.
+    const withSessionModel = resolveRouting({
+      state: st({ model: "opus" }),
+      config: {},
+    });
+    expect(row(withSessionModel, "ui-driver")).toMatchObject({
+      model: "sonnet",
+      source: "built-in (sonnet)",
     });
   });
 
@@ -196,8 +225,8 @@ describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
   );
   const parsed = parsePrecedenceTable(md);
 
-  it("parses the eight precedence-table rows", () => {
-    expect(parsed.length).toBe(8);
+  it("parses the nine precedence-table rows", () => {
+    expect(parsed.length).toBe(9);
     for (const r of parsed) expect(r.fallback).not.toBe("unknown");
   });
 
@@ -205,7 +234,11 @@ describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
     for (const r of parsed) {
       const site = matchSite(r);
       expect(site, `no site for ${JSON.stringify(r)}`).toBeDefined();
-      expect(site!.stateField).toBe(r.stateField);
+      // An em-dash table cell (no state field) parses to "" via
+      // `cells[1].match(/[A-Za-z]+/) ?? [""]`, while a flagless site's
+      // `stateField` is `undefined`. Coerce so the assertion expresses the
+      // real invariant: "row has no state field ⟺ site has none".
+      expect(site!.stateField ?? "").toBe(r.stateField);
     }
   });
 

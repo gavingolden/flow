@@ -56,6 +56,7 @@ describe("runConfigModelsCli", () => {
       "coder",
       "review",
       "fix-applier",
+      "ui-driver",
       "consolidator",
       "merge-resolver",
     ]) {

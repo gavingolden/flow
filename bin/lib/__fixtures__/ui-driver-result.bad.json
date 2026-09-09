@@ -1,0 +1,76 @@
+{
+  "ran": true,
+  "ok": false,
+  "captures_path": ".flow-tmp/ui-captures.json",
+  "ui_screenshots": [],
+  "fix_context": [
+    {
+      "route": "/1",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    },
+    {
+      "route": "/2",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    },
+    {
+      "route": "/3",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    },
+    {
+      "route": "/4",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    },
+    {
+      "route": "/5",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    },
+    {
+      "route": "/6",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    },
+    {
+      "route": "/7",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    },
+    {
+      "route": "/8",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    },
+    {
+      "route": "/9",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    },
+    {
+      "route": "/10",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    },
+    {
+      "route": "/11-over-cap",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    }
+  ],
+  "rejected_alternatives": [],
+  "summary": "Uncapped fix_context: 11 entries exceeds the 10-entry cap."
+}

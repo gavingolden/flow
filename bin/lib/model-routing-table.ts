@@ -41,9 +41,9 @@ export type SpawnSite = {
   fineGrainAbove?: string;
   fallback: Fallback;
   /**
-   * Of the spawn sites, only `flow-fix-applier` pins effort (frontmatter).
-   * An in-process `SKILL.md` (e.g. flow-checkpoint) may also pin effort —
-   * outside this spawn-site table entirely.
+   * Of the spawn sites, only `flow-fix-applier` and `flow-ui-driver` pin
+   * effort (frontmatter). An in-process `SKILL.md` (e.g. flow-checkpoint)
+   * may also pin effort — outside this spawn-site table entirely.
    */
   effortPin?: EffortLevel;
 };
@@ -92,6 +92,16 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
     phase: "fix-applier",
     stateField: "modelFixApplier",
     configKey: "fixApplier",
+    fallback: "builtin-sonnet",
+    effortPin: "low",
+  },
+  // ui-driver falls back to a LITERAL sonnet like fix-applier: a manifest-driven
+  // browser drive is template execution that must not silently inherit Opus/Fable.
+  // Config-only (no CLI flag), so no stateField — same shape as scout/coder's
+  // fine-grain, which are likewise flagless.
+  {
+    phase: "ui-driver",
+    configKey: "uiDriver",
     fallback: "builtin-sonnet",
     effortPin: "low",
   },
