@@ -16,11 +16,19 @@
  *
  * Usage:
  *   flow-plan-lint --plan-md-file <path> [--survey-ran]
+ *   flow-plan-lint --design-md-file <path>
  *
  * `--survey-ran` is a valueless flag: it tells the linter the Step-3 blind
  * method survey ran this pass, so an entirely absent `## Method selection`
  * section becomes a named miss instead of the default silent skip (see
  * checkMethodSelection below) — without it, behaviour is unchanged.
+ *
+ * `--design-md-file <path>` is mutually exclusive with `--plan-md-file`
+ * (usage error, exit 2, when both or neither are given) and runs ONLY the
+ * `## Request vetting` check (`lintDesign`) — epic design.md never carries
+ * plan.md's feature-grain sections (task Contracts, `## Cut list`, etc.),
+ * so the full `lintPlan` battery would fail every design on unrelated
+ * misses.
  *
  * Output (stdout): one named miss per line; nothing on a conforming plan.
  *
@@ -38,6 +46,8 @@ import * as path from "node:path";
 import {
   extractRecommendedPath,
   extractSurveyVerdict,
+  extractVettingVerdict,
+  parseVettingVerdict,
   SURVEY_VERDICTS,
 } from "./flow-step3-route";
 import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
@@ -374,6 +384,187 @@ function checkMethodSelection(
         `'## Method selection' ${judgeLabel} line is missing a double-quoted verbatim excerpt before its paraphrase`,
       );
     }
+  }
+}
+
+/**
+ * Extract the `- **Case against:**` block from a `## Request vetting` body:
+ * the label's own same-line text (if any — the goal-only short form writes
+ * `- **Case against:** none material — <why>` with no sub-bullets) plus
+ * every immediately-following indented line (the common shape: a blank
+ * same-line value followed by indented sub-bullets, one per rejected
+ * alternative), stopping at the next top-level (`- **...`, zero-indent)
+ * line or the end of the section. Returns null when no `- **Case
+ * against:**` label exists at all.
+ */
+function extractCaseAgainstBlock(body: string): string | null {
+  const labelMatch = body.match(/^- \*\*Case against:\*\*[ \t]*(.*)$/m);
+  if (!labelMatch) return null;
+  const sameLineText = labelMatch[1] ?? "";
+  const rest = body.slice((labelMatch.index ?? 0) + labelMatch[0].length);
+  const subLines: string[] = [];
+  for (const line of rest.split("\n")) {
+    if (line.trim().length === 0) continue;
+    // A new top-level bullet (`- **...`) ends the block; a soft-wrapped
+    // continuation line — indented sub-bullet OR a zero-indent prose line
+    // that isn't itself a new `- **` label — stays part of the block.
+    if (/^\s*- \*\*/.test(line)) break;
+    subLines.push(line);
+  }
+  return [sameLineText, ...subLines].join("\n");
+}
+
+/**
+ * Extract a single-label line's full value, folding in soft-wrapped
+ * continuation lines (plain prose lines with no leading `- **` label) so a
+ * wrapped URL/anchor in e.g. `- **Sources:**` isn't a false miss.
+ */
+function extractLabelValueWithWrap(body: string, label: string): string | null {
+  const re = new RegExp(`^- \\*\\*${label}:\\*\\*.*$`, "m");
+  const labelMatch = body.match(re);
+  if (!labelMatch) return null;
+  const rest = body.slice((labelMatch.index ?? 0) + labelMatch[0].length);
+  const continuation: string[] = [];
+  // `rest` begins with the newline that terminated the label line, so
+  // split()'s first element is always "" — dropping it is what makes the
+  // blank-line break below mean "the value ended", not "there is nothing".
+  for (const line of rest.split("\n").slice(1)) {
+    if (line.trim().length === 0) break;
+    if (/^\s*- \*\*/.test(line)) break;
+    continuation.push(line);
+  }
+  return [labelMatch[0], ...continuation].join("\n");
+}
+
+/**
+ * Advisory check for the ALWAYS-PRESENT `## Request vetting` section every
+ * plan.md and design.md must carry (discovery-instructions.md "Request
+ * vetting"; epic-discovery-instructions.md "5a"). Modeled on
+ * `checkMethodSelection`'s heading-gate-then-slice shape, not
+ * `checkHeadingPresent` alone, because every requirement below needs body
+ * inspection:
+ *   1. an exact-match closed verdict (`parseVettingVerdict`);
+ *   2. <=12 non-blank BODY lines (heading excluded), excluding any
+ *      `- **Cross-model case against:**` line — that line is the review's
+ *      post-hoc reconciliation, not authored content, and is exempt from
+ *      both this ceiling and the `flow-plan-review` re-fire hash;
+ *   3. >=1 line inside the `- **Case against:**` block carrying
+ *      `[anchor: …]` or a URL, so the case is grounded rather than
+ *      same-model self-critique;
+ *   4. that block totals >=15 words, so a trivially-true one-liner still
+ *      fails;
+ *   5. a `- **Sources:**` line carrying a URL or the literal
+ *      `no outside source:` marker, so an ungrounded verdict is visible,
+ *      never silent;
+ *   6. a non-`adopt` verdict requires a `## Decision analysis` fork to
+ *      resolve into;
+ *   7. when both headings exist, `## Request vetting` precedes
+ *      `## Decision analysis` — the argument against the request is read
+ *      before its resolution fork.
+ */
+function checkRequestVetting(
+  planText: string,
+  misses: string[],
+  artifactName: string = "plan.md",
+): void {
+  const headingMatch = planText.match(/^## Request vetting\s*$/m);
+  if (!headingMatch) {
+    misses.push(
+      "missing '## Request vetting' heading — every plan must argue against the request before adopting it",
+    );
+    return;
+  }
+  const headingIdx = headingMatch.index ?? 0;
+  const body = sliceToNextHeading(
+    planText,
+    headingIdx + headingMatch[0].length,
+  );
+
+  const rawVerdict = extractVettingVerdict(planText);
+  const parsedVerdict =
+    rawVerdict === null ? null : parseVettingVerdict(rawVerdict);
+  if (parsedVerdict === null) {
+    misses.push(
+      "'## Request vetting' has no exact-match '- **Verdict:** <adopt | adopt-with-conditions: <condition> | push back: <alternative>>' line" +
+        (rawVerdict === null ? "" : ` (got '${rawVerdict}')`),
+    );
+  }
+
+  const bodyLines = body
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.length > 0 && !line.startsWith("- **Cross-model case against:**"),
+    );
+  if (bodyLines.length > 12) {
+    misses.push(
+      `'## Request vetting' is ${bodyLines.length} non-blank lines (ceiling: 12) — trim it`,
+    );
+  }
+
+  const hasHypothesis = /^- \*\*Hypothesis:\*\*/m.test(body);
+  if (!hasHypothesis) {
+    misses.push("'## Request vetting' has no '- **Hypothesis:**' line");
+  }
+
+  const caseAgainstBlock = extractCaseAgainstBlock(body);
+  if (caseAgainstBlock === null) {
+    misses.push("'## Request vetting' has no '- **Case against:**' line");
+  } else {
+    // An anchor pointing under `.flow-tmp/` is not a valid grounding
+    // citation — that directory is excluded from git and deleted by
+    // worktree teardown, so it can never be re-opened by a later reader.
+    const flowTmpAnchorOnly =
+      /\[anchor:\s*\.flow-tmp\//.test(caseAgainstBlock) &&
+      !caseAgainstBlock
+        .split(/\[anchor:\s*/)
+        .slice(1)
+        .some((a) => !a.trimStart().startsWith(".flow-tmp/")) &&
+      !/https?:\/\//.test(caseAgainstBlock);
+    const hasGrounding =
+      (caseAgainstBlock.includes("[anchor:") ||
+        /https?:\/\//.test(caseAgainstBlock)) &&
+      !flowTmpAnchorOnly;
+    if (!hasGrounding) {
+      misses.push(
+        flowTmpAnchorOnly
+          ? "'## Request vetting' case against cites only a '.flow-tmp/' anchor — that directory is excluded from git and deleted on worktree teardown, so it can never ground the case; cite a committed path or a URL"
+          : "'## Request vetting' case against cites no [anchor: …] or URL — an ungrounded case is same-model self-critique",
+      );
+    }
+    const wordCount = caseAgainstBlock.split(/\s+/).filter(Boolean).length;
+    if (wordCount < 15) {
+      misses.push(
+        "'## Request vetting' case against is under 15 words — a trivially-true one-liner is same-model self-critique",
+      );
+    }
+  }
+
+  const sourcesValue = extractLabelValueWithWrap(body, "Sources");
+  const hasSourcesGrounding =
+    sourcesValue !== null &&
+    (/https?:\/\//.test(sourcesValue) ||
+      sourcesValue.includes("no outside source:"));
+  if (!hasSourcesGrounding) {
+    misses.push(
+      "'## Request vetting' has no '- **Sources:**' line carrying a URL or the literal 'no outside source: <reason>' — an ungrounded verdict must be visible, never silent",
+    );
+  }
+
+  if (parsedVerdict !== null && parsedVerdict.kind !== "adopt") {
+    if (!/^## Decision analysis\s*$/m.test(planText)) {
+      misses.push(
+        `'## Request vetting' verdict is '${parsedVerdict.kind}' but ${artifactName} has no '## Decision analysis' fork`,
+      );
+    }
+  }
+
+  const decisionMatch = planText.match(/^## Decision analysis\s*$/m);
+  if (decisionMatch && (decisionMatch.index ?? 0) < headingIdx) {
+    misses.push(
+      "'## Request vetting' must precede '## Decision analysis' — the argument against the request comes before its resolution fork",
+    );
   }
 }
 
@@ -886,6 +1077,7 @@ export function lintPlan(
     checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);
     checkMethodSelection(planText, misses, { surveyRan: opts.surveyRan });
+    checkRequestVetting(planText, misses, "plan.md");
     checkOpenQuestions(planText, misses);
     checkConfidenceMarkers(planText, misses, opts.planMdFile);
     checkStakesLines(planText, misses);
@@ -899,14 +1091,36 @@ export function lintPlan(
   return { misses };
 }
 
+/**
+ * Pure: lint an epic design.md instance's text. Runs ONLY the
+ * `## Request vetting` check — design.md never carries plan.md's
+ * feature-grain sections (task Contracts, `## Cut list`, `## Goal line`,
+ * etc.), so running the full `lintPlan` battery against it would fail
+ * every design on unrelated misses (see `--design-md-file` in the header
+ * doc-comment). Never throws — a parse failure degrades to a named miss.
+ */
+export function lintDesign(designText: string): LintResult {
+  const misses: string[] = [];
+  try {
+    checkRequestVetting(designText, misses, "design.md");
+  } catch (e) {
+    misses.push(
+      `internal lint error (treated as advisory, non-blocking): ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  return { misses };
+}
+
 // --- CLI ---
 
 export type ParsedArgs =
   | { planMdFile: string; surveyRan: boolean }
+  | { designMdFile: string }
   | { error: string };
 
 export function parseArgs(argv: string[]): ParsedArgs {
   let planMdFile: string | undefined;
+  let designMdFile: string | undefined;
   let surveyRan = false;
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -919,14 +1133,33 @@ export function parseArgs(argv: string[]): ParsedArgs {
       i++;
       continue;
     }
+    if (flag === "--design-md-file") {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith("--")) {
+        return { error: "--design-md-file requires a value" };
+      }
+      designMdFile = value;
+      i++;
+      continue;
+    }
     if (flag === "--survey-ran") {
       surveyRan = true;
       continue;
     }
     return { error: `unknown flag: ${flag}` };
   }
+  if (planMdFile !== undefined && designMdFile !== undefined) {
+    return {
+      error: "--plan-md-file and --design-md-file are mutually exclusive",
+    };
+  }
+  if (designMdFile !== undefined) {
+    return { designMdFile };
+  }
   if (planMdFile === undefined) {
-    return { error: "missing required flag: --plan-md-file" };
+    return {
+      error: "missing required flag: --plan-md-file or --design-md-file",
+    };
   }
   return { planMdFile, surveyRan };
 }
@@ -945,9 +1178,28 @@ export function run(argv: string[]): number {
   if ("error" in parsed) {
     process.stderr.write(`flow-plan-lint: ${parsed.error}\n`);
     process.stderr.write(
-      "usage: flow-plan-lint --plan-md-file <path> [--survey-ran]\n",
+      "usage: flow-plan-lint --plan-md-file <path> [--survey-ran] | --design-md-file <path>\n",
     );
     return 2;
+  }
+
+  if ("designMdFile" in parsed) {
+    let designText: string;
+    try {
+      designText = readFileSync(parsed.designMdFile, "utf8");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      process.stderr.write(
+        `flow-plan-lint: failed to read --design-md-file '${parsed.designMdFile}': ${msg}\n`,
+      );
+      return 2;
+    }
+    const { misses } = lintDesign(designText);
+    if (misses.length === 0) return 0;
+    for (const miss of misses) {
+      process.stdout.write(miss + "\n");
+    }
+    return 1;
   }
 
   let planText: string;

@@ -11,6 +11,8 @@ import {
   findDuplicateIds,
   findOrphanEdges,
   findSelfDependencies,
+  findUndeclaredProducers,
+  findUnorderedProducers,
   validateDag,
 } from "./flow-epic-dag";
 
@@ -41,12 +43,17 @@ function withTmpFile(contents: string, fn: (filePath: string) => void): void {
 }
 
 /** Build a Feature with the four required fields; others stay omitted. */
-function feat(id: string, dependsOn: string[] = []): Feature {
+function feat(
+  id: string,
+  dependsOn: string[] = [],
+  sharedArtifacts?: string[],
+): Feature {
   return {
     id,
     title: id.toUpperCase(),
     description: `feature ${id}`,
     dependsOn,
+    ...(sharedArtifacts !== undefined ? { sharedArtifacts } : {}),
   };
 }
 
@@ -478,5 +485,226 @@ describe("flow-epic-dag CLI — --frontier", () => {
     const r = runCli(["--frontier"]);
     expect(r.status).toBe(2);
     expect(r.stderr).toContain("usage:");
+  });
+});
+
+describe("findUnorderedProducers / validateDag — shared-artifact producer ordering", () => {
+  it("rejects two producers of the same artifact with no edge between them", () => {
+    const features = [
+      feat("a", [], ["shared.json"]),
+      feat("b", [], ["shared.json"]),
+    ];
+    const violations = findUnorderedProducers(features);
+    expect(violations).toHaveLength(1);
+    expect(violations[0].kind).toBe("unordered-producers");
+    expect(violations[0].offendingIds).toEqual(
+      expect.arrayContaining(["a", "b"]),
+    );
+    expect(violations[0].message).toContain("shared.json");
+    expect(violations[0].message).toContain("a");
+    expect(violations[0].message).toContain("b");
+
+    const result = validateDag(features);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(kinds(result.violations)).toContain("unordered-producers");
+    }
+  });
+
+  it("accepts a direct dependsOn edge between the two producers", () => {
+    const features = [
+      feat("a", [], ["shared.json"]),
+      feat("b", ["a"], ["shared.json"]),
+    ];
+    expect(findUnorderedProducers(features)).toEqual([]);
+    expect(validateDag(features)).toEqual({ ok: true });
+  });
+
+  it("accepts a transitive path a -> x -> b between the two producers", () => {
+    const features = [
+      feat("a", [], ["shared.json"]),
+      feat("x", ["a"]),
+      feat("b", ["x"], ["shared.json"]),
+    ];
+    expect(findUnorderedProducers(features)).toEqual([]);
+  });
+
+  it("accepts a non-producer with no edge to a producer", () => {
+    const features = [
+      feat("a", [], ["shared.json"]),
+      feat("b", ["a"], ["shared.json"]),
+      feat("c"),
+    ];
+    expect(findUnorderedProducers(features)).toEqual([]);
+  });
+
+  it("accepts manifests without any sharedArtifacts field", () => {
+    const features = [feat("a"), feat("b", ["a"])];
+    expect(findUnorderedProducers(features)).toEqual([]);
+  });
+
+  it("rejects two producers that only share a common dependency (siblings run in parallel)", () => {
+    const features = [
+      feat("root"),
+      feat("a", ["root"], ["shared.json"]),
+      feat("b", ["root"], ["shared.json"]),
+    ];
+    expect(kinds(findUnorderedProducers(features))).toContain(
+      "unordered-producers",
+    );
+    expect(
+      computeFrontier(features, { completed: ["root"], launched: [] }).map(
+        (f) => f.id,
+      ),
+    ).toEqual(["a", "b"]); // proves the runner would co-launch them
+  });
+
+  it("rejects two producers that only share a common dependent", () => {
+    const features = [
+      feat("a", [], ["shared.json"]),
+      feat("b", [], ["shared.json"]),
+      feat("y", ["a", "b"]),
+    ];
+    expect(kinds(findUnorderedProducers(features))).toContain(
+      "unordered-producers",
+    );
+  });
+
+  it("CLI --validate stderr names both ids and the artifact for an unordered pair", () => {
+    withTmpFile(
+      manifest([
+        feat("a", [], ["shared.json"]),
+        feat("b", [], ["shared.json"]),
+      ]),
+      (filePath) => {
+        const r = runCli(["--validate", filePath]);
+        expect(r.status).toBe(1);
+        expect(r.stderr).toContain("a");
+        expect(r.stderr).toContain("b");
+        expect(r.stderr).toContain("shared.json");
+      },
+    );
+  });
+});
+
+describe("findUndeclaredProducers / --touched-files CLI", () => {
+  const withProducer = [
+    feat("a", [], ["backend/eval/baseline/scorecard.json"]),
+  ];
+
+  it("exits 0 when the touched artifact's manifest is also in the touched list", () => {
+    withTmpFile(manifest(withProducer), (filePath) => {
+      const r = runCli([
+        "--touched-files",
+        filePath,
+        "backend/eval/baseline/scorecard.json",
+        filePath,
+      ]);
+      expect(r.status).toBe(0);
+      expect(JSON.parse(r.stdout.trim())).toEqual({ ok: true });
+    });
+  });
+
+  it("exits 1 with undeclared-producer message when the manifest is missing from the touched list", () => {
+    withTmpFile(manifest(withProducer), (filePath) => {
+      const r = runCli([
+        "--touched-files",
+        filePath,
+        "backend/eval/baseline/scorecard.json",
+      ]);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("backend/eval/baseline/scorecard.json");
+      expect(r.stderr).toContain("is not in this diff");
+    });
+  });
+
+  it("exits 0 when the touched path is not a declared shared artifact", () => {
+    withTmpFile(manifest(withProducer), (filePath) => {
+      const r = runCli(["--touched-files", filePath, "some/other/file.ts"]);
+      expect(r.status).toBe(0);
+    });
+  });
+
+  it("exits 0 with zero touched paths", () => {
+    withTmpFile(manifest(withProducer), (filePath) => {
+      const r = runCli(["--touched-files", filePath]);
+      expect(r.status).toBe(0);
+    });
+  });
+
+  it("normalizes a './'-prefixed path to match", () => {
+    withTmpFile(manifest(withProducer), (filePath) => {
+      const r = runCli([
+        "--touched-files",
+        filePath,
+        "./backend/eval/baseline/scorecard.json",
+      ]);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("is not in this diff");
+    });
+  });
+
+  it("findUndeclaredProducers returns no violations when zero paths are touched", () => {
+    expect(findUndeclaredProducers(withProducer, "manifest.json", [])).toEqual(
+      [],
+    );
+  });
+
+  it("exits 2 with usage when --touched-files has no manifest path", () => {
+    const r = runCli(["--touched-files"]);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("usage:");
+  });
+
+  it("propagates a DAG violation from the manifest as exit 1 before the touched scan", () => {
+    withTmpFile(manifest([feat("a", ["b"]), feat("b", ["a"])]), (filePath) => {
+      const r = runCli(["--touched-files", filePath, "some/file.ts"]);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/cycle/i);
+    });
+  });
+
+  it("reports one violation per touched artifact naming every declared producer", () => {
+    const features = [
+      feat("a", [], ["x.json", "y.json"]),
+      feat("b", ["a"], ["x.json"]),
+    ];
+    const violations = findUndeclaredProducers(
+      features,
+      ".flow/epics/e/manifest.json",
+      ["x.json", "./y.json", "unrelated.ts"],
+    );
+    expect(violations.map((v) => [v.kind, v.offendingIds])).toEqual([
+      ["undeclared-producer", ["a", "b"]],
+      ["undeclared-producer", ["a"]],
+    ]);
+  });
+});
+
+describe("--validate followups warning", () => {
+  it("warns on stderr and still exits 0 when the manifest carries a top-level followups array", () => {
+    withTmpFile(
+      JSON.stringify({
+        epicId: "epic-test",
+        prompt: "test epic",
+        createdAt: "2026-06-22",
+        features: [feat("a")],
+        followups: ["some deferred idea"],
+      }),
+      (filePath) => {
+        const r = runCli(["--validate", filePath]);
+        expect(r.status).toBe(0);
+        expect(r.stderr).toContain("warning:");
+        expect(r.stderr).toContain("followups");
+      },
+    );
+  });
+
+  it("does not warn when the manifest has no followups key", () => {
+    withTmpFile(manifest([feat("a")]), (filePath) => {
+      const r = runCli(["--validate", filePath]);
+      expect(r.status).toBe(0);
+      expect(r.stderr).toBe("");
+    });
   });
 });

@@ -86,6 +86,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-testing",
       "flow-backlog-triage",
       "flow-file-issue",
+      "flow-deliberate",
       "flow-fix-applier-instructions",
       "flow-coder-instructions",
       "flow-merge-resolver-instructions",
@@ -163,6 +164,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-transcript-audit",
       "flow-conflict-marker-check",
       "flow-claude-headless",
+      "flow-deliberate",
       "flow-test-audit",
     ],
     validators: [

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "epicId": "make-flow-reason-from-explain",
+  "features": {
+    "f1-product-brief": {
+      "status": "merged",
+      "pr": 794
+    },
+    "f2-explanation-judge": {
+      "status": "merged",
+      "pr": 821
+    },
+    "f3-product-critic": {
+      "status": "not-started"
+    }
+  }
+}

@@ -20,20 +20,37 @@
 
 [What problem does this solve? Why does it matter? Who is affected?]
 
+## Request vetting
+
+<!-- Always present — every plan must argue against the request's chosen approach
+     before adopting it, with a closed verdict. Full contract:
+     discovery-instructions.md "Request vetting". -->
+
+- **Hypothesis:** [the falsifiable claim the chosen approach rests on]
+- **Case against:** [the best evidence AGAINST the chosen approach, citing a
+  committed repo path or URL — e.g. `[anchor: path/to/file.ts]`]
+- **Sources:** [a URL, or the literal `no outside source: <reason>`]
+- **Verdict:** [`adopt` | `adopt-with-conditions: <condition>` | `push back: <alternative>`]
+
 ## Epic context
 
 <!-- Omit-when-empty: include ONLY when discovery's step 1.7 detects epic
      membership; otherwise omit the heading entirely (never an empty heading).
      Names the epic slug, this feature's id + rationale, its dependsOn edges
-     (produced/consumed artifacts), and its downstream dependents. Every claim
-     must trace to design.md + manifest.json. Full contract:
-     discovery-instructions.md "Epic context" — the single source of truth. -->
+     (produced/consumed artifacts), its downstream dependents, and a Manifest
+     write-back line. Every claim must trace to design.md + manifest.json.
+     Full contract: discovery-instructions.md "Epic context" — the single
+     source of truth. -->
 
 Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.md`.
+(Standalone producer variant: ``Standalone producer of `<artifact>` in epic
+`<slug>` — no feature id``.)
 
 - **Role:** [this feature's rationale within the epic decomposition]
 - **Depends on:** [feature id — produced/consumed artifact] | none
 - **Downstream dependents:** [feature id — interface that must stay stable] | none
+- **Manifest write-back:** [edges to add/remove, each naming its artifact — the
+  manifest edit is a task of this PR] | none
 
 ## Method selection
 
@@ -239,7 +256,12 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      Confidence + stakes rubric in discovery-instructions.md. Every unchecked
      `[confidence: low]` entry also carries a stable `Q<n>` id (same numbering
      rule as **Needs user input:** items) — it may be promoted into the
-     supervisor's Q<n> (low) rendering. -->
+     supervisor's Q<n> (low) rendering. Before writing a non-taste,
+     non-credential **Needs user input:** escape or a `[confidence: low]`
+     **Recommended:** line, consult the blind judge per the Deliberation step in
+     discovery-instructions.md "Open Questions (resolution-first)" — at most 3
+     per pass, adopt only re-verified medium/high, prefix an adopted rationale
+     `deliberated (<level>):`. -->
 
 - [ ] [question — what changes on redirect]
   - **Stakes:** [system|user|both] — [what degrades, for whom, if the default is wrong]

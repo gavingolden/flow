@@ -211,10 +211,23 @@ The rules:
    migration, interface, file, or exported symbol that must exist first.
    "Feels later" is not an edge. State the concrete produced/consumed
    artifact on each edge.
-5. **Sparse edges by construction (Simon near-decomposability).** A dense
+5. **A shared generated artifact is a dependency class, not a coincidence.**
+   A file several features regenerate (e.g. an eval baseline such as
+   `backend/eval/baseline/scorecard.json`) is a shared generated artifact:
+   every producer lists it under `sharedArtifacts` and carries a
+   `dependsOn` edge against the previous producer so the runner serializes
+   them — the edge points from the later producer to the earlier one. The
+   very first producer of a new artifact has nothing to order against and
+   carries no edge. The converse also holds: a feature that does NOT touch
+   the artifact MUST NOT carry such an edge, so it stays parallel-safe. On
+   adopting this rule, an existing epic back-fills `sharedArtifacts` on
+   every feature that already regenerates the file (one-time migration).
+   `flow-epic-dag --validate` refuses an unordered producer pair
+   (`unordered-producers`).
+6. **Sparse edges by construction (Simon near-decomposability).** A dense
    edge set is a diagnostic that a boundary was drawn at a strong-coupling
    place — re-cut rather than ship the dense DAG.
-6. **Prefer a walking-skeleton root (Story Mapping).** The first feature is
+7. **Prefer a walking-skeleton root (Story Mapping).** The first feature is
    a thin end-to-end slice (the schema/seam everything else hangs off), so
    the DAG has a clear root and early features de-risk the architecture.
 
@@ -309,6 +322,17 @@ Then append the **critique layer**, in this order after `## 6. Open Questions`
 Plan risks / Decision analysis sub-sections, one altitude up — the epic-grain
 consequence-simulation, verdict, and self-critique of the _decomposition_):
 
+- `## Request vetting` (**always-present**, first) — the epic-altitude
+  counterpart of the feature file's `## Request vetting`: a falsifiable
+  hypothesis, a sourced case against the CHOSEN DECOMPOSITION/APPROACH
+  (sourced from the inversion lens, in-repo evidence, and prior artifacts —
+  a committed repo path or URL, never `.flow-tmp/`), and a closed verdict
+  using the same grammar (`adopt` | `adopt-with-conditions: <condition>` |
+  `push back: <alternative>`). Same ≤12-non-blank-line ceiling. A `push
+back` verdict requires a `## Decision analysis` decomposition fork to
+  resolve into, same rule as the feature file. Runs through
+  `flow-plan-lint --design-md-file` (see `/flow-epic-create` Step 4) —
+  the ONLY check that mode runs against `design.md`.
 - `## Decision analysis` (**omit-when-empty**) — for a consequential
   **decomposition** fork whose branches genuinely diverge (e.g. "split feature
   B into read/write, or keep it one feature?"), simulate each branch's
@@ -336,7 +360,7 @@ consequence-simulation, verdict, and self-critique of the _decomposition_):
   `discovery-instructions.md` and `flow-new-feature/SKILL.md` Step 2, the counterpart
   self-critique sites.
 
-**Visible-dependency note (load-bearing — read before renumbering).** The three
+**Visible-dependency note (load-bearing — read before renumbering).** The four
 critique headings are emitted **unnumbered** at top-level `##` (not `## 7.` /
 `## 8.`) **specifically because** `/flow-epic-create`'s Step 4.5 cross-model design
 review gates on `flow-plan-review`'s anchored `^## Decision analysis` regex.
@@ -354,8 +378,9 @@ Write `manifest.json` matching the `EpicManifest` / `Feature` shape owned by
   verbatim epic prompt), `createdAt` (ISO-8601 by convention — the validator
   accepts any non-empty string), and `features[]`.
 - Each feature (required: `id`, `title`, `description`, `dependsOn[]`;
-  optional: `rationale`, `acceptanceCriteria[]`, `flowNewHints`, `mvp`) as
-  captured in §4c. Keep it 100% consistent with `design.md`'s §4/§5 (same
+  optional: `rationale`, `acceptanceCriteria[]`, `flowNewHints`, `mvp`,
+  `sharedArtifacts[]` — repo-relative paths of shared generated artifacts
+  this feature regenerates) as captured in §4c. Keep it 100% consistent with `design.md`'s §4/§5 (same
   ids, titles, and edges). Every `description` ends with the §4c
   pointer sentence ``Part of epic `<slug>` (feature `<id>`) — design at
 `.flow/epics/<slug>/design.md`.`` — the manifest's `description` is what
@@ -363,29 +388,47 @@ Write `manifest.json` matching the `EpicManifest` / `Feature` shape owned by
   (`bin/lib/epic-launch.ts`), so the pointer must be present there, not only
   in `design.md`'s prose.
 
+**Follow-ups are a ledger, not a queue.** A manifest `followups` array is a
+ledger entry the runner never reads (`flow epic launch` resolves ids from
+`features[]` only, and the DAG walks `dependsOn` between features) — an
+item must be promoted to a `features[]` entry (id, description, dependsOn,
+and the pointer sentence) before it can be scheduled. Before filing
+anything into an epic, confirm the epic is runner-driven: `flow epic ls`
+lists it on this machine (a `run.json` exists) or its manifest `note` says
+so; absent both, promote-and-`flow epic run`, or file a GitHub issue via
+`flow-create-issue` — otherwise the item is a dead letter.
+
 ## 6. Self-validate — the MANDATORY correctness loop
 
 This is the key correctness gate and is **non-negotiable**. After writing
-`manifest.json`, shell out to **BOTH** validators (both are bare-name
+`manifest.json`, shell out to **ALL THREE** validators (all are bare-name
 commands on PATH):
 
 ```bash
 flow-epic-manifest-schema --validate .flow/epics/<slug>/manifest.json
 flow-epic-dag --validate .flow/epics/<slug>/manifest.json
+flow-plan-lint --design-md-file .flow/epics/<slug>/design.md
 ```
 
 `--validate` is a flag whose value is the path that follows it. Exit 0 =
 valid (prints `{"ok":true}`); non-zero = invalid (the reason / offending
 cycle or edge is on stderr; a cycle prints e.g.
-`dependency cycle: a -> b -> a`).
+`dependency cycle: a -> b -> a`). `flow-plan-lint --design-md-file` runs
+ONLY the `## Request vetting` check against `design.md` (never the full
+feature-grain battery); exit 0 = conforming, exit 1 = a named miss on
+stdout.
 
-**On ANY non-zero exit from EITHER validator: re-cut the decomposition,
-re-emit both artifacts, and re-validate — in a loop — until BOTH exit 0.**
-A non-zero exit is a methodology bug to fix (a cycle means extract the
-shared dependency into its own upstream feature or merge the two; an orphan
-edge means a `dependsOn` names a feature that does not exist — fix the id or
-add the feature). **NEVER surface a failing manifest as a result.** The
-designer stops only once both validators exit 0.
+**On ANY non-zero exit from ANY of the three validators: re-cut the
+decomposition (or, for the vetting miss, re-author the section), re-emit
+the affected artifact(s), and re-validate — in a loop — until ALL THREE
+exit 0.** A non-zero exit is a methodology bug to fix (a cycle means
+extract the shared dependency into its own upstream feature or merge the
+two; an orphan edge means a `dependsOn` names a feature that does not
+exist — fix the id or add the feature; a vetting miss means the section is
+absent, off-enum, over the line ceiling, or ungrounded — fix it per the
+"Request vetting" contract above). **NEVER surface a failing manifest or
+design as a result.** The designer stops only once all three validators
+exit 0.
 
 ## 7. Return a brief summary
 
@@ -401,15 +444,17 @@ Before returning, self-check:
 
 - `design.md` exists at `.flow/epics/<slug>/design.md` with the six numbered
   backbone headings (`## 1. Problem & intent` … `## 6. Open Questions`) AND the
-  two always-present critique sections (`## Recommendation`, `## Plan risks`);
-  `## Decision analysis` is omit-when-empty (present only when a decomposition
-  fork genuinely diverges).
+  three always-present critique sections (`## Request vetting` (first),
+  `## Recommendation`, `## Plan risks`); `## Decision analysis` is
+  omit-when-empty (present only when a decomposition fork genuinely
+  diverges).
 - `manifest.json` exists at `.flow/epics/<slug>/manifest.json`, is internally
-  consistent with `design.md` (same ids/titles/edges), and **both**
-  `flow-epic-manifest-schema --validate` and `flow-epic-dag --validate` exit
-  0 against it.
+  consistent with `design.md` (same ids/titles/edges), and **all three**
+  `flow-epic-manifest-schema --validate`, `flow-epic-dag --validate`, and
+  `flow-plan-lint --design-md-file` exit 0 against it/`design.md`.
 - Every feature is a vertical slice with a self-contained `description`,
-  every `dependsOn` edge names a produced/consumed artifact, and there is a
+  every `dependsOn` edge names a produced/consumed artifact or a shared
+  generated artifact listed under `sharedArtifacts`, and there is a
   walking-skeleton root.
 - Every assumption made under ambiguity is surfaced in Open Questions.
 

@@ -59,6 +59,7 @@ const VALID_FULL: unknown = {
         effort: "high",
       },
       mvp: true,
+      sharedArtifacts: ["backend/eval/baseline/scorecard.json"],
     },
     {
       id: "F2",
@@ -237,16 +238,45 @@ describe("validateEpicManifest — wrong-type rejections", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("autoMerge");
   });
+
+  it("rejects sharedArtifacts that is not an array when present", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (fixture.features as Array<Record<string, unknown>>)[0].sharedArtifacts =
+      "not an array";
+    const result = validateEpicManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("sharedArtifacts");
+  });
+
+  it("rejects a sharedArtifacts array containing an empty string", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (fixture.features as Array<Record<string, unknown>>)[0].sharedArtifacts = [
+      "",
+    ];
+    const result = validateEpicManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("sharedArtifacts");
+  });
 });
 
 describe("validateEpicManifest — optional-field acceptance", () => {
-  it("accepts a feature with rationale/acceptanceCriteria/flowNewHints/mvp all omitted", () => {
+  it("accepts a feature with rationale/acceptanceCriteria/flowNewHints/mvp/sharedArtifacts all omitted", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
     const f = (fixture.features as Array<Record<string, unknown>>)[0];
     delete f.rationale;
     delete f.acceptanceCriteria;
     delete f.flowNewHints;
     delete f.mvp;
+    delete f.sharedArtifacts;
+    expect(validateEpicManifest(fixture).ok).toBe(true);
+  });
+
+  it("accepts a feature with a valid sharedArtifacts array", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (fixture.features as Array<Record<string, unknown>>)[0].sharedArtifacts = [
+      "backend/eval/baseline/scorecard.json",
+      "docs/eval/README.md",
+    ];
     expect(validateEpicManifest(fixture).ok).toBe(true);
   });
 
