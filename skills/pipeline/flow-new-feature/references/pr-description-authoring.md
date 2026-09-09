@@ -33,38 +33,27 @@ distilled from a full PRD and approved by the user. Skip to Step 5.
 test specs:
 
 ````markdown
-## Why
+## TLDR
 
-<From the Critical Analysis: combine the Customer Value assessment with the user's original
-feature description to explain what problem this solves and why it matters. 1-3 sentences,
-no solution language. On a fix-shaped PR — the pipeline exists to fix an observed defect, or
-the branch's dominant commit type is `fix:` — lead with `**Failing:**` naming the observed
-failure and `**Root cause:**` naming why it happened, before the 1-3-sentence motivation.>
-
-## What
-
-<From the it.todo() specs: convert the top-level describe/it.todo groups into a bulleted list
-of deliverables. Phrase as capabilities, not test names. Example: "should display loading
-skeleton while fetching" becomes "Loading states during data fetches".>
-
-## Key decisions
-
-<From the Critical Analysis: include the Recommendation rationale, any alternatives that were
-considered and rejected (with **why** they were rejected), and scope boundaries defined in
-Step 1. On a fix-shaped PR, the FIRST bullet is `**Fix mechanism:** <why the change eliminates
-the root cause>`. Each bullet: decision + why. During implementation, if a non-obvious choice
-is made or an approach is tried and abandoned, append it here and also capture it in the
-commit body per `AGENTS.md` — so future reviewers and agents don't retrace dead ends.>
+<One sentence, 25 words or fewer, naming the user-visible outcome. Name no file, function, or
+line number — name the surface the reader uses (the command, the flag, the artifact). This is
+the same string the supervisor already authors as `$TLDR` at every terminal gate in
+`skills/pipeline/flow-pipeline/SKILL.md`; reuse it rather than inventing a second one. On a
+fix-shaped PR the sentence itself states the failure and the causal resolution together, so a
+reader meets the fix framing before the now-demoted `## Why`.>
 
 ## User-facing changes
 
 <Concrete user-observable deltas — phrase in user terms ("you can now run `flow ls --cost`"),
-not implementation terms ("added cost column to the ls renderer"). Consider these
+not implementation terms ("added cost column to the ls renderer"). Name no file, function, or
+line number here either — name the surface the reader uses. Consider these
 categories: new CLI commands or subcommands, new flags or changed defaults,
 renamed/removed commands, changed prompts or output formats, new env vars, and changed
 file locations users interact with. Derive each bullet from the matching `it.todo()` spec
 that describes externally observable behaviour — every spec asserting an output, a CLI
-surface, or a side effect users can see should produce a bullet here.
+surface, or a side effect users can see should produce a bullet here, phrased as a capability
+rather than a test name ("should display loading skeleton while fetching" becomes "Loading
+states during data fetches").
 
 Format: freeform bullets. For renames or removals, use a `Before → After` bullet so the
 delta reads at a glance. Example:
@@ -76,13 +65,38 @@ If the change is pure-internal (refactor, infra, no user-observable delta), writ
 word `none` under the heading. Never delete the heading — `none` is an explicit author
 affirmation, while a missing heading is ambiguous between "no change" and "author forgot".>
 
-## System flow changes
+## System changes
 
-<Only on a cross-component change where behavior moved at the system/consumer level —
-derive Before → After bullets from plan.md's `### System flow` subsection when that
-subsection is non-`none`. OMIT THIS HEADING ENTIRELY when nothing moved at that level; unlike
-User-facing changes above, there is no `none` affirmation for this section — an absent
-heading already means "nothing moved here".>
+<Any internal change worth a reviewer's attention: a subsystem boundary that moved, a public
+contract that changed, a performance characteristic, or an ongoing cost. Derive Before → After
+bullets from plan.md's `### System flow` subsection when that subsection is non-`none`, and
+phrase each deliverable as a capability, not a test name or a file path. When the change moves
+an ongoing cost — API calls, CI time, token spend — name the direction and rough size; stay
+silent about cost when the change does not move one.
+
+Do not list file edits, helper refactors, or mechanical cleanups. If the change does not alter
+a subsystem boundary, a public contract, performance, or ongoing spend, write `none`.
+
+Never delete the heading. Exactly like `## User-facing changes` above, `none` is an explicit
+author affirmation, while a missing heading is ambiguous between "no change" and "author
+forgot".>
+
+## Why
+
+<From the Critical Analysis: combine the Customer Value assessment with the user's original
+feature description to explain what problem this solves and why it matters. 1-3 sentences,
+no solution language. On a fix-shaped PR — the pipeline exists to fix an observed defect, or
+the branch's dominant commit type is `fix:` — lead with `**Failing:**` naming the observed
+failure and `**Root cause:**` naming why it happened, before the 1-3-sentence motivation.>
+
+## Key decisions
+
+<From the Critical Analysis: include the Recommendation rationale, any alternatives that were
+considered and rejected (with **why** they were rejected), and scope boundaries defined in
+Step 1. On a fix-shaped PR, the FIRST bullet is `**Fix mechanism:** <why the change eliminates
+the root cause>`. Each bullet: decision + why. During implementation, if a non-obvious choice
+is made or an approach is tried and abandoned, append it here and also capture it in the
+commit body per `AGENTS.md` — so future reviewers and agents don't retrace dead ends.>
 
 ## Deviations from plan
 
@@ -234,11 +248,19 @@ confirmation before proceeding to implementation.
   The `pr-review` skill will catch missing descriptions.
 - "Why" must focus on the user's problem, not the implementation approach.
 - Keep it concise — this is a PR description, not a design doc.
+- "TLDR" is one sentence, 25 words or fewer, naming the user-visible outcome in the surface
+  the reader uses — no file, function, or line number. It is the same string the supervisor
+  authors as `$TLDR` at a terminal gate. On a fix-shaped PR it states the failure and the
+  causal resolution together.
 - "User-facing changes" must be phrased in user terms (what someone running the tool will
-  see or do differently), not implementation terms. If the PR has no user-observable
-  delta, write `none` under the heading — never omit the heading itself.
-- "System flow changes" is conditional — unlike "User-facing changes", omit the heading
-  entirely when nothing moved at the system/consumer level; do not write `none` under it.
+  see or do differently), not implementation terms, and names a surface rather than a file,
+  function, or line number. Deliverables belong here as capabilities, each verifiable
+  against the diff.
+- "System changes" covers any internal change worth a reviewer's attention, and prompts for
+  ongoing cost (API calls, CI time, token spend) only when the change moves one. It does NOT
+  list file edits, helper refactors, or mechanical cleanups.
+- Both "User-facing changes" and "System changes" are mandatory: when the section is empty,
+  write the literal word `none` under the heading — never omit either heading itself.
 - Always emit the `## Test Steps` heading, even for refactors. The auto-merge gate
   treats a missing heading as an upstream regression and escalates `NEEDS HUMAN`. Zero
   unchecked items under the heading is the auto-merge state; one or more unchecked

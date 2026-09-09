@@ -32,6 +32,7 @@ export const TELEMETRY_SCHEMA_VERSION = 1 as const;
 
 export const TELEMETRY_EVENTS = [
   "delegate.call",
+  "deliberate.call",
   "phase.transition",
   "verify.attempt",
   "run.terminal",

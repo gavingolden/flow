@@ -146,7 +146,7 @@ export function buildBatteryPrompt(input: BatteryPromptInput): string {
     })();
 
   const opener = input.sameFamilyAsAuthor
-    ? "You are a cross-model plan reviewer. A PRD drafted by another instance of your own model family (Claude) is below — you share its blind spots by construction, so weight the structurally-independent lenses (3-6 below) over agreement with its stated risks. Your job is to independently pressure-test the PRD against its OWN stated goal — not just the internal consistency of its decisions."
+    ? "You are a cross-model plan reviewer. A PRD drafted by another instance of your own model family (Claude) is below — you share its blind spots by construction, so weight the structurally-independent lenses (3-7 below) over agreement with its stated risks. Your job is to independently pressure-test the PRD against its OWN stated goal — not just the internal consistency of its decisions."
     : "You are a cross-model plan reviewer. A PRD drafted by a different model family (Claude) is below. Its author both wrote the plan and named its own risks in one context, so it shares that model's blind spots. Your job is to independently pressure-test the PRD against its OWN stated goal — not just the internal consistency of its decisions.";
 
   return `${opener}
@@ -161,9 +161,9 @@ Your output is INPUT the supervisor weighs against context it has and you do not
       readVerb: "verification",
       pacingPhrase: "on verification",
     },
-  )} Write the review once you stop reading — a review that is never written is worth nothing. Emit each of the six lenses below as it is finished, never buffering the whole review to the end. Do NOT read the \`.flow-tmp/\` directory — it holds this pipeline's own scratch state, including any OTHER reviewer's in-flight or already-written output; your independence from the other reviewer is the entire point of running a second model, so reading their output would silently turn an "independently converged" point into an echo. Findings are about the PLAN's decisions, not about the current code's style — the code this plan describes does not exist yet, so do not review it. When you cannot verify a claim from the repository, flag the uncertainty explicitly — never fabricate a concrete flow to sound authoritative.
+  )} Write the review once you stop reading — a review that is never written is worth nothing. Emit each of the seven lenses below as it is finished, never buffering the whole review to the end. Do NOT read the \`.flow-tmp/\` directory — it holds this pipeline's own scratch state, including any OTHER reviewer's in-flight or already-written output; your independence from the other reviewer is the entire point of running a second model, so reading their output would silently turn an "independently converged" point into an echo. Findings are about the PLAN's decisions, not about the current code's style — the code this plan describes does not exist yet, so do not review it. When you cannot verify a claim from the repository, flag the uncertainty explicitly — never fabricate a concrete flow to sound authoritative.
 
-Emit the six lenses below under their EXACT authored headings (e.g. \`**Goal-anchored verdicts.**\`) — do not paraphrase or rename them, so your output can be matched back to the lens it addresses. Any claim you make about CURRENT behaviour must cite the exact file path you read it from; an uncited claim about current behaviour must be labelled an assumption, not stated as fact — with repo access, a confident-but-fabricated codebase claim is the new failure mode this battery must guard against.
+Emit the seven lenses below under their EXACT authored headings (e.g. \`**Goal-anchored verdicts.**\`) — do not paraphrase or rename them, so your output can be matched back to the lens it addresses. Any claim you make about CURRENT behaviour must cite the exact file path you read it from; an uncited claim about current behaviour must be labelled an assumption, not stated as fact — with repo access, a confident-but-fabricated codebase claim is the new failure mode this battery must guard against.
 
 ## Goal anchor
 
@@ -181,6 +181,7 @@ Apply these lenses, in this order:
 4. **Structurally-different alternatives.** Propose alternatives that are STRUCTURALLY different from the plan's chosen design — never a mere variant/rewording of it — and rank them against the goal anchor. Name the dominant one.
 5. **Failure-modes battery.** Enumerate the plan's top failure modes. For EACH one, give a mitigation that costs NOTHING in extra prompts, confirmations, or user interruptions (a prompt-free mitigation) — a mitigation that just adds another confirmation step does not count.
 6. **Independent cut list.** Before reading the plan's own \`## Cut list\` section, form your OWN list of unnecessary complexity in the plan body that slows shipping. THEN read the plan's \`## Cut list\` and reconcile the two: name anything you found that the author missed, and — if the author claims "nothing — minimal" — say explicitly whether that claim survives your independent list or not.
+7. **Adversarial premise.** State the best evidence that the user's chosen approach is wrong or worse than the obvious alternative; cite it (a paper, a post-mortem, a measured number, or a file path). Then read the plan's own \`## Request vetting\` section and say whether its case against survives your evidence or missed something.
 
 Write prose (or lightly-structured markdown), organized by lens. Be concrete and specific; skip praise and preamble. If a lens is genuinely well-converged (nothing to add), say so briefly and move on.
 

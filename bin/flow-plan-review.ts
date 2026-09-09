@@ -30,8 +30,9 @@
  * Skip vocabulary: `plan-review-disabled` (gate off), `plan-unreadable`,
  * `no-decision-analysis` (omit-when-empty ⇒ nothing to review),
  * `decision-analysis-unchanged` (the widened hashed inputs — `**Goal:**` +
- * `## Decision analysis` + `## Cut list`, each normalized — are unchanged
- * since the last reviewed revision; see the hash helpers below),
+ * `## Decision analysis` + `## Cut list` + `## Request vetting`, each
+ * normalized — are unchanged since the last reviewed revision; see the
+ * hash helpers below),
  * `worktree-not-provided` (`--worktree` omitted on the review path — a
  * wiring bug, distinct from an environment condition), `worktree-not-found`
  * (`--worktree` points at a non-directory), `reviewer-empty` /
@@ -430,6 +431,37 @@ function extractCutListBody(planText: string): string {
 }
 
 /**
+ * Extracts the `## Request vetting` section BODY — from the heading to the
+ * next `## ` heading or EOF — EXCLUDING any `- **Cross-model case
+ * against:**` line. That exclusion mirrors `extractDecisionAnalysisBody`'s
+ * own `### Cross-model review (AGY)` exclusion above: the line is the
+ * supervisor's post-hoc reconciliation of the battery's lens-7
+ * (`Adversarial premise`) finding onto the section
+ * (skills/pipeline/flow-pipeline/SKILL.md step 3), not authored content,
+ * so appending it on reconciliation must never re-fire the review.
+ * Deliberately its OWN function rather than a widened `extractCutListBody`
+ * — that extractor's docstring explicitly forbids generalizing a
+ * subsection exclusion into it; the exclusion here belongs to Request
+ * vetting's own footprint only. Returns "" when the section is absent.
+ */
+function extractRequestVettingBody(planText: string): string {
+  const lines = planText.split("\n");
+  const startIdx = lines.findIndex((l) => /^## Request vetting/.test(l));
+  if (startIdx === -1) return "";
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (/^#{1,2} /.test(lines[i])) {
+      endIdx = i;
+      break;
+    }
+  }
+  return lines
+    .slice(startIdx + 1, endIdx)
+    .filter((l) => !/^- \*\*Cross-model case against:\*\*/.test(l))
+    .join("\n");
+}
+
+/**
  * Normalizes a section body before hashing so only a SEMANTIC change
  * re-fires the review — a byte-for-byte SHA over LLM-generated markdown
  * is fragile (the AGY cross-model review flagged this). Normalization: trim
@@ -460,11 +492,13 @@ export function normalizeDecisionBody(body: string): string {
 
 /**
  * sha256 (hex) of the NORMALIZED, widened content key: the `**Goal:**` line
- * + the `## Decision analysis` body + the `## Cut list` body, each extracted
- * by its OWN tolerant extractor and normalized independently, then joined.
- * Widened (originally Decision-analysis-only) so a goal-conflicting edit or a
- * cut-list-only edit also re-fires the review. The revision-pass re-fire
- * guard compares this against the embedded marker.
+ * + the `## Decision analysis` body + the `## Cut list` body + the
+ * `## Request vetting` body (FOUR hashed inputs total), each extracted by
+ * its OWN tolerant extractor and normalized independently, then joined.
+ * Widened (originally Decision-analysis-only, then Cut-list, now Request
+ * vetting) so a goal-conflicting edit, a cut-list-only edit, or a
+ * vetting-verdict change also re-fires the review. The revision-pass
+ * re-fire guard compares this against the embedded marker.
  */
 export function computeDecisionHash(planText: string): string {
   const goalLine = (extractGoalLine(planText) ?? "").trim();
@@ -472,7 +506,12 @@ export function computeDecisionHash(planText: string): string {
     extractDecisionAnalysisBody(planText),
   );
   const cutListBody = normalizeDecisionBody(extractCutListBody(planText));
-  const combined = [goalLine, decisionBody, cutListBody].join("\n\0\n");
+  const vettingBody = normalizeDecisionBody(
+    extractRequestVettingBody(planText),
+  );
+  const combined = [goalLine, decisionBody, cutListBody, vettingBody].join(
+    "\n\0\n",
+  );
   return createHash("sha256").update(combined).digest("hex");
 }
 

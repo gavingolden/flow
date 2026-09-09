@@ -472,10 +472,10 @@ interpretation` section, or the section's Recommended path is
 After the user approves the critical analysis and test specs, seed a PR description so the
 PR tells a coherent story from the start — captures intent, not a post-hoc summary.
 **If `.flow-tmp/pr-description-draft.md` exists** (left by `product-planning`): use it
-as-is and skip to Step 5. Otherwise synthesize one with `## Why` / `## What` / `## Key
-decisions` / `## User-facing changes` / (conditionally) `## System flow changes` /
-`## Test Steps` sections (verify every factual claim live per AGENTS.md's 'Verify
-factual claims before emitting them.' rule).
+as-is and skip to Step 5. Otherwise synthesize one with `## TLDR` / `## User-facing
+changes` / `## System changes` / `## Why` / `## Key decisions` / `## Test Steps`
+sections (verify every factual claim live per AGENTS.md's 'Verify factual claims
+before emitting them.' rule).
 
 The **Test Steps** automation test: can I name (a) a fixture/setup, (b) one or more
 deterministic assertions, and (c) an exit condition — all without subjective human
@@ -495,9 +495,9 @@ without subjective human judgment, it must be a runnable item. Source of truth:
 skills/pipeline/flow-pr-review/references/manual-test-rubric.md. -->
 ```
 
-Full section-by-section template, worked examples, and drafting rules (concise
-non-implementation-terms "Why", user-terms "User-facing changes" with `none` for
-pure-internal PRs, always-emit-the-heading, no-hard-wrap) in
+Full section-by-section template, worked examples, and drafting rules (one-sentence
+25-word-max "TLDR" naming a surface not a file; user-terms "User-facing changes" and
+reviewer-facing "System changes", both mandatory with `none`; no-hard-wrap) in
 [references/pr-description-authoring.md](references/pr-description-authoring.md). Save to
 `.flow-tmp/pr-description-draft.md` (`mkdir -p .flow-tmp` first) and present to the user
 for quick confirmation — do NOT block on it; "skip" or "later" proceeds to Step 5.
