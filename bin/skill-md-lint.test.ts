@@ -8385,6 +8385,7 @@ describe("pause-output contract wiring lint", () => {
     "skills/universal/flow-testing/SKILL.md",
     "skills/universal/flow-research/SKILL.md",
     "skills/universal/flow-ui-ux/SKILL.md",
+    "skills/universal/flow-deliberate/SKILL.md",
   ];
 
   it("the contract file exists and carries the six literal slot labels", () => {
@@ -10272,5 +10273,120 @@ describe("product-brief threading site (discovery read-obligation)", () => {
         "with `test -f` BEFORE invoking the helper — a brief-less repo " +
         "must pay zero extra subprocesses per discovery pass.",
     ).toBe(true);
+  });
+});
+
+// The Deliberation step is the ONLY pipeline site wired to the blind judge
+// (plan Decision 2: discovery's escape point, not a supervisor-wide hook and
+// not a new pipeline step). Its value depends entirely on a handful of
+// mechanical properties — a cap, an ordering, a blindness flag, an adoption
+// rule — that live in prose and would otherwise rot silently. This pins them.
+describe("discovery deliberation wiring", () => {
+  const REPO_ROOT = path.resolve(HERE, "..");
+  const DISCOVERY_PATH =
+    "skills/pipeline/flow-product-planning/references/discovery-instructions.md";
+
+  function deliberationSection(): string {
+    const text = fs.readFileSync(path.join(REPO_ROOT, DISCOVERY_PATH), "utf8");
+    const start = text.indexOf("**Deliberation step.**");
+    expect(
+      start,
+      "discovery-instructions.md must carry a `**Deliberation step.**` " +
+        "paragraph — it is the one wired consumer of the blind judge.",
+    ).toBeGreaterThan(-1);
+    const end = text.indexOf("**Relation to Decision analysis:**", start);
+    expect(
+      end,
+      "the Deliberation step must sit ABOVE `**Relation to Decision " +
+        "analysis:**` — that is the insertion point outside the " +
+        "byte-identical confidence-rubric block.",
+    ).toBeGreaterThan(start);
+    return text.slice(start, end);
+  }
+
+  it("sits outside the byte-identical confidence-rubric block", () => {
+    const text = fs.readFileSync(path.join(REPO_ROOT, DISCOVERY_PATH), "utf8");
+    const rubricEnd = text.indexOf("<!-- flow-confidence-rubric:end -->");
+    const step = text.indexOf("**Deliberation step.**");
+    expect(rubricEnd).toBeGreaterThan(-1);
+    // interview-playbook.md carries a byte-identical copy of the rubric block
+    // (bin/flow-confidence-rubric-lint.test.ts); an insert one line early goes
+    // red in a file this feature never names.
+    expect(
+      step,
+      "the Deliberation step must be inserted AFTER the rubric block's end " +
+        "marker, or it corrupts interview-playbook.md's byte-identical mirror.",
+    ).toBeGreaterThan(rubricEnd);
+  });
+
+  it("invokes flow-deliberate by bare PATH name, never a bin/lib import", () => {
+    const section = deliberationSection();
+    expect(section).toContain("flow-deliberate");
+    expect(
+      /never import `bin\/lib\/\*`|NOT a `bin\/lib` import/.test(section),
+      "discovery runs in the consumer worktree, where flow's bin/lib does " +
+        "not exist — the section must say so explicitly.",
+    ).toBe(true);
+    expect(
+      section.includes("bun bin/flow-deliberate"),
+      "must not invoke the helper through `bun bin/...` — that path does " +
+        "not exist in a consumer worktree.",
+    ).toBe(false);
+  });
+
+  it("passes the lean via --blind-to-file, kept outside the worktree", () => {
+    const section = deliberationSection();
+    expect(section).toContain("--blind-to-file");
+    expect(
+      /outside\*{0,2} the worktree|\*\*outside\*\* the worktree/.test(section),
+      "the lean file must be written outside the worktree — a `.flow-tmp/` " +
+        "lean is readable by the very judge it is hidden from.",
+    ).toBe(true);
+  });
+
+  it("caps consults at 3 per pass, in descending stakes order", () => {
+    const section = deliberationSection();
+    expect(section).toMatch(/at most\*{0,2} \*{0,2}3/);
+    expect(section).toContain("descending");
+    // The one-shot sub-agent's wall-clock budget is already spent when
+    // research ran inline, so the cap collapses to zero there.
+    expect(section).toMatch(/\*\*0\*\*|\bnever fires\b/);
+  });
+
+  it("names the taste and credential carve-outs the judge must never touch", () => {
+    const section = deliberationSection();
+    expect(section).toMatch(/preference or subjective taste/i);
+    expect(section).toMatch(/credentials or production access/i);
+  });
+
+  it("adopts only re-verified medium/high and marks provenance", () => {
+    const section = deliberationSection();
+    expect(section).toMatch(/`medium` or `high`/);
+    expect(section).toContain("deliberated (");
+    expect(
+      /zero retries/.test(section),
+      "a skip must fall through to today's escape with no retry — retrying " +
+        "a judge is shopping for the answer you wanted.",
+    ).toBe(true);
+  });
+
+  it("forbids transcribing the judge's own anchor onto a low line", () => {
+    const section = deliberationSection();
+    // flow-plan-lint requires a `low` anchor to start with `inference`; a
+    // `weighing:` anchor on `low` fails the plan gate this step exists to help.
+    expect(section).toMatch(/never\s+copy\s+the\s+judge's\s+own\s+anchor/i);
+    expect(section).toContain("flow-plan-lint");
+  });
+
+  it("is pointed at from the PRD template's Open Questions comment", () => {
+    const template = fs.readFileSync(
+      path.join(
+        REPO_ROOT,
+        "skills/pipeline/flow-product-planning/templates/prd-template.md",
+      ),
+      "utf8",
+    );
+    expect(template).toContain("deliberated (");
+    expect(template).toContain("Deliberation step");
   });
 });

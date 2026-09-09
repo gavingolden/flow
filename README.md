@@ -64,6 +64,8 @@ flow done --merged               # sweep merged/cancelled pipelines
 
 Run `flow help` for the full command reference (`epic`, `config`, `attach`, `completion`, `version`, and every flag).
 
+- `/flow-deliberate "<question>"` — a blind second opinion on one logical question, from any Claude Code session. An isolated, spend-capped judge that never sees your lean enumerates the options, checks each one against the repo, and commits to a recommendation with a confidence and an anchor. Reach for it when you would otherwise hand a question back unanswered; see [docs/deliberation-assessment.md](docs/deliberation-assessment.md) for the evidence behind its design.
+
 **The plain shell is the default.** `flow feature create` runs Claude Code as a foreground process in whatever terminal you launched it from — no window management, no extra command to see it. It holds your terminal until the run reaches a terminal state. By default a pipeline auto-merges its PR when the merge gate is clear; pass `--no-auto-merge` to always stop at the gate.
 
 New here? The full first-run walkthrough — reading a run, resuming, cleaning up — is at [docs/getting-started.md](docs/getting-started.md).
