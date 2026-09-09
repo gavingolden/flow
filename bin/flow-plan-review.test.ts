@@ -231,6 +231,10 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     writeOut: (line) => calls.out.push(line),
     dirExists: () => true,
     fileExists: (p) => files.has(p),
+    // Default: no brief resolves. Never the real resolver — flow's own repo
+    // now ships a committed `.flow/product.md`, so an uninjected default
+    // would make every prompt assertion depend on that file's contents.
+    readProductBrief: () => null,
 
     spawnDetached: (argv) => {
       calls.spawnDetached.push(argv);
@@ -787,7 +791,7 @@ describe("run — battery prompt content", () => {
     );
   });
 
-  it("contains all six battery lenses", () => {
+  it("contains all seven battery lenses", () => {
     const deps = makeDeps();
     deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
     run(BASE_ARGV, deps);
@@ -800,6 +804,7 @@ describe("run — battery prompt content", () => {
     expect(prompt).toContain("Failure-modes battery");
     expect(prompt).toContain("prompt-free mitigation");
     expect(prompt).toContain("Independent cut list");
+    expect(prompt).toContain("Adversarial premise");
   });
 
   it("instructs the reviewer to form its own cut-list BEFORE reading the plan's Cut list", () => {
@@ -1479,6 +1484,78 @@ describe("computeDecisionHash — widened content key", () => {
     );
   });
 
+  // --- Task 7: `## Request vetting` is a fourth hashed input --------------
+
+  const BASE_HASH_PLAN_WITH_VETTING = [
+    BASE_HASH_PLAN,
+    "## Request vetting",
+    "- **Verdict:** adopt",
+  ].join("\n");
+
+  it("a plan with no '## Request vetting' section hashes the same as one with an empty section (both fourth-input-empty)", () => {
+    // Real regression guard, not a tautology: BASE_HASH_PLAN carries no
+    // '## Request vetting' heading at all, while this variant carries the
+    // heading with an empty body. Both must normalize the fourth hashed
+    // input to "" and therefore hash equal — proving the heading's mere
+    // presence isn't itself hashed, only its (normalized) body.
+    const withEmptyVettingSection = BASE_HASH_PLAN + "\n\n## Request vetting\n";
+    expect(computeDecisionHash(withEmptyVettingSection)).toBe(
+      computeDecisionHash(BASE_HASH_PLAN),
+    );
+  });
+
+  it("two plans differing only in their '## Request vetting' body hash differently", () => {
+    const changed = BASE_HASH_PLAN_WITH_VETTING.replace(
+      "- **Verdict:** adopt",
+      "- **Verdict:** push back: do nothing",
+    );
+    expect(computeDecisionHash(changed)).not.toBe(
+      computeDecisionHash(BASE_HASH_PLAN_WITH_VETTING),
+    );
+  });
+
+  it("whitespace-only edits (trailing spaces, extra blank lines) to the '## Request vetting' body hash equal", () => {
+    const changed = BASE_HASH_PLAN_WITH_VETTING.replace(
+      "- **Verdict:** adopt",
+      "- **Verdict:** adopt   \n\n",
+    );
+    expect(computeDecisionHash(changed)).toBe(
+      computeDecisionHash(BASE_HASH_PLAN_WITH_VETTING),
+    );
+  });
+
+  it("appending a '- **Cross-model case against:**' line does NOT change the hash", () => {
+    const changed =
+      BASE_HASH_PLAN_WITH_VETTING +
+      "\n- **Cross-model case against:** a reviewer's finding appended post-hoc.";
+    expect(computeDecisionHash(changed)).toBe(
+      computeDecisionHash(BASE_HASH_PLAN_WITH_VETTING),
+    );
+  });
+
+  it("adding a '## Request vetting' section to an otherwise-unchanged plan changes the hash", () => {
+    expect(computeDecisionHash(BASE_HASH_PLAN_WITH_VETTING)).not.toBe(
+      computeDecisionHash(BASE_HASH_PLAN),
+    );
+  });
+
+  it("a '## Request vetting' section followed by a further section stops at the boundary (trailing-section fixture)", () => {
+    // Every other vetting fixture above puts '## Request vetting' LAST, so
+    // the extractor's section-end boundary (stopping at the next heading)
+    // is never exercised. This fixture appends a trailing section and
+    // asserts the hash is insensitive to THAT section's content, proving
+    // the vetting body was correctly bounded rather than accidentally
+    // swallowing everything to end-of-file.
+    const withTrailingSection =
+      BASE_HASH_PLAN_WITH_VETTING + "\n\n## Trailing section\nunrelated text.";
+    const withDifferentTrailingSection =
+      BASE_HASH_PLAN_WITH_VETTING +
+      "\n\n## Trailing section\ncompletely different unrelated text.";
+    expect(computeDecisionHash(withTrailingSection)).toBe(
+      computeDecisionHash(withDifferentTrailingSection),
+    );
+  });
+
   // Deliberately lint-violating fixture: `## Decision analysis` is
   // IMMEDIATELY followed by the h1 `# Task breakdown` with no intervening
   // `## ` heading. BASE_HASH_PLAN can't exercise the widened `/^#{1,2} /`
@@ -1907,5 +1984,56 @@ describe("run --check", () => {
       ran: false,
       skipReason: "plan-review-not-started",
     });
+  });
+});
+
+describe("run — product brief threading", () => {
+  const BRIEF = "# Brief\n\n## Ranked priorities\n\n1. cost and token spend\n";
+
+  it("threads the resolved brief verbatim into the reviewer-1 prompt", () => {
+    const deps = makeDeps({ readProductBrief: () => BRIEF });
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    const prompt = promptFor(deps);
+    expect(prompt).toContain("## Product brief");
+    expect(prompt).toContain("1. cost and token spend");
+  });
+
+  it("resolves the brief for the --worktree path, not the process cwd", () => {
+    const seen: string[] = [];
+    const deps = makeDeps({
+      readProductBrief: (w) => {
+        seen.push(w);
+        return null;
+      },
+    });
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    expect(seen).toContain(WORKTREE);
+  });
+
+  it("threads the brief into the deep tier's reviewer-2 prompt too", () => {
+    const deps = makeDeps({ readProductBrief: () => BRIEF });
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run([...BASE_ARGV, "--depth", "deep"], deps);
+    const r2 = deps.calls.writes.find((w) =>
+      w.path.endsWith(".prompt.r2"),
+    )?.contents;
+    expect(r2).toBeDefined();
+    expect(r2).toContain("## Product brief");
+    expect(r2).toContain("1. cost and token spend");
+  });
+
+  it("leaves the prompt byte-identical when no brief resolves", () => {
+    const withNull = makeDeps({ readProductBrief: () => null });
+    withNull.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, withNull);
+
+    const withEmpty = makeDeps({ readProductBrief: () => "" });
+    withEmpty.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, withEmpty);
+
+    expect(promptFor(withEmpty)).toBe(promptFor(withNull));
+    expect(promptFor(withNull)).not.toContain("## Product brief");
   });
 });

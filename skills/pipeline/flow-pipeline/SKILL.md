@@ -873,7 +873,9 @@ has no `**Recommended:**` line by contract, so it is never rendered as
 `(low)`), taking the ceiling first and collapsing to `+N more uncertain — plan:
 <path>#Open-Questions` above two, plus one
 `Method: <user's> → <chosen> (survey: <verdict>)` line when
-`## Method selection` is present, plus one
+`## Method selection` is present, plus one `Vetting: <verdict>` line (the
+`## Request vetting` `- **Verdict:**` value, verbatim) whenever the
+verdict is not `adopt`, plus one
 `Scope: N tasks, M files` line, plus any material risk from
 `## Plan risks`>` / `**Untracked:** <the candidate list, one line
 each>` / `**Next action:** approve / redirect: … / cancel — plan:
@@ -981,9 +983,18 @@ material AGY point as INPUT (never a verdict), revises plan.md **once**
 where warranted, and appends a `### Cross-model review (AGY)` subsection
 recording each point **accepted** or **overridden** — also record the
 run's `depth` and, per reviewer, `model`/`ran`/`skipReason`/`lensesEngaged`
-(as N/6) in the chat summary; a demoted reviewer also carries a one-liner
+(as N/7) in the chat summary; a demoted reviewer also carries a one-liner
 into the awaiting-approval gate's `--why` string, same precedent as
-`design spec INVALID` above. **Convergence rule (deep tier):** applies
+`design spec INVALID` above. The `Adversarial premise` lens (lens 7)
+finding is appended to `## Request vetting` as one
+`- **Cross-model case against:** <one line>` (exempt from the ≤12-line
+ceiling and from the re-fire hash below); when that finding is material
+against an `adopt` verdict — it cites evidence the section missed — the
+same revision upgrades the verdict to
+`adopt-with-conditions: address <finding>`, never leaving `adopt` beside
+a contradicting cross-model case; when the section's `- **Sources:**`
+line reads `no outside source:`, the render suffixes `(ungrounded)` in
+that same revision. **Convergence rule (deep tier):** applies
 ONLY when `reviewers[]` holds exactly two `ran:true` entries — a point
 BOTH raised independently is **presumptively accepted**, overriding it
 needs a named rationale in that subsection; otherwise (any reviewer
@@ -996,8 +1007,8 @@ appended subsection.
 
 This is a **bounded single-pass per step-3 pass** — at most one review
 and one revision, not an unbounded loop. On re-entry the helper re-fires
-ONLY when one of the THREE hashed inputs — the `**Goal:**` line,
-`## Decision analysis`, or `## Cut list` — materially changed since the
+ONLY when one of the FOUR hashed inputs — the `**Goal:**` line,
+`## Decision analysis`, `## Cut list`, or `## Request vetting` — materially changed since the
 last reviewed revision, emitting `{ran:false,
 skipReason:"decision-analysis-unchanged"}` on a hash match; record that
 skip as a one-line chat-summary rationale and never hand-force a
@@ -1176,7 +1187,8 @@ only and the helper exact-matches against them. The blind survey's
 
   - **`advance-to-step-5`** → no `## Prompt interpretation` section OR
     Recommended path `methods plausibly reach target`, AND (no survey
-    ran OR verdict `converge-with` OR a resolved `converge-against`).
+    ran OR verdict `converge-with` OR a resolved `converge-against`),
+    AND the `## Request vetting` verdict is not `push back`.
     The plan still exists on disk for traceability, but the
     user wasn't asked to ratify it — fall through to step 5 directly in
     the same turn, no candidate-issues checkpoint fires here (there is
@@ -1190,7 +1202,8 @@ only and the helper exact-matches against them. The blind survey's
   - **`route-to-step-4`** → the section is present and the
     Recommended path is one of `extend scope with named additional
     safe steps` / `relax target` / `split into multiple pipelines`, OR
-    the survey ran and the verdict is `split`.
+    the survey ran and the verdict is `split`, OR the
+    `## Request vetting` verdict is `push back`.
     Write `phase: plan-pending-review`. Then, same as the feature-intent
     End condition above, run `flow-candidate-issues --plan-md-file
     "$WORKTREE/.flow-tmp/plan.md" --details` and, when its output is
@@ -1210,7 +1223,12 @@ only and the helper exact-matches against them. The blind survey's
     SURVEY_VERDICT=$(sed -n 's/^- \*\*Survey verdict:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)  # colon form only; flow-step3-route.ts (authoritative) also tolerates drift; display only
     USER_METHOD=$(sed -n "s/^- \*\*User's method:\*\* *//p" "$WORKTREE/.flow-tmp/plan.md" | head -1)
     CHOSEN_METHOD=$(sed -n 's/^- \*\*Chosen method:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
-    WHY="plan ready for review (intent=$INTENT, prompt-interpretation tension)"
+    VETTING_VERDICT=$(sed -n 's/^- \*\*Verdict:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
+    if [ "$VETTING_VERDICT" = "push back" ]; then
+      WHY="plan ready for review (intent=$INTENT, ## Request vetting verdict: push back)"
+    else
+      WHY="plan ready for review (intent=$INTENT, prompt-interpretation tension)"
+    fi
     [ -n "$SURVEY_VERDICT" ] && WHY="$WHY; Method: $USER_METHOD -> $CHOSEN_METHOD (survey: $SURVEY_VERDICT)"
     [ "$SPEC_RC" != "0" ] && WHY="$WHY; design spec INVALID: $DESIGN_SPEC_REASON"
     LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)

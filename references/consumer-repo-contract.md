@@ -83,6 +83,32 @@ never secrets; re-freeze is explicit-only. Deleting it degrades to
 fully-ephemeral. `spec.json` + reference snapshot stay pipeline-ephemeral
 under `.flow-tmp/design/`, never committed.
 
+## Product brief
+
+`.flow/product.md` is a small human-legible statement of what this repo's
+product manager optimizes for — who the PM is, ranked priorities, what
+"good" looks like, non-goals, and vocabulary to use and avoid. Human-
+maintained, committed, in the same register as the design foundation above.
+Precedence is fixed at repo-then-user: the repo's `.flow/product.md` wins,
+then `~/.flow/product.md` (one brief covering every repo you own). There is
+no config key and no environment override.
+
+`flow-product-brief` is the reader: it prints one JSON line —
+`{"found":true,"scope":"repo"|"user","path":"<abs>","text":"<contents>"}` or
+`{"found":false}` — and **always exits 0**, so no caller needs a guard. Its
+`text` is capped at 4000 characters (cut on a newline boundary, dangling code
+fence closed, `… [brief truncated at 4000 chars]` appended) so one bound is
+inherited by every consumer.
+
+Two sites read it today: `/flow-product-planning` discovery cites it in the
+PRD's Problem Statement, its Decision-analysis verdicts and stakes lines, and
+its candidate value-prop blocks; the cross-model plan review quotes it into
+the battery prompt as fenced reference data. **Absent is a legitimate, common
+state** — with no brief anywhere, the plan-review prompt is byte-identical to
+its pre-feature output and discovery changes nothing. **No secrets, ever**:
+the file is committed and its full text is sent verbatim to an external
+provider. Deleting it returns flow to that same behaviour.
+
 ## Optional test-tier manifest
 
 A consumer may declare `.flow/test-tiers.json` (a single OBJECT, not an

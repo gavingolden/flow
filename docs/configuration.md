@@ -117,6 +117,7 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
 - **Session model** — `--model` > `config.models.default` > Claude's default. Read once at launch and passed to `claude --model`.
 - **Per-phase model** — `--model-<phase>` > `config.models.<phase>` > inherited session model.
 - **Three deliberate asymmetries** — (1) **fix-applier** defaults to `sonnet`, **not** the session model (mechanical apply-commit-push work that must not silently inherit Opus/Fable): `--model-fix-applier` > `config.models.fixApplier` > `sonnet`. (2) **scout / coder** are config-only fine-grain that layer _above_ `--model-implement`: `config.models.scout|coder` > `--model-implement` > `config.models.implement` > inherited. (3) **uiDriver** pins effort AND falls back to a literal `sonnet` AND is the only routed site with no per-run CLI flag at all: `config.models.uiDriver` > `sonnet`, with no per-phase flag and no `state.json` field.
+- **The blind judge** (`flow-deliberate`, a Bash fan-out over `flow-claude-headless`, so it is reachable from a sub-agent that may not spawn a nested Task) resolves `--model` > `config.models.default` > `opus`, with `--effort high`, `--max-budget-usd 2`, and `--max-turns 15` by default. There is deliberately **no** `models.deliberate` key: a judgment call should run whatever model the user already trusts by default, and a dedicated key earns its place only once someone wants to diverge.
 - **The gatekeeper is pinned** to `haiku` — its whole job is cheap cost-routing. There is no `--model-gatekeeper` flag; a `config.models.gatekeeper` key is reachable but strongly discouraged (overriding it defeats the cost-routing).
 
 Aliases are `opus`, `haiku`, `sonnet`, `fable`; flow forwards the alias verbatim to `claude --model`. An invalid alias in a flag exits non-zero writing no state; an invalid value in `config.models.*` emits a best-effort warning at create time and falls back.
@@ -202,8 +203,14 @@ jq-readable, no rotation in v1) — see `flow-review-telemetry`.
 
 Separately, a handful of helpers append one JSON line per event to
 `~/.flow/telemetry/events.jsonl` (`bin/lib/telemetry.ts`'s `recordEvent`),
-covering four event names: `delegate.call` (one per `flow-delegate`
-invocation), `phase.transition` (one per `flow-state-update` `--phase`
+covering five event names: `delegate.call` (one per `flow-delegate`
+invocation), `deliberate.call` (one per `flow-deliberate` blind
+second-opinion consult — carries the call's `total_cost_usd`, the
+anchor-derived `confidence`, and whether the judge's declared confidence was
+demoted; emitted on skips too, so judge spend and judge silence are both
+visible — the jq recipes deriving the judge's override rate from this event,
+and the kill criterion they feed, are in
+[deliberation-assessment.md](deliberation-assessment.md)), `phase.transition` (one per `flow-state-update` `--phase`
 write, OR per `bin/lib/phase-advance.ts` phase advance — `phase-advance.ts`
 is the SOLE emitter for six phases in the implement→merge half of the
 pipeline, so reading only `flow-state-update` call sites undercounts this
@@ -284,6 +291,31 @@ jq '.output.lens = "dev"' ~/.flow/config.json > /tmp/flow-config.json && mv /tmp
 Per-helper `--lens pm|dev` always wins over the config value. In chat,
 saying "give me the technical version" expands one reply to the `dev`
 shape without touching config.
+
+## Product brief
+
+`~/.flow/product.md` is the **user-level** product brief — a short markdown
+statement of what you optimize for, applied to every repo you own. A repo's
+own `.flow/product.md` wins over it; with neither present, flow behaves
+exactly as it does without a brief.
+
+It is not a `config.json` key: precedence is fixed at repo-then-user, and
+there is no override. Read it with:
+
+```sh
+flow-product-brief
+```
+
+which prints one JSON line — `{"found":true,"scope":"repo"|"user",
+"path":"<abs>","text":"<contents>"}` or `{"found":false}` — and always exits 0. `scope` tells you which of the two files answered. The full field
+vocabulary and the conventions for writing one are in
+`templates/AGENTS.md.template` ("Product brief") and
+`references/consumer-repo-contract.md` ("Product brief").
+
+**No secrets, ever.** A resolved brief's full text is quoted verbatim into
+the cross-model plan-review prompt and sent to the external provider — and
+the user-level file applies to every repo you run flow in, with no
+per-repo opt-out. Keep it to standing priorities and vocabulary.
 
 ## Delegate models
 

@@ -58,6 +58,14 @@ applies:
   (`flow feature create --interview`), forces the trigger on even when a
   carve-out above would otherwise skip it.
 
+**Foreclosure: a discovery `push back` verdict is not an interview
+trigger.** A `## Request vetting` `- **Verdict:** push back` from
+`/flow-product-planning` discovery routes to the existing
+`plan-pending-review` pause (D2 of the request-vetting plan), never to
+this file's interview machinery — the two pauses serve different
+purposes (vetting a request's premise vs. resolving a design ambiguity)
+and must not be conflated into one trigger.
+
 **Safe-by-default tie-breaker.** When you cannot confidently place the
 request in a carve-out bucket, default to firing the interview. The
 failure modes are asymmetric here in the OPPOSITE direction from the

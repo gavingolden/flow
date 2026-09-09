@@ -33,9 +33,8 @@ Read it once at the start of a session.
 The redesign from a Node orchestrator to a plain-shell-default pipeline
 supervisor (tmux is now an opt-in launcher) is complete: `src/`, the
 per-repo `flow install`, and the orchestrator-only skills (`flow-add`,
-`flow-approve`, `flow-revise`, `flow-watch`, `flow-status`) are deleted.
-The wrapper at `bin/flow` is Bun and dispatches verbs natively with no
-passthrough fallback.
+`flow-approve`, `flow-revise`, `flow-watch`, `flow-status`) are deleted,
+and the wrapper has no passthrough fallback.
 
 ## Code conventions
 
@@ -152,7 +151,7 @@ code.claude.com/docs/en/how-claude-code-works.
 
 - **Branches:** short, descriptive. The supervisor uses `flow-new-worktree` to create per-pipeline branches from the slug; humans can use `<type>/<topic>` for non-supervisor work.
 - **Commits:** conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`). Imperative summary ≤ 50 chars. Body explains *why*. Trivial changes may omit the body.
-- **PRs:** Why / What / Key decisions / User-facing changes / Deviations from plan / Test Steps, in that order. `## Deviations from plan` is omit-when-empty — present only when the accuracy sync finds a meaningful deviation (`pause-output-contract.md` `## Definitions`), one bullet per deviation, immediately before Test Steps. The Test Steps section is also the auto-merge gate signal — zero unchecked `- [ ]` items ⇒ auto-merge, one or more unchecked items ⇒ gated. See `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md`. Fix PRs add `**Failing:**`/`**Root cause:**` and a `**Fix mechanism:**` lead bullet; `## System flow changes` is conditional.
+- **PRs:** TLDR / User-facing changes / System changes / Why / Key decisions / Deviations from plan / Test Steps, in that order. `## Deviations from plan` is omit-when-empty — present only when the accuracy sync finds a meaningful deviation (`pause-output-contract.md` `## Definitions`), one bullet per deviation, immediately before Test Steps. Test Steps is also the auto-merge gate signal — zero unchecked `- [ ]` items ⇒ auto-merge, one or more ⇒ gated. See `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md`. Fix PRs add `**Failing:**`/`**Root cause:**` and a `**Fix mechanism:**` lead bullet; `## User-facing changes` and `## System changes` are both mandatory — `none` when empty.
 - **Never amend pushed commits.** Make a new commit instead.
 - **Never force-push** without explicit user request.
 - **Inline intent annotations** and the **session-marker + trailer** mechanics (how a PR's Claude Code session ID reaches both an HTML-comment marker and a `Claude-Code-Session-Id:` git trailer) are documented in full at [references/git-workflow.md](references/git-workflow.md).
@@ -213,8 +212,10 @@ workflow-enforceable.
 resolution for `apps/<pkg>/`/`packages/<pkg>/` workspaces, a host-wide
 test-concurrency cap, a host-wide research cache, an optional
 `.flow/ui-validation.json` manifest, an optional
-`.flow/design/foundation.md` design contract, and an optional
-`.flow/test-tiers.json` test-tier manifest. Full surface area —
+`.flow/design/foundation.md` design contract, an optional
+`.flow/test-tiers.json` test-tier manifest, and an optional
+`.flow/product.md` product brief (with a `~/.flow/product.md` user-level
+fallback) read by `flow-product-brief`. Full surface area —
 scope-detection rules, the concurrency-cap formula, the cache TTL, the
 three-layer resolution table, and the manifest/foundation fields — is at
 [references/consumer-repo-contract.md](references/consumer-repo-contract.md).
@@ -229,8 +230,8 @@ three-layer resolution table, and the manifest/foundation fields — is at
   (one each for `/flow-pr-review` Multi-Agent Review, `/flow-product-planning`
   Discovery, `/flow-new-feature` Scout, `/flow-pr-review` Fix-Applier,
   Merge-Conflict Resolver, `/flow-coder` Edit-Applier, `/flow-pr-review`
-  Consolidator-Validator, and `/flow-verify` UI-Driver);
-  no other skill or step may call Task.
+  Consolidator-Validator, `/flow-verify` UI-Driver); no other skill or
+  step may call Task.
 - Don't add features beyond the task's stated scope.
 - Don't treat an absent optional-module skill as a hard failure — check
   `flow-module-status --check-skill <name>` and degrade to a named skip.
@@ -346,13 +347,13 @@ three-layer resolution table, and the manifest/foundation fields — is at
     Consolidator-Validator Subagent.** Step 3.5's one consolidator
     agent, default Sonnet.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-verify` Independent
-    UI-Driver Subagent.** Step 6's one browser-drive agent (`flow-ui-driver`),
-    spawned only on a `ran:true`/`bootstrap` `flow-ui-validate` verdict,
-    writing `.flow-tmp/ui-driver-result.json`; default `sonnet`, never
-    inherited. Two callers share this one exemption (the same multi-caller
-    shape as the Edit-Applier): `/flow-verify`'s UI-smoke pass, and
-    `/flow-pr-review` step 8c.iii's visual-appearance capture. These are the **only eight** authorised Task-tool fan-out
-    sites from `/flow-pipeline`; no other skill or step may call Task.
+    UI-Driver Subagent.** The browser-drive agent (`flow-ui-driver`), on a
+    `ran:true`/`bootstrap` `flow-ui-validate` verdict only, writing
+    `.flow-tmp/ui-driver-result.json`; default `sonnet`, never inherited.
+    Two callers, one exemption: `/flow-verify` UI-smoke and
+    `/flow-pr-review` 8c.iii. These are the **only eight**
+    authorised Task-tool fan-out sites from `/flow-pipeline`; no other
+    skill or step may call Task.
   - **Task-tool spawn sites must load Task first.** Each of the eight
     sites above must load the Task schema via
     `ToolSearch query="select:Task"` before invoking Task (or its alias
