@@ -1565,12 +1565,13 @@ collection, the Automation-precedence audit line, the result artifact, the
 internally, never skipped:
 
 ```bash
+WIDEN_ARGS=(); [ -n "$WIDEN_REASON" ] && WIDEN_ARGS=(--widened "$WIDEN_REASON")
 flow-review-finalize --pr "$PR_NUMBER" --worktree "$WORKTREE" \
   --body-file "$WORKTREE/.flow-tmp/body.md" --status clean \
   --session-id "$CLAUDE_CODE_SESSION_ID" \
   --ran $N --total $M --prose-promoted $X \
   --reason subjective-UX --reason production-only \
-  "${LENS_TOKEN_ARGS[@]}" ${WIDEN_REASON:+--widened "$WIDEN_REASON"}
+  "${LENS_TOKEN_ARGS[@]}" "${WIDEN_ARGS[@]}"
 RC=$?
 if [ "$RC" -ne 0 ]; then
   echo "NOTICE — flow-review-finalize exited $RC; wrap-up (body/telemetry/result artifact) did not complete" >&2
@@ -1578,9 +1579,14 @@ fi
 ```
 
 (`LENS_TOKEN_ARGS` built per `references/review-scope.md` "Record lens tokens" — an
-array of `--lens-tokens <lens>=<n>` pairs, passed through UNQUOTED-element expansion
+array of `--lens-tokens <lens>=<n>` pairs, passed through per-element expansion
 (`"${LENS_TOKEN_ARGS[@]}"`, never the quoted `${ARR[@]/#/PREFIX }` glue-into-one-word
-form, which `parseArgs` rejects with exit 2) — and forwarded verbatim by
+form, which `parseArgs` rejects with exit 2). **`WIDEN_ARGS` must be an array too, for
+the same reason and one the shell makes easy to miss:** `${WIDEN_REASON:+--widened
+"$WIDEN_REASON"}` expands to TWO words under bash but exactly ONE under zsh, which does
+not word-split unquoted expansions — so the conditional-flag form silently passes
+`--widened <reason>` as a single argv word and `parseArgs` rejects it with exit 2 on
+any zsh-driven run. Build the array, never the conditional expansion) — and forwarded verbatim by
 `flow-review-finalize` to `flow-review-telemetry collect`; `N`/`M`/`X`
 are Step 8c's ran/total/prose-promoted counts, `--reason` one per applicable
 manual-test-rubric category; check `$RC` — a non-zero exit means the wrap-up did
