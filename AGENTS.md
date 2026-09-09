@@ -114,7 +114,7 @@ Claude Code chat session, sub-skills load in-process via the `Skill`
 tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes raw
 `claude -p` subprocesses (headless Claude only via `flow-claude-headless`),
-**with seven narrowly-named exceptions** —
+**with eight narrowly-named exceptions** —
 the `**Task-tool exemption: ...**` bullets under `## Don'ts` below. This
 sidesteps two problems: deep sub-agent fan-out (possible since Claude Code
 v2.1.172, default cap 3, env-overridable via
@@ -224,12 +224,12 @@ three-layer resolution table, and the manifest/foundation fields — is at
 - Don't bypass the helper scripts. The supervisor must always call
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. See above. The seven
+- Don't spawn sub-agents from the supervisor. See above. The eight
   named exceptions are the `**Task-tool exemption: ...**` bullets below
   (one each for `/flow-pr-review` Multi-Agent Review, `/flow-product-planning`
   Discovery, `/flow-new-feature` Scout, `/flow-pr-review` Fix-Applier,
-  Merge-Conflict Resolver, `/flow-coder` Edit-Applier, and
-  `/flow-pr-review` Consolidator-Validator);
+  Merge-Conflict Resolver, `/flow-coder` Edit-Applier, `/flow-pr-review`
+  Consolidator-Validator, and `/flow-verify` UI-Driver);
   no other skill or step may call Task.
 - Don't add features beyond the task's stated scope.
 - Don't treat an absent optional-module skill as a hard failure — check
@@ -311,10 +311,10 @@ three-layer resolution table, and the manifest/foundation fields — is at
     enforced by the step-10 backstop). Full anti-pattern catalogue and
     the `--no-auto-merge` opt-out are at
     [references/git-workflow.md](references/git-workflow.md).
-  - **Shared rationale for the seven Task-tool exemptions below**: the
+  - **Shared rationale for the eight Task-tool exemptions below**: the
     supervisor is depth 1, so its own Task calls are never nested; flow
     chooses flat one-shot fan-out despite nesting being
-    platform-possible — none of the seven sites below nests; each subagent
+    platform-possible — none of the eight sites below nests; each subagent
     is one-shot; and each is documented bidirectionally with
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules". Full
     five-point rationale and each exemption's unique contract (spawn
@@ -341,13 +341,19 @@ three-layer resolution table, and the manifest/foundation fields — is at
     when `/flow-new-feature` step 5, `/flow-verify` step 3, or
     `/flow-refactoring` step 3 takes its wider-scope path — or the
     supervisor's **interactive code-change redirect** path; full
-    contract in `skills/pipeline/flow-coder/SKILL.md`. These are the
-    **only seven** authorised Task-tool fan-out sites from `/flow-pipeline`;
-    no other skill or step may call Task.
+    contract in `skills/pipeline/flow-coder/SKILL.md`.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
     Consolidator-Validator Subagent.** Step 3.5's one consolidator
     agent, default Sonnet.
-  - **Task-tool spawn sites must load Task first.** Each of the seven
+  - **Task-tool exemption: `/flow-pipeline` → `/flow-verify` Independent
+    UI-Driver Subagent.** Step 6's one browser-drive agent (`flow-ui-driver`),
+    spawned only on a `ran:true`/`bootstrap` `flow-ui-validate` verdict,
+    writing `.flow-tmp/ui-driver-result.json`; default `sonnet`, never
+    inherited. Two callers share this one exemption (the same multi-caller
+    shape as the Edit-Applier): `/flow-verify`'s UI-smoke pass, and
+    `/flow-pr-review` step 8c.iii's visual-appearance capture. These are the **only eight** authorised Task-tool fan-out
+    sites from `/flow-pipeline`; no other skill or step may call Task.
+  - **Task-tool spawn sites must load Task first.** Each of the eight
     sites above must load the Task schema via
     `ToolSearch query="select:Task"` before invoking Task (or its alias
     `Agent`); on a missing schema, escalate

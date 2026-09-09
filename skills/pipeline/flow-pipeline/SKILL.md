@@ -65,7 +65,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > standalone leaf skill like `/flow-research` run directly is a separate
 > context this rule never governed. The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
-> calls, and (c) the seven narrowly-named Task-tool exceptions that
+> calls, and (c) the eight narrowly-named Task-tool exceptions that
 > follow.
 >
 > The two constraints behind the rule above are (1) flow's deliberate
@@ -73,9 +73,9 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > not shipped by `flow install`), and (2) a long-running supervisor with
 > sub-agents would bloat past the context window. Constraint (1) is not a
 > platform limit on the supervisor's own Task calls — it is flow's policy,
-> and it is why exactly seven top-level sites are enumerated below and
-> none nests. All seven are one-shot, not long-running, so constraint (2)
-> doesn't apply either. They are the **only seven** authorised Task-tool
+> and it is why exactly eight top-level sites are enumerated below and
+> none nests. All eight are one-shot, not long-running, so constraint (2)
+> doesn't apply either. They are the **only eight** authorised Task-tool
 > fan-out sites from this supervisor; no other skill or step may call
 > Task. Each is anchored on its step heading name rather than its number
 > so it survives future renumbering. Same narrow-and-named contract as the
@@ -88,7 +88,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > plugin-root install), falling back to `general-purpose` with a loud
 > `NOTICE — agent-fallback:` line when the definition is not installed.
 >
-> **Load the Task tool at each spawn site.** Each of the seven spawn
+> **Load the Task tool at each spawn site.** Each of the eight spawn
 > procedures below must instruct the supervisor to load the Task tool
 > schema via `ToolSearch query="select:Task"` *before* invoking Task (or
 > its alias `Agent`). Where neither is surfaced top-level by the harness
@@ -141,6 +141,15 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > Subagent.** `/flow-pr-review` Step 3.5's one consolidator-validator agent
 > (`flow-consolidator`; default Sonnet, no model override), writing
 > `.flow-tmp/consolidator-result.json`; full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
+>
+> **Task-tool exemption #8: `/flow-verify` Independent UI-Driver Subagent.**
+> Step 6's one browser-drive agent (`flow-ui-driver`), spawned only on a
+> `ran:true`/`bootstrap` `flow-ui-validate` verdict (never on an
+> `mcp-not-available` / `browser-profile-busy` skip), for the per-route ×
+> per-viewport `chrome-devtools` drive, writing
+> `.flow-tmp/ui-driver-result.json`; resolves `config.models.uiDriver //
+> "sonnet"` — config-only, never inherited; full contract in
+> [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **The `/flow-pr-review` Gemini cross-model lens is a Bash fan-out, not an
 > eighth exemption.** When the supervisor invokes `/flow-pr-review` in step 8
@@ -1617,13 +1626,15 @@ re-invocation observes the worktree fresh (it re-runs `flow-pre-commit
 --json` itself), so a re-invocation is idempotent.
 
 **Automated UI-smoke pass.** `/flow-verify` Step 1 already runs the
-browser-driven UI-smoke pass inline (when the diff touches a meaningful UI
+browser-driven UI-smoke pass (when the diff touches a meaningful UI
 surface and the `chrome-devtools` MCP is present), following
 [references/ui-smoke-pass.md](references/ui-smoke-pass.md), and reports the
-outcome — passed / skipped (with a reason) / not-applicable — as part of
-its own turn output. Because `/flow-verify` now runs in-process, that
-report is directly visible to the supervisor; there is no separate
-artifact to read it from. When `/flow-verify`'s report shows the UI-smoke
+outcome — passed / skipped (with a reason) / not-applicable — both as part
+of its own turn output AND as the `flow-ui-driver` subagent's
+`.flow-tmp/ui-driver-result.json` artifact (the eighth Task-tool exemption,
+"Hard rules" above), except on the `UI_SMOKE_DRIVER: inline` path where the
+pass runs in `/flow-verify`'s own context and the artifact still lands the
+same way. When `/flow-verify`'s report shows the UI-smoke
 pass was skipped on a UI-touching diff, upsert a user-visible sibling line
 under the PR body's `> [!CAUTION]` verify block (idempotent, edit-in-place,
 do not stack) using the reason `/flow-verify` reported:
@@ -1639,12 +1650,14 @@ Also echo the same line to the user in-session (a plain assistant-message
 line, not only the PR-body upsert above) so the gap is visible without
 opening the PR.
 
-**Surface UI screenshots.** When `/flow-verify`'s UI-smoke pass captured
-screenshots, it names their absolute paths directly in its own report
-(sourced from `flow-ui-validate --captures`' `evidence_paths[]`) — print
-each surviving path as a markdown link, `[<abs path>](file://<abs path>)`,
-one per line, no bullet marker, no trailing punctuation, all of them, no
-cap.
+**Surface UI screenshots.** Read `$WORKTREE/.flow-tmp/ui-driver-result.json`:
+`jq -r '.ui_screenshots[]?'` for the paths (the driver already applied the
+`test -f` survival guard mapping `evidence_paths[]` from
+`flow-ui-validate --captures` — every path here landed on disk), and
+`jq -r '.skipped_reason // empty'` for the skip line when the pass did not
+run. Print each surviving screenshot path as a markdown link,
+`[<abs path>](file://<abs path>)`, one per line, no bullet marker, no
+trailing punctuation, all of them, no cap.
 
 **Layer-3 proactive config-authoring branch.** `/flow-verify` owns this
 directly (see `skills/pipeline/flow-verify/SKILL.md`): when
@@ -1924,10 +1937,10 @@ lens-gated by `flow-review-scope` (`flow-pr-review`
 `references/review-scope.md`); opt-outs `review.deltaScope` /
 `review.lensGates` restore today's full-diff, all-six-lenses behaviour.
 
-When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are present, `/flow-pr-review` Step 8c runs the subjective visual-appearance pass against the browser-validation capability (opening each page in a per-pipeline `isolatedContext`): it drives each enumerated visual-appearance item, judges it via the `ui-ux` skill, captures an a11y snapshot as primary evidence (injected via `flow-inject-evidence`) plus a screenshot referenced by path under `.flow-tmp/ui-evidence/`, and ticks the box. This adds no new Task-tool exemption — Step 8c runs inside the already-exempt Fix-Applier surface. `/flow-pr-review` Step 3.6's intent-mismatch resolution sub-step also runs in this in-process review, comparing the diff-only intent-guess agent's blind guess against the actual request; it may escalate `NEEDS HUMAN: intent-drift` or append an unchecked `- [ ] SUBJECTIVE: confirm scope drift is intentional` item to the PR's Test Steps.
+When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are present, `/flow-pr-review` Step 8c runs the subjective visual-appearance pass against the browser-validation capability (opening each page in a per-pipeline `isolatedContext`): it drives each enumerated visual-appearance item, judges it via the `ui-ux` skill, captures an a11y snapshot as primary evidence (injected via `flow-inject-evidence`) plus a screenshot referenced by path under `.flow-tmp/ui-evidence/`, and ticks the box. This adds no new Task-tool exemption — Step 8c.iii spawns the same **UI-Driver Subagent** exemption Step 6 uses (`references/exemption-contracts.md`'s `/flow-verify` Independent UI-Driver Subagent contract, a second caller); the subjective ui-ux judgment itself stays in the `/flow-pr-review` wrapper, which reads the driver artifact's screenshot paths and a11y excerpts rather than driving the browser itself. `/flow-pr-review` Step 3.6's intent-mismatch resolution sub-step also runs in this in-process review, comparing the diff-only intent-guess agent's blind guess against the actual request; it may escalate `NEEDS HUMAN: intent-drift` or append an unchecked `- [ ] SUBJECTIVE: confirm scope drift is intentional` item to the PR's Test Steps.
 
 `/flow-pr-review` itself spawns one **Fix-Applier Subagent** via the Task
-tool (the fourth of the seven named Task-tool exemptions in "Hard
+tool (the fourth of the eight named Task-tool exemptions in "Hard
 rules" above) to handle the per-finding address loop, the pre-commit
 run, the commit + push, and the `/flow-verify` re-run — all inside the
 subagent's isolated context. The subagent writes a structured
@@ -1936,13 +1949,15 @@ wrapper reads it once and reuses the parsed object across its
 remaining steps. The supervisor never sees the per-finding fix
 prose, only `/flow-pr-review`'s brief return summary.
 
-**Surface UI screenshots (review-time).** `/flow-pr-review` Step 8c's
-browser pass (above) merges its captured screenshot paths into this same
-`fix-applier-result.json`'s `ui_screenshots[]` before this read, so mirror
-the same recipe used at step 6 against it:
+**Surface UI screenshots (review-time).** `/flow-pr-review` Step 8c.iii's
+UI-Driver spawn (above) writes its own
+`<worktree>/.flow-tmp/ui-driver-result.json` (a fresh artifact per spawn,
+distinct from the Fix-Applier's), so read `ui_screenshots[]` from THAT
+artifact — not `fix-applier-result.json` — mirroring the same recipe used
+at step 6:
 
   ```bash
-  jq -r '.ui_screenshots[]?' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r p; do
+  jq -r '.ui_screenshots[]?' "$WORKTREE/.flow-tmp/ui-driver-result.json" | while IFS= read -r p; do
     [ -f "$p" ] && printf '%s\n' "$p"
   done
   ```
@@ -3086,14 +3101,15 @@ After each phase transition:
   `--all-repos` from anywhere else) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
-  via the seven named exceptions in "Hard rules" above:
+  via the eight named exceptions in "Hard rules" above:
   `/flow-pr-review`'s "Independent Multi-Agent Review",
   `/flow-product-planning`'s "Independent Discovery Subagent",
   `/flow-new-feature`'s "Independent Scout Subagent",
   `/flow-pr-review`'s "Fix-Applier Subagent",
   step 10's "Merge-Conflict Resolver Subagent",
   `/flow-coder`'s "Independent Edit-Applier Subagent",
-  and `/flow-pr-review`'s "Independent Consolidator-Validator Subagent".
+  `/flow-pr-review`'s "Independent Consolidator-Validator Subagent",
+  and `/flow-verify`'s "Independent UI-Driver Subagent".
   No other skill or step may call Task.
 - The supervisor never spawned a raw `claude -p` subprocess — only
   `flow-claude-headless` calls.
