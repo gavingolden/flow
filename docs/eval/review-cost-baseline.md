@@ -152,8 +152,68 @@ justifies shipping a window **with** the compact-instructions reload
 rule and a config escape hatch; it does not justify shipping one
 without them.
 
-### Result
+### Result: ship no window
 
-<!-- filled in by the arms below; see the `## Outcome` section -->
+**Verdict: `session.autocompactWindow` does not ship, and neither does
+the launch flag.** Not because the measurement was inconclusive — it was
+conclusive, in the opposite direction from the one the plan expected.
 
-_Pending — see `## Outcome`._
+| Arm                   | Score       | Cost   | `runner.autocompact` |
+| --------------------- | ----------- | ------ | -------------------- |
+| no flag (re-recorded) | 0.984 (4/5) | $13.19 | `null`               |
+| `--autocompact 150k`  | 1.000 (5/5) | $19.09 | `"150k"`             |
+
+**A compaction demonstrably fired.** Rule 2's stand-in is unambiguous —
+every scenario's median `transcript.finalContextTokens` fell sharply:
+
+| Scenario                  | no flag | 150k   | delta   |
+| ------------------------- | ------- | ------ | ------- |
+| `s1-step7-ci-wait`        | 121,195 | 43,398 | −77,797 |
+| `s2-step8-reviewing`      | 168,168 | 97,407 | −70,761 |
+| `s3-step9-gating`         | 120,572 | 40,576 | −79,996 |
+| `s4-step10-merging`       | 120,742 | 41,029 | −79,713 |
+| `s5-open-pr-implementing` | 121,018 | 42,080 | −78,938 |
+
+Note that the four ~120K scenarios dropped too, though none of them
+approaches a 150k ceiling — so the flag is not only a "compact on
+overflow" trigger. The reduction is roughly uniform at ~78K, which is
+what a systematically smaller retained context looks like, not adaptive
+overflow handling.
+
+**Fidelity held.** The 150k arm passed 5/5 against the no-flag arm's
+4/5. The one no-flag failure is `s5-open-pr-implementing`, which fails
+_without_ the flag — a pre-existing flake, not a compaction casualty.
+Recording a fresh no-flag arm is the only reason that is knowable; the
+stale committed baseline does not contain `s5` at all.
+
+**And the lever inverts.** Cost and turns went **up**, consistently,
+across all five scenarios:
+
+| Scenario                  | cost delta | turns (no flag → 150k) |
+| ------------------------- | ---------- | ---------------------- |
+| `s1-step7-ci-wait`        | **+58.6%** | 6 → 9                  |
+| `s2-step8-reviewing`      | **+32.5%** | 10 → 11                |
+| `s3-step9-gating`         | **+51.2%** | 6 → 7                  |
+| `s4-step10-merging`       | **+51.7%** | 6 → 7                  |
+| `s5-open-pr-implementing` | **+64.1%** | 5 → 7                  |
+
+**Why (inference, not measured).** The measured facts are: context per
+turn down ~78K, turn count up, total cost up 32-64%. The most likely
+mechanism is the pricing asymmetry this whole baseline rests on — cached
+input is $0.50/M where fresh input is $5/M, a 10x spread. Evicting
+context to stay under a ceiling means re-reading it as **fresh** input
+later, and needing extra turns to do it. Carrying a large _cached_
+conversation is cheaper than repeatedly rebuilding a small one.
+
+**What this means for the cost goal.** Bounding the session's context
+window is not a cost lever for flow — it is a cost _penalty_. The
+remaining lever is the one that removes work rather than re-doing it:
+batching the review phase's mechanical Bash calls into
+`flow-review-prep` / `flow-review-finalize`, which cuts turns outright.
+
+**What still ships from this task.** The compaction-survivability work
+is independent of the window and lands regardless: `AGENTS.md`'s
+review-phase resume anchors and the post-compaction reload rule (detail
+in `references/compact-anchors.md`). The harness keeps `--autocompact`
+so this question stays answerable — re-run the two arms above to
+re-test it against a future CLI, where the cache economics may differ.
