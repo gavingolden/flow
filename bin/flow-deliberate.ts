@@ -38,8 +38,10 @@ import {
   parseDeliberation,
   type Confidence,
 } from "./lib/deliberate-prompt";
+import { briefLeaksCorpus as briefLeaksCorpusImpl } from "./lib/blind-survey-prompt";
 import { readDefaultModel } from "./lib/models-config";
 import { recordEvent } from "./lib/telemetry";
+import { resolveProductBrief } from "./flow-product-brief";
 
 export const DEFAULT_MODEL = "opus";
 export const DEFAULT_EFFORT = "high";
@@ -49,9 +51,12 @@ export const DEFAULT_TIMEOUT_SEC = 300;
 export const DEFAULT_TASK = "deliberate";
 
 /**
- * Every terminal skip. The first five are this helper's own; the rest are
- * forwarded verbatim from `flow-claude-headless` so a caller reading
- * `skipReason` sees the real cause rather than a flattened "it failed".
+ * Every terminal skip. The first five are this helper's own — though
+ * `bad-args` is dual-sourced: it's also the flag flow-claude-headless
+ * itself would report, since a usage error here never reaches the child.
+ * The rest are forwarded verbatim from `flow-claude-headless` so a caller
+ * reading `skipReason` sees the real cause rather than a flattened "it
+ * failed".
  */
 export const SKIP_REASONS = [
   "question-unreadable",
@@ -170,7 +175,7 @@ export type HeadlessEnvelope = {
 };
 
 export type Deps = {
-  spawnHeadless: (argv: string[]) => HeadlessEnvelope;
+  spawnHeadless: (argv: string[], opts: { cwd: string }) => HeadlessEnvelope;
   readFile: (path: string) => string;
   writeFile: (path: string, content: string) => void;
   fileExists: (path: string) => boolean;
@@ -185,6 +190,8 @@ export type Deps = {
     attrs: Record<string, unknown>,
   ) => void;
   resolveConfigModel: () => string | undefined;
+  /** The repo's standing product brief, when one exists, else null. */
+  readProductBrief: (worktree: string) => string | null;
 };
 
 function emit(deps: Deps, envelope: Record<string, unknown>): number {
@@ -197,11 +204,13 @@ function skip(
   task: string,
   skipReason: SkipReason,
   extra: Record<string, unknown> = {},
+  costUsd?: number,
 ): number {
   deps.recordEvent("deliberate.call", {
     task,
     ran: false,
     skip_reason: skipReason,
+    ...(costUsd === undefined ? {} : { total_cost_usd: costUsd }),
   });
   return emit(deps, { ran: false, task, skipReason, ...extra });
 }
@@ -274,7 +283,7 @@ function runInner(args: Args, deps: Deps): number {
   const prompt = buildDeliberatePrompt({
     question,
     worktreePath: args.worktree,
-    productBrief: readProductBrief(deps, args.worktree),
+    productBrief: deps.readProductBrief(args.worktree),
   });
 
   // The prompt file lives OUTSIDE the worktree: the child is told not to
@@ -289,26 +298,29 @@ function runInner(args: Args, deps: Deps): number {
   try {
     deps.writeFile(promptPath, prompt);
     deps.mkdirp(`${args.worktree}/.flow-tmp`);
-    envelope = deps.spawnHeadless([
-      "--prompt-file",
-      promptPath,
-      "--model",
-      model,
-      "--effort",
-      args.effort,
-      "--max-budget-usd",
-      String(args.maxBudgetUsd),
-      "--max-turns",
-      String(args.maxTurns),
-      "--allowed-tools",
-      "Read,Grep,Glob",
-      "--timeout-sec",
-      String(args.timeoutSec),
-      "--task",
-      `deliberate-${args.task}`,
-      "--out",
-      childOut,
-    ]);
+    envelope = deps.spawnHeadless(
+      [
+        "--prompt-file",
+        promptPath,
+        "--model",
+        model,
+        "--effort",
+        args.effort,
+        "--max-budget-usd",
+        String(args.maxBudgetUsd),
+        "--max-turns",
+        String(args.maxTurns),
+        "--allowed-tools",
+        "Read,Grep,Glob",
+        "--timeout-sec",
+        String(args.timeoutSec),
+        "--task",
+        `deliberate-${args.task}`,
+        "--out",
+        childOut,
+      ],
+      { cwd: args.worktree },
+    );
   } finally {
     deps.removeDir(scratch);
   }
@@ -329,16 +341,24 @@ function runInner(args: Args, deps: Deps): number {
 
   const answer = readChildResult(deps, envelope.artifact);
   if (answer === null) {
-    return skip(deps, args.task, "unparseable-result", {
-      total_cost_usd: envelope.total_cost_usd,
-    });
+    return skip(
+      deps,
+      args.task,
+      "unparseable-result",
+      { total_cost_usd: envelope.total_cost_usd },
+      envelope.total_cost_usd,
+    );
   }
 
   const deliberation = parseDeliberation(answer);
   if (deliberation === null) {
-    return skip(deps, args.task, "unparseable-result", {
-      total_cost_usd: envelope.total_cost_usd,
-    });
+    return skip(
+      deps,
+      args.task,
+      "unparseable-result",
+      { total_cost_usd: envelope.total_cost_usd },
+      envelope.total_cost_usd,
+    );
   }
 
   // Anchor demotion. A judge may only claim `high`/`medium` on an anchor a
@@ -413,28 +433,6 @@ function readChildResult(
   }
 }
 
-/**
- * The repo's standing product brief, when one exists — background on whose
- * interests the answer serves. Never the question, never an answer, so a
- * missing brief is silently fine.
- */
-function readProductBrief(deps: Deps, worktree: string): string | null {
-  for (const path of [
-    `${worktree}/.flow/product.md`,
-    `${process.env.HOME ?? ""}/.flow/product.md`,
-  ]) {
-    if (!path.startsWith("/")) continue;
-    if (!deps.fileExists(path)) continue;
-    try {
-      const text = deps.readFile(path).trim();
-      if (text.length > 0) return text;
-    } catch {
-      // fall through to the next candidate
-    }
-  }
-  return null;
-}
-
 function renderNote(input: {
   task: string;
   question: string;
@@ -474,8 +472,9 @@ function resolveDeps(o?: Partial<Deps>): Deps {
   return {
     spawnHeadless:
       o?.spawnHeadless ??
-      ((argv) => {
+      ((argv, opts) => {
         const r = Bun.spawnSync(["flow-claude-headless", ...argv], {
+          cwd: opts.cwd,
           stdin: "ignore",
           stdout: "pipe",
           stderr: "ignore",
@@ -495,15 +494,7 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     removeDir:
       o?.removeDir ?? ((d) => void rmSync(d, { recursive: true, force: true })),
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
-    briefLeaksCorpus:
-      o?.briefLeaksCorpus ??
-      ((brief, corpus) => {
-        // Imported lazily so the unit tests can inject without loading the
-        // sibling module's own transitive deps.
-        const { briefLeaksCorpus } =
-          require("./lib/blind-survey-prompt") as typeof import("./lib/blind-survey-prompt");
-        return briefLeaksCorpus(brief, corpus);
-      }),
+    briefLeaksCorpus: o?.briefLeaksCorpus ?? briefLeaksCorpusImpl,
     recordEvent:
       o?.recordEvent ?? ((event, attrs) => recordEvent(event, attrs)),
     // The existing `config.models.default` resolver — same one `feature.ts`
@@ -511,6 +502,16 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     // rest of flow already honours (and its alias validation, which silently
     // drops a typo'd value rather than forwarding it to `claude --model`).
     resolveConfigModel: o?.resolveConfigModel ?? (() => readDefaultModel()),
+    // Shared with the sibling judge (`flow-plan-review.ts`): the git-root
+    // walk, `normaliseBriefText`'s fence-closing, and the char cap all live
+    // in one place so a worktree that isn't the repo root, an unclosed code
+    // fence, or an oversized brief are handled identically everywhere.
+    readProductBrief:
+      o?.readProductBrief ??
+      ((w) => {
+        const brief = resolveProductBrief({ cwd: w });
+        return brief.found ? brief.text : null;
+      }),
   };
 }
 

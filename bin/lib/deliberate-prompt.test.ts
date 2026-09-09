@@ -199,6 +199,31 @@ describe("parseDeliberation", () => {
       ].join("\n"),
     );
     expect(result?.confidence).toBe("high");
+    expect(result?.rationale).toContain("I will end with a trailer like:");
+    expect(result?.rationale).toContain("### 4. Recommendation");
+  });
+
+  it("keeps the full rationale when section 4 leads in with a bolded 'Recommendation:' line", () => {
+    const result = parseDeliberation(
+      [
+        "### 1. Answer",
+        "",
+        "Some reasoning here.",
+        "",
+        "### 4. Recommendation",
+        "",
+        "**Recommendation:** see the trailer below for the exact wording.",
+        "",
+        "### 5. Trailer",
+        "",
+        TRAILER,
+      ].join("\n"),
+    );
+    expect(result?.recommendation).toBe(
+      "Put it under bin/ alongside the other Bun helpers.",
+    );
+    expect(result?.rationale).toContain("### 1. Answer");
+    expect(result?.rationale).toContain("### 5. Trailer");
   });
 });
 

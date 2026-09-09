@@ -64,8 +64,6 @@ flow done --merged               # sweep merged/cancelled pipelines
 
 Run `flow help` for the full command reference (`epic`, `config`, `attach`, `completion`, `version`, and every flag).
 
-- `/flow-deliberate "<question>"` — a blind second opinion on one logical question, from any Claude Code session. An isolated, spend-capped judge that never sees your lean enumerates the options, checks each one against the repo, and commits to a recommendation with a confidence and an anchor. Reach for it when you would otherwise hand a question back unanswered; see [docs/deliberation-assessment.md](docs/deliberation-assessment.md) for the evidence behind its design.
-
 **The plain shell is the default.** `flow feature create` runs Claude Code as a foreground process in whatever terminal you launched it from — no window management, no extra command to see it. It holds your terminal until the run reaches a terminal state. By default a pipeline auto-merges its PR when the merge gate is clear; pass `--no-auto-merge` to always stop at the gate.
 
 New here? The full first-run walkthrough — reading a run, resuming, cleaning up — is at [docs/getting-started.md](docs/getting-started.md).
@@ -88,14 +86,15 @@ flow runs the `flow-pre-commit` verify gate before every push. **Single-package 
 
 ## Learn more
 
-| You want                                 | Read                                                                               |
-| ---------------------------------------- | ---------------------------------------------------------------------------------- |
-| Your first pipeline, step by step        | [docs/getting-started.md](docs/getting-started.md)                                 |
-| Config, models, install flags, upgrades  | [docs/configuration.md](docs/configuration.md)                                     |
-| Which tests earn their cost, and why     | [docs/test-quality-methodology.md](docs/test-quality-methodology.md)               |
-| Working on flow itself                   | [CONTRIBUTING.md](CONTRIBUTING.md)                                                 |
-| The supervisor skill itself              | [`skills/pipeline/flow-pipeline/SKILL.md`](skills/pipeline/flow-pipeline/SKILL.md) |
-| Project rules for agents working on flow | [`AGENTS.md`](AGENTS.md)                                                           |
+| You want                                                                                                       | Read                                                                               |
+| -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Your first pipeline, step by step                                                                              | [docs/getting-started.md](docs/getting-started.md)                                 |
+| Config, models, install flags, upgrades                                                                        | [docs/configuration.md](docs/configuration.md)                                     |
+| Which tests earn their cost, and why                                                                           | [docs/test-quality-methodology.md](docs/test-quality-methodology.md)               |
+| A blind second opinion on one logical question (`/flow-deliberate "<question>"`, from any Claude Code session) | [docs/deliberation-assessment.md](docs/deliberation-assessment.md)                 |
+| Working on flow itself                                                                                         | [CONTRIBUTING.md](CONTRIBUTING.md)                                                 |
+| The supervisor skill itself                                                                                    | [`skills/pipeline/flow-pipeline/SKILL.md`](skills/pipeline/flow-pipeline/SKILL.md) |
+| Project rules for agents working on flow                                                                       | [`AGENTS.md`](AGENTS.md)                                                           |
 
 ## License
 

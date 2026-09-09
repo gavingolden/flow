@@ -28,6 +28,7 @@ type Harness = {
   events: Array<{ event: string; attrs: Record<string, unknown> }>;
   written: Map<string, string>;
   spawnCalls: string[][];
+  spawnCwds: string[];
   removedDirs: string[];
 };
 
@@ -36,12 +37,16 @@ function harness(over?: {
   headless?: HeadlessEnvelope;
   configModel?: string;
   leaks?: boolean;
+  productBrief?: string | null;
+  spawnHeadless?: Deps["spawnHeadless"];
+  rawAnswer?: string;
 }): Harness {
   const files = new Map(Object.entries(over?.files ?? {}));
   const written = new Map<string, string>();
   const out: string[] = [];
   const events: Array<{ event: string; attrs: Record<string, unknown> }> = [];
   const spawnCalls: string[][] = [];
+  const spawnCwds: string[] = [];
   const removedDirs: string[] = [];
 
   const headless: HeadlessEnvelope = over?.headless ?? {
@@ -53,16 +58,25 @@ function harness(over?: {
 
   // The child writes its own artifact; model that by seeding it on spawn.
   const deps: Deps = {
-    spawnHeadless: (argv) => {
-      spawnCalls.push(argv);
-      if (headless.ran === true && headless.artifact) {
-        files.set(
-          headless.artifact,
-          JSON.stringify({ result: over?.files?.__answer ?? GOOD_ANSWER }),
-        );
-      }
-      return headless;
-    },
+    spawnHeadless:
+      over?.spawnHeadless ??
+      ((argv, opts) => {
+        spawnCalls.push(argv);
+        spawnCwds.push(opts.cwd);
+        if (
+          over?.rawAnswer !== undefined &&
+          headless.ran === true &&
+          headless.artifact
+        ) {
+          files.set(headless.artifact, over.rawAnswer);
+        } else if (headless.ran === true && headless.artifact) {
+          files.set(
+            headless.artifact,
+            JSON.stringify({ result: over?.files?.__answer ?? GOOD_ANSWER }),
+          );
+        }
+        return headless;
+      }),
     readFile: (p) => {
       const v = files.get(p) ?? written.get(p);
       if (v === undefined) throw new Error(`ENOENT ${p}`);
@@ -78,9 +92,10 @@ function harness(over?: {
     briefLeaksCorpus: () => over?.leaks ?? false,
     recordEvent: (event, attrs) => void events.push({ event, attrs }),
     resolveConfigModel: () => over?.configModel,
+    readProductBrief: () => over?.productBrief ?? null,
   };
 
-  return { deps, out, events, written, spawnCalls, removedDirs };
+  return { deps, out, events, written, spawnCalls, spawnCwds, removedDirs };
 }
 
 function envelope(h: Harness): Record<string, unknown> {
@@ -369,5 +384,95 @@ describe("run — anchor demotion", () => {
       confidence: "low",
       anchorDemoted: false,
     });
+  });
+});
+
+describe("run — product brief threading", () => {
+  it("threads the resolved brief into the prompt file", () => {
+    const h = harness({
+      files: BASE_FILES,
+      productBrief: "Optimize for reviewer trust.",
+    });
+    run(BASE_ARGV, h.deps);
+    const promptPath =
+      h.spawnCalls[0][h.spawnCalls[0].indexOf("--prompt-file") + 1];
+    expect(h.written.get(promptPath)).toContain("Optimize for reviewer trust.");
+  });
+
+  it("omits the brief section entirely when none is found", () => {
+    const h = harness({ files: BASE_FILES, productBrief: null });
+    run(BASE_ARGV, h.deps);
+    const promptPath =
+      h.spawnCalls[0][h.spawnCalls[0].indexOf("--prompt-file") + 1];
+    expect(h.written.get(promptPath)).not.toContain("## Product context");
+  });
+});
+
+describe("run — cost recorded on a paid skip", () => {
+  it("carries total_cost_usd on the telemetry event when the unparseable result was still paid for", () => {
+    const h = harness({
+      files: { ...BASE_FILES, __answer: "I think bin/ is nicer." },
+      headless: {
+        ran: true,
+        artifact: "/wt/.flow-tmp/headless-deliberate-t.json",
+        model: "opus",
+        total_cost_usd: 1.23,
+      },
+    });
+    run(BASE_ARGV, h.deps);
+    expect(envelope(h).skipReason).toBe("unparseable-result");
+    expect(h.events).toHaveLength(1);
+    expect(h.events[0]).toMatchObject({
+      event: "deliberate.call",
+      attrs: {
+        ran: false,
+        skip_reason: "unparseable-result",
+        total_cost_usd: 1.23,
+      },
+    });
+  });
+
+  it("carries the cost when the child artifact itself is unparseable JSON", () => {
+    const h = harness({
+      files: BASE_FILES,
+      headless: {
+        ran: true,
+        artifact: "/wt/.flow-tmp/headless-deliberate-t.json",
+        model: "opus",
+        total_cost_usd: 0.77,
+      },
+      rawAnswer: "{not json",
+    });
+    run(BASE_ARGV, h.deps);
+    expect(envelope(h).skipReason).toBe("unparseable-result");
+    expect(h.events[0]).toMatchObject({
+      attrs: { total_cost_usd: 0.77 },
+    });
+  });
+});
+
+describe("run — headless child reads the worktree", () => {
+  it("passes the worktree as the child process's cwd", () => {
+    const h = harness({ files: BASE_FILES });
+    run(BASE_ARGV, h.deps);
+    expect(h.spawnCwds).toEqual(["/wt"]);
+  });
+});
+
+describe("run — resilience", () => {
+  it("hits the outer catch and still cleans up the scratch dir when spawnHeadless throws", () => {
+    const h = harness({
+      files: BASE_FILES,
+      spawnHeadless: () => {
+        throw new Error("boom");
+      },
+    });
+    const result = run(BASE_ARGV, h.deps);
+    expect(result).toBe(0);
+    expect(envelope(h)).toMatchObject({
+      ran: false,
+      skipReason: "headless-error",
+    });
+    expect(h.removedDirs).toContain("/scratch");
   });
 });

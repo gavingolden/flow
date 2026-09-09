@@ -148,7 +148,9 @@ export function parseDeliberation(text: string): Deliberation | null {
   let recommendation: string | undefined;
   let confidence: Confidence | undefined;
   let anchor: string | undefined;
-  let trailerStart: number | undefined;
+  let recommendationLastIndex: number | undefined;
+  let confidenceLastIndex: number | undefined;
+  let anchorLastIndex: number | undefined;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -163,19 +165,19 @@ export function parseDeliberation(text: string): Deliberation | null {
     switch (match[1].toLowerCase()) {
       case "recommendation":
         recommendation = value;
-        if (trailerStart === undefined || i < trailerStart) trailerStart = i;
+        recommendationLastIndex = i;
         break;
       case "confidence": {
         const normalized = value.toLowerCase().replace(/[.`]/g, "").trim();
         if (isConfidence(normalized)) {
           confidence = normalized;
-          if (trailerStart === undefined || i < trailerStart) trailerStart = i;
+          confidenceLastIndex = i;
         }
         break;
       }
       case "anchor":
         anchor = value;
-        if (trailerStart === undefined || i < trailerStart) trailerStart = i;
+        anchorLastIndex = i;
         break;
     }
   }
@@ -188,10 +190,17 @@ export function parseDeliberation(text: string): Deliberation | null {
     return null;
   }
 
-  const rationale = lines
-    .slice(0, trailerStart ?? lines.length)
-    .join("\n")
-    .trim();
+  // trailerStart is the MIN of each key's LAST occurrence, not the min of
+  // every trailer-looking line — a `**Recommendation:**`-style lead-in
+  // inside an earlier prose section (e.g. section 4) must not truncate the
+  // rationale before the judge's actual trailer block.
+  const trailerStart = Math.min(
+    recommendationLastIndex ?? lines.length,
+    confidenceLastIndex ?? lines.length,
+    anchorLastIndex ?? lines.length,
+  );
+
+  const rationale = lines.slice(0, trailerStart).join("\n").trim();
 
   return { recommendation, confidence, anchor, rationale };
 }
