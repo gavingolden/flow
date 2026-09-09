@@ -1,9 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { validatePrReviewResult } from "./pr-review-result-schema";
+import {
+  mergeScopeFields,
+  validatePrReviewResult,
+  type PrReviewResult,
+} from "./pr-review-result-schema";
 
 const SCHEMA_SCRIPT = path.resolve(__dirname, "pr-review-result-schema.ts");
 
@@ -28,6 +32,23 @@ function withTmpFile(contents: string, fn: (filePath: string) => void): void {
   writeFileSync(filePath, contents, "utf8");
   try {
     fn(filePath);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function withScopeAndResult(
+  scopeContents: string,
+  resultContents: string,
+  fn: (scopePath: string, resultPath: string) => void,
+): void {
+  const dir = mkdtempSync(path.join(tmpdir(), "pr-review-schema-merge-test-"));
+  const scopePath = path.join(dir, "review-scope.json");
+  const resultPath = path.join(dir, "pr-review-result.json");
+  writeFileSync(scopePath, scopeContents, "utf8");
+  writeFileSync(resultPath, resultContents, "utf8");
+  try {
+    fn(scopePath, resultPath);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -307,6 +328,161 @@ describe("pr-review-result-schema CLI — `--validate <path>`", () => {
       expect(result.status).toBe(0);
       const parsed = JSON.parse(result.stdout.trim());
       expect(parsed.ok).toBe(true);
+    });
+  });
+});
+
+describe("validatePrReviewResult — tier / tier_reasons (optional pass-through)", () => {
+  it("accepts an artifact WITHOUT tier/tier_reasons (back-compat guard for the installed validator)", () => {
+    const result = validatePrReviewResult(VALID_CLEAN);
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts an artifact WITH valid tier and tier_reasons", () => {
+    const fixture = {
+      ...(VALID_CLEAN as Record<string, unknown>),
+      tier: "light",
+      tier_reasons: ["every signal low"],
+    };
+    const result = validatePrReviewResult(fixture);
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects an invalid tier string, naming the field", () => {
+    const fixture = {
+      ...(VALID_CLEAN as Record<string, unknown>),
+      tier: "extreme",
+    };
+    const result = validatePrReviewResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("tier");
+    }
+  });
+
+  it("rejects a non-string-array tier_reasons, naming the field", () => {
+    const fixture = {
+      ...(VALID_CLEAN as Record<string, unknown>),
+      tier_reasons: "not an array",
+    };
+    const result = validatePrReviewResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("tier_reasons");
+    }
+
+    const fixture2 = {
+      ...(VALID_CLEAN as Record<string, unknown>),
+      tier_reasons: [1, 2],
+    };
+    const result2 = validatePrReviewResult(fixture2);
+    expect(result2.ok).toBe(false);
+    if (!result2.ok) {
+      expect(result2.reason).toContain("tier_reasons");
+    }
+  });
+});
+
+describe("mergeScopeFields", () => {
+  const baseResult = VALID_CLEAN as PrReviewResult;
+
+  it("copies both tier and tier_reasons off a well-formed scope", () => {
+    const merged = mergeScopeFields(baseResult, {
+      tier: "deep",
+      tier_reasons: ["security-sensitive path"],
+    });
+    expect(merged.tier).toBe("deep");
+    expect(merged.tier_reasons).toEqual(["security-sensitive path"]);
+  });
+
+  it("is idempotent — re-running against the same scope produces the same fields", () => {
+    const once = mergeScopeFields(baseResult, {
+      tier: "standard",
+      tier_reasons: ["default tier"],
+    });
+    const twice = mergeScopeFields(once, {
+      tier: "standard",
+      tier_reasons: ["default tier"],
+    });
+    expect(twice).toEqual(once);
+  });
+
+  it("returns the result unchanged for an absent scope", () => {
+    const merged = mergeScopeFields(baseResult, undefined);
+    expect(merged).toEqual(baseResult);
+  });
+
+  it("returns the result unchanged for a malformed scope (non-object, or bad-shaped fields)", () => {
+    expect(mergeScopeFields(baseResult, "not an object")).toEqual(baseResult);
+    expect(mergeScopeFields(baseResult, null)).toEqual(baseResult);
+    expect(
+      mergeScopeFields(baseResult, {
+        tier: "extreme",
+        tier_reasons: "not an array",
+      }),
+    ).toEqual(baseResult);
+  });
+});
+
+describe("pr-review-result-schema CLI — `--merge-scope <scope> <result>`", () => {
+  it("rewrites the result file in place with tier/tier_reasons copied from the scope", () => {
+    withScopeAndResult(
+      JSON.stringify({ tier: "light", tier_reasons: ["low risk"] }),
+      JSON.stringify(VALID_CLEAN),
+      (scopePath, resultPath) => {
+        const result = runCli(["--merge-scope", scopePath, resultPath]);
+        expect(result.status).toBe(0);
+        const parsed = JSON.parse(result.stdout.trim());
+        expect(parsed).toEqual({ ok: true, tier: "light" });
+
+        const rewritten = JSON.parse(readFileSync(resultPath, "utf8"));
+        expect(rewritten.tier).toBe("light");
+        expect(rewritten.tier_reasons).toEqual(["low risk"]);
+        expect(rewritten.status).toBe("clean");
+      },
+    );
+  });
+
+  it("is idempotent — running twice produces the same file contents", () => {
+    withScopeAndResult(
+      JSON.stringify({ tier: "deep", tier_reasons: ["dependency change"] }),
+      JSON.stringify(VALID_CLEAN),
+      (scopePath, resultPath) => {
+        runCli(["--merge-scope", scopePath, resultPath]);
+        const first = readFileSync(resultPath, "utf8");
+        runCli(["--merge-scope", scopePath, resultPath]);
+        const second = readFileSync(resultPath, "utf8");
+        expect(second).toBe(first);
+      },
+    );
+  });
+
+  it("tolerates a missing/malformed scope, leaving the result otherwise unchanged", () => {
+    withScopeAndResult(
+      "{ not valid json",
+      JSON.stringify(VALID_CLEAN),
+      (scopePath, resultPath) => {
+        const result = runCli(["--merge-scope", scopePath, resultPath]);
+        expect(result.status).toBe(0);
+        const rewritten = JSON.parse(readFileSync(resultPath, "utf8"));
+        expect(rewritten.tier).toBeUndefined();
+        expect(rewritten.status).toBe("clean");
+      },
+    );
+  });
+
+  it("exits 2 with usage on stderr when --merge-scope is missing an argument", () => {
+    const result = runCli(["--merge-scope", "/tmp/only-one-path.json"]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("usage:");
+  });
+
+  it("does not disturb --validate behaviour", () => {
+    withTmpFile(JSON.stringify(VALID_CLEAN), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed).toEqual({ ok: true });
     });
   });
 });

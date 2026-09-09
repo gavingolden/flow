@@ -1105,9 +1105,10 @@ describe(renderLenses, () => {
     },
   });
 
-  it("renders one dev line per lens plus the scope line from a fixture telemetry JSON", () => {
+  it("renders a leading TIER line, then one dev line per lens plus the scope line from a fixture telemetry JSON", () => {
     const { dev } = renderLenses(fixture);
-    expect(dev[0]).toBe("scope: delta (1 files)");
+    expect(dev[0]).toBe("TIER: standard (default)");
+    expect(dev[1]).toBe("scope: delta (1 files)");
     expect(dev).toContain("bug-detection: ran · model - · 100 tok · 2→1→1");
   });
 
@@ -1134,17 +1135,20 @@ describe(renderLenses, () => {
     expect(dev).toContain("bug-detection: ran · model - · n/a tok · 0→0→0");
   });
 
-  it("returns dev ['none'] / pm 'lenses: none' for undefined/empty raw", () => {
+  it("returns dev [TIER default, 'none'] / pm 'lenses: none' for undefined/empty raw", () => {
     expect(renderLenses(undefined)).toEqual({
-      dev: ["none"],
+      dev: ["TIER: standard (default)", "none"],
       pm: "lenses: none",
     });
-    expect(renderLenses("")).toEqual({ dev: ["none"], pm: "lenses: none" });
+    expect(renderLenses("")).toEqual({
+      dev: ["TIER: standard (default)", "none"],
+      pm: "lenses: none",
+    });
   });
 
-  it("returns '(unreadable)' for non-JSON raw", () => {
+  it("returns dev [TIER default, '(unreadable)'] for non-JSON raw", () => {
     const result = renderLenses("{not json");
-    expect(result.dev).toEqual(["(unreadable)"]);
+    expect(result.dev).toEqual(["TIER: standard (default)", "(unreadable)"]);
     expect(result.pm).toBe("lenses: (unreadable)");
   });
 

@@ -338,22 +338,63 @@ export function composeCountsLine(fixApplierRaw: string): string {
 }
 
 /**
- * `LENSES:` body (dev) / `lenses:` one-liner (pm) from
- * `review-telemetry.json` — dev gets one line per lens plus a leading
- * `scope:` line; pm gets a single summary line. `none` when raw is
- * empty/absent, `(unreadable)` when present but not parseable JSON —
- * same explicit-none discipline as `renderReviewCounts`.
+ * `TIER: <tier> — <reasons>` leading line for the LENSES section, sourced
+ * from `pr-review-result.json`'s optional `tier` / `tier_reasons` fields
+ * (`bin/lib/pr-review-result-schema.ts`) — the risk-tier decision that
+ * governed which lenses ran, surfaced beside the lens detail rather than
+ * requiring a reader to open a separate artifact. An absent/unreadable
+ * `prReviewRaw`, or one whose `tier` is absent, renders the literal
+ * `TIER: standard (default)` — never silence, matching this module's
+ * explicit-`none` discipline. A present tier with empty/absent reasons
+ * renders with no trailing dash clause.
  */
-export function renderLenses(raw: string | undefined): {
+function renderTierLine(prReviewRaw: string | undefined): string {
+  const DEFAULT_TIER_LINE = "TIER: standard (default)";
+  if (!prReviewRaw || !prReviewRaw.trim()) return DEFAULT_TIER_LINE;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(prReviewRaw);
+  } catch {
+    return DEFAULT_TIER_LINE;
+  }
+  if (typeof parsed !== "object" || parsed === null) return DEFAULT_TIER_LINE;
+  const o = parsed as Record<string, unknown>;
+  if (typeof o.tier !== "string" || !o.tier) return DEFAULT_TIER_LINE;
+  const reasons =
+    Array.isArray(o.tier_reasons) &&
+    o.tier_reasons.every((r) => typeof r === "string")
+      ? (o.tier_reasons as string[])
+      : [];
+  return reasons.length > 0
+    ? `TIER: ${o.tier} — ${reasons.join("; ")}`
+    : `TIER: ${o.tier}`;
+}
+
+/**
+ * `LENSES:` body (dev) / `lenses:` one-liner (pm) from
+ * `review-telemetry.json` — dev gets a leading `TIER:` line (see
+ * `renderTierLine`), a `scope:` line, then one line per lens; pm gets a
+ * single summary line. `none` when raw is empty/absent, `(unreadable)`
+ * when present but not parseable JSON — same explicit-none discipline as
+ * `renderReviewCounts`. `prReviewRaw` is optional and independent of
+ * `raw`'s own presence/shape — the TIER line renders its own default even
+ * when the lens telemetry itself is absent or unreadable.
+ */
+export function renderLenses(
+  raw: string | undefined,
+  prReviewRaw?: string,
+): {
   dev: string[];
   pm: string;
 } {
-  if (!raw || !raw.trim()) return { dev: NONE, pm: "lenses: none" };
+  const tierLine = renderTierLine(prReviewRaw);
+  if (!raw || !raw.trim())
+    return { dev: [tierLine, ...NONE], pm: "lenses: none" };
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { dev: ["(unreadable)"], pm: "lenses: (unreadable)" };
+    return { dev: [tierLine, "(unreadable)"], pm: "lenses: (unreadable)" };
   }
   const scope = parsed.scope as
     | { kind?: string; delta_files?: number }
@@ -382,14 +423,14 @@ export function renderLenses(raw: string | undefined): {
     !lenses ||
     typeof lenses !== "object"
   ) {
-    return { dev: ["(unreadable)"], pm: "lenses: (unreadable)" };
+    return { dev: [tierLine, "(unreadable)"], pm: "lenses: (unreadable)" };
   }
 
   const kind = typeof scope.kind === "string" ? scope.kind : "unknown";
   const n = typeof scope.delta_files === "number" ? scope.delta_files : 0;
   const widenedSuffix =
     widened && widened.value ? `, widened: ${widened.reason ?? "unknown"}` : "";
-  const devLines = [`scope: ${kind} (${n} files${widenedSuffix})`];
+  const devLines = [tierLine, `scope: ${kind} (${n} files${widenedSuffix})`];
 
   let ranCount = 0;
   let totalCount = 0;
@@ -682,7 +723,8 @@ function renderCommentDev(inputs: RenderCommentInputs): string {
     lines.push(`  ${ln}`);
   }
   lines.push("LENSES:");
-  for (const ln of renderLenses(inputs.reviewTelemetryRaw).dev) {
+  for (const ln of renderLenses(inputs.reviewTelemetryRaw, inputs.prReviewRaw)
+    .dev) {
     lines.push(`  ${ln}`);
   }
   // INTENT only appears in the comment variant when the artifact is present
