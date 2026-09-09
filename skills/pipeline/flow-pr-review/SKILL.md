@@ -428,23 +428,28 @@ how the text is phrased.
 
 ## 2. Fetch and Pre-Flight
 
-Run the fetch helper (also emits the owning pipeline's `reviewing`
-phase as a side effect when `state.pr` matches — a silent no-op on a
-standalone review or a Step 1.5 metadata-triage `skip`):
+Run the review-prep helper — it composes the fetch (still emitting the
+owning pipeline's `reviewing` phase as a side effect when `state.pr`
+matches, a silent no-op on a standalone review or a Step 1.5
+metadata-triage `skip`) plus commit history, the static-analysis
+pre-digest, review scope + lens gates, and the intent-comment fetch, all
+in one call, writing each payload under `.flow-tmp/`:
 
 ```bash
-flow-fetch-pr-review $ARGUMENTS
+SUMMARY=$(flow-review-prep --pr <number> --worktree "$WORKTREE")
 ```
 
-Then perform pre-flight checks on the output:
+Then perform pre-flight checks against the summary:
 
-1. **Closed/merged**: If the PR state is `closed` or `merged`, tell the user and stop.
-2. **Draft**: If the PR is a draft, warn the user ("PR is a draft — findings may change
+1. **Closed/merged**: If `.state` is `closed` or `merged`, tell the user and stop.
+2. **Draft**: If `.draft` is true, warn the user ("PR is a draft — findings may change
    before it's ready for review") and continue.
-3. **PR size**: Check additions + deletions from the metadata line:
-   - 400–999 lines: note as a `suggestion (non-blocking)` in the final report
-   - 1000+ lines: note as an `issue (non-blocking)` recommending the PR be split
-4. Save the full fetch output — you'll need different sections at different steps.
+3. **PR size**: Check `.size_band`:
+   - `large`: note as a `suggestion (non-blocking)` in the final report
+   - `very-large`: note as an `issue (non-blocking)` recommending the PR be split
+4. Nothing to re-fetch: the full fetch output, commit bodies, static-analysis JSON,
+   review-scope + diff, and intent comments are already on disk under `.paths` —
+   Step 3 reads them directly by path.
 
 ## 3. Independent Multi-Agent Review
 
@@ -464,37 +469,34 @@ subagent rather than landing in the supervisor's transcript.
 1. Read the PR description and changed files list from the fetch output. DO NOT read
    the review comments section yet — reviewing before seeing others' feedback eliminates
    anchoring bias and lets you independently validate what reviewers found.
-2. Resolve review scope, lens gates, and the diff for that scope: run
-   `flow-review-scope` AFTER item 4's static-analysis pre-digest. Full
-   procedure in [references/review-scope.md](references/review-scope.md).
-3. Get the commit history with full messages (not just subjects):
-   `gh pr view <number> --json commits -q '.commits[] | "\(.oid[0:7]) \(.messageHeadline)\n\(.messageBody)\n---"'`
-   Per `AGENTS.md`, commit bodies capture the **why**, design-choice rationale, and
-   rejected approaches — use them as primary review context (the diff alone can't convey
-   intent). Flag a missing or diff-restating body in Step 11 as a `suggestion`.
-4. Run the static-analysis pre-digest and capture its JSON to scratch:
+2. Review scope, lens gates, and the diff for that scope are already resolved —
+   `flow-review-prep` ran `flow-review-scope` for you and wrote `review-scope.json` +
+   the capped diff under `.flow-tmp/` (full procedure in
+   [references/review-scope.md](references/review-scope.md)). Read the gate verdicts
+   off the summary's `.gated_lenses`.
+3. Commit history with full messages (not just subjects) is already at `.paths.commits`
+   — `flow-review-prep` ran `gh pr view --json commits` for you. Per `AGENTS.md`, commit
+   bodies capture the **why**, design-choice rationale, and rejected approaches — use them
+   as primary review context (the diff alone can't convey intent). Flag a missing or
+   diff-restating body in Step 11 as a `suggestion`.
+4. The static-analysis pre-digest is already at `.paths.static_analysis`
+   (`.flow-tmp/static-analysis.json`) — read it directly:
 
    ```bash
-   mkdir -p .flow-tmp
-   flow-pr-static-analysis <number> > .flow-tmp/static-analysis.json
-   STATIC_ANALYSIS=$(cat .flow-tmp/static-analysis.json)
+   STATIC_ANALYSIS=$(cat "$WORKTREE/.flow-tmp/static-analysis.json")
    ```
 
-   The helper runs semgrep (security), biome or eslint (lint), and tsc (types), parses
+   It runs semgrep (security), biome or eslint (lint), and tsc (types), parsed
    each into a unified shape filtered to PR-touched lines, and emits a combined JSON
    envelope keyed by lens — each subset fans out to its matching agent below. Tool-presence
    detection is graceful: a missing tool produces `meta.<lens>.ran=false` + `skipped_reason`
-   and the lens emits `[]`; the helper always exits 0.
+   and the lens emits `[]`.
 
-5. Read the metadata-triage prompt-interpretation tension flag from the artifact written
-   by Step 1.5 (when present); default to `false` when no triage artifact exists:
+5. The metadata-triage prompt-interpretation tension flag is already computed on the
+   summary (default `false` when Step 1.5 wrote no triage artifact):
 
    ```bash
-   if [ -f "$WORKTREE/.flow-tmp/gatekeeper-result.json" ]; then
-     PROMPT_INTERPRETATION_TENSION=$(jq -r '.prompt_interpretation_tension // false' "$WORKTREE/.flow-tmp/gatekeeper-result.json")
-   else
-     PROMPT_INTERPRETATION_TENSION=false
-   fi
+   PROMPT_INTERPRETATION_TENSION=$(jq -r '.prompt_interpretation_tension' <<< "$SUMMARY")
    ```
 
    Pass this value as `{{PROMPT_INTERPRETATION_TENSION}}` only when filling the
@@ -503,19 +505,21 @@ subagent rather than landing in the supervisor's transcript.
    `references/agent-prompts.md` Pattern & Consistency Agent Process step 8 for the
    conditional behaviour the flag triggers.
 
-6. Read `references/agent-prompts.md` for the prompt templates, then fetch
-   author-authored intent annotations and substitute into each agent prompt:
+6. Read `references/agent-prompts.md` for the prompt templates. Author-authored intent
+   annotations are already at `.paths.intent_comments` (`.flow-tmp/intent-comments.md`)
+   — `flow-review-prep` ran `flow-fetch-intent-comments` for you, anchored on the
+   `**why:** ` prefix + author identity + `<!-- flow-intent-v1 -->` integrity-suffix
+   triple-check (anti-injection) and never exposing reviewer-authored comments
+   (preserving the anti-anchoring guard above). Substitute the file contents as
+   `{{EXISTING_INTENT_COMMENTS}}`; absent annotations, the file contains the literal
+   `(none — author posted no intent annotations)` — substitute as-is.
 
-   ```bash
-   mkdir -p .flow-tmp
-   flow-fetch-intent-comments <number> > .flow-tmp/intent-comments.md
-   ```
-
-   Substitute the file contents as `{{EXISTING_INTENT_COMMENTS}}`. The fetch+filter is
-   anchored on the `**why:** ` prefix + author identity + `<!-- flow-intent-v1 -->`
-   integrity-suffix triple-check (anti-injection) and never exposes reviewer-authored
-   comments (preserving the anti-anchoring guard above). Absent annotations, the file
-   contains the literal `(none — author posted no intent annotations)`; substitute as-is.
+**Completeness rule.** When the summary's `.critical_skips` is non-empty,
+`flow-review-prep` could not establish scope reliably (the PR fetch/metadata
+or the review-scope diff/changed-file list failed) — run all six lenses
+ungated regardless of `.gated_lenses`. Otherwise trust `.gated_lenses` as
+computed, and surface any non-critical `.skips[]` entries in the final
+report.
 
 **Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-multi-agent-review` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review`, write the result artifact, and do not fall back to in-line execution.
 
