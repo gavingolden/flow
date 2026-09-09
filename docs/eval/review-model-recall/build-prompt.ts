@@ -37,7 +37,7 @@ function usage(): string {
     "",
     `  <lens>  one of: ${Object.keys(LENS_HEADINGS).join(", ")}`,
     "  <pr>    PR number; reads <data-dir>/meta-<pr>.json and <data-dir>/diff-<pr>.patch",
-    "  --data-dir  defaults to the script's own directory",
+    "  --data-dir  defaults to the script's own data/ subdirectory",
     "",
     "Writes the assembled review prompt to stdout.",
   ].join("\n");
@@ -112,7 +112,9 @@ function main(argv: string[]): number {
   }
   const dataDirFlagIdx = argv.indexOf("--data-dir");
   const dataDir =
-    dataDirFlagIdx !== -1 ? argv[dataDirFlagIdx + 1] : import.meta.dir;
+    dataDirFlagIdx !== -1
+      ? argv[dataDirFlagIdx + 1]
+      : join(import.meta.dir, "data");
   if (!dataDir) {
     console.error("--data-dir requires a value");
     return 2;

@@ -555,7 +555,15 @@ resolve_lens() {
   echo "lens $LENS → subagent_type: $LENS_AGENT, model: ${LENS_MODEL:-inherited}"
 }
 
-mapfile -t RUN_LENSES < <(jq -r '.gates | to_entries[] | select(.value.run==true) | .key' "$WORKTREE/.flow-tmp/review-scope.json")
+RUN_LENSES=()
+while IFS= read -r LENS_KEY; do
+  RUN_LENSES+=("$LENS_KEY")
+done < <(jq -r '.gates | to_entries[] | select(.value.run==true) | .key' "$WORKTREE/.flow-tmp/review-scope.json")
+# Portable for bash 3.2 (macOS default) and zsh — `mapfile`/`readarray` is
+# bash 4.0+ and would silently leave RUN_LENSES empty on macOS's stock bash.
+if [ "${#RUN_LENSES[@]}" -eq 0 ]; then
+  echo "NOTICE — zero lenses resolved (all gated off, or the read loop above found no matches — check review-scope.json if this is unexpected)."
+fi
 for LENS in "${RUN_LENSES[@]}"; do resolve_lens "$LENS"; done
 # intent-guess is not a gate key — resolved explicitly so the gate-driven
 # loop above can never drop it.
@@ -574,7 +582,9 @@ see [references/review-scope.md](references/review-scope.md) "Spawn only
 the ungated lenses" for the gate filter and the delta-re-entry
 intent-guess skip. Each spawned agent gets `subagent_type:` set to that
 lens's printed value (NOT a shared `$LENS_AGENT` variable — each spawn
-has its own resolved type) and `model: "$REVIEW_MODEL"` when non-empty:
+has its own resolved type) and `model:` set to that lens's printed
+`resolve_lens` value (NOT a shared `$REVIEW_MODEL` variable — each spawn
+has its own resolved model), omitted when that printed value is `inherited`:
 
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
@@ -713,7 +723,7 @@ REVIEW_SCOPE_PATH="$WORKTREE/.flow-tmp/review-scope.json"
 full diff. Only `PR_METADATA_PATH` needs a fallback write when absent:
 `gh pr view "$PR_NUMBER" --json number,title,headRefName,baseRefName,headRefOid > "$PR_METADATA_PATH"`.
 
-**Per-phase model (consolidator) resolution.** Field `state.modelConsolidator`; precedence `--model-consolidator > config.models.consolidator > inherited` (see `../flow-pipeline/references/model-routing.md`). This spawn does **not** use a `model: "haiku"` pin (unlike the Step 1.5 metadata triage) — the second-opinion validation needs the larger model. Resolve via `jq` (`SLUG="$FLOW_SLUG"; CONSOLIDATOR_MODEL=$(jq -r '.modelConsolidator // empty' ~/.flow/state/"$SLUG".json); [ -z "$CONSOLIDATOR_MODEL" ] && CONSOLIDATOR_MODEL=$(jq -r '.models.consolidator // empty' ~/.flow/config.json 2>/dev/null)`) and pass the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒ inherit).
+**Per-phase model (consolidator) resolution.** Field `state.modelConsolidator`; precedence `--model-consolidator > config.models.consolidator > inherited` (see `../flow-pipeline/references/model-routing.md`). This spawn does **not** use a `model: "haiku"` pin (unlike the Step 1.5 metadata triage) — the second-opinion validation needs the larger model. Resolve via `CONSOLIDATOR_MODEL=$(flow-review-model consolidator)` (reuses the same `resolveRouting` precedence chain the per-lens resolutions in Step 3 use, rather than a hand-rolled `jq` read) and pass the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒ inherit).
 
 Resolve the subagent type with the file-exists guard. Plugin-hosted agents
 are addressable ONLY by the plugin-qualified name

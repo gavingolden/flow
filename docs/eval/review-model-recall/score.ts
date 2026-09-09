@@ -105,6 +105,11 @@ function extractJsonObject(
   }
   for (const c of candidates) {
     for (let end = c.length; end > 0; end--) {
+      // A valid JSON object always ends in "}" — skip every non-"}" cutoff
+      // without attempting a parse. Without this guard the shrink-by-one
+      // loop is O(n^2) on exactly the truncated-cell input this harness
+      // expects to hit routinely (a truncated trailing object).
+      if (c[end - 1] !== "}") continue;
       try {
         const o = JSON.parse(c.slice(0, end));
         if (o && typeof o === "object" && requiredKey in o) return o;

@@ -45,12 +45,16 @@ clobber the delta scoping.
 
 `flow-review-scope` also resolves a `light | standard | deep` risk tier
 (`bin/lib/review-tier.ts`) from diff size, security-sensitive paths, a
-dependency change, the plan's high-stakes flag, and the
-conventional-commit prefix, and writes `tier` / `tier_reasons` into
-`review-scope.json` alongside `gates`. Default is `standard`; any single
-HIGH signal (a security-sensitive path, a dependency change, a plan
-high-stakes flag, or a large diff) forces `deep`; `light` requires EVERY
-signal to be low at once. `light` is defined by SUBTRACTING the three
+dependency change, and the plan's high-stakes flag, and writes `tier` /
+`tier_reasons` into `review-scope.json` alongside `gates`. The
+conventional-commit-prefix signal is part of `TierSignals`
+(`commitPrefix: string | null`) but is **not yet threaded** through this
+CLI — the only caller (`flow-review-scope.ts`) has no PR-title/branch-commit
+read on hand and hardcodes `commitPrefix: null`, so the signal never fires
+today; it is a real field on a real interface, just not wired to a live
+input. Default is `standard`; any single HIGH signal (a security-sensitive
+path, a dependency change, a plan high-stakes flag, or a large diff) forces
+`deep`; `light` requires EVERY signal to be low at once. `light` is defined by SUBTRACTING the three
 lowest-yield lenses (security, performance, supply-chain) — never by
 `ALWAYS_ON_LENSES`, which is a vacuity classification, not a yield
 ranking. Each lens the tier keeps is still subject to its own content

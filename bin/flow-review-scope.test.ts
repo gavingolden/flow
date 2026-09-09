@@ -691,6 +691,42 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
     expect(scope.gates.security.run).toBe(true);
     expect(scope.gates.performance.run).toBe(true);
   });
+
+  it('a plan.md mentioning "high-stakes" in prose (not the flag line) does NOT force deep tier', async () => {
+    const { dir, gh, git } = makeSmallDiffRepo();
+    fs.writeFileSync(
+      path.join(dir, ".flow-tmp", "plan.md"),
+      "## Decision analysis\n\nThis PR adds the high-stakes tier feature described above; it is not itself high-stakes.\n",
+    );
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      ...makeDefaultDeps(dir),
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.tier).toBe("light");
+  });
+
+  it("a plan.md with an explicit `**Stakes:** high` flag line forces deep tier", async () => {
+    const { dir, gh, git } = makeSmallDiffRepo();
+    fs.writeFileSync(
+      path.join(dir, ".flow-tmp", "plan.md"),
+      "## Decision analysis\n\n- **Stakes:** high — a wrong call here breaks prod auth.\n",
+    );
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      ...makeDefaultDeps(dir),
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.tier).toBe("deep");
+  });
 });
 
 describe.skipIf(!bunOnPath)("bare CLI invocation", () => {

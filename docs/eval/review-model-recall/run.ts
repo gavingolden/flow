@@ -55,8 +55,14 @@ async function spawnCapture(argv: string[], outFile: string): Promise<number> {
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
   ]);
-  await Bun.write(outFile, stdout + stderr);
-  return proc.exited;
+  // Capture stdout only — folding stderr into the same file corrupts the
+  // JSON envelope whenever the child logs progress/warnings to stderr.
+  await Bun.write(outFile, stdout);
+  const rc = await proc.exited;
+  if (rc !== 0 && stderr.trim()) {
+    console.error(stderr.trim());
+  }
+  return rc;
 }
 
 async function pool<T>(
@@ -202,7 +208,8 @@ async function runJudgeCell(
 
 function parseArgs(argv: string[]): { dataDir: string; concurrency: number } {
   const dataDirIdx = argv.indexOf("--data-dir");
-  const dataDir = dataDirIdx !== -1 ? argv[dataDirIdx + 1]! : import.meta.dir;
+  const dataDir =
+    dataDirIdx !== -1 ? argv[dataDirIdx + 1]! : join(import.meta.dir, "data");
   const concIdx = argv.indexOf("--concurrency");
   const concurrency =
     concIdx !== -1 ? Number(argv[concIdx + 1]) : DEFAULT_CONCURRENCY;

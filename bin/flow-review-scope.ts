@@ -307,10 +307,13 @@ function countAdditionsDeletions(diff: string): {
 }
 
 /**
- * True iff `.flow-tmp/plan.md` exists and names this work high-stakes.
- * There is no structured high-stakes field on plan.md today — it is prose
- * under `## Decision analysis` — so this is a conservative substring
- * heuristic, not a schema read. Absent/unreadable plan reads as false.
+ * True iff `.flow-tmp/plan.md` exists and carries an explicit
+ * `**Stakes:** high` (or `- **Stakes:** high`) flag — plan.md's real
+ * per-decision marker (see `## Decision analysis` entries, e.g.
+ * `- **Stakes:** system` / `- **Stakes:** none`). A bare `/high[- ]stakes/i`
+ * substring match would also fire on mentions and negations of the phrase
+ * "high-stakes" in ordinary prose (this PR's own plan.md discusses the tier
+ * feature by name) — matching the flag line itself avoids that.
  */
 function readPlanHighStakes(
   readFile: (p: string) => string | null,
@@ -318,7 +321,7 @@ function readPlanHighStakes(
 ): boolean {
   const raw = readFile(path.join(worktree, ".flow-tmp", "plan.md"));
   if (raw === null) return false;
-  return /high[- ]stakes/i.test(raw);
+  return /^\s*-?\s*\*\*Stakes:\*\*\s*high\b/im.test(raw);
 }
 
 function readTolerantBool(
@@ -484,7 +487,6 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
 
   const gates = evaluateGates(scopeFiles, {
     enabled: gatesEnabled,
-    staticAnalysis,
     newBareImports,
   });
 
@@ -492,7 +494,7 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     matchesAny(f, MANIFEST_GLOBS),
   );
   const { additions, deletions } = countAdditionsDeletions(diffRaw);
-  const { tier, reasons: tierReasons } = resolveTier({
+  const { tier, reasons: tierReasonsBase } = resolveTier({
     additions,
     deletions,
     files: scopeFiles,
@@ -505,11 +507,21 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
   });
 
   const hasDependencySignal = (staticAnalysis?.dependencies?.length ?? 0) > 0;
-  const hasSecuritySignal = (staticAnalysis?.security?.length ?? 0) > 0;
+  // Read `meta.security.ran` rather than inferring from `security.length` —
+  // "semgrep isn't installed" (ran=false) and "semgrep ran and found
+  // nothing" (ran=true, length=0) both produce an empty findings array, and
+  // only the former should skip the force-on backstop below.
+  const securityRan = staticAnalysis?.meta?.security?.ran === true;
+  const hasSecuritySignal =
+    securityRan && (staticAnalysis?.security?.length ?? 0) > 0;
   const staticAnalysisHits: AgentName[] = [
     ...(hasDependencySignal ? (["supply-chain"] as const) : []),
     ...(hasSecuritySignal ? (["security"] as const) : []),
   ];
+  const securityUnavailableReason =
+    staticAnalysis !== undefined && !securityRan
+      ? "static-analysis security lens did not run (semgrep unavailable or errored) — force-on backstop could not evaluate; verify security coverage manually"
+      : null;
 
   // --force-full is the documented manual escape hatch for the tier (see
   // plan.md's rejected-alternative note ruling out a second override flag)
@@ -541,7 +553,9 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     delta_enabled: deltaEnabled,
     forced_full: parsed.forceFull,
     tier,
-    tier_reasons: tierReasons,
+    tier_reasons: securityUnavailableReason
+      ? [...tierReasonsBase, securityUnavailableReason]
+      : tierReasonsBase,
   };
 
   const cappedDiff = capDiff(

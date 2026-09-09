@@ -21,7 +21,6 @@
 
 import { builtinModules } from "node:module";
 import type { AgentName } from "../flow-pr-agent-lens";
-import type { AnalysisResult } from "../flow-pr-static-analysis/types";
 
 export const MANIFEST_GLOBS: readonly string[] = [
   "package.json",
@@ -83,12 +82,21 @@ export const ALWAYS_ON_LENSES: readonly AgentName[] = [
 export const SECURITY_SENSITIVE_GLOBS: readonly string[] = [
   "**/auth/**",
   "**/security/**",
+  // The "*word*" forms below only match a filename segment containing the
+  // word (`[^/]*secret[^/]*` — `*` never crosses a `/`), so a bare
+  // `**/*secret*` misses a whole DIRECTORY named e.g. `secrets/` the way
+  // `**/auth/**` catches a directory named `auth/`. Pairing each with a
+  // `**/*word*/**` form closes that gap and keeps the two matching
+  // conventions consistent.
   "**/*secret*",
+  "**/*secret*/**",
   "**/*credential*",
+  "**/*credential*/**",
   "**/*.pem",
   "**/*.key",
   "**/.env*",
   "**/*password*",
+  "**/*password*/**",
   "**/crypto/**",
   "**/permissions/**",
 ];
@@ -211,7 +219,6 @@ export function evaluateGates(
   files: readonly string[],
   opts: {
     enabled: boolean;
-    staticAnalysis?: AnalysisResult;
     newBareImports?: boolean;
   },
 ): Record<AgentName, GateVerdict> {

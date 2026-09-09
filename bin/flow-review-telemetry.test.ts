@@ -178,6 +178,16 @@ describe("collect", () => {
     expect(code).toBe(2);
   });
 
+  it("rejects --lens-model with an empty value after '=' (e.g. security=) with exit 2, not a silent drop", async () => {
+    const dir = makeWorktree();
+    const deps = makeDeps();
+    const code = await run(
+      ["collect", "--worktree", dir, "--pr", "10", "--lens-model", "security="],
+      deps,
+    );
+    expect(code).toBe(2);
+  });
+
   it("appends exactly one JSONL line with --append and does not duplicate it on a second run with the same run_id", async () => {
     const dir = makeWorktree();
     const jsonlPath = path.join(dir, "rt.jsonl");

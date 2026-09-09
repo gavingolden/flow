@@ -45,7 +45,7 @@ import { readState, type ModelAlias, type PipelineState } from "./lib/state";
 
 const USAGE =
   "usage: flow-review-model <lens> [--slug <slug>] [--config <path>] [--state <path>] [--json]\n" +
-  `  <lens> must be one of: ${REVIEW_LENS_NAMES.join(", ")}`;
+  `  <lens> must be one of: ${REVIEW_LENS_NAMES.join(", ")}, consolidator`;
 
 export type FlowReviewModelDeps = {
   /** Injectable config reader (test seam); defaults to the real `~/.flow/config.json` read. */
@@ -60,6 +60,12 @@ export type FlowReviewModelDeps = {
 
 function isReviewLensName(v: string): v is ReviewLensName {
   return (REVIEW_LENS_NAMES as readonly string[]).includes(v);
+}
+
+/** `consolidator` is a valid `<lens>` argument alongside the six review lenses —
+ * it resolves the `consolidator` spawn site (not a `review-lens:*` row). */
+function isConsolidator(v: string): boolean {
+  return v === "consolidator";
 }
 
 function fileReader(path: string): ReadConfigFile {
@@ -129,9 +135,9 @@ export function run(argv: string[], deps: FlowReviewModelDeps = {}): number {
   }
 
   lens = positionals[0];
-  if (!lens || !isReviewLensName(lens)) {
+  if (!lens || (!isReviewLensName(lens) && !isConsolidator(lens))) {
     stderr(
-      `flow-review-model: unknown lens '${lens ?? ""}' — expected one of: ${REVIEW_LENS_NAMES.join(", ")}`,
+      `flow-review-model: unknown lens '${lens ?? ""}' — expected one of: ${REVIEW_LENS_NAMES.join(", ")}, consolidator`,
     );
     return 2;
   }
@@ -170,7 +176,11 @@ export function run(argv: string[], deps: FlowReviewModelDeps = {}): number {
   config.reviewLenses = reviewLenses;
 
   const rows = resolveRouting({ state, config });
-  const row = rows.find((r) => r.phase === `review-lens:${lens}`);
+  const row = rows.find((r) =>
+    isConsolidator(lens!)
+      ? r.phase === "consolidator"
+      : r.phase === `review-lens:${lens}`,
+  );
   if (!row) {
     // Unreachable given `isReviewLensName` above + `SPAWN_SITES` building one
     // row per `REVIEW_LENS_NAMES` entry — guarded rather than asserted so a

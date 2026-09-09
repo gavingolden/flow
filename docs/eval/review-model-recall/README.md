@@ -24,7 +24,7 @@ are symlinked onto PATH.
 
 ## Invocation order
 
-Everything below reads/writes a `<data-dir>` (default: this directory)
+Everything below reads/writes a `<data-dir>` (default: this directory's `data/` subdirectory)
 holding the per-PR inputs and the `runs/` / `judge/` cell outputs — see
 "Inputs this harness needs" below for what has to exist in it before you
 start.
@@ -84,7 +84,7 @@ review lenses see.
   ```
 
 None of these are checked in — they're per-measurement fetches, not
-harness source. `data-dir` (default: this directory) is gitignored
+harness source. `data-dir` (default: this directory's `data/` subdirectory) is gitignored
 (`docs/eval/review-model-recall/data/`) so a re-run's scratch inputs and
 `runs/`/`judge/` cell outputs never land in a commit by accident; point
 `--data-dir` wherever you like if you don't want the default.

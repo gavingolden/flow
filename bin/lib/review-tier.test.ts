@@ -5,6 +5,8 @@ import {
   composeSpawnSet,
   DEEP_FILES_THRESHOLD,
   DEEP_LOC_THRESHOLD,
+  LIGHT_FILES_THRESHOLD,
+  LIGHT_LOC_THRESHOLD,
   LIGHT_TIER_DROPPED,
   resolveTier,
   type TierSignals,
@@ -146,6 +148,50 @@ describe("resolveTier", () => {
     );
     expect(tier).toBe("deep");
     expect(reasons.join(" ")).toMatch(/security-sensitive/);
+  });
+
+  it("LOC exactly at LIGHT_LOC_THRESHOLD (with files under LIGHT_FILES_THRESHOLD) is still light — the boundary is inclusive", () => {
+    const { tier } = resolveTier(
+      baseSignals({
+        additions: LIGHT_LOC_THRESHOLD,
+        deletions: 0,
+        files: ["src/foo.ts"],
+      }),
+    );
+    expect(tier).toBe("light");
+  });
+
+  it("LOC one above LIGHT_LOC_THRESHOLD (with files under LIGHT_FILES_THRESHOLD, below DEEP thresholds) falls to standard, not light", () => {
+    const { tier } = resolveTier(
+      baseSignals({
+        additions: LIGHT_LOC_THRESHOLD + 1,
+        deletions: 0,
+        files: ["src/foo.ts"],
+      }),
+    );
+    expect(tier).toBe("standard");
+  });
+
+  it("files count exactly at LIGHT_FILES_THRESHOLD (with LOC under LIGHT_LOC_THRESHOLD) is still light — the boundary is inclusive", () => {
+    const files = Array.from(
+      { length: LIGHT_FILES_THRESHOLD },
+      (_, i) => `src/f${i}.ts`,
+    );
+    const { tier } = resolveTier(
+      baseSignals({ additions: 1, deletions: 0, files }),
+    );
+    expect(tier).toBe("light");
+  });
+
+  it("files count one above LIGHT_FILES_THRESHOLD (with LOC under LIGHT_LOC_THRESHOLD, below DEEP thresholds) falls to standard, not light", () => {
+    const files = Array.from(
+      { length: LIGHT_FILES_THRESHOLD + 1 },
+      (_, i) => `src/f${i}.ts`,
+    );
+    const { tier } = resolveTier(
+      baseSignals({ additions: 1, deletions: 0, files }),
+    );
+    expect(tier).toBe("standard");
   });
 });
 

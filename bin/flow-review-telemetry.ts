@@ -144,7 +144,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
           i++;
           break;
         case "--lens-model": {
-          if (value === undefined || value.indexOf("=") <= 0) {
+          const eq = value !== undefined ? value.indexOf("=") : -1;
+          // Reject both "no =" AND "empty value after =" (e.g.
+          // `security=`) — the latter used to slip past this guard and
+          // then get silently dropped by parseLensModels, contradicting
+          // the "never silently record" contract.
+          if (value === undefined || eq <= 0 || eq === value.length - 1) {
             return { error: `invalid --lens-model value: ${value}` };
           }
           lensModels.push(value);
