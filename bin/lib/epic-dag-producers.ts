@@ -32,9 +32,14 @@ function producersByArtifact(features: Feature[]): Map<string, string[]> {
 }
 
 /**
- * `reaches(from, to)`: true when `to` is transitively reachable from `from`
- * by walking `dependsOn` edges in either direction (a shared-artifact pair is
- * "ordered" whichever way the edge points).
+ * `reaches(from, to)`: true when `to` is a transitive ancestor of `from` —
+ * i.e. reachable by walking `dependsOn` forward only, one direction per
+ * call. `findUnorderedProducers` below calls this both ways
+ * (`reaches(a, b) || reaches(b, a)`) so a producer pair counts as "ordered"
+ * whichever way the dependency edge points; mixing both directions inside a
+ * single walk would collapse this into connected-component membership and
+ * accept sibling producers that share only a common dependency (or a common
+ * dependent) as ordered, when the runner can still launch them concurrently.
  */
 function reaches(
   from: string,
@@ -51,9 +56,6 @@ function reaches(
     const f = byId.get(id);
     if (!f) continue;
     for (const dep of f.dependsOn) queue.push(dep);
-    for (const other of byId.values()) {
-      if (other.dependsOn.includes(id)) queue.push(other.id);
-    }
   }
   return false;
 }

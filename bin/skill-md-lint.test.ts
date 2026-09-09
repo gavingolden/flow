@@ -2379,7 +2379,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        495,
+        499,
         "NEVER commit to or push the base branch",
       ],
       [
@@ -10771,28 +10771,6 @@ describe("Manifest write-back + shared-artifact write-back anchors", () => {
   });
 
   it("flow-fix-applier-instructions/SKILL.md and flow-pr-review/SKILL.md validate manifests against the diff", () => {
-    const fixApplierContent = fs.readFileSync(
-      path.resolve(
-        HERE,
-        "..",
-        "skills",
-        "pipeline",
-        "flow-fix-applier-instructions",
-        "SKILL.md",
-      ),
-      "utf8",
-    );
-    const prReviewContent = fs.readFileSync(
-      path.resolve(
-        HERE,
-        "..",
-        "skills",
-        "pipeline",
-        "flow-pr-review",
-        "SKILL.md",
-      ),
-      "utf8",
-    );
     expect(
       fixApplierContent.includes("flow-epic-dag --touched-files"),
       "skills/pipeline/flow-fix-applier-instructions/SKILL.md must call " +

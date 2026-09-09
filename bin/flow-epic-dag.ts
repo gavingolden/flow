@@ -39,13 +39,8 @@ import { type Feature, validateEpicManifest } from "./lib/epic-manifest-schema";
 import {
   findUndeclaredProducers,
   findUnorderedProducers,
-  normalizeArtifactPath,
 } from "./lib/epic-dag-producers";
-export {
-  findUndeclaredProducers,
-  findUnorderedProducers,
-  normalizeArtifactPath,
-};
+export { findUndeclaredProducers, findUnorderedProducers };
 
 export type DagViolationKind =
   | "duplicate-id"
@@ -282,7 +277,10 @@ function parseIdList(csv: string | undefined): string[] {
  */
 async function loadValidatedFeatures(
   path: string,
-): Promise<{ ok: true; features: Feature[] } | { ok: false; code: number }> {
+): Promise<
+  | { ok: true; features: Feature[]; manifest: Record<string, unknown> }
+  | { ok: false; code: number }
+> {
   let raw: string;
   try {
     raw = await Bun.file(path).text();
@@ -324,7 +322,11 @@ async function loadValidatedFeatures(
     }
     return { ok: false, code: 1 };
   }
-  return { ok: true, features: shape.value.features };
+  return {
+    ok: true,
+    features: shape.value.features,
+    manifest: parsed as Record<string, unknown>,
+  };
 }
 
 async function cliMain(argv: string[]): Promise<number> {
@@ -379,17 +381,10 @@ async function cliMain(argv: string[]): Promise<number> {
   const path = argv[flagIdx + 1];
   const loaded = await loadValidatedFeatures(path);
   if (!loaded.ok) return loaded.code;
-  try {
-    const raw = await Bun.file(path).text();
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (Object.prototype.hasOwnProperty.call(parsed, "followups")) {
-      process.stderr.write(
-        'warning: manifest carries a "followups" array — it is a ledger entry the runner never schedules; promote items to features[] before they can run\n',
-      );
-    }
-  } catch {
-    // loadValidatedFeatures already succeeded reading/parsing this path above;
-    // a failure here is unreachable in practice, so degrade silently.
+  if (Object.prototype.hasOwnProperty.call(loaded.manifest, "followups")) {
+    process.stderr.write(
+      'warning: manifest carries a "followups" array — it is a ledger entry the runner never schedules; promote items to features[] before they can run\n',
+    );
   }
   process.stdout.write(JSON.stringify({ ok: true }) + "\n");
   return 0;

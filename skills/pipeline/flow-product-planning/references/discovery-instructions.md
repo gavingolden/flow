@@ -263,11 +263,13 @@ epic, using this precedence — stop at the first layer that resolves:
    on conflict).
 4. **Shared-artifact scan (standalone producers).** When layers 1-3 do not resolve,
    scan every manifest with the one-line probe
-   `jq -r --arg p "<path>" '.features[] | select((.sharedArtifacts // []) | index($p)) | .id' .flow/epics/*/manifest.json`
-   for each repo-relative path the plan will create or edit; a hit resolves membership
-   as a standalone producer: ``Standalone producer of `<artifact>` in epic `<slug>` —
-no feature id`` (never fabricate a feature id; the source-traceability rule still
-   applies to the slug/artifact/producer ids).
+   `jq -r --arg p "<path>" 'input_filename as $f | .features[] | select((.sharedArtifacts // []) | index($p)) | "\($f)\t\(.id)"' .flow/epics/*/manifest.json`
+   for each repo-relative path the plan will create or edit; the probe emits the
+   manifest path alongside the id so the hit is attributable to a specific epic —
+   the slug is the `.flow/epics/<slug>/` path segment of that manifest path. A hit
+   resolves membership as a standalone producer: ``Standalone producer of
+`<artifact>` in epic `<slug>` — no feature id`` (never fabricate a feature id;
+   the source-traceability rule still applies to the slug/artifact/producer ids).
 
 When none of the four layers resolves, the feature is not epic-launched — proceed to
 step 1.8 with `## Epic context` omitted.

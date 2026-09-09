@@ -543,6 +543,33 @@ describe("findUnorderedProducers / validateDag — shared-artifact producer orde
     expect(findUnorderedProducers(features)).toEqual([]);
   });
 
+  it("rejects two producers that only share a common dependency (siblings run in parallel)", () => {
+    const features = [
+      feat("root"),
+      feat("a", ["root"], ["shared.json"]),
+      feat("b", ["root"], ["shared.json"]),
+    ];
+    expect(kinds(findUnorderedProducers(features))).toContain(
+      "unordered-producers",
+    );
+    expect(
+      computeFrontier(features, { completed: ["root"], launched: [] }).map(
+        (f) => f.id,
+      ),
+    ).toEqual(["a", "b"]); // proves the runner would co-launch them
+  });
+
+  it("rejects two producers that only share a common dependent", () => {
+    const features = [
+      feat("a", [], ["shared.json"]),
+      feat("b", [], ["shared.json"]),
+      feat("y", ["a", "b"]),
+    ];
+    expect(kinds(findUnorderedProducers(features))).toContain(
+      "unordered-producers",
+    );
+  });
+
   it("CLI --validate stderr names both ids and the artifact for an unordered pair", () => {
     withTmpFile(
       manifest([
@@ -621,6 +648,36 @@ describe("findUndeclaredProducers / --touched-files CLI", () => {
     expect(findUndeclaredProducers(withProducer, "manifest.json", [])).toEqual(
       [],
     );
+  });
+
+  it("exits 2 with usage when --touched-files has no manifest path", () => {
+    const r = runCli(["--touched-files"]);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("usage:");
+  });
+
+  it("propagates a DAG violation from the manifest as exit 1 before the touched scan", () => {
+    withTmpFile(manifest([feat("a", ["b"]), feat("b", ["a"])]), (filePath) => {
+      const r = runCli(["--touched-files", filePath, "some/file.ts"]);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/cycle/i);
+    });
+  });
+
+  it("reports one violation per touched artifact naming every declared producer", () => {
+    const features = [
+      feat("a", [], ["x.json", "y.json"]),
+      feat("b", ["a"], ["x.json"]),
+    ];
+    const violations = findUndeclaredProducers(
+      features,
+      ".flow/epics/e/manifest.json",
+      ["x.json", "./y.json", "unrelated.ts"],
+    );
+    expect(violations.map((v) => [v.kind, v.offendingIds])).toEqual([
+      ["undeclared-producer", ["a", "b"]],
+      ["undeclared-producer", ["a"]],
+    ]);
   });
 });
 

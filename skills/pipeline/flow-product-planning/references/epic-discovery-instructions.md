@@ -211,7 +211,7 @@ The rules:
    migration, interface, file, or exported symbol that must exist first.
    "Feels later" is not an edge. State the concrete produced/consumed
    artifact on each edge.
-   4b. **A shared generated artifact is a dependency class, not a coincidence.**
+5. **A shared generated artifact is a dependency class, not a coincidence.**
    A file several features regenerate (e.g. an eval baseline such as
    `backend/eval/baseline/scorecard.json`) is a shared generated artifact:
    every producer lists it under `sharedArtifacts` and carries a
@@ -224,10 +224,10 @@ The rules:
    every feature that already regenerates the file (one-time migration).
    `flow-epic-dag --validate` refuses an unordered producer pair
    (`unordered-producers`).
-5. **Sparse edges by construction (Simon near-decomposability).** A dense
+6. **Sparse edges by construction (Simon near-decomposability).** A dense
    edge set is a diagnostic that a boundary was drawn at a strong-coupling
    place — re-cut rather than ship the dense DAG.
-6. **Prefer a walking-skeleton root (Story Mapping).** The first feature is
+7. **Prefer a walking-skeleton root (Story Mapping).** The first feature is
    a thin end-to-end slice (the schema/seam everything else hangs off), so
    the DAG has a clear root and early features de-risk the architecture.
 
