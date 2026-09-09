@@ -1291,41 +1291,29 @@ the description early means the PR tells a coherent story from the start.
 **Extract from the PRD into this format:**
 
 ````markdown
-## Why
+## TLDR
 
-<Distill the Problem Statement into 1–3 sentences. Keep the user's pain point and
-why it matters — strip solution language. This should read as motivation, not a
-feature spec. On a fix-shaped PR — the pipeline exists to fix an observed defect, or
-the branch's dominant commit type is `fix:` — lead with `**Failing:**` naming the
-observed failure and `**Root cause:**` naming why it happened, before the
-1–3-sentence motivation.>
-
-## What
-
-<Convert the Scope Boundary's "In scope" items into a bulleted list of deliverables,
-phrased as capabilities or behaviors rather than files or modules. Each bullet
-should be verifiable.>
-
-## Key decisions
-
-<Pull from Architecture Decisions and Scope Boundary's "Out of scope". On a fix-shaped
-PR, the FIRST bullet is `**Fix mechanism:** <why the change eliminates the root
-cause>`. Each bullet: the decision + a brief rationale. Include scope exclusions
-that a reviewer might wonder about. Also list each bundled task (every task
-carrying a `- **Bundled:**` bullet in the task breakdown) as its own
-`Bundled: <one-line origin>` bullet, so a reviewer can see why the diff is larger
-than the requested feature alone.>
+<One sentence, 25 words or fewer, naming the user-visible outcome. Name no file,
+function, or line number — name the surface the reader uses (the command, the flag,
+the artifact). This is the same string the supervisor already authors as `$TLDR` at
+every terminal gate in `skills/pipeline/flow-pipeline/SKILL.md`; reuse it rather than
+inventing a second one. On a fix-shaped PR the sentence itself states the failure and
+the causal resolution together, so a reader meets the fix framing before the
+now-demoted `## Why`.>
 
 ## User-facing changes
 
 <Concrete user-observable deltas — phrase in user terms ("you can now run
 `flow ls --cost`"), not implementation terms ("added cost column to the ls
-renderer"). Each user story's externally observable change becomes a bullet here:
+renderer"). Name no file, function, or line number here either — name the surface the
+reader uses. Each user story's externally observable change becomes a bullet here:
 walk the Stories section and, for every story whose acceptance criteria assert
 something a user sees or does differently, emit a bullet. Categories to consider:
 new CLI commands or subcommands, new flags or changed defaults, renamed/removed
 commands, changed prompts or output formats, new env vars, and changed file
-locations users interact with.
+locations users interact with. Convert the Scope Boundary's "In scope" items into
+bullets here too, phrased as capabilities or behaviors rather than files or modules,
+each one verifiable.
 
 Format: freeform bullets. For renames or removals, use a `Before → After` bullet so
 the delta reads at a glance. Example:
@@ -1338,13 +1326,41 @@ delta), write the literal word `none` under the heading. Never delete the headin
 `none` is an explicit author affirmation, while a missing heading is ambiguous
 between "no change" and "author forgot".>
 
-## System flow changes
+## System changes
 
-<Only on a cross-component change where behavior moved at the system/consumer level —
-derive Before → After bullets from plan.md's `### System flow` subsection when that
-subsection is non-`none`. OMIT THIS HEADING ENTIRELY when nothing moved at that level; unlike
-User-facing changes above, there is no `none` affirmation for this section — an absent
-heading already means "nothing moved here".>
+<Any internal change worth a reviewer's attention: a subsystem boundary that moved, a
+public contract that changed, a performance characteristic, or an ongoing cost. Derive
+Before → After bullets from plan.md's `### System flow` subsection when that
+subsection is non-`none`, and phrase each deliverable as a capability, not a file
+path. When the change moves an ongoing cost — API calls, CI time, token spend — name
+the direction and rough size; stay silent about cost when the change does not move one.
+
+Do not list file edits, helper refactors, or mechanical cleanups. If the change does
+not alter a subsystem boundary, a public contract, performance, or ongoing spend,
+write `none`.
+
+Never delete the heading. Exactly like `## User-facing changes` above, `none` is an
+explicit author affirmation, while a missing heading is ambiguous between "no change"
+and "author forgot".>
+
+## Why
+
+<Distill the Problem Statement into 1–3 sentences. Keep the user's pain point and
+why it matters — strip solution language. This should read as motivation, not a
+feature spec. On a fix-shaped PR — the pipeline exists to fix an observed defect, or
+the branch's dominant commit type is `fix:` — lead with `**Failing:**` naming the
+observed failure and `**Root cause:**` naming why it happened, before the
+1–3-sentence motivation.>
+
+## Key decisions
+
+<Pull from Architecture Decisions and Scope Boundary's "Out of scope". On a fix-shaped
+PR, the FIRST bullet is `**Fix mechanism:** <why the change eliminates the root
+cause>`. Each bullet: the decision + a brief rationale. Include scope exclusions
+that a reviewer might wonder about. Also list each bundled task (every task
+carrying a `- **Bundled:**` bullet in the task breakdown) as its own
+`Bundled: <one-line origin>` bullet, so a reviewer can see why the diff is larger
+than the requested feature alone.>
 
 ## Deviations from plan
 
@@ -1487,17 +1503,22 @@ skills/pipeline/flow-pr-review/references/manual-test-rubric.md. -->
   verbatim.
 - "Why" must not contain solution language. If you catch yourself writing
   "by adding X" or "through implementing Y", rewrite to focus on the problem.
-- "What" bullets should each be testable against the implementation. Avoid vague
-  bullets like "improve the user experience".
+- "TLDR" is one sentence, 25 words or fewer, naming the user-visible outcome in the
+  surface the reader uses — no file, function, or line number. On a fix-shaped PR it
+  states the failure and the causal resolution together.
+- "User-facing changes" and "System changes" bullets should each be testable against
+  the implementation. Avoid vague bullets like "improve the user experience".
 - "Key decisions" should only include decisions where a reasonable alternative
   existed. Don't list obvious choices.
 - "User-facing changes" must be phrased in user terms (what someone running the
-  tool will see or do differently), not implementation terms. If the PRD has no
-  user-observable delta, write `none` under the heading — never omit the heading
+  tool will see or do differently), not implementation terms, and names a surface
+  rather than a file, function, or line number.
+- "System changes" covers any internal change worth a reviewer's attention, and
+  prompts for ongoing cost (API calls, CI time, token spend) only when the change
+  moves one. It does NOT list file edits, helper refactors, or mechanical cleanups.
+- Both "User-facing changes" and "System changes" are mandatory: when the section is
+  empty, write the literal word `none` under the heading — never omit either heading
   itself.
-- "System flow changes" is conditional — unlike "User-facing changes", omit the
-  heading entirely when nothing moved at the system/consumer level; do not write
-  `none` under it.
 - Always emit the `## Test Steps` heading, even for refactors. The auto-merge gate
   treats a missing heading as an upstream regression and escalates `NEEDS HUMAN`.
   Zero unchecked items under the heading is the auto-merge state; one or more
@@ -1539,8 +1560,8 @@ empty>
 
 # PR description draft
 
-<the Why / What / Key decisions / User-facing changes / optional System flow
-changes / Test Steps from step 7>
+<the TLDR / User-facing changes / System changes / Why / Key decisions /
+Test Steps from step 7>
 ````
 
 This file is the predictable handoff for the `/flow-pipeline` supervisor — it
@@ -1672,9 +1693,11 @@ Common failure modes during planning:
 - No task is too large for a single focused session (if it seems large, split it).
 - Skill recommendations reference skills that actually exist in the project's
   skill directory.
-- PR description draft follows the standardized format (Why / What / Key
-  decisions / User-facing changes / Test Steps), plus `## System flow changes`
-  when the plan's `### System flow` subsection is non-`none`.
+- PR description draft follows the standardized format (TLDR / User-facing
+  changes / System changes / Why / Key decisions / Test Steps), with both
+  `## User-facing changes` and `## System changes` always present — `none` when
+  empty — and the latter drawing Before → After bullets from the plan's
+  `### System flow` subsection when that subsection is non-`none`.
 - Both `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md` were written
   at the absolute paths the wrapper passed you, with parent directory created on
   demand.

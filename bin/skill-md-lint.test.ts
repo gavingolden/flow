@@ -4897,7 +4897,7 @@ describe("pr-review include-by-reference structure", () => {
     // gains one new bold-prefixed paragraph naming Step 11's fix-shaped
     // completeness criteria — a fix-shaped PR missing `**Failing:**` /
     // `**Root cause:**` / `**Fix mechanism:**`, or a cross-component PR
-    // missing `## System flow changes` — and 11a's Structure Check gains a
+    // missing `## System changes` — and 11a's Structure Check gains a
     // conditional-section mention appended to its existing User-facing-changes
     // bullet. Both were written as long single lines (matching the file's
     // existing `**Proactive verification.**`-style long-line convention) to
@@ -5993,56 +5993,124 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
-  it("all four prose sites name the conditional 'System flow changes' section", () => {
+  it("all four prose sites name the mandatory 'System changes' section", () => {
     expect(
-      prDescriptionAuthoringContent.includes("## System flow changes"),
+      prDescriptionAuthoringContent.includes("## System changes"),
       "flow-new-feature/references/pr-description-authoring.md must carry a " +
-        "`## System flow changes` guidance block between `## User-facing " +
-        "changes` and `## Test Steps` — the conditional, omit-when-empty " +
-        "section for cross-component PRs. Dropping it silently drops the " +
-        "section from every new-feature-authored PR description.",
+        "`## System changes` guidance block between `## User-facing " +
+        "changes` and `## Why` — the mandatory, `none`-when-empty section for " +
+        "any internal change worth a reviewer's attention. Dropping it silently " +
+        "drops the section from every new-feature-authored PR description.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("## System flow changes"),
+      discoveryInstructionsContent.includes("## System changes"),
       "product-planning discovery-instructions.md Step 7 must carry the same " +
-        "`## System flow changes` guidance block, mirrored from " +
+        "`## System changes` guidance block, mirrored from " +
         "pr-description-authoring.md. Dropping it silently drops the section " +
         "from every discovery-seeded PR description.",
     ).toBe(true);
     expect(
-      pullRequestTemplateContent.includes("## System flow changes"),
-      ".github/PULL_REQUEST_TEMPLATE.md must carry a commented-out `## System " +
-        "flow changes` block after the `## User-facing changes` comment — so a " +
+      pullRequestTemplateContent.includes("## System changes"),
+      ".github/PULL_REQUEST_TEMPLATE.md must carry a live `## System changes` " +
+        "heading after `## User-facing changes` — so a " +
         "human authoring a PR by hand (no seeding skill involved) sees the same " +
-        "conditional section as the two skill-authored paths. Dropping it " +
+        "mandatory section as the two skill-authored paths. Dropping it " +
         "silently drops the section from hand-authored PRs.",
     ).toBe(true);
     expect(
-      agentsContent.includes("`## System flow changes`"),
-      "AGENTS.md's `- **PRs:**` bullet must name `## System flow changes` as " +
-        "conditional — the repo-wide pointer to the four-prose-site contract. " +
+      agentsContent.includes("`## System changes`"),
+      "AGENTS.md's `- **PRs:**` bullet must name `## System changes` as " +
+        "mandatory — the repo-wide pointer to the four-prose-site contract. " +
         "Dropping it silently orphans the pointer from the canonical agent " +
         "guide. Renaming the section name must update all four sites and this " +
         "lint in the same commit.",
     ).toBe(true);
   });
 
-  it("both authoring sites carry the System-flow-changes omit-when-empty rule", () => {
+  it("all four prose sites name the '## TLDR' lead section", () => {
+    for (const [label, content] of [
+      [
+        "flow-new-feature/references/pr-description-authoring.md",
+        prDescriptionAuthoringContent,
+      ],
+      [
+        "flow-product-planning/references/discovery-instructions.md",
+        discoveryInstructionsContent,
+      ],
+      [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
+    ] as const) {
+      expect(
+        content.includes("## TLDR"),
+        `${label} must carry a \`## TLDR\` section as the FIRST PR-body ` +
+          "heading — the one-sentence, 25-word-max user-visible outcome a " +
+          "reader meets before `## Why`. Dropping it silently returns the body " +
+          "to a mechanism-first shape.",
+      ).toBe(true);
+    }
     expect(
-      prDescriptionAuthoringContent.includes("OMIT THIS HEADING ENTIRELY"),
-      "flow-new-feature/references/pr-description-authoring.md must instruct " +
-        "OMIT THIS HEADING ENTIRELY for `## System flow changes` — the property " +
-        "that distinguishes it from `## User-facing changes`, which affirms " +
-        "`none` instead of omitting. Dropping this rule risks a vacuous `none` " +
-        "under a heading meant to be absent when nothing moved.",
+      agentsContent.includes("TLDR / User-facing changes / System changes"),
+      "AGENTS.md's `- **PRs:**` bullet must name the section order starting " +
+        "`TLDR / User-facing changes / System changes` — the repo-wide pointer " +
+        "to the outcome-first PR-body contract.",
     ).toBe(true);
+  });
+
+  it(".github/PULL_REQUEST_TEMPLATE.md opens with the four outcome-first headings", () => {
+    const headings = pullRequestTemplateContent
+      .split("\n")
+      .filter((line) => line.startsWith("## "))
+      .map((line) => line.trim());
     expect(
-      discoveryInstructionsContent.includes("OMIT THIS HEADING ENTIRELY"),
-      "product-planning discovery-instructions.md Step 7 must carry the same " +
-        "OMIT THIS HEADING ENTIRELY rule, mirrored from " +
-        "pr-description-authoring.md. Dropping it risks a vacuous `none` under " +
-        "a heading meant to be absent when nothing moved.",
-    ).toBe(true);
+      headings.slice(0, 4),
+      "The hand-author PR template's first four `## ` headings must be " +
+        "exactly `## TLDR`, `## User-facing changes`, `## System changes`, " +
+        "`## Why` — the outcome-first order a reader meets before any " +
+        "mechanism. Reordering them must update all four prose sites and this " +
+        "lint in the same commit.",
+    ).toEqual([
+      "## TLDR",
+      "## User-facing changes",
+      "## System changes",
+      "## Why",
+    ]);
+    expect(
+      headings.at(-1),
+      "`## Test Steps` must stay the LAST heading in the template — it is the " +
+        "auto-merge gate signal parsed by bin/flow-gate-decide.ts.",
+    ).toBe("## Test Steps");
+  });
+
+  it("both authoring sites carry the System-changes mandatory-`none` rule", () => {
+    for (const [label, content] of [
+      [
+        "flow-new-feature/references/pr-description-authoring.md",
+        prDescriptionAuthoringContent,
+      ],
+      [
+        "flow-product-planning/references/discovery-instructions.md",
+        discoveryInstructionsContent,
+      ],
+    ] as const) {
+      expect(
+        content.includes(
+          "Never delete the heading. Exactly like `## User-facing changes` above, `none` is an",
+        ),
+        `${label} must state that \`## System changes\` is mandatory with the ` +
+          "same explicit `none` affirmation `## User-facing changes` carries — " +
+          "neither heading may ever be deleted. Dropping this rule reopens the " +
+          "old ambiguity between 'no change' and 'author forgot'.",
+      ).toBe(true);
+      expect(
+        content.includes(
+          "Do not list file edits, helper refactors, or mechanical cleanups.",
+        ),
+        `${label} must carry the \`## System changes\` NEGATIVE criterion — ` +
+          "no file edits, helper refactors, or mechanical cleanups, and " +
+          "`none` when the change moves no subsystem boundary, public " +
+          "contract, performance characteristic, or ongoing spend. Without it " +
+          "the broadened section degrades into a changelog of file edits.",
+      ).toBe(true);
+    }
   });
 
   it("flow-pr-review/SKILL.md Step 11 carries the 'Fix mechanism' review-time safety net", () => {
@@ -6051,7 +6119,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       "flow-pr-review/SKILL.md Step 11 must reference 'Fix mechanism' — the " +
         "review-time safety net that flags a fix-shaped PR missing the " +
         "`**Failing:**` / `**Root cause:**` / `**Fix mechanism:**` causal " +
-        "contract, or a cross-component PR missing `## System flow changes`, " +
+        "contract, or a PR missing `## System changes`, " +
         "as a `suggestion`-severity description finding. Dropping this " +
         "paragraph silently removes the review-time backstop and lets a " +
         "non-compliant fix PR through unflagged.",
