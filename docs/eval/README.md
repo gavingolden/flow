@@ -97,7 +97,14 @@ per-run count), `--concurrency <n>` (bounded worker pool across every
 doubles each `(scenario, run)` into a with/without pair, and the pool is
 sized against the flattened job list, not the scenario count; default 1),
 `--threshold <0..1>` (exit 1 when a suite's score misses it),
-`--claude-bin <path>`, `--ablation <none|with-without>` (default `none`).
+`--claude-bin <path>`, `--ablation <none|with-without>` (default `none`),
+`--autocompact <auto|100k..1M>` (sets the child session's auto-compact
+window — use it to measure whether a supervisor still behaves correctly
+after its own instructions get summarised). An arm run with
+`--autocompact` carries a different `childArgvDigest` from a no-flag arm,
+so `compare` will warn that the two reports came from differently-shaped
+children — that warning is correct and expected for an arm comparison,
+not a defect to suppress.
 
 Named skip reasons (exit 0, one-line stderr notice, a `skipped` report
 still written): `claude-not-on-path`, `claude-not-authenticated`,
