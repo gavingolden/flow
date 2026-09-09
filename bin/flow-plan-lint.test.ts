@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { lintPlan, parseArgs, run } from "./flow-plan-lint";
+import { lintDesign, lintPlan, parseArgs, run } from "./flow-plan-lint";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -24,6 +24,13 @@ const CONFORMING_PLAN = `# PRD
 ## Problem Statement
 
 Users cannot export widgets today.
+
+## Request vetting
+
+- **Hypothesis:** A one-click CSV export button is the smallest change that resolves the request.
+- **Case against:** Adding an export button before a second consumer asks for it risks premature scope; the existing widget list view already exposes the same data via manual copy-paste today. [anchor: bin/flow-plan-lint.ts]
+- **Sources:** no outside source: fixture plan, no research pass ran.
+- **Verdict:** adopt
 
 ## Scope Boundary
 
@@ -551,6 +558,203 @@ describe("lintPlan — Method selection", () => {
       "- **Chosen method:** blind survey — both judges independently converged away from the user's proposed method\n";
     const { misses } = lintPlan(plan, { surveyRan: true });
     expect(misses.some((m) => m.includes("Method selection"))).toBe(false);
+  });
+});
+
+// The exact substring CONFORMING_PLAN carries for its `## Request vetting`
+// section — kept as its own constant so per-test variants can `.replace()`
+// it wholesale without hand-duplicating the fixture prose.
+const VETTING_BLOCK = `## Request vetting
+
+- **Hypothesis:** A one-click CSV export button is the smallest change that resolves the request.
+- **Case against:** Adding an export button before a second consumer asks for it risks premature scope; the existing widget list view already exposes the same data via manual copy-paste today. [anchor: bin/flow-plan-lint.ts]
+- **Sources:** no outside source: fixture plan, no research pass ran.
+- **Verdict:** adopt`;
+
+/** Build a `## Request vetting` section body with exactly `totalLines`
+ * non-blank body lines (Hypothesis + Case against + Sources + Verdict,
+ * padded with top-level filler bullets to reach the target). */
+function buildVettingBody(totalLines: number): string {
+  const fillerCount = Math.max(totalLines - 4, 0);
+  const fillerLines = Array.from(
+    { length: fillerCount },
+    (_, i) => `- **Extra ${i}:** filler detail line number ${i}.`,
+  );
+  const lines = [
+    "- **Hypothesis:** A one-click CSV export button is the smallest change that resolves the request.",
+    "- **Case against:** Adding an export button before a second consumer asks for it risks premature scope; the existing widget list view already exposes the same data via manual copy-paste today. [anchor: bin/flow-plan-lint.ts]",
+    "- **Sources:** no outside source: fixture plan, no research pass ran.",
+    ...fillerLines,
+    "- **Verdict:** adopt",
+  ];
+  return "## Request vetting\n\n" + lines.join("\n");
+}
+
+describe("lintPlan — Request vetting", () => {
+  it("returns zero misses for the conforming fixture section", () => {
+    const { misses } = lintPlan(CONFORMING_PLAN);
+    expect(misses.some((m) => m.includes("Request vetting"))).toBe(false);
+  });
+
+  it("names a miss when the '## Request vetting' heading is absent", () => {
+    const plan = withoutSection(CONFORMING_PLAN, "## Request vetting");
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.includes(
+        "missing '## Request vetting' heading — every plan must argue against the request before adopting it",
+      ),
+    ).toBe(true);
+  });
+
+  it("names a miss when the verdict is off-enum", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Verdict:** adopt",
+      "- **Verdict:** adopt with conditions",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) =>
+          m.includes(
+            "'## Request vetting' has no exact-match '- **Verdict:**",
+          ) && m.includes("(got 'adopt with conditions')"),
+      ),
+    ).toBe(true);
+  });
+
+  it("passes at exactly the 12-non-blank-line ceiling", () => {
+    const plan = CONFORMING_PLAN.replace(VETTING_BLOCK, buildVettingBody(12));
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("non-blank lines"))).toBe(false);
+  });
+
+  it("names a miss at 13 lines, one over the ceiling", () => {
+    const plan = CONFORMING_PLAN.replace(VETTING_BLOCK, buildVettingBody(13));
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.includes(
+        "'## Request vetting' is 13 non-blank lines (ceiling: 12) — trim it",
+      ),
+    ).toBe(true);
+  });
+
+  it("a '- **Cross-model case against:**' line is exempt from the 12-line ceiling", () => {
+    const body =
+      buildVettingBody(12) +
+      "\n- **Cross-model case against:** a reviewer's finding appended post-hoc.";
+    const plan = CONFORMING_PLAN.replace(VETTING_BLOCK, body);
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("non-blank lines"))).toBe(false);
+  });
+
+  it("names a miss when the case against cites no [anchor: …] or URL", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Case against:** Adding an export button before a second consumer asks for it risks premature scope; the existing widget list view already exposes the same data via manual copy-paste today. [anchor: bin/flow-plan-lint.ts]",
+      "- **Case against:** Adding an export button before a second consumer asks for it risks premature scope with no outside grounding cited anywhere in this line at all.",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.includes(
+        "'## Request vetting' case against cites no [anchor: …] or URL — an ungrounded case is same-model self-critique",
+      ),
+    ).toBe(true);
+  });
+
+  it("names a miss when the case against is under 15 words even with an anchor", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Case against:** Adding an export button before a second consumer asks for it risks premature scope; the existing widget list view already exposes the same data via manual copy-paste today. [anchor: bin/flow-plan-lint.ts]",
+      "- **Case against:** Premature scope. [anchor: bin/flow-plan-lint.ts]",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("under 15 words"))).toBe(true);
+  });
+
+  it("names a miss when the Sources line carries neither a URL nor 'no outside source:'", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Sources:** no outside source: fixture plan, no research pass ran.",
+      "- **Sources:** internal review only.",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => m.includes("no '- **Sources:**' line carrying a URL")),
+    ).toBe(true);
+  });
+
+  it("passes when the Sources line carries a URL instead of the literal marker", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Sources:** no outside source: fixture plan, no research pass ran.",
+      "- **Sources:** https://example.com/research",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("Sources"))).toBe(false);
+  });
+
+  it("names a miss when a non-adopt verdict has no '## Decision analysis' fork", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "- **Verdict:** adopt",
+      "- **Verdict:** push back: do nothing",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.includes(
+        "'## Request vetting' verdict is 'push back' but plan.md has no '## Decision analysis' fork",
+      ),
+    ).toBe(true);
+  });
+
+  it("no fork miss when a non-adopt verdict has a '## Decision analysis' heading", () => {
+    const plan =
+      CONFORMING_PLAN.replace(
+        "- **Verdict:** adopt",
+        "- **Verdict:** push back: do nothing",
+      ) + "\n## Decision analysis\n\nSome analysis.\n";
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("Decision analysis' fork"))).toBe(
+      false,
+    );
+  });
+
+  it("names a miss when '## Decision analysis' precedes '## Request vetting'", () => {
+    const plan = `# PRD
+
+# X
+
+**Goal:** x.
+
+## Decision analysis
+
+fork content
+
+## Request vetting
+
+- **Hypothesis:** h.
+- **Case against:** case with anchor and enough words to clear the fifteen word floor for this check. [anchor: bin/flow-plan-lint.ts]
+- **Sources:** no outside source: none.
+- **Verdict:** adopt
+`;
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.includes(
+        "'## Request vetting' must precede '## Decision analysis' — the argument against the request comes before its resolution fork",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe(lintDesign, () => {
+  it("runs ONLY the vetting check — a design missing the section gets exactly one miss", () => {
+    const { misses } = lintDesign(
+      "# Epic design\n\nSome prose with no Request vetting section, and no Goal/Contract/Cut-list sections either.\n",
+    );
+    expect(misses).toEqual([
+      "missing '## Request vetting' heading — every plan must argue against the request before adopting it",
+    ]);
+  });
+
+  it("passes on a conforming '## Request vetting' section with no other checks firing", () => {
+    const design = `# Epic design\n\n${VETTING_BLOCK}\n`;
+    const { misses } = lintDesign(design);
+    expect(misses).toEqual([]);
   });
 });
 
@@ -1210,6 +1414,31 @@ describe("parseArgs", () => {
     const parsed = parseArgs(["--plan-md-file"]);
     expect("error" in parsed).toBe(true);
   });
+
+  it("parses --design-md-file", () => {
+    const parsed = parseArgs(["--design-md-file", "/tmp/design.md"]);
+    expect(parsed).toEqual({ designMdFile: "/tmp/design.md" });
+  });
+
+  it("errors when --design-md-file has no value", () => {
+    const parsed = parseArgs(["--design-md-file"]);
+    expect("error" in parsed).toBe(true);
+  });
+
+  it("errors when both --plan-md-file and --design-md-file are given", () => {
+    const parsed = parseArgs([
+      "--plan-md-file",
+      "/tmp/plan.md",
+      "--design-md-file",
+      "/tmp/design.md",
+    ]);
+    expect("error" in parsed).toBe(true);
+  });
+
+  it("errors when neither --plan-md-file nor --design-md-file is given", () => {
+    const parsed = parseArgs(["--survey-ran"]);
+    expect("error" in parsed).toBe(true);
+  });
 });
 
 describe("run — CLI exit codes", () => {
@@ -1275,5 +1504,32 @@ describe("run — CLI exit codes", () => {
     } finally {
       process.stdout.write = orig;
     }
+  });
+
+  it("--design-md-file exits 1 with exactly the vetting miss when the section is absent", () => {
+    const dir = tmpDir();
+    const designPath = path.join(dir, "design.md");
+    writeFileSync(designPath, "# Epic design\n\nno vetting section here.\n");
+    expect(run(["--design-md-file", designPath])).toBe(1);
+  });
+
+  it("--design-md-file exits 0 on a conforming section", () => {
+    const dir = tmpDir();
+    const designPath = path.join(dir, "design.md");
+    writeFileSync(designPath, `# Epic design\n\n${VETTING_BLOCK}\n`);
+    expect(run(["--design-md-file", designPath])).toBe(0);
+  });
+
+  it("exits 2 (usage error) when both --plan-md-file and --design-md-file are given", () => {
+    const dir = tmpDir();
+    const planPath = path.join(dir, "plan.md");
+    writeFileSync(planPath, CONFORMING_PLAN);
+    expect(
+      run(["--plan-md-file", planPath, "--design-md-file", planPath]),
+    ).toBe(2);
+  });
+
+  it("exits 2 (usage error) when neither --plan-md-file nor --design-md-file is given", () => {
+    expect(run(["--survey-ran"])).toBe(2);
   });
 });

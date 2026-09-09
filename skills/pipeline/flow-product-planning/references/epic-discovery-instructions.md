@@ -309,6 +309,17 @@ Then append the **critique layer**, in this order after `## 6. Open Questions`
 Plan risks / Decision analysis sub-sections, one altitude up — the epic-grain
 consequence-simulation, verdict, and self-critique of the _decomposition_):
 
+- `## Request vetting` (**always-present**, first) — the epic-altitude
+  counterpart of the feature file's `## Request vetting`: a falsifiable
+  hypothesis, a sourced case against the CHOSEN DECOMPOSITION/APPROACH
+  (sourced from the inversion lens, in-repo evidence, and prior artifacts —
+  a committed repo path or URL, never `.flow-tmp/`), and a closed verdict
+  using the same grammar (`adopt` | `adopt-with-conditions: <condition>` |
+  `push back: <alternative>`). Same ≤12-non-blank-line ceiling. A `push
+back` verdict requires a `## Decision analysis` decomposition fork to
+  resolve into, same rule as the feature file. Runs through
+  `flow-plan-lint --design-md-file` (see `/flow-epic-create` Step 4) —
+  the ONLY check that mode runs against `design.md`.
 - `## Decision analysis` (**omit-when-empty**) — for a consequential
   **decomposition** fork whose branches genuinely diverge (e.g. "split feature
   B into read/write, or keep it one feature?"), simulate each branch's
@@ -336,7 +347,7 @@ consequence-simulation, verdict, and self-critique of the _decomposition_):
   `discovery-instructions.md` and `flow-new-feature/SKILL.md` Step 2, the counterpart
   self-critique sites.
 
-**Visible-dependency note (load-bearing — read before renumbering).** The three
+**Visible-dependency note (load-bearing — read before renumbering).** The four
 critique headings are emitted **unnumbered** at top-level `##` (not `## 7.` /
 `## 8.`) **specifically because** `/flow-epic-create`'s Step 4.5 cross-model design
 review gates on `flow-plan-review`'s anchored `^## Decision analysis` regex.
@@ -366,26 +377,34 @@ Write `manifest.json` matching the `EpicManifest` / `Feature` shape owned by
 ## 6. Self-validate — the MANDATORY correctness loop
 
 This is the key correctness gate and is **non-negotiable**. After writing
-`manifest.json`, shell out to **BOTH** validators (both are bare-name
+`manifest.json`, shell out to **ALL THREE** validators (all are bare-name
 commands on PATH):
 
 ```bash
 flow-epic-manifest-schema --validate .flow/epics/<slug>/manifest.json
 flow-epic-dag --validate .flow/epics/<slug>/manifest.json
+flow-plan-lint --design-md-file .flow/epics/<slug>/design.md
 ```
 
 `--validate` is a flag whose value is the path that follows it. Exit 0 =
 valid (prints `{"ok":true}`); non-zero = invalid (the reason / offending
 cycle or edge is on stderr; a cycle prints e.g.
-`dependency cycle: a -> b -> a`).
+`dependency cycle: a -> b -> a`). `flow-plan-lint --design-md-file` runs
+ONLY the `## Request vetting` check against `design.md` (never the full
+feature-grain battery); exit 0 = conforming, exit 1 = a named miss on
+stdout.
 
-**On ANY non-zero exit from EITHER validator: re-cut the decomposition,
-re-emit both artifacts, and re-validate — in a loop — until BOTH exit 0.**
-A non-zero exit is a methodology bug to fix (a cycle means extract the
-shared dependency into its own upstream feature or merge the two; an orphan
-edge means a `dependsOn` names a feature that does not exist — fix the id or
-add the feature). **NEVER surface a failing manifest as a result.** The
-designer stops only once both validators exit 0.
+**On ANY non-zero exit from ANY of the three validators: re-cut the
+decomposition (or, for the vetting miss, re-author the section), re-emit
+the affected artifact(s), and re-validate — in a loop — until ALL THREE
+exit 0.** A non-zero exit is a methodology bug to fix (a cycle means
+extract the shared dependency into its own upstream feature or merge the
+two; an orphan edge means a `dependsOn` names a feature that does not
+exist — fix the id or add the feature; a vetting miss means the section is
+absent, off-enum, over the line ceiling, or ungrounded — fix it per the
+"Request vetting" contract above). **NEVER surface a failing manifest or
+design as a result.** The designer stops only once all three validators
+exit 0.
 
 ## 7. Return a brief summary
 
@@ -401,13 +420,14 @@ Before returning, self-check:
 
 - `design.md` exists at `.flow/epics/<slug>/design.md` with the six numbered
   backbone headings (`## 1. Problem & intent` … `## 6. Open Questions`) AND the
-  two always-present critique sections (`## Recommendation`, `## Plan risks`);
-  `## Decision analysis` is omit-when-empty (present only when a decomposition
-  fork genuinely diverges).
+  three always-present critique sections (`## Request vetting` (first),
+  `## Recommendation`, `## Plan risks`); `## Decision analysis` is
+  omit-when-empty (present only when a decomposition fork genuinely
+  diverges).
 - `manifest.json` exists at `.flow/epics/<slug>/manifest.json`, is internally
-  consistent with `design.md` (same ids/titles/edges), and **both**
-  `flow-epic-manifest-schema --validate` and `flow-epic-dag --validate` exit
-  0 against it.
+  consistent with `design.md` (same ids/titles/edges), and **all three**
+  `flow-epic-manifest-schema --validate`, `flow-epic-dag --validate`, and
+  `flow-plan-lint --design-md-file` exit 0 against it/`design.md`.
 - Every feature is a vertical slice with a self-contained `description`,
   every `dependsOn` edge names a produced/consumed artifact, and there is a
   walking-skeleton root.

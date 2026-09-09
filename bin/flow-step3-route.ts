@@ -69,6 +69,22 @@ export const SURVEY_VERDICTS: readonly SurveyVerdict[] = [
   "converge-with",
 ];
 
+// The `## Request vetting` verdict enum, written by discovery into
+// plan.md's `- **Verdict:**` line (and, at epic grain, design.md's). See
+// skills/pipeline/flow-product-planning/references/discovery-instructions.md
+// "Request vetting" for the full authoring contract; this module only
+// reads the closed verdict once it is on disk.
+export type VettingVerdictKind =
+  | "adopt"
+  | "adopt-with-conditions"
+  | "push back";
+
+export const VETTING_VERDICTS: readonly VettingVerdictKind[] = [
+  "adopt",
+  "adopt-with-conditions",
+  "push back",
+];
+
 export type Intent =
   | "feature"
   | "bug"
@@ -126,10 +142,14 @@ export type RouteInputs = {
  *      paraphrased verdict (e.g. "converge-against (single judge)") is
  *      NOT an exact match and never pauses. A resolved converge-against
  *      behaves exactly like converge-with for the remaining rules below.
- *   2. `route-to-step-4` — `intent` is `feature`, OR the existing
+ *   2. `route-to-step-4` — plan.md's `## Request vetting` carries an
+ *      EXACT-MATCH `push back` verdict, for EVERY intent (including
+ *      otherwise-autonomous non-feature intents) — checked before the
+ *      feature rule below so a push back can never be shadowed by it.
+ *   3. `route-to-step-4` — `intent` is `feature`, OR the existing
  *      Prompt-interpretation tension rule fires, OR (non-feature AND the
  *      survey verdict is `split`).
- *   3. `advance-to-step-5` — otherwise.
+ *   4. `advance-to-step-5` — otherwise.
  */
 export function decideStep3Route(
   intent: Intent,
@@ -144,6 +164,13 @@ export function decideStep3Route(
 
   if (isKnownVerdict && verdict === "converge-against" && !methodResolved) {
     return "pause-for-method";
+  }
+
+  const vettingVerdict = parseVettingVerdict(
+    extractVettingVerdict(planMd) ?? "",
+  );
+  if (vettingVerdict?.kind === "push back") {
+    return "route-to-step-4";
   }
 
   if (intent === "feature") {
@@ -324,6 +351,53 @@ export function extractRecommendedPath(planMd: string): string | null {
  */
 export function extractSurveyVerdict(planMd: string): string | null {
   return extractLabeledValue(planMd, "Method selection", "Survey verdict");
+}
+
+/**
+ * Extract the Verdict value from plan.md's (or design.md's) `## Request
+ * vetting` section. Thin wrapper over `extractLabeledValue` — kept as its
+ * own export, not inlined, so `flow-plan-lint.ts` can import it directly
+ * rather than cloning the section/label pair.
+ */
+export function extractVettingVerdict(planMd: string): string | null {
+  return extractLabeledValue(planMd, "Request vetting", "Verdict");
+}
+
+/**
+ * Parse a `## Request vetting` verdict value (as returned by
+ * `extractVettingVerdict`) into its closed enum kind plus the free-form
+ * detail that follows it. Only three shapes match:
+ *
+ *   - `adopt` (exact, no trailing detail) — empty detail.
+ *   - `adopt-with-conditions: <non-empty detail>`
+ *   - `push back: <non-empty detail>`
+ *
+ * Anything else — including a bare `push back` or `adopt-with-conditions`
+ * with no colon/detail, a paraphrase, or an off-enum string — returns
+ * null. A missing detail is treated as a parse failure rather than an
+ * empty-string detail so a bare "push back" (no alternative named) never
+ * silently routes.
+ */
+export function parseVettingVerdict(
+  value: string,
+): { kind: VettingVerdictKind; detail: string } | null {
+  if (value === "adopt") {
+    return { kind: "adopt", detail: "" };
+  }
+
+  const conditionsMatch = value.match(/^adopt-with-conditions:\s*(.+)$/);
+  if (conditionsMatch) {
+    const detail = conditionsMatch[1].trim();
+    return detail.length > 0 ? { kind: "adopt-with-conditions", detail } : null;
+  }
+
+  const pushBackMatch = value.match(/^push back:\s*(.+)$/);
+  if (pushBackMatch) {
+    const detail = pushBackMatch[1].trim();
+    return detail.length > 0 ? { kind: "push back", detail } : null;
+  }
+
+  return null;
 }
 
 export function parseArgs(argv: string[]): RouteInputs | { error: string } {

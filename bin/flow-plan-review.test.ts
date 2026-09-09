@@ -1479,6 +1479,58 @@ describe("computeDecisionHash — widened content key", () => {
     );
   });
 
+  // --- Task 7: `## Request vetting` is a fourth hashed input --------------
+
+  const BASE_HASH_PLAN_WITH_VETTING = [
+    BASE_HASH_PLAN,
+    "## Request vetting",
+    "- **Verdict:** adopt",
+  ].join("\n");
+
+  it("a plan with no '## Request vetting' section hashes the same as before Task 7 (empty string input)", () => {
+    // BASE_HASH_PLAN carries no `## Request vetting` heading at all —
+    // computeDecisionHash must still succeed and be stable, proving the
+    // fourth input degrades to "" rather than throwing.
+    expect(computeDecisionHash(BASE_HASH_PLAN)).toBe(
+      computeDecisionHash(BASE_HASH_PLAN),
+    );
+  });
+
+  it("two plans differing only in their '## Request vetting' body hash differently", () => {
+    const changed = BASE_HASH_PLAN_WITH_VETTING.replace(
+      "- **Verdict:** adopt",
+      "- **Verdict:** push back: do nothing",
+    );
+    expect(computeDecisionHash(changed)).not.toBe(
+      computeDecisionHash(BASE_HASH_PLAN_WITH_VETTING),
+    );
+  });
+
+  it("whitespace-only edits (trailing spaces, extra blank lines) to the '## Request vetting' body hash equal", () => {
+    const changed = BASE_HASH_PLAN_WITH_VETTING.replace(
+      "- **Verdict:** adopt",
+      "- **Verdict:** adopt   \n\n",
+    );
+    expect(computeDecisionHash(changed)).toBe(
+      computeDecisionHash(BASE_HASH_PLAN_WITH_VETTING),
+    );
+  });
+
+  it("appending a '- **Cross-model case against:**' line does NOT change the hash", () => {
+    const changed =
+      BASE_HASH_PLAN_WITH_VETTING +
+      "\n- **Cross-model case against:** a reviewer's finding appended post-hoc.";
+    expect(computeDecisionHash(changed)).toBe(
+      computeDecisionHash(BASE_HASH_PLAN_WITH_VETTING),
+    );
+  });
+
+  it("adding a '## Request vetting' section to an otherwise-unchanged plan changes the hash", () => {
+    expect(computeDecisionHash(BASE_HASH_PLAN_WITH_VETTING)).not.toBe(
+      computeDecisionHash(BASE_HASH_PLAN),
+    );
+  });
+
   // Deliberately lint-violating fixture: `## Decision analysis` is
   // IMMEDIATELY followed by the h1 `# Task breakdown` with no intervening
   // `## ` heading. BASE_HASH_PLAN can't exercise the widened `/^#{1,2} /`

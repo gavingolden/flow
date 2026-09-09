@@ -18,10 +18,16 @@ describe("buildBatteryPrompt — bounded verification clauses", () => {
       );
       expect(prompt).toMatch(/at most a third of your run on verification/);
       expect(prompt).toMatch(
-        /Emit each of the six lenses below as it is finished, never buffering the whole review to the end/,
+        /Emit each of the seven lenses below as it is finished, never buffering the whole review to the end/,
       );
     });
   }
+
+  it("says seven lenses throughout the prompt", () => {
+    const prompt = buildBatteryPrompt(BASE_INPUT);
+    expect(prompt).toMatch(/seven lenses/);
+    expect(prompt).not.toMatch(/six lenses/);
+  });
 
   it("keeps the bounds between the file-reading-tools sentence and the Do NOT shell out clause", () => {
     const prompt = buildBatteryPrompt(BASE_INPUT);
@@ -43,6 +49,7 @@ describe("buildBatteryPrompt — bounded verification clauses", () => {
     expect(prompt).toMatch(/\*\*Structurally-different alternatives\.\*\*/);
     expect(prompt).toMatch(/\*\*Failure-modes battery\.\*\*/);
     expect(prompt).toMatch(/\*\*Independent cut list\.\*\*/);
+    expect(prompt).toMatch(/\*\*Adversarial premise\.\*\*/);
   });
 });
 

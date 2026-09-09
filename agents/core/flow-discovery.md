@@ -34,9 +34,10 @@ Invariants:
   return a summary of 3–5 labeled bullets — `Problem:` (the problem
   statement in one line), `Tasks:` (the task count), `Candidates:` (the
   candidate follow-up issue count, omit when zero), `Top assumptions:`
-  (the top one or two assumptions the user should pay attention to), and
+  (the top one or two assumptions the user should pay attention to),
   `Research:` (the one-line skip note, omit when research ran or the
-  path was dormant), matching the spawn prompt's return contract
+  path was dormant), and `Vetting verdict:` (the `## Request vetting`
+  verdict line, verbatim), matching the spawn prompt's return contract
   verbatim.
 
 This definition deliberately omits `effort:` and `model:` from its

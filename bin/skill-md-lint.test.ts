@@ -4382,6 +4382,7 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
     "## Recommendation",
     "## Plan risks",
     "## Decision analysis",
+    "## Request vetting",
     "Reject — do nothing",
     "discovery-playbook.md",
     "**Goal:**",
@@ -4413,6 +4414,26 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
         "feature file's counterparts and cross-link to it as the port source. Severing " +
         "the cross-link orphans the ported discipline; restore the reference or update " +
         "this lint in the same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("flow-epic-create/SKILL.md Step 4 invokes flow-plan-lint --design-md-file by bare PATH name", () => {
+    const epicCreateSkillMdPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-epic-create",
+      "SKILL.md",
+    );
+    const c = fs.readFileSync(epicCreateSkillMdPath, "utf8");
+    expect(
+      c.includes("flow-plan-lint --design-md-file"),
+      "skills/pipeline/flow-epic-create/SKILL.md Step 4 must invoke " +
+        "'flow-plan-lint --design-md-file' by bare PATH name (never a bin/lib " +
+        "import) as a third validator alongside flow-epic-manifest-schema and " +
+        "flow-epic-dag, running the epic-grain '## Request vetting' check " +
+        "against design.md.",
     ).toBe(true);
   });
 });
@@ -8613,6 +8634,7 @@ describe("pause-output contract wiring lint", () => {
       "`Candidates:`",
       "`Top assumptions:`",
       "`Research:`",
+      "`Vetting verdict:`",
     ];
     const sites = [
       "skills/pipeline/flow-product-planning/SKILL.md",
