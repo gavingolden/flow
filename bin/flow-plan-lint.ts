@@ -425,7 +425,10 @@ function extractLabelValueWithWrap(body: string, label: string): string | null {
   if (!labelMatch) return null;
   const rest = body.slice((labelMatch.index ?? 0) + labelMatch[0].length);
   const continuation: string[] = [];
-  for (const line of rest.split("\n")) {
+  // `rest` begins with the newline that terminated the label line, so
+  // split()'s first element is always "" — dropping it is what makes the
+  // blank-line break below mean "the value ended", not "there is nothing".
+  for (const line of rest.split("\n").slice(1)) {
     if (line.trim().length === 0) break;
     if (/^\s*- \*\*/.test(line)) break;
     continuation.push(line);

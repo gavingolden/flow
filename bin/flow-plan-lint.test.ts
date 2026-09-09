@@ -564,6 +564,13 @@ describe("lintPlan — Method selection", () => {
 // The exact substring CONFORMING_PLAN carries for its `## Request vetting`
 // section — kept as its own constant so per-test variants can `.replace()`
 // it wholesale without hand-duplicating the fixture prose.
+// The two labelled lines whose soft-wrap / word-floor behaviour the tests below
+// vary; kept as constants so a fixture reword does not silently no-op a `.replace()`.
+const CASE_AGAINST_LINE =
+  "- **Case against:** Adding an export button before a second consumer asks for it risks premature scope; the existing widget list view already exposes the same data via manual copy-paste today. [anchor: bin/flow-plan-lint.ts]";
+const SOURCES_LINE_FIXTURE =
+  "- **Sources:** no outside source: fixture plan, no research pass ran.";
+
 const VETTING_BLOCK = `## Request vetting
 
 - **Hypothesis:** A one-click CSV export button is the smallest change that resolves the request.
@@ -657,6 +664,44 @@ describe("lintPlan — Request vetting", () => {
       misses.includes(
         "'## Request vetting' case against cites no [anchor: …] or URL — an ungrounded case is same-model self-critique",
       ),
+    ).toBe(true);
+  });
+
+  it("counts a soft-wrapped continuation line as part of the case against, so a wrapped anchor is not a false miss", () => {
+    const plan = CONFORMING_PLAN.replace(
+      CASE_AGAINST_LINE,
+      "- **Case against:** Adding an export button before a second consumer asks for it risks premature scope; the existing widget list view already exposes the same data via manual copy-paste today.\n  [anchor: bin/flow-plan-lint.ts]",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("cites no [anchor:"))).toBe(false);
+    expect(misses.some((m) => m.includes("under 15 words"))).toBe(false);
+  });
+
+  it("counts a soft-wrapped Sources continuation line, so a wrapped URL is not a false miss", () => {
+    const plan = CONFORMING_PLAN.replace(
+      SOURCES_LINE_FIXTURE,
+      "- **Sources:**\n  https://example.com/research",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("Sources"))).toBe(false);
+  });
+
+  it("passes at exactly 15 words and misses at 14 — the word floor's boundary", () => {
+    // Token count includes the two `[anchor: …]` tokens, matching the
+    // implementation's `caseAgainstBlock.split(/\s+/)` counting.
+    const fifteen =
+      "- **Case against:** Adding this button before another consumer asks risks premature scope and extra maintenance [anchor: bin/flow-plan-lint.ts]";
+    const fourteen =
+      "- **Case against:** Adding this button before another consumer asks risks premature scope and maintenance [anchor: bin/flow-plan-lint.ts]";
+    expect(
+      lintPlan(CONFORMING_PLAN.replace(CASE_AGAINST_LINE, fifteen)).misses.some(
+        (m) => m.includes("under 15 words"),
+      ),
+    ).toBe(false);
+    expect(
+      lintPlan(
+        CONFORMING_PLAN.replace(CASE_AGAINST_LINE, fourteen),
+      ).misses.some((m) => m.includes("under 15 words")),
     ).toBe(true);
   });
 
@@ -1518,6 +1563,12 @@ describe("run — CLI exit codes", () => {
     const designPath = path.join(dir, "design.md");
     writeFileSync(designPath, `# Epic design\n\n${VETTING_BLOCK}\n`);
     expect(run(["--design-md-file", designPath])).toBe(0);
+  });
+
+  it("--design-md-file exits 2 when the path cannot be read", () => {
+    const dir = tmpDir();
+    const missing = path.join(dir, "does-not-exist.md");
+    expect(run(["--design-md-file", missing])).toBe(2);
   });
 
   it("exits 2 (usage error) when both --plan-md-file and --design-md-file are given", () => {
