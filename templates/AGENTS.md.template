@@ -321,6 +321,40 @@ Conventions the agent follows (and a human editor should too):
   `.flow-tmp/design/` for the duration of one pipeline and never land in the
   repo — the committed foundation is the only durable artifact.
 
+### Product brief (`.flow/product.md`, optional)
+
+A repo may carry a committed `.flow/product.md` — a short, human-legible
+statement of what this repo's product manager optimizes for. It is not a
+roadmap and not a spec: it records the standing priorities that every plan,
+plan review, and explanation should be weighed against, so those decisions
+stop falling back to generic engineering defaults.
+
+Five sections, in this order: **Who the PM is** (a real person or role, not a
+persona), **Ranked priorities** (an explicit ordering — user experience, cost,
+architecture, product quality, whatever this product actually trades off),
+**What "good" looks like**, **Non-goals**, and **Vocabulary** (words to use
+and words to avoid).
+
+Conventions the agent follows (and a human editor should too):
+
+- **Human-maintained, committed.** Unlike the design foundation, the agent
+  does not write this file — it reads it. You own the priorities.
+- **Repo first, then user.** `.flow/product.md` in this repo wins; otherwise
+  `~/.flow/product.md` applies to every repo you own. No config key, no
+  environment override.
+- **Read it with `flow-product-brief`.** The helper prints one JSON line
+  (`{"found":true,"scope":"repo"|"user","path":"<abs>","text":"<contents>"}`
+  or `{"found":false}`) and always exits 0, so nothing needs a guard.
+- **No secrets, ever.** The file is committed and its full text is sent
+  verbatim to an external cross-model reviewer.
+- **Keep it short.** The text is quoted into prompts; it is capped at 4000
+  characters, and a brief that has to be truncated is one nobody is reading
+  either.
+- **Absent is normal.** With no brief in the repo and none in your home
+  directory, flow behaves exactly as it does without this feature — the
+  plan-review prompt is byte-identical and discovery changes nothing.
+  Deleting the file degrades the same way.
+
 ### Clean up spawned resources
 
 **Tear down every resource you spawn before you finish — never leave one

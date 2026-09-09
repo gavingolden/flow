@@ -119,6 +119,7 @@ import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { buildBatteryPrompt, extractGoalLine } from "./lib/plan-review-prompt";
+import { resolveProductBrief } from "./flow-product-brief";
 import { classifyEngagement } from "./lib/plan-review-engagement";
 import { resolveDelegateModel } from "./lib/delegate-models";
 import { godurToSec } from "./lib/delegate-timeouts";
@@ -556,6 +557,14 @@ export type Deps = {
   // True when `path` exists and is a directory. Backs the worktree gate
   // below; injectable like the other deps.
   dirExists: (path: string) => boolean;
+  // Resolves the repo's standing product brief for the given worktree, or
+  // null when none resolves. An IN-PROCESS import rather than a shell-out
+  // to the PATH binary: the symlink does not exist on a fresh checkout or
+  // in CI, and a subprocess there would silently skip the brief in exactly
+  // the environment that gates the merge. The "never a bin/lib import"
+  // rule is scoped to the SUBAGENT-facing prose sites, which run in the
+  // consumer worktree; this helper is flow's own.
+  readProductBrief: (worktree: string) => string | null;
   // True when `path` exists (file or directory) — used only to decide
   // whether a partial artifact is worth naming in a skip envelope.
   fileExists: (path: string) => boolean;
@@ -1143,6 +1152,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   }
 
   const depth = parsed.depth === "auto" ? computeDepth(plan) : parsed.depth;
+  const productBrief = deps.readProductBrief(parsed.worktree);
 
   try {
     deps.mkdirp(dirname(parsed.out));
@@ -1152,6 +1162,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
         planText: plan,
         goalLine: extractGoalLine(plan),
         worktreePath: parsed.worktree,
+        productBrief,
       }),
     );
   } catch {
@@ -1264,6 +1275,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
         goalLine: extractGoalLine(plan),
         sameFamilyAsAuthor: true,
         worktreePath: parsed.worktree,
+        productBrief,
       }),
     );
   } catch {
@@ -1461,6 +1473,12 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
     dirExists:
       o?.dirExists ?? ((p) => existsSync(p) && statSync(p).isDirectory()),
+    readProductBrief:
+      o?.readProductBrief ??
+      ((w) => {
+        const brief = resolveProductBrief({ cwd: w });
+        return brief.found ? brief.text : null;
+      }),
     fileExists: o?.fileExists ?? ((p) => existsSync(p)),
 
     spawnDetached:

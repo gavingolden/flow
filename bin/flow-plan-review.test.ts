@@ -231,6 +231,10 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     writeOut: (line) => calls.out.push(line),
     dirExists: () => true,
     fileExists: (p) => files.has(p),
+    // Default: no brief resolves. Never the real resolver — flow's own repo
+    // now ships a committed `.flow/product.md`, so an uninjected default
+    // would make every prompt assertion depend on that file's contents.
+    readProductBrief: () => null,
 
     spawnDetached: (argv) => {
       calls.spawnDetached.push(argv);
@@ -1907,5 +1911,56 @@ describe("run --check", () => {
       ran: false,
       skipReason: "plan-review-not-started",
     });
+  });
+});
+
+describe("run — product brief threading", () => {
+  const BRIEF = "# Brief\n\n## Ranked priorities\n\n1. cost and token spend\n";
+
+  it("threads the resolved brief verbatim into the reviewer-1 prompt", () => {
+    const deps = makeDeps({ readProductBrief: () => BRIEF });
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    const prompt = promptFor(deps);
+    expect(prompt).toContain("## Product brief");
+    expect(prompt).toContain("1. cost and token spend");
+  });
+
+  it("resolves the brief for the --worktree path, not the process cwd", () => {
+    const seen: string[] = [];
+    const deps = makeDeps({
+      readProductBrief: (w) => {
+        seen.push(w);
+        return null;
+      },
+    });
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    expect(seen).toContain(WORKTREE);
+  });
+
+  it("threads the brief into the deep tier's reviewer-2 prompt too", () => {
+    const deps = makeDeps({ readProductBrief: () => BRIEF });
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run([...BASE_ARGV, "--depth", "deep"], deps);
+    const r2 = deps.calls.writes.find((w) =>
+      w.path.endsWith(".prompt.r2"),
+    )?.contents;
+    expect(r2).toBeDefined();
+    expect(r2).toContain("## Product brief");
+    expect(r2).toContain("1. cost and token spend");
+  });
+
+  it("leaves the prompt byte-identical when no brief resolves", () => {
+    const withNull = makeDeps({ readProductBrief: () => null });
+    withNull.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, withNull);
+
+    const withEmpty = makeDeps({ readProductBrief: () => "" });
+    withEmpty.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, withEmpty);
+
+    expect(promptFor(withEmpty)).toBe(promptFor(withNull));
+    expect(promptFor(withNull)).not.toContain("## Product brief");
   });
 });
