@@ -1922,8 +1922,9 @@ phase names the step the run is actually inside:
 flow-state-update --phase reviewing
 ```
 
-`flow-fetch-pr-review` (from the review sub-skill's Step 2) still emits
-`reviewing` at this step's tail as an idempotent backstop — by then
+`flow-fetch-pr-review` (run by `flow-review-prep`, the review sub-skill's
+Step 2 setup call) still emits `reviewing` at this step's tail as an
+idempotent backstop — by then
 `advancePhase` returns `already-at-or-past`, so the backstop adds no
 duplicate `phaseLog[]` row. An inline metadata triage `skip`
 short-circuit (Step 1.5, closed/merged/trivial PR) bypasses Step 2's
@@ -1936,6 +1937,11 @@ Invoke `/flow-pr-review` in-process with the PR number:
 ```
 /flow-pr-review <PR>
 ```
+
+**Pre-review checkpoint arm (best-effort).** Once `/flow-pr-review` Step
+2's `flow-review-prep` payloads land under `.flow-tmp/` — never before,
+or a `/clear` in that window resumes without them, and before Step 3's
+lens fan-out — arm one: `[ "$(flow-checkpoint --probe --site pre-review | jq -r '.verdict')" = write ] && echo "Mid-review for PR <PR> — setup payloads on disk." > "$(flow-checkpoint --path)"; flow-checkpoint --site pre-review >/dev/null`. Writes no phase, ends no turn.
 
 Every entry — including fix-loop re-entries — is delta-scoped and
 lens-gated by `flow-review-scope` (`flow-pr-review`

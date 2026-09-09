@@ -9664,24 +9664,6 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
       anchor: "After every runnable item has been processed",
     },
     {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      siteName: "pr-review-redraft-description",
-      kind: "adjacent-lines",
-      anchor: "<updated description>",
-    },
-    {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      siteName: "pr-review-testability-extend",
-      kind: "adjacent-lines",
-      anchor: "<original description with test section extended or added>",
-    },
-    {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      siteName: "pr-review-automatable-prune",
-      kind: "same-paragraph",
-      anchor: "prune the converted bullet",
-    },
-    {
       file: "skills/pipeline/flow-new-feature/SKILL.md",
       siteName: "new-feature-overflow-note",
       kind: "same-paragraph",
@@ -9747,14 +9729,11 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
     },
   );
 
-  it("covers exactly the seven known gh pr edit --body-file recipe sites, by name", () => {
+  it("covers exactly the four known gh pr edit --body-file recipe sites, by name", () => {
     expect(BODY_EDIT_SITES.map((s) => s.siteName)).toEqual([
       "pipeline-ui-smoke-note",
       "pipeline-verify-exhausted-caution",
       "pr-review-evidence-injection",
-      "pr-review-redraft-description",
-      "pr-review-testability-extend",
-      "pr-review-automatable-prune",
       "new-feature-overflow-note",
     ]);
   });
@@ -10743,6 +10722,83 @@ describe("discovery deliberation wiring", () => {
     );
     expect(template).toContain("deliberated (");
     expect(template).toContain("Deliberation step");
+  });
+});
+
+describe("flow-review-finalize's documented invocation actually parses", () => {
+  // PR #829's review caught this fence exiting 2 before doing any work: it
+  // passed `--widened`, which the parser had no case for, and glued each
+  // `--lens-tokens` pair into one argv word via `"${ARR[@]/#/PREFIX }"`.
+  // Because the batching made this the review phase's ONE wrap-up call, a
+  // parse failure silently skips the body upsert, telemetry, the result
+  // artifact and the `pr-review-last-sha` marker — and nothing in the recipe
+  // checked the exit code. Every test passed the whole time, because nothing
+  // tested the recipe's argv against the parser. This does.
+  const FENCE_ANCHOR = "flow-review-finalize --pr";
+
+  function finalizeFence(): string {
+    const start = prReviewContent.indexOf(FENCE_ANCHOR);
+    expect(
+      start,
+      `flow-pr-review/SKILL.md must document a '${FENCE_ANCHOR}' invocation`,
+    ).toBeGreaterThan(-1);
+    const end = prReviewContent.indexOf("```", start);
+    return prReviewContent.slice(start, end === -1 ? start + 2000 : end);
+  }
+
+  it("passes only flags flow-review-finalize's parser accepts", () => {
+    const parserSrc = fs.readFileSync(
+      path.resolve(HERE, "..", "bin", "flow-review-finalize.ts"),
+      "utf8",
+    );
+    const accepted = new Set(
+      (parserSrc.match(/case "(--[a-z-]+)"/g) ?? []).map((m) => m.slice(6, -1)),
+    );
+    expect(
+      accepted.size,
+      "parser cases should be discoverable",
+    ).toBeGreaterThan(5);
+    const used = [...new Set(finalizeFence().match(/--[a-z][a-z-]+/g) ?? [])];
+    const unknown = used.filter((f) => !accepted.has(f));
+    expect(
+      unknown,
+      `flow-pr-review/SKILL.md's flow-review-finalize fence passes flag(s) ` +
+        `${unknown.join(", ")} that bin/flow-review-finalize.ts's parseArgs ` +
+        `has no case for. parseArgs returns exit 2 on an unknown flag, and ` +
+        `this is the review phase's single wrap-up call — so the body upsert, ` +
+        `telemetry, result artifact and pr-review-last-sha marker would all ` +
+        `silently not happen.`,
+    ).toEqual([]);
+  });
+
+  it('builds every conditional argument as an array, never a `${VAR:+--flag "$VAR"}` expansion', () => {
+    // `${VAR:+--flag "$VAR"}` expands to TWO words under bash but exactly ONE
+    // under zsh, which does not word-split unquoted expansions. The
+    // supervisor's shell is zsh, so the conditional-flag form passes
+    // `--widened <reason>` as a single argv word and parseArgs rejects it —
+    // a bash-only reading of the recipe cannot see this.
+    const fence = finalizeFence();
+    const conditionalFlag = /\$\{[A-Z_]+:\+\s*--[a-z-]+/;
+    expect(
+      conditionalFlag.test(fence),
+      `flow-pr-review/SKILL.md's flow-review-finalize fence builds a flag with ` +
+        `a \${VAR:+--flag "$VAR"} conditional expansion. That yields two argv ` +
+        `words under bash but ONE under zsh (which does not word-split ` +
+        `unquoted expansions), so the flag and its value arrive glued together ` +
+        `and parseArgs exits 2. Build an array instead: ` +
+        `ARGS=(); [ -n "$VAR" ] && ARGS=(--flag "$VAR"); then pass "\${ARGS[@]}".`,
+    ).toBe(false);
+  });
+
+  it("checks the helper's exit code rather than firing blind", () => {
+    const start = prReviewContent.indexOf(FENCE_ANCHOR);
+    const window = prReviewContent.slice(start, start + 1200);
+    expect(
+      /RC=\$\?/.test(window) && /RC/.test(window),
+      `flow-pr-review/SKILL.md's flow-review-finalize fence must capture and ` +
+        `check the helper's exit code — an unnoticed non-zero exit silently ` +
+        `skips the entire review wrap-up.`,
+    ).toBe(true);
   });
 });
 

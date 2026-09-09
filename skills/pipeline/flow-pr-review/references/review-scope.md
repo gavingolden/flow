@@ -15,23 +15,27 @@ equivalent CLI overrides).
 
 ## Resolve scope and gates (Step 3 preparation)
 
-Run AFTER item 4's static-analysis pre-digest (the gate rules read its
-`dependencies`/`security` signals for the never-skip-on-signal
-overrides). The supply-chain lens stays on for any of three triggers: a
-changed manifest/lockfile, a static-analysis npm-audit `dependencies`
-signal, or a new bare-specifier import added in the reviewed diff.
+`flow-review-prep` already ran `flow-review-scope` for you as part of the
+review phase's single setup call (Step 2) — do NOT run it again here. The
+gate rules it applied read the static-analysis pre-digest's
+`dependencies`/`security` signals for the never-skip-on-signal overrides.
+The supply-chain lens stays on for any of three triggers: a changed
+manifest/lockfile, a static-analysis npm-audit `dependencies` signal, or a
+new bare-specifier import added in the reviewed diff.
+
+Read the results `flow-review-scope` already wrote:
 
 ```bash
-flow-review-scope --pr "$PR_NUMBER" --worktree "$WORKTREE" \
-  --static-analysis "$WORKTREE/.flow-tmp/static-analysis.json" \
-  ${FORCE_FULL:+--force-full}
 SCOPE_KIND=$(jq -r .scope "$WORKTREE/.flow-tmp/review-scope.json")
 GATED_LENSES=$(jq -r '.gates | to_entries[] | select(.value.run==false) | .key' "$WORKTREE/.flow-tmp/review-scope.json")
 DELTA_FILES=$(jq -r '.delta_files[]' "$WORKTREE/.flow-tmp/review-scope.json")
 ```
 
-Echo every `NOTICE — review-scope:` / `NOTICE — lens-gated:` line the
-helper printed to stdout — these are the user-visible cost signals.
+(`SUMMARY`'s `.scope`, `.gated_lenses`, and `.delta_files` fields are the
+same data, already parsed — either source works.) `flow-review-prep`
+already captured every `NOTICE — review-scope:` / `NOTICE — lens-gated:`
+line the helper printed, under `SUMMARY`'s `.notices` — these are the
+user-visible cost signals; echo them from there.
 
 `DIFF_PATH="$WORKTREE/.flow-tmp/diff.txt"` is now the file
 `flow-review-scope` wrote (full or delta, capped). Step 3.5 and the
@@ -80,8 +84,7 @@ delta pass plus the full pass. A lens whose notification carries no
 `subagent_tokens` is simply omitted from `LENS_TOKENS`; the Step-12
 collector falls back to the subagent transcript for that lens.
 
-At Step 12, build the `--lens-tokens` flags as a proper array before
-calling `flow-review-telemetry collect` — quoted
+Build the `--lens-tokens` flags as a proper array — quoted
 `"${LENS_TOKENS[@]/#/--lens-tokens }"` glues each `--lens-tokens
 <lens>=<n>` pair into ONE argv word, which `parseArgs` rejects with
 exit 2:
@@ -89,10 +92,15 @@ exit 2:
 ```bash
 LENS_TOKEN_ARGS=()
 for t in "${LENS_TOKENS[@]}"; do LENS_TOKEN_ARGS+=(--lens-tokens "$t"); done
-flow-review-telemetry collect --worktree "$WORKTREE" --pr "$PR_NUMBER" \
-  --session-id "$CLAUDE_CODE_SESSION_ID" "${LENS_TOKEN_ARGS[@]}" --append \
-  ${WIDEN_REASON:+--widened "$WIDEN_REASON"}
 ```
+
+Step 12 no longer calls `flow-review-telemetry collect` directly — that call, the
+body upsert, and the result-artifact write are folded into the single
+`flow-review-finalize` call (`SKILL.md` "The mechanical wrap-up runs once, here"),
+which forwards `LENS_TOKEN_ARGS` (unquoted-element expansion, `"${LENS_TOKEN_ARGS[@]}"`)
+and `${WIDEN_REASON:+--widened "$WIDEN_REASON"}` to `flow-review-telemetry collect`
+internally. `LENS_TOKEN_ARGS` and `WIDEN_REASON`/`WIDENED` built here are the values
+Step 12 passes straight through to that call.
 
 ## Widen (consolidator authority, once)
 

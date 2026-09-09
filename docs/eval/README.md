@@ -17,6 +17,14 @@ running four committed suites, split by what each measures:
   separately, by `bin/lib/phase-advance.test.ts` and each helper's own
   unit spec.
 
+Alongside the suites, `docs/eval/review-cost-baseline.md` records the
+measured **review-phase cost before-state** — the supervisor's own turn
+count, per-turn context and API-equivalent spend inside `/flow-pr-review`,
+plus the phase-boundary context floors that decide whether any
+auto-compact window is safe. It is committed because the audit script
+reads a rolling 30-day window, so the "before" arm stops being
+reproducible once a cost change lands.
+
 `bin/flow-eval.ts` is never installed onto a user's PATH (see
 `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow
 checkout.
@@ -97,7 +105,14 @@ per-run count), `--concurrency <n>` (bounded worker pool across every
 doubles each `(scenario, run)` into a with/without pair, and the pool is
 sized against the flattened job list, not the scenario count; default 1),
 `--threshold <0..1>` (exit 1 when a suite's score misses it),
-`--claude-bin <path>`, `--ablation <none|with-without>` (default `none`).
+`--claude-bin <path>`, `--ablation <none|with-without>` (default `none`),
+`--autocompact <auto|100k..1M>` (sets the child session's auto-compact
+window — use it to measure whether a supervisor still behaves correctly
+after its own instructions get summarised). An arm run with
+`--autocompact` carries a different `childArgvDigest` from a no-flag arm,
+so `compare` will warn that the two reports came from differently-shaped
+children — that warning is correct and expected for an arm comparison,
+not a defect to suppress.
 
 Named skip reasons (exit 0, one-line stderr notice, a `skipped` report
 still written): `claude-not-on-path`, `claude-not-authenticated`,
