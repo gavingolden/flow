@@ -7,8 +7,9 @@
  *
  * - `validateAgentFindings(parsed)` — validates a single per-agent JSON
  *   output written to `<worktree>/.flow-tmp/agent-output-<lens>.json` by
- *   one of the six review agents (bug-detection, security,
- *   pattern-consistency, performance, supply-chain, test-coverage). The
+ *   one of the six mandatory review agents (bug-detection, security,
+ *   pattern-consistency, performance, supply-chain, test-coverage) plus
+ *   the optional gemini and product lenses. The
  *   input must be a JSON object with shape `{findings: Array<Finding>}`
  *   where each finding has the documented shape from
  *   `skills/pipeline/flow-pr-review/references/agent-prompts.md` (`file`,
@@ -22,7 +23,7 @@
  *   `dropped_by_validation`, `rejected_alternatives`,
  *   `anti_patterns_found`, `summary` — plus three OPTIONAL pass-through
  *   keys carrying the per-lens negative findings the consolidator collects
- *   from the six review agents (and the optional cross-model Gemini lens):
+ *   from the six review agents (and the optional gemini and product lenses):
  *   `lens_rejected_alternatives`, `lens_anti_patterns_found`,
  *   `lens_negatives_missing`. An absent optional key is valid; a present
  *   one is validated per-entry.
@@ -86,7 +87,8 @@ export type { LensRejectedAlternative, LensAntiPattern };
 export type NegativeSlotState = "populated" | "empty" | "absent";
 
 // A per-lens negative entry once the consolidator tags it with its source
-// lens (the six kebab-case review-agent names, or "gemini").
+// lens (the six kebab-case review-agent names, plus the optional gemini and
+// product lenses).
 export type LensNegativeEntry<T> = T & { lens: string };
 
 export type DroppedFinding = {
@@ -602,8 +604,8 @@ export function validateConsolidatorResult(
   return { ok: true, value: parsed as ConsolidatorResult };
 }
 
-// The six canonical kebab-case review-agent names plus the optional
-// cross-model Gemini lens, matching agent-prompts.md and
+// The six canonical kebab-case review-agent names plus the optional gemini
+// and product lenses, matching agent-prompts.md and
 // flow-consolidator-instructions/SKILL.md.
 const CANONICAL_LENSES = [
   "bug-detection",
@@ -613,7 +615,7 @@ const CANONICAL_LENSES = [
   "supply-chain",
   "test-coverage",
 ] as const;
-const OPTIONAL_LENSES = ["gemini"] as const;
+export const OPTIONAL_LENS_NAMES = ["gemini", "product"] as const;
 
 export type CollectedLensNegatives = {
   lens_rejected_alternatives: LensNegativeEntry<LensRejectedAlternative>[];
@@ -625,7 +627,7 @@ export type CollectedLensNegatives = {
 // (node:fs) directory scanners below.
 export const ALL_LENS_NAMES: readonly string[] = [
   ...CANONICAL_LENSES,
-  ...OPTIONAL_LENSES,
+  ...OPTIONAL_LENS_NAMES,
 ];
 
 function accumulateLensFile(
@@ -662,7 +664,7 @@ function accumulateLensFile(
 /**
  * Deterministic replacement for the consolidator's hand-copy step (b):
  * scans `dir` for `agent-output-<lens>.json` over the six canonical lenses
- * plus the optional `gemini` lens, normalizes and lens-tags each entry via
+ * plus the optional `gemini` and `product` lenses, normalizes and lens-tags each entry via
  * `collectLensNegatives`, and returns the three lens_* arrays ready to
  * embed verbatim into the consolidator's artifact.
  *

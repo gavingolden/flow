@@ -299,9 +299,10 @@ REVISION: <n>
   discovery-instructions.md "Revision pass mode": read the existing plan.md
   first, update in place, preserve untouched sections and the embedded
   `### Cross-model review (AGY)` subsection + `<!-- flow-plan-review-hash: <sha> -->`
-  marker verbatim, do NOT re-run Step 1.5 research when findings already exist,
-  and extend `## Open Questions` with the redirect's questions (marking prior
-  ones resolved with a decision note).
+  marker verbatim, keep the `### Product critique (blind)` subsection under
+  `## Open Questions` verbatim, do NOT re-run Step 1.5 research when findings
+  already exist, and extend `## Open Questions` with the redirect's questions
+  (marking prior ones resolved with a decision note).
 ```
 
 When the caller passed **no** marker, substitute the **empty string** — omit

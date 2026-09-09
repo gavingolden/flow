@@ -307,6 +307,12 @@ Otherwise, for each inline comment:
    in your return summary is helpful for human-debugging but not
    load-bearing — the artifact is the contract.
 
+A finding whose `subject` starts with `[test-steps]` (the product lens's
+PR-body concerns) is addressed by editing the PR body's `## Test Steps`
+section (`gh pr view --json body` -> edit -> `flow-md-validate
+--fix-pr-body` -> `gh pr edit --body-file`), NEVER by editing source; its
+file/line anchor is for inline-comment placement only.
+
 Push back on incorrect comments. The reply body the wrapper posts at
 step 9 is composed from the `reasoning` field of the matching
 `commits[]` entry (with `rejected suggestion:` prefix) — that text is

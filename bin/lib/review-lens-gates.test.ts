@@ -5,6 +5,7 @@ import {
   evaluateGates,
   hasNewBareImports,
   isDocsOnly,
+  OPTIONAL_LENSES,
 } from "./review-lens-gates";
 
 const EMPTY_ANALYSIS: AnalysisResult = {
@@ -123,14 +124,52 @@ describe("evaluateGates", () => {
     expect(gates.security.run).toBe(true);
   });
 
-  it("returns run:true reason 'gates disabled' for every lens when enabled:false", () => {
+  it("returns run:true reason 'gates disabled' for every lens when enabled:false, except optional lenses (gated on a precondition, never on `enabled`)", () => {
     const gates = evaluateGates(["docs/foo.md"], { enabled: false });
     for (const name of Object.keys(AGENT_LENS_MAP)) {
+      if ((OPTIONAL_LENSES as readonly string[]).includes(name)) continue;
       expect(gates[name as keyof typeof gates]).toEqual({
         run: true,
         reason: "gates disabled",
       });
     }
+  });
+
+  it("gates the product lens on brief presence, run true only when a brief resolved", () => {
+    const found = evaluateGates(["src/foo.ts"], {
+      enabled: true,
+      productBrief: { found: true, scope: "repo" },
+    });
+    expect(found.product).toEqual({
+      run: true,
+      reason: "product brief resolved (repo)",
+    });
+
+    const absent = evaluateGates(["src/foo.ts"], {
+      enabled: true,
+      productBrief: { found: false },
+    });
+    expect(absent.product).toEqual({
+      run: false,
+      reason: "no product brief resolved",
+    });
+
+    const noOpt = evaluateGates(["src/foo.ts"], { enabled: true });
+    expect(noOpt.product).toEqual({
+      run: false,
+      reason: "no product brief resolved",
+    });
+  });
+
+  it("keeps the product lens off under enabled:false + brief absent, never fabricating 'gates disabled'", () => {
+    const gates = evaluateGates(["docs/foo.md"], {
+      enabled: false,
+      productBrief: { found: false },
+    });
+    expect(gates.product).toEqual({
+      run: false,
+      reason: "no product brief resolved",
+    });
   });
 
   it("treats an empty file list as NOT docs-only so no lens is gated by the docs rule", () => {

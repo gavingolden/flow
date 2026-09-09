@@ -21,9 +21,11 @@ openers — it is not duplicated here.
 ## `/flow-pr-review` Independent Multi-Agent Review
 
 `/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
-Multi-Agent Review" step, up to six review agents — content-gated by
+Multi-Agent Review" step, up to seven review agents — six content-gated by
 `flow-review-scope` against the changed-file set and static-analysis
-signals (see `flow-pr-review` `references/review-scope.md`) — PLUS one
+signals (see `flow-pr-review` `references/review-scope.md`), the seventh
+(`product`) gated on a product brief resolving and tolerated-absent
+downstream — PLUS one
 diff-only intent-guess agent (skipped on a delta re-entry with a prior
 `intent-resolution.json`) are spawned in parallel, in the same fan-out
 message, via the Task tool; the fan-out is re-fanned at most once per
@@ -44,7 +46,7 @@ flow-module-core:flow-review-intent-guess` (`agents/flow-review-intent-guess.md`
 tools allowlist plus the blindness contract — no PR title/body/plan/
 commit messages in its context, diff + file list only), resolved via
 the same two-tier file-exists-guard-with-fallback pattern. The fan-out itself
-emits no consolidated artifact — each of the six lens agents persists
+emits no consolidated artifact — each lens agent persists
 its own `$WORKTREE/.flow-tmp/agent-output-<lens>.json`, typed fields
 `findings`, `rejected_alternatives`, `anti_patterns_found`, and the
 intent-guess agent persists `$WORKTREE/.flow-tmp/intent-guess.json`
@@ -76,6 +78,18 @@ deliberately carries no `tools:` allowlist — discovery's research and
 design-artifact passes span Bash, `WebFetch`, MCP, and multimodal `Read`
 surfaces a fixed allowlist would silently break — so it inherits every
 tool the session has.
+
+**Blind product critic (brief-gated, same exemption).** When a product
+brief resolves (`flow-product-brief`'s `.found`) and `.flow-tmp/product-critique.md`
+is absent or stale, `/flow-pipeline` step 3's supervisor spawns one
+`agents/flow-product-critic.md` agent via the Task tool AFTER the
+`/flow-product-planning` wrapper returns — not from inside the wrapper, so
+the wrapper's exactly-one-Task-call invariant above is untouched. Tools:
+Read, Write only — it is blind to repository code, arguing the plan
+against the brief alone. Artifact: `.flow-tmp/product-critique.md`,
+reconciled in place by the supervisor into plan.md's `### Product critique
+(blind)` subsection under `## Open Questions`. Same exemption as the
+Discovery Subagent above, no nesting, no new Task-tool exemption.
 
 ## `/flow-new-feature` Independent Scout Subagent
 

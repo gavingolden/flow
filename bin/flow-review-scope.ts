@@ -6,7 +6,12 @@
  * lenses so the consolidator's six-mandatory-artifact contract stays
  * intact, and writes `review-scope.json` (its `started_at` doubles as the
  * telemetry attribution window). Prints `NOTICE — review-scope:` /
- * `NOTICE — lens-gated:` lines the wrapper echoes verbatim.
+ * `NOTICE — lens-gated:` lines the wrapper echoes verbatim. Optional lenses
+ * (`bin/lib/review-lens-gates.ts`'s `OPTIONAL_LENSES`) are gated on a
+ * precondition, never content: no synthetic artifact is written for them
+ * and no `lens-gated` notice fires when they're off, so a repo missing the
+ * precondition (e.g. no product brief) stays byte-identical to before the
+ * optional lens existed.
  *
  * Delta scoping requires: a prior marker SHA, that marker an ancestor of
  * HEAD, the prior review clean, delta scope enabled, no forced-full, and
@@ -31,9 +36,11 @@ import { capDiff, DEFAULT_MAX_LINES, DEFAULT_MAX_TOTAL } from "./flow-pr-diff";
 import {
   evaluateGates,
   hasNewBareImports,
+  OPTIONAL_LENSES,
   type GateVerdict,
 } from "./lib/review-lens-gates";
 import type { AnalysisResult } from "./flow-pr-static-analysis/types";
+import { resolveProductBrief, type ProductBrief } from "./flow-product-brief";
 
 export const DELTA_RATIO_THRESHOLD = 0.75;
 
@@ -51,6 +58,9 @@ export type ReviewScope = {
   gates_enabled: boolean;
   delta_enabled: boolean;
   forced_full: boolean;
+  product_brief:
+    | { found: true; scope: "repo" | "user"; path: string }
+    | { found: false };
 };
 
 export function resolveScope(input: {
@@ -150,9 +160,15 @@ export function renderNotices(scope: ReviewScope): string[] {
     );
   }
   for (const [lens, verdict] of Object.entries(scope.gates)) {
+    if ((OPTIONAL_LENSES as readonly string[]).includes(lens)) continue;
     if (!verdict.run) {
       notices.push(`NOTICE — lens-gated: ${lens} skipped (${verdict.reason})`);
     }
+  }
+  if (scope.gates.product?.run && scope.product_brief.found) {
+    notices.push(
+      `NOTICE — product-lens: on (brief: ${scope.product_brief.scope})`,
+    );
   }
   return notices;
 }
@@ -172,6 +188,7 @@ export type RunDeps = {
   writeFile: (p: string, content: string) => void;
   now: () => Date;
   homeDir: string;
+  productBrief: (cwd: string) => ProductBrief;
 };
 
 export type ParsedArgs =
@@ -282,7 +299,7 @@ function countLines(diff: string): number {
 function readTolerantBool(
   readFile: (p: string) => string | null,
   configPath: string,
-  key: "lensGates" | "deltaScope",
+  key: "lensGates" | "deltaScope" | "product",
 ): boolean {
   const raw = readFile(configPath);
   if (raw === null) return true;
@@ -319,6 +336,11 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     deps.readFile,
     configPath,
     "deltaScope",
+  );
+  const productEnabledByConfig = readTolerantBool(
+    deps.readFile,
+    configPath,
+    "product",
   );
   const gatesEnabled = !parsed.noGates && gatesEnabledByConfig;
   const deltaEnabled = deltaEnabledByConfig;
@@ -440,11 +462,20 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
   const diffRaw = resolved.scope === "delta" ? deltaDiffRaw : fullDiffRaw;
   const newBareImports = hasNewBareImports(diffRaw);
 
+  const productBrief = deps.productBrief(worktree);
+
   const gates = evaluateGates(scopeFiles, {
     enabled: gatesEnabled,
     staticAnalysis,
     newBareImports,
+    productBrief,
   });
+  // `review.product: false` is a config kill switch, distinct from "no
+  // brief resolved" — it must never emit a `lens-gated` notice (optional
+  // lenses never do) and must win over a brief that DID resolve.
+  if (!productEnabledByConfig) {
+    gates.product = { run: false, reason: "review.product=false" };
+  }
 
   const scope: ReviewScope = {
     version: 1,
@@ -460,6 +491,9 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     gates_enabled: gatesEnabled,
     delta_enabled: deltaEnabled,
     forced_full: parsed.forceFull,
+    product_brief: productBrief.found
+      ? { found: true, scope: productBrief.scope, path: productBrief.path }
+      : { found: false },
   };
 
   const cappedDiff = capDiff(
@@ -473,6 +507,7 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
   atomicWrite(deps, diffOutPath, cappedDiff);
 
   for (const [lens, verdict] of Object.entries(gates)) {
+    if ((OPTIONAL_LENSES as readonly string[]).includes(lens)) continue;
     if (!verdict.run) {
       const artifactPath = path.join(
         worktree,
@@ -530,6 +565,7 @@ const defaultDeps: RunDeps = {
   },
   now: () => new Date(),
   homeDir: os.homedir(),
+  productBrief: (cwd) => resolveProductBrief({ cwd }),
 };
 
 if (import.meta.main) {
