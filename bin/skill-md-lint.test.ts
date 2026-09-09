@@ -12,7 +12,7 @@ import {
   PHASE_EMITTERS,
   TERMINAL_PHASE_EMITTERS,
 } from "./lib/phase-advance";
-import { SURVEY_VERDICTS } from "./flow-step3-route";
+import { SURVEY_VERDICTS, VETTING_VERDICTS } from "./flow-step3-route";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -470,6 +470,18 @@ describe("flow-pipeline SKILL.md structural lint", () => {
   it("ships exactly 13 numbered step headings (0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 11)", () => {
     const headings = findStepHeadings(content.split("\n"));
     expect(headings.length).toBe(13);
+  });
+
+  it("step 3 documents ## Request vetting rendering and routing", () => {
+    for (const phrase of ["## Request vetting", "Vetting:", "push back"]) {
+      expect(
+        content.includes(phrase),
+        `SKILL.md step 3 must reference '${phrase}' — the plan-summary ` +
+          "Vetting: line, the cross-model reconciliation append, and the " +
+          "non-feature push-back route all depend on this phrase staying " +
+          "anchored in the doc.",
+      ).toBe(true);
+    }
   });
 
   it.each([
@@ -3013,6 +3025,20 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
     },
   );
 
+  it.each(VETTING_VERDICTS)(
+    "the vetting-verdict enum value '%s' and the '- **Verdict:**' label appear in discovery-instructions.md",
+    (verdict) => {
+      expect(
+        discoveryInstructionsContent.includes(verdict),
+        `discovery-instructions.md must contain the verbatim vetting-verdict enum value '${verdict}'.`,
+      ).toBe(true);
+      expect(
+        discoveryInstructionsContent.includes("- **Verdict:**"),
+        "discovery-instructions.md must contain the '- **Verdict:**' label.",
+      ).toBe(true);
+    },
+  );
+
   it("prd-template.md's verdict line is exactly the code enum", () => {
     expect(prdTemplateContent).toContain(
       `- **Survey verdict:** ${SURVEY_VERDICTS.join(" | ")}`,
@@ -4122,6 +4148,7 @@ describe("Plan-artifact section anchors (discovery-instructions.md ↔ prd-templ
     "**Lost:**",
     "## Alternatives considered",
     "## Cut list",
+    "## Request vetting",
   ];
   const MIRROR_SITES: Array<[string, string]> = [
     ["discovery-instructions.md", discoveryInstructionsContent],
@@ -4389,6 +4416,7 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
     "## Recommendation",
     "## Plan risks",
     "## Decision analysis",
+    "## Request vetting",
     "Reject — do nothing",
     "discovery-playbook.md",
     "**Goal:**",
@@ -4420,6 +4448,26 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
         "feature file's counterparts and cross-link to it as the port source. Severing " +
         "the cross-link orphans the ported discipline; restore the reference or update " +
         "this lint in the same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("flow-epic-create/SKILL.md Step 4 invokes flow-plan-lint --design-md-file by bare PATH name", () => {
+    const epicCreateSkillMdPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-epic-create",
+      "SKILL.md",
+    );
+    const c = fs.readFileSync(epicCreateSkillMdPath, "utf8");
+    expect(
+      c.includes("flow-plan-lint --design-md-file"),
+      "skills/pipeline/flow-epic-create/SKILL.md Step 4 must invoke " +
+        "'flow-plan-lint --design-md-file' by bare PATH name (never a bin/lib " +
+        "import) as a third validator alongside flow-epic-manifest-schema and " +
+        "flow-epic-dag, running the epic-grain '## Request vetting' check " +
+        "against design.md.",
     ).toBe(true);
   });
 });
@@ -5120,12 +5168,17 @@ describe("pr-review include-by-reference structure", () => {
     // above survive the merge. `main`'s higher ceiling is kept — the
     // merged file lands at 3019 lines after `main`'s verify-loop diet, so
     // 3115 clears it and no third number is invented.
+    // Request-vetting note: PR #812's Task 8 (`## Request vetting`
+    // rendering + non-feature push-back routing + the FOUR-hashed-inputs
+    // doc update) added genuine step-3 prose, landing the file at 3127
+    // lines — the ceiling moves to 3140 (13 lines of genuine headroom),
+    // the same discipline as above.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3115 lines. Material regrowth past this ceiling would ` +
+        `budget of 3140 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3115);
+    ).toBeLessThan(3140);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -8891,6 +8944,7 @@ describe("pause-output contract wiring lint", () => {
       "`Candidates:`",
       "`Top assumptions:`",
       "`Research:`",
+      "`Vetting verdict:`",
     ];
     const sites = [
       "skills/pipeline/flow-product-planning/SKILL.md",

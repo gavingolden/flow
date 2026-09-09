@@ -102,6 +102,15 @@ describe("countLensesEngaged — case-insensitivity and dedup", () => {
       "The preference conflicts with the plan. This preference issue recurs throughout.";
     expect(countLensesEngaged(prose)).toBe(1);
   });
+
+  it("counts a reviewer that argues the adversarial-premise lens", () => {
+    const prose =
+      "Reviewing the adversarial premise and the cut list, nothing else stands out here.";
+    expect(countLensesEngaged(prose)).toBe(2);
+    const result = classifyEngagement(prose);
+    expect(result.engaged).toBe(true);
+    expect(result.lensesEngaged).toBe(2);
+  });
 });
 
 describe("MIN_LENSES_ENGAGED / SUBSTANCE_FLOOR_CHARS constants", () => {
@@ -131,6 +140,7 @@ describe("battery-prompt / matcher parity", () => {
     "**Structurally-different alternatives.**",
     "**Failure-modes battery.**",
     "**Independent cut list.**",
+    "**Adversarial premise.**",
   ];
 
   it.each(LENS_HEADINGS)(
@@ -152,8 +162,19 @@ describe("battery-prompt / matcher parity", () => {
   );
 
   // Also catches two headings collapsing onto the same matcher: if that
-  // happened, the concatenation would engage fewer than 6 distinct lenses.
-  it("all 6 authored headings together engage all 6 real lenses", () => {
-    expect(countLensesEngaged(LENS_HEADINGS.join("\n"))).toBe(6);
+  // happened, the concatenation would engage fewer than 7 distinct lenses.
+  it("all 7 authored headings together engage all 7 real lenses", () => {
+    expect(countLensesEngaged(LENS_HEADINGS.join("\n"))).toBe(7);
+  });
+
+  // The `chosen approach` half of the adversarial-premise matcher is
+  // documented (bin/lib/plan-review-engagement.ts) to be able to misfire on
+  // ordinary reviewer prose that never touches the lens at all — this test
+  // pins that known false-positive so a future tightening of the regex is a
+  // deliberate, visible decision rather than a silent behavior change.
+  it("'chosen approach' alone (no adversarial-premise framing) still engages the lens — known false-positive risk", () => {
+    expect(
+      countLensesEngaged("The chosen approach works well for the common case."),
+    ).toBe(1);
   });
 });

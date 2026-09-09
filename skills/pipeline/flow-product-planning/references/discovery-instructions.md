@@ -160,7 +160,7 @@ The cache key is the **normalized** sharp question (lowercase / trim / collapse-
 
 When you take the live path (cache miss), build the manifest and run the fan-out:
 
-1. Build a small manifest JSON file: a GATHER entry on the resolved gather model `$RESEARCH_MODEL` (default `"Gemini 3.1 Pro (High)"`; agy has native Google web search — instruct it to return cited source URLs) asking your sharp question, plus an adversarial REFUTE entry on the resolved `$RESEARCH_REFUTE_MODEL` (default `"Claude Opus 4.6 (Thinking)"`; the cross-model guard in (a) keeps it a **different** variant from gather — the pinned alternates are `"Claude Opus 4.6 (Thinking)"` and `"GPT-OSS 120B (Medium)"`) that checks the gathered claim. Each entry's shape is `{ "task": "...", "model": "...", "prompt": "...", "timeout": "..." }` — **set every entry's `model` to the resolved gather/refute variant and every entry's `timeout` to the resolved `$RESEARCH_TIMEOUT` (default `"3m"`)** (see the rationale below).
+1. Build a small manifest JSON file with THREE entries: a GATHER entry on the resolved gather model `$RESEARCH_MODEL` (default `"Gemini 3.1 Pro (High)"`; agy has native Google web search — instruct it to return cited source URLs) asking your sharp question; an adversarial REFUTE entry on the resolved `$RESEARCH_REFUTE_MODEL` (default `"Claude Opus 4.6 (Thinking)"`; the cross-model guard in (a) keeps it a **different** variant from gather — the pinned alternates are `"Claude Opus 4.6 (Thinking)"` and `"GPT-OSS 120B (Medium)"`) that checks the gathered claim; and a third `refute-approach` entry, also on `$RESEARCH_REFUTE_MODEL`, prompted to find evidence that the user's CHOSEN APPROACH (not just the gathered claim) fails or is worse than the obvious alternative — its artifact feeds the `## Request vetting` `- **Case against:**` line (see the "Request vetting" sub-section, step 5) as a bonus grounding source on top of in-repo anchors. Each entry's shape is `{ "task": "...", "model": "...", "prompt": "...", "timeout": "..." }` — **set every entry's `model` to the resolved gather/refute variant and every entry's `timeout` to the resolved `$RESEARCH_TIMEOUT` (default `"3m"`)** (see the rationale below). Three entries at `--concurrency 4` still fit in ONE wave, so the runtime-ceiling arithmetic below is unaffected.
 2. Run: `flow-delegate-fanout --manifest <file> --max-calls "$RESEARCH_MAX_CALLS" --concurrency 4 --out <out.json> --default-entry-timeout "$RESEARCH_TIMEOUT"` (`$RESEARCH_MAX_CALLS` defaults to `12`; `$RESEARCH_TIMEOUT` defaults to `3m`; `--concurrency` stays pinned at `4`).
 3. **The fan-out's own result is the agy-availability check — no separate probe.** If the aggregate is `allSkipped: true` (every entry `ran: false` with `skipReason: agy-not-found` / `agy-not-authenticated`), agy is unavailable: take the graceful skip in (e). Otherwise read the per-entry artifacts under `<out-dir>/artifacts/` and synthesize the report yourself (d).
 
@@ -431,6 +431,7 @@ Categories worth examining (use them as a checklist, not a question list):
 | **Trade-offs**             | Would a simplification be acceptable for v1? If the request is framed as a binary A-or-B choice, is there a middle-ground option? When a trade-off hinges on a consequential decision whose branches genuinely diverge, simulate it in the "Decision analysis" sub-section (step 5).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | **Necessity & redundancy** | Is this request necessary at all? Could doing nothing, or an existing capability the user has overlooked, serve them just as well? Treat "reject — do nothing" as a legitimate verdict to weigh, not a non-answer; the user invited the feature, but inviting it is not the same as needing it. Framing lens: **first-principles** — strip inherited constraints to what is necessarily true (see discovery-playbook.md, internal-only). **Redundancy obligation:** explicitly check the request for duplication against an existing capability (a skill, a helper, a config surface, or a prior feature) and either cite the specific capability or state "no duplication found"; a found duplication routes into the `## Recommendation` verdict (`Reconsider scope` or `Reject — do nothing`) and/or the `### Alternatives considered` sub-section. |
 | **Premise check**          | Is the request's stated factual premise verified against the codebase? Treat a threaded `PROMPT-SANITY: <note>` (see `{{PROMPT_SANITY_OVERRIDE}}` in `flow-product-planning/SKILL.md`) as evidence to weigh alongside the codebase scan, and cross-check any attached/referenced files against the request's claims even when no note was threaded. A failed premise surfaces as a `**Premise check:**` line in the Problem Statement (step 5) and forces a non-`Proceed` `## Recommendation` verdict; omit-when-sound — no line is written when the stated premise holds.                                                                                                                                                                                                                                                                             |
+| **Approach vetting**       | Assume the premise holds and the request is worth doing — is the CHOSEN APPROACH itself sound? What is the best evidence (a paper, a post-mortem, a measured number, or a file path) that it is wrong or worse than the obvious alternative? This is the `## Request vetting` section's own hypothesis/case-against/verdict — see the "Request vetting" sub-section (step 5) for the full contract.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | **Options & exclusivity**  | What other options exist beyond the literal request? Of the adjacent features, which are **complementary** (pair well, increase the request's value) and which are **mutually exclusive** — cannot coexist with the request, or conflict with each other, so the user must pick one path? Name both kinds, not just the complementary ones. The exclusive-vs-complementary marking and ranked combinations feed the "Decision analysis" sub-section (step 5) when the decision is consequential.                                                                                                                                                                                                                                                                                                                                                       |
 | **Existing patterns**      | Is this similar to an existing feature? Follow the same pattern unless there's a reason to deviate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
@@ -570,6 +571,9 @@ effect on model comprehension either way) — never required.
   threaded `PROMPT-SANITY: <note>` (triage's Prompt sanity gate reached `suspect`) counts
   as evidence for this check, and any attached/referenced file is cross-checked against
   the request's claims regardless of whether a note was threaded.
+- **Request vetting** — always-present — a falsifiable hypothesis, a sourced case against
+  the request's chosen approach, and a closed verdict. See the "Request vetting"
+  sub-section below for the full contract.
 - **Epic context** (omit-when-empty) — only when step 1.7 detects epic membership: the
   epic slug, this feature's id and rationale, its `dependsOn` edges with produced/consumed
   artifacts, and its downstream dependents. See the "Epic context" sub-section below.
@@ -862,6 +866,61 @@ The diagram is topology-only, not proportion — box sizes carry no meaning abou
 **Omit-when-empty (load-bearing).** When the UI-touching gate does not fire, **omit the `## Layout Intent` heading entirely; do not write an empty heading.** Same rule as `## Visual Spec` and `## Decision analysis`: an empty heading would falsely trigger `/flow-new-feature` Step 5's `DESIGN_CONTEXT` threading with nothing to thread.
 
 **Forward pointer.** The section is ratified by the user at `plan-pending-review` and threaded verbatim into `/flow-coder` edit-sets via the `DESIGN_CONTEXT` block (fenced ASCII diagrams stripped), so the implementer treats it as a constraint it cannot silently drop.
+
+### Request vetting
+
+**Always present.** Every plan.md argues against the request's chosen approach — a
+confidently-framed request executed exactly as framed, with no stage ever asking whether
+the approach itself is sound, is the failure mode this section exists to close (issue
+#805). `flow-plan-lint`'s `checkRequestVetting` enforces the shape below; a miss is
+advisory (never blocks planning) but is always named.
+
+Four required labelled lines, in this order:
+
+- `- **Hypothesis:**` — the falsifiable claim the plan rests on (what has to be true for
+  the chosen approach to work).
+- `- **Case against:**` — the best evidence AGAINST the chosen approach: same-model
+  self-critique without external grounding does not reliably help (the exact failure mode
+  this check exists to prevent), so at least one line here must cite either a committed
+  repo path or a URL — `[anchor: <committed path or URL>]` or a bare `http(s)://` link.
+  **Never cite a `.flow-tmp/` path** — that directory is excluded from git and deleted by
+  `flow-remove-worktree` on merge, so an anchor into it is unresolvable the moment the PR
+  ships; cite the COMMITTED file the claim is really about instead. The block must also
+  clear a 15-word floor — a trivially-true one-liner ("this could be simpler [anchor:
+  x]") is exactly the same-model self-critique the research behind this section found
+  does not work.
+- `- **Sources:**` — what grounded the case against: a URL, or the exact literal
+  `no outside source: <reason>` when none was available. This line makes the common
+  no-research/no-review case VISIBLE rather than silently passing as if it were grounded.
+- `- **Verdict:**` — closed grammar, exact-match, one of:
+  - `adopt` — the request's approach stands as asked.
+  - `adopt-with-conditions: <measurable condition>` — proceeds, with a named condition.
+  - `push back: <alternative>` — the case against wins; name the alternative.
+
+  A non-`adopt` verdict requires a `## Decision analysis` section elsewhere in the plan —
+  it is the fork the verdict resolves into. **The task breakdown follows this verdict, not
+  the request as literally written** — a `push back` or `adopt-with-conditions` verdict
+  must be reflected in which tasks actually ship (see this file's own dogfooded section
+  for a worked example).
+
+Additional free-form body lines (e.g. `- **Per-part:**` for a multi-part request that
+needs a per-part verdict) are permitted and count against the ceiling below like any
+other line — they are not part of the four required labels.
+
+**Ceiling.** ≤12 non-blank BODY lines (the `## Request vetting` heading itself is not
+counted). Keep it short — a long section is the ceremony this contract exists to prevent,
+not evidence of rigor.
+
+**Grounding availability.** The Step 1.5(c) `refute-approach` research entry (when
+research runs) is a BONUS grounding source for the case against, not a precondition —
+Step 1.5 does not run on most pipelines (it requires `research.discovery: true` AND the
+relevance gate AND agy availability). The PRIMARY grounding path is an in-repo `[anchor:
+<committed path>]` citation; do not stall waiting for a research artifact that will not
+exist on the common run.
+
+**Short form for goal-only requests.** A trivial, single-outcome request may use a
+one-line case against: hypothesis, `- **Case against:** none material — <why>`, `adopt`
+— the same anchor/word-count/Sources bar still applies to `<why>`.
 
 ### Goal line
 
@@ -1660,7 +1719,7 @@ the artifact `pr-review` consumes. Both files should land.
 
 ## 9. Return a brief summary
 
-Your final message back to the wrapper should be 3–5 labeled bullets:
+Your final message back to the wrapper should be 4–6 labeled bullets:
 `Problem:` — the problem statement in one line; `Tasks:` — the number of
 tasks; `Candidates:` — the candidate follow-up issue count if non-zero
 (e.g. "3 candidate follow-up issues for the user to pick from"; omit the
@@ -1670,7 +1729,9 @@ input:**` or `[confidence: low]` items first; `Research:` — **when
 Step 1.5's research path was active but no research ran, the one-line
 skip-note from (e)** (e.g. "Web-grounded research skipped — agy
 unavailable; force with `flow feature create --research`.") so it reaches
-chat; omit the bullet when research ran or the path was fully dormant. Do not paste the PRD or task list back — the wrapper only forwards your summary to the caller, and
+chat; omit the bullet when research ran or the path was fully dormant;
+`Vetting verdict:` — (the `## Request vetting` `- **Verdict:**` line,
+verbatim). Do not paste the PRD or task list back — the wrapper only forwards your summary to the caller, and
 the artifacts on disk are the durable record. Keeping the return value
 short is the whole point of the subagent fan-out.
 
@@ -1702,8 +1763,8 @@ redirect did not touch and destroys embedded markers. Follow this contract:
 3. **Preserve embedded markers verbatim.** The `### Cross-model review (AGY)` subsection
    under `## Decision analysis` AND its `<!-- flow-plan-review-hash: <sha> -->` marker are
    **MUST-NOT-REGENERATE**: leave them exactly as written unless the redirect materially
-   changes one of the THREE hashed inputs — the `**Goal:**` line, `## Decision analysis`,
-   or `## Cut list`. (If it does, edit the affected body and leave the stale marker — after
+   changes one of the FOUR hashed inputs — the `**Goal:**` line, `## Decision analysis`,
+   `## Cut list`, or `## Request vetting`. (If it does, edit the affected body and leave the stale marker — after
    the re-review the supervisor recomputes the hash over the final revised plan via
    `flow-plan-review --print-hash` and re-embeds it; the tolerant hash-read self-heals a
    lost marker, but needlessly rewriting it forces a wasteful re-review.)
@@ -1798,6 +1859,14 @@ Common failure modes during planning:
 - A failed premise check surfaces as a `**Premise check:**` line in the Problem
   Statement and the `## Recommendation` verdict is non-`Proceed`; a sound premise
   carries no line.
+- `## Request vetting` is ALWAYS present, directly after `## Problem Statement`,
+  with `- **Hypothesis:**`, `- **Case against:**`, `- **Sources:**`, and an
+  exact-match `- **Verdict:**` line (`adopt` | `adopt-with-conditions: <condition>`
+  | `push back: <alternative>`); ≤12 non-blank body lines; the case against cites a
+  committed `[anchor: …]` path or a URL (never `.flow-tmp/`) and clears the 15-word
+  floor; the `- **Sources:**` line carries a URL or the literal
+  `no outside source: <reason>`; a non-`adopt` verdict has a `## Decision analysis`
+  fork to resolve into.
 - `## Cut list` is ALWAYS present (unlike `## Decision analysis`, never omit-when-empty):
   either 1-3 bullets naming unnecessary complexity, or a justified `nothing — plan is
 minimal` affirmation — a bare `nothing` with no justification fails this check.

@@ -18,6 +18,18 @@ or present their screen — the viewer can't interact with the data, and the das
 immediately. Shareable links would let users distribute live, read-only dashboards to anyone with
 the URL.
 
+## Request vetting
+
+- **Hypothesis:** An unguessable secret-link token is a sufficient read-only access control for
+  this dashboard's audience, with no login required.
+- **Case against:** Secret-link sharing is a known access-control anti-pattern — anyone the link
+  is forwarded to (or who scrapes it from a browser history, screenshot, or referrer header) gets
+  permanent read access with no per-viewer audit trail, and this PRD's own Scope Boundary defers
+  expiring links and view analytics to a later iteration. [anchor:
+  skills/pipeline/flow-product-planning/references/example-prd.md]
+- **Sources:** no outside source: this is a bundled worked example with no live research pass.
+- **Verdict:** adopt
+
 ## Scope Boundary
 
 **In scope:** Share via secret link (anyone with the URL can view). One link per dashboard.

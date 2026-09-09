@@ -20,6 +20,18 @@
 
 [What problem does this solve? Why does it matter? Who is affected?]
 
+## Request vetting
+
+<!-- Always present — every plan must argue against the request's chosen approach
+     before adopting it, with a closed verdict. Full contract:
+     discovery-instructions.md "Request vetting". -->
+
+- **Hypothesis:** [the falsifiable claim the chosen approach rests on]
+- **Case against:** [the best evidence AGAINST the chosen approach, citing a
+  committed repo path or URL — e.g. `[anchor: path/to/file.ts]`]
+- **Sources:** [a URL, or the literal `no outside source: <reason>`]
+- **Verdict:** [`adopt` | `adopt-with-conditions: <condition>` | `push back: <alternative>`]
+
 ## Epic context
 
 <!-- Omit-when-empty: include ONLY when discovery's step 1.7 detects epic
