@@ -17,7 +17,6 @@ import {
 } from "./install-drift";
 import type { Manifest, SymlinkRecord } from "./manifest";
 import type { SourceEntry } from "./sources";
-import { sha256File } from "./content-hash";
 
 let scratch: string;
 
@@ -135,63 +134,6 @@ describe(checkInstallDrift, () => {
       discover: () => [entry({ source, target })],
     });
     expect(result).toEqual({ status: "clean" });
-  });
-
-  it("reports clean for a copy-materialized (workflow) entry whose on-disk hash matches its source", () => {
-    const dir = makeScratch();
-    const source = path.join(dir, "flow-stage-a.workflow.js");
-    fs.writeFileSync(source, "// fixture\n");
-    const target = path.join(dir, "workflows", "flow-stage-a.workflow.js");
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.copyFileSync(source, target);
-
-    const result = run({
-      readManifest: () => manifest([record({ target, kind: "workflow" })]),
-      discover: () => [
-        entry({ source, target, kind: "workflow", materialize: "copy" }),
-      ],
-    });
-    expect(result).toEqual({ status: "clean" });
-  });
-
-  it("reports 'missing' for a copy-materialized entry whose target file is absent", () => {
-    const dir = makeScratch();
-    const source = path.join(dir, "flow-stage-a.workflow.js");
-    fs.writeFileSync(source, "// fixture\n");
-    const target = path.join(dir, "workflows", "flow-stage-a.workflow.js");
-
-    const result = run({
-      readManifest: () => manifest([record({ target, kind: "workflow" })]),
-      discover: () => [
-        entry({ source, target, kind: "workflow", materialize: "copy" }),
-      ],
-    });
-    expect(result).toEqual({
-      status: "drifted",
-      entries: [{ kind: "missing", displayName: "flow-new-feature", target }],
-    });
-  });
-
-  it("reports 'stale' for a copy-materialized entry whose on-disk hash no longer matches its (updated) source", () => {
-    const dir = makeScratch();
-    const source = path.join(dir, "flow-stage-a.workflow.js");
-    fs.writeFileSync(source, "// v1\n");
-    const target = path.join(dir, "workflows", "flow-stage-a.workflow.js");
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.copyFileSync(source, target);
-    // Source changed after the copy was materialized.
-    fs.writeFileSync(source, "// v2\n");
-
-    const result = run({
-      readManifest: () => manifest([record({ target, kind: "workflow" })]),
-      discover: () => [
-        entry({ source, target, kind: "workflow", materialize: "copy" }),
-      ],
-    });
-    expect(result).toEqual({
-      status: "drifted",
-      entries: [{ kind: "stale", displayName: "flow-new-feature", target }],
-    });
   });
 
   it("reports 'dangling' when the symlink's recorded source no longer exists", () => {
@@ -494,37 +436,6 @@ describe(checkInstallDrift, () => {
       scanPluginRoots: () => [root],
     });
     expect(result).toEqual({ status: "clean" });
-  });
-
-  it("maps a drifted workflow copy to a 'stale' entry via the plugin-root pass (checkWorkflowsRoot, not the discover/symlink pass)", () => {
-    const dir = makeScratch();
-    const root = path.join(dir, "flow-module-core");
-    const target = path.join(root, "workflows", "flow-stage-a.workflow.js");
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, "// installed\n");
-    const recordedSha256 = sha256File(target);
-    // Hand-edit after recording, so the on-disk hash no longer matches.
-    fs.writeFileSync(target, "// hand-edited\n");
-
-    const result = run({
-      readManifest: () =>
-        manifest([
-          record({ target, kind: "workflow", sha256: recordedSha256 }),
-        ]),
-      discover: () => [],
-      scanPluginRoots: () => [root],
-    });
-    expect(result).toEqual({
-      status: "drifted",
-      entries: [
-        {
-          kind: "stale",
-          displayName: "flow-module-core",
-          target: root,
-          detail: path.join("workflows", "flow-stage-a.workflow.js"),
-        },
-      ],
-    });
   });
 
   it("reports one 'foreign' entry for a foreign live bin/ symlink (resolves outside flowSource/installRoot)", () => {

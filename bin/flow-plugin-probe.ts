@@ -1057,8 +1057,8 @@ async function probeWorkflowPluginCommand(
   const root = materializeRoot(fixtureHome);
   const workflowsDir = path.join(root, "workflows");
   fs.mkdirSync(workflowsDir, { recursive: true });
-  // Same shape as workflows/core/*.workflow.js: an `export const meta`
-  // literal, then a bare script body using the agent() primitive.
+  // The shape Claude Code's plugin loader expects of a workflow script: an
+  // `export const meta` literal, then a bare body using the agent() primitive.
   fs.writeFileSync(
     path.join(workflowsDir, "probe.workflow.js"),
     `export const meta = {\n  name: "flow-probe-wf",\n  description: "flow plugin workflow dispatch probe",\n};\nconst result = await agent("Reply with exactly: ${nonce}", { label: "probe" });\nreturn result;\n`,

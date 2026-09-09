@@ -182,6 +182,26 @@ decision is one feature boundary.
   Issue #800 (extend the substrate to manual skills) is paused pending f8.
   → **f7-workflow-observability-floor**, **f8-write-path-inline**
 
+  _Superseded in part (2026-09-08)._ The maintainer reverted PR #789 and
+  PR #801 outright rather than shrinking the substrate in place: f8 was
+  gated on f7 plus external issue #796 and was weeks out, while every
+  pipeline in the interval kept paying the +272% (phase-write-fidelity,
+  $5.61 → $20.86) and +92% (verify-loop-isolation, $3.44 → $6.62) suite
+  cost recorded in `docs/eval/f6/README.md` — per scenario, +2% to +561%
+  (`docs/eval/f6/{before,after}/*/summary.md`). Steps 5–10 run in the supervisor's own context
+  again, restored byte-exactly from `8e00a43^`. Kept from f6 by hand:
+  `flow-state-update --increment-loop` / `state.loops` (now wired into the
+  restored step 7/8 caps, so the 3/2 budgets survive a compaction or a
+  resume), the `advancePhase` terminal-exit carve-out plus
+  `flow-merge-guard`'s conditional `merging` write, the two
+  `flow-plugin-probe` workflow probes, and the whole `docs/eval/f6/`
+  evidence record. D6's underlying finding stands — parallel read-only
+  fan-out is the shape the evidence supports, sequential write handoffs
+  across cold workers are not — so f7 and f8 survive with their direction
+  inverted: they now describe **adding** a read-only review stage onto the
+  prose supervisor, rather than shrinking an existing substrate down to
+  one.
+
 **Why these cuts (Parnas + Simon):** each feature hides exactly one
 volatile decision; every edge is a produced/consumed artifact (eval suites,
 a verdict table, a helper CLI, an ADR); f3 and f4 are deliberately
@@ -260,36 +280,46 @@ vertical slice. Ids, titles, and edges match `manifest.json` exactly.
   epic-run checkpoint if f5 records no-go or f2's measurements undercut
   the port's premise — never force-run.
 
-### f7-workflow-observability-floor · Error grammar, run index, needs-human triage
+### f7-workflow-observability-floor · Observability floor for the read-only review stage f8 adds
 
-- **Secret hidden (D6, precondition half):** how a stage failure is named
-  and located. Closed-enum error grammar in the scripts (lint-pinned), a
-  per-run `.flow-tmp/workflow-index.json` (label → agentId → outcome →
-  transcript path) rendered into the NEEDS HUMAN block, and a Haiku triage
-  diagnosis fired only on `needs-human`. Consumes issue #799's
-  `workflow.result` event; sibling to #795.
-- **Depends on:** nothing in the epic (f6 merged). External: #799 in flight.
-- **Produces:** the grammar enum + lint, `flow-workflow-index`, the triage
-  hook — the measurement surface f8's comparison needs on both arms.
+- **Secret hidden (D6, precondition half):** how a failure inside a
+  fanned-out review agent is named and located, before any such fan-out
+  ships. A closed-enum error grammar for whatever carries the review
+  stage, a per-run index (label → agentId → outcome tag → transcript
+  path) rendered into the NEEDS HUMAN block, and a Haiku triage diagnosis
+  fired only on a needs-human outcome. Emits its own review-stage
+  completion event — issue #799's `workflow.result` has no surviving
+  emitter after this revert, so the event is an f7 deliverable rather
+  than a consumed dependency; sibling to #795.
+- **Depends on:** nothing in the epic (the f6 substrate is reverted, so f7
+  builds on the prose supervisor). External: none — #799 is cancelled or
+  re-scoped with PR #806.
+- **Produces:** the grammar enum + its lint, the run-index helper, and the
+  triage hook — the failure-visibility surface f8's review stage needs on
+  day one, and the measurement surface its comparison needs on both arms.
 - **Pre-derived evidence:** `docs/workflow-spike/subagent-design-research.md`
-  (read first; re-verify only its "NOT settled" items).
+  and `docs/eval/f6/README.md` (read first; re-verify only the "NOT
+  settled" items).
 
-### f8-write-path-inline · Return the write path to the supervisor; keep the read-only fan-out — **[eval-gated]**
+### f8-write-path-inline · Add a read-only review stage on the prose base — **[eval-gated]**
 
-- **Secret hidden (D6, commitment half):** which steps the workflow
-  substrate carries. Steps 5, 5.5, 6, 7, and 10 return to inline supervisor
-  Bash + in-process skills (single writer, disk scratchpad); stage A shrinks
-  to the Review fan-out + gate read (`flow-review-stage`); `flow-stage-b` is
-  deleted; no mechanical helper runs inside a model agent.
+- **Secret hidden (D6, commitment half):** whether the read-only review
+  fan-out is worth a workflow substrate at all. Steps 5–10 already run
+  inline in the supervisor (single writer, disk scratchpad, `state.json`
+  anchor) after the 2026-09-08 revert, so the only decision left is
+  whether to lift `/flow-pr-review`'s parallel read-only lenses plus the
+  gate read into a `flow-review-stage` workflow script — the one shape
+  D6's evidence supports. No mechanical helper may run inside a model
+  agent; anything that is one shell command stays a supervisor Bash call.
 - **Depends on:** **f7** — _edge artifact: the error grammar + index the
   eval comparison and the NEEDS HUMAN render rely on._ External: issue #796
-  (stage-A scenarios measurable under `claude -p`); fall back to the
-  `docs/eval/f6/live-run.md` protocol if it has not landed, and say so.
-- **Produces:** the hybrid supervisor; SKILL.md prose for the inlined steps
-  restored from the parent of 8e00a43 and reconciled with #798; a
-  cost-per-pipeline eval metric; `docs/eval/f8/` with both arms.
-- **Gate:** score ≥ max(pre-port, post-f6) on every suite AND cost ≤ 1.5×
-  the pre-port arm. A miss keeps the current design and records why.
+  (workflow-entered scenarios measurable under `claude -p`); fall back to
+  the `docs/eval/f6/live-run.md` protocol if it has not landed, and say so.
+- **Produces:** either a `flow-review-stage` script plus a
+  cost-per-pipeline eval metric and `docs/eval/f8/` with both arms, or a
+  recorded no-go that leaves the prose supervisor whole.
+- **Gate:** score ≥ the prose arm on every suite AND cost ≤ 1.5× the prose
+  arm. A miss keeps the prose supervisor as-is and records why.
 - **Pre-derived evidence:** same record as f7; the expected magnitudes are
   in its measurement table and are estimates until f8 measures them.
 

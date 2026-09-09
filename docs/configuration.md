@@ -119,37 +119,6 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
 
 Aliases are `opus`, `haiku`, `sonnet`, `fable`; flow forwards the alias verbatim to `claude --model`. An invalid alias in a flag exits non-zero writing no state; an invalid value in `config.models.*` emits a best-effort warning at create time and falls back.
 
-## Workflow permissions
-
-`/flow-pipeline` steps 5 and 10 launch two fixed-shape scripts via the
-`Workflow` tool — `flow-module-core:flow-stage-a` and
-`flow-module-core:flow-stage-b` (`references/workflow-agent-sites.md`
-enumerates every `agent()` call each script makes). On a non-`auto`
-permission mode, allowlist both invocations up front:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Workflow(flow-module-core:flow-stage-a)",
-      "Workflow(flow-module-core:flow-stage-b)"
-    ]
-  }
-}
-```
-
-Both scripts shell out to the same Bash surface the pre-f6 supervisor
-used directly, so the usual flow-helper / `gh` / `git` allowlist still
-covers them: every `flow-*` helper on PATH (`flow-state-update`,
-`flow-open-pr`, `flow-ci-check`, `flow-gate-decide`, `flow-merge-guard`,
-`flow-conflict-marker-check`, `flow-candidate-issues`,
-`flow-create-issue`, `flow-followups`, `flow-request-copilot`,
-`flow-module-status`, `flow-spawn`, `flow-ci-wait`,
-`flow-pr-review-result-schema`, `flow-workflow-result-schema`), `gh`,
-`git`, `jq`, and `npm`/`bun` (via `flow-pre-commit`). Allowlisting these
-up front avoids a per-call permission prompt mid-script, where there is
-no supervisor turn to surface it against.
-
 ## chrome-devtools MCP registration
 
 flow's browser-driven UI-validation passes need the `chrome-devtools-mcp` MCP server registered once per machine (outside flow's control — this is a `~/.claude.json` MCP registration, not a `~/.flow/config.json` key). The line below is the server's own **foreground launch command** — running it directly hangs a terminal and registers nothing. To actually register it, either add an `mcpServers` entry to `~/.claude.json`:

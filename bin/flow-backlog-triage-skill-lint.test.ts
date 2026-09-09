@@ -23,9 +23,9 @@ import { MARKER } from "./flow-verbatim-notes";
  * skill-md-lint.test.ts grows.
  *
  * STANDALONE: this file owns its own describe blocks and does not touch the
- * exactly-2 Task-tool-exemption assertions in bin/skill-md-lint.test.ts —
+ * exactly-9 Task-tool-exemption assertions in bin/skill-md-lint.test.ts —
  * `/flow-backlog-triage` is a separate sanctioned standalone session (see
- * AGENTS.md `## Don'ts`), not a third /flow-pipeline exemption, so its one
+ * AGENTS.md `## Don'ts`), not a tenth /flow-pipeline exemption, so its one
  * named Task-tool fan-out site (Phase-1 verification via
  * flow-backlog-verifier) is anchored here, not folded into that count.
  */

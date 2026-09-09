@@ -237,28 +237,3 @@ not the flow checkout (`bin/lib/eval-fixture.ts` writes `repo: repoDir`)
 `flow ls --all-repos` to see them while a suite is running. Teardown
 removes the seeded state (state, checkpoints, turn tracking, proc
 registry) whether the run passed, failed, or was interrupted.
-
-## Workflow tool + stage-result wait
-
-`SCENARIO_DEFAULTS.allowedTools` (`bin/lib/eval-suite.ts`) includes
-`"Workflow"` alongside `Task`/`Agent`/`ToolSearch`, so a scenario can drive
-the f6 stage scripts (`workflows/core/flow-stage-a.workflow.js`,
-`flow-stage-b.workflow.js`) without an explicit per-scenario override.
-When the scenario declares a `json-file` grader targeting a stage result
-artifact, `runScenarioOnce` (`bin/lib/eval-runner.ts`) polls (5s cadence,
-≤60s) for either `<repoDir>/.flow-tmp/stage-a-result.json` or
-`stage-b-result.json` (a scenario may enter at stage B) after the child
-exits, and folds a `stage-result-wait: <n>s (<found|timeout>)` note into
-the report's `runner.notes`. The wait is a no-op (never invoked) for a
-scenario whose graders don't target either stage result artifact.
-
-**Done:** `evals/phase-write-fidelity/*/prompt.md` and
-`evals/verify-loop-isolation/{s1-single-fix,s2-test-and-typecheck}/prompt.md`
-now say "Resume the pipeline at step N: launch stage A/B …" against the
-post-port `SKILL.md` `## Stage A launch` / `## Stage B launch` sections,
-and each scenario's `case.json` carries a `json-file` gate grader
-targeting its stage result artifact. Comparing a pre-port baseline report
-(captured before this migration) against a post-port candidate report is
-expected to show an `environmentMismatch` (different `childArgvDigest`,
-since only the post-port prompts drive the `Workflow` tool) — that
-mismatch is diagnostic of the migration, not a harness regression.

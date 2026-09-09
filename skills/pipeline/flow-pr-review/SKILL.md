@@ -310,27 +310,6 @@ fan-out from scratch. If no prior artifact exists when
 pr-review-missing-artifact` — the flag's contract is to resume an
 existing run, not to fabricate one.
 
-## Entry and exit modes
-
-`--stop-after <label>` runs the skill through the named point, then
-writes the Step-12 result artifact with `status: "partial"`,
-`completed_steps` set to the steps actually run, `missed_steps` set to
-the remaining canonical step labels, `escalation_tag: null`, and
-returns without running the rest of the skill. Labels: `3-prep` (Step 3
-items 1–6 — `flow-review-scope`, static analysis, lens-prompt
-templating, the Bash-only Gemini lens, and the intent-guess prompt —
-stopping **before** the Load-Task preamble and the Task-tool fan-out),
-plus the canonical step labels `3.5`, `3.6`, `7.5`. Under `--stop-after
-3-prep` the skill additionally writes each filled lens prompt (the
-`agent-prompts.md` templates with variables substituted) to
-`<worktree>/.flow-tmp/lens-prompt-<lens>.md`, and the intent-guess
-prompt to `<worktree>/.flow-tmp/lens-prompt-intent-guess.md`, so a
-caller can fan the lens agents out itself instead of this skill
-spawning them via Task. `--resume-from 3.6` and `--resume-from 8c`
-remain the existing canonical resume anchors (unchanged by this
-section) — a `--stop-after 3-prep` run is always paired with a later
-`--resume-from 3.5` call to enter the consolidator step.
-
 # Instructions
 
 ## 1. Parse the PR Identifier
@@ -910,8 +889,6 @@ Spawn the **Fix-Applier Subagent** per the Spawn procedure in § Fix-Applier
 Subagent above. The subagent owns the per-finding fix loop (Steps 6, 7, 7.5),
 the pre-commit run, the commit + push, and the `/flow-verify` re-run — all inside
 its own context.
-
-Under `--stop-after 7.5` (see § Entry and exit modes) return before this step; the caller spawns the fix-applier and re-enters at `8c`.
 
 After the subagent returns, do a cheap existence check against the
 canonical `$ARTIFACT_PATH` resolved during the spawn procedure (the
@@ -1546,11 +1523,6 @@ On a standalone run, the report itself is the turn-ending structure; any post-re
 QA prose the tail adds is formatted per the cross-skill
 `flow-pipeline/references/pause-output-contract.md` — labeled slots, no open prose,
 never a second block re-wrapping the report.
-
-**`--stop-after` exit shape.** A run entered with `--stop-after <label>` (§
-Entry and exit modes) skips this narrative report entirely — it writes only
-the Step-12 result artifact (`status: "partial"`, `completed_steps`,
-`missed_steps`, `escalation_tag: null`) and returns to its caller.
 
 Always produce this report, even when there are no findings or comments. The report
 covers: summary, findings (each annotated as **Addressed** or **Deferred with reason**),

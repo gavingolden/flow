@@ -26,7 +26,6 @@ import { resolveFlowSource } from "./paths";
 import type { FastForwardResult } from "./git";
 import { moduleIds } from "./modules";
 import type { InstallDriftResult } from "./install-drift";
-import { sha256File } from "./content-hash";
 import {
   discoverAgents,
   discoverAll,
@@ -251,19 +250,18 @@ describe("flow install", () => {
     }
   });
 
-  it("discovers the six schema validators via the discoverValidators allowlist", () => {
-    // Regression guard: discoverValidators ships exactly the six validators
+  it("discovers the five schema validators via the discoverValidators allowlist", () => {
+    // Regression guard: discoverValidators ships exactly the five validators
     // named in the VALIDATOR_MODULES allowlist — pr-review-result-schema,
-    // agent-finding-schema, fix-applier-schema, epic-manifest-schema,
-    // intent-resolution-schema, and workflow-result-schema — sourced from
-    // bin/lib/ with a `flow-` install target prefix. It must NOT pick up
-    // coder-schema (not on the allowlist) or any `*-schema.test.ts` file.
-    // Run against the real repo's bin/lib/ rather than the synthetic
-    // fixture so this test fires if a future refactor regresses the
-    // allowlist or the naming.
+    // agent-finding-schema, fix-applier-schema, epic-manifest-schema, and
+    // intent-resolution-schema — sourced from bin/lib/ with a `flow-`
+    // install target prefix. It must NOT pick up coder-schema (not on the
+    // allowlist) or any `*-schema.test.ts` file. Run against the real
+    // repo's bin/lib/ rather than the synthetic fixture so this test fires
+    // if a future refactor regresses the allowlist or the naming.
     const repoRoot = path.resolve(__dirname, "..", "..");
     const validators = discoverValidators(repoRoot);
-    expect(validators).toHaveLength(6);
+    expect(validators).toHaveLength(5);
     const names = validators.map((v) => path.basename(v.target)).sort();
     expect(names).toEqual([
       "flow-agent-finding-schema",
@@ -271,7 +269,6 @@ describe("flow install", () => {
       "flow-fix-applier-schema",
       "flow-intent-resolution-schema",
       "flow-pr-review-result-schema",
-      "flow-workflow-result-schema",
     ]);
     for (const entry of validators) {
       expect(entry.kind).toBe("bin");
@@ -2116,154 +2113,9 @@ describe("rebaseOntoInstallRoot / effectiveLinkSource", () => {
   });
 });
 
-/**
- * The `materialize: "copy"` install path — `ensureCopy`, and `reapOrphans`'
- * copy branch. Both are module-private, so every case drives them through
- * the exported `runSetup` via this file's `setup()` wrapper. This block is
- * the automated counterpart to PR #789's hand-run Test Step 5: Claude Code
- * 2.1.261's plugin loader rejects a `workflows` directory symlink that
- * escapes the plugin root, so these artifacts must land as REAL bytes, and
- * nothing else in the install path asserts that.
- */
-describe("workflow copies (materialize: 'copy')", () => {
-  function workflowTarget(t = targets()): string {
-    return path.join(
-      t.skillsDir,
-      "flow-module-core",
-      "workflows",
-      FIXTURE_WORKFLOW,
-    );
-  }
-
-  function workflowSource(root = flowSource): string {
-    return path.join(root, "workflows", "core", FIXTURE_WORKFLOW);
-  }
-
-  function workflowRecord() {
-    return readManifest(manifestPath).symlinks.find(
-      (s) => s.target === workflowTarget(),
-    );
-  }
-
-  it("materializes a real file (never a symlink) at <root>/workflows/<file>, mode 0644, and records its content hash", async () => {
-    await setup();
-    const target = workflowTarget();
-    const stat = fs.lstatSync(target);
-    expect(stat.isSymbolicLink()).toBe(false);
-    expect(stat.isFile()).toBe(true);
-    expect(stat.mode & 0o777).toBe(0o644);
-    expect(fs.readFileSync(target, "utf8")).toBe(
-      fs.readFileSync(workflowSource(), "utf8"),
-    );
-    const record = workflowRecord();
-    expect(record).toBeDefined();
-    expect(record!.kind).toBe("workflow");
-    expect(record!.materialize).toBe("copy");
-    // A value check, not just a shape check: pins the record to the bytes
-    // actually on disk, not merely the hash of *some* file.
-    expect(record!.sha256).toBe(sha256File(target));
-  });
-
-  it("records the hash of the bytes actually copied when --source diverges from the install root", async () => {
-    const worktree = path.join(scratch, "worktree");
-    buildFakeFlowSource(worktree);
-    fs.writeFileSync(
-      path.join(worktree, "workflows", "core", FIXTURE_WORKFLOW),
-      "// worktree edit\n",
-    );
-    await setup({ flowSourceOverride: worktree });
-    const target = workflowTarget();
-    // The invariant checkWorkflowsRoot depends on: the record describes the
-    // bytes actually on disk, whichever root (canonical vs --source) they
-    // came from — the bug this PR fixes was a writer/reader disagreement
-    // here.
-    expect(workflowRecord()!.sha256).toBe(sha256File(target));
-  });
-
-  it("is idempotent: a second install with unchanged bytes re-copies nothing", async () => {
-    await setup();
-    const before = fs.readFileSync(workflowTarget(), "utf8");
-    const second = await setup();
-    // `ensureCopy` is content-hash-gated, so an unchanged source reports
-    // "exists" (→ skipped), never "updated". Dropping that gate turns this
-    // red — and would rewrite every workflow file on every install.
-    expect(second.created).toBe(0);
-    expect(second.updated).toBe(0);
-    expect(fs.readFileSync(workflowTarget(), "utf8")).toBe(before);
-  });
-
-  it("refreshes the copy and its recorded hash when the source bytes change", async () => {
-    await setup();
-    const firstHash = workflowRecord()!.sha256;
-    fs.writeFileSync(workflowSource(), "// stage a, revised\n");
-    const second = await setup({ upgrade: true });
-    expect(second.updated).toBeGreaterThan(0);
-    expect(fs.readFileSync(workflowTarget(), "utf8")).toBe(
-      "// stage a, revised\n",
-    );
-    const secondHash = workflowRecord()!.sha256;
-    expect(secondHash).toMatch(/^[0-9a-f]{64}$/);
-    expect(secondHash).not.toBe(firstHash);
-  });
-
-  it("reaps the copy as an orphan when its source leaves the entry set", async () => {
-    await setup();
-    expect(fs.existsSync(workflowTarget())).toBe(true);
-    // A copy target is a REAL file, so `removeIfManagedSymlink` would
-    // silently no-op on it — the reaper needs its own copy branch, and
-    // this is the only assertion that the branch runs.
-    fs.rmSync(path.join(flowSource, "workflows"), { recursive: true });
-    await setup({ upgrade: true });
-    expect(fs.existsSync(workflowTarget())).toBe(false);
-    expect(workflowRecord()).toBeUndefined();
-  });
-
-  it("does not widen ensureSymlink's ownership rules: a user file at a SYMLINK target is still blocked while the copy installs", async () => {
-    const t = targets();
-    const alphaTarget = moduleRootTarget(t, "skills", "alpha");
-    fs.mkdirSync(path.dirname(alphaTarget), { recursive: true });
-    fs.writeFileSync(alphaTarget, "user content");
-    const summary = await setup();
-    expect(summary.blocked).toBeGreaterThan(0);
-    expect(fs.readFileSync(alphaTarget, "utf8")).toBe("user content");
-    expect(fs.lstatSync(workflowTarget()).isFile()).toBe(true);
-  });
-
-  it("never writes through a symlink planted at a copy target", async () => {
-    const target = workflowTarget();
-    const scratchFile = path.join(scratch, "planted-scratch-file");
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(scratchFile, "// untouched scratch content\n");
-    fs.symlinkSync(scratchFile, target);
-    await setup();
-    // The write must land on `target` as a real file, never through the
-    // link onto `scratchFile` — see ensureCopy's rmSync-before-copy guard.
-    expect(fs.readFileSync(scratchFile, "utf8")).toBe(
-      "// untouched scratch content\n",
-    );
-    expect(fs.lstatSync(target).isSymbolicLink()).toBe(false);
-    expect(fs.lstatSync(target).isFile()).toBe(true);
-  });
-});
-
 // --- Fixture builders ---
 
-/** The one `.workflow.js` the fake source ships, under `workflows/core/` so
- * its install target lands in the already-materialized `flow-module-core`
- * plugin root (`core` is a real registry id; a fictional one would have no
- * root to nest under). */
-const FIXTURE_WORKFLOW = "flow-fixture-stage.workflow.js";
-
 function buildFakeFlowSource(root: string): void {
-  // workflows/<moduleId>/<file>.workflow.js — copy-materialized, not
-  // symlinked (see discoverWorkflows). Present in the DEFAULT fixture so
-  // every existing case exercises the copy path alongside the symlink one.
-  fs.mkdirSync(path.join(root, "workflows", "core"), { recursive: true });
-  fs.writeFileSync(
-    path.join(root, "workflows", "core", FIXTURE_WORKFLOW),
-    "// stage a\n",
-  );
-
   // skills/{pipeline,universal,stacks}/<skill>/SKILL.md
   for (const [tier, names] of [
     ["pipeline", ["alpha", "beta"]],

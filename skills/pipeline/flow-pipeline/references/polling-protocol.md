@@ -6,13 +6,12 @@ one-shot decider — one fresh `gh` observation per call, wall-clock
 anchors durably persisted in `~/.flow/state/<slug>.json`'s `ciWait`
 record, so a suspended or restarted process can never fabricate a
 `ci-hang` from stale elapsed time — and `flow-ci-wait` is a dumb bounded
-waiter that owns no state and makes no decisions. Stage A's ci-check step
-calls `flow-ci-check` in the foreground; on a `waiting` verdict it
-backgrounds `flow-ci-wait` and wakes on its completion notification (with
-a Monitor / `ScheduleWakeup` fallback, then a `ci-wait-pending`
-yield-and-resume by the supervisor as the last resort) to call
-`flow-ci-check` again. See SKILL.md step 7 for the full wake-precedence
-contract.
+waiter that owns no state and makes no decisions. The supervisor calls
+`flow-ci-check` in the foreground; on a `waiting` verdict it backgrounds
+`flow-ci-wait` and wakes on its completion notification (with a Monitor
+/ `ScheduleWakeup` fallback, then a `ci-wait-pending` yield-and-resume as
+the last resort) to call `flow-ci-check` again. See SKILL.md step 7 for
+the full wake-precedence contract.
 
 ## Goals
 
@@ -216,11 +215,9 @@ The fallback prefers the cheaper failure mode.
 #### Opt-in request path and the decline collapse
 
 With opt-in Copilot review (`flow feature create --copilot-review <auto|always|never>`,
-default `auto`), stage A's ci-check step decides _before_ the wait
-whether to request Copilot for this PR — see SKILL.md step 7 for the
-Copilot precheck (`flow-module-status --check copilot`) and
-request-decision logic stage A now runs. On the **request** path nothing
-here changes: the two signals
+default `auto`), `/flow-pipeline` step 7 decides _before_ the wait whether
+to request Copilot for this PR — see SKILL.md step 7's "Copilot request
+decision". On the **request** path nothing here changes: the two signals
 above (in-flight `reviewRequests` + the historical-PR fallback) still
 resolve `copilotConfigured`, and the retrigger / claim-deadline /
 self-dismissal logic all apply unchanged.
@@ -679,6 +676,11 @@ cap is **3 fix-loops** across the whole pipeline — after the third
 red CI, escalate `NEEDS HUMAN: ci-fix-exhausted` and end. Each
 fix-loop counts regardless of whether CI was failing for the same
 reason (a different test failing on attempt 2 still counts).
+
+The count lives in `state.json` as `state.loops.ciFix` (bumped by
+`flow-state-update --increment-loop ciFix`), not in the supervisor's
+context, so it survives a compaction or a resume — see SKILL.md step 7
+for the read-back and the gate.
 
 ## Bot reviewer name
 
