@@ -1069,19 +1069,51 @@ become a runnable bucket** rather than not-runnable — no hand-authored
 `.flow/ui-validation.json` needed: on a meaningful UI diff with no manifest,
 `flow-ui-validate` returns a mechanical `action: "bootstrap"` verdict this pass
 self-completes + commits (names/config only, never a secret value — see the manifest-less bootstrap flow in [references/ui-validation-evidence.md](references/ui-validation-evidence.md)). A
-`SUBJECTIVE: `-prefixed item is excluded from browser validation: irreducibly-aesthetic judgment beyond the enumerated bucket, never validated into a tick. Each route is captured **per viewport** (loop over the
-envelope's `meta.viewports` — declared set or built-in default), applying the per-viewport
-**`## UI traits to verify`** rubric to each while `flow-ui-validate` gates the mechanical
-geometry assertions automatically. The a11y `take_snapshot` is the primary evidence (injected
-via 8c.i's unchanged `flow-inject-evidence`), the screenshot supplementary and referenced by
-path. The full runnable-bucket procedure, the per-viewport capture loop, the captures
-contract, the **Screenshot save-path cascade**, the **`## UI traits to verify`** rubric, the
-env-injected launch / clean teardown (the launched server(s) AND the per-pipeline isolated
-browser page/context this pass opened, on completion and on every error / early-exit) /
-self-improving-manifest persist-back behavior, and the **wrapper-side merge-back** of every
-surviving screenshot path into `fix-applier-result.json`'s `ui_screenshots[]` — written between
-the Fix-Applier subagent's return and Step 9's single artifact read, so the `/flow-pipeline`
-supervisor can surface each path in the session — live in [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
+`SUBJECTIVE: `-prefixed item is excluded from browser validation: irreducibly-aesthetic judgment beyond the enumerated bucket, never validated into a tick.
+
+The MCP-present path spawns the **UI-driver Subagent** — the same eighth
+Task-tool exemption `/flow-verify`'s Optional UI-smoke pass uses, a second
+caller (mirrors `/flow-coder`'s own multi-caller shape, so the exemption
+count stays **eight**) — rather than driving the browser wrapper-side.
+
+**Load the Task tool before spawning** — i.e. before the Task call below. See
+[references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md)
+for the full rationale and alias-tolerance contract. On missing or empty Task
+schema, escalate `NEEDS HUMAN: task-tool-unavailable: ui-driver`, leave the
+item unticked, and do not fall back to in-line execution.
+
+Follow the same agent-resolution / exactly-one-Task-call / post-return-degrade
+recipe [flow-verify/SKILL.md](../flow-verify/SKILL.md) already documents under
+its "Optional UI-smoke pass": resolve the envelope, spawn `flow-ui-driver`
+(preloading `../flow-ui-driver-instructions/SKILL.md`), and on a
+missing/invalid `.flow-tmp/ui-driver-result.json` after the Task call returns,
+treat it as `{ran: false, ok: false, skipped_reason: "driver-no-artifact"}`
+and leave the item unticked with that reason — never escalate, never re-spawn
+within the same 8c pass. The spawn prompt additionally names
+`MODE: visual-appearance` plus the enumerated item list, so the driver's
+per-route/per-viewport captures and `fix_context[]` map back to the specific
+checklist items 8c.i injects evidence against, rather than the full manifest
+route set `/flow-verify` drives. Each route is still captured **per viewport**
+(the envelope's `meta.viewports` — declared set or built-in default), applying
+the per-viewport **`## UI traits to verify`** rubric to each while
+`flow-ui-validate` gates the mechanical geometry assertions automatically. The
+a11y `take_snapshot` is the primary evidence (injected via 8c.i's unchanged
+`flow-inject-evidence`), the screenshot supplementary and referenced by path.
+
+The ui-ux subjective judgment for each item **stays in the wrapper**: it reads
+the returned artifact's `ui_screenshots[]` paths and `fix_context[]` a11y /
+console excerpts to decide the tick, and never drives the browser itself. The
+full runnable-bucket procedure, the per-viewport capture loop, the captures
+contract, the **Screenshot save-path cascade**, the **`## UI traits to
+verify`** rubric, the env-injected launch / clean teardown (the launched
+server(s) AND the per-pipeline isolated browser page/context the driver
+opened, on completion and on every error / early-exit) / self-improving-
+manifest persist-back behavior — all performed inside the spawned agent, not
+this wrapper — and the **wrapper-side merge-back** of every surviving
+screenshot path from `ui-driver-result.json`'s `ui_screenshots[]` into the PR
+body, so the `/flow-pipeline` supervisor can surface each path in the
+session — live in [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
+
 When the `chrome-devtools` MCP is **absent or contended** — the guarded
 `ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns nothing
 (absent), or an attempted MCP call fails because its single Chrome profile is
@@ -1093,17 +1125,19 @@ local-and-reversible dependency the agent stands up, not an external service. Th
 **Durable-test precedence** and stays **Automatable via the browser-validation
 capability**. Only if neither the MCP nor a repo headless browser is available does
 the browser item legitimately stay not-runnable and unticked exactly as today —
-no regression. Adds **no new Task-tool exemption**: Step 8c (MCP or the ordinary
-headless-browser Bash invocation alike) runs inside the already-exempt Fix-Applier
-surface.
+no regression. This fallback path adds **no new Task-tool exemption**: it runs
+inline inside the already-exempt Fix-Applier surface, never spawning the
+UI-driver.
 
 When the worktree-local `.flow-tmp/design/spec.json` exists, this bucket also
 runs the **design-fidelity per-assertion walk** — mechanical Visual Spec items
 ticked per the `flow-design-spec diff` envelope, judged items compared
 side-by-side against the ephemeral reference snapshot — documented in
 [references/ui-validation-evidence.md](references/ui-validation-evidence.md)
-("Design-fidelity per-assertion walk"). It too runs inside the already-exempt
-Fix-Applier surface: no new Task-tool exemption.
+("Design-fidelity per-assertion walk"). Its MCP-heavy capture moves with the
+rest of the drive body into the same spawned UI-driver call above (no
+additional Task call, no additional exemption); only the side-by-side
+judgment stays in the wrapper, reading the artifact.
 
 ### 8c.i. Inject evidence under each runnable item
 
