@@ -1448,15 +1448,16 @@ Based on 12a-12d:
 the standardized format and apply it. Default-on — no upfront confirmation; show it after.
 
 **If 2+ intent clarity criteria fail OR significant accuracy issues exist**: Draft an
-updated description preserving the original author's voice and structure, and apply it.
-Default-on — no upfront confirmation; show the before/after comparison with the failing
-criteria annotated *after* the edit lands, so the user can redirect via reply:
+updated description preserving the original author's voice and structure, and write it to
+`.flow-tmp/body.md` (overwriting any earlier draft from this run — the single
+`flow-review-finalize` call at Step 13 pushes it). Default-on — no upfront confirmation;
+show the before/after comparison with the failing criteria annotated *after* that call
+lands, so the user can redirect via reply:
 
 ```bash
 cat > .flow-tmp/body.md <<'EOF'
 <updated description>
 EOF
-flow-md-validate --fix-pr-body .flow-tmp/body.md && gh pr edit <number> --body-file .flow-tmp/body.md
 ```
 
 **If only Testability fails and the rest of the description is accurate**: Do NOT redraft
@@ -1468,14 +1469,14 @@ on the fail subtype:
   `references/manual-test-rubric.md`'s scenario menu for the change type: shallow
   appends the missing categories (unhappy paths, edge cases) to the existing "Test
   Steps" section; missing drafts a minimal section from scratch. Default-on — no upfront
-  confirmation: edit the PR preserving everything else, then show the user the focused
-  diff — just the test-section change, not the full description — so they can redirect:
+  confirmation: write the focused diff — just the test-section change, not the full
+  description — to `.flow-tmp/body.md` (Step 13's `flow-review-finalize` call pushes it),
+  then show the user that diff so they can redirect:
 
   ```bash
   cat > .flow-tmp/body.md <<'EOF'
   <original description with test section extended or added>
   EOF
-  flow-md-validate --fix-pr-body .flow-tmp/body.md && gh pr edit <number> --body-file .flow-tmp/body.md
   ```
 
 - **Fail (automatable)**: Unlike the `Fail (shallow)` and `Fail (missing)` branches
@@ -1492,12 +1493,10 @@ on the fail subtype:
   For each automatable item: write the test, run it (`npm test` / `RUN_INTEGRATION=1
   npm test` as appropriate), commit and push (covered by the `Auto-push exemption:
   pr-review` clause in AGENTS.md), then prune the converted bullet by writing the
-  updated body to `.flow-tmp/body.md`, running `flow-md-validate --fix-pr-body
-  .flow-tmp/body.md`, and applying it via `gh pr edit <number> --body-file
-  .flow-tmp/body.md`. Leave only items that genuinely require human
-  judgment (the rubric's "Genuinely manual" list). The user redirects via reply after
-  the fact (e.g. "this one should have stayed manual — revert it") rather than gating
-  each conversion upfront.
+  updated body to `.flow-tmp/body.md` — Step 13's `flow-review-finalize` call pushes it.
+  Leave only items that genuinely require human judgment (the rubric's "Genuinely
+  manual" list). The user redirects via reply after the fact (e.g. "this one should
+  have stayed manual — revert it") rather than gating each conversion upfront.
 
   Items that fail the rubric's `Caveat: don't trade a working test for a flaky one`
   check are **not** auto-converted — surface them as `suggestion` findings instead.
@@ -1547,7 +1546,33 @@ pass-through `lens_anti_patterns_found[]` entries above have no such flag (three
 Render the boolean in **Anti-Patterns Observed**, and append the new-file audit's
 WARNING lines (Step 9a above) so a misclassified introduced-in-PR entry stays visible.
 
-**Lens telemetry.** Build `LENS_TOKEN_ARGS` per `references/review-scope.md` "Record lens tokens" (quoted `"${LENS_TOKENS[@]/#/--lens-tokens }"` glues each pair into one argv word and `parseArgs` rejects it), then run `flow-review-telemetry collect --worktree "$WORKTREE" --pr "$PR_NUMBER" --session-id "$CLAUDE_CODE_SESSION_ID" "${LENS_TOKEN_ARGS[@]}" --append ${WIDEN_REASON:+--widened "$WIDEN_REASON"}` then `flow-review-telemetry print --in "$WORKTREE/.flow-tmp/review-telemetry.json"`; paste `print`'s stdout under `### Lens telemetry` (`references/report-template.md`).
+**The mechanical wrap-up runs once, here, via `flow-review-finalize`.** This single call
+absorbs what used to be four separate mechanical recipes spread across 11e/12/13: the
+PR-body upsert (whichever `.flow-tmp/body.md` draft 11e produced — or, if no branch fired,
+the current live body, fetched first via `gh pr view <number> --json body -q .body >
+.flow-tmp/body.md` so the upsert never runs against a missing file), lens telemetry
+collection, the Automation-precedence audit line, the result artifact, the
+`pr-review-last-sha` marker, and the untracked-follow-up seed. It runs
+`flow-md-validate --fix-pr-body` immediately before pushing the body via `gh pr edit`,
+internally, never skipped:
+
+```bash
+flow-review-finalize --pr "$PR_NUMBER" --worktree "$WORKTREE" \
+  --body-file "$WORKTREE/.flow-tmp/body.md" --status clean \
+  --session-id "$CLAUDE_CODE_SESSION_ID" \
+  --ran $N --total $M --prose-promoted $X \
+  --reason subjective-UX --reason production-only \
+  "${LENS_TOKEN_ARGS[@]/#/--lens-model }" ${WIDEN_REASON:+--widened "$WIDEN_REASON"}
+```
+
+(`LENS_TOKEN_ARGS` built per `references/review-scope.md` "Record lens tokens"; `N`/`M`/`X`
+are Step 8c's ran/total/prose-promoted counts, `--reason` one per applicable
+manual-test-rubric category.) Then run
+`flow-review-telemetry print --in "$WORKTREE/.flow-tmp/review-telemetry.json"` and paste
+its stdout under `### Lens telemetry`
+(`references/report-template.md`); read the Automation-precedence audit line back from
+`jq -r '.summary' "$WORKTREE/.flow-tmp/pr-review-result.json"` and append it to "Test Steps
+(from PR description)" per the format below.
 
 **Agent-fallback notices.** When any spawn site's file-exists guard fired its
 `NOTICE — agent-fallback: ...` line during this run (per-lens,
@@ -1572,14 +1597,7 @@ section ends with one summary line:
 Automation-precedence audit: ran N/M items (X prose-promoted, Y left manual: <reasons>)
 ```
 
-Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X, Y) and the per-unticked-item rubric categories; pass them to:
-
-```bash
-flow-classify-step --ran $N --total $M --prose-promoted $X \
-  --reason subjective-UX --reason production-only   # one --reason per applicable category
-```
-
-Append the helper's stdout to the report under "Test Steps (from PR description)". Allowed `--reason` slugs (kebab-case form of the five categories in references/manual-test-rubric.md): `subjective-UX`, `production-only`, `cross-browser`, `performance-under-realistic-load`, `cost-prohibitive-infra`. The bullet list below remains the contract documentation; `bin/flow-classify-step.test.ts` pins the format on the helper side so the two cannot drift silently.
+Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X, Y) and the per-unticked-item rubric categories; the `flow-review-finalize` call above forwards them to `flow-classify-step --ran $N --total $M --prose-promoted $X --reason ...` internally and folds its stdout into the result artifact's `summary` field — read that field back (see above) and append it to the report under "Test Steps (from PR description)". Allowed `--reason` slugs (kebab-case form of the five categories in references/manual-test-rubric.md): `subjective-UX`, `production-only`, `cross-browser`, `performance-under-realistic-load`, `cost-prohibitive-infra`. The bullet list below remains the contract documentation; `bin/flow-classify-step.test.ts` pins the format on the helper side so the two cannot drift silently.
 
 - `M` is the total `- [ ]` item count in the section.
 - `N` is the number ticked by 8c (author-runnable + prose-promoted via 8c.ii).
@@ -1646,84 +1664,50 @@ PR body — escalation can fire before a PR exists, and the JSONL log persists
 on disk for any later resume to consume. PR review never runs the follow-up
 directly — that's the supervisor's job, gated by the helper's allowlist.
 
-**Seed the untracked list (two mechanical sources, pipeline runs only).**
-Still in Step 13, after the follow-ups block above, seed
-`state.json.untracked[]` from two mechanical sources — supervisor
-judgment adds items at any other step via `flow-untracked add`, but
-these two are always checked here. Guarded: a **standalone**
-`/flow-pr-review` run has no slug/state file and `flow-untracked add`
-exits 2 there, so skip cleanly ("skipped: no pipeline state") instead
-of failing Step 13. `flow-untracked add` dedupes on an existing
-UNDROPPED item sharing `--title` + `--source`, so a review-fix-loop or
-resume re-run of this block never duplicates an entry:
+**The untracked seed, the result artifact, and the `pr-review-last-sha` marker are
+already written by Step 12's `flow-review-finalize` call above** — this section documents
+what that one call does; there is nothing further to run here. It seeds
+`state.json.untracked[]` from two mechanical sources (supervisor judgment can still add
+items at any other step via `flow-untracked add`, but these two are always checked):
+source 1 is `deferred[]` entries from `fix-applier-result.json` whose `tracker_entry_url`
+is empty (title `<finding_id>: <reason>`); source 2 is `anti_patterns_found[]` entries
+whose `introduced_by_this_pr` is `false` (title `<pattern>`). Both run through
+`flow-untracked add --title "<title>" --source pr-review`, which dedupes on an existing
+UNDROPPED item sharing `--title` + `--source`, so a review-fix-loop or resume re-run never
+duplicates an entry. Guarded internally: a **standalone** `/flow-pr-review` run has no
+slug/state file (`flow-untracked list --json` fails there), so the helper skips this
+source cleanly instead of failing. Both sources are read-only against the fix-applier
+artifact schema — no new field is added to it. Items seeded here are unfiled by default;
+they surface in the terminal block's `**Untracked:**` row and the reader files or drops
+them with `file #N` / `drop #N` at any later pause. Below-bar deferrals (a `reason`
+beginning `below bar — `) arrive through source 1 by design — shown, not filed — so the
+user can `flow-untracked file <id>` any they disagree with.
 
-```bash
-if flow-untracked list --json >/dev/null 2>&1; then  # guard: standalone run has no pipeline state
-  jq -r '.deferred[] | select(.tracker_entry_url == "") | .finding_id + ": " + .reason' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r title; do  # source 1: deferred[] with no tracker_entry_url
-    [ -n "$title" ] && flow-untracked add --title "$title" --source pr-review
-  done
-  jq -r '.anti_patterns_found[] | select(.introduced_by_this_pr == false) | .pattern' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r title; do  # source 2: anti_patterns_found[] not introduced by this PR
-    [ -n "$title" ] && flow-untracked add --title "$title" --source pr-review
-  done
-else
-  echo "skipped: no pipeline state"  # named no-op
-fi
-```
-
-Both sources are read-only against the fix-applier artifact schema —
-no new field is added to it. Items seeded here are unfiled by default;
-they surface in the terminal block's `**Untracked:**` row and the
-reader files or drops them with `file #N` / `drop #N` at any later
-pause. Below-bar deferrals (a `reason` beginning `below bar — `) arrive through source 1 by design — shown, not filed — so the user can `flow-untracked file <id>` any they disagree with.
-
-After Step 13 finishes (including its no-op-skipped branch), write the
-clean-completion result artifact at `<worktree>/.flow-tmp/pr-review-result.json`
-per the # Result artifact contract above: `status: "clean"`,
-`completed_steps` enumerating every top-level step label that ran in this
-invocation (deduplicating against any prior list when `--resume-from` was
-used), `missed_steps: []`, `escalation_tag: null`, and a one-paragraph
-`summary` mirroring the Step 12 structured report's headline. Validate the
-shape via `flow-pr-review-result-schema --validate <path>` then
-atomically write. The write MUST be guarded by the
+The same call writes the clean-completion result artifact at
+`<worktree>/.flow-tmp/pr-review-result.json` per the # Result artifact contract above:
+`status: "clean"`, `completed_steps` enumerating every top-level step label that ran in
+this invocation, `missed_steps: []`, `escalation_tag: null`, and a `summary` carrying the
+Automation-precedence audit line. It validates the shape (the same check
+`flow-pr-review-result-schema --validate <path>` performs) before writing, and honors the
 **read-before-overwrite** contract from
 [references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md)
-— if a prior site already wrote `status: "escalated"`, exit cleanly
-without touching the file (escalation always wins over clean):
+— if a prior site already wrote `status: "escalated"`, it exits cleanly without touching
+the file (escalation always wins over clean). This is the single signal `/flow-pipeline`
+step 8 reads to decide whether to continue (`"clean"`) or branch into the partial-retry
+path (`"partial"`) or escalate verbatim (`"escalated"`).
 
-```bash
-RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
-
-# read-before-overwrite guard — see references/result-artifact-write-protocol.md
-[ -f "$RESULT_PATH" ] && [ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null)" = "escalated" ] && exit 0
-```
-
-This is the single signal `/flow-pipeline` step 8 reads to decide
-whether to continue (`"clean"`) or branch into the partial-retry path
-(`"partial"`) or escalate verbatim (`"escalated"`).
-
-**Also write the `pr-review-last-sha` marker file on this clean-completion
-path.** The marker is the load-bearing input both the Step 1.5
-metadata triage's "no-new-commits" skip rule and `flow-review-scope`'s delta
-base consult. Single write site, sourced from **local** `git rev-parse
-HEAD` rather than `gh pr view` — the GitHub PR object can hold a stale
-head SHA for hours (known head-sync stall); local HEAD cannot lag. Write
-it atomically alongside the result artifact:
-
-```bash
-HEAD_SHA=$(git -C "$WORKTREE" rev-parse HEAD)
-printf '%s\n' "$HEAD_SHA" > "$WORKTREE/.flow-tmp/pr-review-last-sha.tmp"
-mv "$WORKTREE/.flow-tmp/pr-review-last-sha.tmp" "$WORKTREE/.flow-tmp/pr-review-last-sha"
-```
-
-The marker write is scoped **only** to this clean-Step-13 completion path.
-Escalation paths (`status: "escalated"`) and partial paths
-(`status: "partial"`) MUST NOT write the marker — those don't represent a
-fully-reviewed PR, so the next invocation should fall through to a real
-review rather than a metadata-triage skip. The marker file's read site lives in
-`## 1.5. Metadata triage` above;
-`bin/skill-md-lint.test.ts` asserts the literal `pr-review-last-sha`
-appears in both the spawn-prompt reference (read site) and here (write
-site) so this paired-contract regression can't recur silently.
+The call also writes the `pr-review-last-sha` marker file on this clean-completion path.
+The marker is the load-bearing input both the Step 1.5 metadata triage's
+"no-new-commits" skip rule and `flow-review-scope`'s delta base consult. Single write
+site, sourced from **local** `git rev-parse HEAD` rather than `gh pr view` — the GitHub PR
+object can hold a stale head SHA for hours (known head-sync stall); local HEAD cannot lag.
+The marker write is scoped **only** to the clean-completion path — escalation paths
+(`status: "escalated"`) and partial paths (`status: "partial"`) MUST NOT write the marker
+— those don't represent a fully-reviewed PR, so the next invocation should fall through to
+a real review rather than a metadata-triage skip. The marker file's read site lives in
+`## 1.5. Metadata triage` above; `bin/skill-md-lint.test.ts` asserts the literal
+`pr-review-last-sha` appears in both the spawn-prompt reference (read site) and here
+(write site) so this paired-contract regression can't recur silently.
 
 # Anti-Patterns
 

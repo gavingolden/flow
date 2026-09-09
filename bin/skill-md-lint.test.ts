@@ -9640,24 +9640,6 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
       anchor: "After every runnable item has been processed",
     },
     {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      siteName: "pr-review-redraft-description",
-      kind: "adjacent-lines",
-      anchor: "<updated description>",
-    },
-    {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      siteName: "pr-review-testability-extend",
-      kind: "adjacent-lines",
-      anchor: "<original description with test section extended or added>",
-    },
-    {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      siteName: "pr-review-automatable-prune",
-      kind: "same-paragraph",
-      anchor: "prune the converted bullet",
-    },
-    {
       file: "skills/pipeline/flow-new-feature/SKILL.md",
       siteName: "new-feature-overflow-note",
       kind: "same-paragraph",
@@ -9723,14 +9705,11 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
     },
   );
 
-  it("covers exactly the seven known gh pr edit --body-file recipe sites, by name", () => {
+  it("covers exactly the four known gh pr edit --body-file recipe sites, by name", () => {
     expect(BODY_EDIT_SITES.map((s) => s.siteName)).toEqual([
       "pipeline-ui-smoke-note",
       "pipeline-verify-exhausted-caution",
       "pr-review-evidence-injection",
-      "pr-review-redraft-description",
-      "pr-review-testability-extend",
-      "pr-review-automatable-prune",
       "new-feature-overflow-note",
     ]);
   });
