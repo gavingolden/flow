@@ -5,7 +5,7 @@ each fan-out sub-agent. Every named Task-spawn site in the pipeline / epic
 SKILLs links here rather than restating the whole chain.
 
 Adding a per-spawn `model:` argument to an **existing** named fan-out creates
-**no new Task-tool exemption** and **no eighth spawn site** — the seven exemption
+**no new Task-tool exemption** and **no ninth spawn site** — the eight exemption
 openers, the one `AskUserQuestion` form, and every "Load the Task tool before
 spawning" preamble stay byte-exact (guarded by `bin/skill-md-lint.test.ts`).
 
@@ -42,11 +42,12 @@ so the sub-agent inherits the session model (the default Claude behaviour).
 | `/flow-coder` Edit-Applier (implement)                  | `modelImplement`     | `config.models.coder // state.modelImplement // config.models.implement // inherited` |
 | `/flow-pr-review` Multi-Agent Review (review)           | `modelReview`        | `state.modelReview // config.models.review // inherited`                              |
 | `/flow-pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`    | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**   |
+| `/flow-verify` UI-driver (uiDriver)                     | —                    | `config.models.uiDriver // "sonnet"` **(NOT inherited; config-only, no CLI flag)**    |
 | `/flow-pr-review` Consolidator-Validator (consolidator) | `modelConsolidator`  | `state.modelConsolidator // config.models.consolidator // inherited`                  |
 | Step 10 Merge-Conflict Resolver (mergeResolver)         | `modelMergeResolver` | `state.modelMergeResolver // config.models.mergeResolver // inherited`                |
 | `/flow-epic-create` designer (planning)                 | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                          |
 
-## Two deliberate asymmetries
+## Three deliberate asymmetries
 
 - **fixApplier defaults to `sonnet`, not inherited.** The Fix-Applier loop
   applies already-diagnosed findings — mechanical apply-commit-push work its
@@ -58,6 +59,14 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   is the one primary grain over implementation; `config.models.scout` /
   `config.models.coder` are optional finer overrides that layer **above**
   `modelImplement` (they win when set) but have no CLI flag.
+- **uiDriver pins effort AND falls back to a literal sonnet AND is the only
+  routed site with no CLI flag at all.** `config.models.uiDriver` is the sole
+  knob — no `--model-ui-driver` flag, no `state.json` field. A
+  manifest-driven browser drive is template execution that must not silently
+  inherit Opus/Fable, the same reasoning as fixApplier, but uiDriver goes
+  further: unlike fixApplier (which still has a `--model-fix-applier` flag
+  and a `state.modelFixApplier` field above its config grain), uiDriver has
+  neither — `config.models.uiDriver // "sonnet"` is the entire chain.
 
 ## In-process skills pin effort, not model
 

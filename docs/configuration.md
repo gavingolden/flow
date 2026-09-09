@@ -93,7 +93,8 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
     "consolidator": "sonnet",
     "mergeResolver": "sonnet",
     "scout": "sonnet",
-    "coder": "sonnet"
+    "coder": "sonnet",
+    "uiDriver": "sonnet"
   }
 }
 ```
@@ -109,12 +110,13 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
 | `mergeResolver` | merge-conflict resolver                    | `--model-merge-resolver` |
 | `scout`         | implementation scout (finer grain)         | _(config only, no flag)_ |
 | `coder`         | implementation edit-applier (finer grain)  | _(config only, no flag)_ |
+| `uiDriver`      | /flow-verify UI-smoke browser driver       | _(none — config-only)_   |
 
 **Precedence** (highest wins):
 
 - **Session model** — `--model` > `config.models.default` > Claude's default. Read once at launch and passed to `claude --model`.
 - **Per-phase model** — `--model-<phase>` > `config.models.<phase>` > inherited session model.
-- **Two deliberate asymmetries** — (1) **fix-applier** defaults to `sonnet`, **not** the session model (mechanical apply-commit-push work that must not silently inherit Opus/Fable): `--model-fix-applier` > `config.models.fixApplier` > `sonnet`. (2) **scout / coder** are config-only fine-grain that layer _above_ `--model-implement`: `config.models.scout|coder` > `--model-implement` > `config.models.implement` > inherited.
+- **Three deliberate asymmetries** — (1) **fix-applier** defaults to `sonnet`, **not** the session model (mechanical apply-commit-push work that must not silently inherit Opus/Fable): `--model-fix-applier` > `config.models.fixApplier` > `sonnet`. (2) **scout / coder** are config-only fine-grain that layer _above_ `--model-implement`: `config.models.scout|coder` > `--model-implement` > `config.models.implement` > inherited. (3) **uiDriver** pins effort AND falls back to a literal `sonnet` AND is the only routed site with no per-run CLI flag at all: `config.models.uiDriver` > `sonnet`, with no per-phase flag and no `state.json` field.
 - **The gatekeeper is pinned** to `haiku` — its whole job is cheap cost-routing. There is no `--model-gatekeeper` flag; a `config.models.gatekeeper` key is reachable but strongly discouraged (overriding it defeats the cost-routing).
 
 Aliases are `opus`, `haiku`, `sonnet`, `fable`; flow forwards the alias verbatim to `claude --model`. An invalid alias in a flag exits non-zero writing no state; an invalid value in `config.models.*` emits a best-effort warning at create time and falls back.

@@ -498,7 +498,14 @@ After every commit lands, invoke `/flow-verify` in-process via the Skill tool:
 
 ```
 /flow-verify
+UI_SMOKE_DRIVER: inline
 ```
+
+The `UI_SMOKE_DRIVER: inline` marker is required here — this subagent has no
+Task tool of its own (fix-now mode is inline by construction), so a UI-touching
+commit's browser-driven UI-smoke pass must run in `/flow-verify`'s own context
+per `../flow-ui-driver-instructions/SKILL.md` rather than spawning the
+`flow-ui-driver` exemption.
 
 `/flow-verify` runs the project's full check suite (typecheck, tests, format).
 Capture the verdict per commit:

@@ -2,6 +2,43 @@
 
 The shared procedure behind the gate-time UI-smoke pass that both `/flow-pipeline` Step 6 (the supervisor-side "Automated UI-smoke pass") and `/flow-verify`'s "Optional UI-smoke pass" run. Both consumers keep a short pointer and their own framing (the supervisor's 3-attempt fix loop; `/flow-verify`'s "alongside `flow-pre-commit`" + Step 3 routing); the full probe → fallback → launch → drive-MCP → assemble → fix-loop → noise-filter → persist-back body lives here so the two cannot drift. This is the gate-time smoke pass; the review-time visual-appearance evidence path is a separate procedure documented in `../../flow-pr-review/references/ui-validation-evidence.md`.
 
+## Caller contract: who runs this body
+
+This file documents the drive procedure itself. WHO executes it —
+`/flow-verify` inline in its own context, or the spawned `flow-ui-driver`
+Task-tool exemption (`references/exemption-contracts.md`'s `/flow-verify`
+Independent UI-Driver Subagent) — is the caller's decision, made once per
+outer `/flow-verify` attempt:
+
+1. **Probe and get a verdict.** The caller runs the "Probe and skip (and
+   bootstrap)" step below itself (never inside a spawned agent — the
+   verdict decides whether to spawn at all) and saves the resulting
+   envelope to `.flow-tmp/ui-driver-envelope.json`.
+2. **Branch on the verdict.** An `mcp-not-available` / `browser-profile-busy`
+   skip never spawns anything — relay the loud skip and move on. A
+   `ran:true` (ready) or `bootstrap` envelope is drivable.
+3. **Spawn, unless marked inline.** On a drivable envelope, spawn one
+   `flow-ui-driver` agent (passing the saved envelope path) to run "Launch
+   and drive" through "Self-improving manifest" below in its own isolated
+   context — UNLESS the invocation carries the literal marker
+   `UI_SMOKE_DRIVER: inline` (the `/flow-fix-applier-instructions` re-run
+   path, which has no Task tool of its own), in which case `/flow-verify`
+   drives the same procedure in its OWN context instead. See "Where the
+   MCP calls live" below.
+4. **Read the artifact once.** Whichever path drove it, read
+   `.flow-tmp/ui-driver-result.json` once via
+   `flow-ui-driver-schema --validate` and reuse the parsed object — never
+   re-read or re-derive it later in the same attempt.
+5. **Route `ok:false` through the fix loop; degrade a missing artifact.**
+   An `ok:false` result is a verify failure per "Fix-loop routing" below.
+   A missing/unwritable artifact after a spawn returns degrades to
+   `skipped_reason: driver-no-artifact` — never an escalation, never a
+   re-spawn within the same outer attempt (see
+   `references/exemption-contracts.md`'s degrade contract).
+6. **Surface the skip/reason line.** Whatever the outcome, relay the
+   user-visible "UI changed; browser validation did not run — <reason>"
+   line per "When it runs" and "Probe and skip" below.
+
 ## When it runs
 
 When the diff touches a meaningful UI surface AND the `chrome-devtools` MCP is available in the session, run the browser-driven UI-smoke pass as part of the verify gate — a hand-authored `.flow/ui-validation.json` manifest is no longer a precondition. The `chrome-devtools` MCP is resolved once at session start, so a UI diff that appears mid-session without the MCP already connected stays not-runnable. Headless / MCP-absent runs stay green — the pass is an additive live check, never a blocker on environments that can't drive a browser. On a run that does drive the browser, the per-route/per-viewport screenshot is a first-class required capture alongside the a11y snapshot: every screenshot path that lands on disk is recorded into the verify-loop artifact's `ui_screenshots[]` so the supervisor can surface each one as a clickable absolute path in the session (see "Launch and drive" below). The a11y snapshot stays the mechanical gate — a missing or unwritable screenshot is never a new merge-block.
@@ -103,6 +140,14 @@ Benign request/console noise (canonically the favicon 404, which emits both a `/
 
 **Self-completing + self-maintaining manifest (CRITICAL):** reusing that same commit-the-manifest-change precedent, the agent completes and maintains EVERYTHING the smoketest needs, not just the launch. When it adapts on the fly to make a run work — tweaks the launch command, adds/changes an `env` var, fixes `baseUrl`, corrects a route that 404'd or a launch field that failed, records the `loginUrl` + credential env-var NAMES it verified during a bootstrap — it persists the launch adaptation back into `.flow/ui-validation.json` (env/launch/baseUrl/routes/loginUrl/credentialEnvVars), and does the same for every other field it verified, and commits it into the reviewable PR diff, so the next run starts deterministic. Runtime credential VALUES are resolved from the local `.env`/shell env and NEVER persisted: the committed manifest stores names and non-secret config only — never a secret value.
 
-## No nested LLM
+## Where the MCP calls live
 
-The MCP tool calls live in the calling skill's LLM context (the supervisor's Step 6, or `/flow-verify`) — the helper is LLM-free and runs no nested LLM (no `claude -p`, no Task; `flow-pre-commit` is a pure subprocess and cannot drive MCP).
+On the default (supervisor) path, the MCP tool calls live in the spawned
+`flow-ui-driver` subagent's own isolated context — the Task-tool exemption
+documented in `references/exemption-contracts.md`'s `/flow-verify`
+Independent UI-Driver Subagent contract. Only under the
+`UI_SMOKE_DRIVER: inline` marker (the `/flow-fix-applier-instructions`
+re-run path, which has no Task tool) do the calls run inline in the
+calling skill's own LLM context instead. Either way, `flow-ui-validate`
+itself stays LLM-free and runs no nested LLM (no `claude -p`, no Task;
+it is a pure subprocess and cannot drive MCP).
