@@ -89,7 +89,9 @@ alternates and each step names it). Shape rule:
    on the failure path and must not block step 2.
 2. Render the NEEDS HUMAN block via `flow-gate-summary --status
 needs-human --reason <tag> --cleanup` (carrying any inline context as
-   `--why`). The helper emits `STATUS:` / optional `PR:` / `WHY:` /
+   `--why`). Author the TLDR/WHY per [TLDR and WHY authoring (product
+   brief)](../SKILL.md#tldr-and-why-authoring-product-brief). The helper
+   emits `STATUS:` / optional `PR:` / `WHY:` /
    `NEXT ACTION:` / `CLEANUP:` / optional `FOLLOW-UPS:` rows above the
    sentinel; the
    sentinel line itself (`NEEDS HUMAN: <reason>`) remains byte-identical

@@ -5107,12 +5107,22 @@ describe("pr-review include-by-reference structure", () => {
     // above survive the merge. `main`'s higher ceiling is kept — the
     // merged file lands at 3019 lines after `main`'s verify-loop diet, so
     // 3115 clears it and no third number is invented.
+    //
+    // Raised 3115 → 3167 by the PR-body explanation-judge PR (epic
+    // make-flow-reason-from-explain f2): Task 6 inserted the "PR-body
+    // explanation judge (advisory)" paragraph + guarded flow-explain-judge
+    // bash block ahead of the flow-open-pr call, and Task 7 added the new
+    // "### TLDR and WHY authoring (product brief)" subsection plus six
+    // one-line pointer sentences at the existing TLDR-authoring sites —
+    // both genuine feature-mechanical content, not incidental bloat. Lands
+    // the file at 3151 lines, so the ceiling moves to 3167 (16 lines of
+    // genuine headroom), the same discipline as every raise above.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3115 lines. Material regrowth past this ceiling would ` +
+        `budget of 3167 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3115);
+    ).toBeLessThan(3167);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {

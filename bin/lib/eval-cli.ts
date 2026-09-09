@@ -14,6 +14,7 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { git } from "./git";
+import { pluginBinPath } from "./plugin-root";
 import {
   buildReport,
   compareReports,
@@ -131,7 +132,9 @@ export async function runPool<T, R>(
 
 const DRY_RUN_SKIPPED_KINDS = new Set(["structured", "command", "metric"]);
 
-function buildGraderContext(
+// Exported for bin/lib/eval-cli.test.ts's focused grader-context PATH-prefix
+// unit test — not otherwise a public surface of this module.
+export function buildGraderContext(
   fixture: MaterializedFixture,
   scenario: ResolvedScenario,
   outcome: {
@@ -152,7 +155,25 @@ function buildGraderContext(
     result: outcome.result,
     transcript: outcome.transcript,
     runCommand: (argv, cwd) => {
-      const r = spawnSync(argv[0], argv.slice(1), { cwd, encoding: "utf8" });
+      // Deliberately NOT arm-conditional: the fixture's own plugin bin/ is
+      // prepended in BOTH ablation arms so a command grader always
+      // resolves the branch-built helper (e.g. flow-explain-judge) under
+      // test, never the maintainer's installed one — eval-runner.ts's
+      // arm-conditional PATH stripping ablates the SUBJECT (what the
+      // spawned Claude session can discover), not this measurement
+      // infrastructure.
+      const pathPrefix = pluginBinPath(fixture.pluginRoots);
+      const env = {
+        ...process.env,
+        PATH: [pathPrefix, process.env.PATH]
+          .filter((seg): seg is string => Boolean(seg))
+          .join(":"),
+      };
+      const r = spawnSync(argv[0], argv.slice(1), {
+        cwd,
+        encoding: "utf8",
+        env,
+      });
       return {
         exitCode: r.status ?? -1,
         stdout: (r.stdout ?? "") + (r.stderr ?? ""),

@@ -162,6 +162,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-transcript-audit",
       "flow-conflict-marker-check",
       "flow-claude-headless",
+      "flow-explain-judge",
       "flow-test-audit",
     ],
     validators: [

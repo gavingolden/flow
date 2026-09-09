@@ -393,6 +393,62 @@ describe("buildChildArgv", () => {
     const idx = argv.indexOf("--setting-sources");
     expect(argv[idx + 1]).toBe("project");
   });
+
+  it("appends --tools with the parsed value, including the empty string", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+      "--tools",
+      "",
+    ]) as Args;
+    expect(a.tools).toBe("");
+    const argv = buildChildArgv(a, "hi");
+    const idx = argv.indexOf("--tools");
+    expect(idx).toBeGreaterThan(-1);
+    expect(argv[idx + 1]).toBe("");
+  });
+
+  it("leaves argv byte-identical to today when --tools is absent", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+    ]) as Args;
+    expect(a.tools).toBeUndefined();
+    const argv = buildChildArgv(a, "hi");
+    expect(argv).toEqual([
+      "claude",
+      "-p",
+      HEADLESS_PREAMBLE + "hi",
+      "--output-format",
+      "json",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+      "--max-budget-usd",
+      "5",
+      "--max-turns",
+      "25",
+      "--permission-mode",
+      "dontAsk",
+      "--allowedTools",
+      "Read,Grep,Glob",
+      "--disallowedTools",
+      `${FIXED_DENY_LIST},Bash`,
+      "--setting-sources",
+      "project",
+      "--no-session-persistence",
+    ]);
+    expect(argv).not.toContain("--tools");
+  });
 });
 
 describe("artifactPathFor", () => {

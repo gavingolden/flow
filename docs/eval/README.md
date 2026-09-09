@@ -1,7 +1,7 @@
 # flow-eval — maintainer guide
 
 `flow-eval` is a maintainer-only, locally-runnable headless eval harness
-running four committed suites, split by what each measures:
+running five committed suites, split by what each measures:
 
 - Three **supervisor context-isolation scaffolds** (`verify-loop`,
   `haiku-gatekeeper`, `checkpoint-pending-clear`) — cost/context/turn
@@ -16,6 +16,11 @@ running four committed suites, split by what each measures:
   helper that writes the phase; the helper _writing_ correctly is proved
   separately, by `bin/lib/phase-advance.test.ts` and each helper's own
   unit spec.
+- One **explanation-quality suite** (`pm-explanation-quality`, epic
+  `make-flow-reason-from-explain` f2) — whether the PR-body site's `## Why`
+  and `## User-facing changes` sections read as consequence-first, PM-facing
+  writing rather than mechanism-first, code-centric writing, via the
+  advisory `flow-explain-judge` check.
 
 `bin/flow-eval.ts` is never installed onto a user's PATH (see
 `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow

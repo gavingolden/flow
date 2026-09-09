@@ -29,7 +29,8 @@ the cross-model plan review, and the blind method survey — see `AGENTS.md`
 flow-claude-headless (--prompt <text, up to 200 chars> | --prompt-file <path>) \
   --model <alias|id> --effort <low|medium|high|xhigh|max> \
   [--max-budget-usd 5] [--max-turns 25] [--allowed-tools Read,Grep,Glob] \
-  [--env KEY]... [--bare] [--timeout-sec 600] [--out <path>] [--task <name>]
+  [--env KEY]... [--bare] [--timeout-sec 600] [--out <path>] [--task <name>] \
+  [--tools <list>]
 ```
 
 - `--effort` is required and explicit: verified live on `claude` 2.1.259
@@ -40,6 +41,11 @@ flow-claude-headless (--prompt <text, up to 200 chars> | --prompt-file <path>) \
 - `--max-turns` is accepted but hidden from `claude --help` on 2.1.259
   (probed via the missing-argument error, not the help text) — re-verify
   on any CLI upgrade before relying on it.
+- `--tools <list>` is an optional passthrough appended to the child argv
+  only when supplied. An empty string (`--tools ""`) disables all tools
+  in the child, for a caller that wants a pure text-completion child with
+  no tool surface at all. Omitting the flag leaves the child argv exactly
+  as it was before this flag existed.
 - The child env is an **allowlist**, not a denylist: only `PATH`, `HOME`,
   `TMPDIR`, `SHELL`, `TERM`, `LANG`, `USER`, `CLAUDE_CONFIG_DIR`, the
   auth/network passthrough (`CLAUDE_CODE_OAUTH_TOKEN`, `HTTP_PROXY`,
