@@ -105,9 +105,8 @@ export function parseArgs(argv: string[]): JudgeArgs | { error: string } {
  */
 export function readJudgeEnabled(
   readFile: (p: string) => string | null,
-  configPath: string,
 ): boolean {
-  const raw = readFile(configPath);
+  const raw = readFile("config");
   if (raw === null) return true;
   try {
     const parsed = JSON.parse(raw);
@@ -240,6 +239,7 @@ export type Deps = {
     cwd: string,
   ) => Promise<{ exitCode: number; stdout: string }>;
   mkdtemp: () => string;
+  removeDir: (dir: string) => void;
   env: NodeJS.ProcessEnv;
   writeOut: (line: string) => void;
   record: (attrs: Record<string, unknown>) => void;
@@ -278,6 +278,28 @@ function dropFlag(argv: string[], flag: string): string[] {
   return [...argv.slice(0, idx), ...argv.slice(idx + 2)];
 }
 
+/**
+ * Recovers `--expect` from raw argv independently of `parseArgs`. Both
+ * `ran:false` exit paths below (bad-args, and `run()`'s catch-all) fire
+ * exactly when the full parse is unavailable or never ran — a raw scan is
+ * the point, so grader mode (`--expect pass|rewrite`) still gets its
+ * documented exit 3 instead of a false-green 0.
+ */
+function expectFromArgv(argv: string[]): "pass" | "rewrite" | undefined {
+  const idx = argv.indexOf("--expect");
+  const v = idx === -1 ? undefined : argv[idx + 1];
+  return v === "pass" || v === "rewrite" ? v : undefined;
+}
+
+/** Recovers `--site` from raw argv for `run()`'s catch-all, so a throw that
+ * fires after a clean parse still reports the real site instead of
+ * `"unknown"`. */
+function siteFromArgv(argv: string[]): string {
+  const idx = argv.indexOf("--site");
+  const v = idx === -1 ? undefined : argv[idx + 1];
+  return v ?? "unknown";
+}
+
 const briefScopeOf = (brief: ProductBrief): "repo" | "user" | "none" =>
   brief.found ? brief.scope : "none";
 
@@ -292,6 +314,7 @@ export async function run(
     resolveBrief: () => resolveProductBrief(),
     runHeadless: async () => ({ exitCode: 1, stdout: "" }),
     mkdtemp: () => ".",
+    removeDir: () => {},
     env: process.env,
     writeOut: (line) => console.log(line),
     record: () => {},
@@ -303,7 +326,7 @@ export async function run(
   } catch (e) {
     const envelope: JudgeEnvelope = {
       ran: false,
-      site: "unknown",
+      site: siteFromArgv(argv),
       skipReason: "claude-error",
       error: e instanceof Error ? e.message : String(e),
     };
@@ -317,7 +340,7 @@ export async function run(
       text_chars: 0,
       brief_scope: "none",
     });
-    return exitCodeFor(envelope, undefined);
+    return exitCodeFor(envelope, expectFromArgv(argv));
   }
 }
 
@@ -340,7 +363,7 @@ async function runInner(argv: string[], deps: Deps): Promise<number> {
       text_chars: 0,
       brief_scope: "none",
     });
-    return exitCodeFor(envelope, undefined);
+    return exitCodeFor(envelope, expectFromArgv(argv));
   }
 
   const site = parsed.site;
@@ -370,7 +393,7 @@ async function runInner(argv: string[], deps: Deps): Promise<number> {
     return exitCodeFor(envelope, parsed.expect);
   };
 
-  const enabled = readJudgeEnabled(() => deps.readConfig(), "config");
+  const enabled = readJudgeEnabled(() => deps.readConfig());
   if (!enabled) {
     return emit(
       { ran: false, site, skipReason: "judge-disabled" },
@@ -427,119 +450,123 @@ async function runInner(argv: string[], deps: Deps): Promise<number> {
   const briefScope = briefScopeOf(brief);
 
   const cwd = deps.mkdtemp();
-  const promptPath = `${cwd}/prompt.txt`;
-  const outPath = `${cwd}/result.json`;
   try {
-    fs.writeFileSync(promptPath, prompt, "utf8");
-  } catch {
-    // The spawn below will surface a normal child-reported skipReason
-    // (e.g. incomplete-result) off a missing prompt file — no
-    // special-casing needed here.
-  }
-
-  const baseArgv = [
-    "--prompt-file",
-    promptPath,
-    "--model",
-    JUDGE_MODEL,
-    "--effort",
-    JUDGE_EFFORT,
-    "--max-budget-usd",
-    String(parsed.maxBudgetUsd),
-    "--max-turns",
-    "1",
-    "--allowed-tools",
-    "",
-    "--tools",
-    "",
-    "--timeout-sec",
-    String(JUDGE_TIMEOUT_SEC),
-    "--task",
-    `explain-judge-${site}`,
-    "--out",
-    outPath,
-  ];
-
-  let toolsFallback = false;
-  let { stdout } = await deps.runHeadless(baseArgv, cwd);
-  let headless = tryParseJson(stdout);
-
-  // The installed flow-claude-headless may predate --tools until this
-  // branch merges and is reinstalled; its parseArgs turns the unknown
-  // flag into {ran:false,skipReason:"bad-args"}. Retry exactly once
-  // without --tools so the judge isn't a silent no-op until reinstall.
-  if (headless?.skipReason === "bad-args") {
-    toolsFallback = true;
-    const retryArgv = dropFlag(baseArgv, "--tools");
-    const retry = await deps.runHeadless(retryArgv, cwd);
-    stdout = retry.stdout;
-    headless = tryParseJson(stdout);
-  }
-
-  const textChars = textToJudge.length;
-
-  if (!headless || headless.ran !== true) {
-    const skipReason = headless?.skipReason ?? "incomplete-result";
-    return emit(
-      { ran: false, site, skipReason },
-      {
-        text_chars: textChars,
-        brief_scope: briefScope,
-        ...(toolsFallback ? { tools_fallback: true } : {}),
-      },
-    );
-  }
-
-  const artifactPath = headless.artifact ?? outPath;
-  const artifactRaw = deps.readFile(artifactPath);
-  let resultText: string | null = null;
-  if (artifactRaw !== null) {
+    const promptPath = `${cwd}/prompt.txt`;
+    const outPath = `${cwd}/result.json`;
     try {
-      const artifactEnvelope = JSON.parse(artifactRaw);
-      resultText =
-        typeof artifactEnvelope.result === "string"
-          ? artifactEnvelope.result
-          : null;
+      fs.writeFileSync(promptPath, prompt, "utf8");
     } catch {
-      resultText = null;
+      // The spawn below will surface a normal child-reported skipReason
+      // (e.g. incomplete-result) off a missing prompt file — no
+      // special-casing needed here.
     }
-  }
 
-  if (resultText === null) {
-    return emit(
-      { ran: false, site, skipReason: "unparseable-verdict" },
-      {
-        text_chars: textChars,
-        brief_scope: briefScope,
-        ...(toolsFallback ? { tools_fallback: true } : {}),
-      },
-    );
-  }
+    const baseArgv = [
+      "--prompt-file",
+      promptPath,
+      "--model",
+      JUDGE_MODEL,
+      "--effort",
+      JUDGE_EFFORT,
+      "--max-budget-usd",
+      String(parsed.maxBudgetUsd),
+      "--max-turns",
+      "1",
+      "--allowed-tools",
+      "",
+      "--tools",
+      "",
+      "--timeout-sec",
+      String(JUDGE_TIMEOUT_SEC),
+      "--task",
+      `explain-judge-${site}`,
+      "--out",
+      outPath,
+    ];
 
-  const verdict = parseVerdict(resultText);
-  if (verdict === null) {
-    return emit(
-      { ran: false, site, skipReason: "unparseable-verdict" },
-      {
-        text_chars: textChars,
-        brief_scope: briefScope,
-        ...(toolsFallback ? { tools_fallback: true } : {}),
-      },
-    );
-  }
+    let toolsFallback = false;
+    let { stdout } = await deps.runHeadless(baseArgv, cwd);
+    let headless = tryParseJson(stdout);
 
-  const envelope: JudgeEnvelope = {
-    ran: true,
-    verdict: verdict.verdict,
-    reasons: verdict.reasons,
-    site,
-    model: JUDGE_MODEL,
-    effort: JUDGE_EFFORT,
-    total_cost_usd: headless.total_cost_usd ?? 0,
-    brief: briefScope,
-  };
-  return emit(envelope, {
-    text_chars: textChars,
-    ...(toolsFallback ? { tools_fallback: true } : {}),
-  });
+    // The installed flow-claude-headless may predate --tools until this
+    // branch merges and is reinstalled; its parseArgs turns the unknown
+    // flag into {ran:false,skipReason:"bad-args"}. Retry exactly once
+    // without --tools so the judge isn't a silent no-op until reinstall.
+    if (headless?.skipReason === "bad-args") {
+      toolsFallback = true;
+      const retryArgv = dropFlag(baseArgv, "--tools");
+      const retry = await deps.runHeadless(retryArgv, cwd);
+      stdout = retry.stdout;
+      headless = tryParseJson(stdout);
+    }
+
+    const textChars = textToJudge.length;
+
+    if (!headless || headless.ran !== true) {
+      const skipReason = headless?.skipReason ?? "incomplete-result";
+      return emit(
+        { ran: false, site, skipReason },
+        {
+          text_chars: textChars,
+          brief_scope: briefScope,
+          ...(toolsFallback ? { tools_fallback: true } : {}),
+        },
+      );
+    }
+
+    const artifactPath = headless.artifact ?? outPath;
+    const artifactRaw = deps.readFile(artifactPath);
+    let resultText: string | null = null;
+    if (artifactRaw !== null) {
+      try {
+        const artifactEnvelope = JSON.parse(artifactRaw);
+        resultText =
+          typeof artifactEnvelope.result === "string"
+            ? artifactEnvelope.result
+            : null;
+      } catch {
+        resultText = null;
+      }
+    }
+
+    if (resultText === null) {
+      return emit(
+        { ran: false, site, skipReason: "unparseable-verdict" },
+        {
+          text_chars: textChars,
+          brief_scope: briefScope,
+          ...(toolsFallback ? { tools_fallback: true } : {}),
+        },
+      );
+    }
+
+    const verdict = parseVerdict(resultText);
+    if (verdict === null) {
+      return emit(
+        { ran: false, site, skipReason: "unparseable-verdict" },
+        {
+          text_chars: textChars,
+          brief_scope: briefScope,
+          ...(toolsFallback ? { tools_fallback: true } : {}),
+        },
+      );
+    }
+
+    const envelope: JudgeEnvelope = {
+      ran: true,
+      verdict: verdict.verdict,
+      reasons: verdict.reasons,
+      site,
+      model: JUDGE_MODEL,
+      effort: JUDGE_EFFORT,
+      total_cost_usd: headless.total_cost_usd ?? 0,
+      brief: briefScope,
+    };
+    return emit(envelope, {
+      text_chars: textChars,
+      ...(toolsFallback ? { tools_fallback: true } : {}),
+    });
+  } finally {
+    deps.removeDir(cwd);
+  }
 }

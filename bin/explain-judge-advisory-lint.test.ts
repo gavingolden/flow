@@ -18,10 +18,7 @@ const SKILL_MD_PATH = path.join(
   REPO_ROOT,
   "skills/pipeline/flow-pipeline/SKILL.md",
 );
-const EXPLAIN_JUDGE_TEST_PATH = path.join(
-  REPO_ROOT,
-  "bin/flow-explain-judge.test.ts",
-);
+const EXPLAIN_JUDGE_LIB_PATH = path.join(REPO_ROOT, "bin/lib/explain-judge.ts");
 
 function readStep5(content: string): string {
   const lines = content.split("\n");
@@ -69,8 +66,18 @@ describe("explain-judge advisory ceiling lint", () => {
     }
   });
 
-  it("bin/flow-explain-judge.test.ts never imports node:child_process", () => {
-    const content = fs.readFileSync(EXPLAIN_JUDGE_TEST_PATH, "utf8");
-    expect(content.includes("node:child_process")).toBe(false);
+  it("bin/lib/explain-judge.ts never spawns a child process itself", () => {
+    const content = fs.readFileSync(EXPLAIN_JUDGE_LIB_PATH, "utf8");
+    expect(content.includes('from "node:child_process"')).toBe(false);
+    expect(content.includes("Bun.spawn(")).toBe(false);
+    expect(content.includes("Bun.spawnSync(")).toBe(false);
+  });
+
+  it("SKILL.md's product-brief authoring subsection keeps its pinned heading", () => {
+    const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    expect(
+      content.includes("### TLDR and WHY authoring (product brief)"),
+      "SKILL.md must keep the exact heading text '### TLDR and WHY authoring (product brief)' — seven links depend on its slug.",
+    ).toBe(true);
   });
 });

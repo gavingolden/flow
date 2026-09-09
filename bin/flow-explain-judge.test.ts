@@ -29,6 +29,7 @@ function baseDeps(logPath: string, overrides: Partial<Deps> = {}): Deps {
     resolveBrief: () => ({ found: false }),
     runHeadless: async () => ({ exitCode: 1, stdout: "" }),
     mkdtemp: () => tmp,
+    removeDir: () => {},
     env: {},
     writeOut: () => {},
     record: (attrs) => recordEvent("explain.judge", attrs, { logPath }),

@@ -89,7 +89,11 @@ describe("buildGraderContext — command-grader PATH prefix", () => {
     );
 
     const out = ctx.runCommand(["print-path"], "/tmp");
-    expect(out.stdout.split(":")[0]).toBe(binDir);
+    // shimDir leads (matches eval-runner.ts's arm-conditional PATH build —
+    // the `gh` shim is scenario infrastructure, not flow scaffold), then
+    // the fixture's plugin bin/.
+    expect(out.stdout.split(":")[0]).toBe(fixture.shimDir);
+    expect(out.stdout.split(":")[1]).toBe(binDir);
   });
 
   it("still resolves and runs a command that lives only in the plugin bin/", () => {

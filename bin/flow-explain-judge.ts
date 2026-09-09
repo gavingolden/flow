@@ -8,10 +8,15 @@
  * injected `Deps` under vitest.
  *
  * `flow-claude-headless` — the one sanctioned raw `claude -p` spawn site —
- * is spawned here by BARE PATH NAME via `Bun.spawnSync`, matching
- * `bin/flow-gemini-lens.ts:757`, `bin/flow-plan-review.ts:1433`, and
- * `bin/flow-blind-survey.ts:549`. This file itself never imports
- * `node:child_process` and is not a second raw `claude -p` site.
+ * is spawned here by BARE PATH NAME via `Bun.spawnSync`, the exact same
+ * bare-name-spawn discipline as `bin/flow-deliberate.ts:476`, which spawns
+ * `flow-claude-headless` the same way (siblings `bin/flow-gemini-lens.ts:757`
+ * and `bin/flow-blind-survey.ts:549` spawn `flow-delegate`, and
+ * `bin/flow-plan-review.ts:1472` spawns `flow-delegate` too — all four
+ * establish the bare-PATH-name convention this file follows, even though
+ * `flow-deliberate.ts:476` is the one spawning the same binary). This file
+ * itself never imports `node:child_process` and is not a second raw
+ * `claude -p` site.
  */
 
 import * as fs from "node:fs";
@@ -34,6 +39,10 @@ function defaultReadConfig(): string | null {
 
 function defaultMkdtemp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "flow-explain-judge-"));
+}
+
+function defaultRemoveDir(dir: string): void {
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 function defaultRunHeadless(
@@ -70,6 +79,7 @@ export function defaultDeps(recordOpts: RecordEventOpts = {}): Partial<Deps> {
     resolveBrief: () => resolveProductBrief(),
     runHeadless: defaultRunHeadless,
     mkdtemp: defaultMkdtemp,
+    removeDir: defaultRemoveDir,
     env: process.env,
     writeOut: (line) => console.log(line),
     record: (attrs) => recordEvent("explain.judge", attrs, recordOpts),

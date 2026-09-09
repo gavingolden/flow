@@ -98,31 +98,26 @@ describe("parseArgs", () => {
 
 describe("readJudgeEnabled", () => {
   it("is enabled when the file is missing", () => {
-    expect(readJudgeEnabled(() => null, "/nope")).toBe(true);
+    expect(readJudgeEnabled(() => null)).toBe(true);
   });
 
   it("is enabled on malformed JSON", () => {
-    expect(readJudgeEnabled(() => "{not json", "/x")).toBe(true);
+    expect(readJudgeEnabled(() => "{not json")).toBe(true);
   });
 
   it("is enabled when product is null", () => {
-    expect(
-      readJudgeEnabled(() => JSON.stringify({ product: null }), "/x"),
-    ).toBe(true);
-  });
-
-  it("is enabled when the key is absent", () => {
-    expect(readJudgeEnabled(() => JSON.stringify({ product: {} }), "/x")).toBe(
+    expect(readJudgeEnabled(() => JSON.stringify({ product: null }))).toBe(
       true,
     );
   });
 
+  it("is enabled when the key is absent", () => {
+    expect(readJudgeEnabled(() => JSON.stringify({ product: {} }))).toBe(true);
+  });
+
   it("is disabled only on a strict false", () => {
     expect(
-      readJudgeEnabled(
-        () => JSON.stringify({ product: { judge: false } }),
-        "/x",
-      ),
+      readJudgeEnabled(() => JSON.stringify({ product: { judge: false } })),
     ).toBe(false);
   });
 });
@@ -163,6 +158,21 @@ describe("extractSections", () => {
     const result = extractSections(text, ["## User-facing changes"]);
     expect(result).not.toContain("unrelated");
   });
+
+  it("matches a heading that only exists at ### depth", () => {
+    const threeOnly = [
+      "# Title",
+      "",
+      "### User-facing changes",
+      "only at ### depth",
+      "",
+      "## Next section",
+      "unrelated",
+    ].join("\n");
+    const result = extractSections(threeOnly, ["## User-facing changes"]);
+    expect(result).toContain("only at ### depth");
+    expect(result).not.toContain("unrelated");
+  });
 });
 
 describe("capText", () => {
@@ -176,13 +186,27 @@ describe("capText", () => {
     expect(capped.length).toBeLessThanOrEqual(JUDGE_TEXT_CHAR_CAP);
     expect(capped).toContain("truncated");
   });
+
+  it("keeps the true head and true tail of the original text, not just any content", () => {
+    const head = "HEAD".repeat(50);
+    const tail = "TAIL".repeat(50);
+    const middle = "m".repeat(500);
+    const long = head + middle + tail;
+    const capped = capText(long, 300);
+    expect(capped.startsWith(head.slice(0, 10))).toBe(true);
+    expect(capped.endsWith(tail.slice(-10))).toBe(true);
+    expect(capped).not.toContain(middle);
+  });
 });
 
 describe("buildPrompt", () => {
   it("is byte-identical to the fixed generic rubric when no brief resolved", () => {
     const a = buildPrompt("hello world", { found: false });
-    const b = buildPrompt("hello world", { found: false });
-    expect(a).toBe(b);
+    expect(a).toBe(
+      `${JUDGE_RUBRIC}\n\n` +
+        `Reply with EXACTLY one JSON object of the shape {"verdict":"pass"|"rewrite","reasons":["..."]} and nothing else — no prose before or after it, no markdown fence.\n\n` +
+        `<TEXT_TO_JUDGE>\nhello world\n</TEXT_TO_JUDGE>`,
+    );
     expect(a).toContain(JUDGE_RUBRIC);
     expect(a).not.toContain("<PRODUCT_BRIEF>");
     expect(a).not.toContain("ranked priorities");
@@ -269,7 +293,7 @@ describe("exitCodeFor", () => {
   });
 });
 
-function baseDeps(overrides: Partial<Deps> = {}): Deps {
+function baseDeps(overrides: Partial<Deps> = {}, removedDirs?: string[]): Deps {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "explain-judge-test-"));
   return {
     readFile: () => null,
@@ -278,6 +302,9 @@ function baseDeps(overrides: Partial<Deps> = {}): Deps {
     resolveBrief: () => ({ found: false }),
     runHeadless: async () => ({ exitCode: 1, stdout: "" }),
     mkdtemp: () => tmp,
+    removeDir: (d) => {
+      removedDirs?.push(d);
+    },
     env: {},
     writeOut: () => {},
     record: () => {},
@@ -532,5 +559,120 @@ describe("run — successful judge path", () => {
       }),
     );
     expect(JSON.parse(out).skipReason).toBe("claude-not-logged-in");
+  });
+});
+
+describe("run — catch-all failure paths", () => {
+  it("skips with incomplete-result when the child returns unparseable stdout", async () => {
+    let out = "";
+    const code = await run(
+      ["--text-file", "/x", "--site", "s"],
+      baseDeps({
+        fileExists: () => true,
+        readFile: () => "## Why\nbody\n",
+        runHeadless: async () => ({ exitCode: 1, stdout: "not json at all" }),
+        writeOut: (line) => {
+          out = line;
+        },
+      }),
+    );
+    expect(JSON.parse(out).skipReason).toBe("incomplete-result");
+    expect(code).toBe(0);
+  });
+
+  it("skips with claude-error when a dep throws mid-run", async () => {
+    let out = "";
+    const code = await run(
+      ["--text-file", "/x", "--site", "s"],
+      baseDeps({
+        fileExists: () => true,
+        readFile: () => "## Why\nbody\n",
+        resolveBrief: () => {
+          throw new Error("mkdtemp exploded");
+        },
+        writeOut: (line) => {
+          out = line;
+        },
+      }),
+    );
+    const envelope = JSON.parse(out);
+    expect(envelope.skipReason).toBe("claude-error");
+    expect(envelope.site).toBe("s");
+    expect(code).toBe(0);
+  });
+});
+
+describe("run — grader mode (--expect) never false-greens a ran:false skip", () => {
+  it("exits 3 on bad-args, not 0, when --expect is present", async () => {
+    const code = await run(
+      ["--text-file", "/x", "--expect", "pass"],
+      baseDeps(),
+    );
+    expect(code).toBe(3);
+  });
+
+  it("exits 3 on run()'s catch-all, not 0, when --expect is present", async () => {
+    const code = await run(
+      ["--text-file", "/x", "--site", "s", "--expect", "pass"],
+      baseDeps({
+        fileExists: () => true,
+        readFile: () => "## Why\nbody\n",
+        resolveBrief: () => {
+          throw new Error("boom");
+        },
+      }),
+    );
+    expect(code).toBe(3);
+  });
+});
+
+describe("run — temp dir teardown", () => {
+  it("removes the mkdtemp scratch dir on the successful path", async () => {
+    const removedDirs: string[] = [];
+    const artifactPath = "/tmp/fake-artifact-teardown.json";
+    await run(
+      ["--text-file", "/x", "--site", "s"],
+      baseDeps(
+        {
+          fileExists: () => true,
+          readFile: (p) => {
+            if (p === "/x") return "## Why\nbody\n";
+            if (p === artifactPath)
+              return JSON.stringify({
+                result: '{"verdict":"pass","reasons":[]}',
+              });
+            return null;
+          },
+          runHeadless: async () => ({
+            exitCode: 0,
+            stdout: JSON.stringify({ ran: true, artifact: artifactPath }),
+          }),
+        },
+        removedDirs,
+      ),
+    );
+    expect(removedDirs.length).toBe(1);
+  });
+
+  it("removes the mkdtemp scratch dir even when the child never ran", async () => {
+    const removedDirs: string[] = [];
+    await run(
+      ["--text-file", "/x", "--site", "s"],
+      baseDeps(
+        {
+          fileExists: () => true,
+          readFile: () => "## Why\nbody\n",
+          runHeadless: async () => ({
+            exitCode: 2,
+            stdout: JSON.stringify({
+              ran: false,
+              skipReason: "claude-not-logged-in",
+            }),
+          }),
+        },
+        removedDirs,
+      ),
+    );
+    expect(removedDirs.length).toBe(1);
   });
 });

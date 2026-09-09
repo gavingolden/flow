@@ -165,7 +165,10 @@ export function buildGraderContext(
       const pathPrefix = pluginBinPath(fixture.pluginRoots);
       const env = {
         ...process.env,
-        PATH: [pathPrefix, process.env.PATH]
+        // `fixture.shimDir` matches eval-runner.ts's arm-conditional PATH
+        // build: the `gh` shim is scenario infrastructure (mocking a real
+        // external tool), so a command grader must resolve it too.
+        PATH: [fixture.shimDir, pathPrefix, process.env.PATH]
           .filter((seg): seg is string => Boolean(seg))
           .join(":"),
       };

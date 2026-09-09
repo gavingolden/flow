@@ -1503,6 +1503,7 @@ mkdir -p "$WORKTREE/.flow-tmp"
 if [ -z "$(jq -r '.pr // empty' ~/.flow/state/"$FLOW_SLUG".json 2>/dev/null)" ]; then
   JUDGE=$(flow-explain-judge --text-file "$WORKTREE/.flow-tmp/pr-body.md" \
     --sections "## Why,## User-facing changes" --site pr-body)
+  echo "$JUDGE"
   # On JUDGE's .verdict == "rewrite": rewrite ## Why / ## User-facing
   # changes once per .reasons[], re-judge once, then proceed regardless.
 fi
@@ -2717,14 +2718,14 @@ Resolve the product brief ONCE per session, by bare PATH name — never a
 in the consumer/target worktree where flow's own `bin/lib` does not exist:
 
 ```bash
-{ test -f "$WORKTREE/.flow/product.md" || test -f ~/.flow/product.md; } && flow-product-brief || echo '{"found":false}'
+{ test -f "$WORKTREE/.flow/product.md" || test -f ~/.flow/product.md; } && (cd "$WORKTREE" && flow-product-brief) || echo '{"found":false}'
 ```
 
 Every `TLDR="..."` string and every `--why` string this skill authors is
 REQUIRED to cite the resolved brief's top-ranked priorities, in its `Use`
 vocabulary, as the lead clause — the user-visible consequence for what the
 brief's PM ranks highest, never an internal mechanism. On `{"found":false}`,
-change nothing: author the TLDR/WHY exactly as each site below already
+change nothing: author the TLDR/WHY exactly as each site above already
 documents, with no brief clause at all.
 
 ### Checkpoint arm signal (echo-verbatim)
@@ -2991,7 +2992,7 @@ flow-pipeline-summary --status needs-human --state-file ~/.flow/state/"$SLUG".js
 COUNTS_LINE=$(flow-pipeline-summary --status needs-human --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)
 flow-epic-membership --slug "$SLUG" --terminal-state needs-human  # epic-membership block (no-op for non-epic features)
 flow-browser-teardown --reap --record  # registry-driven; records outcome; always exits 0
-TLDR="<one sentence, <=25 words, the user-visible outcome for <reason>>"  # authored here, not derived
+TLDR="<one sentence, <=25 words, the user-visible outcome for <reason>>"  # authored here, not derived; per [TLDR and WHY authoring (product brief)](#tldr-and-why-authoring-product-brief)
 flow-gate-summary --status needs-human --reason "<reason>" \
   --why "<one-line context>" --cleanup \
   --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" \

@@ -42,8 +42,10 @@ flow-claude-headless (--prompt <text, up to 200 chars> | --prompt-file <path>) \
   (probed via the missing-argument error, not the help text) — re-verify
   on any CLI upgrade before relying on it.
 - `--tools <list>` is an optional passthrough appended to the child argv
-  only when supplied. An empty string (`--tools ""`) disables all tools
-  in the child, for a caller that wants a pure text-completion child with
+  only when supplied: verified live on `claude` 2.1.266, documented in
+  `claude --help` as `--tools <tools...>` ("Use \"\" to disable all
+  tools"). An empty string (`--tools ""`) disables all tools in the
+  child, for a caller that wants a pure text-completion child with
   no tool surface at all. Omitting the flag leaves the child argv exactly
   as it was before this flag existed.
 - The child env is an **allowlist**, not a denylist: only `PATH`, `HOME`,
