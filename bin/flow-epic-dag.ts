@@ -36,12 +36,24 @@
  */
 
 import { type Feature, validateEpicManifest } from "./lib/epic-manifest-schema";
+import {
+  findUndeclaredProducers,
+  findUnorderedProducers,
+  normalizeArtifactPath,
+} from "./lib/epic-dag-producers";
+export {
+  findUndeclaredProducers,
+  findUnorderedProducers,
+  normalizeArtifactPath,
+};
 
 export type DagViolationKind =
   | "duplicate-id"
   | "self-dependency"
   | "orphan-edge"
-  | "cycle";
+  | "cycle"
+  | "unordered-producers"
+  | "undeclared-producer";
 
 export interface DagViolation {
   kind: DagViolationKind;
@@ -199,6 +211,7 @@ export function validateDag(features: Feature[]): DagResult {
     ...findDuplicateIds(features),
     ...findOrphanEdges(features),
     ...findSelfDependencies(features),
+    ...findUnorderedProducers(features),
   ];
 
   const cycle = detectCycle(features);
@@ -243,7 +256,8 @@ export function computeFrontier(
 
 const USAGE =
   "usage: flow-epic-dag --validate <path-to-manifest.json>\n" +
-  "       flow-epic-dag --frontier <path-to-manifest.json> --completed <id,id,...> [--launched <id,id,...>]\n";
+  "       flow-epic-dag --frontier <path-to-manifest.json> --completed <id,id,...> [--launched <id,id,...>]\n" +
+  "       flow-epic-dag --touched-files <path-to-manifest.json> <path> [<path> ...]\n";
 
 /** Read the value token after `--flag`, or undefined when absent/at end. */
 function flagValue(argv: string[], flag: string): string | undefined {
@@ -334,6 +348,29 @@ async function cliMain(argv: string[]): Promise<number> {
     return 0;
   }
 
+  if (argv.includes("--touched-files")) {
+    const i = argv.indexOf("--touched-files");
+    const manifestPath = argv[i + 1];
+    if (manifestPath === undefined) {
+      process.stderr.write(USAGE);
+      return 2;
+    }
+    const touched = argv.slice(i + 2);
+    const loaded = await loadValidatedFeatures(manifestPath);
+    if (!loaded.ok) return loaded.code;
+    const violations = findUndeclaredProducers(
+      loaded.features,
+      manifestPath,
+      touched,
+    );
+    if (violations.length > 0) {
+      for (const v of violations) process.stderr.write(v.message + "\n");
+      return 1;
+    }
+    process.stdout.write(JSON.stringify({ ok: true }) + "\n");
+    return 0;
+  }
+
   const flagIdx = argv.indexOf("--validate");
   if (flagIdx === -1 || flagIdx === argv.length - 1) {
     process.stderr.write(USAGE);
@@ -342,6 +379,18 @@ async function cliMain(argv: string[]): Promise<number> {
   const path = argv[flagIdx + 1];
   const loaded = await loadValidatedFeatures(path);
   if (!loaded.ok) return loaded.code;
+  try {
+    const raw = await Bun.file(path).text();
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(parsed, "followups")) {
+      process.stderr.write(
+        'warning: manifest carries a "followups" array — it is a ledger entry the runner never schedules; promote items to features[] before they can run\n',
+      );
+    }
+  } catch {
+    // loadValidatedFeatures already succeeded reading/parsing this path above;
+    // a failure here is unreachable in practice, so degrade silently.
+  }
   process.stdout.write(JSON.stringify({ ok: true }) + "\n");
   return 0;
 }

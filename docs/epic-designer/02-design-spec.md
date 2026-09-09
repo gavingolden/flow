@@ -109,7 +109,7 @@ This pipeline is the only one in `01` whose every stage is either harness-verifi
 }
 ```
 
-`flowNewHints` map to existing `state.ts` fields (`autoMerge`/`copilotReview`/`effort`) — the seam a future orchestrator reads (§10); the designer only _populates_ hints, never acts on them. Every per-feature field except `id`/`title`/`description`/`dependsOn` is optional: `rationale`, `acceptanceCriteria`, `flowNewHints`, and `mvp` (a boolean flagging the thin MVP slice, as `03`'s build plan uses) all default to absent.
+`flowNewHints` map to existing `state.ts` fields (`autoMerge`/`copilotReview`/`effort`) — the seam a future orchestrator reads (§10); the designer only _populates_ hints, never acts on them. Every per-feature field except `id`/`title`/`description`/`dependsOn` is optional: `rationale`, `acceptanceCriteria`, `flowNewHints`, `mvp` (a boolean flagging the thin MVP slice, as `03`'s build plan uses), and `sharedArtifacts` (repo-relative paths of shared generated artifacts this feature regenerates) all default to absent.
 
 **Gold-plating watch (explicit exclusions, each justified by `01`):** no C4 four-diagram set (C4 is _"not a design process"_ per its own FAQ [V2] — one Mermaid DAG suffices); no arc42/SEI "Views & Beyond" template [E] (calibrated for large multi-stakeholder systems); no separate ADR _files_ (ADR _shape_ inlined into design.md is enough at this scale); no event-storming/context-map [E] (thin-domain CLI epics don't earn it); no full SRS/Volere [E]. Include any of these later only if a specific epic proves a concrete need.
 

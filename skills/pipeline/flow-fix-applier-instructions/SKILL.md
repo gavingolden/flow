@@ -393,6 +393,35 @@ It resolves the epic slug ambiently ($FLOW_SLUG / the launch env) and is a
 no-op for a non-epic PR; it also exits 0 when `gh` is unavailable, so it
 never blocks this step.
 
+**Validate the epic manifests against this PR's diff.** This fires whether
+or not the diff touches a manifest — that is what catches a forgotten
+write-back (`undeclared-producer`):
+
+```bash
+BASE_REF=$(gh pr view "$PR_NUMBER" --json baseRefName --jq .baseRefName)
+if ! git rev-parse --verify --quiet "origin/$BASE_REF" > /dev/null; then
+  echo "epic-dag: base ref unavailable — skipped"
+else
+  CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD")
+  if ! command -v flow-epic-dag > /dev/null; then
+    echo "epic-dag: flow-epic-dag not installed — skipped"
+  else
+    FAIL=0
+    for m in .flow/epics/*/manifest.json; do
+      [ -f "$m" ] || continue
+      flow-epic-dag --touched-files "$m" $CHANGED || FAIL=1
+      case "$CHANGED" in
+        *"$m"*) flow-epic-dag --validate "$m" || FAIL=1 ;;
+      esac
+    done
+  fi
+fi
+```
+
+A non-zero exit is recorded in the result artifact's summary and the step's
+return summary, and fixed in this PR (add the producer entry + edge to the
+manifest) — never `|| true`-swallowed.
+
 When it modifies `.flow/epics/<epic-slug>/status.json`, bundle the edit
 into the fix commit you are already making (steps 3–4 / 5a–5b). If it is
 the only change this run produced, use commit message `chore(epic): sync
