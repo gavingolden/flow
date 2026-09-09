@@ -338,9 +338,12 @@ describe("decideStep3Route — `## Request vetting` push-back routing", () => {
     expect(decideStep3Route("chore", plan)).toBe("route-to-step-4");
   });
 
-  it("a bare `push back` with no colon/detail never routes (parses null)", () => {
+  it("a bare `push back` with no colon/detail still routes (fail-closed, not fail-open)", () => {
+    // parseVettingVerdict itself stays strict (returns null — the lint's
+    // job is to name this as a miss), but the ROUTER must not fail open
+    // into an autonomous advance-to-step-5 on a malformed push-back verdict.
     expect(decideStep3Route("chore", PLAN_VETTING_BARE_PUSH_BACK)).toBe(
-      "advance-to-step-5",
+      "route-to-step-4",
     );
   });
 

@@ -166,10 +166,18 @@ export function decideStep3Route(
     return "pause-for-method";
   }
 
-  const vettingVerdict = parseVettingVerdict(
-    extractVettingVerdict(planMd) ?? "",
-  );
-  if (vettingVerdict?.kind === "push back") {
+  const rawVettingVerdict = extractVettingVerdict(planMd) ?? "";
+  const vettingVerdict = parseVettingVerdict(rawVettingVerdict);
+  // The router pauses on ANY verdict text starting `push back`, even a
+  // malformed one missing its `: <alternative>` detail — a lint-invalid
+  // verdict must never fail OPEN into an autonomous advance-to-step-5.
+  // `parseVettingVerdict` itself stays strict (exact-match enum) because
+  // the lint's job is to name the malformed shape as a miss, not to widen
+  // the enum the lint enforces.
+  if (
+    vettingVerdict?.kind === "push back" ||
+    /^push back\b/.test(rawVettingVerdict.trim())
+  ) {
     return "route-to-step-4";
   }
 

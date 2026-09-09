@@ -405,10 +405,32 @@ function extractCaseAgainstBlock(body: string): string | null {
   const subLines: string[] = [];
   for (const line of rest.split("\n")) {
     if (line.trim().length === 0) continue;
-    if (!/^\s/.test(line)) break; // a zero-indent line ends the block
+    // A new top-level bullet (`- **...`) ends the block; a soft-wrapped
+    // continuation line — indented sub-bullet OR a zero-indent prose line
+    // that isn't itself a new `- **` label — stays part of the block.
+    if (/^\s*- \*\*/.test(line)) break;
     subLines.push(line);
   }
   return [sameLineText, ...subLines].join("\n");
+}
+
+/**
+ * Extract a single-label line's full value, folding in soft-wrapped
+ * continuation lines (plain prose lines with no leading `- **` label) so a
+ * wrapped URL/anchor in e.g. `- **Sources:**` isn't a false miss.
+ */
+function extractLabelValueWithWrap(body: string, label: string): string | null {
+  const re = new RegExp(`^- \\*\\*${label}:\\*\\*.*$`, "m");
+  const labelMatch = body.match(re);
+  if (!labelMatch) return null;
+  const rest = body.slice((labelMatch.index ?? 0) + labelMatch[0].length);
+  const continuation: string[] = [];
+  for (const line of rest.split("\n")) {
+    if (line.trim().length === 0) break;
+    if (/^\s*- \*\*/.test(line)) break;
+    continuation.push(line);
+  }
+  return [labelMatch[0], ...continuation].join("\n");
 }
 
 /**
@@ -437,7 +459,11 @@ function extractCaseAgainstBlock(body: string): string | null {
  *      `## Decision analysis` — the argument against the request is read
  *      before its resolution fork.
  */
-function checkRequestVetting(planText: string, misses: string[]): void {
+function checkRequestVetting(
+  planText: string,
+  misses: string[],
+  artifactName: string = "plan.md",
+): void {
   const headingMatch = planText.match(/^## Request vetting\s*$/m);
   if (!headingMatch) {
     misses.push(
@@ -474,17 +500,36 @@ function checkRequestVetting(planText: string, misses: string[]): void {
     );
   }
 
-  const caseAgainstBlock = extractCaseAgainstBlock(body);
-  const hasGrounding =
-    caseAgainstBlock !== null &&
-    (caseAgainstBlock.includes("[anchor:") ||
-      /https?:\/\//.test(caseAgainstBlock));
-  if (!hasGrounding) {
-    misses.push(
-      "'## Request vetting' case against cites no [anchor: …] or URL — an ungrounded case is same-model self-critique",
-    );
+  const hasHypothesis = /^- \*\*Hypothesis:\*\*/m.test(body);
+  if (!hasHypothesis) {
+    misses.push("'## Request vetting' has no '- **Hypothesis:**' line");
   }
-  if (caseAgainstBlock !== null) {
+
+  const caseAgainstBlock = extractCaseAgainstBlock(body);
+  if (caseAgainstBlock === null) {
+    misses.push("'## Request vetting' has no '- **Case against:**' line");
+  } else {
+    // An anchor pointing under `.flow-tmp/` is not a valid grounding
+    // citation — that directory is excluded from git and deleted by
+    // worktree teardown, so it can never be re-opened by a later reader.
+    const flowTmpAnchorOnly =
+      /\[anchor:\s*\.flow-tmp\//.test(caseAgainstBlock) &&
+      !caseAgainstBlock
+        .split(/\[anchor:\s*/)
+        .slice(1)
+        .some((a) => !a.trimStart().startsWith(".flow-tmp/")) &&
+      !/https?:\/\//.test(caseAgainstBlock);
+    const hasGrounding =
+      (caseAgainstBlock.includes("[anchor:") ||
+        /https?:\/\//.test(caseAgainstBlock)) &&
+      !flowTmpAnchorOnly;
+    if (!hasGrounding) {
+      misses.push(
+        flowTmpAnchorOnly
+          ? "'## Request vetting' case against cites only a '.flow-tmp/' anchor — that directory is excluded from git and deleted on worktree teardown, so it can never ground the case; cite a committed path or a URL"
+          : "'## Request vetting' case against cites no [anchor: …] or URL — an ungrounded case is same-model self-critique",
+      );
+    }
     const wordCount = caseAgainstBlock.split(/\s+/).filter(Boolean).length;
     if (wordCount < 15) {
       misses.push(
@@ -493,11 +538,11 @@ function checkRequestVetting(planText: string, misses: string[]): void {
     }
   }
 
-  const sourcesMatch = body.match(/^- \*\*Sources:\*\*.*$/m);
+  const sourcesValue = extractLabelValueWithWrap(body, "Sources");
   const hasSourcesGrounding =
-    sourcesMatch !== null &&
-    (/https?:\/\//.test(sourcesMatch[0]) ||
-      sourcesMatch[0].includes("no outside source:"));
+    sourcesValue !== null &&
+    (/https?:\/\//.test(sourcesValue) ||
+      sourcesValue.includes("no outside source:"));
   if (!hasSourcesGrounding) {
     misses.push(
       "'## Request vetting' has no '- **Sources:**' line carrying a URL or the literal 'no outside source: <reason>' — an ungrounded verdict must be visible, never silent",
@@ -507,7 +552,7 @@ function checkRequestVetting(planText: string, misses: string[]): void {
   if (parsedVerdict !== null && parsedVerdict.kind !== "adopt") {
     if (!/^## Decision analysis\s*$/m.test(planText)) {
       misses.push(
-        `'## Request vetting' verdict is '${parsedVerdict.kind}' but plan.md has no '## Decision analysis' fork`,
+        `'## Request vetting' verdict is '${parsedVerdict.kind}' but ${artifactName} has no '## Decision analysis' fork`,
       );
     }
   }
@@ -1029,7 +1074,7 @@ export function lintPlan(
     checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);
     checkMethodSelection(planText, misses, { surveyRan: opts.surveyRan });
-    checkRequestVetting(planText, misses);
+    checkRequestVetting(planText, misses, "plan.md");
     checkOpenQuestions(planText, misses);
     checkConfidenceMarkers(planText, misses, opts.planMdFile);
     checkStakesLines(planText, misses);
@@ -1054,7 +1099,7 @@ export function lintPlan(
 export function lintDesign(designText: string): LintResult {
   const misses: string[] = [];
   try {
-    checkRequestVetting(designText, misses);
+    checkRequestVetting(designText, misses, "design.md");
   } catch (e) {
     misses.push(
       `internal lint error (treated as advisory, non-blocking): ${e instanceof Error ? e.message : String(e)}`,

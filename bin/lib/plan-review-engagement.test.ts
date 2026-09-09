@@ -166,4 +166,15 @@ describe("battery-prompt / matcher parity", () => {
   it("all 7 authored headings together engage all 7 real lenses", () => {
     expect(countLensesEngaged(LENS_HEADINGS.join("\n"))).toBe(7);
   });
+
+  // The `chosen approach` half of the adversarial-premise matcher is
+  // documented (bin/lib/plan-review-engagement.ts) to be able to misfire on
+  // ordinary reviewer prose that never touches the lens at all — this test
+  // pins that known false-positive so a future tightening of the regex is a
+  // deliberate, visible decision rather than a silent behavior change.
+  it("'chosen approach' alone (no adversarial-premise framing) still engages the lens — known false-positive risk", () => {
+    expect(
+      countLensesEngaged("The chosen approach works well for the common case."),
+    ).toBe(1);
+  });
 });

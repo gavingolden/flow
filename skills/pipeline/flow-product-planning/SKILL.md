@@ -227,7 +227,7 @@ each `**Recommended:**` line carrying `[confidence: high|medium|low] [anchor: �
 and each unchecked entry a `**Stakes:** system|user|both` line per the discovery
 contract's confidence + stakes rubric).
 
-Return a summary of 3–5 labeled bullets — `Problem:` (the problem
+Return a summary of 4–6 labeled bullets — `Problem:` (the problem
 statement in one line), `Tasks:` (the task count), `Candidates:` (the
 candidate follow-up issue count, omit when zero), `Top assumptions:` (the
 top one or two assumptions the user should pay attention to),
