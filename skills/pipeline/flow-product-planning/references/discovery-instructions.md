@@ -947,6 +947,85 @@ The label is derived from the anchor class, never asserted; a rationale whose on
 
 <!-- flow-confidence-rubric:end -->
 
+**Deliberation step.** Before writing any `**Needs user input:**` escape whose
+reason is _an external fact the agent cannot verify_ — or whose reason you are
+unsure how to label — and before writing any `[confidence: low]`
+`**Recommended:**` line, consult the blind second-opinion judge. It is a Bash
+call, not a sub-agent: you may never spawn a nested Task, but you may always
+shell out, and `flow-deliberate` is on `PATH` (never import `bin/lib/*` — it
+does not exist in a consumer worktree).
+
+**Availability probe (before the first consult).** `flow-deliberate` is a
+core-module helper, same probe pattern as the research-module precheck above:
+
+```bash
+command -v flow-deliberate >/dev/null 2>&1 || DELIBERATE_UNAVAILABLE=1
+```
+
+When `$DELIBERATE_UNAVAILABLE` is set (an older install predating this
+helper), skip every consult for the rest of this pass and take the SAME
+fall-through this step already defines for a `low` result or `ran:false`:
+write each item **exactly as you would have without the judge**. Do not treat
+a missing helper as a hard failure — it degrades to the documented no-judge
+path, not an error.
+
+NEVER consult on a user-held preference or subjective taste, and NEVER on
+credentials or production access. Those two escape reasons are the user's to
+answer by definition; a judge would override a preference rather than resolve a
+question.
+
+Consult candidates in **descending `**Stakes:**` order** (`both` > `user` >
+`system`), **at most 3** per pass, and **0** when Step 1.5 research ran inline in
+this same pass. That last clause has a real consequence worth stating plainly:
+on a non-forced pass where research ran inline, the judge never fires at all —
+the one-shot sub-agent's wall-clock budget is already spent on research, and a
+consult that times out helps nobody.
+
+For each candidate:
+
+1. Write a neutral question file to `.flow-tmp/deliberate-q<n>.md`: the question,
+   the fixed facts the judge cannot discover by reading, and the options as
+   neutral labels. No adjectives, no narrative for either side, and the same
+   amount of prose per option — an unequal paragraph is a lean whatever the
+   words say.
+2. Write your current lean to a `mktemp` file **outside** the worktree, and pass
+   it as `--blind-to-file`. The helper mechanically refuses a question that
+   leaked it, before spending anything.
+3. Run it:
+
+   ```bash
+   flow-deliberate --question-file .flow-tmp/deliberate-q<n>.md \
+     --blind-to-file "$LEAN_FILE" --worktree "$PWD" --task oq<n>
+   ```
+
+4. Branch on `ran`, never on the exit code. Adopt ONLY a `ran:true` result whose
+   `confidence` is `medium` or `high` AND whose anchor you re-verify yourself: for
+   a `path[:line]` or `adjacent: path[:line]` anchor, first STRIP the `adjacent: `
+   prefix (if present) and the trailing `:line` or `:line-line` suffix (if
+   present) to recover the bare path, THEN `test -e` that bare path — `test -e`
+   on the anchor string as written (with the suffix still attached) fails even
+   for a genuine, correctly-cited line or range, which would wrongly reject a
+   real `high`/`medium` answer. And a `user: "…"` quotation must actually appear
+   in the interview digest. The helper already demotes a `weighing:`/`inference`
+   anchor to `low`, so such a result falls through here by construction.
+5. On a `low` result, a failed re-verification, or any `ran:false` — write the
+   item **exactly as you would have without the judge**, with zero retries. A
+   consult that produced nothing costs you the call and nothing else.
+
+   This is a fall-through, not a downgrade you transcribe: never copy the
+   judge's own anchor onto the item. A demoted judgment arrives carrying a
+   `weighing:` or `inference` anchor, and a `low` line requires an `inference`
+   anchor by the Confidence + stakes rubric above — writing `[confidence: low]
+[anchor: weighing: …]` is a hard `flow-plan-lint` miss at the very gate this
+   step exists to improve. Write your own anchor, or take the escape.
+
+When you adopt, write the rationale as `deliberated (<level>): <the judge's
+rationale>`, carrying the judge's own `[confidence: …] [anchor: …]` tag pair so
+the plan-review render and `flow-plan-lint` see a normal resolved entry. The
+`deliberated (` prefix is the provenance marker: it is what lets a reader — and
+the override tripwire in `docs/deliberation-assessment.md` — tell a judge's
+answer from your own.
+
 **Relation to Decision analysis:** consequential questions whose branches genuinely
 diverge route to `### Decision analysis` (whose verdict feeds the Recommendation);
 everything else resolves here with a `**Recommended:**` marker or takes the

@@ -239,7 +239,12 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      Confidence + stakes rubric in discovery-instructions.md. Every unchecked
      `[confidence: low]` entry also carries a stable `Q<n>` id (same numbering
      rule as **Needs user input:** items) — it may be promoted into the
-     supervisor's Q<n> (low) rendering. -->
+     supervisor's Q<n> (low) rendering. Before writing a non-taste,
+     non-credential **Needs user input:** escape or a `[confidence: low]`
+     **Recommended:** line, consult the blind judge per the Deliberation step in
+     discovery-instructions.md "Open Questions (resolution-first)" — at most 3
+     per pass, adopt only re-verified medium/high, prefix an adopted rationale
+     `deliberated (<level>):`. -->
 
 - [ ] [question — what changes on redirect]
   - **Stakes:** [system|user|both] — [what degrades, for whom, if the default is wrong]
