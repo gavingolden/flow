@@ -17,6 +17,14 @@ running four committed suites, split by what each measures:
   separately, by `bin/lib/phase-advance.test.ts` and each helper's own
   unit spec.
 
+Alongside the suites, `docs/eval/review-cost-baseline.md` records the
+measured **review-phase cost before-state** — the supervisor's own turn
+count, per-turn context and API-equivalent spend inside `/flow-pr-review`,
+plus the phase-boundary context floors that decide whether any
+auto-compact window is safe. It is committed because the audit script
+reads a rolling 30-day window, so the "before" arm stops being
+reproducible once a cost change lands.
+
 `bin/flow-eval.ts` is never installed onto a user's PATH (see
 `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow
 checkout.

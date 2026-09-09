@@ -130,22 +130,22 @@ through `flow-claude-headless`, never a hand-typed `claude -p`.
 
 ## Compact Instructions
 
-When the harness compacts the conversation (near the context limit, or on `/compact`), load-bearing pipeline state must survive. Claude Code reads
-the "Compact Instructions" section from `CLAUDE.md` / `AGENTS.md` to decide
-what to preserve (flow's `CLAUDE.md` is `@AGENTS.md`). See
-code.claude.com/docs/en/how-claude-code-works.
+Claude Code reads this section to decide what survives a compaction
+(flow's `CLAUDE.md` is `@AGENTS.md`). Lose an anchor below and the
+supervisor cannot tell what it has already done.
 
-- **KEEP**: current pipeline phase, PR number, worktree path, the
-  `.flow-tmp/plan.md` and `.flow-tmp/scout.md` artifact paths, current pipeline
-  step, and any `NEEDS HUMAN: <reason>` — the supervisor's resume anchors;
-  lose them and it cannot tell what it has done.
-- **KEEP**: `state.interview` when either interview pending phase
-  (`triage-pending-interview`, `plan-pending-interview`) is in flight —
-  losing it forces re-asking answered questions.
-- **KEEP**: the pause-output contract — pause-point messages stay slot-labeled after compaction.
-- **DROP**: verify failure-log excerpts, raw tool outputs, and CI poll progress.
-  These are high-volume and reconstructable (`state.json`, the PR, and a
-  fresh `gh` / `flow-pre-commit` re-derive them).
+- **KEEP**: phase, PR number, worktree path, current step, any
+  `NEEDS HUMAN:`, `state.interview` while an interview phase is live, the
+  pause-output contract, the `.flow-tmp/` artifact paths (`plan.md`,
+  `scout.md`, `*-result.json`, `review-scope.json`, `agent-output-*.json`),
+  and **the active sub-skill and step within it**.
+- **RULE**: after a compaction, re-invoke the active sub-skill via the
+  `Skill` tool first — the compaction summarised away its body, and
+  running the gate and merge rules from a paraphrase is the failure
+  `phase-write-fidelity` exists to catch.
+- **DROP**: verify excerpts, raw tool output, CI poll progress, the PR
+  fetch dump, `.flow-tmp/diff.txt` — all reconstructable.
+- Anchor detail: [references/compact-anchors.md](references/compact-anchors.md).
 
 ## Git workflow
 
