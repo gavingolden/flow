@@ -112,4 +112,4 @@ See [configuration.md](configuration.md#process-registry) for the full registry 
 - **Run pipelines in parallel / walk away** — the opt-in tmux launcher: [README](../README.md#power-users-the-tmux-launcher)
 - **Bigger than one PR?** — `flow epic create` designs a multi-pipeline epic and `flow epic run` drives it; see `flow help`
 - **Working on flow itself** — [CONTRIBUTING.md](../CONTRIBUTING.md)
-- **Every other verb** — `flow help` prints the full command reference (`config`, `attach`, `completion`, `version`, and every flag)
+- **Every other verb** — `flow help` prints the full verb list (`config`, `attach`, `completion`, `version`, etc.); `flow help <verb>` gives that verb's flags

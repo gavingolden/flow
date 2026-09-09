@@ -62,7 +62,7 @@ flow done add-csv-export         # close a finished pipeline
 flow done --merged               # sweep merged/cancelled pipelines
 ```
 
-Run `flow help` for the full command reference (`epic`, `config`, `attach`, `completion`, `version`, and every flag).
+Run `flow help` for the full verb list (`epic`, `config`, `attach`, `completion`, `version`, etc.); `flow help <verb>` gives that verb's flags.
 
 **The plain shell is the default.** `flow feature create` runs Claude Code as a foreground process in whatever terminal you launched it from — no window management, no extra command to see it. It holds your terminal until the run reaches a terminal state. By default a pipeline auto-merges its PR when the merge gate is clear; pass `--no-auto-merge` to always stop at the gate.
 
