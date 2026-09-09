@@ -2387,7 +2387,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        472,
+        473,
         "NEVER commit to or push the base branch",
       ],
       [
@@ -2995,6 +2995,45 @@ describe("product lens doc symmetry", () => {
         `'${PRODUCT_ARTIFACT}' as the optional eighth input so the consolidator ` +
         "subagent's instructions stay in sync with flow-pr-review/SKILL.md.",
     ).toBe(true);
+  });
+});
+
+describe("blind product critic doc symmetry (plan-time, distinct from the PR-review product lens)", () => {
+  /**
+   * The plan-time blind critic (step 3 of /flow-pipeline) is a SEPARATE
+   * feature from the PR-review product lens guarded above — it writes
+   * `.flow-tmp/product-critique.md` and reconciles into plan.md's
+   * `### Product critique (blind)` subsection, never `agent-output-product.json`.
+   * This lint guards that both the gate/read side and the write side of
+   * step3-threading.md, plus flow-pipeline/SKILL.md's pointer, keep naming
+   * the same artifact and subsection heading.
+   */
+  const skillsDirForCritic = path.resolve(HERE, "..", "skills", "pipeline");
+  const readForCritic = (rel: string) =>
+    fs.readFileSync(path.resolve(skillsDirForCritic, rel), "utf8");
+  const t3 = readForCritic("flow-pipeline/references/step3-threading.md");
+  const flowPipelineSkill = readForCritic("flow-pipeline/SKILL.md");
+
+  it("step3-threading.md names product-critique.md on both the gate and the write side", () => {
+    expect(
+      t3.includes("product-critique.md"),
+      "step3-threading.md must name 'product-critique.md' as the blind " +
+        "critic's artifact on both the staleness-gate read side and the " +
+        "reconciliation write side.",
+    ).toBe(true);
+  });
+
+  it("step3-threading.md and flow-pipeline/SKILL.md both name the '### Product critique (blind)' plan subsection", () => {
+    for (const [label, content] of [
+      ["step3-threading.md", t3],
+      ["flow-pipeline/SKILL.md", flowPipelineSkill],
+    ] as const) {
+      expect(
+        content.includes("Product critique (blind)"),
+        `${label} must name the '### Product critique (blind)' plan ` +
+          "subsection so the blind-critic contract stays in sync across docs.",
+      ).toBe(true);
+    }
   });
 });
 

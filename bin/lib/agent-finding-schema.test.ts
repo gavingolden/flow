@@ -1941,7 +1941,7 @@ describe("agent-finding-schema CLI — `--collect-lens-negatives <dir>`", () => 
     );
   });
 
-  it("contributes lens-tagged product negatives when agent-output-product.json is present, and adds nothing when it is absent", () => {
+  it("contributes lens-tagged product negatives when agent-output-product.json is present (absence-is-silent is covered separately below)", () => {
     const artifact = {
       findings: [],
       rejected_alternatives: [

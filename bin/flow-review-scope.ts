@@ -9,9 +9,12 @@
  * `NOTICE — lens-gated:` lines the wrapper echoes verbatim. Optional lenses
  * (`bin/lib/review-lens-gates.ts`'s `OPTIONAL_LENSES`) are gated on a
  * precondition, never content: no synthetic artifact is written for them
- * and no `lens-gated` notice fires when they're off, so a repo missing the
- * precondition (e.g. no product brief) stays byte-identical to before the
- * optional lens existed.
+ * and no `lens-gated` notice fires when they're off, so the synthetic-
+ * artifact set and NOTICE lines a repo missing the precondition (e.g. no
+ * product brief) sees stay byte-identical to before the optional lens
+ * existed. `review-scope.json` itself is NOT byte-identical — it always
+ * carries the lens's `gates.<lens>` verdict and (for `product`)
+ * `product_brief`, whether or not the lens ran.
  *
  * Delta scoping requires: a prior marker SHA, that marker an ancestor of
  * HEAD, the prior review clean, delta scope enabled, no forced-full, and

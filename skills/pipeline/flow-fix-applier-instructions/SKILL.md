@@ -42,7 +42,7 @@ Before drafting any fix, load the inputs:
 - Read the PR fetch output the wrapper passed you. Extract: the filtered
   finding set (each entry has `file`, `line`, `end_line`, `label`,
   `decoration`, `confidence`, `subject`, `body`, and an agent category like
-  `Bug-Detection`/`Security`/`Pattern-Consistency`/`Performance`/`Supply-Chain`/`Test-Coverage`), the
+  `Bug-Detection`/`Security`/`Pattern-Consistency`/`Performance`/`Supply-Chain`/`Test-Coverage`/`Product`), the
   inline review comments to address (each has `comment_id`, `path`, `line`,
   `body`), and the head SHA captured at fetch time.
 - Read `<SKILL_DIR>/references/conventional-comments.md` for the labelling
@@ -51,7 +51,8 @@ Before drafting any fix, load the inputs:
   finding's category is unclear and you need to disambiguate (`Bug-Detection` →
   `bug-detection.md`, `Security` → `security.md`, `Pattern-Consistency` →
   `pattern-consistency.md`, `Performance` → `performance.md`, `Supply-Chain` →
-  `supply-chain.md`, `Test-Coverage` → `test-coverage.md`).
+  `supply-chain.md`, `Test-Coverage` → `test-coverage.md`, `Product` →
+  `product.md`).
 
 This is read-only background — these reads stay in your context.
 

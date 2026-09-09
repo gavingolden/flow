@@ -555,9 +555,12 @@ the ungated lenses" for the gate filter and the delta-re-entry
 intent-guess skip. Each spawned agent gets `subagent_type:` set to that
 lens's printed value (NOT a shared `$LENS_AGENT` variable — each spawn
 has its own resolved type) and `model: "$REVIEW_MODEL"` when non-empty. The
-product lens's gate is brief presence (`review-scope.json`'s
-`product_brief.found`), never `review.lensGates` — it is brief-gated, not
-content-gated like the other six.
+product lens's operative gate is `review-scope.json`'s `gates.product.run`
+(flipped to `{run:false, reason:"review.product=false"}` by the
+`review.product: false` kill switch, matching the generic
+`gates.<lens>.run == true` loop the other lenses use) — `product_brief.found`
+stays `true` even when the kill switch fires, so it must not be read as
+the gate.
 
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
@@ -650,7 +653,7 @@ hard-fails the review.
 3. **Branch on the helper's `{ran}` JSON** (the one-line stdout envelope),
    NEVER on the exit code (the helper exits 0 on every graceful path):
    - `ran: true` → `agent-output-gemini.json` is schema-valid; it becomes the SEVENTH input to the Step 3.5 Consolidator. Record `decodedVia` from the envelope for Step 12's report — rendered ONLY when not `structured-output`, so a silently-degrading model surface stays visible — and `degraded` / `degradedReason` when present, since the one bounded no-`--add-dir` fallback retry can land a schema-valid but WEAKER, no-filesystem-access review.
-   - `ran: false` → record `skipReason` and its `skipClass` (`environment` — not run, no quota spent — vs `ran-unusable` — ran but produced nothing usable — reported distinctly, never folded into one generic "skipped" phrase) and, when present, `exitCode` / `agyError` / `stderrTail` / `partialArtifactPath` / `deniedActions` (the agy tool names denied, e.g. `RunCommand`, on `gemini-tools-denied`) / `fallbackAttempted` (the retry above was made but also failed) and proceed. No `agent-output-gemini.json` is left on disk; the consolidator tolerates its absence (it is NOT one of the seven table agents, so its absence does NOT escalate `consolidator-missing-artifact`).
+   - `ran: false` → record `skipReason` and its `skipClass` (`environment` — not run, no quota spent — vs `ran-unusable` — ran but produced nothing usable — reported distinctly, never folded into one generic "skipped" phrase) and, when present, `exitCode` / `agyError` / `stderrTail` / `partialArtifactPath` / `deniedActions` (the agy tool names denied, e.g. `RunCommand`, on `gemini-tools-denied`) / `fallbackAttempted` (the retry above was made but also failed) and proceed. No `agent-output-gemini.json` is left on disk; the consolidator tolerates its absence (it is NOT one of the six mandatory Claude lenses, so its absence does NOT escalate `consolidator-missing-artifact`).
 
 Do NOT add an eighth row to the seven-agent table above — the Gemini lens
 reviews the whole diff with no static-analysis lens, so it is deliberately

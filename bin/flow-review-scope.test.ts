@@ -436,6 +436,11 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
     expect(notices).toContain("NOTICE — product-lens: on (brief: repo)");
   });
 
+  // Captured by the "no product brief" case below, then asserted byte-identical
+  // (deep-equal, not a substring negative) against the "review.product:false"
+  // case further down — both are supposed to produce the exact same notice set.
+  let noBriefNotices: string[] = [];
+
   it("with no product brief, gates the product lens off silently: no synthetic artifact, no lens-gated notice", async () => {
     const dir = makeRepo();
     const gh = (args: string[]) => {
@@ -481,6 +486,7 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
     ).toBe(false);
     const notices = renderNotices(scope);
     expect(notices.some((n) => n.includes("product"))).toBe(false);
+    noBriefNotices = notices;
   });
 
   it("with review.product:false, gates the product lens off even when a brief resolves, and emits no notice", async () => {
@@ -533,11 +539,17 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       run: false,
       reason: "review.product=false",
     });
+    expect(scope.product_brief.found).toBe(true);
     expect(
       fs.existsSync(path.join(dir, ".flow-tmp", "agent-output-product.json")),
     ).toBe(false);
     const notices = renderNotices(scope);
     expect(notices.some((n) => n.includes("product"))).toBe(false);
+    // Exact deep-equal against the "no brief" case's notice list, not just a
+    // substring negative — the "stays byte-identical" claim (flow-review-scope.ts
+    // module doc) is about the emitted NOTICE lines, and this proves it rather
+    // than merely proving the word "product" is absent.
+    expect(notices).toEqual(noBriefNotices);
   });
 
   it("with review.lensGates:false and review.deltaScope:false in config.json falls back to full scope and disables every gate", async () => {

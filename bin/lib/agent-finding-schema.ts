@@ -615,7 +615,12 @@ const CANONICAL_LENSES = [
   "supply-chain",
   "test-coverage",
 ] as const;
-export const OPTIONAL_LENS_NAMES = ["gemini", "product"] as const;
+// Not exported: no importer outside this module, and the name is a
+// near-homonym of `review-lens-gates.ts`'s differently-populated
+// `OPTIONAL_LENSES` (`["product"]` only — gemini is a Bash fan-out, not a
+// lens-gates entry). Keep it module-local to avoid inviting a second,
+// inconsistent "optional lens list" import site.
+const OPTIONAL_LENS_NAMES = ["gemini", "product"] as const;
 
 export type CollectedLensNegatives = {
   lens_rejected_alternatives: LensNegativeEntry<LensRejectedAlternative>[];

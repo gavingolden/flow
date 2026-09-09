@@ -516,13 +516,18 @@ Layer-2 on the next pass.
 **Gate.** Run the critic only when ALL of the following hold:
 
 ```bash
-jq -e '(.review.product // true) != false' ~/.flow/config.json
+jq -e '.review.product != false' ~/.flow/config.json
 flow-product-brief | jq -e '.found == true'
 ```
 
 AND `.flow-tmp/product-critique.md` is either absent, or its embedded
-`<!-- flow-plan-hash: <sha> -->` marker differs from
-`sha256sum "$WORKTREE/.flow-tmp/plan.md"` computed on the CURRENT plan.
+`<!-- flow-plan-hash: <sha> -->` marker (appended to `product-critique.md`
+itself after the plan reconciliation, computed as `sha256sum
+"$WORKTREE/.flow-tmp/plan.md"`) differs from `sha256sum
+"$WORKTREE/.flow-tmp/plan.md"` computed on the CURRENT plan — one file
+(`product-critique.md`) owns the marker and one algorithm (`sha256sum`
+over the whole plan file) computes it, on both the write side and this
+read side.
 Any jq failure above (malformed config, no brief) skips the critic
 silently — same "deterministic step-3 checks never block planning"
 invariant as the other advisory backstops in this file. On a re-fire
@@ -574,11 +579,13 @@ revise plan.md where warranted:
   in the written subsection as either `[accepted]` or `[overridden]`.
 
 Write (REPLACING any prior one) `### Product critique (blind)` as the LAST
-subsection of `## Open Questions`, one bullet per point, embedding the
-`<!-- flow-plan-hash: <sha> -->` marker (the `--print-hash`-style sha256
-of the FINAL plan, after this reconciliation edit) so the next pass's gate
-above can detect drift. Whenever N > 0, add one
-`Critique: N points — a accepted, b overridden` line to the chat
+subsection of `## Open Questions`, one bullet per point. After this plan
+edit lands, append the `<!-- flow-plan-hash: <sha> -->` marker to
+`.flow-tmp/product-critique.md` itself (`<sha>` = `sha256sum
+"$WORKTREE/.flow-tmp/plan.md"` of the FINAL plan, after this
+reconciliation edit — the same file and the same algorithm the gate above
+reads) so the next pass's gate above can detect drift. Whenever N > 0, add
+one `Critique: N points — a accepted, b overridden` line to the chat
 response's `**Needs attention:**` slot.
 
 Skipped silently (no chat mention) when the plan is unchanged since the

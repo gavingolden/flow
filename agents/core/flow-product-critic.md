@@ -36,13 +36,16 @@ block (see `skills/pipeline/flow-pipeline/references/pause-output-contract.md`):
 **Needs attention:**
 - P2 — <question the approver must answer> [priority: <ranked priority name from the brief>]
 
+**Manual action:**
+- P3 — <action only a human can take before this plan can proceed, if any> [priority: <ranked priority name from the brief>]
+
 **Untracked:**
-- P3 — <user-facing consequence the plan never states> [priority: <ranked priority name from the brief>]
+- P4 — <user-facing consequence the plan never states> [priority: <ranked priority name from the brief>]
 
 **Next action:** reconcile P1-Pn; overrule at plan-pending-review with redirect: ...
 ```
 
-Omit any of `**Unsolved:**`, `**Needs attention:**`, `**Untracked:**` that
+Omit any of `**Unsolved:**`, `**Needs attention:**`, `**Manual action:**`, `**Untracked:**` that
 would be empty. At most 2 bullets per slot, ~12 lines total. Every bullet
 is `P<n> — <point> [priority: <ranked priority name from the brief>]`,
 numbered continuously across whichever slots you use.
