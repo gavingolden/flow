@@ -209,6 +209,48 @@ describe("isClosedFormAnchor", () => {
     expect(isClosedFormAnchor("`docs/configuration.md`")).toBe(true);
   });
 
+  it("accepts a line RANGE, in any dash form — a judge citing a block", () => {
+    // Regression: a live smoke call anchored `bin/lib/sources.ts:45–59` and
+    // was demoted to `low`, even though the path is exactly as verifiable as
+    // a single-line citation. Silently demoting real anchors would defeat the
+    // feature at the one site it is wired into.
+    expect(isClosedFormAnchor("bin/lib/sources.ts:45-59")).toBe(true);
+    expect(isClosedFormAnchor("bin/lib/sources.ts:45\u201359")).toBe(true);
+    expect(isClosedFormAnchor("bin/lib/sources.ts:45\u201459")).toBe(true);
+    expect(isClosedFormAnchor("adjacent: bin/lib/state.ts:10-20")).toBe(true);
+  });
+
+  it("accepts a comma-separated list when every element is closed-form", () => {
+    // Regression: a live call anchored `AGENTS.md:76, AGENTS.md:92,
+    // bin/flow-release.ts:3-12` — three real citations — and was demoted.
+    // A judge that read more files cites more; punishing that inverts the
+    // incentive the confidence rule is meant to create.
+    expect(
+      isClosedFormAnchor(
+        "AGENTS.md:76, AGENTS.md:92, bin/flow-release.ts:3-12",
+      ),
+    ).toBe(true);
+    expect(isClosedFormAnchor("bin/a.ts; bin/b.ts")).toBe(true);
+    expect(isClosedFormAnchor("adjacent: bin/a.ts, adjacent: bin/b.ts:4")).toBe(
+      true,
+    );
+  });
+
+  it("demotes a list the moment ONE element is not closed-form", () => {
+    // A list must not become a way to smuggle prose in beside a real path.
+    expect(isClosedFormAnchor("bin/a.ts, weighing: convention")).toBe(false);
+    expect(isClosedFormAnchor("bin/a.ts, inference")).toBe(false);
+    expect(isClosedFormAnchor("bin/a.ts, the helpers are all verb-named")).toBe(
+      false,
+    );
+  });
+
+  it("rejects a malformed line suffix rather than waving it through", () => {
+    expect(isClosedFormAnchor("bin/lib/sources.ts:")).toBe(false);
+    expect(isClosedFormAnchor("bin/lib/sources.ts:45-")).toBe(false);
+    expect(isClosedFormAnchor("bin/lib/sources.ts:foo")).toBe(false);
+  });
+
   it("accepts an adjacent: precedent and a user: quotation", () => {
     expect(isClosedFormAnchor("adjacent: bin/lib/state.ts")).toBe(true);
     expect(isClosedFormAnchor('user: "wire ONE site"')).toBe(true);
