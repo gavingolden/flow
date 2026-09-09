@@ -2379,7 +2379,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        466,
+        499,
         "NEVER commit to or push the base branch",
       ],
       [
@@ -4434,6 +4434,25 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
           `silently breaks the epic↔feature planning-discipline parity with nothing ` +
           `failing in CI. Restore it or update this anchor in the same commit ` +
           `(AGENTS.md anchored-phrase rule).`,
+      ).toBe(true);
+    },
+  );
+
+  it.each([
+    "shared generated artifact",
+    "ledger entry",
+    "runner-driven",
+    "sharedArtifacts",
+  ])(
+    "epic-discovery-instructions.md carries the shared-artifact dependency-class anchor '%s'",
+    (phrase) => {
+      expect(
+        epicDiscoveryInstructionsContent.includes(phrase),
+        `skills/pipeline/flow-product-planning/references/epic-discovery-instructions.md ` +
+          `must contain the verbatim shared-artifact anchor '${phrase}'. Dropping it ` +
+          `silently drops the shared-generated-artifact dependency class or the ` +
+          `followups-ledger/runner-driven rule; restore it or update this anchor in ` +
+          `the same commit (AGENTS.md anchored-phrase rule).`,
       ).toBe(true);
     },
   );
@@ -7663,6 +7682,11 @@ describe("/flow-epic-run playbook SKILL.md literal anchors", () => {
     ["EPIC_DIR", "the literal epic path embedded by the CLI (R1)"],
     ["never import", "the R1 no-bin/lib-import constraint"],
     ["never hand-edit run.json", "the safe-write-only invariant"],
+    ["ledger entry", "the manifest followups-array-is-a-ledger framing"],
+    [
+      "runner-driven",
+      "the confirm-the-epic-is-runner-driven-before-filing rule",
+    ],
   ];
 
   it.each(REQUIRED_LITERALS)(
@@ -10774,6 +10798,44 @@ describe("flow-review-finalize's documented invocation actually parses", () => {
       `flow-pr-review/SKILL.md's flow-review-finalize fence must capture and ` +
         `check the helper's exit code — an unnoticed non-zero exit silently ` +
         `skips the entire review wrap-up.`,
+    ).toBe(true);
+  });
+});
+
+describe("Manifest write-back + shared-artifact write-back anchors", () => {
+  it("discovery-instructions.md and prd-template.md carry the Manifest write-back contract", () => {
+    expect(
+      discoveryInstructionsContent.includes("Manifest write-back"),
+      "skills/pipeline/flow-product-planning/references/discovery-instructions.md " +
+        "must contain the verbatim 'Manifest write-back' anchor — dropping it silently " +
+        "drops the same-PR manifest write-back obligation for a discovered/standalone " +
+        "producer edge.",
+    ).toBe(true);
+    expect(
+      prdTemplateContent.includes("Manifest write-back"),
+      "skills/pipeline/flow-product-planning/templates/prd-template.md must mirror the " +
+        "'Manifest write-back' field in its ## Epic context template.",
+    ).toBe(true);
+  });
+
+  it("discovery-instructions.md documents the sharedArtifacts field", () => {
+    expect(
+      discoveryInstructionsContent.includes("sharedArtifacts"),
+      "skills/pipeline/flow-product-planning/references/discovery-instructions.md must " +
+        "document the optional per-feature `sharedArtifacts` field.",
+    ).toBe(true);
+  });
+
+  it("flow-fix-applier-instructions/SKILL.md and flow-pr-review/SKILL.md validate manifests against the diff", () => {
+    expect(
+      fixApplierContent.includes("flow-epic-dag --touched-files"),
+      "skills/pipeline/flow-fix-applier-instructions/SKILL.md must call " +
+        "`flow-epic-dag --touched-files` against every epic manifest on every PR.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("flow-epic-dag --touched-files"),
+      "skills/pipeline/flow-pr-review/SKILL.md must reference `flow-epic-dag --touched-files` " +
+        "in its Fix-Applier sync pointer (§7.5).",
     ).toBe(true);
   });
 });

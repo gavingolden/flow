@@ -891,7 +891,9 @@ for skipped ones). Step 9 reads those dispositions to draft inline replies.
 Delegated to the Fix-Applier Subagent (see § Fix-Applier Subagent above). The
 subagent self-marks the current PR's row and sweeps drifted prior-PR rows in
 `docs/roadmap.md` (when one exists), and syncs the epic status board via
-`flow-epic-sync` (no-op for a non-epic PR; named skip when absent) — bundling
+`flow-epic-sync` (no-op for a non-epic PR; named skip when absent), and validates
+every epic manifest against the PR's diff with `flow-epic-dag --touched-files`
+(plus `flow-epic-dag --validate` for any manifest the diff touches) — bundling
 either edit into the same fix commit as Steps 6/7. Full contract:
 `../flow-fix-applier-instructions/SKILL.md` step 5; `AGENTS.md`'s `Auto-push exemption: pr-review` clause covers the commit + push.
 
