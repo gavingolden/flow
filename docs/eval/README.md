@@ -1,11 +1,11 @@
 # flow-eval — maintainer guide
 
 `flow-eval` is a maintainer-only, locally-runnable headless eval harness
-running four committed suites, split by what each measures:
+running five committed suites, split by what each measures:
 
-- Three **supervisor context-isolation scaffolds** (`verify-loop`,
-  `haiku-gatekeeper`, `checkpoint-pending-clear`) — cost/context/turn
-  footprint, so a future scaffold-removal PR (epic
+- Four **supervisor context-isolation scaffolds** (`verify-loop`,
+  `haiku-gatekeeper`, `checkpoint-pending-clear`, `ui-smoke-isolation`) —
+  cost/context/turn footprint, so a future scaffold-removal PR (epic
   `modernize-flow-s-supervisor-architecture`, feature
   `f2-scaffold-stress-test`) carries a recorded before/after delta
   instead of a prose argument.
@@ -82,6 +82,39 @@ is only an existence precondition: `flow-eval` checks that
 before running, and a missing install surfaces as the named
 `flow-not-installed` skip, not a crash. Run `flow install` once to
 satisfy that precondition.
+
+## The ui-smoke-isolation suite
+
+Unlike the other three isolation scaffolds, `ui-smoke-isolation` drives a
+real browser (`chrome-devtools` MCP) through the `flow-ui-driver`
+sub-agent, so it carries extra host preconditions on top of `flow
+install`:
+
+- Chrome must be installed and the `chrome-devtools` MCP server must
+  already be registered, launched with `--isolated` — the same
+  shared-profile-lock precondition
+  [`ui-smoke-pass.md`](../../skills/pipeline/flow-pipeline/references/ui-smoke-pass.md)
+  documents for a live pipeline run.
+- No other pipeline (and no other concurrent `flow-eval` run of this
+  suite) may be driving a browser against the same MCP server at the
+  same time — the isolated page the driver opens is keyed on the eval
+  slug, but the underlying MCP server process is shared.
+
+Run it with `--runs 1` (the suite's own `defaults.runs`): a browser drive
+is materially more expensive per run than the other three suites'
+Bash-only fixtures, so `--runs 2`'s default variance-smoothing is not
+worth the doubled cost here.
+
+`transcript.finalContextTokens` and `transcript.topLevelToolCalls` are
+**top-level-only** — they describe the supervisor's own context and tool
+calls, excluding everything the spawned `flow-ui-driver` sub-agent does
+inside its own isolated context (that is the entire point of the
+isolation measurement: the sub-agent's `mcp__chrome-devtools__*` calls and
+context growth never reach the supervisor). `result.total_cost_usd`, by
+contrast, **includes** the driver — Claude Code bills a spawned sub-agent
+against the same top-level `result` envelope, so the cost delta the
+scaffold is meant to justify is only visible there, not in the top-level
+tool-call/context metrics.
 
 ## Running a suite
 

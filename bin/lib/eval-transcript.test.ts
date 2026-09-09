@@ -151,6 +151,50 @@ describe("transcriptMetrics", () => {
     expect(metrics.toolCalls).toEqual({ Bash: 3, Read: 1 });
   });
 
+  it("topLevelToolCalls counts only top-level (parent_tool_use_id null/undefined) tool_use blocks; toolCalls still counts subagent calls", () => {
+    const events: StreamEvent[] = [
+      {
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: { content: [{ type: "tool_use", name: "Bash" }] },
+      },
+      {
+        type: "assistant",
+        parent_tool_use_id: undefined,
+        message: {
+          content: [
+            { type: "tool_use", name: "Bash" },
+            { type: "tool_use", name: "Task" },
+          ],
+        },
+      },
+      // A subagent turn — its tool calls (including a browser-drive
+      // sub-agent's own MCP calls) must be EXCLUDED from
+      // topLevelToolCalls even though `toolCalls` still counts them. A
+      // test exercising only top-level events would pass against a
+      // broken implementation that never applies the filter.
+      {
+        type: "assistant",
+        parent_tool_use_id: "toolu_subagent",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              name: "mcp__chrome-devtools__navigate_page",
+            },
+          ],
+        },
+      },
+    ];
+    const metrics = transcriptMetrics(events, null);
+    expect(metrics.toolCalls).toEqual({
+      Bash: 2,
+      Task: 1,
+      "mcp__chrome-devtools__navigate_page": 1,
+    });
+    expect(metrics.topLevelToolCalls).toEqual({ Bash: 2, Task: 1 });
+  });
+
   it("computes modelShare including alias buckets by substring match", () => {
     const result = {
       type: "result",

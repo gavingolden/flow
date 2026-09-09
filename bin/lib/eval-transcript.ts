@@ -107,6 +107,18 @@ export type TranscriptMetrics = {
   totalOutputTokens: number;
   assistantMessages: number;
   toolCalls: Record<string, number>;
+  /**
+   * OPTIONAL, additive (schemaVersion 1 stays additive-only — every
+   * committed `case.json` references metrics by stringly-typed dotted
+   * path, so a rename here would silently no-op a grader instead of
+   * failing loudly). Same per-event accumulation as `toolCalls`, but
+   * gated on the same top-level predicate `finalContextTokens` uses
+   * (`parent_tool_use_id === null || undefined`) — a spawned sub-agent's
+   * tool calls are excluded, so this counts only calls the SUPERVISOR
+   * itself made (e.g. the one Task-tool spawn of a browser-drive
+   * sub-agent, not the sub-agent's own `mcp__chrome-devtools__*` calls).
+   */
+  topLevelToolCalls?: Record<string, number>;
   modelShare: Record<string, number>;
   subagentsSpawned: number;
   maxSubagentDepth: number;
@@ -161,6 +173,7 @@ export function transcriptMetrics(
   let totalOutputTokens = 0;
   let assistantMessages = 0;
   const toolCalls: Record<string, number> = {};
+  const topLevelToolCalls: Record<string, number> = {};
 
   // Top-level assistant events only — `parent_tool_use_id === null`.
   // Subagent turns stream through the same channel with a non-null
@@ -176,15 +189,19 @@ export function transcriptMetrics(
       totalInputTokens += usage.input_tokens ?? 0;
       totalOutputTokens += usage.output_tokens ?? 0;
     }
+    const isTopLevel =
+      event.parent_tool_use_id === null ||
+      event.parent_tool_use_id === undefined;
     for (const block of event.message.content ?? []) {
       if (block.type === "tool_use" && block.name) {
         toolCalls[block.name] = (toolCalls[block.name] ?? 0) + 1;
+        if (isTopLevel) {
+          topLevelToolCalls[block.name] =
+            (topLevelToolCalls[block.name] ?? 0) + 1;
+        }
       }
     }
-    if (
-      event.parent_tool_use_id === null ||
-      event.parent_tool_use_id === undefined
-    ) {
+    if (isTopLevel) {
       lastTopLevelAssistant = event;
     }
   }
@@ -203,6 +220,7 @@ export function transcriptMetrics(
     totalOutputTokens,
     assistantMessages,
     toolCalls,
+    topLevelToolCalls,
     modelShare: computeModelShare(result?.modelUsage),
     subagentsSpawned: result?.subagent_stats?.spawned ?? 0,
     maxSubagentDepth: result?.subagent_stats?.max_depth ?? 0,

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "ui-smoke-isolation",
+  "candidate": "ui-smoke-driver-isolation",
+  "description": "Measures the /flow-verify Step 6 UI-smoke pass's Task-tool-spawned flow-ui-driver sub-agent's cost/context/turn footprint against a hermetic zero-dependency Bun static-app fixture with a planted UI diff, so a future scaffold-removal PR can show a before/after delta.",
+  "scenarios": ["s1-static-header-diff"],
+  "defaults": {
+    "runs": 1,
+    "maxBudgetUsd": 8,
+    "timeoutSec": 1200,
+    "model": "sonnet",
+    "effort": "medium",
+    "allowedTools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Grep",
+      "Glob",
+      "Skill",
+      "Task",
+      "Agent",
+      "ToolSearch",
+      "mcp__chrome-devtools__*"
+    ]
+  }
+}
