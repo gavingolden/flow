@@ -20,6 +20,18 @@
 
 [What problem does this solve? Why does it matter? Who is affected?]
 
+## Request vetting
+
+<!-- Always present — every plan must argue against the request's chosen approach
+     before adopting it, with a closed verdict. Full contract:
+     discovery-instructions.md "Request vetting". -->
+
+- **Hypothesis:** [the falsifiable claim the chosen approach rests on]
+- **Case against:** [the best evidence AGAINST the chosen approach, citing a
+  committed repo path or URL — e.g. `[anchor: path/to/file.ts]`]
+- **Sources:** [a URL, or the literal `no outside source: <reason>`]
+- **Verdict:** [`adopt` | `adopt-with-conditions: <condition>` | `push back: <alternative>`]
+
 ## Epic context
 
 <!-- Omit-when-empty: include ONLY when discovery's step 1.7 detects epic
@@ -239,7 +251,12 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      Confidence + stakes rubric in discovery-instructions.md. Every unchecked
      `[confidence: low]` entry also carries a stable `Q<n>` id (same numbering
      rule as **Needs user input:** items) — it may be promoted into the
-     supervisor's Q<n> (low) rendering. -->
+     supervisor's Q<n> (low) rendering. Before writing a non-taste,
+     non-credential **Needs user input:** escape or a `[confidence: low]`
+     **Recommended:** line, consult the blind judge per the Deliberation step in
+     discovery-instructions.md "Open Questions (resolution-first)" — at most 3
+     per pass, adopt only re-verified medium/high, prefix an adopted rationale
+     `deliberated (<level>):`. -->
 
 - [ ] [question — what changes on redirect]
   - **Stakes:** [system|user|both] — [what degrades, for whom, if the default is wrong]

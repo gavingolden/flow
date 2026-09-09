@@ -209,6 +209,23 @@ exit, loop back to **Step 3**: re-spawn the designer with the validator's
 stderr appended as guidance, then re-validate. Do not proceed to the PR until
 both validators exit 0.
 
+Then run the **design-mode vetting lint**, also **bare-name PATH**:
+
+```bash
+flow-plan-lint --design-md-file "$WORKTREE/<EPIC_DIR>/design.md"
+```
+
+Exits `0` conforming / `1` a named `## Request vetting` miss / `2` usage-or-
+unrecognized-flag. On exit `1` (a real miss — the section is absent, off-enum,
+over the line ceiling, or ungrounded), loop back to **Step 3** same as the two
+validators above. **On exit `2`, do NOT treat it as a design-validation
+failure and do NOT loop back to Step 3** — exit 2 is `flow-plan-lint`'s
+usage/read-error code, which is exactly what an un-upgraded PATH helper
+returns for the not-yet-understood `--design-md-file` flag; treating it as a
+miss would spin the Step-3 loop forever on a stale binary. Instead skip this
+check with a one-line notice (e.g. "flow-plan-lint --design-md-file
+unavailable on this install — skipping the vetting lint") and proceed.
+
 ## Step 4.5 — Cross-model design review (Layer 2, optional, config-gated)
 
 Before committing/opening the PR, run one independent **cross-model design
@@ -343,6 +360,17 @@ NEXT ACTION: reply approve / redirect <new direction> / cancel
   - <the design PR URL>
   - <$WORKTREE>/<EPIC_DIR>/design.md
 ```
+
+Read `design.md`'s `## Request vetting` verdict via
+`grep -a '^- \*\*Verdict:\*\*' "$WORKTREE/<EPIC_DIR>/design.md"`. When it is a
+`push back: <alternative>` verdict, append the alternative to the `WHY:` line:
+
+```
+WHY: epic design ready for review (PR opened); vetting: push back — <alternative>
+```
+
+On `adopt` / `adopt-with-conditions` (or an absent/unparseable line), the
+`WHY:` line is unchanged from the render above.
 
 For a visual / palette / typography-overhaul epic, surface in the checkpoint
 that concrete palette/color values were deliberately deferred to each feature's

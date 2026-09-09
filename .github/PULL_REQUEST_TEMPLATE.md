@@ -1,15 +1,43 @@
+## TLDR
+
+<!-- One sentence, 25 words or fewer, naming the user-visible outcome. Name no file,
+function, or line number — name the surface the reader uses (the command, the flag,
+the artifact). Fix-shaped PR (fixes an observed defect, or the branch's dominant
+commit type is `fix:`): this one sentence names the failure and the causal resolution
+together — the same failure the `**Failing:**` line under `## Why` names — so a reader
+meets the fix framing before `## Why` below. -->
+
+## User-facing changes
+
+<!-- Concrete user-observable deltas in user terms ("you can now run X"), not
+implementation terms ("added X to the renderer"). Name a surface, not a file,
+function, or line number. Deliverables belong here phrased as capabilities or
+behaviors, each verifiable against the diff. For renames or removals use
+`Before → After` bullets. If the PR is pure-internal (refactor, infra, no
+user-observable delta), write the literal word `none` here — never delete the
+heading. -->
+
+## System changes
+
+<!-- Any internal change worth a reviewer's attention: a subsystem boundary that
+moved, a public contract that changed, a performance characteristic, or an ongoing
+cost. Use `Before → After` bullets where behavior moved. When the change moves an
+ongoing cost (API calls, CI time, token spend), name the direction and rough size;
+stay silent about cost when it does not move one.
+
+Do not list file edits, helper refactors, or mechanical cleanups. If the change does
+not alter a subsystem boundary, a public contract, performance, or ongoing spend,
+write `none`.
+
+Exactly like User-facing changes above, this heading is mandatory — `none` is an
+explicit author affirmation; never delete the heading. -->
+
 ## Why
 
 <!-- Problem statement: what motivated this change. 1-3 sentences. Avoid solution
 language ("by adding X", "through implementing Y") — focus on the user's pain point.
-Fix-shaped PR (fixes an observed defect, or the branch's dominant commit type is
-`fix:`): lead with `**Failing:**` naming the observed failure and `**Root cause:**`
-naming why it happened, before the motivating sentences. -->
-
-## What
-
-<!-- Bulleted list of deliverables phrased as capabilities or behaviors, not file paths.
-Each bullet should be verifiable against the diff. -->
+Fix-shaped PR: lead with `**Failing:**` naming the observed failure and
+`**Root cause:**` naming why it happened, before the motivating sentences. -->
 
 ## Key decisions
 
@@ -17,25 +45,6 @@ Each bullet should be verifiable against the diff. -->
 `**Fix mechanism:** <why the change eliminates the root cause>`. Each bullet: the
 decision + why. Skip obvious choices — only include where a reasonable alternative
 existed. -->
-
-## User-facing changes
-
-<!-- Concrete user-observable deltas in user terms ("you can now run X"), not
-implementation terms ("added X to the renderer"). For renames or removals use
-`Before → After` bullets. If the PR is pure-internal (refactor, infra, no
-user-observable delta), write the literal word `none` here — never delete the
-heading. -->
-
-<!-- System flow changes: only on a cross-component PR where behavior moved at
-the system/consumer level. Unlike User-facing changes above, this heading is
-conditional — omit it entirely (leave this whole comment in place, unedited)
-when nothing moved; there is no `none` affirmation for this section. When
-applicable, replace this comment with the live heading and Before → After
-bullets:
-
-## System flow changes
-
-<Before → After bullets> -->
 
 ## Test Steps
 

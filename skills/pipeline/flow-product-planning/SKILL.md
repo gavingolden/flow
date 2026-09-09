@@ -154,7 +154,8 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 
 4. When the subagent returns, treat its labeled-bullet summary
    (3–5 bullets: `Problem:`, `Tasks:`, `Candidates:`,
-   `Top assumptions:`, `Research:`) as the
+   `Top assumptions:`, `Research:`, `Vetting verdict:` — the
+   `## Request vetting` verdict line, verbatim) as the
    chat output. Do **not** read `.flow-tmp/plan.md` from disk in the
    wrapper — the supervisor (or downstream caller) reads that file
    directly when it needs the full plan, and reading it twice in the
@@ -226,12 +227,13 @@ each `**Recommended:**` line carrying `[confidence: high|medium|low] [anchor: �
 and each unchecked entry a `**Stakes:** system|user|both` line per the discovery
 contract's confidence + stakes rubric).
 
-Return a summary of 3–5 labeled bullets — `Problem:` (the problem
+Return a summary of 4–6 labeled bullets — `Problem:` (the problem
 statement in one line), `Tasks:` (the task count), `Candidates:` (the
 candidate follow-up issue count, omit when zero), `Top assumptions:` (the
-top one or two assumptions the user should pay attention to), and
+top one or two assumptions the user should pay attention to),
 `Research:` (the one-line research skip note, omit when research ran or
-the path was dormant). Do not paste the PRD or task list back; the
+the path was dormant), and `Vetting verdict:` (the `## Request vetting`
+verdict line, verbatim). Do not paste the PRD or task list back; the
 artifacts on disk are the record.
 ```
 
@@ -459,7 +461,8 @@ new Task-tool spawn and **no** new exemption.
   the resolved epic-output directory (no `plan.md` / `pr-description-draft.md`
   is produced); the existence check targets those two files instead.
 - The wrapper's chat output is the subagent's labeled-bullet summary
-  (`Problem:`, `Tasks:`, `Candidates:`, `Top assumptions:`, `Research:`)
+  (`Problem:`, `Tasks:`, `Candidates:`, `Top assumptions:`, `Research:`,
+  `Vetting verdict:`)
   plus a next-handoff suggestion — never the full PRD and never the
   result of a fresh `Read` on `.flow-tmp/plan.md`. On a standalone run,
   format this relay message per the cross-skill

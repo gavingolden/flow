@@ -12,7 +12,7 @@ import {
   PHASE_EMITTERS,
   TERMINAL_PHASE_EMITTERS,
 } from "./lib/phase-advance";
-import { SURVEY_VERDICTS } from "./flow-step3-route";
+import { SURVEY_VERDICTS, VETTING_VERDICTS } from "./flow-step3-route";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -410,6 +410,13 @@ const pullRequestTemplateContent = fs.readFileSync(
 );
 const agentPromptsContent = fs.readFileSync(AGENT_PROMPTS_PATH, "utf8");
 const verifyContent = fs.readFileSync(VERIFY_SKILL_MD_PATH, "utf8");
+
+// Collapses hard-wrap whitespace so a pinned multi-word prose fragment
+// matches regardless of where a given file happens to wrap the line — a
+// pure re-wrap (prettier, or a word inserted earlier in the sentence)
+// must not redden this lint with a misleading "contract rule dropped"
+// message.
+const flat = (s: string) => s.replace(/\s+/g, " ");
 const uiUxContent = fs.readFileSync(UI_UX_SKILL_MD_PATH, "utf8");
 const svelteContent = fs.readFileSync(SVELTE_SKILL_MD_PATH, "utf8");
 const tailwindShadcnContent = fs.readFileSync(
@@ -463,6 +470,18 @@ describe("flow-pipeline SKILL.md structural lint", () => {
   it("ships exactly 13 numbered step headings (0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 11)", () => {
     const headings = findStepHeadings(content.split("\n"));
     expect(headings.length).toBe(13);
+  });
+
+  it("step 3 documents ## Request vetting rendering and routing", () => {
+    for (const phrase of ["## Request vetting", "Vetting:", "push back"]) {
+      expect(
+        content.includes(phrase),
+        `SKILL.md step 3 must reference '${phrase}' — the plan-summary ` +
+          "Vetting: line, the cross-model reconciliation append, and the " +
+          "non-feature push-back route all depend on this phrase staying " +
+          "anchored in the doc.",
+      ).toBe(true);
+    }
   });
 
   it.each([
@@ -3075,6 +3094,20 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
     },
   );
 
+  it.each(VETTING_VERDICTS)(
+    "the vetting-verdict enum value '%s' and the '- **Verdict:**' label appear in discovery-instructions.md",
+    (verdict) => {
+      expect(
+        discoveryInstructionsContent.includes(verdict),
+        `discovery-instructions.md must contain the verbatim vetting-verdict enum value '${verdict}'.`,
+      ).toBe(true);
+      expect(
+        discoveryInstructionsContent.includes("- **Verdict:**"),
+        "discovery-instructions.md must contain the '- **Verdict:**' label.",
+      ).toBe(true);
+    },
+  );
+
   it("prd-template.md's verdict line is exactly the code enum", () => {
     expect(prdTemplateContent).toContain(
       `- **Survey verdict:** ${SURVEY_VERDICTS.join(" | ")}`,
@@ -4184,6 +4217,7 @@ describe("Plan-artifact section anchors (discovery-instructions.md ↔ prd-templ
     "**Lost:**",
     "## Alternatives considered",
     "## Cut list",
+    "## Request vetting",
   ];
   const MIRROR_SITES: Array<[string, string]> = [
     ["discovery-instructions.md", discoveryInstructionsContent],
@@ -4451,6 +4485,7 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
     "## Recommendation",
     "## Plan risks",
     "## Decision analysis",
+    "## Request vetting",
     "Reject — do nothing",
     "discovery-playbook.md",
     "**Goal:**",
@@ -4482,6 +4517,26 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
         "feature file's counterparts and cross-link to it as the port source. Severing " +
         "the cross-link orphans the ported discipline; restore the reference or update " +
         "this lint in the same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("flow-epic-create/SKILL.md Step 4 invokes flow-plan-lint --design-md-file by bare PATH name", () => {
+    const epicCreateSkillMdPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-epic-create",
+      "SKILL.md",
+    );
+    const c = fs.readFileSync(epicCreateSkillMdPath, "utf8");
+    expect(
+      c.includes("flow-plan-lint --design-md-file"),
+      "skills/pipeline/flow-epic-create/SKILL.md Step 4 must invoke " +
+        "'flow-plan-lint --design-md-file' by bare PATH name (never a bin/lib " +
+        "import) as a third validator alongside flow-epic-manifest-schema and " +
+        "flow-epic-dag, running the epic-grain '## Request vetting' check " +
+        "against design.md.",
     ).toBe(true);
   });
 });
@@ -4978,6 +5033,12 @@ describe("pr-review include-by-reference structure", () => {
     // cost only 2 net lines total; 1755 leaves 4 lines of genuine headroom
     // above the resulting 1751-line file (per this test's own split-length
     // metric), not round-number headroom for future growth.
+    // Note: a later PR renamed `## System flow changes` to `## System
+    // changes` and broadened its trigger from cross-component moves to any
+    // internal change worth a reviewer's attention, and dropped 11a's
+    // conditional-section mention in favor of a mandatory-with-`none` rule —
+    // the paragraph above is left as historical record of why the 1755 bump
+    // happened, not re-worded to match the current contract.
     //
     // Bumped 1755 → 1790 (plugin-qualified agent-resolution fix): a bare
     // `flow-<agent>` subagent_type fails Task-tool resolution outright on a
@@ -5182,19 +5243,26 @@ describe("pr-review include-by-reference structure", () => {
     // merged file lands at 3019 lines after `main`'s verify-loop diet, so
     // 3115 clears it and no third number is invented.
     //
-    // Bumped 3115 -> 3140 (f3 product critic): the "Blind product critic
-    // (brief-gated, once per step-3 pass)" sub-step plus the exemption
-    // #1/#2 wording widening land the file at 3126 `wc -l` lines (as this
-    // test counts them via `split("\n").length`) — genuine feature-mechanical
-    // content (a new gated Task-tool spawn site), not incidental bloat, so
-    // the ceiling moves to 3140 (14 lines of genuine headroom), the same
-    // discipline as every raise above.
+    // Request-vetting note: PR #812's Task 8 (`## Request vetting`
+    // rendering + non-feature push-back routing + the FOUR-hashed-inputs
+    // doc update) added genuine step-3 prose, landing the file at 3127
+    // lines — the ceiling moved to 3140, the same discipline as above.
+    //
+    // Merge note (f3 product critic): this branch independently raised
+    // 3115 -> 3140 for the "Blind product critic (brief-gated, once per
+    // step-3 pass)" sub-step plus the exemption #1/#2 wording widening.
+    // Both ledgers above survive the merge, and both raises were budgeted
+    // at 3140 for their OWN content — but the merged file carries both
+    // bodies, landing at 3143. The ceiling moves to 3155 (12 lines of
+    // genuine headroom) to cover the union; this is the arithmetic of two
+    // independently-budgeted features meeting, not new bloat, and neither
+    // side's content was trimmed to fake a fit.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3140 lines. Material regrowth past this ceiling would ` +
+        `budget of 3155 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3140);
+    ).toBeLessThan(3155);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -6075,55 +6143,319 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
-  it("all four prose sites name the conditional 'System flow changes' section", () => {
+  it("all four prose sites name the mandatory 'System changes' section", () => {
     expect(
-      prDescriptionAuthoringContent.includes("## System flow changes"),
+      prDescriptionAuthoringContent.includes("## System changes"),
       "flow-new-feature/references/pr-description-authoring.md must carry a " +
-        "`## System flow changes` guidance block between `## User-facing " +
-        "changes` and `## Test Steps` — the conditional, omit-when-empty " +
-        "section for cross-component PRs. Dropping it silently drops the " +
-        "section from every new-feature-authored PR description.",
+        "`## System changes` guidance block between `## User-facing " +
+        "changes` and `## Why` — the mandatory, `none`-when-empty section for " +
+        "any internal change worth a reviewer's attention. Dropping it silently " +
+        "drops the section from every new-feature-authored PR description.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("## System flow changes"),
+      discoveryInstructionsContent.includes("## System changes"),
       "product-planning discovery-instructions.md Step 7 must carry the same " +
-        "`## System flow changes` guidance block, mirrored from " +
+        "`## System changes` guidance block, mirrored from " +
         "pr-description-authoring.md. Dropping it silently drops the section " +
         "from every discovery-seeded PR description.",
     ).toBe(true);
     expect(
-      pullRequestTemplateContent.includes("## System flow changes"),
-      ".github/PULL_REQUEST_TEMPLATE.md must carry a commented-out `## System " +
-        "flow changes` block after the `## User-facing changes` comment — so a " +
+      pullRequestTemplateContent.includes("## System changes"),
+      ".github/PULL_REQUEST_TEMPLATE.md must carry a live `## System changes` " +
+        "heading after `## User-facing changes` — so a " +
         "human authoring a PR by hand (no seeding skill involved) sees the same " +
-        "conditional section as the two skill-authored paths. Dropping it " +
+        "mandatory section as the two skill-authored paths. Dropping it " +
         "silently drops the section from hand-authored PRs.",
     ).toBe(true);
     expect(
-      agentsContent.includes("`## System flow changes`"),
-      "AGENTS.md's `- **PRs:**` bullet must name `## System flow changes` as " +
-        "conditional — the repo-wide pointer to the four-prose-site contract. " +
+      agentsContent.includes("`## System changes`"),
+      "AGENTS.md's `- **PRs:**` bullet must name `## System changes` as " +
+        "mandatory — the repo-wide pointer to the four-prose-site contract. " +
         "Dropping it silently orphans the pointer from the canonical agent " +
         "guide. Renaming the section name must update all four sites and this " +
         "lint in the same commit.",
     ).toBe(true);
   });
 
-  it("both authoring sites carry the System-flow-changes omit-when-empty rule", () => {
+  it("all four prose sites name the '## TLDR' lead section", () => {
+    for (const [label, content] of [
+      [
+        "flow-new-feature/references/pr-description-authoring.md",
+        prDescriptionAuthoringContent,
+      ],
+      [
+        "flow-product-planning/references/discovery-instructions.md",
+        discoveryInstructionsContent,
+      ],
+      [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
+    ] as const) {
+      expect(
+        content.includes("## TLDR"),
+        `${label} must carry a \`## TLDR\` section — the one-sentence, ` +
+          "25-word-max user-visible outcome a reader meets before `## Why`. " +
+          "Dropping it silently returns the body to a mechanism-first shape. " +
+          "(Its FIRST-heading position is asserted separately, by the " +
+          "outcome-first heading-order test below.)",
+      ).toBe(true);
+    }
     expect(
-      prDescriptionAuthoringContent.includes("OMIT THIS HEADING ENTIRELY"),
-      "flow-new-feature/references/pr-description-authoring.md must instruct " +
-        "OMIT THIS HEADING ENTIRELY for `## System flow changes` — the property " +
-        "that distinguishes it from `## User-facing changes`, which affirms " +
-        "`none` instead of omitting. Dropping this rule risks a vacuous `none` " +
-        "under a heading meant to be absent when nothing moved.",
+      agentsContent.includes("TLDR / User-facing changes / System changes"),
+      "AGENTS.md's `- **PRs:**` bullet must name the section order starting " +
+        "`TLDR / User-facing changes / System changes` — the repo-wide pointer " +
+        "to the outcome-first PR-body contract.",
+    ).toBe(true);
+  });
+
+  it("all three PR-body prose sites open with the four outcome-first headings", () => {
+    const EXPECTED_ORDER = [
+      "## TLDR",
+      "## User-facing changes",
+      "## System changes",
+      "## Why",
+    ];
+
+    // The template's `^## ` lines are the file's only PR-body headings.
+    const templateHeadings = pullRequestTemplateContent
+      .split("\n")
+      .filter((line) => line.startsWith("## "))
+      .map((line) => line.trim());
+    expect(
+      templateHeadings.slice(0, 4),
+      "The hand-author PR template's first four `## ` headings must be " +
+        "exactly `## TLDR`, `## User-facing changes`, `## System changes`, " +
+        "`## Why` — the outcome-first order a reader meets before any " +
+        "mechanism. Reordering them must update all four prose sites and this " +
+        "lint in the same commit.",
+    ).toEqual(EXPECTED_ORDER);
+    expect(
+      templateHeadings.at(-1),
+      "`## Test Steps` must stay the LAST heading in the template — it is the " +
+        "auto-merge gate signal parsed by bin/flow-gate-decide.ts.",
+    ).toBe("## Test Steps");
+
+    // pr-description-authoring.md's fenced PR-body template is the file's
+    // only source of `^## ` lines, so no slicing is needed.
+    const authoringHeadings = prDescriptionAuthoringContent
+      .split("\n")
+      .filter((line) => line.startsWith("## "))
+      .map((line) => line.trim());
+    expect(
+      authoringHeadings.slice(0, 4),
+      "flow-new-feature/references/pr-description-authoring.md's fenced " +
+        "PR-body template's first four `## ` headings must match the " +
+        "outcome-first order above. Reordering them must update all four " +
+        "prose sites and this lint in the same commit.",
+    ).toEqual(EXPECTED_ORDER);
+
+    // discovery-instructions.md's PR-body headings sit between its Step 7
+    // and Step 8 headings; slice to just that range before checking order.
+    const discoveryLines = discoveryInstructionsContent.split("\n");
+    const step7Index = discoveryLines.findIndex((line) =>
+      line.startsWith("## 7. Draft PR Description"),
+    );
+    const step8Index = discoveryLines.findIndex((line) =>
+      line.startsWith("## 8. Persist"),
+    );
+    const discoveryHeadings = discoveryLines
+      .slice(step7Index + 1, step8Index)
+      .filter((line) => line.startsWith("## "))
+      .map((line) => line.trim());
+    expect(
+      discoveryHeadings.slice(0, 4),
+      "flow-product-planning/references/discovery-instructions.md Step 7's " +
+        "PR-body template's first four `## ` headings must match the " +
+        "outcome-first order above. Reordering them must update all four " +
+        "prose sites and this lint in the same commit.",
+    ).toEqual(EXPECTED_ORDER);
+  });
+
+  it("both authoring sites carry the System-changes mandatory-`none` rule", () => {
+    for (const [label, content] of [
+      [
+        "flow-new-feature/references/pr-description-authoring.md",
+        prDescriptionAuthoringContent,
+      ],
+      [
+        "flow-product-planning/references/discovery-instructions.md",
+        discoveryInstructionsContent,
+      ],
+    ] as const) {
+      expect(
+        flat(content).includes(
+          flat(
+            "Never delete the heading. Exactly like `## User-facing changes` above, `none` is an explicit",
+          ),
+        ),
+        `${label} must state that \`## System changes\` is mandatory with the ` +
+          "same explicit `none` affirmation `## User-facing changes` carries — " +
+          "neither heading may ever be deleted. Dropping this rule reopens the " +
+          "old ambiguity between 'no change' and 'author forgot'.",
+      ).toBe(true);
+      expect(
+        flat(content).includes(
+          flat(
+            "Do not list file edits, helper refactors, or mechanical cleanups.",
+          ),
+        ),
+        `${label} must carry the \`## System changes\` NEGATIVE criterion — ` +
+          "no file edits, helper refactors, or mechanical cleanups, and " +
+          "`none` when the change moves no subsystem boundary, public " +
+          "contract, performance characteristic, or ongoing spend. Without it " +
+          "the broadened section degrades into a changelog of file edits.",
+      ).toBe(true);
+    }
+
+    // .github/PULL_REQUEST_TEMPLATE.md is a fifth contract site — it has no
+    // seeding skill, so a mandatory-`none` regression there would revert
+    // silently for every hand-authored PR.
+    expect(
+      flat(pullRequestTemplateContent).includes(
+        flat(
+          "Do not list file edits, helper refactors, or mechanical cleanups.",
+        ),
+      ),
+      ".github/PULL_REQUEST_TEMPLATE.md must carry the `## System changes` " +
+        "NEGATIVE criterion — no file edits, helper refactors, or mechanical " +
+        "cleanups. Without it a hand-authored PR's System changes section " +
+        "degrades into a changelog of file edits.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("OMIT THIS HEADING ENTIRELY"),
-      "product-planning discovery-instructions.md Step 7 must carry the same " +
-        "OMIT THIS HEADING ENTIRELY rule, mirrored from " +
-        "pr-description-authoring.md. Dropping it risks a vacuous `none` under " +
-        "a heading meant to be absent when nothing moved.",
+      flat(pullRequestTemplateContent).includes(
+        flat(
+          "this heading is mandatory — `none` is an explicit author affirmation; never delete the heading.",
+        ),
+      ),
+      ".github/PULL_REQUEST_TEMPLATE.md must state that `## System changes` " +
+        "is mandatory with an explicit `none` affirmation, and that the " +
+        "heading is never deleted. Dropping this rule reopens the old " +
+        "ambiguity between 'no change' and 'author forgot' for hand-authored " +
+        "PRs.",
+    ).toBe(true);
+  });
+
+  it("the '## TLDR' rule body is guarded at all three prose sites", () => {
+    for (const [label, content] of [
+      [
+        "flow-new-feature/references/pr-description-authoring.md",
+        prDescriptionAuthoringContent,
+      ],
+      [
+        "flow-product-planning/references/discovery-instructions.md",
+        discoveryInstructionsContent,
+      ],
+      [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
+    ] as const) {
+      expect(
+        flat(content).includes(flat("25 words")),
+        `${label} must state the \`## TLDR\` 25-word cap. Dropping it lets ` +
+          "the one-sentence outcome sprawl into a paragraph.",
+      ).toBe(true);
+      expect(
+        flat(content).includes(flat("no file, function, or line number")),
+        `${label} must state the \`## TLDR\` no-internal-identifiers rule — ` +
+          "no file, function, or line number. Dropping it lets the sentence " +
+          "regress into mechanism-first prose.",
+      ).toBe(true);
+      expect(
+        flat(content).includes(
+          flat("the failure and the causal resolution together"),
+        ),
+        `${label} must state the fix-shaped \`## TLDR\` rule — on a fix PR, ` +
+          "the TLDR sentence names the failure and the causal resolution " +
+          "together. Dropping it silently loses the fix-framing safety net " +
+          "for a demoted `## Why`.",
+      ).toBe(true);
+    }
+  });
+
+  // Was a one-shot PR-body Test Steps grep; moved here per Durable-test
+  // precedence (bin/skill-md-lint.test.ts's own established pattern).
+  it("'## System flow changes' is dropped from every contract site", () => {
+    for (const [label, content] of [
+      ["AGENTS.md", agentsContent],
+      [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
+      [
+        "flow-new-feature/references/pr-description-authoring.md",
+        prDescriptionAuthoringContent,
+      ],
+      [
+        "flow-product-planning/references/discovery-instructions.md",
+        discoveryInstructionsContent,
+      ],
+      ["flow-pr-review/SKILL.md", prReviewContent],
+    ] as const) {
+      expect(
+        content.includes("System flow changes"),
+        `${label} must not carry the old 'System flow changes' section name — ` +
+          "it was renamed and broadened to `## System changes`. A surviving " +
+          "reference is stale prose pointing at a heading that no longer exists.",
+      ).toBe(false);
+    }
+  });
+
+  it("'## What' and the omit-the-heading rule are dropped from the PR template and skills", () => {
+    expect(
+      /^## What$/m.test(pullRequestTemplateContent),
+      ".github/PULL_REQUEST_TEMPLATE.md must not carry a `## What` heading — " +
+        "it was dropped; its content now splits between `## User-facing " +
+        "changes` and `## System changes`.",
+    ).toBe(false);
+    for (const [label, content] of [
+      [
+        "flow-new-feature/references/pr-description-authoring.md",
+        prDescriptionAuthoringContent,
+      ],
+      [
+        "flow-product-planning/references/discovery-instructions.md",
+        discoveryInstructionsContent,
+      ],
+      [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
+    ] as const) {
+      expect(
+        content.includes("OMIT THIS HEADING ENTIRELY"),
+        `${label} must not carry the old 'OMIT THIS HEADING ENTIRELY' ` +
+          "instruction — both outcome sections are now mandatory-with-`none`, " +
+          "replacing the omit-when-empty rule. A surviving reference " +
+          "reopens the old ambiguity between 'no change' and 'author forgot'.",
+      ).toBe(false);
+    }
+  });
+
+  it(".github/PULL_REQUEST_TEMPLATE.md meets the fix-shaped framing before the demoted '## Why'", () => {
+    const lines = pullRequestTemplateContent.split("\n");
+    const failingLineIndex = lines.findIndex((line) =>
+      line.includes("Failing"),
+    );
+    const whyHeadingIndex = lines.findIndex((line) =>
+      line.startsWith("## Why"),
+    );
+    expect(
+      failingLineIndex,
+      ".github/PULL_REQUEST_TEMPLATE.md must mention 'Failing' — the " +
+        "fix-shaped framing folded into the `## TLDR` guidance comment.",
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      failingLineIndex,
+      "the `## TLDR` guidance's 'Failing' mention must appear BEFORE the " +
+        "demoted `## Why` heading — a hand-author meets the fix-shaped " +
+        "requirement before reaching `## Why`. Reordering the template must " +
+        "keep this precondition true.",
+    ).toBeLessThan(whyHeadingIndex);
+  });
+
+  it("flow-pr-review/SKILL.md Step 11a Structure Check names TLDR and System changes", () => {
+    expect(
+      prReviewContent.includes("**TLDR**"),
+      "flow-pr-review/SKILL.md Step 11a's Structure Check list must carry a " +
+        "`**TLDR**` bullet — the fifth contract site this PR edits. Dropping " +
+        "it silently drops TLDR coverage from the review-time structure " +
+        "check.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("**System changes**"),
+      "flow-pr-review/SKILL.md Step 11a's Structure Check list must carry a " +
+        "`**System changes**` bullet. Dropping it silently drops System " +
+        "changes coverage from the review-time structure check.",
     ).toBe(true);
   });
 
@@ -6133,7 +6465,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       "flow-pr-review/SKILL.md Step 11 must reference 'Fix mechanism' — the " +
         "review-time safety net that flags a fix-shaped PR missing the " +
         "`**Failing:**` / `**Root cause:**` / `**Fix mechanism:**` causal " +
-        "contract, or a cross-component PR missing `## System flow changes`, " +
+        "contract, or a PR missing `## System changes`, " +
         "as a `suggestion`-severity description finding. Dropping this " +
         "paragraph silently removes the review-time backstop and lets a " +
         "non-compliant fix PR through unflagged.",
@@ -8467,6 +8799,7 @@ describe("pause-output contract wiring lint", () => {
     "skills/universal/flow-testing/SKILL.md",
     "skills/universal/flow-research/SKILL.md",
     "skills/universal/flow-ui-ux/SKILL.md",
+    "skills/universal/flow-deliberate/SKILL.md",
   ];
 
   it("the contract file exists and carries the six literal slot labels", () => {
@@ -8695,6 +9028,7 @@ describe("pause-output contract wiring lint", () => {
       "`Candidates:`",
       "`Top assumptions:`",
       "`Research:`",
+      "`Vetting verdict:`",
     ];
     const sites = [
       "skills/pipeline/flow-product-planning/SKILL.md",
@@ -10356,5 +10690,120 @@ describe("product-brief threading site (discovery read-obligation)", () => {
         "with `test -f` BEFORE invoking the helper — a brief-less repo " +
         "must pay zero extra subprocesses per discovery pass.",
     ).toBe(true);
+  });
+});
+
+// The Deliberation step is the ONLY pipeline site wired to the blind judge
+// (plan Decision 2: discovery's escape point, not a supervisor-wide hook and
+// not a new pipeline step). Its value depends entirely on a handful of
+// mechanical properties — a cap, an ordering, a blindness flag, an adoption
+// rule — that live in prose and would otherwise rot silently. This pins them.
+describe("discovery deliberation wiring", () => {
+  const REPO_ROOT = path.resolve(HERE, "..");
+  const DISCOVERY_PATH =
+    "skills/pipeline/flow-product-planning/references/discovery-instructions.md";
+
+  function deliberationSection(): string {
+    const text = fs.readFileSync(path.join(REPO_ROOT, DISCOVERY_PATH), "utf8");
+    const start = text.indexOf("**Deliberation step.**");
+    expect(
+      start,
+      "discovery-instructions.md must carry a `**Deliberation step.**` " +
+        "paragraph — it is the one wired consumer of the blind judge.",
+    ).toBeGreaterThan(-1);
+    const end = text.indexOf("**Relation to Decision analysis:**", start);
+    expect(
+      end,
+      "the Deliberation step must sit ABOVE `**Relation to Decision " +
+        "analysis:**` — that is the insertion point outside the " +
+        "byte-identical confidence-rubric block.",
+    ).toBeGreaterThan(start);
+    return text.slice(start, end);
+  }
+
+  it("sits outside the byte-identical confidence-rubric block", () => {
+    const text = fs.readFileSync(path.join(REPO_ROOT, DISCOVERY_PATH), "utf8");
+    const rubricEnd = text.indexOf("<!-- flow-confidence-rubric:end -->");
+    const step = text.indexOf("**Deliberation step.**");
+    expect(rubricEnd).toBeGreaterThan(-1);
+    // interview-playbook.md carries a byte-identical copy of the rubric block
+    // (bin/flow-confidence-rubric-lint.test.ts); an insert one line early goes
+    // red in a file this feature never names.
+    expect(
+      step,
+      "the Deliberation step must be inserted AFTER the rubric block's end " +
+        "marker, or it corrupts interview-playbook.md's byte-identical mirror.",
+    ).toBeGreaterThan(rubricEnd);
+  });
+
+  it("invokes flow-deliberate by bare PATH name, never a bin/lib import", () => {
+    const section = deliberationSection();
+    expect(section).toContain("flow-deliberate");
+    expect(
+      /never import `bin\/lib\/\*`|NOT a `bin\/lib` import/.test(section),
+      "discovery runs in the consumer worktree, where flow's bin/lib does " +
+        "not exist — the section must say so explicitly.",
+    ).toBe(true);
+    expect(
+      section.includes("bun bin/flow-deliberate"),
+      "must not invoke the helper through `bun bin/...` — that path does " +
+        "not exist in a consumer worktree.",
+    ).toBe(false);
+  });
+
+  it("passes the lean via --blind-to-file, kept outside the worktree", () => {
+    const section = deliberationSection();
+    expect(section).toContain("--blind-to-file");
+    expect(
+      /outside\*{0,2} the worktree|\*\*outside\*\* the worktree/.test(section),
+      "the lean file must be written outside the worktree — a `.flow-tmp/` " +
+        "lean is readable by the very judge it is hidden from.",
+    ).toBe(true);
+  });
+
+  it("caps consults at 3 per pass, in descending stakes order", () => {
+    const section = deliberationSection();
+    expect(section).toMatch(/at most\*{0,2} \*{0,2}3/);
+    expect(section).toContain("descending");
+    // The one-shot sub-agent's wall-clock budget is already spent when
+    // research ran inline, so the cap collapses to zero there.
+    expect(section).toMatch(/\*\*0\*\*|\bnever fires\b/);
+  });
+
+  it("names the taste and credential carve-outs the judge must never touch", () => {
+    const section = deliberationSection();
+    expect(section).toMatch(/preference or subjective taste/i);
+    expect(section).toMatch(/credentials or production access/i);
+  });
+
+  it("adopts only re-verified medium/high and marks provenance", () => {
+    const section = deliberationSection();
+    expect(section).toMatch(/`medium` or `high`/);
+    expect(section).toContain("deliberated (");
+    expect(
+      /zero retries/.test(section),
+      "a skip must fall through to today's escape with no retry — retrying " +
+        "a judge is shopping for the answer you wanted.",
+    ).toBe(true);
+  });
+
+  it("forbids transcribing the judge's own anchor onto a low line", () => {
+    const section = deliberationSection();
+    // flow-plan-lint requires a `low` anchor to start with `inference`; a
+    // `weighing:` anchor on `low` fails the plan gate this step exists to help.
+    expect(section).toMatch(/never\s+copy\s+the\s+judge's\s+own\s+anchor/i);
+    expect(section).toContain("flow-plan-lint");
+  });
+
+  it("is pointed at from the PRD template's Open Questions comment", () => {
+    const template = fs.readFileSync(
+      path.join(
+        REPO_ROOT,
+        "skills/pipeline/flow-product-planning/templates/prd-template.md",
+      ),
+      "utf8",
+    );
+    expect(template).toContain("deliberated (");
+    expect(template).toContain("Deliberation step");
   });
 });

@@ -115,6 +115,7 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
 - **Session model** — `--model` > `config.models.default` > Claude's default. Read once at launch and passed to `claude --model`.
 - **Per-phase model** — `--model-<phase>` > `config.models.<phase>` > inherited session model.
 - **Two deliberate asymmetries** — (1) **fix-applier** defaults to `sonnet`, **not** the session model (mechanical apply-commit-push work that must not silently inherit Opus/Fable): `--model-fix-applier` > `config.models.fixApplier` > `sonnet`. (2) **scout / coder** are config-only fine-grain that layer _above_ `--model-implement`: `config.models.scout|coder` > `--model-implement` > `config.models.implement` > inherited.
+- **The blind judge** (`flow-deliberate`, a Bash fan-out over `flow-claude-headless`, so it is reachable from a sub-agent that may not spawn a nested Task) resolves `--model` > `config.models.default` > `opus`, with `--effort high`, `--max-budget-usd 2`, and `--max-turns 15` by default. There is deliberately **no** `models.deliberate` key: a judgment call should run whatever model the user already trusts by default, and a dedicated key earns its place only once someone wants to diverge.
 - **The gatekeeper is pinned** to `haiku` — its whole job is cheap cost-routing. There is no `--model-gatekeeper` flag; a `config.models.gatekeeper` key is reachable but strongly discouraged (overriding it defeats the cost-routing).
 
 Aliases are `opus`, `haiku`, `sonnet`, `fable`; flow forwards the alias verbatim to `claude --model`. An invalid alias in a flag exits non-zero writing no state; an invalid value in `config.models.*` emits a best-effort warning at create time and falls back.
@@ -201,8 +202,14 @@ jq-readable, no rotation in v1) — see `flow-review-telemetry`.
 
 Separately, a handful of helpers append one JSON line per event to
 `~/.flow/telemetry/events.jsonl` (`bin/lib/telemetry.ts`'s `recordEvent`),
-covering four event names: `delegate.call` (one per `flow-delegate`
-invocation), `phase.transition` (one per `flow-state-update` `--phase`
+covering five event names: `delegate.call` (one per `flow-delegate`
+invocation), `deliberate.call` (one per `flow-deliberate` blind
+second-opinion consult — carries the call's `total_cost_usd`, the
+anchor-derived `confidence`, and whether the judge's declared confidence was
+demoted; emitted on skips too, so judge spend and judge silence are both
+visible — the jq recipes deriving the judge's override rate from this event,
+and the kill criterion they feed, are in
+[deliberation-assessment.md](deliberation-assessment.md)), `phase.transition` (one per `flow-state-update` `--phase`
 write, OR per `bin/lib/phase-advance.ts` phase advance — `phase-advance.ts`
 is the SOLE emitter for six phases in the implement→merge half of the
 pipeline, so reading only `flow-state-update` call sites undercounts this

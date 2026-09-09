@@ -160,7 +160,7 @@ The cache key is the **normalized** sharp question (lowercase / trim / collapse-
 
 When you take the live path (cache miss), build the manifest and run the fan-out:
 
-1. Build a small manifest JSON file: a GATHER entry on the resolved gather model `$RESEARCH_MODEL` (default `"Gemini 3.1 Pro (High)"`; agy has native Google web search — instruct it to return cited source URLs) asking your sharp question, plus an adversarial REFUTE entry on the resolved `$RESEARCH_REFUTE_MODEL` (default `"Claude Opus 4.6 (Thinking)"`; the cross-model guard in (a) keeps it a **different** variant from gather — the pinned alternates are `"Claude Opus 4.6 (Thinking)"` and `"GPT-OSS 120B (Medium)"`) that checks the gathered claim. Each entry's shape is `{ "task": "...", "model": "...", "prompt": "...", "timeout": "..." }` — **set every entry's `model` to the resolved gather/refute variant and every entry's `timeout` to the resolved `$RESEARCH_TIMEOUT` (default `"3m"`)** (see the rationale below).
+1. Build a small manifest JSON file with THREE entries: a GATHER entry on the resolved gather model `$RESEARCH_MODEL` (default `"Gemini 3.1 Pro (High)"`; agy has native Google web search — instruct it to return cited source URLs) asking your sharp question; an adversarial REFUTE entry on the resolved `$RESEARCH_REFUTE_MODEL` (default `"Claude Opus 4.6 (Thinking)"`; the cross-model guard in (a) keeps it a **different** variant from gather — the pinned alternates are `"Claude Opus 4.6 (Thinking)"` and `"GPT-OSS 120B (Medium)"`) that checks the gathered claim; and a third `refute-approach` entry, also on `$RESEARCH_REFUTE_MODEL`, prompted to find evidence that the user's CHOSEN APPROACH (not just the gathered claim) fails or is worse than the obvious alternative — its artifact feeds the `## Request vetting` `- **Case against:**` line (see the "Request vetting" sub-section, step 5) as a bonus grounding source on top of in-repo anchors. Each entry's shape is `{ "task": "...", "model": "...", "prompt": "...", "timeout": "..." }` — **set every entry's `model` to the resolved gather/refute variant and every entry's `timeout` to the resolved `$RESEARCH_TIMEOUT` (default `"3m"`)** (see the rationale below). Three entries at `--concurrency 4` still fit in ONE wave, so the runtime-ceiling arithmetic below is unaffected.
 2. Run: `flow-delegate-fanout --manifest <file> --max-calls "$RESEARCH_MAX_CALLS" --concurrency 4 --out <out.json> --default-entry-timeout "$RESEARCH_TIMEOUT"` (`$RESEARCH_MAX_CALLS` defaults to `12`; `$RESEARCH_TIMEOUT` defaults to `3m`; `--concurrency` stays pinned at `4`).
 3. **The fan-out's own result is the agy-availability check — no separate probe.** If the aggregate is `allSkipped: true` (every entry `ran: false` with `skipReason: agy-not-found` / `agy-not-authenticated`), agy is unavailable: take the graceful skip in (e). Otherwise read the per-entry artifacts under `<out-dir>/artifacts/` and synthesize the report yourself (d).
 
@@ -431,6 +431,7 @@ Categories worth examining (use them as a checklist, not a question list):
 | **Trade-offs**             | Would a simplification be acceptable for v1? If the request is framed as a binary A-or-B choice, is there a middle-ground option? When a trade-off hinges on a consequential decision whose branches genuinely diverge, simulate it in the "Decision analysis" sub-section (step 5).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | **Necessity & redundancy** | Is this request necessary at all? Could doing nothing, or an existing capability the user has overlooked, serve them just as well? Treat "reject — do nothing" as a legitimate verdict to weigh, not a non-answer; the user invited the feature, but inviting it is not the same as needing it. Framing lens: **first-principles** — strip inherited constraints to what is necessarily true (see discovery-playbook.md, internal-only). **Redundancy obligation:** explicitly check the request for duplication against an existing capability (a skill, a helper, a config surface, or a prior feature) and either cite the specific capability or state "no duplication found"; a found duplication routes into the `## Recommendation` verdict (`Reconsider scope` or `Reject — do nothing`) and/or the `### Alternatives considered` sub-section. |
 | **Premise check**          | Is the request's stated factual premise verified against the codebase? Treat a threaded `PROMPT-SANITY: <note>` (see `{{PROMPT_SANITY_OVERRIDE}}` in `flow-product-planning/SKILL.md`) as evidence to weigh alongside the codebase scan, and cross-check any attached/referenced files against the request's claims even when no note was threaded. A failed premise surfaces as a `**Premise check:**` line in the Problem Statement (step 5) and forces a non-`Proceed` `## Recommendation` verdict; omit-when-sound — no line is written when the stated premise holds.                                                                                                                                                                                                                                                                             |
+| **Approach vetting**       | Assume the premise holds and the request is worth doing — is the CHOSEN APPROACH itself sound? What is the best evidence (a paper, a post-mortem, a measured number, or a file path) that it is wrong or worse than the obvious alternative? This is the `## Request vetting` section's own hypothesis/case-against/verdict — see the "Request vetting" sub-section (step 5) for the full contract.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | **Options & exclusivity**  | What other options exist beyond the literal request? Of the adjacent features, which are **complementary** (pair well, increase the request's value) and which are **mutually exclusive** — cannot coexist with the request, or conflict with each other, so the user must pick one path? Name both kinds, not just the complementary ones. The exclusive-vs-complementary marking and ranked combinations feed the "Decision analysis" sub-section (step 5) when the decision is consequential.                                                                                                                                                                                                                                                                                                                                                       |
 | **Existing patterns**      | Is this similar to an existing feature? Follow the same pattern unless there's a reason to deviate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
@@ -570,6 +571,9 @@ effect on model comprehension either way) — never required.
   threaded `PROMPT-SANITY: <note>` (triage's Prompt sanity gate reached `suspect`) counts
   as evidence for this check, and any attached/referenced file is cross-checked against
   the request's claims regardless of whether a note was threaded.
+- **Request vetting** — always-present — a falsifiable hypothesis, a sourced case against
+  the request's chosen approach, and a closed verdict. See the "Request vetting"
+  sub-section below for the full contract.
 - **Epic context** (omit-when-empty) — only when step 1.7 detects epic membership: the
   epic slug, this feature's id and rationale, its `dependsOn` edges with produced/consumed
   artifacts, and its downstream dependents. See the "Epic context" sub-section below.
@@ -863,6 +867,61 @@ The diagram is topology-only, not proportion — box sizes carry no meaning abou
 
 **Forward pointer.** The section is ratified by the user at `plan-pending-review` and threaded verbatim into `/flow-coder` edit-sets via the `DESIGN_CONTEXT` block (fenced ASCII diagrams stripped), so the implementer treats it as a constraint it cannot silently drop.
 
+### Request vetting
+
+**Always present.** Every plan.md argues against the request's chosen approach — a
+confidently-framed request executed exactly as framed, with no stage ever asking whether
+the approach itself is sound, is the failure mode this section exists to close (issue
+#805). `flow-plan-lint`'s `checkRequestVetting` enforces the shape below; a miss is
+advisory (never blocks planning) but is always named.
+
+Four required labelled lines, in this order:
+
+- `- **Hypothesis:**` — the falsifiable claim the plan rests on (what has to be true for
+  the chosen approach to work).
+- `- **Case against:**` — the best evidence AGAINST the chosen approach: same-model
+  self-critique without external grounding does not reliably help (the exact failure mode
+  this check exists to prevent), so at least one line here must cite either a committed
+  repo path or a URL — `[anchor: <committed path or URL>]` or a bare `http(s)://` link.
+  **Never cite a `.flow-tmp/` path** — that directory is excluded from git and deleted by
+  `flow-remove-worktree` on merge, so an anchor into it is unresolvable the moment the PR
+  ships; cite the COMMITTED file the claim is really about instead. The block must also
+  clear a 15-word floor — a trivially-true one-liner ("this could be simpler [anchor:
+  x]") is exactly the same-model self-critique the research behind this section found
+  does not work.
+- `- **Sources:**` — what grounded the case against: a URL, or the exact literal
+  `no outside source: <reason>` when none was available. This line makes the common
+  no-research/no-review case VISIBLE rather than silently passing as if it were grounded.
+- `- **Verdict:**` — closed grammar, exact-match, one of:
+  - `adopt` — the request's approach stands as asked.
+  - `adopt-with-conditions: <measurable condition>` — proceeds, with a named condition.
+  - `push back: <alternative>` — the case against wins; name the alternative.
+
+  A non-`adopt` verdict requires a `## Decision analysis` section elsewhere in the plan —
+  it is the fork the verdict resolves into. **The task breakdown follows this verdict, not
+  the request as literally written** — a `push back` or `adopt-with-conditions` verdict
+  must be reflected in which tasks actually ship (see this file's own dogfooded section
+  for a worked example).
+
+Additional free-form body lines (e.g. `- **Per-part:**` for a multi-part request that
+needs a per-part verdict) are permitted and count against the ceiling below like any
+other line — they are not part of the four required labels.
+
+**Ceiling.** ≤12 non-blank BODY lines (the `## Request vetting` heading itself is not
+counted). Keep it short — a long section is the ceremony this contract exists to prevent,
+not evidence of rigor.
+
+**Grounding availability.** The Step 1.5(c) `refute-approach` research entry (when
+research runs) is a BONUS grounding source for the case against, not a precondition —
+Step 1.5 does not run on most pipelines (it requires `research.discovery: true` AND the
+relevance gate AND agy availability). The PRIMARY grounding path is an in-repo `[anchor:
+<committed path>]` citation; do not stall waiting for a research artifact that will not
+exist on the common run.
+
+**Short form for goal-only requests.** A trivial, single-outcome request may use a
+one-line case against: hypothesis, `- **Case against:** none material — <why>`, `adopt`
+— the same anchor/word-count/Sources bar still applies to `<why>`.
+
 ### Goal line
 
 A single `**Goal:** <one sentence>` line, placed directly under the PRD's feature-title
@@ -946,6 +1005,85 @@ factor(s)>` (per the Resolution rubric in discovery-playbook.md), OR
 The label is derived from the anchor class, never asserted; a rationale whose only support is `likely`, `should be fine`, `standard practice`, `best practice`, or `probably` is a `low`. Chat renders show only `(high)` / `(medium)` / `(low)` — anchors stay in the on-disk artifact.
 
 <!-- flow-confidence-rubric:end -->
+
+**Deliberation step.** Before writing any `**Needs user input:**` escape whose
+reason is _an external fact the agent cannot verify_ — or whose reason you are
+unsure how to label — and before writing any `[confidence: low]`
+`**Recommended:**` line, consult the blind second-opinion judge. It is a Bash
+call, not a sub-agent: you may never spawn a nested Task, but you may always
+shell out, and `flow-deliberate` is on `PATH` (never import `bin/lib/*` — it
+does not exist in a consumer worktree).
+
+**Availability probe (before the first consult).** `flow-deliberate` is a
+core-module helper, same probe pattern as the research-module precheck above:
+
+```bash
+command -v flow-deliberate >/dev/null 2>&1 || DELIBERATE_UNAVAILABLE=1
+```
+
+When `$DELIBERATE_UNAVAILABLE` is set (an older install predating this
+helper), skip every consult for the rest of this pass and take the SAME
+fall-through this step already defines for a `low` result or `ran:false`:
+write each item **exactly as you would have without the judge**. Do not treat
+a missing helper as a hard failure — it degrades to the documented no-judge
+path, not an error.
+
+NEVER consult on a user-held preference or subjective taste, and NEVER on
+credentials or production access. Those two escape reasons are the user's to
+answer by definition; a judge would override a preference rather than resolve a
+question.
+
+Consult candidates in **descending `**Stakes:**` order** (`both` > `user` >
+`system`), **at most 3** per pass, and **0** when Step 1.5 research ran inline in
+this same pass. That last clause has a real consequence worth stating plainly:
+on a non-forced pass where research ran inline, the judge never fires at all —
+the one-shot sub-agent's wall-clock budget is already spent on research, and a
+consult that times out helps nobody.
+
+For each candidate:
+
+1. Write a neutral question file to `.flow-tmp/deliberate-q<n>.md`: the question,
+   the fixed facts the judge cannot discover by reading, and the options as
+   neutral labels. No adjectives, no narrative for either side, and the same
+   amount of prose per option — an unequal paragraph is a lean whatever the
+   words say.
+2. Write your current lean to a `mktemp` file **outside** the worktree, and pass
+   it as `--blind-to-file`. The helper mechanically refuses a question that
+   leaked it, before spending anything.
+3. Run it:
+
+   ```bash
+   flow-deliberate --question-file .flow-tmp/deliberate-q<n>.md \
+     --blind-to-file "$LEAN_FILE" --worktree "$PWD" --task oq<n>
+   ```
+
+4. Branch on `ran`, never on the exit code. Adopt ONLY a `ran:true` result whose
+   `confidence` is `medium` or `high` AND whose anchor you re-verify yourself: for
+   a `path[:line]` or `adjacent: path[:line]` anchor, first STRIP the `adjacent: `
+   prefix (if present) and the trailing `:line` or `:line-line` suffix (if
+   present) to recover the bare path, THEN `test -e` that bare path — `test -e`
+   on the anchor string as written (with the suffix still attached) fails even
+   for a genuine, correctly-cited line or range, which would wrongly reject a
+   real `high`/`medium` answer. And a `user: "…"` quotation must actually appear
+   in the interview digest. The helper already demotes a `weighing:`/`inference`
+   anchor to `low`, so such a result falls through here by construction.
+5. On a `low` result, a failed re-verification, or any `ran:false` — write the
+   item **exactly as you would have without the judge**, with zero retries. A
+   consult that produced nothing costs you the call and nothing else.
+
+   This is a fall-through, not a downgrade you transcribe: never copy the
+   judge's own anchor onto the item. A demoted judgment arrives carrying a
+   `weighing:` or `inference` anchor, and a `low` line requires an `inference`
+   anchor by the Confidence + stakes rubric above — writing `[confidence: low]
+[anchor: weighing: …]` is a hard `flow-plan-lint` miss at the very gate this
+   step exists to improve. Write your own anchor, or take the escape.
+
+When you adopt, write the rationale as `deliberated (<level>): <the judge's
+rationale>`, carrying the judge's own `[confidence: …] [anchor: …]` tag pair so
+the plan-review render and `flow-plan-lint` see a normal resolved entry. The
+`deliberated (` prefix is the provenance marker: it is what lets a reader — and
+the override tripwire in `docs/deliberation-assessment.md` — tell a judge's
+answer from your own.
 
 **Relation to Decision analysis:** consequential questions whose branches genuinely
 diverge route to `### Decision analysis` (whose verdict feeds the Recommendation);
@@ -1291,41 +1429,29 @@ the description early means the PR tells a coherent story from the start.
 **Extract from the PRD into this format:**
 
 ````markdown
-## Why
+## TLDR
 
-<Distill the Problem Statement into 1–3 sentences. Keep the user's pain point and
-why it matters — strip solution language. This should read as motivation, not a
-feature spec. On a fix-shaped PR — the pipeline exists to fix an observed defect, or
-the branch's dominant commit type is `fix:` — lead with `**Failing:**` naming the
-observed failure and `**Root cause:**` naming why it happened, before the
-1–3-sentence motivation.>
-
-## What
-
-<Convert the Scope Boundary's "In scope" items into a bulleted list of deliverables,
-phrased as capabilities or behaviors rather than files or modules. Each bullet
-should be verifiable.>
-
-## Key decisions
-
-<Pull from Architecture Decisions and Scope Boundary's "Out of scope". On a fix-shaped
-PR, the FIRST bullet is `**Fix mechanism:** <why the change eliminates the root
-cause>`. Each bullet: the decision + a brief rationale. Include scope exclusions
-that a reviewer might wonder about. Also list each bundled task (every task
-carrying a `- **Bundled:**` bullet in the task breakdown) as its own
-`Bundled: <one-line origin>` bullet, so a reviewer can see why the diff is larger
-than the requested feature alone.>
+<One sentence, 25 words or fewer, naming the user-visible outcome. Name no file,
+function, or line number — name the surface the reader uses (the command, the flag,
+the artifact). This is the same string the supervisor already authors as `$TLDR` at
+every terminal gate in `skills/pipeline/flow-pipeline/SKILL.md`; reuse it rather than
+inventing a second one. On a fix-shaped PR the sentence itself states the failure and
+the causal resolution together, so a reader meets the fix framing before the
+now-demoted `## Why`.>
 
 ## User-facing changes
 
 <Concrete user-observable deltas — phrase in user terms ("you can now run
 `flow ls --cost`"), not implementation terms ("added cost column to the ls
-renderer"). Each user story's externally observable change becomes a bullet here:
+renderer"). Name no file, function, or line number here either — name the surface the
+reader uses. Each user story's externally observable change becomes a bullet here:
 walk the Stories section and, for every story whose acceptance criteria assert
 something a user sees or does differently, emit a bullet. Categories to consider:
 new CLI commands or subcommands, new flags or changed defaults, renamed/removed
 commands, changed prompts or output formats, new env vars, and changed file
-locations users interact with.
+locations users interact with. Convert the Scope Boundary's "In scope" items into
+bullets here too, phrased as capabilities or behaviors rather than files or modules,
+each one verifiable.
 
 Format: freeform bullets. For renames or removals, use a `Before → After` bullet so
 the delta reads at a glance. Example:
@@ -1338,13 +1464,41 @@ delta), write the literal word `none` under the heading. Never delete the headin
 `none` is an explicit author affirmation, while a missing heading is ambiguous
 between "no change" and "author forgot".>
 
-## System flow changes
+## System changes
 
-<Only on a cross-component change where behavior moved at the system/consumer level —
-derive Before → After bullets from plan.md's `### System flow` subsection when that
-subsection is non-`none`. OMIT THIS HEADING ENTIRELY when nothing moved at that level; unlike
-User-facing changes above, there is no `none` affirmation for this section — an absent
-heading already means "nothing moved here".>
+<Any internal change worth a reviewer's attention: a subsystem boundary that moved, a
+public contract that changed, a performance characteristic, or an ongoing cost. Derive
+Before → After bullets from plan.md's `### System flow` subsection when that
+subsection is non-`none`, and phrase each deliverable as a capability, not a file
+path. When the change moves an ongoing cost — API calls, CI time, token spend — name
+the direction and rough size; stay silent about cost when the change does not move one.
+
+Do not list file edits, helper refactors, or mechanical cleanups. If the change does
+not alter a subsystem boundary, a public contract, performance, or ongoing spend,
+write `none`.
+
+Never delete the heading. Exactly like `## User-facing changes` above, `none` is an
+explicit author affirmation, while a missing heading is ambiguous between "no change"
+and "author forgot".>
+
+## Why
+
+<Distill the Problem Statement into 1–3 sentences. Keep the user's pain point and
+why it matters — strip solution language. This should read as motivation, not a
+feature spec. On a fix-shaped PR — the pipeline exists to fix an observed defect, or
+the branch's dominant commit type is `fix:` — lead with `**Failing:**` naming the
+observed failure and `**Root cause:**` naming why it happened, before the
+1–3-sentence motivation.>
+
+## Key decisions
+
+<Pull from Architecture Decisions and Scope Boundary's "Out of scope". On a fix-shaped
+PR, the FIRST bullet is `**Fix mechanism:** <why the change eliminates the root
+cause>`. Each bullet: the decision + a brief rationale. Include scope exclusions
+that a reviewer might wonder about. Also list each bundled task (every task
+carrying a `- **Bundled:**` bullet in the task breakdown) as its own
+`Bundled: <one-line origin>` bullet, so a reviewer can see why the diff is larger
+than the requested feature alone.>
 
 ## Deviations from plan
 
@@ -1487,17 +1641,22 @@ skills/pipeline/flow-pr-review/references/manual-test-rubric.md. -->
   verbatim.
 - "Why" must not contain solution language. If you catch yourself writing
   "by adding X" or "through implementing Y", rewrite to focus on the problem.
-- "What" bullets should each be testable against the implementation. Avoid vague
-  bullets like "improve the user experience".
+- "TLDR" is one sentence, 25 words or fewer, naming the user-visible outcome in the
+  surface the reader uses — no file, function, or line number. On a fix-shaped PR it
+  states the failure and the causal resolution together.
+- "User-facing changes" and "System changes" bullets should each be testable against
+  the implementation. Avoid vague bullets like "improve the user experience".
 - "Key decisions" should only include decisions where a reasonable alternative
   existed. Don't list obvious choices.
 - "User-facing changes" must be phrased in user terms (what someone running the
-  tool will see or do differently), not implementation terms. If the PRD has no
-  user-observable delta, write `none` under the heading — never omit the heading
+  tool will see or do differently), not implementation terms, and names a surface
+  rather than a file, function, or line number.
+- "System changes" covers any internal change worth a reviewer's attention, and
+  prompts for ongoing cost (API calls, CI time, token spend) only when the change
+  moves one. It does NOT list file edits, helper refactors, or mechanical cleanups.
+- Both "User-facing changes" and "System changes" are mandatory: when the section is
+  empty, write the literal word `none` under the heading — never omit either heading
   itself.
-- "System flow changes" is conditional — unlike "User-facing changes", omit the
-  heading entirely when nothing moved at the system/consumer level; do not write
-  `none` under it.
 - Always emit the `## Test Steps` heading, even for refactors. The auto-merge gate
   treats a missing heading as an upstream regression and escalates `NEEDS HUMAN`.
   Zero unchecked items under the heading is the auto-merge state; one or more
@@ -1539,8 +1698,8 @@ empty>
 
 # PR description draft
 
-<the Why / What / Key decisions / User-facing changes / optional System flow
-changes / Test Steps from step 7>
+<the TLDR / User-facing changes / System changes / Why / Key decisions /
+Test Steps from step 7>
 ````
 
 This file is the predictable handoff for the `/flow-pipeline` supervisor — it
@@ -1560,7 +1719,7 @@ the artifact `pr-review` consumes. Both files should land.
 
 ## 9. Return a brief summary
 
-Your final message back to the wrapper should be 3–5 labeled bullets:
+Your final message back to the wrapper should be 4–6 labeled bullets:
 `Problem:` — the problem statement in one line; `Tasks:` — the number of
 tasks; `Candidates:` — the candidate follow-up issue count if non-zero
 (e.g. "3 candidate follow-up issues for the user to pick from"; omit the
@@ -1570,7 +1729,9 @@ input:**` or `[confidence: low]` items first; `Research:` — **when
 Step 1.5's research path was active but no research ran, the one-line
 skip-note from (e)** (e.g. "Web-grounded research skipped — agy
 unavailable; force with `flow feature create --research`.") so it reaches
-chat; omit the bullet when research ran or the path was fully dormant. Do not paste the PRD or task list back — the wrapper only forwards your summary to the caller, and
+chat; omit the bullet when research ran or the path was fully dormant;
+`Vetting verdict:` — (the `## Request vetting` `- **Verdict:**` line,
+verbatim). Do not paste the PRD or task list back — the wrapper only forwards your summary to the caller, and
 the artifacts on disk are the durable record. Keeping the return value
 short is the whole point of the subagent fan-out.
 
@@ -1602,8 +1763,8 @@ redirect did not touch and destroys embedded markers. Follow this contract:
 3. **Preserve embedded markers verbatim.** The `### Cross-model review (AGY)` subsection
    under `## Decision analysis` AND its `<!-- flow-plan-review-hash: <sha> -->` marker are
    **MUST-NOT-REGENERATE**: leave them exactly as written unless the redirect materially
-   changes one of the THREE hashed inputs — the `**Goal:**` line, `## Decision analysis`,
-   or `## Cut list`. (If it does, edit the affected body and leave the stale marker — after
+   changes one of the FOUR hashed inputs — the `**Goal:**` line, `## Decision analysis`,
+   `## Cut list`, or `## Request vetting`. (If it does, edit the affected body and leave the stale marker — after
    the re-review the supervisor recomputes the hash over the final revised plan via
    `flow-plan-review --print-hash` and re-embeds it; the tolerant hash-read self-heals a
    lost marker, but needlessly rewriting it forces a wasteful re-review.) The
@@ -1677,9 +1838,11 @@ Common failure modes during planning:
 - No task is too large for a single focused session (if it seems large, split it).
 - Skill recommendations reference skills that actually exist in the project's
   skill directory.
-- PR description draft follows the standardized format (Why / What / Key
-  decisions / User-facing changes / Test Steps), plus `## System flow changes`
-  when the plan's `### System flow` subsection is non-`none`.
+- PR description draft follows the standardized format (TLDR / User-facing
+  changes / System changes / Why / Key decisions / Test Steps), with both
+  `## User-facing changes` and `## System changes` always present — `none` when
+  empty — and the latter drawing Before → After bullets from the plan's
+  `### System flow` subsection when that subsection is non-`none`.
 - Both `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md` were written
   at the absolute paths the wrapper passed you, with parent directory created on
   demand.
@@ -1701,6 +1864,14 @@ Common failure modes during planning:
 - A failed premise check surfaces as a `**Premise check:**` line in the Problem
   Statement and the `## Recommendation` verdict is non-`Proceed`; a sound premise
   carries no line.
+- `## Request vetting` is ALWAYS present, directly after `## Problem Statement`,
+  with `- **Hypothesis:**`, `- **Case against:**`, `- **Sources:**`, and an
+  exact-match `- **Verdict:**` line (`adopt` | `adopt-with-conditions: <condition>`
+  | `push back: <alternative>`); ≤12 non-blank body lines; the case against cites a
+  committed `[anchor: …]` path or a URL (never `.flow-tmp/`) and clears the 15-word
+  floor; the `- **Sources:**` line carries a URL or the literal
+  `no outside source: <reason>`; a non-`adopt` verdict has a `## Decision analysis`
+  fork to resolve into.
 - `## Cut list` is ALWAYS present (unlike `## Decision analysis`, never omit-when-empty):
   either 1-3 bullets naming unnecessary complexity, or a justified `nothing — plan is
 minimal` affirmation — a bare `nothing` with no justification fails this check.

@@ -401,10 +401,10 @@ a runtime skip); a `--worktree` pointing at a non-directory yields
 `worktree-not-found`.
 
 **Reviewer engagement.** Each reviewer's raw prose is scored by
-`bin/lib/plan-review-engagement.ts` against the six battery lenses. A
+`bin/lib/plan-review-engagement.ts` against the seven battery lenses. A
 reviewer whose prose is empty/near-empty is demoted with
 `reviewer-empty`; one that clears the substance floor but engages fewer
-than 2 of the 6 lenses is demoted with `reviewer-not-engaged`; one whose
+than 2 of the 7 lenses is demoted with `reviewer-not-engaged`; one whose
 agy call was killed by a `--print-timeout` (or whose engagement-demotion
 duration lands within 10s of its configured cap — a killed agentic run can
 still exit 0 with a partial) is demoted with `reviewer-timeout`. Every
@@ -413,7 +413,7 @@ demoted reviewer is NOT a survivor for the convergence rule below — and
 retains that reviewer's transcript on disk, naming it as
 `partialArtifactPath` (plus a redacted `stderrTail` when agy's own stderr
 carried one) rather than deleting it, so a timed-out reviewer's partial
-work stays diagnosable. The envelope's `lensesEngaged` field (N out of 6)
+work stays diagnosable. The envelope's `lensesEngaged` field (N out of 7)
 is the truncation detector: a run cut short mid-battery still reports
 `ran:true` but with a low N, which the supervisor surfaces so the user can
 discount it even when the reviewer wasn't formally demoted. The deep-tier
@@ -450,19 +450,22 @@ so embedding it after computing the hash does not invalidate it.
 
 **Re-fire across passes (revision/redirect).** On a step-3 re-entry the
 supervisor re-runs `flow-plan-review` unconditionally, but the helper
-re-fires the (agy-spending) review ONLY when one of THREE hashed inputs
+re-fires the (agy-spending) review ONLY when one of FOUR hashed inputs
 **materially changed** since the last reviewed revision — the `**Goal:**`
-line, the `## Decision analysis` body, or the `## Cut list` body (widened
-from the original Decision-analysis-only scope so a goal-conflicting edit
-or a cut-list-only edit also re-fires the review): it hashes each input
+line, the `## Decision analysis` body, the `## Cut list` body, or the
+`## Request vetting` body (widened from the original Decision-analysis-
+only scope so a goal-conflicting edit, a cut-list-only edit, or a
+vetting-verdict change also re-fires the review): it hashes each input
 independently (each normalized; `## Decision analysis` also excludes the
-`### Cross-model review (AGY)` subsection, a Decision-analysis-specific
-exclusion that is NOT generalized to `## Cut list`) and compares the
-combined key to the marker embedded on the prior pass, emitting
-`{ran:false, skipReason:"decision-analysis-unchanged"}` when they match
-(normalized, so incidental whitespace / bullet churn from an unrelated
-revision edit does not needlessly re-fire — a Task-breakdown-only edit
-also does not re-fire, since none of the three hashed inputs changed). On
+`### Cross-model review (AGY)` subsection, and `## Request vetting`
+excludes any `- **Cross-model case against:**` line — both
+section-specific exclusions that are NOT generalized to `## Cut list`)
+and compares the combined key to the marker embedded on the prior pass,
+emitting `{ran:false, skipReason:"decision-analysis-unchanged"}` when they
+match (normalized, so incidental whitespace / bullet churn from an
+unrelated revision edit does not needlessly re-fire — a Task-breakdown-
+only edit also does not re-fire, since none of the four hashed inputs
+changed). On
 that skip, the supervisor records a one-line rationale in the chat
 summary (e.g. "cross-model plan review skipped — hashed inputs unchanged
 since the last reviewed revision") and proceeds; it never hand-forces a
