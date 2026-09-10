@@ -13,27 +13,21 @@ paths:
 
 ## Don'ts
 
-- Don't bypass the helper scripts. The supervisor must always call
-  `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
-  rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. See above. The seven
+Universal Don'ts (helper-script bypass, scope creep, optional-module
+degrade, unverified claims, no database) live only in `AGENTS.md`'s
+`## Don'ts` — not duplicated here. This file adds the sub-agent /
+resource-cleanup / auto-commit / exemption rules its title promises;
+the tmux-pane / port-override / post-commit-diff rules live in
+`flow-bin-conventions.md`.
+
+- Don't spawn sub-agents from the supervisor. See `AGENTS.md`
+  `## Supervisor and sub-skills: in-process only`. The seven
   named exceptions are the `**Task-tool exemption: ...**` bullets below
   (one each for `/flow-pr-review` Multi-Agent Review, `/flow-product-planning`
   Discovery, `/flow-new-feature` Scout, `/flow-pr-review` Fix-Applier,
   Merge-Conflict Resolver, `/flow-coder` Edit-Applier, and
   `/flow-pr-review` Consolidator-Validator);
   no other skill or step may call Task.
-- Don't add features beyond the task's stated scope.
-- Don't treat an absent optional-module skill as a hard failure — check
-  `flow-module-status --check-skill <name>` and degrade to a named skip.
-- Don't propagate unverified factual claims. See `## Output style`
-  'Verify factual claims before emitting them.' — latent values rot
-  (line numbers shift, SHAs advance, CLI flags get renamed), eroding the
-  textual evidence the rest of the pipeline relies on.
-- Don't introduce a database. Markdown plan files plus
-  `~/.flow/state/<slug>.json` are the state store; if the queue ever
-  outgrows that, swap in Beads via an adapter rather than building
-  bespoke storage.
 - Don't leave spawned resources running. Three layers, in order:
   (1) point-of-use teardown first — close what you opened, on every
   exit path; (2) `flow-browser-teardown --reap --record` at every
@@ -44,36 +38,6 @@ paths:
   primary — it covers both registered rows left by a crashed session
   and shape-heuristic strays, and stays report-only without `--yes`.
   See `skills/pipeline/flow-pipeline/SKILL.md` "Resource cleanup".
-- **Don't make tmux pane/window state a load-bearing input.** Backend-agnostic
-  signals only, in order: the launch env (`FLOW_SLUG`, set by both launcher
-  backends), `~/.flow/state/<slug>.json`, then on-disk artifacts — the plain
-  shell is the DEFAULT launcher, so a bare install has none. flow's options
-  (`@flow-slug`, `@flow-phase`, `@flow-repo`, `@flow-phase-short`,
-  `@flow-kind`, `@flow-epic`, `@flow-pr`) are additive, publish-only mirrors
-  (`@flow-epic` always: epic slug, feature or design/run, else empty;
-  `@flow-pr` bare digits, empty pre-PR, no reader). Two sanctioned reads: `@flow-kind`, load-bearing ONLY because epic orchestration
-  is already tmux-only by an independent hard constraint — its precondition
-  must be named in a comment at BOTH producing and consuming site, and absence
-  must degrade to a CORRECT, safe-by-construction default; and `@flow-slug`,
-  read back only as a `flow ls`/`attach`/`done` window-join key
-  (`LIST_WINDOWS_FORMAT`), never identity. See `resolveSlugAmbient` (env-only)
-  and `resolveKindAmbient` in `bin/lib/session-identity.ts`;
-  `bin/pane-read-lint.test.ts` fails CI on any pane read outside the frozen
-  allowlist, in code or prose. `flow ls`'s KIND column reads
-  `PipelineState.kind`, never `@flow-kind`.
-- **Don't write test-time port or URL overrides to a file.** Pass them
-  inline to the launch subprocess (env vars / CLI flags); never write
-  `.env.local`, `.env`, or any other config file. A gitignored override
-  outlives the run and silently re-points a later manual `npm run dev`.
-  Extend `.flow/ui-validation.json` (env, a `{{PORT_<NAME>}}` sentinel)
-  instead. See
-  `skills/pipeline/flow-pipeline/references/ui-smoke-pass.md`.
-- **Don't gate a post-commit verification on a worktree-vs-index diff.**
-  Post-commit, worktree == index == HEAD, so `git diff --check` /
-  `git status --porcelain` report clean regardless of content — read the
-  committed tree instead (`git grep ... HEAD`). See
-  `skills/pipeline/flow-merge-resolver-instructions/SKILL.md`
-  Step 5 and `flow-conflict-marker-check`.
 - Don't auto-commit or auto-push outside an explicit user instruction —
   this default always holds on `main` (or any base branch). **On a
   feature/PR branch, a user invoking a code-editing skill

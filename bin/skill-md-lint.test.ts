@@ -28,7 +28,7 @@ import { SURVEY_VERDICTS, VETTING_VERDICTS } from "./flow-step3-route";
  * silently drift away from the guard's contract.
  *
  * Also lints two cross-doc invariants for the named Task-tool
- * exemptions: AGENTS.md `## Don'ts` and flow-pipeline/SKILL.md "Hard
+ * exemptions: .claude/rules/flow-supervisor-contracts.md `## Don'ts` and flow-pipeline/SKILL.md "Hard
  * rules" must list the same set of exemptions, and the JSON schema
  * for the Fix-Applier Subagent's artifact must match between
  * flow-pr-review/SKILL.md and flow-fix-applier-instructions/SKILL.md.
@@ -979,12 +979,12 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
   }
 
   /**
-   * Extract exemption keys from AGENTS.md `## Don'ts` section. Format:
+   * Extract exemption keys from .claude/rules/flow-supervisor-contracts.md `## Don'ts` section. Format:
    * `**Task-tool exemption: \`/flow-pipeline\` → <skill-and-heading>.**`
    * The `/flow-pipeline` → prefix is stripped so the keys align with
    * the SKILL.md side (which doesn't include the `/flow-pipeline →` prefix).
    */
-  function extractAgentsExemptions(): string[] {
+  function extractRulesExemptions(): string[] {
     const re =
       /\*\*Task-tool exemption:\s*`\/flow-pipeline`\s*→\s*([^*]+?)\.\*\*/g;
     return [...supervisorRulesContent.matchAll(re)].map((m) =>
@@ -1024,19 +1024,19 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(7);
   });
 
-  it("AGENTS.md ## Don'ts lists exactly 7 Task-tool exemption bullets", () => {
-    const exemptions = extractAgentsExemptions();
+  it(".claude/rules/flow-supervisor-contracts.md '## Don'ts' lists exactly 7 Task-tool exemption bullets", () => {
+    const exemptions = extractRulesExemptions();
     expect(
       exemptions.length,
-      "AGENTS.md ## Don'ts must list exactly 7 Task-tool exemption bullets. " +
+      ".claude/rules/flow-supervisor-contracts.md '## Don'ts' must list exactly 7 Task-tool exemption bullets. " +
         "Found: " +
         JSON.stringify(exemptions),
     ).toBe(7);
   });
 
-  it("AGENTS.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
+  it(".claude/rules/flow-supervisor-contracts.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
     const skill = new Set(extractSkillExemptions());
-    const agents = new Set(extractAgentsExemptions());
+    const agents = new Set(extractRulesExemptions());
     const onlyInSkill = [...skill].filter((x) => !agents.has(x));
     const onlyInAgents = [...agents].filter((x) => !skill.has(x));
     expect(
@@ -1063,17 +1063,17 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(7);
   });
 
-  it("references/exemption-contracts.md matches the AGENTS.md exemption set", () => {
+  it("references/exemption-contracts.md matches the .claude/rules/flow-supervisor-contracts.md exemption set", () => {
     const contracts = new Set(extractContractsExemptions());
-    const agents = new Set(extractAgentsExemptions());
+    const agents = new Set(extractRulesExemptions());
     const onlyInContracts = [...contracts].filter((x) => !agents.has(x));
     const onlyInAgents = [...agents].filter((x) => !contracts.has(x));
     expect(
       onlyInContracts.length,
-      `Sections in references/exemption-contracts.md but missing from AGENTS.md openers: ${JSON.stringify(onlyInContracts)}. ` +
-        "The offloaded contract file and the AGENTS.md `## Don'ts` openers enumerate the same " +
-        "seven exemptions; a section heading must match its AGENTS.md opener name (minus the " +
-        "`/flow-pipeline → ` prefix) so a reader hopping AGENTS.md → references lands on the right section.",
+      `Sections in references/exemption-contracts.md but missing from .claude/rules/flow-supervisor-contracts.md openers: ${JSON.stringify(onlyInContracts)}. ` +
+        "The offloaded contract file and the .claude/rules/flow-supervisor-contracts.md `## Don'ts` openers enumerate the same " +
+        "seven exemptions; a section heading must match its rule-file opener name (minus the " +
+        "`/flow-pipeline → ` prefix) so a reader hopping the rule file → references lands on the right section.",
     ).toBe(0);
     expect(
       onlyInAgents.length,
@@ -1172,7 +1172,7 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
   });
 
   // Pins references/task-tool-exemption-preamble.md's "all <N> Task-tool"
-  // numeral to the count derived from extractAgentsExemptions() (the same
+  // numeral to the count derived from extractRulesExemptions() (the same
   // helper the exactly-9 assertions above use) rather than a hardcoded
   // literal, so a tenth exemption landing without updating the preamble's
   // prose goes red here instead of silently drifting (the six → nine drift
@@ -1197,8 +1197,8 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
   ];
   const numberToEnglish = (n: number): string => NUMBER_WORDS[n] ?? String(n);
 
-  it("references/task-tool-exemption-preamble.md's exemption-count numeral matches AGENTS.md's derived count", () => {
-    const expectedCount = extractAgentsExemptions().length;
+  it("references/task-tool-exemption-preamble.md's exemption-count numeral matches .claude/rules/flow-supervisor-contracts.md's derived count", () => {
+    const expectedCount = extractRulesExemptions().length;
     const expectedNumeral = numberToEnglish(expectedCount);
     const preambleContent = fs.readFileSync(
       path.resolve(
@@ -1215,8 +1215,8 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     expect(
       preambleContent.includes(`all ${expectedNumeral} Task-tool`),
       "references/task-tool-exemption-preamble.md must say " +
-        `'all ${expectedNumeral} Task-tool' — derived from AGENTS.md's ` +
-        `${expectedCount} exemption bullets (extractAgentsExemptions()), not ` +
+        `'all ${expectedNumeral} Task-tool' — derived from .claude/rules/flow-supervisor-contracts.md's ` +
+        `${expectedCount} exemption bullets (extractRulesExemptions()), not ` +
         "a hardcoded numeral. This is the count-drift guard for the six → " +
         "nine correction: if a tenth exemption lands, this numeral must " +
         "move to 'ten' in the same PR.",
@@ -1224,7 +1224,7 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
   });
 
   it(".claude/rules/flow-supervisor-contracts.md's 'Shared rationale for the N Task-tool exemptions' numeral matches the derived count", () => {
-    const expectedCount = extractAgentsExemptions().length;
+    const expectedCount = extractRulesExemptions().length;
     const expectedNumeral = numberToEnglish(expectedCount);
     expect(
       supervisorRulesContent.includes(
@@ -1232,7 +1232,7 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       ),
       ".claude/rules/flow-supervisor-contracts.md's '## Don'ts' must say " +
         `'Shared rationale for the ${expectedNumeral} Task-tool exemptions' — ` +
-        `derived from extractAgentsExemptions()'s ${expectedCount} bullets, ` +
+        `derived from extractRulesExemptions()'s ${expectedCount} bullets, ` +
         "not a hardcoded numeral. Guards the exact drift this PR fixed " +
         "(the opener said 'eight' while the bullets below it numbered seven).",
     ).toBe(true);
@@ -2520,7 +2520,7 @@ describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
    * each caller's hybrid threshold: /flow-new-feature step 5, /flow-verify step 3, and
    * /flow-refactoring step 3. The caller list is documented in three places:
    *
-   *   - AGENTS.md `## Don'ts` — /flow-coder Task-tool exemption bullet body prose.
+   *   - .claude/rules/flow-supervisor-contracts.md `## Don'ts` — /flow-coder Task-tool exemption bullet body prose.
    *   - flow-pipeline/SKILL.md "Hard rules" — Task-tool exemption #6 block.
    *   - flow-coder/SKILL.md frontmatter `description:` field.
    *
@@ -2797,7 +2797,7 @@ describe("cross-model plan review doc symmetry (AGENTS.md ↔ flow-pipeline/SKIL
   /**
    * The Layer-2 cross-model plan review is a flow-delegate Bash fan-out (NOT a
    * Task, NOT a tenth exemption). Its "not a tenth exemption" sibling note must
-   * appear in BOTH AGENTS.md `## Don'ts` and flow-pipeline/SKILL.md "Hard
+   * appear in BOTH .claude/rules/flow-supervisor-contracts.md `## Don'ts` and flow-pipeline/SKILL.md "Hard
    * rules", using the SAME shared phrase as the Gemini-lens note so a rename
    * can't silently drift one doc out of sync. A separately-anchored guard — it
    * does NOT touch the nine-exemption-count `.toBe`/only-nine lints.
@@ -2805,14 +2805,14 @@ describe("cross-model plan review doc symmetry (AGENTS.md ↔ flow-pipeline/SKIL
   const PLAN_REVIEW_PHRASE = "cross-model plan review";
   const FANOUT_PHRASE = "Bash fan-out, not an eighth exemption";
 
-  it("AGENTS.md names the cross-model plan review Bash-fan-out sibling note", () => {
+  it(".claude/rules/flow-supervisor-contracts.md names the cross-model plan review Bash-fan-out sibling note", () => {
     expect(
       supervisorRulesContent.includes(PLAN_REVIEW_PHRASE),
-      `AGENTS.md ## Don'ts must name the '${PLAN_REVIEW_PHRASE}' Layer-2 lens.`,
+      `.claude/rules/flow-supervisor-contracts.md '## Don'ts' must name the '${PLAN_REVIEW_PHRASE}' Layer-2 lens.`,
     ).toBe(true);
     expect(
       supervisorRulesContent.includes(FANOUT_PHRASE),
-      `AGENTS.md must carry the shared '${FANOUT_PHRASE}' phrase for the plan-review note.`,
+      `.claude/rules/flow-supervisor-contracts.md must carry the shared '${FANOUT_PHRASE}' phrase for the plan-review note.`,
     ).toBe(true);
   });
 
@@ -2832,7 +2832,7 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
   /**
    * The Step-3 blind method survey is a flow-delegate-fanout Bash fan-out
    * (NOT a Task, NOT a tenth exemption). Its "not a tenth exemption"
-   * sibling note must appear in BOTH AGENTS.md `## Don'ts` and
+   * sibling note must appear in BOTH .claude/rules/flow-supervisor-contracts.md `## Don'ts` and
    * flow-pipeline/SKILL.md "Hard rules", using the SAME shared phrase as
    * the Gemini-lens and cross-model-plan-review notes so a rename can't
    * silently drift one doc out of sync. A separately-anchored guard — it
@@ -2848,10 +2848,10 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
     `${SURVEY_PHRASE}[\\s\\S]{0,400}${FANOUT_PHRASE}|${FANOUT_PHRASE}[\\s\\S]{0,400}${SURVEY_PHRASE}`,
   );
 
-  it("AGENTS.md co-anchors the blind method survey phrase with the Bash-fan-out sibling note in the same Don'ts bullet", () => {
+  it(".claude/rules/flow-supervisor-contracts.md co-anchors the blind method survey phrase with the Bash-fan-out sibling note in the same Don'ts bullet", () => {
     expect(
       coAnchorRe.test(supervisorRulesContent),
-      "AGENTS.md must carry both phrases in the same Don'ts bullet.",
+      ".claude/rules/flow-supervisor-contracts.md must carry both phrases in the same Don'ts bullet.",
     ).toBe(true);
     expect(
       supervisorRulesContent.includes(
@@ -2914,7 +2914,7 @@ describe("cross-model design review doc symmetry (AGENTS.md ↔ flow-epic-create
   /**
    * The /flow-epic-create Step 4.5 cross-model design review is a flow-plan-review
    * Bash fan-out (NOT a Task, NOT a tenth exemption). Its "not a tenth exemption"
-   * sibling note must appear in BOTH AGENTS.md `## Don'ts` and flow-epic-create/SKILL.md,
+   * sibling note must appear in BOTH .claude/rules/flow-supervisor-contracts.md `## Don'ts` and flow-epic-create/SKILL.md,
    * using the SAME shared phrase as the /flow-pipeline plan-review note so a rename
    * can't silently drift one doc out of sync. A DISTINCT design-review phrase (not
    * the feature "cross-model plan review") independently anchors the epic note. A
@@ -2932,14 +2932,14 @@ describe("cross-model design review doc symmetry (AGENTS.md ↔ flow-epic-create
   );
   const epicCreateSkillContent = fs.readFileSync(EPIC_CREATE_PATH, "utf8");
 
-  it("AGENTS.md names the cross-model design review Bash-fan-out sibling note", () => {
+  it(".claude/rules/flow-supervisor-contracts.md names the cross-model design review Bash-fan-out sibling note", () => {
     expect(
       supervisorRulesContent.includes(DESIGN_REVIEW_PHRASE),
-      `AGENTS.md ## Don'ts must name the '${DESIGN_REVIEW_PHRASE}' /flow-epic-create gate.`,
+      `.claude/rules/flow-supervisor-contracts.md '## Don'ts' must name the '${DESIGN_REVIEW_PHRASE}' /flow-epic-create gate.`,
     ).toBe(true);
     expect(
       supervisorRulesContent.includes(FANOUT_PHRASE),
-      `AGENTS.md must carry the shared '${FANOUT_PHRASE}' phrase for the /flow-epic-create design-review note.`,
+      `.claude/rules/flow-supervisor-contracts.md must carry the shared '${FANOUT_PHRASE}' phrase for the /flow-epic-create design-review note.`,
     ).toBe(true);
   });
 
@@ -3118,7 +3118,7 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ fl
       prReviewContent.includes("# Fix-Applier Subagent"),
       "flow-pr-review/SKILL.md must have a top-level '# Fix-Applier Subagent' section that " +
         "documents the spawn procedure and prompt template. The exemption in flow-pipeline/SKILL.md " +
-        "Hard rules and AGENTS.md ## Don'ts is anchored on this heading name.",
+        "Hard rules and .claude/rules/flow-supervisor-contracts.md '## Don'ts' is anchored on this heading name.",
     ).toBe(true);
   });
 
@@ -3269,7 +3269,7 @@ describe("Edit-Applier artifact JSON schema drift (flow-coder/SKILL.md ↔ flow-
       coderContent.includes("## Independent Edit-Applier Subagent"),
       "flow-coder/SKILL.md must have an '## Independent Edit-Applier Subagent' section that " +
         "documents the spawn procedure and prompt template. The exemption in flow-pipeline/SKILL.md " +
-        "Hard rules and AGENTS.md ## Don'ts is anchored on this heading name.",
+        "Hard rules and .claude/rules/flow-supervisor-contracts.md '## Don'ts' is anchored on this heading name.",
     ).toBe(true);
   });
 
@@ -3464,8 +3464,8 @@ describe("Consolidator artifact JSON schema drift (flow-pr-review/SKILL.md)", ()
     expect(
       prReviewContent.includes("# Independent Consolidator-Validator Subagent"),
       "flow-pr-review/SKILL.md must have a top-level '# Independent Consolidator-Validator Subagent' " +
-        "section. The exemption in flow-pipeline/SKILL.md Hard rules and AGENTS.md " +
-        "## Don'ts is anchored on this heading name.",
+        "section. The exemption in flow-pipeline/SKILL.md Hard rules and " +
+        ".claude/rules/flow-supervisor-contracts.md '## Don'ts' is anchored on this heading name.",
     ).toBe(true);
   });
 
@@ -5446,9 +5446,9 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
   // supervisor reclassified unchecked functional Test Steps as "subjective
   // UX", cited a stale "merge" instruction, and shipped a broken feature.
 
-  // AGENTS.md bullets are wrapped prose — collapse whitespace so a phrase
+  // .claude/rules/flow-supervisor-contracts.md bullets are wrapped prose — collapse whitespace so a phrase
   // that spans a line break still matches.
-  const agentsNorm = supervisorRulesContent.replace(/\s+/g, " ");
+  const rulesNorm = supervisorRulesContent.replace(/\s+/g, " ");
 
   it("flow-pipeline SKILL.md step 9 states a gated verdict is terminal, not advisory", () => {
     expect(
@@ -6527,21 +6527,21 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
-  it("AGENTS.md auto-merge exemption excludes a gated verdict", () => {
+  it(".claude/rules/flow-supervisor-contracts.md auto-merge exemption excludes a gated verdict", () => {
     expect(
-      agentsNorm.includes("does **not** extend to a `gated` verdict"),
-      "AGENTS.md's auto-merge exemption bullet must state the exemption " +
+      rulesNorm.includes("does **not** extend to a `gated` verdict"),
+      ".claude/rules/flow-supervisor-contracts.md's auto-merge exemption bullet must state the exemption " +
         "'does **not** extend to a `gated` verdict' so the squash-merge " +
         "authority is scoped to the auto-merge verdict only.",
     ).toBe(true);
   });
 
-  it("AGENTS.md names the step 9 gate-override AskUserQuestion exemption", () => {
+  it(".claude/rules/flow-supervisor-contracts.md names the step 9 gate-override AskUserQuestion exemption", () => {
     expect(
-      agentsNorm.includes(
+      rulesNorm.includes(
         "AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override",
       ),
-      "AGENTS.md ## Don'ts must carry a named 'AskUserQuestion exemption: " +
+      ".claude/rules/flow-supervisor-contracts.md '## Don'ts' must carry a named 'AskUserQuestion exemption: " +
         "`/flow-pipeline` step 9 gate-override' bullet — the second authorised " +
         "AskUserQuestion site, documented bidirectionally with SKILL.md.",
     ).toBe(true);
@@ -7683,14 +7683,14 @@ describe("epic-metadata auto-commit/auto-push exemption doc wiring (Task 6)", ()
     ).toBe(true);
   });
 
-  it("AGENTS.md names both the auto-commit and auto-push epic-sync exemptions", () => {
+  it(".claude/rules/flow-supervisor-contracts.md names both the auto-commit and auto-push epic-sync exemptions", () => {
     expect(
       supervisorRulesContent.includes("Auto-commit exemption"),
-      "AGENTS.md ## Don'ts must name the 'Auto-commit exemption' for flow-epic-sync --commit.",
+      ".claude/rules/flow-supervisor-contracts.md '## Don'ts' must name the 'Auto-commit exemption' for flow-epic-sync --commit.",
     ).toBe(true);
     expect(
       supervisorRulesContent.includes("flow-epic-sync --push"),
-      "AGENTS.md ## Don'ts must name 'flow-epic-sync --push' as the auto-push exemption.",
+      ".claude/rules/flow-supervisor-contracts.md '## Don'ts' must name 'flow-epic-sync --push' as the auto-push exemption.",
     ).toBe(true);
   });
 });

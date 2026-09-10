@@ -29,17 +29,22 @@ import {
 const MAX_IMPORT_DEPTH = 4;
 
 /**
- * Extracts `@path` import lines from markdown, skipping inline code spans
- * and fenced code blocks — an `@AGENTS.md` mention inside a code span
+ * Extracts `@path` imports from markdown, skipping inline code spans and
+ * fenced code blocks — an `@AGENTS.md` mention inside a code span
  * (documentation, not a live import) must not be treated as an import.
+ * Matches Claude Code's own memory-import resolution, which recognises an
+ * `@path` token anywhere in a line, not just whole-line, e.g. "See
+ * @README for project overview and @package.json for available npm
+ * commands" imports both `README` and `package.json`.
  */
 export function parseImports(markdown: string): string[] {
   const withoutFences = stripFencedBlocks(markdown);
   const imports: string[] = [];
   for (const rawLine of withoutFences.split("\n")) {
-    const line = stripInlineCodeSpans(rawLine).trim();
-    const match = line.match(/^@(\S+)\s*$/);
-    if (match) imports.push(match[1]);
+    const line = stripInlineCodeSpans(rawLine);
+    for (const match of line.matchAll(/(?:^|\s)@([^\s`]+)/g)) {
+      imports.push(match[1].replace(/[.,;:)]+$/, ""));
+    }
   }
   return imports;
 }
@@ -54,7 +59,7 @@ function stripInlineCodeSpans(line: string): string {
 
 /** Whether a rule file's frontmatter has a `paths:` key (lazy-loaded). */
 export function hasPathsFrontmatter(markdown: string): boolean {
-  const match = markdown.match(/^---\n([\s\S]*?)\n---/);
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return false;
   return /^paths:/m.test(match[1]);
 }
@@ -144,7 +149,7 @@ export async function resolveAlwaysLoaded(repoRoot: string): Promise<{
     }
   }
 
-  const alwaysLoaded = await estimateStaticCost(eagerPaths);
+  const alwaysLoaded = await estimateStaticCost([...new Set(eagerPaths)]);
   const lazy = await estimateStaticCost(lazyPaths);
   const skillFrontmatter = await estimateFrontmatterCost(
     path.join(repoRoot, "skills"),
