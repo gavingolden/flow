@@ -168,6 +168,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-epic-sync",
       "flow-module-status",
       "flow-transcript-audit",
+      "flow-context-budget",
       "flow-conflict-marker-check",
       "flow-claude-headless",
       "flow-deliberate",

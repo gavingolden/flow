@@ -1,8 +1,8 @@
 # Consumer-repo contract
 
-Offload target for `AGENTS.md` `## Consumer-repo notes`. Full detail on
-the surface area a consumer repo wiring `flow-pre-commit` in as its sole
-gate needs to know about.
+Offload target for `AGENTS.md`'s `## Where to look` routing row. Full
+detail on the surface area a consumer repo wiring `flow-pre-commit` in as
+its sole gate needs to know about.
 
 ## Scope detection
 
@@ -71,14 +71,14 @@ parses it tolerantly and skips gracefully (exit 0, loud only on a broken
 precondition). Port config uses the `{{PORT}}` bare sentinel or one or
 more `{{PORT_<NAME>}}` named sentinels, resolved inline to the launch
 subprocess (env vars / CLI flags) — never written to a file. Fields +
-onboarding in `templates/AGENTS.md.template`.
+onboarding in `templates/rules/ui-validation.md`.
 
 ## Design foundation
 
 `.flow/design/foundation.md` is a small human-legible contract —
 type/surface/elevation/chrome roles mapped onto the repo's CSS tokens —
 agent-maintained, committed (full convention in
-`templates/AGENTS.md.template`). Extend only on a new recurring rule;
+`templates/rules/ui-validation.md`). Extend only on a new recurring rule;
 never secrets; re-freeze is explicit-only. Deleting it degrades to
 fully-ephemeral. `spec.json` + reference snapshot stay pipeline-ephemeral
 under `.flow-tmp/design/`, never committed.

@@ -129,7 +129,8 @@ needs a minimal touch to an adjacent production file. "Don't add features
 beyond the task's stated scope" targets unrequested feature creep, not a
 trivial edit that makes the PR's own change robust; deferral stays
 reserved for standalone or complex work. The full bar and its motivating
-incident live in `templates/AGENTS.md.template` and `/flow-pr-review`'s
+incident live in `templates/references/agent-conduct.md` and
+`/flow-pr-review`'s
 `skills/pipeline/flow-fix-applier-instructions/SKILL.md`.
 
 ## Treat every request as production-bound, not a hobby project
@@ -147,7 +148,7 @@ accessibility, tests — on the surface you touch. This raises completeness,
 not feature count: the **Fix cheap, in-scope robustness issues now…** rule
 and Anti-Overengineering still govern, so the standard is minimal scope at
 a production standard, not gold-plating. The full bar lives in
-`templates/AGENTS.md.template`.
+`templates/references/agent-conduct.md`.
 
 ## Satisfy local, reversible preconditions before gating a Test Step as manual
 

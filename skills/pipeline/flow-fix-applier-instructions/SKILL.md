@@ -241,7 +241,7 @@ the fix-now bar's three conditions is fixed now; a finding clearing the deferral
 bar's three conditions is deferred; the residue is your judgment. The single
 source of truth for the fix-now conditions is the consumer repo's `AGENTS.md`
 `## Anti-Overengineering` / fix-now bar (seeded from
-`templates/AGENTS.md.template`).
+`templates/references/agent-conduct.md`).
 
 **Push back on inline comments** that are incorrect or would degrade code
 quality. Blindly accepting every suggestion is worse than thoughtfully

@@ -341,7 +341,7 @@ lacks a `paths:` key post-diet, so the lazy set below is excluded from
 
 |                                   | Before (pre-diet AGENTS.md, this document's own baseline) | After (measured, post-diet) |
 | --------------------------------- | --------------------------------------------------------- | --------------------------- |
-| Chars                             | 25,999                                                    | 9,994                       |
+| Chars                             | 25,999                                                    | 9,996                       |
 | Lines                             | 407                                                       | 142                         |
 | Est. tokens (4 chars/token floor) | 6,500                                                     | 2,499                       |
 
@@ -352,10 +352,47 @@ when an agent's session Reads/Edits a matching file (a Bash-only touch — `sed`
 
 | Rule file                                    | `paths:` glob                                                                          | Chars  | Lines |
 | -------------------------------------------- | -------------------------------------------------------------------------------------- | ------ | ----- |
-| `.claude/rules/flow-supervisor-contracts.md` | `skills/**`, `agents/**`, `references/**`, `templates/**`, `bin/skill-md-lint.test.ts` | 12,454 | 197   |
+| `.claude/rules/flow-supervisor-contracts.md` | `skills/**`, `agents/**`, `references/**`, `templates/**`, `bin/skill-md-lint.test.ts` | 10,410 | 175   |
 | `.claude/rules/flow-bin-conventions.md`      | `bin/**`, `.github/**`, `package.json`                                                 | 4,240  | 78    |
 
-Every session now pays 9,994 chars unconditionally instead of 25,999 — a
-~61% cut to the turn-1 always-loaded floor — with the offloaded ~16,694
+Every session now pays 9,996 chars unconditionally instead of 25,999 — a
+~61% cut to the turn-1 always-loaded floor — with the offloaded ~14,650
 chars paid only by sessions that actually touch `skills/`, `agents/`,
 `references/`, `templates/`, or `bin/`.
+
+## Consumer template budget
+
+Measured with `bun bin/flow-context-budget.ts --json`'s `templatePayload`
+key at the p2-context-diet-template-skills diet (2026-09-10), against
+`templates/AGENTS.md.template` (the consumer-facing core copied into an
+adopting repo as `AGENTS.md`) plus the two offload tiers it now points at
+(`templates/rules/*.md`, `templates/references/*.md`):
+
+|                                   | Before (pre-diet templates/AGENTS.md.template) | After (core, measured post-diet) |
+| --------------------------------- | ---------------------------------------------- | -------------------------------- |
+| Chars                             | 49,018                                         | 7,894                            |
+| Lines                             | 828                                            | 179                              |
+| Est. tokens (4 chars/token floor) | 12,255                                         | 1,974                            |
+
+The two UI-validation sections (browser-driven UI validation, design
+foundation) moved to a single `paths:`-scoped rule file, loaded in an
+adopting repo only once a session touches a UI surface (`**/*.svelte`,
+`**/*.tsx`, `**/*.jsx`, `**/*.vue`, `**/routes/**`, `**/components/**`);
+the eight trigger-less sections (Manual Verification, Clean up spawned
+resources, Google-AI delegation, Product brief, Agent Behavior,
+Anti-Overengineering, Scope, Skill Consultation, Tooling, Code Quality,
+Comments, Testing) moved to three reference files read on demand by
+name, not gated by any file-path trigger:
+
+| Offload file                            | Chars  | Lines |
+| --------------------------------------- | ------ | ----- |
+| `templates/rules/ui-validation.md`      | 12,842 | 204   |
+| `templates/references/verification.md`  | 6,221  | 103   |
+| `templates/references/delegation.md`    | 8,577  | 123   |
+| `templates/references/agent-conduct.md` | 14,945 | 255   |
+
+A repo that copies `templates/AGENTS.md.template` today pays 7,894 chars
+unconditionally instead of 49,018 — an ~84% cut to the copy-in floor —
+with the ~42,585 offloaded chars paid only by a session that touches a
+UI surface (the rule file) or that reads a reference file by name (never
+auto-loaded).

@@ -3,10 +3,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { estimateFrontmatterCost } from "./lib/transcript-audit";
 import {
   hasPathsFrontmatter,
   parseImports,
   resolveAlwaysLoaded,
+  resolveTemplatePayload,
 } from "./flow-context-budget";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -192,5 +194,117 @@ describe("resolveAlwaysLoaded", () => {
       expect(names).not.toContain("d.md");
       expect(names).toEqual(["CLAUDE.md", "a.md", "b.md", "c.md"].sort());
     });
+  });
+});
+
+describe("resolveTemplatePayload", () => {
+  it("classifies the live templates/ tree into core/lazyRules/references buckets", async () => {
+    const result = await resolveTemplatePayload(REPO_ROOT);
+    expect(result.core.files.map((f) => path.basename(f.path))).toEqual([
+      "AGENTS.md.template",
+    ]);
+    expect(result.core.totals.chars).toBeGreaterThan(0);
+  });
+
+  describe("fixture repo", () => {
+    let tmpRoot: string | null = null;
+
+    afterEach(() => {
+      if (tmpRoot) {
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+        tmpRoot = null;
+      }
+    });
+
+    it("measures core, lazy rules, and references when all three are present", async () => {
+      tmpRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), "flow-context-budget-template-fixture-"),
+      );
+      fs.mkdirSync(path.join(tmpRoot, "templates", "rules"), {
+        recursive: true,
+      });
+      fs.mkdirSync(path.join(tmpRoot, "templates", "references"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(tmpRoot, "templates", "AGENTS.md.template"),
+        "core body\n",
+      );
+      fs.writeFileSync(
+        path.join(tmpRoot, "templates", "rules", "ui-validation.md"),
+        '---\npaths: ["**/*.svelte"]\n---\nrule body\n',
+      );
+      fs.writeFileSync(
+        path.join(tmpRoot, "templates", "references", "verification.md"),
+        "reference body\n",
+      );
+
+      const result = await resolveTemplatePayload(tmpRoot);
+
+      expect(result.core.files.map((f) => path.basename(f.path))).toEqual([
+        "AGENTS.md.template",
+      ]);
+      expect(result.lazyRules.files.map((f) => path.basename(f.path))).toEqual([
+        "ui-validation.md",
+      ]);
+      expect(result.references.files.map((f) => path.basename(f.path))).toEqual(
+        ["verification.md"],
+      );
+    });
+
+    it("returns empty sets, not an error, when templates/rules and templates/references are absent", async () => {
+      tmpRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), "flow-context-budget-template-absent-"),
+      );
+      fs.mkdirSync(path.join(tmpRoot, "templates"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpRoot, "templates", "AGENTS.md.template"),
+        "core body\n",
+      );
+
+      const result = await resolveTemplatePayload(tmpRoot);
+
+      expect(result.core.files.map((f) => path.basename(f.path))).toEqual([
+        "AGENTS.md.template",
+      ]);
+      expect(result.lazyRules.files).toEqual([]);
+      expect(result.references.files).toEqual([]);
+    });
+  });
+});
+
+describe("estimateFrontmatterCost disable-model-invocation skip", () => {
+  let tmpRoot: string | null = null;
+
+  afterEach(() => {
+    if (tmpRoot) {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+      tmpRoot = null;
+    }
+  });
+
+  it("excludes a skill whose frontmatter sets disable-model-invocation: true, but not a skill that only mentions the key in prose", async () => {
+    tmpRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-context-budget-frontmatter-fixture-"),
+    );
+    fs.mkdirSync(path.join(tmpRoot, "flow-disabled-skill"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(tmpRoot, "flow-disabled-skill", "SKILL.md"),
+      "---\nname: flow-disabled-skill\ndisable-model-invocation: true\n---\nbody\n",
+    );
+    fs.mkdirSync(path.join(tmpRoot, "flow-prose-mention-skill"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(tmpRoot, "flow-prose-mention-skill", "SKILL.md"),
+      "---\nname: flow-prose-mention-skill\n---\nSetting `disable-model-invocation: true` would block the Skill-tool load.\n",
+    );
+
+    const result = await estimateFrontmatterCost(tmpRoot);
+
+    expect(result.perSkill["flow-disabled-skill"]).toBeUndefined();
+    expect(result.perSkill["flow-prose-mention-skill"]).toBeGreaterThan(0);
   });
 });

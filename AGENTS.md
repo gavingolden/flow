@@ -26,7 +26,7 @@ when you Read/Edit a matching file (Bash touches don't load them).
 | Response-hygiene conventions | `references/output-style.md` |
 | Consumer-repo `flow-pre-commit` contract | `references/consumer-repo-contract.md` |
 | Redesign target, current state, what flow is not | `docs/target-architecture.md` |
-| Generic engineering rules for a new repo | `templates/AGENTS.md.template` |
+| Generic engineering rules for a new repo | `templates/` |
 | Measure a scaffold removal | `docs/eval/README.md` |
 | Which tests earn their cost | `docs/test-quality-methodology.md` |
 
