@@ -97,6 +97,36 @@ describe("parseFanoutArgs", () => {
       parseFanoutArgs(["--manifest", "m.json", "--default-entry-timeout", ""]),
     ).toEqual({ error: "--default-entry-timeout requires a value" });
   });
+
+  it("accepts --skip-permissions as a valueless boolean flag", () => {
+    expect(
+      parseFanoutArgs(["--manifest", "m.json", "--skip-permissions"]),
+    ).toMatchObject({ manifest: "m.json", skipPermissions: true });
+  });
+
+  it("accepts --skip-permissions as the last argv element", () => {
+    expect(
+      parseFanoutArgs([
+        "--manifest",
+        "m.json",
+        "--concurrency",
+        "2",
+        "--skip-permissions",
+      ]),
+    ).toMatchObject({ skipPermissions: true, concurrency: 2 });
+  });
+
+  it("does not swallow a following flag after --skip-permissions", () => {
+    expect(
+      parseFanoutArgs([
+        "--manifest",
+        "m.json",
+        "--skip-permissions",
+        "--max-calls",
+        "5",
+      ]),
+    ).toMatchObject({ skipPermissions: true, maxCalls: 5 });
+  });
 });
 
 describe("entryToDelegateArgv", () => {
@@ -160,6 +190,19 @@ describe("entryToDelegateArgv", () => {
     expect(argv).not.toContain("--output-format");
     expect(argv).not.toContain("--json-schema");
     expect(argv).not.toContain("--structured-fallback");
+  });
+
+  it("pushes --skip-permissions when the entry opts in", () => {
+    const argv = entryToDelegateArgv(
+      { task: "t", prompt: "go", skipPermissions: true },
+      "/o/t.md",
+    );
+    expect(argv).toContain("--skip-permissions");
+  });
+
+  it("omits --skip-permissions when the entry does not opt in", () => {
+    const argv = entryToDelegateArgv({ task: "t", prompt: "go" }, "/o/t.md");
+    expect(argv).not.toContain("--skip-permissions");
   });
 });
 
@@ -611,6 +654,94 @@ describe("run — --default-entry-timeout backstop", () => {
     expect(
       entryToDelegateArgv({ task: "a", prompt: "x" }, "/o/a.md"),
     ).not.toContain("--timeout");
+  });
+});
+
+describe("run — --skip-permissions backstop", () => {
+  const captureSkipPermissions = (entries: ManifestEntry[], argv: string[]) => {
+    const seen: Array<boolean | undefined> = [];
+    const deps = makeDeps({
+      readFile: () => manifestOf(entries),
+      runDelegate: async (entry) => {
+        seen.push(entry.skipPermissions);
+        return { ran: true, task: entry.task, artifactPath: "/x.md" };
+      },
+    });
+    return { deps, seen, done: run(["--manifest", "m.json", ...argv], deps) };
+  };
+
+  it("per-entry skipPermissions:true pushes through to the dispatched entry", async () => {
+    const { seen, done } = captureSkipPermissions(
+      [{ task: "a", prompt: "x", skipPermissions: true }],
+      [],
+    );
+    await expect(done).resolves.toBe(0);
+    expect(seen).toEqual([true]);
+  });
+
+  it("a per-entry false overrides a flag-level default", async () => {
+    const { seen, done } = captureSkipPermissions(
+      [{ task: "a", prompt: "x", skipPermissions: false }],
+      ["--skip-permissions"],
+    );
+    await expect(done).resolves.toBe(0);
+    expect(seen).toEqual([false]);
+  });
+
+  it("the flag-level default fills in for an entry that omits the field", async () => {
+    const { seen, done } = captureSkipPermissions(
+      [{ task: "a", prompt: "x" }],
+      ["--skip-permissions"],
+    );
+    await expect(done).resolves.toBe(0);
+    expect(seen).toEqual([true]);
+  });
+
+  it("emits a co-grant warning when an entry combines skipPermissions with addDirs, and still dispatches", async () => {
+    const progressLines: string[] = [];
+    const deps = makeDeps({
+      readFile: () =>
+        manifestOf([
+          {
+            task: "risky",
+            prompt: "x",
+            skipPermissions: true,
+            addDirs: ["/work"],
+          },
+        ]),
+      progress: (line) => progressLines.push(line),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    expect(
+      progressLines.some(
+        (l) => l.includes("risky") && l.includes("--skip-permissions"),
+      ),
+    ).toBe(true);
+    expect(aggregate(deps).anyRan).toBe(true);
+  });
+
+  it("a child envelope carrying deniedActions yields an entry record carrying the same array", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+      runDelegate: async (entry) => ({
+        ran: true,
+        task: entry.task,
+        artifactPath: "/x.md",
+        deniedActions: ["web_search"],
+      }),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    expect(aggregate(deps).entries[0]).toMatchObject({
+      deniedActions: ["web_search"],
+    });
+  });
+
+  it("omits deniedActions when the child envelope carries none", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    expect(aggregate(deps).entries[0].deniedActions).toBeUndefined();
   });
 });
 

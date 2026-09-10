@@ -33,6 +33,14 @@
  *
  * Exit codes: 0 on every operational path (callers branch on the status file's
  * `ran`); 2 only on a usage error (missing required flag).
+ *
+ * The gather and refute manifest entries opt into `skipPermissions: true`
+ * (flow-delegate-fanout's/flow-delegate's `--skip-permissions`, auto-approving
+ * tool calls). The exposure is bounded: neither entry passes `addDirs`, so
+ * auto-approval grants no workspace directory — only agy's own tools (e.g.
+ * native web search) can be reached without a permission prompt. The grant is
+ * NOT tool-selective, so the first run after this lands must record which
+ * tool, if any, agy denied (see `deniedActions` below).
  */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -111,6 +119,8 @@ export type ResearchManifestEntry = {
   model: string;
   prompt: string;
   timeout: string;
+  skipPermissions?: boolean;
+  outputFormat?: "text" | "json";
 };
 
 // Tolerant read of `.research` from a parsed config; any non-object yields {}.
@@ -189,12 +199,16 @@ export function buildManifest(
       model: opts.gatherModel,
       timeout: opts.timeout,
       prompt: `You have native web search. Research current best practices, standards, APIs, security/correctness constraints, or factual considerations relevant to implementing this software change: ${task}. Return concise, web-grounded findings WITH cited source URLs and an explicit confidence label (high/medium/low) per claim. If nothing external is genuinely relevant, say so briefly.`,
+      skipPermissions: true,
+      outputFormat: "json",
     },
     {
       task: REFUTE_TASK,
       model: opts.refuteModel,
       timeout: opts.timeout,
       prompt: `Critically assess and try to refute common or assumed claims about: ${task}. Flag anything uncertain, outdated, or context-dependent.`,
+      skipPermissions: true,
+      outputFormat: "json",
     },
   ];
 }
@@ -205,6 +219,7 @@ export type FanoutAggregate = {
     ran?: boolean;
     artifactPath?: string;
     skipReason?: string;
+    deniedActions?: string[];
   }>;
   anyRan?: boolean;
   allSkipped?: boolean;
@@ -239,12 +254,49 @@ function firstNonEmptyLine(text: string, cap = 300): string {
   return line.length > cap ? `${line.slice(0, cap)}…` : line;
 }
 
+// Outcome of one manifest entry (gather or refute), as read back from its
+// fan-out aggregate entry + artifact. `ran` is EXPLICIT — never inferred from
+// `text` truthiness — so a ran-but-empty entry and a skipped entry stay
+// distinguishable to callers (readEntryOutcome / boundFindings / execute's
+// status-reason resolution all key off this field, not string emptiness).
+export type EntryOutcome = {
+  text: string;
+  ran: boolean;
+  skipReason?: string;
+  deniedActions?: string[];
+};
+
+// Maps a skip reason to a PLAIN-LANGUAGE clause for the findings block. This
+// is a PRESENTATION layer over the fan-out's own `deniedActions`/`skipReason`
+// fields — never a second denial classifier (bin/flow-gemini-lens.ts owns
+// that decision).
+function plainSkipReason(outcome: EntryOutcome): string {
+  if (outcome.deniedActions && outcome.deniedActions.length > 0) {
+    return `it was not allowed to use ${outcome.deniedActions.join(", ")}`;
+  }
+  switch (outcome.skipReason) {
+    case "agy-empty-artifact":
+      return "it produced no output";
+    case "entry-missing":
+      return "it never started";
+    default:
+      return outcome.skipReason ?? "it never started";
+  }
+}
+// NOTE: the `default` arm above intentionally surfaces the raw skipReason
+// string (e.g. "agy-not-found", "agy-error", "budget-exhausted") verbatim —
+// every mapped reason has its own case; anything unmapped still reads as
+// plain-enough prose (skipReason values are short kebab-case tokens).
+
 // Build a BOUNDED markdown findings block: the gather output capped to ~80
 // lines / ~4000 chars (truncation-marked when clipped), plus a one-line refute
 // caveat summary. Bounded because this gets folded into the /flow-product-planning
 // invocation — raw multi-thousand-line agy output would blow the context.
-export function boundFindings(gatherText: string, refuteText: string): string {
-  let body = (gatherText ?? "").trim();
+export function boundFindings(
+  gather: EntryOutcome,
+  refute: EntryOutcome,
+): string {
+  let body = (gather.text ?? "").trim();
   let truncated = false;
   const lines = body.split("\n");
   if (lines.length > MAX_FINDINGS_LINES) {
@@ -255,12 +307,21 @@ export function boundFindings(gatherText: string, refuteText: string): string {
     body = body.slice(0, MAX_FINDINGS_CHARS);
     truncated = true;
   }
-  if (!body) body = "_No web-grounded findings were returned._";
+  if (!body) {
+    body = gather.ran
+      ? "_No web-grounded findings were returned._"
+      : `_The web-search step did not return anything — ${plainSkipReason(gather)}._`;
+  }
 
-  const refute = (refuteText ?? "").trim();
-  const refuteCaveat = refute
-    ? `_Adversarial cross-check (refute) caveat: ${firstNonEmptyLine(refute)}_`
-    : "_Adversarial cross-check produced no caveats._";
+  const refuteTextTrimmed = (refute.text ?? "").trim();
+  let refuteCaveat: string;
+  if (refuteTextTrimmed) {
+    refuteCaveat = `_Adversarial cross-check (refute) caveat: ${firstNonEmptyLine(refuteTextTrimmed)}_`;
+  } else if (refute.ran) {
+    refuteCaveat = "_Adversarial cross-check produced no caveats._";
+  } else {
+    refuteCaveat = `_The fact-checking step did not return anything — ${plainSkipReason(refute)}._`;
+  }
 
   const parts = [FINDINGS_HEADING, "", body];
   if (truncated) {
@@ -301,18 +362,59 @@ function writeStatus(deps: Deps, path: string, status: Status): void {
   }
 }
 
-function readEntryArtifact(
+// Reads one manifest entry's outcome from the fan-out aggregate + its
+// artifact. On `ran:true`, the artifact is a `--output-format json` envelope
+// (buildManifest sets `outputFormat: "json"` on both entries) — unwrap it
+// preferring `structured_output`, else `response`, else fall through to the
+// RAW artifact text (mirrors bin/flow-delegate.ts's attemptStructuredParse
+// unwrap; the raw-text fallback is load-bearing for a plain-text artifact,
+// e.g. the injected-stub success case in the test suite). On `ran:false`,
+// returns the entry's own `skipReason` (defaulting to "entry-missing" when
+// the entry is absent from the aggregate entirely) and `deniedActions` when
+// present.
+function readEntryOutcome(
   deps: Deps,
   aggregate: FanoutAggregate,
   task: string,
-): string {
+): EntryOutcome {
   const entry = (aggregate.entries ?? []).find((e) => e.task === task);
-  if (!entry || entry.ran !== true || !entry.artifactPath) return "";
-  try {
-    return deps.readFile(entry.artifactPath);
-  } catch {
-    return "";
+  if (!entry) return { text: "", ran: false, skipReason: "entry-missing" };
+  if (entry.ran !== true) {
+    return {
+      text: "",
+      ran: false,
+      skipReason: entry.skipReason ?? "entry-missing",
+      ...(entry.deniedActions ? { deniedActions: entry.deniedActions } : {}),
+    };
   }
+  if (!entry.artifactPath) {
+    return { text: "", ran: true };
+  }
+  let raw: string;
+  try {
+    raw = deps.readFile(entry.artifactPath);
+  } catch {
+    return { text: "", ran: true };
+  }
+  let text = raw;
+  try {
+    const envelope = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      envelope.structured_output !== undefined &&
+      envelope.structured_output !== null
+    ) {
+      text =
+        typeof envelope.structured_output === "string"
+          ? envelope.structured_output
+          : JSON.stringify(envelope.structured_output);
+    } else if (typeof envelope.response === "string") {
+      text = envelope.response;
+    }
+  } catch {
+    // not a json envelope (text mode / partial write) — fall through with
+    // the raw artifact text, same as before this change.
+  }
+  return { text, ran: true };
 }
 
 function execute(parsed: Args, deps: Deps): number {
@@ -381,14 +483,18 @@ function execute(parsed: Args, deps: Deps): number {
       return 0;
     }
 
-    const gatherText = readEntryArtifact(deps, aggregate, GATHER_TASK);
-    const refuteText = readEntryArtifact(deps, aggregate, REFUTE_TASK);
-    const findings = boundFindings(gatherText, refuteText);
+    const gatherOutcome = readEntryOutcome(deps, aggregate, GATHER_TASK);
+    const refuteOutcome = readEntryOutcome(deps, aggregate, REFUTE_TASK);
+    const findings = boundFindings(gatherOutcome, refuteOutcome);
     deps.writeFile(parsed.out, `${findings}\n`);
+    // "ran" only when BOTH sub-runs genuinely ran; either one degrading
+    // (regardless of whether it carries a skipReason) reports "ran-degraded"
+    // so a failure without a skipReason cannot read as clean.
+    const degraded = !gatherOutcome.ran || !refuteOutcome.ran;
     writeStatus(deps, parsed.statusFile, {
       active: true,
       ran: true,
-      reason: "ran",
+      reason: degraded ? "ran-degraded" : "ran",
     });
     deps.writeOut(
       `flow-research-run: wrote web-grounded findings to ${parsed.out}`,

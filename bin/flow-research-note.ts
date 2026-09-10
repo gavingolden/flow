@@ -46,7 +46,9 @@ export function decideNote(
 ): { noteLine: string; insertedText: string | null } | null {
   const { active, forced, status, planText } = input;
   if (!active) return null;
-  if (status && status.ran === true) return null;
+  if (status && status.ran === true && status.reason !== "ran-degraded") {
+    return null;
+  }
 
   // Idempotency: a subagent-authored note wins — echo it, write nothing.
   if (NOTE_RE.test(planText)) {
@@ -66,6 +68,8 @@ function computeReason(status: ResearchStatus | null, forced: boolean): string {
       return "skipped — not a researchable question";
     if (status.reason === "agy-unavailable")
       return "skipped — agy unavailable on this host";
+    if (status.reason === "ran-degraded")
+      return "ran, but part of it did not return anything — see the findings block for which part";
   }
   return forced
     ? "forced on, but no research ran — agy may be unavailable or the pre-check was skipped"

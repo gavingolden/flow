@@ -283,13 +283,19 @@ capture it from a plain interactive session on a future re-run.
   artifact.** `flow-delegate` passes `--sandbox` and does NOT pass
   `--skip-permissions` (it is opt-in), and no production delegate surface —
   `flow-plan-review`, `flow-gemini-lens`, `flow-gemini-intent-guess`,
-  `flow-research-run`, `flow-blind-survey` — opts in. The bench therefore ran
+  `flow-blind-survey` — opts in. The bench therefore ran
   3.8 under exactly the permission posture flow uses in production, so the
   42.3% committed-artifact empty rate is what flow would actually get from
   this model today. A
   separate `--skip-permissions` run would measure 3.8's ceiling rather than its
   deployed behaviour; that is a different question and is not what gates a
   routing default.
+- **2026-09-10 addendum:** `flow-research-run`'s gather/refute manifest
+  entries opted into `--skip-permissions` after this bench ran (research
+  §Task 1/2/4b, no `--add-dir` granted), so a future re-bench of this
+  surface must exclude it from the "no production delegate surface opts in"
+  posture claim above — the historical measurement and its numbers here are
+  unchanged.
 - **Result: `gemini-3.8-flash-high` is rejected on all nine surfaces, so the
   strict flip rule produced ZERO flips.** Every reject is a mechanical-parity
   or defect-regression failure; not one is a latency reject. Recall collapses

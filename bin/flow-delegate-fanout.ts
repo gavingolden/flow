@@ -26,17 +26,24 @@
  * Usage:
  *   flow-delegate-fanout --manifest <json-file>
  *                        [--concurrency <K>] [--max-calls <B>] [--out <path>]
- *                        [--default-entry-timeout <duration>]
+ *                        [--default-entry-timeout <duration>] [--skip-permissions]
  *
  *   Manifest is a JSON array of entries:
- *     { task, model, prompt | promptFile, timeout?, addDirs?, out? }
+ *     { task, model, prompt | promptFile, timeout?, addDirs?, out?, skipPermissions?, outputFormat? }
  *
  *   --default-entry-timeout is a fanout-level backstop: any entry that omits
  *   its own `timeout` is dispatched with this value, so a manifest that forgets
  *   a per-entry cap still gets one. A per-entry `timeout` always wins.
  *
+ *   --skip-permissions is the same kind of backstop for a per-entry
+ *   `skipPermissions`: it fills in for an entry that omits the field, but an
+ *   explicit per-entry `false` always wins over the flag-level default. An
+ *   entry combining `skipPermissions: true` with a non-empty `addDirs` emits
+ *   a stderr co-grant warning naming the task (auto-approval reaches the
+ *   added directories); dispatch still proceeds.
+ *
  * stdout is always the single aggregate JSON envelope:
- *   { entries: [{ task, model, ran, artifactPath?, skipReason?, durationMs? }],
+ *   { entries: [{ task, model, ran, artifactPath?, skipReason?, durationMs?, deniedActions? }],
  *     anyRan, allSkipped, calls: { attempted, ran, skipped, budget } }
  *
  * Exit codes:
@@ -71,6 +78,11 @@ export type ManifestEntry = {
   jsonSchema?: string;
   // Local parse-and-validate schema file (flow-delegate's --structured-fallback).
   structuredFallback?: string;
+  // Forwarded to flow-delegate's own --skip-permissions. Opt-in per entry;
+  // a flag-level --skip-permissions default (FanoutArgs.skipPermissions)
+  // fills in when the entry omits this field, but an explicit per-entry
+  // `false` always wins over the flag-level default.
+  skipPermissions?: boolean;
 };
 
 export type FanoutArgs = {
@@ -79,6 +91,10 @@ export type FanoutArgs = {
   maxCalls: number;
   out: string;
   defaultEntryTimeout?: string;
+  // Fanout-level backstop mirroring --default-entry-timeout: any entry that
+  // omits its own `skipPermissions` is dispatched with this value. A
+  // per-entry `skipPermissions` (including an explicit `false`) always wins.
+  skipPermissions?: boolean;
 };
 
 export type EntryResult = {
@@ -103,6 +119,8 @@ export type EntryResult = {
   exitCode?: number;
   agyStatus?: string;
   agyError?: string;
+  // Projected straight from the child envelope's own `deniedActions`.
+  deniedActions?: string[];
 };
 
 export type FanoutResult = {
@@ -131,6 +149,7 @@ export type DelegateEnvelope = {
   stderrTail?: string;
   agyStatus?: string;
   agyError?: string;
+  deniedActions?: string[];
 };
 
 export type FanoutDeps = {
@@ -158,6 +177,10 @@ export function parseFanoutArgs(
   const out: Partial<FanoutArgs> = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
+    if (flag === "--skip-permissions") {
+      out.skipPermissions = true;
+      continue;
+    }
     const value = argv[i + 1];
     if (value === undefined || value === "" || value.startsWith("--")) {
       return { error: `${flag} requires a value` };
@@ -200,6 +223,7 @@ export function parseFanoutArgs(
     maxCalls,
     out: out.out ?? DEFAULT_OUT,
     defaultEntryTimeout: out.defaultEntryTimeout,
+    skipPermissions: out.skipPermissions,
   };
 }
 
@@ -241,6 +265,7 @@ export function entryToDelegateArgv(
   if (entry.structuredFallback) {
     argv.push("--structured-fallback", entry.structuredFallback);
   }
+  if (entry.skipPermissions === true) argv.push("--skip-permissions");
   return argv;
 }
 
@@ -347,6 +372,8 @@ async function runPool(
           record.agyStatus = envelope.agyStatus;
         if (envelope.agyError !== undefined)
           record.agyError = envelope.agyError;
+        if (envelope.deniedActions)
+          record.deniedActions = envelope.deniedActions;
       } catch (err) {
         // A thrown dispatch is a graceful skip for this entry, mirroring
         // flow-delegate's spawn-throw → agy-error contract.
@@ -384,7 +411,7 @@ export async function run(
   if ("error" in parsed) {
     deps.progress(`flow-delegate-fanout: ${parsed.error}\n`);
     deps.progress(
-      "usage: flow-delegate-fanout --manifest <json-file> [--concurrency <K>] [--max-calls <B>] [--out <path>] [--default-entry-timeout <duration>]\n",
+      "usage: flow-delegate-fanout --manifest <json-file> [--concurrency <K>] [--max-calls <B>] [--out <path>] [--default-entry-timeout <duration>] [--skip-permissions]\n",
     );
     return 2;
   }
@@ -421,9 +448,24 @@ export async function run(
   // A per-entry `timeout` always wins; the fanout-level --default-entry-timeout
   // is the backstop for an entry that omits one. entryToDelegateArgv is left
   // unchanged — it just sees an entry whose timeout may have been filled in.
+  // skipPermissions mirrors the same backstop pattern: a per-entry value
+  // (including an explicit `false`) always wins over the flag-level default.
   const jobs = dispatched.map((entry, index) => {
     const timeout = entry.timeout ?? parsed.defaultEntryTimeout;
-    const effective = timeout ? { ...entry, timeout } : entry;
+    const skipPermissions = entry.skipPermissions ?? parsed.skipPermissions;
+    const effective = {
+      ...entry,
+      ...(timeout ? { timeout } : {}),
+      ...(skipPermissions !== undefined ? { skipPermissions } : {}),
+    };
+    if (
+      effective.skipPermissions === true &&
+      (effective.addDirs?.length ?? 0) > 0
+    ) {
+      deps.progress(
+        `flow-delegate-fanout: entry "${entry.task}" combines --skip-permissions with --add-dir — auto-approval co-grants access to the added directories\n`,
+      );
+    }
     return {
       entry: effective,
       outPath: entryOutPath(effective, outPath, index),

@@ -78,9 +78,13 @@ The F2 discovery pre-check's synthesis is cached host-wide at `~/.flow/research-
   `{ entries:[{task,model,ran,artifactPath?,skipReason?,durationMs?}], anyRan,
 allSkipped, calls:{attempted,ran,skipped,budget} }` to stdout AND `--out`. A
   manifest entry is `{ task, model, prompt|promptFile, timeout?, addDirs?,
-out? }`. It backgrounds + persists to `--out` like `flow-ci-wait`, so a deep
-  run can outlive the harness foreground budget and a resumed turn reads the
-  result file.
+out?, skipPermissions?, outputFormat? }`. The gather and refute entries set
+  `skipPermissions: true` (they pass no `addDirs`, so auto-approval grants no
+  workspace directory — only agy's own tools are reached without a permission
+  prompt) and `outputFormat: "json"` (so a refused tool is nameable via the
+  envelope's `deniedActions`). It backgrounds + persists to `--out` like
+  `flow-ci-wait`, so a deep run can outlive the harness foreground budget and
+  a resumed turn reads the result file.
 - **Exact agy model variants** (live `agy models`, do not paraphrase): gather
   runs on `Gemini 3.1 Pro (High)`; refutation runs on a DIFFERENT variant from
   {`Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)`}.
@@ -177,7 +181,9 @@ flow-delegate-fanout \
 
 Read the aggregate. If `allSkipped` is true, take the agy-absent fallback
 (below). Otherwise read each ran entry's `artifactPath` to collect the
-extracted claims-with-quotes-and-grades.
+extracted claims-with-quotes-and-grades. Every `ran:false` entry in a
+non-`allSkipped` aggregate must be named in the report's own limitations
+section with its reason in plain language — never silently dropped.
 
 ## 3. Adversarial verify (agy fan-out, model-DIVERSE)
 

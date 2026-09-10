@@ -52,8 +52,11 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // count, ~80 of those tied to `denied_actions: [RunCommand]` — it reaches
   // for a shell tool the default `--sandbox` posture denies, and answers
   // `status: SUCCESS` with an empty body. That's flow's PRODUCTION posture
-  // (no delegate surface passes --skip-permissions), so this is deployed
-  // behaviour, not a harness artifact.
+  // for every BENCHMARKED surface (flow-research-run's gather/refute entries
+  // opted into --skip-permissions as of 2026-09-10, but that surface was not
+  // part of this run's roster; every surface this run measured still does
+  // not pass --skip-permissions), so this is deployed behaviour for those
+  // surfaces, not a harness artifact.
   // NO FLIP (2026-09-05): intent-guess rejected for 3.8 on mechanical parity
   // (c4-intent-json recall 0.44 vs incumbent 1.00); recommend() nominates no
   // candidate for this surface.

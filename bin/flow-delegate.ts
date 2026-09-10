@@ -23,8 +23,10 @@
  *   `--dangerously-skip-permissions` for non-interactive tool-using runs.
  *   It is opt-in, not default: four callers pass `--add-dir <worktree>`, so
  *   an auto-approving run CAN reach the worktree — the grant stays opt-in
- *   and is not used by any caller, but the default path stays the
- *   empirically-verified `--sandbox`-only invocation.
+ *   and is used by the research fan-out entries only (flow-research-run's
+ *   gather/refute manifest entries), which pass no `--add-dir`, so the
+ *   default path stays the empirically-verified `--sandbox`-only invocation
+ *   for every other caller.
  * - agy's stdout is redirected to a real FILE (never a pipe — a non-TTY
  *   pipe can silently drop agy's output) and the file is the artifact.
  *   stdin is closed; agy needs no TTY on stdin.

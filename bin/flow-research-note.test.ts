@@ -77,6 +77,32 @@ describe(decideNote, () => {
     expect(d!.noteLine).toContain("agy unavailable on this host");
   });
 
+  it("emits a plain-language note for status {ran:true, reason:ran-degraded}", () => {
+    const d = decideNote({
+      active: true,
+      forced: false,
+      status: { ran: true, reason: "ran-degraded" },
+      planText: "# PRD\n",
+    });
+    expect(d).not.toBeNull();
+    expect(d!.insertedText).toContain("> [!NOTE]");
+    // Plain language, no internal identifiers.
+    expect(d!.noteLine).not.toMatch(
+      /skipReason|deniedActions|agy-empty-artifact/,
+    );
+  });
+
+  it("stays silent (null) for status {ran:true, reason:ran}", () => {
+    expect(
+      decideNote({
+        active: true,
+        forced: false,
+        status: { ran: true, reason: "ran" },
+        planText: "# PRD\n",
+      }),
+    ).toBeNull();
+  });
+
   it("(d) emits the generic 'did not run' note when no status file (forced=false)", () => {
     const d = decideNote({
       active: true,
