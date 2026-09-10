@@ -305,44 +305,28 @@
           "min": 130269,
           "max": 157643,
           "direction": "lower",
-          "values": [
-            157643,
-            149036,
-            130269
-          ]
+          "values": [157643, 149036, 130269]
         },
         "result.total_cost_usd": {
           "median": 1.5858401999999996,
           "min": 0.7662696000000002,
           "max": 1.8896840000000004,
           "direction": "lower",
-          "values": [
-            1.8896840000000004,
-            1.5858401999999996,
-            0.7662696000000002
-          ]
+          "values": [1.8896840000000004, 1.5858401999999996, 0.7662696000000002]
         },
         "result.num_turns": {
           "median": 20,
           "min": 18,
           "max": 26,
           "direction": "lower",
-          "values": [
-            26,
-            20,
-            18
-          ]
+          "values": [26, 20, 18]
         },
         "supervisor-mcp-calls": {
           "median": 0,
           "min": 0,
           "max": 4,
           "direction": "lower",
-          "values": [
-            0,
-            0,
-            4
-          ]
+          "values": [0, 0, 4]
         }
       }
     }
