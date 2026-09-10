@@ -6,9 +6,13 @@
  * ran — but that note is authored by an LLM sub-agent and was observed to be
  * skipped entirely. This helper is the reliable, non-LLM surface for that
  * user-visible note: the supervisor (step 3) always calls it, and it
- * self-no-ops when research actually ran, when the path was dormant, or when
- * the sub-agent already wrote a (more precise) note. It NEVER throws and NEVER
- * blocks the pipeline — every operational path exits 0.
+ * self-no-ops when research fully ran (status `{ran:true,reason:"ran"}`),
+ * when the path was dormant, or when the sub-agent already wrote a (more
+ * precise) note. It still surfaces a note for `{ran:true,reason:
+ * "ran-degraded"}` — a run that started but had a sub-run agy refused a
+ * tool on and returned nothing for — since that case needs the same
+ * visibility as a hard skip. It NEVER throws and NEVER blocks the
+ * pipeline — every operational path exits 0.
  *
  * Usage:
  *   flow-research-note ensure --plan-file <path>
@@ -58,7 +62,15 @@ export function decideNote(
   }
 
   const reason = computeReason(status, forced);
-  const noteLine = `Web-grounded research (discovery Step 1.5): ${reason}; force with \`flow feature create --research\`.`;
+  // "force with `flow feature create --research`" is a no-op suggestion for
+  // a run that already ran (ran-degraded): forcing it again re-runs the same
+  // path and would not turn a partial refusal into a complete one. Only
+  // append it on the genuinely-didn't-run paths, where forcing is the
+  // actionable next step.
+  const noteLine =
+    status?.reason === "ran-degraded"
+      ? `Web-grounded research (discovery Step 1.5): ${reason}.`
+      : `Web-grounded research (discovery Step 1.5): ${reason}; force with \`flow feature create --research\`.`;
   return { noteLine, insertedText: `> [!NOTE]\n> ${noteLine}` };
 }
 

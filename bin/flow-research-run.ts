@@ -29,7 +29,10 @@
  *     wave, ~3m bounded).
  *  4. `allSkipped` (agy unavailable) -> status {ran:false,reason:"agy-unavailable"}.
  *  5. Otherwise read the per-entry agy artifacts, build a BOUNDED findings
- *     block, write it to --out, and status {ran:true,reason:"ran"}.
+ *     block, write it to --out, and status {ran:true,reason:"ran"} — or
+ *     {ran:true,reason:"ran-degraded"} when either sub-run didn't genuinely
+ *     produce something (a hard skip, OR a `ran:true` entry agy refused a
+ *     tool on and returned nothing for — see `isRefusedEmpty`).
  *
  * Exit codes: 0 on every operational path (callers branch on the status file's
  * `ran`); 2 only on a usage error (missing required flag).
@@ -37,16 +40,21 @@
  * The gather and refute manifest entries opt into `skipPermissions: true`
  * (flow-delegate-fanout's/flow-delegate's `--skip-permissions`, auto-approving
  * tool calls). The exposure is bounded: neither entry passes `addDirs`, so
- * auto-approval grants no workspace directory — only agy's own tools (e.g.
- * native web search) can be reached without a permission prompt. The grant is
- * NOT tool-selective, so the first run after this lands must record which
- * tool, if any, agy denied (see `deniedActions` below).
+ * auto-approval grants no `--add-dir` workspace directory — only agy's own
+ * tools (e.g. native web search) can be reached without a permission prompt.
+ * `flow-delegate` additionally pins the child's `cwd` to an empty scratch
+ * directory whenever `--skip-permissions` is set with no `--add-dir` (see
+ * `agyRunCwd` in `flow-delegate.ts`), so the auto-approving process also has
+ * nothing reachable via its inherited working directory. The grant is NOT
+ * tool-selective, so the first run after this lands must record which tool,
+ * if any, agy denied (see `deniedActions` below).
  */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { resolveDelegateModel } from "./lib/delegate-models";
+import { redactSecrets } from "./lib/redact-secrets";
 
 // Frozen to match discovery Step 1.5's budget defaults and model-variant pins
 // (skills/pipeline/flow-product-planning/references/discovery-instructions.md, the
@@ -279,14 +287,44 @@ function plainSkipReason(outcome: EntryOutcome): string {
       return "it produced no output";
     case "entry-missing":
       return "it never started";
+    case "agy-error":
+      return "it hit an error";
+    case "agy-timeout":
+      return "it timed out";
+    case "agy-canceled":
+      return "it was canceled";
+    case "budget-exhausted":
+      return "the research budget ran out first";
+    case "agy-not-found":
+      return "the research tool isn't installed";
+    case "agy-not-authenticated":
+      return "the research tool isn't signed in";
+    case "spawn-failed":
+      return "it failed to start";
     default:
       return outcome.skipReason ?? "it never started";
   }
 }
-// NOTE: the `default` arm above intentionally surfaces the raw skipReason
-// string (e.g. "agy-not-found", "agy-error", "budget-exhausted") verbatim —
-// every mapped reason has its own case; anything unmapped still reads as
-// plain-enough prose (skipReason values are short kebab-case tokens).
+// NOTE: the `default` arm above is a last-resort fallback, not the intended
+// path — every skipReason flow-delegate can emit (see its module header:
+// "agy-not-found"|"agy-not-authenticated"|"agy-timeout"|"agy-canceled"|
+// "agy-error"|"agy-empty-artifact"|"spawn-failed", plus this file's own
+// "entry-missing"/"budget-exhausted") has an explicit case above so no raw
+// kebab-case token reaches the user-read findings block. Anything that still
+// lands in `default` is a genuinely new/unmapped reason.
+
+// TRUE when an entry genuinely ran but agy refused at least one tool and
+// left nothing to show for it — the exact denial case this PR exists to
+// surface. Distinct from a plain empty `ran:true` result (agy ran, found
+// nothing, denied nothing) and from `ran:false` (never ran at all).
+function isRefusedEmpty(outcome: EntryOutcome): boolean {
+  return (
+    outcome.ran &&
+    !(outcome.text ?? "").trim() &&
+    !!outcome.deniedActions &&
+    outcome.deniedActions.length > 0
+  );
+}
 
 // Build a BOUNDED markdown findings block: the gather output capped to ~80
 // lines / ~4000 chars (truncation-marked when clipped), plus a one-line refute
@@ -308,15 +346,25 @@ export function boundFindings(
     truncated = true;
   }
   if (!body) {
-    body = gather.ran
-      ? "_No web-grounded findings were returned._"
-      : `_The web-search step did not return anything — ${plainSkipReason(gather)}._`;
+    // A `ran:true` entry can still carry `deniedActions` (agy refused a
+    // tool but the run itself completed) — that must read as a named
+    // refusal, never as the generic "nothing found" affirmation, which is
+    // indistinguishable from "the reviewer was never allowed to work".
+    if (isRefusedEmpty(gather)) {
+      body = `_No web-grounded findings were returned — ${plainSkipReason(gather)}._`;
+    } else {
+      body = gather.ran
+        ? "_No web-grounded findings were returned._"
+        : `_The web-search step did not return anything — ${plainSkipReason(gather)}._`;
+    }
   }
 
   const refuteTextTrimmed = (refute.text ?? "").trim();
   let refuteCaveat: string;
   if (refuteTextTrimmed) {
     refuteCaveat = `_Adversarial cross-check (refute) caveat: ${firstNonEmptyLine(refuteTextTrimmed)}_`;
+  } else if (isRefusedEmpty(refute)) {
+    refuteCaveat = `_Adversarial cross-check produced no caveats — ${plainSkipReason(refute)}._`;
   } else if (refute.ran) {
     refuteCaveat = "_Adversarial cross-check produced no caveats._";
   } else {
@@ -379,22 +427,33 @@ function readEntryOutcome(
 ): EntryOutcome {
   const entry = (aggregate.entries ?? []).find((e) => e.task === task);
   if (!entry) return { text: "", ran: false, skipReason: "entry-missing" };
+  // `deniedActions` is forwarded on EVERY branch below, including all three
+  // `ran:true` return sites — not just the ran:false one. A tool-denied agy
+  // run still writes a non-empty json envelope
+  // (`{"status":"SUCCESS","response":"","denied_actions":[...]}`), so it
+  // lands on `ran:true` with empty text; dropping `deniedActions` there is
+  // exactly the bug this field-threading closes (see boundFindings, which
+  // is what decides whether that combination reads as a refusal or a
+  // silent "nothing found").
+  const deniedActions = entry.deniedActions
+    ? { deniedActions: entry.deniedActions }
+    : {};
   if (entry.ran !== true) {
     return {
       text: "",
       ran: false,
       skipReason: entry.skipReason ?? "entry-missing",
-      ...(entry.deniedActions ? { deniedActions: entry.deniedActions } : {}),
+      ...deniedActions,
     };
   }
   if (!entry.artifactPath) {
-    return { text: "", ran: true };
+    return { text: "", ran: true, ...deniedActions };
   }
   let raw: string;
   try {
     raw = deps.readFile(entry.artifactPath);
   } catch {
-    return { text: "", ran: true };
+    return { text: "", ran: true, ...deniedActions };
   }
   let text = raw;
   try {
@@ -411,10 +470,15 @@ function readEntryOutcome(
       text = envelope.response;
     }
   } catch {
-    // not a json envelope (text mode / partial write) — fall through with
-    // the raw artifact text, same as before this change.
+    // not a json envelope (text mode / partial write, e.g. a truncated
+    // write on a --print-timeout kill) — fall through with the raw
+    // artifact text, redacted the same way every other agy-originated
+    // field is (stderrTail/agyError/deniedActions all go through
+    // redactSecrets; a partially-written envelope is exactly where error
+    // strings, paths, and any echoed token would live).
+    text = redactSecrets(raw);
   }
-  return { text, ran: true };
+  return { text, ran: true, ...deniedActions };
 }
 
 function execute(parsed: Args, deps: Deps): number {
@@ -487,10 +551,17 @@ function execute(parsed: Args, deps: Deps): number {
     const refuteOutcome = readEntryOutcome(deps, aggregate, REFUTE_TASK);
     const findings = boundFindings(gatherOutcome, refuteOutcome);
     deps.writeFile(parsed.out, `${findings}\n`);
-    // "ran" only when BOTH sub-runs genuinely ran; either one degrading
-    // (regardless of whether it carries a skipReason) reports "ran-degraded"
-    // so a failure without a skipReason cannot read as clean.
-    const degraded = !gatherOutcome.ran || !refuteOutcome.ran;
+    // "ran" only when BOTH sub-runs genuinely ran AND produced something;
+    // either one degrading (regardless of whether it carries a skipReason)
+    // reports "ran-degraded" so a failure without a skipReason cannot read
+    // as clean. A `ran:true` entry that agy refused a tool on and returned
+    // nothing for (isRefusedEmpty) is also degraded — it ran, but the
+    // denial means the caller got nothing usable, same as a hard skip.
+    const degraded =
+      !gatherOutcome.ran ||
+      !refuteOutcome.ran ||
+      isRefusedEmpty(gatherOutcome) ||
+      isRefusedEmpty(refuteOutcome);
     writeStatus(deps, parsed.statusFile, {
       active: true,
       ran: true,

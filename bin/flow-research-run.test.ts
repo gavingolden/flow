@@ -21,6 +21,15 @@ const skipped = (
   skipReason,
   ...(deniedActions ? { deniedActions } : {}),
 });
+// The B1 regression shape: agy ran (ran:true, no skipReason) but a tool was
+// denied and the run came back empty — the exact combination that used to
+// print "No web-grounded findings were returned." indistinguishably from a
+// genuinely clean empty result.
+const ranDenied = (deniedActions: string[]): EntryOutcome => ({
+  text: "",
+  ran: true,
+  deniedActions,
+});
 
 describe("parseArgs", () => {
   it("requires --task, --out, --status-file", () => {
@@ -259,6 +268,23 @@ describe("boundFindings", () => {
     );
     expect(out).toContain("it was not allowed to use web_search");
   });
+
+  it("B1 regression: a ran:true, empty-text gather with deniedActions reads as a named refusal, never the old affirmation", () => {
+    const out = boundFindings(ranDenied(["web_search"]), ran("caveat"));
+    // The old affirmation only ever appeared as this bare, underscore- and
+    // period-terminated sentence; once a denial is present it must always
+    // be followed by an em-dash + reason instead.
+    expect(out).not.toContain("No web-grounded findings were returned._");
+    expect(out).toContain("No web-grounded findings were returned —");
+    expect(out).toContain("it was not allowed to use web_search");
+  });
+
+  it("B1 regression: a ran:true, empty-text refute with deniedActions reads as a named refusal, never the silent 'no caveats' line", () => {
+    const out = boundFindings(ran("some claim"), ranDenied(["run_command"]));
+    expect(out).not.toMatch(/Adversarial cross-check produced no caveats\._/);
+    expect(out).toContain("Adversarial cross-check produced no caveats —");
+    expect(out).toContain("it was not allowed to use run_command");
+  });
 });
 
 type Recorder = Deps & {
@@ -385,6 +411,78 @@ describe("run — injected fanout stub", () => {
     expect(findings).toContain("line terminators vary");
     expect(JSON.parse(deps.files.get(STATUS)!)).toMatchObject({
       reason: "ran",
+    });
+  });
+
+  it("prefers structured_output over response when both are present in the json envelope", () => {
+    const aggregate: FanoutAggregate = {
+      allSkipped: false,
+      anyRan: true,
+      entries: [
+        {
+          task: "research-gather",
+          ran: true,
+          artifactPath: "/wt/.flow-tmp/g.md",
+        },
+        {
+          task: "research-refute",
+          ran: true,
+          artifactPath: "/wt/.flow-tmp/r.md",
+        },
+      ],
+    };
+    const deps = makeDeps(() => aggregate);
+    deps.files.set(
+      "/wt/.flow-tmp/g.md",
+      JSON.stringify({
+        structured_output: "structured claim wins [high]",
+        response: "should be ignored",
+      }),
+    );
+    deps.files.set(
+      "/wt/.flow-tmp/r.md",
+      JSON.stringify({ response: "line terminators vary by importer" }),
+    );
+    expect(run(ARGV, deps)).toBe(0);
+    const findings = deps.files.get(OUT)!;
+    expect(findings).toContain("structured claim wins");
+    expect(findings).not.toContain("should be ignored");
+  });
+
+  it("B1 regression: end-to-end, a ran:true gather entry whose json envelope has an empty response and non-empty denied_actions degrades status and names the tool, never the old affirmation", () => {
+    const aggregate: FanoutAggregate = {
+      allSkipped: false,
+      anyRan: true,
+      entries: [
+        {
+          task: "research-gather",
+          ran: true,
+          artifactPath: "/wt/.flow-tmp/g.md",
+          deniedActions: ["web_search"],
+        },
+        {
+          task: "research-refute",
+          ran: true,
+          artifactPath: "/wt/.flow-tmp/r.md",
+        },
+      ],
+    };
+    const deps = makeDeps(() => aggregate);
+    // The exact envelope shape a tool-denied agy run leaves behind: a
+    // non-empty artifact (so artifactHasContent is true upstream in
+    // flow-delegate) with an empty response.
+    deps.files.set(
+      "/wt/.flow-tmp/g.md",
+      JSON.stringify({ status: "SUCCESS", response: "" }),
+    );
+    deps.files.set("/wt/.flow-tmp/r.md", "no caveats to add");
+    expect(run(ARGV, deps)).toBe(0);
+    const findings = deps.files.get(OUT)!;
+    expect(findings).not.toMatch(/No web-grounded findings were returned\./);
+    expect(findings).toContain("it was not allowed to use web_search");
+    expect(JSON.parse(deps.files.get(STATUS)!)).toMatchObject({
+      ran: true,
+      reason: "ran-degraded",
     });
   });
 

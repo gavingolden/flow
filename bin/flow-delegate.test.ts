@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   AGY_SAFETY_PREAMBLE,
+  agyRunCwd,
   artifactPathFor,
   buildAgyArgv,
   classifyAgyOutcome,
@@ -271,6 +272,29 @@ describe("buildAgyArgv", () => {
   });
 });
 
+describe("agyRunCwd", () => {
+  it("is undefined when --skip-permissions is not set, regardless of --add-dir", () => {
+    expect(agyRunCwd({ skipPermissions: false, addDirs: [] })).toBeUndefined();
+    expect(
+      agyRunCwd({ skipPermissions: false, addDirs: ["/a"] }),
+    ).toBeUndefined();
+  });
+
+  it("is undefined when --skip-permissions is set but an --add-dir grant is present", () => {
+    expect(
+      agyRunCwd({ skipPermissions: true, addDirs: ["/a"] }),
+    ).toBeUndefined();
+  });
+
+  it("pins a freshly-created, empty scratch directory when --skip-permissions is set with no --add-dir", () => {
+    const cwd = agyRunCwd({ skipPermissions: true, addDirs: [] });
+    expect(cwd).toBeDefined();
+    expect(existsSync(cwd as string)).toBe(true);
+    expect(readdirSync(cwd as string)).toEqual([]);
+    rmSync(cwd as string, { recursive: true, force: true });
+  });
+});
+
 describe("artifactPathFor", () => {
   it("defaults to .flow-tmp/delegate-<task>.md", () => {
     expect(artifactPathFor(parseArgs(["--prompt", "x"]) as Args)).toBe(
@@ -526,20 +550,20 @@ describe("stderrTail", () => {
 
 function makeDeps(overrides: Partial<Deps> = {}): Deps & {
   calls: {
-    agy: Array<{ argv: string[]; outPath: string }>;
+    agy: Array<{ argv: string[]; outPath: string; cwd?: string }>;
     out: string[];
     mkdirp: string[];
   };
 } {
   const calls = {
-    agy: [] as Array<{ argv: string[]; outPath: string }>,
+    agy: [] as Array<{ argv: string[]; outPath: string; cwd?: string }>,
     out: [] as string[],
     mkdirp: [] as string[],
   };
   return {
     agyOnPath: () => true,
-    runAgy: (argv, outPath) => {
-      calls.agy.push({ argv, outPath });
+    runAgy: (argv, outPath, cwd) => {
+      calls.agy.push({ argv, outPath, cwd });
       return { exitCode: 0, stderr: "" };
     },
     readFile: (p) => `FILE_CONTENT_OF:${p}`,
@@ -586,6 +610,31 @@ describe("run", () => {
       skipReason: "agy-not-found",
     });
     expect(deps.calls.agy).toHaveLength(0);
+  });
+
+  it("pins runAgy's cwd to a scratch dir when --skip-permissions is passed with no --add-dir", () => {
+    const deps = makeDeps();
+    run(["--prompt", "hi", "--skip-permissions"], deps);
+    expect(deps.calls.agy).toHaveLength(1);
+    expect(deps.calls.agy[0]?.cwd).toBeDefined();
+    expect(deps.calls.agy[0]?.cwd).not.toBe(process.cwd());
+  });
+
+  it("does not pin runAgy's cwd when --skip-permissions is passed WITH --add-dir", () => {
+    const deps = makeDeps();
+    run(
+      ["--prompt", "hi", "--skip-permissions", "--add-dir", "/some/dir"],
+      deps,
+    );
+    expect(deps.calls.agy).toHaveLength(1);
+    expect(deps.calls.agy[0]?.cwd).toBeUndefined();
+  });
+
+  it("does not pin runAgy's cwd when --skip-permissions is absent", () => {
+    const deps = makeDeps();
+    run(["--prompt", "hi"], deps);
+    expect(deps.calls.agy).toHaveLength(1);
+    expect(deps.calls.agy[0]?.cwd).toBeUndefined();
   });
 
   it("gracefully skips with skipReason agy-error on a nonzero agy exit", () => {

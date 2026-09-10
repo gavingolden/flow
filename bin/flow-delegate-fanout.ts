@@ -121,6 +121,12 @@ export type EntryResult = {
   agyError?: string;
   // Projected straight from the child envelope's own `deniedActions`.
   deniedActions?: string[];
+  // Set when this entry combines --skip-permissions with --add-dir — the
+  // same signal the co-grant warning writes to stderr (`deps.progress`),
+  // but recorded on the entry itself so it survives a caller that discards
+  // stderr (e.g. flow-research-run.ts spawns the fan-out with
+  // `stderr: "ignore"`).
+  coGrantWarning?: string;
 };
 
 export type FanoutResult = {
@@ -331,7 +337,11 @@ function emitResult(
 // entry", durationSeconds answers "how long did the model itself take".
 async function runPool(
   deps: FanoutDeps,
-  jobs: Array<{ entry: ManifestEntry; outPath: string }>,
+  jobs: Array<{
+    entry: ManifestEntry;
+    outPath: string;
+    coGrantWarning?: string;
+  }>,
   concurrency: number,
 ): Promise<EntryResult[]> {
   const results: EntryResult[] = new Array(jobs.length);
@@ -339,7 +349,7 @@ async function runPool(
   const worker = async (): Promise<void> => {
     while (next < jobs.length) {
       const index = next++;
-      const { entry, outPath } = jobs[index]!;
+      const { entry, outPath, coGrantWarning } = jobs[index]!;
       const start = Date.now();
       let record: EntryResult;
       try {
@@ -374,6 +384,7 @@ async function runPool(
           record.agyError = envelope.agyError;
         if (envelope.deniedActions)
           record.deniedActions = envelope.deniedActions;
+        if (coGrantWarning) record.coGrantWarning = coGrantWarning;
       } catch (err) {
         // A thrown dispatch is a graceful skip for this entry, mirroring
         // flow-delegate's spawn-throw → agy-error contract.
@@ -383,6 +394,7 @@ async function runPool(
           ran: false,
           skipReason: "agy-error",
           durationMs: Date.now() - start,
+          ...(coGrantWarning ? { coGrantWarning } : {}),
         };
         deps.progress(
           `flow-delegate-fanout: entry "${entry.task}" dispatch failed: ${(err as Error).message}\n`,
@@ -458,17 +470,22 @@ export async function run(
       ...(timeout ? { timeout } : {}),
       ...(skipPermissions !== undefined ? { skipPermissions } : {}),
     };
+    let coGrantWarning: string | undefined;
     if (
       effective.skipPermissions === true &&
       (effective.addDirs?.length ?? 0) > 0
     ) {
-      deps.progress(
-        `flow-delegate-fanout: entry "${entry.task}" combines --skip-permissions with --add-dir — auto-approval co-grants access to the added directories\n`,
-      );
+      coGrantWarning = `entry "${entry.task}" combines --skip-permissions with --add-dir — auto-approval co-grants access to the added directories`;
+      // stderr (deps.progress) is the live-tail signal; record.coGrantWarning
+      // below is the durable one — a caller that discards stderr (e.g.
+      // flow-research-run.ts spawns the fan-out with `stderr: "ignore"`)
+      // still sees the warning on the entry itself.
+      deps.progress(`flow-delegate-fanout: ${coGrantWarning}\n`);
     }
     return {
       entry: effective,
       outPath: entryOutPath(effective, outPath, index),
+      coGrantWarning,
     };
   });
   const dispatchedResults = await runPool(deps, jobs, parsed.concurrency);

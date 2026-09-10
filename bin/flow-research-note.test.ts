@@ -90,6 +90,17 @@ describe(decideNote, () => {
     expect(d!.noteLine).not.toMatch(
       /skipReason|deniedActions|agy-empty-artifact/,
     );
+    // Asserts the SPECIFIC ran-degraded wording, not just "some note was
+    // produced" — mutation-resistant against the ran-degraded arm of
+    // computeReason silently regressing to the generic did-not-run text
+    // (deleting that arm would still satisfy the looser assertions above).
+    expect(d!.noteLine).toContain(
+      "ran, but part of it did not return anything",
+    );
+    expect(d!.noteLine).not.toContain("did not run");
+    // "force with `flow feature create --research`" is a no-op suggestion
+    // for a run that already ran — it must be suppressed on this path.
+    expect(d!.noteLine).not.toContain("force with");
   });
 
   it("stays silent (null) for status {ran:true, reason:ran}", () => {

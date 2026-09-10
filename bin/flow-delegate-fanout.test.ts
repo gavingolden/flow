@@ -718,6 +718,36 @@ describe("run — --skip-permissions backstop", () => {
       ),
     ).toBe(true);
     expect(aggregate(deps).anyRan).toBe(true);
+    // Recorded on the entry itself too — not just stderr — so a caller that
+    // discards stderr (e.g. flow-research-run.ts's `stderr: "ignore"` spawn)
+    // still sees the warning.
+    const entry = aggregate(deps).entries.find(
+      (e: { task: string }) => e.task === "risky",
+    );
+    expect(entry.coGrantWarning).toContain("--skip-permissions");
+    expect(entry.coGrantWarning).toContain("--add-dir");
+  });
+
+  it("does NOT emit a co-grant warning when an entry sets skipPermissions with no addDirs, or addDirs with no skipPermissions", async () => {
+    const progressLines: string[] = [];
+    const deps = makeDeps({
+      readFile: () =>
+        manifestOf([
+          { task: "safe-skip", prompt: "x", skipPermissions: true },
+          { task: "safe-dir", prompt: "x", addDirs: ["/work"] },
+        ]),
+      progress: (line) => progressLines.push(line),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    expect(progressLines.some((l) => l.includes("co-grant"))).toBe(false);
+    expect(
+      progressLines.some(
+        (l) => l.includes("--skip-permissions") && l.includes("--add-dir"),
+      ),
+    ).toBe(false);
+    for (const entry of aggregate(deps).entries) {
+      expect(entry.coGrantWarning).toBeUndefined();
+    }
   });
 
   it("a child envelope carrying deniedActions yields an entry record carrying the same array", async () => {
