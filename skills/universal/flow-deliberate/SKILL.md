@@ -61,7 +61,7 @@ exclusive), runs it through ONE `flow-claude-headless` call with the repo
 mounted read-only, and prints one JSON envelope.
 
 This is a Bash fan-out over the sanctioned headless-Claude surface, **not**
-a Task-tool spawn — see `AGENTS.md` "Don'ts". That is what lets a
+a Task-tool spawn — see `.claude/rules/flow-supervisor-contracts.md` "Don'ts". That is what lets a
 Task-spawned sub-agent call it: a sub-agent may never spawn a nested Task,
 but it may always shell out.
 

@@ -2,39 +2,33 @@
 
 `flow` has two responsibilities in one repo:
 
-1. A **multi-phase pipeline supervisor**. Each `flow feature create
-   "<description>"` launches a Claude Code session — in the caller's
-   plain shell by default, or a tmux window when the tmux launcher is
-   opted into — and the `/flow-pipeline` supervisor skill drives the
-   full pipeline (triage → plan → worktree → implement → verify → CI →
-   review → gate → merge) inside that one chat session. Sub-skills load
-   in-process; helper scripts under `bin/` are Bash tool calls.
+1. A **multi-phase pipeline supervisor**: `/flow-pipeline` drives
+   triage → plan → worktree → implement → verify → CI → review → gate →
+   merge inside one chat session, launched by `flow feature create
+   "<description>"`. Sub-skills load in-process; `bin/` scripts are Bash
+   tool calls.
 2. A **curated skill library** at `skills/` plus the helper binaries at
-   `bin/` they shell out to. Both are distributed by `flow install` (the
-   global install). Skills are usable independent of the supervisor; the
-   wrapper is just one consumer.
+   `bin/` they shell out to, both distributed by `flow install`.
 
-This file is the entry point for any agent (human or AI) working on flow.
-Read it once at the start of a session.
+This file is the entry point for any agent working on flow. Read it once
+per session — surface-specific rules under `.claude/rules/` load only
+when you Read/Edit a matching file (Bash touches don't load them).
 
 ## Where to look
 
 | You want | Read |
 |---|---|
-| The supervisor's behaviour and contracts | `skills/pipeline/flow-pipeline/SKILL.md` |
-| The skill library structure | `skills/` (categorized: `pipeline/`, `universal/`, `stacks/`) |
-| Generic engineering rules to copy into a new repo | `templates/AGENTS.md.template` |
-| Where flow is heading (modular redesign) | `docs/target-architecture.md` |
+| Supervisor behaviour and contracts | `skills/pipeline/flow-pipeline/SKILL.md` |
+| Skill library structure | `skills/` (`pipeline/`, `universal/`, `stacks/`) |
+| Task-tool exemptions, sub-agent Don'ts | `.claude/rules/flow-supervisor-contracts.md` (loads on `skills/`, `agents/`, `references/`, `templates/`) |
+| `bin/` conventions, telemetry, tmux-pane rules, CI | `.claude/rules/flow-bin-conventions.md` (loads on `bin/`, `.github/`, `package.json`) |
+| Git-workflow mechanics | `references/git-workflow.md` |
+| Response-hygiene conventions | `references/output-style.md` |
+| Consumer-repo `flow-pre-commit` contract | `references/consumer-repo-contract.md` |
+| Redesign target, current state, what flow is not | `docs/target-architecture.md` |
+| Generic engineering rules for a new repo | `templates/AGENTS.md.template` |
 | Measure a scaffold removal | `docs/eval/README.md` |
-| Which tests earn their cost, and why | `docs/test-quality-methodology.md` |
-
-## Current state
-
-The redesign from a Node orchestrator to a plain-shell-default pipeline
-supervisor (tmux is now an opt-in launcher) is complete: `src/`, the
-per-repo `flow install`, and the orchestrator-only skills (`flow-add`,
-`flow-approve`, `flow-revise`, `flow-watch`, `flow-status`) are deleted,
-and the wrapper has no passthrough fallback.
+| Which tests earn their cost | `docs/test-quality-methodology.md` |
 
 ## Code conventions
 
@@ -70,63 +64,17 @@ See the reference for the remaining response-hygiene conventions (no
 preambles, no sycophantic openers, no emoji unless invited, calibrate
 length to task, fenced blocks only for runnable code, etc.).
 
-## Scripts: Bun runtime, distributed via symlinks
-
-Source for shipped helper binaries lives in **`bin/`**. User-callable
-helpers (`flow-new-worktree`, `flow-pre-commit`, `flow-state-update`,
-`flow-notify`, `flow-ui-validate`, `flow-review-telemetry`,
-`flow-test-audit`, etc.) live there with `.ts`
-extensions, Bun shebangs, and tests next door
-(`<name>.test.ts`, skipped when `flow install` symlinks into
-`~/.local/bin/<name>`). The five schema validators
-(`flow-pr-review-result-schema`, `flow-agent-finding-schema`,
-`flow-fix-applier-schema`, `flow-epic-manifest-schema`,
-`flow-intent-resolution-schema`) are also symlinked, sourced from
-`bin/lib/*-schema.ts` via an allowlisted `discoverValidators`
-(vs `discoverHelpers`'s auto-pickup of every `bin/*.ts`).
-`bin/flow` itself is Bun and dispatches every verb natively.
-
-`flow install` also materializes a skills-dir plugin root per selected
-module (`docs/configuration.md`). `flow-plugin-probe`/`flow-plugin-contract-lint`
-join `flow-release`/`flow-model-bench`/`flow-eval` in `MAINTAINER_ONLY` — never on PATH.
-
-Static agent-type definitions live at **`agents/<moduleId>/*.md`** (today
-only `core/`), symlinked as ONE dir per module (`flow-module-<id>/agents`;
-Claude Code follows symlinked dirs, not files). Frontmatter pins are
-enumerated by `AGENT_FRONTMATTER_POLICY` in `bin/skill-md-lint.test.ts`;
-per-spawn `model:` wins. In-process skills pin `effort:`, never `model:`.
-
-Conventions for any script under `bin/`: `#!/usr/bin/env bun` + `chmod
-+x`; gate `main()` with `import.meta.main` (not an
-`import.meta.url`/`process.argv[1]` comparison, which breaks through a
-symlink); tests live next door, run via `npm run test`. Default new
-scripts to Bun; deviating needs user confirmation and an inline comment.
-
-Telemetry is helper-emitted only, via `bin/lib/telemetry.ts`'s `recordEvent`
-at existing chokepoints — never agent prose; a signal no helper sees is
-DERIVED from one a helper already writes. Contract: `docs/configuration.md`.
-
 ## Supervisor and sub-skills: in-process only
 
-The load-bearing constraint for `/flow-pipeline`: the supervisor is one
-Claude Code chat session, sub-skills load in-process via the `Skill`
-tool, and helper scripts under `bin/` are Bash tool calls. The
-supervisor never spawns the `Task` / `Agent` tool and never invokes raw
-`claude -p` subprocesses (headless Claude only via `flow-claude-headless`),
-**with eight narrowly-named exceptions** —
-the `**Task-tool exemption: ...**` bullets under `## Don'ts` below. This
-sidesteps two problems: deep sub-agent fan-out (possible since Claude Code
-v2.1.172, default cap 3, env-overridable via
-CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH, but token-expensive and hard to
-observe), and context bloat from a long-running supervisor with
-sub-agents. `flow-claude-headless` is the one sanctioned
-`claude -p` site (a Bash fan-out, not an eighth exemption; contract in
-`skills/pipeline/flow-pipeline/references/headless-claude.md`).
-
-Logic needing a separate LLM session belongs in an in-process sub-skill
-or a non-LLM helper, not here — except a fixed-model, fixed-effort leaf
-review or judgment call, which is the one narrow exception and goes
-through `flow-claude-headless`, never a hand-typed `claude -p`.
+The supervisor is one Claude Code chat session; sub-skills load in-process
+via `Skill`; `bin/` scripts are Bash calls. It never spawns `Task`/`Agent`
+and never invokes a raw `claude -p` subprocess (headless Claude only via
+`flow-claude-headless`), **with eight narrowly-named exceptions** —
+enumerated as named bullets in
+`.claude/rules/flow-supervisor-contracts.md` `## Don'ts`. Logic needing a
+separate LLM session belongs in an in-process sub-skill or a non-LLM
+helper, not here — except a fixed-model, fixed-effort leaf review or
+judgment call, which goes through `flow-claude-headless`.
 
 ## Compact Instructions
 
@@ -149,23 +97,11 @@ supervisor cannot tell what it has already done.
 
 ## Git workflow
 
-- **Branches:** short, descriptive. The supervisor uses `flow-new-worktree` to create per-pipeline branches from the slug; humans can use `<type>/<topic>` for non-supervisor work.
-- **Commits:** conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`). Imperative summary ≤ 50 chars. Body explains *why*. Trivial changes may omit the body.
-- **PRs:** TLDR / User-facing changes / System changes / Why / Key decisions / Deviations from plan / Test Steps, in that order. `## Deviations from plan` is omit-when-empty — present only when the accuracy sync finds a meaningful deviation (`pause-output-contract.md` `## Definitions`), one bullet per deviation, immediately before Test Steps. Test Steps is also the auto-merge gate signal — zero unchecked `- [ ]` items ⇒ auto-merge, one or more ⇒ gated. See `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md`. Fix PRs add `**Failing:**`/`**Root cause:**` and a `**Fix mechanism:**` lead bullet; `## User-facing changes` and `## System changes` are both mandatory — `none` when empty.
-- **Never amend pushed commits.** Make a new commit instead.
-- **Never force-push** without explicit user request.
-- **Inline intent annotations** and the **session-marker + trailer** mechanics (how a PR's Claude Code session ID reaches both an HTML-comment marker and a `Claude-Code-Session-Id:` git trailer) are documented in full at [references/git-workflow.md](references/git-workflow.md).
-
-Pass multi-line messages through a heredoc:
-
-```sh
-git commit -F - <<'EOF'
-feat: short summary
-
-Why: …
-Approach: …
-EOF
-```
+- **Branches:** short, descriptive. `flow-new-worktree` creates per-pipeline branches from the slug; humans use `<type>/<topic>`.
+- **Commits:** conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`). Imperative summary ≤ 50 chars; body explains *why*.
+- **PRs:** TLDR / User-facing changes / System changes / Why / Key decisions / Deviations from plan / Test Steps — zero unchecked `- [ ]` Test Steps ⇒ auto-merge, one or more ⇒ gated. Fix PRs add `**Failing:**`/`**Root cause:**`/`**Fix mechanism:**`; `## User-facing changes` and `## System changes` are mandatory (`none` when empty).
+- **Never amend pushed commits or force-push** without explicit request.
+- Full mechanics at [references/git-workflow.md](references/git-workflow.md).
 
 ## Development
 
@@ -174,241 +110,32 @@ npm install                # one-time
 npm run typecheck:scripts  # tsc -p tsconfig.scripts.json (bin/)
 npm run test               # vitest run (bin/)
 npm run verify             # typecheck:scripts + test + lint
-bun bin/flow install         # global install (skills, agents, helpers, wrapper)
+bun bin/flow install        # global install
 ```
 
 No `npm run build` — flow ships `bin/flow` via Bun, no compile step.
-
-## CI
-
-`.github/workflows/ci.yml` runs `npm run verify` (`typecheck:scripts` +
-vitest + lint) on every PR and push to `main` — the server-side backstop
-for the local-only `flow-pre-commit` gate. The runner installs Node and
-Bun (vitest spawns `bun`). **Make the `verify` job a required status
-check** via a branch ruleset on `main` — select job name `verify` (shown
-`CI / verify` in the checks tab). A repo-admin setting, not
-workflow-enforceable.
-
-## What flow is *not*
-
-- The supervisor does not re-implement Claude Code skills in its own
-  process. It hosts a skill library at `skills/` distributed via
-  `flow install`; `bin/flow` only routes verbs to helper scripts and the
-  launcher (plain shell by default, tmux when opted into).
-- It is not a full SDLC tool. It hosts no web UI, Slack posts, Jira
-  tickets, or permission management.
-- It is not a long-running daemon. Each `flow` invocation does one thing
-  and exits. Per-pipeline state persists in `~/.flow/state/<slug>.json`
-  plus the worktree plus the PR; under the tmux launcher, the window's
-  scrollback is a convenience for re-attaching, not the persistence
-  store.
-
-## Consumer-repo notes
-
-`flow-pre-commit` is the verify gate `/flow-pipeline`, `/flow-verify`, and
-`/flow-coder` rely on. It auto-detects scope from the diff (`src/`,
-`scripts/`/`bin/`, `.md`/`.template` → `docs`, `backend/`, workflow YAML
-→ `actions`) plus a monorepo auto-detect + three-layer command
-resolution for `apps/<pkg>/`/`packages/<pkg>/` workspaces, a host-wide
-test-concurrency cap, a host-wide research cache, an optional
-`.flow/ui-validation.json` manifest, an optional
-`.flow/design/foundation.md` design contract, an optional
-`.flow/test-tiers.json` test-tier manifest, and an optional
-`.flow/product.md` product brief (with a `~/.flow/product.md` user-level
-fallback) read by `flow-product-brief`. Full surface area —
-scope-detection rules, the concurrency-cap formula, the cache TTL, the
-three-layer resolution table, and the manifest/foundation fields — is at
-[references/consumer-repo-contract.md](references/consumer-repo-contract.md).
 
 ## Don'ts
 
 - Don't bypass the helper scripts. The supervisor must always call
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. See above. The eight
-  named exceptions are the `**Task-tool exemption: ...**` bullets below
-  (one each for `/flow-pr-review` Multi-Agent Review, `/flow-product-planning`
-  Discovery, `/flow-new-feature` Scout, `/flow-pr-review` Fix-Applier,
-  Merge-Conflict Resolver, `/flow-coder` Edit-Applier, `/flow-pr-review`
-  Consolidator-Validator, `/flow-verify` UI-Driver); no other skill or
-  step may call Task.
+- Don't spawn sub-agents from the supervisor. The eight named exceptions are enumerated in `.claude/rules/flow-supervisor-contracts.md` — the **only eight** authorised Task-tool fan-out sites; no other skill or step may call Task.
 - Don't add features beyond the task's stated scope.
 - Don't treat an absent optional-module skill as a hard failure — check
   `flow-module-status --check-skill <name>` and degrade to a named skip.
 - Don't propagate unverified factual claims. See `## Output style`
   'Verify factual claims before emitting them.' — latent values rot
-  (line numbers shift, SHAs advance, CLI flags get renamed), eroding the
-  textual evidence the rest of the pipeline relies on.
+  (line numbers shift, SHAs advance, flags get renamed).
 - Don't introduce a database. Markdown plan files plus
   `~/.flow/state/<slug>.json` are the state store; if the queue ever
   outgrows that, swap in Beads via an adapter rather than building
   bespoke storage.
-- Don't leave spawned resources running. Three layers, in order:
-  (1) point-of-use teardown first — close what you opened, on every
-  exit path; (2) `flow-browser-teardown --reap --record` at every
-  terminal state as the guaranteed registry-driven backstop, never
-  `|| true`-swallowed, its outcome recorded in
-  `~/.flow/state/<slug>.json` and surfaced as the gate summary's
-  CLEANUP row; (3) `flow reap` as the crash-path net, never the
-  primary — it covers both registered rows left by a crashed session
-  and shape-heuristic strays, and stays report-only without `--yes`.
-  See `skills/pipeline/flow-pipeline/SKILL.md` "Resource cleanup".
-- **Don't make tmux pane/window state a load-bearing input.** Backend-agnostic
-  signals only, in order: the launch env (`FLOW_SLUG`, set by both launcher
-  backends), `~/.flow/state/<slug>.json`, then on-disk artifacts — the plain
-  shell is the DEFAULT launcher, so a bare install has none. flow's options
-  (`@flow-slug`, `@flow-phase`, `@flow-repo`, `@flow-phase-short`,
-  `@flow-kind`, `@flow-epic`, `@flow-pr`) are additive, publish-only mirrors
-  (`@flow-epic` always: epic slug, feature or design/run, else empty;
-  `@flow-pr` bare digits, empty pre-PR, no reader). Two sanctioned reads: `@flow-kind`, load-bearing ONLY because epic orchestration
-  is already tmux-only by an independent hard constraint — its precondition
-  must be named in a comment at BOTH producing and consuming site, and absence
-  must degrade to a CORRECT, safe-by-construction default; and `@flow-slug`,
-  read back only as a `flow ls`/`attach`/`done` window-join key
-  (`LIST_WINDOWS_FORMAT`), never identity. See `resolveSlugAmbient` (env-only)
-  and `resolveKindAmbient` in `bin/lib/session-identity.ts`;
-  `bin/pane-read-lint.test.ts` fails CI on any pane read outside the frozen
-  allowlist, in code or prose. `flow ls`'s KIND column reads
-  `PipelineState.kind`, never `@flow-kind`.
-- **Don't write test-time port or URL overrides to a file.** Pass them
-  inline to the launch subprocess (env vars / CLI flags); never write
-  `.env.local`, `.env`, or any other config file. A gitignored override
-  outlives the run and silently re-points a later manual `npm run dev`.
-  Extend `.flow/ui-validation.json` (env, a `{{PORT_<NAME>}}` sentinel)
-  instead. See
-  `skills/pipeline/flow-pipeline/references/ui-smoke-pass.md`.
-- **Don't gate a post-commit verification on a worktree-vs-index diff.**
-  Post-commit, worktree == index == HEAD, so `git diff --check` /
-  `git status --porcelain` report clean regardless of content — read the
-  committed tree instead (`git grep ... HEAD`). See
-  `skills/pipeline/flow-merge-resolver-instructions/SKILL.md`
-  Step 5 and `flow-conflict-marker-check`.
-- Don't auto-commit or auto-push outside an explicit user instruction —
-  this default always holds on `main` (or any base branch). **On a
-  feature/PR branch, a user invoking a code-editing skill
-  (`/flow-new-feature`, `/flow-refactoring`, `/flow-pr-review`, `/flow-pipeline`, etc.)
-  is itself an instruction to commit the skill's edits to that branch —
-  leave the tree clean before returning.** On `main`, pause and ask
-  before committing even when running a code-editing skill. Pushing
-  remains gated by the named exemptions below; creating PRs counts as
-  user-visible action — confirm before pushing.
-  - **Auto-push exemption: `pr-review`.** Invoking `/flow-pr-review` is
-    itself the user's explicit instruction to commit and push the
-    review-fix commit in the same run. Named and narrow — no other skill
-    is authorised to bypass the default.
-  - **Auto-commit exemption: `flow-epic-sync --commit`.** One status.json
-    path, base-branch-legal via the installed guard's status.json allowlist
-    (self-healed in place when outdated).
-  - **Auto-push exemption: `flow-epic-sync --push`** (and `flow epic
-    done`'s heal): that one commit, never forced. Both contracts:
-    [git-workflow.md](references/git-workflow.md).
-  - **Auto-merge exemption: `/flow-pipeline` step 10.** Exempt for one
-    narrow, named operation: `gh pr merge --squash <PR>` inside step 10,
-    only on an auto-merge gate verdict (`flow-gate-decide` returns
-    `auto-merge`), only on a PR `/flow-pipeline` opened itself. The
-    exemption does **not** extend to a `gated` verdict: a `gated` PR is
-    merged only through the fresh-confirmation gate-override path
-    (`AskUserQuestion`, recorded by `flow-merge-guard --record-override`,
-    enforced by the step-10 backstop). Full anti-pattern catalogue and
-    the `--no-auto-merge` opt-out are at
-    [references/git-workflow.md](references/git-workflow.md).
-  - **Shared rationale for the eight Task-tool exemptions below**: the
-    supervisor is depth 1, so its own Task calls are never nested; flow
-    chooses flat one-shot fan-out despite nesting being
-    platform-possible — none of the eight sites below nests; each subagent
-    is one-shot; and each is documented bidirectionally with
-    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules". Full
-    five-point rationale and each exemption's unique contract (spawn
-    site, artifact path, typed fields, model override) are at
-    [references/exemption-contracts.md](references/exemption-contracts.md);
-    only the byte-exact opener and a one-line summary remain below.
-  - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
-    Multi-Agent Review.** Step 8's up to seven review agents (the seventh,
-    `product`, brief-gated) plus one intent-guess agent, in one fan-out
-    message re-fanned at most once on a widen.
-  - **Task-tool exemption: `/flow-pipeline` → `/flow-product-planning`
-    Independent Discovery Subagent.** Step 3's one discovery agent + one
-    blind `flow-product-critic`.
-  - **Task-tool exemption: `/flow-pipeline` → `/flow-new-feature`
-    Independent Scout Subagent.** Step 5's one scout agent, wider-scope
-    path only.
-  - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Fix-Applier
-    Subagent.** Step 8's one fix-applier agent for the per-finding
-    address loop + commit/push.
-  - **Task-tool exemption: `/flow-pipeline` → Merge-Conflict Resolver
-    Subagent.** Step 10's one resolver agent for the base-branch merge +
-    per-file resolution + push, per-pipeline branch only.
-  - **Task-tool exemption: `/flow-pipeline` → `/flow-coder` Independent
-    Edit-Applier Subagent.** The edit-applier agent `/flow-coder` spawns
-    when `/flow-new-feature` step 5, `/flow-verify` step 3, or
-    `/flow-refactoring` step 3 takes its wider-scope path — or the
-    supervisor's **interactive code-change redirect** path; full
-    contract in `skills/pipeline/flow-coder/SKILL.md`.
-  - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
-    Consolidator-Validator Subagent.** Step 3.5's one consolidator
-    agent, default Sonnet.
-  - **Task-tool exemption: `/flow-pipeline` → `/flow-verify` Independent
-    UI-Driver Subagent.** The browser-drive agent (`flow-ui-driver`), on a
-    `ran:true`/`bootstrap` `flow-ui-validate` verdict only, writing
-    `.flow-tmp/ui-driver-result.json`; default `sonnet`, never inherited.
-    Two callers, one exemption: `/flow-verify` UI-smoke and
-    `/flow-pr-review` 8c.iii. These are the **only eight**
-    authorised Task-tool fan-out sites from `/flow-pipeline`; no other
-    skill or step may call Task.
-  - **Task-tool spawn sites must load Task first.** Each of the nine
-    sites above must load the Task schema via
-    `ToolSearch query="select:Task"` before invoking Task (or its alias
-    `Agent`); on a missing schema, escalate
-    `NEEDS HUMAN: task-tool-unavailable: <exemption-name>` rather than
-    falling back inline. Enforced by `bin/skill-md-lint.test.ts`'s "Load
-    the Task tool before spawning" check at all nine sites.
-  - **A `SendMessage` continuation of a partial agent stays inside its
-    exemption — not an eighth site** (`references/partial-result-continuation.md`).
-  - The `/flow-pr-review` Gemini lens, the cross-model intent guess
-    (`flow-gemini-intent-guess`), the `/flow-pipeline` Step-3
-    **cross-model plan review**, and the Step-3
-    **blind method survey** are a
-    **Bash fan-out, not an eighth exemption** —
-    `flow-delegate`/`flow-plan-review`/`flow-blind-survey` calls, no
-    Task, graceful skip sans agy. The same holds for **headless Claude
-    via `flow-claude-headless`** (contract:
-    `skills/pipeline/flow-pipeline/references/headless-claude.md`).
-  - **AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override
-    sub-step.** The single confirmation form fired when the user
-    instructs the supervisor to merge a `gated` PR anyway — a *fresh*
-    confirmation, not an inference from an earlier instruction. This
-    named form is the **only** authorised `AskUserQuestion` site.
-  - **The intent interview's two pauses (`triage-pending-interview`,
-    `plan-pending-interview`) are ordinary markdown chat pauses, NOT
-    `AskUserQuestion`** — no new exemption, one-form rule unaffected;
-    full contract in
-    `skills/pipeline/flow-pipeline/references/interview-playbook.md`.
-  - **Auto-issue-create exemption: `/flow-pr-review` Step 6 deferral path,
-    `/flow-pr-review` Step 5 retrospective generic-gap capture,
-    `/flow-pipeline` Step 10 post-merge sweep, a user-instructed
-    `flow-untracked file <n>` reply, and `/flow-file-issue`'s hand-filed
-    path.** `flow-create-issue` fires only from these five sites;
-    `flow-untracked` only lists, never files itself. Curation and the
-    checkpoint-free `advance-to-step-5` route are detailed at
-    [references/git-workflow.md](references/git-workflow.md).
-  - **`/flow-epic-create` is a separate sanctioned supervisor session.**
-    `flow epic create` spawns a fresh top-level `/flow-epic-create` session, so
-    `/flow-pipeline`'s exactly-7 and one-form rule are unaffected by its
-    two named surfaces: **Task-tool fan-out: `/flow-epic-create` →
-    /flow-product-planning MODE: epic designer.** and **AskUserQuestion
-    form: `/flow-epic-create` clarification round.** Its
-    **cross-model design review** is a
-    **Bash fan-out, not an eighth exemption** —
-    `review.gemini`-gated `flow-plan-review` over `design.md`; no Task,
-    no form.
-  - **`/flow-epic-run` is a separate sanctioned playbook session.**
-    `flow epic run <slug>` opens a fresh `/flow-epic-run` playbook
-    session — a playbook, not a loop, reconciling the manifest against
-    GitHub/git truth. Zero named fan-out: **no** Task/Agent sub-agent,
-    **no** `AskUserQuestion` form. `gated ⇒ escalate-only`, never merges
-    a feature PR.
-  - **`/flow-backlog-triage` is a separate sanctioned standalone
-    session,** so `/flow-pipeline`'s exactly-7 and one-form rule are
-    unaffected by its one named surface: One Task-tool fan-out (Phase-1
-    verification via `flow-backlog-verifier`), zero `AskUserQuestion`
-    forms; contract in `skills/universal/flow-backlog-triage/SKILL.md`.
+- Don't leave spawned resources running: (1) point-of-use teardown first;
+  (2) `flow-browser-teardown --reap --record` as the guaranteed
+  registry-driven backstop, never `|| true`-swallowed; (3) `flow reap` as
+  the crash-path net, never primary. See `skills/pipeline/flow-pipeline/SKILL.md` "Resource cleanup".
+- Don't auto-commit/push outside explicit instruction on `main`; on a
+  feature/PR branch, invoking a code-editing skill IS the instruction to
+  commit that branch's edits. Named exemptions are enumerated in
+  `.claude/rules/flow-supervisor-contracts.md` `## Don'ts`.

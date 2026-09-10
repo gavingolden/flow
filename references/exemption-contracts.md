@@ -1,6 +1,6 @@
 # Task-tool exemption contracts
 
-Per-exemption contract bodies offloaded from `AGENTS.md` `## Don'ts` (PR
+Per-exemption contract bodies offloaded from `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` (PR
 addressing #220) to keep that file under its char budget. Each section
 below carries the unique contract for one of the eight named Task-tool
 exemptions: spawn site / triggering step, artifact path, typed artifact
@@ -8,14 +8,14 @@ fields, and any model override.
 
 This file is one half of a bidirectional contract. The other anchors are:
 
-- `AGENTS.md` `## Don'ts` — the trimmed opener + one-line summary for each
+- `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` — the trimmed opener + one-line summary for each
   exemption, each pointing here.
 - `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" — the canonical
-  `**Task-tool exemption #N: ...**` blocks the AGENTS.md bullets are
+  `**Task-tool exemption #N: ...**` blocks the .claude/rules/flow-supervisor-contracts.md bullets are
   symmetric with (enforced by `bin/skill-md-lint.test.ts`).
 
 The **shared rationale** for all eight (why a top-level supervisor may
-call Task at these sites) stays in `AGENTS.md` `## Don'ts` alongside the
+call Task at these sites) stays in `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` alongside the
 openers — it is not duplicated here.
 
 ## `/flow-pr-review` Independent Multi-Agent Review

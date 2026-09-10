@@ -1,7 +1,7 @@
 /**
  * Pure library for `flow-claude-headless`, the one sanctioned raw
  * `claude -p` spawn site (`skills/pipeline/flow-pipeline/SKILL.md` Hard
- * rules, `AGENTS.md` `## Don'ts`). Defines the child env allowlist, the
+ * rules, `.claude/rules/flow-supervisor-contracts.md` `## Don'ts`). Defines the child env allowlist, the
  * fixed deny-list, the headless preamble, the argv builder, arg parsing,
  * and the envelope run loop — all with the real spawn behind an injected
  * `Deps` so this module never touches `node:child_process` or `Bun.spawn`

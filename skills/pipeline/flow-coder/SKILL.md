@@ -341,7 +341,7 @@ runtime validator at `bin/lib/coder-schema.ts` lets callers assert shape
 before consuming the artifact.
 
 The sixth named Task-tool exemption is documented bidirectionally in
-`AGENTS.md` `## Don'ts` and `skills/pipeline/flow-pipeline/SKILL.md`
+`.claude/rules/flow-supervisor-contracts.md` `## Don'ts` and `skills/pipeline/flow-pipeline/SKILL.md`
 "Hard rules" — both files name "Independent Edit-Applier Subagent" as
 the heading anchor.
 

@@ -6,7 +6,7 @@
  * the path to a human-readable note.
  *
  * A Bash fan-out over `flow-claude-headless`, NOT a Task-tool spawn — see
- * `AGENTS.md` "Don'ts" and
+ * `.claude/rules/flow-supervisor-contracts.md` "Don'ts" and
  * `skills/pipeline/flow-pipeline/references/headless-claude.md`. That is
  * what lets a Task-spawned sub-agent (discovery) call it: a sub-agent may
  * never spawn a nested Task, but it may always shell out.
