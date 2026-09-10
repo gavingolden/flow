@@ -141,10 +141,14 @@ sentinel by hand on that path. Then, per visual item:
    with a `subjective UX` reason — only concrete, second-observer-reproducible
    visual-appearance assertions are runnable here.
 
-This adds **no new Task-tool exemption**: Step 8c runs inside the already-exempt
-Fix-Applier subagent surface, and the MCP calls are harness-level tool calls in
-that context. See `references/manual-test-rubric.md` "Caveat: browser-validation
-flakiness".
+This adds **no new Task-tool exemption**: Step 8c.iii spawns the **UI-Driver
+Subagent** — the same eighth Task-tool exemption `/flow-verify`'s Optional
+UI-smoke pass already uses, a second caller rather than a new exemption — and
+the MCP calls happen inside that spawned agent's own isolated session, never
+as harness-level tool calls inside the Fix-Applier subagent's own context (the
+capture genuinely happens outside the Fix-Applier subagent's session — see
+"Merge-back into `ui-driver-result.json`" below). See
+`references/manual-test-rubric.md` "Caveat: browser-validation flakiness".
 
 ## Design-fidelity per-assertion walk (spec-gated)
 
@@ -227,8 +231,8 @@ The a11y `take_snapshot` is the gate — it is the primary evidence injected via
 `flow-inject-evidence`. The screenshot is supplementary: referenced by its
 saved path inside the evidence block, never embedded (`gh` takes no inline
 binary). Every screenshot path that survives the save-path cascade below is
-also recorded into `fix-applier-result.json`'s `ui_screenshots[]` (see
-"Merge-back into `fix-applier-result.json`" below), so the `/flow-pipeline`
+also recorded into `ui-driver-result.json`'s `ui_screenshots[]` (see
+"Merge-back into `ui-driver-result.json`" below), so the `/flow-pipeline`
 supervisor can surface each one as a clickable absolute path in the session —
 the PR body itself keeps the existing by-path reference unchanged. The a11y
 snapshot remains the gate either way; recording a screenshot path is
@@ -257,32 +261,28 @@ cleanly:
 3. Else SKIP with a loud note — the a11y snapshot is the gate, the screenshot
    supplementary, never blocking.
 
-## Merge-back into `fix-applier-result.json`
+## Merge-back into `ui-driver-result.json`
 
-This is a **wrapper-side patch, not a subagent write**: by the time Step 8c
-drives the browser, the Fix-Applier subagent has already written and
-returned `fix-applier-result.json` and exited — the browser capture happens
-outside that subagent's session — so the `/flow-pr-review` wrapper is the
-only write point for review-time captures. After the per-viewport capture
-loop, collect every path from the `ran:true` `flow-ui-validate --captures`
-envelope's `evidence_paths[]` that a `test -f` guard confirms still exists on
-disk, then union them into the artifact's `ui_screenshots[]` — written before
-`/flow-pr-review` Step 9's single read of that artifact:
+This is now a **subagent write, not a wrapper-side patch**: the spawned
+UI-Driver Subagent owns the `evidence_paths[] → ui_screenshots[]` mapping
+itself (carrying forward the existing `test -f` survival guard — a
+screenshot path that failed to actually land on disk is dropped rather than
+emitted) and writes the union directly into its own
+`<worktree>/.flow-tmp/ui-driver-result.json` artifact before it returns —
+see `flow-ui-driver-instructions/SKILL.md` step 4. The browser capture
+genuinely happens outside the Fix-Applier subagent's session (in the
+UI-Driver subagent's own isolated context), so there is no `fix-applier-
+result.json` patch step left for the `/flow-pr-review` wrapper to perform:
+after the Task call returns, the wrapper reads `ui-driver-result.json`'s
+already-populated `ui_screenshots[]` once — the same recipe `/flow-pipeline`
+Step 8's "Surface UI screenshots (review-time)" consumer uses — before
+`/flow-pr-review` Step 9's single read of the (separate) Fix-Applier
+artifact.
 
-```bash
-ART="$WORKTREE/.flow-tmp/fix-applier-result.json"
-SHOTS=$(printf '%s' "$CAPTURES_JSON" | jq -r '.evidence_paths[]?' | while IFS= read -r p; do [ -f "$p" ] && printf '%s\n' "$p"; done)
-if [ -f "$ART" ] && [ -n "$SHOTS" ]; then
-  SHOTS_JSON=$(printf '%s\n' "$SHOTS" | jq -R . | jq -s 'map(select(length > 0))')
-  TMP=$(mktemp)
-  jq --argjson shots "$SHOTS_JSON" '.ui_screenshots = (((.ui_screenshots // []) + $shots) | unique)' "$ART" > "$TMP" && mv "$TMP" "$ART"
-fi
-```
-
-A headless run, an MCP-absent run, or a run that lands on the runnable
-bucket's branch-3 skip captures nothing, so `SHOTS` is empty and
-`ui_screenshots` stays absent from the artifact — a surfaced gap (via the
-existing `ui_smoke_reason` carrier), never a failure.
+A headless run, an MCP-absent run, an MCP-busy run, or a run that lands on
+the runnable bucket's fallback branch never spawns the UI-Driver at all, so
+`ui-driver-result.json` is absent or carries an empty `ui_screenshots[]` — a
+surfaced gap (via the existing `ui_smoke_reason` carrier), never a failure.
 
 ## UI traits to verify
 

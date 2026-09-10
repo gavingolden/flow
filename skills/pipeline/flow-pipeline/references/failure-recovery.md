@@ -284,7 +284,7 @@ after confirming which pipeline's state needs correction.
 
 ### Task-tool unavailable (no retries)
 
-Fires when any of the seven spawn procedures' load step
+Fires when any of the eight spawn procedures' load step
 (`ToolSearch query="select:Task"`) returns a response that does not
 contain _either_ a `<function>{"name": "Task", ...}</function>` _or_ a
 `<function>{"name": "Agent", ...}</function>` line — i.e. the harness
@@ -323,7 +323,10 @@ flow-notify --status needs-human --reason "$TLDR" --tag "task-tool-unavailable: 
      `pr-review-multi-agent-review`, `pr-review-fix-applier`,
      `pr-review-consolidator-validator`, `product-planning-discovery`,
      `new-feature-scout`, `coder-edit-applier`, `flow-pipeline-merge-resolver`,
-     `product-planning-critic`.
+     `product-planning-critic`, `ui-driver` (spawned from either of its two
+     callers — `/flow-verify`'s Optional UI-smoke pass, or `/flow-pr-review`
+     Step 8c.iii — same tag either way, since this recovery recipe doesn't
+     distinguish caller).
 
 No retry is appropriate — the deferred-tool surfacing is environmental;
 remediation is to re-run in a session where `Task` or `Agent` is surfaced

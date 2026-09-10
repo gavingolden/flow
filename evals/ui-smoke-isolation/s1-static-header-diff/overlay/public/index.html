@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ui-smoke-isolation fixture</title>
+  </head>
+  <body>
+    <!-- Planted UI diff (evals/ui-smoke-isolation): the plain <h1> header
+         is restructured into a <header> wrapping a persistent top-nav
+         bar — the new #nav element is exactly the selector
+         fixture/.flow/ui-validation.json's route expects, so a
+         navigate-without-drive run is UI-meaningfully wrong, not
+         vacuously green. -->
+    <header>
+      <h1>ui-smoke-isolation fixture</h1>
+      <nav id="nav">
+        <a href="/">Home</a>
+        <a href="/about">About</a>
+        <a href="/contact">Contact</a>
+      </nav>
+    </header>
+    <p>After the header restructure.</p>
+  </body>
+</html>

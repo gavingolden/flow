@@ -70,6 +70,15 @@ describe("validateSuiteSpec", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toMatch(/defaults\.effort/);
   });
+
+  it("rejects a non-string-array defaults.mcpServers", () => {
+    const result = validateSuiteSpec({
+      ...validSuite,
+      defaults: { mcpServers: "chrome-devtools" },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/defaults\.mcpServers/);
+  });
 });
 
 describe("validateScenarioSpec", () => {
@@ -242,6 +251,15 @@ describe("validateScenarioSpec", () => {
     const result = validateScenarioSpec({ ...validScenario, effort: 5 });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toMatch(/effort/);
+  });
+
+  it("rejects a non-string-array mcpServers", () => {
+    const result = validateScenarioSpec({
+      ...validScenario,
+      mcpServers: "chrome-devtools",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/mcpServers/);
   });
 
   it("accepts a well-formed ghCalls", () => {
@@ -540,5 +558,71 @@ describe("loadSuite", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.scenarios[0].ghCalls).toEqual([]);
+  });
+
+  it("resolves mcpServers in scenario > suite.defaults > [] order", () => {
+    const deps = memDeps({
+      "/e/s/suite.json": JSON.stringify({
+        schemaVersion: 1,
+        id: "s",
+        candidate: "c",
+        description: "d",
+        scenarios: ["scenario-a", "scenario-b", "scenario-c"],
+        defaults: { mcpServers: ["chrome-devtools"] },
+      }),
+      "/e/s/scenario-a/case.json": JSON.stringify({
+        id: "scenario-a",
+        title: "A",
+        provenance: "test",
+        prompt: "prompt.md",
+        mcpServers: ["other-server"],
+        graders: [{ id: "g1", kind: "file", file: "out.txt", exists: true }],
+      }),
+      "/e/s/scenario-a/prompt.md": "hi",
+      "/e/s/scenario-a/out.txt": "hi",
+      "/e/s/scenario-b/case.json": JSON.stringify({
+        id: "scenario-b",
+        title: "B",
+        provenance: "test",
+        prompt: "prompt.md",
+        graders: [{ id: "g1", kind: "file", file: "out.txt", exists: true }],
+      }),
+      "/e/s/scenario-b/prompt.md": "hi",
+      "/e/s/scenario-b/out.txt": "hi",
+      "/e/s/scenario-c/case.json": JSON.stringify({
+        id: "scenario-c",
+        title: "C",
+        provenance: "test",
+        prompt: "prompt.md",
+        mcpServers: [],
+        graders: [{ id: "g1", kind: "file", file: "out.txt", exists: true }],
+      }),
+      "/e/s/scenario-c/prompt.md": "hi",
+      "/e/s/scenario-c/out.txt": "hi",
+    });
+
+    const result = loadSuite("/e/s", deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // scenario override wins over suite.defaults
+    expect(result.value.scenarios[0].mcpServers).toEqual(["other-server"]);
+    // suite.defaults wins when the scenario omits it
+    expect(result.value.scenarios[1].mcpServers).toEqual(["chrome-devtools"]);
+    // an explicit empty scenario override wins too — `??` only falls
+    // through on undefined, not on an empty array
+    expect(result.value.scenarios[2].mcpServers).toEqual([]);
+  });
+
+  it("resolves mcpServers to [] when neither the scenario nor suite.defaults declare it", () => {
+    const deps = memDeps({
+      "/e/s/suite.json": JSON.stringify(validSuite),
+      "/e/s/s1/case.json": JSON.stringify(validScenario),
+      "/e/s/s1/prompt.md": "hi",
+      "/e/s/s1/out.txt": "hi",
+    });
+    const result = loadSuite("/e/s", deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.scenarios[0].mcpServers).toEqual([]);
   });
 });

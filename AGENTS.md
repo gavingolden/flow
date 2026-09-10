@@ -69,7 +69,7 @@ length to task, fenced blocks only for runnable code, etc.).
 The supervisor is one Claude Code chat session; sub-skills load in-process
 via `Skill`; `bin/` scripts are Bash calls. It never spawns `Task`/`Agent`
 and never invokes a raw `claude -p` subprocess (headless Claude only via
-`flow-claude-headless`), **with seven narrowly-named exceptions** —
+`flow-claude-headless`), **with eight narrowly-named exceptions** —
 enumerated as named bullets in
 `.claude/rules/flow-supervisor-contracts.md` `## Don'ts`. Logic needing a
 separate LLM session belongs in an in-process sub-skill or a non-LLM
@@ -120,7 +120,7 @@ No `npm run build` — flow ships `bin/flow` via Bun, no compile step.
 - Don't bypass the helper scripts. The supervisor must always call
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. The seven named exceptions are enumerated in `.claude/rules/flow-supervisor-contracts.md` — the **only seven** authorised Task-tool fan-out sites; no other skill or step may call Task.
+- Don't spawn sub-agents from the supervisor. The eight named exceptions are enumerated in `.claude/rules/flow-supervisor-contracts.md` — the **only eight** authorised Task-tool fan-out sites; no other skill or step may call Task.
 - Don't add features beyond the task's stated scope.
 - Don't treat an absent optional-module skill as a hard failure — check
   `flow-module-status --check-skill <name>` and degrade to a named skip.

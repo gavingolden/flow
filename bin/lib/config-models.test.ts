@@ -63,14 +63,18 @@ describe("runConfigModelsCli", () => {
       "review-lens:test-coverage",
       "review-lens:intent-guess",
       "fix-applier",
+      "ui-driver",
       "consolidator",
       "merge-resolver",
     ]) {
       expect(table).toContain(phase);
     }
-    // built-in + pinned fallbacks are visible
+    // built-in model fallback is visible; effort is never pinned — every
+    // row inherits the (absent, so global-view) session effort.
     expect(table).toContain("built-in (sonnet)");
-    expect(table).toContain("pinned");
+    expect(table).toMatch(
+      /fix-applier\s+sonnet\s+built-in \(sonnet\)\s+inherited/,
+    );
     // the fixture config value resolves
     expect(table).toMatch(/review\s+opus\s+config \(models\.review\)/);
   });
@@ -124,8 +128,9 @@ describe("runConfigModelsCli", () => {
     const parsed = JSON.parse(out[0]);
     expect(Array.isArray(parsed)).toBe(true);
     // 8 original spawn sites + 7 review-lens rows (bug-detection, security,
-    // pattern-consistency, performance, supply-chain, test-coverage, intent-guess)
-    expect(parsed.length).toBe(15);
+    // pattern-consistency, performance, supply-chain, test-coverage,
+    // intent-guess) + the config-only `ui-driver` row
+    expect(parsed.length).toBe(16);
     for (const r of parsed) {
       expect(r).toHaveProperty("phase");
       expect(r).toHaveProperty("model");
@@ -138,7 +143,7 @@ describe("runConfigModelsCli", () => {
     expect(fixApplier).toMatchObject({
       model: "sonnet",
       source: "built-in (sonnet)",
-      effort: "low (pinned)",
+      effort: "inherited",
     });
   });
 

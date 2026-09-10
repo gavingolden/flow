@@ -1,0 +1,85 @@
+{
+  "id": "s1-static-header-diff",
+  "title": "Step 6 UI-smoke pass detects and validates a planted header/#nav UI diff",
+  "provenance": "Synthetic zero-dependency Bun static fixture authored for this suite; preload/plan-digest.md is a short synthetic plan digest (no relative links) describing the header restructure this scenario's overlay plants.",
+  "prompt": "prompt.md",
+  "preload": ["preload/plan-digest.md"],
+  "fixture": {
+    "repo": "fixture",
+    "overlay": "overlay",
+    "state": "state.json"
+  },
+  "env": {
+    "flowSlug": true
+  },
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "mcp-drive-happened",
+      "kind": "metric",
+      "source": "transcript.mcpToolCalls",
+      "direction": "lower",
+      "min": 1
+    },
+    {
+      "id": "drive-not-inline",
+      "kind": "metric",
+      "source": "transcript.topLevelMcpToolCalls",
+      "direction": "lower",
+      "max": 0
+    },
+    {
+      "id": "captures-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/ui-captures.json",
+      "exists": true
+    },
+    {
+      "id": "verify-status-pass",
+      "kind": "structured",
+      "path": "verify_status",
+      "equals": "pass"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "supervisor-mcp-calls",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.topLevelMcpToolCalls",
+      "direction": "lower"
+    }
+  ]
+}

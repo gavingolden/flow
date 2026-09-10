@@ -1,8 +1,7 @@
 ---
 name: flow-fix-applier
-description: Mechanical fix-applier for /flow-pr-review step 8. Applies each review finding, runs pre-commit, commits, and pushes to the PR's own branch. Low reasoning effort — the findings are already diagnosed; applying them never needs deliberation.
+description: Mechanical fix-applier for /flow-pr-review step 8. Applies each review finding, runs pre-commit, commits, and pushes to the PR's own branch. The findings are already diagnosed; applying them never needs deliberation.
 tools: Bash, Edit, Write, Read, ToolSearch, mcp__chrome-devtools__*
-effort: low
 maxTurns: 120
 experimental:
   cacheTtl: 1h
@@ -29,10 +28,13 @@ Two invariants:
 - **You are one-shot.** Do not ask the user clarifying questions. Return a short
   both-sides summary; the artifact on disk is the durable record.
 
-This definition pins `effort: low` because applying an already-diagnosed finding
-is gate-run-and-commit work that does not earn high-effort thinking tokens. The
-per-spawn `model:` argument the caller passes still wins over this definition's
-model, so per-phase model flags keep working unchanged.
+This definition does not pin `effort`: the Task tool has no per-spawn effort
+argument, so a frontmatter pin would be unoverridable even though this row's
+`model` is only a configurable default (`config.models.fixApplier`, falling
+back to a literal sonnet). Effort instead follows the session's `state.effort`
+like every other routed site. The per-spawn `model:` argument the caller
+passes still wins over this definition's model, so per-phase model flags keep
+working unchanged.
 
 `maxTurns: 120` bounds the per-finding apply loop. If you reach it, the
 harness returns your output as **partial** — write the artifact FIRST as

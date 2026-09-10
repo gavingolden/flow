@@ -2,7 +2,7 @@
 
 Per-exemption contract bodies offloaded from `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` (PR
 addressing #220) to keep that file under its char budget. Each section
-below carries the unique contract for one of the seven named Task-tool
+below carries the unique contract for one of the eight named Task-tool
 exemptions: spawn site / triggering step, artifact path, typed artifact
 fields, and any model override.
 
@@ -14,7 +14,7 @@ This file is one half of a bidirectional contract. The other anchors are:
   `**Task-tool exemption #N: ...**` blocks the .claude/rules/flow-supervisor-contracts.md bullets are
   symmetric with (enforced by `bin/skill-md-lint.test.ts`).
 
-The **shared rationale** for all seven (why a top-level supervisor may
+The **shared rationale** for all eight (why a top-level supervisor may
 call Task at these sites) stays in `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` alongside the
 openers — it is not duplicated here.
 
@@ -31,7 +31,7 @@ diff-only intent-guess agent (skipped on a delta re-entry with a prior
 message, via the Task tool; the fan-out is re-fanned at most once per
 invocation when the Consolidator-Validator's `scope_verdict.widen`
 requests a widen to the full PR diff, inside this same exemption (no new
-Task-tool exemption; the count stays seven). Each spawned lens names
+Task-tool exemption; the count stays eight). Each spawned lens names
 `subagent_type: $LENS_AGENT` (resolved per-lens against the
 `agents/flow-review-<lens>.md` definitions with a Read/Grep/Glob/Write
 `tools:` allowlist and no `effort:`/`model:` pins), resolved via a
@@ -54,7 +54,7 @@ intent-guess agent persists `$WORKTREE/.flow-tmp/intent-guess.json`
 Consolidator-Validator step (a separate exemption) produces
 `consolidator-result.json` from the six lens outputs plus the optional
 cross-model (Gemini) lens output when `review.gemini` is enabled. All
-seven agents run inside the supervisor's own in-process Skill load
+seven lens/intent-guess agents run inside the supervisor's own in-process Skill load
 (`/flow-pr-review` has no `context: fork` directive).
 
 ## `/flow-product-planning` Independent Discovery Subagent
@@ -227,3 +227,73 @@ Artifact: `<worktree>/.flow-tmp/consolidator-result.json` (typed fields
 `anti_patterns_found`, `summary`); the wrapper reads it once at Step 4
 and reuses the parsed object across Steps 4–7. Also documented in
 `skills/pipeline/flow-consolidator-instructions/SKILL.md`.
+
+## `/flow-verify` Independent UI-Driver Subagent
+
+**Two callers, one exemption.** Like the Edit-Applier, this exemption is
+shared by more than one spawn site: `/flow-verify`'s UI-smoke pass (the
+`/flow-pipeline` step-6 path described below) and `/flow-pr-review` step
+8c.iii's visual-appearance capture, which passes `MODE: visual-appearance`
+plus the enumerated item list so the driver captures per verification item
+rather than per manifest route. Both write the same
+`.flow-tmp/ui-driver-result.json` artifact and use the same guarded
+subagent-type resolution, so the exemption count stays eight.
+
+`/flow-pipeline` step 6 loads `/flow-verify`'s "Optional UI-smoke pass";
+when the probe (`flow-ui-validate`) returns a `ran:true` ready envelope OR
+a `bootstrap` envelope — never on an `mcp-not-available` or
+`browser-profile-busy` skip, which stay quiet `ran:false` degrades and
+never reach a Task call at all — the wrapper spawns exactly one
+`flow-ui-driver` agent via the Task tool to launch the app, drive
+`chrome-devtools` per route and viewport, and write the result artifact.
+Resolved via a single plugin-root probe using the
+`[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-ui-driver.md ]`
+file-exists guard: the plugin-qualified `flow-module-core:flow-ui-driver`
+name when present (a bare `flow-ui-driver` subagent_type fails Task-tool
+resolution outright — measured: "Agent type 'flow-scout' not found"),
+else `general-purpose` fallback emitting the `NOTICE — agent-fallback:`
+line (no bare-name legacy-install tier). Artifact:
+`<worktree>/.flow-tmp/ui-driver-result.json` (typed fields per
+`bin/lib/ui-driver-schema.ts`'s `UiDriverResult`: `ran`, `ok`,
+`skipped_reason?`, `captures_path`, `ui_screenshots`, `fix_context`,
+`rejected_alternatives`, `summary`).
+
+**Model.** This spawn site resolves `config.models.uiDriver // "sonnet"`
+— config-only, no CLI flag, and deliberately **not** inherited from the
+session model or any `state.json` field (`bin/lib/model-routing-table.ts`'s
+`ui-driver` row: `fallback: "builtin-sonnet"`). A manifest-driven browser
+drive is template execution that must not silently inherit Opus/Fable.
+Effort is a separate axis: this row does NOT pin `effort` — the Task tool
+has no per-spawn effort argument, so a frontmatter effort pin would be
+unoverridable even though `model` here is only a configurable default;
+effort follows the session's `state.effort` like every other routed site.
+
+**The `UI_SMOKE_DRIVER: inline` marker.** Two callers of the shared
+`ui-smoke-pass.md` procedure exist: `/flow-verify`'s own Step 6/Optional
+UI-smoke pass (spawns this exemption) and `/flow-fix-applier-instructions`'s
+"Re-run /flow-verify" step, which has no Task tool of its own and instead
+invokes `/flow-verify` with the literal marker line `UI_SMOKE_DRIVER:
+inline` in its invocation — that marker tells `/flow-verify` to drive the
+procedure in its OWN context rather than spawning this exemption. Absent
+the marker, `/flow-verify` spawns the exemption as described above. This
+is the one sanctioned inline path; it does not create a second exemption
+because it never calls Task at all.
+
+**Degrade, never escalate (D-o).** When
+`test -s "$WORKTREE/.flow-tmp/ui-driver-result.json"` fails after the one
+permitted Task call returns for this outer `/flow-verify` attempt,
+`/flow-verify` treats it as `{ran: false, ok: false, skipped_reason:
+"driver-no-artifact"}` and emits the existing `> [!NOTE] UI changed;
+browser validation did not run — <reason>` line. It does **not** escalate
+`NEEDS HUMAN`, does **not** re-spawn within the same outer attempt (one
+Task call per outer attempt), and does **not** fail verify — the next
+outer `/flow-verify` attempt re-spawns naturally. The `SendMessage`
+partial-result continuation route
+(`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`)
+stays available in principle but is **deliberately not wired here** —
+unlike the Merge-Conflict Resolver and Edit-Applier exemptions above, a
+missing/partial UI-driver artifact degrades to the named skip reason
+above rather than triggering a continuation message. This omission is
+intentional, not an oversight: the optional, gracefully-degrading nature
+of the UI-smoke pass means a clean degrade is preferable to spending a
+second Task call chasing a partial browser-drive artifact.

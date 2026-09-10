@@ -21,13 +21,13 @@ the tmux-pane / port-override / post-commit-diff rules live in
 `flow-bin-conventions.md`.
 
 - Don't spawn sub-agents from the supervisor. See `AGENTS.md`
-  `## Supervisor and sub-skills: in-process only`. The seven
+  `## Supervisor and sub-skills: in-process only`. The eight
   named exceptions are the `**Task-tool exemption: ...**` bullets below
   (one each for `/flow-pr-review` Multi-Agent Review, `/flow-product-planning`
   Discovery, `/flow-new-feature` Scout, `/flow-pr-review` Fix-Applier,
-  Merge-Conflict Resolver, `/flow-coder` Edit-Applier, and
-  `/flow-pr-review` Consolidator-Validator);
-  no other skill or step may call Task.
+  Merge-Conflict Resolver, `/flow-coder` Edit-Applier, `/flow-pr-review`
+  Consolidator-Validator, `/flow-verify` UI-Driver); no other skill or
+  step may call Task.
 - Don't leave spawned resources running. Three layers, in order:
   (1) point-of-use teardown first — close what you opened, on every
   exit path; (2) `flow-browser-teardown --reap --record` at every
@@ -67,10 +67,10 @@ done`'s heal): that one commit, never forced. Both contracts:
     enforced by the step-10 backstop). Full anti-pattern catalogue and
     the `--no-auto-merge` opt-out are at
     [references/git-workflow.md](../../references/git-workflow.md).
-  - **Shared rationale for the seven Task-tool exemptions below**: the
+  - **Shared rationale for the eight Task-tool exemptions below**: the
     supervisor is depth 1, so its own Task calls are never nested; flow
     chooses flat one-shot fan-out despite nesting being
-    platform-possible — none of the seven sites below nests; each subagent
+    platform-possible — none of the eight sites below nests; each subagent
     is one-shot; and each is documented bidirectionally with
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules". Full
     five-point rationale and each exemption's unique contract (spawn
@@ -98,19 +98,25 @@ done`'s heal): that one commit, never forced. Both contracts:
     when `/flow-new-feature` step 5, `/flow-verify` step 3, or
     `/flow-refactoring` step 3 takes its wider-scope path — or the
     supervisor's **interactive code-change redirect** path; full
-    contract in `skills/pipeline/flow-coder/SKILL.md`. These are the
-    **only seven** authorised Task-tool fan-out sites from `/flow-pipeline`;
-    no other skill or step may call Task.
+    contract in `skills/pipeline/flow-coder/SKILL.md`.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
     Consolidator-Validator Subagent.** Step 3.5's one consolidator
     agent, default Sonnet.
-  - **Task-tool spawn sites must load Task first.** Each of the seven
+  - **Task-tool exemption: `/flow-pipeline` → `/flow-verify` Independent
+    UI-Driver Subagent.** The browser-drive agent (`flow-ui-driver`), on a
+    `ran:true`/`bootstrap` `flow-ui-validate` verdict only, writing
+    `.flow-tmp/ui-driver-result.json`; default `sonnet`, never inherited.
+    Two callers, one exemption: `/flow-verify` UI-smoke and
+    `/flow-pr-review` 8c.iii. These are the **only eight**
+    authorised Task-tool fan-out sites from `/flow-pipeline`; no other
+    skill or step may call Task.
+  - **Task-tool spawn sites must load Task first.** Each of the nine
     sites above must load the Task schema via
     `ToolSearch query="select:Task"` before invoking Task (or its alias
     `Agent`); on a missing schema, escalate
     `NEEDS HUMAN: task-tool-unavailable: <exemption-name>` rather than
     falling back inline. Enforced by `bin/skill-md-lint.test.ts`'s "Load
-    the Task tool before spawning" check at all seven sites.
+    the Task tool before spawning" check at all nine sites.
   - **A `SendMessage` continuation of a partial agent stays inside its
     exemption — not an eighth site** (`references/partial-result-continuation.md`).
   - The `/flow-pr-review` Gemini lens, the cross-model intent guess

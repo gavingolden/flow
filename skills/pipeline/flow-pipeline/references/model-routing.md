@@ -5,7 +5,7 @@ each fan-out sub-agent. Every named Task-spawn site in the pipeline / epic
 SKILLs links here rather than restating the whole chain.
 
 Adding a per-spawn `model:` argument to an **existing** named fan-out creates
-**no new Task-tool exemption** and **no eighth spawn site** — the seven exemption
+**no new Task-tool exemption** and **no ninth spawn site** — the eight exemption
 openers, the one `AskUserQuestion` form, and every "Load the Task tool before
 spawning" preamble stay byte-exact (guarded by `bin/skill-md-lint.test.ts`).
 
@@ -49,18 +49,23 @@ so the sub-agent inherits the session model (the default Claude behaviour).
 | `/flow-pr-review` Test-Coverage Lens (review)           | `modelReview`        | `config.models.reviewLenses.test-coverage // state.modelReview // config.models.review // session model capped at opus`       |
 | `/flow-pr-review` Intent-Guess Lens (review)            | `modelReview`        | `config.models.reviewLenses.intent-guess // state.modelReview // config.models.review // session model capped at opus`        |
 | `/flow-pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`    | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**                                           |
+| `/flow-verify` UI-driver (uiDriver)                     | —                    | `config.models.uiDriver // "sonnet"` **(NOT inherited; config-only, no CLI flag)**                                            |
 | `/flow-pr-review` Consolidator-Validator (consolidator) | `modelConsolidator`  | `state.modelConsolidator // config.models.consolidator // session model capped at opus`                                       |
 | Step 10 Merge-Conflict Resolver (mergeResolver)         | `modelMergeResolver` | `state.modelMergeResolver // config.models.mergeResolver // inherited`                                                        |
 | `/flow-epic-create` designer (planning)                 | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                                                                  |
 
-## Three deliberate asymmetries
+## Four deliberate asymmetries
 
 - **fixApplier defaults to `sonnet`, not inherited.** The Fix-Applier loop
-  applies already-diagnosed findings — mechanical apply-commit-push work its
-  `agents/flow-fix-applier.md` definition already pins to `effort: low` for the
-  same reason. Letting the model inherit would silently spend the session model
+  applies already-diagnosed findings — mechanical apply-commit-push work.
+  Letting the model inherit would silently spend the session model
   (e.g. Opus/Fable) on gate-run-and-commit work, so its final fallback is the
-  literal `sonnet`. Documented at the `/flow-pr-review` Fix-Applier spawn site.
+  literal `sonnet`. Its `agents/flow-fix-applier.md` definition does NOT pin
+  `effort`, though — the Task tool has no per-spawn effort argument, so a
+  frontmatter effort pin would be unoverridable even though `model` here is
+  only a configurable default; effort follows the session's `state.effort`
+  like every other routed site. Documented at the `/flow-pr-review`
+  Fix-Applier spawn site.
 - **scout / coder are config-only fine-grain (no flags).** `--model-implement`
   is the one primary grain over implementation; `config.models.scout` /
   `config.models.coder` are optional finer overrides that layer **above**
@@ -72,6 +77,29 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   so an accidentally-expensive session can never fan out seven review spawns
   at once. This is a rank-ordering rule keyed on `MODEL_PRICE_RANK`, not a
   named-model special case.
+- **uiDriver falls back to a literal sonnet AND is the only routed site with
+  no CLI flag at all.** `config.models.uiDriver` is the sole knob — no
+  `--model-ui-driver` flag, no `state.json` field. A manifest-driven browser
+  drive is template execution that must not silently inherit Opus/Fable, the
+  same reasoning as fixApplier, but uiDriver goes further: unlike fixApplier
+  (which still has a `--model-fix-applier` flag and a `state.modelFixApplier`
+  field above its config grain), uiDriver has neither —
+  `config.models.uiDriver // "sonnet"` is the entire chain. Like fixApplier,
+  its `agents/flow-ui-driver.md` definition does NOT pin `effort` — same
+  unoverridable-pin reasoning; effort follows the session's `state.effort`.
+
+## No spawn site pins effort
+
+No row in the precedence table above — including fixApplier and uiDriver,
+whose `model` defaults to a literal `sonnet` rather than inheriting — pins
+`effort` in its `agents/*.md` definition. The Task tool exposes no
+per-spawn effort argument, so a frontmatter effort pin would be
+unoverridable, even though the same row's `model` is only a configurable
+default the caller can already override. Effort therefore always follows
+the session's effort (`state.effort`, or `inherited` when no session state
+applies) — the model-default axis and the effort axis are independent.
+`bin/lib/model-routing-table.test.ts` pins this invariant directly: no
+`SPAWN_SITES` row declares an `effortPin`.
 
 ## In-process skills pin effort, not model
 
@@ -81,8 +109,10 @@ runs on the supervisor's own turn, never in a spawned subagent, so there
 is no Task call for a `model:` argument to attach to.
 
 A `SKILL.md` may still carry `effort:` in its frontmatter to bound that
-turn's reasoning depth — the same lever the low-effort agent definitions
-use, just declared on the skill instead of on a spawned agent. It should
+turn's reasoning depth — a lever no `agents/*.md` Task-spawn definition may
+use (see "No spawn site pins effort" below), because an in-process skill
+runs on the supervisor's own turn rather than through the Task tool, so
+there is no per-spawn argument for the pin to conflict with. It should
 **NOT** carry `model:`. Prompt caches are model-scoped, so a mid-turn
 model switch discards the supervisor's warm cache and forces a full
 re-read of the transcript at full input rate — the opposite of the

@@ -1,11 +1,11 @@
 # flow-eval — maintainer guide
 
 `flow-eval` is a maintainer-only, locally-runnable headless eval harness
-running four committed suites, split by what each measures:
+running five committed suites, split by what each measures:
 
-- Three **supervisor context-isolation scaffolds** (`verify-loop`,
-  `haiku-gatekeeper`, `checkpoint-pending-clear`) — cost/context/turn
-  footprint, so a future scaffold-removal PR (epic
+- Four **supervisor context-isolation scaffolds** (`verify-loop`,
+  `haiku-gatekeeper`, `checkpoint-pending-clear`, `ui-smoke-isolation`) —
+  cost/context/turn footprint, so a future scaffold-removal PR (epic
   `modernize-flow-s-supervisor-architecture`, feature
   `f2-scaffold-stress-test`) carries a recorded before/after delta
   instead of a prose argument.
@@ -90,6 +90,89 @@ is only an existence precondition: `flow-eval` checks that
 before running, and a missing install surfaces as the named
 `flow-not-installed` skip, not a crash. Run `flow install` once to
 satisfy that precondition.
+
+## The ui-smoke-isolation suite
+
+Unlike the other three isolation scaffolds, `ui-smoke-isolation` drives a
+real browser (`chrome-devtools` MCP) through the `flow-ui-driver`
+sub-agent, so it carries extra host preconditions on top of `flow
+install`:
+
+- Chrome must be installed and the `chrome-devtools` MCP server must
+  already be registered, launched with `--isolated` — the same
+  shared-profile-lock precondition
+  [`ui-smoke-pass.md`](../../skills/pipeline/flow-pipeline/references/ui-smoke-pass.md)
+  documents for a live pipeline run.
+- No other pipeline (and no other concurrent `flow-eval` run of this
+  suite) may be driving a browser against the same MCP server at the
+  same time — the isolated page the driver opens is keyed on the eval
+  slug, but the underlying MCP server process is shared.
+
+A suite or scenario declares which MCP servers its child needs via the
+`mcpServers` field (`ScenarioSpec`/`SuiteSpec.defaults`, same
+scenario-over-suite-defaults precedence as `allowedTools`) —
+`ui-smoke-isolation`'s `suite.json` sets `"mcpServers": ["chrome-devtools"]`.
+At fixture materialization time, `eval-fixture.ts` copies only the named
+servers out of the maintainer's `~/.claude.json` `mcpServers` map into a
+per-run `mcp-config.json`, which `eval-runner.ts` passes to the child as
+`--mcp-config <path> --strict-mcp-config`. This exists because
+`--setting-sources project` (load-bearing for settings hermeticity — see
+above) does not reach MCP servers registered at user scope, and a bare
+project-scoped `.mcp.json` requires interactive approval the unattended
+eval child can never give; `--mcp-config`/`--strict-mcp-config` is the
+only channel that reaches a user-scope server. Naming a server the host
+has not registered (e.g. via `claude mcp add`) fails the run loudly at
+setup — a paid suite must not silently produce a grader whose tools were
+never actually reachable.
+
+Run it with `--runs 1` (the suite's own `defaults.runs`): a browser drive
+is materially more expensive per run than the other three suites'
+Bash-only fixtures, so `--runs 2`'s default variance-smoothing is not
+worth the doubled cost here.
+
+`transcript.finalContextTokens` and `transcript.topLevelToolCalls` are
+**top-level-only** — they describe the supervisor's own context and tool
+calls, excluding everything the spawned `flow-ui-driver` sub-agent does
+inside its own isolated context (that is the entire point of the
+isolation measurement: the sub-agent's `mcp__chrome-devtools__*` calls and
+context growth never reach the supervisor). `result.total_cost_usd`, by
+contrast, **includes** the driver — Claude Code bills a spawned sub-agent
+against the same top-level `result` envelope, so the cost delta the
+scaffold is meant to justify is only visible there, not in the top-level
+tool-call/context metrics.
+
+`transcript.mcpToolCalls` and `transcript.topLevelMcpToolCalls` (both
+`bin/lib/eval-transcript.ts`) are ALWAYS-PRESENT aggregate counters of
+every tool call whose name starts with `mcp__` — the former across the
+whole transcript (top-level + every sub-agent), the latter top-level
+only, same scoping as `topLevelToolCalls` above. They exist because a
+per-tool-name key (`transcript.toolCalls.<name>` /
+`transcript.topLevelToolCalls.<name>`) is only present once that exact
+tool name has actually been called; `metricSource` resolves an absent
+path to `undefined`, and a `metric` grader scores `undefined` as a
+FAIL ("metric source unresolved"), never as `0`. **A `max: 0` isolation
+gate must therefore be written against an always-present aggregate, not
+a per-tool-name key** — a per-tool `max: 0` gate fails exactly when the
+behaviour under test is perfect (zero top-level calls of that name),
+because the zero-call case is the one case where the key never gets
+created at all.
+
+Worked example this repo hit for real: `ui-smoke-isolation`'s
+`drive-not-inline` gate originally read
+`transcript.topLevelToolCalls.mcp__chrome-devtools__navigate_page` with
+`max: 0`, and its sibling `mcp-drive-happened` gate read
+`transcript.toolCalls.mcp__chrome-devtools__navigate_page` with `min: 1`
+— both keyed on one hand-picked tool name. The first real before-arm run
+against `main`'s tree made 7 `chrome-devtools` calls
+(`take_snapshot` x2, `new_page`, `list_network_requests`,
+`list_console_messages`, `evaluate_script`, `close_page`) and **none**
+were `navigate_page`: `mcp-drive-happened` could never fire on the
+observed drive shape, and `drive-not-inline` was inverted against its
+own success condition (a perfectly-isolated run resolves the absent key
+to `undefined`, which FAILs, rather than to `0`, which would PASS). Both
+graders were repointed at `transcript.mcpToolCalls` /
+`transcript.topLevelMcpToolCalls`; thresholds, ids, kinds, and gate flags
+were left unchanged.
 
 ## Running a suite
 

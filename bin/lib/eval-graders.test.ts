@@ -21,6 +21,8 @@ function makeCtx(overrides: Partial<GraderContext> = {}): GraderContext {
     totalOutputTokens: 100,
     assistantMessages: 2,
     toolCalls: { Bash: 3, Read: 1 },
+    mcpToolCalls: 0,
+    topLevelMcpToolCalls: 0,
     modelShare: { haiku: 1 },
     subagentsSpawned: 0,
     maxSubagentDepth: 0,
