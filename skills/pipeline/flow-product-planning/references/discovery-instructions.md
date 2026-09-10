@@ -997,8 +997,9 @@ edits `.flow/epics/<slug>/manifest.json` — the write-back lands in THIS PR (sa
 obligation), never a later amend. A standalone producer adds itself to
 `sharedArtifacts` and an edge against the previous producer only; a discovered-invalid
 edge is removed the same way. `flow-epic-dag --touched-files` in the fix-applier's
-epic step fails a PR that touches a declared shared artifact without touching the
-manifest.
+epic step fails a PR that touches a declared shared artifact unless the PR's own
+feature is among its declared producers (a non-epic PR passes only when the
+manifest is in the same diff).
 
 **Source-traceability rule:** every claim here MUST be
 traceable to `design.md` and `manifest.json` — read both on detection (step 1.7); never
