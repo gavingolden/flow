@@ -240,35 +240,48 @@ const PLUGIN_ROOT_MARKER = "flow-module-core";
  * `--add-dir`, a settings-sourced skills dir) would silently produce a
  * near-zero delta that reads as "the scaffold adds nothing".
  */
-function ablationLeakGate(ctx: GraderContext): GradeResult {
+export function ablationLeakGate(ctx: GraderContext): GradeResult {
   // `ctx.readFile` (not `Deps.readFile`) — the context's reader is
   // contractually null-tolerant, so an unreadable transcript fails this
   // gate rather than throwing out of the grading path.
   const stream = ctx.readFile(ctx.streamPath);
+  // An empty (or whitespace-only) transcript means the child never
+  // produced a single event — most often the bare-arm spawn itself never
+  // launched. Left undistinguished from "read fine, zero plugins loaded",
+  // that reads as a clean ablation and vacuously PASSES this gate even
+  // though the arm never actually ran, which is exactly the failure mode
+  // this gate exists to catch.
+  const isEmpty = stream !== null && stream.trim().length === 0;
   const plugins =
-    stream === null ? [] : initInfo(parseStream(stream).events).plugins;
+    stream === null || isEmpty
+      ? []
+      : initInfo(parseStream(stream).events).plugins;
   const leakedPlugin = plugins.find((name) =>
     name.startsWith(PLUGIN_ROOT_MARKER),
   );
-  const leaked = stream !== null && leakedPlugin !== undefined;
+  const leaked = stream !== null && !isEmpty && leakedPlugin !== undefined;
   return {
     id: "ablation-leak-free",
     kind: "file",
     gate: true,
-    pass: stream !== null && !leaked,
+    pass: stream !== null && !isEmpty && !leaked,
     expected: `no loaded plugin named "${PLUGIN_ROOT_MARKER}*"`,
     actual:
       stream === null
         ? "transcript unreadable"
-        : leaked
-          ? `loaded: ${leakedPlugin}`
-          : "none loaded",
+        : isEmpty
+          ? "transcript empty"
+          : leaked
+            ? `loaded: ${leakedPlugin}`
+            : "none loaded",
     detail:
       stream === null
         ? "could not read the run transcript, so the ablation could not be verified"
-        : leaked
-          ? "the no-plugin arm still loaded a flow plugin root — the ablation leaked, so any delta from this run is meaningless"
-          : undefined,
+        : isEmpty
+          ? "the no-plugin arm produced no transcript at all, so the ablation could not be verified"
+          : leaked
+            ? "the no-plugin arm still loaded a flow plugin root — the ablation leaked, so any delta from this run is meaningless"
+            : undefined,
   };
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { buildGraderContext, type Deps } from "./eval-cli";
+import { ablationLeakGate, buildGraderContext, type Deps } from "./eval-cli";
 import type { MaterializedFixture } from "./eval-fixture";
 import type { ResolvedScenario } from "./eval-suite";
 import { transcriptMetrics } from "./eval-transcript";
@@ -153,5 +153,29 @@ describe("buildGraderContext — path resolution", () => {
     expect(ctx.fixtureRoot).toBe(path.resolve(scenario.dir));
     expect(ctx.streamPath).toBe(path.resolve(relativeStreamPath));
     expect(ctx.assistantTextPath).toBe(path.resolve(relativeAssistantTextPath));
+  });
+});
+
+describe("ablationLeakGate", () => {
+  it("fails the gate with actual 'transcript empty' when the without-arm transcript is empty", () => {
+    const fixture = makeFixture([]);
+    const ctx = buildGraderContext(
+      fixture,
+      makeScenario(),
+      {
+        streamPath: "/tmp/stream.jsonl",
+        assistantTextPath: "/tmp/assistant.txt",
+        result: null,
+        transcript: transcriptMetrics([], null),
+      },
+      // `makeDeps()`'s `readFile` returns "" unconditionally — the same
+      // shape a never-launched without-arm child leaves on disk.
+      makeDeps(),
+    );
+
+    const grade = ablationLeakGate(ctx);
+    expect(grade.pass).toBe(false);
+    expect(grade.actual).toBe("transcript empty");
+    expect(grade.detail).toContain("no transcript at all");
   });
 });

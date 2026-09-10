@@ -400,6 +400,25 @@ export type RunOutcome = {
   childArgvDigest: string;
 };
 
+/** Resolves a bare binary name to its absolute PATH location. Returns the
+ * input unchanged when it is already absolute, or when the lookup fails
+ * (the caller then gets the same bare-name-spawn behaviour as before this
+ * function existed, rather than a hard failure here). `node:child_process`
+ * spawnSync, not `Bun.which` — this module must also run correctly inside
+ * `npm run test`'s Node-hosted vitest process, where the global `Bun`
+ * object does not exist (see this file's top-of-file doc comment). */
+export function resolveClaudeBinPath(claudeBin: string): string {
+  if (path.isAbsolute(claudeBin)) return claudeBin;
+  // The name is passed as a positional arg, never interpolated into the
+  // script text — `--claude-bin` is maintainer-supplied, but a value
+  // carrying shell metacharacters must not reach `sh -c` as code.
+  const result = spawnSync("sh", ["-c", 'command -v "$1"', "sh", claudeBin], {
+    encoding: "utf8",
+  });
+  const resolved = result.stdout?.trim();
+  return result.status === 0 && resolved ? resolved : claudeBin;
+}
+
 export async function runScenarioOnce(
   scenario: ResolvedScenario,
   fixture: MaterializedFixture,
@@ -425,8 +444,16 @@ export async function runScenarioOnce(
   const prompt = renderPrompt(scenario, fixture, readFile);
   fs.writeFileSync(path.join(opts.outDir, "prompt.txt"), prompt);
 
+  // The "without" arm strips `LOCAL_BIN_DIR` (`~/.local/bin`) from PATH
+  // below (buildChildEnv) to ablate flow helper discovery — but `claude`
+  // itself also lives in `~/.local/bin` on a typical install. A bare
+  // `"claude"` argv[0] would silently fail to spawn (ENOENT/exit 127)
+  // under that stripped PATH, so resolve it to an absolute path once,
+  // here, before composing argv — never inside buildChildArgv itself.
+  const resolvedClaudeBin = resolveClaudeBinPath(opts.claudeBin);
+
   const argv = buildChildArgv(scenario, fixture, {
-    claudeBin: opts.claudeBin,
+    claudeBin: resolvedClaudeBin,
     sessionId: opts.sessionId,
     prompt,
     resultSchema: opts.resultSchema,
@@ -469,7 +496,18 @@ export async function runScenarioOnce(
   const { events, result } = parseStream(out);
   const assistantTextPath = path.join(opts.outDir, "assistant-text.txt");
   fs.writeFileSync(assistantTextPath, assistantText(events));
-  const error = result?.is_error ? (result.subtype ?? "error") : undefined;
+  // A child that dies before emitting any result event (e.g. spawn failed
+  // to resolve the binary, or was killed mid-stream) yields `result ===
+  // null` here. Left undistinguished from a legitimate run, that reads as
+  // "no error" to callers, which is how an empty bare-arm transcript could
+  // get folded into an ablation baseline as though it were a real score.
+  // The already-classified timeout path is excluded — callers handle
+  // `timedOut` separately.
+  const error = result?.is_error
+    ? (result.subtype ?? "error")
+    : !result && !timedOut
+      ? `no-result-event${exitCode !== 0 ? ` (exit ${exitCode})` : ""}`
+      : undefined;
 
   return {
     exitCode,

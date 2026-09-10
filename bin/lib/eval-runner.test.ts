@@ -688,4 +688,70 @@ describe("runScenarioOnce", () => {
       vi.useRealTimers();
     }
   });
+
+  it("resolves a bare claudeBin to an absolute path before composing argv, so the without-arm's LOCAL_BIN_DIR-stripped PATH can't unresolve it", async () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const files: Record<string, string> = {
+      [path.join(scenario.dir, "prompt.md")]: "hi",
+    };
+    const resultLine = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      num_turns: 1,
+      total_cost_usd: 0.01,
+      duration_ms: 10,
+      session_id: "s",
+      usage: { input_tokens: 1, output_tokens: 1 },
+      modelUsage: {},
+      permission_denials: [],
+    });
+
+    let capturedArgv: string[] | undefined;
+    const fakeSpawn: SpawnFn = (argv, _env, _cwd, onStdout) => {
+      capturedArgv = argv;
+      onStdout(resultLine + "\n");
+      return { exited: Promise.resolve(0), kill: () => {} };
+    };
+
+    // "sh" is a bare name guaranteed to resolve on PATH in any POSIX test
+    // environment (unlike "claude", which isn't installed on CI runners).
+    await runScenarioOnce(scenario, fixture, {
+      claudeBin: "sh",
+      outDir,
+      sessionId: "sess-1",
+      spawn: fakeSpawn,
+      readFile: (p) => files[p] ?? "",
+    });
+
+    expect(capturedArgv).toBeDefined();
+    expect(path.isAbsolute(capturedArgv![0])).toBe(true);
+  });
+
+  it("sets a non-empty error naming the missing result event when the child exits without ever emitting one", async () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const files: Record<string, string> = {
+      [path.join(scenario.dir, "prompt.md")]: "hi",
+    };
+
+    const fakeSpawn: SpawnFn = (_argv, _env, _cwd, _onStdout) => {
+      // No onStdout call at all — the child dies before any result event.
+      return { exited: Promise.resolve(127), kill: () => {} };
+    };
+
+    const outcome = await runScenarioOnce(scenario, fixture, {
+      claudeBin: "claude",
+      outDir,
+      sessionId: "sess-1",
+      spawn: fakeSpawn,
+      readFile: (p) => files[p] ?? "",
+    });
+
+    expect(outcome.result).toBeNull();
+    expect(outcome.exitCode).toBe(127);
+    expect(outcome.error).toBeTruthy();
+    expect(outcome.error).toContain("no-result-event");
+  });
 });
