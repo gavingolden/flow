@@ -110,8 +110,14 @@ import {
 import {
   readDefaultModel,
   collectModelConfigWarnings,
+  defaultReadConfigFile,
+  cachedConfigRead,
   type ReadConfigFile,
 } from "./models-config";
+import {
+  readLaunchDefaults,
+  collectLaunchConfigWarnings,
+} from "./launch-config";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
 import {
@@ -278,9 +284,11 @@ export type EpicOptions = {
   readMaxParallel?: () => number;
   /**
    * Injectable `~/.flow/config.json` reader (test seam only). Threaded into
-   * `readDefaultModel` / `collectModelConfigWarnings` at epic-create launch so
-   * the `models.default` resolution can be exercised without touching the real
-   * config. Production uses the module default (reads via flowConfigPath()).
+   * `readDefaultModel` / `collectModelConfigWarnings` AND
+   * `readLaunchDefaults` / `collectLaunchConfigWarnings` at both epic-create
+   * and epic-run launch, so the `models.default` and `launch.effort`
+   * resolutions can be exercised without touching the real config.
+   * Production uses the module default (reads via flowConfigPath()).
    */
   readConfig?: ReadConfigFile;
   /** tmux-on-PATH probe seam for the launcher-backend guard (test only). */
@@ -560,20 +568,36 @@ PR → review checkpoint), and writes initial epic state under
   writeRequestFile(slug, prompt, options.stateDir);
   const settingsPath = launchSettingsPathFor(options);
 
+  // Read + parse `~/.flow/config.json` at most once and share it across the
+  // models.* and launch.* readers below (mirrors feature.ts's launch path).
+  const readConfig: ReadConfigFile = cachedConfigRead(
+    options.readConfig ?? defaultReadConfigFile,
+  );
+
   // Whole-session model resolved at launch: --model wins over config
   // models.default; absent both, no --model reaches claude. Best-effort-warn
   // on any present-but-invalid models.* config value, then fall back.
-  for (const w of collectModelConfigWarnings(options.readConfig)) {
+  for (const w of collectModelConfigWarnings(readConfig)) {
     console.error(dim(`flow epic create: ${w}`));
   }
-  const sessionModel = model ?? readDefaultModel(options.readConfig);
+  const sessionModel = model ?? readDefaultModel(readConfig);
+  // Reasoning-effort precedence (comment applies to both epic-create above
+  // and the epic-run path below): explicit CLI flag > manifest hint
+  // (flowNewHints.effort, applied upstream by epic-launch.ts) > config
+  // (launch.effort) > built-in. Warn on a present-but-invalid launch.* value
+  // the same way `flow feature create` does — without this, `flow epic
+  // create` silently launched at the built-in effort with no signal.
+  for (const w of collectLaunchConfigWarnings(readConfig)) {
+    console.error(dim(`flow epic create: ${w}`));
+  }
+  const sessionEffort = effort ?? readLaunchDefaults(readConfig).effort;
 
   const command =
     options.command ??
     createCommand(
       slug,
       worktree,
-      effort,
+      sessionEffort,
       settingsPath,
       sessionModel,
       options.pluginRootsScan,
@@ -605,7 +629,7 @@ PR → review checkpoint), and writes initial epic state under
         phase: "starting",
         repo,
         worktree: existing?.worktree,
-        effort,
+        effort: sessionEffort,
         model: sessionModel,
         modelPlanning,
         seed,
@@ -1142,19 +1166,26 @@ function spawnEpicRunSupervisor(
   // the verified-launch argv through the shared builder. The supervisor session
   // model is `--model > config.models.default > inherited` (parity with
   // `flow feature create` / `flow epic create`); absent both, no --model reaches
-  // claude. `--effort <level>` threads straight from the CLI flag — unlike
-  // model, effort has no `config.models.default`-style config fallback.
+  // claude. `--effort <level>` resolves `explicit CLI flag > launch.effort
+  // config > built-in` (parity with `flow feature create` / epic-create above).
   const settingsPath = launchSettingsPathFor(options);
-  for (const w of collectModelConfigWarnings(options.readConfig)) {
+  const readConfig: ReadConfigFile = cachedConfigRead(
+    options.readConfig ?? defaultReadConfigFile,
+  );
+  for (const w of collectModelConfigWarnings(readConfig)) {
     console.error(dim(`flow epic run: ${w}`));
   }
-  const runSessionModel = runModel ?? readDefaultModel(options.readConfig);
+  const runSessionModel = runModel ?? readDefaultModel(readConfig);
+  for (const w of collectLaunchConfigWarnings(readConfig)) {
+    console.error(dim(`flow epic run: ${w}`));
+  }
+  const runSessionEffort = runEffort ?? readLaunchDefaults(readConfig).effort;
   const command =
     options.command ??
     createCommand(
       slug,
       worktree,
-      runEffort,
+      runSessionEffort,
       settingsPath,
       runSessionModel,
       options.pluginRootsScan,

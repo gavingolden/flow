@@ -64,9 +64,14 @@ _flow() {
                     # list. ($line[1] is `feature`; $line[2] is the subcommand.)
                     if [[ "$line[2]" == create ]]; then
                         _arguments \
+                            '--auto-merge[put the auto-merge rubric back in charge]' \
                             '--no-auto-merge[stop at gated regardless of rubric]' \
                             '--wait-for-copilot[force the full 10-min Copilot wait]' \
+                            '--no-wait-for-copilot[put the Copilot auto-detect skip back in charge]' \
                             '--research[force web-grounded discovery research on, bypassing the relevance gate]' \
+                            '--no-research[stop forcing research (research.discovery still applies)]' \
+                            '--interview[force the intent interview on]' \
+                            '--no-interview[skip the intent interview]' \
                             '--copilot-review[Copilot review opt-in]:mode:(auto always never)' \
                             '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
                             '--model[whole-session Claude model alias]:alias:(opus haiku sonnet fable)' \
@@ -146,10 +151,16 @@ _flow() {
                         _arguments \
                             '--slug[overlay a pipeline'\''s per-run overrides]:pipeline:_flow_slugs' \
                             '--json[emit machine-readable JSON rows]'
+                    elif [[ "$line[2]" == launch ]]; then
+                        _arguments \
+                            '--slug[overlay a pipeline'\''s recorded launch defaults]:pipeline:_flow_slugs' \
+                            '--json[emit machine-readable JSON rows]'
                     else
                         local -a sub
                         sub=(
                             'models:show resolved model + effort per phase/agent'
+                            'launch:show resolved launch defaults + source'
+                            'launcher:get/set the recorded launcher backend'
                         )
                         _describe 'subcommand' sub
                     fi

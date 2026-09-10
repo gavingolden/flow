@@ -309,6 +309,42 @@ describe("completion scripts stay in sync with VERBS", () => {
     }
   });
 
+  it("both scripts advertise the new feature-create flags and the config launch/launcher subcommands", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      for (const token of [
+        "--no-wait-for-copilot",
+        "--no-research",
+        "--interview",
+        "--no-interview",
+        "launcher",
+      ]) {
+        expect(
+          script.includes(token),
+          `flow.${shell} must advertise ${token}`,
+        ).toBe(true);
+      }
+      // "--auto-merge" alone is a substring of the pre-existing
+      // "--no-auto-merge"; anchor it to its own delimiter so the assertion
+      // can actually fail if `--auto-merge` itself is dropped.
+      if (shell === "bash") {
+        expect(script).toContain("--auto-merge --no-auto-merge");
+      } else {
+        expect(script).toMatch(/'--auto-merge\[/);
+      }
+      // "launch" alone is a substring of the pre-existing epic "launch"
+      // subcommand; anchor to the config-group entry that this PR added.
+      if (shell === "bash") {
+        expect(script).toContain("models launcher launch");
+      } else {
+        expect(script).toMatch(/'launch:show resolved launch defaults/);
+      }
+    }
+  });
+
   it("both scripts advertise the epic --model-planning (create) + --model (run), the bind/launch subcommands, and drop --model-judge", () => {
     for (const shell of ["bash", "zsh"] as const) {
       const script = fs.readFileSync(
