@@ -410,7 +410,7 @@ async function runInner(argv: string[], deps: Deps): Promise<number> {
 
   if (!deps.fileExists(parsed.textFile)) {
     return emit(
-      { ran: false, site, skipReason: "text-empty" },
+      { ran: false, site, skipReason: "text-file-missing" },
       { text_chars: 0, brief_scope: "none" },
     );
   }
@@ -418,7 +418,7 @@ async function runInner(argv: string[], deps: Deps): Promise<number> {
   const raw = deps.readFile(parsed.textFile);
   if (raw === null) {
     return emit(
-      { ran: false, site, skipReason: "text-empty" },
+      { ran: false, site, skipReason: "text-file-missing" },
       { text_chars: 0, brief_scope: "none" },
     );
   }

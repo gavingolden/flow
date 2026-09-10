@@ -124,3 +124,34 @@ describe("buildGraderContext — command-grader PATH prefix", () => {
     expect(out.stdout.trim()).toBe("ok");
   });
 });
+
+describe("buildGraderContext — path resolution", () => {
+  it("resolves relative scenario/outcome paths to absolute paths", () => {
+    const fixture = makeFixture([]);
+    const scenario: ResolvedScenario = {
+      ...makeScenario(),
+      dir: "evals/foo/s1",
+    };
+    const relativeStreamPath = ".flow-tmp/eval/x/stream.jsonl";
+    const relativeAssistantTextPath = ".flow-tmp/eval/x/assistant.txt";
+
+    const ctx = buildGraderContext(
+      fixture,
+      scenario,
+      {
+        streamPath: relativeStreamPath,
+        assistantTextPath: relativeAssistantTextPath,
+        result: null,
+        transcript: transcriptMetrics([], null),
+      },
+      makeDeps(),
+    );
+
+    expect(path.isAbsolute(ctx.fixtureRoot)).toBe(true);
+    expect(path.isAbsolute(ctx.streamPath)).toBe(true);
+    expect(path.isAbsolute(ctx.assistantTextPath)).toBe(true);
+    expect(ctx.fixtureRoot).toBe(path.resolve(scenario.dir));
+    expect(ctx.streamPath).toBe(path.resolve(relativeStreamPath));
+    expect(ctx.assistantTextPath).toBe(path.resolve(relativeAssistantTextPath));
+  });
+});

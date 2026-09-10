@@ -145,13 +145,18 @@ export function buildGraderContext(
   },
   deps: Deps,
 ): GraderContext {
+  // gradeCommand spawns command graders with cwd = the materialized repoDir,
+  // so a relative $FIXTURE/$ASSISTANT_TEXT silently resolves to a
+  // nonexistent file there; file-kind graders were unaffected because the
+  // harness reads those itself from the repo root, which is why no prior
+  // suite caught it. Resolve once here so every grader kind benefits.
   return {
     repoDir: fixture.repoDir,
-    fixtureRoot: scenario.dir,
+    fixtureRoot: path.resolve(scenario.dir),
     stateSlug: fixture.slug,
     stateDir: fixture.stateDir,
-    streamPath: outcome.streamPath,
-    assistantTextPath: outcome.assistantTextPath,
+    streamPath: path.resolve(outcome.streamPath),
+    assistantTextPath: path.resolve(outcome.assistantTextPath),
     result: outcome.result,
     transcript: outcome.transcript,
     runCommand: (argv, cwd) => {

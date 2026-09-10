@@ -91,7 +91,7 @@ describe("flow-explain-judge CLI end-to-end", () => {
     const events = readEvents(logPath);
     expect(events).toHaveLength(1);
     expect((events[0].attrs as Record<string, unknown>).skipReason).toBe(
-      "text-empty",
+      "text-file-missing",
     );
   });
 

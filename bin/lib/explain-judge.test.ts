@@ -382,12 +382,28 @@ describe("run — skip paths never spawn", () => {
     expect(code).toBe(0);
   });
 
-  it("skips on text-empty when the text file does not exist", async () => {
+  it("skips on text-file-missing when the text file does not exist", async () => {
     let out = "";
     const code = await run(
       ["--text-file", "/nope", "--site", "s"],
       baseDeps({
         fileExists: () => false,
+        writeOut: (line) => {
+          out = line;
+        },
+      }),
+    );
+    expect(JSON.parse(out).skipReason).toBe("text-file-missing");
+    expect(code).toBe(0);
+  });
+
+  it("skips on text-empty when the text file exists but is blank", async () => {
+    let out = "";
+    const code = await run(
+      ["--text-file", "/x", "--site", "s"],
+      baseDeps({
+        fileExists: () => true,
+        readFile: () => "   \n",
         writeOut: (line) => {
           out = line;
         },
