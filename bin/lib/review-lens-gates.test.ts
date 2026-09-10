@@ -1,27 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_LENS_MAP } from "../flow-pr-agent-lens";
-import type { AnalysisResult } from "../flow-pr-static-analysis/types";
+import { composeSpawnSet } from "./review-tier";
 import {
   evaluateGates,
   hasNewBareImports,
   isDocsOnly,
+  matchesAny,
+  SECURITY_SENSITIVE_GLOBS,
 } from "./review-lens-gates";
-
-const EMPTY_ANALYSIS: AnalysisResult = {
-  security: [],
-  types: [],
-  lint: [],
-  dependencies: [],
-  meta: {
-    security: { ran: true, duration_ms: 0 },
-    types: { ran: true, duration_ms: 0 },
-    lint: { ran: true, duration_ms: 0 },
-    dependencies: { ran: true, duration_ms: 0 },
-    pr: 1,
-    min_confidence: 0,
-    duration_ms: 0,
-  },
-};
 
 describe("evaluateGates", () => {
   it("skips supply-chain when no changed file matches a manifest/lockfile", () => {
@@ -55,25 +41,18 @@ describe("evaluateGates", () => {
     }
   });
 
-  it("runs supply-chain when staticAnalysis.dependencies is non-empty even with no manifest change", () => {
-    const analysis: AnalysisResult = {
-      ...EMPTY_ANALYSIS,
-      dependencies: [
-        {
-          file: "package.json",
-          line: 1,
-          rule_id: "audit",
-          message: "vuln",
-          confidence: 90,
-          source: "npm-audit",
-        },
-      ],
-    };
+  it("gate-skips supply-chain with no manifest changed and no bare import — composeSpawnSet is now the site that forces it back on when static analysis hits", () => {
     const gates = evaluateGates(["src/foo.ts"], {
       enabled: true,
-      staticAnalysis: analysis,
     });
-    expect(gates["supply-chain"].run).toBe(true);
+    expect(gates["supply-chain"].run).toBe(false);
+
+    const composed = composeSpawnSet({
+      gates,
+      tier: "standard",
+      staticAnalysisHits: ["supply-chain"],
+    });
+    expect(composed["supply-chain"].run).toBe(true);
   });
 
   it("gates performance, security and test-coverage off on a docs-only file set and keeps bug-detection and pattern-consistency on", () => {
@@ -102,25 +81,18 @@ describe("evaluateGates", () => {
     }
   });
 
-  it("keeps security on for a docs-only set when staticAnalysis.security is non-empty", () => {
-    const analysis: AnalysisResult = {
-      ...EMPTY_ANALYSIS,
-      security: [
-        {
-          file: "docs/foo.md",
-          line: 1,
-          rule_id: "secret",
-          message: "leaked key",
-          confidence: 90,
-          source: "semgrep",
-        },
-      ],
-    };
+  it("gate-skips security on a docs-only set — composeSpawnSet is now the site that forces it back on when static analysis hits", () => {
     const gates = evaluateGates(["docs/foo.md"], {
       enabled: true,
-      staticAnalysis: analysis,
     });
-    expect(gates.security.run).toBe(true);
+    expect(gates.security.run).toBe(false);
+
+    const composed = composeSpawnSet({
+      gates,
+      tier: "standard",
+      staticAnalysisHits: ["security"],
+    });
+    expect(composed.security.run).toBe(true);
   });
 
   it("returns run:true reason 'gates disabled' for every lens when enabled:false", () => {
@@ -221,4 +193,30 @@ describe("hasNewBareImports", () => {
     hasNewBareImports(crafted);
     expect(performance.now() - start).toBeLessThan(50);
   });
+});
+
+describe("SECURITY_SENSITIVE_GLOBS", () => {
+  const cases: [string, boolean][] = [
+    ["src/auth/login.ts", true],
+    ["src/security/policy.ts", true],
+    ["src/secrets/config.ts", true], // directory form — was a gap before **/*secret*/**
+    ["src/config-secret.ts", true], // filename-substring form
+    ["src/credential-store.ts", true],
+    ["src/credentials/store.ts", true],
+    ["keys/server.pem", true],
+    ["keys/server.key", true],
+    [".env.production", true],
+    ["config/.env", true],
+    ["src/reset-password.ts", true],
+    ["src/password/reset.ts", true],
+    ["src/crypto/hash.ts", true],
+    ["src/permissions/roles.ts", true],
+    ["src/widgets/button.tsx", false],
+    ["docs/README.md", false],
+  ];
+  for (const [file, expected] of cases) {
+    it(`${expected ? "matches" : "does not match"} '${file}'`, () => {
+      expect(matchesAny(file, SECURITY_SENSITIVE_GLOBS)).toBe(expected);
+    });
+  }
 });

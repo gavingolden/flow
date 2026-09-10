@@ -150,6 +150,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-review-prep",
       "flow-review-finalize",
       "flow-review-telemetry",
+      "flow-review-model",
       "flow-inject-evidence",
       "flow-ui-validate",
       "flow-design-spec",

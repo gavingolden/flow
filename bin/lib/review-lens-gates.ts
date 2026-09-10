@@ -1,16 +1,17 @@
 /**
  * Pure lens-gate rules for /flow-pr-review's Step 3 fan-out: decides, per
  * review lens, whether it runs against the current changed-file set (full
- * PR or delta), the static-analysis pre-digest, and a diff-content signal
- * (`hasNewBareImports`) that catches a new runtime dependency introduced
- * via a bare import/require even when no manifest file changed in the
- * same diff.
+ * PR or delta) and a diff-content signal (`hasNewBareImports`) that catches
+ * a new runtime dependency introduced via a bare import/require even when
+ * no manifest file changed in the same diff.
  *
  * Explicit allowlists as exported constants, two always-on lenses
- * (bug-detection, pattern-consistency have no narrow domain to gate on),
- * and "never-skip-on-signal" overrides so a real supply-chain/security
- * finding in the static-analysis envelope can never be silently dropped by
- * a file-pattern miss.
+ * (bug-detection, pattern-consistency have no narrow domain to gate on).
+ * The static-analysis "never-skip-on-signal" override that used to live
+ * here now lives at `bin/lib/review-tier.ts`'s `composeSpawnSet` — a real
+ * supply-chain/security finding in the static-analysis envelope forces
+ * that lens back on there, at a single site, instead of being duplicated
+ * into this file's per-lens gate logic.
  *
  * No glob library: `matchesAny` is a hand-rolled matcher over a small,
  * hard-coded pattern vocabulary (`**\/`, `*`, trailing `/**`), avoiding a
@@ -20,7 +21,6 @@
 
 import { builtinModules } from "node:module";
 import type { AgentName } from "../flow-pr-agent-lens";
-import type { AnalysisResult } from "../flow-pr-static-analysis/types";
 
 export const MANIFEST_GLOBS: readonly string[] = [
   "package.json",
@@ -69,6 +69,36 @@ export const INSTRUCTION_GLOBS: readonly string[] = [
 export const ALWAYS_ON_LENSES: readonly AgentName[] = [
   "bug-detection",
   "pattern-consistency",
+];
+
+/**
+ * Path patterns naming a security-sensitive area (auth, secrets,
+ * credentials, crypto). Consumed here only via `matchesAny`'s export for
+ * other callers; `bin/lib/review-tier.ts` imports this list directly so a
+ * security-sensitive path is a single source of truth rather than a second
+ * hand-maintained list. Not the same concept as `evaluateGates`'s
+ * docs-only security gate below, which is a coarser "not docs" check.
+ */
+export const SECURITY_SENSITIVE_GLOBS: readonly string[] = [
+  "**/auth/**",
+  "**/security/**",
+  // The "*word*" forms below only match a filename segment containing the
+  // word (`[^/]*secret[^/]*` — `*` never crosses a `/`), so a bare
+  // `**/*secret*` misses a whole DIRECTORY named e.g. `secrets/` the way
+  // `**/auth/**` catches a directory named `auth/`. Pairing each with a
+  // `**/*word*/**` form closes that gap and keeps the two matching
+  // conventions consistent.
+  "**/*secret*",
+  "**/*secret*/**",
+  "**/*credential*",
+  "**/*credential*/**",
+  "**/*.pem",
+  "**/*.key",
+  "**/.env*",
+  "**/*password*",
+  "**/*password*/**",
+  "**/crypto/**",
+  "**/permissions/**",
 ];
 
 export type GateVerdict = { run: boolean; reason: string };
@@ -189,7 +219,6 @@ export function evaluateGates(
   files: readonly string[],
   opts: {
     enabled: boolean;
-    staticAnalysis?: AnalysisResult;
     newBareImports?: boolean;
   },
 ): Record<AgentName, GateVerdict> {
@@ -208,34 +237,23 @@ export function evaluateGates(
 
   const docsOnly = isDocsOnly(files);
   const hasManifest = files.some((f) => matchesAny(f, MANIFEST_GLOBS));
-  const hasDependencySignal =
-    (opts.staticAnalysis?.dependencies?.length ?? 0) > 0;
-  const hasSecuritySignal = (opts.staticAnalysis?.security?.length ?? 0) > 0;
 
   out["supply-chain"] =
-    hasManifest || hasDependencySignal || opts.newBareImports
+    hasManifest || opts.newBareImports
       ? {
           run: true,
           reason: hasManifest
             ? "manifest/lockfile changed"
-            : hasDependencySignal
-              ? "static-analysis dependencies signal"
-              : "new bare-specifier import in diff",
+            : "new bare-specifier import in diff",
         }
       : {
           run: false,
           reason: `no manifest/lockfile among ${files.length} changed files`,
         };
 
-  out.security =
-    docsOnly && !hasSecuritySignal
-      ? { run: false, reason: `docs-only diff (${files.length} files)` }
-      : {
-          run: true,
-          reason: hasSecuritySignal
-            ? "static-analysis security signal"
-            : "not docs-only",
-        };
+  out.security = docsOnly
+    ? { run: false, reason: `docs-only diff (${files.length} files)` }
+    : { run: true, reason: "not docs-only" };
 
   out.performance = docsOnly
     ? { run: false, reason: `docs-only diff (${files.length} files)` }

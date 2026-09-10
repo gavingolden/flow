@@ -24,6 +24,7 @@ import {
   attributeTranscripts,
   findSubagentsDir,
   mergeTelemetry,
+  parseLensModels,
   parseLensTokens,
   type ReviewTelemetry,
 } from "./lib/review-telemetry";
@@ -82,6 +83,7 @@ export type CollectArgs = {
   worktree: string;
   pr: number;
   lensTokens: string[];
+  lensModels: string[];
   sessionId?: string;
   out?: string;
   append: boolean;
@@ -112,6 +114,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     let worktree: string | undefined;
     let pr: number | undefined;
     const lensTokens: string[] = [];
+    const lensModels: string[] = [];
     let sessionId: string | undefined;
     let out: string | undefined;
     let append = false;
@@ -140,6 +143,19 @@ export function parseArgs(argv: string[]): ParsedArgs {
           if (value !== undefined) lensTokens.push(value);
           i++;
           break;
+        case "--lens-model": {
+          const eq = value !== undefined ? value.indexOf("=") : -1;
+          // Reject both "no =" AND "empty value after =" (e.g.
+          // `security=`) — the latter used to slip past this guard and
+          // then get silently dropped by parseLensModels, contradicting
+          // the "never silently record" contract.
+          if (value === undefined || eq <= 0 || eq === value.length - 1) {
+            return { error: `invalid --lens-model value: ${value}` };
+          }
+          lensModels.push(value);
+          i++;
+          break;
+        }
         case "--session-id":
           sessionId = value;
           i++;
@@ -167,6 +183,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       worktree,
       pr,
       lensTokens,
+      lensModels,
       sessionId,
       out,
       append,
@@ -295,6 +312,7 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
   }
 
   const lensTokens = parseLensTokens(args.lensTokens);
+  const lensModels = parseLensModels(args.lensModels);
   const counts = aggregateCounts({ agentOutputs, consolidator, fixApplier });
 
   const telemetry = mergeTelemetry({
@@ -306,6 +324,7 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
     widened: { value: !!args.widened, reason: args.widened ?? null },
     counts,
     lensTokens,
+    lensModels,
     transcripts,
     startedAt,
   });
@@ -340,15 +359,16 @@ export function renderTable(t: ReviewTelemetry): string {
   );
   lines.push("");
   lines.push(
-    "| Lens | Ran | Tokens | Emitted | Survived | Acted | Deferred | Skip reason |",
+    "| Lens | Ran | Model | Tokens | Emitted | Survived | Acted | Deferred | Skip reason |",
   );
-  lines.push("| --- | --- | --- | --- | --- | --- | --- | --- |");
+  lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
   let unavailableCount = 0;
   for (const [lens, l] of Object.entries(t.lenses)) {
     const tokensStr = l.tokens !== null ? String(l.tokens.total) : "n/a";
+    const modelStr = l.model ?? "-";
     const skipReason = l.skip_reason ?? "";
     lines.push(
-      `| ${lens} | ${l.ran ? "yes" : "no"} | ${tokensStr} | ${l.findings_emitted} | ${l.findings_survived} | ${l.findings_acted} | ${l.findings_deferred} | ${skipReason} |`,
+      `| ${lens} | ${l.ran ? "yes" : "no"} | ${modelStr} | ${tokensStr} | ${l.findings_emitted} | ${l.findings_survived} | ${l.findings_acted} | ${l.findings_deferred} | ${skipReason} |`,
     );
     if (l.ran && l.tokens_source === "unavailable") unavailableCount++;
   }
