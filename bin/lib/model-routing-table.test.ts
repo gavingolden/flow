@@ -166,13 +166,68 @@ describe("resolveRouting — config values", () => {
   });
 });
 
+describe("resolveRouting — review-lens capped inheritance", () => {
+  const LENS_PHASE = "review-lens:bug-detection";
+
+  it("a fable session model caps a review lens to opus, and the source names the cap", () => {
+    const rows = resolveRouting({ state: st({ model: "fable" }), config: {} });
+    expect(row(rows, LENS_PHASE)).toMatchObject({ model: "opus" });
+    expect(row(rows, LENS_PHASE).source).toMatch(/capped/i);
+    expect(row(rows, LENS_PHASE).source).toMatch(/opus/);
+  });
+
+  it("a sonnet session model resolves a review lens to sonnet — not escalated to opus", () => {
+    const rows = resolveRouting({
+      state: st({ model: "sonnet" }),
+      config: {},
+    });
+    expect(row(rows, LENS_PHASE)).toMatchObject({ model: "sonnet" });
+  });
+
+  it("an explicit config.models.reviewLenses.<lens> beats state.modelReview", () => {
+    const config: ConfigModels = {
+      reviewLenses: { "bug-detection": "haiku" },
+    };
+    const rows = resolveRouting({
+      state: st({ model: "fable", modelReview: "opus" }),
+      config,
+    });
+    expect(row(rows, LENS_PHASE)).toMatchObject({
+      model: "haiku",
+      source: "config (models.reviewLenses.bug-detection)",
+    });
+  });
+
+  it("state.modelReview beats config.models.review", () => {
+    const rows = resolveRouting({
+      state: st({ modelReview: "sonnet" }),
+      config: { review: "opus" },
+    });
+    expect(row(rows, LENS_PHASE)).toMatchObject({
+      model: "sonnet",
+      source: "state (--model-review)",
+    });
+  });
+
+  it("the consolidator row is capped too", () => {
+    const rows = resolveRouting({ state: st({ model: "fable" }), config: {} });
+    expect(row(rows, "consolidator")).toMatchObject({ model: "opus" });
+    expect(row(rows, "consolidator").source).toMatch(/capped/i);
+  });
+});
+
 // ── Drift lint (Story 5) ────────────────────────────────────────────────
 // Parse the precedence table out of model-routing.md and assert every
 // phase-keyed table row maps onto a SPAWN_SITES entry with matching config
 // keys + fallback (+ state field, where the row has a feature-state field).
 // session is prose-only (table-exempt).
 
-type ParsedRow = { stateField: string; configKeys: string[]; fallback: string };
+type ParsedRow = {
+  spawnSite: string;
+  stateField: string;
+  configKeys: string[];
+  fallback: string;
+};
 
 function parsePrecedenceTable(md: string): ParsedRow[] {
   const rows: ParsedRow[] = [];
@@ -187,15 +242,20 @@ function parsePrecedenceTable(md: string): ParsedRow[] {
     if (/spawn site/i.test(cells[0])) continue; // header
     if (/^-+$/.test(cells[1].replace(/\s/g, ""))) continue; // separator
     const stateField = (cells[1].match(/[A-Za-z]+/) ?? [""])[0];
-    const configKeys = [...cells[2].matchAll(/config\.models\.(\w+)/g)].map(
+    // Widened to also capture dotted/hyphenated nested keys, e.g.
+    // `config.models.reviewLenses.bug-detection` — `\w+` alone stops at the
+    // first dot/hyphen and would silently drop the lens segment.
+    const configKeys = [...cells[2].matchAll(/config\.models\.([\w.-]+)/g)].map(
       (m) => m[1],
     );
     const fallback = /"sonnet"/.test(cells[2])
       ? "builtin-sonnet"
-      : /inherited/.test(cells[2])
-        ? "inherited"
-        : "unknown";
-    rows.push({ stateField, configKeys, fallback });
+      : /capped at opus/i.test(cells[2])
+        ? "session-capped-opus"
+        : /inherited/.test(cells[2])
+          ? "inherited"
+          : "unknown";
+    rows.push({ spawnSite: cells[0], stateField, configKeys, fallback });
   }
   return rows;
 }
@@ -207,12 +267,23 @@ function siteConfigKeys(site: SpawnSite): string[] {
 const sameSet = (a: string[], b: string[]) =>
   a.length === b.length && [...a].sort().join(",") === [...b].sort().join(",");
 
-/** Find the SPAWN_SITE matching a parsed table row on config-key set + fallback. */
+/**
+ * Find the SPAWN_SITE matching a parsed table row on config-key set +
+ * fallback. When more than one site shares that key set + fallback (e.g. a
+ * future pair of `session-capped-opus` rows with an identical grain), fall
+ * back to the row's spawn-site label naming the site's phase slug.
+ */
 function matchSite(r: ParsedRow): SpawnSite | undefined {
-  return SPAWN_SITES.find(
+  const candidates = SPAWN_SITES.filter(
     (s) =>
       s.fallback === r.fallback && sameSet(siteConfigKeys(s), r.configKeys),
   );
+  if (candidates.length <= 1) return candidates[0];
+  const bySlug = candidates.find((s) => {
+    const slug = s.phase.replace(/^review-lens:/, "");
+    return r.spawnSite.toLowerCase().includes(slug.toLowerCase());
+  });
+  return bySlug ?? candidates[0];
 }
 
 describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
@@ -225,8 +296,8 @@ describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
   );
   const parsed = parsePrecedenceTable(md);
 
-  it("parses the nine precedence-table rows", () => {
-    expect(parsed.length).toBe(9);
+  it("parses every precedence-table row (8 original + 7 review-lens rows + ui-driver)", () => {
+    expect(parsed.length).toBe(16);
     for (const r of parsed) expect(r.fallback).not.toBe("unknown");
   });
 

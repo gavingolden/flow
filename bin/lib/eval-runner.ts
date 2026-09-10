@@ -188,6 +188,7 @@ export function buildChildArgv(
     resultSchema?: unknown;
     model?: string;
     effort?: string;
+    autocompact?: string;
     keepSessions?: boolean;
     /** `"with"` (default) is byte-identical to today's argv. `"without"`
      * omits every `--plugin-dir` and points `--add-dir` at the fixture's
@@ -254,6 +255,7 @@ export function buildChildArgv(
       : []),
     ...(opts.model ? ["--model", opts.model] : []),
     ...(opts.effort ? ["--effort", opts.effort] : []),
+    ...(opts.autocompact ? ["--autocompact", opts.autocompact] : []),
   ];
 }
 
@@ -428,6 +430,7 @@ export async function runScenarioOnce(
     resultSchema?: unknown;
     model?: string;
     effort?: string;
+    autocompact?: string;
     keepSessions?: boolean;
     spawn?: SpawnFn;
     readFile?: (p: string) => string;
@@ -450,6 +453,7 @@ export async function runScenarioOnce(
     resultSchema: opts.resultSchema,
     model: opts.model,
     effort: opts.effort,
+    autocompact: opts.autocompact,
     keepSessions: opts.keepSessions,
     arm: opts.arm,
   });

@@ -141,7 +141,11 @@ Reconcile the cache (run.json) against the truth (GitHub/git) BEFORE any launch.
      `priorSlugs`).
    - **Merged out of band** (a PR merged with no flow pipeline) →
      `flow epic bind <epic> <id> --external "PR #<n>"`.
-4. If the manifest itself drifted from what shipped, run **amend-manifest**.
+4. If the manifest itself drifted from what shipped, run
+   **amend-manifest** — this routes three drift kinds: a newly discovered,
+   created, or invalidated `dependsOn` edge; a new producer of a shared
+   generated artifact (`sharedArtifacts`); or an item sitting in a manifest
+   `followups` array.
 5. Check the committed status board:
    `flow-epic-sync --epic-slug <slug> --check`. On a non-zero exit, run
    `flow-epic-sync --epic-slug <slug> --commit --push`. The commit lands on
@@ -194,6 +198,10 @@ duplicate-check.
 
 ## amend-manifest
 
+A feature pipeline that discovers an edge owns its own write-back in its own
+PR (`Manifest write-back` in its plan); this recipe amends only drift no PR
+owns.
+
 When scope changed and the committed manifest must change:
 
 1. Edit `.flow/epics/<slug>/manifest.json`.
@@ -205,6 +213,14 @@ When scope changed and the committed manifest must change:
    commit the change there with a small, focused commit, then
    `git switch -` to return the checkout to the base branch, then open a
    PR by hand.
+4. **Follow-ups are a ledger, not a queue.** A manifest `followups` array is
+   a ledger entry the runner never reads; promote by moving it into
+   `features[]` with an id, a description ending in the pointer sentence,
+   and `dependsOn`, then `flow-epic-dag --validate`.
+5. **Confirm the epic is runner-driven before filing into it.** `flow epic
+ls` lists it (a `run.json` exists) or the manifest `note` says so;
+   absent both, promote-and-`flow epic run`, or `flow-create-issue` — else
+   the item is a dead letter.
 
 ## delete-when-done
 

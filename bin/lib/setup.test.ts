@@ -3869,3 +3869,74 @@ describe("worktree install root", () => {
     }
   });
 });
+
+describe("product brief seeding (runSetup wiring)", () => {
+  function seedTemplate(): void {
+    fs.mkdirSync(path.join(flowSource, "templates"), { recursive: true });
+    fs.writeFileSync(
+      path.join(flowSource, "templates", "product.md.template"),
+      "# Product brief\n\nseeded\n",
+    );
+  }
+
+  it("creates ~/.flow/product.md when absent and logs the seed line", async () => {
+    seedTemplate();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await runSetup({
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+      });
+      const briefPath = path.join(homeDir, ".flow", "product.md");
+      expect(fs.existsSync(briefPath)).toBe(true);
+      expect(fs.readFileSync(briefPath, "utf8")).toBe(
+        "# Product brief\n\nseeded\n",
+      );
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).toMatch(/seeded user-level product brief/);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("leaves an existing non-empty brief untouched and logs no seed line", async () => {
+    seedTemplate();
+    const briefPath = path.join(homeDir, ".flow", "product.md");
+    fs.mkdirSync(path.dirname(briefPath), { recursive: true });
+    const existing = "# my own brief\n";
+    fs.writeFileSync(briefPath, existing);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await runSetup({
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+      });
+      expect(fs.readFileSync(briefPath, "utf8")).toBe(existing);
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).not.toMatch(/seeded user-level product brief/);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+});

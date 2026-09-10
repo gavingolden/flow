@@ -323,9 +323,10 @@ flow-notify --status needs-human --reason "$TLDR" --tag "task-tool-unavailable: 
      `pr-review-multi-agent-review`, `pr-review-fix-applier`,
      `pr-review-consolidator-validator`, `product-planning-discovery`,
      `new-feature-scout`, `coder-edit-applier`, `flow-pipeline-merge-resolver`,
-     `ui-driver` (spawned from either of its two callers — `/flow-verify`'s
-     Optional UI-smoke pass, or `/flow-pr-review` Step 8c.iii — same tag
-     either way, since this recovery recipe doesn't distinguish caller).
+     `product-planning-critic`, `ui-driver` (spawned from either of its two
+     callers — `/flow-verify`'s Optional UI-smoke pass, or `/flow-pr-review`
+     Step 8c.iii — same tag either way, since this recovery recipe doesn't
+     distinguish caller).
 
 No retry is appropriate — the deferred-tool surfacing is environmental;
 remediation is to re-run in a session where `Task` or `Agent` is surfaced

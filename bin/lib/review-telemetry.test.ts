@@ -7,6 +7,7 @@ import {
   attributeTranscripts,
   findSubagentsDir,
   mergeTelemetry,
+  parseLensModels,
   parseLensTokens,
 } from "./review-telemetry";
 import type { ConsolidatorResult } from "./agent-finding-schema";
@@ -123,6 +124,22 @@ describe("parseLensTokens", () => {
   it("sums duplicate flags for the same lens (widen re-pass)", () => {
     const out = parseLensTokens(["bug-detection=100", "bug-detection=50"]);
     expect(out).toEqual({ "bug-detection": 150 });
+  });
+});
+
+describe("parseLensModels", () => {
+  it("parses `bug-detection=opus` pairs", () => {
+    const out = parseLensModels(["bug-detection=opus", "security=sonnet"]);
+    expect(out).toEqual({ "bug-detection": "opus", security: "sonnet" });
+  });
+
+  it("ignores malformed entries (no '=', empty lens, empty value)", () => {
+    const out = parseLensModels(["malformed", "=opus", "security="]);
+    expect(out).toEqual({});
+  });
+
+  it("returns an empty map for an empty flag list", () => {
+    expect(parseLensModels([])).toEqual({});
   });
 });
 
@@ -309,6 +326,44 @@ describe("mergeTelemetry", () => {
     });
     expect(t.lenses["bug-detection"].tokens).toBeNull();
     expect(t.lenses["bug-detection"].tokens_source).toBe("unavailable");
+  });
+
+  it("populates model on the task-notification branch from --lens-model", () => {
+    const t = mergeTelemetry({
+      ...baseArgs,
+      counts: {},
+      lensTokens: { "bug-detection": 12345 },
+      lensModels: { "bug-detection": "opus" },
+      transcripts: {},
+    });
+    expect(t.lenses["bug-detection"].tokens_source).toBe("task-notification");
+    expect(t.lenses["bug-detection"].model).toBe("opus");
+  });
+
+  it("prefers an explicit --lens-model over a transcript-derived model on the task-notification branch", () => {
+    const t = mergeTelemetry({
+      ...baseArgs,
+      counts: {},
+      lensTokens: { "bug-detection": 12345 },
+      lensModels: { "bug-detection": "opus" },
+      transcripts: {
+        "bug-detection": { usage: { total: 999 }, model: "claude-x" },
+      },
+    });
+    expect(t.lenses["bug-detection"].model).toBe("opus");
+  });
+
+  it("falls back to the transcript-derived model on the task-notification branch when --lens-model has no entry", () => {
+    const t = mergeTelemetry({
+      ...baseArgs,
+      counts: {},
+      lensTokens: { "bug-detection": 12345 },
+      lensModels: {},
+      transcripts: {
+        "bug-detection": { usage: { total: 999 }, model: "claude-x" },
+      },
+    });
+    expect(t.lenses["bug-detection"].model).toBe("claude-x");
   });
 
   it("builds run_id as `<pr>:<head_sha>:<started_at>`", () => {

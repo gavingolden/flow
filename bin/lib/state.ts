@@ -37,6 +37,26 @@ export const MODEL_ALIASES = ["opus", "haiku", "sonnet", "fable"] as const;
 export type ModelAlias = (typeof MODEL_ALIASES)[number];
 
 /**
+ * Coarse LIST-PRICE ordering across `MODEL_ALIASES` — NOT a price table (no
+ * currency, no per-token figures; `MODEL_PRICING` in `./cost-pricing.ts` is
+ * the actual per-token table, keyed by concrete model id, and has no `fable`
+ * row). Its only consumer is the capped-inheritance fallback in
+ * `model-routing-table.ts`, which needs "is the session model priced above
+ * the cap alias" without a named-model special case. This is a
+ * rank-ordering rule: any future alias added to `MODEL_ALIASES` must get a
+ * rank here.
+ */
+export const MODEL_PRICE_RANK: Record<ModelAlias, number> = {
+  haiku: 0,
+  sonnet: 1,
+  opus: 2,
+  fable: 3,
+};
+
+/** The alias the capped-inheritance fallback caps session-model inheritance at. */
+export const INHERITANCE_CAP_ALIAS: ModelAlias = "opus";
+
+/**
  * The six per-phase model override fields on `PipelineState`, paired with the
  * `flow feature create --model-<phase>` flag that sets each. Single source of
  * truth for the parse loop (`feature.ts`), the state validator

@@ -428,31 +428,40 @@ how the text is phrased.
 
 ## 2. Fetch and Pre-Flight
 
-Run the fetch helper (also emits the owning pipeline's `reviewing`
-phase as a side effect when `state.pr` matches — a silent no-op on a
-standalone review or a Step 1.5 metadata-triage `skip`):
+Run the review-prep helper — it composes the fetch (still emitting the
+owning pipeline's `reviewing` phase as a side effect when `state.pr`
+matches, a silent no-op on a standalone review or a Step 1.5
+metadata-triage `skip`) plus commit history, the static-analysis
+pre-digest, review scope + lens gates, and the intent-comment fetch, all
+in one call, writing each payload under `.flow-tmp/`:
 
 ```bash
-flow-fetch-pr-review $ARGUMENTS
+SUMMARY=$(flow-review-prep --pr <number> --worktree "$WORKTREE")
 ```
 
-Then perform pre-flight checks on the output:
+Then perform pre-flight checks against the summary:
 
-1. **Closed/merged**: If the PR state is `closed` or `merged`, tell the user and stop.
-2. **Draft**: If the PR is a draft, warn the user ("PR is a draft — findings may change
+1. **Closed/merged**: If `.state` is `closed` or `merged`, tell the user and stop.
+   `.state` is `UNKNOWN` — never empty — when the metadata fetch itself failed (a
+   critical `flow-review-prep` skip); treat `UNKNOWN` the same as closed/merged and
+   stop rather than assuming an open PR, since the closed/merged check itself
+   couldn't run.
+2. **Draft**: If `.draft` is true, warn the user ("PR is a draft — findings may change
    before it's ready for review") and continue.
-3. **PR size**: Check additions + deletions from the metadata line:
-   - 400–999 lines: note as a `suggestion (non-blocking)` in the final report
-   - 1000+ lines: note as an `issue (non-blocking)` recommending the PR be split
-4. Save the full fetch output — you'll need different sections at different steps.
+3. **PR size**: Check `.size_band`:
+   - `large`: note as a `suggestion (non-blocking)` in the final report
+   - `very-large`: note as an `issue (non-blocking)` recommending the PR be split
+4. Nothing to re-fetch: the full fetch output, commit bodies, static-analysis JSON,
+   review-scope + diff, and intent comments are already on disk under `.paths` —
+   Step 3 reads them directly by path.
 
 ## 3. Independent Multi-Agent Review
 
-This is the core of the skill. You will spawn 6 specialized review agents in parallel,
-each examining the PR from a different angle. Their independent perspectives catch more
-than any single reviewer could.
+This is the core of the skill. You will spawn up to 7 specialized review agents in
+parallel, each examining the PR from a different angle. Their independent
+perspectives catch more than any single reviewer could.
 
-Spawned via the Task tool — six review agents in parallel, then merge.
+Spawned via the Task tool — up to seven review agents in parallel, then merge.
 The bidirectional contract for this exemption (named, scoped,
 rationale'd) lives in `AGENTS.md` under the `## Don'ts` section. The
 fan-out exists for context isolation: each agent's per-file reads,
@@ -464,37 +473,38 @@ subagent rather than landing in the supervisor's transcript.
 1. Read the PR description and changed files list from the fetch output. DO NOT read
    the review comments section yet — reviewing before seeing others' feedback eliminates
    anchoring bias and lets you independently validate what reviewers found.
-2. Resolve review scope, lens gates, and the diff for that scope: run
-   `flow-review-scope` AFTER item 4's static-analysis pre-digest. Full
-   procedure in [references/review-scope.md](references/review-scope.md).
-3. Get the commit history with full messages (not just subjects):
-   `gh pr view <number> --json commits -q '.commits[] | "\(.oid[0:7]) \(.messageHeadline)\n\(.messageBody)\n---"'`
-   Per `AGENTS.md`, commit bodies capture the **why**, design-choice rationale, and
-   rejected approaches — use them as primary review context (the diff alone can't convey
-   intent). Flag a missing or diff-restating body in Step 11 as a `suggestion`.
-4. Run the static-analysis pre-digest and capture its JSON to scratch:
+2. Review scope, lens gates, and the diff for that scope are already resolved —
+   `flow-review-prep` ran `flow-review-scope` for you and wrote `review-scope.json` +
+   the capped diff under `.flow-tmp/` (full procedure in
+   [references/review-scope.md](references/review-scope.md)). Read the gate verdicts
+   off the summary's `.gated_lenses`.
+3. Commit history with full messages (not just subjects) is already at `.paths.commits`
+   — `flow-review-prep` ran `gh pr view --json commits` for you. Per `AGENTS.md`, commit
+   bodies capture the **why**, design-choice rationale, and rejected approaches — use them
+   as primary review context (the diff alone can't convey intent). Flag a missing or
+   diff-restating body in Step 11 as a `suggestion`.
+4. The static-analysis pre-digest is already at `.paths.static_analysis`
+   (`.flow-tmp/static-analysis.json`) — read it directly:
 
    ```bash
-   mkdir -p .flow-tmp
-   flow-pr-static-analysis <number> > .flow-tmp/static-analysis.json
-   STATIC_ANALYSIS=$(cat .flow-tmp/static-analysis.json)
+   STATIC_ANALYSIS=$(cat "$WORKTREE/.flow-tmp/static-analysis.json")
    ```
 
-   The helper runs semgrep (security), biome or eslint (lint), and tsc (types), parses
+   It runs semgrep (security), biome or eslint (lint), and tsc (types), parsed
    each into a unified shape filtered to PR-touched lines, and emits a combined JSON
    envelope keyed by lens — each subset fans out to its matching agent below. Tool-presence
    detection is graceful: a missing tool produces `meta.<lens>.ran=false` + `skipped_reason`
-   and the lens emits `[]`; the helper always exits 0.
+   and the lens emits `[]`.
 
-5. Read the metadata-triage prompt-interpretation tension flag from the artifact written
-   by Step 1.5 (when present); default to `false` when no triage artifact exists:
+5. The metadata-triage prompt-interpretation tension flag is already computed on the
+   summary (default `false` when Step 1.5 wrote no triage artifact) — `$SUMMARY` is
+   `flow-review-prep`'s printed JSON from the call above, already in this turn's
+   transcript, so read `.prompt_interpretation_tension` off it directly (a separate
+   `jq` call in its own turn just to extract one already-visible boolean costs a
+   whole extra supervisor turn for no new information):
 
    ```bash
-   if [ -f "$WORKTREE/.flow-tmp/gatekeeper-result.json" ]; then
-     PROMPT_INTERPRETATION_TENSION=$(jq -r '.prompt_interpretation_tension // false' "$WORKTREE/.flow-tmp/gatekeeper-result.json")
-   else
-     PROMPT_INTERPRETATION_TENSION=false
-   fi
+   PROMPT_INTERPRETATION_TENSION=$(jq -r '.prompt_interpretation_tension' <<< "$SUMMARY")
    ```
 
    Pass this value as `{{PROMPT_INTERPRETATION_TENSION}}` only when filling the
@@ -503,68 +513,103 @@ subagent rather than landing in the supervisor's transcript.
    `references/agent-prompts.md` Pattern & Consistency Agent Process step 8 for the
    conditional behaviour the flag triggers.
 
-6. Read `references/agent-prompts.md` for the prompt templates, then fetch
-   author-authored intent annotations and substitute into each agent prompt:
+6. Read `references/agent-prompts.md` for the prompt templates. Author-authored intent
+   annotations are already at `.paths.intent_comments` (`.flow-tmp/intent-comments.md`)
+   — `flow-review-prep` ran `flow-fetch-intent-comments` for you, anchored on the
+   `**why:** ` prefix + author identity + `<!-- flow-intent-v1 -->` integrity-suffix
+   triple-check (anti-injection) and never exposing reviewer-authored comments
+   (preserving the anti-anchoring guard above). Substitute the file contents as
+   `{{EXISTING_INTENT_COMMENTS}}`; absent annotations, the file contains the literal
+   `(none — author posted no intent annotations)` — substitute as-is.
 
-   ```bash
-   mkdir -p .flow-tmp
-   flow-fetch-intent-comments <number> > .flow-tmp/intent-comments.md
-   ```
-
-   Substitute the file contents as `{{EXISTING_INTENT_COMMENTS}}`. The fetch+filter is
-   anchored on the `**why:** ` prefix + author identity + `<!-- flow-intent-v1 -->`
-   integrity-suffix triple-check (anti-injection) and never exposes reviewer-authored
-   comments (preserving the anti-anchoring guard above). Absent annotations, the file
-   contains the literal `(none — author posted no intent annotations)`; substitute as-is.
+**Completeness rule.** When the summary's `.critical_skips` is non-empty,
+`flow-review-prep` could not establish scope reliably (the PR fetch/metadata
+or the review-scope diff/changed-file list failed) — run all six code lenses
+ungated regardless of `.gated_lenses`. The seventh, `product`, stays gated on
+brief presence: its gate is a precondition, not a scope gate, so a failed
+scope read never resurrects it. Otherwise trust `.gated_lenses` as
+computed, and surface any non-critical `.skips[]` entries in the final
+report.
 
 **Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-multi-agent-review` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review`, write the result artifact, and do not fall back to in-line execution.
 
-**Per-phase model (review) resolution.** Field `state.modelReview`; precedence `--model-review > config.models.review > inherited` (see `../flow-pipeline/references/model-routing.md`). Resolve once via `jq` (`SLUG="$FLOW_SLUG"; REVIEW_MODEL=$(jq -r '.modelReview // empty' ~/.flow/state/"$SLUG".json); [ -z "$REVIEW_MODEL" ] && REVIEW_MODEL=$(jq -r '.models.review // empty' ~/.flow/config.json 2>/dev/null)`) and pass the non-empty result as each agent's per-spawn `model:` (empty ⇒ omit on every agent ⇒ inherit).
+**Per-lens model resolution.** `flow-review-model <lens>` resolves each
+lens's spawn model (precedence `config.models.reviewLenses.<lens> >
+state.modelReview > config.models.review > session-capped inherit`, capped at
+opus — `../flow-pipeline/references/model-routing.md`), called once per lens in
+the loop below; empty stdout ⇒ omit `model:` ⇒ inherit.
 
 **Per-lens subagent-type resolution.** Each lens has a named definition at
 `agents/flow-review-<lens>.md` (Definition column below) whose `tools:`
 allowlist (Read, Grep, Glob, Write) contains the review to read-and-report;
 none pins `effort:`/`model:` (judgment role — the per-spawn
-`model: "$REVIEW_MODEL"` always wins). Plugin-hosted agents are
+`model: "$LENS_MODEL"` always wins, when non-empty). Plugin-hosted agents are
 addressable ONLY by the plugin-qualified name
-`<pluginRootName>:<agentBasename>` — a bare `flow-review-<lens>`
-subagent_type fails Task-tool resolution outright (measured: "Agent type
-'flow-scout' not found"). Resolve the type per lens, in two tiers:
+`<pluginRootName>:<agentBasename>` — a bare `flow-review-<lens>` subagent_type
+fails Task-tool resolution outright (measured: "Agent type 'flow-scout' not
+found"). Resolve type AND model per lens, looping only over the lenses
+`review-scope.json` marks `run: true` — a tier/gate-excluded lens is never
+resurrected here ([references/review-scope.md](references/review-scope.md)
+"Spawn only the ungated lenses") — plus `intent-guess`, handled after the loop
+since it is not a gate key (`evaluateGates` returns exactly the seven):
 
 ```bash
-for LENS in bug-detection security pattern-consistency performance supply-chain test-coverage intent-guess; do
+resolve_lens() {
+  LENS="$1"
   LENS_AGENT=general-purpose
   if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-review-$LENS.md ]; then
     LENS_AGENT="flow-module-core:flow-review-$LENS"
   else
     echo "NOTICE — agent-fallback: flow-review-$LENS → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."
   fi
-  echo "lens $LENS → subagent_type: $LENS_AGENT"
-done
+  LENS_MODEL=$(flow-review-model "$LENS")
+  echo "lens $LENS → subagent_type: $LENS_AGENT, model: ${LENS_MODEL:-inherited}"
+}
+
+RUN_LENSES=()
+while IFS= read -r LENS_KEY; do
+  RUN_LENSES+=("$LENS_KEY")
+done < <(jq -r '.gates | to_entries[] | select(.value.run==true) | .key' "$WORKTREE/.flow-tmp/review-scope.json")
+# read loop, not `mapfile`/`readarray` (bash 4.0+; silently empty on macOS 3.2).
+[ "${#RUN_LENSES[@]}" -eq 0 ] && echo "NOTICE — zero lenses resolved (all gated off, or review-scope.json read no matches)."
+for LENS in "${RUN_LENSES[@]}"; do resolve_lens "$LENS"; done
+# intent-guess is not a gate key — resolved explicitly so the loop can't drop it.
+resolve_lens intent-guess
 ```
 
-`LENS_AGENT` is a scalar reassigned each iteration, not a seven-way holder — the
-loop's only purpose is to print the seven `lens $LENS → subagent_type: $LENS_AGENT`
-lines above (the six review lenses plus `intent-guess`, resolved via the same
-`flow-review-<name>.md` / general-purpose fallback); use that printed per-lens
-value when spawning, never the loop variable's final value.
+`LENS_AGENT`/`LENS_MODEL` are scalars reassigned each call, not eight-way
+holders — `resolve_lens` only prints one `lens $LENS → subagent_type:
+$LENS_AGENT, model: $LENS_MODEL` line per lens actually running (a
+tier/gate-dropped lens, or the optional `product` lens with no brief
+resolved, prints nothing); the eight are the seven review lenses plus
+`intent-guess`, resolved via the same `flow-review-<name>.md` /
+general-purpose fallback. Spawn from that printed value, never from a
+loop/function variable's final value.
 
-**Spawn the ungated lenses plus intent-guess in one parallel message** —
-see [references/review-scope.md](references/review-scope.md) "Spawn only
-the ungated lenses" for the gate filter and the delta-re-entry
-intent-guess skip. Each spawned agent gets `subagent_type:` set to that
+**Spawn the ungated lenses plus intent-guess in one parallel message** — see
+[references/review-scope.md](references/review-scope.md) "Spawn only the
+ungated lenses" for the gate filter and delta-re-entry intent-guess skip. Each spawned agent gets `subagent_type:` set to that
 lens's printed value (NOT a shared `$LENS_AGENT` variable — each spawn
-has its own resolved type) and `model: "$REVIEW_MODEL"` when non-empty:
+has its own resolved type) and `model:` set to that lens's printed
+`resolve_lens` value, omitted when that printed value is `inherited`. The
+product lens's operative gate is `review-scope.json`'s `gates.product.run`
+(flipped to `{run:false, reason:"review.product=false"}` by the
+`review.product: false` kill switch, matching the generic
+`gates.<lens>.run == true` loop the other lenses use) — `product_brief.found`
+stays `true` even when the kill switch fires, so it must not be read as
+the gate.
 
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
   `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`,
   `{{STATIC_ANALYSIS_FACTS}}`, `{{EXISTING_INTENT_COMMENTS}}` (from step 6's
   `.flow-tmp/intent-comments.md`), `{{REVIEW_SCOPE}}` (per
-  `references/review-scope.md` "Spawn only the ungated lenses"), and
+  `references/review-scope.md` "Spawn only the ungated lenses"),
   (Pattern & Consistency Agent only) `{{PROMPT_INTERPRETATION_TENSION}}` from
-  `$PROMPT_INTERPRETATION_TENSION`
-  computed in step 5 above. For the static-analysis variable, substitute a single
+  `$PROMPT_INTERPRETATION_TENSION` computed in step 5 above, and
+  (Product Agent only) `{{PRODUCT_BRIEF_PATH}}` from
+  `jq -r '.product_brief.path // empty' "$WORKTREE/.flow-tmp/review-scope.json"`.
+  For the static-analysis variable, substitute a single
   self-contained JSON object containing both the lens findings and the matching meta
   slice — agents are instructed to check `meta.<lens>.ran` so the substituted block
   needs both. Construct each agent's `{{STATIC_ANALYSIS_FACTS}}` block by running
@@ -584,7 +629,7 @@ has its own resolved type) and `model: "$REVIEW_MODEL"` when non-empty:
   input — without it there is nothing to merge. Shape: `{findings: [...], rejected_alternatives: [...], anti_patterns_found: [...]}`
   (matching `bin/lib/agent-finding-schema.ts`); empty arrays are correct, an ABSENT negative-findings key is recorded (`lens_negatives_missing[]`), not escalated.
 
-The 6 agents:
+The 7 agents:
 
 | Agent                   | Focus                                                                            | Checklist file                                | Static-analysis lens | On-disk output path | Definition |
 | ----------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------- | -------------------- | ------------------- | ---------- |
@@ -594,6 +639,7 @@ The 6 agents:
 | **Performance**         | N+1, pagination, leaks, sequential awaits, O(n^2)                                | `checklists/performance.md`                    | `lint` (biome/eslint, shared with Pattern/Consistency) | `agent-output-performance.json` | `agents/flow-review-performance.md` |
 | **Supply-Chain**        | Dependency additions, semver bumps, license drift, package.json top-level deletions | `checklists/supply-chain.md`                | `none` (synthetic `meta.ran=false` block) | `agent-output-supply-chain.json` | `agents/flow-review-supply-chain.md` |
 | **Test Coverage**       | Missing tests, untested edges, test quality                                      | `checklists/test-coverage.md`                  | `none` (synthetic `meta.ran=false` block) | `agent-output-test-coverage.json` | `agents/flow-review-test-coverage.md` |
+| **Product**             | Mismatches between user-visible behaviour/explanation and the product brief's ranked priorities; Test Steps a code-blind reader can follow | `checklists/product.md`                        | `none` (synthetic `meta.ran=false` block) | `agent-output-product.json` | `agents/flow-review-product.md` |
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
 `decoration`, `confidence`, `subject`, `body`. The on-disk artifact at
@@ -644,9 +690,9 @@ hard-fails the review.
 3. **Branch on the helper's `{ran}` JSON** (the one-line stdout envelope),
    NEVER on the exit code (the helper exits 0 on every graceful path):
    - `ran: true` → `agent-output-gemini.json` is schema-valid; it becomes the SEVENTH input to the Step 3.5 Consolidator. Record `decodedVia` from the envelope for Step 12's report — rendered ONLY when not `structured-output`, so a silently-degrading model surface stays visible — and `degraded` / `degradedReason` when present, since the one bounded no-`--add-dir` fallback retry can land a schema-valid but WEAKER, no-filesystem-access review.
-   - `ran: false` → record `skipReason` and its `skipClass` (`environment` — not run, no quota spent — vs `ran-unusable` — ran but produced nothing usable — reported distinctly, never folded into one generic "skipped" phrase) and, when present, `exitCode` / `agyError` / `stderrTail` / `partialArtifactPath` / `deniedActions` (the agy tool names denied, e.g. `RunCommand`, on `gemini-tools-denied`) / `fallbackAttempted` (the retry above was made but also failed) and proceed. No `agent-output-gemini.json` is left on disk; the consolidator tolerates its absence (it is NOT one of the six mandatory lenses, so its absence does NOT escalate `consolidator-missing-artifact`).
+   - `ran: false` → record `skipReason` and its `skipClass` (`environment` — not run, no quota spent — vs `ran-unusable` — ran but produced nothing usable — reported distinctly, never folded into one generic "skipped" phrase) and, when present, `exitCode` / `agyError` / `stderrTail` / `partialArtifactPath` / `deniedActions` (the agy tool names denied, e.g. `RunCommand`, on `gemini-tools-denied`) / `fallbackAttempted` (the retry above was made but also failed) and proceed. No `agent-output-gemini.json` is left on disk; the consolidator tolerates its absence (it is NOT one of the six mandatory Claude lenses, so its absence does NOT escalate `consolidator-missing-artifact`).
 
-Do NOT add a seventh row to the six-agent table above — the Gemini lens
+Do NOT add an eighth row to the seven-agent table above — the Gemini lens
 reviews the whole diff with no static-analysis lens, so it is deliberately
 absent from `AGENT_LENS_MAP`. This sub-step IS the lens's documentation.
 
@@ -693,13 +739,11 @@ REVIEW_SCOPE_PATH="$WORKTREE/.flow-tmp/review-scope.json"
 full diff. Only `PR_METADATA_PATH` needs a fallback write when absent:
 `gh pr view "$PR_NUMBER" --json number,title,headRefName,baseRefName,headRefOid > "$PR_METADATA_PATH"`.
 
-**Per-phase model (consolidator) resolution.** Field `state.modelConsolidator`; precedence `--model-consolidator > config.models.consolidator > inherited` (see `../flow-pipeline/references/model-routing.md`). This spawn does **not** use a `model: "haiku"` pin (unlike the Step 1.5 metadata triage) — the second-opinion validation needs the larger model. Resolve via `jq` (`SLUG="$FLOW_SLUG"; CONSOLIDATOR_MODEL=$(jq -r '.modelConsolidator // empty' ~/.flow/state/"$SLUG".json); [ -z "$CONSOLIDATOR_MODEL" ] && CONSOLIDATOR_MODEL=$(jq -r '.models.consolidator // empty' ~/.flow/config.json 2>/dev/null)`) and pass the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒ inherit).
-
-Resolve the subagent type with the file-exists guard. Plugin-hosted agents
-are addressable ONLY by the plugin-qualified name
-`<pluginRootName>:<agentBasename>` — a bare `flow-consolidator`
-subagent_type fails Task-tool resolution outright (measured: "Agent type
-'flow-scout' not found"):
+**Per-phase model (consolidator) resolution.** Field `state.modelConsolidator`; precedence `--model-consolidator > config.models.consolidator > inherited` (see `../flow-pipeline/references/model-routing.md`). This spawn does **not** use a `model: "haiku"` pin (unlike the Step 1.5 metadata triage) — the second-opinion validation needs the larger model. Resolve via `CONSOLIDATOR_MODEL=$(flow-review-model consolidator)` (reuses the same `resolveRouting` precedence chain the per-lens resolutions in Step 3 use, rather than a hand-rolled `jq` read) and pass the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒ inherit). Resolve the subagent type with the file-exists guard.
+Plugin-hosted agents are addressable ONLY by the plugin-qualified name
+`<pluginRootName>:<agentBasename>` — a bare `flow-consolidator` subagent_type
+fails Task-tool resolution outright (measured: "Agent type 'flow-scout' not
+found"):
 
 ```bash
 CONSOLIDATOR_SUBAGENT=general-purpose
@@ -724,7 +768,11 @@ paths at `$WORKTREE/.flow-tmp/agent-output-<lens>.json` (lenses:
 `$WORKTREE/.flow-tmp/agent-output-gemini.json` (the cross-model Gemini
 lens — **tolerated-absent**: when missing, the consolidator proceeds with
 the six Claude outputs and does NOT escalate `consolidator-missing-artifact`;
-that escalation stays scoped to the six mandatory Claude lenses), the
+that escalation stays scoped to the six mandatory Claude lenses) and the
+optional eighth `$WORKTREE/.flow-tmp/agent-output-product.json` (the
+brief-gated product lens — **tolerated-absent**: present only when a
+product brief resolved; when missing, proceed with the six and do NOT
+escalate `consolidator-missing-artifact`), the
 static-analysis path at
 `$WORKTREE/.flow-tmp/static-analysis.json`, `$DIFF_PATH`,
 `$PR_METADATA_PATH`, `$REVIEW_SCOPE_PATH`, and `$ARTIFACT_PATH`.
@@ -879,7 +927,9 @@ for skipped ones). Step 9 reads those dispositions to draft inline replies.
 Delegated to the Fix-Applier Subagent (see § Fix-Applier Subagent above). The
 subagent self-marks the current PR's row and sweeps drifted prior-PR rows in
 `docs/roadmap.md` (when one exists), and syncs the epic status board via
-`flow-epic-sync` (no-op for a non-epic PR; named skip when absent) — bundling
+`flow-epic-sync` (no-op for a non-epic PR; named skip when absent), and validates
+every epic manifest against the PR's diff with `flow-epic-dag --touched-files`
+(plus `flow-epic-dag --validate` for any manifest the diff touches) — bundling
 either edit into the same fix commit as Steps 6/7. Full contract:
 `../flow-fix-applier-instructions/SKILL.md` step 5; `AGENTS.md`'s `Auto-push exemption: pr-review` clause covers the commit + push.
 
@@ -1478,15 +1528,16 @@ Based on 12a-12d:
 the standardized format and apply it. Default-on — no upfront confirmation; show it after.
 
 **If 2+ intent clarity criteria fail OR significant accuracy issues exist**: Draft an
-updated description preserving the original author's voice and structure, and apply it.
-Default-on — no upfront confirmation; show the before/after comparison with the failing
-criteria annotated *after* the edit lands, so the user can redirect via reply:
+updated description preserving the original author's voice and structure, and write it to
+`.flow-tmp/body.md` (overwriting any earlier draft from this run — the single
+`flow-review-finalize` call at Step 13 pushes it). Default-on — no upfront confirmation;
+show the before/after comparison with the failing criteria annotated *after* that call
+lands, so the user can redirect via reply:
 
 ```bash
 cat > .flow-tmp/body.md <<'EOF'
 <updated description>
 EOF
-flow-md-validate --fix-pr-body .flow-tmp/body.md && gh pr edit <number> --body-file .flow-tmp/body.md
 ```
 
 **If only Testability fails and the rest of the description is accurate**: Do NOT redraft
@@ -1498,14 +1549,14 @@ on the fail subtype:
   `references/manual-test-rubric.md`'s scenario menu for the change type: shallow
   appends the missing categories (unhappy paths, edge cases) to the existing "Test
   Steps" section; missing drafts a minimal section from scratch. Default-on — no upfront
-  confirmation: edit the PR preserving everything else, then show the user the focused
-  diff — just the test-section change, not the full description — so they can redirect:
+  confirmation: write the focused diff — just the test-section change, not the full
+  description — to `.flow-tmp/body.md` (Step 13's `flow-review-finalize` call pushes it),
+  then show the user that diff so they can redirect:
 
   ```bash
   cat > .flow-tmp/body.md <<'EOF'
   <original description with test section extended or added>
   EOF
-  flow-md-validate --fix-pr-body .flow-tmp/body.md && gh pr edit <number> --body-file .flow-tmp/body.md
   ```
 
 - **Fail (automatable)**: Unlike the `Fail (shallow)` and `Fail (missing)` branches
@@ -1522,12 +1573,10 @@ on the fail subtype:
   For each automatable item: write the test, run it (`npm test` / `RUN_INTEGRATION=1
   npm test` as appropriate), commit and push (covered by the `Auto-push exemption:
   pr-review` clause in AGENTS.md), then prune the converted bullet by writing the
-  updated body to `.flow-tmp/body.md`, running `flow-md-validate --fix-pr-body
-  .flow-tmp/body.md`, and applying it via `gh pr edit <number> --body-file
-  .flow-tmp/body.md`. Leave only items that genuinely require human
-  judgment (the rubric's "Genuinely manual" list). The user redirects via reply after
-  the fact (e.g. "this one should have stayed manual — revert it") rather than gating
-  each conversion upfront.
+  updated body to `.flow-tmp/body.md` — Step 13's `flow-review-finalize` call pushes it.
+  Leave only items that genuinely require human judgment (the rubric's "Genuinely
+  manual" list). The user redirects via reply after the fact (e.g. "this one should
+  have stayed manual — revert it") rather than gating each conversion upfront.
 
   Items that fail the rubric's `Caveat: don't trade a working test for a flaky one`
   check are **not** auto-converted — surface them as `suggestion` findings instead.
@@ -1577,7 +1626,59 @@ pass-through `lens_anti_patterns_found[]` entries above have no such flag (three
 Render the boolean in **Anti-Patterns Observed**, and append the new-file audit's
 WARNING lines (Step 9a above) so a misclassified introduced-in-PR entry stays visible.
 
-**Lens telemetry.** Build `LENS_TOKEN_ARGS` per `references/review-scope.md` "Record lens tokens" (quoted `"${LENS_TOKENS[@]/#/--lens-tokens }"` glues each pair into one argv word and `parseArgs` rejects it), then run `flow-review-telemetry collect --worktree "$WORKTREE" --pr "$PR_NUMBER" --session-id "$CLAUDE_CODE_SESSION_ID" "${LENS_TOKEN_ARGS[@]}" --append ${WIDEN_REASON:+--widened "$WIDEN_REASON"}` then `flow-review-telemetry print --in "$WORKTREE/.flow-tmp/review-telemetry.json"`; paste `print`'s stdout under `### Lens telemetry` (`references/report-template.md`).
+**The mechanical wrap-up runs once, here, via `flow-review-finalize`.** This single
+supervisor call absorbs what used to be four separate mechanical recipes spread across
+11e/12/13: the PR-body upsert (whichever `.flow-tmp/body.md` draft 11e produced — or, if
+no branch fired, the current live body, fetched first via `gh pr view <number> --json body
+-q .body > .flow-tmp/body.md` so the upsert never runs against a missing file), lens telemetry
+collection, the Automation-precedence audit line, the result artifact, the
+`pr-review-last-sha` marker, and the untracked-follow-up seed. It runs
+`flow-md-validate --fix-pr-body` immediately before pushing the body via `gh pr edit`,
+internally, never skipped:
+
+```bash
+WIDEN_ARGS=(); [ -n "$WIDEN_REASON" ] && WIDEN_ARGS=(--widened "$WIDEN_REASON")
+flow-review-finalize --pr "$PR_NUMBER" --worktree "$WORKTREE" \
+  --body-file "$WORKTREE/.flow-tmp/body.md" --status clean \
+  --session-id "$CLAUDE_CODE_SESSION_ID" \
+  --ran $N --total $M --prose-promoted $X \
+  --reason subjective-UX --reason production-only \
+  "${LENS_TOKEN_ARGS[@]}" "${LENS_MODEL_ARGS[@]}" "${WIDEN_ARGS[@]}"
+RC=$?
+if [ "$RC" -ne 0 ]; then
+  echo "NOTICE — flow-review-finalize exited $RC; wrap-up (body/telemetry/result artifact) did not complete" >&2
+fi
+```
+
+(`LENS_TOKEN_ARGS` and `LENS_MODEL_ARGS` built per `references/review-scope.md`
+"Record lens tokens" — arrays of `--lens-tokens <lens>=<n>` and `--lens-model
+<lens>=<alias>` pairs, each passed through per-element expansion
+(`"${LENS_TOKEN_ARGS[@]}"` / `"${LENS_MODEL_ARGS[@]}"`, never the quoted
+`${ARR[@]/#/PREFIX }` glue-into-one-word form, which `parseArgs` rejects with exit 2). **`WIDEN_ARGS` must be an array too, for
+the same reason and one the shell makes easy to miss:** `${WIDEN_REASON:+--widened
+"$WIDEN_REASON"}` expands to TWO words under bash but exactly ONE under zsh, which does
+not word-split unquoted expansions — so the conditional-flag form silently passes
+`--widened <reason>` as a single argv word and `parseArgs` rejects it with exit 2 on
+any zsh-driven run. Build the array, never the conditional expansion) — and both forwarded verbatim by
+`flow-review-finalize` to `flow-review-telemetry collect` (a `--lens-model` the
+installed telemetry helper does not yet accept is reported as a `lens_models` skip
+and the call retried without it, rather than losing the whole telemetry record); `N`/`M`/`X`
+are Step 8c's ran/total/prose-promoted counts, `--reason` one per applicable
+manual-test-rubric category; check `$RC` — a non-zero exit means the wrap-up did
+not run and must not be assumed to have happened.)
+
+**Completeness rule (mirrors Step 3's `flow-review-prep` rule above).** Read the
+printed `ReviewFinalize` envelope's `.skips[]`. A non-empty `.skips[]` means one or
+more sub-steps (body upsert, telemetry, result artifact, `pr-review-last-sha`
+marker, or untracked-follow-up seed) did not complete — do not assume the wrap-up
+fully happened just because the call exited 0 (sub-step skips still exit 0 by
+design; only bad CLI arguments exit 2). Surface every skip's `step`/`reason` in the
+report so a partial wrap-up is visible rather than silently swallowed. Then run
+`flow-review-telemetry print --in "$WORKTREE/.flow-tmp/review-telemetry.json"` and paste
+its stdout under `### Lens telemetry`
+(`references/report-template.md`); read the Automation-precedence audit line back from
+`jq -r '.summary' "$WORKTREE/.flow-tmp/pr-review-result.json"` and append it to "Test Steps
+(from PR description)" per the format below.
 
 **Agent-fallback notices.** When any spawn site's file-exists guard fired its
 `NOTICE — agent-fallback: ...` line during this run (per-lens,
@@ -1602,14 +1703,7 @@ section ends with one summary line:
 Automation-precedence audit: ran N/M items (X prose-promoted, Y left manual: <reasons>)
 ```
 
-Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X, Y) and the per-unticked-item rubric categories; pass them to:
-
-```bash
-flow-classify-step --ran $N --total $M --prose-promoted $X \
-  --reason subjective-UX --reason production-only   # one --reason per applicable category
-```
-
-Append the helper's stdout to the report under "Test Steps (from PR description)". Allowed `--reason` slugs (kebab-case form of the five categories in references/manual-test-rubric.md): `subjective-UX`, `production-only`, `cross-browser`, `performance-under-realistic-load`, `cost-prohibitive-infra`. The bullet list below remains the contract documentation; `bin/flow-classify-step.test.ts` pins the format on the helper side so the two cannot drift silently.
+Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X, Y) and the per-unticked-item rubric categories; the `flow-review-finalize` call above forwards them to `flow-classify-step --ran $N --total $M --prose-promoted $X --reason ...` internally and folds its stdout into the result artifact's `summary` field — read that field back (see above) and append it to the report under "Test Steps (from PR description)". Allowed `--reason` slugs (kebab-case form of the five categories in references/manual-test-rubric.md): `subjective-UX`, `production-only`, `cross-browser`, `performance-under-realistic-load`, `cost-prohibitive-infra`. The bullet list below remains the contract documentation; `bin/flow-classify-step.test.ts` pins the format on the helper side so the two cannot drift silently.
 
 - `M` is the total `- [ ]` item count in the section.
 - `N` is the number ticked by 8c (author-runnable + prose-promoted via 8c.ii).
@@ -1654,6 +1748,15 @@ auto-conversion is a per-PR side effect, not a per-PR property, so a run without
 `Fail (automatable)` fire has no auto-conversion semantics to report and the line
 is omitted rather than written as `0 items`.
 
+**Merge tier fields onto the result artifact.** Once
+`<worktree>/.flow-tmp/pr-review-result.json` exists (the clean-completion
+write below), run
+`flow-pr-review-result-schema --merge-scope "$WORKTREE/.flow-tmp/review-scope.json" "$WORKTREE/.flow-tmp/pr-review-result.json"`
+so `tier` / `tier_reasons` land on the result artifact via the helper's
+`mergeScopeFields` rather than being hand-copied in prose here; the call
+is idempotent and tolerates an absent/malformed scope artifact (rewrites
+nothing beyond the two fields either way).
+
 ## 13. Register Local Follow-ups (when applicable)
 
 If addressing a review comment introduced a side-effect the user must replicate
@@ -1676,84 +1779,50 @@ PR body — escalation can fire before a PR exists, and the JSONL log persists
 on disk for any later resume to consume. PR review never runs the follow-up
 directly — that's the supervisor's job, gated by the helper's allowlist.
 
-**Seed the untracked list (two mechanical sources, pipeline runs only).**
-Still in Step 13, after the follow-ups block above, seed
-`state.json.untracked[]` from two mechanical sources — supervisor
-judgment adds items at any other step via `flow-untracked add`, but
-these two are always checked here. Guarded: a **standalone**
-`/flow-pr-review` run has no slug/state file and `flow-untracked add`
-exits 2 there, so skip cleanly ("skipped: no pipeline state") instead
-of failing Step 13. `flow-untracked add` dedupes on an existing
-UNDROPPED item sharing `--title` + `--source`, so a review-fix-loop or
-resume re-run of this block never duplicates an entry:
+**The untracked seed, the result artifact, and the `pr-review-last-sha` marker are
+already written by Step 12's `flow-review-finalize` call above** — this section documents
+what that one call does; there is nothing further to run here. It seeds
+`state.json.untracked[]` from two mechanical sources (supervisor judgment can still add
+items at any other step via `flow-untracked add`, but these two are always checked):
+source 1 is `deferred[]` entries from `fix-applier-result.json` whose `tracker_entry_url`
+is empty (title `<finding_id>: <reason>`); source 2 is `anti_patterns_found[]` entries
+whose `introduced_by_this_pr` is `false` (title `<pattern>`). Both run through
+`flow-untracked add --title "<title>" --source pr-review`, which dedupes on an existing
+UNDROPPED item sharing `--title` + `--source`, so a review-fix-loop or resume re-run never
+duplicates an entry. Guarded internally: a **standalone** `/flow-pr-review` run has no
+slug/state file (`flow-untracked list --json` fails there), so the helper skips this
+source cleanly instead of failing. Both sources are read-only against the fix-applier
+artifact schema — no new field is added to it. Items seeded here are unfiled by default;
+they surface in the terminal block's `**Untracked:**` row and the reader files or drops
+them with `file #N` / `drop #N` at any later pause. Below-bar deferrals (a `reason`
+beginning `below bar — `) arrive through source 1 by design — shown, not filed — so the
+user can `flow-untracked file <id>` any they disagree with.
 
-```bash
-if flow-untracked list --json >/dev/null 2>&1; then  # guard: standalone run has no pipeline state
-  jq -r '.deferred[] | select(.tracker_entry_url == "") | .finding_id + ": " + .reason' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r title; do  # source 1: deferred[] with no tracker_entry_url
-    [ -n "$title" ] && flow-untracked add --title "$title" --source pr-review
-  done
-  jq -r '.anti_patterns_found[] | select(.introduced_by_this_pr == false) | .pattern' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r title; do  # source 2: anti_patterns_found[] not introduced by this PR
-    [ -n "$title" ] && flow-untracked add --title "$title" --source pr-review
-  done
-else
-  echo "skipped: no pipeline state"  # named no-op
-fi
-```
-
-Both sources are read-only against the fix-applier artifact schema —
-no new field is added to it. Items seeded here are unfiled by default;
-they surface in the terminal block's `**Untracked:**` row and the
-reader files or drops them with `file #N` / `drop #N` at any later
-pause. Below-bar deferrals (a `reason` beginning `below bar — `) arrive through source 1 by design — shown, not filed — so the user can `flow-untracked file <id>` any they disagree with.
-
-After Step 13 finishes (including its no-op-skipped branch), write the
-clean-completion result artifact at `<worktree>/.flow-tmp/pr-review-result.json`
-per the # Result artifact contract above: `status: "clean"`,
-`completed_steps` enumerating every top-level step label that ran in this
-invocation (deduplicating against any prior list when `--resume-from` was
-used), `missed_steps: []`, `escalation_tag: null`, and a one-paragraph
-`summary` mirroring the Step 12 structured report's headline. Validate the
-shape via `flow-pr-review-result-schema --validate <path>` then
-atomically write. The write MUST be guarded by the
+The same call writes the clean-completion result artifact at
+`<worktree>/.flow-tmp/pr-review-result.json` per the # Result artifact contract above:
+`status: "clean"`, `completed_steps` enumerating every top-level step label that ran in
+this invocation, `missed_steps: []`, `escalation_tag: null`, and a `summary` carrying the
+Automation-precedence audit line. It validates the shape (the same check
+`flow-pr-review-result-schema --validate <path>` performs) before writing, and honors the
 **read-before-overwrite** contract from
 [references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md)
-— if a prior site already wrote `status: "escalated"`, exit cleanly
-without touching the file (escalation always wins over clean):
+— if a prior site already wrote `status: "escalated"`, it exits cleanly without touching
+the file (escalation always wins over clean). This is the single signal `/flow-pipeline`
+step 8 reads to decide whether to continue (`"clean"`) or branch into the partial-retry
+path (`"partial"`) or escalate verbatim (`"escalated"`).
 
-```bash
-RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
-
-# read-before-overwrite guard — see references/result-artifact-write-protocol.md
-[ -f "$RESULT_PATH" ] && [ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null)" = "escalated" ] && exit 0
-```
-
-This is the single signal `/flow-pipeline` step 8 reads to decide
-whether to continue (`"clean"`) or branch into the partial-retry path
-(`"partial"`) or escalate verbatim (`"escalated"`).
-
-**Also write the `pr-review-last-sha` marker file on this clean-completion
-path.** The marker is the load-bearing input both the Step 1.5
-metadata triage's "no-new-commits" skip rule and `flow-review-scope`'s delta
-base consult. Single write site, sourced from **local** `git rev-parse
-HEAD` rather than `gh pr view` — the GitHub PR object can hold a stale
-head SHA for hours (known head-sync stall); local HEAD cannot lag. Write
-it atomically alongside the result artifact:
-
-```bash
-HEAD_SHA=$(git -C "$WORKTREE" rev-parse HEAD)
-printf '%s\n' "$HEAD_SHA" > "$WORKTREE/.flow-tmp/pr-review-last-sha.tmp"
-mv "$WORKTREE/.flow-tmp/pr-review-last-sha.tmp" "$WORKTREE/.flow-tmp/pr-review-last-sha"
-```
-
-The marker write is scoped **only** to this clean-Step-13 completion path.
-Escalation paths (`status: "escalated"`) and partial paths
-(`status: "partial"`) MUST NOT write the marker — those don't represent a
-fully-reviewed PR, so the next invocation should fall through to a real
-review rather than a metadata-triage skip. The marker file's read site lives in
-`## 1.5. Metadata triage` above;
-`bin/skill-md-lint.test.ts` asserts the literal `pr-review-last-sha`
-appears in both the spawn-prompt reference (read site) and here (write
-site) so this paired-contract regression can't recur silently.
+The call also writes the `pr-review-last-sha` marker file on this clean-completion path.
+The marker is the load-bearing input both the Step 1.5 metadata triage's
+"no-new-commits" skip rule and `flow-review-scope`'s delta base consult. Single write
+site, sourced from **local** `git rev-parse HEAD` rather than `gh pr view` — the GitHub PR
+object can hold a stale head SHA for hours (known head-sync stall); local HEAD cannot lag.
+The marker write is scoped **only** to the clean-completion path — escalation paths
+(`status: "escalated"`) and partial paths (`status: "partial"`) MUST NOT write the marker
+— those don't represent a fully-reviewed PR, so the next invocation should fall through to
+a real review rather than a metadata-triage skip. The marker file's read site lives in
+`## 1.5. Metadata triage` above; `bin/skill-md-lint.test.ts` asserts the literal
+`pr-review-last-sha` appears in both the spawn-prompt reference (read site) and here
+(write site) so this paired-contract regression can't recur silently.
 
 # Anti-Patterns
 

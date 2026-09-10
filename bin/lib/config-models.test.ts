@@ -55,6 +55,13 @@ describe("runConfigModelsCli", () => {
       "scout",
       "coder",
       "review",
+      "review-lens:bug-detection",
+      "review-lens:security",
+      "review-lens:pattern-consistency",
+      "review-lens:performance",
+      "review-lens:supply-chain",
+      "review-lens:test-coverage",
+      "review-lens:intent-guess",
       "fix-applier",
       "ui-driver",
       "consolidator",
@@ -67,6 +74,34 @@ describe("runConfigModelsCli", () => {
     expect(table).toContain("pinned");
     // the fixture config value resolves
     expect(table).toMatch(/review\s+opus\s+config \(models\.review\)/);
+  });
+
+  // Story 1b — review-lens rows: default inherited, an explicit
+  // config.models.reviewLenses.<lens> override, and the fable-session cap.
+  it("renders the seven review-lens rows with their resolved model + source", () => {
+    const code = runConfigModelsCli([], {
+      read: reader({
+        models: { reviewLenses: { "bug-detection": "haiku" } },
+      }),
+    });
+    expect(code).toBe(0);
+    const table = out.join("\n");
+    // an explicit models.reviewLenses.<lens> value names that layer as source
+    expect(table).toMatch(
+      /review-lens:bug-detection\s+haiku\s+config \(models\.reviewLenses\.bug-detection\)/,
+    );
+    // an unconfigured lens with no session state falls through to "inherited"
+    expect(table).toMatch(/review-lens:security\s+inherited\s+inherited/);
+  });
+
+  it("a capped review-lens row's SOURCE names the cap", () => {
+    const code = runConfigModelsCli(["--slug", "feat"], {
+      read: reader(undefined),
+      loadState: () => st({ model: "fable" }),
+    });
+    expect(code).toBe(0);
+    const table = out.join("\n");
+    expect(table).toMatch(/review-lens:bug-detection\s+opus\s+capped/);
   });
 
   // Story 2 — a per-pipeline override landed.
@@ -89,7 +124,10 @@ describe("runConfigModelsCli", () => {
     expect(out.length).toBe(1);
     const parsed = JSON.parse(out[0]);
     expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed.length).toBeGreaterThanOrEqual(8);
+    // 8 original spawn sites + 7 review-lens rows (bug-detection, security,
+    // pattern-consistency, performance, supply-chain, test-coverage,
+    // intent-guess) + the config-only `ui-driver` row
+    expect(parsed.length).toBe(16);
     for (const r of parsed) {
       expect(r).toHaveProperty("phase");
       expect(r).toHaveProperty("model");

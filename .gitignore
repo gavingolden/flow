@@ -12,3 +12,6 @@ dist/
 # managed by flow runtime
 .flow-branch
 # end flow runtime
+
+# review-model-recall harness scratch inputs/outputs (docs/eval/review-model-recall/README.md)
+docs/eval/review-model-recall/data/

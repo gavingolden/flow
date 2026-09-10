@@ -42,7 +42,7 @@ Before drafting any fix, load the inputs:
 - Read the PR fetch output the wrapper passed you. Extract: the filtered
   finding set (each entry has `file`, `line`, `end_line`, `label`,
   `decoration`, `confidence`, `subject`, `body`, and an agent category like
-  `Bug-Detection`/`Security`/`Pattern-Consistency`/`Performance`/`Supply-Chain`/`Test-Coverage`), the
+  `Bug-Detection`/`Security`/`Pattern-Consistency`/`Performance`/`Supply-Chain`/`Test-Coverage`/`Product`), the
   inline review comments to address (each has `comment_id`, `path`, `line`,
   `body`), and the head SHA captured at fetch time.
 - Read `<SKILL_DIR>/references/conventional-comments.md` for the labelling
@@ -51,7 +51,8 @@ Before drafting any fix, load the inputs:
   finding's category is unclear and you need to disambiguate (`Bug-Detection` →
   `bug-detection.md`, `Security` → `security.md`, `Pattern-Consistency` →
   `pattern-consistency.md`, `Performance` → `performance.md`, `Supply-Chain` →
-  `supply-chain.md`, `Test-Coverage` → `test-coverage.md`).
+  `supply-chain.md`, `Test-Coverage` → `test-coverage.md`, `Product` →
+  `product.md`).
 
 This is read-only background — these reads stay in your context.
 
@@ -307,6 +308,12 @@ Otherwise, for each inline comment:
    in your return summary is helpful for human-debugging but not
    load-bearing — the artifact is the contract.
 
+A finding whose `subject` starts with `[test-steps]` (the product lens's
+PR-body concerns) is addressed by editing the PR body's `## Test Steps`
+section (`gh pr view --json body` -> edit -> `flow-md-validate
+--fix-pr-body` -> `gh pr edit --body-file`), NEVER by editing source; its
+file/line anchor is for inline-comment placement only.
+
 Push back on incorrect comments. The reply body the wrapper posts at
 step 9 is composed from the `reasoning` field of the matching
 `commits[]` entry (with `rejected suggestion:` prefix) — that text is
@@ -392,6 +399,47 @@ flow-epic-sync
 It resolves the epic slug ambiently ($FLOW_SLUG / the launch env) and is a
 no-op for a non-epic PR; it also exits 0 when `gh` is unavailable, so it
 never blocks this step.
+
+**Validate the epic manifests against this PR's diff.** This fires whether
+or not the diff touches a manifest — that is what catches a forgotten
+write-back (`undeclared-producer`: this PR's feature regenerates a
+declared shared artifact it does not itself declare, or a non-epic PR
+touches one without the manifest):
+
+```bash
+BASE_REF=$(gh pr view "$PR_NUMBER" --json baseRefName --jq .baseRefName)
+if ! git rev-parse --verify --quiet "origin/$BASE_REF" > /dev/null; then
+  echo "epic-dag: base ref unavailable — skipped"
+else
+  if ! command -v flow-epic-dag > /dev/null; then
+    echo "epic-dag: flow-epic-dag not installed — skipped"
+  else
+    FAIL=0
+    EPIC_SLUG=$(jq -r '.epic.slug // empty' ~/.flow/state/"${FLOW_SLUG:-}".json 2>/dev/null)
+    FEATURE_ID=$(jq -r '.epic.featureId // empty' ~/.flow/state/"${FLOW_SLUG:-}".json 2>/dev/null)
+    for m in .flow/epics/*/manifest.json; do
+      [ -f "$m" ] || continue
+      FEAT_ARGS=()
+      if [ -n "$FEATURE_ID" ] && [ "$m" = ".flow/epics/$EPIC_SLUG/manifest.json" ]; then
+        FEAT_ARGS=(--feature "$FEATURE_ID")
+      fi
+      git diff -z --name-only "origin/$BASE_REF...HEAD" \
+        | xargs -0 flow-epic-dag --touched-files "$m" "${FEAT_ARGS[@]}" || FAIL=1
+      if git diff --name-only "origin/$BASE_REF...HEAD" | grep -qxF "$m"; then
+        flow-epic-dag --validate "$m" || FAIL=1
+      fi
+    done
+    if [ "${FAIL:-0}" -ne 0 ]; then
+      echo "epic-dag: manifest validation FAILED — fix in this PR (add the producer entry + edge)"
+    fi
+  fi
+fi
+```
+
+A non-zero exit is recorded via the `epic-dag: manifest validation FAILED`
+line above, which the result artifact's summary and the step's return
+summary both surface, and fixed in this PR (add the producer entry + edge to
+the manifest) — never `|| true`-swallowed.
 
 When it modifies `.flow/epics/<epic-slug>/status.json`, bundle the edit
 into the fix commit you are already making (steps 3–4 / 5a–5b). If it is

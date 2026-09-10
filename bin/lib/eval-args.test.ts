@@ -38,3 +38,17 @@ describe("parseArgs 'run' --ablation", () => {
     });
   });
 });
+
+describe("parseArgs 'run' --autocompact", () => {
+  it("parses --autocompact into the returned args", () => {
+    const parsed = parseArgs(baseRunArgv(["--autocompact", "150k"]));
+    expect("error" in parsed).toBe(false);
+    expect((parsed as RunArgs).autocompact).toBe("150k");
+  });
+
+  it("leaves autocompact undefined when the flag is omitted", () => {
+    const parsed = parseArgs(baseRunArgv());
+    expect("error" in parsed).toBe(false);
+    expect((parsed as RunArgs).autocompact).toBeUndefined();
+  });
+});

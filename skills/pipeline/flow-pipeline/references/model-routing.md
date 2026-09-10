@@ -35,19 +35,26 @@ so the sub-agent inherits the session model (the default Claude behaviour).
 
 ## Precedence table (highest wins)
 
-| Spawn site                                              | state field          | precedence                                                                            |
-| ------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------- |
-| Step 3 Discovery (planning)                             | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                          |
-| `/flow-new-feature` Scout (implement)                   | `modelImplement`     | `config.models.scout // state.modelImplement // config.models.implement // inherited` |
-| `/flow-coder` Edit-Applier (implement)                  | `modelImplement`     | `config.models.coder // state.modelImplement // config.models.implement // inherited` |
-| `/flow-pr-review` Multi-Agent Review (review)           | `modelReview`        | `state.modelReview // config.models.review // inherited`                              |
-| `/flow-pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`    | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**   |
-| `/flow-verify` UI-driver (uiDriver)                     | —                    | `config.models.uiDriver // "sonnet"` **(NOT inherited; config-only, no CLI flag)**    |
-| `/flow-pr-review` Consolidator-Validator (consolidator) | `modelConsolidator`  | `state.modelConsolidator // config.models.consolidator // inherited`                  |
-| Step 10 Merge-Conflict Resolver (mergeResolver)         | `modelMergeResolver` | `state.modelMergeResolver // config.models.mergeResolver // inherited`                |
-| `/flow-epic-create` designer (planning)                 | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                          |
+| Spawn site                                              | state field          | precedence                                                                                                                    |
+| ------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Step 3 Discovery (planning)                             | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                                                                  |
+| `/flow-new-feature` Scout (implement)                   | `modelImplement`     | `config.models.scout // state.modelImplement // config.models.implement // inherited`                                         |
+| `/flow-coder` Edit-Applier (implement)                  | `modelImplement`     | `config.models.coder // state.modelImplement // config.models.implement // inherited`                                         |
+| `/flow-pr-review` Multi-Agent Review (review)           | `modelReview`        | `state.modelReview // config.models.review // inherited`                                                                      |
+| `/flow-pr-review` Bug-Detection Lens (review)           | `modelReview`        | `config.models.reviewLenses.bug-detection // state.modelReview // config.models.review // session model capped at opus`       |
+| `/flow-pr-review` Security Lens (review)                | `modelReview`        | `config.models.reviewLenses.security // state.modelReview // config.models.review // session model capped at opus`            |
+| `/flow-pr-review` Pattern-Consistency Lens (review)     | `modelReview`        | `config.models.reviewLenses.pattern-consistency // state.modelReview // config.models.review // session model capped at opus` |
+| `/flow-pr-review` Performance Lens (review)             | `modelReview`        | `config.models.reviewLenses.performance // state.modelReview // config.models.review // session model capped at opus`         |
+| `/flow-pr-review` Supply-Chain Lens (review)            | `modelReview`        | `config.models.reviewLenses.supply-chain // state.modelReview // config.models.review // session model capped at opus`        |
+| `/flow-pr-review` Test-Coverage Lens (review)           | `modelReview`        | `config.models.reviewLenses.test-coverage // state.modelReview // config.models.review // session model capped at opus`       |
+| `/flow-pr-review` Intent-Guess Lens (review)            | `modelReview`        | `config.models.reviewLenses.intent-guess // state.modelReview // config.models.review // session model capped at opus`        |
+| `/flow-pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`    | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**                                           |
+| `/flow-verify` UI-driver (uiDriver)                     | —                    | `config.models.uiDriver // "sonnet"` **(NOT inherited; config-only, no CLI flag)**                                            |
+| `/flow-pr-review` Consolidator-Validator (consolidator) | `modelConsolidator`  | `state.modelConsolidator // config.models.consolidator // session model capped at opus`                                       |
+| Step 10 Merge-Conflict Resolver (mergeResolver)         | `modelMergeResolver` | `state.modelMergeResolver // config.models.mergeResolver // inherited`                                                        |
+| `/flow-epic-create` designer (planning)                 | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                                                                  |
 
-## Three deliberate asymmetries
+## Four deliberate asymmetries
 
 - **fixApplier defaults to `sonnet`, not inherited.** The Fix-Applier loop
   applies already-diagnosed findings — mechanical apply-commit-push work its
@@ -59,6 +66,13 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   is the one primary grain over implementation; `config.models.scout` /
   `config.models.coder` are optional finer overrides that layer **above**
   `modelImplement` (they win when set) but have no CLI flag.
+- **A review lens (and the consolidator) inherits the session model, capped
+  at opus.** A lens inherits the session model unchanged when that model is
+  priced at or below opus (`MODEL_PRICE_RANK` in `bin/lib/state.ts`); an
+  alias priced above opus — today only `fable` — falls back to opus instead,
+  so an accidentally-expensive session can never fan out seven review spawns
+  at once. This is a rank-ordering rule keyed on `MODEL_PRICE_RANK`, not a
+  named-model special case.
 - **uiDriver pins effort AND falls back to a literal sonnet AND is the only
   routed site with no CLI flag at all.** `config.models.uiDriver` is the sole
   knob — no `--model-ui-driver` flag, no `state.json` field. A

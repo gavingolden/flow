@@ -208,6 +208,16 @@ describe("parseArgs", () => {
     });
   });
 
+  it("accepts a new pre-review --site value", () => {
+    expect(parseArgs(["--site", "pre-review"])).toEqual({
+      slug: undefined,
+      consume: false,
+      probe: false,
+      path: false,
+      site: "pre-review",
+    });
+  });
+
   it("rejects --probe combined with --consume", () => {
     expect(parseArgs(["--probe", "--consume"])).toEqual({
       error: "--probe and --consume are mutually exclusive",
@@ -645,6 +655,17 @@ describe("probeFreshness / --probe", () => {
     runCapture(["rho", "--site", "gate"]);
     const state = readState("rho", stateDir);
     expect(state?.checkpoint?.site).toBe("gate");
+  });
+
+  it("accepts --site pre-review and arms the marker like the other non-manual sites", () => {
+    seedState("sigma");
+    writeCheckpoint("sigma", "pre-review body\n");
+    const r = runCapture(["sigma", "--site", "pre-review"]);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("ready");
+    expect(fs.existsSync(markerFile("sigma"))).toBe(true);
+    const state = readState("sigma", stateDir);
+    expect(state?.checkpoint?.site).toBe("pre-review");
   });
 });
 

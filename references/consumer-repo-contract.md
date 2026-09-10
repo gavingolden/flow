@@ -100,14 +100,21 @@ no config key and no environment override.
 fence closed, `… [brief truncated at 4000 chars]` appended) so one bound is
 inherited by every consumer.
 
-Two sites read it today: `/flow-product-planning` discovery cites it in the
+Four sites read it today: `/flow-product-planning` discovery cites it in the
 PRD's Problem Statement, its Decision-analysis verdicts and stakes lines, and
 its candidate value-prop blocks; the cross-model plan review quotes it into
-the battery prompt as fenced reference data. **Absent is a legitimate, common
-state** — with no brief anywhere, the plan-review prompt is byte-identical to
-its pre-feature output and discovery changes nothing. **No secrets, ever**:
+the battery prompt as fenced reference data; `/flow-pipeline` step 3 spawns a
+code-blind product critic that argues the plan against it (reconciled
+point-by-point in the plan); `/flow-pr-review` runs a seventh, product review
+lens over the diff's user-read surfaces and the PR's Test Steps. **Absent is
+a legitimate, common state** — with no brief anywhere, the plan-review
+prompt is byte-identical to its pre-feature output and discovery changes
+nothing, no critic spawns and no seventh lens runs. **No secrets, ever**:
 the file is committed and its full text is sent verbatim to an external
-provider. Deleting it returns flow to that same behaviour.
+provider. Deleting it returns flow to that same behaviour. The user-level
+fallback at `~/.flow/product.md` is seeded by `flow install` when absent, so
+a consumer repo with no `.flow/product.md` of its own still resolves a
+brief.
 
 ## Optional test-tier manifest
 

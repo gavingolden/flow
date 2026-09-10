@@ -230,6 +230,42 @@ describe("buildChildArgv", () => {
     expect(argv).not.toContain("--effort");
   });
 
+  it("adds --autocompact after --effort when opts.autocompact is set", () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const argv = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+      effort: "medium",
+      autocompact: "150k",
+    });
+    expect(argv.slice(-4)).toEqual([
+      "--effort",
+      "medium",
+      "--autocompact",
+      "150k",
+    ]);
+  });
+
+  it("leaves argv unchanged when opts.autocompact is unset", () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const withoutAutocompact = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    const explicitUndefined = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+      autocompact: undefined,
+    });
+    expect(withoutAutocompact).not.toContain("--autocompact");
+    expect(explicitUndefined).toEqual(withoutAutocompact);
+  });
+
   it("adds --mcp-config and --strict-mcp-config when fixture.mcpConfigPath is set", () => {
     const fixture = makeFixture({
       mcpConfigPath: "/tmp/fixture-root/mcp-config.json",
@@ -306,6 +342,25 @@ describe("childArgvDigest", () => {
     });
     expect(childArgvDigest(withPlugin)).not.toBe(
       childArgvDigest(withoutPlugin),
+    );
+  });
+
+  it("changes when --autocompact is added", () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const withoutAutocompact = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    const withAutocompact = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+      autocompact: "150k",
+    });
+    expect(childArgvDigest(withAutocompact)).not.toBe(
+      childArgvDigest(withoutAutocompact),
     );
   });
 

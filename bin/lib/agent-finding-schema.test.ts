@@ -1941,6 +1941,58 @@ describe("agent-finding-schema CLI — `--collect-lens-negatives <dir>`", () => 
     );
   });
 
+  it("contributes lens-tagged product negatives when agent-output-product.json is present (absence-is-silent is covered separately below)", () => {
+    const artifact = {
+      findings: [],
+      rejected_alternatives: [
+        {
+          considered_approach: "synthesize a template",
+          why_rejected: "drifts from the brief",
+        },
+      ],
+      anti_patterns_found: [
+        {
+          location: "skills/foo/SKILL.md:1",
+          pattern: "mechanism-first prose",
+          recommendation: "lead with user impact",
+        },
+      ],
+    };
+    withTmpDir(
+      {
+        "agent-output-bug-detection.json": {
+          findings: [],
+          rejected_alternatives: [],
+          anti_patterns_found: [],
+        },
+        "agent-output-product.json": artifact,
+      },
+      (dir) => {
+        const result = runCli(["--collect-lens-negatives", dir]);
+        expect(result.status).toBe(0);
+        const parsed = JSON.parse(result.stdout.trim());
+        expect(parsed.lens_rejected_alternatives).toEqual([
+          {
+            considered_approach: "synthesize a template",
+            why_rejected: "drifts from the brief",
+            lens: "product",
+          },
+        ]);
+        expect(parsed.lens_anti_patterns_found).toEqual([
+          {
+            location: "skills/foo/SKILL.md:1",
+            pattern: "mechanism-first prose",
+            recommendation: "lead with user impact",
+            lens: "product",
+          },
+        ]);
+        // product's absence from disk is skipped SILENTLY, same as any
+        // other optional lens — it must not appear in lens_negatives_missing.
+        expect(parsed.lens_negatives_missing).toEqual([]);
+      },
+    );
+  });
+
   it("skips a missing artifact file silently", () => {
     withTmpDir(
       {
