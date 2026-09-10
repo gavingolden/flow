@@ -42,7 +42,7 @@
   Medium.com) when researching — especially AI topics — so weight a
   claim's credibility by its source, and verify anything an official
   source can confirm against that source rather than a secondary
-  write-up. The rule is 'always _try_' with
+  write-up. The rule is 'always *try*' with
   judgment, not blanket pessimisation — when in doubt, verify.
 - **Explain problems impact-first in plain language.** Lead with the
   user-visible impact rather than the internal mechanism, and translate
@@ -99,7 +99,7 @@
   two poles rather than silently picking a pole, and surface the
   trade-off where the user will see it (the plan, the PR description, a
   design note) so they can redirect. The genuinely-binary case still
-  exists (a boolean flag, a yes/no migration); the rule is to _check_
+  exists (a boolean flag, a yes/no migration); the rule is to *check*
   for a middle ground, not to manufacture one where none exists.
 - **Understand the ultimate goal behind the request, not just the literal ask.**
   Before assuming the literal request is the whole job, understand what the user
@@ -118,7 +118,7 @@
   effects, and internal-only Five Whys) — each a bounded internal heuristic you
   reason with, never a performed/emitted section. Same family as
   **Consider the middle ground when a
-  request is framed as a binary choice.** above — this one governs _altitude_: up
+  request is framed as a binary choice.** above — this one governs *altitude*: up
   from the proposed solution to the goal it serves.
 
 ## Anti-Overengineering
@@ -129,12 +129,12 @@ Make only changes that are directly requested or clearly necessary. Keep solutio
 - Don't add error handling or validation for scenarios that can't happen.
 - Don't create abstractions for one-time operations or hypothetical future needs.
 
-Minimal scope targets _unrequested feature creep_ — new features, speculative
+Minimal scope targets *unrequested feature creep* — new features, speculative
 refactors, hypothetical-future abstractions — **not** trivial robustness fixes.
 "Review only changed files" likewise does **not** forbid a minimal edit to an
 adjacent production file when that edit is what makes the PR's own change robust.
-Anti-Overengineering is a guard against doing _more_ than the task; it is never a
-license to knowingly ship a _worse_ artifact. See the fix-now bar below.
+Anti-Overengineering is a guard against doing *more* than the task; it is never a
+license to knowingly ship a *worse* artifact. See the fix-now bar below.
 
 ### Fix-now bar — when ALL three hold, fix it in-PR (don't defer, don't rationalize)
 
@@ -148,8 +148,8 @@ true:
 3. **In-scope** — directly related to code this PR already touches, OR to a
    brittleness / regression this PR itself introduced.
 
-This holds _even when the clean fix needs a minimal touch to an adjacent
-production file the diff didn't originally include_. Example: when a test would
+This holds *even when the clean fix needs a minimal touch to an adjacent
+production file the diff didn't originally include*. Example: when a test would
 otherwise have to assert against a brittle implementation detail (a literal CSS
 utility class, a generated id), add a stable hook to the adjacent component (a
 `data-` attribute) and assert on that — rather than coupling the test to the
@@ -157,23 +157,23 @@ brittle detail and recording the brittleness as a trade-off. That one-line
 adjacent edit is in scope, not scope creep.
 
 The fix-now bar is the mirror of the deferral bar: the same three properties
-that send a finding to fix-now, when inverted, are what let a _genuinely
-standalone or complex_ finding be deferred instead. When a finding clears the
+that send a finding to fix-now, when inverted, are what let a *genuinely
+standalone or complex* finding be deferred instead. When a finding clears the
 fix-now bar, "I don't want to expand the PR" and "that file wasn't in my diff"
 are not reasons to defer or rationalize. Deferral-to-issue stays reserved for
-work that _fails_ the fix-now bar — a fix needing meaningful design or research,
+work that *fails* the fix-now bar — a fix needing meaningful design or research,
 or a cross-cutting change touching several files.
 
 ## Scope: bundle cohesive work, defer only separate features
 
 Treat every request as production-bound — work real users will depend on, not a
 hobby-project MVP. This is the lens for two decisions the fix-now bar above does
-not cover, because it governs _features_, where the fix-now bar governs
-_robustness_.
+not cover, because it governs *features*, where the fix-now bar governs
+*robustness*.
 
 **Include cohesive work; key on cohesion, not size.** When deciding whether an
 addition belongs in the current task or a separate issue, the question is "is
-this a _completely separate feature_?" — not "is this small or large?". An
+this a *completely separate feature*?" — not "is this small or large?". An
 addition is part of the current task when it serves the same user goal, touches
 the same surface, or its absence would leave the feature partial or awkward to
 use; build it in-task even if the request did not enumerate it. Suggest a
@@ -192,11 +192,11 @@ accessibility, and tests for the surface you touch are part of the feature, not
 deferrable polish. Shipping the happy path and filing the rest is the
 hobby-project pattern this rule forecloses.
 
-This raises _completeness and quality_, not _feature count_, and it does not
+This raises *completeness and quality*, not *feature count*, and it does not
 loosen Anti-Overengineering above: the standard is minimal scope executed to a
 production standard — not gold-plating, not speculative features, and "challenge
 the request / do nothing" stays a valid recommendation. Effort is a secondary
-guardrail: a cohesive enhancement that would _materially_ expand the work (a
+guardrail: a cohesive enhancement that would *materially* expand the work (a
 multi-file rewrite, new infrastructure, an unresolved design decision) is
 surfaced for the user to weigh rather than silently bundled.
 
@@ -207,12 +207,12 @@ project conventions that cannot be inferred from pattern-matching.
 
 <TODO: Customize this table for your repo's installed skills.>
 
-| When you touch…                        | Read skill         |
-| -------------------------------------- | ------------------ |
-| Test files                             | `flow-testing`     |
-| Refactoring / cleanup tasks            | `flow-refactoring` |
-| <stack-specific files, e.g. `.svelte`> | `<stack-skill>`    |
-| <database migrations>                  | `<database-skill>` |
+| When you touch…                             | Read skill        |
+| ------------------------------------------- | ----------------- |
+| Test files                                  | `flow-testing`    |
+| Refactoring / cleanup tasks                 | `flow-refactoring` |
+| <stack-specific files, e.g. `.svelte`>      | `<stack-skill>`   |
+| <database migrations>                       | `<database-skill>` |
 
 Read each skill **once per conversation**. Skip only for trivially mechanical changes (typo fixes).
 

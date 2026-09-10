@@ -42,12 +42,12 @@ The three-ingredient new-repo onboarding:
    chrome-devtools MCP server process — run the UI-validation pass without
    colliding on the single shared default profile. Without `--isolated`, the
    second concurrent pipeline to reach UI validation fails with `The browser
-is already running for ~/.cache/chrome-devtools-mcp/chrome-profile`; flow
+   is already running for ~/.cache/chrome-devtools-mcp/chrome-profile`; flow
    degrades that to a clean skip (you lose browser coverage but the run stays
    green). A per-repo `--user-data-dir` is an alternative if you want a
    persistent logged-in profile per repo. `--isolated` only swaps the
    on-disk profile for a throwaway one — that throwaway profile is
-   documented as cleaned up _after the browser is closed_, so `--isolated`
+   documented as cleaned up *after the browser is closed*, so `--isolated`
    alone does not stop a leaked browser process; see "Clean up spawned
    resources" below for how the browser process itself is reaped. Add
    `--headless=new` (not the legacy `--headless`) if you never want a Dock
@@ -84,7 +84,7 @@ is already running for ~/.cache/chrome-devtools-mcp/chrome-profile`; flow
 
    **Dedicated agent-test ports.** Agents launch the app on a freshly-allocated
    free port **per process**, never a fixed offset: one `{{PORT}}` sentinel for
-   a single-process app, or one `{{PORT_<NAME>}}` named sentinel (UPPER*SNAKE,
+   a single-process app, or one `{{PORT_<NAME>}}` named sentinel (UPPER_SNAKE,
    e.g. `{{PORT_BACKEND}}`) per additional process, each resolved to its own
    distinct free port every run — so an agent run never collides with the
    developer's own running dev server, nor with another concurrent agent run.
@@ -92,16 +92,18 @@ is already running for ~/.cache/chrome-devtools-mcp/chrome-profile`; flow
    sentinels, same three failure modes as a fixed offset): (1) the backend CORS
    allow-list must admit the frontend's per-run origin — set
    `CORS_ALLOWED_ORIGINS` in `env` to the per-run `baseUrl`; (2) per-endpoint
-   frontend URL vars (e.g. `VITE*_*URL`, like `VITE_API_URL`) must point at the
-backend's per-run `{{PORT*<NAME>}}`; (3) prefer seeded `TEST*USER*_`password login over OAuth — OAuth/Supabase redirect URIs are origin-specific
-and break on a per-run origin (the fallback is manually registering the
-origin's redirect URL with the OAuth provider). If the app needs a separate
-backend, the single`launch`command can start both processes (e.g. via`concurrently`). The flat `env`map is injected **once** into the parent
-launch process, so it carries only overrides that are the same across
-processes (e.g.`CORS*ALLOWED_ORIGINS`, and the public backend URL the
-frontend reads via `VITE*\*\_URL`). Per-process-differing vars — most commonly
-each process's own port — go **inline** in the `launch`command per
-sub-command (e.g.`PORT={{PORT}} … dev:frontend`and`PORT={{PORT_BACKEND}}
+   frontend URL vars (e.g. `VITE_*_URL`, like `VITE_API_URL`) must point at the
+   backend's per-run `{{PORT_<NAME>}}`; (3) prefer seeded `TEST_USER_*`
+   password login over OAuth — OAuth/Supabase redirect URIs are origin-specific
+   and break on a per-run origin (the fallback is manually registering the
+   origin's redirect URL with the OAuth provider). If the app needs a separate
+   backend, the single `launch` command can start both processes (e.g. via
+   `concurrently`). The flat `env` map is injected **once** into the parent
+   launch process, so it carries only overrides that are the same across
+   processes (e.g. `CORS_ALLOWED_ORIGINS`, and the public backend URL the
+   frontend reads via `VITE_*_URL`). Per-process-differing vars — most commonly
+   each process's own port — go **inline** in the `launch` command per
+   sub-command (e.g. `PORT={{PORT}} … dev:frontend` and `PORT={{PORT_BACKEND}}
    … dev:backend`), not in `env`, since a single flat `env` value can't express
    two different ports. flow does **not** orchestrate a separate backend
    lifecycle.
@@ -126,7 +128,6 @@ sub-command (e.g.`PORT={{PORT}} … dev:frontend`and`PORT={{PORT_BACKEND}}
    persisted: the committed manifest stores names and non-secret config only —
    never a secret value. Treat the manifest as a deterministic cache of
    non-secret facts the agent maintains, not a frozen contract.
-
 3. **Seed + creds, once per repo.** Provide a loginable test user + fixture
    data and document it under a "Local Testing Credentials" section in this
    file, so the review/verify passes can log in deterministically.

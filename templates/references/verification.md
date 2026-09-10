@@ -44,7 +44,7 @@ services like Slack/Stripe/real-LLM) or subjective human judgment.
 This boundary does **not** loosen the `### Requires Approval` or
 `### Forbidden (No Exceptions)` guardrails above: the `.github/workflows/*`
 approval gate, the destructive-git approval rules, and the credential
-prohibitions all stay in force verbatim. Standing up a _local_ stack to run a
+prohibitions all stay in force verbatim. Standing up a *local* stack to run a
 step is orthogonal to those guardrails — it grants no new license over external
 systems, prod writes, or secrets.
 

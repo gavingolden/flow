@@ -16,7 +16,6 @@ never hard-fails — the same opt-in-by-presence model as UI validation above.
 
 Usage: `flow-delegate (--prompt "<text>" | --prompt-file <path>) [--model
 "Gemini 3.1 Pro (High)"] [--timeout 5m] [--skip-permissions] [--add-dir
-
 <dir>]... [--out <path>] [--task <name>]`. Pass exactly one prompt source
 (`--prompt` for inline text, `--prompt-file` for a path — also the escape hatch
 for a prompt that literally begins with `--`). Omit `--model` to use your agy
