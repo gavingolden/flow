@@ -71,6 +71,13 @@ export const ALWAYS_ON_LENSES: readonly AgentName[] = [
   "pattern-consistency",
 ];
 
+// Optional lenses are gated on a precondition (e.g. brief presence), never
+// on diff content — no synthetic artifact is written for them and no
+// `lens-gated` notice fires when they're off. Their verdict is computed
+// independently of `opts.enabled` (see evaluateGates below), so a
+// `--no-gates` run never fabricates a precondition that was never met.
+export const OPTIONAL_LENSES: readonly AgentName[] = ["product"];
+
 /**
  * Path patterns naming a security-sensitive area (auth, secrets,
  * credentials, crypto). Consumed here only via `matchesAny`'s export for
@@ -110,6 +117,7 @@ const ALL_AGENT_NAMES: readonly AgentName[] = [
   "performance",
   "supply-chain",
   "test-coverage",
+  "product",
 ];
 
 /** Converts one glob pattern into a matcher for a single file path. */
@@ -220,12 +228,24 @@ export function evaluateGates(
   opts: {
     enabled: boolean;
     newBareImports?: boolean;
+    productBrief?: { found: true; scope: "repo" | "user" } | { found: false };
   },
 ): Record<AgentName, GateVerdict> {
   const out: Record<string, GateVerdict> = {};
 
+  // Computed first, and unconditionally: the product lens's gate is a
+  // precondition (brief presence), never content, so it must never be
+  // overwritten by the `!opts.enabled` "gates disabled" branch below.
+  out.product = opts.productBrief?.found
+    ? {
+        run: true,
+        reason: `product brief resolved (${opts.productBrief.scope})`,
+      }
+    : { run: false, reason: "no product brief resolved" };
+
   if (!opts.enabled) {
     for (const name of ALL_AGENT_NAMES) {
+      if ((OPTIONAL_LENSES as readonly string[]).includes(name)) continue;
       out[name] = { run: true, reason: "gates disabled" };
     }
     return out as Record<AgentName, GateVerdict>;

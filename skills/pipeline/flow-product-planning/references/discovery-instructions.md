@@ -1790,7 +1790,12 @@ redirect did not touch and destroys embedded markers. Follow this contract:
    `## Cut list`, or `## Request vetting`. (If it does, edit the affected body and leave the stale marker — after
    the re-review the supervisor recomputes the hash over the final revised plan via
    `flow-plan-review --print-hash` and re-embeds it; the tolerant hash-read self-heals a
-   lost marker, but needlessly rewriting it forces a wasteful re-review.)
+   lost marker, but needlessly rewriting it forces a wasteful re-review.) The
+   `### Product critique (blind)` subsection under `## Open Questions` (written by
+   `/flow-pipeline` step 3's supervisor after the blind product critic runs) is
+   likewise MUST-NOT-REGENERATE: keep it verbatim and keep it the last subsection
+   of `## Open Questions`; item 6's "extend, don't replace" rule appends new
+   entries ABOVE it.
 4. **Do NOT re-run Step 1.5 research** when web-grounded research findings already exist in
    the plan (or in `.flow-tmp/research-findings.md`). The redirect is a scope/decision
    change, not a new research question — re-running the fan-out double-spends agy quota for

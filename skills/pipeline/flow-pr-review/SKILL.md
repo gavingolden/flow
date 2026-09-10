@@ -457,11 +457,11 @@ Then perform pre-flight checks against the summary:
 
 ## 3. Independent Multi-Agent Review
 
-This is the core of the skill. You will spawn 6 specialized review agents in parallel,
-each examining the PR from a different angle. Their independent perspectives catch more
-than any single reviewer could.
+This is the core of the skill. You will spawn up to 7 specialized review agents in
+parallel, each examining the PR from a different angle. Their independent
+perspectives catch more than any single reviewer could.
 
-Spawned via the Task tool — six review agents in parallel, then merge.
+Spawned via the Task tool — up to seven review agents in parallel, then merge.
 The bidirectional contract for this exemption (named, scoped,
 rationale'd) lives in `AGENTS.md` under the `## Don'ts` section. The
 fan-out exists for context isolation: each agent's per-file reads,
@@ -524,8 +524,10 @@ subagent rather than landing in the supervisor's transcript.
 
 **Completeness rule.** When the summary's `.critical_skips` is non-empty,
 `flow-review-prep` could not establish scope reliably (the PR fetch/metadata
-or the review-scope diff/changed-file list failed) — run all six lenses
-ungated regardless of `.gated_lenses`. Otherwise trust `.gated_lenses` as
+or the review-scope diff/changed-file list failed) — run all six code lenses
+ungated regardless of `.gated_lenses`. The seventh, `product`, stays gated on
+brief presence: its gate is a precondition, not a scope gate, so a failed
+scope read never resurrects it. Otherwise trust `.gated_lenses` as
 computed, and surface any non-critical `.skips[]` entries in the final
 report.
 
@@ -549,7 +551,7 @@ found"). Resolve type AND model per lens, looping only over the lenses
 `review-scope.json` marks `run: true` — a tier/gate-excluded lens is never
 resurrected here ([references/review-scope.md](references/review-scope.md)
 "Spawn only the ungated lenses") — plus `intent-guess`, handled after the loop
-since it is not a gate key (`evaluateGates` returns exactly the six):
+since it is not a gate key (`evaluateGates` returns exactly the seven):
 
 ```bash
 resolve_lens() {
@@ -575,28 +577,39 @@ for LENS in "${RUN_LENSES[@]}"; do resolve_lens "$LENS"; done
 resolve_lens intent-guess
 ```
 
-`LENS_AGENT`/`LENS_MODEL` are scalars reassigned each call, not seven-way
+`LENS_AGENT`/`LENS_MODEL` are scalars reassigned each call, not eight-way
 holders — `resolve_lens` only prints one `lens $LENS → subagent_type:
 $LENS_AGENT, model: $LENS_MODEL` line per lens actually running (a
-tier/gate-dropped lens prints nothing). Spawn from that printed value, never
-from a loop/function variable's final value.
+tier/gate-dropped lens, or the optional `product` lens with no brief
+resolved, prints nothing); the eight are the seven review lenses plus
+`intent-guess`, resolved via the same `flow-review-<name>.md` /
+general-purpose fallback. Spawn from that printed value, never from a
+loop/function variable's final value.
 
 **Spawn the ungated lenses plus intent-guess in one parallel message** — see
 [references/review-scope.md](references/review-scope.md) "Spawn only the
 ungated lenses" for the gate filter and delta-re-entry intent-guess skip. Each spawned agent gets `subagent_type:` set to that
 lens's printed value (NOT a shared `$LENS_AGENT` variable — each spawn
 has its own resolved type) and `model:` set to that lens's printed
-`resolve_lens` value, omitted when that printed value is `inherited`:
+`resolve_lens` value, omitted when that printed value is `inherited`. The
+product lens's operative gate is `review-scope.json`'s `gates.product.run`
+(flipped to `{run:false, reason:"review.product=false"}` by the
+`review.product: false` kill switch, matching the generic
+`gates.<lens>.run == true` loop the other lenses use) — `product_brief.found`
+stays `true` even when the kill switch fires, so it must not be read as
+the gate.
 
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
   `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`,
   `{{STATIC_ANALYSIS_FACTS}}`, `{{EXISTING_INTENT_COMMENTS}}` (from step 6's
   `.flow-tmp/intent-comments.md`), `{{REVIEW_SCOPE}}` (per
-  `references/review-scope.md` "Spawn only the ungated lenses"), and
+  `references/review-scope.md` "Spawn only the ungated lenses"),
   (Pattern & Consistency Agent only) `{{PROMPT_INTERPRETATION_TENSION}}` from
-  `$PROMPT_INTERPRETATION_TENSION`
-  computed in step 5 above. For the static-analysis variable, substitute a single
+  `$PROMPT_INTERPRETATION_TENSION` computed in step 5 above, and
+  (Product Agent only) `{{PRODUCT_BRIEF_PATH}}` from
+  `jq -r '.product_brief.path // empty' "$WORKTREE/.flow-tmp/review-scope.json"`.
+  For the static-analysis variable, substitute a single
   self-contained JSON object containing both the lens findings and the matching meta
   slice — agents are instructed to check `meta.<lens>.ran` so the substituted block
   needs both. Construct each agent's `{{STATIC_ANALYSIS_FACTS}}` block by running
@@ -616,7 +629,7 @@ has its own resolved type) and `model:` set to that lens's printed
   input — without it there is nothing to merge. Shape: `{findings: [...], rejected_alternatives: [...], anti_patterns_found: [...]}`
   (matching `bin/lib/agent-finding-schema.ts`); empty arrays are correct, an ABSENT negative-findings key is recorded (`lens_negatives_missing[]`), not escalated.
 
-The 6 agents:
+The 7 agents:
 
 | Agent                   | Focus                                                                            | Checklist file                                | Static-analysis lens | On-disk output path | Definition |
 | ----------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------- | -------------------- | ------------------- | ---------- |
@@ -626,6 +639,7 @@ The 6 agents:
 | **Performance**         | N+1, pagination, leaks, sequential awaits, O(n^2)                                | `checklists/performance.md`                    | `lint` (biome/eslint, shared with Pattern/Consistency) | `agent-output-performance.json` | `agents/flow-review-performance.md` |
 | **Supply-Chain**        | Dependency additions, semver bumps, license drift, package.json top-level deletions | `checklists/supply-chain.md`                | `none` (synthetic `meta.ran=false` block) | `agent-output-supply-chain.json` | `agents/flow-review-supply-chain.md` |
 | **Test Coverage**       | Missing tests, untested edges, test quality                                      | `checklists/test-coverage.md`                  | `none` (synthetic `meta.ran=false` block) | `agent-output-test-coverage.json` | `agents/flow-review-test-coverage.md` |
+| **Product**             | Mismatches between user-visible behaviour/explanation and the product brief's ranked priorities; Test Steps a code-blind reader can follow | `checklists/product.md`                        | `none` (synthetic `meta.ran=false` block) | `agent-output-product.json` | `agents/flow-review-product.md` |
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
 `decoration`, `confidence`, `subject`, `body`. The on-disk artifact at
@@ -676,9 +690,9 @@ hard-fails the review.
 3. **Branch on the helper's `{ran}` JSON** (the one-line stdout envelope),
    NEVER on the exit code (the helper exits 0 on every graceful path):
    - `ran: true` → `agent-output-gemini.json` is schema-valid; it becomes the SEVENTH input to the Step 3.5 Consolidator. Record `decodedVia` from the envelope for Step 12's report — rendered ONLY when not `structured-output`, so a silently-degrading model surface stays visible — and `degraded` / `degradedReason` when present, since the one bounded no-`--add-dir` fallback retry can land a schema-valid but WEAKER, no-filesystem-access review.
-   - `ran: false` → record `skipReason` and its `skipClass` (`environment` — not run, no quota spent — vs `ran-unusable` — ran but produced nothing usable — reported distinctly, never folded into one generic "skipped" phrase) and, when present, `exitCode` / `agyError` / `stderrTail` / `partialArtifactPath` / `deniedActions` (the agy tool names denied, e.g. `RunCommand`, on `gemini-tools-denied`) / `fallbackAttempted` (the retry above was made but also failed) and proceed. No `agent-output-gemini.json` is left on disk; the consolidator tolerates its absence (it is NOT one of the six mandatory lenses, so its absence does NOT escalate `consolidator-missing-artifact`).
+   - `ran: false` → record `skipReason` and its `skipClass` (`environment` — not run, no quota spent — vs `ran-unusable` — ran but produced nothing usable — reported distinctly, never folded into one generic "skipped" phrase) and, when present, `exitCode` / `agyError` / `stderrTail` / `partialArtifactPath` / `deniedActions` (the agy tool names denied, e.g. `RunCommand`, on `gemini-tools-denied`) / `fallbackAttempted` (the retry above was made but also failed) and proceed. No `agent-output-gemini.json` is left on disk; the consolidator tolerates its absence (it is NOT one of the six mandatory Claude lenses, so its absence does NOT escalate `consolidator-missing-artifact`).
 
-Do NOT add a seventh row to the six-agent table above — the Gemini lens
+Do NOT add an eighth row to the seven-agent table above — the Gemini lens
 reviews the whole diff with no static-analysis lens, so it is deliberately
 absent from `AGENT_LENS_MAP`. This sub-step IS the lens's documentation.
 
@@ -754,7 +768,11 @@ paths at `$WORKTREE/.flow-tmp/agent-output-<lens>.json` (lenses:
 `$WORKTREE/.flow-tmp/agent-output-gemini.json` (the cross-model Gemini
 lens — **tolerated-absent**: when missing, the consolidator proceeds with
 the six Claude outputs and does NOT escalate `consolidator-missing-artifact`;
-that escalation stays scoped to the six mandatory Claude lenses), the
+that escalation stays scoped to the six mandatory Claude lenses) and the
+optional eighth `$WORKTREE/.flow-tmp/agent-output-product.json` (the
+brief-gated product lens — **tolerated-absent**: present only when a
+product brief resolved; when missing, proceed with the six and do NOT
+escalate `consolidator-missing-artifact`), the
 static-analysis path at
 `$WORKTREE/.flow-tmp/static-analysis.json`, `$DIFF_PATH`,
 `$PR_METADATA_PATH`, `$REVIEW_SCOPE_PATH`, and `$ARTIFACT_PATH`.

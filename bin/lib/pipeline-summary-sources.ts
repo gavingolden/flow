@@ -448,6 +448,13 @@ export function renderLenses(
       devLines.push(`${lens}: not run`);
       continue;
     }
+    if (lens === "product" && l.skip_reason === "no artifact") {
+      // product is silent, not "not run": there is no config switch the
+      // user set (unlike gemini's review.gemini opt-in) — its gate is
+      // brief presence, a repo precondition, so a brief-less repo's
+      // snapshot renders no line for it at all.
+      continue;
+    }
     totalCount++;
     if (l.ran) {
       ranCount++;

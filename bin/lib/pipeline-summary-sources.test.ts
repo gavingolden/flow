@@ -1117,6 +1117,29 @@ describe(renderLenses, () => {
     expect(dev).toContain("performance: gated (docs-only diff (1 files))");
   });
 
+  it("omits a product dev line and excludes it from ran/total when skip_reason is 'no artifact'", () => {
+    const raw = JSON.stringify({
+      scope: { kind: "delta", delta_files: 1 },
+      widened: { value: false, reason: null },
+      lenses: {
+        "bug-detection": {
+          ran: true,
+          tokens: { total: 100 },
+          findings_emitted: 0,
+          findings_survived: 0,
+          findings_acted: 0,
+        },
+        product: {
+          ran: false,
+          skip_reason: "no artifact",
+        },
+      },
+    });
+    const { dev, pm } = renderLenses(raw);
+    expect(dev.some((line) => line.startsWith("product"))).toBe(false);
+    expect(pm).toBe("lenses: 1/1 ran, scope delta, ~100 tokens");
+  });
+
   it("renders n/a for null tokens", () => {
     const raw = JSON.stringify({
       scope: { kind: "full", delta_files: 0 },

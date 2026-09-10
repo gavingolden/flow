@@ -49,6 +49,7 @@ import {
 import { moduleIdFromPluginRootName, pluginRootName } from "./plugin-manifest";
 import { withFileLock } from "./lock";
 import { applyShellRcCompletions } from "./setup-rc";
+import { seedUserProductBrief } from "./product-brief-seed";
 import {
   ensureSessionStartHook,
   ensureStopHook,
@@ -767,6 +768,30 @@ async function runUnderLock(
     { remove: options.noCompletions, homeDir: options.homeDir },
     log,
   );
+
+  // Seed ~/.flow/product.md only when absent — deliberately untracked by the
+  // manifest: a deleted brief is re-seeded on the next install, and the
+  // supported way to turn the feature off is the `review.product: false`
+  // kill switch, not deleting the seeded file.
+  const briefSeed = seedUserProductBrief({
+    homeDir: options.homeDir,
+    flowSource,
+    installRoot,
+  });
+  if (briefSeed.status === "created") {
+    log(
+      `  + ${briefSeed.path}  (seeded user-level product brief — edit it to state what you optimize for; a repo's own .flow/product.md wins)`,
+    );
+  } else if (
+    briefSeed.status === "no-template" ||
+    briefSeed.status === "failed"
+  ) {
+    log(
+      `  ! product brief seed skipped: ${briefSeed.status}${
+        briefSeed.error ? ` (${briefSeed.error})` : ""
+      }`,
+    );
+  }
 
   const settingsPath = options.settingsPath ?? CLAUDE_SETTINGS_PATH;
   if (!options.noHooks) {

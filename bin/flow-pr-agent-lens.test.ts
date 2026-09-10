@@ -11,6 +11,7 @@ import {
   run,
   SYNTHETIC_SUPPLY_CHAIN,
   SYNTHETIC_TEST_COVERAGE,
+  SYNTHETIC_PRODUCT,
   type AgentName,
 } from "./flow-pr-agent-lens";
 import type {
@@ -34,6 +35,7 @@ const EXPECTED_AGENTS: readonly AgentName[] = [
   "performance",
   "supply-chain",
   "test-coverage",
+  "product",
 ];
 
 const f = (
@@ -88,7 +90,12 @@ describe("AGENT_LENS_MAP", () => {
 
   it("each non-synthetic agent has 1-2 valid LensName values", () => {
     for (const agent of EXPECTED_AGENTS) {
-      if (agent === "supply-chain" || agent === "test-coverage") continue;
+      if (
+        agent === "supply-chain" ||
+        agent === "test-coverage" ||
+        agent === "product"
+      )
+        continue;
       const lenses = AGENT_LENS_MAP[agent];
       expect(lenses.length, `agent ${agent}`).toBeGreaterThanOrEqual(1);
       expect(lenses.length, `agent ${agent}`).toBeLessThanOrEqual(2);
@@ -106,6 +113,7 @@ describe("AGENT_LENS_MAP", () => {
       ...ALL_LENS_NAMES,
       SYNTHETIC_SUPPLY_CHAIN,
       SYNTHETIC_TEST_COVERAGE,
+      SYNTHETIC_PRODUCT,
     ]);
     for (const lenses of Object.values(AGENT_LENS_MAP)) {
       for (const lens of lenses) expect(allowed.has(lens)).toBe(true);
@@ -168,6 +176,17 @@ describe("route()", () => {
       },
     });
   });
+
+  it("product emits the synthetic envelope verbatim", () => {
+    expect(route(env, "product")).toEqual({
+      findings: [],
+      meta: {
+        ran: false,
+        skipped_reason: "no product pre-digest lens",
+        duration_ms: 0,
+      },
+    });
+  });
 });
 
 describe("parseArgs()", () => {
@@ -210,7 +229,7 @@ describe("run() CLI behaviour", () => {
     if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
   });
 
-  it("--help exits 0 and stdout lists all six kebab-names", async () => {
+  it("--help exits 0 and stdout lists all seven kebab-names", async () => {
     const writes: string[] = [];
     const spy = vi.spyOn(process.stdout, "write").mockImplementation((s) => {
       writes.push(s.toString());
