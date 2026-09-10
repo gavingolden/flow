@@ -37,15 +37,20 @@
 <!-- Omit-when-empty: include ONLY when discovery's step 1.7 detects epic
      membership; otherwise omit the heading entirely (never an empty heading).
      Names the epic slug, this feature's id + rationale, its dependsOn edges
-     (produced/consumed artifacts), and its downstream dependents. Every claim
-     must trace to design.md + manifest.json. Full contract:
-     discovery-instructions.md "Epic context" — the single source of truth. -->
+     (produced/consumed artifacts), its downstream dependents, and a Manifest
+     write-back line. Every claim must trace to design.md + manifest.json.
+     Full contract: discovery-instructions.md "Epic context" — the single
+     source of truth. -->
 
 Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.md`.
+(Standalone producer variant: ``Standalone producer of `<artifact>` in epic
+`<slug>` — no feature id``.)
 
 - **Role:** [this feature's rationale within the epic decomposition]
 - **Depends on:** [feature id — produced/consumed artifact] | none
 - **Downstream dependents:** [feature id — interface that must stay stable] | none
+- **Manifest write-back:** [edges to add/remove, each naming its artifact — the
+  manifest edit is a task of this PR] | none
 
 ## Method selection
 

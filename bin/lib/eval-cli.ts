@@ -382,6 +382,7 @@ async function runOneScenarioRun(
         : undefined,
       model: args.model ?? scenario.model,
       effort: args.effort ?? scenario.effort,
+      autocompact: args.autocompact,
       keepSessions: args.keepSessions,
       arm,
     });
@@ -621,6 +622,7 @@ async function runSuite(
       name: "flow-eval-headless",
       model: args.model,
       effort: args.effort,
+      autocompact: args.autocompact,
       claudeVersion: availability.ok ? availability.version : undefined,
       ...(childArgvDigest ? { childArgvDigest } : {}),
     },

@@ -101,6 +101,93 @@ describe("collect", () => {
     );
   });
 
+  it("records the model from a single --lens-model flag", async () => {
+    const dir = makeWorktree();
+    const deps = makeDeps();
+    const code = await run(
+      [
+        "collect",
+        "--worktree",
+        dir,
+        "--pr",
+        "10",
+        "--lens-tokens",
+        "bug-detection=999",
+        "--lens-model",
+        "bug-detection=opus",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    const telemetry: ReviewTelemetry = JSON.parse(
+      fs.readFileSync(
+        path.join(dir, ".flow-tmp", "review-telemetry.json"),
+        "utf8",
+      ),
+    );
+    expect(telemetry.lenses["bug-detection"].model).toBe("opus");
+  });
+
+  it("records a model per lens for repeated --lens-model flags", async () => {
+    const dir = makeWorktree();
+    const deps = makeDeps();
+    const code = await run(
+      [
+        "collect",
+        "--worktree",
+        dir,
+        "--pr",
+        "10",
+        "--lens-tokens",
+        "bug-detection=999",
+        "--lens-tokens",
+        "security=100",
+        "--lens-model",
+        "bug-detection=opus",
+        "--lens-model",
+        "security=sonnet",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    const telemetry: ReviewTelemetry = JSON.parse(
+      fs.readFileSync(
+        path.join(dir, ".flow-tmp", "review-telemetry.json"),
+        "utf8",
+      ),
+    );
+    expect(telemetry.lenses["bug-detection"].model).toBe("opus");
+    expect(telemetry.lenses.security.model).toBe("sonnet");
+  });
+
+  it("rejects a malformed --lens-model value with exit 2", async () => {
+    const dir = makeWorktree();
+    const deps = makeDeps();
+    const code = await run(
+      [
+        "collect",
+        "--worktree",
+        dir,
+        "--pr",
+        "10",
+        "--lens-model",
+        "no-equals-sign",
+      ],
+      deps,
+    );
+    expect(code).toBe(2);
+  });
+
+  it("rejects --lens-model with an empty value after '=' (e.g. security=) with exit 2, not a silent drop", async () => {
+    const dir = makeWorktree();
+    const deps = makeDeps();
+    const code = await run(
+      ["collect", "--worktree", dir, "--pr", "10", "--lens-model", "security="],
+      deps,
+    );
+    expect(code).toBe(2);
+  });
+
   it("appends exactly one JSONL line with --append and does not duplicate it on a second run with the same run_id", async () => {
     const dir = makeWorktree();
     const jsonlPath = path.join(dir, "rt.jsonl");
@@ -287,7 +374,41 @@ describe("print", () => {
         },
       },
     });
-    expect(renderTable(t)).toContain("| bug-detection | no | n/a |");
+    expect(renderTable(t)).toContain("| bug-detection | no | - | n/a |");
+  });
+
+  it("renders the literal '-' placeholder for a lens with no recorded model, and the model when present", () => {
+    const t = fixtureTelemetry({
+      lenses: {
+        "bug-detection": {
+          ran: true,
+          skip_reason: null,
+          model: "opus",
+          tokens: { total: 100 },
+          tokens_source: "task-notification",
+          findings_emitted: 1,
+          findings_survived: 1,
+          findings_dropped: 0,
+          findings_acted: 0,
+          findings_deferred: 0,
+        },
+        security: {
+          ran: true,
+          skip_reason: null,
+          model: null,
+          tokens: { total: 50 },
+          tokens_source: "task-notification",
+          findings_emitted: 0,
+          findings_survived: 0,
+          findings_dropped: 0,
+          findings_acted: 0,
+          findings_deferred: 0,
+        },
+      },
+    });
+    const table = renderTable(t);
+    expect(table).toContain("| bug-detection | yes | opus | 100 |");
+    expect(table).toContain("| security | yes | - | 50 |");
   });
 
   it("prints via the CLI", async () => {

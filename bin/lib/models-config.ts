@@ -52,6 +52,50 @@ function extractModelsKey(raw: unknown, key: string): ModelAlias | undefined {
 }
 
 /**
+ * The seven `models.reviewLenses.<lens>` keys `flow-pr-review` may route on:
+ * the six review lenses plus the intent-guess spawn. Exported so the
+ * warning text and `model-routing-table.ts`'s per-lens `SPAWN_SITES` rows
+ * read off the same list and cannot drift apart.
+ */
+export const REVIEW_LENS_NAMES = [
+  "bug-detection",
+  "security",
+  "pattern-consistency",
+  "performance",
+  "supply-chain",
+  "test-coverage",
+  "intent-guess",
+] as const;
+export type ReviewLensName = (typeof REVIEW_LENS_NAMES)[number];
+
+function extractNestedModelsKey(
+  raw: unknown,
+  outerKey: string,
+  innerKey: string,
+): ModelAlias | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const models = (raw as Record<string, unknown>).models;
+  if (typeof models !== "object" || models === null) return undefined;
+  const outer = (models as Record<string, unknown>)[outerKey];
+  if (typeof outer !== "object" || outer === null) return undefined;
+  return asModelAlias((outer as Record<string, unknown>)[innerKey]);
+}
+
+/**
+ * The configured `models.reviewLenses.<lens>` when it is a valid alias, else
+ * `undefined`. Reads the NESTED object directly — it deliberately does NOT go
+ * through `extractModelsKey`, whose flat `models[key]` read cannot see a
+ * nested object. Same tolerant-boundary discipline as `readPhaseModel`: never
+ * throws, any missing/corrupt/wrong-shaped config collapses to `undefined`.
+ */
+export function readReviewLensModel(
+  lens: string,
+  read: ReadConfigFile = defaultReadConfigFile,
+): ModelAlias | undefined {
+  return extractNestedModelsKey(read(), "reviewLenses", lens);
+}
+
+/**
  * The configured `models.<phase>` when it is a valid alias, else `undefined`.
  * Never throws — a missing/corrupt config or any non-alias value collapses to
  * `undefined` through the boundary reader's `catch` + the enum guard. The
@@ -89,15 +133,55 @@ export function collectModelConfigWarnings(
   if (typeof raw !== "object" || raw === null) return [];
   const models = (raw as Record<string, unknown>).models;
   if (typeof models !== "object" || models === null) return [];
+  const modelsObj = models as Record<string, unknown>;
   const warnings: string[] = [];
-  for (const [key, value] of Object.entries(
-    models as Record<string, unknown>,
-  )) {
+  for (const [key, value] of Object.entries(modelsObj)) {
     if (value === undefined) continue;
+    // `reviewLenses` is a nested object, not a flat alias — walked separately
+    // below. Without this skip every `flow feature create` would emit a
+    // spurious "'[object Object]' is not a valid model alias" line.
+    if (key === "reviewLenses") continue;
     if (asModelAlias(value) === undefined) {
       warnings.push(
         `models.${key}: '${String(value)}' is not a valid model alias ` +
           `(expected one of: ${MODEL_ALIASES.join(", ")}); ignoring.`,
+      );
+    }
+  }
+  warnings.push(...collectReviewLensWarnings(modelsObj.reviewLenses));
+  return warnings;
+}
+
+/**
+ * Warnings for `models.reviewLenses`: a non-object value warns naming the
+ * expected shape; a key outside `REVIEW_LENS_NAMES` warns as an unknown
+ * lens; a recognised lens with a non-alias value warns naming the full
+ * dotted key. Absent `reviewLenses` yields no warnings.
+ */
+function collectReviewLensWarnings(reviewLenses: unknown): string[] {
+  if (reviewLenses === undefined) return [];
+  if (typeof reviewLenses !== "object" || reviewLenses === null) {
+    return [
+      "models.reviewLenses: expected an object mapping lens name to model " +
+        "alias; ignoring.",
+    ];
+  }
+  const warnings: string[] = [];
+  for (const [lens, value] of Object.entries(
+    reviewLenses as Record<string, unknown>,
+  )) {
+    if (value === undefined) continue;
+    if (!(REVIEW_LENS_NAMES as readonly string[]).includes(lens)) {
+      warnings.push(
+        `models.reviewLenses.${lens}: unknown review lens ` +
+          `(expected one of: ${REVIEW_LENS_NAMES.join(", ")}).`,
+      );
+      continue;
+    }
+    if (asModelAlias(value) === undefined) {
+      warnings.push(
+        `models.reviewLenses.${lens}: '${String(value)}' is not a valid ` +
+          `model alias (expected one of: ${MODEL_ALIASES.join(", ")}); ignoring.`,
       );
     }
   }

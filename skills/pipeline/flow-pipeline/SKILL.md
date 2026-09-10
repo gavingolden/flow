@@ -103,12 +103,17 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > **A `SendMessage` continuation of a partial (`maxTurns`) agent stays inside its exemption — not an eighth site.** See `references/partial-result-continuation.md`.
 >
 > **Task-tool exemption #1: `/flow-pr-review` Independent Multi-Agent
-> Review.** Step 8's six review agents + one diff-only intent-guess agent,
+> Review.** Step 8's up to seven review agents (the seventh, `product`,
+> brief-gated) + one diff-only intent-guess agent,
 > spawned together ([references/exemption-contracts.md](../../../references/exemption-contracts.md)).
 >
 > **Task-tool exemption #2: `/flow-product-planning` Independent Discovery
 > Subagent.** Step 3's one discovery agent (`flow-discovery`), writing
-> `.flow-tmp/plan.md` + `.flow-tmp/pr-description-draft.md`; full contract in
+> `.flow-tmp/plan.md` + `.flow-tmp/pr-description-draft.md`; plus, when a
+> product brief resolves, one blind product critic (`flow-product-critic`,
+> tools Read/Write, never repository code) spawned by step 3 after the
+> wrapper returns, writing `.flow-tmp/product-critique.md` — same
+> exemption, no nesting; full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #3: `/flow-new-feature` Independent Scout
@@ -147,7 +152,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > and the consumer has opted into `review.gemini`, `/flow-pr-review` Step 3
 > runs ONE additional cross-model reviewer (Gemini) via `flow-delegate`
 > (agy) as a Bash subprocess (`flow-gemini-lens`), ALONGSIDE exemption
-> #1's six-agent Multi-Agent Review Task fan-out. It spawns no Task, so
+> #1's seven-agent Multi-Agent Review Task fan-out. It spawns no Task, so
 > the seven-exemption count above is unchanged — this is a sibling note in
 > the same F2 "not an eighth exemption" shape as the "Load the Task tool at
 > each spawn site" guard above, NOT an `#8` exemption block. The lens is
@@ -928,6 +933,17 @@ both the chat summary and the awaiting-approval gate's `--why` string below
 (`design spec INVALID: $DESIGN_SPEC_REASON`) — never a `NEEDS HUMAN` halt.
 Full bash + worked example in
 [references/step3-threading.md](references/step3-threading.md#design-spec-validation-backstop-deterministic-advisory).
+
+**Blind product critic (brief-gated, once per step-3 pass).** Gate: `review.product`
+not `false`, a brief resolves, and `product-critique.md` is absent or stale (archive
+the prior file). **Load the Task tool before spawning** — on missing schema escalate
+`NEEDS HUMAN: task-tool-unavailable: product-planning-critic`. Spawn ONE
+`flow-product-critic` agent (Discovery exemption #2, no nesting; general-purpose
+fallback) with the plan/brief paths, request, goal, and output path. Reconcile once
+into `### Product critique (blind)` (last under `## Open Questions`), never dropping a
+point silently, and add a `Critique: N points — ...` line to `**Needs attention:**`
+when N > 0. Full contract:
+[references/step3-threading.md](references/step3-threading.md#blind-product-critic-brief-gated-once-per-pipeline).
 
 **Cross-model plan review (Layer 2, optional, config-gated).** After the
 note backstop above and BEFORE the End conditions branch below, run one
@@ -1949,8 +1965,9 @@ phase names the step the run is actually inside:
 flow-state-update --phase reviewing
 ```
 
-`flow-fetch-pr-review` (from the review sub-skill's Step 2) still emits
-`reviewing` at this step's tail as an idempotent backstop — by then
+`flow-fetch-pr-review` (run by `flow-review-prep`, the review sub-skill's
+Step 2 setup call) still emits `reviewing` at this step's tail as an
+idempotent backstop — by then
 `advancePhase` returns `already-at-or-past`, so the backstop adds no
 duplicate `phaseLog[]` row. An inline metadata triage `skip`
 short-circuit (Step 1.5, closed/merged/trivial PR) bypasses Step 2's
@@ -1963,6 +1980,11 @@ Invoke `/flow-pr-review` in-process with the PR number:
 ```
 /flow-pr-review <PR>
 ```
+
+**Pre-review checkpoint arm (best-effort).** Once `/flow-pr-review` Step
+2's `flow-review-prep` payloads land under `.flow-tmp/` — never before,
+or a `/clear` in that window resumes without them, and before Step 3's
+lens fan-out — arm one: `[ "$(flow-checkpoint --probe --site pre-review | jq -r '.verdict')" = write ] && echo "Mid-review for PR <PR> — setup payloads on disk." > "$(flow-checkpoint --path)"; flow-checkpoint --site pre-review >/dev/null`. Writes no phase, ends no turn.
 
 Every entry — including fix-loop re-entries — is delta-scoped and
 lens-gated by `flow-review-scope` (`flow-pr-review`

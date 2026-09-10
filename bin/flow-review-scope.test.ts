@@ -11,6 +11,8 @@ import {
   resolveScope,
   run,
   syntheticGatedArtifact,
+  type GhRunner,
+  type GitRunner,
   type ReviewScope,
 } from "./flow-review-scope";
 
@@ -148,26 +150,43 @@ function scopeFixture(overrides: Partial<ReviewScope> = {}): ReviewScope {
         reason: "no manifest/lockfile among 1 changed files",
       },
       "test-coverage": { run: false, reason: "docs-only diff (1 files)" },
+      product: { run: false, reason: "no product brief resolved" },
     },
     gates_enabled: true,
     delta_enabled: true,
     forced_full: false,
+    product_brief: { found: false },
+    tier: "standard",
+    tier_reasons: [],
     ...overrides,
   };
 }
 
 describe("renderNotices", () => {
-  it("emits the review-scope line first then one lens-gated line per gated lens", () => {
+  it("emits the review-scope line first, the review-tier line second, then one lens-gated line per gated lens", () => {
     const notices = renderNotices(scopeFixture());
     expect(notices[0]).toMatch(
       /^NOTICE — review-scope: delta abcdefg\.\.1234567 /,
     );
-    const gated = notices.slice(1);
+    expect(notices[1]).toBe("NOTICE — review-tier: standard — ");
+    const gated = notices.slice(2);
     expect(gated).toEqual([
       "NOTICE — lens-gated: performance skipped (docs-only diff (1 files))",
       "NOTICE — lens-gated: supply-chain skipped (no manifest/lockfile among 1 changed files)",
       "NOTICE — lens-gated: test-coverage skipped (docs-only diff (1 files))",
     ]);
+  });
+
+  it("renders the review-tier reasons joined with '; '", () => {
+    const notices = renderNotices(
+      scopeFixture({
+        tier: "light",
+        tier_reasons: ["every risk signal is low", "small diff"],
+      }),
+    );
+    expect(notices[1]).toBe(
+      "NOTICE — review-tier: light — every risk signal is low; small diff",
+    );
   });
 });
 
@@ -281,6 +300,7 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       },
       now: () => new Date("2026-01-01T00:00:00.000Z"),
       homeDir: dir,
+      productBrief: () => ({ found: false }),
     });
     expect(code).toBe(0);
     const scope = JSON.parse(
@@ -318,6 +338,7 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
     expect(() => JSON.parse(r.stdout)).not.toThrow();
     expect(r.stdout).not.toContain("NOTICE —");
     expect(r.stderr).toContain("NOTICE — review-scope:");
+    expect(r.stderr).toContain("NOTICE — review-tier:");
   });
 
   it("exits 2 on missing --pr", async () => {
@@ -329,6 +350,7 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       writeFile: () => {},
       now: () => new Date(),
       homeDir: dir,
+      productBrief: () => ({ found: false }),
     });
     expect(code).toBe(2);
   });
@@ -360,14 +382,192 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       },
       now: () => new Date(),
       homeDir: dir,
+      productBrief: () => ({ found: false }),
     });
     expect(code).toBe(0);
     const scope = JSON.parse(
       fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
     );
-    for (const verdict of Object.values(scope.gates) as { run: boolean }[]) {
+    for (const [lens, verdict] of Object.entries(scope.gates) as [
+      string,
+      { run: boolean },
+    ][]) {
+      if (lens === "product") continue; // optional lens: gated on brief presence, never on --no-gates
       expect(verdict.run).toBe(true);
     }
+  });
+
+  it("resolves the product brief and gates the product lens on, with a NOTICE and no synthetic artifact", async () => {
+    const dir = makeRepo();
+    const gh = (args: string[]) => {
+      if (args[0] === "pr" && args[1] === "view")
+        return { stdout: "a.ts\n", exitCode: 0 };
+      if (args[0] === "pr" && args[1] === "diff")
+        return { stdout: "", exitCode: 0 };
+      return { stdout: "", exitCode: 1 };
+    };
+    const git = (args: string[], cwd: string) => {
+      const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+      return { stdout: r.stdout ?? "", exitCode: r.status ?? 1 };
+    };
+    const briefPath = path.join(dir, ".flow", "product.md");
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      readFile: (p) => {
+        try {
+          return fs.readFileSync(p, "utf8");
+        } catch {
+          return null;
+        }
+      },
+      writeFile: (p, content) => {
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, content);
+      },
+      now: () => new Date(),
+      homeDir: dir,
+      productBrief: () => ({
+        found: true,
+        scope: "repo",
+        path: briefPath,
+        text: "brief text",
+      }),
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.gates.product).toEqual({
+      run: true,
+      reason: "product brief resolved (repo)",
+    });
+    expect(scope.product_brief).toEqual({
+      found: true,
+      scope: "repo",
+      path: briefPath,
+    });
+    expect(
+      fs.existsSync(path.join(dir, ".flow-tmp", "agent-output-product.json")),
+    ).toBe(false);
+    const notices = renderNotices(scope);
+    expect(notices).toContain("NOTICE — product-lens: on (brief: repo)");
+  });
+
+  // Captured by the "no product brief" case below, then asserted byte-identical
+  // (deep-equal, not a substring negative) against the "review.product:false"
+  // case further down — both are supposed to produce the exact same notice set.
+  let noBriefNotices: string[] = [];
+
+  it("with no product brief, gates the product lens off silently: no synthetic artifact, no lens-gated notice", async () => {
+    const dir = makeRepo();
+    const gh = (args: string[]) => {
+      if (args[0] === "pr" && args[1] === "view")
+        return { stdout: "a.ts\n", exitCode: 0 };
+      if (args[0] === "pr" && args[1] === "diff")
+        return { stdout: "", exitCode: 0 };
+      return { stdout: "", exitCode: 1 };
+    };
+    const git = (args: string[], cwd: string) => {
+      const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+      return { stdout: r.stdout ?? "", exitCode: r.status ?? 1 };
+    };
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      readFile: (p) => {
+        try {
+          return fs.readFileSync(p, "utf8");
+        } catch {
+          return null;
+        }
+      },
+      writeFile: (p, content) => {
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, content);
+      },
+      now: () => new Date(),
+      homeDir: dir,
+      productBrief: () => ({ found: false }),
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.gates.product).toEqual({
+      run: false,
+      reason: "no product brief resolved",
+    });
+    expect(scope.product_brief).toEqual({ found: false });
+    expect(
+      fs.existsSync(path.join(dir, ".flow-tmp", "agent-output-product.json")),
+    ).toBe(false);
+    const notices = renderNotices(scope);
+    expect(notices.some((n) => n.includes("product"))).toBe(false);
+    noBriefNotices = notices;
+  });
+
+  it("with review.product:false, gates the product lens off even when a brief resolves, and emits no notice", async () => {
+    const dir = makeRepo();
+    fs.mkdirSync(path.join(dir, ".flow"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".flow", "config.json"),
+      JSON.stringify({ review: { product: false } }),
+    );
+    const gh = (args: string[]) => {
+      if (args[0] === "pr" && args[1] === "view")
+        return { stdout: "a.ts\n", exitCode: 0 };
+      if (args[0] === "pr" && args[1] === "diff")
+        return { stdout: "", exitCode: 0 };
+      return { stdout: "", exitCode: 1 };
+    };
+    const git = (args: string[], cwd: string) => {
+      const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+      return { stdout: r.stdout ?? "", exitCode: r.status ?? 1 };
+    };
+    const briefPath = path.join(dir, ".flow", "product.md");
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      readFile: (p) => {
+        try {
+          return fs.readFileSync(p, "utf8");
+        } catch {
+          return null;
+        }
+      },
+      writeFile: (p, content) => {
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, content);
+      },
+      now: () => new Date(),
+      homeDir: dir,
+      productBrief: () => ({
+        found: true,
+        scope: "repo",
+        path: briefPath,
+        text: "brief text",
+      }),
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.gates.product).toEqual({
+      run: false,
+      reason: "review.product=false",
+    });
+    expect(scope.product_brief.found).toBe(true);
+    expect(
+      fs.existsSync(path.join(dir, ".flow-tmp", "agent-output-product.json")),
+    ).toBe(false);
+    const notices = renderNotices(scope);
+    expect(notices.some((n) => n.includes("product"))).toBe(false);
+    // Exact deep-equal against the "no brief" case's notice list, not just a
+    // substring negative — the "stays byte-identical" claim (flow-review-scope.ts
+    // module doc) is about the emitted NOTICE lines, and this proves it rather
+    // than merely proving the word "product" is absent.
+    expect(notices).toEqual(noBriefNotices);
   });
 
   it("with review.lensGates:false and review.deltaScope:false in config.json falls back to full scope and disables every gate", async () => {
@@ -404,6 +604,7 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       },
       now: () => new Date(),
       homeDir: dir,
+      productBrief: () => ({ found: false }),
     });
     expect(code).toBe(0);
     const scope = JSON.parse(
@@ -411,13 +612,18 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
     );
     expect(scope.scope).toBe("full");
     expect(scope.reason).toBe("delta scope disabled");
-    for (const verdict of Object.values(scope.gates) as {
-      run: boolean;
-      reason: string;
-    }[]) {
+    for (const [lens, verdict] of Object.entries(scope.gates) as [
+      string,
+      { run: boolean; reason: string },
+    ][]) {
+      if (lens === "product") continue; // optional lens: gated on brief presence, never on `enabled`
       expect(verdict.run).toBe(true);
       expect(verdict.reason).toBe("gates disabled");
     }
+    expect(scope.gates.product).toEqual({
+      run: false,
+      reason: "no product brief resolved",
+    });
   });
 
   it("with review.lensGates:'no' (non-strict-false) keeps gates enabled — the tolerant read", async () => {
@@ -454,6 +660,7 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       },
       now: () => new Date(),
       homeDir: dir,
+      productBrief: () => ({ found: false }),
     });
     expect(code).toBe(0);
     const scope = JSON.parse(
@@ -507,6 +714,7 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       },
       now: () => new Date(),
       homeDir: dir,
+      productBrief: () => ({ found: false }),
     });
     expect(code).toBe(0);
     const scope = JSON.parse(
@@ -517,6 +725,200 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       run: true,
       reason: "new bare-specifier import in diff",
     });
+  });
+
+  /** A fresh repo with no prior marker (scope resolves "full") and a tiny
+   * one-line diff on a single non-manifest file — every tier signal is low,
+   * so resolveTier lands on "light" absent an override. */
+  function makeSmallDiffRepo(): {
+    dir: string;
+    gh: GhRunner;
+    git: GitRunner;
+  } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-review-scope-"));
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+    fs.writeFileSync(path.join(dir, "a.ts"), "export const a = 1;\n");
+    fs.mkdirSync(path.join(dir, ".flow-tmp"), { recursive: true });
+    gitc(dir, ["add", "-A"]);
+    gitc(dir, ["commit", "-q", "-m", "commit A"]);
+    scratchDirs.push(dir);
+    const fakeDiff = [
+      "diff --git a/a.ts b/a.ts",
+      "index 111..222 100644",
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1 +1,2 @@",
+      " export const a = 1;",
+      "+export const b = 2;",
+      "",
+    ].join("\n");
+    const gh: GhRunner = (args) => {
+      if (args[0] === "pr" && args[1] === "view")
+        return { stdout: "a.ts\n", exitCode: 0 };
+      if (args[0] === "pr" && args[1] === "diff")
+        return { stdout: fakeDiff, exitCode: 0 };
+      return { stdout: "", exitCode: 1 };
+    };
+    const git: GitRunner = (args, cwd) => {
+      const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+      return { stdout: r.stdout ?? "", exitCode: r.status ?? 1 };
+    };
+    return { dir, gh, git };
+  }
+
+  function makeDefaultDeps(dir: string) {
+    return {
+      readFile: (p: string) => {
+        try {
+          return fs.readFileSync(p, "utf8");
+        } catch {
+          return null;
+        }
+      },
+      writeFile: (p: string, content: string) => {
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, content);
+      },
+      now: () => new Date(),
+      homeDir: dir,
+      // The tier suite predates the product lens; a brief never resolves
+      // here so these cases stay pinned to the six content lenses.
+      productBrief: () => ({ found: false }) as const,
+    };
+  }
+
+  it("carries tier and tier_reasons on the written artifact", async () => {
+    const { dir, gh, git } = makeSmallDiffRepo();
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      ...makeDefaultDeps(dir),
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.tier).toBe("light");
+    expect(Array.isArray(scope.tier_reasons)).toBe(true);
+    expect(scope.tier_reasons.length).toBeGreaterThan(0);
+  });
+
+  it("drops security and performance on a light-tier PR with a tier reason, while keeping test-coverage", async () => {
+    const { dir, gh, git } = makeSmallDiffRepo();
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      ...makeDefaultDeps(dir),
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.tier).toBe("light");
+    expect(scope.gates.security.run).toBe(false);
+    expect(scope.gates.security.reason).toContain("light review tier");
+    expect(scope.gates.performance.run).toBe(false);
+    expect(scope.gates.performance.reason).toContain("light review tier");
+    expect(scope.gates["test-coverage"].run).toBe(true);
+  });
+
+  it("keeps a static-analysis-hit lens on even on a light-tier PR", async () => {
+    const { dir, gh, git } = makeSmallDiffRepo();
+    fs.writeFileSync(
+      path.join(dir, ".flow-tmp", "static-analysis.json"),
+      JSON.stringify({
+        security: [
+          {
+            file: "a.ts",
+            line: 1,
+            rule_id: "secret",
+            message: "leaked key",
+            confidence: 90,
+            source: "semgrep",
+          },
+        ],
+        types: [],
+        lint: [],
+        dependencies: [],
+        meta: {
+          security: { ran: true, duration_ms: 0 },
+          types: { ran: true, duration_ms: 0 },
+          lint: { ran: true, duration_ms: 0 },
+          dependencies: { ran: true, duration_ms: 0 },
+          pr: 5,
+          min_confidence: 0,
+          duration_ms: 0,
+        },
+      }),
+    );
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      ...makeDefaultDeps(dir),
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.tier).toBe("light");
+    expect(scope.gates.security).toEqual({
+      run: true,
+      reason: "static-analysis signal forces this lens on",
+    });
+  });
+
+  it("--force-full ignores the tier — every content-gate-passing lens runs", async () => {
+    const { dir, gh, git } = makeSmallDiffRepo();
+    const code = await run(["--pr", "5", "--worktree", dir, "--force-full"], {
+      gh,
+      git,
+      ...makeDefaultDeps(dir),
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    // tier is still reported for telemetry even though --force-full bypasses
+    // its effect on the composed spawn set.
+    expect(scope.tier).toBe("light");
+    expect(scope.gates.security.run).toBe(true);
+    expect(scope.gates.performance.run).toBe(true);
+  });
+
+  it('a plan.md mentioning "high-stakes" in prose (not the flag line) does NOT force deep tier', async () => {
+    const { dir, gh, git } = makeSmallDiffRepo();
+    fs.writeFileSync(
+      path.join(dir, ".flow-tmp", "plan.md"),
+      "## Decision analysis\n\nThis PR adds the high-stakes tier feature described above; it is not itself high-stakes.\n",
+    );
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      ...makeDefaultDeps(dir),
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.tier).toBe("light");
+  });
+
+  it("a plan.md with an explicit `**Stakes:** high` flag line forces deep tier", async () => {
+    const { dir, gh, git } = makeSmallDiffRepo();
+    fs.writeFileSync(
+      path.join(dir, ".flow-tmp", "plan.md"),
+      "## Decision analysis\n\n- **Stakes:** high — a wrong call here breaks prod auth.\n",
+    );
+    const code = await run(["--pr", "5", "--worktree", dir], {
+      gh,
+      git,
+      ...makeDefaultDeps(dir),
+    });
+    expect(code).toBe(0);
+    const scope = JSON.parse(
+      fs.readFileSync(path.join(dir, ".flow-tmp", "review-scope.json"), "utf8"),
+    );
+    expect(scope.tier).toBe("deep");
   });
 });
 

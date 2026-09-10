@@ -71,6 +71,27 @@ export function parseLensTokens(
   return out;
 }
 
+/**
+ * Parses repeatable `<lens>=<alias>` flags into a per-lens model map.
+ * Mirrors `parseLensTokens`'s shape and error handling — a malformed
+ * pair (no `=`, empty lens name/value) is silently skipped rather than
+ * throwing, since this is a best-effort telemetry annotation.
+ */
+export function parseLensModels(
+  flags: readonly string[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const flag of flags) {
+    const eq = flag.indexOf("=");
+    if (eq <= 0) continue;
+    const lens = flag.slice(0, eq);
+    const value = flag.slice(eq + 1);
+    if (!lens || !value) continue;
+    out[lens] = value;
+  }
+  return out;
+}
+
 type CountsEntry = Pick<
   LensTelemetry,
   | "findings_emitted"
@@ -279,6 +300,7 @@ export function mergeTelemetry(args: {
   widened: { value: boolean; reason: string | null };
   counts: Record<string, CountsEntry>;
   lensTokens: Record<string, number>;
+  lensModels?: Record<string, string>;
   transcripts: Record<string, { usage: TokenUsage; model: string | null }>;
   startedAt: string;
 }): ReviewTelemetry {
@@ -302,6 +324,10 @@ export function mergeTelemetry(args: {
     if (args.lensTokens[lens] !== undefined) {
       tokens = { total: args.lensTokens[lens] };
       tokens_source = "task-notification";
+      // An explicit --lens-model value wins; absent an entry, fall back to
+      // whatever model the transcript attribution already resolved (it may
+      // still exist even though the notification branch owns tokens here).
+      model = args.lensModels?.[lens] ?? args.transcripts[lens]?.model ?? null;
     } else if (args.transcripts[lens]) {
       tokens = args.transcripts[lens].usage;
       tokens_source = "subagent-transcript";

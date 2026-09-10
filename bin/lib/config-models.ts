@@ -12,7 +12,9 @@
 import { argsContainHelp, printVerbHelp } from "./help";
 import {
   readPhaseModel,
+  readReviewLensModel,
   defaultReadConfigFile,
+  REVIEW_LENS_NAMES,
   type ReadConfigFile,
 } from "./models-config";
 import {
@@ -21,7 +23,7 @@ import {
   type ConfigModels,
   type ResolvedRow,
 } from "./model-routing-table";
-import { readState, type PipelineState } from "./state";
+import { readState, type ModelAlias, type PipelineState } from "./state";
 import { friendlyName } from "./cost-pricing";
 import { dim } from "./color";
 
@@ -97,6 +99,15 @@ export function runConfigModelsCli(
   for (const key of CONFIG_KEYS) {
     config[key] = readPhaseModel(key, read);
   }
+  // Nested grain, kept out of CONFIG_KEYS (see model-routing-table.ts's
+  // `fineGrainAbove` doc comment) — read one lens at a time and fold into a
+  // `reviewLenses` object `resolveRouting`'s `resolveFineGrain` walks.
+  const reviewLenses: Partial<Record<string, ModelAlias>> = {};
+  for (const lens of REVIEW_LENS_NAMES) {
+    const v = readReviewLensModel(lens, read);
+    if (v) reviewLenses[lens] = v;
+  }
+  config.reviewLenses = reviewLenses;
 
   const rows = resolveRouting({ state, config });
 

@@ -514,6 +514,25 @@ describe("compareReports", () => {
     ).toBe(true);
   });
 
+  it("flags environmentMismatch and pushes a warning on autocompact drift", () => {
+    const base = makeReport({ runner: { ...runner, autocompact: "auto" } });
+    const cand = makeReport({ runner: { ...runner, autocompact: "150k" } });
+    const cmp = compareReports(base, cand);
+    expect(cmp.environmentMismatch).toBe(true);
+    expect(
+      cmp.warnings.some(
+        (w) => w.includes("runner mismatch") && w.includes("autocompact"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn when autocompact is identical between reports", () => {
+    const base = makeReport({ runner: { ...runner, autocompact: "150k" } });
+    const cand = makeReport({ runner: { ...runner, autocompact: "150k" } });
+    const cmp = compareReports(base, cand);
+    expect(cmp.warnings.some((w) => w.includes("autocompact"))).toBe(false);
+  });
+
   it("regresses on any candidate score drop", () => {
     const base = makeReport({ scenarios: [scenarioWith(1, [1000])] });
     const cand = makeReport({
