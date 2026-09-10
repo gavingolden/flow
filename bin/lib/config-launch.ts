@@ -13,10 +13,15 @@ import { argsContainHelp, printVerbHelp } from "./help";
 import {
   LAUNCH_CONFIG_KEYS,
   readLaunchDefaults,
+  collectLaunchConfigWarnings,
   type LaunchDefaults,
   type ReadConfigFile,
 } from "./launch-config";
-import { defaultReadConfigFile, readDefaultModel } from "./models-config";
+import {
+  defaultReadConfigFile,
+  cachedConfigRead,
+  readDefaultModel,
+} from "./models-config";
 import { readState, type PipelineState } from "./state";
 import { dim } from "./color";
 
@@ -29,31 +34,18 @@ export type ConfigLaunchOptions = {
 
 type Row = { setting: string; value: string; source: string };
 
-/** The `flow feature create` flag(s) that set a given launch key/value pair. */
-function flagFor(key: keyof LaunchDefaults, value: unknown): string {
-  switch (key) {
-    case "effort":
-      return "--effort";
-    case "autoMerge":
-      return value === true ? "--auto-merge" : "--no-auto-merge";
-    case "waitForCopilot":
-      return value === true ? "--wait-for-copilot" : "--no-wait-for-copilot";
-    case "forceResearch":
-      return value === true ? "--research" : "--no-research";
-    case "interviewMode":
-      return value === "force" ? "--interview" : "--no-interview";
-  }
-}
-
 const BUILT_IN: Record<keyof LaunchDefaults, { value: string; note: string }> =
   {
     effort: { value: "(none)", note: "no --effort passed" },
     autoMerge: { value: "true", note: "auto-merge ON" },
-    waitForCopilot: { value: "false", note: "auto-detect skips" },
-    forceResearch: { value: "false", note: "not forced" },
+    waitForCopilot: {
+      value: "false",
+      note: "waits for Copilot only while it's still reviewing",
+    },
+    forceResearch: { value: "false", note: "research runs only when relevant" },
     interviewMode: {
       value: "(none)",
-      note: "interview-playbook judgment gate",
+      note: "flow decides per run whether to interview",
     },
   };
 
@@ -104,21 +96,28 @@ export function runConfigLaunchCli(
   }
 
   // Read + parse `~/.flow/config.json` once and reuse for every row —
-  // readLaunchDefaults already caches internally, but readDefaultModel below
-  // is a SEPARATE reader; share the same cached closure so the file is
-  // parsed exactly once per invocation regardless.
-  let cached: unknown;
-  let cachedRead = false;
-  const baseRead = options.read ?? defaultReadConfigFile;
-  const read: ReadConfigFile = () => {
-    if (!cachedRead) {
-      cached = baseRead();
-      cachedRead = true;
-    }
-    return cached;
-  };
+  // `readLaunchDefaults` and `readDefaultModel` are separate readers that
+  // would otherwise each re-read/re-parse the file from scratch.
+  const read: ReadConfigFile = cachedConfigRead(
+    options.read ?? defaultReadConfigFile,
+  );
 
-  const configDefaults = readLaunchDefaults(read);
+  // Surface a rejected/malformed config value here too — this audit command
+  // is exactly where a user goes to ask "why isn't my setting doing
+  // anything?", so it should be the first place that answers, not just
+  // `flow feature create`'s stderr on the run they already launched.
+  for (const w of collectLaunchConfigWarnings(read)) {
+    console.error(dim(`flow config launch: ${w}`));
+  }
+
+  // Once an explicit `--slug` resolved a state file, that state IS the
+  // completed resolution for this pipeline — config is no longer in the
+  // precedence chain. `feature.ts` persists the three booleans only in
+  // their non-default direction, so an absent field here means "resolved to
+  // the built-in", never "go re-read the live config" (a live config value
+  // may have changed since this pipeline launched and would misattribute
+  // today's config to a run that never saw it).
+  const configDefaults = state ? undefined : readLaunchDefaults(read);
   const rows: Row[] = LAUNCH_CONFIG_KEYS.map((entry) => {
     const stateValue = state
       ? (state as unknown as Record<string, unknown>)[entry.stateField]
@@ -127,10 +126,10 @@ export function runConfigLaunchCli(
       return {
         setting: entry.key,
         value: String(stateValue),
-        source: `state (${flagFor(entry.key, stateValue)})`,
+        source: "this run (fixed at launch)",
       };
     }
-    const configValue = configDefaults[entry.key];
+    const configValue = configDefaults?.[entry.key];
     if (configValue !== undefined) {
       return {
         setting: entry.key,
@@ -148,13 +147,24 @@ export function runConfigLaunchCli(
 
   // Read-only cross-reference row — `models.default` stays the only writable
   // home for the session model; this just lets an operator auditing effort
-  // before an expensive run see the model in the same glance.
-  const model = readDefaultModel(read);
-  rows.push({
-    setting: "model",
-    value: model ?? "(none)",
-    source: model ? "config (models.default)" : "built-in (inherited default)",
-  });
+  // before an expensive run see the model in the same glance. With --slug,
+  // `state.model` (populated whenever a model actually reached the session,
+  // whether from `--model` or from config at launch time) is the completed
+  // resolution, same rule as the five rows above.
+  const stateModel = state?.model;
+  let modelValue: string;
+  let modelSource: string;
+  if (stateModel !== undefined) {
+    modelValue = stateModel;
+    modelSource = "this run (fixed at launch)";
+  } else {
+    const liveModel = readDefaultModel(read);
+    modelValue = liveModel ?? "(none)";
+    modelSource = liveModel
+      ? "config (models.default)"
+      : "built-in (Claude Code's own default model)";
+  }
+  rows.push({ setting: "model", value: modelValue, source: modelSource });
 
   if (json) {
     console.log(JSON.stringify(rows));
@@ -187,6 +197,11 @@ function printTable(rows: Row[]): void {
   console.log(
     dim(
       "a config edit changes the NEXT launch only, never a pipeline already running",
+    ),
+  );
+  console.log(
+    dim(
+      "model is shown for reference — set it with models.default (there is no launch.model)",
     ),
   );
 }

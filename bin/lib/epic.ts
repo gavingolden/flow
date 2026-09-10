@@ -110,9 +110,14 @@ import {
 import {
   readDefaultModel,
   collectModelConfigWarnings,
+  defaultReadConfigFile,
+  cachedConfigRead,
   type ReadConfigFile,
 } from "./models-config";
-import { readLaunchDefaults } from "./launch-config";
+import {
+  readLaunchDefaults,
+  collectLaunchConfigWarnings,
+} from "./launch-config";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
 import {
@@ -279,9 +284,11 @@ export type EpicOptions = {
   readMaxParallel?: () => number;
   /**
    * Injectable `~/.flow/config.json` reader (test seam only). Threaded into
-   * `readDefaultModel` / `collectModelConfigWarnings` at epic-create launch so
-   * the `models.default` resolution can be exercised without touching the real
-   * config. Production uses the module default (reads via flowConfigPath()).
+   * `readDefaultModel` / `collectModelConfigWarnings` AND
+   * `readLaunchDefaults` / `collectLaunchConfigWarnings` at both epic-create
+   * and epic-run launch, so the `models.default` and `launch.effort`
+   * resolutions can be exercised without touching the real config.
+   * Production uses the module default (reads via flowConfigPath()).
    */
   readConfig?: ReadConfigFile;
   /** tmux-on-PATH probe seam for the launcher-backend guard (test only). */
@@ -561,18 +568,29 @@ PR → review checkpoint), and writes initial epic state under
   writeRequestFile(slug, prompt, options.stateDir);
   const settingsPath = launchSettingsPathFor(options);
 
+  // Read + parse `~/.flow/config.json` at most once and share it across the
+  // models.* and launch.* readers below (mirrors feature.ts's launch path).
+  const readConfig: ReadConfigFile = cachedConfigRead(
+    options.readConfig ?? defaultReadConfigFile,
+  );
+
   // Whole-session model resolved at launch: --model wins over config
   // models.default; absent both, no --model reaches claude. Best-effort-warn
   // on any present-but-invalid models.* config value, then fall back.
-  for (const w of collectModelConfigWarnings(options.readConfig)) {
+  for (const w of collectModelConfigWarnings(readConfig)) {
     console.error(dim(`flow epic create: ${w}`));
   }
-  const sessionModel = model ?? readDefaultModel(options.readConfig);
+  const sessionModel = model ?? readDefaultModel(readConfig);
   // Reasoning-effort precedence (comment applies to both epic-create above
   // and the epic-run path below): explicit CLI flag > manifest hint
   // (flowNewHints.effort, applied upstream by epic-launch.ts) > config
-  // (launch.effort) > built-in.
-  const sessionEffort = effort ?? readLaunchDefaults(options.readConfig).effort;
+  // (launch.effort) > built-in. Warn on a present-but-invalid launch.* value
+  // the same way `flow feature create` does — without this, `flow epic
+  // create` silently launched at the built-in effort with no signal.
+  for (const w of collectLaunchConfigWarnings(readConfig)) {
+    console.error(dim(`flow epic create: ${w}`));
+  }
+  const sessionEffort = effort ?? readLaunchDefaults(readConfig).effort;
 
   const command =
     options.command ??
@@ -1151,12 +1169,17 @@ function spawnEpicRunSupervisor(
   // claude. `--effort <level>` resolves `explicit CLI flag > launch.effort
   // config > built-in` (parity with `flow feature create` / epic-create above).
   const settingsPath = launchSettingsPathFor(options);
-  for (const w of collectModelConfigWarnings(options.readConfig)) {
+  const readConfig: ReadConfigFile = cachedConfigRead(
+    options.readConfig ?? defaultReadConfigFile,
+  );
+  for (const w of collectModelConfigWarnings(readConfig)) {
     console.error(dim(`flow epic run: ${w}`));
   }
-  const runSessionModel = runModel ?? readDefaultModel(options.readConfig);
-  const runSessionEffort =
-    runEffort ?? readLaunchDefaults(options.readConfig).effort;
+  const runSessionModel = runModel ?? readDefaultModel(readConfig);
+  for (const w of collectLaunchConfigWarnings(readConfig)) {
+    console.error(dim(`flow epic run: ${w}`));
+  }
+  const runSessionEffort = runEffort ?? readLaunchDefaults(readConfig).effort;
   const command =
     options.command ??
     createCommand(

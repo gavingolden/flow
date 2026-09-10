@@ -51,11 +51,14 @@ import {
 import {
   readDefaultModel,
   collectModelConfigWarnings,
+  defaultReadConfigFile,
+  cachedConfigRead,
   type ReadConfigFile,
 } from "./models-config";
 import {
   readLaunchDefaults,
   collectLaunchConfigWarnings,
+  LAUNCH_CONFIG_KEYS,
 } from "./launch-config";
 import { sleepSync } from "./sleep";
 import { sanitizeSeedLine } from "./seed-delivery";
@@ -887,25 +890,34 @@ function runFresh(
   // carries a REQUEST_FILE pointer, never the verbatim text.
   writeRequestFile(slug, description, options.stateDir);
 
+  // Read + parse `~/.flow/config.json` at most once for this launch and
+  // share it across every reader below (models.default, launch.<key>
+  // warnings/defaults, and the launcher-backend config fallback) —
+  // otherwise each of `defaultReadConfigFile`'s callers re-reads/re-parses
+  // the same file independently.
+  const readConfig: ReadConfigFile = cachedConfigRead(
+    options.readConfig ?? defaultReadConfigFile,
+  );
+
   // Whole-session model, resolved at launch: the --model flag wins over the
   // config `models.default`; absent both, no --model reaches claude (its
   // default applies). Best-effort-warn on any present-but-invalid models.*
   // config value, then fall back — mirrors ensureLaunchSettings' non-fatal
   // warn pattern.
-  for (const w of collectModelConfigWarnings(options.readConfig)) {
+  for (const w of collectModelConfigWarnings(readConfig)) {
     console.error(dim(`flow feature create: ${w}`));
   }
-  const sessionModel = options.model ?? readDefaultModel(options.readConfig);
+  const sessionModel = options.model ?? readDefaultModel(readConfig);
 
   // Launch-time behaviour defaults, resolved ONCE here (never at a
   // consumer's point-of-use): explicit CLI flag > `launch.<key>` config >
   // built-in default. Resolving once and persisting onto state means a
   // config edit made after this pipeline launches can never change its
   // already-running behaviour (excluded-alternatives: use-time reads).
-  for (const w of collectLaunchConfigWarnings(options.readConfig)) {
+  for (const w of collectLaunchConfigWarnings(readConfig)) {
     console.error(dim(`flow feature create: ${w}`));
   }
-  const launchDefaults = readLaunchDefaults(options.readConfig);
+  const launchDefaults = readLaunchDefaults(readConfig);
   const resolvedEffort = options.effort ?? launchDefaults.effort;
   const resolvedAutoMerge = options.autoMerge ?? launchDefaults.autoMerge;
   const resolvedWaitForCopilot =
@@ -917,27 +929,15 @@ function runFresh(
 
   // Provenance: print ONLY the keys where config actually supplied the
   // resolved value (i.e. the flag was absent) — a launch where every flag
-  // was typed explicitly grows no output.
-  const provenance: string[] = [];
-  if (options.effort === undefined && launchDefaults.effort !== undefined)
-    provenance.push(`effort=${launchDefaults.effort}`);
-  if (options.autoMerge === undefined && launchDefaults.autoMerge !== undefined)
-    provenance.push(`autoMerge=${launchDefaults.autoMerge}`);
-  if (
-    options.waitForCopilot === undefined &&
-    launchDefaults.waitForCopilot !== undefined
-  )
-    provenance.push(`waitForCopilot=${launchDefaults.waitForCopilot}`);
-  if (
-    options.forceResearch === undefined &&
-    launchDefaults.forceResearch !== undefined
-  )
-    provenance.push(`forceResearch=${launchDefaults.forceResearch}`);
-  if (
-    options.interviewMode === undefined &&
-    launchDefaults.interviewMode !== undefined
-  )
-    provenance.push(`interviewMode=${launchDefaults.interviewMode}`);
+  // was typed explicitly grows no output. Folded over LAUNCH_CONFIG_KEYS
+  // (rather than hand-restating the five keys) so a sixth key added there
+  // is read/validated/warned/rendered AND reaches provenance, with no
+  // silent-drop step left to forget.
+  const provenance = LAUNCH_CONFIG_KEYS.filter(
+    (e) =>
+      (options as Record<string, unknown>)[e.key] === undefined &&
+      launchDefaults[e.key] !== undefined,
+  ).map((e) => `${e.key}=${launchDefaults[e.key]}`);
   if (provenance.length > 0) {
     console.error(
       dim(
@@ -976,7 +976,7 @@ function runFresh(
   // either backend touched anything.
   const backend = resolveLauncherBackend({
     flag: options.launcher,
-    read: options.readConfig,
+    read: readConfig,
     tmuxOnPath: options.tmuxOnPath,
   });
   if (backend.notice) console.error(dim(backend.notice));
@@ -1808,7 +1808,10 @@ export function ensureLaunchSettings(
 // seed carries only a REQUEST_FILE pointer to it.
 export function flowPipelineSeed(
   slug: string,
-  description: string,
+  // Unused in the body (kept in the signature so every call site's argument
+  // order — slug, description, stateDir — stays stable): the verbatim
+  // description no longer rides the seed itself, see the incident note below.
+  _description: string,
   stateDir?: string,
 ): string {
   // The pipeline-slug marker must be the RESOLVED slug (an explicit --slug, or a

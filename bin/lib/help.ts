@@ -49,14 +49,16 @@ Usage:
                                         defaults to core only)
   flow feature create [--tmux|--no-tmux] [--auto-merge|--no-auto-merge] [--wait-for-copilot|--no-wait-for-copilot] [--research|--no-research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
                                         start a new pipeline (plain launcher by default; --tmux opts into a tmux window)
-                                        (--auto-merge/--no-auto-merge forces auto-merge on/off regardless of rubric;
-                                        --wait-for-copilot/--no-wait-for-copilot forces the full 10-min Copilot wait
-                                        on or off, overriding the auto-detect skip;
-                                        --research/--no-research forces web-grounded discovery research on or off,
-                                        overriding the relevance gate and the research.discovery config opt-in;
+                                        (--no-auto-merge stops at gated regardless of rubric; --auto-merge puts the
+                                        rubric back in charge (cancels launch.autoMerge: false);
+                                        --wait-for-copilot forces the full 10-min Copilot wait; --no-wait-for-copilot
+                                        puts the auto-detect skip back in charge;
+                                        --research forces web-grounded discovery research on, bypassing the relevance
+                                        gate and the research.discovery config opt-in; --no-research only turns that
+                                        force off — research.discovery still applies;
                                         --interview forces the intent interview on, --no-interview skips it
-                                        (mutually exclusive; absent falls back to interview-playbook.md's
-                                        judgment gate and config.json's launch.interviewMode);
+                                        (mutually exclusive; absent falls back to flow's own per-run judgment gate
+                                        and config.json's launch.interviewMode);
                                         --copilot-review controls Copilot review opt-in, default auto;
                                         --effort sets the Claude Code reasoning-effort level for the claude session;
                                         --model sets the whole-session Claude model alias;
@@ -121,20 +123,24 @@ Options (create):
                         Without a TTY the plain launcher refuses; non-interactive/scripted
                         launches require --tmux
   --auto-merge / --no-auto-merge
-                        force auto-merge on, or stop at gated regardless of the auto-merge
-                        rubric (mutually exclusive); also settable via ~/.flow/config.json
-                        launch.autoMerge
+                        --no-auto-merge stops at gated regardless of rubric; --auto-merge
+                        puts the rubric back in charge, cancelling a launch.autoMerge: false
+                        config default (mutually exclusive); also settable via
+                        ~/.flow/config.json launch.autoMerge
   --wait-for-copilot / --no-wait-for-copilot
-                        force the full 10-min Copilot wait on or off, overriding
-                        auto-detect (mutually exclusive); also settable via
-                        ~/.flow/config.json launch.waitForCopilot
+                        --wait-for-copilot forces the full 10-min Copilot wait;
+                        --no-wait-for-copilot puts the auto-detect skip back in charge
+                        (mutually exclusive); also settable via ~/.flow/config.json
+                        launch.waitForCopilot
   --research / --no-research
-                        force web-grounded discovery research on or off, overriding the
-                        relevance gate and the research.discovery config opt-in (mutually
-                        exclusive); also settable via ~/.flow/config.json launch.forceResearch
+                        --research forces web-grounded discovery research on, bypassing the
+                        relevance gate and the research.discovery config opt-in;
+                        --no-research only turns that force off — research.discovery still
+                        applies (mutually exclusive); also settable via ~/.flow/config.json
+                        launch.forceResearch
   --interview / --no-interview
                         force the intent interview on, or skip it (mutually exclusive).
-                        Absent falls back to interview-playbook.md's judgment gate and
+                        Absent falls back to flow's own per-run judgment gate and
                         ~/.flow/config.json's launch.interviewMode
   --copilot-review <auto|always|never>
                         opt-in for Copilot review (default auto): 'always' always requests,
@@ -268,7 +274,7 @@ Options (models, launch):
                         a name with no state file exits non-zero (no table)
   --json                emit the rows as a machine-readable JSON array
                         ({phase, model, source, effort} for models;
-                        {key, value, source} for launch) with no color or footer
+                        {setting, value, source} for launch) with no color or footer
 
 Read-only: reports routing, not spend — see 'flow ls --cost' for realized cost.`,
 

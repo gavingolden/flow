@@ -139,8 +139,16 @@ export function collectLaunchConfigWarnings(
     "enabled" in
       ((raw as Record<string, unknown>).interview as Record<string, unknown>)
   ) {
+    const oldValue = (
+      (raw as Record<string, unknown>).interview as Record<string, unknown>
+    ).enabled;
+    // Value-aware: the fixed-string version of this warning told every
+    // carrier of the old key to write "skip", which inverts the setting for
+    // anyone who had `interview.enabled: true`.
     warnings.push(
-      'interview.enabled is retired; move it to launch.interviewMode: "skip"',
+      oldValue === false
+        ? 'interview.enabled is no longer read — this launch ignored it. Replace it in ~/.flow/config.json with "launch": { "interviewMode": "skip" }.'
+        : 'interview.enabled is no longer read — this launch ignored it. Delete it from ~/.flow/config.json, or set "launch": { "interviewMode": "force" } to always run the intent interview.',
     );
   }
   const launchResult = readLaunchTable(raw);
@@ -152,6 +160,7 @@ export function collectLaunchConfigWarnings(
     return warnings;
   }
   const launch = launchResult.table;
+  const known = new Set<string>(LAUNCH_CONFIG_KEYS.map((e) => e.key));
   for (const entry of LAUNCH_CONFIG_KEYS) {
     const rawValue = launch[entry.key];
     if (rawValue === undefined) continue;
@@ -162,6 +171,16 @@ export function collectLaunchConfigWarnings(
           : `one of: ${(entry.values as readonly string[]).join(", ")}`;
       warnings.push(
         `launch.${entry.key}: '${String(rawValue)}' is not valid (expected ${expected}); ignoring.`,
+      );
+    }
+  }
+  // A typo'd key (`launch.autoMerg`) is otherwise silently ignored — no
+  // warning, no effect — unlike `models.<key>`, which warns by name on any
+  // unrecognised key.
+  for (const key of Object.keys(launch)) {
+    if (!known.has(key)) {
+      warnings.push(
+        `launch.${key}: unknown launch setting (expected one of: ${[...known].join(", ")}); ignoring.`,
       );
     }
   }

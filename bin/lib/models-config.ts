@@ -37,6 +37,26 @@ export const defaultReadConfigFile: ReadConfigFile = () => {
   }
 };
 
+/**
+ * Wrap a `ReadConfigFile` so the underlying read + parse happens at most once,
+ * no matter how many times the returned closure is called. Every call site
+ * that needs `~/.flow/config.json` more than once per invocation (a
+ * multi-row audit table, or a launch path reading both `models.*` and
+ * `launch.*`) should share one of these rather than re-reading/re-parsing
+ * the file per call.
+ */
+export function cachedConfigRead(base: ReadConfigFile): ReadConfigFile {
+  let cached: unknown;
+  let cachedRead = false;
+  return () => {
+    if (!cachedRead) {
+      cached = base();
+      cachedRead = true;
+    }
+    return cached;
+  };
+}
+
 function asModelAlias(v: unknown): ModelAlias | undefined {
   return typeof v === "string" &&
     (MODEL_ALIASES as readonly string[]).includes(v)

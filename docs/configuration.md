@@ -193,7 +193,7 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 | `update.checkFor`       | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                                                                                                                                                                                                                                                                                                       |
 | `update.autoUpgrade`    | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                                                                                                                                                                                                                                                                                                    |
 | `research.discovery`    | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run)                                                                                                                                                                                                                                                                            |
-| `launch.effort`         | string, default the Claude Code default effort (today's behaviour when absent) — default for `flow feature create --effort`                                                                                                                                                                                                                                                                  |
+| `launch.effort`         | string, default the Claude Code default effort (today's behaviour when absent) — default for `flow feature create --effort`, and for `flow epic create` / `flow epic run`                                                                                                                                                                                                                    |
 | `launch.autoMerge`      | boolean, default unset (today's rubric-driven behaviour when absent) — default for `flow feature create --auto-merge`/`--no-auto-merge`                                                                                                                                                                                                                                                      |
 | `launch.waitForCopilot` | boolean, default unset (today's auto-detect-skip behaviour when absent) — default for `flow feature create --wait-for-copilot`/`--no-wait-for-copilot`                                                                                                                                                                                                                                       |
 | `launch.forceResearch`  | boolean, default `false` (today's relevance-gated behaviour when absent) — default for `flow feature create --research`/`--no-research`; a DIFFERENT grain than `research.discovery` above — this one bypasses the relevance gate outright rather than opting into it                                                                                                                        |
@@ -206,9 +206,12 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 | `review.product`        | boolean, default `true` — set `false` to skip both the plan-time product critic and the product review lens while keeping the brief committed                                                                                                                                                                                                                                                |
 
 The five `launch.*` keys above are resolved once, at `flow feature create`
-launch time, onto the pipeline's `~/.flow/state/<slug>.json` — editing
+(and `flow epic create` / `flow epic run` for `launch.effort`) launch time,
+onto the pipeline's `~/.flow/state/<slug>.json` — editing
 `~/.flow/config.json` changes the default for the NEXT pipeline you
-launch, never a pipeline already running.
+launch, never a pipeline already running. Run `flow config launch` to see
+the value and source of each of these for your next launch; add `--slug
+<name>` to see what a running pipeline started with.
 
 Each `/flow-pr-review` run appends one JSON line to
 `~/.flow/telemetry/review-lenses.jsonl` (per-lens tokens/findings,

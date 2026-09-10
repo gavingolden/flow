@@ -35,14 +35,21 @@ describe("runConfigCli", () => {
     const code = runConfigCli([]);
     expect(code).toBe(2);
     expect(err.join("\n")).toMatch(/subcommand is required/);
-    expect(err.join("\n")).toContain("launch");
+    // "launch" alone is a substring of the pre-existing "launcher"; anchor
+    // to the whole usage string so this can actually fail if `launch` is
+    // dropped from it.
+    expect(err.join("\n")).toContain(
+      "usage: flow config <models|launcher|launch>",
+    );
   });
 
   it("exits 2 on an unknown subcommand", () => {
     const code = runConfigCli(["bogus"]);
     expect(code).toBe(2);
     expect(err.join("\n")).toMatch(/unknown config subcommand: bogus/);
-    expect(err.join("\n")).toContain("launch");
+    expect(err.join("\n")).toContain(
+      "usage: flow config <models|launcher|launch>",
+    );
   });
 
   it("exits 0 and prints help for --help at verb position", () => {

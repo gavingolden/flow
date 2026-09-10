@@ -316,18 +316,31 @@ describe("completion scripts stay in sync with VERBS", () => {
         "utf8",
       );
       for (const token of [
-        "--auto-merge",
         "--no-wait-for-copilot",
         "--no-research",
         "--interview",
         "--no-interview",
-        "launch",
         "launcher",
       ]) {
         expect(
           script.includes(token),
           `flow.${shell} must advertise ${token}`,
         ).toBe(true);
+      }
+      // "--auto-merge" alone is a substring of the pre-existing
+      // "--no-auto-merge"; anchor it to its own delimiter so the assertion
+      // can actually fail if `--auto-merge` itself is dropped.
+      if (shell === "bash") {
+        expect(script).toContain("--auto-merge --no-auto-merge");
+      } else {
+        expect(script).toMatch(/'--auto-merge\[/);
+      }
+      // "launch" alone is a substring of the pre-existing epic "launch"
+      // subcommand; anchor to the config-group entry that this PR added.
+      if (shell === "bash") {
+        expect(script).toContain("models launcher launch");
+      } else {
+        expect(script).toMatch(/'launch:show resolved launch defaults/);
       }
     }
   });

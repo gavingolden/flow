@@ -103,16 +103,34 @@ describe("readLaunchDefaults", () => {
     ).toBe("skip");
   });
 
-  it("emits the legacy interview.enabled migration warning", () => {
+  it("emits a value-aware legacy interview.enabled migration warning for the false case", () => {
     const warnings = collectLaunchConfigWarnings(
       reader({ interview: { enabled: false } }),
     );
     expect(
       warnings.some(
         (w) =>
-          w.includes("interview.enabled") && w.includes("launch.interviewMode"),
+          w.includes("interview.enabled") &&
+          w.includes('"interviewMode": "skip"'),
       ),
     ).toBe(true);
+  });
+
+  it("emits a value-aware legacy interview.enabled migration warning for the true case (never tells the user to write 'skip')", () => {
+    const warnings = collectLaunchConfigWarnings(
+      reader({ interview: { enabled: true } }),
+    );
+    const w = warnings.find((w) => w.includes("interview.enabled"));
+    expect(w).toBeDefined();
+    expect(w).not.toContain('"interviewMode": "skip"');
+    expect(w).toContain('"interviewMode": "force"');
+  });
+
+  it("warns on an unknown launch.<key>, unlike an absent one", () => {
+    const warnings = collectLaunchConfigWarnings(
+      reader({ launch: { autoMerg: false } }),
+    );
+    expect(warnings.some((w) => w.includes("launch.autoMerg"))).toBe(true);
   });
 
   it("calls the injected read exactly once even with all five keys present", () => {

@@ -70,13 +70,44 @@ describe("runConfigLaunchCli", () => {
     expect(out.join("\n")).toMatch(/effort\s+high\s+config \(launch\.effort\)/);
   });
 
-  it("--slug overlays a per-run state override, beating config, as state (--<flag>)", () => {
+  it("--slug overlays a per-run state override, beating config, as 'this run (fixed at launch)'", () => {
     const code = runConfigLaunchCli(["--slug", "feat"], {
       read: reader({ launch: { effort: "low" } }),
       loadState: () => st({ effort: "high" }),
     });
     expect(code).toBe(0);
-    expect(out.join("\n")).toMatch(/effort\s+high\s+state \(--effort\)/);
+    expect(out.join("\n")).toMatch(
+      /effort\s+high\s+this run \(fixed at launch\)/,
+    );
+  });
+
+  it("--slug with an absent state field renders built-in, never a live re-read of config (regression: value the pipeline is NOT running with)", () => {
+    // `feature.ts` only persists `autoMerge` when it resolved to `false`; an
+    // absent field means "resolved to the built-in ON", not "unset — go
+    // check config". Config now has `launch.autoMerge: false`, which must
+    // NOT leak onto this pipeline's row.
+    const code = runConfigLaunchCli(["--slug", "feat"], {
+      read: reader({ launch: { autoMerge: false } }),
+      loadState: () => st({}),
+    });
+    expect(code).toBe(0);
+    expect(out.join("\n")).toMatch(/autoMerge\s+true\s+built-in \(/);
+  });
+
+  it("--slug with a resolved state.model wins over the live models.default", () => {
+    const code = runConfigLaunchCli(["--slug", "feat", "--json"], {
+      read: reader({ models: { default: "opus" } }),
+      loadState: () => st({ model: "haiku" }),
+    });
+    expect(code).toBe(0);
+    const rows = JSON.parse(out[0]);
+    const modelRow = rows.find(
+      (r: { setting: string }) => r.setting === "model",
+    );
+    expect(modelRow).toMatchObject({
+      value: "haiku",
+      source: "this run (fixed at launch)",
+    });
   });
 
   it("--json emits the { setting, value, source } row shape for every row", () => {
@@ -147,6 +178,15 @@ describe("runConfigLaunchCli", () => {
     const code = runConfigLaunchCli([], { read: reader({}) });
     expect(code).toBe(0);
     expect(out.join("\n")).toMatch(/NEXT launch only/);
+  });
+
+  it("warns on a rejected launch.<key> config value instead of silently rendering built-in", () => {
+    const code = runConfigLaunchCli([], {
+      read: reader({ launch: { effort: "highest" } }),
+    });
+    expect(code).toBe(0);
+    expect(err.join("\n")).toMatch(/launch\.effort.*not valid/);
+    expect(out.join("\n")).toMatch(/effort\s+\(none\)\s+built-in \(/);
   });
 
   it("reads the config file only once per invocation", () => {
