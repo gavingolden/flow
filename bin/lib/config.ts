@@ -7,6 +7,7 @@
 import { isHelpFlag, printVerbHelp } from "./help";
 import { runConfigModelsCli, type ConfigModelsOptions } from "./config-models";
 import { runConfigLauncherCli } from "./config-launcher";
+import { runConfigLaunchCli } from "./config-launch";
 
 export function runConfigCli(
   args: string[],
@@ -26,13 +27,15 @@ export function runConfigCli(
       return runConfigModelsCli(args.slice(1), options);
     case "launcher":
       return runConfigLauncherCli(args.slice(1), { read: options.read });
+    case "launch":
+      return runConfigLaunchCli(args.slice(1), options);
     case undefined:
       console.error("flow config: a subcommand is required.");
-      console.error("usage: flow config <models|launcher>");
+      console.error("usage: flow config <models|launcher|launch>");
       return 2;
     default:
       console.error(`flow config: unknown config subcommand: ${sub}`);
-      console.error("usage: flow config <models|launcher>");
+      console.error("usage: flow config <models|launcher|launch>");
       return 2;
   }
 }

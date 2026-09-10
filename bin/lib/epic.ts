@@ -112,6 +112,7 @@ import {
   collectModelConfigWarnings,
   type ReadConfigFile,
 } from "./models-config";
+import { readLaunchDefaults } from "./launch-config";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
 import {
@@ -567,13 +568,18 @@ PR → review checkpoint), and writes initial epic state under
     console.error(dim(`flow epic create: ${w}`));
   }
   const sessionModel = model ?? readDefaultModel(options.readConfig);
+  // Reasoning-effort precedence (comment applies to both epic-create above
+  // and the epic-run path below): explicit CLI flag > manifest hint
+  // (flowNewHints.effort, applied upstream by epic-launch.ts) > config
+  // (launch.effort) > built-in.
+  const sessionEffort = effort ?? readLaunchDefaults(options.readConfig).effort;
 
   const command =
     options.command ??
     createCommand(
       slug,
       worktree,
-      effort,
+      sessionEffort,
       settingsPath,
       sessionModel,
       options.pluginRootsScan,
@@ -605,7 +611,7 @@ PR → review checkpoint), and writes initial epic state under
         phase: "starting",
         repo,
         worktree: existing?.worktree,
-        effort,
+        effort: sessionEffort,
         model: sessionModel,
         modelPlanning,
         seed,
@@ -1142,19 +1148,21 @@ function spawnEpicRunSupervisor(
   // the verified-launch argv through the shared builder. The supervisor session
   // model is `--model > config.models.default > inherited` (parity with
   // `flow feature create` / `flow epic create`); absent both, no --model reaches
-  // claude. `--effort <level>` threads straight from the CLI flag — unlike
-  // model, effort has no `config.models.default`-style config fallback.
+  // claude. `--effort <level>` resolves `explicit CLI flag > launch.effort
+  // config > built-in` (parity with `flow feature create` / epic-create above).
   const settingsPath = launchSettingsPathFor(options);
   for (const w of collectModelConfigWarnings(options.readConfig)) {
     console.error(dim(`flow epic run: ${w}`));
   }
   const runSessionModel = runModel ?? readDefaultModel(options.readConfig);
+  const runSessionEffort =
+    runEffort ?? readLaunchDefaults(options.readConfig).effort;
   const command =
     options.command ??
     createCommand(
       slug,
       worktree,
-      runEffort,
+      runSessionEffort,
       settingsPath,
       runSessionModel,
       options.pluginRootsScan,

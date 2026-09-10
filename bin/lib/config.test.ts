@@ -35,12 +35,14 @@ describe("runConfigCli", () => {
     const code = runConfigCli([]);
     expect(code).toBe(2);
     expect(err.join("\n")).toMatch(/subcommand is required/);
+    expect(err.join("\n")).toContain("launch");
   });
 
   it("exits 2 on an unknown subcommand", () => {
     const code = runConfigCli(["bogus"]);
     expect(code).toBe(2);
     expect(err.join("\n")).toMatch(/unknown config subcommand: bogus/);
+    expect(err.join("\n")).toContain("launch");
   });
 
   it("exits 0 and prints help for --help at verb position", () => {
@@ -63,5 +65,13 @@ describe("runConfigCli", () => {
     });
     expect(code).toBe(0);
     expect(out.join("\n")).toMatch(/tmux/);
+  });
+
+  it("routes `launch` to runConfigLaunchCli", () => {
+    const code = runConfigCli(["launch"], {
+      read: reader({}),
+    });
+    expect(code).toBe(0);
+    expect(out.join("\n")).toMatch(/SETTING\s+VALUE\s+SOURCE/);
   });
 });

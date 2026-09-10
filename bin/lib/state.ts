@@ -177,7 +177,8 @@ export type PipelineState = {
    * `flow feature create --interview` (force) or `--no-interview` (skip).
    * Mutually exclusive; absent when neither flag was passed, in which case
    * the trigger falls back to the `interview-playbook.md` judgment gate and
-   * `config.json`'s `interview.enabled`.
+   * `config.json`'s `launch.interviewMode` (resolved at launch onto this
+   * field, so the gate reads state only).
    */
   interviewMode?: "force" | "skip";
   /**

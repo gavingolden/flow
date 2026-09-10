@@ -50,11 +50,13 @@ applies:
   clarification round already resolved the open questions at the epic
   level) — re-interviewing per-feature would re-ask what the epic
   design already settled.
-- **`interviewMode: "skip"` or `interview.enabled: false`.** A
+- **`interviewMode: "skip"` or `launch.interviewMode: "skip"`.** A
   per-run `flow feature create --no-interview` override, or the
-  `~/.flow/config.json` `interview.enabled` key set to `false` (see
+  `~/.flow/config.json` `launch.interviewMode` key set to `"skip"` (see
   `docs/configuration.md`), disables the trigger outright regardless
-  of judgment. The inverse override, `interviewMode: "force"`
+  of judgment. `launch.interviewMode` is resolved AT LAUNCH onto
+  `state.interviewMode` — this gate reads state only and needs no
+  runtime config read. The inverse override, `interviewMode: "force"`
   (`flow feature create --interview`), forces the trigger on even when a
   carve-out above would otherwise skip it.
 

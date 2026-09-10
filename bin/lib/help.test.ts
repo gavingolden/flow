@@ -188,6 +188,41 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.ls).toContain("--all-repos");
     expect(HELP_TEXT.ls).toMatch(/scoped to the current repo/i);
   });
+
+  it("HELP_TOP and HELP_TEXT.feature both document --auto-merge, --no-wait-for-copilot, and --no-research", () => {
+    for (const flag of [
+      "--auto-merge",
+      "--no-wait-for-copilot",
+      "--no-research",
+    ]) {
+      expect(HELP_TOP).toContain(flag);
+      expect(HELP_TEXT.feature).toContain(flag);
+    }
+  });
+
+  it("HELP_TEXT.config names 'launch' in both its Usage list and its Subcommands prose", () => {
+    expect(HELP_TEXT.config).toMatch(/Usage:[\s\S]*flow config launch/);
+    expect(HELP_TEXT.config).toMatch(/Subcommands:[\s\S]*\n\s*launch\s/);
+  });
+
+  it("no help string mentions the removed 'interview.enabled' config key", () => {
+    const haystack = [HELP_TOP, ...Object.values(HELP_TEXT)].join("\n");
+    expect(haystack).not.toContain("interview.enabled");
+  });
+
+  it("Options (create) documents each config-backed flag's launch.<key> counterpart", () => {
+    const pairs: Array<[string, string]> = [
+      ["--effort", "launch.effort"],
+      ["--auto-merge", "launch.autoMerge"],
+      ["--wait-for-copilot", "launch.waitForCopilot"],
+      ["--research", "launch.forceResearch"],
+      ["--interview", "launch.interviewMode"],
+    ];
+    for (const [flag, key] of pairs) {
+      expect(HELP_TEXT.feature).toContain(flag);
+      expect(HELP_TEXT.feature).toContain(key);
+    }
+  });
 });
 
 describe("HELP_TOP", () => {

@@ -59,9 +59,12 @@ function withEpicPointer(
 /**
  * Pure: the `flow feature create` argv for a feature launched from an epic.
  * `["feature", "create", <description>, ...flags, "--epic", "<epicSlug>/<id>", "--slug", slugify(id)]`.
- * `flowNewHints` mapping: `autoMerge === false` → `--no-auto-merge` (absent or
- * `true` ⇒ no flag, since auto-merge is the default); `copilotReview` →
- * `--copilot-review <value>`; `effort` → `--effort <value>`. `overrides` (see
+ * `flowNewHints` mapping: `autoMerge === false` → `--no-auto-merge`;
+ * `autoMerge === true` → `--auto-merge` (an explicit `true` hint must win over
+ * a `launch.autoMerge: false` config default too); absent ⇒ no flag, letting
+ * `launch.autoMerge` config or the built-in default (auto-merge ON) supply
+ * it. `copilotReview` → `--copilot-review <value>`; `effort` → `--effort
+ * <value>`. `overrides` (see
  * `LaunchOverrides`) apply on top: `overrides.effort` REPLACES `hints.effort`
  * (never both — exactly one `--effort` reaches the argv); `overrides.model`
  * has no manifest-hint equivalent, so it is a plain append when present.
@@ -83,6 +86,10 @@ export function buildFeatureCreateArgs(
   const args = ["feature", "create", description];
   const hints = feature.flowNewHints ?? {};
   if (hints.autoMerge === false) args.push("--no-auto-merge");
+  // An explicit `true` hint must win over a `launch.autoMerge: false` config
+  // default too — manifest hint > config in the documented precedence.
+  // Absent hint emits neither flag, so config can supply.
+  if (hints.autoMerge === true) args.push("--auto-merge");
   if (hints.copilotReview) args.push("--copilot-review", hints.copilotReview);
   if (overrides?.effort) {
     args.push("--effort", overrides.effort);

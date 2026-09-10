@@ -309,6 +309,29 @@ describe("completion scripts stay in sync with VERBS", () => {
     }
   });
 
+  it("both scripts advertise the new feature-create flags and the config launch/launcher subcommands", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      for (const token of [
+        "--auto-merge",
+        "--no-wait-for-copilot",
+        "--no-research",
+        "--interview",
+        "--no-interview",
+        "launch",
+        "launcher",
+      ]) {
+        expect(
+          script.includes(token),
+          `flow.${shell} must advertise ${token}`,
+        ).toBe(true);
+      }
+    }
+  });
+
   it("both scripts advertise the epic --model-planning (create) + --model (run), the bind/launch subcommands, and drop --model-judge", () => {
     for (const shell of ["bash", "zsh"] as const) {
       const script = fs.readFileSync(
