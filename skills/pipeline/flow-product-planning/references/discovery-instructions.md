@@ -63,7 +63,7 @@ no-op — proceed to `## 1.5` unchanged.
 
 **Engage this step on every discovery run; it self-gates internally and is a no-op for most features.** It runs at most once. It lets a pipeline gather current, web-grounded, adversarially-verified evidence **before** planning, so a plan whose viability turns on an external factual question is grounded on real evidence rather than your training cutoff. It runs **only when** (1) a `jq` read of the global `~/.flow/config.json` returns `research.discovery: true`, AND (2) the relevance gate below judges the feature researchable. agy availability is checked **last**, by the research fan-out itself — an `allSkipped` result means agy is unavailable, so research gracefully no-ops. When any gate fails, skip the entire step and proceed to step 2 (Scope Check) with discovery exactly as it is today. **One override:** a `RESEARCH: force-on` signal in your spawn prompt (set by `flow feature create --research`) forces the pre-check on, bypassing **both** gate (1) and gate (2) — see (a0) below; only the agy guard still applies.
 
-**HARD INVARIANT (read first).** This research is a **Bash fan-out you call directly**: you run `flow-delegate-fanout` (a Bash subprocess) yourself. A spawned Task sub-agent — which is what you are — does **NOT** have the `Skill` tool, so you **cannot** load `/flow-research` in-process; instead you `Read` its procedure (it is on disk globally — see (c)) and drive the fan-out yourself. You are the orchestrating "Claude" for the gather→refute→synthesize pattern, and you spawn **no** nested Task. The single supervisor→discovery Task call is unchanged and the nine-exemption count in `flow-pipeline/SKILL.md` is preserved. If you find yourself reaching for the Task/Agent tool — or expecting a `Skill` tool that a sub-agent does not have — stop; direct `flow-delegate-fanout` via Bash is the only mechanism here.
+**HARD INVARIANT (read first).** This research is a **Bash fan-out you call directly**: you run `flow-delegate-fanout` (a Bash subprocess) yourself. A spawned Task sub-agent — which is what you are — does **NOT** have the `Skill` tool, so you **cannot** load `/flow-research` in-process; instead you `Read` its procedure (it is on disk globally — see (c)) and drive the fan-out yourself. You are the orchestrating "Claude" for the gather→refute→synthesize pattern, and you spawn **no** nested Task. The single supervisor→discovery Task call is unchanged and the eight-exemption count in `flow-pipeline/SKILL.md` is preserved. If you find yourself reaching for the Task/Agent tool — or expecting a `Skill` tool that a sub-agent does not have — stop; direct `flow-delegate-fanout` via Bash is the only mechanism here.
 
 Procedure:
 
@@ -1425,7 +1425,7 @@ order; the table is the cheap 80% of a task DAG at zero new format cost.
 
 **Sequential-by-design.** Parallel implementer fan-out was assessed and
 rejected (feedback-loop breakdown, shared-worktree verify gate, the
-nine-exemption Task-tool policy) — see the flow repo's
+eight-exemption Task-tool policy) — see the flow repo's
 `docs/nested-subagents-assessment.md`. Do not re-propose fan-out in a plan.
 
 List the skill directory before recommending — do not hardcode a static list.

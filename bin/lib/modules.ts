@@ -92,6 +92,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-merge-resolver-instructions",
       "flow-scout-instructions",
       "flow-consolidator-instructions",
+      "flow-ui-driver-instructions",
     ],
     agents: [
       "flow-backlog-verifier.md",
@@ -110,6 +111,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-review-supply-chain.md",
       "flow-review-test-coverage.md",
       "flow-scout.md",
+      "flow-ui-driver.md",
     ],
     helpers: [
       "flow-new-worktree",
@@ -177,6 +179,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-fix-applier-schema",
       "flow-epic-manifest-schema",
       "flow-intent-resolution-schema",
+      "flow-ui-driver-schema",
     ],
   },
   {

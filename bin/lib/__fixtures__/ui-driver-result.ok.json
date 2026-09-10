@@ -1,0 +1,18 @@
+{
+  "ran": true,
+  "ok": true,
+  "captures_path": ".flow-tmp/ui-captures.json",
+  "ui_screenshots": [".flow-tmp/ui-screenshots/route-home.png"],
+  "fix_context": [
+    {
+      "route": "/",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    }
+  ],
+  "rejected_alternatives": [
+    "Considered widening the noise filter to drop all 404s; rejected because a missing asset is a real signal for this manifest."
+  ],
+  "summary": "Drove / at desktop and mobile viewports; both loaded #nav with no console errors."
+}

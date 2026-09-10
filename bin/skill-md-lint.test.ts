@@ -328,6 +328,14 @@ const UI_SMOKE_PASS_PATH = path.resolve(
   "references",
   "ui-smoke-pass.md",
 );
+const UI_DRIVER_INSTRUCTIONS_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-ui-driver-instructions",
+  "SKILL.md",
+);
 const FLOW_UI_VALIDATE_PATH = path.resolve(HERE, "flow-ui-validate.ts");
 const UI_VALIDATION_SCHEMA_PATH = path.resolve(
   HERE,
@@ -429,6 +437,10 @@ const uiValidationEvidenceContent = fs.readFileSync(
   "utf8",
 );
 const uiSmokePassContent = fs.readFileSync(UI_SMOKE_PASS_PATH, "utf8");
+const uiDriverInstructionsContent = fs.readFileSync(
+  UI_DRIVER_INSTRUCTIONS_PATH,
+  "utf8",
+);
 const flowUiValidateContent = fs.readFileSync(FLOW_UI_VALIDATE_PATH, "utf8");
 const uiValidationSchemaContent = fs.readFileSync(
   UI_VALIDATION_SCHEMA_PATH,
@@ -991,29 +1003,30 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     );
   }
 
-  it("flow-pipeline/SKILL.md Hard rules lists exactly 7 Task-tool exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules lists exactly 8 Task-tool exemptions", () => {
     const exemptions = extractSkillExemptions();
     expect(
       exemptions.length,
-      "flow-pipeline/SKILL.md must list exactly 7 Task-tool exemption blocks " +
+      "flow-pipeline/SKILL.md must list exactly 8 Task-tool exemption blocks " +
         "(one each for /flow-pr-review Multi-Agent Review, /flow-product-planning Discovery " +
         "Subagent, /flow-new-feature Scout Subagent, /flow-pr-review Fix-Applier Subagent, " +
         "/flow-pipeline step 10's Merge-Conflict Resolver Subagent, /flow-coder " +
-        "Edit-Applier Subagent, and " +
-        "/flow-pr-review Step 3.5 Consolidator-Validator Subagent). " +
+        "Edit-Applier Subagent, " +
+        "/flow-pr-review Step 3.5 Consolidator-Validator Subagent, and " +
+        "/flow-verify Independent UI-Driver Subagent). " +
         "Found: " +
         JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(8);
   });
 
-  it("AGENTS.md ## Don'ts lists exactly 7 Task-tool exemption bullets", () => {
+  it("AGENTS.md ## Don'ts lists exactly 8 Task-tool exemption bullets", () => {
     const exemptions = extractAgentsExemptions();
     expect(
       exemptions.length,
-      "AGENTS.md ## Don'ts must list exactly 7 Task-tool exemption bullets. " +
+      "AGENTS.md ## Don'ts must list exactly 8 Task-tool exemption bullets. " +
         "Found: " +
         JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(8);
   });
 
   it("AGENTS.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
@@ -1035,14 +1048,14 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("references/exemption-contracts.md lists exactly 7 contract sections", () => {
+  it("references/exemption-contracts.md lists exactly 8 contract sections", () => {
     const exemptions = extractContractsExemptions();
     expect(
       exemptions.length,
-      "references/exemption-contracts.md must hold exactly 7 `## ` contract " +
+      "references/exemption-contracts.md must hold exactly 8 `## ` contract " +
         "sections (one per Task-tool exemption). Found: " +
         JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(8);
   });
 
   it("references/exemption-contracts.md matches the AGENTS.md exemption set", () => {
@@ -1054,7 +1067,7 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       onlyInContracts.length,
       `Sections in references/exemption-contracts.md but missing from AGENTS.md openers: ${JSON.stringify(onlyInContracts)}. ` +
         "The offloaded contract file and the AGENTS.md `## Don'ts` openers enumerate the same " +
-        "seven exemptions; a section heading must match its AGENTS.md opener name (minus the " +
+        "eight exemptions; a section heading must match its AGENTS.md opener name (minus the " +
         "`/flow-pipeline → ` prefix) so a reader hopping AGENTS.md → references lands on the right section.",
     ).toBe(0);
     expect(
@@ -1065,49 +1078,49 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("flow-pipeline/SKILL.md Hard rules preamble references seven exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules preamble references eight exemptions", () => {
     expect(
       skillStripped.match(
-        /the\s+\*\*only seven\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
+        /the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
       ),
-      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only seven** authorised " +
+      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only eight** authorised " +
         "Task-tool fan-out sites'. If you added or removed an exemption, update the count " +
         "in the preamble too — the count is bidirectional with the block list below.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Hard rules opening references seven Task-tool exceptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules opening references eight Task-tool exceptions", () => {
     expect(
       skillStripped.match(
-        /the\s+seven\s+narrowly-named Task-tool exceptions that\s+follow/,
+        /the\s+eight\s+narrowly-named Task-tool exceptions that\s+follow/,
       ),
-      "flow-pipeline/SKILL.md Hard rules opening must say 'the seven narrowly-named " +
+      "flow-pipeline/SKILL.md Hard rules opening must say 'the eight narrowly-named " +
         "Task-tool exceptions that follow'. Drift here means a future reader sees a count " +
         "that doesn't match the exemption blocks.",
     ).toBeTruthy();
   });
 
-  it("AGENTS.md upstream prose references seven exceptions", () => {
+  it("AGENTS.md upstream prose references eight exceptions", () => {
     expect(
-      agentsContent.match(/\*\*with seven narrowly-named exceptions\*\*/),
-      "AGENTS.md ## Supervisor and sub-skills must say '**with seven narrowly-named exceptions**'. " +
+      agentsContent.match(/\*\*with eight narrowly-named exceptions\*\*/),
+      "AGENTS.md ## Supervisor and sub-skills must say '**with eight narrowly-named exceptions**'. " +
         "The count must match the bullet list under ## Don'ts.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/The seven\s+named exceptions are/),
-      "AGENTS.md ## Don'ts parent bullet must say 'The seven named exceptions are'. " +
+      agentsContent.match(/The eight\s+named exceptions are/),
+      "AGENTS.md ## Don'ts parent bullet must say 'The eight named exceptions are'. " +
         "Drift here is the most likely landmine when adding a new exemption.",
     ).toBeTruthy();
     expect(
       agentsContent.match(
-        /the\s+\*\*only seven\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
+        /the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
       ),
-      "AGENTS.md ## Don'ts closer must say 'the **only seven** authorised Task-tool fan-out sites'. " +
+      "AGENTS.md ## Don'ts closer must say 'the **only eight** authorised Task-tool fan-out sites'. " +
         "Same count, same wording as flow-pipeline/SKILL.md's closer.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Verification (this skill) lists all seven exemptions by name", () => {
+  it("flow-pipeline/SKILL.md Verification (this skill) lists all eight exemptions by name", () => {
     const verificationSection =
       content.split("# Verification")[1] ??
       content.split("# Verification (this skill)")[1] ??
@@ -1141,7 +1154,7 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       verificationSection.includes("Independent Edit-Applier Subagent"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Edit-Applier Subagent' " +
         "as one of the named Task-tool exemptions. The sixth exemption was added in the " +
-        "/flow-coder refactor; this list must enumerate all seven.",
+        "/flow-coder refactor; this list must enumerate all eight.",
     ).toBe(true);
     expect(
       verificationSection.includes(
@@ -1149,7 +1162,13 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       ),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Consolidator-Validator Subagent' " +
         "as one of the named Task-tool exemptions. The seventh exemption was added in the " +
-        "/flow-pr-review Step 3.5 Consolidator-Validator refactor; this list must enumerate all seven.",
+        "/flow-pr-review Step 3.5 Consolidator-Validator refactor; this list must enumerate all eight.",
+    ).toBe(true);
+    expect(
+      verificationSection.includes("Independent UI-Driver Subagent"),
+      "flow-pipeline/SKILL.md Verification section must reference 'Independent UI-Driver Subagent' " +
+        "as one of the named Task-tool exemptions. The eighth exemption was added in the " +
+        "/flow-verify UI-smoke refactor; this list must enumerate all eight.",
     ).toBe(true);
   });
 
@@ -1502,9 +1521,14 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * 136-202-char headroom range every deliberate raise above landed with
    * rather than the single-digit-headroom traps rejected earlier in this
    * history.
+   * The eighth Task-tool exemption (`/flow-verify` Independent UI-Driver
+   * Subagent) added one new `## Don'ts` bullet plus the seven→eight count
+   * updates across the surrounding prose, landing AGENTS.md at 26_201
+   * chars. The budget goes to 26_400 (199 chars of headroom), matching the
+   * 136-202-char range every deliberate raise above landed with.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 26_000;
+    const CHAR_BUDGET = 26_400;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -1617,13 +1641,17 @@ describe("auto-issue-create fire-site enumeration lint", () => {
   });
 });
 
-describe("low-effort fan-out subagent_type wiring lint", () => {
-  // Pins the two always-cheap fan-out spawn sites to their low-effort agent
-  // definitions (agents/flow-verify.md, agents/flow-fix-applier.md) with a
+describe("cheap-model fan-out subagent_type wiring lint", () => {
+  // Pins the two always-cheap fan-out spawn sites to their cheap-model agent
+  // definitions (agents/flow-fix-applier.md, agents/flow-ui-driver.md) with a
   // general-purpose fallback, and confirms each site still passes its
   // per-spawn model: override so the per-phase model flags keep working. A
   // future edit that reverts either site to a bare `subagent_type:
-  // general-purpose` (dropping the effort: low pinning) goes red here.
+  // general-purpose` (dropping the sonnet-default model routing) goes red
+  // here. Neither definition pins `effort:` — the Task tool has no
+  // per-spawn effort argument, so a frontmatter effort pin would be
+  // unoverridable even though the row's `model` is only a configurable
+  // default; effort always follows the session's `state.effort`.
 
   // Shared negation vocabulary + clause-splitting helper for the two
   // "never mandates an X" prose-detector lints below (force-push,
@@ -1658,7 +1686,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     expect(
       prReviewContent.includes("subagent_type: $FIX_APPLIER_SUBAGENT"),
       "pr-review SKILL.md Fix-Applier spawn must use `subagent_type: $FIX_APPLIER_SUBAGENT` " +
-        "so the resolved low-effort agent (or the general-purpose fallback) is passed.",
+        "so the resolved cheap-model agent (or the general-purpose fallback) is passed.",
     ).toBe(true);
     expect(
       prReviewContent.includes(
@@ -1666,7 +1694,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ),
       "pr-review SKILL.md must resolve FIX_APPLIER_SUBAGENT to " +
         "`flow-module-core:flow-fix-applier` — the agents/flow-fix-applier.md " +
-        "definition that pins effort: low.",
+        "definition that falls back to a literal sonnet default.",
     ).toBe(true);
     expect(
       /FIX_APPLIER_SUBAGENT=general-purpose/.test(prReviewContent),
@@ -1697,32 +1725,36 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     ).toBe(true);
   });
 
-  it("the low-effort agent definition does not pin a model (per-spawn override must win)", () => {
+  it("the cheap-model fan-out agent definition does not pin a model or an effort (per-spawn overrides must win)", () => {
     for (const name of ["flow-fix-applier.md"] as const) {
       const agentPath = path.resolve(HERE, "..", "agents", "core", name);
       expect(
         fs.existsSync(agentPath),
-        `agents/${name} must exist — it is the low-effort definition the spawn site resolves.`,
+        `agents/${name} must exist — it is the cheap-model definition the spawn site resolves.`,
       ).toBe(true);
       const body = fs.readFileSync(agentPath, "utf8");
       const frontmatter = body.split("---")[1] ?? "";
-      expect(
-        /^effort:\s*low\s*$/m.test(frontmatter),
-        `agents/${name} frontmatter must declare 'effort: low'.`,
-      ).toBe(true);
       expect(
         /^model:/m.test(frontmatter),
         `agents/${name} frontmatter must NOT pin a 'model:' — the per-spawn model: ` +
           "override must win so the per-phase model flags keep working.",
       ).toBe(false);
+      expect(
+        /^effort:/m.test(frontmatter),
+        `agents/${name} frontmatter must NOT pin an 'effort:' — the Task tool has ` +
+          "no per-spawn effort argument, so a frontmatter effort pin would be " +
+          "unoverridable even though this row's model is only a configurable " +
+          "default; effort must follow the session's state.effort instead.",
+      ).toBe(false);
     }
   });
 
   // Frontmatter policy for the full thirteen-definition set
-  // (p4-review-agents + p4-pipeline-agents): mechanical roles pin
-  // `effort: low` (checked above and re-checked here), and
-  // every judgment role omits both so session effort and the spawn
-  // site's per-spawn/config-threaded model always win. flow-discovery
+  // (p4-review-agents + p4-pipeline-agents): mechanical roles pin a cheap
+  // sonnet-default model and the subagent_type wiring (checked above and
+  // re-checked here), and NO row — mechanical or judgment — pins `effort:`,
+  // so session effort and the spawn site's per-spawn/config-threaded model
+  // always win. flow-discovery
   // is the one row with `inheritsAllTools: true` — plan Decision
   // analysis 2 deliberately leaves it with no `tools:` allowlist
   // (discovery's research + design-artifact passes span Bash/WebFetch/
@@ -1731,7 +1763,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   const AGENT_FRONTMATTER_POLICY: Array<{
     file: string;
     wantModel?: string;
-    wantEffort?: string;
     wantTools?: string;
     inheritsAllTools?: boolean;
     wantMemory?: "local";
@@ -1741,7 +1772,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   }> = [
     {
       file: "flow-fix-applier.md",
-      wantEffort: "low",
       wantMaxTurns: 120,
       wantCacheTtl: "1h",
       wantSkills: "flow-fix-applier-instructions",
@@ -1809,6 +1839,13 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       wantSkills: "flow-coder-instructions",
     },
     { file: "flow-backlog-verifier.md", wantTools: "Bash, Read, Grep, Glob" },
+    {
+      file: "flow-ui-driver.md",
+      wantMaxTurns: 120,
+      wantCacheTtl: "1h",
+      wantSkills: "flow-ui-driver-instructions",
+      wantTools: "Bash, Read, Write, ToolSearch, mcp__chrome-devtools__\\*",
+    },
   ];
 
   it("AGENT_FRONTMATTER_POLICY covers exactly the agents/ directory, with inheritsAllTools confined to flow-discovery.md", () => {
@@ -1828,7 +1865,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     for (const {
       file,
       wantModel,
-      wantEffort,
       wantTools,
       inheritsAllTools,
       wantMemory,
@@ -1879,18 +1915,17 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
             "model: override / config threading must win.",
         ).toBe(false);
       }
-      if (wantEffort) {
-        expect(
-          new RegExp(`^effort:\\s*${wantEffort}\\s*$`, "m").test(frontmatter),
-          `agents/${file} frontmatter must pin 'effort: ${wantEffort}'.`,
-        ).toBe(true);
-      } else {
-        expect(
-          /^effort:/m.test(frontmatter),
-          `agents/${file} frontmatter must NOT pin 'effort:' — judgment ` +
-            "roles scale with session effort.",
-        ).toBe(false);
-      }
+      // No agents/*.md row ever pins effort: the Task tool has no per-spawn
+      // effort argument, so a frontmatter pin would be unoverridable even
+      // though every row's model is only a configurable default — every
+      // role, mechanical or judgment, scales with the session's effort.
+      expect(
+        /^effort:/m.test(frontmatter),
+        `agents/${file} frontmatter must NOT pin 'effort:' — the Task tool ` +
+          "has no per-spawn effort argument, so a pinned effort would be " +
+          "unoverridable while this row's model is only a configurable " +
+          "default; effort must follow the session's state.effort.",
+      ).toBe(false);
       if (wantMemory) {
         expect(
           new RegExp(`^memory:\\s*${wantMemory}\\s*$`, "m").test(frontmatter),
@@ -1950,35 +1985,39 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     }
   });
 
-  it("flow-fix-applier.md retains the mcp__chrome-devtools__* and ToolSearch grants (UI-running agent)", () => {
-    const content = fs.readFileSync(
-      path.resolve(HERE, "..", "agents", "core", "flow-fix-applier.md"),
-      "utf8",
-    );
-    for (const grant of ["ToolSearch", "mcp__chrome-devtools__*"]) {
-      expect(
-        content.includes(grant),
-        `agents/flow-fix-applier.md must keep the '${grant}' grant in its tools: ` +
-          "frontmatter — the sub-agent runs the browser UI pass; dropping " +
-          "it silently re-breaks the browser gate (mcp-not-available).",
-      ).toBe(true);
+  it("flow-fix-applier.md and flow-ui-driver.md retain the mcp__chrome-devtools__* and ToolSearch grants (UI-running agents)", () => {
+    for (const file of ["flow-fix-applier.md", "flow-ui-driver.md"]) {
+      const content = fs.readFileSync(
+        path.resolve(HERE, "..", "agents", "core", file),
+        "utf8",
+      );
+      for (const grant of ["ToolSearch", "mcp__chrome-devtools__*"]) {
+        expect(
+          content.includes(grant),
+          `agents/${file} must keep the '${grant}' grant in its tools: ` +
+            "frontmatter — the sub-agent runs the browser UI pass; dropping " +
+            "it silently re-breaks the browser gate (mcp-not-available).",
+        ).toBe(true);
+      }
     }
   });
 
-  it("no agent other than flow-fix-applier.md carries the chrome-devtools MCP grant", () => {
+  it("no agent other than flow-fix-applier.md or flow-ui-driver.md carries the chrome-devtools MCP grant", () => {
     const agentsDir = path.resolve(HERE, "..", "agents", "core");
+    const uiRunningAgents = new Set([
+      "flow-fix-applier.md",
+      "flow-ui-driver.md",
+    ]);
     const otherAgentFiles = fs
       .readdirSync(agentsDir)
-      .filter((file) => file.endsWith(".md") && file !== "flow-fix-applier.md");
+      .filter((file) => file.endsWith(".md") && !uiRunningAgents.has(file));
     for (const file of otherAgentFiles) {
       const content = fs.readFileSync(path.resolve(agentsDir, file), "utf8");
       expect(
         content.includes("mcp__chrome-devtools"),
         `agents/${file} must NOT carry the chrome-devtools MCP grant — only ` +
-          "flow-fix-applier.md runs the browser UI pass (/flow-verify's own " +
-          "UI-smoke pass now runs in-process, inheriting the session's tools " +
-          "rather than a spawned agent's grant); granting it elsewhere silently " +
-          "widens the browser blast radius.",
+          "flow-fix-applier.md and flow-ui-driver.md run browser UI passes; " +
+          "granting it elsewhere silently widens the browser blast radius.",
       ).toBe(false);
     }
   });
@@ -4667,7 +4706,7 @@ describe("pr-review result-artifact contract lint", () => {
   );
 });
 
-describe("Task-tool ToolSearch-load preamble at all eight top-level spawn sites", () => {
+describe("Task-tool ToolSearch-load preamble at all top-level spawn sites (ten sites, eight exemptions — ui-driver has two callers, product-planning-critic shares the discovery exemption)", () => {
   const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
     {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
@@ -4700,6 +4739,19 @@ describe("Task-tool ToolSearch-load preamble at all eight top-level spawn sites"
     {
       file: "skills/pipeline/flow-pipeline/SKILL.md",
       exemption_name: "product-planning-critic",
+    },
+    {
+      file: "skills/pipeline/flow-verify/SKILL.md",
+      exemption_name: "ui-driver",
+    },
+    {
+      // Second caller of the same eighth (ui-driver) exemption: /flow-pr-review
+      // Step 8c.iii's browser-item runnable bucket spawns the UI-Driver
+      // Subagent directly (mirrors /flow-coder's own multi-caller shape —
+      // one exemption, more than one spawn site — so the exemption count
+      // stays eight even though the site count is now ten).
+      file: "skills/pipeline/flow-pr-review/SKILL.md",
+      exemption_name: "ui-driver",
     },
   ];
 
@@ -4740,6 +4792,11 @@ describe("Task-tool ToolSearch-load preamble at all eight top-level spawn sites"
     "flow-pipeline-merge-resolver",
     "flow-pipeline-verify-loop",
     "product-planning-critic",
+    // The flow-verify/SKILL.md ui-driver row still carries the literal
+    // paragraph in-file (hasTaskInSkill/hasAgentInSkill already true there
+    // independent of this flag); the flow-pr-review/SKILL.md 8c.iii ui-driver
+    // row is the one that needs the preamble fallback.
+    "ui-driver",
   ]);
   const PREAMBLE_REF_PATH = path.resolve(
     HERE,
@@ -5146,12 +5203,20 @@ describe("pr-review include-by-reference structure", () => {
     // branch's seventh `product` lens (1846 lines). Neither is regrowth, and
     // the merged file is their union at 1880 lines. 1885 leaves 5 lines of
     // genuine headroom, not round-number headroom for future growth.
+    //
+    // Bumped 1885 -> 1930 (merge of origin/main into the ui-driver branch):
+    // a third independently-reviewed PR grew this file under the same pin --
+    // the eighth Task-tool exemption's Step 8c.iii UI-Driver spawn site (the
+    // second caller of `flow-ui-driver`, replacing the inline browser drive).
+    // The merged file is the union of all three at 1916 lines. 1930 leaves
+    // 14 lines of genuine headroom, not round-number headroom for future
+    // growth.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1885 lines. Material regrowth past this ceiling would ` +
+        `budget of 1930 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1885);
+    ).toBeLessThan(1930);
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
@@ -5308,26 +5373,30 @@ describe("pr-review include-by-reference structure", () => {
     // merged file lands at 3019 lines after `main`'s verify-loop diet, so
     // 3115 clears it and no third number is invented.
     //
-    // Request-vetting note: PR #812's Task 8 (`## Request vetting`
-    // rendering + non-feature push-back routing + the FOUR-hashed-inputs
-    // doc update) added genuine step-3 prose, landing the file at 3127
-    // lines — the ceiling moved to 3140, the same discipline as above.
-    //
-    // Merge note (f3 product critic): this branch independently raised
-    // 3115 -> 3140 for the "Blind product critic (brief-gated, once per
-    // step-3 pass)" sub-step plus the exemption #1/#2 wording widening.
-    // Both ledgers above survive the merge, and both raises were budgeted
-    // at 3140 for their OWN content — but the merged file carries both
-    // bodies, landing at 3143. The ceiling moves to 3155 (12 lines of
-    // genuine headroom) to cover the union; this is the arithmetic of two
-    // independently-budgeted features meeting, not new bloat, and neither
+    // Three independent raises have now landed together:
+    //   - PR #812's Task 8 (`## Request vetting` rendering + non-feature
+    //     push-back routing + the FOUR-hashed-inputs doc update).
+    //   - The eighth Task-tool exemption (`/flow-verify` Independent
+    //     UI-Driver Subagent): a new Hard-rules exemption blockquote, the
+    //     Verification-list eighth name, and the Step 6
+    //     Automated-UI-smoke-pass / Surface-UI-screenshots rewrites to
+    //     read the driver artifact.
+    //   - `main`'s f3 blind product critic: the "Blind product critic
+    //     (brief-gated, once per step-3 pass)" sub-step plus the
+    //     exemption #1/#2 wording widening.
+    // All three are genuine feature-mechanical content, not incidental
+    // bloat. Each was independently budgeted (3160 for the first two,
+    // 3155 for the third), but the merged file carries every body and
+    // lands at 3165 lines, so the ceiling moves to 3180 (15 lines of
+    // genuine headroom) to cover the union. That is the arithmetic of
+    // independently-budgeted features meeting, not new bloat, and no
     // side's content was trimmed to fake a fit.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3155 lines. Material regrowth past this ceiling would ` +
+        `budget of 3180 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3155);
+    ).toBeLessThan(3180);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -7165,6 +7234,7 @@ describe("browser-driven UI-validation structural anchors", () => {
       content,
       verifyContent,
       uiValidationEvidenceContent,
+      uiDriverInstructionsContent,
     ].filter((c) => c.includes(driveMcpSentence)).length;
     expect(
       copiesUnderSkills,
@@ -8772,9 +8842,9 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     ).toBeGreaterThanOrEqual(5);
   });
 
-  it("flow-pipeline/SKILL.md agent table Multi-Agent Review exemption still counts seven total", () => {
+  it("flow-pipeline/SKILL.md agent table Multi-Agent Review exemption still counts eight total", () => {
     const matches = content.match(/Task-tool exemption #\d+:/g) ?? [];
-    expect(matches.length).toBe(7);
+    expect(matches.length).toBe(8);
   });
 });
 
@@ -10435,6 +10505,7 @@ describe("Preloaded instructions SKILL.md frontmatter + sentinel lint", () => {
     "flow-merge-resolver-instructions",
     "flow-scout-instructions",
     "flow-consolidator-instructions",
+    "flow-ui-driver-instructions",
   ];
 
   it.each(PRELOAD_SKILLS)(

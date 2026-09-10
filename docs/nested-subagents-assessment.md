@@ -90,12 +90,12 @@ Independent of any single site, nesting anywhere carries these costs:
 
 ## Verdict
 
-The current flat, one-shot, seven-named-exemption design stands with no
+The current flat, one-shot, eight-named-exemption design stands with no
 nested site. **verify-loop → edit-applier** was adopted for a time (see
 below) but has since been **removed**: `/flow-pipeline` step 6 now
 invokes `/flow-verify` in-process instead of spawning a Verify-Retry-Loop
 subagent, so there is no longer a verify-loop parent to nest under. The
-exactly-seven top-level-exemption rule is unchanged.
+exactly-eight top-level-exemption rule is unchanged.
 
 While it was live, the adoption was deliberately conservative given the
 depth-3 swallowed-failure pre-mortem (a grandchild subagent's failure

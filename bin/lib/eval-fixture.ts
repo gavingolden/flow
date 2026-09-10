@@ -49,6 +49,15 @@ export type MaterializedFixture = {
   slug: string;
   stateDir: string;
   checkpointDir?: string;
+  /**
+   * Absolute path to a per-run `--mcp-config` file, present only when
+   * `scenario.mcpServers` is non-empty. `--setting-sources project` does
+   * not reach MCP servers registered at user scope in `~/.claude.json`,
+   * and a bare project-scoped `.mcp.json` requires interactive approval
+   * the unattended eval child can never give, so `--mcp-config` is the
+   * only channel that reaches it.
+   */
+  mcpConfigPath?: string;
   teardown: () => void;
 };
 
@@ -111,6 +120,12 @@ export function materializeFixture(
      * `"with"` is byte-identical to before this parameter existed.
      */
     arm?: Arm;
+    /**
+     * Overrides the host `~/.claude.json` path read to source
+     * `scenario.mcpServers` entries — tests point this at a fixture file
+     * instead of the real user-scope config.
+     */
+    claudeJsonPath?: string;
   } = {},
 ): MaterializedFixture {
   const flowSource = opts.flowSource ?? ownCheckoutRoot();
@@ -258,6 +273,12 @@ export function materializeFixture(
     fs.chmodSync(dest, 0o755);
   }
 
+  const mcpConfigPath = writeMcpConfig(
+    scenario.mcpServers ?? [],
+    root,
+    opts.claudeJsonPath ?? path.join(os.homedir(), ".claude.json"),
+  );
+
   const teardown = (): void => {
     try {
       fs.rmSync(root, { recursive: true, force: true });
@@ -284,6 +305,68 @@ export function materializeFixture(
     slug,
     stateDir,
     checkpointDir: checkpointDirPath,
+    mcpConfigPath,
     teardown,
   };
+}
+
+/**
+ * Filters the host's `~/.claude.json` `mcpServers` map down to only the
+ * names a scenario declares and writes them to `<root>/mcp-config.json`
+ * for `--mcp-config`. Empty `mcpServers` writes nothing and returns
+ * `undefined` — a scenario declaring none must materialize byte-identical
+ * to before this field existed. A missing/unparseable host config, or any
+ * named server absent from it, throws: a paid suite must fail loudly at
+ * setup rather than silently produce a grader that can never be reached.
+ */
+function writeMcpConfig(
+  mcpServers: string[],
+  root: string,
+  claudeJsonPath: string,
+): string | undefined {
+  if (mcpServers.length === 0) return undefined;
+
+  let raw: string;
+  try {
+    raw = fs.readFileSync(claudeJsonPath, "utf8");
+  } catch {
+    throw new Error(
+      `materializeFixture: scenario declares mcpServers ${JSON.stringify(mcpServers)} but ${claudeJsonPath} does not exist or is unreadable — register the server(s) at user scope (e.g. via \`claude mcp add\`) before running this suite`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    throw new Error(
+      `materializeFixture: ${claudeJsonPath} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  const hostServers =
+    parsed !== null &&
+    typeof parsed === "object" &&
+    typeof (parsed as Record<string, unknown>).mcpServers === "object" &&
+    (parsed as Record<string, unknown>).mcpServers !== null
+      ? ((parsed as Record<string, unknown>).mcpServers as Record<
+          string,
+          unknown
+        >)
+      : {};
+
+  const filtered: Record<string, unknown> = {};
+  for (const name of mcpServers) {
+    if (!(name in hostServers)) {
+      throw new Error(
+        `materializeFixture: scenario declares MCP server '${name}', but it is not registered at user scope in ${claudeJsonPath} — this suite requires '${name}' registered at user scope (e.g. via \`claude mcp add\`)`,
+      );
+    }
+    filtered[name] = hostServers[name];
+  }
+
+  const mcpConfigPath = path.join(root, "mcp-config.json");
+  fs.writeFileSync(
+    mcpConfigPath,
+    JSON.stringify({ mcpServers: filtered }, null, 2),
+  );
+  return mcpConfigPath;
 }

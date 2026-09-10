@@ -34,7 +34,7 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
     expect(row(rows, "fix-applier")).toMatchObject({
       model: "sonnet",
       source: "built-in (sonnet)",
-      effort: "low (pinned)",
+      effort: "inherited",
     });
   });
 
@@ -53,10 +53,23 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
     }
   });
 
-  it("only fix-applier pins effort; every other row inherits", () => {
+  it("no row pins effort; every row inherits when state is absent", () => {
     for (const r of rows) {
-      const pinned = r.phase === "fix-applier";
-      expect(r.effort).toBe(pinned ? "low (pinned)" : "inherited");
+      expect(r.effort).toBe("inherited");
+    }
+  });
+});
+
+describe("no-pinned-effort invariant", () => {
+  it("no SPAWN_SITES row declares an effortPin — the Task tool has no per-spawn effort argument", () => {
+    for (const site of SPAWN_SITES) {
+      expect(
+        Object.prototype.hasOwnProperty.call(site, "effortPin"),
+        `SPAWN_SITES row '${site.phase}' declares 'effortPin' — a pinned ` +
+          "effort would be unoverridable even though the row's model is " +
+          "only a configurable default; effort must follow the session's " +
+          "state.effort like every other row.",
+      ).toBe(false);
     }
   });
 });
@@ -81,10 +94,11 @@ describe("resolveRouting — state per-phase overrides", () => {
     });
   });
 
-  it("a session effort is rendered on every non-pinned row and overridden by the pins", () => {
+  it("a session effort is rendered on every row, including the two cheap-model fan-outs", () => {
     const rows = resolveRouting({ state: st({ effort: "high" }), config: {} });
     expect(row(rows, "review").effort).toBe("high");
-    expect(row(rows, "fix-applier").effort).toBe("low (pinned)");
+    expect(row(rows, "fix-applier").effort).toBe("high");
+    expect(row(rows, "ui-driver").effort).toBe("high");
   });
 });
 
@@ -94,6 +108,35 @@ describe("resolveRouting — config values", () => {
     expect(row(rows, "review")).toMatchObject({
       model: "opus",
       source: "config (models.review)",
+    });
+  });
+
+  it("ui-driver has no CLI flag: config.models.uiDriver resolves, and a session state.model never leaks in", () => {
+    const defaults = resolveRouting({ state: null, config: {} });
+    expect(row(defaults, "ui-driver")).toMatchObject({
+      model: "sonnet",
+      source: "built-in (sonnet)",
+      effort: "inherited",
+    });
+
+    const configured = resolveRouting({
+      state: null,
+      config: { uiDriver: "haiku" },
+    });
+    expect(row(configured, "ui-driver")).toMatchObject({
+      model: "haiku",
+      source: "config (models.uiDriver)",
+    });
+
+    // Config-only, no stateField: an inherited session model must never leak
+    // into this row even when one is set.
+    const withSessionModel = resolveRouting({
+      state: st({ model: "opus" }),
+      config: {},
+    });
+    expect(row(withSessionModel, "ui-driver")).toMatchObject({
+      model: "sonnet",
+      source: "built-in (sonnet)",
     });
   });
 
@@ -267,8 +310,8 @@ describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
   );
   const parsed = parsePrecedenceTable(md);
 
-  it("parses every precedence-table row (8 original + 7 review-lens rows)", () => {
-    expect(parsed.length).toBe(15);
+  it("parses every precedence-table row (8 original + 7 review-lens rows + ui-driver)", () => {
+    expect(parsed.length).toBe(16);
     for (const r of parsed) expect(r.fallback).not.toBe("unknown");
   });
 
@@ -276,7 +319,11 @@ describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
     for (const r of parsed) {
       const site = matchSite(r);
       expect(site, `no site for ${JSON.stringify(r)}`).toBeDefined();
-      expect(site!.stateField).toBe(r.stateField);
+      // An em-dash table cell (no state field) parses to "" via
+      // `cells[1].match(/[A-Za-z]+/) ?? [""]`, while a flagless site's
+      // `stateField` is `undefined`. Coerce so the assertion expresses the
+      // real invariant: "row has no state field ⟺ site has none".
+      expect(site!.stateField ?? "").toBe(r.stateField);
     }
   });
 

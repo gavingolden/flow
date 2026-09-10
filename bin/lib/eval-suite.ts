@@ -143,6 +143,7 @@ export type ScenarioSpec = {
   fixture?: FixtureSpec;
   env?: { flowSlug?: boolean };
   allowedTools?: string[];
+  mcpServers?: string[];
   ghCalls?: string[][];
   model?: string;
   effort?: string;
@@ -166,6 +167,7 @@ export type SuiteSpec = {
       | "maxBudgetUsd"
       | "timeoutSec"
       | "allowedTools"
+      | "mcpServers"
       | "model"
       | "effort"
     >
@@ -181,7 +183,10 @@ export type SuiteSpec = {
 // site. Normalize with `scenario.ghCalls ?? []` at each read site instead
 // of widening the type.
 export type ResolvedScenario = Required<
-  Pick<ScenarioSpec, "runs" | "maxBudgetUsd" | "timeoutSec" | "allowedTools">
+  Pick<
+    ScenarioSpec,
+    "runs" | "maxBudgetUsd" | "timeoutSec" | "allowedTools" | "mcpServers"
+  >
 > &
   ScenarioSpec & { dir: string };
 
@@ -207,6 +212,7 @@ export const SCENARIO_DEFAULTS = {
     "Agent",
     "ToolSearch",
   ],
+  mcpServers: [],
 } as const;
 
 const CHECKPOINT_SITE_SET: ReadonlySet<string> = new Set([
@@ -397,6 +403,9 @@ export function validateScenarioSpec(
   if (o.allowedTools !== undefined && !isStringArray(o.allowedTools)) {
     return err("'allowedTools' must be a string array");
   }
+  if (o.mcpServers !== undefined && !isStringArray(o.mcpServers)) {
+    return err("'mcpServers' must be a string array");
+  }
   if (o.ghCalls !== undefined) {
     if (!Array.isArray(o.ghCalls) || !o.ghCalls.every(isNonEmptyStringArray)) {
       return err("'ghCalls' must be an array of non-empty string arrays");
@@ -477,6 +486,9 @@ export function validateSuiteSpec(o: unknown): ValidationResult<SuiteSpec> {
     if (d.allowedTools !== undefined && !isStringArray(d.allowedTools)) {
       return err("'defaults.allowedTools' must be a string array");
     }
+    if (d.mcpServers !== undefined && !isStringArray(d.mcpServers)) {
+      return err("'defaults.mcpServers' must be a string array");
+    }
     if (d.model !== undefined && !isString(d.model)) {
       return err("'defaults.model' must be a string");
     }
@@ -553,6 +565,8 @@ function resolveScenario(
     SCENARIO_DEFAULTS.timeoutSec;
   const allowedTools = spec.allowedTools ??
     suiteDefaults?.allowedTools ?? [...SCENARIO_DEFAULTS.allowedTools];
+  const mcpServers = spec.mcpServers ??
+    suiteDefaults?.mcpServers ?? [...SCENARIO_DEFAULTS.mcpServers];
   const model = spec.model ?? suiteDefaults?.model;
   const effort = spec.effort ?? suiteDefaults?.effort;
 
@@ -641,6 +655,7 @@ function resolveScenario(
       maxBudgetUsd,
       timeoutSec,
       allowedTools,
+      mcpServers,
       ghCalls: spec.ghCalls ?? [],
       model,
       effort,

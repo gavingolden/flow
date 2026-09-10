@@ -1,7 +1,7 @@
 # flow-eval — recorded baselines
 
 This directory holds the committed, before/after comparison surface for
-flow's `flow-eval` suites — three supervisor context-isolation scaffolds
+flow's `flow-eval` suites — four supervisor context-isolation scaffolds
 plus `phase-write-fidelity` (a correctness suite; see `docs/eval/README.md`
 for the split). Each suite under `evals/` gets two committed files here
 once a maintainer records it:

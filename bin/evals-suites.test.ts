@@ -36,6 +36,41 @@ function discoverSuiteIds(): string[] {
 
 const suiteIds = discoverSuiteIds();
 
+/**
+ * Every distinct MCP server name any committed suite/scenario declares —
+ * used to synthesize a stand-in `~/.claude.json` for this spec's
+ * hermetic `materializeFixture` calls. The real `~/.flow`/`~/.claude.json`
+ * is sandboxed away for the whole vitest run (`vitest.setup.ts`'s $HOME
+ * sandbox), so without this, any suite declaring `mcpServers` (e.g.
+ * `ui-smoke-isolation`) would trip `materializeFixture`'s loud
+ * missing-registration throw here even though the suite itself is
+ * correctly authored — this spec, not the suite, owns providing a stand-in.
+ */
+function discoverDeclaredMcpServers(): string[] {
+  const names = new Set<string>();
+  for (const suiteId of suiteIds) {
+    const loaded = loadSuite(path.join(EVALS_ROOT, suiteId));
+    if (!loaded.ok) continue;
+    for (const scenario of loaded.value.scenarios) {
+      for (const name of scenario.mcpServers) names.add(name);
+    }
+  }
+  return [...names];
+}
+
+/** Writes a stand-in `.claude.json` registering every declared MCP server
+ * name with a dummy (never-spawned, since `--dry-run`/stubbed probes never
+ * launch `claude`) command, and returns its absolute path. */
+function writeStandInClaudeJson(dir: string): string {
+  const mcpServers: Record<string, unknown> = {};
+  for (const name of discoverDeclaredMcpServers()) {
+    mcpServers[name] = { command: "true", args: [] };
+  }
+  const p = path.join(dir, ".claude.json");
+  fs.writeFileSync(p, JSON.stringify({ mcpServers }));
+  return p;
+}
+
 // A guard against a silently-empty describe.each: if evals/ ever loses
 // every suite, this assertion is the loud failure rather than a green run
 // that tested nothing.
@@ -86,11 +121,13 @@ describe.each(suiteIds)("evals/%s", (suiteId) => {
 
 describe("materialization (real fixtures, tmp stateDir)", () => {
   let stateDir!: string;
+  let claudeJsonPath!: string;
 
   beforeEach(() => {
     stateDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "flow-evals-suites-state-"),
     );
+    claudeJsonPath = writeStandInClaudeJson(stateDir);
   });
 
   afterEach(() => {
@@ -103,7 +140,10 @@ describe("materialization (real fixtures, tmp stateDir)", () => {
       if (!loaded.ok) throw new Error(loaded.reason);
 
       for (const scenario of loaded.value.scenarios) {
-        const fixture = materializeFixture(scenario, suiteId, 1, { stateDir });
+        const fixture = materializeFixture(scenario, suiteId, 1, {
+          stateDir,
+          claudeJsonPath,
+        });
         try {
           if (scenario.fixture?.repo) {
             const mergeBase = spawnSync(
@@ -140,6 +180,7 @@ describe("materialization (real fixtures, tmp stateDir)", () => {
 describe("dry-run via the real CLI", () => {
   let stateDir!: string;
   let outDir!: string;
+  let claudeJsonPath!: string;
 
   beforeEach(() => {
     stateDir = fs.mkdtempSync(
@@ -148,6 +189,7 @@ describe("dry-run via the real CLI", () => {
     outDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "flow-evals-suites-cli-out-"),
     );
+    claudeJsonPath = writeStandInClaudeJson(stateDir);
   });
 
   afterEach(() => {
@@ -161,7 +203,11 @@ describe("dry-run via the real CLI", () => {
         probeClaude: () => ({ ok: true, version: "0.0.0-test" }),
         probeFlowInstall: () => ({ ok: true, version: "" }),
         materializeFixture: (scenario, sId, run, opts) =>
-          materializeFixture(scenario, sId, run, { ...opts, stateDir }),
+          materializeFixture(scenario, sId, run, {
+            ...opts,
+            stateDir,
+            claudeJsonPath,
+          }),
       };
       const code = await main(
         [

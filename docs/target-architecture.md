@@ -188,7 +188,7 @@ and the phase that closes it. The four axes the prior PRD marked
   `p5-context-diet`.)
 - **Sub-agent isolation — "largely aligned":** the supervisor keeps most
   diff-bearing work out of its own context by routing edits to `/flow-coder` and the
-  seven Task-tool exemptions. Two residuals remain: (a) small in-process
+  eight Task-tool exemptions. Two residuals remain: (a) small in-process
   supervisor edits **below the `/flow-coder` routing threshold** still land their
   diffs and tool_results in the supervisor's context, and (b) that threshold is
   prose-judged (≤1 file, ≤30 LOC, every file named), not mechanically enforced.
@@ -510,7 +510,7 @@ half of D-A is unaffected by the reversal.
   site keeps the `[ -f
 ~/.flow/claude-home/.claude/skills/flow-module-core/agents/<name>.md ] ||
 general-purpose` fallback guard (post-D-A-reversal path; emitting a named
-  notice on fallback); artifact contracts unchanged; the seven-exemption set
+  notice on fallback); artifact contracts unchanged; the eight-exemption set
   renamed in place, never widened.
 
 ### Phase 5 — context economy (measure, then tighten)
