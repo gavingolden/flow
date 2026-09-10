@@ -17,14 +17,14 @@
     {
       "id": "mcp-drive-happened",
       "kind": "metric",
-      "source": "transcript.toolCalls.mcp__chrome-devtools__navigate_page",
+      "source": "transcript.mcpToolCalls",
       "direction": "lower",
       "min": 1
     },
     {
       "id": "drive-not-inline",
       "kind": "metric",
-      "source": "transcript.topLevelToolCalls.mcp__chrome-devtools__navigate_page",
+      "source": "transcript.topLevelMcpToolCalls",
       "direction": "lower",
       "max": 0
     },
@@ -78,7 +78,7 @@
       "id": "supervisor-mcp-calls",
       "kind": "metric",
       "gate": false,
-      "source": "transcript.topLevelToolCalls.mcp__chrome-devtools__navigate_page",
+      "source": "transcript.topLevelMcpToolCalls",
       "direction": "lower"
     }
   ]

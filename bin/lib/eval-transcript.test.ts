@@ -203,6 +203,72 @@ describe("transcriptMetrics", () => {
     });
   });
 
+  it("mcpToolCalls sums subagent-only MCP calls; topLevelMcpToolCalls stays 0", () => {
+    const events: StreamEvent[] = [
+      {
+        type: "assistant",
+        parent_tool_use_id: "toolu_subagent",
+        message: {
+          content: [
+            { type: "tool_use", name: "mcp__chrome-devtools__take_snapshot" },
+            { type: "tool_use", name: "mcp__chrome-devtools__new_page" },
+            {
+              type: "tool_use",
+              name: "mcp__chrome-devtools__list_console_messages",
+            },
+          ],
+        },
+      },
+    ];
+    const metrics = transcriptMetrics(events, null);
+    expect(metrics.mcpToolCalls).toBe(3);
+    expect(metrics.topLevelMcpToolCalls).toBe(0);
+  });
+
+  it("topLevelMcpToolCalls counts top-level MCP calls, and they also contribute to mcpToolCalls", () => {
+    const events: StreamEvent[] = [
+      {
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: {
+          content: [
+            { type: "tool_use", name: "mcp__chrome-devtools__evaluate_script" },
+          ],
+        },
+      },
+      {
+        type: "assistant",
+        parent_tool_use_id: "toolu_subagent",
+        message: {
+          content: [
+            { type: "tool_use", name: "mcp__chrome-devtools__close_page" },
+          ],
+        },
+      },
+    ];
+    const metrics = transcriptMetrics(events, null);
+    expect(metrics.topLevelMcpToolCalls).toBe(1);
+    expect(metrics.mcpToolCalls).toBe(2);
+  });
+
+  it("mcpToolCalls and topLevelMcpToolCalls resolve to 0 (not undefined) when no MCP tool was ever called", () => {
+    const events: StreamEvent[] = [
+      {
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: { content: [{ type: "tool_use", name: "Bash" }] },
+      },
+      {
+        type: "assistant",
+        parent_tool_use_id: "toolu_subagent",
+        message: { content: [{ type: "tool_use", name: "Read" }] },
+      },
+    ];
+    const metrics = transcriptMetrics(events, null);
+    expect(metrics.mcpToolCalls).toBe(0);
+    expect(metrics.topLevelMcpToolCalls).toBe(0);
+  });
+
   it("computes modelShare including alias buckets by substring match", () => {
     const result = {
       type: "result",

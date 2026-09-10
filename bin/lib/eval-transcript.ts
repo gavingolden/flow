@@ -119,6 +119,20 @@ export type TranscriptMetrics = {
    * sub-agent, not the sub-agent's own `mcp__chrome-devtools__*` calls).
    */
   topLevelToolCalls?: Record<string, number>;
+  /**
+   * ALWAYS-PRESENT aggregates (never `undefined`, unlike `toolCalls`'s and
+   * `topLevelToolCalls`'s per-tool-name keys, which only exist once that
+   * exact tool name has actually been called). A per-tool-name key is
+   * absent when that tool was never called, and `metricSource` resolves
+   * an absent path to `undefined`, which a `max: 0` gate scores as a
+   * FAILURE rather than a pass — so an isolation gate must read a source
+   * that is always present. The eval child runs under
+   * `--strict-mcp-config`, so `mcp__` is exactly the prefix every server
+   * declared in `mcpServers` uses, making the vendor-agnostic prefix
+   * (rather than one hardcoded tool name) the correct scope.
+   */
+  mcpToolCalls: number;
+  topLevelMcpToolCalls: number;
   modelShare: Record<string, number>;
   subagentsSpawned: number;
   maxSubagentDepth: number;
@@ -174,6 +188,8 @@ export function transcriptMetrics(
   let assistantMessages = 0;
   const toolCalls: Record<string, number> = {};
   const topLevelToolCalls: Record<string, number> = {};
+  let mcpToolCalls = 0;
+  let topLevelMcpToolCalls = 0;
 
   // Top-level assistant events only — `parent_tool_use_id === null`.
   // Subagent turns stream through the same channel with a non-null
@@ -203,6 +219,10 @@ export function transcriptMetrics(
           topLevelToolCalls[block.name] =
             (topLevelToolCalls[block.name] ?? 0) + 1;
         }
+        if (block.name.startsWith("mcp__")) {
+          mcpToolCalls++;
+          if (isTopLevel) topLevelMcpToolCalls++;
+        }
       }
     }
     if (isTopLevel) {
@@ -225,6 +245,8 @@ export function transcriptMetrics(
     assistantMessages,
     toolCalls,
     topLevelToolCalls,
+    mcpToolCalls,
+    topLevelMcpToolCalls,
     modelShare: computeModelShare(result?.modelUsage),
     subagentsSpawned: result?.subagent_stats?.spawned ?? 0,
     maxSubagentDepth: result?.subagent_stats?.max_depth ?? 0,

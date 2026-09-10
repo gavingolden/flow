@@ -141,6 +141,39 @@ against the same top-level `result` envelope, so the cost delta the
 scaffold is meant to justify is only visible there, not in the top-level
 tool-call/context metrics.
 
+`transcript.mcpToolCalls` and `transcript.topLevelMcpToolCalls` (both
+`bin/lib/eval-transcript.ts`) are ALWAYS-PRESENT aggregate counters of
+every tool call whose name starts with `mcp__` — the former across the
+whole transcript (top-level + every sub-agent), the latter top-level
+only, same scoping as `topLevelToolCalls` above. They exist because a
+per-tool-name key (`transcript.toolCalls.<name>` /
+`transcript.topLevelToolCalls.<name>`) is only present once that exact
+tool name has actually been called; `metricSource` resolves an absent
+path to `undefined`, and a `metric` grader scores `undefined` as a
+FAIL ("metric source unresolved"), never as `0`. **A `max: 0` isolation
+gate must therefore be written against an always-present aggregate, not
+a per-tool-name key** — a per-tool `max: 0` gate fails exactly when the
+behaviour under test is perfect (zero top-level calls of that name),
+because the zero-call case is the one case where the key never gets
+created at all.
+
+Worked example this repo hit for real: `ui-smoke-isolation`'s
+`drive-not-inline` gate originally read
+`transcript.topLevelToolCalls.mcp__chrome-devtools__navigate_page` with
+`max: 0`, and its sibling `mcp-drive-happened` gate read
+`transcript.toolCalls.mcp__chrome-devtools__navigate_page` with `min: 1`
+— both keyed on one hand-picked tool name. The first real before-arm run
+against `main`'s tree made 7 `chrome-devtools` calls
+(`take_snapshot` x2, `new_page`, `list_network_requests`,
+`list_console_messages`, `evaluate_script`, `close_page`) and **none**
+were `navigate_page`: `mcp-drive-happened` could never fire on the
+observed drive shape, and `drive-not-inline` was inverted against its
+own success condition (a perfectly-isolated run resolves the absent key
+to `undefined`, which FAILs, rather than to `0`, which would PASS). Both
+graders were repointed at `transcript.mcpToolCalls` /
+`transcript.topLevelMcpToolCalls`; thresholds, ids, kinds, and gate flags
+were left unchanged.
+
 ## Running a suite
 
 ```sh
