@@ -311,6 +311,14 @@ vocabulary and the conventions for writing one are in
 `templates/AGENTS.md.template` ("Product brief") and
 `references/consumer-repo-contract.md` ("Product brief").
 
+`flow install` seeds `~/.flow/product.md` from
+`templates/product.md.template` when no user-level brief exists, so a fresh
+install resolves a working brief in every repo. The seed only ever happens
+when the file is absent and never overwrites an edited one; deleting the
+file re-seeds it on the next install. The supported way to turn the product
+critic and the product review lens off while keeping a brief is
+`"review": { "product": false }`.
+
 **No secrets, ever.** A resolved brief's full text is quoted verbatim into
 the cross-model plan-review prompt and sent to the external provider — and
 the user-level file applies to every repo you run flow in, with no

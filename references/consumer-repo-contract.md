@@ -111,7 +111,10 @@ a legitimate, common state** — with no brief anywhere, the plan-review
 prompt is byte-identical to its pre-feature output and discovery changes
 nothing, no critic spawns and no seventh lens runs. **No secrets, ever**:
 the file is committed and its full text is sent verbatim to an external
-provider. Deleting it returns flow to that same behaviour.
+provider. Deleting it returns flow to that same behaviour. The user-level
+fallback at `~/.flow/product.md` is seeded by `flow install` when absent, so
+a consumer repo with no `.flow/product.md` of its own still resolves a
+brief.
 
 ## Optional test-tier manifest
 
