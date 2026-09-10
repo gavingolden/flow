@@ -89,23 +89,37 @@ export function findUnorderedProducers(features: Feature[]): DagViolation[] {
 
 /**
  * A touched path that some feature declares under `sharedArtifacts` must
- * bring the manifest itself into the same diff — otherwise a new producer
- * (or a producer edge) is landing without the write-back the manifest owns.
+ * either bring the manifest itself into the same diff (legacy,
+ * `opts.featureId` undefined) or be declared by the PR's own feature
+ * (`opts.featureId` set) — otherwise a new producer (or a producer edge)
+ * is landing without the write-back the manifest owns.
  */
 export function findUndeclaredProducers(
   features: Feature[],
   manifestPath: string,
   touched: string[],
+  opts: { featureId?: string } = {},
 ): DagViolation[] {
   const normManifest = normalizeArtifactPath(manifestPath);
   const normTouched = new Set(touched.map((t) => normalizeArtifactPath(t)));
-  if (normTouched.has(normManifest)) return [];
+  if (opts.featureId === undefined && normTouched.has(normManifest)) {
+    return [];
+  }
 
   const byArtifact = producersByArtifact(features);
   const violations: DagViolation[] = [];
   for (const path of normTouched) {
     const ids = byArtifact.get(path);
     if (!ids || ids.length === 0) continue;
+    if (opts.featureId !== undefined) {
+      if (ids.includes(opts.featureId)) continue;
+      violations.push({
+        kind: "undeclared-producer",
+        offendingIds: ids,
+        message: `"${path}" is a shared artifact of ${ids.join(", ")} but this PR's feature "${opts.featureId}" is not among them — declare "${opts.featureId}" under sharedArtifacts (ordered against the other producers) in the same PR`,
+      });
+      continue;
+    }
     violations.push({
       kind: "undeclared-producer",
       offendingIds: ids,
