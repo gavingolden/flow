@@ -212,6 +212,15 @@ export function buildChildArgv(
     ...(arm === "without" ? [] : pluginDirArgs(fixture.pluginRoots)),
     "--setting-sources",
     "project",
+    // User-scope MCP servers (registered in the maintainer's ~/.claude.json)
+    // are unreachable under `--setting-sources project`, and a project
+    // `.mcp.json` needs interactive approval the unattended child can never
+    // give — `--mcp-config`/`--strict-mcp-config` is the only channel that
+    // reaches them. Present only when the scenario declared `mcpServers`
+    // (see `eval-fixture.ts`'s `mcpConfigPath`).
+    ...(fixture.mcpConfigPath
+      ? ["--mcp-config", fixture.mcpConfigPath, "--strict-mcp-config"]
+      : []),
     "--permission-mode",
     "dontAsk",
     "--permission-prompts",
@@ -259,6 +268,15 @@ export function buildChildArgv(
  * defeating its one job: letting `compareReports` warn when two reports
  * were produced by argv-shape-different children (e.g. one predates a
  * `--permission-prompts` addition) rather than just different trees.
+ *
+ * `--mcp-config <path>` falls out of this exclusion for free: the loop
+ * below only ever pushes a token that starts with `-`, so the per-run
+ * `mcpConfigPath` value (never dash-prefixed) is skipped as an ordinary
+ * flag value like `--session-id`'s or `--model`'s, with no special-case
+ * needed. `--strict-mcp-config` (a bare boolean flag, no value) IS
+ * digested via that same generic push — its presence/absence is a real
+ * shape difference (MCP-declaring vs non-declaring suites), same
+ * treatment as `--model`/`--effort`'s presence.
  */
 const DIGESTED_VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--permission-mode",

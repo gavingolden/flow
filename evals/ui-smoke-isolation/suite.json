@@ -10,6 +10,7 @@
     "timeoutSec": 1200,
     "model": "sonnet",
     "effort": "medium",
+    "mcpServers": ["chrome-devtools"],
     "allowedTools": [
       "Bash",
       "Read",

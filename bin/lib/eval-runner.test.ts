@@ -48,6 +48,7 @@ function makeScenario(
     maxBudgetUsd: 4,
     timeoutSec: 60,
     allowedTools: ["Bash", "Read"],
+    mcpServers: [],
     graders: [{ id: "g1", kind: "file", file: "$REPO/x.txt", exists: true }],
     ...overrides,
   };
@@ -228,6 +229,31 @@ describe("buildChildArgv", () => {
     });
     expect(argv).not.toContain("--effort");
   });
+
+  it("adds --mcp-config and --strict-mcp-config when fixture.mcpConfigPath is set", () => {
+    const fixture = makeFixture({
+      mcpConfigPath: "/tmp/fixture-root/mcp-config.json",
+    });
+    const argv = buildChildArgv(makeScenario(), fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    const idx = argv.indexOf("--mcp-config");
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(argv[idx + 1]).toBe("/tmp/fixture-root/mcp-config.json");
+    expect(argv).toContain("--strict-mcp-config");
+  });
+
+  it("omits --mcp-config and --strict-mcp-config when fixture.mcpConfigPath is unset", () => {
+    const argv = buildChildArgv(makeScenario(), makeFixture(), {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    expect(argv).not.toContain("--mcp-config");
+    expect(argv).not.toContain("--strict-mcp-config");
+  });
 });
 
 describe("childArgvDigest", () => {
@@ -281,6 +307,26 @@ describe("childArgvDigest", () => {
     expect(childArgvDigest(withPlugin)).not.toBe(
       childArgvDigest(withoutPlugin),
     );
+  });
+
+  it("excludes the per-run --mcp-config fixture path from the digested string", () => {
+    const argv = buildChildArgv(
+      makeScenario(),
+      makeFixture({ mcpConfigPath: "/tmp/fixture-root/mcp-config.json" }),
+      {
+        claudeBin: "claude",
+        sessionId: "sess-1",
+        prompt: "hello",
+      },
+    );
+    // The digest is a hash, so assert on its INPUT indirectly: two argvs
+    // differing only in the fixture path must still hash identically.
+    const argvOtherPath = argv.map((tok) =>
+      tok === "/tmp/fixture-root/mcp-config.json"
+        ? "/tmp/other-fixture-root/mcp-config.json"
+        : tok,
+    );
+    expect(childArgvDigest(argv)).toBe(childArgvDigest(argvOtherPath));
   });
 });
 

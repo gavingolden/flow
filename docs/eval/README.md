@@ -100,6 +100,23 @@ install`:
   same time — the isolated page the driver opens is keyed on the eval
   slug, but the underlying MCP server process is shared.
 
+A suite or scenario declares which MCP servers its child needs via the
+`mcpServers` field (`ScenarioSpec`/`SuiteSpec.defaults`, same
+scenario-over-suite-defaults precedence as `allowedTools`) —
+`ui-smoke-isolation`'s `suite.json` sets `"mcpServers": ["chrome-devtools"]`.
+At fixture materialization time, `eval-fixture.ts` copies only the named
+servers out of the maintainer's `~/.claude.json` `mcpServers` map into a
+per-run `mcp-config.json`, which `eval-runner.ts` passes to the child as
+`--mcp-config <path> --strict-mcp-config`. This exists because
+`--setting-sources project` (load-bearing for settings hermeticity — see
+above) does not reach MCP servers registered at user scope, and a bare
+project-scoped `.mcp.json` requires interactive approval the unattended
+eval child can never give; `--mcp-config`/`--strict-mcp-config` is the
+only channel that reaches a user-scope server. Naming a server the host
+has not registered (e.g. via `claude mcp add`) fails the run loudly at
+setup — a paid suite must not silently produce a grader whose tools were
+never actually reachable.
+
 Run it with `--runs 1` (the suite's own `defaults.runs`): a browser drive
 is materially more expensive per run than the other three suites'
 Bash-only fixtures, so `--runs 2`'s default variance-smoothing is not
