@@ -370,29 +370,30 @@ adopting repo as `AGENTS.md`) plus the two offload tiers it now points at
 
 |                                   | Before (pre-diet templates/AGENTS.md.template) | After (core, measured post-diet) |
 | --------------------------------- | ---------------------------------------------- | -------------------------------- |
-| Chars                             | 49,018                                         | 7,894                            |
-| Lines                             | 828                                            | 179                              |
-| Est. tokens (4 chars/token floor) | 12,255                                         | 1,974                            |
+| Chars                             | 49,018                                         | 7,924                            |
+| Lines                             | 828                                            | 180                              |
+| Est. tokens (4 chars/token floor) | 12,255                                         | 1,981                            |
 
 The two UI-validation sections (browser-driven UI validation, design
 foundation) moved to a single `paths:`-scoped rule file, loaded in an
 adopting repo only once a session touches a UI surface (`**/*.svelte`,
-`**/*.tsx`, `**/*.jsx`, `**/*.vue`, `**/routes/**`, `**/components/**`);
-the eight trigger-less sections (Manual Verification, Clean up spawned
-resources, Google-AI delegation, Product brief, Agent Behavior,
-Anti-Overengineering, Scope, Skill Consultation, Tooling, Code Quality,
-Comments, Testing) moved to three reference files read on demand by
-name, not gated by any file-path trigger:
+`**/*.tsx`, `**/*.jsx`, `**/*.vue`, `**/routes/**`, `**/components/**`,
+`.flow/ui-validation.json`, `.flow/design/**`); the twelve trigger-less
+sections (Manual Verification, Clean up spawned resources, Google-AI
+delegation, Product brief, Agent Behavior, Anti-Overengineering, Scope,
+Skill Consultation, Tooling, Code Quality, Comments, Testing) moved to
+three reference files read on demand by name, not gated by any
+file-path trigger:
 
 | Offload file                            | Chars  | Lines |
 | --------------------------------------- | ------ | ----- |
-| `templates/rules/ui-validation.md`      | 12,842 | 204   |
-| `templates/references/verification.md`  | 6,221  | 103   |
-| `templates/references/delegation.md`    | 8,577  | 123   |
-| `templates/references/agent-conduct.md` | 14,945 | 255   |
+| `templates/rules/ui-validation.md`      | 12,955 | 214   |
+| `templates/references/verification.md`  | 6,248  | 102   |
+| `templates/references/delegation.md`    | 8,598  | 123   |
+| `templates/references/agent-conduct.md` | 14,944 | 254   |
 
-A repo that copies `templates/AGENTS.md.template` today pays 7,894 chars
+A repo that copies `templates/AGENTS.md.template` today pays 7,924 chars
 unconditionally instead of 49,018 — an ~84% cut to the copy-in floor —
-with the ~42,585 offloaded chars paid only by a session that touches a
+with the ~42,745 offloaded chars paid only by a session that touches a
 UI surface (the rule file) or that reads a reference file by name (never
 auto-loaded).

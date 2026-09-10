@@ -1,13 +1,16 @@
 # Project-Wide Agent Rules
 
-This is a starter template. Copy it to your repo as `AGENTS.md`, then customize the
-sections marked with `<TODO: ...>` for your specific stack, scripts, and conventions.
+This is a starter template. Copy this file to your repo root as `AGENTS.md`; copy
+`rules/ui-validation.md` to `.claude/rules/ui-validation.md` (the `paths:` frontmatter
+only fires under `.claude/rules/` — elsewhere it silently never loads) and
+`references/*.md` to `references/*.md`. Then customize the `<TODO: ...>` sections for
+your specific stack, scripts, and conventions.
 
 ## Where to look
 
 | You want | Read |
 |---|---|
-| Browser-driven UI validation, design-foundation convention | `rules/ui-validation.md` |
+| Browser-driven UI validation, Design foundation | `rules/ui-validation.md` |
 | Manual verification, clean up spawned resources | `references/verification.md` |
 | Google-AI delegation, product brief | `references/delegation.md` |
 | Agent behavior, anti-overengineering, scope, tooling, code quality/comments/testing | `references/agent-conduct.md` |
@@ -122,15 +125,13 @@ See `references/agent-conduct.md` for the Agent Behavior conventions.
 ## Context budget
 
 Keep this file (plus its CLAUDE.md import chain) as the lean, always-loaded
-core: a routing table pointing at deeper docs, not the deeper docs
-themselves. Surface-specific detail (conventions that only matter when
-touching one directory) belongs in a path-scoped rule file under
-`.claude/rules/*.md`, given a `paths: [...]` frontmatter glob so it loads
-only when an agent Reads/Edits a matching file (a Bash-only touch does not load them) — never duplicated in this
-always-loaded file. Target ≤200 lines for this core file. Measure the
-actual eager set (this file's chars plus its resolved `@import`s plus any
-`.claude/rules/*.md` lacking a `paths:` key) before tuning a budget on it;
-don't guess from this file's own line count alone.
+core: a routing table, not the deeper docs themselves. Surface-specific
+detail belongs in a path-scoped rule file under `.claude/rules/*.md` with a
+`paths: [...]` frontmatter glob, so it loads only when an agent Reads/Edits
+a matching file (a Bash-only touch never loads it) — never duplicated here.
+Target ≤200 lines. Measure the actual eager set (this file's chars plus its
+`@import`s plus any `.claude/rules/*.md` lacking `paths:`) before tuning a
+budget; don't guess from line count alone.
 
 ## Compact Instructions
 

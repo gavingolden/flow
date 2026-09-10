@@ -7,6 +7,8 @@ paths:
     "**/*.vue",
     "**/routes/**",
     "**/components/**",
+    ".flow/ui-validation.json",
+    ".flow/design/**",
   ]
 ---
 
@@ -48,8 +50,9 @@ The three-ingredient new-repo onboarding:
    persistent logged-in profile per repo. `--isolated` only swaps the
    on-disk profile for a throwaway one — that throwaway profile is
    documented as cleaned up *after the browser is closed*, so `--isolated`
-   alone does not stop a leaked browser process; see "Clean up spawned
-   resources" below for how the browser process itself is reaped. Add
+   alone does not stop a leaked browser process; see
+   `references/verification.md` ("Clean up spawned resources") for how
+   the browser process itself is reaped. Add
    `--headless=new` (not the legacy `--headless`) if you never want a Dock
    icon for the automation browser.
 2. **Manifest, auto-completed (hand-authoring optional).** flow now

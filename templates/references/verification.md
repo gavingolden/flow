@@ -42,7 +42,7 @@ irreversible resources (production credentials, deploy targets, third-party
 services like Slack/Stripe/real-LLM) or subjective human judgment.
 
 This boundary does **not** loosen the `### Requires Approval` or
-`### Forbidden (No Exceptions)` guardrails above: the `.github/workflows/*`
+`### Forbidden (No Exceptions)` guardrails in `AGENTS.md`: the `.github/workflows/*`
 approval gate, the destructive-git approval rules, and the credential
 prohibitions all stay in force verbatim. Standing up a *local* stack to run a
 step is orthogonal to those guardrails — it grants no new license over external
@@ -83,7 +83,7 @@ dev server and opens a per-pipeline isolated browser page (`new_page` +
 `isolatedContext`) must tear **both** down — `close_page` on the page it
 opened, disposing the `isolatedContext`, in the same breath as stopping the
 server — on the completion path **and on every error / early-exit path**.
-Registering the `chrome-devtools` MCP with `--isolated` (above) gives each
+Registering the `chrome-devtools` MCP with `--isolated` (`rules/ui-validation.md`) gives each
 session its own auto-cleaned throwaway Chrome profile, and the agent still
 explicitly closes the page/context it opened — but closing the page never
 closes the browser process itself: chrome-devtools-mcp exposes no

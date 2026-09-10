@@ -12,7 +12,8 @@ Google OAuth with your Ultra account (`agy` caches the session in your OS
 keyring). No API key is needed — a local OAuth login draws the subscription
 quota. When `agy` is absent or logged out, `flow-delegate` exits 0 with
 `{ran:false,skipReason}`, so a pipeline that hasn't configured it proceeds and
-never hard-fails — the same opt-in-by-presence model as UI validation above.
+never hard-fails — the same opt-in-by-presence model as UI validation in
+`rules/ui-validation.md`.
 
 Usage: `flow-delegate (--prompt "<text>" | --prompt-file <path>) [--model
 "Gemini 3.1 Pro (High)"] [--timeout 5m] [--skip-permissions] [--add-dir

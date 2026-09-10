@@ -18,10 +18,10 @@ against an issue number fails or surfaces the wrong record. Seeding a
 proactively verified description means `/flow-pr-review` Step 11d's
 post-hoc Accuracy Sync has nothing to fix up later. The canonical rule
 body — full trigger-category list, anti-patterns, per-category
-verification recipes — lives in `AGENTS.md` under the 'Verify factual
-claims before emitting them.' rule (the bolded rule prefix is the stable
-anchor; section structure can differ between flow's own `AGENTS.md` and a
-consumer repo initialised from `templates/AGENTS.md.template`). Line
+verification recipes — lives in `AGENTS.md` (flow's own repo) or
+`references/agent-conduct.md` (a repo seeded from `templates/`) under the
+'Verify factual claims before emitting them.' rule (the bolded rule
+prefix is the stable anchor). Line
 numbers themselves are a trigger category, so anchor by rule name rather
 than by line.
 

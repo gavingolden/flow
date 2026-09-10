@@ -26,7 +26,7 @@ it needs to make the same three moves the template itself made.
    `templates/`); an adopting repo's actual destination is
    `.claude/rules/ui-validation.md`, not that same relative path.
 
-2. **The eight trigger-less sections → three reference files.** Manual
+2. **The twelve trigger-less sections → three reference files.** Manual
    Verification and Clean up spawned resources move to
    `references/verification.md`; Google-AI delegation and the Product
    brief move to `references/delegation.md`; Agent Behavior,
@@ -38,11 +38,15 @@ it needs to make the same three moves the template itself made.
    plain reference files rather than `paths:`-scoped rules.
 
 3. **The core keeps safety, security, hardening, and compact
-   instructions, and gains a routing table.** `## Safety (Sandbox
-Disabled)` (all of its subsections, including Command Execution and
-   Committing), `## Context budget`, `## Compact Instructions`,
-   `## Critical Judgment`, `## Hardening`, and `## Security` stay in the
-   core file, untouched. The core opens with a `## Where to look` table
+   instructions, and gains a routing table.** Six `## Safety (Sandbox
+Disabled)` subsections stay in the core verbatim — `### Reversibility
+Principle`, `### Requires Approval`, `### Forbidden (No Exceptions)`,
+   `### Pre-Push Hook`, `### Command Execution`, `### Committing` — as do
+   `## Context budget`, `## Compact Instructions`, `## Critical Judgment`,
+   `## Hardening`, and `## Security`. The other Safety subsections (Manual
+   Verification, Browser-driven UI validation, Design foundation, Product
+   brief, Clean up spawned resources, Google-AI delegation) are the ones
+   moves 1 and 2 relocate. The core opens with a `## Where to look` table
    naming the rule file and the three reference files, plus a pointer
    back to this migration doc — the migration steps themselves do not
    live in the core, since they are noise for a fresh-repo reader and
@@ -56,7 +60,12 @@ After making the three moves, measure the new split with:
 flow-context-budget --repo .
 ```
 
-`--json` adds a `templatePayload` key with `core` / `lazyRules` /
-`references` sub-estimates (chars, lines, estimated tokens) so you can
-confirm the core stayed small and the two offload tiers picked up the
-moved content, without hand-counting.
+`--json`'s `alwaysLoaded` key is the copied core (CLAUDE.md + its
+`@import` chain, i.e. your copied `AGENTS.md`); `lazy` is the `paths:`-scoped
+rule files under `.claude/rules/` (i.e. `ui-validation.md`, once it lands at
+its correct destination). Confirm `alwaysLoaded` stayed small and `lazy`
+picked up the rule file's content, without hand-counting. The three
+`references/*.md` files are counted by neither key — they are read on
+demand, not loaded, so they never appear in this measurement.
+`templatePayload` measures flow's own `templates/` tree and stays all-zero
+here; it is not the key for a migrated repo.

@@ -1440,6 +1440,11 @@ describe("always-loaded context budget (helper-measured)", () => {
    */
   const TEMPLATE_CORE_BUDGET = 8_000;
   const SKILL_FRONTMATTER_BUDGET = 3_000;
+  // Token-scale counterpart to HEADROOM_CAP (which is char-scale, for the
+  // two char-based budgets above): SKILL_FRONTMATTER_BUDGET is measured in
+  // tokens, so it needs its own cap rather than reusing HEADROOM_CAP's
+  // char-scale number.
+  const FRONTMATTER_HEADROOM_CAP = 200;
 
   it("the consumer template core stays within TEMPLATE_CORE_BUDGET", async () => {
     const { resolveTemplatePayload } = await import("./flow-context-budget");
@@ -1467,6 +1472,37 @@ describe("always-loaded context budget (helper-measured)", () => {
         "— on a trim, lower TEMPLATE_CORE_BUDGET to match rather than " +
         "leaving silent headroom.",
     ).toBeLessThanOrEqual(HEADROOM_CAP);
+  });
+
+  it("the consumer template core keeps the always-loaded safety rules", () => {
+    // The new budget lints above (TEMPLATE_CORE_BUDGET, CORE_LINE_LIMIT)
+    // instruct the next author to offload content OUT of the core when it
+    // grows — with nothing asserting what must never be offloaded. Without
+    // this guard, a future trim could push a safety subsection behind a
+    // paths:-scoped rule or a routing row, and every check above would
+    // still pass: a session that works through bash/grep alone loads no
+    // paths:-scoped rule and no routing-row target, so moving an approval
+    // or safety rule out of the core silently deletes it for that session.
+    for (const heading of [
+      "## Safety (Sandbox Disabled)",
+      "### Reversibility Principle",
+      "### Requires Approval",
+      "### Forbidden (No Exceptions)",
+      "### Pre-Push Hook",
+      "### Command Execution",
+      "### Committing",
+      "## Hardening",
+      "## Security",
+    ]) {
+      expect(
+        agentsTemplateContent.includes(heading),
+        `templates/AGENTS.md.template must keep '${heading}' in the ` +
+          "always-loaded core: a session that works through bash/grep " +
+          "alone loads no paths:-scoped rule and no routing-row target, " +
+          "so moving an approval or safety rule out of the core deletes " +
+          "it for that session. Offload something else to fit the budget.",
+      ).toBe(true);
+    }
   });
 
   it("the consumer template core stays at or under CORE_LINE_LIMIT lines", async () => {
@@ -1536,16 +1572,17 @@ describe("always-loaded context budget (helper-measured)", () => {
           "flow-md-validate cannot catch a broken row here).",
       ).toBe(true);
       const targetContent = fs.readFileSync(targetPath, "utf8");
-      const phrases = wantCell.split(",").map((p) => p.trim());
-      const describesAHeading = phrases.some((phrase) => {
+      const phrases = wantCell.split(/[,/]/).map((p) => p.trim());
+      const everyPhraseIsAHeading = phrases.every((phrase) => {
         const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         return new RegExp(`^#{2,3}\\s+.*${escaped}`, "im").test(targetContent);
       });
       expect(
-        describesAHeading,
-        `${target} must contain a heading matching one of the row's 'You ` +
-          `want' phrases (${JSON.stringify(phrases)}) — the row text and ` +
-          "the target's actual content have drifted apart.",
+        everyPhraseIsAHeading,
+        `${target} must contain a heading matching EVERY one of the row's ` +
+          `'You want' phrases (${JSON.stringify(phrases)}) — a row that ` +
+          "still names a topic after the section it points to was deleted " +
+          "would silently keep passing under a partial (some()) match.",
       ).toBe(true);
     }
   });
@@ -1563,6 +1600,22 @@ describe("always-loaded context budget (helper-measured)", () => {
         "`description:` field (see issue #844) rather than raising this " +
         "budget.",
     ).toBeLessThanOrEqual(SKILL_FRONTMATTER_BUDGET);
+  });
+
+  it("the installed-skill frontmatter total stays within FRONTMATTER_HEADROOM_CAP of SKILL_FRONTMATTER_BUDGET", async () => {
+    const { estimateFrontmatterCost } = await import("./lib/transcript-audit");
+    const repoRoot = path.resolve(HERE, "..");
+    const { total } = await estimateFrontmatterCost(
+      path.join(repoRoot, "skills"),
+    );
+    expect(
+      SKILL_FRONTMATTER_BUDGET - total,
+      `The budget has ${SKILL_FRONTMATTER_BUDGET - total} tokens of ` +
+        "headroom over the measured frontmatter total, above the " +
+        `${FRONTMATTER_HEADROOM_CAP}-token cap — on a trim (e.g. issue ` +
+        "#844's description rewrite), lower SKILL_FRONTMATTER_BUDGET to " +
+        "match rather than leaving silent headroom.",
+    ).toBeLessThanOrEqual(FRONTMATTER_HEADROOM_CAP);
   });
 });
 

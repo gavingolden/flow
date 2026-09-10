@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Maintainer-only helper: measures the always-loaded ("eager") instruction
- * set every Claude Code session pays for on turn 1 (CLAUDE.md + its
- * resolved `@import` chain, depth<=4, plus any rule file under
+ * Measures the always-loaded ("eager") instruction set every Claude Code
+ * session pays for on turn 1 (CLAUDE.md + its resolved `@import` chain,
+ * depth<=4, plus any rule file under
  * .claude/rules (any nesting) lacking a `paths:` frontmatter key — those
  * load unconditionally too), versus the "lazy" set (`paths:`-scoped rule
  * files, loaded only when a matching file is touched), plus the
