@@ -524,8 +524,10 @@ subagent rather than landing in the supervisor's transcript.
 
 **Completeness rule.** When the summary's `.critical_skips` is non-empty,
 `flow-review-prep` could not establish scope reliably (the PR fetch/metadata
-or the review-scope diff/changed-file list failed) — run all six lenses
-ungated regardless of `.gated_lenses`. Otherwise trust `.gated_lenses` as
+or the review-scope diff/changed-file list failed) — run all six code lenses
+ungated regardless of `.gated_lenses`. The seventh, `product`, stays gated on
+brief presence: its gate is a precondition, not a scope gate, so a failed
+scope read never resurrects it. Otherwise trust `.gated_lenses` as
 computed, and surface any non-critical `.skips[]` entries in the final
 report.
 
@@ -549,7 +551,7 @@ found"). Resolve type AND model per lens, looping only over the lenses
 `review-scope.json` marks `run: true` — a tier/gate-excluded lens is never
 resurrected here ([references/review-scope.md](references/review-scope.md)
 "Spawn only the ungated lenses") — plus `intent-guess`, handled after the loop
-since it is not a gate key (`evaluateGates` returns exactly the six):
+since it is not a gate key (`evaluateGates` returns exactly the seven):
 
 ```bash
 resolve_lens() {
