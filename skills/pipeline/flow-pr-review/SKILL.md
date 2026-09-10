@@ -531,13 +531,11 @@ report.
 
 **Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-multi-agent-review` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review`, write the result artifact, and do not fall back to in-line execution.
 
-**Per-lens model resolution.** Each lens's spawn model resolves via
-`flow-review-model <lens>` (reuses `resolveModel`'s full precedence —
-`config.models.reviewLenses.<lens> > state.modelReview >
-config.models.review > session-capped inherit`, capped at opus; see
-`../flow-pipeline/references/model-routing.md`), invoked once per lens
-inside the resolution loop below and passed as that lens's per-spawn
-`model:` (empty stdout ⇒ omit `model:` ⇒ inherit).
+**Per-lens model resolution.** `flow-review-model <lens>` resolves each
+lens's spawn model (precedence `config.models.reviewLenses.<lens> >
+state.modelReview > config.models.review > session-capped inherit`, capped at
+opus — `../flow-pipeline/references/model-routing.md`), called once per lens in
+the loop below; empty stdout ⇒ omit `model:` ⇒ inherit.
 
 **Per-lens subagent-type resolution.** Each lens has a named definition at
 `agents/flow-review-<lens>.md` (Definition column below) whose `tools:`
@@ -545,13 +543,12 @@ allowlist (Read, Grep, Glob, Write) contains the review to read-and-report;
 none pins `effort:`/`model:` (judgment role — the per-spawn
 `model: "$LENS_MODEL"` always wins, when non-empty). Plugin-hosted agents are
 addressable ONLY by the plugin-qualified name
-`<pluginRootName>:<agentBasename>` — a bare `flow-review-<lens>`
-subagent_type fails Task-tool resolution outright (measured: "Agent type
-'flow-scout' not found"). Resolve the type AND model per lens, looping only
-over the lenses `review-scope.json` marks `run: true` — a tier- or
-gate-excluded lens is never resurrected here (see
-[references/review-scope.md](references/review-scope.md) "Spawn only the
-ungated lenses") — plus `intent-guess`, handled explicitly after the loop
+`<pluginRootName>:<agentBasename>` — a bare `flow-review-<lens>` subagent_type
+fails Task-tool resolution outright (measured: "Agent type 'flow-scout' not
+found"). Resolve type AND model per lens, looping only over the lenses
+`review-scope.json` marks `run: true` — a tier/gate-excluded lens is never
+resurrected here ([references/review-scope.md](references/review-scope.md)
+"Spawn only the ungated lenses") — plus `intent-guess`, handled after the loop
 since it is not a gate key (`evaluateGates` returns exactly the six):
 
 ```bash
@@ -571,32 +568,25 @@ RUN_LENSES=()
 while IFS= read -r LENS_KEY; do
   RUN_LENSES+=("$LENS_KEY")
 done < <(jq -r '.gates | to_entries[] | select(.value.run==true) | .key' "$WORKTREE/.flow-tmp/review-scope.json")
-# Portable for bash 3.2 (macOS default) and zsh — `mapfile`/`readarray` is
-# bash 4.0+ and would silently leave RUN_LENSES empty on macOS's stock bash.
-if [ "${#RUN_LENSES[@]}" -eq 0 ]; then
-  echo "NOTICE — zero lenses resolved (all gated off, or the read loop above found no matches — check review-scope.json if this is unexpected)."
-fi
+# read loop, not `mapfile`/`readarray` (bash 4.0+; silently empty on macOS 3.2).
+[ "${#RUN_LENSES[@]}" -eq 0 ] && echo "NOTICE — zero lenses resolved (all gated off, or review-scope.json read no matches)."
 for LENS in "${RUN_LENSES[@]}"; do resolve_lens "$LENS"; done
-# intent-guess is not a gate key — resolved explicitly so the gate-driven
-# loop above can never drop it.
+# intent-guess is not a gate key — resolved explicitly so the loop can't drop it.
 resolve_lens intent-guess
 ```
 
 `LENS_AGENT`/`LENS_MODEL` are scalars reassigned each call, not seven-way
-holders — `resolve_lens`'s only purpose is to print the `lens $LENS →
-subagent_type: $LENS_AGENT, model: $LENS_MODEL` line above, once per lens
-actually running (a tier/gate-dropped lens prints nothing — it is not
-spawned); use that printed per-lens value when spawning, never a
-loop/function variable's final value.
+holders — `resolve_lens` only prints one `lens $LENS → subagent_type:
+$LENS_AGENT, model: $LENS_MODEL` line per lens actually running (a
+tier/gate-dropped lens prints nothing). Spawn from that printed value, never
+from a loop/function variable's final value.
 
-**Spawn the ungated lenses plus intent-guess in one parallel message** —
-see [references/review-scope.md](references/review-scope.md) "Spawn only
-the ungated lenses" for the gate filter and the delta-re-entry
-intent-guess skip. Each spawned agent gets `subagent_type:` set to that
+**Spawn the ungated lenses plus intent-guess in one parallel message** — see
+[references/review-scope.md](references/review-scope.md) "Spawn only the
+ungated lenses" for the gate filter and delta-re-entry intent-guess skip. Each spawned agent gets `subagent_type:` set to that
 lens's printed value (NOT a shared `$LENS_AGENT` variable — each spawn
 has its own resolved type) and `model:` set to that lens's printed
-`resolve_lens` value (NOT a shared `$REVIEW_MODEL` variable — each spawn
-has its own resolved model), omitted when that printed value is `inherited`:
+`resolve_lens` value, omitted when that printed value is `inherited`:
 
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
@@ -735,13 +725,11 @@ REVIEW_SCOPE_PATH="$WORKTREE/.flow-tmp/review-scope.json"
 full diff. Only `PR_METADATA_PATH` needs a fallback write when absent:
 `gh pr view "$PR_NUMBER" --json number,title,headRefName,baseRefName,headRefOid > "$PR_METADATA_PATH"`.
 
-**Per-phase model (consolidator) resolution.** Field `state.modelConsolidator`; precedence `--model-consolidator > config.models.consolidator > inherited` (see `../flow-pipeline/references/model-routing.md`). This spawn does **not** use a `model: "haiku"` pin (unlike the Step 1.5 metadata triage) — the second-opinion validation needs the larger model. Resolve via `CONSOLIDATOR_MODEL=$(flow-review-model consolidator)` (reuses the same `resolveRouting` precedence chain the per-lens resolutions in Step 3 use, rather than a hand-rolled `jq` read) and pass the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒ inherit).
-
-Resolve the subagent type with the file-exists guard. Plugin-hosted agents
-are addressable ONLY by the plugin-qualified name
-`<pluginRootName>:<agentBasename>` — a bare `flow-consolidator`
-subagent_type fails Task-tool resolution outright (measured: "Agent type
-'flow-scout' not found"):
+**Per-phase model (consolidator) resolution.** Field `state.modelConsolidator`; precedence `--model-consolidator > config.models.consolidator > inherited` (see `../flow-pipeline/references/model-routing.md`). This spawn does **not** use a `model: "haiku"` pin (unlike the Step 1.5 metadata triage) — the second-opinion validation needs the larger model. Resolve via `CONSOLIDATOR_MODEL=$(flow-review-model consolidator)` (reuses the same `resolveRouting` precedence chain the per-lens resolutions in Step 3 use, rather than a hand-rolled `jq` read) and pass the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒ inherit). Resolve the subagent type with the file-exists guard.
+Plugin-hosted agents are addressable ONLY by the plugin-qualified name
+`<pluginRootName>:<agentBasename>` — a bare `flow-consolidator` subagent_type
+fails Task-tool resolution outright (measured: "Agent type 'flow-scout' not
+found"):
 
 ```bash
 CONSOLIDATOR_SUBAGENT=general-purpose
