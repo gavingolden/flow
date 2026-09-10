@@ -12,7 +12,7 @@
  *   2. Hardcoded ALLOWLIST gates permission (exact-match command string).
  * Both must be true for execution; everything else is noted only. Same
  * narrow-and-named exemption pattern as the `/flow-pr-review` auto-push and
- * `/flow-pipeline` auto-merge clauses in AGENTS.md "Don'ts".
+ * `/flow-pipeline` auto-merge clauses in .claude/rules/flow-supervisor-contracts.md "Don'ts".
  *
  * Storage: append-only JSONL at <worktree>/.flow-tmp/local-followups.jsonl.
  * Dies with the worktree when `flow-remove-worktree` runs after step 11;

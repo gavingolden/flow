@@ -330,3 +330,32 @@ anchor set, not a stopping point chosen for convenience.
 and its "Sub-agent isolation" residual bullet for the recorded verdict on
 the `/flow-coder` routing threshold — deferred, not tightened, pending
 issue #443's cross-pipeline aggregation.
+
+## Always-loaded budget (post-diet)
+
+Measured with `bun bin/flow-context-budget.ts --json` at the
+p6-context-budget diet (2026-09-09), against the always-loaded set
+(`CLAUDE.md` + its resolved `@import` chain — no `.claude/rules/*.md`
+lacks a `paths:` key post-diet, so the lazy set below is excluded from
+"always-loaded"):
+
+|                                   | Before (pre-diet AGENTS.md, this document's own baseline) | After (measured, post-diet) |
+| --------------------------------- | --------------------------------------------------------- | --------------------------- |
+| Chars                             | 25,999                                                    | 9,994                       |
+| Lines                             | 407                                                       | 142                         |
+| Est. tokens (4 chars/token floor) | 6,500                                                     | 2,499                       |
+
+The catalogue previously inline in `AGENTS.md` `## Don'ts` (the seven
+Task-tool exemption openers, the tmux-pane/CI/telemetry `bin/`
+conventions) moved to two path-scoped rule files, now lazy-loaded only
+when an agent's session touches a matching path:
+
+| Rule file                                    | `paths:` glob                                                                          | Chars  | Lines |
+| -------------------------------------------- | -------------------------------------------------------------------------------------- | ------ | ----- |
+| `.claude/rules/flow-supervisor-contracts.md` | `skills/**`, `agents/**`, `references/**`, `templates/**`, `bin/skill-md-lint.test.ts` | 12,454 | 197   |
+| `.claude/rules/flow-bin-conventions.md`      | `bin/**`, `.github/**`, `package.json`                                                 | 4,240  | 78    |
+
+Every session now pays 9,994 chars unconditionally instead of 25,999 — a
+~61% cut to the turn-1 always-loaded floor — with the offloaded ~16,694
+chars paid only by sessions that actually touch `skills/`, `agents/`,
+`references/`, `templates/`, or `bin/`.

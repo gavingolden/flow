@@ -28,7 +28,7 @@ in-process when you invoke it; every helper script
 tool call. **You never spawn a Task-tool sub-agent.** flow's flat-fan-out
 policy (deliberate, not a platform limit — `docs/nested-subagents-assessment.md`,
 repo-only, not shipped) allows zero nesting exceptions — the seven
-Task-tool exemptions in `AGENTS.md` are each a flat, one-shot spawn; a
+Task-tool exemptions in `.claude/rules/flow-supervisor-contracts.md` are each a flat, one-shot spawn; a
 long-running supervisor with sub-agents would also blow the context window.
 Stay in-process for skills; shell out for scripts; never delegate.
 
@@ -80,7 +80,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > Task. Each is anchored on its step heading name rather than its number
 > so it survives future renumbering. Same narrow-and-named contract as the
 > `/flow-pr-review` auto-push and `/flow-pipeline` auto-merge exemptions
-> in `AGENTS.md`. If a future skill needs the same license, add it here
+> in `.claude/rules/flow-supervisor-contracts.md`. If a future skill needs the same license, add it here
 > by name rather than generalising the rule. Each exemption spawns its
 > named `agents/flow-*.md` definition via a file-exists guard, addressing
 > a plugin-root definition by the plugin-qualified `flow-module-core:<agent>`
@@ -152,7 +152,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > the same F2 "not an eighth exemption" shape as the "Load the Task tool at
 > each spawn site" guard above, NOT an `#8` exemption block. The lens is
 > config-gated, default off, and a graceful skip on any failure (it never
-> hard-fails the review). Documented bidirectionally in `AGENTS.md`
+> hard-fails the review). Documented bidirectionally in `.claude/rules/flow-supervisor-contracts.md`
 > `## Don'ts` and `skills/pipeline/flow-pr-review/SKILL.md` Step 3.
 
 > **The Step-3 cross-model plan review is a
@@ -165,7 +165,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > "not an eighth exemption" shape as the Gemini-lens note above, NOT an `#8`
 > exemption block. It reuses the SAME `review.gemini` gate key, is default
 > off, and gracefully skips on any failure (it never blocks the plan gate).
-> Documented bidirectionally in `AGENTS.md` `## Don'ts` and this file's
+> Documented bidirectionally in `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` and this file's
 > step 3.
 
 > **The Step-3 blind method survey is a
@@ -175,7 +175,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > subprocess. It spawns no Task — a sibling note in the same F2 shape as
 > the two notes above, NOT an `#8` exemption. Gated on `state.interview`
 > non-empty; gracefully skips on any failure. Documented bidirectionally
-> in `AGENTS.md` `## Don'ts` and `references/blind-survey.md`.
+> in `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` and `references/blind-survey.md`.
 
 > **Headless Claude via `flow-claude-headless` is a Bash fan-out, not an
 > eighth exemption.** Any skill the supervisor loads — including
@@ -184,7 +184,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > allowlists the child env (`FLOW_SLUG`/`TMUX_PANE` never leak, issue
 > #618), caps spend, refuses to nest, and returns one envelope carrying
 > `total_cost_usd`. It spawns no Task, so the seven-exemption count is
-> unchanged. Documented bidirectionally in `AGENTS.md` `## Don'ts` and
+> unchanged. Documented bidirectionally in `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` and
 > `references/headless-claude.md`.
 
 > **You never bypass the helper scripts.** Always call
@@ -223,7 +223,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > `- [x]` item in plan.md's `# Candidate follow-up issues` section), (d) a
 > user-instructed `flow-untracked file <n>` reply, and (e) the
 > `/flow-file-issue` skill's hand-filed path. A new fire site needs a named
-> exemption in `AGENTS.md` "Don'ts" first — same narrow-and-named contract
+> exemption in `.claude/rules/flow-supervisor-contracts.md` "Don'ts" first — same narrow-and-named contract
 > as the auto-merge and Task-tool exemptions — because indiscriminate issue
 > auto-creation pollutes user backlogs with low-confidence noise and races
 > on `gh` rate limits.
@@ -2514,7 +2514,7 @@ MERGED path, executes the safe subset.
 must be true to execute. `bin/flow-followups.test.ts` pins the exact set, so
 this enumeration and the code cannot drift silently.
 Same narrow-and-named exemption pattern as the `/flow-pr-review` auto-push and
-`/flow-pipeline` auto-merge clauses in `AGENTS.md` "Don'ts". Auto-run is
+`/flow-pipeline` auto-merge clauses in `.claude/rules/flow-supervisor-contracts.md` "Don'ts". Auto-run is
 gated by the same `autoMerge` flag as step 10 — `flow feature create --no-auto-merge`
 disables both.
 
@@ -2905,7 +2905,7 @@ shape-heuristic strays (`--include-strays`) — report-only by
 default, `--yes` required to act. Ad-hoc housekeeping only
 (`docs/configuration.md`), never wired into a runbook step.
 
-**Why Layer 2 is ancestry-scoped, not page-enumeration.** A **page-enumeration** sweep (`list_pages`-and-close) was evaluated and **deliberately not built**: parallel pipelines may share one un-isolated MCP server, so it cannot reliably tell this pipeline's page from a sibling's or the user's own Chrome, and would risk the exact harm it set out to prevent. **Process ancestry** does not share that failure mode — a sibling's server is a different session PID, and the user's own Chrome is never a descendant of this session's `claude` process. The operator-side `--isolated` MCP registration is complementary, not sufficient: its temp profile is cleaned up only *after* the browser closes, so it is gated on the very close `close_page` never performs. The same standing rule binds every agent in this repo — `AGENTS.md` `## Don'ts` "Don't leave spawned resources running".
+**Why Layer 2 is ancestry-scoped, not page-enumeration.** A **page-enumeration** sweep (`list_pages`-and-close) was evaluated and **deliberately not built**: parallel pipelines may share one un-isolated MCP server, so it cannot reliably tell this pipeline's page from a sibling's or the user's own Chrome, and would risk the exact harm it set out to prevent. **Process ancestry** does not share that failure mode — a sibling's server is a different session PID, and the user's own Chrome is never a descendant of this session's `claude` process. The operator-side `--isolated` MCP registration is complementary, not sufficient: its temp profile is cleaned up only *after* the browser closes, so it is gated on the very close `close_page` never performs. The same standing rule binds every agent in this repo — `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` "Don't leave spawned resources running".
 
 # End conditions
 

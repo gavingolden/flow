@@ -191,6 +191,7 @@ function scanSet(): string[] {
     ...filesUnder("docs", [".md"]),
     ...filesUnder("agents", [".md"]),
     ...filesUnder("templates"),
+    ...filesUnder(".claude/rules", [".md"]),
     ...rootFiles(),
   ];
   return [...new Set(relPaths)].sort();
@@ -866,6 +867,14 @@ describe("pane-read-lint", () => {
     expect(scanned.has("package.json")).toBe(true);
   });
 
+  it("scanned surface includes .claude/rules/*.md", () => {
+    const scanned = new Set(scanSet());
+    expect(scanned.has(".claude/rules/flow-supervisor-contracts.md")).toBe(
+      true,
+    );
+    expect(scanned.has(".claude/rules/flow-bin-conventions.md")).toBe(true);
+  });
+
   it("no prose reads: zero matches of 'tmux show-options' across skills/**/*.md, references/*.md, docs/**/*.md, agents/**/*.md, AGENTS.md", () => {
     const relPaths = [
       ...filesUnder("skills", [".md"]),
@@ -875,6 +884,14 @@ describe("pane-read-lint", () => {
     ];
     if (fs.existsSync(path.join(REPO_ROOT, "AGENTS.md"))) {
       relPaths.push("AGENTS.md");
+    }
+    for (const ruleFile of [
+      ".claude/rules/flow-supervisor-contracts.md",
+      ".claude/rules/flow-bin-conventions.md",
+    ]) {
+      if (fs.existsSync(path.join(REPO_ROOT, ruleFile))) {
+        relPaths.push(ruleFile);
+      }
     }
     const offenders = loadFiles(relPaths).filter((f) =>
       f.contents.includes("tmux show-options"),
@@ -916,7 +933,7 @@ describe("pane-read-lint", () => {
     expect(epic).toContain("resolveKindAmbient");
   });
 
-  it("docs parity: every exported FLOW_*_OPTION value is documented in both AGENTS.md and docs/configuration.md", () => {
+  it("docs parity: every exported FLOW_*_OPTION value is documented in both .claude/rules/flow-bin-conventions.md and docs/configuration.md", () => {
     const constants = exportedFlowOptionConstants();
     // Sanity: the extractor itself must find at least the long-standing
     // constants, or this assertion would vacuously pass on a broken regex.
@@ -927,7 +944,10 @@ describe("pane-read-lint", () => {
       constants.some((c) => c.name === "FLOW_SLUG_OPTION"),
       "FLOW_SLUG_OPTION is module-private (not `export const`) and must NOT be required in docs",
     ).toBe(false);
-    const agents = fs.readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf8");
+    const agents = fs.readFileSync(
+      path.join(REPO_ROOT, ".claude/rules/flow-bin-conventions.md"),
+      "utf8",
+    );
     const config = fs.readFileSync(
       path.join(REPO_ROOT, "docs/configuration.md"),
       "utf8",
@@ -937,7 +957,7 @@ describe("pane-read-lint", () => {
       .map((c) => c.name);
     expect(
       missing,
-      "a new exported FLOW_*_OPTION badge must be documented in both AGENTS.md and docs/configuration.md before it ships",
+      "a new exported FLOW_*_OPTION badge must be documented in both .claude/rules/flow-bin-conventions.md and docs/configuration.md before it ships",
     ).toEqual([]);
   });
 

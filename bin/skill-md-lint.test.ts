@@ -44,6 +44,20 @@ const SKILL_MD_PATH = path.resolve(
   "SKILL.md",
 );
 const AGENTS_MD_PATH = path.resolve(HERE, "..", "AGENTS.md");
+const SUPERVISOR_RULES_PATH = path.resolve(
+  HERE,
+  "..",
+  ".claude",
+  "rules",
+  "flow-supervisor-contracts.md",
+);
+const BIN_RULES_PATH = path.resolve(
+  HERE,
+  "..",
+  ".claude",
+  "rules",
+  "flow-bin-conventions.md",
+);
 const EXEMPTION_CONTRACTS_PATH = path.resolve(
   HERE,
   "..",
@@ -337,6 +351,8 @@ const UI_VALIDATION_SCHEMA_PATH = path.resolve(
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
+const supervisorRulesContent = fs.readFileSync(SUPERVISOR_RULES_PATH, "utf8");
+const binRulesContent = fs.readFileSync(BIN_RULES_PATH, "utf8");
 const exemptionContractsContent = fs.readFileSync(
   EXEMPTION_CONTRACTS_PATH,
   "utf8",
@@ -971,7 +987,9 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
   function extractAgentsExemptions(): string[] {
     const re =
       /\*\*Task-tool exemption:\s*`\/flow-pipeline`\s*→\s*([^*]+?)\.\*\*/g;
-    return [...agentsContent.matchAll(re)].map((m) => normaliseExemption(m[1]));
+    return [...supervisorRulesContent.matchAll(re)].map((m) =>
+      normaliseExemption(m[1]),
+    );
   }
 
   /**
@@ -1205,14 +1223,14 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(true);
   });
 
-  it("AGENTS.md's 'Shared rationale for the N Task-tool exemptions' numeral matches the derived count", () => {
+  it(".claude/rules/flow-supervisor-contracts.md's 'Shared rationale for the N Task-tool exemptions' numeral matches the derived count", () => {
     const expectedCount = extractAgentsExemptions().length;
     const expectedNumeral = numberToEnglish(expectedCount);
     expect(
-      agentsContent.includes(
+      supervisorRulesContent.includes(
         `Shared rationale for the ${expectedNumeral} Task-tool exemptions`,
       ),
-      "AGENTS.md's '## Don'ts' must say " +
+      ".claude/rules/flow-supervisor-contracts.md's '## Don'ts' must say " +
         `'Shared rationale for the ${expectedNumeral} Task-tool exemptions' — ` +
         `derived from extractAgentsExemptions()'s ${expectedCount} bullets, ` +
         "not a hardcoded numeral. Guards the exact drift this PR fixed " +
@@ -1227,7 +1245,7 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       "Gatekeeper Subagent",
       "flow-verify-loop-instructions",
     ];
-    const roots = ["skills", "agents", "references"];
+    const roots = ["skills", "agents", "references", ".claude/rules"];
     const files: string[] = [path.resolve(HERE, "..", "AGENTS.md")];
     for (const root of roots) {
       const rootPath = path.resolve(HERE, "..", root);
@@ -1255,265 +1273,105 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
   });
 });
 
-describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warning)", () => {
+describe("always-loaded context budget (helper-measured)", () => {
   /**
-   * AGENTS.md grows ~10k chars/quarter as new Task-tool exemptions land,
-   * and once cleared Claude Code's 40k per-session performance warning with
-   * little headroom (PR #218). #219 added this guard so the budget is
-   * enforced on every PR via `npm run verify` rather than relying on a
-   * one-time PR-body checkbox. The budget stays below the 40_000
-   * warning threshold: it locks in the headroom won by offloading the nine
-   * exemption contract bodies to references/exemption-contracts.md (#220)
-   * instead of letting the file silently regrow back toward 40k. It was
-   * raised from 34_000 to fund one new first-class Output-style rule
-   * (**Treat every request as production-bound, not a hobby project.**),
-   * whose full bar is offloaded to templates/AGENTS.md.template so only the
-   * lean anchored summary lives here — a deliberate addition, not silent
-   * regrowth. New contracts still offload-then-trim (dedup an equivalent
-   * volume or move the body to a references/ file) rather than raise this
-   * budget again. Raised again from 36_000 to 38_000 to fund two deliberate
-   * additions: the `## Compact Instructions` compaction-steering section and
-   * the 9th Task-tool exemption opener (Verify-Retry-Loop Subagent), whose
-   * full body is offloaded to references/exemption-contracts.md per the
-   * offload-then-trim playbook so only the lean opener costs bytes here.
-   * Raised again from 38_000 to 39_000 to fund one more deliberate addition:
-   * the new `## Output style` principle **Understand the ultimate goal behind
-   * the request, not just the literal ask.**, whose full technique is offloaded
-   * to skills/pipeline/flow-product-planning/references/discovery-playbook.md so only
-   * the lean anchored summary costs bytes here — a deliberate addition, not
-   * silent regrowth. Raised once more from 39_000 to 39_700 to fund the
-   * `/flow-epic-run` separate-supervisor-session bullet (the epic-orchestrator
-   * judgment layer), whose full contract — the four hard invariants, the
-   * `epic.judgment` / `epic.maxRetries` config gate, the event-driven judgment
-   * surface — is offloaded to skills/pipeline/flow-epic-run/SKILL.md so only a lean
-   * pointer bullet (gated ⇒ escalate-only + never-merge inline) costs bytes
-   * here. Headroom to the 40k warning is now thin (~370 chars): the NEXT
-   * contract must offload-then-trim (dedup an equivalent volume), not raise
-   * this budget again. Raised once more from 39_700 to 39_950 to fund the lean
-   * one-line `agents/` static-agent-type-definition note (the `effort: low`
-   * pinning of the two mechanical fan-outs). Per the AGY cross-model plan
-   * review, a small documented raise was preferred over trimming load-bearing,
-   * lint-anchored AGENTS.md prose; the note was kept minimal and part-funded by
-   * non-destructive word-level tightening, and the file still sits 76 chars
-   * clear of the hard 40k warning (raising the budget PAST 40k was explicitly
-   * rejected — the guard exists to keep the file under it). The NEXT contract
-   * must offload-then-trim: there is no longer room to raise without crossing 40k.
-   * Dropped from 39_950 to 24_000 by the p5-context-diet pass (#431's
-   * follow-up): `## Output style`'s full rule bodies moved to
-   * references/output-style.md, `## Consumer-repo notes`' full surface area
-   * moved to references/consumer-repo-contract.md, and the session-marker /
-   * trailer + inline-intent-annotation mechanics plus several `## Don'ts`
-   * bullet bodies (Shared rationale, the one AskUserQuestion form, the
-   * auto-merge and auto-issue-create exemptions, the epic-create/epic-run
-   * detail) moved to references/git-workflow.md — each replaced in AGENTS.md
-   * by its anchored opener/binding-bar plus a relative link. Measured
-   * post-diet size is ~19_978 chars
-   * (`bin/flow-transcript-audit.ts --static AGENTS.md`); 24_000 keeps
-   * headroom for incremental additions without inviting the regrowth back
-   * toward 40k the offload-then-trim discipline exists to prevent.
-   * Raised once more from 24_000 to 24_300 to fund one deliberate
-   * addition: the `## Output style` rule **Explain problems
-   * impact-first in plain language.**, whose full rule body is
-   * offloaded to references/output-style.md and whose applied contract
-   * lives in
-   * skills/pipeline/flow-pipeline/references/pause-output-contract.md,
-   * so only the lean anchored one-line summary costs bytes here, per
-   * the offload-then-trim playbook. Pre-raise headroom was 128 chars
-   * against a ~226-char lean opener; trimming lint-anchored
-   * `## Output style` prose to make room was rejected on the same
-   * grounds as the 39_700 → 39_950 precedent above (a small documented
-   * raise over trimming load-bearing prose). The file remains far below
-   * Claude Code's 40k per-session warning.
-   * Raised once more from 24_300 to 24_600 to fund the `## Output style`
-   * rule **Emit instructions as scannable numbered steps.**, whose full
-   * rule body is offloaded to references/output-style.md and whose
-   * enforceable form lives in
-   * skills/pipeline/flow-pipeline/references/pause-output-contract.md
-   * `## Step contract`, so only the lean anchored one-line summary costs
-   * bytes here, per the offload-then-trim playbook. Pre-raise headroom
-   * was 61 chars against a ~225-char lean opener; trimming lint-anchored
-   * `## Output style` prose to make room was rejected on the same
-   * grounds as the two precedents above (a small documented raise over
-   * trimming load-bearing prose). The file remains far below Claude
-   * Code's 40k per-session warning.
-   * Raised once more from 24_600 to 24_700 to fund the
-   * `/flow-backlog-triage` separate-sanctioned-standalone-session bullet
-   * (one Task-tool fan-out for Phase-1 verification, zero
-   * `AskUserQuestion` forms), whose full contract is offloaded to
-   * `skills/universal/flow-backlog-triage/SKILL.md` so only the lean
-   * pointer bullet costs bytes here. Measured this bullet's chars via
-   * `wc -m AGENTS.md` (code units, NOT `wc -c` bytes — AGENTS.md carries
-   * non-ASCII em-dash/arrow glyphs that make the two counts diverge).
-   * Post-edit size is 24_591 chars against the prior 24_600 budget —
-   * technically still clears, but leaves only 9 chars of headroom, a
-   * red-build trap for the next editor; raised to the next round value
-   * instead of leaving that trap in place.
-   * Raised again from 24_700 to 24_900 after merging `main` in. The
-   * 24_700 figure was measured against this branch alone (24_591), but
-   * CI evaluates the PR merge-ref, where #559's own `## Don'ts`
-   * additions stack on top of this branch's pointer bullet for a
-   * combined 24_760. Neither branch overran the budget in isolation —
-   * the overrun is purely additive across two concurrently-open
-   * branches, which is exactly the case a local-only `wc -m` on one
-   * branch cannot see. Raised to the next round value (140 chars of
-   * headroom) rather than trimming either branch's lint-anchored prose,
-   * on the same grounds as the precedents above.
-   * Raised once more from 24_900 to 25_300 to fund the `## Output style`
-   * rule **Frame every explanation impact-first for a product-lens
-   * reader.**, whose full rule body (worked examples, exclusion list,
-   * per-stage focus table) is offloaded to references/output-style.md,
-   * so only the lean anchored one-line summary costs bytes here, per
-   * the offload-then-trim playbook. Pre-raise headroom was 22 chars
-   * (24_878 measured in code units via String.prototype.length, not
-   * `wc -c` bytes) against a ~247-char lean opener; post-edit size is
-   * 25_125. 25_200 was rejected — 75 chars of headroom is closer to the
-   * 9-char red-build trap called out two raises above than to the
-   * 136–202-char headroom the three most recent deliberate raises landed
-   * with (202, 136, 140) — so the budget
-   * goes to 25_300 (175 chars of headroom) instead, and trimming
-   * lint-anchored `## Output style` prose to make room was rejected on
-   * the same grounds as the precedents above.
-   * Raised once more from 25_300 to 25_900 to fund two deliberate
-   * additions for the intent interview (adaptive) feature: a
-   * `## Compact Instructions` KEEP bullet for `state.interview`, and a
-   * `## Don'ts` bullet naming the two interview pending phases as
-   * ordinary chat pauses, NOT `AskUserQuestion` (no new exemption). Both
-   * bullets were already tightened to lean anchored openers with the
-   * full round contract offloaded to
-   * skills/pipeline/flow-pipeline/references/interview-playbook.md, per
-   * the offload-then-trim playbook; post-edit size is 25_749, so 25_900
-   * (151 chars of headroom) matches the 136-202-char range the recent
-   * precedents above landed with, rather than the tighter traps rejected
-   * earlier in this history.
-   * Raised once more from 25_900 to 26_000 to fund extending the
-   * `## Don'ts` Bash-fan-out bullet to also name the Step-3 blind method
-   * survey (`flow-blind-survey`) as a `flow-delegate`/`flow-delegate-
-   * fanout` Bash fan-out, not a tenth exemption — the exact delta was
-   * measured at +56 chars (pre-edit 25_892, post-edit 25_948, both via
-   * String.prototype.length, not `wc -c` bytes); the budget goes to
-   * exactly that delta plus 44 chars of headroom (25_900 + 56 + 44 =
-   * 26_000) rather than the bare delta, matching the "don't land at a
-   * single-digit-headroom trap" discipline of every raise above.
-   * Raised once more from 26_000 to 26_300 to narrow the `claude -p`
-   * prohibition to the sanctioned `flow-claude-headless` Bash fan-out:
-   * the `## Supervisor and sub-skills` paragraph now says "never invokes
-   * raw `claude -p` subprocesses (headless Claude only via
-   * `flow-claude-headless`)" and names the helper's contract instead of
-   * the old standalone-leaf-skill sentence, and the `## Don'ts`
-   * Bash-fan-out bullet gained a trailing sentence naming
-   * `flow-claude-headless` alongside the Gemini lens / plan review /
-   * blind survey. Measured via String.prototype.length (not `wc -c`
-   * bytes): pre-edit 25_979, post-edit 26_102 — a +123-char delta. The
-   * budget goes to 26_300 (198 chars of headroom), not the bare
-   * post-edit value, matching the "don't land at a single-digit-headroom
-   * trap" discipline of every raise above.
-   * Raised once more from 26_300 to 26_500 to fund the `@flow-kind`
-   * publish-breadth + `flow ls` KIND-column facts: the `## Don'ts`
-   * pane-state bullet now says the six `@flow-*` mirrors publish "on every
-   * flow window" (they previously read epic-only by omission) and closes
-   * with "`flow ls`'s KIND column reads `PipelineState.kind`, never
-   * `@flow-kind`" — the foreclosed shortcut a future agent is most likely
-   * to take on this surface. Measured via String.prototype.length (not
-   * `wc -c` bytes): pre-edit 26_285, post-edit 26_380 — a +95-char delta,
-   * already the deduped form (the first draft was +151 before folding the
-   * publish-breadth fact into the existing mirrors sentence rather than
-   * appending a second one). The budget goes to 26_500 (120 chars of
-   * headroom), not the bare post-edit value, matching the "don't land at a
-   * single-digit-headroom trap" discipline of every raise above — the
-   * 26_300 budget had only 15 chars of headroom left on `main`, so a
-   * dedup-only path would have had to cut unrelated contract prose.
-   * Raised once more from 26_300 to 26_650 to document the optional
-   * `.flow/test-tiers.json` test-tier manifest at all three `AGENTS.md`
-   * anchors (the `## Where to look` table, the `flow-test-audit` helper
-   * name, and the `## Consumer-repo notes` paragraph). Measured via
-   * String.prototype.length (not `wc -c` bytes): pre-edit 26_285,
-   * post-edit 26_438 — a +153-char delta, additive-only per the
-   * edit-set's contract (no existing prose was reworded or reordered,
-   * so dedup-first wasn't available here). The budget goes to 26_650
-   * (212 chars of headroom), not the bare post-edit value, matching the
-   * "don't land at a single-digit-headroom trap" discipline of every
-   * raise above.
-   * Merge note: the two raises immediately above were authored
-   * independently off the same 26_285 base and collided in the merge of
-   * `origin/main` into this branch. Both prose additions survive, so the
-   * merged `AGENTS.md` measures 26_555 chars (String.prototype.length) —
-   * larger than either side's own post-edit measurement. The higher of the
-   * two budgets (26_650) is kept rather than summing the deltas: it already
-   * clears the merged size with 95 chars of headroom, so no further raise
-   * was warranted. The 26_500 side would have failed at merge time.
-   * Raised once more from 26_650 to 26_900 to fund one new `## Output
-   * style` bullet — **Route every emitted path/PR/issue URL through
-   * `bin/lib/link.ts` or a raw-target-labelled markdown link.** — the
-   * lean binding-rule opener for the clickable-output feature, whose
-   * full rationale (the label-equals-raw-target invariant, terminal vs
-   * markdown mode, the never-linkify list, the tmux prerequisite) is
-   * offloaded to references/output-style.md per the offload-then-trim
-   * playbook. Measured via String.prototype.length (not `wc -c` bytes):
-   * pre-edit 26_555, post-edit 26_700 — a +145-char delta. Trimming
-   * existing lint-anchored `## Output style` prose to make room was
-   * rejected on the same grounds as every precedent above (a small
-   * documented raise over trimming load-bearing prose); the budget goes
-   * to 26_900 (200 chars of headroom), not the bare post-edit value,
-   * matching the "don't land at a single-digit-headroom trap" discipline
-   * of every raise above.
-   * Trimmed from 26_650 to 25_600 by f2-scaffold-stress-test: removing the
-   * verify-loop and gatekeeper exemption bullets shrank `AGENTS.md` to
-   * 25_449 chars (String.prototype.length). The budget is trimmed toward
-   * the new size (151 chars of headroom) rather than left as silent
-   * headroom, per the plan's offload-then-trim rule — the first downward
-   * move in this ledger.
-   * Merge note (clickable-targets branch x f2-scaffold-stress-test): the
-   * raise to 26_900 and the trim to 25_600 were authored independently off
-   * the same 26_555 base and collided here. Both prose edits survive, so the
-   * merged `AGENTS.md` measures 25_682 chars (String.prototype.length) —
-   * above `main`'s 25_600 and far below this branch's 26_900. Neither side's
-   * number is kept: 26_900 would leave 1_218 chars of silent headroom and
-   * discard `main`'s deliberate downward trim, and 25_600 fails outright at
-   * merge time. The budget lands at 25_850 (168 chars of headroom),
-   * honouring the offload-then-trim discipline `main` introduced while
-   * clearing the merged size.
-   * Raised from 26_650 to 26_950 to document the helper-emitted telemetry
-   * contract (`bin/lib/telemetry.ts` / `~/.flow/telemetry/events.jsonl`) —
-   * the derive-don't-emit rule a future helper author needs before adding
-   * an emission site, and the reason no agent-prose emission surface
-   * exists. Dedup-first WAS applied twice before this raise: the addition
-   * was drafted at +568 chars and cut to +220 by moving the event
-   * vocabulary and the worked `jq` filters to `docs/configuration.md` and
-   * keeping only the rule plus a pointer, then a further -56 by trimming
-   * the illustrative (unpinned, `etc.`-terminated) helper-name list in
-   * `## Scripts` from eight examples to five. Measured via
-   * String.prototype.length (not `wc -c` bytes): pre-edit 26_650 budget
-   * against a 26_594 base, post-edit 26_814 — a +220 net delta after both
-   * dedups. The budget goes to 26_950 (136 chars of headroom), not the
-   * bare post-edit value, matching the "don't land at a single-digit-
-   * headroom trap" discipline of every raise above.
-   * Merge note (telemetry branch x clickable-targets/f2-trim): the raise
-   * to 26_950 immediately above and `main`'s 25_850 were authored
-   * independently off the same 26_643 base and collided in the merge of
-   * `origin/main` into this branch. Both prose additions survive, so the
-   * merged `AGENTS.md` measures 25_853 chars (String.prototype.length,
-   * not `wc -c` bytes) — `main`'s 25_682 plus this branch's +171
-   * telemetry-contract delta. Neither side's number is kept, and the
-   * deltas are not summed: 26_950 would leave 1_097 chars of silent
-   * headroom and discard `main`'s deliberate downward trim, while 25_850
-   * fails outright at merge time by 3 chars. The budget lands at 26_000
-   * (147 chars of headroom), honouring the offload-then-trim discipline
-   * `main` introduced while clearing the merged size, and matching the
-   * 136-202-char headroom range every deliberate raise above landed with
-   * rather than the single-digit-headroom traps rejected earlier in this
-   * history.
+   * Replaces the old hand-maintained `AGENTS.md char-count budget` ledger
+   * (19 commits of raise-the-constant history) with a helper-measured
+   * budget over the ACTUAL always-loaded set: CLAUDE.md + its resolved
+   * @import chain + any `.claude/rules/*.md` lacking a `paths:` key. A
+   * budget that only measured AGENTS.md's own length could be dodged by
+   * moving prose into a second unscoped import; summing the helper's eager
+   * set closes that gap. ALWAYS_LOADED_BUDGET is set to the smallest
+   * multiple of 500 at or above the measured eager-chars figure once every
+   * pinned anchor (Output-style openers, Compact Instructions, the
+   * Task-tool exemption pointer, the seven-exemption count) is kept —
+   * measured via `bun bin/flow-context-budget.ts --json` at the
+   * p6-context-budget diet (2026-09-09), post-diet eager set is
+   * CLAUDE.md + AGENTS.md only. On a future trim, lower this constant
+   * rather than letting silent headroom regrow; on a future addition that
+   * cannot fit, offload the addition to a `.claude/rules/*.md` file with a
+   * `paths:` key (lazy-loaded) before raising this budget.
    */
-  it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 26_000;
+  const ALWAYS_LOADED_BUDGET = 10_000;
+  const HEADROOM_CAP = 1_500;
+  const CORE_LINE_LIMIT = 200;
+
+  it("the eager always-loaded set stays within budget", async () => {
+    const { resolveAlwaysLoaded } = await import("./flow-context-budget");
+    const repoRoot = path.resolve(HERE, "..");
+    const { alwaysLoaded } = await resolveAlwaysLoaded(repoRoot);
+    const eagerChars = alwaysLoaded.totals.chars;
     expect(
-      agentsContent.length,
-      `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
-        `To add a new contract, dedup an equivalent volume first or offload it ` +
-        `to a references/ file (see references/exemption-contracts.md for the ` +
-        `offload-then-trim playbook landed in #220) rather than raising this ` +
-        `budget — the budget keeps AGENTS.md clear of Claude Code's 40k ` +
-        `per-session performance warning.`,
-    ).toBeLessThan(CHAR_BUDGET);
+      eagerChars,
+      `The always-loaded set (CLAUDE.md + @imports + unscoped .claude/rules) is ` +
+        `${eagerChars} chars; budget is ${ALWAYS_LOADED_BUDGET}. Offload the ` +
+        `addition to a \`paths:\`-scoped file under .claude/rules/ (see ` +
+        `.claude/rules/flow-supervisor-contracts.md for the pattern) rather ` +
+        `than raising this budget.`,
+    ).toBeLessThanOrEqual(ALWAYS_LOADED_BUDGET);
+    expect(
+      ALWAYS_LOADED_BUDGET - eagerChars,
+      `The budget has ${ALWAYS_LOADED_BUDGET - eagerChars} chars of headroom ` +
+        `over the measured eager set, above the ${HEADROOM_CAP}-char cap — on ` +
+        `a trim, lower ALWAYS_LOADED_BUDGET to match rather than leaving ` +
+        `silent headroom.`,
+    ).toBeLessThanOrEqual(HEADROOM_CAP);
+    const eagerBasenames = alwaysLoaded.files
+      .map((f) => path.basename(f.path))
+      .sort();
+    expect(
+      eagerBasenames,
+      `The eager set must be exactly CLAUDE.md + AGENTS.md — found: ${JSON.stringify(eagerBasenames)}. ` +
+        `A third eager file (or a .claude/rules/*.md missing its \`paths:\` key) ` +
+        `means a rule file is loading unconditionally; give it a \`paths:\` key.`,
+    ).toEqual(["AGENTS.md", "CLAUDE.md"]);
+  });
+
+  it("AGENTS.md stays at or under the 200-line core-file limit", () => {
+    const lineCount = agentsContent.split("\n").length;
+    expect(
+      lineCount,
+      `AGENTS.md is ${lineCount} lines; the always-loaded core must stay <= ` +
+        `${CORE_LINE_LIMIT} lines. Offload surface-specific detail to ` +
+        `.claude/rules/ instead of growing the core.`,
+    ).toBeLessThanOrEqual(CORE_LINE_LIMIT);
+  });
+
+  it("AGENTS.md carries zero Task-tool exemption openers (moved to .claude/rules/flow-supervisor-contracts.md)", () => {
+    expect(
+      agentsContent.includes("Task-tool exemption:"),
+      "AGENTS.md must not carry any 'Task-tool exemption:' opener — the full " +
+        "catalogue lives in .claude/rules/flow-supervisor-contracts.md, loaded " +
+        "only when an agent touches skills/, agents/, references/, or templates/.",
+    ).toBe(false);
+  });
+
+  it(".claude/rules/flow-supervisor-contracts.md carries all seven Task-tool exemption openers (bidirectional with the core-file pin above)", () => {
+    const count = (
+      supervisorRulesContent.match(/Task-tool exemption: `\/flow-pipeline`/g) ??
+      []
+    ).length;
+    expect(
+      count,
+      `.claude/rules/flow-supervisor-contracts.md must carry exactly 7 ` +
+        `'Task-tool exemption: \`/flow-pipeline\`' openers; found ${count}.`,
+    ).toBe(7);
+  });
+
+  it("both rule files carry a paths: frontmatter key (lazy-loaded, not eager)", async () => {
+    const { hasPathsFrontmatter } = await import("./flow-context-budget");
+    expect(
+      hasPathsFrontmatter(supervisorRulesContent),
+      ".claude/rules/flow-supervisor-contracts.md must carry a `paths:` " +
+        "frontmatter key — without it, the file loads unconditionally and " +
+        "defeats the always-loaded-budget diet.",
+    ).toBe(true);
+    expect(
+      hasPathsFrontmatter(binRulesContent),
+      ".claude/rules/flow-bin-conventions.md must carry a `paths:` " +
+        "frontmatter key — without it, the file loads unconditionally and " +
+        "defeats the always-loaded-budget diet.",
+    ).toBe(true);
   });
 });
 
@@ -1576,7 +1434,13 @@ describe("auto-issue-create fire-site enumeration lint", () => {
   }
 
   const PASSAGES: ReadonlyArray<readonly [string, string]> = [
-    ["AGENTS.md", enumerationPassage(agentsContent, "AGENTS.md")],
+    [
+      ".claude/rules/flow-supervisor-contracts.md",
+      enumerationPassage(
+        supervisorRulesContent,
+        ".claude/rules/flow-supervisor-contracts.md",
+      ),
+    ],
     [
       "references/git-workflow.md",
       enumerationPassage(gitWorkflowContent, "references/git-workflow.md"),
@@ -2680,9 +2544,9 @@ describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
   function sliceAgentsCoderSection(): string {
     const startMarker =
       "**Task-tool exemption: `/flow-pipeline` → `/flow-coder` Independent";
-    const startIdx = agentsContent.indexOf(startMarker);
+    const startIdx = supervisorRulesContent.indexOf(startMarker);
     if (startIdx === -1) return "";
-    const rest = agentsContent.slice(startIdx + startMarker.length);
+    const rest = supervisorRulesContent.slice(startIdx + startMarker.length);
     const nextMarkerIdx = rest.indexOf("**Task-tool exemption");
     return nextMarkerIdx === -1 ? rest : rest.slice(0, nextMarkerIdx);
   }
@@ -2943,11 +2807,11 @@ describe("cross-model plan review doc symmetry (AGENTS.md ↔ flow-pipeline/SKIL
 
   it("AGENTS.md names the cross-model plan review Bash-fan-out sibling note", () => {
     expect(
-      agentsContent.includes(PLAN_REVIEW_PHRASE),
+      supervisorRulesContent.includes(PLAN_REVIEW_PHRASE),
       `AGENTS.md ## Don'ts must name the '${PLAN_REVIEW_PHRASE}' Layer-2 lens.`,
     ).toBe(true);
     expect(
-      agentsContent.includes(FANOUT_PHRASE),
+      supervisorRulesContent.includes(FANOUT_PHRASE),
       `AGENTS.md must carry the shared '${FANOUT_PHRASE}' phrase for the plan-review note.`,
     ).toBe(true);
   });
@@ -2986,11 +2850,11 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
 
   it("AGENTS.md co-anchors the blind method survey phrase with the Bash-fan-out sibling note in the same Don'ts bullet", () => {
     expect(
-      coAnchorRe.test(agentsContent),
+      coAnchorRe.test(supervisorRulesContent),
       "AGENTS.md must carry both phrases in the same Don'ts bullet.",
     ).toBe(true);
     expect(
-      agentsContent.includes(
+      supervisorRulesContent.includes(
         "`flow-delegate`/`flow-plan-review`/`flow-blind-survey` calls",
       ),
     ).toBe(true);
@@ -3070,11 +2934,11 @@ describe("cross-model design review doc symmetry (AGENTS.md ↔ flow-epic-create
 
   it("AGENTS.md names the cross-model design review Bash-fan-out sibling note", () => {
     expect(
-      agentsContent.includes(DESIGN_REVIEW_PHRASE),
+      supervisorRulesContent.includes(DESIGN_REVIEW_PHRASE),
       `AGENTS.md ## Don'ts must name the '${DESIGN_REVIEW_PHRASE}' /flow-epic-create gate.`,
     ).toBe(true);
     expect(
-      agentsContent.includes(FANOUT_PHRASE),
+      supervisorRulesContent.includes(FANOUT_PHRASE),
       `AGENTS.md must carry the shared '${FANOUT_PHRASE}' phrase for the /flow-epic-create design-review note.`,
     ).toBe(true);
   });
@@ -3452,10 +3316,10 @@ describe("Edit-Applier artifact JSON schema drift (flow-coder/SKILL.md ↔ flow-
     ).toBe(true);
   });
 
-  it("AGENTS.md cross-references flow-coder/SKILL.md", () => {
+  it(".claude/rules/flow-supervisor-contracts.md cross-references flow-coder/SKILL.md", () => {
     expect(
-      agentsContent.includes("skills/pipeline/flow-coder/SKILL.md"),
-      "AGENTS.md must reference 'skills/pipeline/flow-coder/SKILL.md' inside the fifth Task-tool " +
+      supervisorRulesContent.includes("skills/pipeline/flow-coder/SKILL.md"),
+      ".claude/rules/flow-supervisor-contracts.md must reference 'skills/pipeline/flow-coder/SKILL.md' inside the fifth Task-tool " +
         "exemption block so the bidirectional contract holds.",
     ).toBe(true);
   });
@@ -5584,7 +5448,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
 
   // AGENTS.md bullets are wrapped prose — collapse whitespace so a phrase
   // that spans a line break still matches.
-  const agentsNorm = agentsContent.replace(/\s+/g, " ");
+  const agentsNorm = supervisorRulesContent.replace(/\s+/g, " ");
 
   it("flow-pipeline SKILL.md step 9 states a gated verdict is terminal, not advisory", () => {
     expect(
@@ -6703,7 +6567,7 @@ describe("/flow-coder interactive-redirect caller anchor", () => {
   it.each([
     ["flow-pipeline/SKILL.md", content],
     ["flow-pipeline/references/redirect-handling.md", redirectHandlingContent],
-    ["AGENTS.md", agentsContent],
+    [".claude/rules/flow-supervisor-contracts.md", supervisorRulesContent],
     ["flow-coder/SKILL.md", coderContent],
     ["references/exemption-contracts.md", exemptionContractsContent],
   ])(
@@ -7756,15 +7620,17 @@ describe("/flow-epic-run playbook SKILL.md literal anchors", () => {
       "flow-epic-run/SKILL.md must state it fires NO AskUserQuestion form.",
     ).toBe(true);
     expect(
-      agentsContent.includes("/flow-epic-run") &&
+      supervisorRulesContent.includes("/flow-epic-run") &&
         /flow-epic-run[\s\S]{0,600}?(no|zero)[\s\S]{0,80}?Task/i.test(
-          agentsContent,
+          supervisorRulesContent,
         ),
       "AGENTS.md's /flow-epic-run bullet must state the playbook session spawns no " +
         "Task fan-out (bidirectional with flow-epic-run/SKILL.md).",
     ).toBe(true);
     expect(
-      /flow-epic-run[\s\S]{0,600}?AskUserQuestion/i.test(agentsContent),
+      /flow-epic-run[\s\S]{0,600}?AskUserQuestion/i.test(
+        supervisorRulesContent,
+      ),
       "AGENTS.md's /flow-epic-run bullet must state it fires no AskUserQuestion form.",
     ).toBe(true);
   });
@@ -7819,11 +7685,11 @@ describe("epic-metadata auto-commit/auto-push exemption doc wiring (Task 6)", ()
 
   it("AGENTS.md names both the auto-commit and auto-push epic-sync exemptions", () => {
     expect(
-      agentsContent.includes("Auto-commit exemption"),
+      supervisorRulesContent.includes("Auto-commit exemption"),
       "AGENTS.md ## Don'ts must name the 'Auto-commit exemption' for flow-epic-sync --commit.",
     ).toBe(true);
     expect(
-      agentsContent.includes("flow-epic-sync --push"),
+      supervisorRulesContent.includes("flow-epic-sync --push"),
       "AGENTS.md ## Don'ts must name 'flow-epic-sync --push' as the auto-push exemption.",
     ).toBe(true);
   });
@@ -8164,6 +8030,17 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
       "AGENTS.md must NOT reference the retired 'AskUserQuestion exemption: " +
         "`/flow-pipeline` candidate-issues' bullet — full retirement (option " +
         "(e)) means only the gate-override form remains authorised.",
+    ).toBe(false);
+  });
+
+  it("the candidate-issues AskUserQuestion exemption is gone from .claude/rules/flow-supervisor-contracts.md", () => {
+    expect(
+      supervisorRulesContent.includes(
+        "AskUserQuestion exemption: `/flow-pipeline` candidate-issues",
+      ),
+      ".claude/rules/flow-supervisor-contracts.md must NOT reference the retired " +
+        "'AskUserQuestion exemption: `/flow-pipeline` candidate-issues' bullet — " +
+        "full retirement (option (e)) means only the gate-override form remains authorised.",
     ).toBe(false);
   });
 
@@ -8650,7 +8527,6 @@ describe("prompt-intent-sanity-check structural anchors", () => {
 
 describe("N-port sentinel doc wiring (AGENTS.md ↔ UI references ↔ SKILL.md resource cleanup)", () => {
   const REPO_ROOT = path.resolve(HERE, "..");
-  const AGENTS_MD_PATH = path.join(REPO_ROOT, "AGENTS.md");
   const UI_SMOKE_PASS_PATH = path.join(
     REPO_ROOT,
     "skills",
@@ -8670,9 +8546,8 @@ describe("N-port sentinel doc wiring (AGENTS.md ↔ UI references ↔ SKILL.md r
   const INLINE_ONLY_RULE =
     "**Port and URL overrides are passed INLINE to the launch subprocess (env vars / CLI flags) and are NEVER written to `.env.local`, `.env`, or any other file.**";
 
-  it("AGENTS.md carries the 'Don't write test-time port or URL overrides to a file.' bullet", () => {
-    const content = fs.readFileSync(AGENTS_MD_PATH, "utf8");
-    expect(content).toContain(
+  it(".claude/rules/flow-bin-conventions.md carries the 'Don't write test-time port or URL overrides to a file.' bullet", () => {
+    expect(binRulesContent).toContain(
       "Don't write test-time port or URL overrides to a file.",
     );
   });

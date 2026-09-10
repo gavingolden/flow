@@ -123,7 +123,7 @@ prose, procedure, and prompt template live in
 [flow-consolidator-instructions](../flow-consolidator-instructions/SKILL.md).
 
 The fan-out is the **seventh** named Task-tool exemption; the bidirectional
-contract lives in `AGENTS.md` `## Don'ts` and
+contract lives in `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` and
 `skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" exemption #7.
 Context isolation is primary: the per-agent JSON reads, the
 second-opinion validation prose, and the dedup reasoning all stay
@@ -463,7 +463,7 @@ than any single reviewer could.
 
 Spawned via the Task tool — six review agents in parallel, then merge.
 The bidirectional contract for this exemption (named, scoped,
-rationale'd) lives in `AGENTS.md` under the `## Don'ts` section. The
+rationale'd) lives in `.claude/rules/flow-supervisor-contracts.md` under the `## Don'ts` section. The
 fan-out exists for context isolation: each agent's per-file reads,
 checklist enumeration, and per-finding rationale stay inside its own
 subagent rather than landing in the supervisor's transcript.
@@ -895,7 +895,7 @@ subagent self-marks the current PR's row and sweeps drifted prior-PR rows in
 every epic manifest against the PR's diff with `flow-epic-dag --touched-files`
 (plus `flow-epic-dag --validate` for any manifest the diff touches) — bundling
 either edit into the same fix commit as Steps 6/7. Full contract:
-`../flow-fix-applier-instructions/SKILL.md` step 5; `AGENTS.md`'s `Auto-push exemption: pr-review` clause covers the commit + push.
+`../flow-fix-applier-instructions/SKILL.md` step 5; `.claude/rules/flow-supervisor-contracts.md`'s `Auto-push exemption: pr-review` clause covers the commit + push.
 
 ## 8. Spawn Fix-Applier Subagent and Run Verification Items
 
@@ -1502,7 +1502,7 @@ on the fail subtype:
 
   For each automatable item: write the test, run it (`npm test` / `RUN_INTEGRATION=1
   npm test` as appropriate), commit and push (covered by the `Auto-push exemption:
-  pr-review` clause in AGENTS.md), then prune the converted bullet by writing the
+  pr-review` clause in `.claude/rules/flow-supervisor-contracts.md`), then prune the converted bullet by writing the
   updated body to `.flow-tmp/body.md` — Step 13's `flow-review-finalize` call pushes it.
   Leave only items that genuinely require human judgment (the rubric's "Genuinely
   manual" list). The user redirects via reply after the fact (e.g. "this one should

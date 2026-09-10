@@ -674,6 +674,19 @@ fully off npm is a deliberate change, not something to do incidentally.
   request is framed as a binary choice.** above — this one governs *altitude*: up
   from the proposed solution to the goal it serves.
 
+## Context budget
+
+Keep this file (plus its CLAUDE.md import chain) as the lean, always-loaded
+core: a routing table pointing at deeper docs, not the deeper docs
+themselves. Surface-specific detail (conventions that only matter when
+touching one directory) belongs in a path-scoped rule file under
+`.claude/rules/*.md`, given a `paths: [...]` frontmatter glob so it loads
+only when an agent touches a matching path — never duplicated in this
+always-loaded file. Target ≤200 lines for this core file. Measure the
+actual eager set (this file's chars plus its resolved `@import`s plus any
+`.claude/rules/*.md` lacking a `paths:` key) before tuning a budget on it;
+don't guess from this file's own line count alone.
+
 ## Compact Instructions
 
 Claude Code reads a "Compact Instructions" section from `CLAUDE.md` / `AGENTS.md`
