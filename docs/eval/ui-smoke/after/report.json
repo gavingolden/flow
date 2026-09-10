@@ -1,0 +1,358 @@
+{
+  "schemaVersion": 1,
+  "runner": {
+    "name": "flow-eval-headless",
+    "claudeVersion": "2.1.267",
+    "childArgvDigest": "4a204d4c621d54ce"
+  },
+  "tree": {
+    "gitHead": "d7a97cbece122716dbc01194f8fe3979aa4c5dea",
+    "dirty": false
+  },
+  "suite": "ui-smoke-isolation",
+  "candidate": "ui-smoke-driver-isolation",
+  "startedAt": "2026-09-10T03:51:24.556Z",
+  "finishedAt": "2026-09-10T04:06:12.249Z",
+  "scenarios": [
+    {
+      "id": "s1-static-header-diff",
+      "title": "Step 6 UI-smoke pass detects and validates a planted header/#nav UI diff",
+      "status": "fail",
+      "score": 0.8333333333333334,
+      "runs": [
+        {
+          "run": 1,
+          "status": "fail",
+          "score": 0.8333333333333334,
+          "grades": [
+            {
+              "id": "mcp-drive-happened",
+              "kind": "metric",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "drive-not-inline",
+              "kind": "metric",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "captures-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "verify-status-pass",
+              "kind": "structured",
+              "gate": true,
+              "pass": false,
+              "expected": "pass",
+              "actual": "exhausted"
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "supervisor-mcp-calls",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 157643,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.8896840000000004,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 26,
+              "direction": "lower"
+            },
+            "supervisor-mcp-calls": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "6946502d-dc6f-4871-9fc6-9c748a62b006",
+          "costUsd": 1.8896840000000004,
+          "durationMs": 477319,
+          "numTurns": 26,
+          "childArgvDigest": "e9bb9919e634ff8b"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "mcp-drive-happened",
+              "kind": "metric",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "drive-not-inline",
+              "kind": "metric",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "captures-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "verify-status-pass",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "supervisor-mcp-calls",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 149036,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.5858401999999996,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 20,
+              "direction": "lower"
+            },
+            "supervisor-mcp-calls": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "a01ccb02-ae8e-4834-8de0-e156a9bfd58f",
+          "costUsd": 1.5858401999999996,
+          "durationMs": 346340,
+          "numTurns": 20,
+          "childArgvDigest": "e9bb9919e634ff8b"
+        },
+        {
+          "run": 3,
+          "status": "fail",
+          "score": 0.6666666666666666,
+          "grades": [
+            {
+              "id": "mcp-drive-happened",
+              "kind": "metric",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "drive-not-inline",
+              "kind": "metric",
+              "gate": true,
+              "pass": false,
+              "expected": {
+                "max": 0
+              },
+              "actual": 4
+            },
+            {
+              "id": "captures-written",
+              "kind": "file",
+              "gate": true,
+              "pass": false,
+              "expected": true,
+              "actual": false
+            },
+            {
+              "id": "verify-status-pass",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "supervisor-mcp-calls",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 130269,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7662696000000002,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 18,
+              "direction": "lower"
+            },
+            "supervisor-mcp-calls": {
+              "value": 4,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "13cf12d3-1782-454f-9b7f-2c7788ae8627",
+          "costUsd": 0.7662696000000002,
+          "durationMs": 60010,
+          "numTurns": 18,
+          "childArgvDigest": "e9bb9919e634ff8b"
+        }
+      ],
+      "metrics": {
+        "transcript.finalContextTokens": {
+          "median": 149036,
+          "min": 130269,
+          "max": 157643,
+          "direction": "lower",
+          "values": [
+            157643,
+            149036,
+            130269
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 1.5858401999999996,
+          "min": 0.7662696000000002,
+          "max": 1.8896840000000004,
+          "direction": "lower",
+          "values": [
+            1.8896840000000004,
+            1.5858401999999996,
+            0.7662696000000002
+          ]
+        },
+        "result.num_turns": {
+          "median": 20,
+          "min": 18,
+          "max": 26,
+          "direction": "lower",
+          "values": [
+            26,
+            20,
+            18
+          ]
+        },
+        "supervisor-mcp-calls": {
+          "median": 0,
+          "min": 0,
+          "max": 4,
+          "direction": "lower",
+          "values": [
+            0,
+            0,
+            4
+          ]
+        }
+      }
+    }
+  ],
+  "summary": {
+    "score": 0.8333333333333334,
+    "scenarios": 1,
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "costUsd": 4.2417938
+  }
+}
